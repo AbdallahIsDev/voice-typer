@@ -4,7 +4,7 @@
 // augmentation that exposes `window.python` / `window.window_` /
 // `window.bubble` to renderer code.
 //
-// Split out from the original monolithic `types/ipc.ts` (DT-31 / DT-FIX-7).
+//Split out from the original monolithic `types/ipc.ts` ( / ).
 // No behaviour change vs. the original file — pure structural refactor.
 //
 // TypeScript merges `declare global { interface Window { ... } }` blocks
@@ -74,7 +74,7 @@ import type { PythonBridge, WindowBridge } from "./bridge";
  */
 export interface MainRendererBubbleMutators {
 	signalReady?: () => void;
-	// DT-52: narrow the shared TS type from `string` to the
+	//narrow the shared TS type from `string` to the
 	// `"top" | "bottom"` literal union so the type system catches a
 	// typo'd `setPosition("left")` at compile time across the
 	// renderer + Tauri bridge (the Electron preload
@@ -82,7 +82,7 @@ export interface MainRendererBubbleMutators {
 	// type now matches). The Rust `bubble_set_position` command keeps
 	// `String` at the boundary (defense-in-depth — it validates the
 	// value at runtime before any window move).
-	// UE-19-F06: the parameter name is `position` (matching the
+	//the parameter name is `position` (matching the
 	// Tauri bridge implementation in `bubble-namespace.ts` and the
 	// Rust command's `position: String` arg). The prior `pos` name
 	// drifted from the impl, which made positional-call mistakes
@@ -140,13 +140,13 @@ export interface BubbleEventSubscriptions {
  *   invoke it.
  */
 export interface BubbleWindowExtras {
-	// UX-10: mic-button toggle. Present on the bubble-window preload;
+	//mic-button toggle. Present on the bubble-window preload;
 	// the sandboxed bubble routes through a dedicated IPC channel
 	// rather than python.call.
 	toggleDictation: () => void;
-	// UX-10: receive bubble-relevant config pushed from the backend.
+	//receive bubble-relevant config pushed from the backend.
 	onConfig: (cb: (cfg: Record<string, unknown>) => void) => () => void;
-	// CR-33: bubble renderer listens for `bubble:set-state` events
+	//bubble renderer listens for `bubble:set-state` events
 	// pushed by the Rust WS reader task (see sidecar/ws.rs
 	// `translate_event_name`).
 	onSetState: (cb: (state: string) => void) => () => void;
@@ -158,7 +158,7 @@ export interface BubbleWindowExtras {
 	// renderer's exit-animation handler should invoke this — the
 	// main renderer has no equivalent lifecycle.
 	hideComplete: () => void;
-	// BG-96 / UE-14: dismiss the bubble from its own '×' button
+	//dismiss the bubble from its own '×' button
 	// (always_visible mode only — the dismiss button is hidden in
 	// show_on_record mode). The bubble preload's `dismiss()` method
 	// sends the `bubble:dismiss` IPC; the main-process handler (in
@@ -168,7 +168,7 @@ export interface BubbleWindowExtras {
 	// then hides the window unconditionally; gated by
 	// `require_bubble_window` (SEC-016).
 	//
-	// Non-optional (UE-14): the Tauri bridge now implements
+	//Non-optional (): the Tauri bridge now implements
 	// `dismiss` via `invoke("bubble_dismiss")` in
 	// `bubble-namespace.ts`, and the Electron preload has always
 	// exposed it. The prior optional-typing (`dismiss?: () => void`)

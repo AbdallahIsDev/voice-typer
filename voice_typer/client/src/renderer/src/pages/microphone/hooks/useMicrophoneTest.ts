@@ -1,4 +1,4 @@
-// Test-recording lifecycle hook for the Microphone page (DR-11 split).
+//Test-recording lifecycle hook for the Microphone page ( split).
 //
 // Formerly a 625-LOC monolith; now a thin composition root over three
 // focused hooks (``useMicrophoneLevelMonitor`` /
@@ -8,7 +8,7 @@
 // cross-hook ``testRunningRef`` (synced by the session hook, read by
 // the level monitor). Public return shape unchanged.
 //
-// DR-9 (1-C Finding 8): the internal ``stopTestRef`` /
+//(1-C Finding 8): the internal ``stopTestRef`` /
 // ``selectMicrophoneRef`` indirection is removed now that all five
 // callbacks are ``useCallback``-stable in their respective sub-hooks.
 

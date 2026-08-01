@@ -58,7 +58,7 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 		// status stays "connected" while the sidecar is dead, and the
 		// user sees a frozen UI with no feedback.
 		//
-		// XZ-R16-02: when `supervisor_relaunching` carries
+		//when `supervisor_relaunching` carries
 		// `reason: "backoff_exhausted"` (emitted by `supervisor.rs:495`
 		// right before the full-app `app.restart()`), synthesize an
 		// `error` event instead of a `reconnecting` event — the
@@ -71,10 +71,10 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 		// "Lost connection" screen with the cause instead of an
 		// indefinite "Restarting…" banner.
 		//
-		// BG-85: the handlers below used to cast the synthesized
+		//the handlers below used to cast the synthesized
 		// event via `as unknown as PythonPushEvent` because the
 		// `PythonPushEvent` union previously lacked `ReconnectingEvent`
-		// and `ReconnectedEvent` members. EC-FIX-7 has since added both
+		//and `ReconnectedEvent` members.  has since added both
 		// members, so the object literals now type-check directly —
 		// the stale casts and TODOs were removed. The cast on the
 		// `python-event` channel itself stays — the Rust host forwards
@@ -91,7 +91,7 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 			const supervisorRelaunching = makeListener<PythonPushEvent>(
 				(handler) =>
 					tauri.event.listen("supervisor_relaunching", (e) => {
-						// XZ-R16-02: inspect the reason payload to distinguish
+						//inspect the reason payload to distinguish
 						// a transient relaunch (status="restarting") from a
 						// terminal exhaustion (status="disconnected" with a
 						// user-facing error). The supervisor emits
@@ -108,16 +108,12 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 							const event: PythonPushEvent = {
 								type: "error",
 								data: {
-									code: "internal_error" as never,
-									// Sentinel: useConnection's `error` handler
-									// checks for this exact substring to flip
-									// `connectionStatus` to `"disconnected"`.
-									// Kept as a plain English string (no i18n
-									// yet) because the hook doesn't currently
-									// use the translation system; a future
-									// i18n pass can swap it for
-									// `t("connection.respawnFailed")` once the
-									// key is added to the locale files.
+									// Structured code: useConnection's `error`
+									// handler checks for this code to flip
+									// `connectionStatus` to `"disconnected"`
+									// and surface a localized message via
+									// `t("connection.respawnFailed")`.
+									code: "respawn_exhausted" as never,
 									message: "respawn exhausted",
 								},
 							};
@@ -143,7 +139,7 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 					}),
 				callback,
 			);
-			// XZ-R16-02: also listen for the circuit-breaker event
+			//also listen for the circuit-breaker event
 			// emitted by `supervisor.rs:207-221` when the disk-
 			// persisted restart counter reaches
 			// ``MAX_RESTART_ATTEMPTS``. The supervisor stops
@@ -175,17 +171,17 @@ export function createPythonNamespace(tauri: TauriGlobal): PythonBridge {
 						const event: PythonPushEvent = {
 							type: "error",
 							data: {
-								code: "internal_error" as never,
-								// Sentinel: useConnection's `error`
-								// handler checks for the
-								// ``"respawn exhausted"``
-								// substring to flip
+								// Structured code: useConnection's `error`
+								// handler checks for this code to flip
 								// ``connectionStatus`` to
-								// ``"disconnected"``. The
-								// supervisor's user-facing
+								// ``"disconnected"`` and surface a
+								// localized message via
+								// ``t("connection.respawnFailed")``.
+								// The supervisor's user-facing
 								// ``message`` (reinstall prompt)
-								// is appended so ``lastError``
-								// surfaces the actionable text.
+								// is carried in `message` so the
+								// hook can log it for diagnostics.
+								code: "respawn_exhausted" as never,
 								message: supervisorMessage
 									? `respawn exhausted: ${supervisorMessage}`
 									: "respawn exhausted",

@@ -1,20 +1,20 @@
 /**
- * Tests for the Tauri bridge command wiring (MIG-1.1 + MIG-1.2).
+ * Tests for the Tauri bridge command wiring ( + ).
  *
  * ADR-0020 §2 (bridge parity), §6 (bubble), §16 (frozen contract).
  *
  * These tests verify that `tauri-bridge.ts` correctly invokes the
- * 8 Rust host commands added in MIG-1.1 + MIG-1.2:
+ * 8 Rust host commands added in  + :
  *
- *  MIG-1.1 (export commands):
+ *   (export commands):
  *   - `window.window_.exportHistory(data, format)` → `invoke('export_history', { data, format })`
  *   - `window.window_.exportVocabulary(data, format)` → `invoke('export_vocabulary', { data, format })`
  *
- *  MIG-1.2 (bubble commands):
+ *   (bubble commands):
  *   - `window.bubble.show()` → `invoke('bubble_show')`
  *   - `window.bubble.signalReady()` → `invoke('bubble_signal_ready')`
  *   - `window.bubble.setPosition(position)` → `invoke('bubble_set_position', { x: position, y: position })`
- *     (XPLAT-6: `position: "top" | "bottom"` — the Rust host takes
+ *     (: `position: "top" | "bottom"` — the Rust host takes
  *      `(x: Value, y: Value)` and resolves the strings to absolute
  *      physical coords based on monitor bounds)
  *   - `window.bubble.setDraggable(draggable)` → `invoke('bubble_set_draggable', { draggable })`
@@ -82,7 +82,7 @@ interface WindowBridgeState {
 		setDraggable?: (draggable: boolean) => void;
 		moveBy?: (dx: number, dy: number) => void;
 		hideComplete?: () => void;
-		// UE-14: `dismiss` is now wired in the Tauri bridge
+		//`dismiss` is now wired in the Tauri bridge
 		// (invoke("bubble_dismiss")). Optional here because the
 		// main-renderer bridge (label "main") doesn't install
 		// it — the bubble-dismiss test below overrides
@@ -117,7 +117,10 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 			window_: w.window_,
 		};
 		// Reset module registry so the auto-install side effect runs
-		// fresh on each `await import("@/lib/tauri-bridge")`.
+		// fresh on each `await import("@/lib/tauri-bridge/install")`.
+		//(: the side effect moved from `index.ts` to the sibling
+		// `install.ts` module — tests below also import
+		// `@/lib/tauri-bridge/install` for the side effect.)
 		vi.resetModules();
 	});
 
@@ -146,13 +149,14 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		vi.restoreAllMocks();
 	});
 
-	// ─── MIG-1.1: export commands ────────────────────────────────
+	//export commands ────────────────────────────────
 
 	it("exportHistory invokes 'export_history' with { data, format }", async () => {
 		const stub = makeTauriStub();
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const windowBridge = (window as unknown as WindowBridgeState).window_;
 		expect(windowBridge?.exportHistory).toBeDefined();
@@ -181,6 +185,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const windowBridge = (window as unknown as WindowBridgeState).window_;
 		expect(windowBridge?.exportVocabulary).toBeDefined();
@@ -203,6 +208,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const windowBridge = (window as unknown as WindowBridgeState).window_;
 		stub.core.invoke.mockResolvedValueOnce({ canceled: true });
@@ -222,6 +228,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const windowBridge = (window as unknown as WindowBridgeState).window_;
 		stub.core.invoke.mockRejectedValueOnce(new Error("disk full"));
@@ -230,13 +237,14 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		expect(result).toEqual({ success: false, error: "disk full" });
 	});
 
-	// ─── MIG-1.2: bubble commands ────────────────────────────────
+	//bubble commands ────────────────────────────────
 
 	it("bubble.show invokes 'bubble_show' with no args", async () => {
 		const stub = makeTauriStub();
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const bubble = (window as unknown as WindowBridgeState).bubble;
 		expect(bubble?.show).toBeDefined();
@@ -250,6 +258,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const bubble = (window as unknown as WindowBridgeState).bubble;
 		expect(bubble?.signalReady).toBeDefined();
@@ -263,10 +272,11 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const bubble = (window as unknown as WindowBridgeState).bubble;
 		expect(bubble?.setPosition).toBeDefined();
-		// XPLAT-6: setPosition takes a single string ("top" | "bottom"),
+		//setPosition takes a single string ("top" | "bottom"),
 		// matching the MainRendererBubbleMutators.setPosition?: (pos: string) => void
 		// contract. The Rust host's signature is
 		// `bubble_set_position(x: Value, y: Value)` — Tauri v2 rejects
@@ -289,6 +299,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const bubble = (window as unknown as WindowBridgeState).bubble;
 		expect(bubble?.setPosition).toBeDefined();
@@ -309,6 +320,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const bubble = (window as unknown as WindowBridgeState).bubble;
 		expect(bubble?.setDraggable).toBeDefined();
@@ -324,10 +336,11 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const bubble = (window as unknown as WindowBridgeState).bubble;
 		expect(bubble?.moveBy).toBeDefined();
-		// NEW-A11Y-006: keyboard-based move uses relative deltas. The
+		//keyboard-based move uses relative deltas. The
 		// renderer calls `moveBy(deltaX, deltaY)`; the bridge renames
 		// to the snake_case Rust convention `{dx, dy}` so the Rust
 		// command signature matches the rest of the host API.
@@ -344,6 +357,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const bubble = (window as unknown as WindowBridgeState).bubble;
 		expect(bubble?.hideComplete).toBeDefined();
@@ -353,7 +367,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 	});
 
 	it("bubble.dismiss invokes 'bubble_dismiss' with no args (UE-14)", async () => {
-		// UE-14: the Tauri bridge now wires `dismiss` to
+		//the Tauri bridge now wires `dismiss` to
 		// `invoke("bubble_dismiss")`. The `dismiss` method is
 		// bubble-window-only (it's on `BubbleWindowExtras`, not
 		// `MainRendererBubbleMutators`), so the default
@@ -378,6 +392,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const bubble = (window as unknown as WindowBridgeState).bubble;
 		expect(bubble?.dismiss).toBeDefined();
@@ -386,7 +401,7 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		expect(stub.core.invoke).toHaveBeenCalledWith("bubble_dismiss");
 	});
 
-	// ─── MIG-1.9: Electron-mode no-op (Phase 3 UI port invariant) ──
+	//Electron-mode no-op (Phase 3 UI port invariant) ──
 
 	it("is a no-op in Electron mode (does not override existing window.python/bubble/window_)", async () => {
 		// Simulate the Electron preload having already installed the
@@ -420,10 +435,12 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 		// Ensure no Tauri global is present (Electron path).
 		delete w.__TAURI__;
 
-		// Importing the bridge module triggers the auto-install side
-		// effect, but isTauri() returns false so it should bail out
-		// immediately without touching the existing namespaces.
+		// Importing the install side-effect module triggers
+		// `installTauriBridge()`, but isTauri() returns false so it
+		// should bail out immediately without touching the existing
+		// namespaces.
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		// The Electron-installed namespaces must be untouched (same
 		// referential identity — not replaced, not wrapped).

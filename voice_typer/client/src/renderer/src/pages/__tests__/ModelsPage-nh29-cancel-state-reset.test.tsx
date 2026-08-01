@@ -1,5 +1,5 @@
 /**
- * Tests for the Models page — NH-29 (cancel-download state reset).
+ * Tests for the Models page —  (cancel-download state reset).
  *
  * Scenario under test: clicking the Cancel button in the download
  * progress bar fires `handleCancelDownload`, which previously:
@@ -209,7 +209,7 @@ describe("ModelsPage — NH-29 cancel-download state reset", () => {
 
 		// 7. The Cancel button is GONE from the DOM — only possible if
 		//    `setDownloadingModel(null)` + `resetProgress()` ran after
-		//    the IPC resolved. Before NH-29 the UI would have stayed
+		//the IPC resolved. Before  the UI would have stayed
 		//    stuck mid-download until the backend's terminal
 		//    download_progress event arrived.
 		await waitFor(() => {
@@ -265,7 +265,7 @@ describe("ModelsPage — NH-29 cancel-download state reset", () => {
 
 		// Despite the IPC failure, the Cancel button is GONE — the
 		// user has signalled intent to cancel and the UI must reflect
-		// that. Before NH-29 the UI stayed stuck mid-download even
+		//that. Before  the UI stayed stuck mid-download even
 		// after the user clicked Cancel, because the catch branch did
 		// not reset local state.
 		await waitFor(() => {

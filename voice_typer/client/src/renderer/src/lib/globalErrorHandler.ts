@@ -1,5 +1,5 @@
 /**
- * ERR-5: global error + unhandledrejection handlers for the renderer.
+ * : global error + unhandledrejection handlers for the renderer.
  *
  * Before this module existed, the renderer had NO global listener for
  * ``window.onerror`` or ``unhandledrejection`` events. Errors that
@@ -28,14 +28,14 @@
  *     details leaked to the UI — the full stack is in the console
  *     for the developer/operator to diagnose).
  *
- * BG-88: the toast now uses a STABLE id (``'global-error-handler'``)
+ * : the toast now uses a STABLE id (``'global-error-handler'``)
  * so successive errors REPLACE the existing toast instead of stacking
  * on top of each other. Previously a tight error loop (e.g. an effect
  * that re-threw on every retry) could pile up dozens of identical
  * toasts, making the UI unreadable. With the stable id, sonner
  * dedupes — only the most recent error's toast stays visible.
  *
- * BG-89: the toast now exposes two action buttons:
+ * : the toast now exposes two action buttons:
  *   • ``View logs`` — calls ``window.window_?.openLogs?.()`` to open
  *     the Python backend's log folder in the OS file manager (the
  *     full stack trace + IPC error details live there for diagnosis).
@@ -57,7 +57,7 @@
 
 import { toast } from "sonner";
 
-// CR-059: hoist the i18n import to module scope. The previous
+//hoist the i18n import to module scope. The previous
 // implementation used ``require("../i18n/i18n")`` inside the
 // ``_genericUserMessage`` helper, but ``require`` is undefined in
 // Electron renderer processes under ``contextIsolation: true`` +
@@ -71,7 +71,7 @@ import { t } from "@/i18n/i18n";
 
 let _installed = false;
 
-// BG-88: stable toast id so successive errors replace (not stack on
+//stable toast id so successive errors replace (not stack on
 // top of) the existing toast. Sonner's ``id`` option dedupes — the
 // second ``toast.error(msg, {id})`` call updates the existing toast
 // in place rather than spawning a second one.
@@ -86,7 +86,7 @@ const GLOBAL_ERROR_TOAST_ID = "global-error-handler";
  * could confuse users or, in a worst case, aid an attacker probing
  * the renderer surface.
  *
- * CR-059: previously called ``require("../i18n/i18n")`` lazily so
+ * : previously called ``require("../i18n/i18n")`` lazily so
  * the global error handler could be installed before the i18n module
  * loaded. That reasoning was sound but ``require`` is not available
  * in the sandboxed renderer — so the lazy import always failed and
@@ -147,15 +147,19 @@ function _formatForConsole(err: unknown): string {
 }
 
 /**
- * BG-89: safely resolve a localized string, falling back to the
+ * : safely resolve a localized string, falling back to the
  * provided English default when i18n is unavailable or the key is
  * missing. Mirrors the defensive pattern in ``_genericUserMessage``
  * so the action-button labels never throw.
  */
-function _safeT(key: string, fallback: string): string {
+export function _safeT(key: string, fallback: string): string {
 	try {
 		const msg = t(key);
-		if (typeof msg === "string" && msg.length > 0) return msg;
+		// `t()` returns the raw key string when the key is missing from
+		// the locale dictionary. Detect this case and fall back to the
+		// English fallback so raw dot-paths like "errors.viewLogsAction"
+		// never render as toast button labels.
+		if (typeof msg === "string" && msg.length > 0 && msg !== key) return msg;
 	} catch (e) {
 		console.warn(`[globalErrorHandler] i18n t("${key}") failed:`, e);
 	}
@@ -163,10 +167,10 @@ function _safeT(key: string, fallback: string): string {
 }
 
 /**
- * BG-89: build the sonner toast options for the global error toast.
+ * : build the sonner toast options for the global error toast.
  *
  * Returns an options object with:
- *   • ``id`` — the stable toast id (BG-88 dedup).
+ *   • ``id`` — the stable toast id ( dedup).
  *   • ``action`` — the primary action button ("View logs" →
  *     ``window.window_?.openLogs?.()``).
  *   • ``cancel`` — the secondary action button ("Copy error" →

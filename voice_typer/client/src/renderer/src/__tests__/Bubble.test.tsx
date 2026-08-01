@@ -47,7 +47,7 @@ function makeMockBubble() {
 		hideComplete: vi.fn(),
 		resizeTo: vi.fn(),
 		moveBy: vi.fn(),
-		// UX-10: bubble config + mic-button toggle (sandboxed renderer).
+		//bubble config + mic-button toggle (sandboxed renderer).
 		onConfig: vi.fn((cb: (cfg: Record<string, unknown>) => void) => {
 			listeners.config = cb;
 			return () => {
@@ -55,13 +55,13 @@ function makeMockBubble() {
 			};
 		}),
 		toggleDictation: vi.fn(),
-		// BG-96: dismiss IPC send (sandboxed renderer).
+		//dismiss IPC send (sandboxed renderer).
 		dismiss: vi.fn(),
 		_listeners: listeners,
 	};
 }
 
-// UX-10: helper to push bubble config (simulates the backend's
+//helper to push bubble config (simulates the backend's
 // bubble:config event). The Bubble subscribes via onConfig and shows
 // the mic button only when always_visible + both toggles are on.
 function pushBubbleConfig(cfg: Record<string, unknown>) {
@@ -256,7 +256,7 @@ describe("Bubble", () => {
 		expect(output?.className).toContain("animate-bubble-exit");
 	});
 
-	// ── UX-10: mic button (always_visible + enabled) ──────────────
+	//mic button (always_visible + enabled) ──────────────
 
 	it("does NOT show a mic button by default (no config received)", () => {
 		render(<Bubble />);
@@ -342,7 +342,7 @@ describe("Bubble", () => {
 		expect(screen.queryByLabelText("Stop dictation")).toBeNull();
 	});
 
-	// ── BG-95: state-aware aria-label on outer <output> ──────────
+	//state-aware aria-label on outer <output> ──────────
 
 	it("BG-95: aria-label reflects recording mode by default", () => {
 		render(<Bubble />);
@@ -386,7 +386,7 @@ describe("Bubble", () => {
 		);
 	});
 
-	// ── BG-96: dismiss '×' button ─────────────────────────────────
+	//dismiss '×' button ─────────────────────────────────
 
 	it("BG-96: does NOT show a dismiss button by default (no config received)", () => {
 		render(<Bubble />);

@@ -1,7 +1,7 @@
 /**
- * Model-page helpers and shared types (ARCH-20 extraction).
+ * Model-page helpers and shared types ( extraction).
  *
- * PVT-031 / PVT-003: previously this module existed but was unused —
+ *  / : previously this module existed but was unused —
  * `pages/Models.tsx` kept an inline duplicate of every type, constant,
  * and helper. After the spaghetti split, `Models.tsx` and its child
  * panels import these symbols from here so there is a single source of
@@ -22,13 +22,13 @@ export interface ModelInfo {
 	downloaded: boolean;
 	depsOk: boolean;
 	isActive: boolean;
-	// UX-010: replaces the magic string `!model.alwaysAvailable` check.
+	//replaces the magic string `!model.alwaysAvailable` check.
 	// Qwen doesn't need a separate download step (it auto-downloads
 	// from HuggingFace on first use), so the "Download" button is
 	// hidden for it.
 	alwaysAvailable?: boolean;
 	/**
-	 * PVT-003 fix #7: model requires extra system dependencies that
+	 *  fix #7: model requires extra system dependencies that
 	 * can be installed via a dedicated action (e.g. Parakeet's torch
 	 * dependency). When true and `depsOk === false`, the card renders
 	 * a "Download Deps" button next to (or instead of) the Select
@@ -236,7 +236,7 @@ export function formatModelSpeed(speed: string): string {
 //
 // VRAM formatting: re-exported from the shared ``lib/format.ts`` so
 // call sites that import from ``@/lib/utils/models`` (LocalModelsPanel,
-// the Models spaghetti split, etc.) keep working. PVT-091: previously
+//the Models spaghetti split, etc.) keep working. : previously
 // this was a duplicate of the inline copy in ``pages/Models.tsx`` with
 // hardcoded ``"MB"`` / ``"GB"`` suffixes and ``toFixed(1)`` rounding —
 // now both call sites route through the locale-aware ``Intl.NumberFormat``
@@ -246,7 +246,7 @@ export function formatVram(mb: number): string {
 }
 
 /**
- * UX-ERR-001: format an unknown caught value as a user-friendly string.
+ * : format an unknown caught value as a user-friendly string.
  *
  * Catch blocks frequently do `showSnack(`Failed: ${err}`)` which
  * stringifies the error via `String(err)`.  For plain `Error`
@@ -255,7 +255,7 @@ export function formatVram(mb: number): string {
  * `"undefined"` (useless).  This helper extracts a useful message
  * from any thrown value so the snackbar text is always actionable.
  *
- * PVT-091: the default ``fallback`` is now ``t("models.errors.unknown")``
+ * : the default ``fallback`` is now ``t("models.errors.unknown")``
  * (``"Unknown error"`` in en, translated for every locale) instead of
  * the hardcoded English string — so a backend failure surfacing in a
  * non-English UI no longer leaks English into the snackbar. Callers
@@ -364,7 +364,7 @@ export function applyActiveState(
  * Returns the family ID that contains the currently active model,
  * or null if no model is active or no family match is found.
  *
- * PVT-031 fix #2: previously this function inlined a duplicate copy
+ *  fix #2: previously this function inlined a duplicate copy
  * of `INITIAL_MODELS` (the `candidates` array) — a 30-line verbatim
  * duplicate that drifted whenever a new model was added. Now it
  * imports the single source of truth from `INITIAL_MODELS`.
@@ -399,9 +399,9 @@ export function getActiveFamilyId(cfg: VoiceTyperConfig | null): string | null {
 // returns ZERO matches — verifying the function is truly gone. The
 // previous docstring + 6-line function body have been excised.)
 
-// ── Disk-space pre-flight (PVT-033) ───────────────────────────────────
+//Disk-space pre-flight () ───────────────────────────────────
 //
-// BG-86: the `DiskInfo` interface previously declared here was a
+//the `DiskInfo` interface previously declared here was a
 // DUPLICATE of the one in `types/ipc.ts` with a different shape (added
 // `total_bytes: number` and made `models_dir?: string` optional). The
 // two had drifted and were a maintenance hazard. The unified type now
@@ -415,7 +415,7 @@ import type { DiskInfo } from "@/types/ipc";
 export type { DiskInfo };
 
 /**
- * PVT-033: returns true when there is not enough free disk space to
+ * : returns true when there is not enough free disk space to
  * download a model of the given size (in MB). A 10% safety margin is
  * applied so the OS doesn't run completely dry mid-download.
  */

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * CR-9 (IMPL-7) — Electron crash log rotation + REVIEW-12/REVIEW-9
+ *  (IMPL-7) — Electron crash log rotation + REVIEW-12/REVIEW-9
  * circuit-breaker regression coverage.
  *
  * These tests run in a `node` environment (no jsdom) because they
@@ -44,14 +44,14 @@ vi.mock("electron", () => ({
 // do not need here.
 vi.mock("../single_instance", () => ({
 	computeConfigDir: () => "/tmp/vt-mock-userdata",
-	// G4-H-24: bootstrap.ts now also imports `clearElectronPidFile`
+	//bootstrap.ts now also imports `clearElectronPidFile`
 	// and calls it inside the production exit hook. The test never
 	// exercises that hook (it injects its own `exit` mock), but the
 	// import + symbol binding still needs to resolve.
 	clearElectronPidFile: vi.fn(),
 }));
 
-// G4-H-24: bootstrap.ts now imports `stopPython` from `./python` so the
+//bootstrap.ts now imports `stopPython` from `./python` so the
 // production exit hook can call it before `app.quit()`. The real
 // `./python` index transitively imports `./send-to-python` → `../index`
 // (the main entry, which fires Electron APIs at module-eval time). We
@@ -130,7 +130,7 @@ describe("rotateIfNeeded (CR-9)", () => {
 
 	beforeEach(() => {
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-rotate-test-"));
-		// XV-154: reset the file-size cache so prior tests' cached stat
+		//reset the file-size cache so prior tests' cached stat
 		// results don't prevent rotation (the cache keys by file path,
 		// but reusing the same tmpDir root could produce stale hits if
 		// the OS recycles inode-backed paths).
@@ -187,7 +187,7 @@ describe("rotateIfNeeded (CR-9)", () => {
 		rotateIfNeeded(target);
 		expect(fs.existsSync(target)).toBe(true);
 		expect(fs.existsSync(`${target}.1`)).toBe(false);
-		// One byte over the cap → rotate. XV-154: reset the cache
+		//One byte over the cap → rotate. : reset the cache
 		// first — the prior rotateIfNeeded call cached the file size
 		// (1048576), and fs.appendFileSync doesn't update the cache,
 		// so the second call would see the stale cached size and skip
@@ -231,7 +231,7 @@ describe("_installErrorHandlers — CR-9 rotation + circuit breaker", () => {
 			handlers.dispose();
 		}
 
-		// CR-9: .1 backup exists and holds the pre-seeded content
+		//.1 backup exists and holds the pre-seeded content
 		// (renamed away when the active file exceeded 1 MiB).
 		const backupPath = `${crashLogPath}.1`;
 		expect(fs.existsSync(backupPath)).toBe(true);
@@ -251,7 +251,7 @@ describe("_installErrorHandlers — CR-9 rotation + circuit breaker", () => {
 		expect(exitCalls.length).toBeGreaterThanOrEqual(1);
 		expect(exitCalls.every((c) => c === 1)).toBe(true);
 
-		// CR-9 separation: the rejection log must NOT have been
+		//separation: the rejection log must NOT have been
 		// touched by uncaughtException events.
 		const { rejectionLogPath } = _crashLogPaths(tmpDir);
 		expect(fs.existsSync(rejectionLogPath)).toBe(false);

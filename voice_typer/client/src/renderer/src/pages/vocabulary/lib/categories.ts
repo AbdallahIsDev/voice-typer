@@ -6,7 +6,7 @@
 // keys — which previously drifted between the filter dropdown, the
 // dialog picker, and the flatten/rebuild transforms).
 //
-// CR-37: ``getCategoryLabels`` is a FUNCTION (not a const) so the
+//``getCategoryLabels`` is a FUNCTION (not a const) so the
 // labels are re-resolved via ``t()`` on every render. If it were a
 // module-level const, a locale switch at runtime would leave the UI
 // showing the OLD locale's labels until the next page mount.
@@ -25,7 +25,7 @@ export const CATEGORIES = [
 
 export type VocabCategory = (typeof CATEGORIES)[number];
 
-// CR-37: getCategoryLabels() — called at render time so locale
+//getCategoryLabels() — called at render time so locale
 // switches re-resolve the t() keys against the new locale.
 export function getCategoryLabels(): Record<
 	string,

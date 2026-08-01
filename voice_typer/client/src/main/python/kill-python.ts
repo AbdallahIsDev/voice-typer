@@ -1,5 +1,5 @@
 /**
- * XE-15-5: shared SIGTERM+SIGKILL-fallback helper for killing the
+ * : shared SIGTERM+SIGKILL-fallback helper for killing the
  * Python backend process.
  *
  * Extracted from `relaunch-app.ts`'s `_killPythonProcessWithSigkillFallback`
@@ -25,7 +25,7 @@
  *   should pass an ``onExit`` callback — the helper registers its own
  *   ``proc.once("exit", ...)`` listener that invokes ``onExit`` after
  *   clearing the internal SIGKILL fallback timer.
- * - The ``XE-18-1`` fix: the SIGKILL fallback checks
+ * - The ```` fix: the SIGKILL fallback checks
  *   ``proc.exitCode === null && proc.signalCode === null`` (the proc
  *   has NOT actually exited) instead of ``!proc.killed`` (which only
  *   indicates a signal was sent, not that the proc exited). The old
@@ -60,7 +60,7 @@ export function killPythonProcessWithSigkillFallback(
 			// when the proc is killed by signal). Callers that need
 			// exit-event observability pass an `onExit` callback below.
 			proc.removeAllListeners("exit");
-			// XE-18-1: check `exitCode` / `signalCode` (the proc has
+			//check `exitCode` / `signalCode` (the proc has
 			// actually exited) instead of `proc.killed` (a signal was
 			// sent). `proc.killed` becomes true immediately after
 			// `proc.kill(...)` even if the proc ignores the signal, so
@@ -78,7 +78,7 @@ export function killPythonProcessWithSigkillFallback(
 			// force-kill so the old process doesn't survive and hold
 			// the VoiceTyperSingleInstance mutex.
 			const killTimer = setTimeout(() => {
-				// XE-18-1: same exitCode/signalCode check as above.
+				//same exitCode/signalCode check as above.
 				// `proc.killed` would be true (we sent SIGTERM), but
 				// the proc may still be alive.
 				if (proc.exitCode === null && proc.signalCode === null) {

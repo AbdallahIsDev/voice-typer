@@ -1,7 +1,7 @@
 import { Add01Icon, Alert02Icon } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +17,15 @@ interface EmptyStateProps {
 	onAction?: () => void;
 	/** Optional — overrides the default Add01Icon for the action button */
 	actionIcon?: IconSvgElement;
+	/**
+	 * Optional ref forwarded to the action `<Button>`. Callers can use
+	 * this to programmatically focus the action (e.g.
+	 * ConnectionStatusScreen focuses the Retry button when the backend
+	 * disconnects) without resorting to a brittle
+	 * `document.querySelector` lookup. Only forwarded when both
+	 * `actionLabel` and `onAction` are provided.
+	 */
+	actionRef?: RefObject<HTMLButtonElement | null>;
 	/** Optional extra content below the description */
 	children?: ReactNode;
 	/**
@@ -38,6 +47,7 @@ export function EmptyState({
 	actionLabel,
 	onAction,
 	actionIcon,
+	actionRef,
 	children,
 	variant = "info",
 }: EmptyStateProps) {
@@ -88,7 +98,12 @@ export function EmptyState({
 			)}
 			{children}
 			{actionLabel && onAction && (
-				<Button variant="default" className="mt-2 gap-2" onClick={onAction}>
+				<Button
+					ref={actionRef}
+					variant="default"
+					className="mt-2 gap-2"
+					onClick={onAction}
+				>
 					<HugeiconsIcon
 						icon={actionGlyph}
 						strokeWidth={2}

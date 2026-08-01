@@ -1,7 +1,7 @@
 /**
  * Tests for PrewarmAndUpdates — restored Cache Status + Updates surfaces.
  *
- * UX-20 / SET-5 slimmed About.tsx and dropped the Cache Status and Updates
+ *  / SET-5 slimmed About.tsx and dropped the Cache Status and Updates
  * sections from the UI (the "relocated to Settings → Troubleshooting" claim
  * was inaccurate). This component restores them into Settings. These tests
  * verify the functionality is actually present and wired:
@@ -89,7 +89,7 @@ describe("PrewarmAndUpdates", () => {
 		expect(screen.getByText("Updates")).toBeTruthy();
 	});
 
-	// CR-11 / S3-CR-11 regression: the previous implementation fired a
+	//regression: the previous implementation fired a
 	// `fetch("https://api.github.com/...")` call inside a mount-time
 	// `useEffect`, which leaked the user's public IP, request timestamp,
 	// and Electron User-Agent to GitHub on EVERY Settings page open.

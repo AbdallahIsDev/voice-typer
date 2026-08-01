@@ -14,7 +14,7 @@ import type { HistoryRecord } from "@/types/ipc";
 function formatTimestamp(ts: string): string {
 	try {
 		const d = new Date(ts);
-		// CR-46: pass the user-selected UI locale (not the browser
+		//pass the user-selected UI locale (not the browser
 		// default) so dates/times respect the user's language choice.
 		return (
 			d.toLocaleDateString(getLocale(), { month: "short", day: "numeric" }) +
@@ -46,7 +46,7 @@ export default function ActivityList({
 	onToggleFavorite,
 }: ActivityListProps) {
 	const [copiedId, setCopiedId] = useState<number | null>(null);
-	// NEW-TS-020: track copy timeout in a ref and clear on unmount
+	//track copy timeout in a ref and clear on unmount
 	const copyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 	useEffect(() => {
 		return () => {
@@ -59,7 +59,7 @@ export default function ActivityList({
 			await navigator.clipboard.writeText(item.text);
 			setCopiedId(item.id);
 			toast.success(t("history.copiedToClipboard"));
-			// NEW-TS-020: clear previous timeout before setting new one
+			//clear previous timeout before setting new one
 			if (copyTimeoutRef.current) clearTimeout(copyTimeoutRef.current);
 			copyTimeoutRef.current = setTimeout(() => setCopiedId(null), 2000);
 		} catch {

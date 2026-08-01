@@ -1,4 +1,4 @@
-// EC-FIX-18: this file was an 884-line monolith with 6 inline
+//this file was an 884-line monolith with 6 inline
 // step components, wizard state, and a permissions-probe lifecycle all
 // living in one component. It is now a thin composition root (~180 lines):
 // - hooks/useOnboardingWizard  → wizard state, init effect, navigation
@@ -50,6 +50,7 @@ export default function OnboardingPage({
 		initError,
 		step,
 		submitting,
+		applyError,
 		skipConfirmOpen,
 		setSkipConfirmOpen,
 		selectedHotkey,
@@ -63,6 +64,7 @@ export default function OnboardingPage({
 		microphones,
 		headingRef,
 		retryInit,
+		refreshMics,
 		handleNext,
 		handleApply,
 		handlePrev,
@@ -78,7 +80,7 @@ export default function OnboardingPage({
 		handleTestHotkey,
 	} = usePermissionsProbe(step?.step_name, selectedHotkey);
 
-	// S2-CR-8: voice_biometric_consent gate on the Done step.
+	//voice_biometric_consent gate on the Done step.
 	// Backend refuses to record without this flag (recording_controller.py:249),
 	// but the wizard previously completed without ever asking. Now the
 	// Done step renders an inline consent checkbox; the Get Started
@@ -201,7 +203,7 @@ export default function OnboardingPage({
 
 	const progress = ((step.step + 1) / step.total_steps) * 100;
 	const isDoneStep = step.step_name === DONE_STEP_NAME;
-	// S2-CR-39: when no microphones are detected the Microphone step
+	//when no microphones are detected the Microphone step
 	// shows a Refresh button instead of the Select dropdown, but
 	// Continue remained enabled — the user could click it and advance
 	// with an empty `selectedMic`, silently bypassing mic selection
@@ -223,19 +225,19 @@ export default function OnboardingPage({
 	const isPermissionsBlocked =
 		(step.step_name === "Permissions" && permissionsResult?.needed === true) ||
 		permissionsProbeFailed;
-	// S2-CR-8: block Get Started on Done step until consent is granted.
+	//block Get Started on Done step until consent is granted.
 	const isConsentBlocked = isDoneStep && !consentAccepted;
 	// Fix 14: localized sr-only h1.
 	const srTitleKey =
 		STEP_TITLE_KEY[step.step_name] ?? "onboarding.welcomeTitle";
-	// S5-CR-105: subtle "Default: <hotkey>" hint shown on the Hotkey
+	//subtle "Default: <hotkey>" hint shown on the Hotkey
 	// step so users know they're accepting a default if they don't
 	// change the Select. The hint is suppressed once the user picks
 	// a different hotkey.
 	const hotkeyIsDefault = selectedHotkey === HOTKEY_DEFAULT;
 	const showDefaultHotkeyHint = step.step_name === "Hotkey" && hotkeyIsDefault;
 	const defaultHotkeyLabel = HOTKEY_DEFAULT.replace(/[<>]/g, "").toUpperCase();
-	// S5-CR-105: mirror the hotkey hint pattern for the Model step.
+	//mirror the hotkey hint pattern for the Model step.
 	// The wizard pre-selects "small.en" (MODEL_DEFAULT) so the user
 	// can click Continue without touching the Select — but without
 	// a hint, it's not obvious they're accepting a default rather
@@ -243,7 +245,7 @@ export default function OnboardingPage({
 	// picks a different model.
 	const showDefaultModelHint =
 		step.step_name === "Model" && selectedModel === MODEL_DEFAULT;
-	// S5-CR-105: mirror the hint pattern for the Microphone step.
+	//mirror the hint pattern for the Microphone step.
 	// The wizard auto-selects the OS default input device (mic with
 	// `default: true` from list_microphones). Show a "Default: <name>"
 	// hint so the user knows the pre-selection came from the OS, not
@@ -255,7 +257,7 @@ export default function OnboardingPage({
 	const showDefaultMicHint =
 		step.step_name === "Microphone" && !!selectedDefaultMic;
 	const defaultMicLabel = selectedDefaultMic?.name ?? "";
-	// S5-CR-105: defensive — disable Continue on the Model step if
+	//defensive — disable Continue on the Model step if
 	// no model is selected. In practice `selectedModel` is always
 	// initialized to MODEL_DEFAULT (or pre-loaded from get_config),
 	// so this only fires if the backend returns an empty
@@ -274,7 +276,7 @@ export default function OnboardingPage({
 							total: String(step.total_steps),
 						})}
 					</span>
-					{/* BG-12: localize the visible step-name label
+					{/*localize the visible step-name label
 					    (was raw backend enum string like "Permissions"). */}
 					<span>
 						{t(STEP_TITLE_KEY[step.step_name] ?? "onboarding.welcomeTitle")}
@@ -333,7 +335,7 @@ export default function OnboardingPage({
 						microphones={microphones}
 						selectedMic={selectedMic}
 						setSelectedMic={setSelectedMic}
-						onRefreshMics={reprobePermissions}
+						onRefreshMics={refreshMics}
 					/>
 				)}
 				{step.step_name === "Permissions" && (
@@ -374,12 +376,12 @@ export default function OnboardingPage({
 					/>
 				)}
 
-				{/* S2-CR-8: voice_biometric_consent gate on the
-					Done step. ADR 0016 §PRIV-009 specifies the consent
+				{/*voice_biometric_consent gate on the
+					Done step. ADR 0016 § specifies the consent
 					UI location as "First-run onboarding". The wizard
 					previously had no consent prompt, so every first-run
 					user who pressed their hotkey was refused by
-					recording_controller (NEW-PRIV-009) with only a tray
+					recording_controller () with only a tray
 					notification — leading to massive first-run drop-off.
 					The checkbox persists voice_biometric_consent AND
 					huggingface_consent (the latter is required because
@@ -419,7 +421,7 @@ export default function OnboardingPage({
 					</div>
 				)}
 
-				{/* S2-CR-40: download progress feedback. The
+				{/*download progress feedback. The
 					wizard's "Get Started" click triggers
 					onboarding_apply → model load (which may
 					download 466 MB–1.5 GB on first run).
@@ -460,7 +462,7 @@ export default function OnboardingPage({
 						</Button>
 					</div>
 					<div className="flex flex-col items-end gap-1">
-						{/* S5-CR-105: subtle "Default: <hotkey>"
+						{/*subtle "Default: <hotkey>"
 							hint shown on the Hotkey step when the user
 							hasn't changed the Select. Makes it clear
 							they're accepting a default rather than
@@ -478,7 +480,7 @@ export default function OnboardingPage({
 								{t("theme.preset.default")}: {defaultHotkeyLabel}
 							</span>
 						)}
-						{/* S5-CR-105: mirror the hotkey hint for the
+						{/*mirror the hotkey hint for the
 							Model step. The wizard pre-selects
 							"small.en" (MODEL_DEFAULT); this hint makes
 							that pre-selection visible so the user
@@ -492,7 +494,7 @@ export default function OnboardingPage({
 								{t("theme.preset.default")}: {MODEL_DEFAULT}
 							</span>
 						)}
-						{/* S5-CR-105: mirror the hint for the
+						{/*mirror the hint for the
 							Microphone step. The wizard auto-selects
 							the OS default input device (mic with
 							`default: true`); this hint surfaces that
@@ -511,13 +513,16 @@ export default function OnboardingPage({
 							</span>
 						)}
 						<div className="flex items-center gap-2">
-							{!isDoneStep && (
+							{(!isDoneStep || applyError) && (
 								<Button
 									type="button"
 									variant="ghost"
 									onClick={() => setSkipConfirmOpen(true)}
 									disabled={submitting}
 									aria-label={t("onboarding.skipAria")}
+									data-testid={
+										isDoneStep ? "onboarding-done-skip-button" : undefined
+									}
 								>
 									{t("onboarding.skip")}
 								</Button>

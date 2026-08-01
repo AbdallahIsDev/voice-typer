@@ -53,13 +53,14 @@ function DialogContent({
 			<DialogPrimitive.Content
 				data-slot="dialog-content"
 				data-size={size}
+				aria-modal={true}
 				className={cn(
 					"group/dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-6 rounded-4xl bg-popover p-6 text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-hidden data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
 					className,
 				)}
 				{...props}
 			>
-				{/* NH-21: visible close (X) button in the top-end corner of every
+				{/*visible close (X) button in the top-end corner of every
 				   dialog. Sighted users without keyboard expertise expect an X
 				   close button. Radix DialogPrimitive.Close auto-fires
 				   onOpenChange(false), so callers' existing close handlers
@@ -71,7 +72,7 @@ function DialogContent({
 					data-slot="dialog-close-button"
 					aria-label={t("common.close")}
 					className={cn(
-						"absolute inset-e-2 top-2 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring/30 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+						"absolute inset-e-2 top-2 inline-flex size-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
 					)}
 				>
 					<HugeiconsIcon icon={Cancel01Icon} />

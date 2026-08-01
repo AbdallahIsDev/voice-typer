@@ -1,4 +1,4 @@
-// EC-FIX-12 / EC-12 (PVT-053): Home.tsx was a 949-line monolith
+//(): Home.tsx was a 949-line monolith
 // mixing layout, data-fetching, business logic, and 4 inline
 // sub-components + 1 inline hook. It is now a thin composition root
 // that imports the extracted pieces from `./home/`:
@@ -69,11 +69,11 @@ import {
 } from "./home/lib/status";
 
 export default function Home() {
-	// EC-FIX-14 (BACKLOG-004): subscribe to the store directly instead
+	//(BACKLOG-004): subscribe to the store directly instead
 	// of receiving recordingState / lastError as props from App.tsx.
 	const recordingState = useAppStore((s) => s.recordingState);
 	const lastError = useAppStore((s) => s.lastError);
-	// EC-FIX-14: obtain `navigate` directly from the navigation hook
+	//obtain `navigate` directly from the navigation hook
 	// instead of receiving it as an `onNavigate` prop from App.tsx.
 	const { navigate } = useNavigation();
 	const { call } = usePython();
@@ -122,10 +122,10 @@ export default function Home() {
 		};
 	}, []);
 
-	// NEW-TS-006: timer refs declared BEFORE the usePythonEvent handlers
+	//timer refs declared BEFORE the usePythonEvent handlers
 	// that use them (avoids temporal-dead-zone errors).
 	const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-	// UX-025: timer that auto-clears lastText after 5s of idle.
+	//timer that auto-clears lastText after 5s of idle.
 	const lastTextTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	// Shared refresh routine — used by both `transcription_final` and
@@ -235,7 +235,7 @@ export default function Home() {
 		}
 	}, [call, markUpdated]);
 
-	// UX-016 + UX-7: status_change listener — re-fetches the hotkey
+	//+ : status_change listener — re-fetches the hotkey
 	// (so the chip stays in sync after Settings changes) and tracks
 	// entry into "transcribing" so we can show "Force cancel" after
 	// FORCE_CANCEL_DELAY_MS.
@@ -264,7 +264,7 @@ export default function Home() {
 		};
 	});
 
-	// UX-7: surface "Force cancel" after FORCE_CANCEL_DELAY_MS in "transcribing".
+	//surface "Force cancel" after FORCE_CANCEL_DELAY_MS in "transcribing".
 	useEffect(() => {
 		if (transcribeStartedAt === null) return;
 		const timeout = setTimeout(
@@ -285,7 +285,7 @@ export default function Home() {
 		}
 	}, [recordingState]);
 
-	// UX-9: subscribe to download_progress events emitted while a
+	//subscribe to download_progress events emitted while a
 	// HuggingFace model download is in flight.
 	usePythonEvent(
 		"download_progress",

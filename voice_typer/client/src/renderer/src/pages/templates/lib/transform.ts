@@ -16,7 +16,7 @@ import { VARIABLES } from "./types";
 export function toRows(items: Template[]): TemplateRow[] {
 	return items.map((t, i) => {
 		const output = t.output ?? "";
-		// NEW-TS-019: track WHICH variables are used (not just the count)
+		//track WHICH variables are used (not just the count)
 		// so the UI can show them in a tooltip.  Previously only the
 		// count was displayed ("2v") with no way for the user to see
 		// which variables the template actually uses.
@@ -35,7 +35,7 @@ export function toRows(items: Template[]): TemplateRow[] {
 	});
 }
 
-// CR-052: inverse of `toRows` — maps the React-state TemplateRow[]
+//inverse of `toRows` — maps the React-state TemplateRow[]
 // back to the persisted Template[] shape so `saveTemplate` and the
 // `instantDeleteTemplate` undo callback can read the LATEST list from
 // the `templatesRef` mirror (kept in sync by the effect below) instead

@@ -4,7 +4,7 @@
  * Covers the following findings (each in its own describe block so a
  * failure pinpoints which contract regressed):
  *
- *   - CR-37   Vocabulary.tsx — getCategoryLabels() re-resolves t() on
+ *   -    Vocabulary.tsx — getCategoryLabels() re-resolves t() on
  *             locale switch (no stale module-level const).
  *   - R7-F8   Onboarding.tsx — `let cancelled = false` guard prevents
  *             setState-after-unmount during the init() effect.
@@ -18,7 +18,7 @@
  *             in en.json; other 7 locales backfilled by I12).
  *   - R7-F12  Models.tsx — model card heading uses
  *             `meta?.display_name ?? model.name` (no hardcoded
- *             "Qwen3-ASR-1.7B" / "NVIDIA Parakeet TDT v3" strings).
+ *             "Qwen3-" / "NVIDIA Parakeet TDT v3" strings).
  *   - R7-F13  History.tsx + Home.tsx — debouncedRefreshFromEvent is
  *             extracted via useCallback and passed to both
  *             usePythonEvent subscriptions (single callback identity).
@@ -29,10 +29,10 @@
  *             via `.slice(0, 200)`.
  *   - R7-F18  Dashboard.tsx — dead `const [, setLoading] = useState`
  *             and all `setLoading` call sites removed.
- *   - CR-57   Microphone.tsx — 100ms level polling short-circuits when
+ *   -    Microphone.tsx — 100ms level polling short-circuits when
  *             `document.visibilityState !== "visible"` OR
  *             `!testRunning && !micMonitoring`.
- *   - CR-19-F2 Settings.tsx — each of the four tab panels is wrapped
+ *   -  Settings.tsx — each of the four tab panels is wrapped
  *             in `<div role="tabpanel" id="panel-<tabId>"
  *             aria-labelledby="tab-<tabId>">`.
  *
@@ -348,7 +348,7 @@ afterEach(() => {
 	cleanup();
 });
 
-// ── CR-37 ──────────────────────────────────────────────────────────────
+//
 
 describe("CR-37: Vocabulary categoryLabels re-resolve on locale switch", () => {
 	it("renders German category label after setLocale('de')", async () => {
@@ -388,10 +388,10 @@ describe("CR-37: Vocabulary categoryLabels re-resolve on locale switch", () => {
 	});
 
 	it("getCategoryLabels is a function (not a stale const)", async () => {
-		// Static check: the module exports a function (CR-37 specifically
+		//Static check: the module exports a function ( specifically
 		// converts a const to a function so the labels are re-resolved
 		// at every render). We verify by importing the module source
-		// and grepping for the function declaration. CR-37 moved the
+		//and grepping for the function declaration.  moved the
 		// category labels into vocabulary/lib/categories.ts.
 		const fs = await import("node:fs");
 		const src = fs.readFileSync(

@@ -36,11 +36,11 @@ import {
 	sortRecords,
 } from "./history/utils/historySort";
 
-// NOTE: App.tsx prop passing will be removed by EC-FIX-13.
-// EC-FIX-14 (BACKLOG-004): HistoryPage now obtains `navigate` via the
+//NOTE: App.tsx prop passing will be removed by
+//(BACKLOG-004): HistoryPage now obtains `navigate` via the
 // useNavigation hook directly, eliminating the `onNavigate` prop drill.
 //
-// BG-54 (spaghetti split): the cache + IPC lifecycle (load / loadMore /
+//(spaghetti split): the cache + IPC lifecycle (load / loadMore /
 // event refresh) lives in `useHistoryCache`, the export paging loop
 // lives in `useHistoryExport`, and the client-side sort lives in
 // `historySort.ts`. This file is the thin view component.
@@ -141,7 +141,7 @@ export default function HistoryPage() {
 
 	const handleDelete = useCallback(
 		async (id: number) => {
-			// NEW-UX-004: capture the record before delete for Undo.
+			//capture the record before delete for Undo.
 			const deleted = records.find((r) => r.id === id);
 			try {
 				await call("delete_history", { id });
@@ -186,7 +186,7 @@ export default function HistoryPage() {
 		[call, setRecords],
 	);
 
-	// BG-53: Clear All is ambiguous under an active filter (the visible
+	//Clear All is ambiguous under an active filter (the visible
 	// list is a subset of ALL history).  When a filter is active:
 	// - Skip the `records.length === 0` short-circuit using the cached
 	// stats count instead (visible list may be empty while total is not).
@@ -219,8 +219,8 @@ export default function HistoryPage() {
 		}
 	}, [call, setRecords, setStats, setHasMore]);
 
-	// BG-54: doExport (filter-aware paging loop) extracted to
-	// useHistoryExport.  BG-52: the hook branches on
+	//doExport (filter-aware paging loop) extracted to
+	//useHistoryExport.  : the hook branches on
 	// searchQuery / favoritesOnly so the export matches the active
 	// filter instead of silently dumping ALL history.
 	const { doExport } = useHistoryExport({
@@ -286,7 +286,7 @@ export default function HistoryPage() {
 						variant="outline"
 						size="sm"
 						onClick={toggleFavorites}
-						// BG-51: aria-pressed conveys the toggle state to
+						//aria-pressed conveys the toggle state to
 						// assistive tech. The accessible name stays stable
 						// (always "Favorites") so the visible label matches
 						// the announced name (Label-in-Name). The toggle
@@ -312,7 +312,7 @@ export default function HistoryPage() {
 						size="sm"
 						onClick={handleClearAll}
 						aria-label={t("history.clearAllAria")}
-						// S5-CR-104: Clear All is a destructive action
+						//Clear All is a destructive action
 						// (deletes ALL history records after a ConfirmDialog
 						// gate) but previously rendered identically to the
 						// Favorites toggle (same outline variant, same
@@ -367,12 +367,12 @@ export default function HistoryPage() {
 						<Spinner />
 					</div>
 				) : loadError && records.length === 0 ? (
-					// NF-R10-1: distinguish "backend failed to load" from
+					//distinguish "backend failed to load" from
 					// "history is genuinely empty".
 					// variant="error" so the destructive
 					// tint + Alert02Icon swap make the failure visually
 					// distinct from a genuine empty list (matches the
-					// Vocabulary/Templates load-failure pattern from BG-60).
+					//Vocabulary/Templates load-failure pattern from ).
 					<EmptyState
 						variant="error"
 						icon={AlertCircleIcon}
@@ -420,8 +420,7 @@ export default function HistoryPage() {
 							onToggleFavorite={handleToggleFavorite}
 						/>
 
-						{/*
-							CR-054: once `records.length` reaches the 200-item
+						{/*once `records.length` reaches the 200-item
 							display cap AND the backend still reports more
 							available (`hasMore`), further "Load More" clicks
 							would be silent no-ops — `records.slice(0, 200)`
@@ -470,7 +469,7 @@ export default function HistoryPage() {
 			<ConfirmDialog
 				open={showClearConfirm}
 				title={t("history.clearAllHistory")}
-				// BG-53: when a filter is active, the default message is
+				//when a filter is active, the default message is
 				// ambiguous (the user might think only the visible subset
 				// will be deleted).  Use a clearer message that calls out
 				// the hidden entries.

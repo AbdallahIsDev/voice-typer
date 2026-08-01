@@ -1,9 +1,9 @@
 // @vitest-environment node
 /**
- * NH-3 (session NH) regression test — preload bridge surface for
+ *  (session NH) regression test — preload bridge surface for
  * the `i18n:set-locale` IPC channel.
  *
- * NH-3 added an `i18n:set-locale` IPC handler on the main-process side
+ *  added an `i18n:set-locale` IPC handler on the main-process side
  * (`main/ipc/window-handlers.ts`) and the renderer's `setLocale()`
  * pushes the new locale to the main process via
  * `globalThis.window_?.setLocale?.(locale)` (see `renderer/src/i18n/i18n.ts`).
@@ -13,7 +13,7 @@
  * "i18n:set-locale", locale)`. If the preload bridge surface is missing
  * the `setLocale` entry, the renderer's call silently no-ops
  * (optional chaining), and native dialogs always render in English —
- * the exact regression NH-3 was meant to fix.
+ * the exact regression  was meant to fix.
  *
  * This test mocks `electron`'s `contextBridge.exposeInMainWorld` to
  * capture the namespace objects the preload exposes, then asserts:

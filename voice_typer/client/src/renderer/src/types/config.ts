@@ -1,5 +1,5 @@
-// FR-4: must mirror Python `ALLOWED_USER_MODELS` in
-// `voice_typer/server/config_validators.py:44-55`. CR-38 extended the
+//must mirror Python `ALLOWED_USER_MODELS` in
+//`voice_typer/server/config_validators.py:44-55`.  extended the
 // Python allowlist to include the multilingual Whisper variants
 // (tiny/small/medium, no `.en` suffix) that OnboardingController offers
 // to non-English users, but the TS union was never updated — TS code
@@ -26,13 +26,13 @@ export interface VoiceTyperConfig {
 	// Recording
 	sample_rate: number;
 	microphone: string | null;
-	// GT-F2-3: optional because older sidecars (pre-GT-F2-3) don't
+	//optional because older sidecars (pre-) don't
 	// echo it back on `get_config`. The Python `Config` dataclass
 	// declares `recording_channels: int = 1` (mono) and it's in the
 	// IPC allowlist; absence on the wire is treated as 1 (mono) by
 	// the renderer.
 	recording_channels?: number;
-	// GT-F2-3: optional because older sidecars (pre-GT-F2-3) don't
+	//optional because older sidecars (pre-) don't
 	// echo it back. The Python `Config` dataclass declares
 	// `pre_roll_buffer_seconds: float = 0.0` (no pre-roll) and it's
 	// in the IPC allowlist; absence on the wire is treated as 0.0.
@@ -59,7 +59,7 @@ export interface VoiceTyperConfig {
 	autostart: boolean;
 	paste_on_stop: boolean;
 	show_notifications: boolean;
-	// PW-3: prewarm scheduled-task master toggle.
+	//prewarm scheduled-task master toggle.
 	fast_startup: boolean;
 
 	// Clipboard borrow/restore (ADR-0010)
@@ -77,13 +77,13 @@ export interface VoiceTyperConfig {
 	corrections_path: string | null;
 	log_transcriptions: boolean;
 
-	// GT-37 (PLAT-013 / PLAT-014): paste-safety toggles. Both default
+	//( / ): paste-safety toggles. Both default
 	// to true in the Python `Config` dataclass
 	// (`voice_typer/server/config.py:643-645`) and are in the IPC
 	// allowlist. When true, the renderer surfaces a confirmation
 	// dialog before pasting into elevated (admin/root) windows or
 	// password fields. OPTIONAL on the TS side for backward compat
-	// with older sidecars (pre-GT-37) that don't echo them; absence
+	//with older sidecars (pre-) that don't echo them; absence
 	// is treated as `true` by the renderer (the Python default).
 	warn_elevated_paste?: boolean;
 	warn_password_paste?: boolean;
@@ -91,7 +91,7 @@ export interface VoiceTyperConfig {
 	// Recording mode
 	recording_mode: "toggle" | "push_to_talk";
 	/**
-	 * @deprecated EC-FIX-10 / EC-24 / GT-F2-8: server-controlled only.
+	 * @deprecated  /  / : server-controlled only.
 	 *
 	 * Kept in the type for config-file backwards-compat only — older
 	 * `config.json` files written by previous versions may include
@@ -103,7 +103,7 @@ export interface VoiceTyperConfig {
 	 * *presence* of the key in `updates` so the hotkey listener can
 	 * be re-registered, not the value).
 	 *
-	 * GT-F2-8 (coordinates with GT-FIX-11 on the Python side): the
+	 *  (coordinates with  on the Python side): the
 	 * field has been REMOVED from `IPC_CONFIG_ALLOWLIST` in
 	 * `voice_typer/server/config_validators.py`, so the server now
 	 * ENFORCES the write-only-on-the-wire contract — any
@@ -112,7 +112,7 @@ export interface VoiceTyperConfig {
 	 * cannot write this value via IPC; the field survives only as a
 	 * config-file back-compat key for stale `config.json` files.
 	 *
-	 * Rules of engagement (EC-FIX-10, enforced as of GT-F2-8):
+	 * Rules of engagement (, enforced as of ):
 	 *   - The server MUST NOT read this value (the allowlist removal
 	 *     now blocks any attempt to write it via IPC).
 	 *   - The renderer MUST NOT write this value (no production
@@ -173,15 +173,15 @@ export interface VoiceTyperConfig {
 	// Whether to show the bubble at app startup (only applies when bubble_behavior is 'always_visible')
 	bubble_show_on_startup: boolean;
 
-	// UX-10: when in `always_visible` mode, show a mic button that toggles
+	//when in `always_visible` mode, show a mic button that toggles
 	// dictation on click. Default ON.
 	bubble_click_to_toggle: boolean;
 
-	// UX-10: explicit mic-button visibility toggle. Default ON. When OFF
+	//explicit mic-button visibility toggle. Default ON. When OFF
 	// the bubble stays non-interactive even in always_visible mode.
 	bubble_mic_button: boolean;
 
-	// PVT-068: persisted bubble position (px, relative to the active
+	//persisted bubble position (px, relative to the active
 	// screen's top-left). When non-null, the bubble window restores to
 	// this position on next show; when null, the window falls back to
 	// the platform-default position computed from `bubble_position`
@@ -189,34 +189,34 @@ export interface VoiceTyperConfig {
 	// null or both non-null) — the renderer writes them as a pair via
 	// `set_config({ bubble_x, bubble_y })`.
 	//
-	// GT-36 / GT-FIX-11: the Python `Config` dataclass in
+	//the Python `Config` dataclass in
 	// `voice_typer/server/config.py` now persists these (declared as
 	// `int | None = None`) alongside `bubble_position`, and they're in
 	// the IPC allowlist, so they survive across restarts via the
 	// normal config.json serialisation path. Older sidecars
-	// (pre-GT-FIX-11) silently dropped both keys — the renderer
+	//(pre-) silently dropped both keys — the renderer
 	// treats absence as null. REQUIRED on the TS side because every
-	// modern sidecar (post-GT-FIX-11) echoes them on `get_config`.
+	//modern sidecar (post-) echoes them on `get_config`.
 	bubble_x: number | null;
 	bubble_y: number | null;
 
-	// PVT-067: persisted bubble scale factor. Default 1.0 (no scaling).
+	//persisted bubble scale factor. Default 1.0 (no scaling).
 	// The bubble window multiplies its base DPI by this value to render
 	// a larger or smaller pill. Range is clamped by the renderer to
 	// [0.5, 2.0] before being sent to `set_config`.
 	//
-	// GT-36 / GT-FIX-11: the Python `Config` dataclass now persists
+	//the Python `Config` dataclass now persists
 	// this as `float = 1.0` and it's in the IPC allowlist. OPTIONAL on
 	// the TS side for backward compat with older config.json files /
 	// older sidecars that predate the field — absence is treated as
 	// 1.0 by both the renderer and the server.
 	bubble_scale?: number;
 
-	// PVT-034: persisted microphone-test duration (seconds). The
+	//persisted microphone-test duration (seconds). The
 	// Microphone page's "Test" button records for this many seconds
 	// before auto-stopping. Range clamped to [1, 30] by the server.
 	//
-	// GT-36 / GT-FIX-11: the Python `Config` dataclass now persists
+	//the Python `Config` dataclass now persists
 	// this as `int = 5` and it's in the IPC allowlist. OPTIONAL on the
 	// TS side for backward compat with older config.json files /
 	// older sidecars that predate the field — absence falls back to
@@ -230,10 +230,10 @@ export interface VoiceTyperConfig {
 
 	// Onboarding
 	onboarding_completed: boolean;
-	// GT-F2-3: server-controlled flag set by the backend when the
+	//server-controlled flag set by the backend when the
 	// onboarding flow fails irrecoverably (e.g. model download error
 	// during guided setup). OPTIONAL because older sidecars
-	// (pre-GT-F2-3) don't echo it; the renderer treats absence as
+	//(pre-) don't echo it; the renderer treats absence as
 	// false. The Python `Config` dataclass declares
 	// `onboarding_failed: bool = False`.
 	onboarding_failed?: boolean;
@@ -274,13 +274,13 @@ export interface VoiceTyperConfig {
 	// (max_recording_time_seconds_gpu, max_recording_time_seconds_cpu, and
 	// max_recording_time_seconds=0 auto-selection). Now always a concrete value.
 	max_recording_time_seconds: number;
-	// RW-0: dead_air_timeout REMOVED — redundant with stop_on_silence_seconds.
+	//dead_air_timeout REMOVED — redundant with stop_on_silence_seconds.
 
 	// Volume ducking
 	volume_duck_enabled: boolean;
 	volume_duck_level: number;
 	/**
-	 * @deprecated FR-67 / UX-2 / GT-58: REMOVED from the Python Config
+	 * @deprecated  /  / : REMOVED from the Python Config
 	 * dataclass (`voice_typer/server/config.py:775-781`) — ducking now
 	 * always applies to the master volume cross-platform. Existing
 	 * `config.json` files that still carry the key are silently
@@ -299,7 +299,7 @@ export interface VoiceTyperConfig {
 	volume_duck_per_session?: boolean;
 	volume_duck_fade_ms: number;
 	/**
-	 * @deprecated FR-67 / UX-2 / GT-58: REMOVED from the Python Config
+	 * @deprecated  /  / : REMOVED from the Python Config
 	 * dataclass (`voice_typer/server/config.py:784-786`) — smart duck
 	 * is now ALWAYS ON when `volume_duck_enabled` is True. Existing
 	 * `config.json` files that still carry the key are silently
@@ -320,7 +320,7 @@ export interface VoiceTyperConfig {
 
 	// ADR 0007: Audio enhancement preset.
 	//
-	// GT-51: tightened to mirror the Python IPC enum validator in
+	//tightened to mirror the Python IPC enum validator in
 	// `voice_typer/server/config_validators.py`
 	// (`_make_enum_validator({"auto", "studio", "noisy_room", "off",
 	// "custom"})`). The legacy aliases "none" and "recommended" were
@@ -339,7 +339,7 @@ export interface VoiceTyperConfig {
 	noise_filter_highpass_cutoff_hz: number;
 	noise_filter_gate: boolean;
 	/**
-	 * @deprecated FR-67 / GT-58: REMOVED from the Python Config
+	 * @deprecated  / : REMOVED from the Python Config
 	 * dataclass (`voice_typer/server/config.py:837-840`) — replaced
 	 * by the open/close threshold pair below per ADR 0007. Existing
 	 * `config.json` files that still carry the key are silently
@@ -362,7 +362,7 @@ export interface VoiceTyperConfig {
 	noise_filter_gate_close_threshold_db: number;
 	noise_filter_gate_attack_ms: number;
 	noise_filter_gate_release_ms: number;
-	// FR-67 / ADR 0009: RUNTIME (server-controlled, not IPC-settable
+	//ADR 0009: RUNTIME (server-controlled, not IPC-settable
 	// per ADR 0009). The Python `Config` dataclass at
 	// `voice_typer/server/config.py:842` declares
 	// `noise_filter_rnnoise: bool = True` (legacy field kept for
@@ -375,7 +375,7 @@ export interface VoiceTyperConfig {
 	// incorrect — this is a live runtime switch, not a deprecated
 	// field.
 	noise_filter_rnnoise: boolean; // RUNTIME (server-controlled, not IPC-settable per ADR 0009)
-	// FR-67 / ADR 0009: RUNTIME (server-controlled, not IPC-settable
+	//ADR 0009: RUNTIME (server-controlled, not IPC-settable
 	// per ADR 0009). The Python `Config` dataclass at
 	// `voice_typer/server/config.py:843` declares
 	// `noise_filter_post_capture: bool = True` (runtime switch — see
@@ -386,7 +386,7 @@ export interface VoiceTyperConfig {
 	// comment was incorrect — this is a live runtime switch, not a
 	// deprecated field.
 	noise_filter_post_capture: boolean; // RUNTIME (server-controlled, not IPC-settable per ADR 0009)
-	// GT-51: tightened to mirror the Python `NOISE_SUPPRESSION_METHODS`
+	//tightened to mirror the Python `NOISE_SUPPRESSION_METHODS`
 	// frozenset in `voice_typer/server/config_validators.py`
 	// ({"rnnoise", "deepfilternet", "none"}). The historical "speex"
 	// option was never implemented — there is no speex backend in
@@ -411,7 +411,7 @@ export interface VoiceTyperConfig {
 	noise_filter_notch: boolean;
 	noise_filter_notch_frequency_hz: number;
 
-	// NEW-PRIV-005/006/009: privacy consent flags.  All default to
+	//006/009: privacy consent flags.  All default to
 	// false in the Python Config dataclass; the renderer must show a
 	// consent dialog before flipping any of these to true.  See the
 	// individual field docstrings in voice_typer/server/config.py for
@@ -426,7 +426,7 @@ export interface VoiceTyperConfig {
 	// Consent for centralized review/revocation.
 	llm_polish_consent: boolean;
 
-	// NEW-UX-029: sound feedback on record start/stop.  Opt-in (default
+	//sound feedback on record start/stop.  Opt-in (default
 	// false).  When true, the renderer plays a short Web Audio API cue
 	// when recording starts and stops — useful for accessibility and
 	// for users who prefer an auditory signal.
@@ -452,29 +452,29 @@ export interface VoiceTyperConfig {
 	vocabulary_auto_confidence_threshold: number;
 	vocabulary_auto_apply_threshold: number;
 
-	// RW-01: marks that plaintext API keys have been migrated to
+	//marks that plaintext API keys have been migrated to
 	// the OS keychain.  Set to true by Config.load() after the
 	// first migration run.  The renderer doesn't display this
 	// directly — it consults ``keyring_status`` for the user-facing
 	// indicator.
 	secrets_migrated?: boolean;
 
-	// RW-01: OS keychain backend status.  Attached to the
+	//OS keychain backend status.  Attached to the
 	// ``get_config`` / ``get_defaults`` IPC responses by the
 	// service layer (NOT stored in the Config dataclass — it's
 	// runtime-probed state).  Optional because legacy responses
-	// (pre-RW-01) don't include it; the renderer treats absence
+	//(pre-) don't include it; the renderer treats absence
 	// as "keyring unavailable, plaintext fallback".
 	keyring_status?: KeyringStatus;
 
-	// XZ-CFG-15: server-side load-time warnings (e.g. deprecated
+	//server-side load-time warnings (e.g. deprecated
 	// keys scrubbed by migration, invalid values clamped to
 	// defaults, missing optional files). Populated by
 	// ``Config.load()`` on the Python side and attached to the
 	// ``get_config`` IPC response via
 	// ``_sanitize_config_for_ipc`` (which copies ``config.__dict__``
 	// verbatim, so this attribute rides along). OPTIONAL because
-	// older sidecars (pre-XZ-CFG-15) didn't echo it; the renderer
+	//older sidecars (pre-) didn't echo it; the renderer
 	// treats absence as "no warnings". When non-empty, the
 	// renderer surfaces a one-shot toast listing the warnings so
 	// the user knows their config was migrated/clamped.
@@ -489,7 +489,7 @@ export interface VoiceTyperConfig {
 }
 
 /**
- * RW-01: OS keychain backend status, attached to get_config responses.
+ * : OS keychain backend status, attached to get_config responses.
  *
  * The renderer uses this to show a "Stored securely in your OS keychain"
  * lock icon next to API key inputs (when ``available`` is true), or a
@@ -520,7 +520,7 @@ export interface MicrophoneDevice {
 	rate?: number;
 }
 
-// NEW-TS-002/003: PythonRequestType / PythonRequest / PythonResponse /
+//003: PythonRequestType / PythonRequest / PythonResponse /
 // PythonEvent types deleted. They were never imported anywhere, and
 // the IPC command names were wrong ('update_config' should be
 // 'set_config', 'restart' should be 'restart_app'). The actual IPC

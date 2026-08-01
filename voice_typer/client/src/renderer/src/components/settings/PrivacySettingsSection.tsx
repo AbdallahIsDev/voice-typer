@@ -39,7 +39,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 
 	const t = useT();
 
-	// XA-4-13: confirmation dialog state for "Agree to All" — granting all
+	//confirmation dialog state for "Agree to All" — granting all
 	// 6 consents at once is a significant privacy decision (enables cloud
 	// transcription, LLM polishing, HuggingFace downloads, voice-biometric
 	// processing) so we surface a destructive-variant ConfirmDialog before
@@ -70,7 +70,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 	const handleLlmPolishConsentChange = (checked: boolean) =>
 		updateConfig({ llm_polish_consent: checked });
 
-	// XA-4-13: opening the ConfirmDialog instead of granting all 6 consents
+	//opening the ConfirmDialog instead of granting all 6 consents
 	// immediately. The actual updateConfig call happens in
 	// `handleConfirmAgreeToAll` (below) once the user confirms.
 	const handleAgreeToAll = () => {
@@ -118,7 +118,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 	const exportAllDataLabel = t("settings.privacy.exportAllDataLabel");
 	const exportAllDataInfoSearch = t("settings.privacy.exportAllDataInfoSearch");
 
-	// UX-028: section-level visibility check for Audio & Recovery section.
+	//section-level visibility check for Audio & Recovery section.
 	const audioRecoveryTitle = t("settings.privacy.audioRecoveryTitle");
 	const audioRecoveryItems = [
 		{ label: crashRecoveryLabel, info: crashRecoveryInfoSearch },
@@ -127,7 +127,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 		isVisible(item.label, item.info, audioRecoveryTitle),
 	);
 
-	// UX-028: section-level visibility check for Privacy & Consent section.
+	//section-level visibility check for Privacy & Consent section.
 	const privacyTitle = t("settings.privacy.privacyTitle");
 	const privacyItems = [
 		{ label: huggingFaceLabel, info: huggingFaceInfoSearch },
@@ -167,7 +167,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 			{/* ── SECTION: Privacy & Consent ─────────────────────────── */}
 			{privacyVisible && (
 				<>
-					{/* NEW-PRIV-005/006/009: centralized consent management.
+					{/*006/009: centralized consent management.
 				All four consent flags live in the Python Config and are
 				enforced by the backend (HuggingFace download refusal,
 				CloudEngine ConsentRequiredError, etc.).  This section
@@ -329,7 +329,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 							/>
 						</SettingRow>
 
-						{/* NEW-PRIV-007: GDPR right-to-export (Art. 15/20).
+						{/*GDPR right-to-export (Art. 15/20).
 					Previously only history + vocabulary were exportable.
 					Templates and config are also user data and must be
 					exportable on request.  The handlers live in
@@ -438,7 +438,7 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 				</>
 			)}
 
-			{/* XA-4-13: confirmation dialog for "Agree to All". Discloses the
+			{/*confirmation dialog for "Agree to All". Discloses the
 				scope of the action (which 6 consents will be granted and what
 				each enables) so the user can make an informed decision before
 				clicking. Uses variant="destructive" because granting all cloud

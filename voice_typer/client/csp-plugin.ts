@@ -1,7 +1,7 @@
 /**
- * RW-3: per-page CSP emitted at build time.
+ * : per-page CSP emitted at build time.
  *
- * Prior to RW-3, both index.html and bubble.html shipped a CSP meta tag with
+ * Prior to , both index.html and bubble.html shipped a CSP meta tag with
  * `script-src 'self' 'unsafe-eval' 'unsafe-inline'` baked in — even in the
  * production build. The strict policy was applied only via the HTTP-header
  * route in main/index.ts (onHeadersReceived), which left the meta tag itself
@@ -20,11 +20,11 @@
  *   `'self'`-only script-src. The production bundle has no inline scripts
  *   and no eval, so the strict policy is sufficient.
  *
- * CR-11 / R6-F5 (fix): the CSP `connect-src` is now split per window so the
+ *  / R6-F5 (fix): the CSP `connect-src` is now split per window so the
  * bubble.html policy does NOT include `https://api.github.com`. The main
  * window's policy keeps it (the Settings page's "Check for Updates" button
  * still fetches the GitHub releases API on an EXPLICIT user click — see
- * CR-11 fix in `PrewarmAndUpdates.tsx` which removed the auto-mount
+ *  fix in `PrewarmAndUpdates.tsx` which removed the auto-mount
  * `useEffect`). The bubble has NO update-check surface, so granting it
  * `connect-src https://api.github.com` would be dead attack surface.
  *
@@ -46,7 +46,7 @@ import type { Plugin } from "vite";
  * Build the production `connect-src` directive for a given window.
  *
  * `api.github.com` is included ONLY for the main window — the bubble has
- * no update-check surface (CR-11 / R6-F5).
+ * no update-check surface ( / R6-F5).
  */
 function buildConnectSrc(opts: { allowGitHub: boolean }): string {
 	const parts = ["'self'"];
@@ -58,11 +58,11 @@ function buildConnectSrc(opts: { allowGitHub: boolean }): string {
  * Production CSP for the MAIN window (index.html). Includes
  * `https://api.github.com` in `connect-src` so the Settings page's
  * explicit "Check for Updates" button can fetch the GitHub releases
- * API. CR-11 removed the auto-mount `useEffect` that previously
+ * API.  removed the auto-mount `useEffect` that previously
  * fired the check on every Settings open, so this URL is now reached
  * ONLY on a deliberate user click.
  *
- * FR-103: `object-src 'none'` is included to block <object>, <embed>,
+ * : `object-src 'none'` is included to block <object>, <embed>,
  * and <applet> elements entirely. The renderer has no legitimate use
  * for these elements (all media is via <audio>/<video> with `media-src`
  * gating), so blocking them is a strict hardening with no functional
@@ -86,11 +86,11 @@ export const CSP_PROD_MAIN = [
 /**
  * Production CSP for the BUBBLE window (bubble.html). Does NOT include
  * `https://api.github.com` in `connect-src` — the bubble has no
- * update-check surface (CR-11 / R6-F5). A compromised bubble renderer
+ * update-check surface ( / R6-F5). A compromised bubble renderer
  * must not be able to phone home to GitHub or exfiltrate data via a
  * CSP-permitted `connect-src`.
  *
- * FR-103: `object-src 'none'` mirrors CSP_PROD_MAIN — the bubble has
+ * : `object-src 'none'` mirrors CSP_PROD_MAIN — the bubble has
  * no legitimate use for <object>/<embed>/<applet> elements either.
  */
 export const CSP_PROD_BUBBLE = [
@@ -161,7 +161,7 @@ export function pickProdCsp(filePath: string): string {
 /**
  * Vite plugin that rewrites the CSP meta tag in index.html / bubble.html
  * based on the current mode (dev vs prod) and which file is being
- * transformed (CR-11 / R6-F5 per-window split).
+ * transformed ( / R6-F5 per-window split).
  */
 export function cspEmissionPlugin(): Plugin {
 	let isProduction = false;
@@ -183,7 +183,7 @@ export function cspEmissionPlugin(): Plugin {
 			// provides).
 			order: "pre",
 			handler(html: string, ctx?: { path?: string; filename?: string }) {
-				// CR-11 / R6-F5: pick the per-window prod policy. In dev we
+				//R6-F5: pick the per-window prod policy. In dev we
 				// always use CSP_DEV (the dev server needs the HMR websocket
 				// regardless of which window is loading).
 				const filePath = ctx?.path ?? ctx?.filename ?? "";

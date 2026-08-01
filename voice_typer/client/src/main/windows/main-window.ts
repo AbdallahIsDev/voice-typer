@@ -79,7 +79,7 @@ export function broadcastMaximized(maximized: boolean): void {
  * Broadcast helper refactor: explicit broadcast helper for the main
  * window. Replaces the
  * previous `webContents.send` monkey-patch that intercepted outbound
- * `python-event` messages. Centralizes the CR-28 `pythonReady` flip on
+ * `python-event` messages. Centralizes the  `pythonReady` flip on
  * the first `{ type: "ready" }` push and the destroyed-window guard.
  */
 export function broadcastToMainWindow(channel: string, msg: unknown): void {
@@ -205,7 +205,7 @@ export function recordBubbleRenderCrash(): boolean {
 
 export function createMainWindow(forceShow = false): void {
 	if (state.mainWindow) return;
-	// CR-28: do NOT set `state.pythonReady = true` here.
+	//do NOT set `state.pythonReady = true` here.
 	//
 	// The BrowserWindow is created on the first successful TCP
 	// connect (see tcp-connect.ts:59 `createWindows()`), but "TCP
@@ -298,7 +298,7 @@ export function createMainWindow(forceShow = false): void {
 	// replaced with the explicit `broadcastToMainWindow(channel, msg)`
 	// helper (see the export above). Callers in handle-message.ts and
 	// tcp-connect.ts now route their `python-event` broadcasts through
-	// that helper, which centralizes the CR-28 `pythonReady` flip and
+	//that helper, which centralizes the  `pythonReady` flip and
 	// the destroyed-window guard.
 
 	// R6-F3 (session-3): register the module-level nativeTheme
@@ -395,7 +395,7 @@ export function createMainWindow(forceShow = false): void {
 			// renderer crashes without fishing through
 			// DevTools or the noisy `electron-main.log`.
 			//
-			// XZ-LOG-03: apply `redactPii` to the persisted line
+			//apply `redactPii` to the persisted line
 			// so user-spoken text fragments / API keys / URL
 			// credentials in renderer error messages don't
 			// land unredacted in `electron-renderer-errors.log`.

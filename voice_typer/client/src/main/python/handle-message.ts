@@ -14,7 +14,7 @@
 import { app } from "electron";
 import { BUBBLE_ONLY_TYPES } from "../ipc/bubble-handlers";
 import { BubbleChannels, PythonChannels } from "../ipc/channels";
-// DE-87 / S2-CR-75: route Python push-event lifecycle messages
+//route Python push-event lifecycle messages
 // through the structured `log` logger so they persist to
 // `electron-main.log` (with 5 MiB rotation) and
 // `electron-lifecycle.log` (opt-in INFO persistence) instead of
@@ -23,13 +23,13 @@ import { BubbleChannels, PythonChannels } from "../ipc/channels";
 import { BUBBLE_CLR, log, RESET, ts } from "../logging";
 import { state } from "../state";
 import { hideBubbleWindow, showBubbleWindow, showMainWindow } from "../windows";
-// GT-A3-8: broadcastToMainWindow imported directly from main-window
+//broadcastToMainWindow imported directly from main-window
 // (windows/index.ts is owned by another sub-agent and doesn't re-export it).
 import { broadcastToMainWindow } from "../windows/main-window";
 import { relaunchApp } from "./relaunch-app";
 import { sendToPython } from "./send-to-python";
 
-// AC-110: dispatch table for the 8 push-event types. Replaces the prior
+//dispatch table for the 8 push-event types. Replaces the prior
 // 79-line if-else chain so a 9th event type is a one-line addition to
 // `PUSH_HANDLERS` instead of a new `else if` branch with all of the
 // behavioural copy/pasted. Each handler receives the already-narrowed
@@ -37,7 +37,7 @@ import { sendToPython } from "./send-to-python";
 // their own `msg.data` validation (matching the prior per-branch
 // behaviour).
 //
-// XZ-R18-12: handlers are keyed on the exact `msg.type` string. Unknown
+//handlers are keyed on the exact `msg.type` string. Unknown
 // string-typed event types fall through past the dispatch to the
 // broadcast below — preserving back-compat with renderer code that
 // listens on `python-event` for types not explicitly handled here (e.g.
@@ -123,7 +123,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 						? errData.message
 						: "Unknown error";
 				const err = new Error(message);
-				// PVT-G5-012 sub-finding: previously only `message` was
+				//sub-finding: previously only `message` was
 				// surfaced on the rejected Error — `data.code` was discarded.
 				// The Python backend emits structured `code` values
 				// (`unknown_command`, `internal_error`, `rate_limited`,
@@ -133,7 +133,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 				// fields) to the Error so consumers can do
 				// `if ((err as any).code === "rate_limited") ...` instead of
 				// pattern-matching the human-readable message string.
-				// GT-D2-6: avoid the unsafe `as string | undefined` cast. Narrow
+				//avoid the unsafe `as string | undefined` cast. Narrow
 				// with `typeof` so only string codes are attached; any other shape
 				// (number, object, array) is treated as undefined.
 				const code =
@@ -161,7 +161,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 		// window (not the main app) so the floating overlay updates without
 		// re-rendering the sidebar.
 
-		// XZ-R18-12: type guard. If `msg.type` is not a string (e.g. a
+		//type guard. If `msg.type` is not a string (e.g. a
 		// malformed message with `type: null` or `type: 42`), drop it with
 		// a warning instead of letting it fall through to the renderer
 		// broadcast — a non-string type can never match a handler and the
@@ -173,7 +173,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 			return;
 		}
 
-		// AC-110: dispatch via the lookup table. Unknown (but string-typed)
+		//dispatch via the lookup table. Unknown (but string-typed)
 		// event types intentionally fall through to the broadcast below —
 		// preserves back-compat with renderer code that listens on
 		// `python-event` for types not explicitly handled here.
@@ -182,7 +182,7 @@ export function handleMessage(msg: Record<string, unknown>): void {
 			handler(msg);
 		}
 
-		// ER-22: bubble-only events (bubble_show / bubble_hide /
+		//bubble-only events (bubble_show / bubble_hide /
 		// bubble_set_state / bubble_level / bubble_config) are consumed
 		// entirely by the bubble window (the dispatch handler above already
 		// routed them). They MUST NOT be broadcast to the main window
@@ -209,8 +209,8 @@ export function handleMessage(msg: Record<string, unknown>): void {
 		// to the bubble window too — a data leak (the bubble only needs
 		// waveform level + show/hide events).  Filter to the main window
 		// only; the bubble gets its own dedicated channel for waveform.
-		// GT-A3-8: route through broadcastToMainWindow instead of calling
-		// webContents.send directly. Centralizes CR-28 pythonReady flip +
+		//route through broadcastToMainWindow instead of calling
+		//webContents.send directly. Centralizes  pythonReady flip +
 		// destroyed-window guard.
 		broadcastToMainWindow(PythonChannels.event, msg);
 	}

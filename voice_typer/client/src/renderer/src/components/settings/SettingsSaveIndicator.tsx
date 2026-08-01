@@ -1,12 +1,12 @@
 // SettingsSaveIndicator — the 4-state save indicator shown in the
 // sticky header of the Settings page.
 //
-// Extracted from src/renderer/src/pages/Settings.tsx (PVT-028) so the
+//Extracted from src/renderer/src/pages/Settings.tsx () so the
 // page component is responsible for layout/UX only.
 //
 // States:
 //   saving   → "Saving…" with an amber pulse dot
-//   pending  → "Pending…" with a sky-blue pulse dot (PVT-028 Fix #8)
+//pending  → "Pending…" with a sky-blue pulse dot ( Fix #8)
 //   saved    → "Saved ✓" with a green Tick02Icon (2s pulse after a
 //               successful `set_config` roundtrip)
 //   idle     → "All changes saved" (dim)

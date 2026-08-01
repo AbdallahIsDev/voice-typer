@@ -6,13 +6,13 @@
  * python TCP-connect callback calls when the backend first becomes
  * reachable (preserving the original lazy-creation behaviour).
  *
- * PVT-G5-081 (session-5 dead-code cleanup): the previous re-exports
+ *  (session-5 dead-code cleanup): the previous re-exports
  * of `createBubbleWindow`, `isForegroundFullscreen` (from
  * `./bubble-window`) and `broadcastMaximized` (from `./main-window`)
  * were removed — grep across `src/main/**` confirms no caller imports
  * them through `../windows`; they are only used internally by their
  * own modules. `centerOnActiveDisplay`, `resetSavedBubblePosition`,
- * and `getSavedBubblePosition` (added by PVT-068) are likewise
+ * and `getSavedBubblePosition` (added by ) are likewise
  * imported directly from `./bubble-window` by their sole consumer
  * (`ipc/bubble-handlers.ts`), so they are not re-exported here.
  */

@@ -17,7 +17,7 @@ export default defineConfig({
 			// @server removed — resolved outside renderer root and
 			// crashed Vite HMR on locale switch. The JSON copy is
 			// imported with a project-relative path.
-			// NEW-TS-016: removed non-existent barrel file aliases
+			//removed non-existent barrel file aliases
 			"#ui": resolve(__dirname, "src/renderer/src/components/ui"),
 			"#utils": resolve(__dirname, "src/renderer/src/lib/utils.ts"),
 		},

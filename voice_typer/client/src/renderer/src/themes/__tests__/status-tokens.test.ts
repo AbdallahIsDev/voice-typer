@@ -1,11 +1,11 @@
 /**
- * NH-16 (session NH) test: every theme preset defines
+ *  (session NH) test: every theme preset defines
  * ``--success`` / ``--warning`` / ``--info`` tokens.
  *
- * Before NH-16, the renderer had no design tokens for success/warning/info
+ * Before , the renderer had no design tokens for success/warning/info
  * states — components improvised with raw Tailwind palette colors
  * (``text-emerald-500``, ``text-amber-500``, ``bg-amber-400``) which
- * don't follow the active theme's palette. NH-16 added the three new
+ * don't follow the active theme's palette.  added the three new
  * semantic tokens to ``index.css`` (light + dark) AND to every theme
  * preset's light/dark maps so status colours track the theme.
  *
@@ -27,7 +27,7 @@ import { deriveCustomVars, THEME_VARIABLES, THEMES } from "@/themes";
 
 const STATUS_TOKENS = ["--success", "--warning", "--info"] as const;
 
-describe("NH-16: every theme preset defines --success / --warning / --info", () => {
+describe("every theme preset defines --success / --warning / --info", () => {
 	it("THEME_VARIABLES includes the three status tokens", () => {
 		for (const token of STATUS_TOKENS) {
 			expect(THEME_VARIABLES, `THEME_VARIABLES missing ${token}`).toContain(
@@ -65,7 +65,7 @@ describe("NH-16: every theme preset defines --success / --warning / --info", () 
 	}
 });
 
-describe("NH-16: deriveCustomVars emits status tokens for custom themes", () => {
+describe("deriveCustomVars emits status tokens for custom themes", () => {
 	it("light custom theme derives --success / --warning / --info", () => {
 		const vars = deriveCustomVars(
 			{
@@ -107,7 +107,7 @@ describe("NH-16: deriveCustomVars emits status tokens for custom themes", () => 
 	});
 });
 
-describe("NH-16: index.css stylesheet defines the status tokens as defaults", () => {
+describe("index.css stylesheet defines the status tokens as defaults", () => {
 	// The stylesheet is the fallback when a theme doesn't override the
 	// tokens (the ``default`` preset relies on this). Reading the file as
 	// text and substring-matching is the most robust way to assert the

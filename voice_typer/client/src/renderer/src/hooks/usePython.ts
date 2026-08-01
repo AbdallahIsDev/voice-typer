@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 
-// ZR-23: import `installTauriBridge` so `subscribeBridgeReady` can
+//import `installTauriBridge` so `subscribeBridgeReady` can
 // re-trigger the installer when `window.__TAURI__` appears AFTER the
 // initial module-import-time auto-install ran (which no-op'd because
 // `window.__TAURI__` wasn't yet present). The static import also
@@ -10,10 +10,19 @@ import { useCallback, useEffect, useRef, useSyncExternalStore } from "react";
 // the existing behavior preserved.
 import { installTauriBridge } from "@/lib/tauri-bridge";
 import type { PythonPushEvent } from "@/types/ipc";
+// Import the `PythonCallErrorCode` union so the renderer can narrow
+// `result._code` against the typed union. The canonical declaration
+// lives in the Electron main process's `python-call-handler.ts`
+// (outside the web tsconfig's `include` scope — a cross-boundary import
+// would fail `tsc --noEmit` with `TS6307`). The renderer-side mirror
+// lives in `types/ipc/enums.ts` (this file's import below); the two
+// declarations MUST stay in sync — both files carry a comment pointing
+// to the other.
+import type { PythonCallErrorCode } from "@/types/ipc/enums";
 import type { PythonRequest } from "@/types/ipc/requests";
 
 /**
- * NH-32: extracts the per-event ``data`` payload shape for a given
+ * : extracts the per-event ``data`` payload shape for a given
  * PythonPushEvent ``type`` literal. For events with NO ``data`` field
  * (e.g. ``RecordingStartedEvent``), this resolves to ``undefined`` —
  * the handler is then typed as ``(data?: undefined) => ...`` so callers
@@ -30,7 +39,7 @@ type ExtractEventData<K extends PythonPushEvent["type"]> =
 		? D
 		: undefined;
 
-// ─── CR-18: per-command timeout table ────────────────────────────────
+//per-command timeout table ────────────────────────────────
 //
 // A blanket 120s `setTimeout` is applied to every IPC call by the
 // Electron main process's `sendToPython` (client/src/main/index.ts:
@@ -51,7 +60,7 @@ type ExtractEventData<K extends PythonPushEvent["type"]> =
 // main / Rust host's timer is still active on their side), but the
 // caller sees the renderer-side timeout rejection first.
 //
-// ─── S1-CR-76 / DT-44: Rust hard cap on `download_model` ─────────────
+//Rust hard cap on `download_model` ─────────────
 //
 // The Rust `dispatch` command enforces a hard timeout of 120s for the
 // 6 model-lifecycle commands (`download_model`, `import_model`,
@@ -81,7 +90,7 @@ const COMMAND_TIMEOUTS: Record<string, number> = {
 	get_status: 5_000,
 	get_config: 5_000,
 	get_history: 10_000,
-	// S1-CR-76 / DT-44: capped at 115s — 5s below the Rust host's
+	//capped at 115s — 5s below the Rust host's
 	// 120s `DISPATCH_TIMEOUT_SECS` hard cap so the renderer surfaces
 	// the timeout first with a command-specific error message
 	// instead of letting the Rust side reject with the generic
@@ -105,7 +114,7 @@ const COMMAND_TIMEOUTS: Record<string, number> = {
 
 const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 
-// ZR-27: runtime mirror of the `PythonPushEvent["type"]` union
+//runtime mirror of the `PythonPushEvent["type"]` union
 // declared in `types/ipc/push_events.ts`. TS can't enumerate union
 // members at runtime, so we maintain this set by hand. The dev-time
 // warning in `usePythonEvent` (below) consults this set to surface
@@ -118,7 +127,7 @@ const DEFAULT_COMMAND_TIMEOUT_MS = 30_000;
 // forgetfulness the first time a renderer subscribes to the new
 // event (the warning fires for unknown types — including ones added
 // to the TS union but not yet to this set).
-// UE-39: exported so the parity test
+//exported so the parity test
 // (`__tests__/usePython-known-event-types-parity.test.ts`) can assert
 // the runtime set matches the compile-time `PythonPushEvent["type"]`
 // union. Not part of the public hook API — only consumed by tests.
@@ -158,7 +167,7 @@ export const KNOWN_EVENT_TYPES: ReadonlySet<string> = new Set([
 	"llm_polish_failed",
 	"reconnecting",
 	"reconnected",
-	// ZR-67 (TY-18): the new mic_level push event (coalesced at
+	//(): the new mic_level push event (coalesced at
 	// ≤30 Hz by the same level_monitor worker that publishes
 	// `bubble_level`). Subscribed to by
 	// `pages/microphone/hooks/useMicrophoneTest.ts` instead of
@@ -197,7 +206,7 @@ function withCommandTimeout<T>(promise: Promise<T>, cmd: string): Promise<T> {
 	});
 }
 
-// ─── CR-6: bridge-ready subscription via useSyncExternalStore ────────
+//bridge-ready subscription via useSyncExternalStore ────────
 //
 // `usePythonEvent` previously returned early from its `useEffect` when
 // `window.python` was undefined at mount, and the effect's only
@@ -212,7 +221,7 @@ function withCommandTimeout<T>(promise: Promise<T>, cmd: string): Promise<T> {
 // effect to re-run when `window.python` becomes available, so the
 // subscription is created lazily on first bridge availability.
 function subscribeBridgeReady(callback: () => void): () => void {
-	// XV-159: short-circuit when the bridge is already installed at
+	//short-circuit when the bridge is already installed at
 	// subscribe time. `useSyncExternalStore` calls `subscribe` once per
 	// component instance, so without this guard each mounted consumer
 	// (`usePythonEvent` callers) would spin up its own 100ms polling
@@ -234,7 +243,7 @@ function subscribeBridgeReady(callback: () => void): () => void {
 	// effect (which already ran with `bridgeReady=true` on the
 	// initial render) does not re-run — so the no-op re-render is
 	// harmless.
-	// ZR-23: also detect `window.__TAURI__` appearing AFTER the
+	//also detect `window.__TAURI__` appearing AFTER the
 	// initial module-import-time auto-install. The auto-install in
 	// `tauri-bridge/index.ts` runs once at module load — if
 	// `window.__TAURI__` isn't yet present (rare timing edge under
@@ -252,7 +261,7 @@ function subscribeBridgeReady(callback: () => void): () => void {
 			clearInterval(interval);
 			return;
 		}
-		// ZR-23: Tauri global appeared after the auto-install
+		//Tauri global appeared after the auto-install
 		// no-op'd — re-trigger the installer. The installer is
 		// idempotent: if `isTauri()` still returns false (e.g.
 		// the global is partial), it no-ops again and the next
@@ -292,7 +301,7 @@ function getBridgeReadyServerSnapshot(): boolean {
  * `useSyncExternalStore`: the snapshot is a stable boolean.
  *
  * Used by {@link usePythonEvent} to re-attempt the event subscription
- * when the bridge becomes available after mount (CR-6).
+ * when the bridge becomes available after mount ().
  */
 export function useBridgeReady(): boolean {
 	return useSyncExternalStore(
@@ -302,7 +311,7 @@ export function useBridgeReady(): boolean {
 	);
 }
 
-// ─── Shared event dispatcher (DJ-89) ────────────────────────────────
+//Shared event dispatcher () ────────────────────────────────
 //
 // Previously each `usePythonEvent` call subscribed to `api.onEvent`
 // directly, creating N subscriptions for N callers. On Tauri, each
@@ -379,7 +388,7 @@ function dispatchEvent(event: {
 		try {
 			entry.cleanupRef.current = entry.getHandler()(event.data);
 		} catch (err) {
-			// XZ-R16-05: a throwing handler must not escape
+			//a throwing handler must not escape
 			// into the dispatch loop. Log and reset so the
 			// next event starts from a clean slate.
 			console.error("usePythonEvent handler threw:", err);
@@ -495,14 +504,14 @@ export function usePython() {
 		): Promise<T> => {
 			const api = window.python;
 			if (!api) throw new Error("Python bridge not available");
-			// CR-18: race the underlying bridge call against a per-command
+			//race the underlying bridge call against a per-command
 			// timeout so a hung trivial command (e.g. `get_status`) surfaces
 			// an error in seconds instead of the prior blanket 120s timeout
 			// imposed by the Electron main / Rust host. The underlying
 			// promise may still resolve later; the caller sees the timeout
 			// rejection first.
 			//
-			// XZ-R16-03: Tauri/Electron error-envelope normalization. On
+			//Tauri/Electron error-envelope normalization. On
 			// Tauri v2, `invoke` rejects with a RAW STRING (not an Error)
 			// when the Rust `dispatch` command returns an Err — the host's
 			// `e.to_string()` becomes the rejection value verbatim. Callers
@@ -528,7 +537,7 @@ export function usePython() {
 				if (err instanceof Error) throw err;
 				throw new Error(typeof err === "string" ? err : "unknown IPC error");
 			}
-			// NEW-IPC-107 (d-review NEW-IPC-007): handle BOTH error
+			//(d-review ): handle BOTH error
 			// envelope shapes that can flow back over the Electron
 			// path, surfacing each as a real JS Error so callers
 			// using `try { await python.call(...) } catch (e) {}`
@@ -565,7 +574,7 @@ export function usePython() {
 					typeof e === "string"
 						? e
 						: ((e as { message?: string } | null)?.message ?? "unknown error");
-				// XE-13-A: surface the structured ``_code`` field
+				//surface the structured ``_code`` field
 				// (e.g. ``command_timeout``,
 				// ``backend_not_connected``,
 				// ``backend_exited_early``) so callers can branch
@@ -575,7 +584,7 @@ export function usePython() {
 				// ``new Error(msg)`` — consumers could not
 				// distinguish transient timeouts from fatal
 				// backend-exited errors.
-				const code = (result as { _code?: unknown })._code;
+				const code = (result as { _code?: PythonCallErrorCode })._code;
 				const err = new Error(msg);
 				if (typeof code === "string" && code.length > 0) {
 					(err as { code?: string }).code = code;
@@ -587,7 +596,7 @@ export function usePython() {
 				typeof result === "object" &&
 				(result as { type?: unknown }).type === "error"
 			) {
-				// FR-22: surface the FULL ``data.errors`` list when
+				// Surface the FULL ``data.errors`` list when
 				// present so multi-field validation failures (e.g.
 				// batched Settings → Audio saves with 3 invalid
 				// fields) don't require 3 fix-and-resubmit cycles.
@@ -613,7 +622,7 @@ export function usePython() {
 		[],
 	) as PythonCall;
 
-	// NEW-TS-015: previously this hook also returned ``isReady: !!api``.
+	//previously this hook also returned ``isReady: !!api``.
 	// That flag was always ``true`` in production because the preload
 	// script installs ``window.python`` before the React app mounts, so
 	// every consumer's ``if (!isReady) return`` guard was dead code.
@@ -634,7 +643,7 @@ export function usePython() {
  *
  * The ``handler`` is called with the event ``data`` (if any) each time a
  * matching event arrives.  It may optionally return a cleanup function
- * (PVT-G5-019) which is invoked:
+ * () which is invoked:
  *
  *   1. Before the **next** matching event's handler runs — so rapid
  *      successive events don't accumulate stale async work (e.g. the
@@ -652,7 +661,7 @@ export function usePython() {
  * closure without re-subscribing on every render (only ``type`` and
  * ``bridgeReady`` are effect deps).
  *
- * NH-32: the first overload is now generic AND narrows ``data`` to the
+ * : the first overload is now generic AND narrows ``data`` to the
  * per-event payload shape declared in ``types/ipc/push_events.ts`` (e.g.
  * ``TranscriptionFinalEvent.data: { text: string }``).
  * For events with NO ``data`` field (e.g. ``RecordingStartedEvent``),
@@ -673,7 +682,7 @@ export function usePythonEvent<K extends PythonPushEvent["type"]>(
 	handler: (data?: ExtractEventData<K>) => (() => void) | undefined,
 ): void;
 /**
- * BG-84: overload accepting an arbitrary ``string`` for forward-compat
+ * : overload accepting an arbitrary ``string`` for forward-compat
  * with backend-added events not yet in the ``PythonPushEvent`` union.
  *
  * The narrow first overload catches typos at compile time for the
@@ -693,13 +702,26 @@ export function usePythonEvent(
 ): void;
 export function usePythonEvent(
 	type: string,
-	// biome-ignore lint/suspicious/noExplicitAny: overload 2 is explicitly typed as any for forward-compat
+	// Implementation signature — must use `any` for the handler's data
+	// param because TypeScript's overload compatibility check requires
+	// the impl to accept ALL overload handler shapes. Overload 1 narrows
+	// to `ExtractEventData<K>` (which can be `undefined` for events with
+	// no data); overload 2 widens to `Record<string, unknown>`. No single
+	// non-`any` type satisfies both under strictFunctionTypes contravariance
+	// (a function accepting `ExtractEventData<K>` is not assignable to a
+	// parameter expecting a function accepting `Record<string, unknown>`,
+	// and vice versa). The `any` here is type-safe at the CALL SITE —
+	// callers hit the public overloads, not this impl signature — and at
+	// runtime `event.data` is `Record<string, unknown> | undefined` which
+	// every handler accepts. biome-ignore lint/noExplicitAny: required for
+	// TypeScript overload compatibility (see comment above).
+	// biome-ignore lint/suspicious/noExplicitAny: required for TS overload impl
 	handler: (data?: any) => (() => void) | undefined,
 ) {
 	const handlerRef = useRef(handler);
 	handlerRef.current = handler;
 
-	// ZR-27: dev-time typo warning. Overload 2 (above) accepts any
+	//dev-time typo warning. Overload 2 (above) accepts any
 	// `string` for forward-compat with backend-added events not yet
 	// in `PythonPushEvent`. The cost is that a typo like
 	// `usePythonEvent("past_failed", ...)` (intended
@@ -723,7 +745,7 @@ export function usePythonEvent(
 		);
 	}
 
-	// CR-6: track `window.python` presence so the effect re-runs when the
+	//track `window.python` presence so the effect re-runs when the
 	// bridge becomes available after mount. Previously the effect's only
 	// dependency was `[type]`, so if `window.python` was unset at mount
 	// (e.g. slow preload / late Tauri bridge install), the subscription
@@ -731,7 +753,7 @@ export function usePythonEvent(
 	const bridgeReady = useBridgeReady();
 
 	useEffect(() => {
-		// CR-6: short-circuit until the bridge is installed. Without this
+		//short-circuit until the bridge is installed. Without this
 		// guard the effect would call `api.onEvent` on a still-undefined
 		// `window.python` and silently drop the subscription; including
 		// `bridgeReady` in the dep array (below) is what makes React
@@ -740,7 +762,7 @@ export function usePythonEvent(
 		const api = window.python;
 		if (!api) return; // defensive double-check (bridgeReady mirrors window.python presence)
 
-		// DJ-89: register with the module-level dispatcher instead
+		//register with the module-level dispatcher instead
 		// of subscribing to `api.onEvent` directly. The dispatcher
 		// holds a SINGLE `api.onEvent` subscription shared across
 		// all `usePythonEvent` callers and fan-outs to per-type
@@ -753,13 +775,13 @@ export function usePythonEvent(
 		// 1 subscription and the Map lookup is O(1) per event.
 		//
 		// The dispatcher preserves all existing semantics:
-		//   - PVT-G5-019: the cleanup returned by the previous
+		//the cleanup returned by the previous
 		//     handler invocation is run BEFORE the next matching
 		//     event's handler (cancelling in-flight async work)
 		//     and on unsubscribe (releasing resources). This is
 		//     now stored in `entry.cleanupRef` rather than a
 		//     local `currentCleanup` variable.
-		//   - XZ-R16-05: a throwing handler is caught and logged
+		//a throwing handler is caught and logged
 		//     so it doesn't escape into the dispatch loop.
 		//   - The handler identity is mirrored via `handlerRef`
 		//     so callers can pass inline closures without

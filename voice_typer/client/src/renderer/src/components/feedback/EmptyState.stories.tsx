@@ -61,7 +61,7 @@ export const CustomActionIcon: Story = {
 	name: "Custom action icon",
 };
 
-// XA-2: ErrorVariant story. The `variant="error"` prop switches the
+//ErrorVariant story. The `variant="error"` prop switches the
 // icon to Alert02Icon, tints the icon + ring with `--destructive`,
 // and sets `role="alert"` on the wrapper so screen readers announce
 // the load failure immediately (vs. the polite `role="status"` used
@@ -71,7 +71,7 @@ export const CustomActionIcon: Story = {
 // should look like, which led to drift across pages.
 //
 // The variant is consumed by ConnectionStatusScreen, History,
-// Templates, Vocabulary, and Microphone (see XA-2 finding for the
+//Templates, Vocabulary, and Microphone (see  finding for the
 // full list). This story serves as the visual contract: any page
 // that renders `<EmptyState variant="error" />` should match this
 // appearance.

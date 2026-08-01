@@ -1,6 +1,6 @@
 // src/renderer/src/lib/tauri-bridge/install.ts
 //
-// ZR-30 fix: isolated side-effect module.
+//fix: isolated side-effect module.
 //
 // `index.ts` exports `installTauriBridge` (named) and the namespace
 // factories but NO LONGER auto-invokes it at import time. Tests and

@@ -1,6 +1,6 @@
 // Level/peak monitoring lifecycle hook for the Microphone page.
 //
-// Extracted from the former ``useMicrophoneTest`` monolith (DR-11).
+//Extracted from the former ``useMicrophoneTest`` monolith ().
 // Owns the ``level`` / ``peak`` / ``micMonitoring`` state plus the
 // ``level_monitor_start`` / ``level_monitor_stop`` IPC lifecycle, the
 // ``mic_level`` push-event subscription (replaces the prior 10 Hz
@@ -85,7 +85,7 @@ export function useMicrophoneLevelMonitor({
 	// otherwise is correct.
 	const [micMonitoring, setMicMonitoring] = useState(true);
 
-	// CR-57: gate the push handler on visibility + active state.
+	//gate the push handler on visibility + active state.
 	const micMonitoringRef = useRef(false);
 	useEffect(() => {
 		micMonitoringRef.current = micMonitoring;

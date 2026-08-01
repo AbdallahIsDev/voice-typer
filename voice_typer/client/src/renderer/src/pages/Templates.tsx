@@ -71,7 +71,7 @@ export default function TemplatesPage() {
 		);
 	}
 
-	// NF-R10-8: distinguish "no templates exist" (valid empty array from
+	//distinguish "no templates exist" (valid empty array from
 	// backend) from "load failed" (backend unreachable or returned
 	// malformed data). When the load genuinely failed AND we have no
 	// templates to show (including from localStorage fallback), surface
@@ -108,7 +108,7 @@ export default function TemplatesPage() {
 						importInputRef={importInputRef}
 						onImportClick={handleImportClick}
 						onImportFile={handleImportFile}
-						// BG-63: forward the format chosen by the
+						//forward the format chosen by the
 						// ExportFormatMenu (json | csv) through to
 						// doExport so the IPC bridge receives it.
 						// Previously the arrow function
@@ -139,7 +139,7 @@ export default function TemplatesPage() {
 							onAction={openAddDialog}
 						/>
 					) : filteredSortedTemplates.length === 0 ? (
-						// NH-15: search returned no matches — use the dedicated
+						//search returned no matches — use the dedicated
 						// templates.noResults / templates.noResultsDescription
 						// keys instead of borrowing history.noResultsDescription
 						// (cross-module coupling) and the misleading

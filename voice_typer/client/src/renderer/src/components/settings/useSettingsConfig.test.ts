@@ -1,16 +1,16 @@
 /**
- * Tests for `useSettingsConfig` covering the XA-14 fixes:
+ * Tests for `useSettingsConfig` covering the  fixes:
  *
- *  - XA-14-1: debounced text-field saves are flushed on unmount +
+ *  - : debounced text-field saves are flushed on unmount +
  *    `beforeunload` (no longer silently dropped when the user navigates
  *    away or quits the app within the 500ms debounce window).
- *  - XA-14-2: the backend's specific validator text is surfaced in the
+ *  - : the backend's specific validator text is surfaced in the
  *    error snack (instead of the generic "Failed to save setting").
- *  - XA-14-3: partial-success `model_errors` envelope is surfaced as
+ *  - : partial-success `model_errors` envelope is surfaced as
  *    a warning (instead of being silently swallowed with "Saved ✓").
- *  - XA-14-4: rejected (unknown) keys are surfaced as a warning
+ *  - : rejected (unknown) keys are surfaced as a warning
  *    (instead of being silently dropped with "Saved ✓").
- *  - XA-14-9: a failed save does NOT call `loadConfig()` immediately
+ *  - : a failed save does NOT call `loadConfig()` immediately
  *    (the user's attempted value is retained for edit + retry).
  */
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
@@ -263,7 +263,7 @@ describe("useSettingsConfig — XA-14 fixes", () => {
 			),
 			"error",
 		);
-		// XA-14-2/5: the error state is populated with the
+		//5: the error state is populated with the
 		// backend's message so a downstream indicator can
 		// render a "Save failed" state. Wrap in waitFor because
 		// React 19 batches state updates from async callbacks

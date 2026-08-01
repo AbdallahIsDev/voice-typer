@@ -9,7 +9,7 @@
 //   - ``_localeLoadPromises``   — Map of in-flight dynamic-import
 //                                  promises (await dedup)
 //
-// DR-9 sub-finding (1-N Finding 4): no module-load side effects live
+//sub-finding (1-N Finding 4): no module-load side effects live
 // here. The localStorage restore + browser-locale detection + async
 // load kickoff that USED to run at module eval time has moved to
 // ``initI18n()`` in ``./index.ts``. That function is auto-called on
@@ -25,10 +25,10 @@ import { notifyLocaleSubscribers } from "./hooks";
 import { type Locale, SUPPORTED_LOCALES } from "./locale";
 import { pushLocaleToMainProcess, pushLocaleToPythonBackend } from "./push";
 import { isRtlLocale } from "./rtl";
-// DJ-95: invalidate per-(locale, key) resolved-string cache when a
+//invalidate per-(locale, key) resolved-string cache when a
 // locale's translation map is replaced.
 import { _invalidateResolvedCache } from "./translate";
-// ER-65: ar/de/es/fr/hi/ru/zh dynamically imported via ensureLocaleLoaded()
+//ar/de/es/fr/hi/ru/zh dynamically imported via ensureLocaleLoaded()
 import en from "./translations/en.json";
 
 type TranslationDict = Record<string, unknown>;
@@ -39,7 +39,7 @@ type TranslationDict = Record<string, unknown>;
 // to this via ``_setCurrentLocale``; every other module reads it via
 // ``getLocale``.
 //
-// PVT-083: the initial restore-from-localStorage + browser-detect now
+//the initial restore-from-localStorage + browser-detect now
 // lives in ``initI18n()`` (in ``./index.ts``) so the module body is
 // side-effect free.
 let _currentLocale: Locale = "en";
@@ -66,7 +66,7 @@ export function _setCurrentLocale(next: Locale): void {
 // Translation map: locale -> flat key-value pairs.
 export const _translations: Map<Locale, Map<string, string>> = new Map();
 
-// ER-65: locales whose dynamic import has already been kicked off.
+//locales whose dynamic import has already been kicked off.
 // Prevents duplicate network requests when both the init-time
 // auto-load AND the first ``t()`` call race for the same locale.
 export const _localeLoadInitiated: Set<Locale> = new Set();
@@ -104,7 +104,7 @@ export function flatten(
 // universal fallback so it MUST be available synchronously — the
 // dynamic-import path is only for non-English locales.
 _translations.set("en", flatten(en as TranslationDict));
-// DJ-95: defensive — drop any stale resolved-string cache for "en"
+//defensive — drop any stale resolved-string cache for "en"
 // (the cache is empty at module load, but this keeps the registration
 // paths consistent with ensureLocaleLoaded/registerTranslations below).
 _invalidateResolvedCache("en");
@@ -114,7 +114,7 @@ _invalidateResolvedCache("en");
  * table via dynamic ``import()``. No-op for English (already loaded) or
  * for locales already loaded / in-flight.
  *
- * ER-65: previously all 8 locale JSON files were statically imported,
+ * : previously all 8 locale JSON files were statically imported,
  * adding ~60 KB to the initial bundle and ~8 ms of parse time per
  * locale at boot — even though most users only ever see one locale.
  * The dynamic import is fire-and-forget: while the chunk loads,
@@ -146,7 +146,7 @@ export function ensureLocaleLoaded(locale: Locale): Promise<void> {
 			);
 			const data = (mod as { default: TranslationDict }).default;
 			_translations.set(locale, flatten(data));
-			// DJ-95: drop the per-locale resolved-string cache so
+			//drop the per-locale resolved-string cache so
 			// the next ``t()`` call resolves against the freshly-
 			// loaded map.
 			_invalidateResolvedCache(locale);
@@ -176,7 +176,7 @@ export function registerTranslations(
 	data: TranslationDict,
 ): void {
 	_translations.set(locale, flatten(data));
-	// DJ-95: invalidate the per-locale resolved-string cache so the
+	//invalidate the per-locale resolved-string cache so the
 	// newly-registered translations are picked up by the next ``t()`` call.
 	_invalidateResolvedCache(locale);
 }
@@ -191,15 +191,15 @@ export function registerTranslations(
  * horizontally. Falls back to "ltr" for all other locales.
  *
  * Side effects beyond the renderer:
- *   - NH-2: kicks off the async dynamic-import of the newly-selected
+ *   - : kicks off the async dynamic-import of the newly-selected
  *     locale's translation table via ``ensureLocaleLoaded(next)`` so
  *     ``t()`` stops falling back to English after a runtime locale
  *     switch (previously the import was only triggered at module init
  *     for the restored/detected locale).
- *   - NH-3: pushes the locale to the Electron main process via
+ *   - : pushes the locale to the Electron main process via
  *     ``window.window_.setLocale?.(locale)`` so native dialogs render
  *     in the user's selected language.
- *   - NH-4: pushes the locale + renderer-known tray-menu labels to the
+ *   - : pushes the locale + renderer-known tray-menu labels to the
  *     Python backend via ``window.python.call({ type:
  *     "set_tray_locale", data: { locale, labels } })`` so tray-menu
  *     items localise.
@@ -217,7 +217,7 @@ export function setLocale(locale: Locale): void {
 	}
 	_setCurrentLocale(next);
 
-	// NH-2: kick off the dynamic import for non-English locales so the new
+	//kick off the dynamic import for non-English locales so the new
 	// locale's strings are available without a page reload. Without this,
 	// switching to e.g. Arabic at runtime would update `dir`/`lang` (visible
 	// layout change) but `t()` would still return English until the user
@@ -232,7 +232,7 @@ export function setLocale(locale: Locale): void {
 	try {
 		if (typeof document !== "undefined") {
 			document.documentElement.dir = isRtlLocale(next) ? "rtl" : "ltr";
-			// CR-44: also set ``lang`` so screen readers pronounce content
+			//also set ``lang`` so screen readers pronounce content
 			// in the user-selected UI locale (not the browser default).
 			document.documentElement.lang = next;
 		}
@@ -257,7 +257,7 @@ export function setLocale(locale: Locale): void {
 	// page reload.
 	notifyLocaleSubscribers();
 
-	// NH-3 / NH-4: best-effort push to the main process + Python backend.
+	//best-effort push to the main process + Python backend.
 	// The bridge surfaces may be missing (module-init scenario, Tauri host
 	// without these IPC channels) — the push helpers swallow rejections
 	// and sync throws so a locale-switch failure never breaks the UI.

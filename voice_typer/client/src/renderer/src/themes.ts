@@ -10,7 +10,7 @@
  * The ``default`` preset is a no-op — it means "use whatever is in the
  * stylesheet" (no overrides needed).
  *
- * PERF-001: presets split into ./themes/ for lazy loading. Each preset
+ * presets split into ./themes/ for lazy loading. Each preset
  * now lives in its own file under ``./themes/``; this module re-exports
  * the aggregated ``THEMES`` array and ``THEME_PRESETS`` record so
  * existing consumers can keep importing from ``@/themes`` unchanged.
@@ -27,7 +27,7 @@ export interface ThemePreset {
 	/**
 	 * i18n key for the localised preset name (e.g. ``"theme.preset.amoled"``).
 	 *
-	 * BG-5: populated by the ``themes/index.ts`` aggregator for every
+	 * populated by the ``themes/index.ts`` aggregator for every
 	 * built-in preset. Consumers (``ThemeSettingsSection.tsx``) render
 	 * ``t(preset.nameKey)`` for the visible label, falling back to
 	 * ``preset.name`` when the key is missing.
@@ -63,7 +63,7 @@ export const THEME_VARIABLES: readonly string[] = [
 	"--surface-hover",
 	"--surface-page",
 
-	// Text (BG-80: --text-muted removed — aliased to --muted-foreground
+	// Text (--text-muted removed — aliased to --muted-foreground
 	// in index.css. Only --muted-foreground is the canonical token now.)
 	"--text-primary",
 	"--text-secondary",
@@ -97,7 +97,7 @@ export const THEME_VARIABLES: readonly string[] = [
 	"--destructive",
 	"--destructive-foreground",
 
-	// NH-16: status tokens (success / warning / info). Must be in
+	// status tokens (success / warning / info). Must be in
 	// THEME_VARIABLES so applyThemeVars clears them on theme switch
 	// (clearThemeVars iterates this list) and so custom-theme
 	// overrides are accepted (applyThemeVars gates on this list).
@@ -182,7 +182,7 @@ export function clearThemeVars(): void {
 }
 
 // ─── Theme presets ──────────────────────────────────────────────────────
-// PERF-001: presets split into ./themes/ for lazy loading.
+// presets split into ./themes/ for lazy loading.
 // Each preset now lives in its own file under ./themes/<preset>.ts and is
 // aggregated by ./themes/index.ts. The re-exports below preserve the
 // pre-refactor public API: consumers can keep importing `THEMES` (ordered
@@ -202,7 +202,7 @@ export function getThemeById(id: string): ThemePreset {
  * auto-derived from these core values.
  */
 /**
- * BG-18: each entry now carries ``labelKey`` / ``descriptionKey`` — i18n
+ * each entry now carries ``labelKey`` / ``descriptionKey`` — i18n
  * keys resolved via ``t()`` in ``ThemeSettingsSection.tsx``. The legacy
  * ``label`` / ``description`` English strings are kept as fallbacks for
  * the rare caller that reads them outside a React context (e.g. tests).
@@ -332,7 +332,7 @@ export function deriveCustomVars(
 		"--popover": isDark ? lighten(bg, 0.03) : darken(bg, 0.02),
 		"--popover-foreground": fg,
 		"--primary": primary,
-		/* BG-R18: deriveCustomVars used to hardcode --primary-foreground to
+		/* deriveCustomVars used to hardcode --primary-foreground to
 		   white in both modes. For mid-tone primaries (green/amber/teal),
 		   white fails WCAG AA 4.5:1. Pick whichever of white/black has
 		   better contrast with the user-chosen primary. */
@@ -358,7 +358,7 @@ export function deriveCustomVars(
 		"--sidebar-ring": `${primary}80`,
 		"--destructive": destructive,
 		"--destructive-foreground": "#ffffff",
-		/* NH-16: emit the three status tokens so custom themes don't fall
+		/* emit the three status tokens so custom themes don't fall
 		   back to the stylesheet default. The colours are derived from the
 		   user's chosen destructive hue where possible (success/warning/info
 		   stay semantic — green/amber/blue — so status meaning is preserved
@@ -372,7 +372,7 @@ export function deriveCustomVars(
 }
 
 /**
- * BG-R18: pick the foreground (white or black) that yields the higher
+ * pick the foreground (white or black) that yields the higher
  * WCAG 2.1 contrast ratio against ``bgHex``. Used by ``deriveCustomVars``
  * so that mid-tone user-chosen primaries (green, amber, teal) get a
  * readable foreground instead of an unreadable white-on-yellow pair.

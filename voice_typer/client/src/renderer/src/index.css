@@ -40,7 +40,7 @@
 	--color-border: var(--border);
 	--color-destructive-foreground: var(--destructive-foreground);
 	--color-destructive: var(--destructive);
-	/* NH-16: semantic status tokens for success / warning / info states.
+	/* semantic status tokens for success / warning / info states.
 	   Mapping these here makes `bg-success`, `text-warning`, `border-info`,
 	   etc. available as Tailwind utility classes that follow the active
 	   theme's palette (light/dark/custom preset). */
@@ -71,7 +71,7 @@
 }
 
 :root {
-	/* PLAT-017: UI text scale. Default is 1.0 (text_size=14).
+	/* UI text scale. Default is 1.0 (text_size=14).
      App.tsx sets this via document.documentElement.style.setProperty.
      Consumed by the root font-size below. */
 	--font-scale: 1;
@@ -90,19 +90,19 @@
 	--secondary: oklch(0.967 0.001 286.375);
 	--secondary-foreground: oklch(0.21 0.006 285.885);
 	--muted: oklch(0.967 0.001 286.375);
-	/* PVT-041: bump light-mode --muted-foreground from oklch(0.552 0.016 285.938)
+	/* bump light-mode --muted-foreground from oklch(0.552 0.016 285.938)
 	   (~4.0:1 contrast on white) to oklch(0.48 0.016 285.938) (~4.6:1) to clear
 	   WCAG AA 4.5:1 for placeholder/helper text. Dark mode is unaffected — its
 	   --muted-foreground already has strong contrast against the dark bg. */
 	--muted-foreground: oklch(0.48 0.016 285.938);
 	--accent: oklch(0.967 0.001 286.375);
 	--accent-foreground: oklch(0.21 0.006 285.885);
-	/* PVT-002: --destructive-foreground had no stylesheet default — destructive
+	/* --destructive-foreground had no stylesheet default — destructive
 	   button text was unreadable when themes didn't override it. Add an explicit
 	   default here that matches the near-white foreground used by all themes. */
 	--destructive: oklch(0.55 0.25 27);
 	--destructive-foreground: oklch(0.97 0 0);
-	/* NH-16: success/warning/info status tokens.
+	/* success/warning/info status tokens.
 	   These provide semantic colour classes (bg-success, text-warning,
 	   border-info) so components stop improvising with raw Tailwind
 	   palette colors (text-emerald-500, text-amber-700, bg-amber-400).
@@ -111,9 +111,11 @@
 	--success: oklch(0.62 0.17 149);
 	--warning: oklch(0.7 0.16 70);
 	--info: oklch(0.62 0.14 240);
-	--border: oklch(0.92 0.004 286.32);
-	--input: oklch(0.92 0.004 286.32);
-	/* PVT-044: light-mode --ring was oklch(0.705 0.015 286.067) (light grey) which,
+	/* WCAG 1.4.11: L lowered from 0.92 to 0.62 so the border clears 3:1
+	   contrast against the near-white background. */
+	--border: oklch(0.62 0.004 286.32);
+	--input: oklch(0.62 0.004 286.32);
+	/* light-mode --ring was oklch(0.705 0.015 286.067) (light grey) which,
 	   combined with focus-visible:ring-ring/30, produced focus indicators below
 	   WCAG 1.4.11's 3:1 minimum. Switch to the primary blue
 	   (oklch(0.488 0.243 264.376)) which has ~4.5:1 contrast against white —
@@ -151,19 +153,22 @@
 	--muted-foreground: oklch(0.705 0.015 286.067);
 	--accent: oklch(0.274 0.006 286.033);
 	--accent-foreground: oklch(0.985 0 0);
-	/* PVT-002: --destructive-foreground has no stylesheet default in .dark either.
+	/* --destructive-foreground has no stylesheet default in .dark either.
 	   Add an explicit near-white default to match the light scheme and ensure
 	   destructive button text is readable in dark mode when a theme doesn't
 	   override it. */
 	--destructive: oklch(0.55 0.25 27);
 	--destructive-foreground: oklch(0.97 0 0);
-	/* NH-16: success/warning/info status tokens for dark mode.
+	/* success/warning/info status tokens for dark mode.
 	   Slightly brighter L and lower chroma than light mode so the
 	   tints read against the dark background. */
 	--success: oklch(0.7 0.16 149);
 	--warning: oklch(0.78 0.15 70);
 	--info: oklch(0.7 0.13 240);
-	--border: oklab(100% 0 -0.00011 / 0.05);
+	/* WCAG 1.4.11: replaced the previous oklab(100% 0 -0.00011 / 0.05)
+	   (white at 5% alpha) with an opaque oklch(0.52 ...) value so the
+	   border clears 3:1 contrast against the dark background. */
+	--border: oklch(0.52 0.004 286.32);
 	--input: oklch(1 0 0 / 15%);
 	--ring: oklch(0.552 0.016 285.938);
 	--chart-1: oklch(0.809 0.105 251.813);
@@ -182,7 +187,7 @@
 }
 
 :root {
-	/* PROD-18: Text color convention.
+	/* Text color convention.
 
 	   The renderer exposes three text-color CSS variables that are
 	   easily confused. Use them according to semantic intent, NOT by
@@ -213,7 +218,7 @@
 	--surface-page: var(--background);
 	--surface-hover: oklch(0.93 0 0);
 	--text-primary: var(--foreground);
-	/* A11Y-8: bump light-mode --text-muted from var(--muted-foreground)
+	/* bump light-mode --text-muted from var(--muted-foreground)
 	   (oklch(0.552 0.016 285.938), ~4.0:1 contrast on white) to
 	   oklch(0.48 0 0) (~4.6:1 contrast on white) to clear WCAG AA 4.5:1.
 	   Dark mode is unaffected — its var(--muted-foreground) already
@@ -245,6 +250,15 @@
 		@apply border-border outline-ring/50;
 	}
 
+	/* Baseline focus-visible fallback: guarantees every focusable
+	   element shows a visible ring even when per-component focus
+	   styling is missing or overridden. Per-component rules (e.g.
+	   specific ring widths) still win above this fallback. */
+	*:focus-visible {
+		outline: 2px solid var(--ring);
+		outline-offset: 2px;
+	}
+
 	html,
 	body {
 		background: transparent;
@@ -259,7 +273,7 @@
 
 	html {
 		@apply font-sans;
-		/* UX-045: persistent border-radius on the root html element.
+		/* persistent border-radius on the root html element.
        The wrapper div in App.tsx applies rounded-lg via React className,
        but that border-radius can flicker on close/hide because React
        re-renders remove the class.  Applying border-radius directly to
@@ -278,7 +292,7 @@
 		overflow: visible;
 	}
 
-	/* PROD-1: removed the `button[data-slot="button"] { border-radius:
+	/* removed the `button[data-slot="button"] { border-radius:
 	   var(--radius-md) }` rule that was overriding shadcn's cva-driven
 	   `rounded-4xl` on every Button in the app. The cva in
 	   components/ui/button.tsx already controls border-radius (default
@@ -339,6 +353,14 @@
 
 .no-drag {
 	-webkit-app-region: no-drag;
+}
+
+/* RTL: flip directional navigation icons (e.g. TitleBar Back/Forward
+   chevrons) so they point in the semantically correct direction when
+   the document language is right-to-left. The className is applied to
+   the SVGs by the TitleBar component. */
+[dir="rtl"] .nav-directional-icon {
+	transform: scaleX(-1);
 }
 
 /* ── Animations & micro-interactions ────────────────────────────────── */
@@ -417,19 +439,6 @@
 	transform: scale(0.95);
 }
 
-/* Subtle card lift on hover. */
-.card-hover {
-	transition:
-		transform 200ms ease-out,
-		box-shadow 200ms ease-out,
-		border-color 200ms ease-out;
-}
-
-.card-hover:hover {
-	transform: translateY(-1px);
-	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
-}
-
 /* ── Bubble enter/exit animations ────────────────────────────────── */
 
 @keyframes bubbleEnter {
@@ -485,11 +494,13 @@
 @keyframes glowPulse {
 	0%,
 	100% {
-		box-shadow: 0 0 18px rgba(255, 51, 51, 0.2);
+		box-shadow: 0 0 18px
+			color-mix(in oklch, var(--destructive) 20%, transparent);
 	}
 
 	50% {
-		box-shadow: 0 0 32px rgba(255, 51, 51, 0.4);
+		box-shadow: 0 0 32px
+			color-mix(in oklch, var(--destructive) 40%, transparent);
 	}
 }
 
@@ -497,12 +508,14 @@
 	animation: glowPulse 2.5s ease-in-out infinite;
 }
 
-/* NEW-A11Y-001: respect prefers-reduced-motion.
+/* respect prefers-reduced-motion.
    WCAG 2.1 SC 2.3.3 requires that motion be disable-able.  When the
    user has this setting enabled (common for vestibular disorders,
    motion sensitivity, or simply preference), we disable ALL CSS
-   animations and transitions app-wide.  The bubble visualizer, sidebar
-   collapse, page transitions, and glow pulse all stop. */
+   animations and transitions app-wide.  The sidebar collapse, page
+   transitions, and glow pulse all stop.  The bubble visualizer per-bar
+   motion is gated in JS (useAudioLevels reducedMotionRef) because CSS
+   @media cannot suppress requestAnimationFrame-driven DOM mutation. */
 @media (prefers-reduced-motion: reduce) {
 	*,
 	*::before,
@@ -514,7 +527,7 @@
 	}
 }
 
-/* NEW-A11Y-005: Windows high-contrast mode support.
+/* Windows high-contrast mode support.
    WCAG 2.1 SC 1.4.11.  When the user has high-contrast mode enabled
    (forced-colors: active), we let the OS override our colors and
    add visible focus indicators. */
@@ -535,7 +548,7 @@
 	}
 }
 
-/* UX-036: High-contrast mode support.
+/* High-contrast mode support.
    WCAG 2.1 SC 1.4.11: @media (prefers-contrast: high) increases
    contrast for text, borders, and interactive elements on platforms
    that support it (e.g. macOS Increase Contrast setting). */
@@ -566,21 +579,39 @@
 	button:not(:disabled),
 	a,
 	select,
-	input {
+	input,
+	textarea,
+	[role="button"],
+	[tabindex]:not([tabindex="-1"]),
+	[role="checkbox"],
+	[role="tab"],
+	[role="slider"] {
 		outline-offset: 2px;
 	}
 
 	button:focus-visible,
 	a:focus-visible,
 	select:focus-visible,
-	input:focus-visible {
+	input:focus-visible,
+	textarea:focus-visible,
+	[role="button"]:focus-visible,
+	[tabindex]:not([tabindex="-1"]):focus-visible,
+	[role="checkbox"]:focus-visible,
+	[role="tab"]:focus-visible,
+	[role="slider"]:focus-visible {
 		outline: 2px solid oklch(0.4 0 0);
 	}
 
 	.dark button:focus-visible,
 	.dark a:focus-visible,
 	.dark select:focus-visible,
-	.dark input:focus-visible {
+	.dark input:focus-visible,
+	.dark textarea:focus-visible,
+	.dark [role="button"]:focus-visible,
+	.dark [tabindex]:not([tabindex="-1"]):focus-visible,
+	.dark [role="checkbox"]:focus-visible,
+	.dark [role="tab"]:focus-visible,
+	.dark [role="slider"]:focus-visible {
 		outline: 2px solid oklch(0.8 0 0);
 	}
 }

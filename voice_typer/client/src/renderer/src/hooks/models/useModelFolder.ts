@@ -1,10 +1,10 @@
 /**
  * useModelFolder — disk-space probe + import / open-folder slice.
  *
- * DT-34 (Phase 4.5 spaghetti split): extracted from the former
+ *  (Phase 4.5 spaghetti split): extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns:
  *   • `diskInfo` — result of the optional `get_disk_info` IPC probe
- *     (PVT-033). `null` until the probe resolves; stays `null` on
+ *     (). `null` until the probe resolves; stays `null` on
  *     older backends that don't expose the IPC.
  *   • `modelsFolderSupported` — whether the `open_models_folder` IPC
  *     family is registered (probed once on mount).
@@ -65,11 +65,11 @@ export function useModelFolder({
 	loadConfig,
 }: UseModelFolderArgs): UseModelFolderResult {
 	const [isImporting, setIsImporting] = useState(false);
-	// ── PVT-033: optional disk-space + open-folder IPCs ─────────────
+	//optional disk-space + open-folder IPCs ─────────────
 	const [diskInfo, setDiskInfo] = useState<DiskInfo | null>(null);
 	const [modelsFolderSupported, setModelsFolderSupported] = useState(false);
 
-	// ── PVT-033: probe optional disk-info + open-folder IPCs ────────
+	//probe optional disk-info + open-folder IPCs ────────
 	//
 	// The backend may or may not expose `get_disk_info` and
 	// `open_models_folder`. We probe both once on mount; on failure we
@@ -164,7 +164,7 @@ export function useModelFolder({
 		}
 	}, [call, loadConfig, showSnack]);
 
-	// ── Action: handleOpenModelsFolder (PVT-033) ────────────────────
+	//Action: handleOpenModelsFolder () ────────────────────
 	//
 	// Calls the backend's optional `open_models_folder` IPC. The button
 	// is only rendered when the probe on mount succeeded

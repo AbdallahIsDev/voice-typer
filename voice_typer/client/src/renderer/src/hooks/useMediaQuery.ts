@@ -1,7 +1,7 @@
 /**
  * useMediaQuery — subscribes to a CSS media query and re-renders on change.
  *
- * BG-64 (partial): introduced so App.tsx can auto-collapse the sidebar when
+ *  (partial): introduced so App.tsx can auto-collapse the sidebar when
  * the window narrows below the `640px` breakpoint. The hook is generic
  * (not hardcoded to the sidebar breakpoint) so other callers can subscribe
  * to arbitrary queries (e.g. `prefers-reduced-motion`, `min-width: 1024px`).

@@ -12,7 +12,7 @@ interface TitleBarProps {
 	onGoForward?: () => void;
 	canGoBack?: boolean;
 	canGoForward?: boolean;
-	// GT-E2-10 (session-6 dedup): ``isMaximized`` is now a REQUIRED prop.
+	//(session-6 dedup): ``isMaximized`` is now a REQUIRED prop.
 	// Previously TitleBar had its own local ``useState`` +
 	// ``onMaximizedChanged`` subscription as a fallback for when the
 	// prop was undefined — duplicating the subscription already living
@@ -20,7 +20,7 @@ interface TitleBarProps {
 	// duplicate subscription is deleted; App.tsx is the single owner of
 	// the maximize-state subscription.
 	isMaximized: boolean;
-	// UX-8: open the keyboard-shortcut help overlay. Previously the
+	//open the keyboard-shortcut help overlay. Previously the
 	// overlay was only reachable via the "?" key — invisible to users
 	// who never discover that shortcut. Exposing a TitleBar button
 	// makes the overlay discoverable for mouse + keyboard users alike.
@@ -106,7 +106,7 @@ function TitleBarButton({
 	children,
 }: TitleBarButtonProps) {
 	const isClose = variant === "close";
-	// NH-41: migrate from raw <button> to the shared <Button> component
+	//migrate from raw <button> to the shared <Button> component
 	// so the design-system contract (focus ring, cva variant tokens,
 	// active:translate-y-px) is applied uniformly. The cva default
 	// (rounded-4xl, outline-hidden, border-transparent) is overridden
@@ -131,7 +131,7 @@ function TitleBarButton({
 				// for visual consistency with the non-button chrome.
 				isClose
 					? cn(
-							// PVT-022: destructive tokens so the close button
+							//destructive tokens so the close button
 							// follows the active theme's destructive palette.
 							"hover:bg-destructive hover:text-destructive-foreground",
 							"focus-visible:bg-destructive focus-visible:text-destructive-foreground",
@@ -181,12 +181,12 @@ function TitleBarInner({
 				type="button"
 				onClick={onToggleSidebar}
 				aria-label={t("a11y.toggleSidebarWithShortcut", { shortcut: "Ctrl+B" })}
-				// PVT-023: expose the keyboard shortcut via aria-keyshortcuts
+				//expose the keyboard shortcut via aria-keyshortcuts
 				// so AT users can discover it without inspecting the tooltip.
 				// "Control+B" matches the ARIA keyshortcuts spec format
 				// (Modifier+Key, case-significant).
 				aria-keyshortcuts="Control+B"
-				// UX-17: surface the Ctrl+B keyboard shortcut in the
+				//surface the Ctrl+B keyboard shortcut in the
 				// tooltip so users discover the keyboard alternative.
 				title={t("a11y.toggleSidebarWithShortcut", { shortcut: "Ctrl+B" })}
 				className={cn(
@@ -195,7 +195,7 @@ function TitleBarInner({
 					// w-10 which made it taller than the 32px title bar).
 					"no-drag press-scale flex h-8 w-8 items-center justify-center",
 					"text-(--text-muted)",
-					// XA-1: parity with sibling back/forward/help buttons —
+					//parity with sibling back/forward/help buttons —
 					// add rounded corners + transition + hover bg so the
 					// toggle snaps in consistently with its neighbors
 					// (previously the only TitleBar button without a hover bg).
@@ -217,7 +217,7 @@ function TitleBarInner({
 				onClick={onGoBack}
 				disabled={!canGoBack}
 				aria-label={t("a11y.goBack")}
-				// NF-R10-10: surface Alt+Left shortcut in the tooltip.
+				//surface Alt+Left shortcut in the tooltip.
 				title={t("titleBar.backWithShortcut", { shortcut: "Alt+←" })}
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
@@ -246,7 +246,7 @@ function TitleBarInner({
 				onClick={onGoForward}
 				disabled={!canGoForward}
 				aria-label={t("a11y.goForward")}
-				// NF-R10-10: surface Alt+Right shortcut in the tooltip.
+				//surface Alt+Right shortcut in the tooltip.
 				title={t("titleBar.forwardWithShortcut", { shortcut: "Alt+→" })}
 				className={cn(
 					"no-drag press-scale flex h-8 w-8 items-center justify-center rounded",
@@ -268,14 +268,14 @@ function TitleBarInner({
 				</svg>
 			</button>
 
-			{/* UX-8: discoverable "?" help button. Mirrors the "?"
+			{/*discoverable "?" help button. Mirrors the "?"
                             keyboard shortcut (handled in App.tsx) so mouse users and
                             AT users can also open the keyboard-shortcut overlay. */}
 			<button
 				type="button"
 				onClick={onOpenHelp}
 				aria-label={t("help.openHelp")}
-				// PVT-023: expose the "?" shortcut via aria-keyshortcuts so
+				//expose the "?" shortcut via aria-keyshortcuts so
 				// AT users can discover that pressing "?" opens this overlay.
 				aria-keyshortcuts="?"
 				title={t("help.openHelp")}
@@ -316,6 +316,6 @@ function TitleBarInner({
 	);
 }
 
-// DJ-94: wrap in React.memo so stable callbacks from App.tsx can
+//wrap in React.memo so stable callbacks from App.tsx can
 // short-circuit re-renders when no props have changed.
 export const TitleBar = memo(TitleBarInner);

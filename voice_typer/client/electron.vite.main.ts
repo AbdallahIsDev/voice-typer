@@ -42,7 +42,7 @@ export default defineConfig({
 					// `window_.*`), so a compromised bubble can't invoke
 					// `python.call({type:"quit_app"})` or `window_.close()`.
 					//
-					// DR-8: the previous `bubble: src/preload/bubble.ts`
+					//the previous `bubble: src/preload/bubble.ts`
 					// entry was dead — `bubble-window.ts` sets
 					// `webPreferences.preload = "../preload/index.js"` (NOT
 					// `bubble.js`), so the standalone bubble preload was

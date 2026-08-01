@@ -1,11 +1,11 @@
 // @vitest-environment node
 /**
- * FR-30 regression tests for the TCP close-handler scope fix in
+ *  regression tests for the TCP close-handler scope fix in
  * `tcp-connect.ts`.
  *
  * Background
  * ----------
- * The GT-44 fix scoped only the `tcpBuffer` / `tcpSocket` / `_tcpAuthed`
+ * The  fix scoped only the `tcpBuffer` / `tcpSocket` / `_tcpAuthed`
  * clear to `state.tcpSocket === client`. The heartbeat-interval clear
  * and the pending-request reject loop were left UNCONDITIONAL. When a
  * stale socket (from an older `_tcpRetryGeneration`) emitted 'close'
@@ -18,8 +18,8 @@
  *   (2) Rejected all `state.pendingRequests` with "Python socket
  *       closed" even though the live socket was healthy.
  *
- * FR-30 fix: scope the heartbeat clear AND the pending-request reject
- * loop to `state.tcpSocket === client` (matching the GT-44 pattern).
+ *  fix: scope the heartbeat clear AND the pending-request reject
+ * loop to `state.tcpSocket === client` (matching the  pattern).
  *
  * These tests use source-text assertions (matching the
  * `tcp-retry-timer.test.ts` pattern) because `tcpConnect` creates a
@@ -161,7 +161,7 @@ describe("FR-30: tcp-connect.ts close handler scopes heartbeat + pending cleanup
 	});
 
 	it("the retry-generation check (`retryGen !== state._tcpRetryGeneration`) appears AFTER the if (state.tcpSocket === client) block", () => {
-		// FR-30: the retry-generation check is OUTSIDE the
+		//the retry-generation check is OUTSIDE the
 		// `state.tcpSocket === client` block — it gates the retry
 		// scheduling, not the state cleanup. This is correct: a
 		// stale-socket close should NOT schedule a retry (the newer
@@ -202,10 +202,15 @@ describe("FR-30: tcp-connect.ts close handler scopes heartbeat + pending cleanup
 		expect(retryGenCheckIdx).toBeGreaterThan(tcpSocketCheckIdx);
 	});
 
-	it("FR-30 comment appears in the close handler (documents the fix rationale)", () => {
-		// Documentation anchor: the FR-30 fix comment should be
-		// present in the close handler so future contributors know
-		// why the heartbeat + pending cleanup is scoped.
-		expect(src).toContain("FR-30");
+	it("close-handler comment documents the heartbeat/pending scoping rationale", () => {
+		// Documentation anchor: the descriptive comment (which explains
+		// why the heartbeat + pending cleanup is scoped to
+		// `state.tcpSocket === client`) should be present in the close
+		// handler so future contributors know the rationale. The
+		// historical task-ID token was stripped from production source
+		// (C-STYLE-1), so the assertion pins the descriptive text.
+		expect(src).toContain(
+			"heartbeat-interval clear and pending-request reject",
+		);
 	});
 });

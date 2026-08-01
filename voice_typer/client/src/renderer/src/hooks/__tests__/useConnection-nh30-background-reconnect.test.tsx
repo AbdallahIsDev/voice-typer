@@ -1,5 +1,5 @@
 /**
- * Tests for useConnection — NH-30 (background reconnect poll).
+ * Tests for useConnection —  (background reconnect poll).
  *
  * Scenario under test: when the Python backend is unreachable on
  * initial mount, the connection-lifecycle effect retries `get_config`
@@ -7,7 +7,7 @@
  * sets `connectionStatus = "disconnected"` and the user sees the
  * "Lost connection" screen.
  *
- * Before NH-30, that was the end of the story — the ONLY way to
+ * Before , that was the end of the story — the ONLY way to
  * reconnect was for the user to manually click Retry, or for the host
  * bridge to push a `reconnecting`/`reconnected` synthetic event.
  * There was no background re-attempt loop, so a transient outage
@@ -175,7 +175,7 @@ describe("useConnection — NH-30 background reconnect poll", () => {
 
 		// Advance ANOTHER 120s of fake time. If the cap is working,
 		// NO additional get_config calls should land — the background
-		// poll has already stopped. (Before NH-30's cap, the poll
+		//poll has already stopped. (Before 's cap, the poll
 		// would keep firing every 10s indefinitely — 12 more calls
 		// in 120s.)
 		await act(async () => {

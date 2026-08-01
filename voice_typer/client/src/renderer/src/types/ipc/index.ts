@@ -2,7 +2,7 @@
 //
 // Barrel re-export for the IPC type catalog.
 //
-// Split out from the original monolithic `types/ipc.ts` (DT-31 / DT-FIX-7)
+//Split out from the original monolithic `types/ipc.ts` ( / )
 // into 9 domain-specific modules. This barrel preserves the
 // `import { X } from "@/types/ipc"` API surface that 38+ renderer files
 // rely on — every name previously exported from `types/ipc.ts` is

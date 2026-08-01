@@ -1,4 +1,4 @@
-// UX-021: shared loading spinner.
+// Shared loading spinner.
 // Replaces the duplicated `<div className="h-4 w-4 animate-spin rounded-full
 // border-2 border-accent border-t-transparent" />` pattern that was
 // copy-pasted across 9 pages.
@@ -6,7 +6,7 @@
 // Usage: `<Spinner />` (default 16px), `<Spinner size={24} />` (24px),
 // `<Spinner className="border-current" />` (uses current text color).
 //
-// PVT-025: the previous implementation bucketed ``size`` into a 3-rung
+// The previous implementation bucketed ``size`` into a 3-rung
 // Tailwind class ladder (``h-4 w-4`` / ``h-5 w-5`` / ``h-6 w-6``) and
 // fell back to a dynamic ``h-[${size}px]`` string for any other value.
 // Tailwind's JIT only generates classes it can statically see, so the
@@ -16,12 +16,12 @@
 // classes with ``cn()`` so consumer overrides like ``border-current``
 // properly override the default ``border-accent`` via tailwind-merge.
 //
-// XA-8-L6: ``decorative`` prop renders a plain ``<div aria-hidden>``
+// ``decorative`` prop renders a plain ``<div aria-hidden>``
 // (no ``<output>``, no aria-label) for cases where the spinner sits
 // inside an already-labeled button/region — avoids the nested live
 // region announcing "Loading…" on top of the parent's accessible name.
 //
-// S5-CR-100: the DEFAULT root was previously an ``<output>`` element
+// The DEFAULT root was previously an ``<output>`` element
 // (implicit ARIA role of ``status``, which carries an implicit
 // ``aria-live="polite"``). That meant every page that rendered a
 // Spinner — History, Vocabulary, Templates, Microphone, Models,
@@ -55,7 +55,7 @@ interface SpinnerProps {
 	 * Default: ``false`` (renders
 	 * ``<span role="img" aria-label="Loading">`` — a focusable image
 	 * with an accessible name, but NO implicit live region per
-	 * S5-CR-100).
+	 * with an accessible name, but NO implicit live region).
 	 */
 	decorative?: boolean;
 }
@@ -79,7 +79,7 @@ export function Spinner({
 			/>
 		);
 	}
-	// S5-CR-100: use a <span role="img"> with an accessible name
+	// Use a <span role="img"> with an accessible name
 	// instead of <output>. The <output> element has an implicit
 	// ARIA role of "status" (i.e. aria-live="polite"), which caused
 	// every page that rendered a Spinner to announce "Loading" to

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// DR-47: single source of truth for the renderer-side path aliases
+//single source of truth for the renderer-side path aliases
 // (`@`, `#ui`, `#utils`) used by every Vite config in the client root.
 //
 // Previously `electron.vite.config.ts`, `electron.vite.renderer.ts`, and

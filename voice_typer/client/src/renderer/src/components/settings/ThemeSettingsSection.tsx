@@ -11,7 +11,7 @@
 // - 300 ms debounced save of the custom-theme draft.
 // - Per-row search-filter visibility via the ``isVisible`` prop.
 //
-// DT-32 partial split: the state machine, refs, effects, and event
+//partial split: the state machine, refs, effects, and event
 // handlers now live in ``./useThemeSettings`` (a custom hook). The
 // WCAG contrast helpers and the localStorage draft helpers live in
 // ``@/lib/theme-contrast`` and ``@/lib/theme-draft-storage``
@@ -161,7 +161,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	// this section even if the row's own label/info don't contain it).
 	const sectionTitle = t("settings.appearance.title");
 
-	// UX-028: section-level visibility check — if no row matches the
+	//section-level visibility check — if no row matches the
 	// search filter, hide the entire section.
 	const sectionItems = [
 		{ label: colorSchemeLabel, info: colorSchemeInfoSearch },

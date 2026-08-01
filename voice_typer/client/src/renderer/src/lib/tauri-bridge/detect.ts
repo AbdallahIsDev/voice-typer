@@ -20,7 +20,7 @@
 // All three pieces are pure (no `window` mutation) so they can be unit
 // tested without polluting the global jsdom `window`.
 
-/* XS-88: the previous `eslint-disable @typescript-eslint/no-explicit-any`
+/*the previous `eslint-disable @typescript-eslint/no-explicit-any`
  * directive was removed — the project uses biome (ESLint is not installed)
  * and the file uses `unknown` casts (no `any`), so the directive was stale.
  * Tauri's global API surface is untyped in our TS context (we deliberately
@@ -130,7 +130,7 @@ export function makeListener<T>(
 ): () => void {
 	let unlisten: (() => void) | null = null;
 	let cancelled = false;
-	// G4-M-70 (security/observability): if the underlying
+	//(security/observability): if the underlying
 	// ``tauri.event.listen(...)`` promise rejects (e.g. the event
 	// channel closed mid-subscribe, the Tauri host is shutting
 	// down, or a malformed event name slipped through), log the

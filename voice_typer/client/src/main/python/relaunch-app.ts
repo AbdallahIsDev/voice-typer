@@ -31,10 +31,10 @@ import { computeConfigDir } from "../single_instance";
 import { state } from "../state";
 import { _resetIpcBackpressure } from "./send-to-python";
 import { startPython } from "./start-python";
-// XZ-R18-07: clear the TCP startup timeout timer so the 60s deadline
+//clear the TCP startup timeout timer so the 60s deadline
 // doesn't fire AFTER we've torn down Python (which would trip the
 // premature "Python backend failed to start" dialog + `app.quit()`
-// mid-restart). Mirrors the same call in `stop-python.ts` (ER-29)
+//mid-restart). Mirrors the same call in `stop-python.ts` ()
 // so both teardown paths — stopPython() and relaunchApp() — clear
 // the timer. Placed at the TOP of the function (before any work)
 // so it runs even if a downstream step throws — the worst case
@@ -45,7 +45,7 @@ import { startPython } from "./start-python";
 // guard in `tcpConnect()` lets the next attempt arm a fresh timer.
 import { clearTcpStartupTimeout } from "./tcp-connect";
 
-// XZ-R18-11: production-mode restart counter to break crash loops.
+//production-mode restart counter to break crash loops.
 //
 // Without a cap, a deterministic Python-side `sys.exit(0)` (or an
 // OS-level relaunch race) makes `relaunchApp()` fire repeatedly:
@@ -97,7 +97,7 @@ function _readRestartHistory(): number[] {
 }
 
 /**
- * XZ-R18-10: shared SIGTERM+SIGKILL-fallback helper. Extracted from
+ * : shared SIGTERM+SIGKILL-fallback helper. Extracted from
  * the dev and prod kill branches to DRY the kill logic.
  *
  * - ``mode === "dev"``: sends ``SIGTERM`` first (graceful shutdown)
@@ -128,7 +128,7 @@ function _killPythonProcessWithSigkillFallback(mode: "dev" | "prod"): void {
 			// force-kill so the old process doesn't survive and
 			// hold the VoiceTyperSingleInstance mutex.
 			//
-			// XE-18-1 (Critical): the previous guard `if (!proc.killed)`
+			//(Critical): the previous guard `if (!proc.killed)`
 			// was always FALSE after the SIGTERM above because Node.js
 			// sets `subprocess.killed = true` synchronously inside
 			// `subprocess.kill()` — regardless of whether the signal
@@ -153,7 +153,7 @@ function _killPythonProcessWithSigkillFallback(mode: "dev" | "prod"): void {
 			proc.once("exit", () => clearTimeout(killTimer));
 		}
 	} catch (e) {
-		// GT-B3-7: surface the kill failure instead of swallowing.
+		//surface the kill failure instead of swallowing.
 		log.warn(`[RESTART] kill old Python (${mode}) failed:`, e);
 	}
 }
@@ -171,7 +171,7 @@ function _appendRestartTimestamp(history: number[]): void {
 		// telemetry) — no PII, but tighten perms anyway to match the
 		// rest of the config dir (electron.pid is also 0o600).
 		//
-		// XE-15-6: atomic write (temp + fsync + rename). Pre-fix,
+		//atomic write (temp + fsync + rename). Pre-fix,
 		// ``fs.writeFileSync`` with ``flag: "w"`` was
 		// truncate-then-write — a crash mid-write left a partial
 		// JSON body that ``_readRestartHistory``'s
@@ -217,13 +217,13 @@ function _appendRestartTimestamp(history: number[]): void {
 }
 
 export function relaunchApp(): void {
-	// XZ-R18-07: clear the TCP startup timeout timer FIRST so it
+	//clear the TCP startup timeout timer FIRST so it
 	// doesn't fire mid-restart and trip the false-positive
 	// "Python backend failed to start" dialog + `app.quit()`.
 	clearTcpStartupTimeout();
 	// Idempotency guard: if a relaunch is already in flight, do nothing.
 	if (state._relaunching) {
-		// DE-87 / S2-CR-75: route through the structured `log` logger so
+		//route through the structured `log` logger so
 		// the no-op is captured in `electron-runtime.log` (warn level —
 		// a duplicate relaunch call indicates a logic race worth
 		// surfacing, not a routine lifecycle event).
@@ -232,7 +232,7 @@ export function relaunchApp(): void {
 	}
 	state._relaunching = true;
 	state._restartTriggered = true;
-	// HIGH-31 / ELEC-1: ``app.isQuitting = true`` is needed ONLY for
+	//ELEC-1: ``app.isQuitting = true`` is needed ONLY for
 	// the production ``app.exit(0)`` path (so the close handler
 	// doesn't preventDefault during teardown).  Setting it here
 	// unconditionally leaks into the dev-mode branch — after a
@@ -241,11 +241,11 @@ export function relaunchApp(): void {
 	// the window instead of hiding it (close-to-tray).  Moved into
 	// the production-only branch below.
 	//
-	// AC-119: this is the documented dev/prod ASYMMETRY — the dev
+	//this is the documented dev/prod ASYMMETRY — the dev
 	// branch intentionally does NOT set ``app.isQuitting`` (it
 	// would break close-to-tray on subsequent X-clicks) and the
 	// prod branch does set it (because ``app.exit(0)`` bypasses
-	// the close handler anyway via the S3-CR-34 ``.destroy()``
+	//the close handler anyway via the  ``.destroy()``
 	// path, so the only consumer of ``app.isQuitting`` in the prod
 	// branch is the early-exit handler in ``start-python.ts:108-196``
 	// that needs to know "we're tearing down, don't try to
@@ -269,7 +269,7 @@ export function relaunchApp(): void {
 		);
 
 		// Kill old Python via the shared SIGTERM+SIGKILL-fallback
-		// helper (XZ-R18-10 dedup). The state-reset block below is
+		//helper ( dedup). The state-reset block below is
 		// branch-specific (dev mode clears more state than prod).
 		_killPythonProcessWithSigkillFallback("dev");
 
@@ -277,16 +277,16 @@ export function relaunchApp(): void {
 		try {
 			if (state.tcpSocket) state.tcpSocket.destroy();
 		} catch (e) {
-			// GT-B3-7: surface the destroy failure instead of swallowing.
+			//surface the destroy failure instead of swallowing.
 			log.warn("[RESTART] dev: tcpSocket.destroy failed:", e);
 		}
 		state.tcpSocket = null;
-		// TY-35: clear the per-renderer rate-limit Map so destroyed-window
+		//clear the per-renderer rate-limit Map so destroyed-window
 		// entries don't accumulate across dev-mode restarts (each restart
 		// creates a fresh BrowserWindow with a fresh webContents.id; the
 		// old id's entry would otherwise leak forever).
 		_resetIpcBackpressure();
-		// PVT-G5-007: reset the TCP line buffer so stale partial
+		//reset the TCP line buffer so stale partial
 		// frames from the previous backend don't bleed into the
 		// next connection.
 		state.tcpBuffer = "";
@@ -305,7 +305,7 @@ export function relaunchApp(): void {
 			state._tcpRetryTimer = null;
 		}
 		state._tcpRetryGeneration++;
-		// RW-10: clear the heartbeat interval — the next connect
+		//clear the heartbeat interval — the next connect
 		// callback will start a fresh one when the new backend
 		// accepts our TCP connection.
 		if (state.heartbeatInterval) {
@@ -329,11 +329,11 @@ export function relaunchApp(): void {
 				}
 			}
 		} catch (e) {
-			// GT-B3-7: surface the reload failure instead of swallowing.
+			//surface the reload failure instead of swallowing.
 			log.warn("[RESTART] dev: mainWindow reload failed:", e);
 		}
 
-		// XE-18-2: wrap ``startPython()`` in try/finally so
+		//wrap ``startPython()`` in try/finally so
 		// ``state._relaunching`` is cleared even if startPython
 		// throws (e.g. pythonArgs() throws on unrecognized
 		// platform, spawn() throws on invalid arguments,
@@ -358,7 +358,7 @@ export function relaunchApp(): void {
 		"[RESTART] Production mode: relaunching entire Electron application",
 	);
 
-	// XZ-R18-11: cap production-mode restarts to MAX_RESTARTS_PER_WINDOW
+	//cap production-mode restarts to MAX_RESTARTS_PER_WINDOW
 	// (3) within a rolling RESTART_WINDOW_MS (60s) window. Without this
 	// cap, a deterministic Python-side `sys.exit(0)` loop (or an
 	// OS-level race) would burn battery + spam the system. When
@@ -402,29 +402,29 @@ export function relaunchApp(): void {
 	// Persist this restart attempt so the next process knows about it.
 	_appendRestartTimestamp(recentRestarts);
 
-	// HIGH-31 / ELEC-1: set isQuitting ONLY in the production branch
+	//ELEC-1: set isQuitting ONLY in the production branch
 	// so the close handler doesn't preventDefault during app.exit(0)
 	// teardown.  The dev branch above does NOT set it (dev mode keeps
 	// Electron alive and must preserve close-to-tray behavior).
 	app.isQuitting = true;
 
 	// Kill old Python via the shared SIGTERM+SIGKILL-fallback helper
-	// (XZ-R18-10 dedup — same pattern as the dev branch above).
+	//( dedup — same pattern as the dev branch above).
 	_killPythonProcessWithSigkillFallback("prod");
 	try {
 		if (state.tcpSocket) state.tcpSocket.destroy();
 	} catch (e) {
-		// GT-B3-7: surface the destroy failure instead of swallowing.
+		//surface the destroy failure instead of swallowing.
 		log.warn("[RESTART] prod: tcpSocket.destroy failed:", e);
 	}
 	state.tcpSocket = null;
-	// TY-35: clear the per-renderer rate-limit Map on production relaunch
+	//clear the per-renderer rate-limit Map on production relaunch
 	// too. The next process will start with a fresh Map; without this
 	// call, the entries from this process would survive until the OS
 	// reclaims the process memory (harmless on exit, but the call is
 	// here for symmetry with the dev branch and with stop-python.ts).
 	_resetIpcBackpressure();
-	// PVT-G5-007: reset the TCP line buffer (see dev branch above).
+	//reset the TCP line buffer (see dev branch above).
 	state.tcpBuffer = "";
 	state._tcpAuthed = false;
 	// R6-F6: clear the pending TCP retry timer so a stale
@@ -433,7 +433,7 @@ export function relaunchApp(): void {
 		clearTimeout(state._tcpRetryTimer);
 		state._tcpRetryTimer = null;
 	}
-	// RW-10: clear the heartbeat interval — process is exiting and
+	//clear the heartbeat interval — process is exiting and
 	// we don't want the timer to fire sendToPython() against a
 	// dead socket during the brief exit window.
 	if (state.heartbeatInterval) {

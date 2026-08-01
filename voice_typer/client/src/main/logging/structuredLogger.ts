@@ -1,8 +1,8 @@
 /**
  * Message-first structured logger for the Electron main process.
  *
- * Extracted from the original `main/logging.ts` (DT-35 Phase 4.5
- * spaghetti split). Owns:
+ * Extracted from the original `main/logging.ts` (spaghetti
+ * split). Owns:
  *
  *   - `logger` — message-first API:
  *     `logger.info("TCP connected", { port: 7001 })`. Writes to
@@ -50,7 +50,7 @@ import { appendLogLine, redactPii } from "./rotation";
 export const PERSIST_INFO = process.env.VOICE_TYPER_ELECTRON_INFO_LOG === "1";
 
 /**
- * XZ-LOG-08: resolve the per-process session ID for the Electron log
+ * Resolve the per-process session ID for the Electron log
  * line prefix.
  *
  * The ID is sourced from ``process.env.VOICE_TYPER_SESSION_ID`` (set
@@ -114,17 +114,17 @@ export function lifecycleLogPath(): string {
  * WARN/ERROR context out of the smaller log too quickly. Total disk
  * usage is bounded at ~2 MiB worst case (active file + `.1` backup).
  *
- * FR-36: the rotation logic was previously inlined here (a `statSync`
+ * The rotation logic was previously inlined here (a `statSync`
  * + `renameSync` + `appendFileSync` sequence). This bypassed the
- * XV-154 file-size cache (`fileSizeCache.ts`) — every INFO write did
+ * file-size cache (`fileSizeCache.ts`) — every INFO write did
  * a synchronous `fs.statSync` on the main process event loop, the
- * exact perf bug XV-154 was designed to eliminate for
+ * exact perf bug the cache was designed to eliminate for
  * `electron-main.log`. On a busy session (30 Hz bubble events) under
  * `VOICE_TYPER_ELECTRON_INFO_LOG=1`, this was 30 `statSync` calls/sec
  * on the main thread. Replacing the inline rotation with a call to
  * `appendLogLine(p, line, 1024 * 1024)` routes the writes through the
- * XV-154 cache and the shared rotation primitive. The `mode: 0o600`
- * parity (FR-9) is also picked up for free via `appendLogLine`.
+ * file-size cache and the shared rotation primitive. The `mode: 0o600`
+ * parity is also picked up for free via `appendLogLine`.
  *
  * Exported (not in the public barrel) so `printfLogger.ts`'s `log.info`
  * can route its opt-in INFO persistence through the same writer.
@@ -136,7 +136,7 @@ export function appendLifecycleLine(
 ): void {
 	try {
 		const tsStr = new Date().toISOString();
-		// XZ-LOG-03: redact PII / API keys / URL credentials from
+		// Redact PII / API keys / URL credentials from
 		// the message + args before persisting to the lifecycle
 		// log (mirrors `formatLine`'s redaction so the opt-in
 		// INFO persistence stream never leaks dictated-text
@@ -161,13 +161,16 @@ export function appendLifecycleLine(
 				: safeMsg;
 		const line = `${tsStr} [${level.toUpperCase()}] ${formatted}\n`;
 		const p = lifecycleLogPath();
-		// FR-36: delegate to the shared `appendLogLine` helper so the
-		// XV-154 file-size cache eliminates the per-write `statSync`
+		// Delegate to the shared `appendLogLine` helper so the
+		// file-size cache eliminates the per-write `statSync`
 		// and the rotation logic stays in one place. The 1 MiB cap
 		// matches the prior inline rotation's threshold.
 		appendLogLine(p, line, 1024 * 1024);
-	} catch {
-		// Never let logging crash the app.
+	} catch (e) {
+		// Never let logging crash the app — but surface the failure so a
+		// misconfigured lifecycle-log path (read-only dir, perm regression)
+		// is visible in the dev console instead of silently swallowed.
+		console.warn("[logging] appendLifecycleLine failed:", e);
 	}
 }
 
@@ -177,7 +180,7 @@ type Level = "debug" | "info" | "warn" | "error";
  * Format a log line for the file. Always ends with `\n` so `tail -f`
  * shows lines as they're written.
  *
- * XZ-LOG-08: prepends the ``[session_id]`` bracket after the timestamp
+ * Prepends the ``[session_id]`` bracket after the timestamp
  * so operators can grep across Rust / Python / Electron logs for the
  * same bracket to reconstruct a cross-process timeline. Mirrors the
  * Python side's ``_FileFormatter`` / ``_ConsoleFormatter`` (which
@@ -186,7 +189,7 @@ type Level = "debug" | "info" | "warn" | "error";
 function formatLine(level: Level, msg: string, args: unknown[]): string {
 	const tsStr = new Date().toISOString();
 	const sessionId = getSessionId();
-	// XZ-LOG-03: redact PII / API keys / URL credentials from the
+	// Redact PII / API keys / URL credentials from the
 	// message + args before joining so the file log never leaks
 	// user-spoken text or secrets. Mirrors the parity already in
 	// `printfLogger.ts::formatArgsForFile`. Idempotent on already-
@@ -236,13 +239,13 @@ export function rendererErrorsLogPath(): string {
 }
 
 /**
- * PI-6: GDPR Art. 17 erasure for the Electron main-process log files.
+ * GDPR Art. 17 erasure for the Electron main-process log files.
  *
  * The Python `service.delete_all_personal_data()` walks
  * `_GDPR_PERSONAL_FILES` / `_GDPR_PERSONAL_GLOBS` against the Python
  * backend's `_config_dir()` root only — it cannot reach Electron's
  * `app.getPath("userData")` (a DIFFERENT directory on disk). Per
- * XZ-LOG-03 the Electron loggers have no PII redaction, so
+ * the design contract, the Electron loggers have no PII redaction, so
  * dictated-text fragments may be present in these files.
  *
  * This helper unlinks every Electron-side log file the app writes:
@@ -262,7 +265,7 @@ export function rendererErrorsLogPath(): string {
  * _GDPR_PERSONAL_FILES: try path.unlink() except ...` discipline.
  *
  * NOT WIRED to an IPC handler yet — see `docs/privacy/gdpr-delete.md`
- * "Electron logs gap (PI-6 — known limitation)". The intended wiring
+ * "Electron logs gap (known limitation)". The intended wiring
  * is a `deleteAllPersonalData` IPC handler that calls this helper AND
  * proxies to the Python `delete_all_personal_data` command, then
  * merges both responses for the renderer.

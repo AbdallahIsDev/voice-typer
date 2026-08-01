@@ -8,7 +8,7 @@ asar: true
 # it was dead config — per docs/migration/signing-guide.md:431 and
 # ADR-0020 §15, NO runtime code consumes it (no `electron-updater`
 # integration exists, and the Tauri path uses `tauri-plugin-updater`
-# instead, which is gated by `src-tauri/capabilities/migrate-runtime.json`
+# instead, which is gated by `src-tauri/capabilities/main-runtime.json`
 # — also not granted today). Leaving the block in place misled future
 # maintainers into thinking auto-update was wired up. When auto-update
 # is actually implemented (either via `electron-updater` on the
@@ -119,24 +119,12 @@ nsis:
   # fallback wrapper. Tests: tests/test_uninstall_windows.py +
   # tests/test_windows_installer_extra_resources.py.
   include: ../../scripts/windows/uninstaller.nsh
-  # S5-CR-83 (SA-12) HISTORICAL NOTE (kept for context): this block
-  # previously documented a DEFERRED fix path because the .nsh file
-  # did not yet exist in the repo's file tree. S2-CR-69 (sub-agent 8)
-  # landed both the .nsh (scripts/windows/uninstaller.nsh — added by
-  # an earlier wave) AND the Python helper + .bat wrapper + the
-  # `include:` wiring above, closing the Windows part of the gap.
-  #
-  # LINUX is handled (prerm removes ~/.config/autostart/voice-typer.desktop
-  # for every non-system user — see ../../scripts/linux/prerm:38-57 and
-  # ../../scripts/linux/prerm.rpm:40-58). macOS is handled (scripts/
-  # macos/uninstall.sh removes the LaunchAgent plist + user data dir).
-  #
-  # The Python runtime ALSO cleans up its own autostart entries when
-  # the user explicitly disables autostart from Settings (see
-  # _disable_autostart_windows in autostart_windows.py) — the orphan
-  # scenario only occurs when the user uninstalls the app WITHOUT
-  # first disabling autostart in the Settings UI, which is exactly
-  # what the .nsh + .bat wiring above now handles.
+  # Cross-platform autostart-on-uninstall cleanup: Windows is HANDLED
+  # via the .nsh + .bat wiring above (S2-CR-69); Linux is HANDLED via
+  # scripts/linux/prerm + prerm.rpm; macOS has a low-severity GAP
+  # pending an `uninstall-autostart.command` script. Full context +
+  # the deferred fix path live in
+  # docs/migration/macos-validation-runbook.md §Step 8.5.
 
 mac:
   icon: resources/icon.png
@@ -162,49 +150,13 @@ mac:
     - from: ../dist/voice-typer-backend.app
       to: voice-typer-backend.app
       filter: ["**/*"]
-  # S5-CR-83 (SA-12): the .dmg installer does NOT include an uninstaller
-  # script that removes the per-user LaunchAgent the app creates at
-  # runtime via voice_typer/server/server_platform/autostart_macos.py:
-  #   ~/Library/LaunchAgents/com.voicetyper.plist
-  # (see _enable_autostart_macos in autostart_macos.py — it writes the
-  # plist, chmods it to 0o600, and `launchctl load`s it).
-  #
-  # macOS apps are typically uninstalled by dragging the .app bundle
-  # from /Applications to the Trash — there is no uninstall hook in
-  # the standard "drag to install" .dmg flow. So the LaunchAgent plist
-  # remains orphaned after uninstall: on next login launchd tries to
-  # spawn the (now-deleted) Python interpreter listed in the plist's
-  # ProgramArguments, fails silently, and logs to
-  # ~/Library/Logs/voice-typer-autostart.log (the plist's
-  # StandardOutPath / StandardErrorPath — see _enable_autostart_macos).
-  #
-  # LINUX is handled (prerm removes ~/.config/autostart/voice-typer.desktop
-  # — see ../../scripts/linux/prerm:38-57). Windows + macOS are the
-  # remaining gap.
-  #
-  # The fix path (deferred — needs an uninstall.command script that is
-  # NOT yet in this repo's file tree, and the dmg: format does NOT
-  # support electron-builder `afterRemove` / `uninstallerHooks`):
-  #   1. Ship a voice_typer/client/build/uninstall-autostart.command
-  #      script alongside the .app bundle (extraResources) that:
-  #        - `launchctl bootout gui/$(id -u)/com.voicetyper`
-  #        - `launchctl remove com.voicetyper` (legacy fallback)
-  #        - `rm -f ~/Library/LaunchAgents/com.voicetyper.plist`
-  #      OR (lighter-weight alternative): document the cleanup in the
-  #      README / macOS install guide and surface a "Disable autostart
-  #      before uninstalling" notice in the Settings → General panel.
-  #   2. Add a regression test in
-  #      voice_typer/client/src/main/__tests__/electron-builder-yml.test.ts
-  #      asserting the extraResources entry for the .command script is
-  #      present (once the script is added).
-  #
-  # Until the .command script lands, this gap is tracked as a
-  # Low-severity packaging issue (S5-CR-83). The Python runtime DOES
-  # clean up its own LaunchAgent when the user explicitly disables
-  # autostart from Settings (see _disable_autostart_macos in
-  # autostart_macos.py) — the orphan scenario only occurs when the
-  # user uninstalls the app WITHOUT first disabling autostart in the
-  # Settings UI.
+  # S5-CR-83 (SA-12) packaging gap: macOS .dmg has no uninstall hook,
+  # so the per-user LaunchAgent at ~/Library/LaunchAgents/com.voicetyper.plist
+  # is orphaned if the user uninstalls without first disabling autostart
+  # in Settings. Low severity — fails silently. Full context + deferred
+  # fix path (ship an `uninstall-autostart.command` script via
+  # extraResources) live in
+  # docs/migration/macos-validation-runbook.md §Step 8.5.
 dmg:
   artifactName: ${productName}-${version}-mac-${arch}.${ext}
   contents:

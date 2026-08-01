@@ -1,22 +1,22 @@
 /**
- * FIX-14 — UX-19, UX-24, UX-25 regression tests for App.tsx.
+ *  — , ,  regression tests for App.tsx.
  *
- * UX-19: "Page not found" fallback uses i18n keys + renders a "Go to Home"
+ * : "Page not found" fallback uses i18n keys + renders a "Go to Home"
  *        recovery button that navigates home on click. The previous version
  *        hardcoded English strings and offered no recovery action.
  *
- * UX-24: The `?` help overlay shows the user's ACTUAL configured hotkey
+ * : The `?` help overlay shows the user's ACTUAL configured hotkey
  *        (via formatHotkeyLabel) rather than a hardcoded "Caps Lock" label
  *        that lied whenever the user had rebound the key.
  *
- * UX-25: The `?` keydown guard now skips when focus is in a contentEditable
+ * : The `?` keydown guard now skips when focus is in a contentEditable
  *        element (rich-text editors, Slate/ProseMirror, etc.). Previously
  *        only <input>/<textarea>/<select> were checked, so typing "?"
  *        inside a contentEditable field popped the overlay and stole focus.
  *
  * SET-4: The `?` keydown listener is registered ONCE (empty deps) and reads
  *        `showHelpOverlay` from a ref. This is implicitly covered by the
- *        UX-25 test (the listener must still be alive across opens/closes
+ *         test (the listener must still be alive across opens/closes
  *        for the test to pass) but isn't directly asserted here.
  */
 import {
@@ -72,12 +72,12 @@ vi.mock("@/components/layout/Sidebar", () => ({
 	}) => (
 		<nav data-testid="sidebar">
 			{onNavigate && (
-				// BG-25 / BG-26: nav button so tests can trigger a real
+				//nav button so tests can trigger a real
 				// `navigate()` call (and thus App's document.title +
 				// focus-management effects) without mocking useNavigation.
 				// Label is intentionally "Switch to Settings" (not "Go to
 				// Settings") to avoid clashing with the page-not-found
-				// fallback's "Go to Home" button tested in UX-19.
+				//fallback's "Go to Home" button tested in
 				<button type="button" onClick={() => onNavigate("settings")}>
 					Switch to Settings
 				</button>
@@ -112,7 +112,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		Moon02Icon: make("Moon02Icon"),
 		RefreshIcon: make("RefreshIcon"),
 		Sun01Icon: make("Sun01Icon"),
-		// BG-27: PunctuationCheatSheet (rendered inside the extracted
+		//PunctuationCheatSheet (rendered inside the extracted
 		// <HelpOverlay />) transitively imports SearchField, which
 		// imports Search01Icon. Without this mock entry, opening the
 		// help overlay crashes the test.
@@ -313,7 +313,7 @@ function dispatchKey(
 	});
 }
 
-// ── UX-19: page-not-found fallback ───────────────────────────────────
+//page-not-found fallback ───────────────────────────────────
 
 describe("UX-19: App page-not-found fallback uses i18n + Go-to-Home button", () => {
 	beforeEach(() => {
@@ -331,11 +331,11 @@ describe("UX-19: App page-not-found fallback uses i18n + Go-to-Home button", () 
 
 	afterEach(() => {
 		cleanup();
-		// BG-24: vi.resetModules() resets the module registry but does
+		//vi.resetModules() resets the module registry but does
 		// NOT undo vi.doMock registrations from the test body. Without
-		// this doUnmock, the UX-19 test's `vi.doMock("@/hooks/useNavigation",
+		//this doUnmock, the  test's `vi.doMock("@/hooks/useNavigation",
 		// ...)` (which forces currentPage to an invalid page literal)
-		// leaks into subsequent UX-24 / UX-25 tests, breaking their
+		//leaks into subsequent  /  tests, breaking their
 		// assumption that App renders the home page on mount.
 		vi.doUnmock("@/hooks/useNavigation");
 		vi.resetModules();
@@ -360,14 +360,14 @@ describe("UX-19: App page-not-found fallback uses i18n + Go-to-Home button", () 
 		const { default: App } = await import("@/App");
 		render(<App />);
 
-		// BG-24 / UX-19: the heading uses t("app.pageNotFoundTitle") =
+		//the heading uses t("app.pageNotFoundTitle") =
 		// "Page not found". The key is translated across all 8 locales;
 		// the fallback resolves to the active locale's translation.
 		await waitFor(() => {
 			expect(screen.getByText("Page not found")).toBeTruthy();
 		});
 
-		// BG-24 / UX-19: the unknown-page value uses
+		//the unknown-page value uses
 		// t("app.pageNotFoundDescription", { page }) which interpolates
 		// to "Unknown page: totally_invalid_page".
 		expect(screen.getByText("Unknown page: totally_invalid_page")).toBeTruthy();
@@ -393,13 +393,13 @@ describe("UX-19: App page-not-found fallback uses i18n + Go-to-Home button", () 
 		);
 		expect(goHomeButton).toBeTruthy();
 
-		// UX-19: clicking the button calls navigate("home").
+		//clicking the button calls navigate("home").
 		fireEvent.click(goHomeButton);
 		expect(mockNavigate).toHaveBeenCalledWith("home");
 	});
 });
 
-// ── UX-24: help overlay shows the user's actual configured hotkey ────
+//help overlay shows the user's actual configured hotkey ────
 
 describe("UX-24: help overlay shows the user's actual configured hotkey", () => {
 	beforeEach(() => {
@@ -434,7 +434,7 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 			expect(screen.getByText("Keyboard Shortcuts")).toBeTruthy();
 		});
 
-		// UX-24: the dictation shortcut label must show the user's
+		//the dictation shortcut label must show the user's
 		// actual hotkey ("F2"), not the hardcoded "Caps Lock" string
 		// from the previous t("help.keys.dictation") translation.
 		// formatHotkeyLabel("F2") returns "F2".
@@ -465,7 +465,7 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 			expect(screen.getByText("Keyboard Shortcuts")).toBeTruthy();
 		});
 
-		// UX-24: formatHotkeyLabel("<ctrl>+<shift>+v") returns
+		//formatHotkeyLabel("<ctrl>+<shift>+v") returns
 		// "Ctrl+Shift+V". The overlay must show this, not the
 		// hardcoded "Ctrl+Alt+V" default.
 		expect(screen.getByText("Ctrl+Shift+V")).toBeTruthy();
@@ -491,7 +491,7 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 			expect(screen.getByText("Keyboard Shortcuts")).toBeTruthy();
 		});
 
-		// UX-24: when config.hotkey is empty, formatHotkeyLabel falls
+		//when config.hotkey is empty, formatHotkeyLabel falls
 		// back to "<caps_lock>" which formats to "Caps Lock".
 		expect(screen.getByText("Caps Lock")).toBeTruthy();
 	});
@@ -519,13 +519,13 @@ describe("UX-24: help overlay shows the user's actual configured hotkey", () => 
 			expect(screen.getByText("Keyboard Shortcuts")).toBeTruthy();
 		});
 
-		// UX-24: when repaste_hotkey is empty, formatHotkeyLabel falls
+		//when repaste_hotkey is empty, formatHotkeyLabel falls
 		// back to "<ctrl>+<alt>+v" which formats to "Ctrl+Alt+V".
 		expect(screen.getByText("Ctrl+Alt+V")).toBeTruthy();
 	});
 });
 
-// ── UX-25: `?` keydown skips contentEditable elements ───────────────
+//`?` keydown skips contentEditable elements ───────────────
 
 describe("UX-25: `?` keydown guard skips contentEditable elements", () => {
 	beforeEach(() => {
@@ -557,7 +557,7 @@ describe("UX-25: `?` keydown guard skips contentEditable elements", () => {
 		// rich-text editor like Slate/ProseMirror). The previous guard
 		// only checked <input>/<textarea>/<select>, so typing "?"
 		// inside a contentEditable would pop the overlay and steal
-		// focus. UX-25 adds `active?.isContentEditable === true` to
+		//focus.  adds `active?.isContentEditable === true` to
 		// the skip predicate.
 		const editable = document.createElement("div");
 		editable.contentEditable = "true";
@@ -598,7 +598,7 @@ describe("UX-25: `?` keydown guard skips contentEditable elements", () => {
 	});
 });
 
-// ── BG-25: document.title updates on route change ──────────────────────
+//document.title updates on route change ──────────────────────
 
 describe("BG-25: document.title updates on route change", () => {
 	beforeEach(() => {
@@ -630,7 +630,7 @@ describe("BG-25: document.title updates on route change", () => {
 			expect(screen.getByTestId("home-page")).toBeTruthy();
 		});
 
-		// BG-25: title is `t("nav.<page>") + " — " + APP_NAME`.
+		//title is `t("nav.<page>") + " — " + APP_NAME`.
 		// APP_NAME is "Voice Typer" (src/renderer/src/branding.ts).
 		expect(document.title).toBe("Home — Voice Typer");
 	});
@@ -654,12 +654,12 @@ describe("BG-25: document.title updates on route change", () => {
 			expect(screen.getByTestId("settings-page")).toBeTruthy();
 		});
 
-		// BG-25: title updated to the Settings page's nav label.
+		//title updated to the Settings page's nav label.
 		expect(document.title).toBe("Settings — Voice Typer");
 	});
 });
 
-// ── BG-26: focus management on route change ────────────────────────────
+//focus management on route change ────────────────────────────
 
 describe("BG-26: focus moves to <main> on route change (skip link + tabIndex plumbing)", () => {
 	beforeEach(() => {
@@ -720,7 +720,7 @@ describe("BG-26: focus moves to <main> on route change (skip link + tabIndex plu
 			expect(screen.getByTestId("settings-page")).toBeTruthy();
 		});
 
-		// BG-26: focus moved to <main id="main-content"> after the
+		//focus moved to <main id="main-content"> after the
 		// route change. The element has tabIndex={-1} so it can
 		// receive programmatic focus without being in the tab order.
 		expect(document.activeElement).toBe(mainEl);

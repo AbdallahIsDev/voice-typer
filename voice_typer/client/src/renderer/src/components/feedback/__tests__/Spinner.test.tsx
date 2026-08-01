@@ -1,7 +1,7 @@
 /**
  * Tests for the shared Spinner component.
  *
- * S5-CR-100: the previous implementation rendered the root element as
+ * : the previous implementation rendered the root element as
  * `<output aria-label="Loading">` for the non-decorative default. The
  * HTML5 `<output>` element has an implicit ARIA role of `status`, which
  * means it is treated as a polite `aria-live` region by screen readers.
@@ -11,7 +11,7 @@
  * pages) — even though the spinner in those contexts is incidental,
  * not a primary status message.
  *
- * The fix (S5-CR-100): the default root is now a `<span role="img">`
+ * The fix (): the default root is now a `<span role="img">`
  * with `aria-label={t("a11y.loading")}`. It carries the accessible
  * name (so AT users hear "Loading" when they focus the spinner) but
  * does NOT have an implicit live region. Pages that want a status
@@ -51,7 +51,7 @@ describe("Spinner — S5-CR-100 (no implicit aria-live region)", () => {
 		const { container } = render(<Spinner />);
 		// The root element must NOT be <output> — that would
 		// re-introduce the implicit aria-live="polite" region
-		// S5-CR-100 removed.
+		//removed.
 		expect(container.querySelector("output")).toBeNull();
 		// The accessible name flows from aria-label (the i18n mock
 		// returns the key, so the label is the literal key string).

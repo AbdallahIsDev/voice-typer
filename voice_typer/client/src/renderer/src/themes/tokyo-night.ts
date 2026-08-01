@@ -16,15 +16,17 @@ export const tokyoNightTheme: Omit<ThemePreset, "nameKey"> = {
 		"--foreground": "oklch(0.18 0.015 260)",
 		"--bg-subtle": "oklch(0.93 0.008 250)",
 		"--surface-hover": "oklch(0.88 0.008 250)",
-		// PVT-001: backfill --surface-page (was missing in light, present in dark).
+		// backfill --surface-page (was missing in light, present in dark).
 		"--surface-page": "oklch(0.96 0.01 250)",
-		// Text (PVT-001: backfill --text-primary).
+		// Text (backfill --text-primary).
 		"--text-primary": "oklch(0.18 0.015 260)",
 		"--text-secondary": "oklch(0.35 0.01 260)",
 		// Borders / inputs / rings
-		"--border": "oklch(0.84 0.008 250)",
-		"--input": "oklch(0.84 0.008 250)",
-		/* PVT-044: bump L from 0.6 to 0.48 so the focus ring (combined with
+		/* WCAG 1.4.11: L lowered from 0.84 to 0.62 so the border clears
+		   3:1 contrast against the near-white background. */
+		"--border": "oklch(0.62 0.008 250)",
+		"--input": "oklch(0.62 0.008 250)",
+		/* bump L from 0.6 to 0.48 so the focus ring (combined with
 		   focus-visible:ring-ring/30) clears WCAG 1.4.11's 3:1 minimum. */
 		"--ring": "oklch(0.48 0.1 280)",
 		// Cards / popovers
@@ -38,12 +40,15 @@ export const tokyoNightTheme: Omit<ThemePreset, "nameKey"> = {
 		"--secondary": "oklch(0.9 0.008 250)",
 		"--secondary-foreground": "oklch(0.22 0.015 260)",
 		"--accent": "oklch(0.6 0.12 210)",
-		"--accent-foreground": "oklch(0.97 0 0)",
+		/* WCAG AA: --accent L=0.6 in light mode means the default white
+		   --accent-foreground only reaches ~3.4:1. Switching to
+		   near-black clears AA 4.5:1 against the bright blue accent. */
+		"--accent-foreground": "oklch(0.1 0 0)",
 		"--accent-soft": "oklch(0.55 0.16 280 / 0.1)",
 		"--accent-muted": "oklch(0.55 0.16 280 / 0.35)",
 		"--muted": "oklch(0.91 0.008 250)",
 		"--muted-foreground": "oklch(0.45 0.01 260)",
-		// Destructive (PVT-002: backfill --destructive-foreground.)
+		// Destructive (backfill --destructive-foreground.)
 		"--destructive": "oklch(0.55 0.22 15)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
 		// Sidebar
@@ -61,10 +66,10 @@ export const tokyoNightTheme: Omit<ThemePreset, "nameKey"> = {
 		"--chart-3": "oklch(0.6 0.14 330)",
 		"--chart-4": "oklch(0.65 0.14 50)",
 		"--chart-5": "oklch(0.6 0.1 160)",
-		// Scrollbar (PVT-001: backfill --scrollbar-thumb + --scrollbar-thumb-hover.)
+		// Scrollbar (backfill --scrollbar-thumb + --scrollbar-thumb-hover.)
 		"--scrollbar-thumb": "oklch(0.82 0.008 250)",
 		"--scrollbar-thumb-hover": "oklch(0.72 0.008 250)",
-		// NH-16: status tokens for light mode. Semantic
+		// status tokens for light mode. Semantic
 		// green/amber/blue so status meaning is preserved on
 		// this theme's palette (overrides the stylesheet default).
 		"--success": "oklch(0.62 0.17 149)",
@@ -89,11 +94,16 @@ export const tokyoNightTheme: Omit<ThemePreset, "nameKey"> = {
 		"--muted": "oklch(0.16 0.015 270)",
 		"--muted-foreground": "oklch(0.65 0.015 270)",
 		"--accent": "oklch(0.65 0.12 210)",
-		"--accent-foreground": "oklch(0.97 0 0)",
+		/* WCAG AA: --accent L=0.65 in dark mode means the default white
+		   --accent-foreground only reaches ~2.8:1. Switching to
+		   near-black clears AA 4.5:1 against the bright blue accent. */
+		"--accent-foreground": "oklch(0.1 0 0)",
 		"--accent-soft": "oklch(0.65 0.14 280 / 0.12)",
 		"--accent-muted": "oklch(0.65 0.14 280 / 0.38)",
-		"--border": "oklch(0.22 0.02 270)",
-		"--input": "oklch(0.24 0.02 270)",
+		/* WCAG 1.4.11: L raised from 0.22 to 0.52 so the border clears
+		   3:1 contrast against the dark background. */
+		"--border": "oklch(0.52 0.02 270)",
+		"--input": "oklch(0.54 0.02 270)",
 		"--ring": "oklch(0.7 0.15 280)",
 		"--sidebar": "oklch(0.1 0.02 270)",
 		"--sidebar-foreground": "oklch(0.92 0.01 250)",
@@ -104,7 +114,7 @@ export const tokyoNightTheme: Omit<ThemePreset, "nameKey"> = {
 		"--sidebar-border": "oklch(0.2 0.02 270)",
 		"--sidebar-ring": "oklch(0.7 0.15 280)",
 		"--destructive": "oklch(0.55 0.22 15)",
-		// PVT-002: backfill --destructive-foreground so destructive button text
+		// backfill --destructive-foreground so destructive button text
 		// is readable without relying on the stylesheet default.
 		"--destructive-foreground": "oklch(0.97 0 0)",
 		"--chart-1": "oklch(0.65 0.14 280)",
@@ -115,7 +125,7 @@ export const tokyoNightTheme: Omit<ThemePreset, "nameKey"> = {
 		"--scrollbar-thumb": "oklch(0.28 0.02 270)",
 		"--scrollbar-thumb-hover": "oklch(0.38 0.02 270)",
 		"--surface-page": "oklch(0.11 0.02 270)",
-		// NH-16: status tokens for dark mode. Semantic
+		// status tokens for dark mode. Semantic
 		// green/amber/blue so status meaning is preserved on
 		// this theme's palette (overrides the stylesheet default).
 		"--success": "oklch(0.7 0.16 149)",

@@ -1,5 +1,5 @@
 /**
- * FIX-16 / A11Y-7 / SET-2: Keyboard accessibility tests for ExportFormatMenu.
+ *  / A11Y-7 / SET-2: Keyboard accessibility tests for ExportFormatMenu.
  *
  * The pre-fix menu was mouse-only: no arrow-key navigation, no Escape-to-
  * close, no Home/End jumps, and no aria-controls linking the trigger

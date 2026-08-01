@@ -50,7 +50,7 @@ export function MicrophoneStep({
 					</SelectTrigger>
 					<SelectContent>
 						{microphones.map((mic) => {
-							// S2-CR-39: surface two backend-provided
+							//surface two backend-provided
 							// flags the renderer previously ignored.
 							// `default === true` is the OS default
 							// input device — a "Default" badge

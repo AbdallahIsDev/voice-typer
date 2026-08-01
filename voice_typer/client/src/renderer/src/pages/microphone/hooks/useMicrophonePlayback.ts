@@ -1,12 +1,12 @@
 // Test-audio playback hook for the Microphone page.
 //
-// Extracted from the former ``useMicrophoneTest`` monolith (DR-11).
+//Extracted from the former ``useMicrophoneTest`` monolith ().
 // Owns the ``playingEnhanced`` / ``playingOriginal`` UI state plus the
 // underlying ``HTMLAudioElement`` ref (``audioRef``) and the
 // "is-playing" ref (``playingRef``) that the level-monitor hook reads
 // to suppress level updates during playback.
 //
-// DR-9 (1-C Finding 8): ``playAudio`` / ``stopPlayback`` are wrapped
+//(1-C Finding 8): ``playAudio`` / ``stopPlayback`` are wrapped
 // in ``useCallback`` with their actual deps so the session hook (and
 // the page) can capture them directly without ref indirection.
 //

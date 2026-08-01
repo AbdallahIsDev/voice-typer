@@ -10,19 +10,21 @@ import { t } from "@/i18n/i18n";
  * the status pill whenever recordingState is "error", showing the
  * backend's error message plus a Retry button.
  *
- * EC-FIX-12 / EC-12: extracted from Home.tsx so the page file stays a
+ *  / : extracted from Home.tsx so the page file stays a
  * thin composition root. Behaviour + props are preserved byte-for-byte.
  */
 export interface RecordingErrorCardProps {
 	message: string;
 	onRetry: () => void;
 	retrying: boolean;
+	retryLabel?: string;
 }
 
 export function RecordingErrorCard({
 	message,
 	onRetry,
 	retrying,
+	retryLabel = t("home.retry"),
 }: RecordingErrorCardProps) {
 	return (
 		<div
@@ -56,7 +58,7 @@ export function RecordingErrorCard({
 						className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent"
 					/>
 				)}
-				{t("home.retry")}
+				{retryLabel}
 			</Button>
 		</div>
 	);

@@ -20,10 +20,10 @@
 // Pattern mirrors ``useVocabulary`` (sibling hook under
 // ``pages/vocabulary/hooks/useVocabulary.ts``) — backend list → React
 // state, error surfaced via ``loadError`` so the page can render a
-// retry EmptyState instead of an ambiguous empty list (NF-R10-1).
+//retry EmptyState instead of an ambiguous empty list ().
 //
 // Extracted from the former monolithic ``pages/History.tsx`` render
-// function as part of the BG-54 spaghetti split. The export paging
+//function as part of the  spaghetti split. The export paging
 // loop lives in ``useHistoryExport``; the client-side sort lives in
 // ``historySort.ts``.
 
@@ -99,7 +99,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 			limit: number,
 			offset: number,
 		): Promise<HistoryRecord[]> => {
-			// BG-52: branch on the active filter so the displayed list (and
+			//branch on the active filter so the displayed list (and
 			// the export) reflects what the user is asking for, not always
 			// the full history.
 			if (favoritesOnly) {

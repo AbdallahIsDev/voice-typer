@@ -1,5 +1,5 @@
 /**
- * XA-20-21: component-level RTL render tests.
+ * : component-level RTL render tests.
  *
  * The pre-existing ``rtl.test.tsx`` only asserts that
  * ``document.documentElement.dir`` flips between ``"rtl"`` and

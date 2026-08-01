@@ -4,13 +4,13 @@
  *
  * Extracted from `index.ts` (REF-2).
  *
- * RW-10: stops the heartbeat interval first so we don't queue a
+ * : stops the heartbeat interval first so we don't queue a
  * heartbeat onto the dying socket while `quit_app` is in flight.
  * The interval is also cleared in the TCP close handler, but stopping
  * it here avoids the race where the 5s tick fires between
  * sendToPython("quit_app") and the socket actually closing.
  *
- * XV-157 (XZ-14): idempotency guard. `stopPython()` is invoked from up
+ *  (): idempotency guard. `stopPython()` is invoked from up
  * to 4 distinct sites during a single circuit-breaker trip:
  *   1. `bootstrap.ts::onUncaught` / `onRejection` inline defensive call,
  *   2. `bootstrap.ts::_productionExit` (called by `exit(1)` from #1),
@@ -31,11 +31,11 @@
  * reload in dev mode), so a freshly-spawned backend can be stopped
  * again after a relaunch. `state._stopPythonCalled` is mirrored
  * alongside the flags for cross-module observability; resetting it on
- * `startPython()` is handled by `_resetStopPythonFlagsForRestart()` (GT-A3-10,
+ * `startPython()` is handled by `_resetStopPythonFlagsForRestart()` (,
  * exported below) which `start-python.ts` should call at the top of
  * `startPython()`.
  *
- * GT-71: the armed `killTimer` is NOT `.unref()`'d. It must keep the
+ * : the armed `killTimer` is NOT `.unref()`'d. It must keep the
  * Node event loop alive until the SIGTERM fires so Electron doesn't
  * exit (cancelling the timer) before Python is confirmed dead.
  *
@@ -71,12 +71,12 @@
 import { spawnSync } from "node:child_process";
 import { state } from "../state";
 import { _resetIpcBackpressure, sendToPython } from "./send-to-python";
-// ER-29: clear the TCP startup timeout so the 60s timer doesn't fire
+//clear the TCP startup timeout so the 60s timer doesn't fire
 // during teardown (after Python is already dead) and trip the
 // premature "Python backend failed to start" dialog + `app.quit()`.
 import { clearTcpStartupTimeout } from "./tcp-connect";
 
-// XV-157 (XZ-14): idempotency state. `isStopping` is true while a stop
+//(): idempotency state. `isStopping` is true while a stop
 // is in flight (between the top-of-function guard and either the
 // killTimer callback or the `.once('exit')` callback). `isStopped`
 // becomes true once shutdown is complete (Python exited or was
@@ -88,11 +88,11 @@ import { clearTcpStartupTimeout } from "./tcp-connect";
 // re-stoppable without requiring `start-python.ts` to know about the
 // flags.
 //
-// GT-A3-10: `_resetStopPythonFlagsForRestart()` is exported below.
+//`_resetStopPythonFlagsForRestart()` is exported below.
 let isStopping = false;
 let isStopped = false;
 
-// XV-157 (XZ-14): track the armed killTimer so we can clear any
+//(): track the armed killTimer so we can clear any
 // previously-armed timer before setting a new one. The top-of-function
 // `isStopping` guard already prevents a second call from reaching the
 // `setTimeout` line, but this clear-before-set is defense-in-depth for
@@ -157,7 +157,7 @@ function _treeKillWindows(pid: number, force: boolean): void {
 }
 
 export function stopPython() {
-	// XV-157 (XZ-14): idempotency guard. If a stop is already in
+	//(): idempotency guard. If a stop is already in
 	// flight (`isStopping`) OR has already completed (`isStopped`),
 	// return immediately. This prevents the breaker-trip cascade
 	// (bootstrap onUncaught → _productionExit → index before-quit →
@@ -170,7 +170,7 @@ export function stopPython() {
 	// idempotency decision).
 	state._stopPythonCalled = true;
 
-	// TY-35: clear the per-renderer rate-limit Map. Previously this Map
+	//clear the per-renderer rate-limit Map. Previously this Map
 	// was never cleared in production — each destroyed BrowserWindow
 	// leaked its `webContents.id` entry forever (the docstring on
 	// `_resetIpcBackpressure` claimed it was called from here, but the
@@ -180,7 +180,7 @@ export function stopPython() {
 	// before the early-return paths below.
 	_resetIpcBackpressure();
 
-	// RW-10: stop the heartbeat interval first so we don't queue a
+	//stop the heartbeat interval first so we don't queue a
 	// heartbeat onto the dying socket while ``quit_app`` is in
 	// flight.  The interval is also cleared in the TCP close
 	// handler, but stopping it here avoids the race where the
@@ -207,7 +207,7 @@ export function stopPython() {
 		isStopped = true;
 		return;
 	}
-	// ER-29: clear the TCP startup timeout timer so the 60s deadline
+	//clear the TCP startup timeout timer so the 60s deadline
 	// doesn't fire AFTER Python is already gone (or never came up).
 	// Placed AFTER the `!state.pythonProcess` early-return so the
 	// "no proc" path stays a true no-op (the startup timer was
@@ -219,13 +219,13 @@ export function stopPython() {
 	// via the `quit_app` we just sent, the safety check inside
 	// the callback short-circuits — BUT the timer still pins the
 	// event loop alive for up to 60s after the app should have
-	// exited. (The ER-29 plan also called for `.unref()`-ing the
+	//exited. (The  plan also called for `.unref()`-ing the
 	// timer in tcp-connect.ts, but that part is intentionally
 	// skipped — see tcp-connect.ts:33-61 for the full rationale
 	// and the xv-fa19-fixes.test.ts guard. The explicit clear
 	// here is the belt-and-suspenders guarantee.)
 	clearTcpStartupTimeout();
-	// XV-157 (XZ-14): the top-of-function `isStopping` guard above
+	//(): the top-of-function `isStopping` guard above
 	// is what guarantees `quit_app` is sent at most once per stop
 	// cycle — a second call never reaches this line. The
 	// `.catch(() => {})` swallows the rejection that fires when
@@ -233,7 +233,7 @@ export function stopPython() {
 	// during the breaker-trip cascade).
 	sendToPython({ type: "quit_app" }).catch(() => {});
 
-	// XV-157 (XZ-14): guard against duplicate killTimer creation.
+	//(): guard against duplicate killTimer creation.
 	// Clear any previously-armed timer before setting a new one.
 	// (Defense-in-depth — the `isStopping` guard at the top is the
 	// primary protection; this backstop covers a future code path
@@ -246,7 +246,7 @@ export function stopPython() {
 		if (state.pythonProcess) {
 			const proc = state.pythonProcess;
 			const pid = proc.pid;
-			// XE-15-5: escalate SIGTERM → SIGKILL after a
+			//escalate SIGTERM → SIGKILL after a
 			// short grace. ``proc.kill()`` with no argument
 			// sends SIGTERM, which is BLOCKED when Python is
 			// stuck in a C extension (torch model load,
@@ -317,7 +317,7 @@ export function stopPython() {
 		isStopping = false;
 		isStopped = true;
 	}, KILL_TIMER_MS);
-	// GT-71: do NOT `.unref()` the killTimer — it must keep Electron
+	//do NOT `.unref()` the killTimer — it must keep Electron
 	// alive until Python is confirmed dead.
 	armedKillTimer = killTimer;
 	// P1-2c (Round 0 forward-port): use `.once` so the listener is
@@ -330,12 +330,12 @@ export function stopPython() {
 	state.pythonProcess.once("exit", () => {
 		clearTimeout(killTimer);
 		armedKillTimer = null;
-		// GT-60: null `state.pythonProcess` so downstream callers
+		//null `state.pythonProcess` so downstream callers
 		// (notably `index.ts::will-quit`) see that Python is already
 		// gone — previously this only flipped `isStopped`, causing
 		// will-quit to register a stale `.once("exit")` listener.
 		state.pythonProcess = null;
-		// XV-157 (XZ-14): Python exited gracefully — shutdown
+		//(): Python exited gracefully — shutdown
 		// is complete. Flip the flags so subsequent stopPython()
 		// calls are no-ops.
 		isStopping = false;
@@ -344,7 +344,7 @@ export function stopPython() {
 }
 
 /**
- * GT-A3-10: reset the idempotency flags so a freshly-spawned backend
+ * : reset the idempotency flags so a freshly-spawned backend
  * can be stopped again. `startPython()` should call this BEFORE
  * assigning `state.pythonProcess`.
  * @internal

@@ -1,16 +1,16 @@
 /**
- * NH-14 (session NH) test: ``<Button variant="warning">`` applies the
+ *  (session NH) test: ``<Button variant="warning">`` applies the
  * warning cva variant and exposes ``data-variant="warning"``.
  *
- * Before NH-14, ``ConfirmDialog`` accepted ``variant="warning"`` on its
+ * Before , ``ConfirmDialog`` accepted ``variant="warning"`` on its
  * props but the implementation silently fell through to ``"default"``
  * styling because ``button.tsx``'s cva had no ``warning`` entry. The
  * skip-onboarding confirmation (the only ``warning`` caller) rendered
  * with the default blue primary styling — no visual signal that skipping
  * is a warning-tier action.
  *
- * NH-14 added a ``warning`` variant to ``button.tsx``'s cva (amber-tinted,
- * using the ``--warning`` design token from NH-16) and wired
+ *  added a ``warning`` variant to ``button.tsx``'s cva (amber-tinted,
+ * using the ``--warning`` design token from ) and wired
  * ``ConfirmDialog`` to pass it through.
  *
  * This test pins the cva contract: rendering ``<Button variant="warning">``

@@ -1,9 +1,6 @@
 /**
  * Bubble overlay package — `BubbleMicButton`.
  *
- * Extracted from the former `bubble-components.tsx` monolith (PVT-067 /
- * DR-16).
- *
  * The always-visible mic toggle button. Shown only when the bubble is
  * in always_visible mode AND both `bubble_mic_button` and
  * `bubble_click_to_toggle` are on (gated by the parent). When
@@ -11,7 +8,7 @@
  * toggles dictation via the sandboxed `bubble:toggle-dictation`
  * channel.
  *
- * BG-31 A11Y TRADE-OFF (focusable:false — keyboard inaccessible):
+ * A11Y TRADE-OFF (focusable:false — keyboard inaccessible):
  * The bubble `BrowserWindow` is created with `focusable: false` in
  * `main/windows/bubble-window.ts` (intentional — prevents the bubble
  * from stealing keyboard focus from the user's active text field).
@@ -19,15 +16,14 @@
  * is UNREACHABLE via Tab and cannot be activated via Enter/Space in
  * the shipped app. It is effectively mouse-only.
  *
- * Decision (BG-31 option a — keep focusable:false, document trade-off):
- * we accept the mouse-only limitation for now because making the
- * bubble focusable would harm the primary UX (dictation into the
- * user's active text field). The recommended future solution is a
- * MAIN-PROCESS global hotkey (e.g. Ctrl+Shift+M) that routes to the
- * same `bubble:toggle-dictation` channel — see the BG-31 handoff
- * note for F11 (bubble-window.ts) in the F10 return report. When
- * that hotkey lands, the BubbleMicButton's `aria-label` and `title`
- * will already be correct; only the wiring changes.
+ * Decision (keep focusable:false, document trade-off): we accept the
+ * mouse-only limitation for now because making the bubble focusable
+ * would harm the primary UX (dictation into the user's active text
+ * field). The recommended future solution is a MAIN-PROCESS global
+ * hotkey (e.g. Ctrl+Shift+M) that routes to the same
+ * `bubble:toggle-dictation` channel. When that hotkey lands, the
+ * BubbleMicButton's `aria-label` and `title` will already be correct;
+ * only the wiring changes.
  *
  * Note: this button still renders with `type="button"` and an
  * `aria-label` so AT users navigating via screen-reader cursor (not

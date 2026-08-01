@@ -1,7 +1,7 @@
 /**
  * useModelSelection — model-selection + deletion slice of the Models page.
  *
- * DT-34 (Phase 4.5 spaghetti split): extracted from the former
+ *  (Phase 4.5 spaghetti split): extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns:
  *   • `selectingModel` — the name of the model currently being
  *     selected (drives the spinner on the model card's Select button).
@@ -9,13 +9,13 @@
  *     deletion confirmation (drives the ConfirmDialog open state).
  *
  * And the three actions that drive them:
- *   • `selectModel` — dep-gated guard (PVT-003 fix #7: replaces the
+ *   • `selectModel` — dep-gated guard ( fix #7: replaces the
  *     `model.name === "parakeet"` magic string with the
  *     `depsInstallable` flag), persists the new active model via
  *     `updateConfig`, optimistically updates the local model list,
- *     then calls `refreshModelStatus` to reconcile (PVT-003 fix #8:
+ *     then calls `refreshModelStatus` to reconcile ( fix #8:
  *     uses the extracted helper instead of duplicating the
- *     `get_model_status` block from `loadConfig`). BG-48: surfaces
+ *     `get_model_status` block from `loadConfig`). : surfaces
  *     config-save failures instead of silently showing the success
  *     toast.
  *   • `requestDeleteModel` — refuses to delete the active model,
@@ -68,12 +68,12 @@ export function useModelSelection({
 
 	// ── Action: selectModel ─────────────────────────────────────────
 	//
-	// PVT-003 fix #7: replaces the `model.name === "parakeet"` magic
+	//fix #7: replaces the `model.name === "parakeet"` magic
 	// string with the `depsInstallable` flag (so future dep-required
 	// models can opt into the same UX without touching this code).
 	const selectModel = useCallback(
 		async (model: ModelInfo) => {
-			// PVT-003 fix #7: dep-gated models can't be selected until
+			//fix #7: dep-gated models can't be selected until
 			// their deps are installed. Previously this was a hardcoded
 			// `model.name === "parakeet"` check.
 			if (model.depsInstallable && !model.depsOk) {
@@ -103,7 +103,7 @@ export function useModelSelection({
 					prev.map((m) => ({ ...m, isActive: m.name === model.name })),
 				);
 
-				// PVT-003 fix #8: use the extracted refresh helper
+				//fix #8: use the extracted refresh helper
 				// (previously a verbatim duplicate of loadConfig's block).
 				await refreshModelStatus();
 
@@ -112,7 +112,7 @@ export function useModelSelection({
 					"success",
 				);
 			} catch (err) {
-				// BG-48: surface config-save failures instead of
+				//surface config-save failures instead of
 				// silently showing the success toast. The model
 				// state is NOT updated (we never reached the
 				// ``setModels`` call), so the UI stays in sync

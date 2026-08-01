@@ -1,16 +1,16 @@
 /**
- * History page tests — BG-51, BG-52, BG-53 regression coverage.
+ * History page tests — , ,  regression coverage.
  *
- * BG-51: Favorites toggle exposes aria-pressed + a stable accessible
+ * : Favorites toggle exposes aria-pressed + a stable accessible
  *        name containing the visible "Favorites" text (Label-in-Name).
  *
- * BG-52: doExport honours the active search/favorites filter —
+ * : doExport honours the active search/favorites filter —
  *        branches on searchQuery / favoritesOnly to call search_history
  *        / get_favorites (with paging) instead of always calling
  *        get_history. Fires an info toast when exporting a filtered
  *        subset.
  *
- * BG-53: handleClearAll is unambiguous under an active filter —
+ * : handleClearAll is unambiguous under an active filter —
  *        skips the `records.length === 0` short-circuit using the
  *        cached stats count (visible list may be empty while the
  *        total is not) and shows a clearer confirmation message that
@@ -21,7 +21,7 @@
  * usePythonEvent is a no-op (the page keeps its debounce wrapper +
  * usePythonEvent calls for the R7-F13 source-level contract).
  *
- * BG-52 export tests exercise the `useHistoryExport` hook directly via
+ *  export tests exercise the `useHistoryExport` hook directly via
  * `renderHook` because the Radix DropdownMenu used by ExportFormatMenu
  * requires real pointer events (fireEvent.click alone doesn't open the
  * menu in the jsdom test environment — a known limitation shared with
@@ -166,7 +166,7 @@ afterEach(() => {
 	(window as unknown as { window_?: unknown }).window_ = undefined;
 });
 
-// ── BG-51 ─────────────────────────────────────────────────────────
+//
 
 describe("BG-51: Favorites toggle exposes aria-pressed + stable accessible name", () => {
 	it("renders the Favorites button with aria-pressed=false initially", async () => {
@@ -185,9 +185,9 @@ describe("BG-51: Favorites toggle exposes aria-pressed + stable accessible name"
 
 		const favBtn = screen.getByRole("button", { name: t("history.favorites") });
 		expect(favBtn).toBeTruthy();
-		// BG-51: aria-pressed conveys the toggle state.
+		//aria-pressed conveys the toggle state.
 		expect(favBtn.getAttribute("aria-pressed")).toBe("false");
-		// BG-51: the accessible name matches the visible label (Label-in-Name).
+		//the accessible name matches the visible label (Label-in-Name).
 		expect(favBtn.textContent?.trim()).toBe(t("history.favorites"));
 	});
 
@@ -222,7 +222,7 @@ describe("BG-51: Favorites toggle exposes aria-pressed + stable accessible name"
 	});
 });
 
-// ── BG-52 ─────────────────────────────────────────────────────────
+//
 
 describe("BG-52: doExport honours active search/favorites filter", () => {
 	it("calls get_history when no filter is active (original behavior)", async () => {
@@ -238,7 +238,7 @@ describe("BG-52: doExport honours active search/favorites filter", () => {
 			exportHistory,
 		};
 
-		// BG-54: doExport is extracted to useHistoryExport. We exercise
+		//doExport is extracted to useHistoryExport. We exercise
 		// the hook directly so the test doesn't depend on Radix menu
 		// pointer-event behaviour (which jsdom doesn't fully simulate).
 		const { useHistoryExport } = await import(
@@ -311,7 +311,7 @@ describe("BG-52: doExport honours active search/favorites filter", () => {
 		const getHistoryCalls = mockCall.mock.calls.filter(
 			(args: unknown[]) => args[0] === "get_history",
 		);
-		// BG-52: search_history is called (export paging under the
+		//search_history is called (export paging under the
 		// active search filter), get_history is NOT.
 		expect(searchHistoryCalls.length).toBeGreaterThanOrEqual(1);
 		expect(getHistoryCalls.length).toBe(0);
@@ -355,7 +355,7 @@ describe("BG-52: doExport honours active search/favorites filter", () => {
 		const getHistoryCalls = mockCall.mock.calls.filter(
 			(args: unknown[]) => args[0] === "get_history",
 		);
-		// BG-52: get_favorites is called (export paging under the
+		//get_favorites is called (export paging under the
 		// active favorites filter), get_history is NOT.
 		expect(getFavoritesCalls.length).toBeGreaterThanOrEqual(1);
 		expect(getHistoryCalls.length).toBe(0);
@@ -391,18 +391,18 @@ describe("BG-52: doExport honours active search/favorites filter", () => {
 
 		await result.current.doExport("json");
 
-		// BG-52: filtered export fires an info toast so the user knows the
+		//filtered export fires an info toast so the user knows the
 		// exported file reflects the active filter (not the full history).
 		expect(toast.info).toHaveBeenCalledWith(t("history.exportFilteredToast"));
 	});
 });
 
-// ── BG-53 ─────────────────────────────────────────────────────────
+//
 
 describe("BG-53: Clear All under active filter is unambiguous", () => {
 	it("shows the filter-aware confirmation message when a filter is active", async () => {
 		// Visible records: empty (favorites filter active). Total stats: 5.
-		// BG-53: the short-circuit must NOT fire here (totalCount > 0),
+		//the short-circuit must NOT fire here (totalCount > 0),
 		// and the confirmation message must call out hidden entries.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_history") return Promise.resolve([sampleRecord()]);
@@ -440,7 +440,7 @@ describe("BG-53: Clear All under active filter is unambiguous", () => {
 		});
 		fireEvent.click(clearBtn);
 
-		// BG-53: the dialog message is the filter-aware variant that
+		//the dialog message is the filter-aware variant that
 		// explicitly calls out hidden entries.
 		await waitFor(() => {
 			expect(
@@ -453,7 +453,7 @@ describe("BG-53: Clear All under active filter is unambiguous", () => {
 
 	it("skips the short-circuit when filter is active but stats count > 0", async () => {
 		// Visible records: empty (favorites filter active). Total stats: 3.
-		// Without the BG-53 fix, handleClearAll would short-circuit on
+		//Without the  fix, handleClearAll would short-circuit on
 		// `records.length === 0` and the dialog would never open.
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_history") return Promise.resolve([sampleRecord()]);
@@ -490,7 +490,7 @@ describe("BG-53: Clear All under active filter is unambiguous", () => {
 		});
 		fireEvent.click(clearBtn);
 
-		// BG-53: dialog opens because the stats count is > 0 (even
+		//dialog opens because the stats count is > 0 (even
 		// though the visible records list is empty under the filter).
 		await waitFor(() => {
 			expect(screen.getByRole("alertdialog")).toBeTruthy();
@@ -499,7 +499,7 @@ describe("BG-53: Clear All under active filter is unambiguous", () => {
 
 	it("still short-circuits when filter is active AND stats count is 0", async () => {
 		// Visible records: empty (favorites filter active). Total stats: 0.
-		// BG-53: the short-circuit SHOULD fire here (no history to clear).
+		//the short-circuit SHOULD fire here (no history to clear).
 		mockCall.mockImplementation((type: string) => {
 			if (type === "get_history") return Promise.resolve([]);
 			if (type === "get_favorites") return Promise.resolve([]);
@@ -531,7 +531,7 @@ describe("BG-53: Clear All under active filter is unambiguous", () => {
 		});
 		fireEvent.click(clearBtn);
 
-		// BG-53: dialog must NOT open — totalCount is 0, nothing to clear.
+		//dialog must NOT open — totalCount is 0, nothing to clear.
 		// Give the state a tick to settle, then assert no dialog appeared.
 		await new Promise((r) => setTimeout(r, 50));
 		expect(screen.queryByRole("alertdialog")).toBeNull();

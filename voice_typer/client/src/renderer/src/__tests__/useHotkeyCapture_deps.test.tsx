@@ -1,12 +1,12 @@
 /**
- * DJ-92 regression test: the ref-syncing effect in `useHotkeyCapture`
+ *  regression test: the ref-syncing effect in `useHotkeyCapture`
  * has a proper dependency array and does NOT re-run on every render.
  *
- * Pre-DJ-92: the effect that syncs the latest callbacks into refs had
+ * Pre-: the effect that syncs the latest callbacks into refs had
  * NO dependency array (ran after every commit). The handler refs were
  * re-assigned on every render even when nothing had changed.
  *
- * Post-DJ-92: the effect has a dependency array of
+ * Post-: the effect has a dependency array of
  * `[onCaptureStart, onCaptureEnd, handleKeyDown, handleKeyUp,
  * cancelRecording]`. The `handle*` callbacks are `useCallback`'d, so
  * the effect only re-runs when one of those references actually changes
@@ -132,7 +132,7 @@ describe("DJ-92: useHotkeyCapture ref-sync effect has a deps array", () => {
 		).length;
 
 		// The always-attached listener should NOT have been re-added
-		// (the `[]` deps effect doesn't re-run). Pre-DJ-92 the ref-sync
+		//(the `[]` deps effect doesn't re-run). Pre- the ref-sync
 		// effect ran on every commit, but that didn't add new listeners
 		// — it just re-assigned refs. So this assertion alone is
 		// necessary but not sufficient.

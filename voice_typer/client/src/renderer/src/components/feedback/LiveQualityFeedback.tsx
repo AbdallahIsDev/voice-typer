@@ -19,7 +19,7 @@ export function LiveQualityFeedback({
 }: LiveQualityFeedbackProps) {
 	if (!isRecording) return null;
 
-	// PVT-fix #7: classify the level/peak pair through the shared
+	// Classify the level/peak pair through the shared
 	// ``getVolumeTier`` helper (defined in LevelBar.tsx) so the
 	// bar and the textual feedback agree on what counts as
 	// "clipping" / "healthy" / "low" / "silent".  Previously each
@@ -36,7 +36,7 @@ export function LiveQualityFeedback({
 		return `${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 	};
 
-	// A11Y-5: live region announces quality warnings to screen-reader users.
+	// Live region announces quality warnings to screen-reader users.
 	// aria-atomic="true" ensures the entire message is re-read on each change
 	// (otherwise SR may only speak the diff). The timer is intentionally NOT
 	// wrapped in role="timer" / aria-live because rapid per-second updates
@@ -58,7 +58,7 @@ export function LiveQualityFeedback({
 					<span
 						className={cn(
 							"w-1.5 h-1.5 rounded-full animate-pulse",
-							// PVT-fix #6: replace ``bg-green-500`` (hardcoded
+							// Replace ``bg-green-500`` (hardcoded
 							// Tailwind palette green) with the theme's
 							// ``--primary`` token so the dot matches the
 							// user's chosen accent colour in every theme
@@ -72,7 +72,7 @@ export function LiveQualityFeedback({
 						: t("microphoneTest.qualityFeedback.waiting")}
 				</span>
 
-				{/* Quality indicator — PVT-fix #6: replace the hardcoded
+				{/* Quality indicator — replace the hardcoded
                                     emerald / amber palette with CSS-variable tokens so the
                                     feedback adapts to every theme (the previous
                                     ``text-emerald-700 dark:text-emerald-400`` clung to a

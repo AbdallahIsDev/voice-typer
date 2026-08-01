@@ -5,7 +5,7 @@
  * cramped arrows) with themed SVG chevron buttons that match the app's
  * design system. The native spinners are hidden via CSS.
  *
- * UX-029 (restored): the component re-exports the same parse/range
+ *  (restored): the component re-exports the same parse/range
  * validation API the original `NumberInput` had — `onInvalid` callback
  * fired with `"parse" | "range" | null`, and `aria-invalid` set on the
  * underlying input so screen readers announce the error state and the
@@ -46,13 +46,21 @@ export interface NumberInputStepperProps
 	max?: number;
 	onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
 	/**
-	 * UX-029: optional callback fired when the user types a value that
+	 * : optional callback fired when the user types a value that
 	 * cannot be parsed as a number, or that falls outside [min, max].
 	 * Use this to surface an inline error message in the parent form.
 	 * If omitted, out-of-range values are still clamped silently (legacy
 	 * behavior) but no error state is shown.
 	 */
 	onInvalid?: (reason: "parse" | "range" | null) => void;
+	/**
+	 *  / : id of the error element this input
+	 * describes. When provided, the component forwards it as
+	 * aria-errormessage on the underlying <input> so screen
+	 * readers announce the error description. Takes precedence
+	 * over a directly-passed aria-errormessage prop.
+	 */
+	errorId?: string;
 }
 
 function ArrowUpIcon() {
@@ -104,16 +112,18 @@ function NumberInputStepper({
 	max,
 	onChange,
 	onInvalid,
+	errorId,
 	value,
+	"aria-errormessage": ariaErrormessageProp,
 	...props
 }: NumberInputStepperProps) {
-	// UX-029: track whether the current value is out-of-range so we can
+	//track whether the current value is out-of-range so we can
 	// set aria-invalid and visually mark the input. Without this the
 	// user has no idea their input was rejected — values were silently
 	// clamped and the input looked normal.
 	const [isInvalid, setIsInvalid] = useState(false);
 
-	// UX-029: re-validate whenever value/min/max change. This catches
+	//re-validate whenever value/min/max change. This catches
 	// both user input (value changes) and programmatic updates (e.g.
 	// a config preset that lowers max below the current value).
 	useEffect(() => {
@@ -146,6 +156,9 @@ function NumberInputStepper({
 		const current = Number(value) || 0;
 		const next = current + step;
 		if (max !== undefined && next > max) return;
+		// Echo the new value into the aria-live region so screen-reader
+		// users hear the result of the step without re-reading the input.
+		setLiveValue(String(next));
 		// Create a synthetic change event
 		const syntheticEvent = {
 			target: { value: String(next) },
@@ -157,6 +170,7 @@ function NumberInputStepper({
 		const current = Number(value) || 0;
 		const next = current - step;
 		if (min !== undefined && next < min) return;
+		setLiveValue(String(next));
 		const syntheticEvent = {
 			target: { value: String(next) },
 		} as React.ChangeEvent<HTMLInputElement>;
@@ -166,7 +180,7 @@ function NumberInputStepper({
 	const isAtMin = min !== undefined && Number(value) <= min;
 	const isAtMax = max !== undefined && Number(value) >= max;
 
-	// PVT-020: keyboard accessibility. The stepper buttons are focusable
+	//keyboard accessibility. The stepper buttons are focusable
 	// (tabIndex={0} below) AND the input itself responds to ArrowUp / ArrowDown
 	// so keyboard-only users can increment / decrement without leaving the
 	// text field. Home/End jump to max/min for parity with native number inputs.
@@ -180,12 +194,14 @@ function NumberInputStepper({
 				if (!isAtMin) handleStepDown();
 			} else if (e.key === "Home" && max !== undefined) {
 				e.preventDefault();
+				setLiveValue(String(max));
 				const syntheticEvent = {
 					target: { value: String(max) },
 				} as React.ChangeEvent<HTMLInputElement>;
 				onChange?.(syntheticEvent);
 			} else if (e.key === "End" && min !== undefined) {
 				e.preventDefault();
+				setLiveValue(String(min));
 				const syntheticEvent = {
 					target: { value: String(min) },
 				} as React.ChangeEvent<HTMLInputElement>;
@@ -195,6 +211,18 @@ function NumberInputStepper({
 		[handleStepUp, handleStepDown, isAtMax, isAtMin, max, min, onChange],
 	);
 
+	//errorId takes precedence over a directly-passed aria-errormessage.
+	// (The prop is destructured out of ...props so the explicit attribute
+	// below is not clobbered by the later {...props} spread.)
+	const effectiveAriaErrorMessage = errorId ?? ariaErrormessageProp;
+
+	//visually-hidden aria-live region that announces
+	// the new value after each step so screen-reader users
+	// know the result of their action without needing to
+	// read the input value aloud themselves. Starts empty and
+	// is only mutated when a stepper actually fires.
+	const [liveValue, setLiveValue] = useState("");
+
 	return (
 		<div className="group relative overflow-hidden rounded-3xl">
 			<Input
@@ -202,11 +230,12 @@ function NumberInputStepper({
 				value={value}
 				onChange={onChange}
 				onKeyDown={handleKeyDown}
-				// UX-029: set aria-invalid so screen readers announce the
+				//set aria-invalid so screen readers announce the
 				// error state, and so the destructive styling in the Input
 				// className (aria-invalid:border-destructive
 				// aria-invalid:ring-destructive) is applied.
 				aria-invalid={isInvalid || undefined}
+				aria-errormessage={effectiveAriaErrorMessage}
 				className={cn(
 					"pe-8 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-inner-spin-button]:m-0",
 					className,
@@ -216,12 +245,15 @@ function NumberInputStepper({
 				step={step}
 				{...props}
 			/>
+			<span aria-live="polite" aria-atomic="true" className="sr-only">
+				{liveValue}
+			</span>
 			<div
 				className={cn(
 					"absolute inset-e-1 top-0 flex h-full w-8 flex-col",
 					"opacity-0 pointer-events-none transition-opacity duration-200",
 					"group-hover:opacity-100 group-hover:pointer-events-auto",
-					// PVT-020: reveal steppers whenever the input OR a stepper
+					//reveal steppers whenever the input OR a stepper
 					// has focus, so keyboard users can see the control they're
 					// about to activate (the steppers are tabIndex={0} below).
 					"group-focus-within:opacity-100 group-focus-within:pointer-events-auto",
@@ -236,7 +268,7 @@ function NumberInputStepper({
 					className={cn(
 						"flex h-1/2 items-center justify-center text-(--text-muted) transition-colors",
 						"hover:text-(--text-primary)",
-						"focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring/30",
+						"focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring",
 						"disabled:opacity-50 disabled:cursor-not-allowed",
 					)}
 				>
@@ -251,7 +283,7 @@ function NumberInputStepper({
 					className={cn(
 						"flex h-1/2 items-center justify-center text-(--text-muted) transition-colors",
 						"hover:text-(--text-primary)",
-						"focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring/30",
+						"focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring",
 						"disabled:opacity-50 disabled:cursor-not-allowed",
 					)}
 				>

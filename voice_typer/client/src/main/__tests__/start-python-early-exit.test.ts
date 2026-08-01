@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * CR-34 unit tests for the Python early-exit path in `start-python.ts`.
+ *  unit tests for the Python early-exit path in `start-python.ts`.
  *
  * Verifies that on early exit (Python backend exited before the first
  * TCP connect), `state.mainWindow.destroy()` is called (NOT `.close()`).
@@ -14,7 +14,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MainState } from "../state";
 
 // Build a fresh mock mainWindow for each test. The mock tracks whether
-// `.close()` or `.destroy()` was called so we can assert CR-34.
+//`.close()` or `.destroy()` was called so we can assert
 function makeMockMainWindow() {
 	const win = {
 		close: vi.fn(),

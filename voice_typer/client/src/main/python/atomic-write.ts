@@ -1,5 +1,5 @@
 /**
- * XE-15-6: atomic file-write helper with `fsync`.
+ * : atomic file-write helper with `fsync`.
  *
  * Writes data to a sibling temp file, calls `fs.fsyncSync` to flush
  * kernel buffers to disk, then `fs.renameSync` for an atomic

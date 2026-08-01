@@ -1,7 +1,7 @@
 /**
  * Tests for the useSoundFeedback hook.
  *
- * RW-10 (sound consolidation): verifies that the hook delegates cue
+ *  (sound consolidation): verifies that the hook delegates cue
  * playback to the canonical implementation in ``@/lib/sound-manager`` —
  * NOT to a parallel implementation inside the hook file. This is the
  * regression guard that prevents the dead-code duplication from
@@ -21,6 +21,15 @@ vi.mock("@/lib/sound-manager", () => ({
 	// the hook's transitive import graph doesn't blow up.
 	_resetSoundManagerForTests: vi.fn((): void => {}),
 	setSoundFeedbackEnabled: vi.fn((): void => {}),
+	// The hook's mount effect calls ``isSoundFeedbackEnabled`` to gate
+	//``initAudioContext`` () and ``closeAudioContext`` on cleanup.
+	// Without these in the mock, vitest 4.x throws "No export defined"
+	// — older vitest versions silently treated missing exports as
+	// ``undefined`` and the call would no-op. Vitest 4 surfaces the
+	// missing export as a hard error so the mock must list every
+	// imported symbol.
+	isSoundFeedbackEnabled: vi.fn((): boolean => true),
+	closeAudioContext: vi.fn((): void => {}),
 }));
 
 // Capture every onEvent callback registered by usePythonEvent so the
@@ -64,6 +73,22 @@ async function renderWithHook() {
 	const { useSoundFeedback } = await import("@/hooks/useSoundFeedback");
 	function Probe() {
 		useSoundFeedback();
+		return null as unknown as ReactNode;
+	}
+	const result = render(<Probe />);
+	return result;
+}
+
+// Helper: render the hook with an onVisualCue callback and return
+// the captured callback so the test can assert on invocations.
+async function renderWithOnVisualCue(onVisualCue: (cue: string) => void) {
+	const { useSoundFeedback } = await import("@/hooks/useSoundFeedback");
+	function Probe() {
+		useSoundFeedback({
+			onVisualCue: onVisualCue as (
+				cue: "start" | "stop" | "complete" | "error",
+			) => void,
+		});
 		return null as unknown as ReactNode;
 	}
 	const result = render(<Probe />);
@@ -122,5 +147,118 @@ describe("useSoundFeedback", () => {
 		// re-introduces a parallel implementation inside useSoundFeedback.
 		expect(hookModule.playSoundCue).toBe(soundManager.playSoundCue);
 		expect(hookModule.initAudioContext).toBe(soundManager.initAudioContext);
+	});
+});
+
+describe("useSoundFeedback — ZU-34 onVisualCue callback (deaf mirror)", () => {
+	it("invokes onVisualCue('start') on recording_started", async () => {
+		const { playSoundCue } = await import("@/lib/sound-manager");
+		const onVisualCue = vi.fn();
+		await renderWithOnVisualCue(onVisualCue);
+
+		expect(capturedEventCallbacks.length).toBeGreaterThan(0);
+		act(() => {
+			for (const cb of capturedEventCallbacks)
+				cb({ type: "recording_started" });
+		});
+		expect(playSoundCue).toHaveBeenCalledWith("start");
+		expect(onVisualCue).toHaveBeenCalledTimes(1);
+		expect(onVisualCue).toHaveBeenCalledWith("start");
+	});
+
+	it("invokes onVisualCue('stop') on recording_stopped", async () => {
+		const onVisualCue = vi.fn();
+		await renderWithOnVisualCue(onVisualCue);
+
+		act(() => {
+			for (const cb of capturedEventCallbacks)
+				cb({ type: "recording_stopped" });
+		});
+		expect(onVisualCue).toHaveBeenCalledTimes(1);
+		expect(onVisualCue).toHaveBeenCalledWith("stop");
+	});
+
+	it("invokes onVisualCue('complete') on transcription_final", async () => {
+		const onVisualCue = vi.fn();
+		await renderWithOnVisualCue(onVisualCue);
+
+		act(() => {
+			for (const cb of capturedEventCallbacks)
+				cb({ type: "transcription_final" });
+		});
+		expect(onVisualCue).toHaveBeenCalledTimes(1);
+		expect(onVisualCue).toHaveBeenCalledWith("complete");
+	});
+
+	it("invokes onVisualCue('error') on error event", async () => {
+		const onVisualCue = vi.fn();
+		await renderWithOnVisualCue(onVisualCue);
+
+		act(() => {
+			for (const cb of capturedEventCallbacks) cb({ type: "error" });
+		});
+		expect(onVisualCue).toHaveBeenCalledTimes(1);
+		expect(onVisualCue).toHaveBeenCalledWith("error");
+	});
+
+	it("does NOT invoke onVisualCue for unrelated events", async () => {
+		const onVisualCue = vi.fn();
+		await renderWithOnVisualCue(onVisualCue);
+
+		act(() => {
+			for (const cb of capturedEventCallbacks) {
+				cb({ type: "config_changed" });
+				cb({ type: "audio_level" });
+			}
+		});
+		expect(onVisualCue).not.toHaveBeenCalled();
+	});
+
+	it("does NOT fire onVisualCue when the callback is not provided (backwards compat)", async () => {
+		// Render without any options — the hook should still play the
+		// sound cue but never crash trying to call an undefined callback.
+		const { playSoundCue } = await import("@/lib/sound-manager");
+		await renderWithHook();
+
+		expect(() => {
+			act(() => {
+				for (const cb of capturedEventCallbacks)
+					cb({ type: "recording_started" });
+			});
+		}).not.toThrow();
+		expect(playSoundCue).toHaveBeenCalledWith("start");
+	});
+
+	it("invokes onVisualCue AFTER playSoundCue (audio scheduled first)", async () => {
+		const { playSoundCue } = await import("@/lib/sound-manager");
+		// Cast to MockedFunction so we can access the mock-control methods.
+		// The factory in vi.mock types playSoundCue as a plain function —
+		// vitest's vi.fn returns a Mock but the TS inference doesn't carry
+		// the Mock surface across the dynamic import.
+		const mocked = playSoundCue as unknown as ReturnType<typeof vi.fn>;
+		const callOrder: string[] = [];
+		mocked.mockImplementation((cue: string) => {
+			callOrder.push(`play:${cue}`);
+		});
+		const onVisualCue = vi.fn((cue: string) => {
+			callOrder.push(`visual:${cue}`);
+		});
+
+		try {
+			await renderWithOnVisualCue(onVisualCue);
+			act(() => {
+				for (const cb of capturedEventCallbacks)
+					cb({ type: "recording_started" });
+			});
+			// Audio must be scheduled BEFORE the visual callback fires so
+			// the perceived AV skew is minimised.
+			expect(callOrder).toEqual(["play:start", "visual:start"]);
+		} finally {
+			// Restore by clearing the implementation; vitest's vi.mock
+			// factory resets on the next test via vi.clearAllMocks in
+			// beforeEach, so we don't need to restore the exact prior impl.
+			mocked.mockReset();
+			mocked.mockImplementation(() => {});
+		}
 	});
 });

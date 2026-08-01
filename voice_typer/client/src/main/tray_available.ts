@@ -1,5 +1,5 @@
 /**
- * CR-20: detect Linux Wayland without StatusNotifierItem (SNI).
+ * : detect Linux Wayland without StatusNotifierItem (SNI).
  *
  * Mirrors `voice_typer/server/tray.py::_is_linux_wayland_without_sni` so
  * the Electron main process and the Python tray backend agree on whether
@@ -25,7 +25,7 @@
  * before the tray thread starts). The D-Bus subprocess call is ~1ms on
  * a warm session bus.
  * R6-F11: `execFileSync` timeout reduced from 2000ms → 500ms. The check
- * runs at module load AND in the `window-all-closed` handler (CR-20),
+ * runs at module load AND in the `window-all-closed` handler (),
  * which is on the quit hot-path. A 2s timeout on a missing `gdbus` /
  * `dbus-send` binary (or a hung D-Bus session) would block the quit
  * sequence for 2s per check — visible "the app takes forever to close"

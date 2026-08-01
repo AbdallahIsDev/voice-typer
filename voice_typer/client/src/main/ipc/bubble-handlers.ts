@@ -2,7 +2,7 @@
  * Bubble-window IPC handlers.
  *
  * Extracted from `index.ts` (REF-2). Registers:
- *   - bubble:move-by — keyboard nudge (NEW-A11Y-006)
+ *   - bubble:move-by — keyboard nudge ()
  *   - bubble:draggable — toggle draggability (synced to bubble renderer)
  *   - bubble:resize — fit pill content exactly (clamped to min/max)
  *   - bubble:show-from-renderer — show from the bubble's own UI
@@ -18,7 +18,7 @@
  */
 import { ipcMain, screen } from "electron";
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../constants";
-// DT-13: converted from defensive `require("../logging")` to a static
+//converted from defensive `require("../logging")` to a static
 // ESM import — the previous try/catch + console.* fallback was added
 // to tolerate minimal test mocks, but the real logging module is now
 // always present and the test mocks have been updated to expose `log`.
@@ -48,7 +48,7 @@ export const MAX_BUBBLE_W = 400;
 export const MAX_BUBBLE_H = 200;
 
 /**
- * ER-22: the 5 bubble-only Python event types. These events must NOT be
+ * : the 5 bubble-only Python event types. These events must NOT be
  * broadcast to the main window — they are consumed exclusively by the
  * bubble window. `handle-message.ts` imports this set to filter events.
  */
@@ -95,7 +95,14 @@ function clampBubbleSize(
 }
 
 export function registerBubbleHandlers(): void {
-	// NEW-A11Y-006: keyboard-based bubble repositioning for accessibility.
+	// ZU-15: track the last-known bubble mode so the dismiss handler
+	// can cancel in-flight recordings before hiding. Updated whenever
+	// the main process forwards a `bubble_set_state` event to the
+	// bubble renderer. When the mode is "recording" or "transcribing",
+	// dismiss sends `toggle_dictation` first to stop the pipeline.
+	let _lastKnownBubbleMode: string | null = null;
+
+	//keyboard-based bubble repositioning for accessibility.
 	// Arrow keys move the bubble by 10px; Shift+Arrow moves by 1px (fine).
 	// Renderer-keyboard-move note: the renderer-side keydown handler that
 	// USED to feed this channel was dead code (the bubble window is
@@ -203,7 +210,7 @@ export function registerBubbleHandlers(): void {
 		showBubbleWindow();
 	});
 
-	// UX-10: toggle dictation from the bubble's mic button. The bubble
+	//toggle dictation from the bubble's mic button. The bubble
 	// renderer is sandboxed (SEC-026) and has NO `python.call`, so it
 	// cannot invoke `toggle_dictation` directly. This channel is the
 	// single-purpose bridge: the bubble sends `bubble:toggle-dictation`,
@@ -234,7 +241,7 @@ export function registerBubbleHandlers(): void {
 	// to sync, so it is NOT restricted to the bubble frame.  It is a
 	// benign enum ('top' | 'bottom'), not a hijack vector.
 	//
-	// XA-6-4: when the user toggles top/bottom, the previous saved
+	//when the user toggles top/bottom, the previous saved
 	// drag position is no longer meaningful (its Y coordinate was
 	// computed against the OTHER edge). Reset it and re-center on the
 	// display the user is currently on (multi-monitor aware) instead
@@ -275,7 +282,7 @@ export function registerBubbleHandlers(): void {
 	ipcMain.on(BubbleChannels.ready, (event) => {
 		// SEC-016: only the bubble window signals readiness.
 		if (!assertFromBubble(event)) return;
-		// XZ-R5-005: previously set `state._bubblePageReady = true`
+		//previously set `state._bubblePageReady = true`
 		// here, but `showBubbleWindow()` never consulted the
 		// field — it was dead write-only state. The dead write
 		// is removed here; the field definition in state.ts and
@@ -285,9 +292,28 @@ export function registerBubbleHandlers(): void {
 		// can grep the runtime log to confirm the bubble
 		// renderer booted past its React mount.
 		log.warn("[BUBBLE] renderer reports ready");
+
+		// ZU-15: install a tracker that intercepts outgoing
+		// `bubble:set-state` sends to cache the bubble mode.
+		// The dismiss handler reads this cached mode to decide
+		// whether to send `toggle_dictation` before hiding.
+		if (state.bubbleWindow && !state.bubbleWindow.isDestroyed()) {
+			const originalSend = state.bubbleWindow.webContents.send.bind(
+				state.bubbleWindow.webContents,
+			) as typeof state.bubbleWindow.webContents.send;
+			state.bubbleWindow.webContents.send = (
+				channel: string,
+				...args: unknown[]
+			) => {
+				if (channel === BubbleChannels.setState && args[0]) {
+					_lastKnownBubbleMode = String(args[0]);
+				}
+				return originalSend(channel, ...args);
+			};
+		}
 	});
 
-	// BG-96: dismiss the bubble from its own '×' button. The bubble
+	//dismiss the bubble from its own '×' button. The bubble
 	// preload's `dismiss()` method sends this IPC; before this handler
 	// existed, the message was silently dropped by Electron's default
 	// ipcMain behavior (no registered listener). Now it routes to
@@ -296,8 +322,21 @@ export function registerBubbleHandlers(): void {
 	// plays its exit animation and the rapid-toggle guard correctly
 	// cancels any in-flight show. SEC-016: restricted to the bubble
 	// frame so only the bubble can dismiss itself.
+	//
+	// ZU-15: when the bubble is in "recording" or "transcribing"
+	// mode, dismiss first sends `toggle_dictation` to the Python
+	// backend (which stops the audio pipeline) before hiding.
+	// Without this, clicking ✕ while recording would vanish the
+	// bubble but the finalized text would still get pasted —
+	// violating the user's "stop this" intent.
 	ipcMain.on(BubbleChannels.dismiss, (event) => {
 		if (!assertFromBubble(event)) return;
+		const mode = _lastKnownBubbleMode;
+		if (mode === "recording" || mode === "transcribing") {
+			void sendToPython({ type: "toggle_dictation" }).catch((err) => {
+				log.warn("[BUBBLE] dismiss toggle_dictation failed:", String(err));
+			});
+		}
 		hideBubbleWindow();
 	});
 

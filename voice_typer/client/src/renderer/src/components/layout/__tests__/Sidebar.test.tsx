@@ -1,22 +1,22 @@
 /**
- * FIX-15 vitest suite — covers UX-16, PROD-7, PROD-9, PROD-14
+ *  vitest suite — covers , , ,
  * for the Sidebar component.
  *
- * - UX-16: active nav item uses a 2px left accent bar + soft accent
+ * - : active nav item uses a 2px left accent bar + soft accent
  *   background (replacing the weak full-border treatment).
- * - PROD-7: nav items are grouped (Main / Power features / System)
+ * - : nav items are grouped (Main / Power features / System)
  *   with visible section labels and <hr> dividers between groups.
- * - PROD-9: aria-keyshortcuts is exposed on Home ("Control+h") and
+ * - : aria-keyshortcuts is exposed on Home ("Control+h") and
  *   Settings ("Control+,") since App.tsx binds those shortcuts.
  *   Items without a shortcut omit the attribute entirely.
- * - PROD-14: when collapsed, the Logo is wrapped in a <button> with
+ * - : when collapsed, the Logo is wrapped in a <button> with
  *   aria-label={APP_NAME} so AT users still get the app name.
  *
  * The existing `components/__tests__/Sidebar.test.tsx` covers the
  * basic nav-label + aria-current behavior; this suite focuses on the
  * new fixes only and avoids duplicating those assertions.
  */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@hugeicons/react", () => ({
@@ -72,7 +72,7 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 		onThemeChange: vi.fn(),
 	};
 
-	// ── UX-16: active nav item visual hierarchy ───────────────────────
+	//active nav item visual hierarchy ───────────────────────
 
 	it("UX-16: active nav item carries the 2px left accent bar + soft accent background classes", () => {
 		render(<Sidebar {...baseProps} currentPage="settings" />);
@@ -104,7 +104,7 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 		expect(cls).not.toContain("font-medium");
 	});
 
-	// ── PROD-7: nav grouping ──────────────────────────────────────────
+	//nav grouping ──────────────────────────────────────────
 
 	it("PROD-7: renders three group labels (Main, Power features, System)", () => {
 		render(<Sidebar {...baseProps} />);
@@ -166,7 +166,7 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 		}
 	});
 
-	// ── PROD-9: aria-keyshortcuts on nav items ────────────────────────
+	//aria-keyshortcuts on nav items ────────────────────────
 
 	it("PROD-9: Home nav item exposes aria-keyshortcuts='Control+h' (App.tsx binds Ctrl+H)", () => {
 		render(<Sidebar {...baseProps} />);
@@ -198,7 +198,7 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 		}
 	});
 
-	// ── PROD-14: collapsed-state logo accessibility ───────────────────
+	//collapsed-state logo accessibility ───────────────────
 
 	it("PROD-14: when collapsed, the Logo is wrapped in a <button> with aria-label={APP_NAME}", () => {
 		render(<Sidebar {...baseProps} collapsed />);
@@ -214,6 +214,49 @@ describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
 		const labeledButtons = Array.from(buttons).filter(
 			(b) => b.getAttribute("aria-label") === APP_NAME,
 		);
+		expect(labeledButtons.length).toBe(0);
+	});
+
+	//collapsed-logo button has a real onClick (go home) ──────
+
+	it("ZU-42: clicking the collapsed logo button calls onNavigate('home') (was a focusable non-action button)", () => {
+		const onNavigate = vi.fn();
+		render(
+			<Sidebar
+				{...baseProps}
+				collapsed
+				currentPage="settings"
+				onNavigate={onNavigate}
+			/>,
+		);
+		// The collapsed logo button is reachable via its aria-label
+		// (APP_NAME). It must now navigate home when clicked.
+		const logoButton = screen.getByLabelText(APP_NAME);
+		expect(logoButton.tagName).toBe("BUTTON");
+		// Use fireEvent so React's synthetic event system dispatches
+		// the click handler (native .click() can miss React handlers
+		// under some configurations).
+		fireEvent.click(logoButton);
+		expect(onNavigate).toHaveBeenCalledTimes(1);
+		expect(onNavigate).toHaveBeenCalledWith("home");
+	});
+
+	it("ZU-42: collapsed logo button is keyboard-focusable and has cursor-pointer (signals interactivity)", () => {
+		render(<Sidebar {...baseProps} collapsed />);
+		const logoButton = screen.getByLabelText(APP_NAME);
+		// The button is in the tab order (type="button", no tabIndex
+		// override) so keyboard users can Tab to it.
+		expect(logoButton.getAttribute("type")).toBe("button");
+		expect(logoButton.className).toContain("cursor-pointer");
+		expect(logoButton.className).not.toContain("cursor-default");
+	});
+
+	it("ZU-42: expanded sidebar still does NOT wrap the logo in a button (no regression)", () => {
+		render(<Sidebar {...baseProps} collapsed={false} />);
+		// The collapsed-logo button does NOT exist in expanded mode.
+		const labeledButtons = Array.from(
+			document.querySelectorAll("button"),
+		).filter((b) => b.getAttribute("aria-label") === APP_NAME);
 		expect(labeledButtons.length).toBe(0);
 	});
 });

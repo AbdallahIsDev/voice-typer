@@ -234,7 +234,8 @@
 		"importEmpty": "Datei enthält keine Wörterbucheinträge",
 		"loadFailedTitle": "Wörterbuch konnte nicht geladen werden",
 		"retry": "Wiederholen",
-		"loading": "Vokabular wird geladen…"
+		"loading": "Vokabular wird geladen…",
+		"noResultsDescription": "Versuchen Sie einen anderen Suchbegriff oder löschen Sie den Kategoriefilter."
 	},
 	"templates": {
 		"title": "Vorlagen",
@@ -315,9 +316,11 @@
 		"unknown": "Unbekannt",
 		"auto": "Auto",
 		"noDataTitle": "Noch keine Aktivität",
-		"noDataDescription": "Drücken Sie Ihre Taste (oder Caps Lock) auf der Startseite zum Diktieren — Ihre Statistiken erscheinen hier.",
+		"noDataDescription": "Drücken Sie {hotkey} auf der Startseite zum Diktieren — Ihre Statistiken erscheinen hier.",
 		"startDictation": "Diktat starten",
 		"refreshFailed": "Statistiken konnten nicht aktualisiert werden",
+		"refreshFailedHint": "Dashboard-Daten konnten nicht geladen werden. Überprüfen Sie Ihre Verbindung und versuchen Sie es erneut.",
+		"retry": "Erneut versuchen",
 		"dayActivityAria": "{label}: {count} Diktate",
 		"loadingAria": "Dashboard wird geladen",
 		"cards": {
@@ -1027,7 +1030,7 @@
 			"downloaded": "Heruntergeladen",
 			"depsRequired": "Abhängigkeiten erforderlich",
 			"available": "Verfügbar",
-			"insufficientDisk": "Nicht genügend Speicherplatz"
+			"insufficientDisk": "Unzureichender Speicherplatz"
 		},
 		"import": {
 			"title": "Modell importieren",
@@ -1158,11 +1161,15 @@
 		"openFolderAria": "Das Modellverzeichnis im Dateimanager öffnen",
 		"openFolderFailed": "Ordner öffnen fehlgeschlagen",
 		"disk": {
-			"lowSpaceBody": "Nicht genügend freier Speicherplatz zum Herunterladen von Modellen. Geben Sie Speicherplatz frei oder wählen Sie ein kleineres Modell.",
-			"lowSpaceTitle": "Niedriger Speicherplatz"
+			"lowSpaceBody": "Nicht genügend Speicherplatz zum Herunterladen von Modellen",
+			"lowSpaceTitle": "Wenig Speicherplatz",
+			"freeSpace": "{space} frei"
 		},
 		"loading": "Modelle werden geladen…",
-		"openFolder": "Modellordner öffnen"
+		"openFolder": {
+			"label": "Modellordner öffnen",
+			"aria": "Modellordner im Dateimanager anzeigen"
+		}
 	},
 	"tooltips": {
 		"toggleRecording": "Sprachdiktat starten oder beenden",
@@ -1195,7 +1202,8 @@
 		"importNotAvailableOutsideElectron": "Import außerhalb von Electron nicht verfügbar",
 		"transcriptionComplete": "Transkription abgeschlossen.",
 		"moreInfoAbout": "Weitere Informationen über {label}",
-		"toggleSidebarWithShortcut": "Seitenleiste umschalten ({shortcut})"
+		"toggleSidebarWithShortcut": "Seitenleiste umschalten ({shortcut})",
+		"transcriptionPasted": "Eingefügt: {text}"
 	},
 	"help": {
 		"title": "Tastaturkürzel",
@@ -1432,7 +1440,8 @@
 		"secondsRemainingSuffix": "({count}s)",
 		"clearAria": "Tastenkombination löschen — {label}",
 		"holdingPrefix": "Gedrückt: {modifiers}",
-		"clearTitle": "Tastenkombination löschen"
+		"clearTitle": "Tastenkombination löschen",
+		"capsLockSrConflictWarning": "Feststelltaste ist der Standard-Modifikator für VoiceOver / Narrator. Die Auswahl kann Ihren Screen Reader beeinträchtigen. Verwenden Sie stattdessen F2 oder Strg+Alt+D."
 	},
 	"hotkeyValidation": {
 		"empty": "Tastenkombination ist leer",
@@ -1671,6 +1680,31 @@
 		"unknown": "Die App ist auf einen unerwarteten Fehler gestoßen. Ihre Daten sind sicher.",
 		"cudaOom": "GPU-Speicher ausgeschöpft. Versuchen Sie ein kleineres Modell, schließen Sie andere GPU-Apps oder wechseln Sie in den CPU-Modus.",
 		"rateLimited": "Zu viele Anfragen. Bitte warten Sie einen Moment und versuchen Sie es erneut.",
-		"unknownBackend": "Das Transkriptions-Backend hat einen unerwarteten Fehler verursacht. Ihre Daten sind sicher – versuchen Sie es erneut."
+		"unknownBackend": "Das Transkriptions-Backend hat einen unerwarteten Fehler verursacht. Ihre Daten sind sicher – versuchen Sie es erneut.",
+		"viewLogsAction": "Protokolle anzeigen",
+		"copyErrorAction": "Fehler kopieren"
+	},
+	"connection": {
+		"respawnFailed": "Backend konnte nicht automatisch neu gestartet werden",
+		"respawnFailedHint": "Voice Typer hat mehrmals versucht, sein Backend wiederherzustellen, und aufgegeben. Starten Sie die App neu, und prüfen Sie bei anhaltendem Problem die Protokolle oder installieren Sie neu."
+	},
+	"dialog": {
+		"pythonCrash": {
+			"title": "Python-Backend abgestürzt",
+			"body": "{appName}s Python-Backend wurde unerwartet mit Code {code} beendet und wird jetzt beendet.",
+			"signalBody": "{appName}s Python-Backend wurde durch Signal {signal} beendet und wird jetzt beendet."
+		},
+		"pythonNotFound": {
+			"title": "Python-Backend nicht gefunden",
+			"body": "{appName} konnte sein Python-Backend nicht finden. Bitte installieren Sie die Anwendung neu."
+		},
+		"pythonStartupTimeout": {
+			"title": "Python-Backend konnte nicht gestartet werden",
+			"body": "{appName} konnte sich nicht innerhalb von {seconds} Sekunden mit seinem Python-Backend verbinden."
+		},
+		"restartLoopBreak": {
+			"title": "{appName} kann nicht sicher neu gestartet werden",
+			"body": "Das Python-Backend stürzt beim Start ab. Nach {count} Versuchen über {seconds} Sekunden wurde der Neustart-Schutz aktiviert. Bitte prüfen Sie die Protokolldateien und installieren Sie neu, falls das Problem besteht."
+		}
 	}
 }

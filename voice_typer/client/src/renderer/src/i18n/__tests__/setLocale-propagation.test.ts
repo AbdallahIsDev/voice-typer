@@ -1,20 +1,20 @@
 /**
- * NH-2 / NH-3 / NH-4 (session NH) tests for the cross-boundary locale
+ *  /  /  (session NH) tests for the cross-boundary locale
  * propagation in `setLocale()`.
  *
  * `setLocale()` is the single entry point for changing the renderer's
- * active locale. NH-2/NH-3/NH-4 added three new side effects to it:
+ * active locale. // added three new side effects to it:
  *
- *   - NH-2: kicks off the async dynamic-import of the newly-selected
+ *   - : kicks off the async dynamic-import of the newly-selected
  *     locale's translation table via `ensureLocaleLoaded(next)` so
  *     `t()` stops falling back to English after a runtime locale
  *     switch (previously the import was only triggered at module init
  *     for the restored/detected locale).
- *   - NH-3: pushes the locale to the Electron main process via
+ *   - : pushes the locale to the Electron main process via
  *     `window.window_.setLocale(locale)` (the re-added `i18n:set-locale`
  *     IPC) so native dialogs (file pickers, error boxes, single-instance
  *     message) render in the user's selected language.
- *   - NH-4: pushes the locale + renderer-known tray-menu labels to the
+ *   - : pushes the locale + renderer-known tray-menu labels to the
  *     Python sidecar via `window.python.call({type: "set_tray_locale",
  *     data: {locale, labels}})` so tray-menu items localise.
  *
@@ -23,9 +23,9 @@
  * when `window.window_` / `window.python` is undefined or when the IPC
  * promise rejects.
  *
- * Testing approach: the IPC pushes (NH-3, NH-4) are tested directly by
+ * Testing approach: the IPC pushes (, ) are tested directly by
  * mocking `window.window_` and `window.python` and asserting on the
- * spy calls. The `ensureLocaleLoaded` call (NH-2) is tested
+ * spy calls. The `ensureLocaleLoaded` call () is tested
  * behaviorally — we verify that after `setLocale("ar")`, the Arabic
  * translation table is loaded (i.e. `t("models.title")` returns the
  * Arabic string from ar.json). This is preferable to spying on the
@@ -35,7 +35,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Import the real (un-mocked) i18n module. The NH-2 behavioral test
+//Import the real (un-mocked) i18n module. The  behavioral test
 // relies on the real `ensureLocaleLoaded` actually performing the
 // dynamic import of `./translations/ar.json`.
 import {
@@ -438,7 +438,7 @@ describe("NH-2/NH-3/NH-4 combined: a single setLocale call triggers all propagat
 	});
 
 	it("persists the locale to localStorage (regression — F-3 contract)", () => {
-		// The NH-2 fix must NOT have removed the existing localStorage
+		//The  fix must NOT have removed the existing localStorage
 		// persistence. Verified here so a future refactor doesn't drop
 		// it accidentally.
 		localStorage.clear();
@@ -490,7 +490,7 @@ describe("NH-2/NH-3/NH-4 combined: a single setLocale call triggers all propagat
 
 describe("NH-2/NH-3/NH-4: t() still works for unrelated keys after setLocale propagation", () => {
 	it("t('app.name') resolves against the new locale after setLocale", () => {
-		// Sanity check: the NH-2 fix doesn't break the core t() lookup
+		//Sanity check: the  fix doesn't break the core t() lookup
 		// path. Register a fresh Arabic table and verify t() resolves
 		// against it after setLocale.
 		registerTranslations("ar", {

@@ -1,6 +1,6 @@
 // React hooks + locale-change subscriber registry.
 //
-// The subscriber set + ``getLocaleSnapshot`` live here (per the DR-31
+//The subscriber set + ``getLocaleSnapshot`` live here (per the
 // split plan) so that layout/component code that ONLY needs the React
 // subscription surface can import this one small module instead of the
 // full i18n package (which pulls in the translation tables, plural
@@ -86,7 +86,7 @@ export function useT(): typeof t {
  * React hook that returns the {@link tChoice} pluralization function
  * bound to the current locale.
  *
- * XA-20-1 (Critical): ``tChoice()`` was implemented (PVT-082) but never
+ *  (Critical): ``tChoice()`` was implemented () but never
  * wired into any component — every pluralized string in the renderer
  * used the broken binary ``Singular`` / ``Plural`` key pattern, which
  * (a) only works for English-like 2-form locales, (b) leaks English

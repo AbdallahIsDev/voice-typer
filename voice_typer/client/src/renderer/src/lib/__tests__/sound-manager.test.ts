@@ -180,9 +180,12 @@ describe("SoundManager", () => {
 		try {
 			// Should NOT throw — falls back to the in-memory default.
 			const result = isSoundFeedbackEnabled();
-			// Default in-memory flag is false on a fresh reset.
-			expect(result).toBe(false);
-			// XZ-R16-08: the catch block must log a debug message so silent
+			// Default in-memory flag is true on a fresh reset (matches the
+			// production default — sound is enabled unless the user opts
+			// out via Settings). The catch block falls back to the in-memory
+			// default when localStorage is unavailable.
+			expect(result).toBe(true);
+			//the catch block must log a debug message so silent
 			// audio-flag read failures are visible to operators.
 			expect(debugSpy).toHaveBeenCalled();
 			const debugMsg = debugSpy.mock.calls[0]?.[0] ?? "";
@@ -192,5 +195,125 @@ describe("SoundManager", () => {
 			Storage.prototype.getItem = originalGetItem;
 			debugSpy.mockRestore();
 		}
+	});
+});
+
+describe("SoundManager — ZU-34 visual feedback flag (deaf mirror)", () => {
+	let originalAudioContext: typeof window.AudioContext | undefined;
+	let mockCtor: ReturnType<typeof vi.fn>;
+
+	beforeEach(() => {
+		vi.resetModules();
+		localStorage.clear();
+		originalAudioContext = window.AudioContext;
+		mockCtor = vi.fn(() => new MockAudioContext());
+		window.AudioContext = mockCtor as typeof AudioContext;
+	});
+
+	afterEach(() => {
+		if (originalAudioContext !== undefined) {
+			window.AudioContext = originalAudioContext;
+		} else {
+			// @ts-expect-error — restoring from undefined state
+			delete window.AudioContext;
+		}
+		vi.restoreAllMocks();
+	});
+
+	it("setVisualFeedbackEnabled persists to localStorage under the visual key", async () => {
+		const { setVisualFeedbackEnabled } = await import("@/lib/sound-manager");
+		setVisualFeedbackEnabled(true);
+		expect(localStorage.getItem("vt_visual_feedback_enabled")).toBe("1");
+		setVisualFeedbackEnabled(false);
+		expect(localStorage.getItem("vt_visual_feedback_enabled")).toBe("0");
+	});
+
+	it("isVisualFeedbackEnabled defaults to false on a fresh reset", async () => {
+		const { isVisualFeedbackEnabled, _resetSoundManagerForTests } =
+			await import("@/lib/sound-manager");
+		_resetSoundManagerForTests();
+		expect(isVisualFeedbackEnabled()).toBe(false);
+	});
+
+	it("isVisualFeedbackEnabled reflects the persisted value after setVisualFeedbackEnabled(true)", async () => {
+		const {
+			isVisualFeedbackEnabled,
+			setVisualFeedbackEnabled,
+			_resetSoundManagerForTests,
+		} = await import("@/lib/sound-manager");
+		_resetSoundManagerForTests();
+		setVisualFeedbackEnabled(true);
+		expect(isVisualFeedbackEnabled()).toBe(true);
+	});
+
+	it("isVisualFeedbackEnabled falls back to in-memory default when localStorage is empty", async () => {
+		const { isVisualFeedbackEnabled, _resetSoundManagerForTests } =
+			await import("@/lib/sound-manager");
+		_resetSoundManagerForTests();
+		// No localStorage entry — must fall back to the in-memory default (false).
+		localStorage.clear();
+		expect(isVisualFeedbackEnabled()).toBe(false);
+	});
+
+	it("setVisualFeedbackEnabled does NOT throw when localStorage.setItem fails", async () => {
+		const { setVisualFeedbackEnabled, _resetSoundManagerForTests } =
+			await import("@/lib/sound-manager");
+		_resetSoundManagerForTests();
+
+		const originalSetItem = Storage.prototype.setItem;
+		Storage.prototype.setItem = vi.fn(() => {
+			throw new DOMException("quota exceeded");
+		});
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+		try {
+			// Must NOT throw — the in-memory flag still updates.
+			expect(() => setVisualFeedbackEnabled(true)).not.toThrow();
+			expect(Storage.prototype.setItem).toHaveBeenCalled();
+			// The warning surfaces the localStorage failure to operators.
+			expect(warnSpy).toHaveBeenCalled();
+		} finally {
+			Storage.prototype.setItem = originalSetItem;
+			warnSpy.mockRestore();
+		}
+	});
+
+	it("isVisualFeedbackEnabled logs debug message when localStorage.getItem throws", async () => {
+		const { isVisualFeedbackEnabled, _resetSoundManagerForTests } =
+			await import("@/lib/sound-manager");
+		_resetSoundManagerForTests();
+
+		const originalGetItem = Storage.prototype.getItem;
+		Storage.prototype.getItem = vi.fn(() => {
+			throw new DOMException("SecurityError");
+		});
+		const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
+
+		try {
+			const result = isVisualFeedbackEnabled();
+			// Default in-memory flag is false on a fresh reset.
+			expect(result).toBe(false);
+			expect(debugSpy).toHaveBeenCalled();
+			const debugMsg = debugSpy.mock.calls[0]?.[0] ?? "";
+			expect(String(debugMsg)).toContain("[sound-manager]");
+		} finally {
+			Storage.prototype.getItem = originalGetItem;
+			debugSpy.mockRestore();
+		}
+	});
+
+	it("uses a SEPARATE localStorage key from the sound-feedback flag", async () => {
+		const {
+			setSoundFeedbackEnabled,
+			setVisualFeedbackEnabled,
+			_resetSoundManagerForTests,
+		} = await import("@/lib/sound-manager");
+		_resetSoundManagerForTests();
+
+		setSoundFeedbackEnabled(true);
+		setVisualFeedbackEnabled(false);
+		// Sound is enabled, visual is disabled — the two flags are independent.
+		expect(localStorage.getItem("vt_sound_feedback_enabled")).toBe("1");
+		expect(localStorage.getItem("vt_visual_feedback_enabled")).toBe("0");
 	});
 });

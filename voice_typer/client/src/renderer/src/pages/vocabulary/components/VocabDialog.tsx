@@ -101,7 +101,7 @@ export function VocabDialog({
 					</p>
 				</div>
 
-				{/* NEW-UX-039: explicit category picker. */}
+				{/*explicit category picker. */}
 				<div>
 					<span className="mb-1.5 block text-sm font-medium text-(--text-primary)">
 						{t("vocabulary.categoryLabel")}

@@ -787,11 +787,15 @@
 		"openFolderAria": "Ouvrir le répertoire des modèles dans votre explorateur de fichiers",
 		"openFolderFailed": "Échec de l'ouverture du dossier",
 		"disk": {
-			"lowSpaceBody": "Pas assez d'espace libre pour télécharger les modèles. Libérez de l'espace ou choisissez un modèle plus petit.",
-			"lowSpaceTitle": "Espace disque faible"
+			"lowSpaceBody": "Pas assez d'espace pour télécharger les modèles",
+			"lowSpaceTitle": "Espace disque faible",
+			"freeSpace": "{space} libre"
 		},
 		"loading": "Chargement des modèles…",
-		"openFolder": "Ouvrir le dossier des modèles"
+		"openFolder": {
+			"label": "Ouvrir le dossier des modèles",
+			"aria": "Révéler le dossier des modèles dans le gestionnaire de fichiers"
+		}
 	},
 	"history": {
 		"title": "Historique",
@@ -879,7 +883,8 @@
 		"importNotAvailableOutsideElectron": "Importation non disponible en dehors d'Electron",
 		"transcriptionComplete": "Transcription terminée.",
 		"moreInfoAbout": "Plus d'infos sur {label}",
-		"toggleSidebarWithShortcut": "Basculer la barre latérale ({shortcut})"
+		"toggleSidebarWithShortcut": "Basculer la barre latérale ({shortcut})",
+		"transcriptionPasted": "Collé : {text}"
 	},
 	"help": {
 		"title": "Raccourcis clavier",
@@ -1084,7 +1089,8 @@
 		"importEmpty": "Le fichier ne contient aucune entrée de vocabulaire",
 		"loadFailedTitle": "Échec du chargement du vocabulaire",
 		"retry": "Réessayer",
-		"loading": "Chargement du vocabulaire…"
+		"loading": "Chargement du vocabulaire…",
+		"noResultsDescription": "Essayez un autre terme de recherche ou effacez le filtre de catégorie."
 	},
 	"templates": {
 		"title": "Modèles",
@@ -1165,9 +1171,11 @@
 		"unknown": "Inconnu",
 		"auto": "Automatique",
 		"noDataTitle": "Aucune activité pour l'instant",
-		"noDataDescription": "Appuyez sur votre touche de raccourci (ou Verr Maj) sur la page d'accueil pour dicter — vos statistiques apparaîtront ici.",
+		"noDataDescription": "Appuyez sur {hotkey} sur la page d'accueil pour dicter — vos statistiques apparaîtront ici.",
 		"startDictation": "Démarrer la dictée",
 		"refreshFailed": "Échec de l'actualisation des statistiques",
+		"refreshFailedHint": "Impossible de charger les données du tableau de bord. Vérifiez votre connexion et réessayez.",
+		"retry": "Réessayer",
 		"dayActivityAria": "{label}: {count} dictations",
 		"loadingAria": "Chargement du tableau de bord",
 		"cards": {
@@ -1341,7 +1349,8 @@
 		"secondsRemainingSuffix": "({count}s)",
 		"clearAria": "Effacer le raccourci — {label}",
 		"holdingPrefix": "Maintenu : {modifiers}",
-		"clearTitle": "Effacer le raccourci"
+		"clearTitle": "Effacer le raccourci",
+		"capsLockSrConflictWarning": "Verr Maj est la touche modificatrice par défaut pour VoiceOver / Narrator. La choisir peut casser votre lecteur d'écran. Envisagez d'utiliser F2 ou Ctrl+Alt+D à la place."
 	},
 	"hotkeyValidation": {
 		"empty": "Le raccourci est vide",
@@ -1671,6 +1680,31 @@
 		"unknown": "L'application a rencontré une erreur inattendue. Vos données sont en sécurité.",
 		"cudaOom": "Le GPU n'a plus de mémoire. Essayez un modèle plus petit, fermez d'autres applications GPU ou passez en mode CPU.",
 		"rateLimited": "Trop de requêtes. Veuillez attendre un instant et réessayer.",
-		"unknownBackend": "Le backend de transcription a rencontré une erreur inattendue. Vos données sont en sécurité — réessayez."
+		"unknownBackend": "Le backend de transcription a rencontré une erreur inattendue. Vos données sont en sécurité — réessayez.",
+		"viewLogsAction": "Voir les journaux",
+		"copyErrorAction": "Copier l'erreur"
+	},
+	"connection": {
+		"respawnFailed": "Le backend n'a pas pu redémarrer automatiquement",
+		"respawnFailedHint": "Voice Typer a essayé de récupérer son backend plusieurs fois et a abandonné. Relancez l'application, et si le problème persiste, vérifiez les journaux ou réinstallez."
+	},
+	"dialog": {
+		"pythonCrash": {
+			"title": "Le backend Python a planté",
+			"body": "Le backend Python de {appName} s'est arrêté inopinément avec le code {code} et va maintenant quitter.",
+			"signalBody": "Le backend Python de {appName} a été tué par le signal {signal} et va maintenant quitter."
+		},
+		"pythonNotFound": {
+			"title": "Backend Python introuvable",
+			"body": "{appName} n'a pas pu trouver son backend Python. Veuillez réinstaller l'application."
+		},
+		"pythonStartupTimeout": {
+			"title": "Le backend Python n'a pas pu démarrer",
+			"body": "{appName} n'a pas pu se connecter à son backend Python dans les {seconds} secondes."
+		},
+		"restartLoopBreak": {
+			"title": "{appName} ne peut pas redémarrer en toute sécurité",
+			"body": "Le backend Python plante au lancement. Après {count} tentatives sur {seconds} secondes, le disjoncteur de redémarrage s'est engagé. Veuillez vérifier les fichiers journaux et réinstaller si le problème persiste."
+		}
 	}
 }

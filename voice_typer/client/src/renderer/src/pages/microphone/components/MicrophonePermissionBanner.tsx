@@ -1,6 +1,6 @@
 // OS-level microphone-permission banner.
 //
-// PVT-036 (Fix 3): renders a destructive banner with platform-specific
+//(Fix 3): renders a destructive banner with platform-specific
 // guidance + a deep-link button to the OS privacy settings when the
 // renderer can prove the OS has denied microphone access
 // (``micPermission === "denied"``). ``"prompt"`` / ``"unknown"`` do

@@ -3,7 +3,7 @@
 // F-4: RTL locales (Arabic). When the current locale is RTL, the
 // document direction is set to "rtl" so the entire UI flips horizontally.
 //
-// DR-9 sub-finding (1-N Finding 7): extracted from the old i18n.ts
+//sub-finding (1-N Finding 7): extracted from the old i18n.ts
 // monolith so layout components that only need to query the current
 // writing direction can import a tiny module instead of pulling the
 // whole i18n surface (translation tables, pluralization caches, etc.).

@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * XS-78: behavioral tests for `src/main/python/handle-message.ts`.
+ * : behavioral tests for `src/main/python/handle-message.ts`.
  *
  * Covers the push-event routing surface of `handleMessage()`:
  *   - Reply resolution: a message with a numeric `id` resolves the
@@ -13,10 +13,10 @@
  *     window; `quit_app` calls `app.quit()`; `relaunch_app` calls
  *     `relaunchApp()`; `show_window` calls `showMainWindow()`.
  *
- * The existing `de-87-structured-logger.test.ts` only inspects the
+ * The existing `structured-logger.test.ts` only inspects the
  * source for log usage — it doesn't exercise the routing behavior.
  * This file complements it with behavioral coverage of the 8+ push
- * event types listed in XS-78.
+ * event types listed in
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -131,7 +131,7 @@ describe("XS-78: handle-message.ts", () => {
 			const err = reject.mock.calls[0]?.[0] as Error;
 			expect(err).toBeInstanceOf(Error);
 			expect(err.message).toBe("Rate limit exceeded");
-			// PVT-G5-012: the structured `code` field must be attached
+			//the structured `code` field must be attached
 			// so the renderer can branch on failure class without
 			// pattern-matching the human-readable message.
 			expect((err as Error & { code?: string }).code).toBe("rate_limited");

@@ -1,13 +1,13 @@
 /**
  * EmptyState unit tests.
  *
- * BG-R13: EmptyState's title was previously rendered as a <p>, which
+ * : EmptyState's title was previously rendered as a <p>, which
  * meant screen-reader users couldn't navigate empty-state cards by
  * heading (the H key in NVDA / VoiceOver rotor). The title is now an
  * <h3> so it sits below the typical page <h1>/<h2> hierarchy and SR
  * users can jump to it.
  *
- * BG-R13 (related): the destructure ``icon: _icon`` underscore-prefix
+ *  (related): the destructure ``icon: _icon`` underscore-prefix
  * misuse (the variable WAS used at the icon={...} site, contradicting
  * the convention that underscore-prefixed names are intentionally
  * unused) was renamed back to plain ``icon`` so the code matches its
@@ -143,5 +143,28 @@ describe("EmptyState — BG-R13 (title as <h3> + icon prop wiring)", () => {
 		// The title is still rendered as an <h3> inside the alert region.
 		const heading = screen.getByRole("heading", { level: 3 });
 		expect(heading).toHaveTextContent("Failed to load");
+	});
+	it("forwards actionRef to the action button so callers can focus it without querySelector", () => {
+		const ref = { current: null } as React.RefObject<HTMLButtonElement | null>;
+		render(
+			<EmptyState
+				icon={Mic02Icon}
+				title="Failed to load"
+				actionLabel="Retry"
+				onAction={vi.fn()}
+				actionRef={ref}
+			/>,
+		);
+		const button = screen.getByRole("button", { name: /Retry/ });
+		expect(ref.current).toBe(button);
+	});
+
+	it("does NOT render the action button (and ignores actionRef) when actionLabel is missing", () => {
+		const ref = { current: null } as React.RefObject<HTMLButtonElement | null>;
+		render(
+			<EmptyState icon={Mic02Icon} title="No items yet" actionRef={ref} />,
+		);
+		expect(screen.queryByRole("button")).toBeNull();
+		expect(ref.current).toBeNull();
 	});
 });

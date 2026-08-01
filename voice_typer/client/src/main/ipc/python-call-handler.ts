@@ -66,7 +66,7 @@ export function registerPythonCallHandler(): void {
 	ipcMain.handle(
 		PythonChannels.call,
 		async (event, msg: Record<string, unknown>): Promise<unknown> => {
-			// UE-39: runtime reject for malformed requests. The
+			//runtime reject for malformed requests. The
 			// preload's `python.call` is now typed
 			// `{ type: string; data?: Record<string, unknown> }`
 			// (matching the `PythonBridge` contract), so a
@@ -126,7 +126,7 @@ export function registerPythonCallHandler(): void {
 				return await sendToPython(msg, senderId);
 			} catch (err) {
 				const errMsg = (err as Error).message ?? String(err);
-				// FR-31: classify timeouts via the typed `err.code`
+				//classify timeouts via the typed `err.code`
 				// property set by `sendToPython` instead of regex-
 				// matching the human-readable message string. The
 				// `code` property is stable across message rewording,
@@ -143,7 +143,7 @@ export function registerPythonCallHandler(): void {
 					: "command_failed";
 				logger.warn("python-call failed", { cmd, code, error: errMsg });
 				return {
-					// DE-86: for command_failed, return the generic localized
+					//for command_failed, return the generic localized
 					// message (NOT the raw Python traceback with filesystem
 					// paths).  The full errMsg is still logged server-side
 					// via logger.warn above.  For timeout the errMsg is safe

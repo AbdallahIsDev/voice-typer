@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * PVT-G5-016 regression test: `main.tsx` (and `bubble-main.tsx`) MUST
+ *  regression test: `main.tsx` (and `bubble-main.tsx`) MUST
  * call `installGlobalErrorHandlers()` BEFORE `ReactDOM.createRoot().render()`.
  *
  * The global error / `unhandledrejection` handlers in

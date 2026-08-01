@@ -58,8 +58,18 @@ let _sharedAudioContext: AudioContext | null = null;
 let _initAttempted = false; // True ONLY after successful construction
 let _initSucceeded = false;
 let _enabled: boolean = true; // Mirror of config.sound_feedback_enabled
+// Deaf-accessibility visual mirror: when true, the App should pass an
+// ``onVisualCue`` callback to ``useSoundFeedback`` so each sound cue is
+// also rendered as a distinct visual pulse (status-pill / title-bar /
+// tray icon flash). Default false — the visual mirror is opt-in so
+// sighted+hearing users don't get redundant visual noise. The App reads
+// ``config.visual_feedback_enabled`` on startup (and on
+// ``config_changed`` events) and calls ``setVisualFeedbackEnabled`` to
+// sync the localStorage flag with the actual config value (mirroring the
+// sound-feedback-enabled sync flow).
+let _visualEnabled: boolean = false;
 let _gestureListenerInstalled = false;
-// ER-28: store the gesture-resume handler so _resetSoundManagerForTests
+//store the gesture-resume handler so _resetSoundManagerForTests
 // can detach it (previously the handler was a closure-local variable
 // inside installGestureListener and the test reset only flipped the
 // boolean flag — leaving the actual DOM listeners attached across
@@ -69,6 +79,7 @@ let _gestureListenerInstalled = false;
 let _resumeOnceHandler: (() => void) | null = null;
 
 const STORAGE_KEY = "vt_sound_feedback_enabled";
+const VISUAL_STORAGE_KEY = "vt_visual_feedback_enabled";
 
 // ──────────────────────────────────────────────────────────────────────────
 // localStorage sync
@@ -102,7 +113,7 @@ export function setSoundFeedbackEnabled(enabled: boolean): void {
  *
  * Used by playSoundCue to avoid an IPC round-trip on every cue.
  *
- * ER-28: also exported publicly so ``useSoundFeedback`` can gate
+ * : also exported publicly so ``useSoundFeedback`` can gate
  * ``initAudioContext()`` on the enabled flag — previously the hook
  * unconditionally constructed the AudioContext on App mount, which
  * left an alive AudioContext in "running" state even when the user
@@ -118,7 +129,7 @@ function isEnabled(): boolean {
 		if (raw === null) return _enabled; // Fall back to in-memory default
 		return raw === "1";
 	} catch (err) {
-		// XZ-R16-08: log the localStorage read failure at debug so silent
+		//log the localStorage read failure at debug so silent
 		// audio-flag read failures are visible (e.g. SSR environments,
 		// private browsing mode where localStorage is unavailable).
 		console.debug(
@@ -126,6 +137,69 @@ function isEnabled(): boolean {
 			err,
 		);
 		return _enabled;
+	}
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Visual feedback (deaf-accessibility mirror)
+// ──────────────────────────────────────────────────────────────────────────
+
+/**
+ * Update the in-memory visual-feedback-enabled flag and persist to
+ * localStorage. Mirrors ``setSoundFeedbackEnabled`` — same callers
+ * (Settings toggle + App config-load sync) and same fallback semantics
+ * (in-memory flag still works if localStorage is unavailable).
+ *
+ * Called from:
+ *  - Settings.tsx (the Accessibility toggle — owned by another agent).
+ *  - App.tsx on initial config load (syncs the localStorage flag with
+ *    ``config.visual_feedback_enabled`` so a fresh install matches the
+ *    persisted config, mirroring the sound-feedback-enabled sync flow).
+ *
+ * C-DATA-1: this is a pure local-storage write — NO network call.
+ */
+export function setVisualFeedbackEnabled(enabled: boolean): void {
+	_visualEnabled = enabled;
+	try {
+		localStorage.setItem(VISUAL_STORAGE_KEY, enabled ? "1" : "0");
+	} catch (e) {
+		// localStorage unavailable (e.g. SSR, private browsing) —
+		// non-fatal; the in-memory flag still works for this session.
+		console.warn(
+			"[sound-manager] setVisualFeedbackEnabled localStorage.setItem failed:",
+			e,
+		);
+	}
+}
+
+/**
+ * Read the visual-feedback-enabled flag. Returns true when the App
+ * should pass an ``onVisualCue`` callback to ``useSoundFeedback`` so
+ * each sound cue is mirrored as a visual pulse.
+ *
+ * Used by App.tsx (the visual-rendering owner) to decide whether to
+ * wire the ``onVisualCue`` callback. Reads localStorage on every call
+ * (no IPC round-trip) — same pattern as ``isSoundFeedbackEnabled``.
+ *
+ * Default: false — the visual mirror is opt-in. Sight+hearing users
+ * don't see redundant visual noise; deaf / hard-of-hearing users
+ * explicitly enable it via Settings → Accessibility (or it's auto-
+ * enabled when the OS reports a screen reader / captioning preference
+ * — future work, not implemented here).
+ */
+export function isVisualFeedbackEnabled(): boolean {
+	try {
+		const raw = localStorage.getItem(VISUAL_STORAGE_KEY);
+		if (raw === null) return _visualEnabled; // Fall back to in-memory default
+		return raw === "1";
+	} catch (err) {
+		//log the localStorage read failure at debug so silent
+		// visual-flag read failures are visible.
+		console.debug(
+			"[sound-manager] isVisualFeedbackEnabled localStorage.getItem failed:",
+			err,
+		);
+		return _visualEnabled;
 	}
 }
 
@@ -172,7 +246,7 @@ export function initAudioContext(): boolean {
 		// gesture listener below will retry on the first user interaction.
 		if (_sharedAudioContext.state === "suspended") {
 			_sharedAudioContext.resume().catch((err: unknown) => {
-				// ER-28 / XZ-R16-08: log the resume rejection at debug so the
+				//log the resume rejection at debug so the
 				// operator can see why the AudioContext stayed suspended.
 				// Will retry on first user gesture via installGestureListener.
 				console.debug(
@@ -186,7 +260,7 @@ export function initAudioContext(): boolean {
 	} catch (err) {
 		// Construction threw — do NOT set _initSucceeded so the next
 		// call retries. Set _initAttempted to throttle logs.
-		// XZ-R16-08: log the construction failure so silent audio
+		//log the construction failure so silent audio
 		// failures are visible at debug level.
 		console.debug("[sound-manager] initAudioContext construction failed:", err);
 		_initAttempted = true;
@@ -217,7 +291,7 @@ function installGestureListener(): void {
 		if (!ctx) return;
 		if (ctx.state === "suspended") {
 			ctx.resume().catch((err: unknown) => {
-				// ER-28 / XZ-R16-08: log the gesture-resume rejection at debug
+				//log the gesture-resume rejection at debug
 				// so the operator can see why the AudioContext stayed suspended.
 				// Still suspended — leave the listener installed for a
 				// subsequent gesture to retry.
@@ -232,7 +306,7 @@ function installGestureListener(): void {
 			_detachGestureListeners();
 		}
 	};
-	// ER-28: store the handler so _resetSoundManagerForTests can detach it.
+	//store the handler so _resetSoundManagerForTests can detach it.
 	_resumeOnceHandler = resumeOnce;
 
 	// Use capture phase so we fire before any app-level handlers that
@@ -245,7 +319,7 @@ function installGestureListener(): void {
 }
 
 /**
- * ER-28: detach the gesture-resume listeners explicitly.
+ * : detach the gesture-resume listeners explicitly.
  *
  * Called from:
  *  - ``installGestureListener``'s ``resumeOnce`` after a successful resume
@@ -297,7 +371,7 @@ function getAudioContext(): AudioContext | null {
  *               the harsh "buzz" character that distinguishes an error
  *               cue from the normal start/stop tones.
  * - "complete": two-note rising chime 880Hz → 1175Hz sine, 220ms
- *               (transcription finalized and ready to paste). XA-12-16:
+ *               (transcription finalized and ready to paste). :
  *               gives the user an audible confirmation that the
  *               transcription is ready — previously the only signal
  *               was the visual status pill changing color, which is
@@ -326,7 +400,7 @@ function playViaAudioContext(
 			osc.connect(gain).connect(ctx.destination);
 			osc.start(now);
 			osc.stop(now + 0.13);
-			// ER-87: explicitly disconnect the per-cue nodes once the
+			//explicitly disconnect the per-cue nodes once the
 			// oscillator stops so the AudioContext can release them
 			// promptly (instead of relying on internal GC of connected-
 			// but-stopped nodes, which the spec does not guarantee).
@@ -346,13 +420,13 @@ function playViaAudioContext(
 			osc.connect(gain).connect(ctx.destination);
 			osc.start(now);
 			osc.stop(now + 0.25);
-			// ER-87: release per-cue nodes after stop.
+			//release per-cue nodes after stop.
 			osc.onended = () => {
 				osc.disconnect();
 				gain.disconnect();
 			};
 		} else if (kind === "complete") {
-			// XA-12-16: two-note rising chime (A5 → D6, 880Hz → 1175Hz)
+			//two-note rising chime (A5 → D6, 880Hz → 1175Hz)
 			// — a major-third interval that reads as a positive
 			// "done!" cadence. Triangle wave for a softer, less
 			// mechanical timbre than the square-wave error buzz.
@@ -371,7 +445,7 @@ function playViaAudioContext(
 			osc.connect(gain).connect(ctx.destination);
 			osc.start(now);
 			osc.stop(now + 0.22);
-			// ER-87: release per-cue nodes after stop.
+			//release per-cue nodes after stop.
 			osc.onended = () => {
 				osc.disconnect();
 				gain.disconnect();
@@ -385,7 +459,7 @@ function playViaAudioContext(
 			osc.connect(gain).connect(ctx.destination);
 			osc.start(now);
 			osc.stop(now + 0.19);
-			// ER-87: release per-cue nodes after stop.
+			//release per-cue nodes after stop.
 			osc.onended = () => {
 				osc.disconnect();
 				gain.disconnect();
@@ -412,7 +486,7 @@ function playViaAudioContext(
 				}
 			})
 			.catch((err: unknown) => {
-				// XZ-R16-08: log the resume rejection at debug so silent
+				//log the resume rejection at debug so silent
 				// audio failures are visible. Resume rejected — caller's
 				// playSoundCue will fall back to HTMLAudioElement. (We
 				// can't call the fallback here because playSoundCue checks
@@ -462,7 +536,7 @@ function getFallbackAudio(): HTMLAudioElement | null {
 			_fallbackAudio = new Audio();
 			_fallbackAudio.preload = "auto";
 		} catch (err) {
-			// XZ-R16-08: log the construction failure at debug so silent
+			//log the construction failure at debug so silent
 			// audio failures are visible (e.g. SSR environments where the
 			// Audio constructor is not available).
 			console.debug(
@@ -481,12 +555,12 @@ function playViaHtmlAudio(
 	const audio = getFallbackAudio();
 	if (!audio) return false;
 	try {
-		// PVT-fix-7: "error" kind reuses STOP_BEEP_WAV (the falling
+		//"error" kind reuses STOP_BEEP_WAV (the falling
 		// pitch reads as an "alert" cadence) rather than minting a
 		// third base64 WAV asset — the AudioContext square-wave path
 		// above is the primary error cue; this is only the fallback
 		// for environments where Web Audio is unavailable.
-		// XA-12-16: "complete" kind reuses START_BEEP_WAV (rising
+		//"complete" kind reuses START_BEEP_WAV (rising
 		// pitch) as a positive-sounding fallback — the AudioContext
 		// two-note chime above is the primary complete cue.
 		if (kind === "start" || kind === "complete") {
@@ -502,7 +576,7 @@ function playViaHtmlAudio(
 		const p = audio.play();
 		if (p && typeof p.then === "function") {
 			p.catch((err: unknown) => {
-				// XZ-R16-08: log the autoplay-block rejection at debug so
+				//log the autoplay-block rejection at debug so
 				// silent audio failures are visible. Autoplay blocked —
 				// the next user gesture will allow subsequent cues.
 				console.debug(
@@ -513,7 +587,7 @@ function playViaHtmlAudio(
 		}
 		return true;
 	} catch (err) {
-		// XZ-R16-08: log the catch-all failure at debug so silent audio
+		//log the catch-all failure at debug so silent audio
 		// failures are visible (e.g. invalid data URL, media element
 		// decode error).
 		console.debug("[sound-manager] playViaHtmlAudio failed:", err);
@@ -564,14 +638,14 @@ export function playSoundCue(
 /**
  * Close and release the shared AudioContext, if one exists.
  *
- * ER-28: also detaches the gesture-resume listeners (previously
+ * : also detaches the gesture-resume listeners (previously
  * ``closeAudioContext`` only closed the AudioContext but left the
  * gesture listeners attached — they would re-resume a future context
  * if ``initAudioContext`` was called again, which is undesired when
  * the user explicitly disabled sound feedback).
  */
 export function closeAudioContext(): void {
-	// ER-28: detach gesture listeners BEFORE closing the context so
+	//detach gesture listeners BEFORE closing the context so
 	// a stray gesture during teardown doesn't race with close().
 	_detachGestureListeners();
 	if (_sharedAudioContext) {
@@ -585,7 +659,7 @@ export function closeAudioContext(): void {
 /**
  * Reset all state — used by tests to ensure isolation between cases.
  *
- * ER-28: now also detaches gesture listeners explicitly (previously
+ * : now also detaches gesture listeners explicitly (previously
  * only the boolean flag was reset, leaving the actual DOM listeners
  * attached across tests).
  */
@@ -595,6 +669,7 @@ export function _resetSoundManagerForTests(): void {
 	_initAttempted = false;
 	_initSucceeded = false;
 	_enabled = true;
+	_visualEnabled = false;
 	_gestureListenerInstalled = false;
 	_fallbackAudio = null;
 }

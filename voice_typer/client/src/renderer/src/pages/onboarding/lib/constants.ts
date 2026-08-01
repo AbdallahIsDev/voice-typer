@@ -1,4 +1,4 @@
-// PVT-053 / EC-FIX-18: shared constants extracted from Onboarding.tsx.
+//shared constants extracted from Onboarding.tsx.
 
 export const DONE_STEP_NAME = "Done";
 
@@ -16,7 +16,7 @@ export const STEP_TITLE_KEY: Record<string, string> = {
 // (`<caps_lock>`) — previously `<f2>`, which silently overrode the backend.
 export const HOTKEY_DEFAULT = "<caps_lock>";
 
-// S5-CR-105: renderer default model must match
+//renderer default model must match
 // `OnboardingController.selected_model` ("small.en") so the wizard can
 // detect "user is accepting the default" and show a "Default: small.en"
 // hint next to the Continue button — mirroring the HOTKEY_DEFAULT hint
@@ -30,3 +30,9 @@ export const TEST_HOTKEY_TIMEOUT_MS = 10_000;
 
 export const HEADING_CLASS =
 	"mb-3 text-lg font-semibold text-(--text-primary) outline-none";
+
+// Duration (in seconds) of the onboarding "Test microphone" recording.
+// Shorter than the full Microphone page's test (10s) because the wizard
+// only needs enough audio to show a live input level — the user hasn't
+// read the full instructions yet.
+export const ONBOARDING_MIC_TEST_DURATION_SEC = 5;

@@ -27,7 +27,7 @@ import {
 	sendToPython,
 } from "./send-to-python";
 
-// PVT-G5-038: startup timeout. If Python doesn't connect within 60s
+//startup timeout. If Python doesn't connect within 60s
 // of the first tryConnect(), show a clear error dialog and quit.
 // This covers the case where Python spawns successfully but hangs
 // during torch import without exiting — the retry loop would otherwise
@@ -40,7 +40,7 @@ const TCP_STARTUP_TIMEOUT_MS = 60_000;
 let _tcpStartupTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
- * ER-29: clear the TCP startup timeout timer. Exported so
+ * : clear the TCP startup timeout timer. Exported so
  * `stopPython()` / `relaunchApp()` / `startPython()` can clear the
  * 60s window: `tcpConnect()`'s `if (_tcpStartupTimeoutTimer === null)`
  * guard then lets the next `tcpConnect()` arm a fresh timer.
@@ -53,9 +53,9 @@ let _tcpStartupTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
  * — BUT the timer still pins the event loop alive for up to 60s after
  * the app should have exited.
  *
- * The `.unref()` part of the ER-29 plan is INTENTIONALLY SKIPPED:
+ * The `.unref()` part of the  plan is INTENTIONALLY SKIPPED:
  * `tests/__tests__/xv-fa19-fixes.test.ts` asserts
- * `_tcpStartupTimeoutTimer is NOT unref'd` (GT-71 rationale: the
+ * `_tcpStartupTimeoutTimer is NOT unref'd` ( rationale: the
  * timer must keep Electron alive so the "Python backend failed to
  * start" dialog actually renders before exit). The explicit
  * `clearTcpStartupTimeout()` calls from every teardown / restart
@@ -108,7 +108,7 @@ export function tcpConnect(port: number): void {
 
 	function tryConnect(): void {
 		const client = new net.Socket();
-		// DJ-80: disable Nagle's algorithm so small push events
+		//disable Nagle's algorithm so small push events
 		// (bubble_level at 15-50 Hz, heartbeat_ack) are not
 		// coalesced into larger segments — eliminates up to 40ms
 		// of per-write latency on the waveform-bubble hot path.
@@ -134,7 +134,7 @@ export function tcpConnect(port: number): void {
 		const retryGen = state._tcpRetryGeneration;
 
 		client.connect(port, "127.0.0.1", () => {
-			// PVT-15: if startPython() bumped the retry generation while our
+			//if startPython() bumped the retry generation while our
 			// client.connect() handshake was in flight, destroy this stale
 			// socket and bail.  Without this guard, the stale socket would
 			// be installed as state.tcpSocket, write the auth line, call
@@ -147,7 +147,7 @@ export function tcpConnect(port: number): void {
 				client.destroy();
 				return;
 			}
-			// PVT-G5-038: clear the startup timeout — Python
+			//clear the startup timeout — Python
 			// connected successfully, no need to fire the
 			// 60s error dialog.
 			clearTcpStartupTimeout();
@@ -180,7 +180,7 @@ export function tcpConnect(port: number): void {
 			// is reloaded fresh — but it's still useful for transient
 			// TCP drops that don't warrant a full process restart.)
 			if (state._hadConnectedBefore) {
-				// GT-A3-8: route through broadcastToMainWindow.
+				//route through broadcastToMainWindow.
 				broadcastToMainWindow(PythonChannels.event, {
 					type: "reconnected",
 					_session_nonce: state.sessionNonce,
@@ -202,7 +202,7 @@ export function tcpConnect(port: number): void {
 			// caller's ``reject`` — the flush loop does not swallow
 			// them.
 			_flushPendingOutbound();
-			// RW-10: start the heartbeat interval now that the
+			//start the heartbeat interval now that the
 			// backend is connected.  Send an immediate heartbeat
 			// so the backend's watchdog arms quickly (otherwise
 			// the first 5s tick would be the only thing arming
@@ -212,7 +212,7 @@ export function tcpConnect(port: number): void {
 			sendToPython({ type: "heartbeat" }).catch(() => {
 				/* best-effort — will retry on next tick */
 			});
-			// GT-59: unref the heartbeat interval so it doesn't keep the Node.js
+			//unref the heartbeat interval so it doesn't keep the Node.js
 			// event loop alive on its own. Without .unref(), a hidden background
 			// instance would never exit when the user closes all windows.
 			const h = setInterval(() => {
@@ -242,7 +242,7 @@ export function tcpConnect(port: number): void {
 			for (const line of lines) {
 				if (!line.trim()) continue;
 				try {
-					// PVT-G5-053: JSON.parse returns
+					//JSON.parse returns
 					// `any`; cast to `unknown` and
 					// narrow before passing to
 					// handleMessage. A non-object
@@ -258,7 +258,7 @@ export function tcpConnect(port: number): void {
 					}
 					handleMessage(msg as Record<string, unknown>);
 				} catch {
-					// XZ-PII-04: never log the raw
+					//never log the raw
 					// TCP line — invalid-JSON lines
 					// may contain transcription_final
 					// events with user speech (PII).
@@ -309,30 +309,30 @@ export function tcpConnect(port: number): void {
 		});
 
 		client.on("close", () => {
-			// PVT-G5-007: reset the TCP line buffer on close
+			//reset the TCP line buffer on close
 			// so stale partial frames from the previous
 			// connection don't bleed into the next one.
 			//
-			// GT-44: scope the buffer clear to the socket that actually owns
+			//scope the buffer clear to the socket that actually owns
 			// the current state. Previously the clear ran unconditionally — a
 			// STALE socket close (e.g. an old retry-generation socket finishing
 			// TCP teardown after a newer socket already connected) would wipe
 			// the live socket's in-flight partial frame.
 			//
-			// FR-30: the heartbeat-interval clear and pending-request reject
-			// loop were left UNCONDITIONAL in the GT-44 fix. A stale socket
+			//the heartbeat-interval clear and pending-request reject
+			//loop were left UNCONDITIONAL in the scoping fix. A stale socket
 			// closing AFTER a newer socket had installed a heartbeat + pending
 			// requests would wipe the live socket's heartbeat (→ Python-side
 			// heartbeat watchdog fires after ~120s → Python exits) AND reject
 			// the live socket's in-flight IPC calls. Scoping them to
-			// `state.tcpSocket === client` (matching the GT-44 pattern for
+			//`state.tcpSocket === client` (matching the  pattern for
 			// buffer/socket/auth) ensures only the owning socket's teardown
 			// releases these resources.
 			if (state.tcpSocket === client) {
 				state.tcpBuffer = "";
 				state.tcpSocket = null;
 				state._tcpAuthed = false;
-				// RW-10: stop the heartbeat interval — the socket is
+				//stop the heartbeat interval — the socket is
 				// dead, so further sendToPython() calls would just
 				// queue up rejected promises.  A fresh interval is
 				// started in the connect callback when the next

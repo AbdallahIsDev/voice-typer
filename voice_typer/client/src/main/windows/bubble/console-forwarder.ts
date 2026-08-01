@@ -1,5 +1,5 @@
 /**
- * Shared renderer `console-message` forwarder (DR-3 sub-finding 1-B-10).
+ * Shared renderer `console-message` forwarder ( sub-finding 1-B-10).
  *
  * Both the bubble window (`lifecycle.ts`) and the main window
  * (`main-window.ts`) install a `webContents.on("console-message", …)`
@@ -15,11 +15,11 @@
  * `e.level`, `e.message`, `e.lineNumber`, `e.sourceId`. The helper
  * reads the new shape.
  *
- * PVT-G5-081 sub-finding: lower the forwarder gate from
+ *  sub-finding: lower the forwarder gate from
  * `level >= 2` (WARN and above only) to `level >= 1` so INFO-
  * level renderer telemetry reaches the main process log too.
  * VERBOSE (level 0) is still dropped — too noisy for the main
- * log. Routing through the structured logger (PVT-G5-080) so
+ * log. Routing through the structured logger () so
  * WARN/ERROR lines also land in electron-runtime.log.
  *
  * Note: the main-window.ts handler ALSO persists ERROR-level lines

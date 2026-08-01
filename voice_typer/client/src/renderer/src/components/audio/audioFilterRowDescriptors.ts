@@ -4,7 +4,7 @@
 // min/max/step, aria/info keys, default value, optional parent
 // toggle).
 //
-// DR-15: previously this registry lived inside `AudioFilterChain.tsx`
+//previously this registry lived inside `AudioFilterChain.tsx`
 // and held only `{ labelKey, infoSearchKey }`. The actual render
 // metadata (config key, min/max/step, suffix, aria/info keys,
 // default value, parent toggle) was duplicated inline across ~520 LOC

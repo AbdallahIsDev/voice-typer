@@ -13,7 +13,7 @@
 // shared ``selectMicrophoneRef`` and passes it to both this hook and
 // ``useMicrophoneTest``; this hook reads ``selectMicrophoneRef.current``
 // at event-fire time so it always invokes the latest closure without
-// re-subscribing on every render (PVT-035 / Fix 2 pattern).
+//re-subscribing on every render ( / Fix 2 pattern).
 
 import {
 	type Dispatch,
@@ -76,7 +76,7 @@ export function useMicrophoneData({
 	// successful loadData() to surface staleness to the user.
 	const [refreshing, setRefreshing] = useState(false);
 	const [loading, setLoading] = useState(true);
-	// NF-R10-2: surface backend-load failures to the user instead of
+	//surface backend-load failures to the user instead of
 	// silently masking them. The previous implementation only logged to
 	// console, leaving the user with an empty mic list and no indication
 	// that the backend was unreachable (vs. genuinely no microphones).
@@ -98,7 +98,7 @@ export function useMicrophoneData({
 		[call],
 	);
 
-	// PVT-G5-054 (session 5): ``isCancelled`` is consulted after every
+	//(session 5): ``isCancelled`` is consulted after every
 	// ``await`` so an unmounted component (or a stale invocation
 	// superseded by a newer ``loadData`` call) does not have its
 	// in-flight ``setX`` calls land on a dead or stale React state. The
@@ -108,7 +108,7 @@ export function useMicrophoneData({
 	const loadData = useCallback(
 		async (isCancelled: () => boolean = () => false) => {
 			setLoading(true);
-			// NF-R10-2: clear any prior load error before retrying so
+			//clear any prior load error before retrying so
 			// the EmptyState swaps back to the spinner during the retry
 			// attempt.
 			setLoadError(null);
@@ -120,14 +120,14 @@ export function useMicrophoneData({
 				if (isCancelled()) return;
 				_cachedMicrophones = Array.isArray(mics) ? mics : [];
 				_cachedConfig = cfg;
-				// PVT-G5-054 (session 5): don't touch state if we were cancelled.
+				//(session 5): don't touch state if we were cancelled.
 				if (!isCancelled()) {
 					setMicrophones(_cachedMicrophones);
 					setConfig(cfg);
 				}
 			} catch (err) {
 				console.error("Failed to load microphone data:", err);
-				// NF-R10-2: capture the error message so the render
+				//capture the error message so the render
 				// path can show a retry EmptyState instead of an
 				// ambiguous empty list.
 				if (!isCancelled()) {
@@ -146,7 +146,7 @@ export function useMicrophoneData({
 		[call, markUpdated],
 	);
 
-	// PVT-G5-054 (session 5): guard the mount-time load against
+	//(session 5): guard the mount-time load against
 	// setState-after-unmount (and against superseding calls from
 	// handleManualRefresh or the microphones_changed hot-swap handler)
 	// via a local ``cancelled`` flag captured by the ``() => cancelled``
@@ -183,7 +183,7 @@ export function useMicrophoneData({
 	// — the "Last updated" indicator is only the safety net, not the
 	// sole invalidation path.
 	//
-	// PVT-035 (Fix 2): hot-swap detection. After loadData() refreshes
+	//(Fix 2): hot-swap detection. After loadData() refreshes
 	// the microphone list, if the currently-selected microphone
 	// (config.microphone) is no longer present in the new list, we:
 	//   1. show a warning snackbar explaining what happened, and

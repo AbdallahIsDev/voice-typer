@@ -3,13 +3,13 @@
 // Owns:
 //   - ``templates`` / ``loading`` / ``loadError`` React state
 //   - ``templatesRef`` (ref mirror so delete-undo callbacks can read the
-//     latest list at undo time — see CR-052 / D2-FIX comments)
+//latest list at undo time — see  / D2-FIX comments)
 //   - ``loadRows`` (backend → React state, with localStorage migration)
 //   - mount-time effect that calls ``loadRows`` once
 //   - ``searchQuery`` / ``sortOrder`` state + ``filteredSortedTemplates``
 //     memo (client-side search+sort — mirrors the History/Vocabulary pattern)
-//   - ``instantDeleteTemplate`` (NEW-UX-004 / R7-F10 instant delete +
-//     6-second Undo toast — see CR-052 comment for the ref-based pattern)
+//``instantDeleteTemplate`` ( / R7-F10 instant delete +
+//6-second Undo toast — see  comment for the ref-based pattern)
 //
 // Extracted from the former monolithic ``pages/Templates.tsx`` render
 // function. The dialog + import/export state has been split into
@@ -60,7 +60,7 @@ export function useTemplates({
 }: UseTemplatesArgs): UseTemplatesResult {
 	const [templates, setTemplates] = useState<TemplateRow[]>([]);
 	const [loading, setLoading] = useState(true);
-	// NF-R10-8: surface backend-load failures (IPC error or malformed
+	//surface backend-load failures (IPC error or malformed
 	// payload) to the user instead of silently falling back to an
 	// empty list. Distinguishes "no templates exist" (valid empty
 	// array from backend) from "load failed" (backend unreachable or
@@ -69,7 +69,7 @@ export function useTemplates({
 	const [searchQuery, setSearchQuery] = useState("");
 	const [sortOrder, setSortOrder] = useState<TemplateSortOrder>("newest");
 
-	// CR-052: ref mirror of `templates` (the React-state TemplateRow[])
+	//ref mirror of `templates` (the React-state TemplateRow[])
 	// so `saveTemplate` and the `instantDeleteTemplate` undo callback
 	// can read the LATEST list at undo time (potentially seconds after
 	// the delete, during which the user may have added/edited/deleted
@@ -90,12 +90,12 @@ export function useTemplates({
 		templatesRef.current = templates;
 	}, [templates]);
 
-	// NEW-UX-008: load from the Python backend (the new source of truth).
+	//load from the Python backend (the new source of truth).
 	// On first run after upgrade, if the backend has no templates but
 	// localStorage does, push the localStorage data to the backend so the
 	// user doesn't lose their pre-existing templates.
 	//
-	// NF-R10-8: distinguish "no templates exist" (valid empty array
+	//distinguish "no templates exist" (valid empty array
 	// from backend) from "load failed" (backend unreachable or
 	// returned malformed data). If the backend IPC fails AND the
 	// localStorage fallback is also empty, surface a load error so the
@@ -154,12 +154,12 @@ export function useTemplates({
 			}
 
 			setTemplates(toRows(backendTemplates));
-			// NF-R10-8: if the backend failed AND we couldn't recover
+			//if the backend failed AND we couldn't recover
 			// from localStorage (or migration), surface a load error
 			// so the user knows to retry. Otherwise the empty list
 			// would be indistinguishable from "no templates exist".
 			//
-			// BG-62: previously this was a hardcoded English string.
+			//previously this was a hardcoded English string.
 			// Use the i18n key so the message localises with the UI
 			// locale.
 			if (backendFailed && backendTemplates.length === 0) {
@@ -168,7 +168,7 @@ export function useTemplates({
 		} catch (err) {
 			console.error("Failed to load templates", err);
 			setTemplates([]);
-			// BG-62: replace hardcoded English fallback with the
+			//replace hardcoded English fallback with the
 			// localised i18n key. If the caught error is a real
 			// Error instance we still surface its .message (which
 			// may come from the backend and carry useful detail);
@@ -187,13 +187,13 @@ export function useTemplates({
 		loadRows();
 	}, [loadRows]);
 
-	// NEW-UX-004 / R7-F10: instant-delete path (no confirm dialog).
+	//R7-F10: instant-delete path (no confirm dialog).
 	// Triggered by the trash icon.  The legacy ConfirmDialog flow
 	// was unreachable dead code and has been removed; all deletes
 	// now go through this instant-delete + Undo toast path, which is
 	// faster and recoverable (6-second undo window).
 	//
-	// CR-052: the delete + undo now read from `templatesRef.current`
+	//the delete + undo now read from `templatesRef.current`
 	// (the latest committed React state) instead of from
 	// `loadTemplatesFromLocalStorage()`.  We capture `originalIndex`
 	// BEFORE the delete (when templatesRef still holds the pre-delete
@@ -235,7 +235,7 @@ export function useTemplates({
 				// restore from `preDeleteRows` before showing the
 				// error toast.
 				setTemplates(toRows(items));
-				// CR-052: await the IPC save so loadRows()
+				//await the IPC save so loadRows()
 				// below sees the post-delete state.
 				await saveTemplates(items, call);
 				if (removed) {

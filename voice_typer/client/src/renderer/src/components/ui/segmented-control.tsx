@@ -126,8 +126,24 @@ export function SegmentedControl<T extends string>({
 	getPanelId,
 }: SegmentedControlProps<T>) {
 	const isTabs = variant === "tabs";
+
+	// Dev-mode a11y warnings: a radiogroup/tablist with no accessible name
+	// and an icon-only option without a title are invisible to screen
+	// readers. Surfaces the gaps during development only.
+	if (process.env.NODE_ENV !== "production") {
+		if (!ariaLabel) {
+			console.warn("SegmentedControl: `ariaLabel` is missing");
+		}
+		for (const opt of options) {
+			if (!opt.label && !opt.title) {
+				console.warn("SegmentedControl: icon-only option missing `title`");
+				break;
+			}
+		}
+	}
+
 	const containerRef = useRef<HTMLDivElement>(null);
-	// CR-53: stable base id for the tablist. Used to derive per-tab and
+	//stable base id for the tablist. Used to derive per-tab and
 	// per-panel ids when the caller doesn't pass getTabId / getPanelId,
 	// so the WAI-ARIA Tabs contract (id on tab + aria-controls on tab
 	// → matching id on tabpanel + aria-labelledby back) always holds.
@@ -216,7 +232,7 @@ export function SegmentedControl<T extends string>({
 	// ArrowRight move focus between tabs and select the newly-focused tab
 	// (activation follows focus — "automatic" activation model).
 	//
-	// CR-062: ArrowRight/ArrowLeft direction is now RTL-aware. In an RTL
+	//ArrowRight/ArrowLeft direction is now RTL-aware. In an RTL
 	// locale (Arabic), the visual order of tabs is mirrored, so the
 	// "forward" direction (next tab) is to the LEFT instead of the RIGHT.
 	// We XOR the key with the current locale's RTL flag so the same key
@@ -320,10 +336,10 @@ export function SegmentedControl<T extends string>({
 							}
 							title={opt.title}
 							role="tab"
-							// XA-8-M4: icon-only options get an explicit accessible name
+							//icon-only options get an explicit accessible name
 							// (title attribute alone is unreliable in JAWS).
 							aria-label={opt.title ?? opt.label}
-							// CR-53: WAI-ARIA Tabs contract — each tab needs a stable
+							//WAI-ARIA Tabs contract — each tab needs a stable
 							// id (so the panel can aria-labelledby it) and aria-controls
 							// pointing at the matching panel id (so screen readers can
 							// jump from tab → panel). Both are derived from getTabId /
@@ -338,7 +354,7 @@ export function SegmentedControl<T extends string>({
 								"relative z-10 cursor-pointer font-normal outline-hidden transition-colors duration-150",
 								"select-none whitespace-nowrap inline-flex items-center justify-center",
 								// A11Y-1: visible focus indicator for keyboard users.
-								"focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-hidden",
+								"focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden",
 								"rounded-none px-3 py-2 text-[13px] font-medium",
 								labelClassName,
 								active && "text-(--text-primary)",
@@ -372,7 +388,7 @@ export function SegmentedControl<T extends string>({
 							// users see which segmented-control option has focus (the inner
 							// <input type="radio" class="sr-only"> owns the focus, so we use
 							// has-[:focus-visible] to style the parent label).
-							"has-focus-visible:ring-3 has-focus-visible:ring-ring/30 has-focus-visible:outline-hidden",
+							"has-focus-visible:ring-3 has-focus-visible:ring-ring has-focus-visible:outline-hidden",
 							variant === "default" &&
 								"rounded-full px-2 py-1 text-[11px] tracking-wider",
 							labelClassName,
@@ -382,10 +398,16 @@ export function SegmentedControl<T extends string>({
 					>
 						<input
 							type="radio"
-							name={ariaLabel || "segmented-control"}
+							// Stable useId-derived name so radio inputs within the
+							// same control toggle as a group without the legacy
+							// collision-prone literal "segmented-control".
+							name={
+								ariaLabel ||
+								`segmented-control-${baseId.replace(/[^a-zA-Z0-9]/g, "")}`
+							}
 							checked={active}
 							onChange={handleRadioChange}
-							// XA-8-M4: explicit accessible name so icon-only options
+							//explicit accessible name so icon-only options
 							// (label === "") are announced via title.
 							aria-label={opt.title ?? opt.label}
 							className="sr-only"

@@ -1,7 +1,7 @@
 /**
  * Shared locale-aware formatting utilities.
  *
- * PVT-089 / PVT-090 / PVT-091 / Task #20: previously the renderer had
+ *  /  /  / Task #20: previously the renderer had
  * three+ copies of byte / number / duration formatting (``About.tsx``,
  * ``Dashboard.tsx``, ``StatCards.tsx``, ``lib/utils/models.ts``), each
  * hardcoding English suffixes (``"MB"`` / ``"GB"`` / ``"K+"``) and
@@ -21,7 +21,7 @@
  *     ``formatRelativeTime`` for the ``About.test.tsx`` unit tests.
  *     Those wrappers remain untouched.
  *   - ``DownloadProgressBar.tsx`` previously kept its own local
- *     ``formatBytes`` / ``formatSpeed`` — XA-20-7 consolidated them
+ *     ``formatBytes`` / ``formatSpeed`` —  consolidated them
  *     into the shared exports below (``formatBytes`` already existed;
  *     ``formatSpeed`` is new).
  *
@@ -31,7 +31,7 @@
  * keeps call sites terse (``formatVram(n)``) while still allowing
  * tests to pin a specific locale (``formatVram(n, "en")``).
  *
- * ── GT-33 (session-6 dead-code purge) ────────────────────────────────
+ * ──  (session-6 dead-code purge) ────────────────────────────────
  * Previously this module also exported ``formatCompactNumber``,
  * ``formatDateTime``, and ``formatRelativeTime``. None of those were
  * imported by any production file (verified by grep across
@@ -41,7 +41,7 @@
  * DOES get called. The shared exports were dead. Deleted to collapse
  * the module.
  *
- *   - GT-E2-5 (session-6): the ``@deprecated`` tag on ``compactNumber``
+ *   -  (session-6): the ``@deprecated`` tag on ``compactNumber``
  *     was also removed. ``compactNumber`` is the LIVE implementation
  *     (its two callers depend on the ``"K"`` / ``"K+"`` suffix shape
  *     that ``formatCompactNumber`` did NOT produce). The
@@ -49,7 +49,7 @@
  *     never landed — and now that ``formatCompactNumber`` is deleted,
  *     ``compactNumber`` is the canonical compact-number formatter.
  *
- * ── XA-20-7 / XA-20-8 (this fix) ─────────────────────────────────────
+ * ──  /  (this fix) ─────────────────────────────────────
  *   - ``formatBytes`` and ``formatSpeed`` are now the canonical exports
  *     consumed by ``DownloadProgressBar.tsx`` (its local copies were
  *     removed).
@@ -65,7 +65,7 @@
  */
 import { getLocale, type Locale, t } from "@/i18n/i18n";
 
-// ── ER-23: Intl formatter caches ────────────────────────────────────
+//Intl formatter caches ────────────────────────────────────
 //
 // ``new Intl.NumberFormat(loc, opts)`` is ~5-10× slower than
 // ``.format(n)`` because the constructor parses the locale + options
@@ -142,9 +142,9 @@ export interface CompactNumberOptions {
  *   - ``compactNumber(1234, { plusSuffix: true })`` → ``"1.2K+"``
  *   - ``compactNumber(2000, { plusSuffix: true })`` → ``"2K"`` (no remainder)
  *
- * GT-E2-5 (session-6): the previous ``@deprecated`` tag pointing at
+ *  (session-6): the previous ``@deprecated`` tag pointing at
  * ``formatCompactNumber`` has been removed — ``formatCompactNumber``
- * was deleted (GT-33) because no production file imported it, so
+ * was deleted () because no production file imported it, so
  * ``compactNumber`` is now the canonical compact-number formatter.
  * Its ``"K"`` / ``"K+"`` suffix shape is required by the Dashboard +
  * StatCards callers' snapshot tests.
@@ -184,7 +184,7 @@ function resolveLocale(locale?: Locale): Locale {
  * Format a VRAM amount (in megabytes) using locale-aware unit
  * formatting.
  *
- * PVT-091: previously ``pages/Models.tsx`` had its own inline copy
+ * : previously ``pages/Models.tsx`` had its own inline copy
  * AND ``lib/utils/models.ts`` had a second copy — both hardcoded
  * ``"MB"`` / ``"GB"`` suffixes and used ``toFixed(1)`` for the GB
  * path. This single implementation replaces both. The Models module
@@ -202,7 +202,7 @@ function resolveLocale(locale?: Locale): Locale {
  * Format bytes to a human-readable string using locale-aware unit
  * formatting (e.g. ``"1.5 MB"``, ``"500 KB"``, ``"12 B"``).
  *
- * XA-20-7: signature widened to accept ``null`` / ``undefined`` so
+ * : signature widened to accept ``null`` / ``undefined`` so
  * ``DownloadProgressBar`` (which previously had its own local copy
  * returning ``"—"`` for null) can migrate to this shared helper
  * without an extra null-check at every call site. The null/undefined
@@ -240,7 +240,7 @@ export function formatBytes(
 	];
 	for (const [threshold, unit] of units) {
 		if (bytes >= threshold) {
-			// ER-23: cached NumberFormat keyed by locale+options.
+			//cached NumberFormat keyed by locale+options.
 			const opts: Intl.NumberFormatOptions = {
 				style: "unit",
 				unit,
@@ -262,13 +262,13 @@ export function formatBytes(
  * Format seconds to a human-readable duration using locale-aware
  * glyphs (e.g. "2m", "1h 5m").
  *
- * XA-20-8: the previous implementation hardcoded English "h" / "m" /
+ * : the previous implementation hardcoded English "h" / "m" /
  * "s" suffixes. The new implementation resolves the suffixes through
  * ``t()`` so non-English locales can localize them.
  *
  * Translation-key strategy (with graceful fallback):
  *   1. Try ``analytics.durationZero`` / ``durationMinutes`` /
- *      ``durationHours`` / ``durationHoursMinutes`` (the BG-9 contract
+ *      ``durationHours`` / ``durationHoursMinutes`` (the  contract
  *      keys expected by ``Dashboard.test.tsx``). When present, these
  *      give the locale full control over the format string (e.g.
  *      Arabic could render "٥د" via ``{m}m`` + Arabic-Indic digits).
@@ -345,7 +345,7 @@ export function formatDuration(seconds: number): string {
  * Format a transfer rate (bytes per second) using locale-aware unit
  * formatting.
  *
- * XA-20-7: extracted from ``DownloadProgressBar.tsx``'s local copy
+ * : extracted from ``DownloadProgressBar.tsx``'s local copy
  * (which hardcoded English "B/s" / "KB/s" / "MB/s" / "GB/s" suffixes
  * and used ``toFixed()`` directly). This implementation uses the
  * platform ``Intl.NumberFormat`` API with ``style: "unit"`` so the
@@ -380,7 +380,7 @@ export function formatSpeed(
 	];
 	for (const [threshold, unit] of units) {
 		if (bytesPerSecond >= threshold) {
-			// ER-23: cached NumberFormat keyed by locale+options.
+			//cached NumberFormat keyed by locale+options.
 			const opts: Intl.NumberFormatOptions = {
 				style: "unit",
 				unit,

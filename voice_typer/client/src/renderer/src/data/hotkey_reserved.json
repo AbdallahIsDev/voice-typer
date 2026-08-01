@@ -4,7 +4,17 @@
     "universal_reserved": "Array of hotkey strings blocked on EVERY platform (window management: Alt+Tab, Alt+F4, Alt+Esc, Alt+Space). Stored lowercase with angle brackets, e.g. \"<alt>+<tab>\".",
     "per_platform_reserved": "Object mapping platform key (win32/darwin/linux) to array of hotkey strings blocked on that platform only.",
     "blocked_ctrl_letters": "Array of single lowercase letters blocked when the hotkey is PURE Ctrl+<letter> (no other modifier). Covers Copy/Paste/Undo/Save/Select All/etc.",
-    "modifiers": "Array of modifier key names recognized in hotkey strings (pynput-style, lowercase)."
+    "modifiers": "Array of modifier key names recognized in hotkey strings (pynput-style, lowercase).",
+    "screen_reader_conflicts": "Object mapping platform key (win32/darwin/linux) to an array of { hotkey, sr_software } entries listing hotkeys that conflict with default screen-reader modifier keys. Used by checkHotkeyConflict.ts::checkScreenReaderConflict to warn (NOT block) the user that picking these keys may break their SR. sr_software is an array of product names (e.g. VoiceOver, Narrator, NVDA, JAWS) shown to the user in the warning banner. Linux is intentionally an empty array — no mainstream Linux SR (Orca) uses Caps Lock as a modifier by default."
+  },
+  "screen_reader_conflicts": {
+    "darwin": [
+      { "hotkey": "<caps_lock>", "sr_software": ["VoiceOver"] }
+    ],
+    "win32": [
+      { "hotkey": "<caps_lock>", "sr_software": ["Narrator", "NVDA", "JAWS"] }
+    ],
+    "linux": []
   },
   "universal_reserved": [
     "<alt>+<tab>",

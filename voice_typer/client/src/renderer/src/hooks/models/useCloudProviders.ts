@@ -1,34 +1,43 @@
 /**
  * useCloudProviders — cloud-provider API keys + consent slice.
  *
- * DT-34 (Phase 4.5 spaghetti split): extracted from the former
+ *  (Phase 4.5 spaghetti split): extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns the
  * cloud-provider test results and the actions that persist API keys +
  * consent flags:
  *   • `saveApiKey` — persists the per-provider API key via `updateConfig`
- *     + surfaces a localised success snackbar.
+ *     + surfaces a localised success snackbar. Bails out (and surfaces
+ *     an info snackbar) when the key is empty or unchanged from the
+ *     persisted value — prevents silently clobbering stored keys
+ *     with the empty string that `safeApiKey` substitutes for the
+ *     `<redacted>` sentinel on every config fetch.
  *   • `setCloudConsent` / `setHuggingFaceConsent` — persist the
  *     consent flag + optimistically update the local config snapshot
  *     (so the UI flips immediately without waiting for the
  *     `config_changed` event round-trip).
  *   • `handleGrantConsent` — thin wrapper that grants HuggingFace
  *     consent (used by the consent banner's "Grant" button).
- *   • `testConnection` — fetches the provider's API endpoint to verify
- *     the key works. BG-50: cross-origin `fetch` failures throw an
- *     opaque `TypeError`; we detect that and surface a specific
- *     "network blocked the request" message instead of the generic
- *     "Failed to fetch".
+ *   • `testConnection` — routes the cloud-provider key verification
+ *     through the backend IPC `test_cloud_connection` command so the
+ *     API key never leaves the Python process (C-DATA-1 offline-app
+ *     compliance — ). Sets a `"pending"` status at the start so
+ *     the UI can show a spinner + disable the Test button.
+ *   • `clearTestResult` — clears the test result for a single
+ *     provider. Wired to the API-key Input's onChange so stale
+ *     "Success" badges don't linger after the user edits the key.
  *
- * The four module-level helpers (`consentKeyFor`, `apiKeyConfigField`,
- * `safeApiKey`, `testEndpointFor`) live in this file. `safeApiKey` is
- * re-exported so `useModelConfig.loadConfig` can call it when seeding
- * `apiKeys` from the freshly-fetched config — without duplicating the
+ * The three module-level helpers (`consentKeyFor`, `apiKeyConfigField`,
+ * `safeApiKey`) live in this file. `safeApiKey` is re-exported so
+ * `useModelConfig.loadConfig` can call it when seeding `apiKeys` from
+ * the freshly-fetched config — without duplicating the
  * redaction-sentinel stripping logic.
  *
  * `apiKeys` + `setApiKeys` are received as args (state owned by
  * `useModelConfig` because `loadConfig` populates them — see that
  * hook's docstring for the rationale). `setConfig` + `updateConfig`
- * come from `useModelConfig` too.
+ * come from `useModelConfig` too. `config` is also forwarded so
+ * `saveApiKey`'s unchanged-guard can compare the in-memory input
+ * value against the persisted (redacted-or-not) config field.
  */
 import { useCallback, useState } from "react";
 import { t } from "@/i18n/i18n";
@@ -39,8 +48,15 @@ import type { VoiceTyperConfig } from "@/types/config";
 
 export interface ApiTestResult {
 	message: string;
-	status: "success" | "failure" | "info";
+	// `"pending"` is set at the start of `testConnection` so the UI can
+	// show a spinner + disable the Test button. The status transitions
+	// to `"success"` / `"failure"` / `"info"` on terminal branches.
+	status: "pending" | "success" | "failure" | "info";
 }
+
+// Type alias for the IPC `call` function (matches the pattern used by
+// useModelConfig, useModelFolder, useModelDownload, etc.).
+type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
 
 interface UseCloudProvidersArgs {
 	showSnack: (
@@ -48,8 +64,10 @@ interface UseCloudProvidersArgs {
 		kind: "success" | "error" | "warning" | "info",
 	) => void;
 	setConfig: React.Dispatch<React.SetStateAction<VoiceTyperConfig | null>>;
+	config: VoiceTyperConfig | null;
 	apiKeys: Record<string, string>;
 	updateConfig: (updates: Partial<VoiceTyperConfig>) => Promise<void>;
+	call: CallFn;
 }
 
 export interface UseCloudProvidersResult {
@@ -59,12 +77,16 @@ export interface UseCloudProvidersResult {
 	setHuggingFaceConsent: (granted: boolean) => Promise<void>;
 	handleGrantConsent: () => void;
 	testConnection: (provider: string) => Promise<void>;
+	/** Clear the test result for a single provider. Wired to the API-key
+	 * Input's onChange so stale "Success" badges don't linger after
+	 * the user edits the key. */
+	clearTestResult: (provider: string) => void;
 }
 
 // ── Helpers (module-level — `safeApiKey` is re-exported) ──────────────
 
 /**
- * PVT-003 fix #6 helper: translate the cloud-provider key into the
+ *  fix #6 helper: translate the cloud-provider key into the
  * matching `cloud_*_consent` config field. Returns the config key
  * (typed as a keyof VoiceTyperConfig so callers can index safely).
  */
@@ -75,7 +97,7 @@ function consentKeyFor(provider: string): keyof VoiceTyperConfig {
 }
 
 /**
- * PVT-003 fix #6 helper: translate the cloud-provider key into the
+ *  fix #6 helper: translate the cloud-provider key into the
  * matching `*_api_key` config field.
  */
 function apiKeyConfigField(provider: string): keyof VoiceTyperConfig {
@@ -98,54 +120,60 @@ export function safeApiKey(value: string | undefined | null): string {
 	return value && value !== "<redacted>" ? value : "";
 }
 
-/**
- * Returns the cloud-provider HTTP test endpoint + auth headers for the
- * "Test Connection" probe. Extracted from `testConnection` so the
- * per-provider switch lives in one place (previously inlined as a
- * 90-line if/else if/else in the page).
- */
-function testEndpointFor(
-	provider: string,
-	key: string,
-): { url: string; headers: Record<string, string> } {
-	switch (provider) {
-		case "openai":
-			return {
-				url: "https://api.openai.com/v1/models",
-				headers: { Authorization: `Bearer ${key}` },
-			};
-		case "groq":
-			return {
-				url: "https://api.groq.com/openai/v1/models",
-				headers: { Authorization: `Bearer ${key}` },
-			};
-		case "deepgram":
-			return {
-				url: "https://api.deepgram.com/v1/projects",
-				headers: { Authorization: `Token ${key}` },
-			};
-		default:
-			return { url: "", headers: {} };
-	}
-}
-
 // ── Hook ──────────────────────────────────────────────────────────────
 
 export function useCloudProviders({
 	showSnack,
 	setConfig,
+	config,
 	apiKeys,
 	updateConfig,
+	call,
 }: UseCloudProvidersArgs): UseCloudProvidersResult {
 	const [testResults, setTestResults] = useState<Record<string, ApiTestResult>>(
 		{},
 	);
 
+	// Clear the test result for a single provider. Used by the API-key
+	// Input's onChange handler so a stale "Success" badge doesn't linger
+	// after the user edits the key.
+	const clearTestResult = useCallback((provider: string) => {
+		setTestResults((prev) => {
+			if (!prev[provider]) return prev;
+			const next = { ...prev };
+			delete next[provider];
+			return next;
+		});
+	}, []);
+
 	// ── Action: saveApiKey / setCloudConsent / setHuggingFaceConsent ─
+	//
+	// Bail out (and surface an info snackbar) when:
+	//   • `key.trim() === ""` — the input is empty (the user clicked
+	//     Save without typing anything). This is the most dangerous case
+	//     because `safeApiKey` substitutes `""` for the `<redacted>`
+	//     sentinel on every config fetch — so the input is always empty
+	//     after navigating away and back, even when a key IS stored.
+	//     Without this guard, clicking Save would overwrite the stored
+	//     secret with `""`.
+	//   • `key === persistedKey` — the user re-typed the exact same key.
+	//     No-op (avoids a redundant IPC round-trip + a misleading "saved"
+	//     toast). The persisted key is read from `config` so we compare
+	//     against the value the backend last acknowledged.
 	const saveApiKey = useCallback(
 		async (provider: string) => {
 			const key = apiKeys[provider] ?? "";
+			if (!key.trim()) {
+				showSnack(t("models.snack.apiKeyEmpty"), "info");
+				return;
+			}
 			const configKey = apiKeyConfigField(provider);
+			const persistedRaw = config?.[configKey] as string | undefined;
+			const persisted = safeApiKey(persistedRaw);
+			if (persisted && key === persisted) {
+				showSnack(t("models.snack.apiKeyUnchanged"), "info");
+				return;
+			}
 			const updates = { [configKey]: key } as Partial<VoiceTyperConfig>;
 			await updateConfig(updates);
 			showSnack(
@@ -155,7 +183,7 @@ export function useCloudProviders({
 				"success",
 			);
 		},
-		[apiKeys, showSnack, updateConfig],
+		[apiKeys, config, showSnack, updateConfig],
 	);
 
 	const setCloudConsent = useCallback(
@@ -198,7 +226,11 @@ export function useCloudProviders({
 
 	// ── Action: testConnection ──────────────────────────────────────
 	//
-	// BG-50: previously the renderer-side ``fetch`` to the cloud
+	// Sets a `"pending"` status at the start so the UI can disable the
+	// Test button + show an inline spinner. The status transitions to
+	// `"success"` / `"failure"` / `"info"` on terminal branches.
+	//
+	//previously the renderer-side ``fetch`` to the cloud
 	// provider's API leaked the user's API key through the
 	// ``Authorization`` header on a cross-origin request — and a
 	// CORS / network failure surfaced as an opaque ``TypeError:
@@ -222,35 +254,30 @@ export function useCloudProviders({
 				}));
 				return;
 			}
+			// Mark pending immediately so the UI can disable the button + show a
+			// spinner. The pending status is overwritten by the terminal
+			// success/failure/info branches below.
+			setTestResults((prev) => ({
+				...prev,
+				[provider]: {
+					message: "Testing…",
+					status: "pending",
+				},
+			}));
 			try {
 				await saveApiKey(provider);
-				const { url, headers } = testEndpointFor(provider, key);
-				let resp: Response;
-				try {
-					resp = await fetch(url, { headers });
-				} catch (fetchErr) {
-					// BG-50: cross-origin ``fetch`` failures throw a
-					// ``TypeError`` ("Failed to fetch") for CORS
-					// rejections, DNS failures, network offline,
-					// and certificate errors. The native message is
-					// opaque (the browser hides CORS details for
-					// security). Surface a specific message so the
-					// user can distinguish "wrong API key" (HTTP
-					// 401) from "network blocked the request"
-					// (CORS / offline).
-					if (fetchErr instanceof TypeError) {
-						setTestResults((prev) => ({
-							...prev,
-							[provider]: {
-								message: t("models.test.connectionNetworkError"),
-								status: "failure",
-							},
-						}));
-						return;
-					}
-					throw fetchErr;
-				}
-				if (resp.ok) {
+				// Route the connection test through the Python backend IPC
+				// (test_cloud_connection) so the API key never leaves the
+				// Python process and the renderer stays network-free
+				// (C-DATA-1 offline-app compliance). The backend handler
+				// reads the key from the live Config, makes the HTTP probe
+				// using urllib, and returns { ok, status, message }.
+				const result = await call<{
+					ok: boolean;
+					status: number;
+					message: string;
+				}>("test_cloud_connection", { provider });
+				if (result.ok) {
 					setTestResults((prev) => ({
 						...prev,
 						[provider]: {
@@ -263,8 +290,8 @@ export function useCloudProviders({
 						...prev,
 						[provider]: {
 							message: t("models.test.connectionFailed", {
-								status: String(resp.status),
-								statusText: resp.statusText,
+								status: String(result.status),
+								statusText: result.message,
 							}),
 							status: "failure",
 						},
@@ -282,7 +309,7 @@ export function useCloudProviders({
 				}));
 			}
 		},
-		[apiKeys, saveApiKey],
+		[apiKeys, saveApiKey, call],
 	);
 
 	return {
@@ -292,5 +319,6 @@ export function useCloudProviders({
 		setHuggingFaceConsent,
 		handleGrantConsent,
 		testConnection,
+		clearTestResult,
 	};
 }

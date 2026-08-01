@@ -54,12 +54,25 @@ function Button({
 	variant = "default",
 	size = "default",
 	asChild = false,
+	children,
 	...props
 }: React.ComponentProps<"button"> &
 	VariantProps<typeof buttonVariants> & {
 		asChild?: boolean;
 	}) {
 	const Comp = asChild ? Slot.Root : "button";
+
+	// Dev-mode a11y warning: an interactive control with no accessible name
+	// (no text children, no aria-label, no aria-labelledby) is invisible to
+	// screen readers. Surfaces the gap during development only.
+	if (
+		process.env.NODE_ENV !== "production" &&
+		!children &&
+		!props["aria-label"] &&
+		!props["aria-labelledby"]
+	) {
+		console.warn("Button: no `aria-label`/`aria-labelledby` or text content");
+	}
 
 	return (
 		<Comp

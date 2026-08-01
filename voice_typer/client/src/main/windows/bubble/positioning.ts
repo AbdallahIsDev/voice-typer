@@ -1,22 +1,22 @@
 /**
  * Bubble overlay geometry + saved-position state.
  *
- * Extracted from `bubble-window.ts` (DR-7). Owns:
+ * Extracted from `bubble-window.ts` (). Owns:
  *   - `savedBubblePos` + `getSavedBubblePosition()` /
  *     `resetSavedBubblePosition()` / `setSavedBubblePosition()` —
- *     PVT-068 in-session persistence of the user's last drag
+ *      in-session persistence of the user's last drag
  *     position.
  *   - `centerOnPrimaryDisplay()` — top/bottom centered position for
  *     the bubble.
- *   - `centerOnActiveDisplay()` — PVT-068 multi-monitor aware
+ *   - `centerOnActiveDisplay()` —  multi-monitor aware
  *     positioning using `screen.getCursorScreenPoint()`.
  *   - `getActiveDisplay()` — resolve the display the cursor is on.
- *   - `isPositionOnAnyDisplay()` — XA-6-5 validate a candidate
+ *   - `isPositionOnAnyDisplay()` —  validate a candidate
  *     position against the current set of displays' work areas.
  *   - `isForegroundFullscreen()` — SEC-025 best-effort exclusive-
  *     fullscreen detection.
  *
- * PVT-068: bubble position is now remembered across show/hide cycles.
+ * : bubble position is now remembered across show/hide cycles.
  * The BrowserWindow's `moved` event (wired in `lifecycle.ts`) persists
  * the user's last drag position to module-level state
  * (`savedBubblePos`); on the next `showBubbleWindow()` (in
@@ -29,14 +29,14 @@
  */
 import { BrowserWindow, screen } from "electron";
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../../constants";
-// DT-13: converted from defensive `require("../../logging")` to a static
+//converted from defensive `require("../../logging")` to a static
 // ESM import — the previous try/catch + console.* fallback was added
 // to tolerate minimal test mocks, but the real logging module is now
 // always present and the test mocks have been updated to expose `log`.
 import { log } from "../../logging";
 import { state } from "../../state";
 
-// PVT-068: in-session persistence of the bubble's last user-positioned
+//in-session persistence of the bubble's last user-positioned
 // coordinates. `null` means "no saved position — use the default
 // center-on-active-display placement". Updated by the BrowserWindow
 // `moved` event (see createBubbleWindow in lifecycle.ts) and cleared
@@ -65,7 +65,7 @@ export function setSavedBubblePosition(
 }
 
 /**
- * PVT-068: read the saved bubble position (if any). Exposed for IPC
+ * : read the saved bubble position (if any). Exposed for IPC
  * consumers (e.g. a future Settings-page "reset position" affordance)
  * and for tests.
  */
@@ -74,7 +74,7 @@ export function getSavedBubblePosition(): { x: number; y: number } | null {
 }
 
 /**
- * PVT-068: reset the saved bubble position so the next
+ * : reset the saved bubble position so the next
  * `showBubbleWindow()` falls back to the default placement. Called by
  * the `bubble:set-position` IPC handler when the user toggles between
  * top/bottom in Settings.
@@ -84,7 +84,7 @@ export function resetSavedBubblePosition(): void {
 }
 
 /**
- * XA-6-5: validate a candidate bubble position against the current
+ * : validate a candidate bubble position against the current
  * set of displays' work areas. Returns true if the position's top-left
  * corner lies inside at least one display's work area. Used by the
  * `moved` handler (lifecycle.ts) to skip saving stale coordinates
@@ -118,7 +118,7 @@ export function isPositionOnAnyDisplay(pos: { x: number; y: number }): boolean {
 	}
 }
 
-// XA-6-20: the Electron `state.ts` default for `bubblePosition` now
+//the Electron `state.ts` default for `bubblePosition` now
 // matches the Python config default ("bottom"). Previously the
 // Electron default was "top" and this module flipped it to "bottom"
 // at module load — a fragile one-shot override that masked the
@@ -150,7 +150,7 @@ export function isForegroundFullscreen(): boolean {
 		// Best-effort detection — `screen.getAllDisplays()` / `BrowserWindow.getFocusedWindow()`
 		// can throw in headless test environments or if the GPU process is gone.
 		// Non-fatal: we err on the side of NOT painting over fullscreen apps.
-		// DE-87 / S2-CR-75: route through structured `log` so the failure
+		//route through structured `log` so the failure
 		// persists in `electron-main.log` (5 MiB rotation) instead of being
 		// lost in packaged builds where `console.warn` has no terminal.
 		log.warn("[bubble-window] isForegroundFullscreen detection failed:", e);
@@ -163,7 +163,7 @@ export function isForegroundFullscreen(): boolean {
  * Falls back to the primary display if `getCursorScreenPoint()` throws
  * (e.g. headless test environment without a real screen).
  *
- * PVT-068: previously the bubble always centered on the *primary*
+ * : previously the bubble always centered on the *primary*
  * display, which stranded the bubble on the wrong screen when the user
  * was working on a secondary monitor. Using the cursor's current
  * screen makes the bubble follow the user.
@@ -204,7 +204,7 @@ export function centerOnPrimaryDisplay(): { x: number; y: number } {
 }
 
 /**
- * PVT-068: center the bubble on the display the user is currently on
+ * : center the bubble on the display the user is currently on
  * (multi-monitor aware). Falls back to `centerOnPrimaryDisplay()` if
  * the active display can't be determined.
  */

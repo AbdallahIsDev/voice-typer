@@ -1,5 +1,5 @@
 /**
- * FIX-16 / A11Y-5: Accessibility + i18n tests for LiveQualityFeedback.
+ *  / A11Y-5: Accessibility + i18n tests for LiveQualityFeedback.
  *
  * The component previously rendered hardcoded English strings and had no
  * aria-live region, so screen readers neither translated nor announced

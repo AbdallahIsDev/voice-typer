@@ -4,20 +4,20 @@
  * Extracted from `index.ts` (REF-2). Registers:
  *   - window:minimize / window:toggle-maximize / window:close / window:is-maximized
  *     (custom title bar controls)
- *   - window:open-logs (UX-008: open the Python log directory in the OS file manager)
+ *   - window:open-logs (: open the Python log directory in the OS file manager)
  *   - model:import-dialog (MODEL-IMPORT: native folder picker for HuggingFace imports)
- *   - renderer:log-error (G4-M-69: renderer → main error persistence)
- *   - i18n:set-locale (NH-3: renderer pushes its locale to the main process so
+ *   - renderer:log-error (: renderer → main error persistence)
+ *   - i18n:set-locale (: renderer pushes its locale to the main process so
  *     native dialogs render in the user's selected language)
  *
- * PVT-G5-068 originally removed the `i18n:set-locale` handler because no
- * caller existed. NH-3 re-adds it: the renderer's `setLocale()` now pushes
+ *  originally removed the `i18n:set-locale` handler because no
+ * caller existed.  re-adds it: the renderer's `setLocale()` now pushes
  * the locale via this channel on every change AND on app startup (so a
  * restart with a saved non-English locale propagates to native dialogs
  * before the first dialog is shown). `window:show` is still removed —
  * the tray path goes through `showMainWindow()` directly.
  *
- * DT-51: the `window:open-electron-logs` handler (G4-M-71: open the
+ * : the `window:open-electron-logs` handler (: open the
  * Electron userData directory) was removed — the preload bridge no
  * longer exposes an `openElectronLogs` entry, so the handler was
  * unreachable. The Tauri bridge's `openElectronLogs` impl (which
@@ -38,7 +38,7 @@ import {
 	WindowChannels,
 } from "./channels";
 
-// XA-20-10 / NH-3: `setMainLocale` is resolved lazily inside the
+//`setMainLocale` is resolved lazily inside the
 // i18n:set-locale IPC handler (via dynamic `import("../i18n")`) rather
 // than via a top-level static import. This serves two purposes:
 //   1. Test isolation: the handler test (`i18n-set-locale-handler.test.ts`)
@@ -57,14 +57,14 @@ import {
 //      actually invoked (which is rare — only on locale change).
 
 // Saved bounds for window:toggle-maximize to restore on unmaximize.
-// PVT-G5-FA15: this used to live on `state.preMaximizeBounds` but no
+//this used to live on `state.preMaximizeBounds` but no
 // other module reads/writes it — kept local for encapsulation (matches
 // session-4 + session-5 consensus; session-1's `state.preMaximizeBounds`
 // refactor was reverted by session-5's dead-code cleanup).
 let preMaximizeBounds: Electron.Rectangle | null = null;
 
 /**
- * DE-85: scrub potential PII from a React `componentStack` string
+ * : scrub potential PII from a React `componentStack` string
  * before writing it to `electron-renderer-errors.log`.
  *
  * React componentStack strings can include string-literal prop values
@@ -303,7 +303,19 @@ export function registerWindowHandlers(): void {
 	// The handler is async because the bubble notification uses a
 	// dynamic import (to avoid a static-import cycle in test
 	// environments that don't mock the bubble-window module).
-	ipcMain.handle(I18nChannels.setLocale, async (_event, payload) => {
+	// Annotate the IPC payload as `unknown` (mirrors the
+	// `python-call` handler at `python-call-handler.ts:68`, which
+	// types its `msg` arg as `Record<string, unknown>`). Electron's
+	// `ipcMain.handle` listener signature types the variadic args as
+	// `any[]`, which silently propagates into the handler body and
+	// defeats type-checking on every property access. Marking the
+	// payload `unknown` forces every read through a runtime guard —
+	// the existing `typeof payload === "string"` / `typeof payload
+	// === "object"` narrowing already does this, so no body changes
+	// are required; the only behavioural change is that a future
+	// edit that touches `payload` without narrowing first will fail
+	// at compile time instead of compiling silently.
+	ipcMain.handle(I18nChannels.setLocale, async (_event, payload: unknown) => {
 		let locale: string | undefined;
 		if (typeof payload === "string") {
 			locale = payload;

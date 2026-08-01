@@ -11,7 +11,7 @@
  * - import_model IPC error → shows failure snackbar
  * - Outside Electron (no window_ API) → shows warning snackbar
  *
- * Additional coverage (FIX-13):
+ * Additional coverage ():
  * - MDL-3: cancel produces no duplicate snackbar from `downloadModel`
  * - MDL-5: cloud provider API key inputs have unique HTML ids
  * - MDL-9: download success does not auto-activate the model in the
@@ -517,7 +517,7 @@ describe("ModelsPage — Import Model flow", () => {
 	});
 });
 
-// ── FIX-13: MDL-3 / MDL-5 / MDL-9 / MDL-16 ──────────────────────────────
+//MDL-3 / MDL-5 / MDL-9 / MDL-16 ──────────────────────────────
 //
 // These tests cover fixes for the Models.tsx bugs identified in the
 // comprehensive review (MDL-3, MDL-5, MDL-9, MDL-16). They focus on

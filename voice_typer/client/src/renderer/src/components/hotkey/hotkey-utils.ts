@@ -71,7 +71,7 @@ export const KEY_CODE_TO_PYNPUT: Record<string, string> = {
 	// canonical name-to-name transformer — if you add a name here,
 	// add it there too so the native backends can recognize it.
 	//
-	// HOTKEY-FIX-002: letters and digits were missing from
+	//HOTKEY-: letters and digits were missing from
 	// this table, so capturing combos like Alt+Q, Ctrl+Alt+V, or even
 	// the default repaste hotkey Ctrl+Alt+V would fail with "Key 'v'
 	// is not supported" — despite the error message literally
@@ -187,7 +187,7 @@ export const MODIFIER_KEYS = [
 /**
  * Build the e.code → pynput-modifier-name map for the given platform.
  *
- * CR-058: ``MetaLeft`` / ``MetaRight`` previously always mapped to
+ * : ``MetaLeft`` / ``MetaRight`` previously always mapped to
  * ``"cmd"``, which is the macOS name for the modifier. On Windows and
  * Linux, committing a bare Win/Super key would emit ``"<cmd>"`` — a
  * name the native backend on those platforms can't register, silently
@@ -321,7 +321,7 @@ export function getComboPresets(): { value: string; label: string }[] {
  *
  * Returns "None" if the hotkey is empty/falsy.
  *
- * PVT-FIX-002: on macOS, the four primary modifiers are rendered as
+ * : on macOS, the four primary modifiers are rendered as
  * platform-native glyphs (⌘ Cmd, ⌃ Ctrl, ⌥ Alt/Option, ⇧ Shift) and
  * joined WITHOUT separators — matching the macOS Human Interface
  * Guidelines (e.g. "⌘⇧V" rather than "Cmd+Shift+V"). On Windows and
@@ -354,7 +354,7 @@ export function formatHotkey(hotkey: string): string {
 		cmd_l: "\u2318",
 		cmd_r: "\u2318",
 	};
-	// CR-89: display labels are now sourced from translation keys rather than
+	//display labels are now sourced from translation keys rather than
 	// hardcoded English strings. The map below aliases variant names (ctrl_l,
 	// ctrl_r) to the canonical key so translations aren't duplicated.
 	const KEY_LABEL_ALIAS: Record<string, string> = {
@@ -398,7 +398,7 @@ export function formatHotkey(hotkey: string): string {
 	const parts = hotkey
 		.split("+")
 		.map((part) => part.replace(/[<>]/g, "").trim());
-	// PVT-FIX-002: re-detect platform on every call so a stale
+	//re-detect platform on every call so a stale
 	// module-level detection (e.g. from Electron UA spoofing or
 	// headless mode) doesn't produce the wrong glyphs.
 	const isMac = detectPlatform() === "darwin";
@@ -505,7 +505,7 @@ export function validateHotkey(
 }
 
 // ────────────────────────────────────────────────────────────────────
-// DR-13: Hotkey capture state machine (reducer + types)
+//Hotkey capture state machine (reducer + types)
 //
 // Extracted from ``useHotkeyCapture.ts`` so the reducer is a pure,
 // unit-testable function. The hook calls ``useReducer(hotkeyCaptureReducer,
@@ -572,7 +572,7 @@ export type HotkeyCaptureAction =
 	| { type: "CommitSuccess" }
 	| { type: "CommitFailure"; error: string }
 	| { type: "Tick"; secondsRemaining: number }
-	// SetError is a slight extension to the DR-13 spec's action list:
+	//SetError is a slight extension to the  spec's action list:
 	// the hook exposes ``setError`` for the preset-dropdown onSelect
 	// (which can both set and clear the error), and that path doesn't
 	// represent a commit failure. ``CommitFailure`` requires a non-null
@@ -690,7 +690,7 @@ export function hotkeyCaptureReducer(
 }
 
 /**
- * DR-14: shared commit-validation helper. Consolidates the duplicated
+ * : shared commit-validation helper. Consolidates the duplicated
  * validate-then-conflict-check sequence that previously lived inline in
  * ``commitModifierOnlyCombo``, ``commitFullCombo`` (useHotkeyCapture.ts)
  * and the preset-dropdown ``onSelect`` (HotkeyPicker.tsx).

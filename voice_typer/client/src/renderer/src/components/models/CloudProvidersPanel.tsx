@@ -1,7 +1,7 @@
 /**
  * CloudProvidersPanel — cloud ASR providers tab content for the Models page.
  *
- * PVT-003 fix #1: extracted from `pages/Models.tsx`. Renders the three
+ *  fix #1: extracted from `pages/Models.tsx`. Renders the three
  * cloud ASR provider cards (OpenAI / Groq / Deepgram) with:
  *   • API key input (with unique per-provider HTML id, MDL-5).
  *   • "Save Key" + "Test Connection" buttons.
@@ -11,8 +11,23 @@
  *
  * Pure presentational — receives all state + handlers as props from
  * `useModelLifecycle`.
+ *
+ * : the "Save Key" button is disabled when the input is empty
+ * (`!apiKeyValue.trim()`). Prevents silently clobbering a stored
+ * secret with the empty string that `safeApiKey` substitutes for the
+ * `<redacted>` sentinel on every config fetch.
+ *
+ * : the "Test Connection" button shows a spinner + is disabled
+ * while a test is in flight (`testResult?.status === "pending"`).
+ * The result span exposes `role="status"` + `aria-live="polite"` so
+ * SR users hear the outcome. Stale results are cleared via
+ * `onClearTestResult` whenever the API-key Input changes.
  */
-import { Shield01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
+import {
+	Loading03Icon,
+	Shield01Icon,
+	SparklesIcon,
+} from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type React from "react";
 import { KeyringStatusBadge } from "@/components/common/KeyringStatusBadge";
@@ -34,6 +49,12 @@ export interface CloudProvidersPanelProps {
 	onSaveApiKey: (provider: string) => void;
 	onTestConnection: (provider: string) => void;
 	onConsentChange: (provider: string, granted: boolean) => void;
+	/** : clear the test result for a single provider. Wired to
+	 * the API-key Input's onChange so stale "Success" badges don't
+	 * linger after the user edits the key. Optional so the panel can
+	 * be mounted without it (the consumer is responsible for wiring
+	 * it; without it, stale results simply don't auto-clear). */
+	onClearTestResult?: (provider: string) => void;
 }
 
 export function CloudProvidersPanel({
@@ -45,6 +66,7 @@ export function CloudProvidersPanel({
 	onSaveApiKey,
 	onTestConnection,
 	onConsentChange,
+	onClearTestResult,
 }: CloudProvidersPanelProps) {
 	return (
 		<div className="space-y-4">
@@ -62,7 +84,13 @@ export function CloudProvidersPanel({
 						config={config}
 						apiKeyValue={apiKeys[provider.key] ?? ""}
 						testResult={testResults[provider.key]}
-						onApiKeyChange={(v) => onApiKeyChange(provider.key, v)}
+						onApiKeyChange={(v) => {
+							onApiKeyChange(provider.key, v);
+							//clear the stale test result whenever the
+							// user edits the key — otherwise the previous
+							// "Success" badge stays visible during a re-test.
+							onClearTestResult?.(provider.key);
+						}}
 						onSaveApiKey={() => onSaveApiKey(provider.key)}
 						onTestConnection={() => onTestConnection(provider.key)}
 						onConsentChange={(granted) =>
@@ -104,6 +132,14 @@ function ProviderCard({
 	);
 	const showConsent = Boolean(apiKeyValue) || consentGranted;
 
+	//pending state — disable the Test button + show a spinner.
+	const isPending = testResult?.status === "pending";
+	//disable Save Key when the input is empty (prevents
+	// silently clobbering a stored secret with the empty string that
+	// `safeApiKey` substitutes for the `<redacted>` sentinel on every
+	// config fetch).
+	const saveDisabled = !apiKeyValue.trim();
+
 	return (
 		<div className="rounded-xl border border-border bg-(--bg-subtle) p-6">
 			<div className="flex items-center gap-2.5 mb-4">
@@ -144,6 +180,10 @@ function ProviderCard({
 					variant="default"
 					size="sm"
 					onClick={onSaveApiKey}
+					//disable when the input is empty. Prevents the
+					// "Save Key → clobber stored secret with ''" data-loss
+					//path documented in the  finding.
+					disabled={saveDisabled}
 					aria-label={t("models.cloud.saveKeyAria", {
 						provider: getProviderLabel(provider.key),
 					})}
@@ -155,26 +195,47 @@ function ProviderCard({
 					size="sm"
 					className="gap-2"
 					onClick={onTestConnection}
+					//disable while a test is in flight so concurrent
+					// clicks don't fire overlapping fetches (race conditions
+					// on `setTestResults`).
+					disabled={isPending}
+					aria-busy={isPending}
 					aria-label={t("models.cloud.testConnectionAria", {
 						provider: getProviderLabel(provider.key),
 					})}
 				>
 					<HugeiconsIcon
-						icon={SparklesIcon}
+						//swap the static SparklesIcon for a spinning
+						// Loading03Icon while the test is in flight so users
+						// get immediate visual feedback that the click
+						// registered (the fetch can take 500ms–5s).
+						icon={isPending ? Loading03Icon : SparklesIcon}
 						strokeWidth={2}
-						className="h-4 w-4"
+						className={cn("h-4 w-4", isPending && "animate-spin")}
 					/>
 					{t("models.cloud.testConnection")}
 				</Button>
 				{testResult && (
 					<span
+						//aria-live=polite so SR
+						// users hear the test-connection outcome as it arrives
+						// (no manual focus required). role=status is implicit
+						// on <span> when combined with aria-live — but the
+						// <span> isn't a semantic live-region element per se,
+						// so we downgrade to a <p> which has implicit
+						// role=status naturally.
+						aria-live="polite"
 						className={cn(
 							"text-xs",
 							testResult.status === "success"
 								? "text-primary"
 								: testResult.status === "failure"
 									? "text-destructive"
-									: "text-[(--text-muted)]",
+									: //`text-[(--text-muted)]` is invalid Tailwind
+										// v4 syntax. The canonical form is
+										// `text-(--text-muted)` — matches every other call
+										// site in the codebase.
+										"text-(--text-muted)",
 						)}
 					>
 						{testResult.message}

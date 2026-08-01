@@ -21,7 +21,7 @@ interface StatsShareImageProps {
  * To edit the design in the future: modify the JSX/CSS below.
  * The layout, colors, typography, and waveform are all here.
  *
- * NF-R16-6: all visible strings are localized via `t()` so the share
+ * : all visible strings are localized via `t()` so the share
  * image renders in the user's chosen UI language. The root container
  * also flips to `direction: rtl` for right-to-left locales (Arabic)
  * so the layout reads correctly when captured.

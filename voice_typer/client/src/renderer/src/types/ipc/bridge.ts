@@ -5,7 +5,7 @@
 // `window.window_` API surface for the custom title bar + GDPR export
 // helpers + native pickers).
 //
-// Split out from the original monolithic `types/ipc.ts` (DT-31 / DT-FIX-7).
+//Split out from the original monolithic `types/ipc.ts` ( / ).
 // No behaviour change vs. the original file — pure structural refactor.
 //
 // Imports `PythonPushEvent` from `./push_events` for the `onEvent`
@@ -42,7 +42,7 @@ export interface WindowBridge {
 		data: Record<string, unknown>,
 		format: "json" | "csv",
 	) => Promise<{ success: boolean; path?: string; error?: string }>;
-	// NEW-PRIV-007: GDPR right-to-export for templates + config.
+	//GDPR right-to-export for templates + config.
 	exportTemplates?: (
 		data: unknown,
 	) => Promise<{ success: boolean; path?: string; error?: string }>;
@@ -50,7 +50,7 @@ export interface WindowBridge {
 		data: unknown,
 	) => Promise<{ success: boolean; path?: string; error?: string }>;
 	openLogs?: () => Promise<{ success: boolean; error?: string }>;
-	// G4-M-69: forward a renderer-caught error (e.g. from React's
+	//forward a renderer-caught error (e.g. from React's
 	// `componentDidCatch`) to the main process for persistence in
 	// `electron-renderer-errors.log`. The sandboxed renderer can't
 	// write to userData directly — only the main process can.
@@ -62,7 +62,7 @@ export interface WindowBridge {
 		componentStack?: string;
 		message?: string;
 	}) => Promise<void>;
-	// CR-33: native folder picker for HuggingFace model imports. Was
+	//native folder picker for HuggingFace model imports. Was
 	// missing from the type — Models.tsx accessed it via a runtime cast.
 	// Declared optional because the Tauri bridge installs it but the
 	// legacy Electron preload also installs it (so the type is satisfied

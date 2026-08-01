@@ -1,5 +1,5 @@
 /**
- * NH-1 (session NH): ConnectionStatusScreen render tests.
+ *  (session NH): ConnectionStatusScreen render tests.
  *
  * The component was previously a `return null` stub. App.tsx rendered it
  * whenever the renderer wasn't connected to the Python backend, but

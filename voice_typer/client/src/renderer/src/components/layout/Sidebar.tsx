@@ -27,7 +27,7 @@ interface NavItem {
 	icon: IconSvgElement;
 }
 
-// PVT-021: 3-group nav hierarchy (Main / Power features / System).
+//3-group nav hierarchy (Main / Power features / System).
 // Splitting the flat NAV_ITEMS list into semantically meaningful
 // groups gives users a faster mental model of the app: day-to-day
 // usage (Main), advanced/power features (Power), and system
@@ -48,7 +48,7 @@ const POWER_NAV_ITEMS: NavItem[] = [
 
 const SYSTEM_NAV_ITEMS: NavItem[] = [
 	{ id: "settings", icon: Settings03Icon },
-	// NEW-UX-009: About/Diagnostics page with version, config info, privacy, help.
+	//About/Diagnostics page with version, config info, privacy, help.
 	{ id: "about", icon: InformationCircleIcon },
 ];
 
@@ -81,7 +81,7 @@ const ALL_NAV_ITEMS: NavItem[] = [
 	...SYSTEM_NAV_ITEMS,
 ];
 
-// NF-R10-9, XA-19-6: per-page keyboard shortcuts surfaced in the nav
+//, : per-page keyboard shortcuts surfaced in the nav
 // item's `title` tooltip. Uses formatHotkey() for platform-aware labels
 // (e.g. "Ctrl+H" on Windows/Linux, "⌘H" on macOS) instead of hardcoded
 // English. Pages without a shortcut return undefined (no suffix appended).
@@ -127,7 +127,7 @@ export function Sidebar({
 	onThemeChange,
 	collapsed = false,
 }: SidebarProps) {
-	// PVT-023 (roving tabindex): the nav is a vertical composite
+	//(roving tabindex): the nav is a vertical composite
 	// widget. Only one item holds tabIndex=0 (the active page, or
 	// the first item if the active page isn't in the nav); all
 	// others hold tabIndex=-1. ArrowUp/ArrowDown/Home/End move focus
@@ -197,8 +197,7 @@ export function Sidebar({
 					collapsed ? "px-3 py-4" : "px-5 py-4",
 				)}
 			>
-				{/*
-				 * PROD-14: when the sidebar is collapsed the visible
+				{/** : when the sidebar is collapsed the visible
 				 * <span>{APP_NAME}</span> is hidden (max-w-0), so the
 				 * Logo's SVG is the only on-screen label. Wrapping it
 				 * in a <button aria-label={APP_NAME}> gives AT users a
@@ -213,11 +212,18 @@ export function Sidebar({
 						type="button"
 						aria-label={APP_NAME}
 						title={APP_NAME}
+						// Clicking the collapsed logo navigates home — gives the
+						// focusable affordance a real action (matching the
+						// common "click logo → go home" convention). Without
+						// this, the button was focusable but did nothing on
+						// Enter/Space, leaving AT users confused about its
+						// purpose.
+						onClick={() => onNavigate("home")}
 						className={cn(
 							"flex items-center justify-center p-0",
 							"bg-transparent border-0 outline-none",
-							"focus-visible:ring-2 focus-visible:ring-ring/30",
-							"cursor-default",
+							"focus-visible:ring-2 focus-visible:ring-ring",
+							"cursor-pointer",
 						)}
 					>
 						<Logo size={24} decorative className="shrink-0" />
@@ -243,7 +249,7 @@ export function Sidebar({
 				<nav
 					ref={navRef}
 					aria-label={t("a11y.mainNavigation")}
-					// PVT-023 (roving tabindex): the nav is a vertical
+					//(roving tabindex): the nav is a vertical
 					// composite widget.
 					onKeyDown={handleNavKeyDown}
 					className={cn("flex flex-col gap-px")}
@@ -254,7 +260,7 @@ export function Sidebar({
 							<Fragment key={group.labelKey}>
 								{gIdx > 0 && (
 									<hr
-										// PROD-7: visible divider between nav groups.
+										//visible divider between nav groups.
 										// `aria-hidden` because the group <section
 										// aria-label> already conveys the boundary to
 										// ATs — a decorative hr shouldn't be announced.
@@ -281,12 +287,12 @@ export function Sidebar({
 										const flatIdx = ALL_NAV_ITEMS.findIndex(
 											(i) => i.id === item.id,
 										);
-										// PVT-023: roving tabindex — only the active
+										//roving tabindex — only the active
 										// item (or first item as fallback) is in the
 										// tab order; arrow keys move between items.
 										const tabIndex = flatIdx === rovingIdx ? 0 : -1;
 										const handleNav = () => onNavigate(item.id);
-										// NF-R10-9: Always set a `title` (regardless
+										//Always set a `title` (regardless
 										// of collapsed state) so keyboard users hovering
 										// focus can read the nav label, and include the
 										// shortcut when one exists.
@@ -302,19 +308,19 @@ export function Sidebar({
 												variant="ghost"
 												data-nav-item="true"
 												title={navTitle}
-												// PVT-023: aria-keyshortcuts is undefined
+												//aria-keyshortcuts is undefined
 												// for items without a shortcut (omits the
 												// attribute entirely).
 												aria-keyshortcuts={keyShortcut}
 												tabIndex={tabIndex}
-												// NEW-A11Y-003: aria-current="page" tells
+												//aria-current="page" tells
 												// screen readers which nav item represents
 												// the current page.
 												aria-current={isActive ? "page" : undefined}
 												className={cn(
 													"w-full justify-start gap-3 text-sm tracking-wide normal-case font-normal rounded-md",
 													"transition-all duration-200 ease-out",
-													// PVT-021/task-6: a 2px left border is
+													//task-6: a 2px left border is
 													// always present (transparent when
 													// inactive, accent when active) so
 													// activating an item doesn't cause a
@@ -328,7 +334,7 @@ export function Sidebar({
 																// for a less heavy active state.
 																"border-s-transparent bg-(--accent-soft) hover:bg-(--accent-soft)",
 																"text-(--text-primary) font-medium",
-																// PVT-084: use the logical
+																//use the logical
 																// `start-0` (not physical `left-0`)
 																// so the accent bar flips to the
 																// right edge in RTL locales.

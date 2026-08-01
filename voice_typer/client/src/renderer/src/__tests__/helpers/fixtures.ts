@@ -1,9 +1,9 @@
 /**
- * PVT-076 — shared test fixtures for the renderer vitest suite.
+ *  — shared test fixtures for the renderer vitest suite.
  *
  * Before this file existed, ~6 test files each declared their own
  * `baseConfig: VoiceTyperConfig = { ... 100+ fields ... }` constant
- * (see `__tests__/rw1-rewrite/feature-hardening-behavior.test.tsx`,
+ * (see `__tests__/behavior-rewrite/feature-hardening-behavior.test.tsx`,
  * `pages/__tests__/Settings.test.tsx`, etc.). When a new config field
  * was added upstream, every copy went stale until a test failed for an
  * unrelated reason. `makeConfig(overrides)` collapses all those copies
@@ -30,7 +30,7 @@ import type { VoiceTyperConfig } from "@/types/config";
  * here ONCE rather than across N test files.
  */
 export const DEFAULT_CONFIG: VoiceTyperConfig = {
-	schema_version: 1,
+	schema_version: 3,
 	hotkey: "F2",
 	sample_rate: 16000,
 	microphone: null,
@@ -87,7 +87,7 @@ export const DEFAULT_CONFIG: VoiceTyperConfig = {
 	llm_api_key: "",
 	llm_api_url: "",
 	llm_model: "",
-	llm_preset: "default",
+	llm_preset: "professional",
 
 	crash_recovery_enabled: true,
 
@@ -101,7 +101,7 @@ export const DEFAULT_CONFIG: VoiceTyperConfig = {
 	bubble_click_to_toggle: true,
 	bubble_mic_button: true,
 
-	// PVT-068: persisted bubble position. Default `null` so the bubble
+	//persisted bubble position. Default `null` so the bubble
 	// falls back to the platform-default position computed from
 	// `bubble_position` ("top" / "bottom"). Tests that need to assert
 	// on restore-position behaviour override both axes together via

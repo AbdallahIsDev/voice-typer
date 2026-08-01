@@ -10,7 +10,7 @@
 import { sanitizeTemplateField } from "./sanitize";
 import type { Template } from "./types";
 
-// NEW-UX-008: Templates are persisted by the Python backend to
+//Templates are persisted by the Python backend to
 // ``voice-typer-templates.json`` in the user's voice-typer config
 // directory (``~/.voice-typer`` on POSIX, ``%APPDATA%\voice-typer``
 // on Windows).  This file survives Electron userData resets and
@@ -47,11 +47,11 @@ export function loadTemplatesFromLocalStorage(): Template[] {
 }
 
 /**
- * NEW-UX-008: load templates from the Python backend.  Falls back to
+ * : load templates from the Python backend.  Falls back to
  * localStorage on IPC failure (e.g. backend not yet started) so the
  * page remains usable during startup.
  *
- * NF-R10-8: previously this function returned `[]` for BOTH "no
+ * : previously this function returned `[]` for BOTH "no
  * templates exist" (valid empty array from backend) AND "the backend
  * returned malformed data" (null/undefined result, or a `templates`
  * field that wasn't an array). That collapsed two very different
@@ -88,20 +88,20 @@ export async function loadTemplatesFromBackend(
 // Add/edit paths pass the IPC call function so the server is notified.
 // Delete path also passes callFn so the server stays in sync.
 //
-// NEW-UX-008: backend persistence is now functional (previously the
+//backend persistence is now functional (previously the
 // IPC save was a no-op because the Config dataclass had no
 // templates_data field).  We still mirror to localStorage as a
 // startup-fallback cache in case the backend is unreachable on next
 // launch (e.g. user opens the page during Python boot).
 //
-// CR-052: now async so callers can `await saveTemplates(...)` before
+//now async so callers can `await saveTemplates(...)` before
 // triggering `loadRows()`.  Previously the IPC save was fire-and-forget
 // (`.catch(...)`), which meant `loadRows()` could re-read the backend
 // BEFORE the save landed — racing the just-saved list out of the UI
 // and re-rendering the pre-save state.  Awaiting guarantees the load
 // sees the new state.
 //
-// BG-61: the IPC error path previously swallowed the rejection after
+//the IPC error path previously swallowed the rejection after
 // logging it — callers had no way to know the save failed, so they
 // showed a success toast even when the backend rejected the write.
 // We now rethrow after logging so the calling hook (e.g.
@@ -127,7 +127,7 @@ export async function saveTemplates(
 		try {
 			await callFn("save_templates", { templates: items });
 		} catch (err: unknown) {
-			// BG-61: log the IPC failure for diagnostics, then rethrow so
+			//log the IPC failure for diagnostics, then rethrow so
 			// the caller can show an error toast instead of the success
 			// toast it likely already queued (the success toast is fired
 			// before the await in some callers — see useTemplateDialog).

@@ -1,11 +1,11 @@
 /**
- * FIX-15 vitest suite — covers PROD-9 for the TitleBar component.
+ *  vitest suite — covers  for the TitleBar component.
  *
- * - PROD-9 (Medium): TitleBar close button used hardcoded hex
+ * -  (Medium): TitleBar close button used hardcoded hex
  *   `#C42B1C`. Replaced with the destructive design tokens
  *   (`hover:bg-destructive hover:text-destructive-foreground`).
- * - PROD-9: aria-keyshortcuts="Control+B" on the sidebar toggle.
- * - PROD-9: aria-keyshortcuts="?" on the help button.
+ * - : aria-keyshortcuts="Control+B" on the sidebar toggle.
+ * - : aria-keyshortcuts="?" on the help button.
  *
  * The WindowBridge is stubbed so the component can mount in jsdom
  * without the Electron preload present.

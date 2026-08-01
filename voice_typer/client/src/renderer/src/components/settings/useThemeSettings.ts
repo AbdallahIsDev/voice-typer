@@ -1,5 +1,5 @@
 // components/settings/useThemeSettings.ts — state machine for the
-// custom-theme editor (DT-32 partial split).
+//custom-theme editor ( partial split).
 //
 // Extracted from ThemeSettingsSection.tsx so the component file can
 // shrink to just JSX rendering. This hook owns:

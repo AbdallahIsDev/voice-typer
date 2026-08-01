@@ -1,5 +1,5 @@
 /**
- * Tests for the BG-59 fix on the About page.
+ * Tests for the  fix on the About page.
  *
  * Scenario under test: the previous About page rendered a "Full Privacy
  * Policy" button in the Privacy section footer that pointed at the same
@@ -8,7 +8,7 @@
  * clicked "Full Privacy Policy" expecting a privacy-specific document
  * and landed on the security policy instead.
  *
- * BG-59 removes the duplicate button and adds a one-line note in the
+ *  removes the duplicate button and adds a one-line note in the
  * Privacy section body explaining that the Security Policy (linked in
  * the Resources section below) covers privacy practices too.
  */
@@ -132,8 +132,8 @@ describe("About page — BG-59 privacy URL fix", () => {
 			expect(screen.getByText("Resources & Feedback")).toBeTruthy();
 		});
 
-		// Before BG-59, two anchors pointed at SECURITY.md (one in the
-		// Privacy footer, one in Resources). After BG-59, only one
+		//Before , two anchors pointed at SECURITY.md (one in the
+		//Privacy footer, one in Resources). After , only one
 		// anchor should — the Resources-section Security Policy link.
 		const securityAnchors = container.querySelectorAll(
 			'a[href*="SECURITY.md"]',

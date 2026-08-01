@@ -2,7 +2,7 @@
  * useConnectionToasts — surfaces backend connection-state transitions as
  * sonner toasts AND triggers a theme reload when the backend recovers.
  *
- * Extracted from App.tsx (BG-27, Phase 4.5 spaghetti split) to keep
+ * Extracted from App.tsx (, Phase 4.5 spaghetti split) to keep
  * App.tsx a pure layout shell. Behaviour is byte-identical to the original
  * inline effect:
  *
@@ -24,7 +24,7 @@
  * region can read the previous value (needed to announce RECOVERIES only,
  * not the initial connecting → connected transition).
  *
- * PVT-fix-20: original behaviour — toasts reuse existing i18n keys
+ * : original behaviour — toasts reuse existing i18n keys
  * (`app.lostConnection`, `app.restartingBackend`, `about.connected`) so no
  * new translation keys are required.
  */
@@ -62,7 +62,7 @@ export function useConnectionToasts({
 			reloadThemeFromConfig();
 		}
 
-		// PVT-fix-20: surface connection-state transitions as toasts
+		//surface connection-state transitions as toasts
 		// so the user gets immediate visual feedback when the backend
 		// drops out, restarts, or recovers — previously the only
 		// feedback was the connecting/disconnected/restarting swap
@@ -75,14 +75,27 @@ export function useConnectionToasts({
 		// fires exactly once per transition (not on every re-render).
 		// The initial mount path (prev === connectionStatus ===
 		// "connecting") doesn't fire a toast — only state CHANGES do.
+		// Stable per-transition-type ``id``: sonner replaces an
+		// existing toast when the same ``id`` is re-fired. Without an
+		// ``id``, a backend flap (connecting → disconnected →
+		// restarting → connected → disconnected → …) would stack a
+		// fresh toast per transition — the user would see a pile of
+		// overlapping toasts and couldn't read the sequence. With the
+		// stable ids below, the LATEST transition of each type
+		// REPLACES any in-flight toast of the same type — so at most
+		// one disconnected / one restarting / one connected toast is
+		// ever on screen, and the description text is always the most
+		// recent transition's.
 		if (prev !== connectionStatus) {
 			if (connectionStatus === "disconnected") {
 				toast.error(t("app.lostConnection"), {
+					id: "conn-disconnected",
 					description: t("app.lostConnectionHint"),
 					duration: 6000,
 				});
 			} else if (connectionStatus === "restarting") {
 				toast.warning(t("app.restartingBackend"), {
+					id: "conn-restarting",
 					description: t("app.restartingHint"),
 					duration: 4000,
 				});
@@ -92,7 +105,10 @@ export function useConnectionToasts({
 				// and doesn't need a "Connected!" toast. Only
 				// surface RECOVERIES from a disconnected/restarting
 				// state.
-				toast.success(t("about.connected"), { duration: 3000 });
+				toast.success(t("about.connected"), {
+					id: "conn-connected",
+					duration: 3000,
+				});
 			}
 		}
 	}, [connectionStatus, reloadThemeFromConfig, t]);

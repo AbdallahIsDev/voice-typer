@@ -2,7 +2,7 @@
 // batched `set_config` IPC writes, and the save-state indicators
 // (saving / pending / saved) used by the Settings page's sticky header.
 //
-// Extracted from src/renderer/src/pages/Settings.tsx (PVT-028) so the
+//Extracted from src/renderer/src/pages/Settings.tsx () so the
 // page component is responsible for layout/UX only — not for the
 // intricate batched-write + diff + flush + sync logic.
 //
@@ -15,26 +15,26 @@
 //   - `updateConfigDebounced(key, value, delayMs)` is the same but
 //     defers the IPC commit by `delayMs` so rapid keystrokes collapse
 //     into one write. Sets `pending=true` while the timer is running
-//     so the save indicator can show "Pending…" (PVT-028 Fix #8).
+//so the save indicator can show "Pending…" ( Fix #8).
 //   - `loadConfig()` re-fetches from the backend.
 //   - `flushPendingUpdates()` is exposed (via ref) so the page's
 //     unmount cleanup can flush any in-flight writes.
 //
-// XA-14 fixes (settings save flow):
-//   - XA-14-1: debounced text-field saves are flushed on unmount +
+//fixes (settings save flow):
+//debounced text-field saves are flushed on unmount +
 //     `beforeunload` (no longer dropped when the user navigates away
 //     or quits the app within the 500ms debounce window). Mirrors
 //     `useTheme.ts`'s QUIT-FLUSH-FIX pattern.
-//   - XA-14-2: backend validator text is surfaced in the error snack
+//backend validator text is surfaced in the error snack
 //     (instead of the generic "Failed to save setting" message).
-//   - XA-14-3: partial-success `model_errors` envelope is surfaced as
+//partial-success `model_errors` envelope is surfaced as
 //     a warning (instead of being silently swallowed).
-//   - XA-14-4: rejected (unknown) keys are surfaced as a warning.
-//   - XA-14-5: `error` state is exposed so the SettingsSaveIndicator
+//rejected (unknown) keys are surfaced as a warning.
+//`error` state is exposed so the SettingsSaveIndicator
 //     can render a "Save failed" state.
-//   - XA-14-6: `hasPendingOrSaving` flag is exposed so consumers can
+//`hasPendingOrSaving` flag is exposed so consumers can
 //     guard `onNavigate` calls with a ConfirmDialog.
-//   - XA-14-9: a failed save does NOT call `loadConfig()` immediately
+//a failed save does NOT call `loadConfig()` immediately
 //     (the user's attempted value is retained for edit + retry).
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -49,7 +49,7 @@ import type { VoiceTyperConfig } from "@/types/config";
 let _cachedConfig: VoiceTyperConfig | null = null;
 
 /**
- * XA-14-3/4: extract a human-readable warning string from a `set_config`
+ * /4: extract a human-readable warning string from a `set_config`
  * response envelope. Returns `null` when the response is a plain
  * full-success ack (no `data` field). Returns the failing field name
  * for partial-success envelopes and the first rejected key name for
@@ -101,13 +101,13 @@ export interface UseSettingsConfigResult {
 	saving: boolean;
 	pending: boolean;
 	saved: boolean;
-	/** XA-14-2/5: per-flush error message string (null when no
+	/** /5: per-flush error message string (null when no
 	 *  error).  Surfaces the backend's specific validator text
 	 *  (e.g. "field 'history_max_entries' must be in [10, 1000000],
 	 *  got 5") instead of the generic "Failed to save setting"
 	 *  toast text.  Cleared on the next successful save. */
 	error: string | null;
-	/** XA-14-6: true while debounced writes are queued OR a flush
+	/** : true while debounced writes are queued OR a flush
 	 *  is in flight.  Consumers (Settings.tsx) can use this to
 	 *  guard `onNavigate` calls with a ConfirmDialog so the user
 	 *  doesn't abandon unsaved changes. */
@@ -137,7 +137,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	const [saving, setSaving] = useState(false);
 	const [pending, setPending] = useState(false);
 	const [saved, setSaved] = useState(false);
-	// XA-14-2/5: per-flush error string surfaced to the UI so the
+	//5: per-flush error string surfaced to the UI so the
 	// indicator can render a "Save failed" state with the backend's
 	// specific message.  Cleared on the next successful save.
 	const [error, setError] = useState<string | null>(null);
@@ -194,7 +194,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			return;
 		}
 		try {
-			// XA-14-3/4: capture the response envelope so the
+			//4: capture the response envelope so the
 			// partial-success `model_errors` and the
 			// unknown-key `rejected` arrays can be surfaced
 			// to the user instead of silently swallowed.  The
@@ -208,7 +208,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 				setError(warningMessage);
 				showSnack(warningMessage, "warning");
 			} else {
-				// XA-4-10: drop the redundant success snackbar.
+				//drop the redundant success snackbar.
 				// The sticky "Saved ✓" indicator (driven by
 				// `saved` state below) already confirms the
 				// save; firing a transient snackbar too was
@@ -228,7 +228,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 				savedTimeoutRef.current = null;
 			}, 2000);
 		} catch (err) {
-			// XA-14-2: surface the backend's specific
+			//surface the backend's specific
 			// validator text (e.g. "field 'history_max_entries'
 			// must be in [10, 1000000], got 5") instead of
 			// the generic "Failed to save setting" message.
@@ -238,7 +238,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			const message =
 				err instanceof Error && err.message ? err.message : "unknown error";
 			console.error("Failed to update config:", err);
-			// XA-14-9: do NOT call loadConfig() here.  The
+			//do NOT call loadConfig() here.  The
 			//  local state retains the user's attempted
 			//  value so they can edit + retry without
 			//  retyping; calling loadConfig() would silently
@@ -294,13 +294,13 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 		[], // PERF-MEMO-001: stable identity — reads from refs
 	);
 
-	// UX-007: debounced update for text inputs that fire on every
+	//debounced update for text inputs that fire on every
 	// keystroke. Keeps a local draft in component state; commits via
 	// updateConfig after `delayMs` of idle.
 	const debouncedTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>(
 		{},
 	);
-	// XA-14-1: pending debounced values keyed by field name. The
+	//pending debounced values keyed by field name. The
 	// timer callbacks capture `(key, value)` in their closures, but
 	// closures are inaccessible from the unmount cleanup — so we
 	// mirror the latest pending value here.  On unmount / page
@@ -320,19 +320,19 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			if (debouncedTimers.current[key as string]) {
 				clearTimeout(debouncedTimers.current[key as string]);
 			}
-			// XA-14-1: mirror the latest pending value so the
+			//mirror the latest pending value so the
 			// unmount/unload flush can recover it without
 			// waiting for the timer to fire.
 			(pendingDebouncedValuesRef.current as Record<string, unknown>)[
 				key as string
 			] = value;
-			// PVT-028 Fix #8: mark the save as pending so the indicator
+			//Fix #8: mark the save as pending so the indicator
 			// shows "Pending…" while the debounce timer is running.
 			setPending(true);
 			debouncedTimers.current[key as string] = setTimeout(() => {
 				void updateConfig({ [key]: value } as Partial<VoiceTyperConfig>);
 				delete debouncedTimers.current[key as string];
-				// XA-14-1: the timer fired and handed the
+				//the timer fired and handed the
 				// value off to updateConfig (which merged
 				// it into pendingUpdatesRef).  Drop it
 				// from the pending-debounced mirror so
@@ -348,7 +348,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 		[updateConfig],
 	);
 
-	// XA-14-1: cleanup pending debounced timers + flush pending
+	//cleanup pending debounced timers + flush pending
 	// writes on unmount.  Pre-fix, the unmount cleanup cleared
 	// debounced timers WITHOUT firing them, dropping any value the
 	// user had typed but not yet committed (e.g. an LLM API key

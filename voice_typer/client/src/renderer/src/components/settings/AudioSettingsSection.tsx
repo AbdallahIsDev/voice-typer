@@ -14,6 +14,7 @@ import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
 import { RangeSlider } from "@/components/common/RangeSlider";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
+import { Button } from "@/components/ui/button";
 import {
 	Select,
 	SelectContent,
@@ -22,6 +23,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { useNavigation } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
 import { useT } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -36,6 +38,20 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 	isVisible,
 }: SettingsSectionSharedProps) {
 	const { call } = usePython();
+	// The same `audio_preset` (and the entire custom filter chain) is
+	// also editable on the Microphone page via `AudioPresetSelector`.
+	// The Microphone page additionally offers a test-record A/B workflow
+	// (record a sample, swap preset, re-record, compare) that this
+	// Settings surface does not. The cross-link banner below surfaces
+	// that to the user so they don't have to discover the duplicate
+	// surface by accident.
+	const { navigate } = useNavigation();
+
+	// Stable callback for the cross-link — moved above the
+	// early-return so hooks are always called in the same order.
+	const handleGoToMicrophone = useCallback(() => {
+		navigate("microphone");
+	}, [navigate]);
 
 	// Volume backend status — fetched from the Python backend so the UI
 	// can show "Volume Backend: pycaw (WASAPI)" / "CoreAudio" / "disabled"
@@ -157,7 +173,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 		"settings.audioEnhancement.notchFilterInfoSearch",
 	);
 
-	// UX-028: section-level visibility check for the Audio Enhancement section.
+	//section-level visibility check for the Audio Enhancement section.
 	const audioSectionTitle = t("settings.audioEnhancement.title");
 	const sectionItems = [
 		{ label: volumeBackendLabel, info: volumeBackendInfoSearch },
@@ -196,126 +212,160 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 		updateConfigDebounced("volume_duck_level", v);
 	const handleAudioPresetChange = (v: string) =>
 		updateConfig({ audio_preset: v as VoiceTyperConfig["audio_preset"] });
+	// NOTE: banner + button text are inline English literals (rather
+	// than `t()` keys) so this fix is self-contained to this file —
+	// the locale JSON files are owned by a different sub-agent. The
+	// strings are simple enough that the i18n migration can wait for
+	// a dedicated locale pass without blocking the cross-link UX.
+	const crossLinkBannerText =
+		"These settings are also editable on the Microphone page (with a test-record A/B workflow).";
+	const goToMicrophoneLabel = "Go to Microphone";
 
 	return (
-		<SettingsSection
-			title={audioSectionTitle}
-			description={t("settings.audioEnhancement.description")}
-		>
-			{/* XA-4-1: per-row visibility filtering so a search query
+		<>
+			{/* Cross-link banner: the same audio preset + filter chain is
+				also editable on the Microphone page (with the additional
+				test-record A/B workflow that this Settings surface lacks).
+				Surfacing this here prevents the user from assuming the two
+				surfaces control different things just because they look
+				different. */}
+			<div
+				role="note"
+				className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-(--bg-subtle) px-4 py-3 text-sm text-(--text-primary)"
+			>
+				<p className="flex-1 min-w-0">{crossLinkBannerText}</p>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					onClick={handleGoToMicrophone}
+					aria-label={goToMicrophoneLabel}
+				>
+					{goToMicrophoneLabel}
+				</Button>
+			</div>
+			<SettingsSection
+				title={audioSectionTitle}
+				description={t("settings.audioEnhancement.description")}
+			>
+				{/*per-row visibility filtering so a search query
 				only highlights the rows whose label/info matches —
 				previously the section-level check showed the entire
 				section (including all rows) when ANY row matched,
 				which defeated the purpose of in-section search. */}
-			<div className="animate-fade-in space-y-0 divide-y divide-border">
-				{/* ── Volume Backend status ── */}
-				{isVisible(
-					volumeBackendLabel,
-					volumeBackendInfoSearch,
-					audioSectionTitle,
-				) && (
-					<SettingRow
-						label={volumeBackendLabel}
-						info={t("settings.audioEnhancement.volumeBackendInfo")}
-					>
-						<span className="text-sm text-(--text-muted) tabular-nums">
-							{volumeBackend
-								? volumeBackend.available
-									? volumeBackend.name
-									: t("settings.audioEnhancement.unavailableSuffix", {
-											name: volumeBackend.name,
-										})
-								: t("settings.audioEnhancement.detecting")}
-						</span>
-					</SettingRow>
-				)}
-
-				{/* ── Auto Duck Volume ── */}
-				{isVisible(
-					autoDuckVolumeLabel,
-					autoDuckVolumeInfoSearch,
-					audioSectionTitle,
-				) && (
-					<SettingRow
-						label={autoDuckVolumeLabel}
-						info={t("settings.audioEnhancement.autoDuckVolumeInfo")}
-					>
-						<Switch
-							checked={config.volume_duck_enabled ?? true}
-							onCheckedChange={handleAutoDuckChange}
-							aria-label={t("settings.audioEnhancement.autoDuckVolumeAria")}
-						/>
-					</SettingRow>
-				)}
-				{isVisible(duckLevelLabel, duckLevelInfoSearch, audioSectionTitle) && (
-					<SettingRow
-						label={duckLevelLabel}
-						info={t("settings.audioEnhancement.duckLevelInfo")}
-					>
-						<RangeSlider
-							value={config.volume_duck_level ?? 0.2}
-							min={0}
-							max={0.5}
-							step={0.05}
-							onChange={handleDuckLevelChange}
-							ariaLabel={t("settings.audioEnhancement.duckLevelAria")}
-							suffix="%"
-							// Fix #10: disable the Duck Level slider when Auto Duck
-							// Volume is off — adjusting the duck level has no effect
-							// when ducking is disabled, and a stale value persisted
-							// here would silently apply if the user later re-enables
-							// ducking.
-							disabled={!config.volume_duck_enabled}
-						/>
-					</SettingRow>
-				)}
-
-				{/* ── ADR 0007: Audio Preset ── */}
-				{isVisible(
-					microphoneQualityLabel,
-					microphoneQualityInfoSearch,
-					audioSectionTitle,
-				) && (
-					<SettingRow
-						label={microphoneQualityLabel}
-						info={t("settings.audioEnhancement.microphoneQualityInfo")}
-					>
-						<Select
-							value={config.audio_preset ?? "auto"}
-							onValueChange={handleAudioPresetChange}
+				<div className="animate-fade-in space-y-0 divide-y divide-border">
+					{/* ── Volume Backend status ── */}
+					{isVisible(
+						volumeBackendLabel,
+						volumeBackendInfoSearch,
+						audioSectionTitle,
+					) && (
+						<SettingRow
+							label={volumeBackendLabel}
+							info={t("settings.audioEnhancement.volumeBackendInfo")}
 						>
-							<SelectTrigger
-								className="w-48"
-								aria-label={t(
-									"settings.audioEnhancement.microphoneQualityAria",
-								)}
-							>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								<SelectItem value="auto">
-									{t("settings.audioEnhancement.presetAuto")}
-								</SelectItem>
-								<SelectItem value="studio">
-									{t("settings.audioEnhancement.presetStudio")}
-								</SelectItem>
-								<SelectItem value="noisy_room">
-									{t("settings.audioEnhancement.presetNoisyRoom")}
-								</SelectItem>
-								<SelectItem value="off">
-									{t("settings.audioEnhancement.presetOff")}
-								</SelectItem>
-								<SelectItem value="custom">
-									{t("settings.audioEnhancement.presetCustom")}
-								</SelectItem>
-							</SelectContent>
-						</Select>
-					</SettingRow>
-				)}
+							<span className="text-sm text-(--text-muted) tabular-nums">
+								{volumeBackend
+									? volumeBackend.available
+										? volumeBackend.name
+										: t("settings.audioEnhancement.unavailableSuffix", {
+												name: volumeBackend.name,
+											})
+									: t("settings.audioEnhancement.detecting")}
+							</span>
+						</SettingRow>
+					)}
 
-				{/* ── ADR 0007: Custom filter controls (only when preset === 'custom') ── */}
-				{/* F-1: filter chain extracted to shared <AudioFilterChain />.
-					XA-4-1: the filter chain rows themselves are search-filtered
+					{/* ── Auto Duck Volume ── */}
+					{isVisible(
+						autoDuckVolumeLabel,
+						autoDuckVolumeInfoSearch,
+						audioSectionTitle,
+					) && (
+						<SettingRow
+							label={autoDuckVolumeLabel}
+							info={t("settings.audioEnhancement.autoDuckVolumeInfo")}
+						>
+							<Switch
+								checked={config.volume_duck_enabled ?? true}
+								onCheckedChange={handleAutoDuckChange}
+								aria-label={t("settings.audioEnhancement.autoDuckVolumeAria")}
+							/>
+						</SettingRow>
+					)}
+					{isVisible(
+						duckLevelLabel,
+						duckLevelInfoSearch,
+						audioSectionTitle,
+					) && (
+						<SettingRow
+							label={duckLevelLabel}
+							info={t("settings.audioEnhancement.duckLevelInfo")}
+						>
+							<RangeSlider
+								value={config.volume_duck_level ?? 0.2}
+								min={0}
+								max={0.5}
+								step={0.05}
+								onChange={handleDuckLevelChange}
+								ariaLabel={t("settings.audioEnhancement.duckLevelAria")}
+								suffix="%"
+								// Fix #10: disable the Duck Level slider when Auto Duck
+								// Volume is off — adjusting the duck level has no effect
+								// when ducking is disabled, and a stale value persisted
+								// here would silently apply if the user later re-enables
+								// ducking.
+								disabled={!config.volume_duck_enabled}
+							/>
+						</SettingRow>
+					)}
+
+					{/* ── ADR 0007: Audio Preset ── */}
+					{isVisible(
+						microphoneQualityLabel,
+						microphoneQualityInfoSearch,
+						audioSectionTitle,
+					) && (
+						<SettingRow
+							label={microphoneQualityLabel}
+							info={t("settings.audioEnhancement.microphoneQualityInfo")}
+						>
+							<Select
+								value={config.audio_preset ?? "auto"}
+								onValueChange={handleAudioPresetChange}
+							>
+								<SelectTrigger
+									className="w-48"
+									aria-label={t(
+										"settings.audioEnhancement.microphoneQualityAria",
+									)}
+								>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="auto">
+										{t("settings.audioEnhancement.presetAuto")}
+									</SelectItem>
+									<SelectItem value="studio">
+										{t("settings.audioEnhancement.presetStudio")}
+									</SelectItem>
+									<SelectItem value="noisy_room">
+										{t("settings.audioEnhancement.presetNoisyRoom")}
+									</SelectItem>
+									<SelectItem value="off">
+										{t("settings.audioEnhancement.presetOff")}
+									</SelectItem>
+									<SelectItem value="custom">
+										{t("settings.audioEnhancement.presetCustom")}
+									</SelectItem>
+								</SelectContent>
+							</Select>
+						</SettingRow>
+					)}
+
+					{/* ── ADR 0007: Custom filter controls (only when preset === 'custom') ── */}
+					{/*F-1: filter chain extracted to shared <AudioFilterChain />.
+					: the filter chain rows themselves are search-filtered
 					inside <AudioFilterChain> via its own isVisible checks (it
 					receives the same `isVisible` prop through `sectionProps`).
 					Only render the chain wrapper when at least one of its
@@ -323,10 +373,11 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 					actively searching for a filter name — see AudioFilterChain
 					implementation. Keep this conditional on preset==="custom" so
 					the chain never appears for a non-custom preset. */}
-				{config.audio_preset === "custom" && (
-					<AudioFilterChain config={config} onConfigChange={updateConfig} />
-				)}
-			</div>
-		</SettingsSection>
+					{config.audio_preset === "custom" && (
+						<AudioFilterChain config={config} onConfigChange={updateConfig} />
+					)}
+				</div>
+			</SettingsSection>
+		</>
 	);
 });

@@ -1,18 +1,18 @@
 /**
  * useModelConfig — config + models + catalog slice of the Models page.
  *
- * DT-34 (Phase 4.5 spaghetti split): extracted from the former
+ *  (Phase 4.5 spaghetti split): extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns the
  * page's "core" state — the active config, the local model list, the
  * model catalog, the API-key cache, and the per-mount config cache ref
  * — plus the actions that fetch and persist them:
  *   • `loadConfig` — parallelized `get_config` + `get_model_status` +
- *     `get_model_catalog` (PVT-003 fix #4).
+ *     `get_model_catalog` ( fix #4).
  *   • `refreshModelStatus` — the extracted `get_model_status` + active-
- *     model reconciliation helper (PVT-003 fix #8).
+ *     model reconciliation helper ( fix #8).
  *   • `handleManualRefresh` — user-driven `loadConfig` with `refreshing`
  *     flag.
- *   • `updateConfig` — `set_config` wrapper (BG-48: re-throws on error
+ *   • `updateConfig` — `set_config` wrapper (: re-throws on error
  *     so callers can branch success vs. failure).
  *   • The `config_changed` event subscription (merges partial payload
  *     into the cached config ref + reapplies active-state — no re-fetch).
@@ -82,13 +82,13 @@ export function useModelConfig({
 	>({});
 	const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
 
-	// PVT-003 fix #9: per-mount config cache (replaces module-level
+	//fix #9: per-mount config cache (replaces module-level
 	// `_cachedConfig`). The ref lets the `config_changed` event handler
 	// merge incoming partial updates without re-fetching the whole
 	// config — and without leaking state across HMR / test mounts.
 	const cachedConfigRef = useRef<VoiceTyperConfig | null>(null);
 
-	// ── PVT-003 fix #8: refresh-model-status helper ─────────────────
+	//fix #8: refresh-model-status helper ─────────────────
 	//
 	// Previously the `get_model_status` IPC + the "force-active
 	// downloaded/depsOk = true" reconciliation block was duplicated
@@ -120,7 +120,7 @@ export function useModelConfig({
 		}
 	}, [call]);
 
-	// ── PVT-003 fix #4: parallelized loadConfig ─────────────────────
+	//fix #4: parallelized loadConfig ─────────────────────
 	//
 	// Previously this function awaited `get_config`, then awaited
 	// `get_model_status`, then awaited `get_model_catalog` — strictly
@@ -242,7 +242,7 @@ export function useModelConfig({
 		}
 	}, [loadConfig]);
 
-	// BG-48: previously ``updateConfig`` swallowed ``set_config`` errors
+	//previously ``updateConfig`` swallowed ``set_config`` errors
 	// (try/catch with only ``console.error``), so callers like
 	// ``selectModel`` / ``saveApiKey`` / ``setCloudConsent`` /
 	// ``setHuggingFaceConsent`` always showed their SUCCESS toast

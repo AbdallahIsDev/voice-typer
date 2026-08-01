@@ -11,7 +11,7 @@ import { aliases } from "./aliases";
 // only the `@`, `#ui`, and `#utils` aliases are kept here because they
 // are the only ones with real backing files. The stale `#components`,
 // `#lib`, and `#hooks` aliases (which pointed at non-existent barrel
-// files) were removed in PVT-075 — code uses `@/components/...`,
+//files) were removed in  — code uses `@/components/...`,
 // `@/lib/...`, and `@/hooks/...` instead.
 //
 // Main-process tests (`src/main/**`) opt into a node environment via the
@@ -20,7 +20,7 @@ import { aliases } from "./aliases";
 // that have no DOM dependency and would error out under jsdom's
 // `window` shims.
 //
-// Globals are intentionally OFF (PVT-075): every test file imports
+//Globals are intentionally OFF (): every test file imports
 // `describe`/`it`/`expect`/`vi` explicitly from "vitest", so the global
 // injection just adds hidden coupling to vitest's runtime types and
 // makes it harder to swap the test runner. Turning it off surfaces any
@@ -43,7 +43,7 @@ export default defineConfig({
 		coverage: {
 			provider: "v8",
 			reporter: ["text", "html"],
-			// XS-69: vitest 4.x dropped the `all: true` option (the v8
+			//vitest 4.x dropped the `all: true` option (the v8
 			// provider reports only files actually executed during the
 			// test run — untested files are not retroactively added to
 			// the denominator as they were under the istanbul provider).
@@ -81,7 +81,7 @@ export default defineConfig({
 				"src/main/index.ts",
 				"src/preload/index.ts",
 			],
-			// PVT-075: floor coverage so deletions / untested branches
+			//floor coverage so deletions / untested branches
 			// surface in CI rather than silently rotting. Thresholds are
 			// deliberately conservative — raising them is encouraged as
 			// the suite grows, but lowering them requires justification.

@@ -2,7 +2,7 @@
  * File-rotation primitive + low-level log-line helpers for the
  * Electron main-process loggers.
  *
- * AB-40: per-path "perms verified" cache + deferred rotation via setImmediate.
+ * Per-path "perms verified" cache + deferred rotation via setImmediate.
  */
 import fs from "node:fs";
 
@@ -17,18 +17,18 @@ import {
 	_setCachedFileSize,
 } from "./fileSizeCache";
 
-// AB-40: per-path "perms verified" cache.
+// Per-path "perms verified" cache.
 const _permsVerified = new Set<string>();
 
 /**
- * AB-40: reset the per-path "perms verified" cache. Exported for tests.
+ * Reset the per-path "perms verified" cache. Exported for tests.
  * @internal
  */
 export function _resetPermsVerifiedForTest(): void {
 	_permsVerified.clear();
 }
 
-// ─── XZ-LOG-03: PII redaction (TS port of Python's redact_pii) ────────
+// ─── PII redaction (TS port of Python's redact_pii) ────────
 
 const _MIN_REDACT_LEN = 20;
 
@@ -49,6 +49,31 @@ const _SECRET_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
 
 const _URL_USERINFO = /([a-zA-Z][a-zA-Z0-9+.-]*:\/\/)[^\s:@/]+:[^\s@/]+@/g;
 
+/**
+ * PII / API-key / URL-credential redaction (TS port of Python's
+ * `voice_typer.server.security.redact_pii`).
+ *
+ * Idempotent on already-redacted text so callers that pre-redact
+ * (e.g. via `cleanConsoleMsg` chains) don't double-redact. Exported
+ * so external callers that bypass `formatArgsForFile` — notably
+ * `ipc/window-handlers.ts`'s `appendRendererError` call site, which
+ * writes via direct `appendLogLine` — can apply the same redaction
+ * the format helpers apply internally. Internal callers
+ * (`printfLogger.ts`, `structuredLogger.ts`) import directly from
+ * `./rotation` to avoid the barrel re-export overhead on the hot log
+ * path; external callers should import via the `logging/index.ts`
+ * barrel re-export.
+ *
+ * Patterns redacted:
+ *   - Email addresses     → `[EMAIL]`
+ *   - IBAN codes          → `[IBAN]`
+ *   - Phone numbers       → `[PHONE]`
+ *   - SSNs                → `[SSN]`
+ *   - Credit-card numbers → `[CC]`
+ *   - `Bearer`/`Token`    → `Bearer ***` / `Token ***`
+ *   - `sk-`/`pk-`/`key-`  → `***`  (only when input ≥ 20 chars)
+ *   - URL userinfo        → stripped
+ */
 export function redactPii(text: string): string {
 	if (typeof text !== "string" || text.length === 0) return text;
 	let out = text;
@@ -95,7 +120,7 @@ export function rotateIfNeeded(
 		}
 		fs.renameSync(filePath, backup);
 		_clearCachedFileSize(filePath);
-		// AB-40: reset the per-path "perms verified" flag on rotation.
+		// Reset the per-path "perms verified" flag on rotation.
 		_permsVerified.delete(filePath);
 	} catch (e) {
 		console.warn("[logging] rotateIfNeeded failed:", e);
@@ -106,12 +131,12 @@ export function rotateIfNeeded(
  * Append a single line to filePath, rotating first if the file has
  * grown past maxBytes. Best-effort: any I/O error is swallowed.
  *
- * AB-40 (deferred rotation): the rotateIfNeeded call is wrapped in
+ * Deferred rotation: the rotateIfNeeded call is wrapped in
  * setImmediate(...) so the rotation I/O does not block the current IPC
  * dispatch. The appendFileSync still runs synchronously (crash
  * durability preserved).
  *
- * AB-40 (perms cache): fs.chmodSync is skipped if the per-path
+ * Perms cache: fs.chmodSync is skipped if the per-path
  * "perms verified" flag is set. Eliminates 30 sync chmods/sec churn.
  *
  * ── Throughput vs. crash-safety trade-off (intentional design) ──
@@ -132,7 +157,7 @@ export function rotateIfNeeded(
  * losing them to a background flush is unacceptable.
  *
  * The open/close overhead is ~50-100µs per call on a warm SSD. At the
- * 60 Hz `bubble_level` hot path the deferred-executor (PERF-2) already
+ * 60 Hz `bubble_level` hot path the deferred-executor already
  * serializes fan-out through a single worker thread, so the main /
  * RT threads never see this cost — only the executor does, and it has
  * ample headroom (60 calls/sec × 100µs = 6ms/sec = 0.6% of one core).
@@ -151,7 +176,7 @@ export function appendLogLine(
 	maxBytes: number = DEFAULT_MAIN_LOG_MAX_BYTES,
 ): void {
 	try {
-		// AB-40: defer rotation to the next event-loop tick.
+		// Defer rotation to the next event-loop tick.
 		setImmediate(() => {
 			try {
 				rotateIfNeeded(filePath, maxBytes);
@@ -163,13 +188,17 @@ export function appendLogLine(
 			}
 		});
 		fs.appendFileSync(filePath, line, { flag: "a", mode: 0o600 });
-		// AB-40: skip chmod if already verified for this path.
+		// Skip chmod if already verified for this path.
 		if (!_permsVerified.has(filePath)) {
 			try {
 				fs.chmodSync(filePath, 0o600);
 				_permsVerified.add(filePath);
-			} catch {
-				/* best-effort — leave flag unset so next append retries */
+			} catch (e) {
+				// Best-effort — leave flag unset so next append retries.
+				// Surface the failure so a perm regression (read-only dir,
+				// Windows ACL reset) is visible in the dev console instead
+				// of silently swallowed.
+				console.warn(`[logging] chmod 0o600 failed for ${filePath}:`, e);
 			}
 		}
 		const prevSize = _getCachedFileSize(filePath);

@@ -1,7 +1,7 @@
 // Available-microphones list.
 //
 // Renders the "other microphones" section: the "Use System Default"
-// row (PVT-034 / Fix 1 — the only way to revert from a named mic back
+//row ( / Fix 1 — the only way to revert from a named mic back
 // to the OS default) followed by the list of microphones not currently
 // selected, each rendered via ``MicrophoneListItem``.
 //
@@ -54,13 +54,13 @@ export function AvailableMicrophonesList({
 			<p className="text-xs font-semibold capitalize tracking-wide text-(--text-muted) mb-2 px-1">
 				{t("microphone.otherMicrophones")}
 			</p>
-			{/* BG-72: native <ul>/<li> list semantics (with explicit role
+			{/*native <ul>/<li> list semantics (with explicit role
 			    attributes for screen readers that don't convey <ul> as
 			    a list — notably Safari + VoiceOver). Tailwind's divide-y
 			    and the rounded/border classes apply identically to
 			    <ul>/<li> as they did to the previous <div>/<div>. */}
 			<ul className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
-				{/* PVT-034 (Fix 1): "Use System Default" button — the only
+				{/*(Fix 1): "Use System Default" button — the only
 				    way (other than refreshing and hoping) to revert
 				    from a named microphone back to the OS default.
 				    Disabled while a test is running so the user can't

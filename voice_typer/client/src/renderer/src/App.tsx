@@ -16,6 +16,7 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TitleBar } from "@/components/layout/TitleBar";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { useConnection } from "@/hooks/useConnection";
 import { useConnectionToasts } from "@/hooks/useConnectionToasts";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useGlobalKeyboardShortcuts";
@@ -26,7 +27,7 @@ import { useSoundFeedback } from "@/hooks/useSoundFeedback";
 import { useTheme } from "@/hooks/useTheme";
 import { getLocale, setLocale, useT } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
-// ER-25: route-level code splitting. Home is the default landing page
+// Route-level code splitting. Home is the default landing page
 // and stays eagerly imported so first paint is fast. The other 9 pages
 // (History, Templates, Vocabulary, Models, Microphone, Analytics,
 // Settings, About, Onboarding) are loaded on demand via React.lazy so
@@ -52,7 +53,7 @@ import type { VoiceTyperConfig } from "@/types/config";
 import type { WindowBridge } from "@/types/ipc";
 
 /**
- * ER-25: Suspense fallback for the lazy-loaded secondary routes.
+ * Suspense fallback for the lazy-loaded secondary routes.
  *
  * Inline (not a separate component file) so we don't introduce a new
  * module outside the refactor scope. The spinner matches the visual
@@ -80,7 +81,7 @@ export default function App() {
 	const t = useT();
 
 	// ── Routing (extracted to useNavigation) ──────────────────────
-	// PVT-fix-12: `replace` mirrors `history.replaceState` — it swaps
+	// `replace` mirrors `history.replaceState` — it swaps
 	// the current history entry without pushing a new one. Used by the
 	// onboarding-completed route guard below so the wizard entry is
 	// replaced (not stacked on top of) by the home entry, preventing
@@ -100,7 +101,7 @@ export default function App() {
 	const config = useAppStore((s) => s.config);
 	useEffect(() => {
 		if (currentPage === "onboarding" && config?.onboarding_completed === true) {
-			// PVT-fix-12: use `replace` instead of `navigate` so the
+			// Use `replace` instead of `navigate` so the
 			// "onboarding" entry is swapped for "home" in the history
 			// stack. With `navigate`, the stack would become
 			// [..., "onboarding", "home"] and pressing Back would return
@@ -109,7 +110,7 @@ export default function App() {
 		}
 	}, [currentPage, config, replace]);
 
-	// BG-25 (a11y / WCAG 2.4.2 Page Titled): keep `document.title` in sync
+	// a11y / WCAG 2.4.2 Page Titled: keep `document.title` in sync
 	// with the active route so screen-reader users (who announce the window
 	// title to orient) and OS taskbar users can tell which page is active
 	// without reading into main content. The title is composed as
@@ -136,7 +137,7 @@ export default function App() {
 		setLocale(getLocale());
 	}, []);
 
-	// BG-26 (a11y / focus management on route change): move keyboard focus
+	// a11y / focus management on route change: move keyboard focus
 	// to `<main id="main-content">` whenever `currentPage` changes so screen
 	// reader + keyboard users aren't stranded on the previously-focused
 	// nav item after a route transition. The skip link + `tabIndex={-1}`
@@ -146,17 +147,21 @@ export default function App() {
 	// doing would be rude — e.g. if they opened the app and immediately
 	// focused the URL bar or a bookmark).
 	const skipFirstRun = useRef(true);
+	// The effect must re-run on every route change to move focus to the
+	// main landmark — `currentPage` is the intentional reactive trigger
+	// and is deliberately NOT read in the body.
+	// biome-ignore lint/correctness/useExhaustiveDependencies: currentPage is the reactive trigger, not a body value
 	useEffect(() => {
 		if (skipFirstRun.current) {
 			skipFirstRun.current = false;
 			return;
 		}
 		document.getElementById("main-content")?.focus();
-	}, []);
+	}, [currentPage]);
 
 	useSoundFeedback();
 
-	// NEW-UX-043: "?" key opens a help overlay listing keyboard shortcuts.
+	// "?" key opens a help overlay listing keyboard shortcuts.
 	const [showHelpOverlay, setShowHelpOverlay] = useState(false);
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
@@ -170,7 +175,7 @@ export default function App() {
 					active?.isContentEditable === true
 				)
 					return;
-				// PVT-fix-10: if any Radix Dialog-based modal is currently
+				// If any Radix Dialog-based modal is currently
 				// open (ConfirmDialog, AlertDialog, the help overlay
 				// itself, etc.), don't pop the help overlay on top of
 				// it. Radix renders dialog content via Portal into
@@ -182,6 +187,13 @@ export default function App() {
 				e.preventDefault();
 				setShowHelpOverlay(true);
 			} else if (e.key === "Escape" && showHelpOverlay) {
+				// Stop the event from bubbling into Radix Modal's own
+				// Escape handler (and from triggering browser-default
+				// Exit Fullscreen / cancel actions on the page) so the
+				// help overlay closes deterministically without racing
+				// another Escape consumer.
+				e.preventDefault();
+				e.stopPropagation();
 				setShowHelpOverlay(false);
 			}
 		};
@@ -193,7 +205,7 @@ export default function App() {
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 	const [isMaximized, setIsMaximized] = useState(false);
 
-	// BG-64 (partial): auto-collapse the sidebar when the window narrows
+	// Auto-collapse the sidebar when the window narrows
 	// below the `640px` breakpoint. Only the wide→narrow TRANSITION (and
 	// the initial narrow mount) forces a collapse — once collapsed, the
 	// user's manual expand (Ctrl+B or TitleBar toggle) is respected until
@@ -227,7 +239,7 @@ export default function App() {
 	const { recordingState, connectionStatus, lastError, handleRetryConnection } =
 		useConnection({ call, currentPage, navigate });
 
-	// BG-27: connection-state toasts + theme-reload-on-recover extracted
+	// Connection-state toasts + theme-reload-on-recover extracted
 	// to `useConnectionToasts`. Returns the prev-connection ref so the
 	// aria-live region below can announce RECOVERIES only (not the
 	// initial connecting → connected transition).
@@ -267,7 +279,7 @@ export default function App() {
 		};
 	}, [bridge]);
 
-	// BG-27: app-wide keyboard shortcuts (Ctrl+B/,/H/=/-/wheel) extracted
+	// App-wide keyboard shortcuts (Ctrl+B/,/H/=/-/wheel) extracted
 	// to `useGlobalKeyboardShortcuts`. Behaviour byte-identical to the
 	// original inline effect.
 	useGlobalKeyboardShortcuts({
@@ -280,7 +292,7 @@ export default function App() {
 	});
 
 	// ── Listen for navigate events from Python ────────────────────
-	// EC-FIX-13: page validation uses the single route table in
+	// Page validation uses the single route table in
 	// `router/routes.ts` via `isKnownPage`. Previously this had a
 	// hand-maintained `pageMap` that had drifted out of sync with the
 	// `Page` union — it was missing `onboarding`, so a backend
@@ -303,8 +315,8 @@ export default function App() {
 		return undefined;
 	});
 
-	// NEW-UX-006: paste_failed toast
-	// PVT-fix-17: the action button label was a hardcoded English
+	// paste_failed toast
+	// The action button label was a hardcoded English
 	// string ("Copy path") which broke i18n for non-English users.
 	// Wired through `t("common.copyPath")` so the label resolves to
 	// the active locale's translation. The key is defined in
@@ -350,7 +362,7 @@ export default function App() {
 		return undefined;
 	});
 
-	// NF-R10-5: connecting progress
+	// Connecting progress
 	const [connectingProgress, setConnectingProgress] = useState<number | null>(
 		null,
 	);
@@ -360,7 +372,7 @@ export default function App() {
 		return undefined;
 	});
 
-	// DJ-94: stable callbacks so React.memo on <TitleBar>/<HelpOverlay> can
+	// Stable callbacks so React.memo on <TitleBar>/<HelpOverlay> can
 	// short-circuit when their other props haven't changed.
 	const handleToggleSidebar = useCallback(
 		() => setSidebarCollapsed((c) => !c),
@@ -418,7 +430,7 @@ export default function App() {
 			case "onboarding":
 				return <OnboardingPage onComplete={handleOnboardingComplete} />;
 			default:
-				// BG-24: page-not-found fallback now resolves via i18n
+				// Page-not-found fallback now resolves via i18n
 				// (`app.pageNotFoundTitle` / `app.pageNotFoundDescription`)
 				// so non-English users see the fallback in their locale.
 				// Both keys ship translated across all 8 locales.
@@ -443,70 +455,71 @@ export default function App() {
 	// ── Render ────────────────────────────────────────────────────
 	return (
 		<ErrorBoundary>
-			<a
-				href="#main-content"
-				className="sr-only focus:not-sr-only focus:fixed focus:inset-s-4 focus:top-4 focus:z-100 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
-			>
-				{t("a11y.skipToMain")}
-			</a>
-			<div
-				className={cn(
-					"flex h-screen flex-col bg-(--bg-subtle) font-sans text-(--text-primary) overflow-hidden",
-					!isMaximized && "rounded-lg border border-border",
-				)}
-			>
-				<TitleBar
-					onToggleSidebar={handleToggleSidebar}
-					onGoBack={goBack}
-					onGoForward={goForward}
-					canGoBack={canGoBack}
-					canGoForward={canGoForward}
-					isMaximized={isMaximized}
-					onOpenHelp={handleOpenHelp}
-				/>
-
-				<div className="flex min-h-0 flex-1">
-					<Sidebar
-						currentPage={currentPage}
-						onNavigate={navigate}
-						themeMode={themeMode}
-						onThemeChange={handleThemeChange}
-						collapsed={sidebarCollapsed}
+			<TooltipProvider delayDuration={200} skipDelayDuration={500}>
+				<a
+					href="#main-content"
+					className="sr-only focus:not-sr-only focus:fixed focus:inset-s-4 focus:top-4 focus:z-100 focus:rounded-lg focus:bg-primary focus:px-4 focus:py-2 focus:text-primary-foreground"
+				>
+					{t("a11y.skipToMain")}
+				</a>
+				<div
+					className={cn(
+						"flex h-screen flex-col bg-(--bg-subtle) font-sans text-(--text-primary) overflow-hidden",
+						!isMaximized && "rounded-lg border border-border",
+					)}
+				>
+					<TitleBar
+						onToggleSidebar={handleToggleSidebar}
+						onGoBack={goBack}
+						onGoForward={goForward}
+						canGoBack={canGoBack}
+						canGoForward={canGoForward}
+						isMaximized={isMaximized}
+						onOpenHelp={handleOpenHelp}
 					/>
 
-					<div className="flex min-w-0 flex-1 flex-col">
-						<main
-							id="main-content"
-							tabIndex={-1}
-							className="flex-1 overflow-y-auto rounded-s-xl border-border border border-s-0 border-b-0 bg-(--bg) focus:outline-none"
-							style={{ scrollbarGutter: "stable" }}
-						>
-							{connectionStatus === "connected" ? (
-								<Suspense fallback={<RouteSuspenseFallback />}>
-									{renderPage()}
-								</Suspense>
-							) : (
-								<ConnectionStatusScreen
-									status={connectionStatus}
-									lastError={lastError}
-									onRetry={handleRetryConnection}
-									connectingProgress={connectingProgress}
-								/>
-							)}
-						</main>
+					<div className="flex min-h-0 flex-1">
+						<Sidebar
+							currentPage={currentPage}
+							onNavigate={navigate}
+							themeMode={themeMode}
+							onThemeChange={handleThemeChange}
+							collapsed={sidebarCollapsed}
+						/>
+
+						<div className="flex min-w-0 flex-1 flex-col">
+							<main
+								id="main-content"
+								tabIndex={-1}
+								className="flex-1 overflow-y-auto rounded-s-xl border-border border border-s-0 border-b-0 bg-(--bg) focus:outline-none"
+								style={{ scrollbarGutter: "stable" }}
+							>
+								{connectionStatus === "connected" ? (
+									<Suspense fallback={<RouteSuspenseFallback />}>
+										{renderPage()}
+									</Suspense>
+								) : (
+									<ConnectionStatusScreen
+										status={connectionStatus}
+										lastError={lastError}
+										onRetry={handleRetryConnection}
+										connectingProgress={connectingProgress}
+									/>
+								)}
+							</main>
+						</div>
 					</div>
-				</div>
-				<Toaster />
+					<Toaster />
 
-				{/* BG-27: help overlay extracted to <HelpOverlay /> */}
-				<HelpOverlay
-					open={showHelpOverlay}
-					onClose={handleCloseHelp}
-					dictationLabel={dictationLabel}
-					repasteLabel={repasteLabel}
-				/>
+					{/* Help overlay extracted to <HelpOverlay /> */}
+					<HelpOverlay
+						open={showHelpOverlay}
+						onClose={handleCloseHelp}
+						dictationLabel={dictationLabel}
+						repasteLabel={repasteLabel}
+					/>
 
-				{/* Split the screen-reader live region
+					{/* Split the screen-reader live region
                                     into TWO regions — one for recording state, one for
                                     connection status. Previously a single aria-atomic region
                                     concatenated both streams, so any change in either
@@ -515,30 +528,35 @@ export default function App() {
                                     be re-announced even though recording state hadn't
                                     changed. Two regions isolate the two streams so each only
                                     re-announces when ITS OWN content changes. */}
-				<div aria-live="polite" aria-atomic="true" className="sr-only">
-					{recordingState === "recording" ? t("a11y.recordingStarted") : ""}
-					{recordingState === "transcribing" ? t("a11y.transcribingAudio") : ""}
-					{recordingState === "idle" ? t("a11y.ready") : ""}
-					{recordingState === "error" ? t("a11y.errorOccurred") : ""}
-					{recordingState === "loading" ? t("a11y.loadingModel") : ""}
-					{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
-				</div>
-				{/* PVT-fix-9: announce connection-state transitions so
+					<div aria-live="polite" aria-atomic="true" className="sr-only">
+						{recordingState === "recording" ? t("a11y.recordingStarted") : ""}
+						{recordingState === "transcribing"
+							? t("a11y.transcribingAudio")
+							: ""}
+						{recordingState === "idle" ? t("a11y.ready") : ""}
+						{recordingState === "error" ? t("a11y.errorOccurred") : ""}
+						{recordingState === "loading" ? t("a11y.loadingModel") : ""}
+						{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
+					</div>
+					{/* Announce connection-state transitions so
                                     screen-reader users get the same feedback that sighted
                                     users get from the connecting/disconnected/restarting UI
                                     swap. Reuses existing i18n keys (`app.lostConnection`,
                                     `app.restartingBackend`, `about.connected`) so no new
                                     translation keys are required. */}
-				<div aria-live="polite" aria-atomic="true" className="sr-only">
-					{connectionStatus === "disconnected" ? t("app.lostConnection") : ""}
-					{connectionStatus === "restarting" ? t("app.restartingBackend") : ""}
-					{connectionStatus === "connected" &&
-					prevConnectionRef.current !== "connected" &&
-					prevConnectionRef.current !== "connecting"
-						? t("about.connected")
-						: ""}
+					<div aria-live="polite" aria-atomic="true" className="sr-only">
+						{connectionStatus === "disconnected" ? t("app.lostConnection") : ""}
+						{connectionStatus === "restarting"
+							? t("app.restartingBackend")
+							: ""}
+						{connectionStatus === "connected" &&
+						prevConnectionRef.current !== "connected" &&
+						prevConnectionRef.current !== "connecting"
+							? t("about.connected")
+							: ""}
+					</div>
 				</div>
-			</div>
+			</TooltipProvider>
 		</ErrorBoundary>
 	);
 }

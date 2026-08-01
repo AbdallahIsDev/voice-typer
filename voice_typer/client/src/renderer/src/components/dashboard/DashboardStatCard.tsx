@@ -15,7 +15,7 @@ export function DashboardStatCard({
 	sublabel,
 }: DashboardStatCardProps) {
 	return (
-		<div className="card-hover rounded-xl border border-border bg-(--bg-subtle) p-5 flex flex-col items-center justify-center gap-2 text-center">
+		<div className="rounded-xl border border-border bg-(--bg-subtle) p-5 flex flex-col items-center justify-center gap-2 text-center">
 			<HugeiconsIcon
 				icon={icon}
 				strokeWidth={2}

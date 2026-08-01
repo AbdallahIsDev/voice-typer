@@ -6,7 +6,7 @@
 // `preload/index.ts`) re-export the subsets they need so the renderer
 // side stays in sync.
 //
-// DR-9: previously each main-process handler module and each preload
+//previously each main-process handler module and each preload
 // module declared its own bare string literal for the same channel
 // (`"bubble:level"`, `"python-call"`, …), so a rename had to be
 // applied in 3-5 places. Centralising here means a rename is a

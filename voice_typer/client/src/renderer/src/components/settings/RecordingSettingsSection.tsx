@@ -33,7 +33,7 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
-// PVT-066 (Sub-agent 14): the dictation-key dropdown presets are now
+//(Sub-agent 14): the dictation-key dropdown presets are now
 // derived from ``getSingleKeyPresets()`` — the SAME single source of
 // truth used elsewhere in the hotkey system. Previously this file
 // re-declared its own inline list which:
@@ -44,9 +44,15 @@ import type { SettingsSectionSharedProps } from "./types";
 //      list was platform-static; the getter re-detects the platform
 //      on every call).
 //
-// The ``.map`` wraps each value in angle brackets (``<value>``) so
-// the resulting preset shape matches the combo-mode hotkey format
-// the HotkeyPicker expects (e.g. ``<caps_lock>``, ``<ctrl>``).
+// The dictation-key ``HotkeyPicker`` is wired with ``mode="single"``
+// so the capture validator rejects multi-key combos (matching the
+// single-key-only promise of the dropdown). In single mode the
+// HotkeyPicker strips angle brackets from the stored value before
+// matching it against the preset list (see HotkeyPicker.tsx), so the
+// preset values must be the RAW key names (``"caps_lock"``, ...) —
+// NOT wrapped in ``<...>``. The HotkeyPicker re-adds the brackets on
+// selection (``newValue = `<${opt.value}>` ``) so the stored config
+// value keeps the canonical pynput format.
 //
 // Computed via ``useMemo`` so the array identity is stable across
 // re-renders (HotkeyPicker's presets prop comparison doesn't thrash).
@@ -54,11 +60,22 @@ const useDictationKeyPresets = () =>
 	useMemo(
 		() =>
 			getSingleKeyPresets().map((p) => ({
-				value: `<${p.value}>`,
+				value: p.value,
 				label: p.label,
 			})),
 		[],
 	);
+
+// The repaste-key ``HotkeyPicker`` is wired with ``mode="combo"`` and
+// its presets come from ``getComboPresets()``. ``getComboPresets()``
+// re-detects the platform on every call (so the macOS Cmd+Shift+V
+// option appears iff the current navigator.userAgent looks like
+// macOS), so it CANNOT be hoisted to module scope. Memoizing it here
+// keeps the array identity stable across renders (the inline call
+// pattern was re-creating the array on every render, thrashing the
+// HotkeyPicker's presets prop comparison and causing unnecessary
+// re-renders of the dropdown).
+const useRepasteKeyPresets = () => useMemo(() => getComboPresets(), []);
 
 // IMPL-C: option label keys (translated at render time so the labels
 // honour the active UI locale).
@@ -83,10 +100,15 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 	updateConfigDebounced,
 	isVisible,
 }: SettingsSectionSharedProps) {
-	// PVT-066: dictation-key presets derived from the shared
+	//dictation-key presets derived from the shared
 	// single-key preset list (platform-aware, no <shift> hazard).
 	const dictationKeyPresets = useDictationKeyPresets();
-	// ESC-FIX-002-LEGACY: useCallback calls MUST be before any early return
+	// Memoized repaste-key presets — getComboPresets() re-detects the
+	// platform on every call, so it can't be hoisted to module scope,
+	// but it can be memoized per-mount so the array identity stays
+	// stable across renders.
+	const repasteKeyPresets = useRepasteKeyPresets();
+	//ESC-: useCallback calls MUST be before any early return
 	// per React's Rules of Hooks.
 	const handleDictationChange = useCallback(
 		(h: string) => updateConfig({ hotkey: h }),
@@ -246,7 +268,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 						<HotkeyPicker
 							value={config.hotkey}
 							onChange={handleDictationChange}
-							mode="combo"
+							mode="single"
 							presets={dictationKeyPresets}
 							occupiedHotkeys={
 								config.repaste_hotkey ? [config.repaste_hotkey] : undefined
@@ -259,7 +281,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 
 					<SettingRow
 						label={recordingModeLabel}
-						// S2-CR-34: use the corrected tooltip text that
+						//use the corrected tooltip text that
 						// names the visible SegmentedControl labels
 						// ("Tap to Record" / "Push to Talk") instead of
 						// the legacy "Toggle" wording that didn't match.
@@ -305,7 +327,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							value={config.repaste_hotkey ?? "<ctrl>+<alt>+v"}
 							onChange={handleRepasteChange}
 							mode="combo"
-							presets={getComboPresets()}
+							presets={repasteKeyPresets}
 							occupiedHotkeys={config.hotkey ? [config.hotkey] : undefined}
 							aria-label={t("settings.hotkeySection.repasteKeyAria")}
 							onCaptureStart={handleRepasteCaptureStart}
@@ -336,7 +358,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 						/>
 					</SettingRow>
 
-					{/* NEW-UX-029: Audio cue on record start/stop for accessibility
+					{/*Audio cue on record start/stop for accessibility
                                         and confirmation.  Especially useful for blind users who
                                         can't see the visual indicator change. */}
 					<SettingRow
@@ -375,7 +397,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 							</div>
 							{/* Helper text: valid range. Always shown so the user
                                                                 knows the bounds before they type. */}
-							{/* XA-4-5: i18n the range hint + inline parse/range errors
+							{/*i18n the range hint + inline parse/range errors
                                                                 (previously hardcoded English literals). */}
 							<span className="text-xs text-(--text-muted)">
 								{t("settings.hotkeySection.rangeHintSeconds", {
@@ -418,7 +440,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 									{t("settings.hotkeySection.minutesSuffix")}
 								</span>
 							</div>
-							{/* XA-4-5: i18n the range hint + inline parse/range errors
+							{/*i18n the range hint + inline parse/range errors
                                                                 (previously hardcoded English literals). */}
 							<span className="text-xs text-(--text-muted)">
 								{t("settings.hotkeySection.rangeHintMinutes", {
@@ -439,7 +461,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 						</div>
 					</SettingRow>
 
-					{/* RW-0: dead_air_timeout setting REMOVED. It was redundant with
+					{/*dead_air_timeout setting REMOVED. It was redundant with
                                             stop_on_silence_seconds — auto-stop already resets on every speech
                                             detection, so "silence after speech" needs no separate control.
                                             Do NOT re-add this setting. */}

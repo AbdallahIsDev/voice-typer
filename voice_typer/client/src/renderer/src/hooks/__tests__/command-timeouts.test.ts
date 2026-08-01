@@ -1,7 +1,7 @@
 /**
- * Unit tests for the per-command timeout table (CR-18).
+ * Unit tests for the per-command timeout table ().
  *
- * CR-18: previously a blanket 120s `setTimeout` was applied to every
+ * : previously a blanket 120s `setTimeout` was applied to every
  * IPC call (in the Electron main's `sendToPython` and the Rust
  * `dispatch` command). A `get_status` call that hangs took 120s to
  * surface an error; the 120s timer was created even for trivial
@@ -37,7 +37,7 @@ describe("CR-18: per-command timeout table (getTimeout)", () => {
 	});
 
 	it("returns 115_000ms for `download_model` (just under the Rust 120s hard cap)", () => {
-		// S1-CR-76 / DT-44: the Rust `dispatch` command enforces a
+		//the Rust `dispatch` command enforces a
 		// hard 120s timeout on `download_model` (see
 		// `src-tauri/src/commands/sidecar_cmds.rs:50-73` and
 		// `src-tauri/src/util.rs:53` `DISPATCH_TIMEOUT_SECS = 120`).
@@ -54,7 +54,7 @@ describe("CR-18: per-command timeout table (getTimeout)", () => {
 	});
 
 	it("returns 30_000ms for `toggle_dictation` (short control RPC)", () => {
-		// NH-31: `transcribe` was a stale entry — there is no such
+		//`transcribe` was a stale entry — there is no such
 		// IPC command (the actual control RPC is `toggle_dictation`,
 		// which returns immediately; the transcription itself runs
 		// async on the backend and pushes results via

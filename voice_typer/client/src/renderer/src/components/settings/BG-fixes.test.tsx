@@ -1,21 +1,21 @@
 /**
- * BG-fixes — tests for sub-agent F4 (Task ID BG-F4).
+ * BG-fixes — tests for sub-agent F4 (Task ID ).
  *
  * Coverage:
- *   - BG-16: PrivacySettingsSection's "Agree to All" ConfirmDialog uses
+ *   - : PrivacySettingsSection's "Agree to All" ConfirmDialog uses
  *     i18n keys (settings.privacy.agreeConfirmTitle /
  *     agreeConfirmMessage) rather than hardcoded English literals.
- *   - BG-55: per-row search filtering — a search query that matches only
+ *   - : per-row search filtering — a search query that matches only
  *     one row must hide the other rows in the same section (previously
  *     the section-level check showed the entire section including all
  *     rows when ANY row matched).
- *   - BG-98: ModelSettingsSection's API Key input uses
+ *   - : ModelSettingsSection's API Key input uses
  *     settings.apiKeyConfiguredPlaceholder when llm_api_key === "<redacted>"
  *     rather than the hardcoded English literal "•••••••• (configured)".
- *   - BG-57: Settings.tsx memoizes sectionProps and handleResetClick so
+ *   - : Settings.tsx memoizes sectionProps and handleResetClick so
  *     memoized section children don't re-render unnecessarily. This is
  *     a smoke test — the heavy memoization verification lives in the
- *     Settings page's existing test suite (which passes after BG-57).
+ *     Settings page's existing test suite (which passes after ).
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -250,10 +250,10 @@ describe("BG-16: PrivacySettingsSection Agree-to-All ConfirmDialog uses i18n key
 		// The ConfirmDialog must now render with the i18n title and message
 		// (rather than the previous hardcoded English literals). The dialog
 		// uses AlertDialogContent via a portal — query the document body.
-		// BG-16 fix: title is t("settings.privacy.agreeConfirmTitle")
+		//fix: title is t("settings.privacy.agreeConfirmTitle")
 		// = "Grant all 6 consents?"
 		expect(screen.getByText("Grant all 6 consents?")).toBeTruthy();
-		// BG-16 fix: message is t("settings.privacy.agreeConfirmMessage")
+		//fix: message is t("settings.privacy.agreeConfirmMessage")
 		// — a long sentence about HuggingFace / cloud transcription / LLM
 		// polishing. Assert a substring unique to that message.
 		expect(

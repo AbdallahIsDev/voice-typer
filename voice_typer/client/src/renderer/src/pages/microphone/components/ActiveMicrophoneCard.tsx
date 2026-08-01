@@ -188,7 +188,7 @@ export function ActiveMicrophoneCard({
 					</Button>
 				)}
 
-				{/* NF-R15-2 (a11y): split the live level indicator from
+				{/*(a11y): split the live level indicator from
 				    the post-test duration readout. The live level
 				    (rapidly fluctuating during recording) is NOT
 				    announced to avoid screen-reader spam; the post-test

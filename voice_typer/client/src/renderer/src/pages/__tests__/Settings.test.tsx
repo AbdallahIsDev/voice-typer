@@ -73,11 +73,11 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		Cancel01Icon: make("Cancel01Icon"),
 		CheckmarkCircle01Icon: make("CheckmarkCircle01Icon"),
 		Delete01Icon: make("Delete01Icon"),
-		// S5-CR-103: TroubleshootingSettingsSection renders the destructive
+		//TroubleshootingSettingsSection renders the destructive
 		// "Reset to Defaults" button with `Delete02Icon` (a distinct trash
 		// glyph) instead of the previous RefreshIcon that was visually
 		// indistinguishable from "Re-run Wizard"'s ArrowTurnBackwardIcon.
-		// The mock MUST export Delete02Icon or the S5-CR-103 regression
+		//The mock MUST export Delete02Icon or the  regression
 		// test (and the existing Re-run wizard test) crash with
 		// "No 'Delete02Icon' export is defined on the mock".
 		Delete02Icon: make("Delete02Icon"),
@@ -521,7 +521,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		expect(payload).toHaveProperty("onboarding_completed", false);
 	});
 
-	// S5-CR-103 regression test: the destructive "Reset to Defaults" button
+	//regression test: the destructive "Reset to Defaults" button
 	// MUST render with a distinct trash/delete icon (Delete02Icon), NOT the
 	// same icon as the non-destructive "Re-run setup wizard" button
 	// (ArrowTurnBackwardIcon). The original bug was that both buttons shared
@@ -530,7 +530,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 	// destructive.
 	//
 	// The fix lives in TroubleshootingSettingsSection.tsx (extracted from
-	// the old 1125-line Settings.tsx monolith — see PVT-028). It is verified
+	//the old 1125-line Settings.tsx monolith — see ). It is verified
 	// here end-to-end via the Settings page render graph (the Privacy tab
 	// mounts TroubleshootingSettingsSection) so a future refactor that
 	// accidentally re-unifies the icons would fail this test.
@@ -577,7 +577,7 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		expect(resetIcon).toBeTruthy();
 		expect(wizardIcon).toBeTruthy();
 
-		// S5-CR-103: Reset to Defaults MUST use the trash glyph.
+		//Reset to Defaults MUST use the trash glyph.
 		expect(resetIcon?.getAttribute("data-name")).toBe("Delete02Icon");
 		// Re-run Wizard MUST use the back-arrow glyph (NOT Delete02Icon).
 		expect(wizardIcon?.getAttribute("data-name")).toBe("ArrowTurnBackwardIcon");

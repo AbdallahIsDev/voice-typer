@@ -4,8 +4,8 @@
  * Extracted from `index.ts` (REF-2). Registers:
  *   - history:export     (history records → JSON or CSV with SEC-015 formula injection defense)
  *   - vocabulary:export  (vocabulary entries → JSON or CSV)
- *   - templates:export   (NEW-PRIV-007: trigger→output pairs → JSON)
- *   - config:export      (NEW-PRIV-007: full config → JSON; API keys redacted by the backend)
+ *   - templates:export   (: trigger→output pairs → JSON)
+ *   - config:export      (: full config → JSON; API keys redacted by the backend)
  */
 import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
@@ -34,24 +34,24 @@ const VALID_FORMATS = new Set(["json", "csv"]);
 const MAX_EXPORT_ROWS = 100_000;
 
 /**
- * PVT-14: hard cap on the number of template entries exported via
+ * : hard cap on the number of template entries exported via
  * `templates:export`. Templates (trigger → output pairs) are far fewer
  * than history rows in practice (typically tens to low hundreds), so a
  * 1k cap is generous for legitimate use while still defending against a
  * compromised renderer pinning CPU + disk on a fabricated 10M-entry
- * payload (same threat model as `MAX_EXPORT_ROWS`). See PVT-14 in the
+ * payload (same threat model as `MAX_EXPORT_ROWS`). See  in the
  * comprehensive review.
  */
 const MAX_TEMPLATES_EXPORT_ROWS = 1_000;
 
 /**
- * PVT-14: hard cap on the serialized byte size of the config blob
+ * : hard cap on the serialized byte size of the config blob
  * exported via `config:export`. Config is a flat-ish dict (settings,
  * preferences, hotkeys) and is typically a few KB; 1 MB is well above
  * any legitimate size. The cap defends against a compromised renderer
  * passing a fabricated multi-GB object that would pin CPU + disk during
  * `JSON.stringify` + `fs.writeFileSync` (same threat model as
- * `MAX_EXPORT_ROWS`). See PVT-14 in the comprehensive review.
+ * `MAX_EXPORT_ROWS`). See  in the comprehensive review.
  */
 const MAX_CONFIG_EXPORT_BYTES = 1 * 1024 * 1024;
 
@@ -65,7 +65,7 @@ const MAX_CONFIG_EXPORT_BYTES = 1 * 1024 * 1024;
  * or commas.
  */
 /**
- * GT-D2-5: csvEscape now accepts `unknown` and coerces internally.
+ * : csvEscape now accepts `unknown` and coerces internally.
  */
 function csvEscape(v: unknown): string {
 	let s: string;
@@ -115,7 +115,7 @@ function csvEscape(v: unknown): string {
  * backend's `_secure_atomic_write`. Three-language parity for the
  * user-data export path (history, vocabulary, templates, config).
  *
- * FR-5 (Critical fix): the previous Windows-only implementation
+ * Critical fix: the previous Windows-only implementation
  * unlinked the destination BEFORE renaming. If `unlinkSync(filePath)`
  * failed with anything other than ENOENT (EPERM/EACCES on a
  * sync-client-held destination, antivirus lock, or network share ACL),
@@ -154,7 +154,7 @@ export function atomicWriteFileSync(
 	} else {
 		fs.writeFileSync(tmpPath, content);
 	}
-	// FR-5: try `fs.renameSync(tmpPath, filePath)` unconditionally first.
+	// Try `fs.renameSync(tmpPath, filePath)` unconditionally first.
 	// Node 10+ on Windows uses `MOVEFILE_REPLACE_EXISTING` so the rename
 	// overwrites the destination atomically (matching POSIX `rename(2)`
 	// semantics). This avoids the destination-unlink-then-rename window
@@ -190,7 +190,7 @@ export function atomicWriteFileSync(
 	} catch (e) {
 		const code = (e as NodeJS.ErrnoException).code;
 		if (code !== "ENOENT") {
-			// FR-5: do NOT unlink `tmpPath` here. The destination unlink
+			// Do NOT unlink `tmpPath` here. The destination unlink
 			// failed (EPERM/EACCES), so the destination may still exist
 			// — but the NEW content's tmp file is the user's lifeline.
 			// Throwing without deleting tmp lets the user manually
@@ -202,7 +202,7 @@ export function atomicWriteFileSync(
 		// ENOENT on destination unlink is fine — the destination didn't
 		// exist, so the retry rename below will succeed atomically.
 	}
-	// FR-5: again, do NOT unlink `tmpPath` here — keep it so the
+	// Again, do NOT unlink `tmpPath` here — keep it so the
 	// user can manually rename it for recovery. The destination may
 	// have already been unlinked by the fallback above, so losing
 	// the tmp file too would be unrecoverable.

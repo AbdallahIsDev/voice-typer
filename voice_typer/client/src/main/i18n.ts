@@ -1,7 +1,7 @@
 /**
  * Minimal main-process i18n bundle.
  *
- * NF-R16-5: the main process has no React/i18next. We bundle ~10 dialog
+ * The main process has no React/i18next. We bundle ~10 dialog
  * strings here so native Electron dialogs (single-instance error, critical
  * error, model folder picker, export save-as dialogs) can be localized in
  * the same language the user picked in the renderer.
@@ -24,19 +24,45 @@
  * The shape of every locale entry MUST match the `en` entry (same keys).
  * TypeScript enforces this via the `MainStrings` mapped type.
  *
- * PVT-G5-086 (session-5 dead-code cleanup): `getMainLocale()` and the
+ * Dead-code cleanup: `getMainLocale()` and the
  * `export` modifier on the `MainLocale` type were removed — no consumer
  * outside this module ever imported either. `MainLocale` stays as a
  * module-local type alias so internal references (`currentLocale`)
  * remain typed.
  *
- * NH-3 (restored): `setMainLocale()` was re-added and is invoked by the
+ * `setMainLocale()` was re-added and is invoked by the
  * `i18n:set-locale` IPC handler in `main/ipc/window-handlers.ts`. The
  * handler pushes locale changes from the renderer to the main process
  * so that native main-process UI (tray tooltips, OS notifications
  * routed through main) can be localized. `currentLocale` is `let`
  * because `setMainLocale` reassigns it. `MAIN_STRINGS` is still read by
  * `mainT()` (used by the `model:import-dialog` handler).
+ *
+ * Fallback chain: when the renderer pushes a locale, {@link setMainLocale}
+ * resolves it against MAIN_STRINGS in this order:
+ *
+ *   1. `currentLocale` — exact match (e.g. `"zh"`, `"ar"`).
+ *   2. `primary subtag` — when the pushed locale is a regional variant
+ *      (contains `-`), try the bare primary subtag (e.g. `"zh-CN"` →
+ *      `"zh"`). This mirrors the renderer's `t()` lookup chain so a
+ *      regional UI locale that hasn't yet been registered in
+ *      MAIN_STRINGS falls back to its parent language instead of
+ *      English — e.g. a user on `"zh-CN"` sees Chinese dialogs (with
+ *      English fallback only for keys the Chinese table lacks), not
+ *      English dialogs outright.
+ *   3. `"en"` — the universal fallback when neither step resolves.
+ *      `mainT()` then looks up the key against the resolved locale's
+ *      table, then against `MAIN_STRINGS.en`, then returns the raw key
+ *      (defensive — should never happen for keys declared in
+ *      {@link MAIN_STRINGS.en}).
+ *
+ * Inline-string gap (Low, tracked): the 8 locales × 8 dialog keys = 64
+ * inline string literals below duplicate the renderer's translation
+ * pipeline (which loads JSON from `src/renderer/src/i18n/translations/`).
+ * Migrating main-process strings to JSON files (mirroring the renderer
+ * schema) would let translators use the same tooling and prevent drift
+ * between the two bundles. Out of scope for the current task — flagged
+ * here so a future contributor can pick it up.
  */
 
 import { APP_NAME } from "./branding";
@@ -161,40 +187,64 @@ type MainStringsKey = keyof MainStrings;
 /**
  * The locale used by {@link mainT} for subsequent lookups.
  * Reassigned by {@link setMainLocale} when the renderer pushes its
- * locale via the `i18n:set-locale` IPC channel (NH-3). Defaults to
+ * locale via the `i18n:set-locale` IPC channel. Defaults to
  * `"en"` until the first sync.
  */
 let currentLocale: MainLocale = "en";
 
 /**
- * NH-3: Update the main-process locale from the renderer's locale
+ * Update the main-process locale from the renderer's locale
  * selection. Called by the `i18n:set-locale` IPC handler in
  * `window-handlers.ts` whenever the user changes the UI language.
  *
- * Falls back to `"en"` with a console warning if the locale is not
- * in the known set, so a newly-added renderer locale that hasn't
- * been added to {@link MAIN_STRINGS} yet doesn't crash the main
- * process — it just shows English dialogs until the main strings
- * are added.
+ * Resolution chain (mirrors the renderer's `t()` lookup chain):
+ *
+ *   1. Exact match — if the pushed locale is directly registered in
+ *      {@link MAIN_STRINGS} (e.g. `"zh"`, `"ar"`), use it as-is.
+ *   2. Primary subtag — if the pushed locale is a regional variant
+ *      (contains `-`) and not directly registered, try the bare
+ *      primary subtag (e.g. `"zh-CN"` → `"zh"`). This lets a regional
+ *      UI locale fall back to its parent language instead of English
+ *      when MAIN_STRINGS hasn't yet been extended for the regional
+ *      variant.
+ *   3. English fallback — if neither step resolves, fall back to
+ *      `"en"` and emit a console warning so the missing locale is
+ *      visible during development. The user still gets English dialogs
+ *      rather than a crash.
  */
 export function setMainLocale(locale: string): void {
 	if (locale in MAIN_STRINGS) {
 		currentLocale = locale as MainLocale;
-	} else {
-		console.warn(
-			`[i18n] setMainLocale: unknown locale "${locale}" — falling back to "en". ` +
-				`Add dialog strings for this locale to MAIN_STRINGS in main/i18n.ts.`,
-		);
-		currentLocale = "en";
+		return;
 	}
+	// Primary-subtag fallback for regional variants (e.g. "zh-CN" → "zh",
+	// "pt-BR" → "pt"). Mirrors the renderer's `t()` lookup chain so the
+	// main process picks the parent language rather than jumping straight
+	// to English when the regional variant hasn't been registered.
+	if (locale.includes("-")) {
+		const primary = locale.split("-")[0];
+		if (primary in MAIN_STRINGS) {
+			currentLocale = primary as MainLocale;
+			return;
+		}
+	}
+	console.warn(
+		`[i18n] setMainLocale: unknown locale "${locale}" — falling back to "en". ` +
+			`Add dialog strings for this locale (or its primary subtag) to MAIN_STRINGS in main/i18n.ts.`,
+	);
+	currentLocale = "en";
 }
 
 /**
  * Translate a dialog key for the current main-process locale.
  *
- * Falls back to English if the key is missing from the current locale,
- * then to the raw key (defensive — should never happen if the key is
- * declared in {@link MAIN_STRINGS.en}).
+ * Lookup chain: `MAIN_STRINGS[currentLocale]` → `MAIN_STRINGS.en` →
+ * raw key. The locale itself was already normalized by
+ * {@link setMainLocale} (regional variant → primary subtag → en), so
+ * `currentLocale` here is always one of the keys present in
+ * MAIN_STRINGS — the `table?.[...]` access therefore always resolves,
+ * and the English fallback is only a defensive guard against a key
+ * that was somehow declared outside {@link MainStringsKey}.
  *
  * Placeholders: `{name}` is replaced with `fmt.name` if provided. Missing
  * interpolation args are left as the literal `{name}` so the bug is

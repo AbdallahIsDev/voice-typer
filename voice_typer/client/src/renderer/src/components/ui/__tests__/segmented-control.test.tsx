@@ -424,7 +424,7 @@ describe("SegmentedControl tabs variant", () => {
 				ariaLabel="tabs-control"
 			/>,
 		);
-		// CR-52: the tabs variant renders role="tablist" (NOT
+		//the tabs variant renders role="tablist" (NOT
 		// radiogroup) so screen readers announce it as a tab
 		// navigation region per the WAI-ARIA Tabs pattern.
 		const group = screen.getByRole("tablist");
@@ -446,7 +446,7 @@ describe("SegmentedControl tabs variant", () => {
 				ariaLabel="tabs-control"
 			/>,
 		);
-		// CR-52: each option renders role="tab" on a <button> (NOT
+		//each option renders role="tab" on a <button> (NOT
 		// role="radio" on an <input>), so we query by tab role and
 		// assert directly on the button's className (no .closest
 		// "label" needed).
@@ -469,7 +469,7 @@ describe("SegmentedControl tabs variant", () => {
 				ariaLabel="tabs-control"
 			/>,
 		);
-		// CR-52: query by role="tab" and assert aria-selected +
+		//query by role="tab" and assert aria-selected +
 		// className on the same <button> element (no .closest).
 		const tabs = screen.getAllByRole("tab");
 		expect(tabs).toHaveLength(2);
@@ -480,7 +480,7 @@ describe("SegmentedControl tabs variant", () => {
 		expect(tabs[1].className).not.toContain("text-primary-foreground");
 	});
 	it("active tab is in the tab order (tabIndex=0) and inactive tabs are not (tabIndex=-1)", () => {
-		// CR-52: WAI-ARIA Tabs "roving tabindex" pattern — only the
+		//WAI-ARIA Tabs "roving tabindex" pattern — only the
 		// active tab is reachable via Tab; inactive tabs require
 		// ArrowLeft/ArrowRight to focus.
 		render(
@@ -500,7 +500,7 @@ describe("SegmentedControl tabs variant", () => {
 		expect(tabs[3]).toHaveAttribute("tabindex", "-1");
 	});
 	it("each tab emits an id and aria-controls linking to its panel id", () => {
-		// CR-52/CR-53: WAI-ARIA Tabs contract — each tab needs a
+		//WAI-ARIA Tabs contract — each tab needs a
 		// stable id (so the panel can aria-labelledby it) and
 		// aria-controls pointing at the matching panel id (so
 		// screen readers can jump from tab → panel).

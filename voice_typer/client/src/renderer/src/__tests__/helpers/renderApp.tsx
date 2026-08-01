@@ -1,12 +1,12 @@
 /**
- * PVT-076 — shared `renderApp` helper.
+ *  — shared `renderApp` helper.
  *
  * Mounting the real `App.tsx` shell requires stubbing ~10 hooks + child
  * components so the render graph doesn't pull in the entire renderer
  * (which would force every test to mock every page's IPC dependencies).
  * That boilerplate was duplicated across `__tests__/App.test.tsx`,
- * `__tests__/App-ux-fixes.test.tsx`, and several `rw0-rewrite`/`
- * rw1-rewrite` files.
+ * `__tests__/App-ux-fixes.test.tsx`, and several `a11y-rewrite`/`
+ * behavior-rewrite` files.
  *
  * `renderApp` centralises the stubbing. Tests that just need to assert
  * on App-level routing / chrome can call:
@@ -42,7 +42,7 @@ import { makeConfig } from "./fixtures";
 // vitest's mock-type inference from collapsing to `Mock<Constructable
 // | Procedure>` (the constructor-or-procedure union), which doesn't
 // satisfy `mockImplementation`'s expected `(...args: any[]) => any`
-// parameter. See FIX-18 / PVT-076.
+//parameter. See  /
 const hoisted = vi.hoisted(() => ({
 	mockCall: vi.fn() as unknown as ReturnType<typeof vi.fn>,
 	mockPythonEvent: vi.fn() as unknown as ReturnType<typeof vi.fn>,

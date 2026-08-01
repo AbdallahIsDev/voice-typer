@@ -14,7 +14,7 @@ interface ExportFormatMenuProps {
 	disabled?: boolean;
 }
 
-// A11Y-7: migrated from a hand-rolled menu to the shared Radix
+// Migrated from a hand-rolled menu to the shared Radix
 // DropdownMenu wrapper (`ui/dropdown-menu.tsx`). Radix provides the
 // WAI-ARIA Menu Button pattern out of the box: role="menu"/"menuitem",
 // aria-haspopup/aria-expanded/aria-controls on the trigger, roving

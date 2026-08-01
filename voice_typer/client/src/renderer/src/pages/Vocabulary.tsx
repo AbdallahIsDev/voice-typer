@@ -79,7 +79,7 @@ export default function VocabularyPage() {
 			setEntries,
 		});
 
-	// CR-37: resolve category labels at render time so locale switches
+	//resolve category labels at render time so locale switches
 	// re-resolve the t() keys against the new locale.
 	const categoryLabels = getCategoryLabels();
 
@@ -91,7 +91,7 @@ export default function VocabularyPage() {
 		);
 	}
 
-	// NF-R10-1 / fix #8: distinguish "backend failed to load" from
+	//fix #8: distinguish "backend failed to load" from
 	// "vocabulary is genuinely empty" so the user knows to retry
 	// instead of being presented with the add-first-word empty state.
 	// Matches the History/Templates retry pattern.

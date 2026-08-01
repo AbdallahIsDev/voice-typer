@@ -60,6 +60,7 @@ export function ConnectionStatusScreen({
 
 	const isConnecting = status === "connecting";
 	const isDisconnected = status === "disconnected";
+	const isRestarting = status === "restarting";
 
 	// State-aware title so the user can tell apart "still starting"
 	// from "crashed and waiting for retry". The keys are localised in
@@ -88,8 +89,7 @@ export function ConnectionStatusScreen({
 	return (
 		<div
 			className="mx-auto flex min-h-full w-full max-w-lg flex-col items-center justify-center px-6 py-12"
-			role="alertdialog"
-			aria-modal="false"
+			role="alert"
 			aria-labelledby="connection-status-title"
 			aria-describedby="connection-status-desc"
 			data-testid="connection-status"
@@ -99,13 +99,15 @@ export function ConnectionStatusScreen({
 				icon={AlertCircleIcon}
 				title={title}
 				description={description}
-				actionLabel={isDisconnected ? t("app.retryConnection") : undefined}
-				onAction={isDisconnected ? onRetry : undefined}
+				actionLabel={
+					isDisconnected || isRestarting ? t("app.retryConnection") : undefined
+				}
+				onAction={isDisconnected || isRestarting ? onRetry : undefined}
 				actionIcon={RefreshIcon}
 			>
-				{isConnecting && (
+				{(isConnecting || isRestarting) && (
 					<div className="mt-2 flex w-full flex-col items-center gap-3">
-						{/* S5-CR-100: the Spinner default is now a non-live
+						{/*the Spinner default is now a non-live
 						 * <span role="img">. This screen is the ONE place
 						 * where we DO want the loading state announced as
 						 * a polite live region (so SR users hear "Loading"

@@ -1,5 +1,5 @@
 /**
- * NEW-UX-012: Accessibility tests for the Electron UI.
+ * : Accessibility tests for the Electron UI.
  *
  * The finding: Config UI not verified with screen reader. ARIA
  * attributes are present in code but never validated by automated
@@ -10,7 +10,7 @@
  * a11y scanning, see the @axe-core integration used by the renderer
  * test setup.
  *
- * PVT-004 (Sub-agent 16): the previous version of this file pointed
+ *  (Sub-agent 16): the previous version of this file pointed
  * at stale paths for ConfirmDialog (`components/ConfirmDialog.tsx`)
  * and ErrorBoundary (`components/ErrorBoundary.tsx`) and guarded the
  * reads with `fs.existsSync`, so when the files moved into
@@ -18,7 +18,7 @@
  * no-op'd. The guards are removed so a future move breaks the test
  * loudly instead of silently passing.
  *
- * PVT-049 (Sub-agent 16): the "All Switch components" test was a
+ *  (Sub-agent 16): the "All Switch components" test was a
  * source-pattern scan that only looked at `pages/{Home,Settings,
  * Models,About}.tsx` — but the actual Switch call sites live in
  * `components/settings/*Section.tsx` (28 of 29 Switches were
@@ -32,19 +32,19 @@ import path from "node:path";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// ── Mocks shared by the behavioral Switch test (PVT-049) ────────────
+//Mocks shared by the behavioral Switch test () ────────────
 // Settings sections transitively import @hugeicons/react,
 // @hugeicons/core-free-icons, sonner, next-themes, and @/hooks/usePython.
 // Stub them so the sections can mount without pulling in the full
 // dependency tree (which would make this test as heavy as a Settings
 // page integration test).
 
-// BG-R19 #7: hoisted mocks for usePython so the behavioral Home test
-// (in the "BG-R19 #7: behavioral Home aria-live region" describe block
+//#7: hoisted mocks for usePython so the behavioral Home test
+//(in the " #7: behavioral Home aria-live region" describe block
 // below) can swap usePythonEvent's implementation to capture the
 // transcription_final handler.  The hoisted `mockUsePythonCall`
 // preserves the existing contract (`async () => undefined`) so the
-// PVT-049 Settings-section tests still get a Promise-resolving `call`.
+//Settings-section tests still get a Promise-resolving `call`.
 const { mockUsePythonCall, mockUsePythonEvent } = vi.hoisted(() => ({
 	mockUsePythonCall: vi.fn(async () => undefined),
 	mockUsePythonEvent: vi.fn(),
@@ -116,7 +116,7 @@ vi.mock("@/hooks/usePython", () => ({
 		call: mockUsePythonCall,
 		pythonPort: 9999,
 	}),
-	// BG-R19 #7: hoisted mock so the behavioral Home test (below)
+	//#7: hoisted mock so the behavioral Home test (below)
 	// can swap usePythonEvent's implementation to capture the
 	// transcription_final handler and dispatch an event through it.
 	usePythonEvent: mockUsePythonEvent,
@@ -141,7 +141,7 @@ vi.mock("@/hooks/useLastUpdated", () => ({
 vi.mock("@/hooks/useStatsShare", () => ({
 	useStatsShare: () => ({ imageRef: { current: null }, shareAsImage: vi.fn() }),
 	computeShareStats: vi.fn(() => ({ dictations: 0, chars: 0, durationSec: 0 })),
-	// BG-R19 #7: canShareStats is a pure function used by Home.tsx
+	//#7: canShareStats is a pure function used by Home.tsx
 	// to gate the share-image button.  Return false so the share
 	// button isn't rendered (keeps the mount light).
 	canShareStats: vi.fn(() => false),
@@ -151,12 +151,12 @@ vi.mock("@/components/common/KeyringStatusBadge", () => ({
 	KeyringStatusBadge: () => <span data-testid="keyring-badge" />,
 }));
 
-// ── BG-R19 #7: additional mocks for the behavioral App + Home tests ──
-// These mirror the mock set in __tests__/rw0-rewrite/App-a11y.test.tsx
+//#7: additional mocks for the behavioral App + Home tests ──
+// These mirror the mock set in __tests__/a11y-rewrite/App-a11y.test.tsx
 // (and the page-level mocks in axe-core.test.tsx) so App and Home can
 // mount without pulling in the full Python bridge / Tauri bridge /
 // connection store / model lifecycle graph.  Each mock is additive —
-// it does not affect the PVT-049 Settings-section tests above.
+//it does not affect the  Settings-section tests above.
 
 vi.mock("@/hooks/useConnection", () => ({
 	useConnection: () => ({
@@ -168,7 +168,7 @@ vi.mock("@/hooks/useConnection", () => ({
 }));
 
 vi.mock("@/hooks/useConnectionToasts", () => ({
-	// BG-R19 #7: useConnectionToasts returns a React ref-like object
+	//#7: useConnectionToasts returns a React ref-like object
 	// whose `.current` field holds the previous connection status.
 	// App.tsx reads `prevConnectionRef.current` to gate the "connected"
 	// announcement in the aria-live region.  Returning `{ current:
@@ -245,7 +245,7 @@ vi.mock("@/components/layout/TitleBar", () => ({
 	TitleBar: () => <div data-testid="titlebar" />,
 }));
 
-// NH-1 (session NH): the previous mock returned a bare <div> stub that
+//(session NH): the previous mock returned a bare <div> stub that
 // hid the real ConnectionStatusScreen's a11y contract from this test.
 // Now that the real component is implemented (renders a role="alertdialog"
 // with aria-labelledby/aria-describedby + a focusable Retry button), we
@@ -497,7 +497,7 @@ function makeSectionProps() {
 }
 
 describe("NEW-UX-012: Accessibility ARIA patterns", () => {
-	// BG-R19 finding 13: the previous test was a brittle source-pattern
+	//finding 13: the previous test was a brittle source-pattern
 	// scan that counted occurrences of the literal strings "SelectTrigger"
 	// and "aria-label" in `pages/Settings.tsx`.  But Settings.tsx itself
 	// doesn't use SelectTrigger at all — the Selects live in the
@@ -600,7 +600,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 		});
 	});
 
-	// BG-R19 finding 7 (App.tsx): the previous test was a brittle
+	//finding 7 (App.tsx): the previous test was a brittle
 	// source-pattern scan that asserted `App.tsx` source contains the
 	// literal string "aria-live".  This passes even when the live region
 	// is in a comment, removed in a refactor, or rendered with the wrong
@@ -610,7 +610,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// `[aria-live]` region.
 	//
 	// App-level aria-live region behavior is exhaustively covered in
-	// `__tests__/rw0-rewrite/App-a11y.test.tsx` (one test per
+	// `__tests__/a11y-rewrite/App-a11y.test.tsx` (one test per
 	// RecordingState value); this test is a smoke check that the region
 	// exists at all.
 	it("BG-R19 #7: App renders at least one aria-live region (behavioral)", async () => {
@@ -625,10 +625,10 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 		expect(liveRegions.length).toBeGreaterThanOrEqual(1);
 	});
 
-	// BG-R19 finding 7 (Home.tsx): the previous test was a brittle
+	//finding 7 (Home.tsx): the previous test was a brittle
 	// source-pattern scan that asserted `Home.tsx` source contains
 	// `aria-live`, `role="status"`, or `role='status'`.  It currently
-	// PASSES only because a comment ("PVT-fix-10: removed
+	//PASSES only because a comment (": removed
 	// `aria-live=\"polite\"` from this `<output>`…") contains the
 	// literal string "aria-live" — i.e. the test passes for the wrong
 	// reason.
@@ -641,13 +641,13 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// a screen-reader user relies on: when a transcription completes,
 	// the new text is announced.
 	//
-	// NOTE: `it.fails` because F2 (BG-6 / PVT-047) hasn't yet added an
+	//NOTE: `it.fails` because F2 ( / ) hasn't yet added an
 	// `aria-live` region around the `lastText` element in Home.tsx.
 	// When F2's fix lands, this test will START PASSING and vitest will
 	// report "test unexpectedly passed" — at which point the
 	// `it.fails` should be flipped back to `it`.
 	//
-	// The `it.fails` PVT-047 test below (source-pattern variant)
+	//The `it.fails`  test below (source-pattern variant)
 	// covers the same regression from a source-inspection angle; this
 	// test covers it behaviorally.  Both should be flipped together
 	// when F2's fix lands.
@@ -727,7 +727,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 		});
 	});
 
-	// PVT-049 (Sub-agent 16): the previous "All Switch components" test
+	//(Sub-agent 16): the previous "All Switch components" test
 	// scanned only `pages/{Home,Settings,Models,About}.tsx` for `<Switch`
 	// occurrences and checked that each was either accompanied by an
 	// `aria-label` or wrapped in `<SettingRow label="…">`.  But the
@@ -865,7 +865,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 });
 
 describe("NEW-UX-012: Dialog accessibility", () => {
-	// PVT-004 (Sub-agent 16): the previous version pointed at
+	//(Sub-agent 16): the previous version pointed at
 	// `components/ConfirmDialog.tsx` and `components/ErrorBoundary.tsx`
 	// and guarded with `fs.existsSync`, so when the files moved into
 	// `components/common/` and `components/feedback/` the tests silently
@@ -915,7 +915,7 @@ describe("NEW-UX-012: Dialog accessibility", () => {
 	});
 });
 
-// PVT-047 (Sub-agent 16): Home.tsx renders the most recent transcription
+//(Sub-agent 16): Home.tsx renders the most recent transcription
 // result (`lastText`) inside a `<p>` element so sighted users see what
 // was just pasted, but the surrounding container has no `aria-live`
 // attribute — so screen-reader users get NO announcement when a
@@ -990,7 +990,7 @@ describe("Item 8: index.css declares user-preference @media blocks", () => {
 // must have an accessible name so AT users hear "Dictations today: 5"
 // rather than just "5".
 //
-// As with PVT-047, the production fix (adding `role="img"` +
+//As with , the production fix (adding `role="img"` +
 // `aria-label` to the chart container) is owned by agent 8
 // (Dashboard.tsx is in agent 8's file scope).  `it.fails()` is used so
 // the test exists as a regression spec and won't break validation
@@ -1081,10 +1081,10 @@ describe("Item 10: TitleBar SVGs should NOT carry <title> inside aria-hidden SVG
 	});
 });
 
-// ── BG-R19 finding 10: Modal focus-management a11y coverage ──────────
+//finding 10: Modal focus-management a11y coverage ──────────
 //
 // Modal.tsx (in components/common/) wraps Radix Dialog to provide a
-// consistent focus-managed dialog primitive.  BG-R19 finding 10 notes
+//consistent focus-managed dialog primitive.   finding 10 notes
 // that NO test covers Modal's focus-management behavior — the existing
 // ConfirmDialog + ErrorBoundary source-pattern tests above only check
 // for the presence of role attributes / aria-live strings in source

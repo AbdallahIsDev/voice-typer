@@ -1,16 +1,16 @@
 // @vitest-environment node
 /**
- * FA19 unit tests for XV-149 through XV-157 (Group 2 fixes in the
+ * FA19 unit tests for  through  (Group 2 fixes in the
  * Electron main process).
  *
  * Each finding gets at least one assertion. Where a finding is purely
- * about source-text structure (e.g. "XV-153 stores timer handles"),
+ * about source-text structure (e.g. " stores timer handles"),
  * we assert on the source text — importing index.ts would fire
  * Electron APIs at module-eval time and is not testable in vitest
  * without mocking the entire Electron runtime.
  *
- * For runtime-testable findings (XV-149 StringDecoder, XV-154 cache,
- * XV-157 idempotency), we exercise the actual function with mocked
+ * For runtime-testable findings ( StringDecoder,  cache,
+ *  idempotency), we exercise the actual function with mocked
  * electron/state.
  */
 import { EventEmitter } from "node:events";
@@ -31,7 +31,7 @@ function readSrc(rel: string): string {
 }
 
 // ────────────────────────────────────────────────────────────────────
-// XV-150: package.json has no mdn-data runtime dependency
+//package.json has no mdn-data runtime dependency
 // ────────────────────────────────────────────────────────────────────
 
 describe("XV-150: mdn-data removed from runtime dependencies", () => {
@@ -40,7 +40,7 @@ describe("XV-150: mdn-data removed from runtime dependencies", () => {
 			dependencies: Record<string, string>;
 			devDependencies: Record<string, string>;
 		};
-		// XV-150 fix: mdn-data was previously listed as a runtime
+		//fix: mdn-data was previously listed as a runtime
 		// dependency but is never imported at runtime. jsdom pulls it
 		// transitively via css-tree at install time, so a direct
 		// runtime entry is unnecessary. Assert it is NOT present so
@@ -53,7 +53,7 @@ describe("XV-150: mdn-data removed from runtime dependencies", () => {
 			dependencies: Record<string, string>;
 			devDependencies: Record<string, string>;
 		};
-		// XV-150 alternative: if a build-time tool needs it, mark
+		//alternative: if a build-time tool needs it, mark
 		// it optional or dev only. jsdom already pulls mdn-data
 		// transitively via css-tree, so we don't even need a dev
 		// entry. Assert it's NOT a direct entry in either section.
@@ -62,7 +62,7 @@ describe("XV-150: mdn-data removed from runtime dependencies", () => {
 });
 
 // ────────────────────────────────────────────────────────────────────
-// XV-151: index.ts will-quit branch quits immediately when no pythonProcess
+//index.ts will-quit branch quits immediately when no pythonProcess
 // ────────────────────────────────────────────────────────────────────
 
 describe("XV-151: index.ts will-quit else-branch for null pythonProcess", () => {
@@ -108,7 +108,7 @@ describe("XV-152: showBubbleWindow clears hide-callback slot unconditionally", (
 		// the entire show function body.
 		const hideIdx = src.indexOf("export function hideBubbleWindow");
 		const showBody = src.slice(showIdx, hideIdx);
-		// FZ-13: the rapid-toggle guard now calls
+		//the rapid-toggle guard now calls
 		// clearCurrentHideAnimationCallback() instead of the old
 		// ipcMain.removeAllListeners("bubble:hidden") global side-effect.
 		expect(showBody).toContain("clearCurrentHideAnimationCallback");
@@ -118,7 +118,7 @@ describe("XV-152: showBubbleWindow clears hide-callback slot unconditionally", (
 
 	it("source: bubble-window.ts no longer imports or calls ipcMain (FZ-13 moved the listener to bubble-handlers.ts)", () => {
 		const src = readSrc("../windows/bubble-window.ts");
-		// FZ-13 removed the direct ipcMain manipulation from bubble-window.ts.
+		//removed the direct ipcMain manipulation from bubble-window.ts.
 		// The persistent bubble:hidden listener now lives in bubble-handlers.ts.
 		// Comments documenting the old design may still mention ipcMain, but
 		// there must be NO import statement and NO ipcMain.X() call.

@@ -1,5 +1,5 @@
 /**
- * Regression tests for the NEW-IPC-107 / d-review NEW-IPC-007 fix in
+ * Regression tests for the  / d-review  fix in
  * `usePython.ts`.
  *
  * The gap: the Electron `python-call` IPC handler

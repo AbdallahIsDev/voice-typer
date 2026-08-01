@@ -66,7 +66,7 @@ export default defineConfig(({ command }) => ({
 			// the .asar). Vite emits sourcemaps for the dev server
 			// automatically; this flag controls production emission.
 			sourcemap: command === "serve",
-			// XS-67: raise the chunk-size warning limit from Vite's
+			//raise the chunk-size warning limit from Vite's
 			// default 500 KB to 600 KB so the renderer bundle's
 			// larger chunks (radix-ui, hugeicons) don't print a noisy
 			// warning on every build. The 1.4 MB tauri-bridge chunk
@@ -88,7 +88,7 @@ export default defineConfig(({ command }) => ({
 				// crashed Vite HMR on locale switch. The JSON copy at
 				// src/renderer/src/data/ is imported with a project-relative
 				// path instead.
-				// NEW-TS-016: removed non-existent barrel file aliases
+				//removed non-existent barrel file aliases
 				// (#components, #lib, #hooks). Code uses @/... instead.
 			},
 		},

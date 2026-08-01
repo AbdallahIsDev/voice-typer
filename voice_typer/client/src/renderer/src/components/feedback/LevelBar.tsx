@@ -12,7 +12,7 @@ interface LevelBarProps {
 
 // ── Centralised audio-quality thresholds ──────────────────────────────
 //
-// PVT-027-followup / fix #7: both ``LevelBar`` and
+// Both ``LevelBar`` and
 // ``LiveQualityFeedback`` need to classify the current RMS / peak pair
 // into a qualitative band.  Previously each component hard-coded its
 // own thresholds (``lvl > 0.7`` here, ``peak > 0.9`` there, etc.) so

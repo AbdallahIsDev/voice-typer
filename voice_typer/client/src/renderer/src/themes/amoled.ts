@@ -4,7 +4,7 @@
  * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
  * are consumed.
  *
- * CR-061: light and dark now define the SAME superset of CSS vars.
+ * light and dark now define the SAME superset of CSS vars.
  * Previously the light map covered only 16 vars while the dark map
  * covered 31 — components reading e.g. ``--sidebar-ring`` in light
  * mode fell through to the stylesheet default, producing an
@@ -44,20 +44,26 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		"--secondary": "oklch(0.92 0 0)",
 		"--secondary-foreground": "oklch(0.1 0 0)",
 		"--muted": "oklch(0.96 0 0)",
-		/* PVT-042: bump L from 0.5 to 0.48 so --muted-foreground clears WCAG AA
+		/* bump L from 0.5 to 0.48 so --muted-foreground clears WCAG AA
 		   4.5:1 against the white background. */
 		"--muted-foreground": "oklch(0.48 0 0)",
 		// Borders / inputs / rings
-		"--border": "oklch(0.9 0 0)",
-		"--input": "oklch(0.9 0 0)",
-		/* PVT-045: drop the `/0.5` alpha — when combined with tailwind's
+		/* WCAG 1.4.11: L lowered from 0.9 to 0.62 so the border clears
+		   3:1 contrast against the white background. */
+		"--border": "oklch(0.62 0 0)",
+		"--input": "oklch(0.62 0 0)",
+		/* drop the `/0.5` alpha — when combined with tailwind's
 		   focus-visible:ring-ring/30 the effective opacity fell to 15%, rendering
 		   the focus indicator invisible on white. Use the opaque primary blue
-		   (matches PVT-044's default light --ring value) which already clears
+		   (matches 's default light --ring value) which already clears
 		   3:1 contrast at /30 alpha. */
 		"--ring": "oklch(0.488 0.243 264.376)",
 		// Destructive
-		"--destructive": "oklch(0.58 0.22 27)",
+		/* WCAG AA: --destructive L=0.58 in light mode means the default
+		   white --destructive-foreground only reaches ~4.4:1. Lowering
+		   the accent L to 0.55 keeps the same hue family but lets white
+		   text clear AA 4.5:1 against the slightly deeper red. */
+		"--destructive": "oklch(0.55 0.22 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
 		// Sidebar
 		"--sidebar": "oklch(0.98 0 0)",
@@ -77,7 +83,7 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		// Scrollbar
 		"--scrollbar-thumb": "oklch(0.85 0 0)",
 		"--scrollbar-thumb-hover": "oklch(0.75 0 0)",
-		// NH-16: status tokens for light mode. Semantic
+		// status tokens for light mode. Semantic
 		// green/amber/blue so status meaning is preserved on
 		// this theme's palette (overrides the stylesheet default).
 		"--success": "oklch(0.62 0.17 149)",
@@ -99,7 +105,7 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		"--card-foreground": "oklch(0.985 0 0)",
 		"--popover": "oklch(0.04 0 0)",
 		"--popover-foreground": "oklch(0.985 0 0)",
-		// Primary / accent (CR-061: added --primary + --primary-foreground
+		// Primary / accent (added --primary + --primary-foreground
 		// so the light/dark var coverage matches; previously the dark map
 		// relied on the stylesheet default for these).
 		"--primary": "oklch(0.546 0.245 262.881)",
@@ -114,10 +120,12 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		"--muted": "oklch(0.08 0 0)",
 		"--muted-foreground": "oklch(0.65 0 0)",
 		// Borders / inputs / rings
-		"--border": "oklch(0.15 0 0)",
-		"--input": "oklch(0.18 0 0)",
+		/* WCAG 1.4.11: L raised from 0.15 to 0.52 so the border clears
+		   3:1 contrast against the true-black AMOLED background. */
+		"--border": "oklch(0.52 0 0)",
+		"--input": "oklch(0.54 0 0)",
 		"--ring": "oklch(0.7 0 0)",
-		// Destructive (CR-061: added so dark matches light coverage.)
+		// Destructive (added so dark matches light coverage.)
 		"--destructive": "oklch(0.55 0.22 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
 		// Sidebar
@@ -129,7 +137,7 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		"--sidebar-accent-foreground": "oklch(0.985 0 0)",
 		"--sidebar-border": "oklch(0.1 0 0)",
 		"--sidebar-ring": "oklch(0.7 0 0)",
-		// Charts (CR-061: added so dark matches light coverage.)
+		// Charts (added so dark matches light coverage.)
 		"--chart-1": "oklch(0.6 0.22 264)",
 		"--chart-2": "oklch(0.65 0.18 145)",
 		"--chart-3": "oklch(0.6 0.18 30)",
@@ -138,7 +146,7 @@ export const amoledTheme: Omit<ThemePreset, "nameKey"> = {
 		// Scrollbar
 		"--scrollbar-thumb": "oklch(0.2 0 0)",
 		"--scrollbar-thumb-hover": "oklch(0.3 0 0)",
-		// NH-16: status tokens for dark mode. Semantic
+		// status tokens for dark mode. Semantic
 		// green/amber/blue so status meaning is preserved on
 		// this theme's palette (overrides the stylesheet default).
 		"--success": "oklch(0.7 0.16 149)",

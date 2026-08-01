@@ -1,5 +1,5 @@
 /**
- * PVT-076 — shared renderer test mocks.
+ *  — shared renderer test mocks.
  *
  * This file collects the mock factories that recur across the test
  * suite (`window.python`, `window.window_`, `window.bubble`, the
@@ -7,7 +7,7 @@
  * file no longer has to redefine them. The helpers are intentionally
  * side-effect-free on import — tests opt in by calling the installers
  * in `beforeEach` (matching the existing convention in
- * `__tests__/App.test.tsx` and `__tests__/rw1-rewrite/*.test.tsx`).
+ * `__tests__/App.test.tsx` and `__tests__/behavior-rewrite/*.test.tsx`).
  *
  * Mocks that need `vi.hoisted` (because they're referenced inside
  * `vi.mock` factory functions that run before top-level imports) still

@@ -1,14 +1,14 @@
 /**
- * Tests for the shared hotkey validation system (HOTKEY-UNIFY-001).
+ * Tests for the shared hotkey validation system.
  *
  * These tests pin the contract documented in hotkey-validation.ts:
  * - isReserved detects OS-reserved shortcuts per-platform.
- * - validateHotkey accepts modifier-only triggers (Shift alone is a
- *   valid dictation key via modifier-only release detection).
+ * - validateHotkey accepts modifier-only triggers (Ctrl/Alt alone is a
+ *   valid dictation key via modifier-only release detection; bare Shift/Cmd/Win/Super are rejected as typing-interfering — see rule 11).
  * - validateHotkey rejects combos that end with a modifier
  *   ("Shift+Ctrl" → reject the WHOLE combo, not return a partial
  *   "<shift>" fragment). This is the unit-test side of the
- *   partial-assign fix (Problem 2.2): the function's return type
+ *   partial-assign fix: the function's return type
  *   declares `partial?: never`, and these tests assert the field is
  *   never set so a future refactor can't silently reintroduce the
  *   partial-assign bug by adding a `partial` field.
@@ -123,7 +123,7 @@ describe("validateHotkey — reserved shortcut rejection", () => {
 
 	it("does NOT reject non-reserved combos on the same platform", () => {
 		expect(validateHotkey("<ctrl>+<alt>+v", "win32").valid).toBe(true);
-		// HOTKEY-VALIDATION-002: Cmd+<letter> is blocked on macOS
+		// Cmd+<letter> is blocked on macOS
 		// (even with other modifiers) because Cmd+Shift+V is
 		// "Paste and Match Style" in many apps. Use Cmd+F-key
 		// instead, which is allowed.
@@ -133,9 +133,29 @@ describe("validateHotkey — reserved shortcut rejection", () => {
 });
 
 describe("validateHotkey — modifier-only (single-key triggers)", () => {
-	it("accepts Shift alone (modifier-only release is a valid single-key trigger)", () => {
+	it("rejects Shift alone (bare typing-interfering modifier — rule 11)", () => {
 		const result = validateHotkey("<shift>", "win32");
-		expect(result.valid).toBe(true);
+		expect(result.valid).toBe(false);
+		expect(result.reason).toBeTruthy();
+		expect(result).not.toHaveProperty("partial");
+	});
+
+	it("rejects Cmd alone on macOS (bare typing-interfering modifier — rule 11)", () => {
+		const result = validateHotkey("<cmd>", "darwin");
+		expect(result.valid).toBe(false);
+		expect(result).not.toHaveProperty("partial");
+	});
+
+	it("rejects Win alone (bare typing-interfering modifier — rule 11)", () => {
+		const result = validateHotkey("<win>", "win32");
+		expect(result.valid).toBe(false);
+		expect(result).not.toHaveProperty("partial");
+	});
+
+	it("rejects Super alone (bare typing-interfering modifier — rule 11)", () => {
+		const result = validateHotkey("<super>", "linux");
+		expect(result.valid).toBe(false);
+		expect(result).not.toHaveProperty("partial");
 	});
 
 	it("accepts Ctrl alone", () => {
@@ -160,9 +180,9 @@ describe("validateHotkey — modifier-only (single-key triggers)", () => {
 	});
 });
 
-describe("validateHotkey — partial-assign contract (Problem 2.2)", () => {
-	it("accepts Shift+Ctrl (pure-modifier combo — HOTKEY-MULTIKEY-001)", () => {
-		// HOTKEY-MULTIKEY-001 (Task 1.3): pure-modifier combos like
+describe("validateHotkey — partial-assign contract", () => {
+	it("accepts Shift+Ctrl (pure-modifier combo)", () => {
+		// Pure-modifier combos like
 		// ``<shift>+<ctrl>`` are now ALLOWED — they're valid modifier-only
 		// release triggers in the native backends. The previous rule
 		// "combo must not end with a modifier" incorrectly rejected these
@@ -180,20 +200,20 @@ describe("validateHotkey — partial-assign contract (Problem 2.2)", () => {
 		expect(result).not.toHaveProperty("partial");
 	});
 
-	it("accepts Ctrl+Alt (pure-modifier combo — HOTKEY-MULTIKEY-001)", () => {
+	it("accepts Ctrl+Alt (pure-modifier combo)", () => {
 		const result = validateHotkey("<ctrl>+<alt>", "win32");
 		expect(result.valid).toBe(true);
 		expect(result).not.toHaveProperty("partial");
 	});
 
-	it("accepts Shift+Alt+Cmd (multi-modifier combo on macOS — HOTKEY-MULTIKEY-001)", () => {
+	it("accepts Shift+Alt+Cmd (multi-modifier combo on macOS)", () => {
 		const result = validateHotkey("<shift>+<alt>+<cmd>", "darwin");
 		expect(result.valid).toBe(true);
 		expect(result).not.toHaveProperty("partial");
 	});
 
 	it("rejects mixed combo ending with modifier (Ctrl+V+Alt — partial-assign guard)", () => {
-		// HOTKEY-MULTIKEY-001: the structural rule still rejects combos
+		// The structural rule still rejects combos
 		// that MIX modifiers AND non-modifiers but end with a modifier
 		// (e.g. ``<ctrl>+<v>+<alt>``). This is the partial-assign guard
 		// — the user almost certainly meant ``<ctrl>+<alt>+<v>``.
@@ -208,7 +228,7 @@ describe("validateHotkey — partial-assign contract (Problem 2.2)", () => {
 		// is valid. This makes sure the "ends with modifier" check
 		// isn't over-rejecting. Uses Ctrl+Alt+V (not Shift+V) because
 		// pure Shift+<letter> is now correctly rejected (interferes
-		// with capitalization) — see HOTKEY-VALIDATION-002.
+		// with capitalization).
 		const result = validateHotkey("<ctrl>+<alt>+<v>", "win32");
 		expect(result.valid).toBe(true);
 	});
@@ -218,16 +238,18 @@ describe("validateHotkey — partial-assign contract (Problem 2.2)", () => {
 		// `partial` field. This locks the contract for the
 		// modifier-only-release-detection path that drove the
 		// original partial-assign bug.
-		// HOTKEY-VALIDATION-002: `<win>` and `<super>` are excluded
+		// `<win>` and `<super>` are excluded
 		// on win32 because they are OS-shell-reserved (Win opens
 		// Start menu, Super opens Activities on Linux). They are
 		// still valid on darwin where the Win/Super key doesn't
 		// exist as a system modifier.
 		for (const mod of MODIFIER_KEYS_SHARED) {
-			// HOTKEY-VALIDATION-002: `<win>`, `<super>`, and `<cmd>`
+			// `<win>`, `<super>`, and `<cmd>`
 			// are excluded on win32 because they're in
 			// UNIVERSAL_RESERVED_SHORTCUTS (system gestures).
 			if (mod === "win" || mod === "super" || mod === "cmd") continue;
+			// Rule 11 rejects bare <shift> as a typing-interfering modifier.
+			if (mod === "shift") continue;
 			const result = validateHotkey(`<${mod}>`, "win32");
 			expect(result.valid).toBe(true);
 			expect(result).not.toHaveProperty("partial");
@@ -238,7 +260,7 @@ describe("validateHotkey — partial-assign contract (Problem 2.2)", () => {
 		// Sweep a representative set of invalid inputs: empty,
 		// reserved, and mixed-combo-ends-with-modifier. All inputs are
 		// invalid on win32 specifically (the platform passed below).
-		// HOTKEY-MULTIKEY-001: pure-modifier combos (``<shift>+<ctrl>``,
+		// Pure-modifier combos (``<shift>+<ctrl>``,
 		// ``<ctrl>+<alt>``) are now VALID, so they're removed from this
 		// list. We use ``<ctrl>+<v>+<alt>`` (mixed combo ending with
 		// modifier) as the structural-rule representative instead.

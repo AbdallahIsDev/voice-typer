@@ -1,5 +1,5 @@
 /**
- * BG-R11 (ConfirmDialog confirmedRef test).
+ *  (ConfirmDialog confirmedRef test).
  *
  * ConfirmDialog wraps Radix AlertDialog. The contract under test is the
  * confirmedRef-based "Confirm vs Cancel" discrimination:
@@ -17,7 +17,7 @@
  * This test pins the behavior so a future refactor that drops the ref
  * (or that adds an onConfirm+onCancel double-call) is caught here.
  *
- * Additionally, BG-10 / BG-R11: we assert the redundant `aria-label`
+ * Additionally,  / : we assert the redundant `aria-label`
  * props were removed — the visible text content provides the accessible
  * name, so the buttons should NOT carry a duplicate aria-label.
  */
@@ -116,7 +116,7 @@ describe("ConfirmDialog — BG-R11 (confirmedRef discriminates Confirm vs Cancel
 		);
 		await screen.findByRole("alertdialog");
 		const confirmBtn = screen.getByRole("button", { name: "Delete" });
-		// BG-10: visible text content provides the accessible name —
+		//visible text content provides the accessible name —
 		// a duplicate aria-label would be announced twice by SR.
 		expect(confirmBtn).not.toHaveAttribute("aria-label");
 	});
@@ -230,5 +230,21 @@ describe("ConfirmDialog — BG-R11 (confirmedRef discriminates Confirm vs Cancel
 		// onConfirm must still be exactly 1 (not 2) — the second
 		// session was a Cancel, not a Confirm.
 		expect(onConfirm).toHaveBeenCalledTimes(1);
+	});
+	it("accepts any Button variant (e.g. outline) — widened from the original destructive|warning union", async () => {
+		render(
+			<ConfirmDialog
+				open={true}
+				title="Neutral action?"
+				message="Are you sure?"
+				confirmLabel="Continue"
+				cancelLabel="Cancel"
+				variant="outline"
+				onConfirm={vi.fn()}
+				onCancel={vi.fn()}
+			/>,
+		);
+		const confirmBtn = await screen.findByRole("button", { name: "Continue" });
+		expect(confirmBtn).toHaveAttribute("data-variant", "outline");
 	});
 });

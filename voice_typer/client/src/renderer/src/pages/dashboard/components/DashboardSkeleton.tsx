@@ -1,4 +1,4 @@
-// DR-10: dashboard loading skeleton extracted from `pages/Dashboard.tsx`
+//dashboard loading skeleton extracted from `pages/Dashboard.tsx`
 // (lines ~418-488 of the pre-split file).
 //
 // Pure presentational component — no props, no hooks, no side effects.

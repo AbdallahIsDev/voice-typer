@@ -1,6 +1,6 @@
 // Pure builder for the AudioFilterChain labels dictionary.
 //
-// DR-15: previously this logic lived inline in `AudioFilterChain.tsx`
+//previously this logic lived inline in `AudioFilterChain.tsx`
 // as a `useMemo` factory with 80+ `t()` calls and 48 string keys
 // hard-coded. Extracted here as a pure function so the i18n key list
 // is owned by the registry (`audioFilterRowDescriptors`) — adding a
@@ -43,8 +43,8 @@ export type AudioFilterLabels = Record<string, string>;
  * Calls `t()` exactly once per unique key (the section title key is
  * shared across all descriptors but resolved only once). Total call
  * count: 24 (labelKey) + 24 (infoSearchKey) + 1 (sectionTitleKey) =
- * 49 — identical to the pre-DR-15 inline `useMemo` factory, so the
- * `TY-37` memoisation regression test's `firstRenderCount > 20`
+ * 49 — identical to the pre- inline `useMemo` factory, so the
+ * `` memoisation regression test's `firstRenderCount > 20`
  * sanity check continues to hold.
  */
 export function buildAudioFilterLabels(t: TFunction): AudioFilterLabels {

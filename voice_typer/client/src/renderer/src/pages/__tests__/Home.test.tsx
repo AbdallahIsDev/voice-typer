@@ -72,7 +72,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		TextIcon: make("TextIcon"),
 		Tick02Icon: make("Tick02Icon"),
 		Time02Icon: make("Time02Icon"),
-		// BG-6 test: LastTranscriptionPreview renders Undo + Re-paste
+		//test: LastTranscriptionPreview renders Undo + Re-paste
 		// buttons when lastText is set; the icons must be in the mock
 		// or HugeiconsIcon throws "No 'Undo02Icon' export is defined".
 		Undo02Icon: make("Undo02Icon"),
@@ -131,7 +131,7 @@ describe("Home page", () => {
 		const { default: Home } = await import("@/pages/Home");
 		render(<Home />);
 
-		// StatCards renders three labelled cards. NF-R15-7: card labels
+		//StatCards renders three labelled cards. : card labels
 		// are i18n-driven (dashboard.cards.dictations/chars/duration).
 		expect(screen.getByText("Dictations")).toBeTruthy();
 		expect(screen.getByText("Characters")).toBeTruthy();

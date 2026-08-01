@@ -1,7 +1,7 @@
 /**
  * Bubble overlay BrowserWindow creation + helpers.
  *
- * Extracted from `index.ts` (REF-2). DR-7 split this module into 4
+ * Extracted from `index.ts` (REF-2).  split this module into 4
  * focused files under `./bubble/`; this file is now a thin re-export
  * aggregator so all existing consumers (`bubble-handlers.ts`,
  * `handle-message.ts`, `window-handlers.ts`, `windows/index.ts`,
@@ -11,7 +11,7 @@
  *
  * Original module overview (now spread across `./bubble/`):
  *   - `centerOnPrimaryDisplay()` — top/bottom centered position for the bubble.
- *   - `centerOnActiveDisplay()` — PVT-068: multi-monitor aware positioning
+ *   - `centerOnActiveDisplay()` — : multi-monitor aware positioning
  *     using `screen.getCursorScreenPoint()` to find the display the user
  *     is currently on (rather than always the primary display).
  *   - `isForegroundFullscreen()` — best-effort exclusive-fullscreen detection
@@ -20,7 +20,7 @@
  *   - `showBubbleWindow()` / `hideBubbleWindow()` — animated show/hide with
  *     rapid-toggle guard + renderer-driven exit animation.
  *
- * PVT-068: bubble position is now remembered across show/hide cycles.
+ * : bubble position is now remembered across show/hide cycles.
  * The BrowserWindow's `moved` event persists the user's last drag
  * position to module-level state (`savedBubblePos`); on the next
  * `showBubbleWindow()` we restore those coordinates instead of

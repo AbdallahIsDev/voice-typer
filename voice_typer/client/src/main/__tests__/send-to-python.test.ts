@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * XS-78: behavioral tests for `src/main/python/send-to-python.ts`.
+ * : behavioral tests for `src/main/python/send-to-python.ts`.
  *
  * Covers the SEC-019 allowlist enforcement + RACE early-reject paths:
  *   - Disallowed commands are rejected BEFORE the socket write

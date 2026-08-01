@@ -1,16 +1,16 @@
 /**
- * Tests for the Vocabulary page — BG-60 (load-error variant) and
- * BG-62 (localised load-failed description).
+ * Tests for the Vocabulary page —  (load-error variant) and
+ *  (localised load-failed description).
  *
- * BG-60: the load-error EmptyState in Vocabulary.tsx previously used
+ * : the load-error EmptyState in Vocabulary.tsx previously used
  * the default ``"info"`` variant, which made a backend-load failure
- * look identical to "you haven't added any words yet". BG-60 switches
+ * look identical to "you haven't added any words yet".  switches
  * the load-error EmptyState to ``variant="error"`` so the failure is
  * visually distinct (destructive ring + Alert02Icon + role="alert").
  *
- * BG-62: the loadError string previously fell back to a hardcoded
+ * : the loadError string previously fell back to a hardcoded
  * English "Failed to load vocabulary" when the caught error wasn't an
- * Error instance. BG-62 replaces that fallback with the localised
+ * Error instance.  replaces that fallback with the localised
  * ``vocabulary.loadFailedDescription`` i18n key.
  */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -121,7 +121,7 @@ describe("Vocabulary page — BG-60 load-error variant + BG-62 localised descrip
 			expect(screen.getByText("Failed to load vocabulary")).toBeTruthy();
 		});
 
-		// BG-62: the loadError description is the localised string
+		//the loadError description is the localised string
 		// from vocabulary.loadFailedDescription (not a hardcoded
 		// English "Failed to load vocabulary" fallback). We threw a
 		// non-Error rejection above so the fallback path is taken.

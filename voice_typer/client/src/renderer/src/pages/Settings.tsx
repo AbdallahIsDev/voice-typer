@@ -37,7 +37,7 @@ import {
 
 const LS_KEY = "voice-typer-settings-tab";
 
-// DR-9 / 1-C Finding 11: keys excluded from reset-to-defaults because they
+//1-C Finding 11: keys excluded from reset-to-defaults because they
 // encode one-time state (schema version, onboarding flag, OS-specific
 // warning dismissal) that must survive a factory reset of user-tunable
 // preferences. Hoisted to module scope so `resetToDefaults` can be a
@@ -66,8 +66,8 @@ function getSavedTab(): SettingsTab {
 	return "general";
 }
 
-// NOTE: App.tsx prop passing will be removed by EC-FIX-13.
-// EC-FIX-14 (BACKLOG-004): SettingsPage now obtains `navigate` via
+//NOTE: App.tsx prop passing will be removed by
+//(BACKLOG-004): SettingsPage now obtains `navigate` via
 // useNavigation and theme state via useTheme directly, eliminating the
 // `onNavigate` / `themeMode` / `onThemeChange` prop drills from App.tsx.
 export default function SettingsPage() {
@@ -82,14 +82,14 @@ export default function SettingsPage() {
 		mergeExternalConfig,
 	} = useSettingsConfig();
 	const { call } = usePython();
-	// EC-FIX-14: subscribe to the theme hook directly instead of
+	//subscribe to the theme hook directly instead of
 	// receiving themeMode / onThemeChange as props from App.tsx. The
 	// hook is the canonical source of theme state; calling it here
 	// (in addition to App.tsx) is safe because theme state is
 	// synchronised across instances via the config_changed event
 	// subscription and localStorage cache (see useTheme.ts).
 	const { themeMode: themeModeProp, handleThemeChange } = useTheme(call);
-	// EC-FIX-14: obtain `navigate` directly from the navigation hook
+	//obtain `navigate` directly from the navigation hook
 	// instead of receiving it as an `onNavigate` prop from App.tsx.
 	const { navigate } = useNavigation();
 	const { showSnack } = useSnackbar();
@@ -169,11 +169,23 @@ export default function SettingsPage() {
 		}
 	}, [activeTab]);
 
-	// Skip the initial fetch when the module-level cache is populated —
-	// re-renders instantly from cache instead of flashing a spinner.
+	// Always re-fetch on mount, even when the module-level cache is
+	// populated. Pre-fix, the `if (!config)` guard short-circuited the
+	// fetch whenever `_cachedConfig` was non-null — so a user who
+	// changed `audio_preset` (or any audio filter) on the Microphone
+	// page, or `model_size` / `asr_backend` on the Models page, would
+	// see the STALE cached value when they navigated to Settings. The
+	// `mergeExternalConfig` subscription (config_changed → cache
+	// update) only fires while Settings is mounted, so cross-page
+	// edits made while Settings was unmounted were lost on re-mount.
+	// The page still renders instantly from the cached value (the
+	// state initializer seeds `config` from `_cachedConfig`), then
+	// re-renders with the fresh value when `loadConfig` resolves —
+	// matching how `useModelConfig` (Models page) and the Microphone
+	// page already behave.
 	useEffect(() => {
-		if (!config) loadConfig();
-	}, [config, loadConfig]);
+		void loadConfig();
+	}, [loadConfig]);
 
 	// Live config sync — merge external `config_changed` pushes (e.g.
 	// Ctrl+MouseWheel zoom, sidebar ThemeSwitch) into local state.
@@ -199,7 +211,7 @@ export default function SettingsPage() {
 		}
 	}, [loadConfig]);
 
-	// DR-12: reset-to-defaults wrapped in useCallback so ConfirmDialog's
+	//reset-to-defaults wrapped in useCallback so ConfirmDialog's
 	// `onConfirm` prop identity stays stable across renders. The
 	// CONFIG_PROTECTED_KEYS blocklist (above) is hoisted to module scope so
 	// it doesn't need to be a dep.
@@ -229,7 +241,7 @@ export default function SettingsPage() {
 
 	// Local wrapper around the useTheme handleThemeChange so the Color
 	// Scheme Select doesn't revert while the debounced save is in flight.
-	// EC-FIX-14: `onThemeChange` is now obtained from the useTheme hook
+	//`onThemeChange` is now obtained from the useTheme hook
 	// directly (no longer a prop from App.tsx).
 	const handleThemeChangeLocal = useCallback(
 		(mode: VoiceTyperConfig["theme_mode"]) => {
@@ -239,7 +251,7 @@ export default function SettingsPage() {
 		[mergeExternalConfig, handleThemeChange],
 	);
 
-	// DR-12: empty-state sentinel — previously a render-phase mutation
+	//empty-state sentinel — previously a render-phase mutation
 	// anti-pattern (a ref bumped during children's render + a no-deps
 	// useEffect that flipped `hasAnyVisibleRow` state). Now derived
 	// purely from `settingsFilter` via useMemo: if no tab label (across
@@ -261,7 +273,7 @@ export default function SettingsPage() {
 
 	// Fix #1: filter predicate — wrapped in useCallback with
 	// [settingsFilter] deps so memoized section children don't re-render
-	// unless the query actually changes. DR-12: this is now a PURE
+	//unless the query actually changes. : this is now a PURE
 	// predicate (no render-phase side effect) — `hasAnyVisibleRow` is
 	// derived above via useMemo from the same label set. NOTE: declared
 	// BEFORE the `if (!config)` early return so React's Rules of Hooks are
@@ -390,7 +402,7 @@ export default function SettingsPage() {
 						<button
 							type="button"
 							onClick={() => setSettingsFilter("")}
-							className="inline-flex items-center justify-center rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none"
+							className="inline-flex items-center justify-center rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium text-(--text-primary) hover:bg-(--bg-subtle) focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
 						>
 							{t("a11y.clearSearch")}
 						</button>

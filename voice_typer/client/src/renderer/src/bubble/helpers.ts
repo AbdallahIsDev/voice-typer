@@ -1,9 +1,8 @@
 /**
  * Bubble overlay package — shared pure helpers.
  *
- * Extracted from the former `bubble-components.tsx` monolith (PVT-067 /
- * DR-16). The two helpers here have no React state and no IPC side
- * effects — they are pure functions safe to unit-test in isolation.
+ * The two helpers here have no React state and no IPC side effects —
+ * they are pure functions safe to unit-test in isolation.
  */
 import { t } from "@/i18n/i18n";
 

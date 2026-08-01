@@ -4,7 +4,7 @@
 // Tauri runtime.
 //
 // Basic window controls via Tauri's core window API. Export/dialog APIs
-// (MIG-1.1 + CR-33) invoke the Rust `export_history` /
+//( + ) invoke the Rust `export_history` /
 // `export_vocabulary` / `export_templates` / `export_config` commands
 // which use `tauri-plugin-dialog`'s save dialog. The return shape
 // matches the Electron preload exactly:
@@ -44,7 +44,7 @@ type ExportReturn = Promise<{
 }>;
 
 /**
- * Build a single export command (MIG-1.1 + CR-33). Eliminates the 4×
+ * Build a single export command ( + ). Eliminates the 4×
  * try/catch + canceled/error mapping duplication previously inlined in
  * `exportHistory` / `exportVocabulary` / `exportTemplates` /
  * `exportConfig`.
@@ -113,32 +113,32 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 				callback,
 			),
 
-		// MIG-1.1: invoke the Rust `export_history` command, which opens
+		//invoke the Rust `export_history` command, which opens
 		// `tauri-plugin-dialog`'s save dialog and writes the file. The
 		// renderer call sites (History.tsx export button) are unchanged
 		// because the return shape matches Electron's `history:export`
 		// IPC handler (`{success, path?, error?}`).
 		exportHistory: makeExportCommand(tauri, "export_history"),
 
-		// MIG-1.1: invoke the Rust `export_vocabulary` command. Same
+		//invoke the Rust `export_vocabulary` command. Same
 		// return-shape mapping as `exportHistory`. The renderer call
 		// site (Vocabulary.tsx export button) is unchanged.
 		exportVocabulary: makeExportCommand(tauri, "export_vocabulary"),
 
-		// CR-33 (NEW-PRIV-007): GDPR right-to-export for templates.
+		//(): GDPR right-to-export for templates.
 		// Invokes the Rust `export_templates` command (save-file dialog
 		// + JSON write). Same return-shape mapping as `exportHistory`.
 		// The renderer call site (Templates.tsx export button) is
 		// unchanged on both Electron and Tauri paths.
 		exportTemplates: makeExportCommand(tauri, "export_templates"),
 
-		// CR-33 (NEW-PRIV-007): GDPR right-to-export for the full
+		//(): GDPR right-to-export for the full
 		// config. API keys are redacted by the Python sidecar before
 		// the data reaches this command. Same shape as
 		// `exportTemplates`.
 		exportConfig: makeExportCommand(tauri, "export_config"),
 
-		// CR-33 (UX-008): open the Voice Typer log directory in the OS
+		//(): open the Voice Typer log directory in the OS
 		// file manager. Invokes the Rust `open_logs` command which
 		// shells out to `explorer.exe` / `open` / `xdg-open`. The
 		// renderer call site (Settings.tsx viewLogs button) is
@@ -162,7 +162,7 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 			}
 		},
 
-		// CR-33 (MODEL-IMPORT): native folder picker for HuggingFace
+		//(MODEL-IMPORT): native folder picker for HuggingFace
 		// model imports. Invokes the Rust `open_model_import_dialog`
 		// command which uses `tauri-plugin-dialog`'s folder picker.
 		// The renderer call site (Models.tsx import button) is
@@ -185,18 +185,18 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 			}
 		},
 
-		// FZ-44: `openElectronLogs` removed from the WindowBridge interface
+		//`openElectronLogs` removed from the WindowBridge interface
 		// (dead code — the Rust host's `open_host_logs` command is
 		// accessed directly via `invoke` when needed).
 
-		// G4-M-69 (Tauri parity, EC-FIX-6 / EC-13): forward a
+		//(Tauri parity,  / ): forward a
 		// renderer-caught error (e.g. React's `componentDidCatch` in
 		// `ErrorBoundary.tsx`) to the Rust host for persistence.
 		// Under Electron this routes via `renderer:log-error` IPC and
 		// the main process appends to `electron-renderer-errors.log`.
 		//
-		// ZR-6: implemented at `commands/system_cmds.rs::renderer_log_error`
-		// (GT-35), registered in `main.rs:244-245` (`renderer_log_error`
+		//implemented at `commands/system_cmds.rs::renderer_log_error`
+		//(), registered in `main.rs:244-245` (`renderer_log_error`
 		// entry in the `generate_handler!` list). The Rust command
 		// serializes the payload via `serde_json::to_string` and writes
 		// it to the host file log via `log::error!("[RENDERER_ERROR] {}")`

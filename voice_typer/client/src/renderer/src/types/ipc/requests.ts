@@ -3,7 +3,7 @@
 // All Python-request interfaces + the `PythonRequest` discriminated
 // union. Sent via `window.python.call(...)`.
 //
-// Split out from the original monolithic `types/ipc.ts` (DT-31 / DT-FIX-7).
+//Split out from the original monolithic `types/ipc.ts` ( / ).
 // No behaviour change vs. the original file — pure structural refactor.
 //
 // The response-data shapes for `get_history_count` and
@@ -66,7 +66,7 @@ export interface MicrophoneTestGetLevelRequest {
 	type: "microphone_test_get_level";
 }
 
-// NEW-IPC-009 / NEW-MISMATCH-002: removed ``UpdateConfigRequest``.
+//removed ``UpdateConfigRequest``.
 // The server command is ``set_config`` (not ``update_config``), and
 // the renderer uses untyped ``call<T>('set_config', data)`` directly
 // — there is no consumer of this type.  Keeping a mismatched type
@@ -81,12 +81,12 @@ export interface ToggleDictationRequest {
 	type: "toggle_dictation";
 }
 
-// ERR-IPC-004 (fix): RestartRequest was defined with type 'restart' but
+//(fix): RestartRequest was defined with type 'restart' but
 // the server uses 'restart_app'. Removed the dead type — restart is
 // triggered from the tray menu via the main process (stopPython sends
 // quit_app), not from the renderer.
 //
-// NEW-IPC-009: confirmed that ``restart_app`` / ``quit_app`` are only
+//confirmed that ``restart_app`` / ``quit_app`` are only
 // sent by the Electron main process (tray menu / before-quit), never
 // by the renderer.  No ``RestartRequest`` type is needed in the
 // renderer's type union.
@@ -180,7 +180,7 @@ export type PythonRequest =
 
 // ── Response data shapes ────────────────────────────────────────────────────────────────
 //
-// XZ-CC-16: removed the dead ``ToggleDictationResult``,
+//removed the dead ``ToggleDictationResult``,
 // ``ToggleFavoriteResult``, and ``SaveVocabularyResult`` interfaces.
 // They were only ever referenced by the now-removed ``ResponseData<T>``
 // mapped type (see the "Helper: map request type to its response data"
@@ -194,14 +194,14 @@ export type PythonRequest =
 // the renderer.  Keeping the dead types gave a false impression of
 // type safety while not actually being enforced anywhere.
 //
-// NEW-IPC-009 / NEW-MISMATCH-002: ``RestartResult`` was previously
+//``RestartResult`` was previously
 // removed for the same reason — ``restart_app`` / ``quit_app`` are not
 // sent from the renderer (only the Electron main process sends them),
 // and the server returns ``{type: "ack", data: {}}`` for these.
 
 // ── Helper: map request type to its response data ─────────────────
 //
-// XZ-CC-16: removed the dead ``ResponseData<T extends
+//removed the dead ``ResponseData<T extends
 // PythonRequest["type"]>`` mapped type.  The 26-line conditional-types
 // cascade (mapping each request type to its response-data shape) had
 // ZERO consumers — ``usePython.call`` is generic over ``<T = unknown>``
@@ -210,11 +210,11 @@ export type PythonRequest =
 // type arguments (e.g. ``call<VoiceTyperConfig>('get_config')``),
 // which is the pattern actually used throughout the renderer.
 //
-// NEW-IPC-009 / NEW-MISMATCH-002: ``update_config`` and ``restart``
+//``update_config`` and ``restart``
 // branches were already removed from this cascade in a prior cleanup
 // for the same reason — the server's actual commands are ``set_config``
 // and ``restart_app``, and the renderer uses untyped
 // ``call<T>('set_config', data)`` and never sends ``restart_app`` from
 // the renderer anyway.  ``set_config`` returns ``{type: "ack", data: {}}``
 // on success (or ``{type: "ack", data: {accepted: [...], rejected: [...]}}``
-// when some keys were silently dropped — see NEW-IPC-015 in the server).
+//when some keys were silently dropped — see  in the server).

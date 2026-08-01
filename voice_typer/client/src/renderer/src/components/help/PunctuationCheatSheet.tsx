@@ -1,5 +1,5 @@
 /**
- * PunctuationCheatSheet — NEW-UX-026.
+ * PunctuationCheatSheet.
  *
  * A small list of spoken-form → punctuation-character mappings,
  * rendered inside the existing "?" help overlay (App.tsx), and also
@@ -24,25 +24,19 @@
  * the pipeline passes through untouched; "capital"/"all caps" are
  * capitalization directives Whisper applies to the next spoken word).
  *
- * PVT-054 (sub-agent 21): the Bubble window does not yet render
+ * The Bubble window does not yet render
  * {@link PunctuationCheatSheetButton} — that integration belongs to
- * sub-agent 12 (Bubble.tsx file scope). Until agent 12 wires it up,
+ * the Bubble.tsx file scope. Until that wiring lands,
  * the cheat sheet is reachable from (a) the help overlay Modal in
  * App.tsx, and (b) any other surface that explicitly mounts the
  * button. The affordance itself is fully self-contained here.
- *
- * PVT-054 (sub-agent 21, follow-up): the help overlay Modal in
- * App.tsx should also gain `max-h-[85vh] overflow-y-auto` on its
- * content so the expanded cheat-sheet list (now 19 entries, up from
- * 11) doesn't overflow the viewport on small windows. App.tsx is
- * out of scope for this sub-agent; the gap is documented in the
- * final report.
  *
  * The component renders an inline {@link SearchField} so users can
  * filter entries by spoken form (e.g. "quote") or by character
  * (e.g. `?`). Filtering is case-insensitive and matches substrings.
  */
 import { useState } from "react";
+import { Kbd } from "@/components/common/Kbd";
 import { Modal } from "@/components/common/Modal";
 import { SearchField } from "@/components/common/SearchField";
 import { Button } from "@/components/ui/button";
@@ -151,15 +145,15 @@ export function PunctuationCheatSheet() {
 						>
 							<span className="text-(--text-muted)">{t(entry.labelKey)}</span>
 							{/*
-							 * PVT-054 (sub-agent 21): <code> is the correct semantic
-							 * element here — these are voice-inserted characters, not
-							 * keyboard shortcuts. <kbd> would imply the user pressed
-							 * a physical key. Visual styling is preserved (font-mono,
-							 * bordered chip) so sighted users see no change.
+							 * `<code>` is the correct semantic element here — these
+							 * are voice-inserted characters, not keyboard shortcuts.
+							 * `<kbd>` would imply the user pressed a physical key.
+							 * Visual styling is shared with the HelpOverlay shortcut
+							 * chips via the `<Kbd>` primitive (which renders `<code>`
 							 */}
-							<code className="rounded border border-border bg-(--bg-subtle) px-1.5 py-0.5 font-mono text-xs text-(--text-primary)">
+							<Kbd as="code" className="px-1.5">
 								{entry.character}
-							</code>
+							</Kbd>
 						</li>
 					))}
 				</ul>
@@ -172,11 +166,11 @@ export function PunctuationCheatSheet() {
  * PunctuationCheatSheetButton — a compact `?` affordance that opens a
  * small Modal containing {@link PunctuationCheatSheet}.
  *
- * PVT-054: this lets the cheat sheet be triggered from anywhere
+ * This lets the cheat sheet be triggered from anywhere
  * (Bubble window, microphone page, onboarding, etc.) without going
  * through the full help overlay. The Bubble window itself does not
- * yet render this button — that wiring is owned by sub-agent 12
- * (Bubble.tsx). Until then, the affordance is available to any
+ * yet render this button — that wiring is owned by the Bubble.tsx
+ * file scope. Until then, the affordance is available to any
  * surface that explicitly mounts it.
  *
  * The button is a Radix-accessible icon button (`aria-haspopup="dialog"`)
@@ -210,10 +204,9 @@ export function PunctuationCheatSheetButton() {
 				title={t("help.punctuationTitle")}
 				description={t("help.punctuationHint")}
 				size="sm"
-				// PVT-054: keep the cheat sheet scrollable on small viewports
-				// (Bubble window can be ~320×240). This is the same fix
-				// recommended for the help overlay Modal in App.tsx (out of
-				// scope for this sub-agent — documented in the final report).
+				// Keep the cheat sheet scrollable on small viewports
+				// (Bubble window can be ~320×240). Mirrors the help
+				// overlay Modal's own scroll treatment.
 				className="w-110 max-h-[85vh] overflow-y-auto"
 			>
 				<PunctuationCheatSheet />

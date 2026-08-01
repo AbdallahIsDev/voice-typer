@@ -1,6 +1,6 @@
 // Microphone page — thin composition root.
 //
-// Formerly a 1193-line monolith (EC-12). Split into a
+//Formerly a 1193-line monolith (). Split into a
 // ``pages/microphone/`` package: this file wires the three hooks
 // (``useMicrophoneData`` / ``useMicrophonePermission`` /
 // ``useMicrophoneTest``) and renders the three sub-components
@@ -117,7 +117,7 @@ export default function MicrophonePage() {
 		);
 	}
 
-	// NF-R10-2: distinguish "backend failed to load" from "no microphones
+	//distinguish "backend failed to load" from "no microphones
 	// found" so the user knows to retry instead of being told to connect
 	// a microphone when the real issue is the backend is unreachable.
 	if (loadError && microphones.length === 0) {
@@ -127,10 +127,10 @@ export default function MicrophonePage() {
 					title={t("microphone.microphone")}
 					description={t("microphone.description")}
 				/>
-				{/* : variant="error" so the destructive
+				{/*variant="error" so the destructive
 					tint + Alert02Icon swap make the failure visually distinct
 					from a genuine empty list (matches the Vocabulary/Templates
-					load-failure pattern from BG-60). */}
+					load-failure pattern from ). */}
 				<EmptyState
 					variant="error"
 					icon={AlertCircleIcon}

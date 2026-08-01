@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * PI-13 + FR-5 regression tests for `atomicWriteFileSync` (Electron-side).
+ *  +  regression tests for `atomicWriteFileSync` (Electron-side).
  *
  * Verifies the contract the helper provides to the export IPC paths:
  *   - On success: the destination contains the new content.
@@ -10,7 +10,7 @@
  *   - On rename failure: the original destination is UNCHANGED and
  *     the temp file is cleaned up.
  *
- * FR-5 (Critical) adds regression coverage for the Windows-fallback
+ *  (Critical) adds regression coverage for the Windows-fallback
  * data-loss scenario:
  *   - On EEXIST/EPERM rename failure, the unlink+rename fallback
  *     recovers the destination atomically.
@@ -24,7 +24,7 @@
  *
  * These tests use the real `node:fs` against a temporary directory
  * (NOT mocked) so they exercise the actual `rename(2)` syscall path.
- * FR-5 regression tests selectively mock `fs.renameSync` /
+ *  regression tests selectively mock `fs.renameSync` /
  * `fs.unlinkSync` via `vi.spyOn` to simulate Windows-specific error
  * codes that POSIX does not naturally produce.
  *
@@ -171,7 +171,7 @@ describe("atomicWriteFileSync (FR-5 Windows-fallback data-loss regression)", () 
 	});
 
 	it("PRESERVES the tmp file when rename fails with EPERM AND destination unlink fails with non-ENOENT", () => {
-		// FR-5 critical regression: previously the catch block on the
+		//critical regression: previously the catch block on the
 		// destination unlinkSync deleted the NEW tmp file, leaving the
 		// user with NEITHER the old destination NOR the new content.
 		// The fix preserves the tmp file so the user can manually
@@ -190,14 +190,14 @@ describe("atomicWriteFileSync (FR-5 Windows-fallback data-loss regression)", () 
 				// be intercepted. The destination is at `dest`; the
 				// tmp is at `_atomicWriteTempPath(dest)`. Throw a
 				// non-ENOENT error for the destination to trigger the
-				// FR-5 path. Throw the same for the tmp to verify the
+				//path. Throw the same for the tmp to verify the
 				// helper does NOT attempt to delete the tmp on this
 				// path (if it did, this mock would throw and surface
 				// the wrong error).
 				if (pStr === dest) {
 					throw errnoError("EPERM", "EPERM: unlink destination");
 				}
-				// Should not be called for the tmp file (FR-5 says do
+				//Should not be called for the tmp file ( says do
 				// NOT unlink tmpPath in this catch block). If it is,
 				// throw to make the regression visible.
 				throw new Error(
@@ -210,7 +210,7 @@ describe("atomicWriteFileSync (FR-5 Windows-fallback data-loss regression)", () 
 		// caught and triggers the fallback, which is what we want).
 		expect(() => atomicWriteFileSync(dest, "NEW\n", "utf-8")).toThrow();
 
-		// FR-5: the tmp file MUST still exist so the user can
+		//the tmp file MUST still exist so the user can
 		// manually rename it for recovery.
 		const tmpPath = _atomicWriteTempPath(dest);
 		expect(fs.existsSync(tmpPath)).toBe(true);
@@ -248,7 +248,7 @@ describe("atomicWriteFileSync (FR-5 Windows-fallback data-loss regression)", () 
 	});
 
 	it("does NOT delete the tmp file when the fallback rename also fails (after unlink succeeded)", () => {
-		// FR-5: even if the destination unlink succeeded, a
+		//even if the destination unlink succeeded, a
 		// subsequent fallback-rename failure must NOT delete the tmp
 		// file. The destination has already been unlinked, so the
 		// tmp file is the user's only remaining copy of the new
@@ -277,7 +277,7 @@ describe("atomicWriteFileSync (FR-5 Windows-fallback data-loss regression)", () 
 
 		// The destination was unlinked by the fallback (real fs).
 		expect(fs.existsSync(dest)).toBe(false);
-		// FR-5: the tmp file MUST still exist so the user can
+		//the tmp file MUST still exist so the user can
 		// manually rename it for recovery (the destination is gone,
 		// so the tmp is the only surviving copy of the new content).
 		const tmpPath = _atomicWriteTempPath(dest);

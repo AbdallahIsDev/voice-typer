@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
 import { usePythonEvent } from "@/hooks/usePython";
+import { useT } from "@/i18n/i18n";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page, RecordingState } from "@/types/ipc";
 
-// NEW-TS-012: runtime validator for the RecordingState string-literal
+//runtime validator for the RecordingState string-literal
 // union.  The backend emits status values as plain strings over IPC;
 // previously we cast them to ``RecordingState`` without validation,
 // which would silently propagate unknown values through the type
@@ -78,6 +79,7 @@ export function useConnection({
 	navigate,
 }: UseConnectionArgs) {
 	// ── Store-backed state ────────────────────────────────────────
+	const t = useT();
 	const setConnectionStatus = useAppStore((s) => s.setConnectionStatus);
 	const setRecordingState = useAppStore((s) => s.setRecordingState);
 	const setLastError = useAppStore((s) => s.setLastError);
@@ -86,12 +88,12 @@ export function useConnection({
 	const recordingState = useAppStore((s) => s.recordingState);
 	const lastError = useAppStore((s) => s.lastError);
 
-	// ER-61: timestamp of the last push event received from the Python
+	//timestamp of the last push event received from the Python
 	// backend (any type — state_changed, status_change, bubble_level,
 	// etc.). Updated by every `usePythonEvent` subscriber below via the
 	// shared `_markEventReceived` callback. Used by the periodic health
 	// check to skip the redundant `get_status` probe when a push event
-	// has landed recently (the backend's RW-10 heartbeat + push events
+	//has landed recently (the backend's  heartbeat + push events
 	// already prove liveness; the 15s poll is belt-and-suspenders for
 	// the case where pushes stop entirely). Stored in a ref (not state)
 	// because it doesn't need to trigger a re-render — only the
@@ -128,7 +130,7 @@ export function useConnection({
 								if (validated) setRecordingState(validated);
 							}
 						})
-						// G4-H-22: surface get_status failures to the
+						//surface get_status failures to the
 						// renderer console instead of silently swallowing
 						// them so a hung backend probe is observable in
 						// the Electron main-process log.
@@ -187,7 +189,7 @@ export function useConnection({
 					}
 				}
 			} catch (err) {
-				// XZ-R16-04: surface the swallowed get_config error to the
+				//surface the swallowed get_config error to the
 				// renderer console so a hung backend probe is observable
 				// (previously this catch silently swallowed the error with
 				// no log line, making it impossible to diagnose why the
@@ -220,14 +222,14 @@ export function useConnection({
 	}, [call, navigate, setConnectionStatus, setRecordingState, setConfig]);
 
 	// Periodic health check while connected
-	// PR-1: use ``get_status`` (lightweight — returns only state +
+	//use ``get_status`` (lightweight — returns only state +
 	// xrun counter) instead of ``get_config`` (serializes the entire
-	// config dict).  The RW-10 heartbeat (5s backend→frontend check)
+	//config dict).  The  heartbeat (5s backend→frontend check)
 	// detects Electron crashes; this renderer→backend check detects
 	// backend crashes.  Together they provide bidirectional crash
 	// detection without config serialization churn.
 	//
-	// PVT-fix-16: the previous implementation flipped to
+	//the previous implementation flipped to
 	// ``"disconnected"`` after a SINGLE failed ``get_status`` call.
 	// A transient TCP hiccup (GC pause, OS scheduler delay, brief
 	// socket congestion) would mark the backend dead even though the
@@ -237,9 +239,9 @@ export function useConnection({
 	// declaring the backend disconnected. A success at any retry
 	// tier resets the failure counter and the cycle continues.
 	//
-	// BG-92: the previous 60s interval was too coarse — a dead
+	//the previous 60s interval was too coarse — a dead
 	// backend could sit undetected for up to a minute before the
-	// user saw any feedback (the RW-10 backend→frontend heartbeat
+	//user saw any feedback (the  backend→frontend heartbeat
 	// only catches ELECTRON crashes, not Python-side crashes). The
 	// 15s interval catches a dead backend within ~15s of the last
 	// successful probe, which is the threshold at which users
@@ -249,7 +251,7 @@ export function useConnection({
 	// ``get_status`` call every 15s (trivial — the response is a
 	// 30-byte JSON envelope).
 	//
-	// ER-61: the 15s probe is now redundant with the backend's push
+	//the 15s probe is now redundant with the backend's push
 	// events — `state_changed` is emitted on every client connect and
 	// `bubble_level` / `mic_level` flow at 10-30 Hz during active use.
 	// We skip the probe entirely if a push event was received within
@@ -270,8 +272,8 @@ export function useConnection({
 		// outage to the user.
 		const HEALTH_CHECK_MAX_RETRIES = 2;
 		const HEALTH_CHECK_RETRY_DELAY_MS = 500;
-		// ER-61: skip the active probe if a push event was received
-		// within this grace window. 60s matches the BG-92 "user
+		//skip the active probe if a push event was received
+		//within this grace window. 60s matches the  "user
 		// perceives hung" threshold — a backend that hasn't pushed
 		// for 60s is either dead or stuck, and the active probe is
 		// the right tool to disambiguate.
@@ -280,7 +282,7 @@ export function useConnection({
 		let failureCount = 0;
 
 		const probe = async (isRetry: boolean): Promise<void> => {
-			// ER-61: skip the probe if a push event was received
+			//skip the probe if a push event was received
 			// recently — the push already proved liveness, so the
 			// active `get_status` round-trip is pure waste. Still
 			// reset failureCount so a transient flap that follows a
@@ -417,14 +419,14 @@ export function useConnection({
 
 	// ── App-level event subscriptions ─────────────────────────────
 
-	// XZ-R16-02: sentinel substring used by the `error` event handler to
-	// detect the supervisor's "respawn exhausted" condition (synthesized
-	// by `python-namespace.ts` when `supervisor_relaunching` carries
-	// `reason: "backoff_exhausted"`). When the message contains this
-	// substring, the handler flips `connectionStatus` to `"disconnected"`
-	// in addition to setting `lastError` — otherwise the UI stays stuck
-	// on the transient `"restarting"` banner forever.
-	const RESPAWN_EXHAUSTED_SENTINEL = "respawn exhausted";
+	//the supervisor's "respawn exhausted" condition is now
+	// signaled via a structured `data.code: "respawn_exhausted"` field on
+	// the `error` event (previously a brittle sentinel substring match).
+	// When this code is present, the handler flips `connectionStatus` to
+	// `"disconnected"` in addition to setting a localized `lastError` —
+	// otherwise the UI stays stuck on the transient `"restarting"` banner
+	// forever.
+	const RESPAWN_EXHAUSTED_CODE = "respawn_exhausted";
 
 	usePythonEvent(
 		"status_change",
@@ -449,28 +451,29 @@ export function useConnection({
 		useCallback(
 			(data): (() => void) | undefined => {
 				markEventReceived();
-				if (typeof data?.message === "string") {
-					setLastError(data.message);
-					// XZ-R16-02: when the supervisor exhausts its respawn
+				if (
+					typeof data?.message === "string" ||
+					typeof data?.code === "string"
+				) {
+					//when the supervisor exhausts its respawn
 					// retries, `python-namespace.ts` synthesizes an `error`
-					// event with `message: "respawn exhausted"`. The UI
-					// must transition from the transient `"restarting"`
-					// state to the terminal `"disconnected"` state so the
-					// user sees the "Lost connection" screen with the
-					// cause + a Retry button, instead of an indefinite
-					// "Restarting…" banner. Without this, the renderer
-					// would stay stuck on "Restarting…" forever (the
-					// supervisor never emits a `reconnected` event after
-					// exhaustion — it calls `app.restart()` which exits
-					// the process; if the restart fails, the renderer is
-					// orphaned).
-					if (data.message.includes(RESPAWN_EXHAUSTED_SENTINEL)) {
+					// event with `code: "respawn_exhausted"`. The UI must
+					// transition from the transient `"restarting"` state to
+					// the terminal `"disconnected"` state so the user sees
+					// the "Lost connection" screen with the cause + a Retry
+					// button, instead of an indefinite "Restarting…" banner.
+					// Use the localized message when the structured code is
+					// present; fall back to the raw message otherwise.
+					if (data?.code === RESPAWN_EXHAUSTED_CODE) {
+						setLastError(t("connection.respawnFailed"));
 						setConnectionStatus("disconnected");
+					} else if (typeof data?.message === "string") {
+						setLastError(data.message);
 					}
 				}
 				return undefined;
 			},
-			[markEventReceived, setLastError, setConnectionStatus],
+			[markEventReceived, setLastError, setConnectionStatus, t],
 		),
 	);
 
@@ -479,7 +482,7 @@ export function useConnection({
 		"reconnecting",
 		useCallback((): (() => void) | undefined => {
 			markEventReceived();
-			// UX-22: `"restarting"` is a member of the ConnectionStatus
+			//`"restarting"` is a member of the ConnectionStatus
 			// union (see appStore.ts), so the `as ConnectionStatus` cast
 			// was redundant dead code.
 			setConnectionStatus("restarting");
@@ -497,7 +500,7 @@ export function useConnection({
 		}, [markEventReceived, call, setConnectionStatus]),
 	);
 
-	// PVT-G5-060: the backend emits `state_changed` once on every
+	//the backend emits `state_changed` once on every
 	// client connect (see `voice_typer/server/ipc_server.py:1311-1326`)
 	// carrying the connect-time snapshot of the app state —
 	// `{ status: AppState.value, message: str }`.  Without a

@@ -3,20 +3,20 @@
 // ADR-0020 §6.3 (Phase 3 UI port): `window.bubble` installer for the
 // Tauri runtime.
 //
-// MIG-1.2: `onLevel` listens to the `bubble_level` Tauri event (coalesced
+//`onLevel` listens to the `bubble_level` Tauri event (coalesced
 // to ≤30 Hz by main.rs:427-442). The 5 shared mutator methods (`show`,
 // `signalReady`, `setPosition`, `setDraggable`, `moveBy`) invoke Rust
-// window-management commands added in MIG-1.2. Each fires-and-forgets —
+//window-management commands added in  Each fires-and-forgets —
 // the return type is `void` per the `MainRendererBubbleMutators`
 // contract, matching the Electron preload (which uses `ipcRenderer.send`,
 // also void). The Rust commands update the bubble BrowserWindow state
 // asynchronously.
 //
-// CR-33: bubble-window-only methods (onConfig, onSetState, resizeTo,
+//bubble-window-only methods (onConfig, onSetState, resizeTo,
 // toggleDictation, hideComplete) — port of preload/bubble.ts:64-71 /
 // 100-102 / 120-122. These are ONLY installed on the bubble window
 // (see `windowLabel` parameter on `createBubbleNamespace` below —
-// EC-FIX-6 / EC-13). The main renderer's `window.bubble` exposes only
+//). The main renderer's `window.bubble` exposes only
 // the 5 shared mutators (the `MainRendererBubbleMutators` subset);
 // the bubble renderer's `window.bubble` exposes the full
 // `BubbleWindowBubble` (`MainRendererBubbleMutators &
@@ -46,7 +46,7 @@
 // — the subscribe wrapper invokes `handler(undefined)` so the consumer
 // callback (which takes no args) is called with the same effect.
 //
-// G4-M-70 (security/observability): every fire-and-forget `invoke(...)`
+//(security/observability): every fire-and-forget `invoke(...)`
 // call now ends with `.catch((err) => console.warn("[bubble IPC] ...",
 // err))` instead of the previous `void invoke(...)` form which
 // discarded rejections. A broken bubble host previously failed
@@ -78,8 +78,8 @@ import { makeListener, type TauriGlobal } from "./detect";
  *
  * Unknown labels default to "main" — the safer (smaller) subset, so a
  * misconfigured window label never accidentally exposes bubble-only
- * methods on the main renderer (SEC-026 regression — see EC-FIX-6 /
- * EC-13).
+ * methods on the main renderer (SEC-026 regression — see  /
+ * ).
  */
 function detectWindowLabel(tauri: TauriGlobal): "main" | "bubble" {
 	const win = tauri.window.getCurrentWindow() as unknown as { label?: string };
@@ -89,7 +89,7 @@ function detectWindowLabel(tauri: TauriGlobal): "main" | "bubble" {
 /**
  * Build the `window.bubble` namespace using Tauri's global API.
  *
- * EC-FIX-6 / EC-13 (SEC-026 regression): the previous version installed
+ *  /  (SEC-026 regression): the previous version installed
  * the FULL bubble API on BOTH windows — no window-label check. A
  * compromised main renderer could invoke `bubble_resize` /
  * `bubble_toggle_dictation` directly, bypassing the bubble-window
@@ -111,7 +111,7 @@ function detectWindowLabel(tauri: TauriGlobal): "main" | "bubble" {
  * `hideComplete` is now bubble-only (was in the shared mutators).
  * Only the bubble renderer's exit-animation handler should invoke it.
  *
- * `setPosition` accepts a single string `position` (XPLAT-6
+ * `setPosition` accepts a single string `position` (
  * fix). Both production call sites — `useConnection.ts:117` (syncing
  * the saved `bubble_position` config) and `GeneralSettingsSection.tsx:151`
  * (the bubble-position dropdown) — pass one of `"top"` / `"bottom"`.
@@ -140,16 +140,16 @@ export function createBubbleNamespace(
 	// onConfig / resizeTo / toggleDictation / hideComplete) AND the
 	// event subscriptions are added below for the bubble window.
 	const mutators: MainRendererBubbleMutators = {
-		// MIG-1.2: show the bubble BrowserWindow. Fire-and-forget —
+		//show the bubble BrowserWindow. Fire-and-forget —
 		// matches Electron's `ipcRenderer.send("bubble:show-from-renderer")`.
-		// G4-M-70: log failures instead of silent drop.
+		//log failures instead of silent drop.
 		show: () => {
 			tauri.core
 				.invoke("bubble_show")
 				.catch((err) => console.warn("[bubble IPC] bubble_show failed:", err));
 		},
 
-		// MIG-1.2: signal that the bubble renderer has mounted and is
+		//signal that the bubble renderer has mounted and is
 		// ready to receive `bubble_level` events. Matches Electron's
 		// `ipcRenderer.send("bubble:ready")`.
 		signalReady: () => {
@@ -160,7 +160,7 @@ export function createBubbleNamespace(
 				);
 		},
 
-		// MIG-1.2 + XPLAT-6: forward the
+		//+ : forward the
 		// `"top" | "bottom"` keyword as a single `position`
 		// arg. The Rust `bubble_set_position(position: String)`
 		// command parses the keyword server-side and resolves
@@ -175,7 +175,7 @@ export function createBubbleNamespace(
 		// command to a single-arg shape so the bridge is
 		// straight-through.
 		//
-		// DT-52: narrow the param type to `"top" | "bottom"` to
+		//narrow the param type to `"top" | "bottom"` to
 		// match the shared `MainRendererBubbleMutators.setPosition`
 		// contract (previously `string`, which let a typo like
 		// `"left"` compile and reach the Rust runtime). The Rust
@@ -191,7 +191,7 @@ export function createBubbleNamespace(
 				);
 		},
 
-		// MIG-1.2: toggle whether the bubble window can be dragged.
+		//toggle whether the bubble window can be dragged.
 		// Matches Electron's `ipcRenderer.send("bubble:draggable", draggable)`.
 		setDraggable: (draggable: boolean) => {
 			tauri.core
@@ -201,8 +201,8 @@ export function createBubbleNamespace(
 				);
 		},
 
-		// MIG-1.2: nudge the bubble window by a relative delta
-		// (keyboard-based move — NEW-A11Y-006). The Rust command takes
+		//nudge the bubble window by a relative delta
+		//(keyboard-based move — ). The Rust command takes
 		// `{dx, dy}` (renamed from the renderer's `deltaX`/`deltaY` to
 		// match the snake_case Rust convention).
 		moveBy: (deltaX: number, deltaY: number) => {
@@ -235,7 +235,7 @@ export function createBubbleNamespace(
 	// (it learns about bubble state via its own Python-side
 	// `status_change` subscription, not via bubble-window events).
 	const subscriptions: BubbleEventSubscriptions = {
-		// MIG-1.2: `onLevel` listens to the `bubble_level` Tauri event
+		//`onLevel` listens to the `bubble_level` Tauri event
 		// (coalesced to ≤30 Hz by main.rs:427-442).
 		onLevel: (callback) =>
 			makeListener<{ rms: number; peak: number }>(
@@ -277,7 +277,7 @@ export function createBubbleNamespace(
 
 	// ─── Bubble-window-only mutators ─────────────────────────
 	const bubbleOnly: BubbleWindowExtras = {
-		// UX-10: bubble-relevant config pushed from the Python backend.
+		//bubble-relevant config pushed from the Python backend.
 		// The sandboxed bubble renderer has no get_config, so this is how
 		// it learns whether to show the mic button. Listens on the
 		// `bubble:config` Tauri event (emitted by the Rust host).
@@ -290,7 +290,7 @@ export function createBubbleNamespace(
 				callback,
 			),
 
-		// CR-33: bubble renderer listens for `bubble:set-state`
+		//bubble renderer listens for `bubble:set-state`
 		// events pushed by the Rust WS reader task (sidecar/ws.rs
 		// `translate_event_name` translates the Python sidecar's
 		// `bubble_set_state` event to the renderer's `bubble:set-state`
@@ -305,7 +305,7 @@ export function createBubbleNamespace(
 				callback,
 			),
 
-		// CR-33: auto-resize the bubble BrowserWindow to exactly fit the
+		//auto-resize the bubble BrowserWindow to exactly fit the
 		// pill content (eliminates the transparent dead zone around the
 		// bubble that blocks clicks to the windows underneath). Matches
 		// Electron's `ipcRenderer.send("bubble:resize", {width, height})`
@@ -319,8 +319,8 @@ export function createBubbleNamespace(
 				);
 		},
 
-		// CR-33 + UX-10: toggle dictation from the bubble's own mic
-		// button. The bubble is sandboxed (SEC-026 / CR-5) with NO
+		//+ : toggle dictation from the bubble's own mic
+		//button. The bubble is sandboxed (SEC-026 / ) with NO
 		// `dispatch` access — the Rust `check_dispatch_window_label`
 		// guard rejects any `dispatch` call from a non-main window. So
 		// instead of `invoke('dispatch', ...)`, the bubble invokes this
@@ -351,8 +351,8 @@ export function createBubbleNamespace(
 				);
 		},
 
-		// UE-14: dismiss the bubble from its own '×' button
-		// (BG-96 / always_visible mode). The Rust `bubble_dismiss`
+		//dismiss the bubble from its own '×' button
+		//( / always_visible mode). The Rust `bubble_dismiss`
 		// command mirrors `bubble_hide_complete` — emits
 		// `bubble:hide` (so the renderer's cleanup runs BEFORE
 		// the window becomes invisible) then hides the window

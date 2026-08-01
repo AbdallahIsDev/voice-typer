@@ -1,8 +1,8 @@
 /**
  * Public barrel for the Electron main-process logging package.
  *
- * Split out from the original 750-line `main/logging.ts` (DT-35 Phase
- * 4.5 spaghetti split). All `import { X } from "../logging"` (or
+ * Split out from the original 750-line `main/logging.ts` (spaghetti
+ * split). All `import { X } from "../logging"` (or
  * `"./logging"` / `"../../main/logging"`) call sites resolve to THIS
  * file — TypeScript's bundler resolution prefers a directory's
  * `index.ts` once the sibling `logging.ts` file is removed.
@@ -16,7 +16,7 @@
  *                             (`DEFAULT_CRASH_LOG_MAX_BYTES`,
  *                             `DEFAULT_MAIN_LOG_MAX_BYTES`,
  *                             `RUNTIME_LOG_MAX_BYTES`).
- *   - `fileSizeCache.ts`    — XV-154 file-size cache +
+ *   - `fileSizeCache.ts`    — file-size cache +
  *                             `_resetFileSizeCacheForTest`.
  *   - `rotation.ts`         — `rotateIfNeeded`, `appendLogLine`,
  *                             `cleanConsoleMsg`, `ts`.
@@ -29,7 +29,7 @@
  *                             `_getRuntimeLogPathForTest` /
  *                             `_resetRuntimeLogPathForTest`.
  *
- * Public API surface (YJ-60): the barrel re-exports ONLY the names
+ * Public API surface: the barrel re-exports ONLY the names
  * that have at least one external (out-of-package) importer. Internal-
  * only helpers — `DIM`, `INFO_CLR`, `WARN_CLR`, `ERROR_CLR`,
  * `mainLogPath`, `mainRuntimeLogger` — are NOT re-exported from this
@@ -43,7 +43,7 @@
  * `mainLogPath` was originally module-private in the monolithic
  * `main/logging.ts` ("verified zero external importers"); the split
  * lifted it to public visibility on `structuredLogger.ts`, but since
- * no external code imports it, YJ-60 keeps it out of the barrel.
+ * no external code imports it, so it is kept out of the barrel.
  * Same for `lifecycleLogPath` (only consumed by `appendLifecycleLine`
  * inside the package) and `appendLifecycleLine` itself (consumed by
  * `printfLogger.ts` inside the package).
@@ -59,7 +59,7 @@
  *     structuredLogger ← printfLogger  (PERSIST_INFO + appendLifecycleLine)
  */
 
-// Colors (leaf). YJ-60: only the colors that have an external importer
+// Colors (leaf). Only the colors that have an external importer
 // are re-exported from the barrel. `DIM` / `INFO_CLR` / `WARN_CLR` /
 // `ERROR_CLR` are consumed only inside this package (by `rotation.ts`
 // and `printfLogger.ts`), so they are intentionally NOT re-exported —
@@ -74,7 +74,7 @@ export {
 	RUNTIME_LOG_MAX_BYTES,
 } from "./constants";
 
-// XV-154 file-size cache (leaf).
+// File-size cache (leaf).
 export { _resetFileSizeCacheForTest } from "./fileSizeCache";
 // Printf-style structured logger + memoized runtime-log path resolver.
 export {
@@ -85,7 +85,7 @@ export {
 	log,
 } from "./printfLogger";
 // File-rotation primitive + low-level log-line helpers.
-// XZ-LOG-03: `redactPii` is re-exported here so external callers
+// `redactPii` is re-exported here so external callers
 // (notably `windows/main-window.ts`'s `appendRendererError` call site,
 // which writes via direct `appendLogLine` and bypasses
 // `formatArgsForFile`) can apply the same PII / API-key / URL
@@ -101,14 +101,14 @@ export {
 	ts,
 } from "./rotation";
 // Message-first structured logger + path resolvers + opt-in lifecycle
-// persistence. YJ-60: `mainLogPath` / `lifecycleLogPath` /
+// persistence. `mainLogPath` / `lifecycleLogPath` /
 // `appendLifecycleLine` are NOT re-exported — they have zero external
 // importers (verified via `rg` across `voice_typer/client/src`). Only
 // `logger` (consumed by `ipc/python-call-handler.ts`, `ipc/window-handlers.ts`,
 // and tests) and `rendererErrorsLogPath` (consumed by
 // `ipc/window-handlers.ts`) are public.
 //
-// PI-6: `deleteElectronPersonalDataLogs` is the GDPR Art. 17 helper
+// `deleteElectronPersonalDataLogs` is the GDPR Art. 17 helper
 // for Electron-side log files (the Python `delete_all_personal_data`
 // cannot reach `app.getPath("userData")`). Re-exported here so a future
 // `deleteAllPersonalData` IPC handler can import it from the logging

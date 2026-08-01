@@ -65,7 +65,7 @@ export const Decorative: Story = {
 	},
 };
 
-// S5-CR-100 example: wrap the (now non-live) Spinner in an explicit
+//example: wrap the (now non-live) Spinner in an explicit
 // <output aria-live="polite"> when the loading state IS the primary
 // status message for the page (e.g. ConnectionStatusScreen while the
 // backend is starting). The wrapper restores the polite live-region

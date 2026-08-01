@@ -97,7 +97,7 @@ export function clearElectronPidFile(): void {
 /**
  * Verify the process at ``pid`` is plausibly the Voice Typer Electron
  * process (not an unrelated process that happened to reuse the PID
- * after a crash). XZ-R5-009.
+ * after a crash).
  *
  * On Linux, reads ``/proc/<pid>/cmdline`` and checks for an Electron /
  * Voice Typer marker (``electron`` or ``voice-typer``). On macOS, runs
@@ -149,7 +149,7 @@ function isPidVoiceTyper(pid: number): boolean {
  * (stale lock).  Returns null if the file doesn't exist, is unreadable, or
  * the PID is still alive.
  *
- * XZ-R5-009: a stale-PID check via ``process.kill(pid, 0)`` only verifies
+ * : a stale-PID check via ``process.kill(pid, 0)`` only verifies
  * the PID exists — not that it's Voice Typer. PID reuse by an unrelated
  * process would cause a lockout until that process exits. We now also
  * verify the process command line via :func:`isPidVoiceTyper`.
@@ -163,7 +163,7 @@ export function readStaleElectronPid(): number | null {
 		if (!Number.isFinite(pid) || pid <= 0) return null;
 		try {
 			process.kill(pid, 0);
-			// XZ-R5-009: verify it's actually Voice Typer before
+			//verify it's actually Voice Typer before
 			// treating the lock as held. If the PID was reused by
 			// an unrelated process, treat the lock as stale so we
 			// don't lock out the unrelated process.
@@ -213,7 +213,7 @@ export function acquireSingleInstanceLock(): void {
 					"clearing stale PID file and retrying",
 			);
 			clearElectronPidFile();
-			// AC-120: ``app.releaseSingleInstanceLock()`` releases the lock
+			//``app.releaseSingleInstanceLock()`` releases the lock
 			// held by THIS process. We never held the lock (the first
 			// ``requestSingleInstanceLock()`` returned false), so this call
 			// is a no-op on most platforms. On Linux, Electron's single-
@@ -247,7 +247,7 @@ export function acquireSingleInstanceLock(): void {
 				log.warn("[single_instance] releaseSingleInstanceLock failed:", e);
 			}
 			gotTheLock = app.requestSingleInstanceLock();
-			// AC-120: log the result of the retry so operators can see
+			//log the result of the retry so operators can see
 			// whether the stale-lock recovery succeeded. Previously the
 			// result was silently assigned to ``gotTheLock`` and the only
 			// observable signal was whether the process exited (duplicate)

@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * YJ-3 regression coverage for the opt-in INFO log persistence path.
+ *  regression coverage for the opt-in INFO log persistence path.
  *
  * Background
  * ----------
@@ -12,7 +12,7 @@
  * shown, window created) left ZERO durable trace in packaged builds,
  * making support triage impossible.
  *
- * The fix (YJ-3) adds a `VOICE_TYPER_ELECTRON_INFO_LOG=1` env-var
+ * The fix () adds a `VOICE_TYPER_ELECTRON_INFO_LOG=1` env-var
  * opt-in. When set, INFO logs are routed through `appendLifecycleLine`
  * to a dedicated `electron-lifecycle.log` (1 MiB × 1 backup). When
  * unset, behavior is unchanged.
@@ -116,7 +116,7 @@ describe("YJ-3: VOICE_TYPER_ELECTRON_INFO_LOG=1 routes logger.info to electron-l
 		// The line must end with a newline so `tail -f` shows it cleanly.
 		expect(line.endsWith("\n")).toBe(true);
 
-		// YJ-FIX-D2: verify the file mode is 0o600 (sensitive INFO context —
+		//verify the file mode is 0o600 (sensitive INFO context —
 		// PII risk if world-readable). The lifecycle log is created on first
 		// INFO write, so the third `options` arg to `fs.appendFileSync` MUST
 		// pass `mode: 0o600` to constrain permissions on the freshly-created
@@ -189,7 +189,7 @@ describe("YJ-3: when VOICE_TYPER_ELECTRON_INFO_LOG is UNSET, logger.info does NO
 			(args: unknown[]) => args[0] === LIFECYCLE_LOG_PATH,
 		);
 		// Zero lifecycle-log writes — the opt-in is OFF, so the
-		// behavior is unchanged from pre-YJ-3.
+		//behavior is unchanged from pre-
 		expect(lifecycleCalls).toHaveLength(0);
 	});
 

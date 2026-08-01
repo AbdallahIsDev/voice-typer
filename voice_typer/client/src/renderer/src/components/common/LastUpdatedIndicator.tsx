@@ -9,7 +9,7 @@ import { t } from "@/i18n/i18n";
  * rendered near the top of each page that keeps a module-level cache
  * (Home, History, Models, Microphone, Dashboard).
  *
- * F4 (b-review Finding 11): the cache is only refreshed by explicit
+ * The cache is only refreshed by explicit
  * user action, the `transcription_final` push event, or the
  * `config_changed` event. If the backend state changes through any
  * other path while the renderer is open, the next navigation shows

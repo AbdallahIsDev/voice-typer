@@ -1,6 +1,6 @@
 // ``t`` (translate) and ``tChoice`` (pluralize) functions + their caches.
 //
-// DR-9 sub-finding (1-N Finding 6): the dead PluralRules stub at the
+//sub-finding (1-N Finding 6): the dead PluralRules stub at the
 // old i18n.ts L648-664 has been deleted. The fallback path now uses
 // ``new Intl.PluralRules("en")`` as the single fallback; if even that
 // throws (no Intl runtime), a clear error is raised rather than
@@ -12,7 +12,7 @@
 import type { Locale } from "./locale";
 import { _translations, getLocale } from "./store";
 
-// ER-20: cache the per-parameter interpolation RegExp. ``t()`` /
+//cache the per-parameter interpolation RegExp. ``t()`` /
 // ``tChoice()`` previously built a fresh ``new RegExp(`\\{${k}\\}`, "g")``
 // for every parameter of every call — under a hot render path with
 // several interpolations per string this allocated thousands of
@@ -21,7 +21,7 @@ import { _translations, getLocale } from "./store";
 // Map<string, RegExp> cache reuses the same RegExp instance forever.
 export const _interpCache = new Map<string, RegExp>();
 
-// DJ-95: per-(locale, key) resolved-string cache.
+//per-(locale, key) resolved-string cache.
 //
 // ``t()`` previously walked the locale → English → key fallback chain
 // on every call. With ~77 ``t()`` calls in ``AudioFilterChain.tsx``
@@ -67,7 +67,7 @@ export const _pluralRulesCache: Map<Locale, Intl.PluralRules> = new Map();
  * Get (or create) an Intl.PluralRules instance for the given locale.
  * Returns the cached instance if available.
  *
- * DR-9 sub-finding (1-N Finding 6): the dead PluralRules stub fallback
+ *  sub-finding (1-N Finding 6): the dead PluralRules stub fallback
  * has been removed. If the requested locale fails AND the English
  * fallback fails (no Intl runtime), we rethrow with a clear message
  * instead of silently degrading — silent degradation hid a real
@@ -102,11 +102,27 @@ function getPluralRules(locale: Locale): Intl.PluralRules {
 
 /**
  * Translate a key to the current locale's string.
- * Falls back to English, then to the raw key if not found.
  *
- * Supports optional `{placeholder}` interpolation: if `params` is provided,
- * each `{key}` in the translated string is replaced with the corresponding
- * value from `params`.
+ * Lookup chain (in order):
+ *
+ *   1. ``currentLocale`` — the active UI locale's translation map.
+ *   2. ``primary subtag`` — when the current locale is a regional
+ *      variant (contains ``-``), try the bare primary subtag's map
+ *      before falling back to English. e.g. ``zh-CN`` → ``zh`` → ``en``.
+ *      Bare primaries (``en``, ``zh``, ``ar`` …) skip this step because
+ *      the subtag would equal the locale itself.
+ *   3. ``en`` — the universal fallback. English is always loaded
+ *      synchronously at module init (see ``store.ts``) so this step
+ *      never blocks on a dynamic import.
+ *   4. the raw key — defensive last resort so callers don't crash on
+ *      a typo. In dev mode (``import.meta.env?.DEV``) this step also
+ *      emits a ``console.warn`` so a misspelled or absent key surfaces
+ *      during QA instead of silently rendering the literal key string
+ *      in production UI.
+ *
+ * Supports optional ``{placeholder}`` interpolation: if ``params`` is
+ * provided, each ``{key}`` in the translated string is replaced with
+ * the corresponding value from ``params``.
  *
  * @param key - Dot-separated translation key (e.g., "app.name")
  * @param params - Optional interpolation params (e.g., `{ key: "Esc" }`)
@@ -116,9 +132,15 @@ export function t(key: string, params?: Record<string, string>): string {
 	let result: string;
 	const currentLocale = getLocale();
 
-	// DJ-95: per-(locale, key) resolved-string cache. The cached value
+	//per-(locale, key) resolved-string cache. The cached value
 	// is the pre-interpolation template, so we still run interpolation
 	// after the cache hit — only the lookup chain is short-circuited.
+	//
+	// The cache also memoizes the raw-key fallback (step 4 below) so a
+	// missing key warns at most once per (locale, key) pair — subsequent
+	// calls return the cached raw key without re-warning. This keeps
+	// dev-mode console output readable without losing the first-occurrence
+	// signal that surfaces a typo.
 	let cachedLocale = _resolvedCache.get(currentLocale);
 	if (cachedLocale !== undefined) {
 		const cached = cachedLocale.get(key);
@@ -133,21 +155,52 @@ export function t(key: string, params?: Record<string, string>): string {
 		}
 	}
 
-	// Try current locale first
+	// Resolve against the lookup chain:
+	//   currentLocale → primary subtag (if regional) → en → raw key
+	let missedKey = false;
 	const currentMap = _translations.get(currentLocale);
 	if (currentMap?.has(key)) {
 		result = currentMap.get(key) ?? key;
+	} else if (currentLocale.includes("-")) {
+		// Regional variant (e.g. ``zh-CN``, ``pt-BR``). Try the primary
+		// subtag's map before falling back to English — a translator
+		// adding a regional override for a handful of keys should not
+		// silently lose the parent language's coverage for the rest.
+		const primary = currentLocale.split("-")[0] as Locale;
+		const primaryMap = _translations.get(primary);
+		if (primaryMap?.has(key)) {
+			result = primaryMap.get(key) ?? key;
+		} else {
+			const enMap = _translations.get("en");
+			if (enMap?.has(key)) {
+				result = enMap.get(key) ?? key;
+			} else {
+				result = key;
+				missedKey = true;
+			}
+		}
 	} else {
-		// Fall back to English
+		// Bare primary locale (no ``-``). Skip the redundant primary-
+		// subtag step and go straight to English.
 		const enMap = _translations.get("en");
 		if (enMap?.has(key)) {
 			result = enMap.get(key) ?? key;
 		} else {
-			// Last resort: return the key itself
 			result = key;
+			missedKey = true;
 		}
 	}
-	// DJ-95: store the resolved (pre-interpolation) template so the
+
+	// Dev-mode missing-key diagnostic. Production builds skip the check
+	// (``import.meta.env?.DEV`` is ``false`` in production per Vite, and
+	// the optional chain short-circuits to ``undefined`` in non-Vite
+	// environments like SSR). Vitest runs with ``DEV=true`` so the
+	// warning fires during tests — see ``translate-fallback.test.ts``.
+	if (missedKey && import.meta.env?.DEV) {
+		console.warn("[i18n] missing key:", key, "for locale:", currentLocale);
+	}
+
+	//store the resolved (pre-interpolation) template so the
 	// next call with the same (locale, key) skips the lookup chain.
 	if (cachedLocale === undefined) {
 		cachedLocale = new Map<string, string>();
@@ -163,7 +216,7 @@ export function t(key: string, params?: Record<string, string>): string {
 	return result;
 }
 
-// ── PVT-082: pluralization support ───────────────────────────────
+//pluralization support ───────────────────────────────
 //
 // tChoice() resolves a pluralized translation key using the CLDR plural
 // rules for the current locale. The lookup order is:
@@ -205,7 +258,7 @@ export function t(key: string, params?: Record<string, string>): string {
 /**
  * Resolve a pluralized translation key for the given count.
  *
- * See the PVT-082 section above for the full lookup algorithm.
+ * See the  section above for the full lookup algorithm.
  *
  * @param key - Dot-separated base key (e.g., "inbox.messages")
  * @param count - The numeric count that determines the plural category

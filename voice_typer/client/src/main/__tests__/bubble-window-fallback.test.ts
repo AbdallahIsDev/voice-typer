@@ -2,7 +2,7 @@
 /**
  * R6-F4 unit tests for `bubble-window.ts` hideBubbleWindow fallback path.
  *
- * Verifies the callback-slot pattern (FZ-13): `hideBubbleWindow` registers a
+ * Verifies the callback-slot pattern (): `hideBubbleWindow` registers a
  * hide-callback via `onHideAnimationComplete`; the fallback timeout clears
  * the callback via `clearCurrentHideAnimationCallback` BEFORE calling
  * `win.hide()`, preventing a stale callback from firing on a subsequent

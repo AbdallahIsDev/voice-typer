@@ -1,5 +1,5 @@
 /**
- * TASK-16: Accessibility screen-reader runtime tests for HotkeyPicker.
+ * : Accessibility screen-reader runtime tests for HotkeyPicker.
  *
  * Directive Section 5 ("Accessibility Screen-Reader Testing") notes that
  * no NVDA/VoiceOver runtime verification was performed — only source-

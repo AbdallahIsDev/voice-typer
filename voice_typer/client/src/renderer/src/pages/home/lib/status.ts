@@ -1,4 +1,4 @@
-// EC-FIX-12 / EC-12: status helpers extracted from Home.tsx.
+//status helpers extracted from Home.tsx.
 //
 // `statusLabelFor` resolves at render time so the pill honours the
 // current locale on every render (not just at module-import time). The

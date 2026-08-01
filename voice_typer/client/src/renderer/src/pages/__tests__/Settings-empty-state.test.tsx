@@ -1,5 +1,5 @@
 /**
- * FIX-14 — UX-18 regression test: Settings search empty state.
+ *  —  regression test: Settings search empty state.
  *
  * When the user types a search query that matches no row on the active
  * tab, the Settings page must render an empty-state banner with the
@@ -253,7 +253,7 @@ describe("UX-18: Settings search empty state", () => {
 
 		fireEvent.change(searchInput, { target: { value: "zzzqqqxxxyyy999" } });
 
-		// UX-18: the empty-state banner must appear, interpolating the
+		//the empty-state banner must appear, interpolating the
 		// query into the i18n string "No settings match \"{query}\"".
 		await waitFor(() => {
 			expect(

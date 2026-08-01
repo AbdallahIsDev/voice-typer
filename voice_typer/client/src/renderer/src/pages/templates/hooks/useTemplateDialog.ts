@@ -83,7 +83,7 @@ export function useTemplateDialog({
 			return;
 		}
 		try {
-			// CR-052: read from the React-state ref mirror (always
+			//read from the React-state ref mirror (always
 			// the latest committed list) instead of from
 			// `loadTemplatesFromLocalStorage()`.  The localStorage
 			// read used to race with in-flight IPC saves and could
@@ -109,14 +109,14 @@ export function useTemplateDialog({
 					"success",
 				);
 			}
-			// CR-052: await the IPC save BEFORE loadRows() so the
+			//await the IPC save BEFORE loadRows() so the
 			// reload is guaranteed to see the just-saved state.
 			// Previously `saveTemplates` was fire-and-forget on
 			// the IPC leg, so `loadRows()` could re-fetch the
 			// pre-save list and briefly render stale data.
 			await saveTemplates(items, call);
 			setShowDialog(false);
-			// NEW-UX-008: reload from backend so the UI stays in sync with
+			//reload from backend so the UI stays in sync with
 			// what actually persisted (the backend may have rejected or
 			// normalized entries).
 			loadRows();

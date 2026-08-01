@@ -36,7 +36,8 @@
 			"step3Ready": "Готово"
 		},
 		"pageNotFoundDescription": "Неизвестная страница: {page}",
-		"pageNotFoundTitle": "Страница не найдена"
+		"pageNotFoundTitle": "Страница не найдена",
+		"recordingInterrupted": "Запись прервана"
 	},
 	"nav": {
 		"home": "Главная",
@@ -85,7 +86,11 @@
 		"errorTitle": "Ошибка записи",
 		"retry": "Повторить",
 		"pasteFailedMessage": "Транскрипция завершена, но буфер обмена был недоступен. Ваш текст сохранен в файле восстановления после сбоя, чтобы он не был потерян.",
-		"toggleFailed": "Не удалось переключить диктовку. Пожалуйста, попробуйте ещё раз."
+		"toggleFailed": "Не удалось переключить диктовку. Пожалуйста, попробуйте ещё раз.",
+		"retryStartDictation": "Начать диктовку заново",
+		"timerAria": "Таймер записи",
+		"timerLabel": "Таймер",
+		"transcribingHint": "Транскрибирование..."
 	},
 	"common": {
 		"cancel": "Отмена",
@@ -111,7 +116,8 @@
 		"import": "Импорт",
 		"importAria": "Импорт из файла",
 		"lastUpdatedWithValue": "Последнее обновление: {value}",
-		"close": "Закрыть"
+		"close": "Закрыть",
+		"confirm": "Подтвердить"
 	},
 	"microphone": {
 		"levelBarAria": "Уровень входа микрофона",
@@ -170,7 +176,9 @@
 			"qualityGood": "Good",
 			"qualityOk": "OK"
 		},
-		"stopPlaybackFirst": "Stop audio playback before starting a new test"
+		"stopPlaybackFirst": "Stop audio playback before starting a new test",
+		"loadFailedDescription": "Не удалось загрузить список микрофонов. Проверьте подключение и попробуйте снова.",
+		"selected": "Выбран"
 	},
 	"vocabulary": {
 		"title": "Пользовательский словарь",
@@ -183,6 +191,11 @@
 		"noResults": "Результаты не найдены",
 		"entryCountSingular": "{count} запись",
 		"entryCountPlural": "{count} записей",
+		"entryCount_zero": "{count} записей",
+		"entryCount_one": "{count} запись",
+		"entryCount_few": "{count} записи",
+		"entryCount_many": "{count} записей",
+		"entryCount_other": "{count} записи",
 		"edit": "Изменить",
 		"editAria": "Изменить: {name}",
 		"deleteAria": "Удалить: {name}",
@@ -234,7 +247,21 @@
 		"importEmpty": "Файл не содержит записей словаря",
 		"loadFailedTitle": "Не удалось загрузить словарь",
 		"retry": "Повторить",
-		"loading": "Loading vocabulary…"
+		"loading": "Loading vocabulary…",
+		"noResultsDescription": "Попробуйте другой поисковый запрос или очистите фильтр категорий.",
+		"clearAll": "Очистить все",
+		"clearAllAria": "Очистить все записи словаря",
+		"clearAllConfirm": "Очистить все",
+		"clearAllMessage": "Вы уверены, что хотите очистить ВСЕ записи словаря? Это действие нельзя отменить.",
+		"clearAllTitle": "Очистить все записи словаря",
+		"clearFailed": "Не удалось очистить словарь",
+		"duplicateOriginal": "Дубликат оригинала",
+		"entryCount_two": "{count} записи",
+		"importInvalidShape": "Файл не содержит массив словаря",
+		"loadFailedDescription": "Не удалось загрузить словарь из бэкенда. Проверьте подключение и попробуйте снова.",
+		"showMore": "Показать ещё",
+		"showingCap": "Показано {shown} из {total}",
+		"vocabularyCleared": "Словарь очищен"
 	},
 	"templates": {
 		"title": "Шаблоны",
@@ -281,7 +308,28 @@
 		"matchModeAria": "Match mode: {mode}",
 		"loading": "Loading templates…",
 		"noResults": "Результаты не найдены",
-		"noResultsDescription": "Попробуйте другой поисковый запрос или очистите поиск, чтобы увидеть все шаблоны."
+		"noResultsDescription": "Попробуйте другой поисковый запрос или очистите поиск, чтобы увидеть все шаблоны.",
+		"count_zero": "{count} шаблонов",
+		"count_one": "{count} шаблон",
+		"count_few": "{count} шаблона",
+		"count_many": "{count} шаблонов",
+		"count_other": "{count} шаблона",
+		"allCleared": "Все шаблоны удалены",
+		"clearAll": "Очистить все",
+		"clearAllAria": "Очистить все шаблоны",
+		"clearAllConfirm": "Очистить все",
+		"clearAllMessage": "Вы уверены, что хотите очистить все шаблоны? Это действие нельзя отменить.",
+		"clearAllTitle": "Очистить все шаблоны",
+		"clearFailed": "Не удалось очистить шаблоны",
+		"count_two": "{count} шаблона",
+		"duplicateTrigger": "Шаблон с таким триггером и режимом совпадения уже существует",
+		"exportFailed": "Экспорт не удался",
+		"exportNotAvailable": "Экспорт недоступен — перезапустите приложение",
+		"exportSaved": "{filename} сохранён",
+		"importInvalidShape": "Файл не содержит массив шаблонов",
+		"loadFailedDescription": "Не удалось загрузить шаблоны из бэкенда. Проверьте подключение и попробуйте снова.",
+		"showMore": "Показать ещё",
+		"showingCap": "Показано {shown} из {total}"
 	},
 	"analytics": {
 		"title": "Аналитика",
@@ -299,6 +347,11 @@
 		"transcriptionsPerDay": "Диктовок в день",
 		"dayCountTooltipSingular": "{label}: {count} диктовка",
 		"dayCountTooltipPlural": "{label}: {count} диктовок",
+		"dayCountTooltip_zero": "{label}: {count} диктовок",
+		"dayCountTooltip_one": "{label}: {count} диктовка",
+		"dayCountTooltip_few": "{label}: {count} диктовки",
+		"dayCountTooltip_many": "{label}: {count} диктовок",
+		"dayCountTooltip_other": "{label}: {count} диктовки",
 		"model": "Модель",
 		"device": "Устройство",
 		"language": "Язык",
@@ -315,9 +368,11 @@
 		"unknown": "Неизвестно",
 		"auto": "Авто",
 		"noDataTitle": "Пока нет активности",
-		"noDataDescription": "Нажмите горячую клавишу (или Caps Lock) на главной странице для диктовки — ваша статистика появится здесь.",
+		"noDataDescription": "Нажмите {hotkey} на главной странице для диктовки — ваша статистика появится здесь.",
 		"startDictation": "Начать диктовку",
 		"refreshFailed": "Не удалось обновить статистику",
+		"refreshFailedHint": "Не удалось загрузить данные панели. Проверьте подключение и попробуйте снова.",
+		"retry": "Повторить",
 		"dayActivityAria": "{label}: {count} dictations",
 		"loadingAria": "Загрузка панели управления",
 		"cards": {
@@ -328,7 +383,11 @@
 		"durationZero": "0m",
 		"durationMinutes": "{m}m",
 		"durationHours": "{h}h",
-		"durationHoursMinutes": "{h}h {m}m"
+		"durationHoursMinutes": "{h}h {m}m",
+		"dayCountTooltip_two": "{label}: {count} диктовки",
+		"loadFailedDescription": "Не удалось загрузить данные панели. Проверьте подключение и попробуйте снова.",
+		"loadFailedTitle": "Не удалось загрузить",
+		"sevenDayActivityChartAria": "Диаграмма активности за 7 дней"
 	},
 	"about": {
 		"title": "О программе",
@@ -435,7 +494,12 @@
 		"creditsIconsValue": "Hugeicons",
 		"documentationLink": "Документация",
 		"loading": "Загрузка…",
-		"httpError": "HTTP {status}"
+		"httpError": "HTTP {status}",
+		"noTagNameInResponse": "В ответе отсутствует имя тега",
+		"privacyPolicyNote": "Ваши голосовые данные обрабатываются локально и не отправляются в облако.",
+		"privacyPolicyNoteLabel": "Заметка о конфиденциальности",
+		"unknownError": "Неизвестная ошибка",
+		"updateCheckNoTagName": "В ответе проверки обновлений отсутствует имя тега"
 	},
 	"settings": {
 		"title": "Настройки",
@@ -683,7 +747,8 @@
 			"rangeHintMinutes": "Range: {min}–{max} min",
 			"rangeErrorSeconds": "Must be between {min} and {max}",
 			"minutesSuffix": "min",
-			"secondsSuffix": "s"
+			"secondsSuffix": "s",
+			"stopOnSilenceInfoSearch": "Настройки остановки по тишине"
 		},
 		"audioEnhancement": {
 			"title": "Улучшение звука",
@@ -965,7 +1030,22 @@
 		"searchNoMatch": "Нет настроек, соответствующих \"{query}\"",
 		"bubbleMicButton": "Кнопка микрофона на пузырьке",
 		"bubbleMicButtonDescription": "Показывать кнопку микрофона на постоянно видимом пузырьке для запуска/остановки диктовки одним кликом",
-		"pending": "Ожидание…"
+		"pending": "Ожидание…",
+		"apiKeyConfiguredPlaceholder": "API-ключ настроен",
+		"apiKeyPlaceholder": "Введите API-ключ",
+		"customFilterChainSummary": "Пользовательская цепочка фильтров",
+		"customFilterChainTitle": "Пользовательская цепочка фильтров",
+		"huggingFaceDownloads": "Загрузки Hugging Face",
+		"loadFailedDescription": "Не удалось загрузить настройки. Проверьте подключение и попробуйте снова.",
+		"loadFailedTitle": "Не удалось загрузить настройки",
+		"searchAriaLabel": "Поиск настроек",
+		"unsavedChangesCancelLabel": "Отмена",
+		"unsavedChangesLeaveLabel": "Уйти",
+		"unsavedChangesMessage": "У вас есть несохранённые изменения. Вы уверены, что хотите уйти?",
+		"unsavedChangesTitle": "Несохранённые изменения",
+		"voiceBiometricProcessing": "Голосовая биометрия",
+		"voiceBiometricProcessingAria": "Обработка голосовой биометрии",
+		"voiceBiometricProcessingInfo": "Включите голосовую биометрию для повышения точности распознавания."
 	},
 	"models": {
 		"asrTitle": "Модели",
@@ -1013,21 +1093,25 @@
 			"pauseFailed": "Failed to pause: {error}",
 			"cancelled": "Download cancelled. Partial files will be reused on retry.",
 			"cancelFailed": "Failed to cancel: {error}",
-			"parakeetDepsInstalled": "Зависимости Parakeet успешно установлены."
+			"parakeetDepsInstalled": "Зависимости Parakeet успешно установлены.",
+			"depsInstalled": "Зависимости установлены",
+			"selectFailed": "Не удалось выбрать"
 		},
 		"test": {
 			"needApiKey": "Please enter an API key first",
 			"connectionSuccessful": "Подключение успешно — API-ключ действителен.",
 			"connectionFailed": "Connection failed: {status} {statusText}",
 			"endpointUnavailable": "API key saved — test endpoint not available for this provider.",
-			"connectionTestFailed": "Connection test failed: {error}"
+			"connectionTestFailed": "Connection test failed: {error}",
+			"connectionNetworkError": "Ошибка сетевого подключения"
 		},
 		"status": {
 			"active": "Активен",
 			"downloaded": "Загружен",
 			"depsRequired": "Требуются зависимости",
 			"available": "Доступен",
-			"insufficientDisk": "Insufficient disk space"
+			"insufficientDisk": "Недостаточно места на диске",
+			"insufficientDiskSpace": "Недостаточно места на диске"
 		},
 		"import": {
 			"title": "Импорт модели",
@@ -1079,7 +1163,8 @@
 			"useAria": "Use {name}",
 			"downloadAria": "Скачать {name}",
 			"selectAria": "Выбрать {name}",
-			"deleteAria": "Delete {name}"
+			"deleteAria": "Delete {name}",
+			"accuracy": "Точность"
 		},
 		"cloud": {
 			"title": "Облачные провайдеры распознавания речи",
@@ -1100,7 +1185,8 @@
 		},
 		"deleteDialog": {
 			"title": "Удалить модель",
-			"message": "Are you sure you want to delete \"{name}\"? This action cannot be undone."
+			"message": "Are you sure you want to delete \"{name}\"? This action cannot be undone.",
+			"messageWithSize": "Удалить {name} ({size})?"
 		},
 		"subtitle": "Скачивайте и управляйте моделями распознавания речи",
 		"localModels": "Локальные модели",
@@ -1158,11 +1244,15 @@
 		"openFolderAria": "Open the models directory in your file manager",
 		"openFolderFailed": "Open folder failed",
 		"disk": {
-			"lowSpaceBody": "Not enough free space to download models. Free up space or choose a smaller model.",
-			"lowSpaceTitle": "Low disk space"
+			"lowSpaceBody": "Недостаточно места для загрузки моделей",
+			"lowSpaceTitle": "Мало места на диске",
+			"freeSpace": "{space} свободно"
 		},
 		"loading": "Loading models…",
-		"openFolder": "Open models folder"
+		"openFolder": {
+			"label": "Открыть папку моделей",
+			"aria": "Показать папку моделей в файловом менеджере"
+		}
 	},
 	"tooltips": {
 		"toggleRecording": "Начать или остановить голосовую диктовку",
@@ -1195,7 +1285,8 @@
 		"importNotAvailableOutsideElectron": "Импорт недоступен вне Electron",
 		"transcriptionComplete": "Транскрипция завершена.",
 		"moreInfoAbout": "More info about {label}",
-		"toggleSidebarWithShortcut": "Переключить боковую панель ({shortcut})"
+		"toggleSidebarWithShortcut": "Переключить боковую панель ({shortcut})",
+		"transcriptionPasted": "Вставлено: {text}"
 	},
 	"help": {
 		"title": "Горячие клавиши",
@@ -1251,7 +1342,8 @@
 		"description": "Горячие клавиши и шпаргалка по пунктуации.",
 		"searchPlaceholder": "Поиск команд…",
 		"searchNoMatch": "Нет команд, соответствующих \"{query}\"",
-		"openCheatSheet": "Открыть шпаргалку по пунктуации"
+		"openCheatSheet": "Открыть шпаргалку по пунктуации",
+		"shortcuts": "Горячие клавиши"
 	},
 	"history": {
 		"title": "История",
@@ -1306,7 +1398,15 @@
 		"retry": "Повторить",
 		"charsSuffix": " ({count} chars)",
 		"exportTruncatedWarning": "Экспорт ограничен {count} последними записями — используйте поиск для экспорта старых записей.",
-		"sortLabel": "Сортировать"
+		"sortLabel": "Сортировать",
+		"charsSuffix_zero": "{count} символов",
+		"charsSuffix_one": "{count} символ",
+		"charsSuffix_two": "{count} символа",
+		"charsSuffix_few": "{count} символа",
+		"charsSuffix_many": "{count} символов",
+		"charsSuffix_other": "{count} символа",
+		"clearAllWithFilterMessage": "Вы уверены, что хотите удалить все отфильтрованные записи? Это действие нельзя отменить.",
+		"exportFilteredToast": "Отфильтрованные записи экспортированы"
 	},
 	"onboarding": {
 		"welcomeTitle": "Добро пожаловать в Voice Typer",
@@ -1376,7 +1476,29 @@
 		"modelDownloadingHint": "Модель начнет загружаться в фоновом режиме — вы можете пользоваться приложением во время загрузки.",
 		"vramBadge": "Видеопамять: ~{vram}",
 		"englishOnlyBadge": "Только английский",
-		"multilingualBadge": "Многоязычный"
+		"multilingualBadge": "Многоязычный",
+		"bluetoothBadgeTooltip": "Bluetooth-микрофон",
+		"consentHuggingFace": "Согласие с условиями Hugging Face",
+		"consentHuggingFaceInfo": "Модели будут загружены с Hugging Face.",
+		"consentRequired": "Необходимо согласие для продолжения",
+		"consentVoiceBiometric": "Согласие на голосовую биометрию",
+		"consentVoiceBiometricInfo": "Голосовые данные будут использоваться для распознавания вашего голоса.",
+		"copied": "Скопировано",
+		"copyError": "Ошибка копирования",
+		"copyErrorAria": "Ошибка копирования",
+		"downloadCancel": "Отменить загрузку",
+		"downloadCancelAria": "Отменить загрузку",
+		"downloadEta": "Осталось времени",
+		"downloadProgressAria": "Прогресс загрузки",
+		"downloadedBadge": "Загружено",
+		"downloadingModel": "Загрузка модели",
+		"micLevelAria": "Уровень микрофона",
+		"micLevelLabel": "Уровень микрофона",
+		"micTestAria": "Тест микрофона",
+		"micTestButton": "Тест микрофона",
+		"micTestListening": "Слушаю...",
+		"micTestStopButton": "Остановить тест",
+		"skipConfirmModelWarning": "Пропуск загрузки модели может ухудшить работу. Продолжить?"
 	},
 	"titleBar": {
 		"minimize": "Свернуть",
@@ -1417,7 +1539,8 @@
 		"resetFailedNotice": "Сброс бэкенда не удался — очищаем локальное состояние и всё равно перезагружаем.",
 		"resetSettings": "Сбросить настройки",
 		"copied": "Скопировано!",
-		"resetting": "Сброс…"
+		"resetting": "Сброс…",
+		"configCrashHint": "Попробуйте сбросить настройки, чтобы решить эту проблему."
 	},
 	"hotkeyPicker": {
 		"pressAKey": "Нажмите клавишу",
@@ -1432,7 +1555,9 @@
 		"secondsRemainingSuffix": "({count}s)",
 		"clearAria": "Очистить горячую клавишу — {label}",
 		"holdingPrefix": "Holding: {modifiers}",
-		"clearTitle": "Очистить горячую клавишу"
+		"clearTitle": "Очистить горячую клавишу",
+		"capsLockSrConflictWarning": "Caps Lock — клавиша-модификатор по умолчанию для VoiceOver / Narrator. Выбор её может нарушить работу программного чтения с экрана. Рассмотрите использование F2 или Ctrl+Alt+D.",
+		"captureTimedOut": "Время захвата горячей клавиши истекло"
 	},
 	"hotkeyValidation": {
 		"empty": "Hotkey is empty",
@@ -1453,7 +1578,8 @@
 		"dictationKeySingle": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos.",
 		"dictationKeySingleShort": "Dictation key must be a single key",
 		"fnMacosOnly": "Fn key is only supported on macOS",
-		"holding": "Holding"
+		"holding": "Holding",
+		"bareModifierInterferes": "Использование модификатора отдельно может конфликтовать с другими функциями"
 	},
 	"hotkeyKeys": {
 		"ctrl": "Ctrl",
@@ -1571,7 +1697,8 @@
 			"offlineMode": "Офлайн",
 			"cloudApi": "Облачное API",
 			"localModel": "Локальная модель",
-			"fasterThanAvg": "на {percent}% быстрее среднего"
+			"fasterThanAvg": "на {percent}% быстрее среднего",
+			"captureFailed": "Не удалось сделать снимок"
 		}
 	},
 	"hotkey": {
@@ -1671,6 +1798,31 @@
 		"unknown": "Приложение столкнулось с неожиданной ошибкой. Ваши данные в безопасности.",
 		"cudaOom": "На GPU не хватило памяти. Попробуйте меньшую модель, закройте другие GPU-приложения или переключитесь в режим CPU.",
 		"rateLimited": "Слишком много запросов. Пожалуйста, подождите немного и попробуйте снова.",
-		"unknownBackend": "Бэкенд транскрипции столкнулся с неожиданной ошибкой. Ваши данные в безопасности — попробуйте снова."
+		"unknownBackend": "Бэкенд транскрипции столкнулся с неожиданной ошибкой. Ваши данные в безопасности — попробуйте снова.",
+		"viewLogsAction": "Просмотреть логи",
+		"copyErrorAction": "Копировать ошибку"
+	},
+	"connection": {
+		"respawnFailed": "Бэкенд не смог перезапуститься автоматически",
+		"respawnFailedHint": "Voice Typer несколько раз попытался восстановить бэкенд и сдался. Перезапустите приложение, а если проблема сохранится, проверьте логи или переустановите."
+	},
+	"dialog": {
+		"pythonCrash": {
+			"title": "Сбой бэкенда Python",
+			"body": "Бэкенд Python {appName} неожиданно завершился с кодом {code} и сейчас будет закрыт.",
+			"signalBody": "Бэкенд Python {appName} был завершён сигналом {signal} и сейчас будет закрыт."
+		},
+		"pythonNotFound": {
+			"title": "Бэкенд Python не найден",
+			"body": "{appName} не смог найти свой бэкенд Python. Пожалуйста, переустановите приложение."
+		},
+		"pythonStartupTimeout": {
+			"title": "Бэкенд Python не смог запуститься",
+			"body": "{appName} не смог подключиться к своему бэкенду Python в течение {seconds} секунд."
+		},
+		"restartLoopBreak": {
+			"title": "{appName} не может безопасно перезапуститься",
+			"body": "Бэкенд Python падает при запуске. После {count} попыток за {seconds} секунд сработал ограничитель цикла перезапуска. Пожалуйста, проверьте файлы логов и переустановите, если проблема сохраняется."
+		}
 	}
 }

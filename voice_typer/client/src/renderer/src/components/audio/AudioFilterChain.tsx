@@ -28,7 +28,7 @@
 // prop and fall back to a permissive `() => true`, preserving their
 // existing behaviour.
 //
-// DR-15: the body is now a single `.map` over
+//the body is now a single `.map` over
 // `audioFilterRowDescriptors` (the registry IS the render spec). All
 // per-row rendering metadata — configKey, kind, min/max/step, suffix,
 // aria/info keys, defaultValue, parentToggle — lives in the
@@ -114,7 +114,7 @@ export function AudioFilterChain({
 	);
 
 	// A single generic helper replaces the 25 per-field inline
-	// handlers from the pre-DR-15 JSX. The generic `K` ensures the
+	//handlers from the pre- JSX. The generic `K` ensures the
 	// key/value pair stays type-checked against `VoiceTyperConfig`
 	// (call sites that pass a literal `configKey` get full inference;
 	// the data-driven `FilterRow` path casts through `never`).

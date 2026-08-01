@@ -1,7 +1,7 @@
 import type { Page } from "../types/ipc";
 
 /**
- * EC-FIX-13: Single data-driven route table for the React renderer.
+ * Single data-driven route table for the React renderer.
  *
  * Previously the page registry was duplicated in four places — the
  * `Page` union in `types/ipc.ts`, the `KNOWN_PAGES` Set in

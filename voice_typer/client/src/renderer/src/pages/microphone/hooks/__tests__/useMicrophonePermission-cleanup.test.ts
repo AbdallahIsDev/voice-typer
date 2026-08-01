@@ -1,17 +1,17 @@
 /**
- * AB-41 regression tests: `useMicrophonePermission` cleanup clears
+ *  regression tests: `useMicrophonePermission` cleanup clears
  * `status.onchange` + removes the `change` event listener.
  *
  * Background
  * ----------
- * Pre-AB-41: the cleanup only set `cancelled = true` — it did NOT
+ * Pre-: the cleanup only set `cancelled = true` — it did NOT
  * clear `status.onchange`. The `PermissionStatus` object is owned by
  * the `navigator.permissions` cache and lives for the document
  * lifetime, so the `onchange` closure (which captures
  * `setMicPermission` and `cancelled`) was held until the next mount
  * overwrote it — a bounded single-closure leak per unmount.
  *
- * Post-AB-41: the cleanup calls `status.removeEventListener("change",
+ * Post-: the cleanup calls `status.removeEventListener("change",
  * handler)` AND sets `status.onchange = null`. The `cancelled` flag
  * pattern is preserved (guards setState after unmount).
  *
@@ -89,7 +89,7 @@ describe("AB-41: useMicrophonePermission cleanup clears onchange", () => {
 			await new Promise<void>((resolve) => setTimeout(resolve, 0));
 		});
 
-		// AB-41 defensive: onchange may or may not be set (we use
+		//defensive: onchange may or may not be set (we use
 		// addEventListener as the primary mechanism), but after unmount
 		// it MUST be null.
 		unmount();
@@ -112,7 +112,7 @@ describe("AB-41: useMicrophonePermission cleanup clears onchange", () => {
 
 		unmount();
 
-		// AB-41: removeEventListener must have been called with the
+		//removeEventListener must have been called with the
 		// same handler that was registered.
 		expect(mockStatus.removeEventListener).toHaveBeenCalledWith(
 			"change",
@@ -140,7 +140,7 @@ describe("AB-41: useMicrophonePermission cleanup clears onchange", () => {
 		mockStatus.state = "denied";
 		const spy = vi.spyOn(console, "error").mockImplementation(() => {});
 		// Dispatch via the registered handler (if any remain).
-		// After AB-41 cleanup, no handlers should remain.
+		//After  cleanup, no handlers should remain.
 		const handlers = mockStatus._handlers.get("change") ?? new Set();
 		for (const h of handlers) {
 			try {
@@ -184,7 +184,7 @@ describe("AB-41: useMicrophonePermission cleanup clears onchange", () => {
 			for (const h of handlers) h();
 		});
 
-		// AB-41 no regression: the addEventListener path still works.
+		//no regression: the addEventListener path still works.
 		expect(result.current.micPermission).toBe("denied");
 	});
 });

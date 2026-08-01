@@ -1,5 +1,5 @@
 // lib/color-utils.ts — color conversion helpers extracted from
-// ThemeSettingsSection.tsx (CR-73 / Fix-M).
+// ThemeSettingsSection.tsx ( / Fix-M).
 //
 // These are pure functions with no React dependency, so they belong in a
 // utility module rather than a 890-LOC component file.  The component
@@ -10,7 +10,7 @@
 // string never throws — it returns ``#000000`` instead.  This matches
 // the original contract in ThemeSettingsSection.tsx.
 //
-// XA-9-14: ``pickBestForeground`` and ``passesWCAG`` extend the
+// ``pickBestForeground`` and ``passesWCAG`` extend the
 // public API so the custom theme editor (and any future caller) can
 // compute the best foreground for a given background by trying a
 // list of candidates (e.g. ``["#ffffff", "#000000"]``) and picking
@@ -19,13 +19,13 @@
 // that broke AA contrast on light primary colors (e.g. monokai
 // ``--primary: oklch(0.7 0.18 250)`` against white text → 2.5:1).
 //
-// PVT-043 / Task #20: ``contrastRatio`` (and its private
+// ``contrastRatio`` (and its private
 // ``_relativeLuminance`` helper) implements the WCAG 2.1 contrast
 // ratio calculation so the custom theme editor can validate
 // foreground / background pairs against the AA (4.5:1) and AAA
 // (7:1) thresholds without pulling in a third-party a11y library.
 //
-// PVT-G5 (type-safety): the underscore-prefixed helpers
+// the underscore-prefixed helpers
 // (``_srgbGamma``, ``_cssColorToHexViaOklch``, ``_cssColorToHexViaDOM``,
 // ``_relativeLuminance``, ``_parseHex``) are NOT exported — they are
 // internal implementation details. Only the public API (``cssColorToHex``,
@@ -36,7 +36,7 @@
 
 // ── WCAG 2.1 contrast ───────────────────────────────────────────────
 //
-// PVT-043 / Task #20: the custom theme editor needs to validate
+// the custom theme editor needs to validate
 // foreground / background pairs against the AA (4.5:1 for normal
 // text, 3:1 for large text / UI components) and AAA (7:1 / 4.5:1)
 // thresholds. We implement the contrast ratio directly rather than
@@ -111,7 +111,7 @@ function _relativeLuminance(color: string): number {
  *   - ``contrastRatio("#ffffff", "#ffffff")`` → ``1``
  *   - ``contrastRatio("#777777", "#ffffff")`` → ``4.48`` (≈ AA threshold)
  *
- * PVT-043: gives the custom theme editor a pure function for
+ * gives the custom theme editor a pure function for
  * validating ``--foreground`` / ``--background`` pairs without
  * pulling in a third-party a11y library.
  */
@@ -279,7 +279,7 @@ export function cssColorToHex(color: string): string {
 	return "#000000";
 }
 
-// ── XA-9-14: foreground-selection helpers ────────────────────────────
+// ── foreground-selection helpers ────────────────────────────
 //
 // The custom theme editor (``themes.ts::deriveCustomVars``) previously
 // hardcoded ``#ffffff`` for ``--primary-foreground``,

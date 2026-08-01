@@ -1,12 +1,12 @@
 // i18n package public surface + explicit initialization entrypoint.
 //
-// DR-31: the 745-LOC ``i18n.ts`` monolith has been split into focused
+//the 745-LOC ``i18n.ts`` monolith has been split into focused
 // modules (locale / rtl / store / translate / hooks / push). This file
 // re-exports the public API so existing consumers can keep importing
 // from ``@/i18n/i18n`` (or update to ``@/i18n``) without touching call
 // sites.
 //
-// DR-9 sub-finding (1-N Finding 4): the module-load side effects that
+//sub-finding (1-N Finding 4): the module-load side effects that
 // used to run at i18n.ts import time (read localStorage, detect
 // browser locale, set DOM dir/lang, kick off async chunk load) are
 // now wrapped in ``initI18n()``. The function is:
@@ -51,7 +51,7 @@ export {
 	pushLocaleToPythonBackend,
 	trayLabelsForLocale,
 } from "./push";
-// rtl.ts — RTL helpers (DR-9 1-N Finding 7: extracted for layout-component reuse).
+//rtl.ts — RTL helpers ( 1-N Finding 7: extracted for layout-component reuse).
 export { isRtlLocale, RTL_LOCALES } from "./rtl";
 // store.ts — translation state container + locale orchestrator.
 export {
@@ -73,7 +73,7 @@ let _initCalled = false;
  * attributes, and kick off the async dynamic-import of the selected
  * locale's translation table.
  *
- * DR-9 sub-finding (1-N Finding 4): this replaces the module-load
+ *  sub-finding (1-N Finding 4): this replaces the module-load
  * side effects that used to live at the top of i18n.ts (the
  * localStorage restore + browser-detect + DOM dir/lang set + async
  * load kickoff). The function is:
@@ -91,15 +91,15 @@ let _initCalled = false;
  *   - Read ``localStorage["voice-typer-ui-locale"]`` and validate
  *     against {@link SUPPORTED_LOCALES}.
  *   - If no saved locale (or saved value invalid), fall back to
- *     {@link detectBrowserLocale} (PVT-083).
+ *     {@link detectBrowserLocale} ().
  *   - Set ``document.documentElement.dir`` to ``"rtl"`` for RTL
- *     locales (currently Arabic) or ``"ltr"`` otherwise (F-4 / HIGH-32).
+ *     locales (currently Arabic) or ``"ltr"`` otherwise (F-4 / ).
  *   - Set ``document.documentElement.lang`` to the locale code so
  *     screen readers pronounce content in the user-selected UI locale
- *     (CR-44).
+ *     ().
  *   - For non-English locales, fire-and-forget
  *     {@link ensureLocaleLoaded} so the dynamic-import chunk is
- *     in-flight by the time the first ``t()`` call happens (ER-65).
+ *     in-flight by the time the first ``t()`` call happens ().
  *
  * NOTE: this function does NOT call {@link setLocale} because that
  * would persist the locale back to localStorage (redundant — we just
@@ -108,13 +108,23 @@ let _initCalled = false;
  * the internal ``_setCurrentLocale`` mutator and applies the DOM +
  * async-load side effects itself.
  *
- * // TODO: call initI18n() from main.tsx entrypoint — currently auto-called on first import.
+ * Initialization timing: the auto-call at the bottom of this module
+ * (see "Auto-initialization" below) is INTENTIONAL and stays for
+ * backwards compatibility — any consumer that imports the i18n package
+ * gets a working ``t()`` immediately, even before ``main.tsx`` runs.
+ * ``main.tsx`` SHOULD still call ``initI18n()`` explicitly at the top
+ * of its render sequence for deterministic ordering (so the locale is
+ * restored + DOM ``dir``/``lang`` are set BEFORE the first React
+ * commit, not after). The function is idempotent, so the second call
+ * from ``main.tsx`` is a no-op — the auto-call only protects consumers
+ * that import the package outside the React tree (tests, dev tools,
+ * early ``window``-bridge shims).
  */
 export function initI18n(): void {
 	if (_initCalled) return;
 	_initCalled = true;
 
-	// PVT-083: restore from localStorage if available; otherwise
+	//restore from localStorage if available; otherwise
 	// auto-detect from the browser/OS so first-run users see their
 	// language without hunting for the Settings dropdown.
 	let next: Locale = "en";
@@ -124,7 +134,7 @@ export function initI18n(): void {
 			if (saved && (SUPPORTED_LOCALES as readonly string[]).includes(saved)) {
 				next = saved as Locale;
 			} else {
-				// PVT-083: no saved preference — auto-detect from the browser.
+				//no saved preference — auto-detect from the browser.
 				next = detectBrowserLocale();
 			}
 		}
@@ -135,7 +145,7 @@ export function initI18n(): void {
 
 	_setCurrentLocale(next);
 
-	// HIGH-32 / I18N-4: apply the RTL ``dir`` attribute on initial
+	//I18N-4: apply the RTL ``dir`` attribute on initial
 	// module load. ``setLocale()`` (below) sets
 	// ``document.documentElement.dir`` whenever the locale changes at
 	// runtime, but the module-load restore path above only sets
@@ -148,7 +158,7 @@ export function initI18n(): void {
 	try {
 		if (typeof document !== "undefined") {
 			document.documentElement.dir = isRtlLocale(next) ? "rtl" : "ltr";
-			// CR-44: also set ``lang`` so screen readers pronounce content in
+			//also set ``lang`` so screen readers pronounce content in
 			// the user-selected UI locale (not the browser default).
 			document.documentElement.lang = next;
 		}
@@ -157,7 +167,7 @@ export function initI18n(): void {
 		console.warn("[i18n] initial document dir/lang set failed:", e);
 	}
 
-	// ER-65: kick off the async load of the user's restored/detected
+	//kick off the async load of the user's restored/detected
 	// locale at init time so the dynamic import is in-flight by the
 	// time the first ``t()`` call happens. English (the universal
 	// fallback) is already registered synchronously at store.ts
@@ -172,7 +182,7 @@ export function initI18n(): void {
 
 // ── Auto-initialization (preserves prior behavior) ───────────────
 //
-// DR-9 sub-finding (1-N Finding 4) asked for the side-effect
+//sub-finding (1-N Finding 4) asked for the side-effect
 // orchestration to move into ``initI18n()`` called explicitly from
 // ``main.tsx`` / test setup. We do BOTH:
 //
@@ -183,7 +193,13 @@ export function initI18n(): void {
 //     explicitly. The function is idempotent so the second call is a
 //     no-op.
 //
-// When ``main.tsx`` is updated to call ``initI18n()`` explicitly at
-// boot, the auto-call below can be removed (it'll just be a redundant
-// no-op until then — left in place to preserve current behavior).
+// The auto-call below is INTENTIONAL and stays even after
+// ``main.tsx`` begins calling ``initI18n()`` explicitly. It protects
+// consumers that import the package outside the React tree (tests,
+// dev tools, early ``window``-bridge shims) and the function's
+// idempotency guard means the redundant call from ``main.tsx`` is a
+// cheap no-op. ``main.tsx`` SHOULD still call ``initI18n()`` at the
+// top of its render sequence for deterministic ordering — the
+// auto-call runs at module-eval time (whichever importer wins the
+// race), which is not guaranteed to be before the first React commit.
 initI18n();

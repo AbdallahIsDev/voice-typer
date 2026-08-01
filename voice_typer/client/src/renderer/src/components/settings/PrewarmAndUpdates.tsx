@@ -1,6 +1,6 @@
 // Prewarm cache status + in-app update check.
 //
-// UX-20 / SET-5 slimming of About.tsx removed the Cache Status and Updates
+//SET-5 slimming of About.tsx removed the Cache Status and Updates
 // sections from the About page but documented them as "relocated to
 // Settings → Troubleshooting". They had in fact been dropped from the UI
 // entirely (orphaned i18n + a dangling `get_prewarm_status` IPC command).
@@ -31,7 +31,7 @@ import type { IsVisibleFn } from "./types";
 
 const APP_VERSION = pkg.version as string;
 
-// NEW-UX-023: GitHub releases feed for "new version available" checks.
+//GitHub releases feed for "new version available" checks.
 const RELEASES_URL = "https://github.com/AbdallahIsDev/voice-typer/releases";
 const LATEST_RELEASE_API =
 	"https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest";
@@ -78,7 +78,7 @@ function CacheStatusBadge({ label }: { label: PrewarmStatus["cache_label"] }) {
 
 // Small label/value row matching the visual rhythm of SettingsSection.
 //
-// XA-3-5: this intentionally duplicates the `SettingRow` primitive rather
+//this intentionally duplicates the `SettingRow` primitive rather
 // than reusing it. `SettingRow` is designed for interactive controls — it
 // emphasises the LABEL (text-primary, font-medium) and renders the control
 // (child) at default weight. For the read-only status rows in this
@@ -107,7 +107,7 @@ const ALWAYS_VISIBLE: IsVisibleFn = () => true;
 
 /** Translated row + section + action-button labels rendered by this
  *  component. Exported so the Settings page's search auto-switch
- *  (PVT-029) can include them in the privacy tab's label set — without
+ *  () can include them in the privacy tab's label set — without
  *  this, typing "prewarm", "cache", "version", "update", etc. wouldn't
  *  route to the privacy tab because `getTabLabels()` only knows the
  *  two section titles (`about.cacheTitle`, `about.updatesTitle`).
@@ -151,7 +151,7 @@ export default function PrewarmAndUpdates({
 	// get_prewarm_status) takes over as the progress indicator.
 	const [runPrewarmLoading, setRunPrewarmLoading] = useState(false);
 
-	// NEW-UX-023: latest release from GitHub (null = not checked yet).
+	//latest release from GitHub (null = not checked yet).
 	const [latestVersion, setLatestVersion] = useState<string | null>(null);
 	const [checkingUpdate, setCheckingUpdate] = useState(false);
 
@@ -173,7 +173,7 @@ export default function PrewarmAndUpdates({
 	// (pythonw -m voice_typer.server.prewarm --force). After spawning,
 	// polls get_prewarm_status every 2s until prewarm_running flips to
 	// False, then refreshes the card and shows a completion toast.
-	// PVT-044: poll is cancellable via prewarmPollCancelledRef so the
+	//poll is cancellable via prewarmPollCancelledRef so the
 	// loop stops calling setPrewarmStatus / showSnack / IPC after the
 	// component unmounts.
 	const prewarmPollCancelledRef = useRef(false);
@@ -263,7 +263,7 @@ export default function PrewarmAndUpdates({
 		}
 	};
 
-	// CR-11: REMOVED the auto-firing `checkForUpdate` callback and its
+	//REMOVED the auto-firing `checkForUpdate` callback and its
 	// useEffect invocation on mount. The previous implementation fired a
 	// network request to api.github.com on every mount of this component,
 	// violating the offline-first guarantee. The manual "Check for Updates"
@@ -314,7 +314,7 @@ export default function PrewarmAndUpdates({
 		}
 	};
 
-	// On mount: fetch prewarm status only. CR-11: do NOT auto-fire the
+	//On mount: fetch prewarm status only. : do NOT auto-fire the
 	// GitHub release check.
 	useEffect(() => {
 		let cancelled = false;
@@ -460,7 +460,7 @@ export default function PrewarmAndUpdates({
 				</SettingsSection>
 			)}
 
-			{/* ── Updates (NEW-UX-023) ─────────────────────────────────── */}
+			{/*Updates () ─────────────────────────────────── */}
 			{[t("about.installedVersion"), t("about.latestRelease")].some((l) =>
 				isVisible(l, undefined, t("about.updatesTitle")),
 			) && (

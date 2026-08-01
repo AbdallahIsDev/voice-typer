@@ -1,5 +1,5 @@
 // lib/theme-contrast.ts — WCAG contrast-ratio helpers extracted from
-// ThemeSettingsSection.tsx (DT-32 partial split).
+// ThemeSettingsSection.tsx (partial split).
 //
 // The actual WCAG math (``contrastRatio`` and its private
 // ``_relativeLuminance`` / ``_parseHex`` helpers) already lives in
@@ -13,7 +13,7 @@
 // All functions here are pure (no React, no DOM) so they can be
 // unit-tested in isolation and reused by any caller.
 
-import { contrastRatio } from "@/lib/color-utils";
+import { contrastRatio, cssColorToHex } from "@/lib/color-utils";
 import {
 	type CustomThemeData,
 	DEFAULT_CUSTOM_DARK,
@@ -37,6 +37,25 @@ export const HEX_PARTIAL_RE = /^#[0-9a-fA-F]{0,6}$/;
 export const HEX_STRICT_RE = /^#[0-9a-fA-F]{6}$/;
 
 /**
+ * Pick the foreground (white or black) that yields the higher
+ * WCAG 2.1 contrast ratio against ``bgHex``. Used by ``getContrastPair``
+ * for the ``--primary`` row so that mid-tone user-chosen primaries
+ * (green, amber, teal, pastel) get a readable foreground instead of an
+ * unreadable white-on-light-primary pair.
+ *
+ * Ported from the fix that already lives in ``themes.ts``
+ * (``deriveCustomVars`` uses the same helper to pick
+ * ``--primary-foreground``). When the input is unparseable
+ * (``contrastRatio`` treats it as black), white wins and is returned.
+ * The function never throws.
+ */
+function _pickContrastForeground(bgHex: string): string {
+	const whiteRatio = contrastRatio("#ffffff", bgHex);
+	const blackRatio = contrastRatio("#000000", bgHex);
+	return whiteRatio >= blackRatio ? "#ffffff" : "#000000";
+}
+
+/**
  * Return the {fg, bg} colour pair used to evaluate
  * WCAG contrast for a given custom-colour row.  Returns ``null`` for
  * rows where contrast validation doesn't apply (e.g. ``--border``,
@@ -47,8 +66,15 @@ export const HEX_STRICT_RE = /^#[0-9a-fA-F]{6}$/;
  *   - ``--foreground``   → foreground vs background (same pair, shown
  *                          on the foreground row too so editing either
  *                          colour surfaces the warning)
- *   - ``--primary``      → white vs primary (derived --primary-foreground
- *                          is always ``#ffffff`` — see deriveCustomVars)
+ *   - ``--primary``      → contrast-picked foreground vs primary
+ *                          (The foreground is whichever of
+ *                          white/black has higher contrast against the
+ *                          user-chosen primary, mirroring
+ *                          ``deriveCustomVars``'s --primary-foreground
+ *                          derivation. The warning fires only when
+ *                          NEITHER clears AA — i.e. the user picked a
+ *                          mid-tone primary that can't carry either
+ *                          text colour.)
  *   - ``--bg-subtle``    → foreground vs bg-subtle (text on cards)
  *   - ``--text-muted``   → text-muted vs background (secondary text)
  *   - ``--border``       → null (no text-on-border pair)
@@ -70,9 +96,20 @@ export function getContrastPair(
 			return { fg: get("--foreground"), bg: get("--background") };
 		case "--foreground":
 			return { fg: get("--foreground"), bg: get("--background") };
-		case "--primary":
-			// deriveCustomVars always sets --primary-foreground to #ffffff.
-			return { fg: "#ffffff", bg: get("--primary") };
+		case "--primary": {
+			// deriveCustomVars now picks the foreground dynamically
+			// (white or black, whichever has higher contrast). The warning
+			// fires only when NEITHER clears AA — i.e. the user picked a
+			// mid-tone primary that can't carry either text colour. We
+			// normalise the primary to hex first so oklch/hsl/named colours
+			// the user picked in the editor are scored correctly (the
+			// underlying ``contrastRatio`` only parses #rrggbb).
+			const primaryHex = cssColorToHex(get("--primary"));
+			return {
+				fg: _pickContrastForeground(primaryHex),
+				bg: primaryHex,
+			};
+		}
 		case "--bg-subtle":
 			return { fg: get("--foreground"), bg: get("--bg-subtle") };
 		case "--text-muted":

@@ -56,7 +56,7 @@ export function useVocabularyDialog({
 	const [editingEntry, setEditingEntry] = useState<VocabRow | null>(null);
 	const [trigger, setTrigger] = useState("");
 	const [replacement, setReplacement] = useState("");
-	// NEW-UX-039: explicit category selection.
+	//explicit category selection.
 	const [category, setCategory] = useState<string>("auto");
 
 	const openAddDialog = () => {
@@ -70,7 +70,7 @@ export function useVocabularyDialog({
 	const openEditDialog = (entry: VocabRow) => {
 		setEditingEntry(entry);
 		setTrigger(entry.original);
-		// NEW-UX-039: pre-select the entry's existing category.
+		//pre-select the entry's existing category.
 		setCategory(entry.category || "auto");
 		setReplacement(entry.correction);
 		setShowDialog(true);
@@ -83,7 +83,7 @@ export function useVocabularyDialog({
 			showSnack(t("vocabulary.fillBothFields"), "warning");
 			return;
 		}
-		// NEW-UX-039: use the explicit category if the user picked one.
+		//use the explicit category if the user picked one.
 		const resolvedCategory =
 			category === "auto" ? detectCategory(trimmedTrigger) : category;
 		try {

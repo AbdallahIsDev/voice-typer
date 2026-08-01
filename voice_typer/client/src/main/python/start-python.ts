@@ -18,7 +18,7 @@
  */
 import { spawn } from "node:child_process";
 import { app, dialog } from "electron";
-// DE-87 / S2-CR-75: route lifecycle messages through the structured
+//route lifecycle messages through the structured
 // `log` logger so they persist to `electron-main.log` (with 5 MiB
 // rotation) and `electron-lifecycle.log` (opt-in INFO persistence)
 // instead of being lost in packaged builds where `console.warn` has
@@ -66,7 +66,7 @@ export function startPython() {
 	}
 	state._tcpRetryGeneration++;
 
-	// AC-10: reset the stop-python idempotency flags so the new
+	//reset the stop-python idempotency flags so the new
 	// backend lifecycle starts with a clean stop state. Without
 	// this, any prior `stopPython()` call (e.g. from a circuit-
 	// breaker trip during the previous backend lifecycle) would
@@ -75,7 +75,7 @@ export function startPython() {
 	// not be stopped again after a relaunch. Also clears any
 	// armed `killTimer` left over from the prior stop cycle.
 	_resetStopPythonFlagsForRestart();
-	// ER-29: clear the TCP startup timeout so the next
+	//clear the TCP startup timeout so the next
 	// `tcpConnect()` arms a fresh 60s window. Without this clear,
 	// `tcpConnect()`'s `if (_tcpStartupTimeoutTimer === null)`
 	// guard sees the timer from the PREVIOUS connect attempt
@@ -83,7 +83,7 @@ export function startPython() {
 	// arming a fresh one — so a dev-mode restart that takes >10s
 	// to spawn + import torch would trip the stale timer's
 	// "Python backend failed to start" dialog + `app.quit()`
-	// prematurely. This is the exact race ER-29 documents.
+	//prematurely. This is the exact race  documents.
 	clearTcpStartupTimeout();
 
 	// P1-1.2: if VT_PYTHON_PORT is set, a Python backend spawned us
@@ -132,7 +132,7 @@ export function startPython() {
 	tcpConnect(IPC_PORT);
 
 	proc.on("exit", (code) => {
-		// XZ-R18-04: log the exit code prominently so support staff
+		//log the exit code prominently so support staff
 		// can diagnose early exits without fishing through stdout.
 		// `code` is `null` when the process was killed by a signal
 		// (Node surfaces this as `null` rather than the negative
@@ -140,7 +140,7 @@ export function startPython() {
 		// log line is unambiguous.
 		const codeStr = code === null ? "signal" : String(code);
 		log.info(`Python process exited (code=${codeStr})`);
-		// AC-11: short-circuit when the spawn-failure `error`
+		//short-circuit when the spawn-failure `error`
 		// handler has already fired. Node emits `error` then
 		// `exit` (with a negative code) on spawn failure
 		// (ENOENT/EACCES). The `error` handler sets
@@ -160,7 +160,7 @@ export function startPython() {
 				entry.reject(new Error("Python backend exited early"));
 			}
 			if (state.mainWindow) {
-				// CR-34 (fix): use `.destroy()` instead of `.close()`.
+				//(fix): use `.destroy()` instead of `.close()`.
 				// `.close()` fires the `close` event, which is intercepted
 				// by the close-to-tray handler in
 				// `windows/main-window.ts:125-132` (`event.preventDefault()`
@@ -176,7 +176,7 @@ export function startPython() {
 				state.mainWindow.destroy();
 				state.mainWindow = null;
 			}
-			// XZ-R18-04: include the actual exit code in the
+			//include the actual exit code in the
 			// dialog body so the user (and support staff)
 			// can distinguish single-instance collisions from
 			// missing-model / port-collision / token-mismatch /
@@ -199,7 +199,7 @@ export function startPython() {
 			// Non-zero exit code = crash. Shut down Electron so the user
 			// isn't left with a broken UI that spams TCP reconnect errors
 			// (ENOBUFS on Windows).
-			// FR-32: surface a user-visible error dialog before quitting so
+			//surface a user-visible error dialog before quitting so
 			// the user has an actionable message instead of a silent app
 			// exit. Distinguish `code === null` (POSIX signal-based exit,
 			// e.g. SIGSEGV/SIGABRT — `null !== 0` evaluates true, so
@@ -276,7 +276,7 @@ export function startPython() {
 		}
 	});
 
-	// PVT-G5-037: handle spawn failures (ENOENT — Python not on PATH,
+	//handle spawn failures (ENOENT — Python not on PATH,
 	// bundled exe missing, EACCES, etc.). Without this listener, Node
 	// emits the 'error' event with no listener → uncaughtException →
 	// the crash circuit breaker in bootstrap.ts trips after 5 errors.

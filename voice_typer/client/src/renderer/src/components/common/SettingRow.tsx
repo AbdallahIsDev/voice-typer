@@ -91,7 +91,7 @@ export function SettingRow({
 				>
 					{label}
 				</LabelTag>
-				{info && <InfoTooltip text={info} />}
+				{info && <InfoTooltip text={info} contextLabel={label} />}
 			</div>
 			<div ref={childrenRef} className="shrink-0">
 				{children}

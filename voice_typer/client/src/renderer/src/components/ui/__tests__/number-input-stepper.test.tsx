@@ -1,5 +1,5 @@
 /**
- * NumberInputStepper tests — covers BG-39 (RTL: physical `right-1` /
+ * NumberInputStepper tests — covers  (RTL: physical `right-1` /
  * `pr-8` were replaced with logical `inset-e-1` / `pe-8` so the steppers
  * sit at the inline-end edge in both LTR and RTL locales).
  *
@@ -40,7 +40,7 @@ describe("NumberInputStepper — BG-39 RTL logical positioning", () => {
 		expect(wrapper).toBeTruthy();
 		const stepperContainer = wrapper.querySelector(".absolute") as HTMLElement;
 		expect(stepperContainer).toBeTruthy();
-		// BG-39: physical `right-1` is gone; logical `inset-e-1` is present
+		//physical `right-1` is gone; logical `inset-e-1` is present
 		// so the steppers appear on the inline-end edge (right in LTR,
 		// left in RTL) without per-locale overrides.
 		expect(stepperContainer.className).toContain("inset-e-1");
@@ -60,7 +60,7 @@ describe("NumberInputStepper — BG-39 RTL logical positioning", () => {
 			'input[type="number"]',
 		) as HTMLInputElement;
 		expect(input).toBeTruthy();
-		// BG-39: the input reserves gutter space for the steppers via
+		//the input reserves gutter space for the steppers via
 		// logical `pe-8` (padding-inline-end) instead of physical
 		// `pr-8` (padding-right), so the gutter sits on the same side
 		// as the steppers in both LTR and RTL.

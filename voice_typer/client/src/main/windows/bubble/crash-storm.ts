@@ -1,8 +1,8 @@
 /**
- * Render-process-gone crash-storm tracker factory (DR-3 sub-finding
+ * Render-process-gone crash-storm tracker factory ( sub-finding
  * 1-B-11).
  *
- * GT-10: sliding-window crash storm detection. If a renderer crashes
+ * : sliding-window crash storm detection. If a renderer crashes
  * more than `threshold` times in `windowMs`, the caller stops
  * reloading and shows a recovery dialog instead of looping forever.
  *
@@ -18,7 +18,7 @@
  * `main-window.ts` migration is out of scope (different agent's
  * file); its private `recordRenderCrash` + `_bubbleWindowCrashTimestamps`
  * remain unchanged for now and continue to power the
- * `gt-fix-15-crash-storm.test.ts` source-level assertions. The
+ * `crash-storm-recovery.test.ts` source-level assertions. The
  * bubble window (`lifecycle.ts`) uses this new factory directly.
  */
 import { log } from "../../logging";

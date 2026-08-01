@@ -11,6 +11,18 @@ export interface SliderProps
 	rangeClassName?: string;
 	/** Additional class name for each thumb element */
 	thumbClassName?: string;
+	/**
+	 * Labels for each thumb — forwarded as aria-label so
+	 * screen readers announce the thumb's purpose. Takes
+	 * precedence over a global aria-label when present.
+	 */
+	thumbLabels?: string[];
+	/**
+	 * Callback for generating the aria-valuetext on each thumb.
+	 * Receives the current numeric value and should return a
+	 * human-readable string (e.g. "3 decibels").
+	 */
+	getThumbAriaValueText?: (value: number) => string;
 }
 
 function Slider({
@@ -18,8 +30,22 @@ function Slider({
 	trackClassName,
 	rangeClassName,
 	thumbClassName,
+	thumbLabels,
+	getThumbAriaValueText,
 	...props
 }: SliderProps) {
+	const thumbCount = (props.value ?? props.defaultValue ?? [0]).length;
+	// Dev-mode a11y warning: a slider with no accessible name (no
+	// aria-label, no aria-labelledby) and no per-thumb labels is invisible
+	// to screen readers. Surfaces the gap during development only.
+	if (
+		process.env.NODE_ENV !== "production" &&
+		!props["aria-label"] &&
+		!props["aria-labelledby"] &&
+		!thumbLabels
+	) {
+		console.warn("Slider: no `aria-label`/`aria-labelledby`/`thumbLabels`");
+	}
 	return (
 		<SliderPrimitive.Root
 			data-slot="slider"
@@ -42,21 +68,27 @@ function Slider({
 					className={cn("absolute h-full bg-primary", rangeClassName)}
 				/>
 			</SliderPrimitive.Track>
-			{Array.from(
-				{ length: (props.value ?? props.defaultValue ?? [0]).length },
-				(_, i) => (
-					<SliderPrimitive.Thumb
-						// XS-64: restored biome-ignore — the rule fires under `preset: "recommended"`. Slider thumbs have a fixed count (one per value in props.value / props.defaultValue) and never reorder; the array index is the canonical stable key for radix-ui SliderThumb.
-						// biome-ignore lint/suspicious/noArrayIndexKey: slider thumbs have a fixed count (one per value in props.value / props.defaultValue) and never reorder; the array index is the canonical stable key for radix-ui SliderThumb rendering.
-						key={`thumb-${i}`}
-						data-slot="slider-thumb"
-						className={cn(
-							"block size-4 rounded-full border-2 border-primary bg-background shadow-sm ring-0 transition-[box-shadow,transform] hover:scale-110 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-hidden active:scale-105",
-							thumbClassName,
-						)}
-					/>
-				),
-			)}
+			{Array.from({ length: thumbCount }, (_, i) => (
+				<SliderPrimitive.Thumb
+					//restored biome-ignore — the rule fires under `preset: "recommended"`. Slider thumbs have a fixed count (one per value in props.value / props.defaultValue) and never reorder; the array index is the canonical stable key for radix-ui SliderThumb.
+					// biome-ignore lint/suspicious/noArrayIndexKey: slider thumbs have a fixed count (one per value in props.value / props.defaultValue) and never reorder; the array index is the canonical stable key for radix-ui SliderThumb rendering.
+					key={`thumb-${i}`}
+					data-slot="slider-thumb"
+					aria-label={thumbLabels?.[i]}
+					aria-valuetext={
+						getThumbAriaValueText
+							? getThumbAriaValueText(
+									((props.value ?? props.defaultValue ?? [0])[i] as number) ??
+										0,
+								)
+							: undefined
+					}
+					className={cn(
+						"block size-4 rounded-full border-2 border-primary bg-background shadow-sm ring-0 transition-[box-shadow,transform] hover:scale-110 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-hidden active:scale-105",
+						thumbClassName,
+					)}
+				/>
+			))}
 		</SliderPrimitive.Root>
 	);
 }

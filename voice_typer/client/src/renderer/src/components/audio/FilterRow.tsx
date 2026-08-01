@@ -1,17 +1,17 @@
 // FilterRow — presentational per-row renderer for `<AudioFilterChain>`.
 //
-// DR-15: previously `AudioFilterChain.tsx` had ~520 LOC of JSX with
+//previously `AudioFilterChain.tsx` had ~520 LOC of JSX with
 // the same `SettingRow + (Switch | RangeSlider | Select)` pattern
 // repeated 24 times (16 sliders + 7 toggles + 1 select). This
 // component renders ONE descriptor — the parent does a `.map` over
 // the registry.
 //
-// Behaviour preservation (vs the pre-DR-15 inline JSX):
+//Behaviour preservation (vs the pre- inline JSX):
 //   - `<SettingRow label={...} info={...}>` — label is the resolved
 //     i18n string from the labels dictionary; info is resolved via
-//     `t(descriptor.infoKey)` at render time (the pre-DR-15 inline
+//`t(descriptor.infoKey)` at render time (the pre- inline
 //     `t("...Info")` call happened at render time too — kept here so
-//     the TY-37 memo test's per-render `t()` call pattern is
+//the  memo test's per-render `t()` call pattern is
 //     unchanged).
 //   - Slider `value={config[k] ?? defaultValue}` — identical fallback.
 //   - Slider `min/max/step/suffix/deferApply` — identical.

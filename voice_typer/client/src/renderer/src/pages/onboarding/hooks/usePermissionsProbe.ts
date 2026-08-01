@@ -12,7 +12,7 @@ export interface UsePermissionsProbeResult {
 }
 
 /**
- * EC-FIX-18: extracted from Onboarding.tsx. Owns the permissions
+ * : extracted from Onboarding.tsx. Owns the permissions
  * probe lifecycle — state, the auto-probe effect that fires on entry to the
  * "Permissions" step, the manual `reprobePermissions` callback, and the
  * "test hotkey" listener + timeout (Fix 9: ref-tracked so cleanup is

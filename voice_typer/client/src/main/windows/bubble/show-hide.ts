@@ -1,6 +1,6 @@
 /**
  * Bubble overlay show/hide with rapid-toggle guard + renderer-driven
- * exit animation (DR-7 extract from `bubble-window.ts`).
+ * exit animation ( extract from `bubble-window.ts`).
  *
  * Owns:
  *   - `showBubbleWindow()` — center/restore position, raise the
@@ -14,7 +14,7 @@
  *     that hides the window directly if the renderer never signals
  *     back (e.g. it crashed mid-animation).
  *
- * DR-7: both functions were inlined in `bubble-window.ts`. They are
+ * : both functions were inlined in `bubble-window.ts`. They are
  * the largest methods in the module and together carry all 7+
  * try/catches that defend against the window being destroyed
  * mid-call (the bubble is re-created on render-process-gone, so
@@ -23,14 +23,14 @@
  * try/catches and the animation + fallback state machine are
  * preserved verbatim.
  *
- * PVT-G5-080 / PVT-G5-081: every try/catch routes through the
+ *  / : every try/catch routes through the
  * structured `log` so failures persist in `electron-main.log`
  * (5 MiB rotation) instead of being lost in packaged builds where
  * `console.warn` has no terminal.
  */
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../../constants";
 import { BubbleChannels } from "../../ipc/channels";
-// DT-13: converted from defensive `require("../../logging")` to a static
+//converted from defensive `require("../../logging")` to a static
 // ESM import — the previous try/catch + console.* fallback was added
 // to tolerate minimal test mocks, but the real logging module is now
 // always present and the test mocks have been updated to expose `log`.
@@ -54,7 +54,7 @@ export function showBubbleWindow(): void {
 	}
 	const win = state.bubbleWindow;
 	if (!win) {
-		// PVT-G5-080: failure — log.error.
+		//failure — log.error.
 		log.error(
 			`${BUBBLE_CLR}[BUBBLE]${RESET} showBubbleWindow: no window to show`,
 		);
@@ -70,7 +70,7 @@ export function showBubbleWindow(): void {
 		// renderer "bubble:hidden" signal can't fire `onHidden` after
 		// the show has already started. The persistent IPC listener
 		// in bubble-handlers.ts stays installed; only this slot is
-		// cleared. PVT-G5-081: log on failure so a stuck callback is
+		//cleared. : log on failure so a stuck callback is
 		// debuggable instead of silently swallowed.
 		try {
 			clearCurrentHideAnimationCallback();
@@ -82,14 +82,14 @@ export function showBubbleWindow(): void {
 		}
 	}
 
-	// PVT-068: restore the user's last drag position if we have one;
+	//restore the user's last drag position if we have one;
 	// otherwise fall back to multi-monitor-aware centering on the
 	// display the user is currently on. Previously this always called
 	// `centerOnPrimaryDisplay()`, which stranded the bubble on the
 	// primary screen when the user was working on a secondary monitor
 	// AND blew away the user's last drag position on every show.
 	//
-	// XA-6-5: discard the saved position if it no longer lies on any
+	//discard the saved position if it no longer lies on any
 	// currently-attached display (the saved display may have been
 	// unplugged since the position was saved). The `display-removed`
 	// listener also clears it on unplug, but this is the defensive
@@ -138,7 +138,7 @@ export function showBubbleWindow(): void {
 		// and ensures the bubble renderer is always in sync with the backend)
 		win.webContents.send(BubbleChannels.draggable, state.bubbleDraggable);
 	} catch (e) {
-		// PVT-G5-080: failure — log.error.
+		//failure — log.error.
 		log.error(`${BUBBLE_CLR}[BUBBLE]${RESET} show() failed:`, e);
 	}
 	try {
@@ -150,7 +150,7 @@ export function showBubbleWindow(): void {
 			e,
 		);
 	}
-	// DJ-91: dropped the second redundant setAlwaysOnTop call that
+	//dropped the second redundant setAlwaysOnTop call that
 	// previously re-affirmed the always-on-top flag immediately after
 	// moveTop(). The first call above (before show()) already set the
 	// flag, and the setImmediate fallback below re-applies it IF
@@ -161,7 +161,7 @@ export function showBubbleWindow(): void {
 	setImmediate(() => {
 		if (!win || win.isDestroyed()) return;
 		if (!win.isVisible()) {
-			// PVT-G5-080: unexpected but non-fatal — log.warn.
+			//unexpected but non-fatal — log.warn.
 			log.warn(
 				`${BUBBLE_CLR}[BUBBLE]${RESET} not visible after show() -- retrying`,
 			);
@@ -208,7 +208,7 @@ export function hideBubbleWindow(): void {
 
 	// Send hide animation event to the renderer, then wait for it to
 	// signal back before actually hiding the window.
-	// PVT-G5-081: log on failure so a dead webContents doesn't silently
+	//log on failure so a dead webContents doesn't silently
 	// leave the bubble stuck visible.
 	try {
 		win.webContents.send(BubbleChannels.hide);
@@ -233,11 +233,11 @@ export function hideBubbleWindow(): void {
 		try {
 			if (!win.isDestroyed()) {
 				win.hide();
-				// PVT-G5-080: routine lifecycle event — log.info.
+				//routine lifecycle event — log.info.
 				log.info(`${BUBBLE_CLR}[BUBBLE]${RESET} hidden (animated)`);
 			}
 		} catch (err) {
-			// PVT-G5-081: outer hide-animated failure — log so a
+			//outer hide-animated failure — log so a
 			// stuck-visible bubble is debuggable instead of silent.
 			log.warn(`${BUBBLE_CLR}[BUBBLE]${RESET} hide animated failed:`, err);
 		}
@@ -270,7 +270,7 @@ export function hideBubbleWindow(): void {
 					);
 				}
 				win.hide();
-				// PVT-G5-080: routine lifecycle event — log.info.
+				//routine lifecycle event — log.info.
 				log.info(`${BUBBLE_CLR}[BUBBLE]${RESET} hidden (fallback)`);
 			} else {
 				// Window is already hidden or destroyed — still
@@ -286,7 +286,7 @@ export function hideBubbleWindow(): void {
 				}
 			}
 		} catch (err) {
-			// PVT-G5-081: outer hide-fallback failure — log so a
+			//outer hide-fallback failure — log so a
 			// stuck-visible bubble is debuggable instead of silent.
 			log.warn(`${BUBBLE_CLR}[BUBBLE]${RESET} hide fallback failed:`, err);
 		}

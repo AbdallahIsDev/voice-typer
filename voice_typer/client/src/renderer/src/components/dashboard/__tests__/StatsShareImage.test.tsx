@@ -1,5 +1,5 @@
 /**
- * FIX-16 / A11Y-10: i18n SVG <title> test for StatsShareImage.
+ *  / A11Y-10: i18n SVG <title> test for StatsShareImage.
  *
  * The pre-fix component hardcoded the English SVG <title> text
  * "Background waveform" inside the decorative waveform SVG. After the

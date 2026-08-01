@@ -1,8 +1,7 @@
 /**
  * Bubble overlay package — public surface.
  *
- * Extracted from the former `bubble-components.tsx` monolith (PVT-067 /
- * DR-16). The legacy `../bubble-components.tsx` module now just does
+ * The legacy `../bubble-components.tsx` module now just does
  * `export * from "./bubble";` so existing consumers (e.g. `Bubble.tsx`)
  * keep working without churn.
  *

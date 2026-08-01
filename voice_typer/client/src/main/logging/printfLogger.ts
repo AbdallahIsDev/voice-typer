@@ -1,20 +1,20 @@
 /**
  * Printf-style structured logger for the Electron main process.
  *
- * Extracted from the original `main/logging.ts` (DT-35 Phase 4.5
- * spaghetti split). Owns:
+ * Extracted from the original `main/logging.ts` (spaghetti
+ * split). Owns:
  *
  *   - `log` — printf-style API:
  *     `log.info("[BUBBLE] creating window at", x, y)`. Routes through
  *     colored stdout (ANSI `[INFO]`/`[WARN]`/`[ERROR]` prefixes) and
  *     tees WARN/ERROR to `<userData>/electron-runtime.log` with 5 MiB
  *     rotation. Uses the top-level `import { app } from "electron"`
- *     (AC-117 — the previous lazy-`require` was dead code; the ESM
+ *     (the previous lazy-`require` was dead code; the ESM
  *     import already forces the module to resolve at load time, so
  *     tests must mock `electron` via `vi.mock`).
  *   - `LogShape` — the public type of the `log` object (consumed by
  *     tests + type-only importers).
- *   - `getRuntimeLogPath()` — ER-63 memoized resolver for
+ *   - `getRuntimeLogPath()` — memoized resolver for
  *     `electron-runtime.log` (cached for the process lifetime;
  *     `_resetRuntimeLogPathForTest` clears the cache for tests).
  *   - `_getRuntimeLogPathForTest()` / `_resetRuntimeLogPathForTest()`
@@ -60,7 +60,7 @@ export type LogShape = {
  * Resolve the path to `electron-runtime.log`. Uses the top-level
  * `import { app } from "electron"` directly.
  *
- * AC-117: the previous implementation lazily `require("electron")`
+ * The previous implementation lazily `require("electron")`
  * inside a `try/catch` here, claiming it let unit tests import the
  * module without mocking Electron. That was dead code — the top-level
  * ESM `import { app }` already forces the Electron module to resolve
@@ -68,7 +68,7 @@ export type LogShape = {
  * loads and this function is never reached. The lazy `require` was
  * contradictory with the top-level import strategy and is removed.
  *
- * ER-63: memoized. The function is called on every `log.warn` / `log.error`
+ * Memoized. The function is called on every `log.warn` / `log.error`
  * invocation, and the underlying `app.getPath` resolution is non-trivial
  * (Electron lazy-loads its `app` module, and `getPath("userData")` does a
  * platform-specific dir computation). On a hot crash-loop path this added
@@ -85,17 +85,17 @@ export type LogShape = {
  * for unit tests that need to re-resolve after swapping the Electron
  * mock.
  *
- * XS-66: the previous `_runtimeLogPathOverride` + `_setRuntimeLogPathForTest`
+ * The previous `_runtimeLogPathOverride` + `_setRuntimeLogPathForTest`
  * test-override pair was removed — no test imported it. Tests that need to
  * assert against the file-tee path now mock `electron`'s `app.getPath` (as
  * `bootstrap.test.ts` already does).
  */
-// ER-63: undefined = "not yet computed"; string = cached path;
+// undefined = "not yet computed"; string = cached path;
 // null = computed but Electron was unavailable.
 let _runtimeLogPath: string | null | undefined;
 
 export function getRuntimeLogPath(): string | null {
-	// ER-63: cache hit — return the previously resolved path (or null
+	// Cache hit — return the previously resolved path (or null
 	// if a prior call found Electron unavailable). Avoids the
 	// `app.getPath` round-trip on every `log.warn` / `log.error`
 	// invocation.
@@ -123,7 +123,7 @@ export function getRuntimeLogPath(): string | null {
 }
 
 /**
- * ER-63: test-only export of the memoized path resolver. Exposed so
+ * Test-only export of the memoized path resolver. Exposed so
  * unit tests can call `getRuntimeLogPath()` directly and assert that
  * `app.getPath` is invoked exactly once across N calls — verifying
  * the memoization. Production callers go through `mainRuntimeLogger.write`
@@ -138,7 +138,7 @@ export function _getRuntimeLogPathForTest(): string | null {
 }
 
 /**
- * ER-63: clear the memoized runtime log path. Exported for unit tests
+ * Clear the memoized runtime log path. Exported for unit tests
  * so each test case starts with a fresh cache and can assert against
  * the call count of `app.getPath`.
  *
@@ -157,7 +157,7 @@ export function _resetRuntimeLogPathForTest(): void {
  * preserves the same detail as stdout. Non-stringifiable values fall
  * back to `String(value)` to never throw.
  *
- * XZ-LOG-03: every arg is run through `redactPii` (PII / API-key / URL
+ * Every arg is run through `redactPii` (PII / API-key / URL
  * credential redaction) before joining so the file log never leaks
  * user-spoken text or secrets. The stdout tee (in `writeStdout`) also
  * routes through this helper so stdout + file get the same redaction
@@ -233,12 +233,12 @@ const mainRuntimeLogger = {
 		if (!logPath) return;
 		const iso = new Date().toISOString();
 		const line = `${iso} [${level}] ${formatArgsForFile(args)}\n`;
-		// AC-12: route through `appendLogLine` so the XV-154 file-size
+		// Route through `appendLogLine` so the file-size
 		// cache is populated after each successful append. Previously
 		// this site called `rotateIfNeeded` + `fs.appendFileSync` directly,
 		// which bypassed the cache and forced a synchronous `fs.statSync`
 		// on every `log.warn`/`log.error` call (the exact perf bug
-		// XV-154 described). `appendLogLine` swallows I/O errors
+		// cache is populated after each successful append. Previously
 		// internally (best-effort), so no surrounding try/catch is
 		// needed — a logging failure must not cascade into a runtime
 		// failure of the calling code.

@@ -34,7 +34,7 @@ export interface Template {
  *    the list order changed (e.g. after a sort or undo restore).
  *  - ``expansion``: alias for ``output`` (the UI label).
  *  - ``variables``: count of variable tokens in the output.
- *  - ``used_variables``: the actual variable names (NEW-TS-019 — so the
+ *  - ``used_variables``: the actual variable names ( — so the
  *    UI can show them in a tooltip instead of just a count).
  */
 export interface TemplateRow {

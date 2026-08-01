@@ -36,7 +36,8 @@
 			"step3Ready": "就绪"
 		},
 		"pageNotFoundDescription": "未知页面：{page}",
-		"pageNotFoundTitle": "页面未找到"
+		"pageNotFoundTitle": "页面未找到",
+		"recordingInterrupted": "录音已中断"
 	},
 	"nav": {
 		"home": "首页",
@@ -85,7 +86,11 @@
 		"errorTitle": "录制错误",
 		"retry": "重试",
 		"pasteFailedMessage": "转写已完成，但剪贴板不可用。您的文本已保存到崩溃恢复文件中，因此不会丢失。",
-		"toggleFailed": "无法切换听写。请重试。"
+		"toggleFailed": "无法切换听写。请重试。",
+		"retryStartDictation": "重新开始听写",
+		"timerAria": "录音计时器",
+		"timerLabel": "计时器",
+		"transcribingHint": "正在转录..."
 	},
 	"common": {
 		"cancel": "取消",
@@ -111,7 +116,8 @@
 		"import": "导入",
 		"importAria": "从文件导入",
 		"lastUpdatedWithValue": "最后更新：{value}",
-		"close": "关闭"
+		"close": "关闭",
+		"confirm": "确认"
 	},
 	"microphone": {
 		"levelBarAria": "麦克风输入电平",
@@ -170,7 +176,9 @@
 			"qualityGood": "Good",
 			"qualityOk": "OK"
 		},
-		"stopPlaybackFirst": "Stop audio playback before starting a new test"
+		"stopPlaybackFirst": "Stop audio playback before starting a new test",
+		"loadFailedDescription": "无法加载麦克风列表。请检查连接后重试。",
+		"selected": "已选择"
 	},
 	"vocabulary": {
 		"title": "自定义词汇",
@@ -234,7 +242,26 @@
 		"importEmpty": "文件不包含词汇条目",
 		"loadFailedTitle": "加载词汇失败",
 		"retry": "重试",
-		"loading": "Loading vocabulary…"
+		"loading": "Loading vocabulary…",
+		"noResultsDescription": "尝试不同的搜索词或清除类别筛选器。",
+		"clearAll": "全部清除",
+		"clearAllAria": "清除所有词汇",
+		"clearAllConfirm": "全部清除",
+		"clearAllMessage": "确定要清除所有词汇吗？此操作无法撤销。",
+		"clearAllTitle": "清除所有词汇",
+		"clearFailed": "清除词汇失败",
+		"duplicateOriginal": "重复的原始词",
+		"entryCount_zero": "{count} 个词条",
+		"entryCount_one": "{count} 个词条",
+		"entryCount_two": "{count} 个词条",
+		"entryCount_few": "{count} 个词条",
+		"entryCount_many": "{count} 个词条",
+		"entryCount_other": "{count} 个词条",
+		"importInvalidShape": "文件不包含词汇数组",
+		"loadFailedDescription": "无法从后端加载词汇。请检查连接后重试。",
+		"showMore": "显示更多",
+		"showingCap": "显示 {shown} / {total}",
+		"vocabularyCleared": "词汇已清除"
 	},
 	"templates": {
 		"title": "模板",
@@ -281,7 +308,28 @@
 		"matchModeAria": "Match mode: {mode}",
 		"loading": "Loading templates…",
 		"noResults": "未找到结果",
-		"noResultsDescription": "尝试其他搜索词，或清除搜索以查看全部模板。"
+		"noResultsDescription": "尝试其他搜索词，或清除搜索以查看全部模板。",
+		"allCleared": "所有模板已清除",
+		"clearAll": "全部清除",
+		"clearAllAria": "清除所有模板",
+		"clearAllConfirm": "全部清除",
+		"clearAllMessage": "确定要清除所有模板吗？此操作无法撤销。",
+		"clearAllTitle": "清除所有模板",
+		"clearFailed": "清除模板失败",
+		"count_zero": "{count} 个模板",
+		"count_one": "{count} 个模板",
+		"count_two": "{count} 个模板",
+		"count_few": "{count} 个模板",
+		"count_many": "{count} 个模板",
+		"count_other": "{count} 个模板",
+		"duplicateTrigger": "具有相同触发词和匹配模式的模板已存在",
+		"exportFailed": "导出失败",
+		"exportNotAvailable": "导出不可用 — 请重启应用",
+		"exportSaved": "{filename} 已保存",
+		"importInvalidShape": "文件不包含模板数组",
+		"loadFailedDescription": "无法从后端加载模板。请检查连接后重试。",
+		"showMore": "显示更多",
+		"showingCap": "显示 {shown} / {total}"
 	},
 	"analytics": {
 		"title": "分析",
@@ -315,9 +363,11 @@
 		"unknown": "未知",
 		"auto": "自动",
 		"noDataTitle": "暂无活动",
-		"noDataDescription": "在首页按下热键（或 Caps Lock）开始听写 — 您的统计数据将显示在此处。",
+		"noDataDescription": "在主页按 {hotkey} 进行听写 — 您的统计信息将显示在此处。",
 		"startDictation": "开始听写",
 		"refreshFailed": "刷新统计失败",
+		"refreshFailedHint": "无法加载仪表板数据。请检查连接后重试。",
+		"retry": "重试",
 		"dayActivityAria": "{label}: {count} dictations",
 		"loadingAria": "正在加载仪表盘",
 		"cards": {
@@ -328,7 +378,16 @@
 		"durationZero": "0m",
 		"durationMinutes": "{m}m",
 		"durationHours": "{h}h",
-		"durationHoursMinutes": "{h}h {m}m"
+		"durationHoursMinutes": "{h}h {m}m",
+		"dayCountTooltip_zero": "{label}: {count} 次听写",
+		"dayCountTooltip_one": "{label}: {count} 次听写",
+		"dayCountTooltip_two": "{label}: {count} 次听写",
+		"dayCountTooltip_few": "{label}: {count} 次听写",
+		"dayCountTooltip_many": "{label}: {count} 次听写",
+		"dayCountTooltip_other": "{label}: {count} 次听写",
+		"loadFailedDescription": "无法加载仪表板数据。请检查连接后重试。",
+		"loadFailedTitle": "加载失败",
+		"sevenDayActivityChartAria": "7天活动图表"
 	},
 	"about": {
 		"title": "关于",
@@ -435,7 +494,13 @@
 		"creditsIconsValue": "Hugeicons",
 		"documentationLink": "文档",
 		"loading": "加载中…",
-		"httpError": "HTTP {status}"
+		"httpError": "HTTP {status}",
+		"noTagNameInResponse": "响应中无标签名",
+		"privacyPolicyNote": "您的语音数据仅在本地处理，不会发送到云端。",
+		"privacyPolicyNoteLabel": "隐私说明",
+		"unknownError": "未知错误",
+		"updateCheckNoTagNameInResponse": "检查更新响应中无标签名",
+		"updateCheckNoTagName": "检查更新响应中无标签名"
 	},
 	"settings": {
 		"title": "设置",
@@ -683,7 +748,8 @@
 			"rangeHintMinutes": "Range: {min}–{max} min",
 			"rangeErrorSeconds": "Must be between {min} and {max}",
 			"minutesSuffix": "min",
-			"secondsSuffix": "s"
+			"secondsSuffix": "s",
+			"stopOnSilenceInfoSearch": "静音停止设置"
 		},
 		"audioEnhancement": {
 			"title": "音频增强",
@@ -965,7 +1031,22 @@
 		"searchNoMatch": "没有设置匹配 \"{query}\"",
 		"bubbleMicButton": "气泡麦克风按钮",
 		"bubbleMicButtonDescription": "在始终可见的气泡上显示麦克风按钮，用于一键开始/停止听写",
-		"pending": "等待中…"
+		"pending": "等待中…",
+		"apiKeyConfiguredPlaceholder": "API 密钥已配置",
+		"apiKeyPlaceholder": "输入 API 密钥",
+		"customFilterChainSummary": "自定义过滤链",
+		"customFilterChainTitle": "自定义过滤链",
+		"huggingFaceDownloads": "Hugging Face 下载",
+		"loadFailedDescription": "无法加载设置。请检查连接后重试。",
+		"loadFailedTitle": "加载设置失败",
+		"searchAriaLabel": "搜索设置",
+		"unsavedChangesCancelLabel": "取消",
+		"unsavedChangesLeaveLabel": "离开",
+		"unsavedChangesMessage": "您有未保存的更改。确定要离开吗？",
+		"unsavedChangesTitle": "未保存的更改",
+		"voiceBiometricProcessing": "语音生物识别处理",
+		"voiceBiometricProcessingAria": "语音生物识别处理",
+		"voiceBiometricProcessingInfo": "启用语音生物识别以提高识别准确率。"
 	},
 	"models": {
 		"asrTitle": "模型",
@@ -1013,21 +1094,25 @@
 			"pauseFailed": "Failed to pause: {error}",
 			"cancelled": "Download cancelled. Partial files will be reused on retry.",
 			"cancelFailed": "Failed to cancel: {error}",
-			"parakeetDepsInstalled": "Parakeet dependencies installed successfully."
+			"parakeetDepsInstalled": "Parakeet dependencies installed successfully.",
+			"depsInstalled": "依赖项已安装",
+			"selectFailed": "选择失败"
 		},
 		"test": {
 			"needApiKey": "Please enter an API key first",
 			"connectionSuccessful": "连接成功 — API 密钥有效。",
 			"connectionFailed": "Connection failed: {status} {statusText}",
 			"endpointUnavailable": "API key saved — test endpoint not available for this provider.",
-			"connectionTestFailed": "Connection test failed: {error}"
+			"connectionTestFailed": "Connection test failed: {error}",
+			"connectionNetworkError": "连接网络错误"
 		},
 		"status": {
 			"active": "活跃",
 			"downloaded": "已下载",
 			"depsRequired": "需要依赖项",
 			"available": "可用",
-			"insufficientDisk": "Insufficient disk space"
+			"insufficientDisk": "磁盘空间不足",
+			"insufficientDiskSpace": "磁盘空间不足"
 		},
 		"import": {
 			"title": "导入模型",
@@ -1079,7 +1164,8 @@
 			"useAria": "Use {name}",
 			"downloadAria": "下载 {name}",
 			"selectAria": "选择 {name}",
-			"deleteAria": "Delete {name}"
+			"deleteAria": "Delete {name}",
+			"accuracy": "准确率"
 		},
 		"cloud": {
 			"title": "云端语音识别提供商",
@@ -1100,7 +1186,8 @@
 		},
 		"deleteDialog": {
 			"title": "删除模型",
-			"message": "Are you sure you want to delete \"{name}\"? This action cannot be undone."
+			"message": "Are you sure you want to delete \"{name}\"? This action cannot be undone.",
+			"messageWithSize": "确定要删除 {name}（{size}）吗？"
 		},
 		"subtitle": "下载和管理语音识别模型",
 		"localModels": "本地模型",
@@ -1158,11 +1245,15 @@
 		"openFolderAria": "Open the models directory in your file manager",
 		"openFolderFailed": "Open folder failed",
 		"disk": {
-			"lowSpaceBody": "Not enough free space to download models. Free up space or choose a smaller model.",
-			"lowSpaceTitle": "Low disk space"
+			"lowSpaceBody": "没有足够的空间下载模型",
+			"lowSpaceTitle": "磁盘空间不足",
+			"freeSpace": "{space} 可用"
 		},
 		"loading": "Loading models…",
-		"openFolder": "Open models folder"
+		"openFolder": {
+			"label": "打开模型文件夹",
+			"aria": "在文件管理器中显示模型文件夹"
+		}
 	},
 	"tooltips": {
 		"toggleRecording": "开始或停止语音听写",
@@ -1195,7 +1286,8 @@
 		"importNotAvailableOutsideElectron": "在 Electron 外部不可用导入",
 		"transcriptionComplete": "转写完成。",
 		"moreInfoAbout": "More info about {label}",
-		"toggleSidebarWithShortcut": "切换侧边栏 ({shortcut})"
+		"toggleSidebarWithShortcut": "切换侧边栏 ({shortcut})",
+		"transcriptionPasted": "已粘贴：{text}"
 	},
 	"help": {
 		"title": "键盘快捷键",
@@ -1251,7 +1343,8 @@
 		"description": "键盘快捷键和标点符号速查表。",
 		"searchPlaceholder": "搜索命令…",
 		"searchNoMatch": "没有命令匹配 \"{query}\"",
-		"openCheatSheet": "打开标点符号速查表"
+		"openCheatSheet": "打开标点符号速查表",
+		"shortcuts": "快捷键"
 	},
 	"history": {
 		"title": "历史记录",
@@ -1306,7 +1399,15 @@
 		"retry": "重试",
 		"charsSuffix": " ({count} chars)",
 		"exportTruncatedWarning": "Export limited to {count} most recent records — use search to export older entries.",
-		"sortLabel": "Sort"
+		"sortLabel": "Sort",
+		"charsSuffix_zero": "{count} 字符",
+		"charsSuffix_one": "{count} 字符",
+		"charsSuffix_two": "{count} 字符",
+		"charsSuffix_few": "{count} 字符",
+		"charsSuffix_many": "{count} 字符",
+		"charsSuffix_other": "{count} 字符",
+		"clearAllWithFilterMessage": "确定要删除所有符合条件的记录吗？此操作无法撤销。",
+		"exportFilteredToast": "已导出筛选后的记录"
 	},
 	"onboarding": {
 		"welcomeTitle": "欢迎使用 Voice Typer",
@@ -1376,7 +1477,29 @@
 		"modelDownloadingHint": "模型将在后台开始下载 — 您可以在加载时使用应用程序。",
 		"vramBadge": "显存: ~{vram}",
 		"englishOnlyBadge": "仅英语",
-		"multilingualBadge": "多语言"
+		"multilingualBadge": "多语言",
+		"bluetoothBadgeTooltip": "蓝牙麦克风",
+		"consentHuggingFace": "同意 Hugging Face 条款",
+		"consentHuggingFaceInfo": "模型将从 Hugging Face 下载。",
+		"consentRequired": "需要同意才能继续",
+		"consentVoiceBiometric": "同意语音生物识别处理",
+		"consentVoiceBiometricInfo": "语音数据将用于识别您的声音。",
+		"copied": "已复制",
+		"copyError": "复制失败",
+		"copyErrorAria": "复制错误",
+		"downloadCancel": "取消下载",
+		"downloadCancelAria": "取消下载",
+		"downloadEta": "预计剩余时间",
+		"downloadProgressAria": "下载进度",
+		"downloadedBadge": "已下载",
+		"downloadingModel": "正在下载模型",
+		"micLevelAria": "麦克风音量",
+		"micLevelLabel": "麦克风音量",
+		"micTestAria": "麦克风测试",
+		"micTestButton": "测试麦克风",
+		"micTestListening": "正在聆听...",
+		"micTestStopButton": "停止测试",
+		"skipConfirmModelWarning": "跳过模型下载可能会影响体验。确定跳过？"
 	},
 	"titleBar": {
 		"minimize": "最小化",
@@ -1417,7 +1540,8 @@
 		"resetFailedNotice": "后端重置失败——正在清除本地状态并仍然重新加载。",
 		"resetSettings": "重置设置",
 		"copied": "已复制！",
-		"resetting": "正在重置…"
+		"resetting": "正在重置…",
+		"configCrashHint": "尝试重置配置以解决此问题。"
 	},
 	"hotkeyPicker": {
 		"pressAKey": "按一个键",
@@ -1432,7 +1556,9 @@
 		"secondsRemainingSuffix": "({count}s)",
 		"clearAria": "清除快捷键 — {label}",
 		"holdingPrefix": "Holding: {modifiers}",
-		"clearTitle": "清除快捷键"
+		"clearTitle": "清除快捷键",
+		"capsLockSrConflictWarning": "Caps Lock 是 VoiceOver / 讲述人的默认修饰键。选择它可能会破坏您的屏幕阅读器。请考虑改用 F2 或 Ctrl+Alt+D。",
+		"captureTimedOut": "快捷键捕获超时"
 	},
 	"hotkeyValidation": {
 		"empty": "Hotkey is empty",
@@ -1453,7 +1579,8 @@
 		"dictationKeySingle": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos.",
 		"dictationKeySingleShort": "Dictation key must be a single key",
 		"fnMacosOnly": "Fn key is only supported on macOS",
-		"holding": "Holding"
+		"holding": "Holding",
+		"bareModifierInterferes": "单独使用修饰键可能与其他功能冲突"
 	},
 	"hotkeyKeys": {
 		"ctrl": "Ctrl",
@@ -1571,7 +1698,8 @@
 			"offlineMode": "离线",
 			"cloudApi": "云端 API",
 			"localModel": "本地模型",
-			"fasterThanAvg": "比平均打字快 {percent}%"
+			"fasterThanAvg": "比平均打字快 {percent}%",
+			"captureFailed": "截图失败"
 		}
 	},
 	"hotkey": {
@@ -1671,6 +1799,31 @@
 		"unknown": "应用程序遇到意外错误。您的数据是安全的。",
 		"cudaOom": "GPU内存不足。请尝试较小的模型、关闭其他GPU应用程序或切换到CPU模式。",
 		"rateLimited": "请求过多。请稍候片刻再试。",
-		"unknownBackend": "转写后端遇到意外错误。您的数据是安全的——请重试。"
+		"unknownBackend": "转写后端遇到意外错误。您的数据是安全的——请重试。",
+		"viewLogsAction": "查看日志",
+		"copyErrorAction": "复制错误"
+	},
+	"connection": {
+		"respawnFailed": "后端无法自动重启",
+		"respawnFailedHint": "Voice Typer 多次尝试恢复后端并放弃了。请重新启动应用，如果问题持续，请检查日志或重新安装。"
+	},
+	"dialog": {
+		"pythonCrash": {
+			"title": "Python 后端崩溃",
+			"body": "{appName} 的 Python 后端意外退出，代码为 {code}，现在将退出。",
+			"signalBody": "{appName} 的 Python 后端被信号 {signal} 终止，现在将退出。"
+		},
+		"pythonNotFound": {
+			"title": "未找到 Python 后端",
+			"body": "{appName} 找不到其 Python 后端。请重新安装应用程序。"
+		},
+		"pythonStartupTimeout": {
+			"title": "Python 后端启动失败",
+			"body": "{appName} 无法在 {seconds} 秒内连接到其 Python 后端。"
+		},
+		"restartLoopBreak": {
+			"title": "{appName} 无法安全重启",
+			"body": "Python 后端在启动时崩溃。在 {seconds} 秒内尝试 {count} 次后，重启循环断路器已启动。请检查日志文件，如果问题持续则重新安装。"
+		}
 	}
 }

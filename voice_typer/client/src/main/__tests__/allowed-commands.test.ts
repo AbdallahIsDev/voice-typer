@@ -14,8 +14,8 @@ describe("R6-F10: allowed-commands.ts", () => {
 	});
 
 	it("preserves the canonical command strings (subset sanity check)", () => {
-		// These are the commands explicitly mentioned in ERR-IPC-002 and
-		// ERR-IPC-003 docs as must-haves / must-not-haves. Verifying them
+		//These are the commands explicitly mentioned in  and
+		//docs as must-haves / must-not-haves. Verifying them
 		// guards against accidental drops during the R6-F10 move.
 		const mustHave = [
 			"quit_app",
@@ -52,10 +52,10 @@ describe("R6-F10: allowed-commands.ts", () => {
 	});
 
 	it("does NOT contain the GT-32 (session-6) removed stale entries", () => {
-		// GT-32: 17 entries removed because no renderer code invokes them.
+		//17 entries removed because no renderer code invokes them.
 		// They previously appeared only in this Set (sometimes also in a
 		// doc comment). The matching Python-side `_COMMAND_REGISTRY`
-		// entries should also be removed by GT-FIX-05 (owns ipc_server.py);
+		//entries should also be removed by  (owns ipc_server.py);
 		// until that lands the cross-file parity test in
 		// `tests/test_electron_ipc_and_build.py` will flag them as
 		// "missing from allowlist".
@@ -87,7 +87,7 @@ describe("R6-F10: allowed-commands.ts", () => {
 	});
 
 	it("contains a non-trivial number of commands (sanity)", () => {
-		// As of the R6-F10 move there were ~76 commands; GT-32 (session-6)
+		//As of the R6-F10 move there were ~76 commands;  (session-6)
 		// removed 17 stale entries, bringing the count to ~59. This guard
 		// prevents an accidental wholesale drop. The exact count is
 		// allowed to grow over time, so we assert a lower bound.

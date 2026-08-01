@@ -1,21 +1,24 @@
 /**
- * LocalModelsPanel unit tests — BG-21 / BG-23 / BG-R16.
+ * LocalModelsPanel unit tests —  /  /
  *
  * Coverage:
- *   1. BG-21: the low-disk-space warning banner uses the CORRECT i18n
+ *   1. : the low-disk-space warning banner uses the CORRECT i18n
  *      keys (models.disk.lowSpaceTitle + models.disk.lowSpaceBody) and
  *      the new models.disk.freeSpace interpolation — NOT the unrelated
  *      depsRequired / hfConsent.blockedHint keys it was reusing before.
- *   2. BG-23: the "Open models folder" button uses
+ *   2. : the "Open models folder" button uses
  *      models.openFolder.label + models.openFolder.aria — NOT the
  *      misleading models.import.importModel* keys.
- *   3. BG-21 line 261: the per-model insufficient-disk badge uses
+ *   3.  line 261: the per-model insufficient-disk badge uses
  *      models.status.insufficientDisk (not depsRequired).
  *   4. Conditional rendering: open-folder button only renders when
  *      modelsFolderSupported=true; consent banner only when consent is
  *      missing; low-disk banner only when free_bytes < 1GB.
  *   5. HuggingFace consent banner renders title + description + grant
  *      button + blocked-hint span.
+ *   6. : the panel forwards `modelName`, `error`, and `onRetry` to
+ *      <DownloadProgressBar> so the inline error UI + Retry button
+ *      render ( priority #3 + #4).
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -68,13 +71,36 @@ vi.mock("@/components/ui/accordion", () => ({
 // Stub ModelCardActions so we don't have to construct the full ModelInfo
 // shape for every variant just to render the panel.
 vi.mock("@/components/models/ModelCardActions", () => ({
-	ModelCardActions: ({ model }: { model: { name: string } }) => (
-		<div data-testid="model-card-actions" data-model={model.name} />
+	ModelCardActions: ({
+		model,
+		isInstallingDepsThis,
+	}: {
+		model: { name: string };
+		isInstallingDepsThis?: boolean;
+	}) => (
+		<div
+			data-testid="model-card-actions"
+			data-model={model.name}
+			data-installing-deps={isInstallingDepsThis ? "true" : "false"}
+		/>
 	),
 }));
 
+//capture the props forwarded to <DownloadProgressBar> so we can
+// assert that `modelName`, `error`, and `onRetry` are wired through
+//( priority #3 + #4). Previously the panel forwarded only 9 of
+// the 12 props — the inline error UI + Retry button were dead code.
 vi.mock("@/components/models/DownloadProgressBar", () => ({
-	DownloadProgressBar: () => <div data-testid="download-progress-bar" />,
+	DownloadProgressBar: (props: Record<string, unknown>) => (
+		<div
+			data-testid="download-progress-bar"
+			data-model-name={
+				typeof props.modelName === "string" ? props.modelName : ""
+			}
+			data-error={typeof props.error === "string" ? props.error : ""}
+			data-has-retry={typeof props.onRetry === "function" ? "true" : "false"}
+		/>
+	),
 }));
 
 const noop = vi.fn();
@@ -159,10 +185,16 @@ const baseProps = {
 	totalBytes: null,
 	speedBps: null,
 	etaSeconds: null,
+	//failedDownload + onRetryDownload are now required props on
+	// LocalModelsPanel (forwarded to <DownloadProgressBar> for the
+	// inline error UI + Retry button).
+	failedDownload: null,
+	installingDepsModel: null,
 	onSelectModel: noop,
 	onDownloadModel: noop,
 	onDeleteModel: noop,
 	onInstallDeps: noop,
+	onRetryDownload: noop,
 	onGrantConsent: noop,
 	onTogglePause: noop,
 	onCancelDownload: noop,
@@ -349,5 +381,92 @@ describe("LocalModelsPanel — BG-21 line 261 (insufficient-disk badge per model
 		};
 		render(<LocalModelsPanel {...baseProps} diskInfo={disk} />);
 		expect(screen.queryByText("Insufficient disk space")).toBeNull();
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────
+//the panel forwards `modelName`, `error`, and `onRetry` to
+// <DownloadProgressBar> so the inline error UI + Retry button render
+//( priority #3 + #4). Previously the panel forwarded only 9 of
+// the 12 props — the inline retry affordance was dead code in
+// production.
+// ─────────────────────────────────────────────────────────────────────
+describe("LocalModelsPanel — ZU-4 (forward error/modelName/onRetry to DownloadProgressBar)", () => {
+	afterEach(() => cleanup());
+
+	it("forwards modelName to <DownloadProgressBar> when the model is downloading", () => {
+		render(
+			<LocalModelsPanel
+				{...baseProps}
+				downloadingModel="tiny.en"
+				downloadProgress={50}
+				downloadStatus="downloading"
+			/>,
+		);
+		const bar = screen.getByTestId("download-progress-bar");
+		expect(bar.getAttribute("data-model-name")).toBe("tiny.en");
+		// onRetry is always forwarded (the bar decides whether to
+		// render the Retry button based on the `error` prop).
+		expect(bar.getAttribute("data-has-retry")).toBe("true");
+	});
+
+	it("forwards the error string when failedDownload matches the downloading model", () => {
+		render(
+			<LocalModelsPanel
+				{...baseProps}
+				downloadingModel="tiny.en"
+				failedDownload={{
+					modelName: "tiny.en",
+					error: "disk full",
+				}}
+			/>,
+		);
+		const bar = screen.getByTestId("download-progress-bar");
+		expect(bar.getAttribute("data-error")).toBe("disk full");
+		expect(bar.getAttribute("data-model-name")).toBe("tiny.en");
+	});
+
+	it("does NOT forward the error when failedDownload is for a DIFFERENT model", () => {
+		// The bar's error prop is per-model — a failure for
+		// medium.en must not render an error UI on the tiny.en
+		// card (the bar would be mounted on the medium.en card
+		// instead, where the error UI belongs).
+		render(
+			<LocalModelsPanel
+				{...baseProps}
+				downloadingModel="tiny.en"
+				failedDownload={{
+					modelName: "medium.en",
+					error: "network timeout",
+				}}
+			/>,
+		);
+		const bar = screen.getByTestId("download-progress-bar");
+		expect(bar.getAttribute("data-error")).toBe("");
+	});
+
+	it("forwards isInstallingDepsThis to <ModelCardActions> based on installingDepsModel", () => {
+		render(<LocalModelsPanel {...baseProps} installingDepsModel="tiny.en" />);
+		// The panel renders one card per variant; locate the
+		// tiny.en card by its data-model attribute.
+		const cards = screen.getAllByTestId("model-card-actions");
+		const tinyCard = cards.find(
+			(el) => el.getAttribute("data-model") === "tiny.en",
+		);
+		expect(tinyCard).toBeDefined();
+		expect(tinyCard?.getAttribute("data-installing-deps")).toBe("true");
+		// The medium.en card must NOT be marked as installing.
+		const mediumCard = cards.find(
+			(el) => el.getAttribute("data-model") === "medium.en",
+		);
+		expect(mediumCard?.getAttribute("data-installing-deps")).toBe("false");
+	});
+
+	it("forwards isInstallingDepsThis=false when installingDepsModel is null", () => {
+		render(<LocalModelsPanel {...baseProps} installingDepsModel={null} />);
+		const cards = screen.getAllByTestId("model-card-actions");
+		for (const card of cards) {
+			expect(card.getAttribute("data-installing-deps")).toBe("false");
+		}
 	});
 });

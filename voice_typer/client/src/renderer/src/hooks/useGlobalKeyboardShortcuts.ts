@@ -1,7 +1,7 @@
 /**
  * useGlobalKeyboardShortcuts — app-wide keyboard + Ctrl+Wheel shortcuts.
  *
- * Extracted from App.tsx (BG-27, Phase 4.5 spaghetti split) to keep
+ * Extracted from App.tsx (Phase 4.5 spaghetti split) to keep
  * App.tsx a pure layout shell. Behaviour is byte-identical to the original
  * inline effect:
  *
@@ -10,7 +10,7 @@
  *   - Ctrl/Cmd+H           → navigate to Home.
  *   - Ctrl/Cmd+= (or "+")  → bump text size up by 1 (clamped to 20), persist
  *                             via `set_config` IPC. No-op while typing in an
- *                             input/textarea/contentEditable (PVT-fix-11).
+ *                             input/textarea/contentEditable.
  *   - Ctrl/Cmd+-           → bump text size down by 1 (clamped to 10), same
  *                             guards as above.
  *   - Ctrl/Cmd+Wheel       → bump text size up/down by 1 (same clamps). Fires
@@ -41,6 +41,44 @@ type CallFn = <T = unknown>(
 	type: string,
 	data?: Record<string, unknown>,
 ) => Promise<T>;
+
+/**
+ * Static, data-driven descriptor for the in-app keyboard shortcuts
+ * handled by this hook. Exported so the help overlay (and any future
+ * documentation surface) can render the same authoritative list the
+ * hook implements — closing the loophole where the overlay's text
+ * drifted from the actual key bindings.
+ *
+ * `keys` is the user-facing key combination string (matching the
+ * format already used in the i18n `help.keys.*` entries: "Ctrl+B",
+ * "Ctrl+,", etc.). `labelKey` is the i18n key whose value localises
+ * the shortcut's description; if the key is missing from a locale,
+ * `t()` falls back to the raw key (the i18n sub-agent will fill in
+ * translations later). `category` groups shortcuts in the overlay
+ * (e.g. "navigation" vs "view") so future sections can split them
+ * visually without reshuffling the array.
+ */
+export interface InAppShortcut {
+	keys: string;
+	labelKey: string;
+	category: string;
+}
+
+export const IN_APP_SHORTCUTS: InAppShortcut[] = [
+	{
+		keys: "Ctrl+B",
+		labelKey: "help.shortcuts.toggleSidebar",
+		category: "navigation",
+	},
+	{
+		keys: "Ctrl+,",
+		labelKey: "help.shortcuts.openSettings",
+		category: "navigation",
+	},
+	{ keys: "Ctrl+H", labelKey: "help.shortcuts.goHome", category: "navigation" },
+	{ keys: "Ctrl+=", labelKey: "help.shortcuts.zoomIn", category: "view" },
+	{ keys: "Ctrl+-", labelKey: "help.shortcuts.zoomOut", category: "view" },
+];
 
 interface UseGlobalKeyboardShortcutsArgs {
 	/** Navigate function from useNavigation. */
@@ -91,7 +129,7 @@ export function useGlobalKeyboardShortcuts({
 					return;
 				}
 
-				// PVT-fix-11: zoom shortcuts (Ctrl+= / Ctrl+-) moved
+				// Zoom shortcuts (Ctrl+= / Ctrl+-) moved
 				// inside the `!typing` guard so Ctrl+=/Ctrl+- pressed
 				// while focus is inside an <input>/<textarea>/
 				// contentEditable (e.g. the Settings search field) does

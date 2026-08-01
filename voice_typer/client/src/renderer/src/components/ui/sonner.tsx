@@ -66,7 +66,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
 	return (
 		<Sonner
 			theme={theme}
-			// PVT-027: pin a canonical configuration so every toast
+			//pin a canonical configuration so every toast
 			// looks the same regardless of where it was raised.
 			//   - richColors: sonner's semantic palette (green for
 			//     success, red for error, amber for warning, blue
@@ -81,7 +81,7 @@ const Toaster = ({ ...props }: ToasterProps) => {
 			//     RTL locales (Arabic/Hebrew) so the toaster sits in the
 			//     visually-far corner from the reading start. Note: this
 			//     is computed once at mount; sonner doesn't react to
-			//     runtime locale changes (XA-20-11).
+			//runtime locale changes ().
 			//   - duration={4000}: fallback for toasts raised via
 			//     ``toast.*`` directly (bypassing ``useSnackbar``).
 			//     The hook applies its own per-type durations
@@ -91,6 +91,8 @@ const Toaster = ({ ...props }: ToasterProps) => {
 			closeButton
 			position={isRtlLocale(getLocale()) ? "bottom-left" : "bottom-right"}
 			duration={4000}
+			visibleToasts={6}
+			expand={false}
 			className="toaster group"
 			icons={{
 				success: (

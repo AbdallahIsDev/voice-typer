@@ -4,7 +4,7 @@
 //   - ``importInputRef`` (hidden ``<input type="file">`` ref — re-used
 //     for every import so we don't pay the cost of remounting it)
 //   - ``doExport`` (uses the optional ``window_.exportTemplates`` IPC
-//     bridge — NEW-PRIV-007 GDPR right-to-export)
+//bridge —  GDPR right-to-export)
 //   - ``handleImportFile`` (parses + de-dupes by trigger|output|match_mode
 //     so re-importing the same file doesn't create duplicate rows)
 //   - ``handleImportClick`` (delegates to the hidden input's ``.click()``)
@@ -36,7 +36,7 @@ interface UseTemplateImportExportResult {
 	handleImportClick: () => void;
 }
 
-// BG-63: bridge.exportTemplates in types/ipc.ts doesn't yet accept a
+//bridge.exportTemplates in types/ipc.ts doesn't yet accept a
 // `format` parameter (F20 owns types/ipc.ts and will extend the
 // signature). We pass `format` at runtime anyway so the IPC payload
 // reaches the backend correctly once F20 ships the type extension;
@@ -56,11 +56,11 @@ export function useTemplateImportExport({
 	// ── Import / Export ──────────────────────────────────────────────
 	//
 	// Export: uses the optional ``window_.exportTemplates`` IPC
-	// (NEW-PRIV-007 GDPR right-to-export) when available.  Falls back
+	//( GDPR right-to-export) when available.  Falls back
 	// to a no-op toast if the bridge is missing (e.g. running outside
 	// Electron) so the button isn't a silent dead control.
 	//
-	// BG-63: ``format`` is forwarded from the ExportFormatMenu (JSON /
+	//``format`` is forwarded from the ExportFormatMenu (JSON /
 	// CSV).  Defaults to ``"json"`` so callers that don't care about
 	// the format (e.g. an ad-hoc test or a future "quick-export"
 	// shortcut) preserve the previous behaviour bit-for-bit.
@@ -73,7 +73,7 @@ export function useTemplateImportExport({
 					toast.error(t("vocabulary.exportNotAvailable"));
 					return;
 				}
-				// BG-63: pass ``format`` to the IPC bridge so the
+				//pass ``format`` to the IPC bridge so the
 				// backend can pick the right serialiser. The
 				// WindowBridge type in types/ipc.ts doesn't yet
 				// declare the second arg (F20 owns that file) — the

@@ -164,7 +164,7 @@ export function makeBubbleApi(
 		onDraggable: makeListener<boolean>(ipc, BubbleChannels.draggable, (d) =>
 			Boolean(d),
 		),
-		// NEW-A11Y-006 (Round 0 forward-port): keyboard-based move
+		//(Round 0 forward-port): keyboard-based move
 		// (accessibility alternative to drag). Main process clamps to
 		// screen bounds.
 		moveBy: (deltaX: number, deltaY: number) => {
@@ -181,7 +181,7 @@ export function makeBubbleApi(
 		onSetState: makeListener<string>(ipc, BubbleChannels.setState, (s) =>
 			String(s),
 		),
-		// UX-10: receive bubble-relevant config (bubble_behavior /
+		//receive bubble-relevant config (bubble_behavior /
 		// bubble_click_to_toggle / bubble_mic_button) pushed from the
 		// Python backend. The sandboxed bubble renderer has no get_config,
 		// so this is how it learns whether to show the mic button.
@@ -201,7 +201,7 @@ export function makeBubbleApi(
 		resizeTo: (width: number, height: number) => {
 			ipc.send(BubbleChannels.resize, { width, height });
 		},
-		// UX-10: toggle dictation from the bubble's own mic button. The
+		//toggle dictation from the bubble's own mic button. The
 		// bubble is a sandboxed renderer (SEC-026) with NO `python.call`,
 		// so it cannot invoke `toggle_dictation` directly. Instead it sends
 		// a dedicated, single-purpose channel that the main process routes
@@ -210,7 +210,7 @@ export function makeBubbleApi(
 		toggleDictation: () => {
 			ipc.send(BubbleChannels.toggleDictation);
 		},
-		// BG-96: dismiss the bubble from its own '×' button. The bubble is
+		//dismiss the bubble from its own '×' button. The bubble is
 		// sandboxed (SEC-026) and has NO `python.call`, so it sends a
 		// dedicated, single-purpose channel. The main-process handler
 		// (bubble:dismiss) is owned by F11 — it should hide the bubble

@@ -16,7 +16,7 @@ if (typeof globalThis.ResizeObserver === "undefined") {
 		ResizeObserverStub as unknown as typeof ResizeObserver;
 }
 
-// PVT-076: collect the jsdom polyfills that previously had to be
+//collect the jsdom polyfills that previously had to be
 // re-installed inside individual test files (Bubble.test.tsx,
 // Bubble-keyboard-move.test.tsx, ux-components-behavior.test.tsx, etc.).
 // Centralising them here means new tests get a working DOM environment

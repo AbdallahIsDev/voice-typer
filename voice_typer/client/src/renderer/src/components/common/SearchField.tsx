@@ -25,7 +25,7 @@ export function SearchField({
 	placeholder = t("common.search"),
 	ariaLabel,
 }: SearchFieldProps) {
-	// M-51: always provide an accessible name. The magnifier icon is
+	// Always provide an accessible name. The magnifier icon is
 	// decorative (the placeholder + aria-label convey the same meaning),
 	// so it is marked aria-hidden below. Screen readers therefore
 	// announce e.g. "Search settings, edit field" rather than the
@@ -38,7 +38,7 @@ export function SearchField({
 	const handleClear = () => onChange("");
 
 	return (
-		// XA-8-M5: wrap the field in a `role="search"` landmark so SR users
+		// Wrap the field in a `role="search"` landmark so SR users
 		// can navigate to it via the "search" landmark shortcut. biome
 		// suggests the `<search>` element instead; we keep `<div role="search">`
 		// for explicit compatibility with older AT that doesn't recognize `<search>`.
@@ -47,7 +47,7 @@ export function SearchField({
 			<HugeiconsIcon
 				icon={Search01Icon}
 				strokeWidth={1.625}
-				// M-51: decorative — the input's aria-label
+				// decorative — the input's aria-label
 				// provides the accessible name.
 				aria-hidden="true"
 				className="absolute inset-s-3 top-1/2 -translate-y-1/2 h-4 w-4 text-(--text-muted) pointer-events-none"
@@ -64,7 +64,7 @@ export function SearchField({
 					type="button"
 					onClick={handleClear}
 					aria-label={t("a11y.clearSearch")}
-					className="absolute inset-e-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring/30 focus-visible:outline-none"
+					className="absolute inset-e-3 top-1/2 -translate-y-1/2 text-(--text-muted) hover:text-(--text-primary) focus-visible:ring-3 focus-visible:ring-ring focus-visible:outline-none"
 				>
 					<HugeiconsIcon
 						icon={Cancel01Icon}

@@ -1,11 +1,11 @@
 /**
- * NH-15 regression test: when a Templates search yields no matches, the
+ *  regression test: when a Templates search yields no matches, the
  * EmptyState must use the dedicated `templates.noResults` /
  * `templates.noResultsDescription` i18n keys — NOT the misleading
  * `templates.emptyTitle` ("No templates yet") nor the cross-module
  * `history.noResultsDescription`.
  *
- * Before NH-15, the search-no-results branch borrowed
+ * Before , the search-no-results branch borrowed
  * `history.noResultsDescription` (History namespace coupling) and reused
  * `templates.emptyTitle` which is semantically wrong: it implies the user's
  * templates are missing rather than the search just did not match.

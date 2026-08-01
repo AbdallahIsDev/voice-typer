@@ -37,7 +37,7 @@ import { app } from "electron";
 import { bootstrapRuntime } from "./bootstrap";
 import { runBubbleTestDiagnostics } from "./dev/bubble-test";
 import { registerIpcHandlers } from "./ipc";
-// DE-87 / S2-CR-75: route main-process lifecycle messages through
+//route main-process lifecycle messages through
 // the structured `log` logger so they persist to `electron-main.log`
 // (with 5 MiB rotation) and `electron-lifecycle.log` (opt-in INFO
 // persistence) instead of being lost in packaged builds where
@@ -52,7 +52,7 @@ import { state } from "./state";
 import { isLinuxWaylandWithoutSni } from "./tray_available";
 import { createWindows, showMainWindow } from "./windows";
 
-// CR-063: the canonical ALLOWED_COMMANDS declaration lives in
+//the canonical ALLOWED_COMMANDS declaration lives in
 // `./allowed-commands` (a dependency-free leaf module). It is
 // re-exported here so existing imports — notably
 // `./python/send-to-python.ts` imports `ALLOWED_COMMANDS` from
@@ -67,7 +67,7 @@ if (process.env.npm_lifecycle_event === "dev" || !app.isPackaged) {
 	process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 }
 
-// CR-063: the canonical ALLOWED_COMMANDS declaration lives in
+//the canonical ALLOWED_COMMANDS declaration lives in
 // `./allowed-commands.ts` (see top-of-file re-export). The inline
 // duplicate declaration that used to live here was removed to
 // eliminate the risk of the two declarations drifting out of sync
@@ -100,7 +100,7 @@ registerIpcHandlers();
 // on the window knows to let the close proceed instead of hiding.
 app.isQuitting = false;
 
-// XV-153: cleanup handle for the dev-only `VT_BUBBLE_TEST=1` bubble
+//cleanup handle for the dev-only `VT_BUBBLE_TEST=1` bubble
 // diagnostic harness (see `./dev/bubble-test.ts`). Assigned inside
 // `app.whenReady()` when the env var is set; invoked from the
 // `before-quit` handler so the diagnostic's 3 timers (1 setTimeout +
@@ -110,10 +110,10 @@ app.isQuitting = false;
 let bubbleTestCleanup: (() => void) | null = null;
 
 app.whenReady().then(() => {
-	// SEC-029 nonce, NEW-PRIV-010 userData, SEC-012 CSP, SEC-021 error handlers.
+	//SEC-029 nonce,  userData, SEC-012 CSP, SEC-021 error handlers.
 	bootstrapRuntime();
 
-	// ER-1: pre-create the dashboard BrowserWindow IMMEDIATELY after
+	//pre-create the dashboard BrowserWindow IMMEDIATELY after
 	// bootstrapRuntime, BEFORE startPython(). Previously the window
 	// was created lazily by `tcp-connect.ts:158`'s `createWindows()`
 	// call — which fires only after the Python backend has spawned,
@@ -155,13 +155,13 @@ app.whenReady().then(() => {
 		log.warn(
 			`${ts()}  ${BUBBLE_CLR}[BUBBLE] VT_BUBBLE_TEST=1 -- showing bubble for diagnostics${RESET}`,
 		);
-		// XV-153: delegate the 3-timer diagnostic to `dev/bubble-test.ts`
+		//delegate the 3-timer diagnostic to `dev/bubble-test.ts`
 		// so the production wiring entry point stays wiring-only and the
 		// timers are tracked for cleanup on shutdown.
 		bubbleTestCleanup = runBubbleTestDiagnostics(state).cleanup;
 	}
 	startPython();
-	// CR-20: pre-warm the Wayland-without-SNI cache so the
+	//pre-warm the Wayland-without-SNI cache so the
 	// `window-all-closed` handler returns instantly instead of
 	// blocking on the D-Bus subprocess check (up to 4s worst-case
 	// if neither `gdbus` nor `dbus-send` is installed). The check
@@ -171,7 +171,7 @@ app.whenReady().then(() => {
 	isLinuxWaylandWithoutSni();
 });
 
-// GT-11: SIGTERM/SIGINT → app.quit() → before-quit → stopPython().
+//SIGTERM/SIGINT → app.quit() → before-quit → stopPython().
 // 3s hard backstop if before-quit hangs.
 let _signalQuitFired = false;
 const signalQuitHandler = () => {
@@ -191,7 +191,7 @@ process.on("SIGINT", signalQuitHandler);
 app.on("before-quit", () => {
 	app.isQuitting = true;
 	stopPython();
-	// XV-153: clear the dev-only bubble-test diagnostic timers so they
+	//clear the dev-only bubble-test diagnostic timers so they
 	// don't fire `webContents.send` against a destroyed window during
 	// slow shutdown. Best-effort — `bubbleTestCleanup` is `null` in
 	// production (env var never set) and the cleanup function itself
@@ -203,11 +203,11 @@ app.on("before-quit", () => {
 	clearElectronPidFile();
 });
 
-// PVT-G5-005 (R6-F7): belt-and-suspenders `will-quit` handler.
-// GT-71: removed the 3s forceExitTimer that raced with stopPython's
+//(R6-F7): belt-and-suspenders `will-quit` handler.
+//removed the 3s forceExitTimer that raced with stopPython's
 // killTimer. Now relies on killTimer (no longer .unref()'d) +
 // pythonProcess.once('exit') to call app.exit(0).
-// GT-60: if pythonProcess is already null, exit immediately.
+//if pythonProcess is already null, exit immediately.
 let _willQuitStopPythonFired = false;
 app.on("will-quit", (event) => {
 	if (_willQuitStopPythonFired) return;
@@ -232,7 +232,7 @@ app.on("will-quit", (event) => {
 // (last window destroyed) or on macOS when all windows are closed by the
 // user.  Guard accordingly.
 //
-// CR-20: on Linux Wayland WITHOUT StatusNotifierItem (Sway/Hyprland/dwl/
+//on Linux Wayland WITHOUT StatusNotifierItem (Sway/Hyprland/dwl/
 // river), the Python tray backend sets `_tray_unavailable = True` and
 // creates NO tray icon.  Without a tray icon, the user has no UI
 // affordance to quit the app after closing the last window.  Detect this
@@ -241,7 +241,7 @@ app.on("will-quit", (event) => {
 app.on("window-all-closed", () => {
 	if (app.isQuitting) return;
 	if (process.platform !== "darwin") {
-		// CR-20: if there's no tray icon to fall back to (Wayland-
+		//if there's no tray icon to fall back to (Wayland-
 		// without-SNI), quit instead of leaving the user stranded.
 		if (isLinuxWaylandWithoutSni()) {
 			app.quit();
@@ -262,13 +262,13 @@ app.on("activate", () => {
 	}
 });
 
-// S1-CR-155: the legacy `export { APP_NAME } from "./branding";` re-export
+//the legacy `export { APP_NAME } from "./branding";` re-export
 // was removed. The original justification (preserve a stale "lazy-import
 // behaviour" from the pre-split 2,321-line `index.ts`) was already
 // obsolete after REF-2 split it into submodules. The follow-up
-// PVT-G5-086 comment claimed the re-export preserved "the public API
+//comment claimed the re-export preserved "the public API
 // surface so any external consumer importing from `./index` still
-// resolves `APP_NAME`" — but a repo-wide audit (see finding S1-CR-155)
+//resolves `APP_NAME`" — but a repo-wide audit (see finding )
 // found ZERO such consumers: every APP_NAME import goes directly to
 // `./branding`. Keeping a dead re-export on the wiring-only entry
 // point risks confusion (the canonical declaration lives in

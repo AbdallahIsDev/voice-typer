@@ -1,9 +1,9 @@
 {
-	"*.ts": ["biome check --write"],
-	"*.tsx": ["biome check --write"],
-	"*.js": ["biome check --write"],
-	"*.jsx": ["biome check --write"],
-	"*.json": ["biome check --write"],
-	"*.css": ["biome check --write"],
-	"*.mjs": ["biome check --write"]
+	"*.ts": ["biome check --write --no-errors-on-unmatched"],
+	"*.tsx": ["biome check --write --no-errors-on-unmatched"],
+	"*.js": ["biome check --write --no-errors-on-unmatched"],
+	"*.jsx": ["biome check --write --no-errors-on-unmatched"],
+	"*.json": ["biome check --write --no-errors-on-unmatched"],
+	"*.css": ["biome check --write --no-errors-on-unmatched"],
+	"*.mjs": ["biome check --write --no-errors-on-unmatched"]
 }

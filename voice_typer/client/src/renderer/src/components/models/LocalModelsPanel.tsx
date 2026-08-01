@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/accordion";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
+import { formatBytes } from "@/lib/format";
 import {
 	type DiskInfo,
 	formatModelSize,
@@ -58,11 +59,28 @@ export interface LocalModelsPanelProps {
 	totalBytes: number | null;
 	speedBps: number | null;
 	etaSeconds: number | null;
+	//priority #3: when set, the in-flight download has failed
+	// and the `<DownloadProgressBar>` enters its inline error state.
+	// The bar stays mounted because `downloadingModel` is NOT cleared
+	// on failure. Wired through to the bar's `error` + `modelName` props.
+	// Optional so consumers that haven't been updated yet (e.g. Models.tsx)
+	// don't break the build — when absent, the bar's error UI simply
+	//doesn't render (matching the pre- behaviour).
+	failedDownload?: { modelName: string; error: string } | null;
+	//name of the model currently installing deps (drives the
+	// `isInstallingDepsThis` prop on `<ModelCardActions>`). Optional for
+	// the same backwards-compat reason as `failedDownload`.
+	installingDepsModel?: string | null;
 	// handlers
 	onSelectModel: (model: ModelInfo) => void;
 	onDownloadModel: (model: ModelInfo) => void;
 	onDeleteModel: (model: ModelInfo) => void;
 	onInstallDeps: (model: ModelInfo) => void;
+	//priority #3: wired to <DownloadProgressBar>'s Retry button.
+	// Optional so consumers that haven't been updated yet don't break
+	// the build — when absent, the bar's Retry button simply doesn't
+	// render (the toast's Retry action button still works as a fallback).
+	onRetryDownload?: (model: ModelInfo) => void;
 	onGrantConsent: () => void;
 	onTogglePause: () => void;
 	onCancelDownload: () => void;
@@ -87,10 +105,13 @@ export function LocalModelsPanel({
 	totalBytes,
 	speedBps,
 	etaSeconds,
+	failedDownload,
+	installingDepsModel,
 	onSelectModel,
 	onDownloadModel,
 	onDeleteModel,
 	onInstallDeps,
+	onRetryDownload,
 	onGrantConsent,
 	onTogglePause,
 	onCancelDownload,
@@ -122,12 +143,13 @@ export function LocalModelsPanel({
 						/>
 						<div className="flex-1">
 							<h3 className="text-sm font-semibold text-(--text-primary)">
-								{t("models.status.depsRequired")}
+								{t("models.disk.lowSpaceTitle")}
 							</h3>
 							<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
-								{t("models.hfConsent.blockedHint")} (
-								{formatVram(Math.floor(diskInfo.free_bytes / (1024 * 1024)))}{" "}
-								free)
+								{t("models.disk.lowSpaceBody")}{" "}
+								{t("models.disk.freeSpace", {
+									size: formatBytes(diskInfo.free_bytes),
+								})}
 							</p>
 						</div>
 					</div>
@@ -145,9 +167,9 @@ export function LocalModelsPanel({
 						/>
 						<div className="flex-1">
 							{/* promoted from <h3> to <h2> so the
-                                                                heading hierarchy stays h1 (PageHeading) → h2 (consent
-                                                                banner) — fixes the axe-core heading-order violation
-                                                                documented in a11y/axe-core.test.tsx. */}
+                                                            heading hierarchy stays h1 (PageHeading) → h2 (consent
+                                                            banner) — fixes the axe-core heading-order violation
+                                                            documented in a11y/axe-core.test.tsx. */}
 							<h2 className="text-sm font-semibold text-(--text-primary)">
 								{t("models.hfConsent.title")}
 							</h2>
@@ -174,8 +196,10 @@ export function LocalModelsPanel({
 
 			{/* "Open models folder" button. Only rendered when the
                             backend exposes the `open_models_folder` IPC (probed on mount
-                            by the hook). The button mirrors the Import button's visual
-                            treatment for consistency. */}
+                            by the hook). Uses distinct `models.openFolder.label` /
+                            `models.openFolder.aria` i18n keys so the button is
+                            disambiguated from the page-header "Import Model" button
+                            (which opens a file-picker dialog). */}
 			{modelsFolderSupported && (
 				<div className="flex justify-end">
 					<Button
@@ -183,14 +207,14 @@ export function LocalModelsPanel({
 						size="sm"
 						onClick={onOpenModelsFolder}
 						className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
-						aria-label={t("models.import.importModelAria")}
+						aria-label={t("models.openFolder.aria")}
 					>
 						<HugeiconsIcon
 							icon={Folder02Icon}
 							strokeWidth={2}
 							className="h-4 w-4"
 						/>
-						{t("models.import.importModel")}
+						{t("models.openFolder.label")}
 					</Button>
 				</div>
 			)}
@@ -218,7 +242,18 @@ export function LocalModelsPanel({
 									const meta = modelCatalog[model.name];
 									const isSelectingThis = selectingModel === model.name;
 									const isDownloadingThis = downloadingModel === model.name;
+									const isInstallingDepsThis =
+										installingDepsModel === model.name;
 									const anyDownloading = downloadingModel !== null;
+									//priority #3: the bar's error prop is
+									// populated only when the failure is for THIS
+									// model. Failures for other models don't render
+									// an error UI on this card (the bar would be
+									// mounted on the other card instead).
+									const failedThis =
+										failedDownload?.modelName === model.name
+											? failedDownload.error
+											: null;
 
 									// per-model disk-space pre-flight indicator.
 									// We don't block the download here (the user might
@@ -262,7 +297,7 @@ export function LocalModelsPanel({
 																	borderColor: "#ef444440",
 																}}
 															>
-																{t("models.status.depsRequired")}
+																{t("models.status.insufficientDisk")}
 															</output>
 														)}
 													</div>
@@ -296,6 +331,7 @@ export function LocalModelsPanel({
 													isSelectingThis={isSelectingThis}
 													isDownloadingThis={isDownloadingThis}
 													anyDownloading={anyDownloading}
+													isInstallingDepsThis={isInstallingDepsThis}
 													onSelect={() => onSelectModel(model)}
 													onDownload={() => onDownloadModel(model)}
 													onDelete={() => onDeleteModel(model)}
@@ -314,6 +350,17 @@ export function LocalModelsPanel({
 														etaSeconds={etaSeconds}
 														onTogglePause={onTogglePause}
 														onCancel={onCancelDownload}
+														//priority #3 + #4: forward the model
+														// name + error state + retry handler so the
+														// bar can render the inline error UI + Retry
+														// button instead of vanishing on failure.
+														modelName={model.name}
+														error={failedThis}
+														onRetry={
+															onRetryDownload
+																? () => onRetryDownload(model)
+																: undefined
+														}
 													/>
 												</div>
 											)}

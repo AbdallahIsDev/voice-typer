@@ -42,7 +42,7 @@ export function ThemeSwitch({
 		THEME_CYCLE.find((item) => item.mode === themeMode) ?? THEME_CYCLE[0];
 	const label = t(current.labelKey);
 
-	// PVT-043 / A11Y-ARIA-2: include the NEXT mode in the aria-label
+	// Include the NEXT mode in the aria-label so screen-reader users
 	// so screen-reader users know what clicking will do, not just
 	// what the current state is.  Previously the aria-label was
 	// ``"Current theme: Dark. Click to switch."`` — ambiguous about
@@ -65,18 +65,28 @@ export function ThemeSwitch({
 			onClick={handleClick}
 			className={cn(
 				"inline-flex items-center justify-center gap-2 rounded-md transition-[padding] duration-200 ease-out",
-				// XA-1: theme-aware hover (replaces the physical
+				// Theme-aware hover (replaces the physical
 				// bg-black/5 dark:bg-white/10 pairing so custom + dark
 				// themes get a consistent hover wash).
 				"hover:bg-foreground/5",
-				// A11Y-2: visible focus indicator so keyboard users can see which
+				// Visible focus indicator so keyboard users can see which
 				// theme-switch button is focused. Use the shared focusRing
 				// constant (ring-3 / ring-ring/30) for parity with the design-
 				// system Button instead of the thinner ring-2 / ring-ring/30.
 				focusRing,
 				collapsed ? "h-7 w-7 justify-center gap-0" : "h-7 px-2.5 gap-2",
 			)}
-			title={t("theme.switchTitle", { mode: label })}
+			// The title attribute mirrors the aria-label so sighted mouse
+			// users hovering the switch see the same "current → next"
+			// information screen-reader users hear. Previously the title
+			// only showed the current mode, leaving sighted users with
+			// less information than SR users — three clicks to cycle
+			// from System to Light was non-obvious because the tooltip
+			// didn't preview the next state.
+			title={t("theme.switchAriaLabel", {
+				mode: label,
+				next: nextLabel,
+			})}
 			aria-label={t("theme.switchAriaLabel", {
 				mode: label,
 				next: nextLabel,

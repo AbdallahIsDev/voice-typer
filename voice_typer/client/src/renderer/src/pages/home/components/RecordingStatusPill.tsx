@@ -6,7 +6,7 @@ import { cn } from "@/lib/utils";
  * single sr-only live region) — a duplicate `aria-live` on this `<output>`
  * would cause double-announcements, so it's intentionally omitted.
  *
- * EC-FIX-12 / EC-12: extracted from Home.tsx so the page file stays a
+ *  / : extracted from Home.tsx so the page file stays a
  * thin composition root. Behaviour + props are preserved byte-for-byte.
  */
 export interface RecordingStatusPillProps {

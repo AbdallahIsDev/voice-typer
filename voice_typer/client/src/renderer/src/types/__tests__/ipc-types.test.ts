@@ -1,6 +1,6 @@
 // src/renderer/src/types/__tests__/ipc-types.test.ts
 //
-// NEW-IPC-002 (d-review): regression guard for the removal of the dead
+//(d-review): regression guard for the removal of the dead
 // ``ModelLoadedEvent`` type.
 //
 // Background
@@ -21,25 +21,25 @@
 // Keeping the type gave a false impression of an IPC contract that
 // didn't exist.  The dead type was deleted.
 //
-// PVT-G5-010 (part 3): the same rationale + guard was applied to
+//(part 3): the same rationale + guard was applied to
 // ``TranscriptionPartialEvent`` — also a dead type with no publisher.
 //
 // These tests pin the deletions so a future contributor cannot silently
 // reintroduce either orphaned contract without an explicit decision
 // (which should also wire up both a publisher and a subscriber).
 //
-// PVT-G5-060 / PVT-G5-061: the acceptedTypes list + length assertion
+//the acceptedTypes list + length assertion
 // were extended to cover the 19 new event types added to the union
 // (``state_changed`` + the 18 events previously flowing through
 // ``onEvent`` untyped). The length was 27.
 //
-// GT-52: added ``tray_state`` + ``consent_required`` +
+//added ``tray_state`` + ``consent_required`` +
 // ``parakeet_cpu_fallback`` (3 new events emitted by the Python backend
 // but never modelled in the TS union). Length grew from 27 to 29.
 //
-// GT-55: removed ``relaunch_electron`` (RelaunchElectronEvent interface
+//removed ``relaunch_electron`` (RelaunchElectronEvent interface
 // DELETED — verified the Python side emits only ``relaunch_app`` now).
-// Length shrunk by 1, then grew by 3 (GT-52) for a net of 29.
+//Length shrunk by 1, then grew by 3 () for a net of 29.
 //
 // NOTE: ``types/ipc.ts`` exports ONLY TypeScript types/interfaces —
 // there are no runtime values — so the bulk of these assertions are
@@ -69,7 +69,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		// this list must be updated — and the literal appearing in
 		// the list below would make the assertion fail loudly.
 		//
-		// PVT-G5-060 / PVT-G5-061: the list was extended from 9 → 27
+		//the list was extended from 9 → 27
 		// entries to cover the new event types added to the union.
 		const acceptedTypes: PythonPushEvent["type"][] = [
 			"status_change",
@@ -80,9 +80,9 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			"config_changed",
 			"hotkey_capture_cancel",
 			"history_changed",
-			// PVT-G5-060: new — backend emits on every client connect.
+			//new — backend emits on every client connect.
 			"state_changed",
-			// PVT-G5-061: 18 previously-untyped event literals.
+			//18 previously-untyped event literals.
 			"paste_failed",
 			"download_progress",
 			"notification",
@@ -100,17 +100,17 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 			"bubble_config",
 			"show_window",
 			"quit_app",
-			// GT-55: ``relaunch_electron`` REMOVED from this list
+			//``relaunch_electron`` REMOVED from this list
 			// (RelaunchElectronEvent interface deleted — verified
 			// no Python emitter; see the new compile-time guard
 			// below). The canonical event is ``relaunch_app``.
 			"relaunch_app",
-			// GT-52: three new events emitted by the Python
+			//three new events emitted by the Python
 			// backend but previously missing from the union.
 			"tray_state",
 			"consent_required",
 			"parakeet_cpu_fallback",
-			// YJ-34: three more server-emitted events previously
+			//three more server-emitted events previously
 			// missing from the union. Each is published by
 			// `event_bus.publish({"type": "..."})` in the Python
 			// tree (see the per-interface docstrings in ipc.ts).
@@ -124,14 +124,14 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 		// the array above AND reintroduces the type.
 		expect(acceptedTypes).not.toContain("model_loaded");
 		expect(acceptedTypes).not.toContain("transcription_partial");
-		// GT-55: ``relaunch_electron`` must NOT be in the union
+		//``relaunch_electron`` must NOT be in the union
 		// (RelaunchElectronEvent interface deleted).
 		expect(acceptedTypes).not.toContain("relaunch_electron");
-		// PVT-G5-060 / PVT-G5-061: was 9, then 27.
-		// GT-55: -1 (relaunch_electron removed) = 26.
-		// GT-52: +3 (tray_state + consent_required +
+		//was 9, then 27.
+		//1 (relaunch_electron removed) = 26.
+		//+3 (tray_state + consent_required +
 		// parakeet_cpu_fallback) = 29.
-		// YJ-34: +3 (asr_backend_disabled + asr_last_resort_unloaded +
+		//+3 (asr_backend_disabled + asr_last_resort_unloaded +
 		// llm_polish_failed) = 32.
 		// relaunch_app added (was documented in comment but missing from list) = 33.
 		expect(acceptedTypes).toHaveLength(33);
@@ -165,7 +165,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 	});
 
 	it("a `{ type: 'transcription_partial' }` value is NOT assignable to PythonPushEvent (compile-time guard)", () => {
-		// PVT-G5-010 (part 3): mirror of the model_loaded guard above
+		//(part 3): mirror of the model_loaded guard above
 		// for the dead ``TranscriptionPartialEvent`` type. Same
 		// mechanism: the conditional resolves to ``false`` while the
 		// union does NOT contain a ``transcription_partial`` variant.
@@ -181,7 +181,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 	});
 
 	it("a `{ type: 'relaunch_electron' }` value is NOT assignable to PythonPushEvent (GT-55 compile-time guard)", () => {
-		// GT-55: ``RelaunchElectronEvent`` was DELETED from the union
+		//``RelaunchElectronEvent`` was DELETED from the union
 		// after verifying the Python side emits only ``relaunch_app``.
 		// If a future contributor re-adds ``RelaunchElectronEvent`` to
 		// the union, the conditional resolves to ``true`` and the
@@ -197,7 +197,7 @@ describe("NEW-IPC-002 / PVT-G5-010: dead-type removal guards", () => {
 	});
 
 	it("GT-52: tray_state / consent_required / parakeet_cpu_fallback ARE assignable to PythonPushEvent (compile-time guard)", () => {
-		// GT-52: three server-emitted push events added to the union.
+		//three server-emitted push events added to the union.
 		// If a future contributor removes any of the three interfaces
 		// from the union, the corresponding conditional resolves to
 		// ``false`` and the ``true`` assignment fails to compile.
@@ -324,7 +324,7 @@ describe("TASK-24-FIX-5/6/9/10/11: new IPC contract types exist with the expecte
 });
 
 describe("YJ-34: asr_backend_disabled / asr_last_resort_unloaded / llm_polish_failed ARE assignable to PythonPushEvent", () => {
-	// YJ-34: three server-emitted push events added to the union. If a
+	//three server-emitted push events added to the union. If a
 	// future contributor removes any of the three interfaces from the
 	// union, the corresponding conditional resolves to `false` and the
 	// `true` assignment fails to compile.
@@ -379,7 +379,7 @@ describe("YJ-34: asr_backend_disabled / asr_last_resort_unloaded / llm_polish_fa
 });
 
 describe("YJ-34 (parity): every Python event_bus.publish type literal is in the PythonPushEvent union", () => {
-	// YJ-34 parity guard: this is a STATIC list of every `type` literal
+	//parity guard: this is a STATIC list of every `type` literal
 	// the Python backend publishes via `event_bus.publish({"type": "..."})`
 	// in `voice_typer/server/`. The list was compiled by grepping:
 	//
@@ -435,7 +435,7 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 		"tray_state",
 		"consent_required",
 		"parakeet_cpu_fallback",
-		// YJ-34: the 3 new events that motivated this parity test.
+		//the 3 new events that motivated this parity test.
 		"asr_backend_disabled",
 		"asr_last_resort_unloaded",
 		"llm_polish_failed",
@@ -478,7 +478,7 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 			"tray_state",
 			"consent_required",
 			"parakeet_cpu_fallback",
-			// YJ-34: 3 new events.
+			//3 new events.
 			"asr_backend_disabled",
 			"asr_last_resort_unloaded",
 			"llm_polish_failed",
@@ -510,7 +510,7 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 		// NOTE: the existing `acceptedTypes` list in the FIRST
 		// `describe` block above (line ~73) has only 32 entries —
 		// it is missing `relaunch_app` (a pre-existing oversight
-		// from the GT-55 fix that removed `relaunch_electron` but
+		//from the  fix that removed `relaunch_electron` but
 		// never added the canonical `relaunch_app` to the list).
 		// This parity test's `PYTHON_EMITTER_TYPE_LITERALS` list
 		// DOES include `relaunch_app` (33 entries) because the
@@ -519,13 +519,13 @@ describe("YJ-34 (parity): every Python event_bus.publish type literal is in the 
 		// first list's missing entry is a documentation bug, not a
 		// type-safety bug (the union itself correctly contains
 		// `RelaunchAppEvent`); leaving it untouched here to avoid
-		// scope creep beyond YJ-34.
+		//scope creep beyond
 		expect(PYTHON_EMITTER_TYPE_LITERALS.length).toBe(33);
 	});
 });
 
 describe("XZ-CC-7: TranscriptionFinalEvent has no duration_ms field (compile-time guard)", () => {
-	// XZ-CC-7 (Low): the previous `TranscriptionFinalEvent` declared
+	//(Low): the previous `TranscriptionFinalEvent` declared
 	//   interface TranscriptionFinalEvent {
 	//     type: "transcription_final";
 	//     data: { text: string };
@@ -577,7 +577,7 @@ describe("XZ-CC-7: TranscriptionFinalEvent has no duration_ms field (compile-tim
 	});
 
 	it("TranscriptionFinalEvent is in the PythonPushEvent union", () => {
-		// Sanity: the event is still in the union (the XZ-CC-7 fix
+		//Sanity: the event is still in the union (the  fix
 		// removed a field, not the event itself).
 		type InUnion = TranscriptionFinalEvent extends PythonPushEvent
 			? true
@@ -588,7 +588,7 @@ describe("XZ-CC-7: TranscriptionFinalEvent has no duration_ms field (compile-tim
 });
 
 describe("XZ-CC-6 / XZ-CC-16: dead response types stay removed (compile-time guards)", () => {
-	// XZ-CC-6 (Medium): the previous ``ToggleDictationResult`` interface
+	//(Medium): the previous ``ToggleDictationResult`` interface
 	// declared ``recording: boolean`` as a REQUIRED field. The Python
 	// handler for ``toggle_dictation`` returns ``{type: "ack"}`` with NO
 	// ``data`` field — so any renderer code reading
@@ -597,7 +597,7 @@ describe("XZ-CC-6 / XZ-CC-16: dead response types stay removed (compile-time gua
 	// ``boolean``. The fix removed the dead type entirely (callers pass
 	// ``call<unknown>("toggle_dictation")`` and discard the result).
 	//
-	// XZ-CC-16 (Low): the 26-line ``ResponseData<T extends
+	//(Low): the 26-line ``ResponseData<T extends
 	// PythonRequest["type"]>`` conditional-types cascade had ZERO
 	// consumers — ``usePython.call`` is generic over ``<T = unknown>``
 	// with no constraint on ``PythonRequest["type"]``, so the cascade

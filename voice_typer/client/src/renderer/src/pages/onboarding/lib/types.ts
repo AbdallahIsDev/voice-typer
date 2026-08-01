@@ -1,4 +1,4 @@
-// EC-FIX-18: shared types extracted from Onboarding.tsx so the
+//shared types extracted from Onboarding.tsx so the
 // step components, the wizard hook, and the permissions-probe hook can all
 // reference the same contracts without duplicating definitions.
 
@@ -11,7 +11,7 @@ export interface StepInfo {
 export interface MicrophoneOption {
 	id: string;
 	name: string;
-	// S2-CR-39: backend's `list_microphones()` (and the onboarding
+	//backend's `list_microphones()` (and the onboarding
 	// `onboarding_get_microphones` IPC that wraps it) emits two
 	// optional fields the renderer previously ignored because the
 	// type didn't declare them. Both are optional so older
@@ -32,7 +32,7 @@ export interface ModelOption {
 	size: string;
 	speed: string;
 	description: string;
-	// BG-100: VRAM requirement (in GB) and language coverage, so the
+	//VRAM requirement (in GB) and language coverage, so the
 	// Model step can surface per-option badges (e.g. "~1 GB VRAM" /
 	// "EN" / "Multilingual") to help users compare options. Both
 	// fields are optional — older backends don't return them.

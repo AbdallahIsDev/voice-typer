@@ -1,5 +1,5 @@
 /**
- * NH-11 (session NH) test: physical Tailwind properties
+ *  (session NH) test: physical Tailwind properties
  * (``ml-``, ``mr-``, ``pl-``, ``pr-``) don't auto-flip in RTL — only
  * logical-property classes (``ms-``, ``me-``, ``ps-``, ``pe-``) do.
  *
@@ -9,7 +9,7 @@
  * they always render as left/right margin/padding regardless of the
  * document direction.
  *
- * This test asserts the production files in scope for NH-11 use ONLY
+ * This test asserts the production files in scope for  use ONLY
  * logical-property utilities for inline-axis margin/padding. We use the
  * same static-source-check strategy as ``Dashboard.test.tsx`` /
  * ``accessibility.test.tsx`` because the contracts are visible in the
@@ -74,7 +74,7 @@ describe("NH-11: physical Tailwind properties are replaced with logical (RTL fli
 				//   - ``px-*`` / ``py-*`` (axis-pair utilities — these are
 				//     already direction-agnostic).
 				//   - The literal substrings inside comments / strings that
-				//     merely mention the legacy class name in an NH-11
+				//merely mention the legacy class name in an
 				//     migration note (e.g. ``"ml-2 → ms-2"`` in a comment).
 				//     We strip /* … */ block comments + // line comments
 				//     before matching so only live JSX className values are

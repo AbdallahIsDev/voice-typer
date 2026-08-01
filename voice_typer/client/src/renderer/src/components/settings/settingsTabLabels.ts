@@ -1,10 +1,10 @@
 // settingsTabLabels — the source of truth for "which labels appear on
-// which Settings tab?" Used by the search auto-switch (PVT-029) so the
+//which Settings tab?" Used by the search auto-switch () so the
 // user's query picks the tab whose labels best match — label-based,
 // not hint-based.
 //
 // Hints (settings.searchHints.*) remain in i18n for completeness
-// (PVT-030 — translated into zh/de/fr/hi/ru) but are NOT used by the
+//( — translated into zh/de/fr/hi/ru) but are NOT used by the
 // auto-switch logic; labels are sufficient because every section title
 // and row label is already translated and reflects the user's locale.
 

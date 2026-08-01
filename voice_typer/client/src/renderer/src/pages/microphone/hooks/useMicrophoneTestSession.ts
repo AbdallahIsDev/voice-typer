@@ -1,6 +1,6 @@
 // Test-session state machine hook for the Microphone page.
 //
-// Extracted from the former ``useMicrophoneTest`` monolith (DR-11).
+//Extracted from the former ``useMicrophoneTest`` monolith ().
 // Owns the test-recording lifecycle state
 // (``testRunning`` / ``testCountdown`` / ``testElapsed`` /
 // ``testAudioBase64`` / ``rawAudioBase64`` / ``testDurationMs`` /
@@ -9,7 +9,7 @@
 // subscription that drives ``stopTest`` when the backend finishes
 // recording.
 //
-// DR-9 (1-C Finding 8): ``startTest`` / ``stopTest`` /
+//(1-C Finding 8): ``startTest`` / ``stopTest`` /
 // ``selectMicrophone`` are wrapped in ``useCallback`` with their actual
 // deps so the ``microphone_test_complete`` subscription and the
 // countdown timer can capture them directly — the ``stopTestRef``
@@ -150,7 +150,7 @@ export function useMicrophoneTestSession({
 	const testTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 	const stoppingRef = useRef(false);
-	// CR-57: ``testRunningRef`` is owned by the composition hook so the
+	//``testRunningRef`` is owned by the composition hook so the
 	// level monitor (declared alongside this hook in the composition)
 	// can read it without an ordering dependency. This hook syncs it
 	// via the effect below whenever ``testRunning`` changes.
@@ -408,7 +408,7 @@ export function useMicrophoneTestSession({
 	}, [call, testRunning]);
 
 	// Keep ``selectMicrophoneRef`` pointed at the latest stable
-	// ``selectMicrophone`` closure (DR-9). The assignment now happens
+	//``selectMicrophone`` closure (). The assignment now happens
 	// via an effect with ``[selectMicrophone]`` deps instead of on
 	// every render — now that ``selectMicrophone`` is
 	// ``useCallback``-stable, the assignment runs only when its deps

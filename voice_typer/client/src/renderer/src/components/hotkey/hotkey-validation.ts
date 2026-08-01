@@ -58,7 +58,7 @@ function _isModifier(p: string): boolean {
 }
 
 /**
- * PVT-FIX-006: format a pynput hotkey string for inclusion in an error
+ * : format a pynput hotkey string for inclusion in an error
  * message so the user can see EXACTLY which combo was rejected.
  *
  * Implemented locally (rather than importing ``formatHotkey`` from
@@ -169,7 +169,7 @@ export function detectPlatform(): string {
 export function isReserved(hotkey: string, platform: string): boolean {
 	if (!hotkey) return false;
 	const reserved = RESERVED_SHORTCUTS[platform] || [];
-	// HOTKEY-FIX-001: normalize both sides via normalizeHotkey()
+	//HOTKEY-: normalize both sides via normalizeHotkey()
 	// (which strips angle brackets and lowercases) before comparing. The
 	// RESERVED_SHORTCUTS table stores entries with brackets on both parts
 	// (e.g. ``"<win>+<e>"``), but callers pass hotkeys using the pynput
@@ -269,7 +269,7 @@ export function validateHotkey(
 			(r) => normalizeHotkey(r) === normalizeHotkey(normalized),
 		)
 	) {
-		// PVT-FIX-006: include the conflicting combo in the message
+		//include the conflicting combo in the message
 		// so the user sees exactly which shortcut is reserved.
 		const label = _formatForMessage(normalized);
 		return {
@@ -280,7 +280,7 @@ export function validateHotkey(
 
 	// 3. Per-platform reserved.
 	if (isReserved(hotkey, platform)) {
-		// PVT-FIX-006: include the conflicting combo in the message.
+		//include the conflicting combo in the message.
 		const label = _formatForMessage(hotkey);
 		return {
 			valid: false,
@@ -318,7 +318,7 @@ export function validateHotkey(
 	if (parts.length >= 2 && nonMods.length > 0) {
 		const lastKey = parts[parts.length - 1];
 		if (isModifier(lastKey)) {
-			// PVT-FIX-006: include the conflicting combo.
+			//include the conflicting combo.
 			const label = _formatForMessage(hotkey);
 			return {
 				valid: false,
@@ -337,7 +337,7 @@ export function validateHotkey(
 	// Super+Tab) — all other Super combos are allowed.
 	const hasWin = parts.some((p) => p === "win" || p === "super");
 	if (hasWin && platform === "win32") {
-		// PVT-FIX-006: include the conflicting combo.
+		//include the conflicting combo.
 		const label = _formatForMessage(hotkey);
 		return {
 			valid: false,
@@ -367,7 +367,7 @@ export function validateHotkey(
 		const hasAlt = parts.some((p) => p.startsWith("alt"));
 		const hasShift = parts.some((p) => p.startsWith("shift"));
 		if (hasAlt && hasShift && nonMods.length === 0) {
-			// PVT-FIX-006: include the conflicting combo.
+			//include the conflicting combo.
 			const label = _formatForMessage(hotkey);
 			return {
 				valid: false,

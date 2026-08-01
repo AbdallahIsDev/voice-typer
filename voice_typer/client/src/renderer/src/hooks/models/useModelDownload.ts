@@ -1,18 +1,28 @@
 /**
  * useModelDownload — download-progress slice of the Models page.
  *
- * DT-34 (Phase 4.5 spaghetti split): extracted from the former
+ *  (Phase 4.5 spaghetti split): extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns the
  * download progress state machine and the three actions that drive it:
  *   • `downloadModel` — kicks off a model download + surfaces failures
- *     via a sonner toast with a "Retry" action button (PVT-032 —
+ *     via a sonner toast with a "Retry" action button ( —
  *     `showSnack` has no action-button affordance so we bypass it for
- *     the retry-toast path).
+ *     the retry-toast path). Failures are ALSO recorded in
+ *     `failedDownload` so the inline `<DownloadProgressBar>` can show
+ *     an in-place error UI + Retry button ( priority #3) —
+ *     previously the bar vanished on failure and the only recovery
+ *     path was the 8-second ephemeral toast.
+ *   • `retryDownload` — clears `failedDownload` and re-invokes
+ *     `downloadModel`. Wired to the `<DownloadProgressBar>` Retry
+ *     button so users can recover a failed download in place.
  *   • `installDeps` — fires the optional `install_parakeet_deps` IPC
  *     and falls back to the manual-install hint when the IPC is
- *     unavailable (PVT-003 fix #7).
+ *     unavailable ( fix #7). Tracks `installingDepsModel` so
+ *     the `<ModelCardActions>` Download Deps button can show
+ *     `aria-busy` + a "Downloading…" label swap ().
  *   • `handleTogglePause` / `handleCancelDownload` — pause/resume/cancel
- *     the in-flight download.
+ *     the in-flight download. Cancel ALSO clears `failedDownload` so
+ *     the bar unmounts cleanly.
  *   • `resetProgress` — internal helper used by `downloadModel` and
  *     `handleCancelDownload` to clear local progress state.
  *   • The `download_progress` event subscription — pushes from the
@@ -34,6 +44,11 @@ import { formatErrorMessage, type ModelInfo } from "@/lib/utils/models";
 
 type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
 
+export interface FailedDownload {
+	modelName: string;
+	error: string;
+}
+
 interface UseModelDownloadArgs {
 	call: CallFn;
 	showSnack: (
@@ -53,7 +68,18 @@ export interface UseModelDownloadResult {
 	totalBytes: number | null;
 	speedBps: number | null;
 	etaSeconds: number | null;
+	/** When set, the in-flight download has failed. The
+	 * `<DownloadProgressBar>` consumes this to render the inline error
+	 * state + Retry button ( / priority #3). The bar stays
+	 * mounted because `downloadingModel` is NOT cleared on failure. */
+	failedDownload: FailedDownload | null;
+	/** Name of the model currently installing dependencies (drives the
+	 * `isInstallingDepsThis` prop on `<ModelCardActions>` so the
+	 * Download Deps button can show `aria-busy` + a "Downloading…"
+	 * label swap — ). */
+	installingDepsModel: string | null;
 	downloadModel: (model: ModelInfo) => Promise<void>;
+	retryDownload: (model: ModelInfo) => Promise<void>;
 	installDeps: (model: ModelInfo) => Promise<void>;
 	handleTogglePause: () => Promise<void>;
 	handleCancelDownload: () => Promise<void>;
@@ -75,6 +101,12 @@ export function useModelDownload({
 	const [totalBytes, setTotalBytes] = useState<number | null>(null);
 	const [speedBps, setSpeedBps] = useState<number | null>(null);
 	const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
+	const [failedDownload, setFailedDownload] = useState<FailedDownload | null>(
+		null,
+	);
+	const [installingDepsModel, setInstallingDepsModel] = useState<string | null>(
+		null,
+	);
 
 	// ── download_progress event subscription ────────────────────────
 	usePythonEvent(
@@ -118,10 +150,19 @@ export function useModelDownload({
 		setIsPaused(false);
 	}, []);
 
-	// ── Action: downloadModel (PVT-032 retry on failure) ────────────
+	//Action: downloadModel ( retry on failure) ────────────
+	//
+	// On failure: keep `downloadingModel` set so the
+	// `<DownloadProgressBar>` stays mounted, and record the failure in
+	// `failedDownload` so the bar can render the inline error state +
+	//Retry button ( priority #3). The toast with the Retry
+	//action button () is preserved as a secondary affordance.
+	// On success: clear `downloadingModel` (unmount the bar) and
+	// `failedDownload` (clear any stale failure for a re-download).
 	const downloadModel = useCallback(
 		async (model: ModelInfo) => {
 			setDownloadingModel(model.name);
+			setFailedDownload(null);
 			resetProgress();
 			try {
 				const result = await call<{
@@ -143,14 +184,20 @@ export function useModelDownload({
 							t("models.snack.downloaded", { name: model.name }),
 						"success",
 					);
+					// Success → unmount the bar + clear any stale failure.
+					setDownloadingModel(null);
+					setFailedDownload(null);
 				} else {
-					// PVT-032: surface the failure with a Retry action button.
-					// `showSnack` doesn't support action buttons, so we go
-					// through sonner's `toast.error` directly — the global
-					// Toaster in App.tsx renders it identically.
+					// Failure → keep the bar mounted, record the failure so
+					// the inline error UI + Retry button render.
 					const message =
 						result.error ||
 						t("models.snack.downloadFailedName", { name: model.name });
+					setFailedDownload({ modelName: model.name, error: message });
+					//surface the failure with a Retry action button.
+					// `showSnack` doesn't support action buttons, so we go
+					// through sonner's `toast.error` directly — the global
+					// Toaster in App.tsx renders it identically.
 					toast.error(message, {
 						duration: 8000,
 						action: {
@@ -165,7 +212,8 @@ export function useModelDownload({
 				const message = t("models.snack.downloadFailed", {
 					error: formatErrorMessage(err),
 				});
-				// PVT-032: same retry affordance on thrown errors.
+				setFailedDownload({ modelName: model.name, error: message });
+				//same retry affordance on thrown errors.
 				toast.error(message, {
 					duration: 8000,
 					action: {
@@ -175,29 +223,47 @@ export function useModelDownload({
 						},
 					},
 				});
-			} finally {
-				setDownloadingModel(null);
 			}
+			// NOTE: no `finally { setDownloadingModel(null) }` here — the
+			// failure branch must keep `downloadingModel` set so the bar
+			// stays mounted. The success branch clears it explicitly.
 		},
 		[call, resetProgress, showSnack, setModels],
 	);
 
-	// ── Action: installDeps (PVT-003 fix #7) ────────────────────────
+	//Action: retryDownload ( priority #3) ───────────────────
+	//
+	// Wired to the `<DownloadProgressBar>` Retry button. Clears the
+	// failure state and re-invokes `downloadModel`. `downloadModel`
+	// itself also clears `failedDownload` at the start, but we clear
+	// it here too so the bar's UI flips back to the progress state
+	// immediately (before the next IPC round-trip resolves).
+	const retryDownload = useCallback(
+		async (model: ModelInfo) => {
+			setFailedDownload(null);
+			await downloadModel(model);
+		},
+		[downloadModel],
+	);
+
+	//Action: installDeps ( fix #7) ────────────────────────
 	//
 	// Triggered by the "Download Deps" button on dep-gated models
 	// (currently Parakeet). The backend may or may not expose an
 	// `install_parakeet_deps` IPC — if it doesn't, we fall back to the
 	// existing instruction snackbar so the user knows how to proceed
-	// manually.
+	// manually. Tracks `installingDepsModel` so the button can show
+	//`aria-busy` + a "Downloading…" label swap ().
 	const installDeps = useCallback(
 		async (model: ModelInfo) => {
+			setInstallingDepsModel(model.name);
 			try {
 				const result = await call<{ success: boolean; error?: string }>(
 					"install_parakeet_deps",
 					{ model: model.name },
 				);
 				if (result?.success) {
-					// BG-49: previously the success branch reused the
+					//previously the success branch reused the
 					// ``parakeetDepsRequired`` ("Dependencies required
 					// for Parakeet. Download first.") key — which is
 					// the FAILURE / manual-hint message, not a success
@@ -214,6 +280,8 @@ export function useModelDownload({
 			} catch {
 				// IPC unavailable — fall back to the manual hint.
 				showSnack(t("models.snack.parakeetDepsRequired"), "warning");
+			} finally {
+				setInstallingDepsModel(null);
 			}
 		},
 		[refreshModelStatus, showSnack, call],
@@ -243,28 +311,22 @@ export function useModelDownload({
 		try {
 			await call("cancel_model_download");
 			showSnack(t("models.snack.cancelled"), "warning");
-			// reset local download state immediately on
-			// success so the model card stops showing the
-			// progress bar / pause button / cancel button
-			// without waiting for the backend's terminal
-			// download_progress event (which can race with
-			// the cancel ack or be missed entirely if the WS
-			// frame is dropped).
-			setDownloadingModel(null);
-			resetProgress();
 		} catch (err) {
 			showSnack(
 				t("models.snack.cancelFailed", { error: formatErrorMessage(err) }),
 				"error",
 			);
-			// even if IPC failed, the user has
-			// signalled intent to cancel — clear the local
-			// download state so the card UI doesn't stay
-			// stuck mid-download. The backend may still be
-			// downloading, but the renderer's view reflects
-			// the user's intent and the next download_progress
-			// event (if any) will re-establish state.
+		} finally {
+			// Always clear local download state on cancel — whether the
+			// IPC succeeded or failed, the user has signalled intent to
+			// cancel. The bar unmounts (`downloadingModel = null`),
+			// the inline error UI is cleared (`failedDownload = null`),
+			// and progress counters reset. The backend may still be
+			// downloading, but the renderer's view reflects the user's
+			// intent and the next download_progress event (if any)
+			// will re-establish state.
 			setDownloadingModel(null);
+			setFailedDownload(null);
 			resetProgress();
 		}
 	}, [call, showSnack, resetProgress]);
@@ -278,7 +340,10 @@ export function useModelDownload({
 		totalBytes,
 		speedBps,
 		etaSeconds,
+		failedDownload,
+		installingDepsModel,
 		downloadModel,
+		retryDownload,
 		installDeps,
 		handleTogglePause,
 		handleCancelDownload,

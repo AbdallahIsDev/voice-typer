@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * XS-78: behavioral tests for `src/main/single_instance.ts`.
+ * : behavioral tests for `src/main/single_instance.ts`.
  *
  * Covers the testable surface of the single-instance gate:
  *   - `computeConfigDir()` env-var + platform-path resolution
@@ -138,7 +138,7 @@ describe("XS-78: single_instance.ts", () => {
 
 		it("readStaleElectronPid() returns null when the PID is still alive (the current process)", () => {
 			writeElectronPidFile();
-			// XZ-R5-009: readStaleElectronPid now also verifies the
+			//readStaleElectronPid now also verifies the
 			// PID belongs to Voice Typer via /proc/<pid>/cmdline
 			// (Linux), ps (macOS), or wmic (Windows). The vitest
 			// runner process does NOT contain "electron" in its

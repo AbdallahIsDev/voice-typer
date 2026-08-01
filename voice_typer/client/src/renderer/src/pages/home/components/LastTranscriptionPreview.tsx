@@ -8,7 +8,7 @@ import { t } from "@/i18n/i18n";
  * backspaces to the previously-pasted field) and Re-paste (re-executes
  * the paste of the same text).
  *
- * EC-FIX-12 / EC-12: extracted from Home.tsx so the page file stays a
+ *  / : extracted from Home.tsx so the page file stays a
  * thin composition root. Behaviour + props are preserved byte-for-byte.
  */
 export interface LastTranscriptionPreviewProps {

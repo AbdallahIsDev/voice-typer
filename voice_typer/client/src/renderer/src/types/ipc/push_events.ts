@@ -3,7 +3,7 @@
 // All Python-push-event interfaces + the `PythonPushEvent` discriminated
 // union.
 //
-// Split out from the original monolithic `types/ipc.ts` (DT-31 / DT-FIX-7).
+//Split out from the original monolithic `types/ipc.ts` ( / ).
 // No behaviour change vs. the original file — pure structural refactor.
 //
 // Imports `ErrorCodes` from `./enums.ts` for the `ErrorEvent` payload.
@@ -17,14 +17,14 @@ export interface StatusChangeEvent {
 	data: { status: string };
 }
 
-// PVT-G5-010 (part 4): ErrorEvent now mirrors the actual Python error
+//(part 4): ErrorEvent now mirrors the actual Python error
 // envelope. The server emits one of these shapes via `_send_error(...)`:
 //   - {type:"error", data:{code:"unknown_command", message, command?}}
 //   - {type:"error", data:{code:"invalid_field"|"missing_field", message, field?}}
 //   - {type:"error", data:{code:"unknown_tray_item", id?}} (no `message`)
 //   - {type:"error", data:{code:"internal_error"|"rate_limited", message}}
 // `code` is always present (REQUIRED); `message` is conventionally present
-// but omitted for `unknown_tray_item` (GT-F2-7: made OPTIONAL on the TS
+//but omitted for `unknown_tray_item` (: made OPTIONAL on the TS
 // side to match the emitter reality). The 4 optional fields cover all
 // variants without forcing callers to narrow on `code` first.
 //
@@ -36,7 +36,7 @@ export interface ErrorEvent {
 	type: "error";
 	data: {
 		code: ErrorCodes;
-		// GT-F2-7: `message` is OPTIONAL — the `unknown_tray_item`
+		//`message` is OPTIONAL — the `unknown_tray_item`
 		// emitter in `voice_typer/server/ipc_server.py` pushes
 		// `{type:"error", data:{code:"unknown_tray_item", id?}}`
 		// with NO `message` field (only `id` identifies the bad
@@ -51,7 +51,7 @@ export interface ErrorEvent {
 	};
 }
 
-// PVT-G5-010 (part 3): the dead `TranscriptionPartialEvent` type was
+//(part 3): the dead `TranscriptionPartialEvent` type was
 // REMOVED. No `event_bus.publish({"type": "transcription_partial"})`
 // exists anywhere in the Python tree — the partial-transcription path
 // in `dictation_pipeline.py` only publishes `transcription_final`. The
@@ -61,13 +61,13 @@ export interface ErrorEvent {
 // The compile-time guard in `types/__tests__/ipc-types.test.ts` will
 // fail tsc if this is re-added (the union length assertion drops by 1).
 
-// PVT-G5-010 (part 1): `transcription_final` payload nests inside `data`
+//(part 1): `transcription_final` payload nests inside `data`
 // (matching `voice_typer/server/dictation_pipeline.py:1331`), NOT at the
 // root. The old shape declared `text: string` at the root — a type lie.
 // Runtime reader `Home.tsx:428` already accesses `data?.text`, so this
 // fix aligns the type with the wire format AND the existing consumer.
 //
-// XZ-CC-7: the optional `duration_ms?: number` field was REMOVED —
+//the optional `duration_ms?: number` field was REMOVED —
 // verified the Python emitter (`event_bus.publish({"type":
 // "transcription_final", "data": {"text": text[:200]}})`) never
 // populates it. Keeping an optional-but-never-sent field gave a false
@@ -81,7 +81,7 @@ export interface TranscriptionFinalEvent {
 	data: { text: string };
 }
 
-// PVT-G5-010 (part 2): the Python emitters for `recording_started` and
+//(part 2): the Python emitters for `recording_started` and
 // `recording_stopped` push bare `{type: ...}` frames — they never send
 // `timestamp` or `duration_ms`. The old type claimed they were present,
 // so any code reading `event.timestamp` would get `undefined` at runtime.
@@ -95,7 +95,7 @@ export interface RecordingStoppedEvent {
 	type: "recording_stopped";
 }
 
-// NEW-IPC-002 (d-review): the dead `ModelLoadedEvent` type was REMOVED.
+//(d-review): the dead `ModelLoadedEvent` type was REMOVED.
 // The server never published `model_loaded` via `event_bus.publish(...)`
 // (the only `model_loaded` symbol in the Python tree is a LOCAL log variable
 // in `recording_controller.py:145`), and ZERO renderer code subscribed to
@@ -134,7 +134,7 @@ export interface HistoryChangedEvent {
 	data: { reason: string };
 }
 
-// ── Additional Python push events (PVT-G5-060 / PVT-G5-061) ───────
+//Additional Python push events ( / ) ───────
 //
 // The Python backend emits 24+ distinct event `type` literals (see
 // `voice_typer/server/event_bus.py:36-95`). The previous union typed
@@ -151,7 +151,7 @@ export interface HistoryChangedEvent {
 // `DownloadProgressEvent.data` to `{ received: number; total: number;
 // percent: number }` once the wire shape is verified).
 
-// PVT-G5-060: emitted on every client connect
+//emitted on every client connect
 // (`voice_typer/server/ipc_server.py:1311-1326`) with a snapshot of the
 // backend AppState so the renderer can hydrate its connection state
 // without a round-trip. Today NO renderer subscribes to this — the
@@ -163,7 +163,7 @@ export interface StateChangedEvent {
 	data: Record<string, unknown>;
 }
 
-// PVT-G5-061: the 18 most important missing event types. Each one is
+//the 18 most important missing event types. Each one is
 // emitted by at least one `event_bus.publish(...)` call in the Python
 // tree and consumed by at least one `usePythonEvent(...)` call in the
 // renderer (verified via `rg 'usePythonEvent\("..."'`).
@@ -289,12 +289,12 @@ export interface QuitAppEvent {
 /** Tray "Restart" — Python's `restart_app()` pushes this BEFORE calling
  *  `sys.exit(0)`. Routed by `handle-message.ts:78` → `relaunchApp()`.
  *
- *  EC-FIX-7 (addresses [EC-3]): the wire event was renamed from
+ *   (addresses []): the wire event was renamed from
  *  `relaunch_electron` to `relaunch_app` on the Python+Tauri sides in
- *  PVT-2. The renderer type now models `relaunch_app` as the canonical
+ *   The renderer type now models `relaunch_app` as the canonical
  *  event.
  *
- *  GT-55: the legacy `RelaunchElectronEvent` (type: "relaunch_electron")
+ *  : the legacy `RelaunchElectronEvent` (type: "relaunch_electron")
  *  was DELETED — verified the Python side emits ONLY `relaunch_app` now
  *  (the `relaunch_electron` symbol survives only in historical comments
  *  in `voice_typer/server/app.py` and `voice_typer/server/ipc_server.py`,
@@ -305,7 +305,7 @@ export interface RelaunchAppEvent {
 	data: Record<string, unknown>;
 }
 
-// ── GT-52: server-emitted push events previously missing from the union ─
+//server-emitted push events previously missing from the union ─
 //
 // The Python backend emits these via `event_bus.publish(...)` but the
 // TS `PythonPushEvent` union never modelled them, so renderer code
@@ -427,7 +427,7 @@ export interface LLMPolishFailedEvent {
 
 // ── (resilient sidecar) lifecycle events ──────────────────────
 //
-// EC-FIX-7 (addresses [EC-14]): these events are NOT emitted by the Python
+//(addresses []): these events are NOT emitted by the Python
 // backend — they are synthesized by the host bridge (Tauri Rust
 // `src-tauri/src/sidecar/supervisor.rs` or Electron main) when the transport
 // layer detects a disconnect and enters the reconnect loop. They
@@ -456,7 +456,7 @@ export interface ReconnectedEvent {
 	data: { reason: string };
 }
 
-// ZR-67 / TY-18: a coalesced microphone-level push event published by
+//a coalesced microphone-level push event published by
 // `voice_typer/server/level_monitor.py` via the same bounded-queue +
 // worker pattern as `bubble_level` (≤30 Hz). Consumed by
 // `pages/microphone/hooks/useMicrophoneTest.ts` instead of the legacy
@@ -470,12 +470,12 @@ export interface MicLevelEvent {
 }
 
 // NOTE: `usePythonEvent`'s `type` param (declared in
-// `hooks/usePython.ts`, owned by EC-FIX-20) should be narrowed to
+//`hooks/usePython.ts`, owned by ) should be narrowed to
 // `PythonPushEvent["type"]` so a typo like `usePythonEvent("past_failed", ...)`
 // fails at compile time instead of silently never firing. Currently the
 // `type` param is `string`, which lets any typo through and was the root
 // cause of the unsafe `as unknown as PythonPushEvent` casts noted in
-// [EC-14]. This file cannot perform that narrowing itself (the hook lives
+//[]. This file cannot perform that narrowing itself (the hook lives
 // in another sub-agent's file scope); it only exposes the union.
 export type PythonPushEvent =
 	| StatusChangeEvent
@@ -505,7 +505,7 @@ export type PythonPushEvent =
 	| ShowWindowEvent
 	| QuitAppEvent
 	| RelaunchAppEvent
-	// GT-52: three server-emitted events previously missing from the
+	//three server-emitted events previously missing from the
 	// union. Each is published by `event_bus.publish(...)` in the
 	// Python tree (see the per-interface docstring for the emitter).
 	| TrayStateEvent
@@ -525,11 +525,11 @@ export type PythonPushEvent =
 	| LLMPolishFailedEvent
 	| ReconnectingEvent
 	| ReconnectedEvent
-	// ZR-67 / TY-18: coalesced mic-level push event (≤30 Hz).
+	//coalesced mic-level push event (≤30 Hz).
 	// See `MicLevelEvent` above for the wire shape + emitter.
 	| MicLevelEvent;
 
-// ── Auth frame (PVT-G5-063) ────────────────────────────────────────
+//Auth frame () ────────────────────────────────────────
 //
 // The Python backend (`voice_typer/server/sidecar_ws.py:177-231` and
 // `voice_typer/server/ipc_server.py:995-1210`) authenticates each new
@@ -541,7 +541,7 @@ export type PythonPushEvent =
 // `VOICE_TYPER_IPC_TOKEN` env var set by the Rust/Electron host at
 // spawn (ADR-0020 §3). On mismatch the socket is closed immediately.
 //
-// DR-21 (S1-CR-78): the auth frame now carries an OPTIONAL
+//(): the auth frame now carries an OPTIONAL
 // `protocol_version` integer. The Python TCP receiver
 // (`voice_typer/server/ipc/transport_tcp.py`) and the Rust host
 // (`src-tauri/src/sidecar/ws.rs`) both pin the current constant
@@ -557,7 +557,7 @@ export type PythonPushEvent =
 //   - Rust:   `src-tauri/src/sidecar/ws.rs:EXPECTED_PROTOCOL_VERSION`
 //   - TS:     `IPC_PROTOCOL_VERSION` (this file)
 // The cross-language parity test in
-// `tests/test_dr21_cross_language_parity.py` asserts they all agree.
+// `tests/test_ipc_protocol_cross_language_parity.py` asserts they all agree.
 export const IPC_PROTOCOL_VERSION = 1;
 
 // The auth frame shape on the wire. The Rust host constructs this

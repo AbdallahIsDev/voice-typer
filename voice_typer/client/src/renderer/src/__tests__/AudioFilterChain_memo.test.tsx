@@ -1,14 +1,14 @@
 /**
- * DJ-88 regression test: AudioFilterChain hoists ALL `info` / `ariaLabel` /
+ *  regression test: AudioFilterChain hoists ALL `info` / `ariaLabel` /
  * `aria-label` strings into a per-locale `useMemo`.
  *
- * Pre-DJ-88: the component had ~48 INLINE `t(...)` calls in the JSX (one
+ * Pre-: the component had ~48 INLINE `t(...)` calls in the JSX (one
  * per `info` / `ariaLabel` / `aria-label` prop on every SettingRow /
  * Switch / RangeSlider), in addition to the existing `labels` memo (which
  * only covered the search-visible label/infoSearch keys). Every parent
  * re-render (e.g. a slider drag) re-resolved all 48 inline strings.
  *
- * Post-DJ-88: a second `uiText` useMemo (keyed on `[_locale]`) hoists
+ * Post-: a second `uiText` useMemo (keyed on `[_locale]`) hoists
  * all 48 inline strings; the JSX now references `uiText.highPassFilterInfo`
  * / `uiText.highPassFilterAria` / etc. instead of calling `t(...)` inline.
  *

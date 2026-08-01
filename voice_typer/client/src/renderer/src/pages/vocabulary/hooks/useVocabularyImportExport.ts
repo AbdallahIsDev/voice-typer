@@ -4,7 +4,7 @@
 //   - ``importInputRef`` (hidden ``<input type="file">`` ref — re-used
 //     for every import so we don't pay the cost of remounting it)
 //   - ``doExport`` (uses the optional ``window_.exportVocabulary`` IPC
-//     bridge — NEW-PRIV-007 GDPR right-to-export).  Includes the
+//bridge —  GDPR right-to-export).  Includes the
 //     ``category`` field in the export payload so re-importing on
 //     another machine preserves the user's category assignments.
 //   - ``handleImportFile`` (parses + de-dupes by

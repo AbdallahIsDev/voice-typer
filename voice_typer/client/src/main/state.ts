@@ -93,7 +93,7 @@ export interface MainState {
 	pythonReady: boolean;
 	/** True if Python exited before the first connect — surfaces a clear error to the user. */
 	pythonExitedEarly: boolean;
-	/** RW-10 heartbeat interval handle (5s tick). Cleared on TCP close / stopPython / relaunch. */
+	/**  heartbeat interval handle (5s tick). Cleared on TCP close / stopPython / relaunch. */
 	heartbeatInterval: ReturnType<typeof setInterval> | null;
 	/** SEC-029 per-session nonce tagged onto every python-event so the renderer can reject replays. */
 	sessionNonce: string;

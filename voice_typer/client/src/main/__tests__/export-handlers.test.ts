@@ -27,7 +27,7 @@ const writeSpy = vi
 	.spyOn(fs, "writeFileSync")
 	.mockImplementation(() => undefined);
 
-// PI-13: the atomic-write helper now also calls `fs.renameSync` and
+//the atomic-write helper now also calls `fs.renameSync` and
 // (on Windows) `fs.unlinkSync`. Mock both as no-ops so the existing
 // tests that spy on `writeFileSync` content continue to pass without
 // touching the real filesystem.

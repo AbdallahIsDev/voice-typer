@@ -1,5 +1,5 @@
 /**
- * Tests for the PunctuationCheatSheet component (NEW-UX-026).
+ * Tests for the PunctuationCheatSheet component ().
  *
  * Verifies that the cheat sheet:
  *   1. Renders with the expected testid container.

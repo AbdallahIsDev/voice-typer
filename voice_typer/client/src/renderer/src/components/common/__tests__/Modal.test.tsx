@@ -1,5 +1,5 @@
 /**
- * BG-R11 (Modal focus-management test).
+ *  (Modal focus-management test).
  *
  * Modal wraps Radix Dialog. Radix owns the actual focus-trap machinery,
  * but we still want to guard the public contract of our wrapper:

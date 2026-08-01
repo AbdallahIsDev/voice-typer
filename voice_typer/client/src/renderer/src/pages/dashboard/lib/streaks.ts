@@ -1,4 +1,4 @@
-// DR-10: pure dashboard helpers extracted from `pages/Dashboard.tsx`.
+//pure dashboard helpers extracted from `pages/Dashboard.tsx`.
 //
 // These functions are React-agnostic and have no side effects beyond
 // reading their arguments, so they can be unit-tested in isolation and
@@ -55,7 +55,7 @@ export interface DashboardData {
 
 /** Format a Date as a YYYY-MM-DD string in LOCAL time (not UTC).
  *
- * CR-90: the previous implementation used
+ * : the previous implementation used
  * ``new Date(ts).toISOString().slice(0, 10)`` which formats the date in
  * UTC. For users in negative UTC offsets (the Americas, -05:00 to
  * -10:00), a transcription logged at 8pm local on Tuesday was bucketed
@@ -101,7 +101,7 @@ export function computeDailyActivity(
 	for (let i = 6; i >= 0; i--) {
 		const d = new Date(now);
 		d.setDate(d.getDate() - i);
-		// CR-90: use localDateKey (not toISOString().slice) so the
+		//use localDateKey (not toISOString().slice) so the
 		// 7-day chart buckets honor the user's local calendar day.
 		const key = localDateKey(d);
 		result.push({
@@ -127,7 +127,7 @@ export function computeStreaks(records: HistoryRecord[]): {
 	const sorted = Array.from(days).sort().reverse();
 	if (sorted.length === 0) return { current: 0, max: 0, activeDays: 0 };
 
-	// CR-90: use localDateKey (not toISOString().slice) so streak
+	//use localDateKey (not toISOString().slice) so streak
 	// calculations anchor on the user's local calendar day.
 	const today = localDateKey(new Date());
 	const yesterday = localDateKey(new Date(Date.now() - 86400000));

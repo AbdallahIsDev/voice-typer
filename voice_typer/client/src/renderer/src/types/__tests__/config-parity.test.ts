@@ -1,11 +1,11 @@
 // src/renderer/src/types/__tests__/config-parity.test.ts
 //
-// XZ-CFG-03 / XZ-CFG-05 / XZ-CFG-06 (parity guard): static type-level
+//(parity guard): static type-level
 // regression tests pinning the TS `VoiceTyperConfig` interface to the
 // Python `Config` dataclass + IPC validator constraints.
 //
 // The Python side (config.py, config_validators.py) is owned by other
-// sub-agents (XZ-IMP-07 / XZ-IMP-19). The cross-agent contract is:
+//sub-agents ( / ). The cross-agent contract is:
 //   • TS `ModelSize` union must mirror Python `ALLOWED_USER_MODELS`.
 //   • TS `audio_preset` union must mirror the Python IPC validator's
 //     `_make_enum_validator({"auto", "studio", "noisy_room", "off",
@@ -22,7 +22,7 @@
 //     "code"})`.
 //   • TS `bubble_x` / `bubble_y` / `bubble_scale` /
 //     `test_duration_seconds` are persisted by the Python Config
-//     dataclass (added by GT-FIX-11). `bubble_x`/`bubble_y` are
+//dataclass (added by ). `bubble_x`/`bubble_y` are
 //     REQUIRED (`number | null`); `bubble_scale`/`test_duration_seconds`
 //     are OPTIONAL on the TS side for backward compat with older
 //     config.json files / older sidecars that predate the fields.
@@ -31,7 +31,7 @@
 // Python (which would require a Python interpreter in the vitest
 // runner). The Python-side parity is enforced by a separate CI job
 // that runs `python scripts/check_config_parity.py` (added by
-// XZ-IMP-07 / XZ-IMP-19) which reads the Python dataclass fields
+//) which reads the Python dataclass fields
 // and diffs against the TS interface keys extracted via TS MMT.
 //
 // If a future agent adds a field to the Python Config dataclass
@@ -50,7 +50,7 @@ import type {
 
 describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () => {
 	it("includes all 8 Python-allowed values (tiny.en, small.en, medium.en, tiny, small, medium, qwen, parakeet)", () => {
-		// FR-4: CR-38 extended the Python allowlist to include the
+		//extended the Python allowlist to include the
 		// multilingual Whisper variants (tiny/small/medium, no `.en`
 		// suffix) that OnboardingController offers to non-English
 		// users, but the TS union was previously stuck at 5 values.
@@ -76,7 +76,7 @@ describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () 
 	});
 
 	it("FR-4: includes the multilingual 'small' variant (positive conditional-type guard)", () => {
-		// FR-4: positive compile-time guard that the multilingual
+		//positive compile-time guard that the multilingual
 		// Whisper variants are present in the TS union. The conditional
 		// resolves to `true` while "small" is in `ModelSize`; if a
 		// future contributor removes it, the `true` assignment fails
@@ -87,8 +87,8 @@ describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () 
 	});
 
 	it("FR-4: includes the multilingual 'tiny' and 'medium' variants (positive conditional-type guards)", () => {
-		// FR-4: additional positive compile-time guards covering the
-		// other two multilingual variants added by CR-38. Same
+		//additional positive compile-time guards covering the
+		//other two multilingual variants added by  Same
 		// pattern as the 'small' guard above.
 		type HasMultilingualTiny = "tiny" extends ModelSize ? true : false;
 		type HasMultilingualMedium = "medium" extends ModelSize ? true : false;
@@ -111,7 +111,7 @@ describe("XZ-CFG-06: TS ModelSize union mirrors Python ALLOWED_USER_MODELS", () 
 
 describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset match Python IPC validators", () => {
 	it("audio_preset does NOT include legacy 'none' or 'recommended' (GT-51: tightened to IPC validator)", () => {
-		// GT-51: the TS union was tightened to mirror the Python IPC
+		//the TS union was tightened to mirror the Python IPC
 		// enum validator in `config_validators.py`, which rejects
 		// 'none' and 'recommended' at the wire boundary. The Python
 		// `Config.load()` v1->v2 migration rewrites stale on-disk
@@ -148,7 +148,7 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 	});
 
 	it("noise_suppression_method does NOT include 'speex' (GT-51: removed — never implemented, rejected by IPC validator)", () => {
-		// GT-51: 'speex' was never implemented (no speex backend in
+		//'speex' was never implemented (no speex backend in
 		// `audio_filters/noise_suppressor.py`) and was rejected at
 		// the IPC boundary. Removed from the TS union to eliminate
 		// the drift.
@@ -178,7 +178,7 @@ describe("XZ-CFG-06: TS audio_preset / noise_suppression_method / llm_preset mat
 
 describe("FR-67: volume_duck_per_session / volume_duck_smart / noise_filter_gate_threshold — REMOVED from wire post-v3", () => {
 	it("all three fields are OPTIONAL (omittable from a literal)", () => {
-		// FR-67: these fields were REMOVED from the Python Config
+		//these fields were REMOVED from the Python Config
 		// dataclass (`voice_typer/server/config.py:775-781, 784-786,
 		// 837-840`) — existing `config.json` files that still carry
 		// them are silently scrubbed by the v3 schema migration, so
@@ -210,7 +210,7 @@ describe("FR-67: volume_duck_per_session / volume_duck_smart / noise_filter_gate
 	});
 
 	it("the fields are still readable as `T | undefined` for back-compat with stale config files", () => {
-		// FR-67: even though the fields are no longer on the wire
+		//even though the fields are no longer on the wire
 		// post-v3, the TS type keeps them OPTIONAL so renderer code
 		// can still read stale on-disk config files / older sidecar
 		// responses that echo them. The values surface as
@@ -227,7 +227,7 @@ describe("FR-67: volume_duck_per_session / volume_duck_smart / noise_filter_gate
 
 describe("FR-67: noise_filter_rnnoise / noise_filter_post_capture — RUNTIME switches per ADR 0009 (NOT deprecated)", () => {
 	it("both fields are still REQUIRED on VoiceTyperConfig (compile-time presence guard)", () => {
-		// FR-67: per ADR 0009, these two fields are RUNTIME switches
+		//per ADR 0009, these two fields are RUNTIME switches
 		// (server-controlled, NOT IPC-settable). The Python Config
 		// dataclass at `voice_typer/server/config.py:842-843` declares
 		// them as `bool = True` and they're actively read by
@@ -261,7 +261,7 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds 
 		// bubble_x and bubble_y are REQUIRED (number | null) and must
 		// be included.
 		//
-		// GT-36 / GT-FIX-11: the Python Config dataclass now persists
+		//the Python Config dataclass now persists
 		// all four fields; bubble_scale / test_duration_seconds remain
 		// OPTIONAL on the TS side for back-compat with older
 		// config.json files / older sidecars.
@@ -299,7 +299,7 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds 
 			unsafe_paste_on_unknown_focus: false,
 			corrections_path: null,
 			log_transcriptions: false,
-			// GT-37 (PLAT-013/014): paste-safety toggles.
+			//(/014): paste-safety toggles.
 			warn_elevated_paste: true,
 			warn_password_paste: true,
 			recording_mode: "toggle",
@@ -399,7 +399,7 @@ describe("XZ-CFG-03: bubble_x / bubble_y / bubble_scale / test_duration_seconds 
 		// deprecated fields are absent from the literal:
 		expect(minimal.bubble_scale).toBeUndefined();
 		expect(minimal.test_duration_seconds).toBeUndefined();
-		// GT-37: optional paste-safety toggles are present in this fixture.
+		//optional paste-safety toggles are present in this fixture.
 		expect(minimal.warn_elevated_paste).toBe(true);
 		expect(minimal.warn_password_paste).toBe(true);
 	});
@@ -412,7 +412,7 @@ describe("GT-37: warn_elevated_paste / warn_password_paste — optional paste-sa
 		// contributor removes either field from the interface, the
 		// property access below fails to compile and CI catches it.
 		// The fields are OPTIONAL (`boolean | undefined`) for back-compat
-		// with older sidecars that predate GT-37; the renderer treats
+		//with older sidecars that predate ; the renderer treats
 		// absence as `true` (the Python default).
 		const cfg = {} as VoiceTyperConfig;
 		const _elevated: boolean | undefined = cfg.warn_elevated_paste;
@@ -436,7 +436,7 @@ describe("GT-F2-3: onboarding_failed / recording_channels / pre_roll_buffer_seco
 	});
 });
 
-// XZ-CFG-15 removed: last_load_warnings was a Python-only transient
+//removed: last_load_warnings was a Python-only transient
 // instance attribute (NOT part of the IPC config type).  The TS
 // VoiceTyperConfig does not include it.
 

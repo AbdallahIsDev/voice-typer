@@ -234,7 +234,8 @@
 		"importEmpty": "El archivo no contiene entradas de vocabulario",
 		"loadFailedTitle": "Error al cargar el vocabulario",
 		"retry": "Reintentar",
-		"loading": "Cargando vocabulario…"
+		"loading": "Cargando vocabulario…",
+		"noResultsDescription": "Pruebe un término de búsqueda diferente o borre el filtro de categoría."
 	},
 	"templates": {
 		"title": "Plantillas",
@@ -315,9 +316,11 @@
 		"unknown": "Desconocido",
 		"auto": "Automático",
 		"noDataTitle": "Sin actividad aún",
-		"noDataDescription": "Presiona tu tecla de acceso directo (o Bloq Mayús) en la página de Inicio para dictar — tus estadísticas aparecerán aquí.",
+		"noDataDescription": "Presione {hotkey} en la página de inicio para dictar — sus estadísticas aparecerán aquí.",
 		"startDictation": "Iniciar dictado",
 		"refreshFailed": "Error al actualizar las estadísticas",
+		"refreshFailedHint": "No se pudieron cargar los datos del panel. Verifique su conexión e intente de nuevo.",
+		"retry": "Reintentar",
 		"dayActivityAria": "{label}: {count} dictados",
 		"loadingAria": "Cargando panel",
 		"cards": {
@@ -1158,11 +1161,15 @@
 		"openFolderAria": "Abrir el directorio de modelos en el explorador de archivos",
 		"openFolderFailed": "Error al abrir la carpeta",
 		"disk": {
-			"lowSpaceBody": "No hay suficiente espacio libre para descargar modelos. Libera espacio o elige un modelo más pequeño.",
-			"lowSpaceTitle": "Espacio en disco bajo"
+			"lowSpaceBody": "No hay suficiente espacio para descargar modelos",
+			"lowSpaceTitle": "Poco espacio en disco",
+			"freeSpace": "{space} libre"
 		},
 		"loading": "Cargando modelos…",
-		"openFolder": "Abrir carpeta de modelos"
+		"openFolder": {
+			"label": "Abrir carpeta de modelos",
+			"aria": "Mostrar carpeta de modelos en el administrador de archivos"
+		}
 	},
 	"tooltips": {
 		"toggleRecording": "Iniciar o detener el dictado por voz",
@@ -1195,7 +1202,8 @@
 		"noiseSuppressionMethod": "Método de supresión de ruido",
 		"importNotAvailableOutsideElectron": "Importación no disponible fuera de Electron",
 		"moreInfoAbout": "Más información sobre {label}",
-		"toggleSidebarWithShortcut": "Alternar barra lateral ({shortcut})"
+		"toggleSidebarWithShortcut": "Alternar barra lateral ({shortcut})",
+		"transcriptionPasted": "Pegado: {text}"
 	},
 	"help": {
 		"title": "Atajos de Teclado",
@@ -1432,7 +1440,8 @@
 		"secondsRemainingSuffix": "({count}s)",
 		"clearAria": "Borrar atajo de teclado — {label}",
 		"holdingPrefix": "Holding: {modifiers}",
-		"clearTitle": "Borrar atajo de teclado"
+		"clearTitle": "Borrar atajo de teclado",
+		"capsLockSrConflictWarning": "Bloq Mayús es la tecla modificadora predeterminada para VoiceOver / Narrator. Elegirla puede romper su lector de pantalla. Considere usar F2 o Ctrl+Alt+D en su lugar."
 	},
 	"hotkeyValidation": {
 		"empty": "Hotkey is empty",
@@ -1671,6 +1680,31 @@
 		"unknown": "La aplicación encontró un error inesperado. Sus datos están seguros.",
 		"cudaOom": "La GPU se quedó sin memoria. Pruebe un modelo más pequeño, cierre otras aplicaciones GPU o cambie al modo CPU.",
 		"rateLimited": "Demasiadas solicitudes. Espere un momento e intente de nuevo.",
-		"unknownBackend": "El backend de transcripción encontró un error inesperado. Sus datos están seguros — intente de nuevo."
+		"unknownBackend": "El backend de transcripción encontró un error inesperado. Sus datos están seguros — intente de nuevo.",
+		"viewLogsAction": "Ver registros",
+		"copyErrorAction": "Copiar error"
+	},
+	"connection": {
+		"respawnFailed": "El backend no pudo reiniciarse automáticamente",
+		"respawnFailedHint": "Voice Typer intentó recuperar su backend varias veces y se rindió. Reinicie la aplicación, y si el problema persiste, verifique los registros o reinstale."
+	},
+	"dialog": {
+		"pythonCrash": {
+			"title": "El backend de Python falló",
+			"body": "El backend de Python de {appName} salió inesperadamente con código {code} y ahora saldrá.",
+			"signalBody": "El backend de Python de {appName} fue terminado por la señal {signal} y ahora saldrá."
+		},
+		"pythonNotFound": {
+			"title": "Backend de Python no encontrado",
+			"body": "{appName} no pudo encontrar su backend de Python. Por favor reinstale la aplicación."
+		},
+		"pythonStartupTimeout": {
+			"title": "El backend de Python no pudo iniciar",
+			"body": "{appName} no pudo conectar a su backend de Python dentro de {seconds} segundos."
+		},
+		"restartLoopBreak": {
+			"title": "{appName} no puede reiniciarse de forma segura",
+			"body": "El backend de Python está fallando al iniciar. Después de {count} intentos en {seconds} segundos, el disyuntor de reinicio se ha activado. Por favor verifique los archivos de registro y reinstale si el problema persiste."
+		}
 	}
 }

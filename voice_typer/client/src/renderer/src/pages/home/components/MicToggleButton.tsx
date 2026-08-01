@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
  * to `toggle_dictation` is in flight). The button is disabled during
  * `transcribing` so clicks aren't silently swallowed by the backend.
  *
- * EC-FIX-12 / EC-12: extracted from Home.tsx so the page file stays a
+ *  / : extracted from Home.tsx so the page file stays a
  * thin composition root. Behaviour + props are preserved byte-for-byte.
  */
 export interface MicToggleButtonProps {
@@ -36,11 +36,12 @@ export function MicToggleButton({
 				onClick={onClick}
 				disabled={disabled}
 				aria-label={label}
+				aria-pressed={isRecording}
 				title={label}
 				className={cn(
 					"press-scale relative z-10 flex h-21 w-21 items-center justify-center rounded-full",
 					"transition-all duration-200 ease-out",
-					"focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/30",
+					"focus:outline-none focus-visible:ring-2 focus-visible:ring-ring",
 					"hover:scale-105",
 					isRecording
 						? "bg-foreground/15 hover:bg-foreground/25"
@@ -51,7 +52,8 @@ export function MicToggleButton({
 					icon={isRecording ? StopIcon : Mic02Icon}
 					strokeWidth={1.625}
 					className={cn(
-						"h-8 w-8 text-white transition-opacity",
+						"h-8 w-8 transition-opacity",
+						isRecording ? "text-white" : "text-(--text-primary)",
 						toggling && "opacity-30",
 					)}
 				/>

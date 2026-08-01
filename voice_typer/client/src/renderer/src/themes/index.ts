@@ -1,7 +1,7 @@
 /**
  * Aggregator for individual theme-preset modules.
  *
- * PERF-001: presets split into ./themes/ for lazy loading. Each preset
+ * presets split into ./themes/ for lazy loading. Each preset
  * lives in its own file so a caller can dynamically ``import()`` only
  * the theme it needs (rather than pulling in the whole catalogue).
  *
@@ -30,7 +30,7 @@ import { solarizedTheme } from "./solarized";
 import { tokyoNightTheme } from "./tokyo-night";
 
 /**
- * BG-5: raw preset list (no ``nameKey``). The individual preset files
+ * raw preset list (no ``nameKey``). The individual preset files
  * declare only ``id``, ``name``, ``swatch``, ``light``, ``dark`` — the
  * ``nameKey`` field is added here in the aggregator so there is a
  * single source of truth for the ``theme.preset.<id>`` i18n key shape.
@@ -55,7 +55,7 @@ const RAW_THEMES: Omit<ThemePreset, "nameKey">[] = [
 ];
 
 /**
- * BG-5: inject ``nameKey: `theme.preset.${id}` `` for every preset.
+ * inject ``nameKey: `theme.preset.${id}` `` for every preset.
  * Consumers (``ThemeSettingsSection.tsx``) render the localised preset
  * name via ``t(preset.nameKey)``, falling back to the hardcoded English
  * ``name`` only when the locale file is missing the key. The parity

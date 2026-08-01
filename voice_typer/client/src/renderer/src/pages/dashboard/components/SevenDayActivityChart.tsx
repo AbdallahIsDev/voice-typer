@@ -1,10 +1,10 @@
-// DR-10: 7-day activity bar chart extracted from `pages/Dashboard.tsx`
+//7-day activity bar chart extracted from `pages/Dashboard.tsx`
 // (lines ~599-670 of the pre-split file).
 //
 // Pure presentational component — receives the pre-computed
 // `dailyActivity` array (built by `computeDailyActivity` in
 // `../lib/streaks`) and renders the chart card. The chart is
-// informational, not interactive: BG-3 wrapped each bar in a <button>
+//informational, not interactive:  wrapped each bar in a <button>
 // previously which produced 7 dead-end tab stops and an SR
 // announcement of "button, button, ..." — now the entire chart is
 // exposed to AT as a single role="img" with a descriptive aria-label,
@@ -53,7 +53,7 @@ export function SevenDayActivityChart({ data }: SevenDayActivityChartProps) {
 				})}
 			>
 				{d.dailyActivity.map((day) => {
-					// BG-3: the 7-day chart is informational, not
+					//the 7-day chart is informational, not
 					// interactive. Wrapping each bar in a <button>
 					// produced 7 dead-end tab stops and an SR
 					// announcement of "button, button, ..." with no

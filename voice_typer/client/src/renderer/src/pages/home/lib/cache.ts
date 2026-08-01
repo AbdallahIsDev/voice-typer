@@ -1,4 +1,4 @@
-// EC-FIX-12 / EC-12: localStorage cache helpers extracted from
+//localStorage cache helpers extracted from
 // Home.tsx. Each helper takes the component-scoped `MutableRefObject`
 // that owns the in-memory hit-avoidance cache, so the helpers remain
 // pure (no module-level mutable state — the previous `let _cachedRecent`

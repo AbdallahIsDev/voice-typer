@@ -3,7 +3,7 @@
 // bootstrap (``theme-bootstrap.ts``) and the React ``useTheme`` hook
 // (``hooks/useTheme.ts``).
 //
-// BG-81: previously both modules declared their own private copies of
+//previously both modules declared their own private copies of
 // ``LS_THEME_MODE`` / ``LS_THEME_PRESET`` / ``LS_CUSTOM_THEME`` /
 // ``LS_TEXT_SIZE`` and a local ``ThemeMode`` type alias. The two copies
 // had to be kept in sync manually; if one drifted, the bootstrap would
@@ -11,7 +11,7 @@
 // default. Centralising them here makes drift impossible — both modules
 // import the same constant.
 //
-// BG-82: this module also exports a single ``isValidThemePresetId``
+//this module also exports a single ``isValidThemePresetId``
 // validator that both modules use to gate ``localStorage`` reads. The
 // previous implementations used different strategies (the bootstrap
 // accepted any non-empty string, the hook hard-coded a 12-entry allow-

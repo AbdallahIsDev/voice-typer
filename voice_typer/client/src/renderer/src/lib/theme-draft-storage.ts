@@ -1,5 +1,5 @@
 // lib/theme-draft-storage.ts — localStorage draft-backup helpers for
-// the custom-theme colour picker (DT-32 partial split).
+//the custom-theme colour picker ( partial split).
 //
 // Persists the custom theme color picker draft to localStorage on every
 // change.  If the backend save fails (process crash, network blip,

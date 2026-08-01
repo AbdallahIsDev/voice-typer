@@ -3,7 +3,7 @@
  *
  * Extracted from `index.ts` (REF-2).
  *
- * RW-5 + RW-4: in packaged builds, launch the embedded PyInstaller
+ *  + : in packaged builds, launch the embedded PyInstaller
  * backend from `process.resourcesPath` instead of the dev venv. Without
  * this, the macOS/Linux/Windows installers ship Electron only with
  * no Python backend, and the app silently fails to start.
@@ -15,13 +15,13 @@ import { IPC_PORT } from "../constants";
 import { computeConfigDir } from "../single_instance";
 
 /**
- * AC-118: resolve the bundled PyInstaller backend path for the current
+ * : resolve the bundled PyInstaller backend path for the current
  * platform, with a 2-path fallback (onefile + onedir variants) wrapped
  * in try/catch (so a broken symlink / permission error falls through to
  * the dev venv instead of crashing the spawn).
  *
  * Previously the Windows branch had this robust 2-path + try/catch
- * pattern (RW-4 / Wave 3) but macOS and Linux had single-path lookups
+ * pattern ( / Wave 3) but macOS and Linux had single-path lookups
  * with no try/catch — if a future macOS/Linux PyInstaller spec changed
  * the output layout (e.g. added COLLECT() to switch from onefile to
  * onedir), the packaged build would silently fall through to the dev
@@ -99,16 +99,16 @@ export function pythonArgs(): [string, string[]] {
 	// fallback for any platform that doesn't match (or whose bundled
 	// backend is missing on disk).
 	if (app.isPackaged) {
-		// AC-118: route all platforms through resolveBundledBackend so
+		//route all platforms through resolveBundledBackend so
 		// macOS / Linux get the same 2-path + try/catch fallback that
-		// Windows had (RW-4 / Wave 3).
+		//Windows had ( / Wave 3).
 		const bundled = resolveBundledBackend(process.platform);
 		if (bundled !== null) {
 			return [bundled, ["--port", String(IPC_PORT)]];
 		}
 	}
 
-	// RW-15: use computeConfigDir() so the venv path always matches the
+	//use computeConfigDir() so the venv path always matches the
 	// Python backend's _config_dir()-based venv_pythonw() (_paths.py).
 	// Previously hardcoded ~/.voice-typer/venv, which diverged on
 	// non-Windows and fresh installs (config dir may be %APPDATA%

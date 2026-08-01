@@ -1,19 +1,19 @@
 /**
- * FIX-16 / MDL-12 / A11Y-8: i18n aria-label test for DownloadProgressBar.
+ *  / MDL-12 / A11Y-8: i18n aria-label test for DownloadProgressBar.
  *
  * The pre-fix component used a hardcoded English aria-label
  * ("Model download progress"). After the fix the label comes from the
  * `models.download.progressAria` i18n key, so non-English users get a
  * localized progress-bar announcement from screen readers.
  *
- * ── XA-13 (sub-agent 15) additions ────────────────────────────────────
+ * ──  (sub-agent 15) additions ────────────────────────────────────
  * The suite now ALSO covers the four deferred sub-items implemented in
  * this pass:
  *
- *   • XA-13-M2  — throttling boundary coverage (0/5/15/50/95/100).
- *   • XA-13-M5  — explicit error state (role="alert" region + red fill
+ *   •   — throttling boundary coverage (0/5/15/50/95/100).
+ *   •   — explicit error state (role="alert" region + red fill
  *                 + Pause disabled).
- *   • XA-13-M8  — `models.progress.paused` chip rendered when isPaused.
+ *   •   — `models.progress.paused` chip rendered when isPaused.
  *   • Priority #3 — Retry button renders iff (error && onRetry) and
  *                 invokes onRetry on click.
  *   • Priority #4 — modelName disambiguates the aria-label.
@@ -92,7 +92,7 @@ describe("DownloadProgressBar — MDL-12 / A11Y-8 (i18n aria-label)", () => {
 		expect(bar).toBeInTheDocument();
 		expect(bar).toHaveAttribute("aria-valuemin", "0");
 		expect(bar).toHaveAttribute("aria-valuemax", "100");
-		// NF-R15-17: aria-valuenow is throttled to the nearest 10% so
+		//aria-valuenow is throttled to the nearest 10% so
 		// screen readers don't broadcast a stream of percentage updates
 		// every frame. 42 → 40.
 		expect(bar).toHaveAttribute("aria-valuenow", "40");
@@ -102,7 +102,7 @@ describe("DownloadProgressBar — MDL-12 / A11Y-8 (i18n aria-label)", () => {
 		render(<DownloadProgressBar {...baseProps} />);
 		const bar = screen.getByRole("progressbar");
 		// en.json: models.download.progressAria = "Model download: {percent}% complete".
-		// BG-4: the {percent} placeholder MUST be interpolated — screen
+		//the {percent} placeholder MUST be interpolated — screen
 		// readers would otherwise announce the literal token "{percent}"
 		// (with curly braces) for the entire duration of every download.
 		// For progress=42 the expected label is "Model download: 42% complete".
@@ -127,7 +127,7 @@ describe("DownloadProgressBar — MDL-12 / A11Y-8 (i18n aria-label)", () => {
 	});
 
 	it("rounds the aria-valuenow to the nearest 10 (throttled for SR)", () => {
-		// NF-R15-17: aria-valuenow is throttled to the nearest 10% so
+		//aria-valuenow is throttled to the nearest 10% so
 		// screen readers don't broadcast a stream of percentage updates
 		// every frame. 42.7 → 40 (Math.round(42.7 / 10) * 10 === 40).
 		render(<DownloadProgressBar {...baseProps} progress={42.7} />);
@@ -137,8 +137,8 @@ describe("DownloadProgressBar — MDL-12 / A11Y-8 (i18n aria-label)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// XA-13-M2: throttling boundary coverage. The pre-existing tests only
-// covered progress=42 and 42.7 — both round to 40. The original XA-13
+//throttling boundary coverage. The pre-existing tests only
+//covered progress=42 and 42.7 — both round to 40. The original
 // finding flagged this as insufficient: the throttle formula
 // `Math.round(progress / 10) * 10` has surprising behaviour at the 5%
 // midpoint (rounds UP to 10) and at the 0% / 100% extremes (no
@@ -173,7 +173,7 @@ describe("DownloadProgressBar — XA-13-M2 (aria-valuenow throttle boundaries)",
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// XA-13-M5: explicit error state. Before this fix the bar had no error
+//explicit error state. Before this fix the bar had no error
 // UI — a failed download was only surfaced via a toast (which auto-
 // dismisses) and the bar was unmounted by the consumer. Now when
 // `error` is set the bar: (a) renders the error text in a role="alert"
@@ -276,10 +276,10 @@ describe("DownloadProgressBar — XA-13-M5 (explicit error state)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// XA-13 priority #3: in-place Retry button. Before this fix the only
+//priority #3: in-place Retry button. Before this fix the only
 // recovery path for a failed download was to re-navigate to the model
 // card and click Download again — particularly painful for the Parakeet
-// case (XA-13-C1) where a multi-GB download fails at 90%+. Now when
+//case () where a multi-GB download fails at 90%+. Now when
 // `error` is set AND `onRetry` is provided, a Retry button renders
 // next to Cancel.
 // ─────────────────────────────────────────────────────────────────────
@@ -335,8 +335,8 @@ describe("DownloadProgressBar — XA-13 priority #3 (in-place Retry button)", ()
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// XA-13-M8: render `models.progress.paused`. The i18n key
-// ("· Paused") has existed in en.json since PVT-003 but was never
+//render `models.progress.paused`. The i18n key
+//("· Paused") has existed in en.json since  but was never
 // rendered — the only paused cue was the amber bar fill, which is
 // invisible to SR users and easy to miss for sighted users. The fix
 // prepends the chip to the status line when `isPaused` is true.
@@ -373,7 +373,7 @@ describe("DownloadProgressBar — XA-13-M8 (render models.progress.paused chip)"
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// XA-13 priority #4: model-specific aria-label. The pre-fix aria-label
+//priority #4: model-specific aria-label. The pre-fix aria-label
 // was always "Model download: N% complete" — useless when two models
 // are downloading concurrently (e.g. Whisper + Parakeet on the same
 // Models page). When `modelName` is provided the label becomes

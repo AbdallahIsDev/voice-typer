@@ -1,7 +1,7 @@
 /**
  * Tests for the About page.
  *
- * UX-20 / SET-5: the About page was slimmed down from a 726-line catch-all
+ *  / SET-5: the About page was slimmed down from a 726-line catch-all
  * to a focused ~300-line page with three sections (Diagnostics, Privacy,
  * Resources). The Help section was removed (it duplicates the `?` overlay),
  * and Cache Status + Updates were removed from About — they now live in
@@ -123,7 +123,7 @@ describe("formatRelativeTime", () => {
 			Date.now() - 10 * 24 * 60 * 60_000,
 		).toISOString();
 		const result = formatRelativeTime(tenDaysAgo);
-		// PVT-089: >7-day fallback now uses Intl.DateTimeFormat with
+		//>7-day fallback now uses Intl.DateTimeFormat with
 		// dateStyle:"medium" (e.g. "Jul 14, 2026" in en) instead of the
 		// raw ISO 8601 string. Assert it's a non-empty localized date,
 		// NOT the raw ISO and NOT a relative format.
@@ -139,7 +139,7 @@ describe("formatRelativeTime", () => {
 	});
 });
 
-// ─── Slimmed-down About page (UX-20 / SET-5) ──────────────────────────
+//Slimmed-down About page ( / SET-5) ──────────────────────────
 
 describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 	beforeEach(() => {
@@ -194,7 +194,7 @@ describe("About page — slimmed-down sections (UX-20 / SET-5)", () => {
 		});
 
 		// The Help section previously rendered a "Start / Stop dictation"
-		// row. After UX-20, that row is gone (the help overlay is the
+		//row. After , that row is gone (the help overlay is the
 		// canonical source for shortcut labels).
 		expect(screen.queryByText("Start / Stop dictation")).toBeNull();
 		// The Help section heading itself is also gone.

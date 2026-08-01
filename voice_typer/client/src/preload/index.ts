@@ -23,7 +23,7 @@ contextBridge.exposeInMainWorld(
 
 if (!isBubble) {
 	contextBridge.exposeInMainWorld("python", {
-		// UE-39: tighten the `call` parameter to match the
+		//tighten the `call` parameter to match the
 		// `PythonBridge` contract in `types/ipc/bridge.ts`:
 		//   `call: (msg: { type: string; data?: Record<string, unknown> }) => Promise<unknown>`
 		// The previous `Record<string, unknown>` annotation was

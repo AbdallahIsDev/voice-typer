@@ -1,5 +1,5 @@
 /**
- * BG-R11 (RangeSlider deferApply commit test).
+ *  (RangeSlider deferApply commit test).
  *
  * RangeSlider supports a `deferApply` prop that defers the real
  * `onChange` callback to a "commit" event. The implementation attaches

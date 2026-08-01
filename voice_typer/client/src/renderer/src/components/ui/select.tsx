@@ -44,6 +44,20 @@ function SelectTrigger({
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
 	size?: "sm" | "default";
 }) {
+	// Dev-mode a11y warning: a trigger with no children and no accessible
+	// name is invisible to screen readers. Surfaces the gap during
+	// development only.
+	if (
+		process.env.NODE_ENV !== "production" &&
+		!children &&
+		!props["aria-label"] &&
+		!props["aria-labelledby"]
+	) {
+		console.warn(
+			"SelectTrigger: no `aria-label`/`aria-labelledby` or children",
+		);
+	}
+
 	return (
 		<SelectPrimitive.Trigger
 			data-slot="select-trigger"

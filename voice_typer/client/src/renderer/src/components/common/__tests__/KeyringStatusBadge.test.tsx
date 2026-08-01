@@ -1,5 +1,5 @@
 /**
- * BG-R11 (KeyringStatusBadge branching test).
+ *  (KeyringStatusBadge branching test).
  *
  * KeyringStatusBadge has four code paths:
  *
@@ -17,7 +17,7 @@
  *     icon-only button still has an accessible name.
  *   - In full mode the visible "Secure"/"Plaintext" span provides the
  *     accessible name and aria-label is omitted (no double announcement).
- *   - BG-R11: cursor-help → cursor-default. The trigger button must
+ *   - : cursor-help → cursor-default. The trigger button must
  *     NOT carry the misleading `cursor-help` class.
  *
  * The tooltip text is asserted via the Tooltip content; Radix Tooltip
@@ -35,6 +35,7 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { KeyringStatusBadge } from "@/components/common/KeyringStatusBadge";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type { KeyringStatus } from "@/types/config";
 
 // Stub the hugeicons wrapper so we don't pull in the real SVG renderer.
@@ -66,13 +67,18 @@ const fallbackStatus: KeyringStatus = {
 	reason: "keyring.backend.missing",
 };
 
+/** Wrap a node in the shared TooltipProvider so isolated tests can mount. */
+function withProvider(node: React.ReactNode) {
+	return <TooltipProvider delayDuration={200}>{node}</TooltipProvider>;
+}
+
 describe("KeyringStatusBadge — BG-R11 (branching + cursor-default)", () => {
 	afterEach(() => {
 		cleanup();
 	});
 
 	it("available + full: shows 'Secure' text with green LockKey icon", () => {
-		render(<KeyringStatusBadge status={availableStatus} />);
+		render(withProvider(<KeyringStatusBadge status={availableStatus} />));
 		// en.json: settings.keyring.secure → "Secure"
 		expect(screen.getByText("Secure")).toBeInTheDocument();
 		// LockKeyIcon used in the available branch.
@@ -83,7 +89,9 @@ describe("KeyringStatusBadge — BG-R11 (branching + cursor-default)", () => {
 	});
 
 	it("available + compact: icon-only, no visible text, with aria-label", () => {
-		render(<KeyringStatusBadge status={availableStatus} compact />);
+		render(
+			withProvider(<KeyringStatusBadge status={availableStatus} compact />),
+		);
 		// No visible "Secure" text in compact mode.
 		expect(screen.queryByText("Secure")).toBeNull();
 		// Button still has an accessible name via aria-label.
@@ -92,13 +100,13 @@ describe("KeyringStatusBadge — BG-R11 (branching + cursor-default)", () => {
 	});
 
 	it("available + full: aria-label is omitted (visible text provides accessible name)", () => {
-		render(<KeyringStatusBadge status={availableStatus} />);
+		render(withProvider(<KeyringStatusBadge status={availableStatus} />));
 		const btn = screen.getByRole("button");
 		expect(btn).not.toHaveAttribute("aria-label");
 	});
 
 	it("fallback + full: shows 'Plaintext' text with amber Alert02 icon", () => {
-		render(<KeyringStatusBadge status={fallbackStatus} />);
+		render(withProvider(<KeyringStatusBadge status={fallbackStatus} />));
 		// en.json: settings.keyring.plaintext → "Plaintext"
 		expect(screen.getByText("Plaintext")).toBeInTheDocument();
 		expect(screen.getByTestId("hugeicon")).toHaveAttribute(
@@ -108,7 +116,9 @@ describe("KeyringStatusBadge — BG-R11 (branching + cursor-default)", () => {
 	});
 
 	it("fallback + compact: icon-only, with aria-label", () => {
-		render(<KeyringStatusBadge status={fallbackStatus} compact />);
+		render(
+			withProvider(<KeyringStatusBadge status={fallbackStatus} compact />),
+		);
 		expect(screen.queryByText("Plaintext")).toBeNull();
 		const btn = screen.getByRole("button");
 		expect(btn).toHaveAttribute("aria-label");
@@ -119,7 +129,7 @@ describe("KeyringStatusBadge — BG-R11 (branching + cursor-default)", () => {
 		// responses that don't carry the keyring_status field.
 		// We must never claim keyring is available when we don't
 		// know — the badge should render the fallback UI.
-		render(<KeyringStatusBadge />);
+		render(withProvider(<KeyringStatusBadge />));
 		expect(screen.getByText("Plaintext")).toBeInTheDocument();
 		expect(screen.getByTestId("hugeicon")).toHaveAttribute(
 			"data-name",
@@ -128,7 +138,7 @@ describe("KeyringStatusBadge — BG-R11 (branching + cursor-default)", () => {
 	});
 
 	it("available + tooltip with backend name appears when trigger is focused", async () => {
-		render(<KeyringStatusBadge status={availableStatus} />);
+		render(withProvider(<KeyringStatusBadge status={availableStatus} />));
 		const btn = screen.getByRole("button");
 		// Radix Tooltip opens on focus / pointer enter (not on click).
 		// Fire both events to be robust against Radix version changes.
@@ -148,7 +158,7 @@ describe("KeyringStatusBadge — BG-R11 (branching + cursor-default)", () => {
 	});
 
 	it("fallback + tooltip with reason appears when trigger is focused", async () => {
-		render(<KeyringStatusBadge status={fallbackStatus} />);
+		render(withProvider(<KeyringStatusBadge status={fallbackStatus} />));
 		const btn = screen.getByRole("button");
 		btn.focus();
 		fireEvent.mouseEnter(btn);
@@ -170,9 +180,25 @@ describe("KeyringStatusBadge — BG-R11 (branching + cursor-default)", () => {
 
 		// Re-render with compact + fallback variant and check the
 		// same invariant — cursor-help removal applies to ALL branches.
-		rerender(<KeyringStatusBadge status={fallbackStatus} compact />);
+		rerender(
+			withProvider(<KeyringStatusBadge status={fallbackStatus} compact />),
+		);
 		const btn2 = screen.getByRole("button");
 		expect(btn2.className).not.toContain("cursor-help");
 		expect(btn2.className).toContain("cursor-default");
+	});
+
+	it("ZU-32: does NOT mount its own <TooltipProvider data-slot='tooltip-provider'> (per-caller provider removed)", () => {
+		// The per-caller provider was removed so the App-root
+		// provider can own delayDuration / skipDelayDuration for the
+		// whole tree. The wrapper here supplies the provider; the
+		// component itself should not render a second one.
+		const { container } = render(
+			withProvider(<KeyringStatusBadge status={availableStatus} />),
+		);
+		const innerProviders = container.querySelectorAll(
+			'[data-slot="tooltip-provider"]',
+		);
+		expect(innerProviders.length).toBe(0);
 	});
 });

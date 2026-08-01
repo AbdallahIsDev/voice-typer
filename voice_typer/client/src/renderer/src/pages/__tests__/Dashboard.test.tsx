@@ -5,20 +5,20 @@
  * Covers three findings, each in its own describe block so a failure
  * pinpoints which contract regressed:
  *
- *   - BG-3  Dashboard 7-day activity chart container has `role="img"` +
+ *   -   Dashboard 7-day activity chart container has `role="img"` +
  *           descriptive `aria-label`; bars are non-interactive `<div>`s
  *           (no `<button>`); bar opacity bumped from `/60` to `/80` for
  *           WCAG 1.4.11 contrast.
- *   - BG-9  Dashboard.tsx + StatCards.tsx both consume the shared
+ *   -   Dashboard.tsx + StatCards.tsx both consume the shared
  *           `formatDuration` from `lib/format.ts`; in-component copies
  *           dropped. The shared helper resolves `h` / `m` glyphs through
  *           `t()` (analytics.durationHours / durationMinutes /
  *           durationHoursMinutes / durationZero).
- *   - BG-10 Dashboard "Share stats" button visibility is gated on
+ *   -  Dashboard "Share stats" button visibility is gated on
  *           `canShareStats({todayCount, totalCount})` (not
  *           `data.todayCount > 0`) so users with historical
  *           transcriptions but no today dictations can still share.
- *   - DJ-93 Dashboard share-image capture container's inline `style`
+ *   -  Dashboard share-image capture container's inline `style`
  *           literal is hoisted to a module-level constant so the object
  *           identity is stable across renders (a fresh inline object
  *           on every render would break `React.memo` on the share-image
@@ -50,8 +50,8 @@ const DASHBOARD_SRC = fs.readFileSync(
 	path.resolve(__dirname, "..", "Dashboard.tsx"),
 	"utf8",
 );
-// DR-10: the 7-day activity chart JSX was extracted from Dashboard.tsx
-// into pages/dashboard/components/SevenDayActivityChart.tsx. The BG-3
+//the 7-day activity chart JSX was extracted from Dashboard.tsx
+//into pages/dashboard/components/SevenDayActivityChart.tsx. The
 // assertions below target the chart's new home (the strings no longer
 // appear in DASHBOARD_SRC after the split).
 const SEVEN_DAY_SRC = fs.readFileSync(
@@ -86,11 +86,11 @@ const EN_JSON = JSON.parse(
 	),
 );
 
-// ── BG-3 ──────────────────────────────────────────────────────────────
+//
 
 describe("BG-3: Dashboard 7-day chart container role=img + non-interactive bars", () => {
 	it('chart container <div> has role="img" and aria-label=', () => {
-		// DR-10: the chart JSX now lives in SevenDayActivityChart.tsx
+		//the chart JSX now lives in SevenDayActivityChart.tsx
 		// (extracted from Dashboard.tsx). The `flex items-end
 		// justify-between gap-2 h-20` class appears exactly once in
 		// that file (the chart container; the loading skeleton lives
@@ -109,7 +109,7 @@ describe("BG-3: Dashboard 7-day chart container role=img + non-interactive bars"
 	});
 
 	it("chart container aria-label uses analytics.sevenDayActivityChartAria key", () => {
-		// BG-8 / BG-3: the aria-label is built from the
+		//the aria-label is built from the
 		// analytics.sevenDayActivityChartAria i18n key (with a {counts}
 		// interpolation param) rather than a literal English string.
 		expect(SEVEN_DAY_SRC).toContain("analytics.sevenDayActivityChartAria");
@@ -134,7 +134,7 @@ describe("BG-3: Dashboard 7-day chart container role=img + non-interactive bars"
 	it("bars no longer carry tabIndex or aria-label attributes (informational, not focusable)", () => {
 		// The previous implementation gave each bar `tabIndex={0}` and
 		// `aria-label={...}` so the chart produced 7 dead-end tab stops
-		// and an SR announcement of "button, button, ...". After BG-3
+		//and an SR announcement of "button, button, ...". After
 		// the chart container owns the role/label and the bars are
 		// plain divs.
 		const chartIdx = SEVEN_DAY_SRC.lastIndexOf(
@@ -152,13 +152,13 @@ describe("BG-3: Dashboard 7-day chart container role=img + non-interactive bars"
 
 	it("bar opacity is bg-accent/80 (WCAG 1.4.11 contrast, was /60)", () => {
 		// The chart bar is the only element with both `bg-accent/` and
-		// `rounded-sm` in the file. BG-3 bumps it from /60 to /80.
+		//`rounded-sm` in the file.  bumps it from /60 to /80.
 		expect(SEVEN_DAY_SRC).toMatch(/bg-accent\/80/);
 		expect(SEVEN_DAY_SRC).not.toMatch(/bg-accent\/60/);
 	});
 });
 
-// ── BG-9 ──────────────────────────────────────────────────────────────
+//
 
 describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 	it("Dashboard.tsx imports formatDuration from @/lib/format (no local copy)", () => {
@@ -273,7 +273,7 @@ describe("BG-9: formatDuration shared via lib/format.ts + i18n keys", () => {
 	});
 });
 
-// ── BG-10 ─────────────────────────────────────────────────────────────
+//
 
 describe("BG-10: Dashboard Share button gated on canShareStats (not todayCount > 0)", () => {
 	it("Dashboard.tsx imports canShareStats from @/hooks/useStatsShare", () => {
@@ -296,7 +296,7 @@ describe("BG-10: Dashboard Share button gated on canShareStats (not todayCount >
 	});
 });
 
-// ── DJ-93 ─────────────────────────────────────────────────────────────
+//
 
 describe("DJ-93: Dashboard share-image container style hoisted to module-level constant", () => {
 	it("Dashboard.tsx declares a module-level CSSProperties constant for the share-image capture container", () => {

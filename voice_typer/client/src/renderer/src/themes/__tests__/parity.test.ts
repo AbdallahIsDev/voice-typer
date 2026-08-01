@@ -1,5 +1,5 @@
 /**
- * CR-061 / PVT-001: theme preset light/dark var coverage parity test.
+ * theme preset light/dark var coverage parity test.
  *
  * Each built-in theme preset defines CSS variable overrides for both
  * light and dark colour schemes.  If the light map and dark map don't
@@ -15,7 +15,7 @@
  * ``THEME_VARIABLES`` superset declared in ``themes.ts`` so a future
  * edit that drops a var from both maps is caught.
  *
- * PVT-001: previously only amoled, sepia, and nord were exercised.
+ * previously only amoled, sepia, and nord were exercised.
  * The remaining 7 non-default/non-custom presets (dracula, solarized,
  * tokyo-night, ayu, monokai, catppuccin, github) silently shipped
  * with missing light-mode tokens because the parity test didn't
@@ -28,7 +28,7 @@ import { describe, expect, it } from "vitest";
 
 import { THEME_VARIABLES, THEMES } from "@/themes";
 
-// PVT-001: derive fixtures from the canonical THEMES array so every
+// derive fixtures from the canonical THEMES array so every
 // non-default, non-custom preset is covered. The `default` preset is a
 // no-op (no overrides) and `custom` is computed at runtime from
 // user-supplied colours — neither carries a static light/dark map to
@@ -37,11 +37,11 @@ const PRESETS_UNDER_TEST = THEMES.filter(
 	(t) => t.id !== "default" && t.id !== "custom",
 ).map((preset) => ({ name: preset.id, preset }));
 
-describe("theme preset light/dark var coverage parity (CR-061)", () => {
-	// PVT-001: sanity guard — if a future preset is added to THEMES but
+describe("theme preset light/dark var coverage parity", () => {
+	// sanity guard — if a future preset is added to THEMES but
 	// excluded above by accident, this assertion fires. Update the
 	// filter explicitly when adding a no-op or runtime-computed preset.
-	it("exercises every non-default/non-custom preset (PVT-001 regression guard)", () => {
+	it("exercises every non-default/non-custom preset (regression guard)", () => {
 		expect(PRESETS_UNDER_TEST.length).toBeGreaterThanOrEqual(9);
 		const exercisedIds = new Set(PRESETS_UNDER_TEST.map((p) => p.name));
 		for (const expected of [
@@ -107,10 +107,10 @@ describe("theme preset light/dark var coverage parity (CR-061)", () => {
 				}
 			});
 
-			// PVT-002: every theme must explicitly define --destructive-foreground
+			// every theme must explicitly define --destructive-foreground
 			// so destructive button text is readable without relying on the
 			// stylesheet default.
-			it("defines --destructive-foreground in both light and dark (PVT-002)", () => {
+			it("defines --destructive-foreground in both light and dark)", () => {
 				expect(lightKeys.has("--destructive-foreground")).toBe(true);
 				expect(darkKeys.has("--destructive-foreground")).toBe(true);
 			});
@@ -118,11 +118,11 @@ describe("theme preset light/dark var coverage parity (CR-061)", () => {
 	}
 });
 
-// ─── BG-5 / BG-33 / BG-35 / BG-36 regression tests ────────────────────
+// ─── regression tests ────────────────────
 //
 // These tests assert the design-system invariants introduced by the
-// BG-5 (nameKey), BG-33 (dark --ring WCAG 1.4.11), BG-35 (dark
-// --muted-foreground WCAG AA 4.5:1), and BG-36 (--primary vs
+// invariants: nameKey, dark --ring WCAG 1.4.11, dark
+// --muted-foreground WCAG AA 4.5:1, and --primary vs
 // --primary-foreground WCAG AA 4.5:1) fixes. They use the WCAG 2.1
 // contrast-ratio implementation in ``@/lib/color-utils`` (which works
 // on hex strings) and the OKLCH → hex converter in the same module to
@@ -134,7 +134,7 @@ import {
 	contrastRatio as wcagContrastRatio,
 } from "@/lib/color-utils";
 
-describe("theme preset i18n nameKey (BG-5)", () => {
+describe("theme preset i18n nameKey", () => {
 	it(`every preset carries a nameKey matching \`theme.preset.\${id}\``, () => {
 		for (const preset of THEMES) {
 			expect(preset.nameKey, `preset ${preset.id} nameKey`).toBe(
@@ -155,7 +155,7 @@ describe("theme preset i18n nameKey (BG-5)", () => {
 	});
 });
 
-describe("theme preset WCAG contrast invariants (BG-33 / BG-35 / BG-36)", () => {
+describe("theme preset WCAG contrast invariants", () => {
 	// WCAG 1.4.11 minimum for focus indicators (3:1) — but at /30 alpha
 	// the effective contrast is lower, so the threshold we assert here
 	// is a conservative proxy: the ring colour's luminance must differ
@@ -172,7 +172,7 @@ describe("theme preset WCAG contrast invariants (BG-33 / BG-35 / BG-36)", () => 
 		if (preset.id === "default" || preset.id === "custom") continue;
 
 		describe(`${preset.id} preset`, () => {
-			it("dark-mode --ring clears WCAG 1.4.11 3:1 against dark --background (BG-33)", () => {
+			it("dark-mode --ring clears WCAG 1.4.11 3:1 against dark --background)", () => {
 				const ring = cssColorToHex(preset.dark["--ring"] ?? "");
 				const bg = cssColorToHex(preset.dark["--background"] ?? "");
 				const ratio = wcagContrastRatio(ring, bg);
@@ -181,15 +181,15 @@ describe("theme preset WCAG contrast invariants (BG-33 / BG-35 / BG-36)", () => 
 				);
 			});
 
-			it("dark-mode --sidebar-ring mirrors dark-mode --ring (BG-79)", () => {
+			it("dark-mode --sidebar-ring mirrors dark-mode --ring)", () => {
 				expect(preset.dark["--sidebar-ring"]).toBe(preset.dark["--ring"]);
 			});
 
-			it("light-mode --sidebar-ring mirrors light-mode --ring (BG-79)", () => {
+			it("light-mode --sidebar-ring mirrors light-mode --ring)", () => {
 				expect(preset.light["--sidebar-ring"]).toBe(preset.light["--ring"]);
 			});
 
-			it("dark-mode --muted-foreground clears WCAG AA 4.5:1 against dark --background (BG-35)", () => {
+			it("dark-mode --muted-foreground clears WCAG AA 4.5:1 against dark --background)", () => {
 				const fg = cssColorToHex(preset.dark["--muted-foreground"] ?? "");
 				const bg = cssColorToHex(preset.dark["--background"] ?? "");
 				const ratio = wcagContrastRatio(fg, bg);
@@ -199,7 +199,7 @@ describe("theme preset WCAG contrast invariants (BG-33 / BG-35 / BG-36)", () => 
 				).toBeGreaterThanOrEqual(TEXT_AA_THRESHOLD);
 			});
 
-			it("light-mode --muted-foreground clears WCAG AA 4.5:1 against light --background (BG-34)", () => {
+			it("light-mode --muted-foreground clears WCAG AA 4.5:1 against light --background)", () => {
 				const fg = cssColorToHex(preset.light["--muted-foreground"] ?? "");
 				const bg = cssColorToHex(preset.light["--background"] ?? "");
 				const ratio = wcagContrastRatio(fg, bg);
@@ -209,7 +209,7 @@ describe("theme preset WCAG contrast invariants (BG-33 / BG-35 / BG-36)", () => 
 				).toBeGreaterThanOrEqual(TEXT_AA_THRESHOLD);
 			});
 
-			it("light-mode --primary vs --primary-foreground clears WCAG AA 4.5:1 (BG-36)", () => {
+			it("light-mode --primary vs --primary-foreground clears WCAG AA 4.5:1", () => {
 				const fg = cssColorToHex(preset.light["--primary-foreground"] ?? "");
 				const bg = cssColorToHex(preset.light["--primary"] ?? "");
 				const ratio = wcagContrastRatio(fg, bg);
@@ -219,7 +219,7 @@ describe("theme preset WCAG contrast invariants (BG-33 / BG-35 / BG-36)", () => 
 				).toBeGreaterThanOrEqual(TEXT_AA_THRESHOLD);
 			});
 
-			it("dark-mode --primary vs --primary-foreground clears WCAG AA 4.5:1 (BG-36)", () => {
+			it("dark-mode --primary vs --primary-foreground clears WCAG AA 4.5:1", () => {
 				const fg = cssColorToHex(preset.dark["--primary-foreground"] ?? "");
 				const bg = cssColorToHex(preset.dark["--primary"] ?? "");
 				const ratio = wcagContrastRatio(fg, bg);
@@ -232,7 +232,7 @@ describe("theme preset WCAG contrast invariants (BG-33 / BG-35 / BG-36)", () => 
 	}
 });
 
-// ─── XA-9-14 / XA-9-7: pickBestForeground + passesWCAG helpers ────────
+// ─── pickBestForeground + passesWCAG helpers ────────
 //
 // These tests exercise the new helpers in ``@/lib/color-utils`` that
 // let the custom theme editor compute the best foreground for a given
@@ -240,7 +240,7 @@ describe("theme preset WCAG contrast invariants (BG-33 / BG-35 / BG-36)", () => 
 // ``#ffffff`` for primary/accent/destructive foregrounds that broke
 // AA on light primary colors).
 //
-// XA-9-1/2/3/5: separate tests below assert the WCAG invariants for
+// separate tests below assert the WCAG invariants for
 // --ring (light mode), --border, --accent-foreground, and
 // --destructive-foreground. These are SKIPPED because the underlying
 // theme files (themes/{...}.ts) are NOT in this agent's owned-file
@@ -256,7 +256,7 @@ import {
 	pickBestForeground,
 } from "@/lib/color-utils";
 
-describe("XA-9-14: pickBestForeground picks the highest-contrast candidate", () => {
+describe("pickBestForeground picks the highest-contrast candidate", () => {
 	it("picks white for a black background", () => {
 		expect(pickBestForeground("#000000")).toBe("#ffffff");
 	});
@@ -304,7 +304,7 @@ describe("XA-9-14: pickBestForeground picks the highest-contrast candidate", () 
 	});
 });
 
-describe("XA-9-7: passesWCAG convenience helper", () => {
+describe("passesWCAG convenience helper", () => {
 	it("returns true for AA-passing contrast (black on white)", () => {
 		expect(passesWCAG("#000000", "#ffffff", 4.5)).toBe(true);
 	});
@@ -326,19 +326,15 @@ describe("XA-9-7: passesWCAG convenience helper", () => {
 	});
 });
 
-// ─── XA-9-1/2/3/5: theme-preset WCAG invariants (currently failing) ───
+// ─── theme-preset WCAG invariants ───────────────────────────────────
 //
 // These tests document the desired WCAG invariants for the theme
 // presets' --ring (light), --border, --accent-foreground, and
-// --destructive-foreground tokens. They are SKIPPED because the
-// underlying theme files (themes/{...}.ts) are NOT in this agent's
-// owned-file list — the proposed color-value fixes (e.g. raise
-// --border to oklch(0.78) light / oklch(0.34) dark; darken monokai
-// --destructive) require editing those files. Once another agent
-// applies those changes, un-skip these tests to enforce the
-// invariants going forward.
+// --destructive-foreground tokens. The underlying theme files
+// (themes/{...}.ts) now carry contrast-correct color values so the
+// tests are enabled.
 
-describe.skip("XA-9-1/2/3/5: theme-preset WCAG invariants (blocked on theme file edits)", () => {
+describe("theme-preset WCAG invariants", () => {
 	const BORDER_WCAG_THRESHOLD = 3.0;
 	const DESTRUCTIVE_AA_THRESHOLD = 4.5;
 	const ACCENT_AA_THRESHOLD = 4.5;
@@ -348,7 +344,7 @@ describe.skip("XA-9-1/2/3/5: theme-preset WCAG invariants (blocked on theme file
 		if (preset.id === "default" || preset.id === "custom") continue;
 
 		describe(`${preset.id} preset`, () => {
-			it("light-mode --ring clears WCAG 1.4.11 3:1 (XA-9-1)", () => {
+			it("light-mode --ring clears WCAG 1.4.11 3:1", () => {
 				const ring = cssColorToHex(preset.light["--ring"] ?? "");
 				const bg = cssColorToHex(preset.light["--background"] ?? "");
 				expect(wcagContrastRatio(ring, bg)).toBeGreaterThanOrEqual(
@@ -356,7 +352,7 @@ describe.skip("XA-9-1/2/3/5: theme-preset WCAG invariants (blocked on theme file
 				);
 			});
 
-			it("light-mode --border clears WCAG 1.4.11 3:1 (XA-9-2)", () => {
+			it("light-mode --border clears WCAG 1.4.11 3:1", () => {
 				const border = cssColorToHex(preset.light["--border"] ?? "");
 				const bg = cssColorToHex(preset.light["--background"] ?? "");
 				expect(wcagContrastRatio(border, bg)).toBeGreaterThanOrEqual(
@@ -364,7 +360,7 @@ describe.skip("XA-9-1/2/3/5: theme-preset WCAG invariants (blocked on theme file
 				);
 			});
 
-			it("dark-mode --border clears WCAG 1.4.11 3:1 (XA-9-2)", () => {
+			it("dark-mode --border clears WCAG 1.4.11 3:1", () => {
 				const border = cssColorToHex(preset.dark["--border"] ?? "");
 				const bg = cssColorToHex(preset.dark["--background"] ?? "");
 				expect(wcagContrastRatio(border, bg)).toBeGreaterThanOrEqual(
@@ -372,7 +368,7 @@ describe.skip("XA-9-1/2/3/5: theme-preset WCAG invariants (blocked on theme file
 				);
 			});
 
-			it("light-mode --destructive vs --destructive-foreground clears AA 4.5:1 (XA-9-5)", () => {
+			it("light-mode --destructive vs --destructive-foreground clears AA 4.5:1", () => {
 				const fg = cssColorToHex(
 					preset.light["--destructive-foreground"] ?? "",
 				);
@@ -382,7 +378,7 @@ describe.skip("XA-9-1/2/3/5: theme-preset WCAG invariants (blocked on theme file
 				);
 			});
 
-			it("dark-mode --destructive vs --destructive-foreground clears AA 4.5:1 (XA-9-5)", () => {
+			it("dark-mode --destructive vs --destructive-foreground clears AA 4.5:1", () => {
 				const fg = cssColorToHex(preset.dark["--destructive-foreground"] ?? "");
 				const bg = cssColorToHex(preset.dark["--destructive"] ?? "");
 				expect(wcagContrastRatio(fg, bg)).toBeGreaterThanOrEqual(
@@ -390,7 +386,7 @@ describe.skip("XA-9-1/2/3/5: theme-preset WCAG invariants (blocked on theme file
 				);
 			});
 
-			it("light-mode --accent vs --accent-foreground clears AA 4.5:1 (XA-9-3)", () => {
+			it("light-mode --accent vs --accent-foreground clears AA 4.5:1", () => {
 				const fg = cssColorToHex(preset.light["--accent-foreground"] ?? "");
 				const bg = cssColorToHex(preset.light["--accent"] ?? "");
 				expect(wcagContrastRatio(fg, bg)).toBeGreaterThanOrEqual(
@@ -398,7 +394,7 @@ describe.skip("XA-9-1/2/3/5: theme-preset WCAG invariants (blocked on theme file
 				);
 			});
 
-			it("dark-mode --accent vs --accent-foreground clears AA 4.5:1 (XA-9-3)", () => {
+			it("dark-mode --accent vs --accent-foreground clears AA 4.5:1", () => {
 				const fg = cssColorToHex(preset.dark["--accent-foreground"] ?? "");
 				const bg = cssColorToHex(preset.dark["--accent"] ?? "");
 				expect(wcagContrastRatio(fg, bg)).toBeGreaterThanOrEqual(

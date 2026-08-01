@@ -1,5 +1,5 @@
 /**
- * XZ-CFG-05: parity tests for the shared `DEFAULT_CONFIG` fixture.
+ * : parity tests for the shared `DEFAULT_CONFIG` fixture.
  *
  * The hand-maintained fixture in `fixtures.ts` has historically drifted
  * from the Python `Config` dataclass defaults. The two most dangerous

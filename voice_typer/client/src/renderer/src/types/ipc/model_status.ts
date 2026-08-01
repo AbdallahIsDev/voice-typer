@@ -1,9 +1,9 @@
 // types/ipc/model_status.ts
 //
-// TASK-24 supplementary IPC contracts for the Models page:
+//supplementary IPC contracts for the Models page:
 // `get_model_status` response shape + `get_disk_info` response shape.
 //
-// Split out from the original monolithic `types/ipc.ts` (DT-31 / DT-FIX-7).
+//Split out from the original monolithic `types/ipc.ts` ( / ).
 // No behaviour change vs. the original file — pure structural refactor.
 
 /**
@@ -15,7 +15,7 @@
  * call site — see `hooks/useModelLifecycle.ts` for the duplicated
  * `Record<string, { downloaded: boolean; deps_ok: boolean }>` annotation.
  *
- * TASK-24-FIX-6 adds the `hash_verified` discriminator so the Models
+ *  adds the `hash_verified` discriminator so the Models
  * page can surface a warning badge when a downloaded model's hash doesn't
  * match the registry's expected hash (e.g. partial download left on disk
  * after a crash, or a third-party import that bypassed the HuggingFace
@@ -40,7 +40,7 @@ export interface ModelStatusEntry {
 	 *   show a verification badge in this state.
 	 *
 	 * Optional for backwards compatibility with backends that
-	 * predate TASK-24-FIX-6 — absence is treated as `"unknown"`.
+	 * predate  — absence is treated as `"unknown"`.
 	 */
 	hash_verified?: "verified" | "mismatch" | "unknown";
 }
@@ -59,8 +59,8 @@ export interface ModelStatusEntry {
 export type ModelStatusMap = Record<string, ModelStatusEntry>;
 
 /**
- * TASK-24-FIX-5: disk-space info for the Models-page pre-flight check
- * (PVT-033). Returned by the optional `get_disk_info` IPC.
+ * : disk-space info for the Models-page pre-flight check
+ * (). Returned by the optional `get_disk_info` IPC.
  *
  * The shape deliberately matches the *minimal* contract documented in the
  * fix brief: free bytes on the volume that hosts the models directory,

@@ -3,25 +3,21 @@
 // ADR-0020 §6.3 (Phase 3 UI port): Tauri ↔ React bridge orchestrator.
 //
 // This module is the public entry point of the `@/lib/tauri-bridge`
-// package. It runs at renderer startup and detects whether the app is
-// running inside Tauri (`window.__TAURI__` is present) or Electron. In
-// Tauri mode it installs `window.python`, `window.bubble`, and
-// `window.window_` using Tauri's `invoke()` + `event.listen()` APIs so
-// the existing renderer code (including `usePython.ts` and its
-// NEW-IPC-107 guards) works unchanged on both runtimes.
+// package. It exports `installTauriBridge()` and the namespace
+// factories but DOES NOT auto-invoke `installTauriBridge()` at module
+// load. The auto-install side effect was split out into a sibling
+// `install.ts` module so callers that import `@/lib/tauri-bridge` for
+// its named exports (e.g. `createPythonNamespace`, `isTauri`,
+// `makeListener`) do not trigger a side effect that mutates
+// `window.python`, `window.bubble`, `window.window_`.
 //
-// In Electron mode this module is a no-op — the Electron preload
-// (`src/preload/index.ts`) already installed the same namespaces via
-// `contextBridge.exposeInMainWorld`.
+// Production entrypoints that want the bridge installed must import
+// the sibling module explicitly:
+//   import "@/lib/tauri-bridge/install";
+// Both `main.tsx` (main window) and `bubble-main.tsx` (bubble window)
+// do this so the bridge is ready before the React app mounts.
 //
-// Public API (preserved from the pre-split monolith):
-//   • `installTauriBridge()` — idempotent installer. Re-exported so any
-//     caller that imported it from the old `@/lib/tauri-bridge` path
-//     keeps working. Both `main.tsx` (main window) and `bubble-main.tsx`
-//     (bubble window) `import "./lib/tauri-bridge"` for the side effect
-//     of auto-installing on module load.
-//
-// Internal layout (PVT-30 split — see review.md):
+//Internal layout ( split — see review.md):
 //   • `detect.ts`           — `isTauri()` + `TauriGlobal` types + the
 //                              `makeListener()` factory (eliminates the
 //                              8× listener boilerplate previously
@@ -33,7 +29,7 @@
 //                              MainRendererBubbleMutators | BubbleWindowBubble`
 //                              (audio level stream + 6 mutators + 5 event
 //                              hooks; bubble-window-only methods gated by
-//                              `windowLabel` — EC-FIX-6 / EC-13).
+//`windowLabel` —  / ).
 //   • `window-namespace.ts` — `createWindowNamespace(tauri): WindowBridge`
 //                              (window controls + 4 export commands via
 //                              the `makeExportCommand(cmd)` factory +
@@ -61,7 +57,7 @@
 //     controls. On Tauri these use the core window API. On Electron
 //     these route through `ipcRenderer.invoke`.
 //
-// The NEW-IPC-107 guard in `usePython.ts` (d-review NEW-IPC-007) is
+//The  guard in `usePython.ts` (d-review ) is
 // Electron-path-only in practice:
 //   - The `_error` field check catches Electron's not-connected /
 //     send-exception envelopes (`{_error: "..."}` from index.ts:1908/
@@ -98,9 +94,12 @@ import { createWindowNamespace } from "./window-namespace";
  * (including `usePython.ts`) is unchanged on both Electron and Tauri
  * paths because the bridge namespaces have identical shapes.
  *
- * Public API: preserved verbatim from the pre-split monolith. Re-exported
- * for callers that import it by name (the auto-install side effect below
- * is what actually triggers installation in production).
+ * Public API: preserved verbatim from the pre-split monolith. Callers
+ * that want the namespaces installed at module load import the sibling
+ * `install.ts` module (`import "@/lib/tauri-bridge/install"`), which
+ * invokes this function as a side effect. This `index.ts` module no
+ * longer auto-invokes `installTauriBridge()` so that importing the
+ * named exports here is side-effect-free.
  */
 export function installTauriBridge(): void {
 	if (!isTauri()) {
@@ -113,7 +112,7 @@ export function installTauriBridge(): void {
 	}
 
 	const tauri = getTauri();
-	// EC-FIX-6 / EC-13 (SEC-026 regression): pass the current Tauri
+	//(SEC-026 regression): pass the current Tauri
 	// window label to `createBubbleNamespace` so the main renderer
 	// (label "main") gets only the `MainRendererBubbleMutators` subset (no
 	// `onSetState` / `onConfig` / `resizeTo` / `toggleDictation` —
@@ -142,7 +141,10 @@ export type { TauriEvent, TauriGlobal } from "./detect";
 // consumer that imports these names.
 export { getTauri, isTauri, makeListener } from "./detect";
 
-// Auto-install when this module is imported. Both `main.tsx` (main
-// window) and `bubble-main.tsx` (bubble window) import this module at
-// the top so the bridge is ready before the React app mounts.
-installTauriBridge();
+// NOTE: this module deliberately does NOT auto-invoke
+// `installTauriBridge()` at module load. The auto-install side effect
+// lives in the sibling `install.ts` module. Production entrypoints
+// (`main.tsx`, `bubble-main.tsx`) import `./lib/tauri-bridge/install`
+// explicitly to opt into the side effect; tests that exercise the
+// auto-install behaviour do the same. Importing this `index.ts`
+// module alone is side-effect-free.

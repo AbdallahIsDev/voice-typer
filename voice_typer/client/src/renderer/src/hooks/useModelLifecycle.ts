@@ -1,7 +1,7 @@
 /**
  * useModelLifecycle — facade composing the Models-page sub-hooks.
  *
- * DT-34 (Phase 4.5 spaghetti split): the former 995-line monolith has
+ *  (Phase 4.5 spaghetti split): the former 995-line monolith has
  * been decomposed into 5 cohesive sub-hooks, each owning one concern:
  *
  *   • `useModelConfig`     — config + models + catalog state, the
@@ -16,10 +16,9 @@
  *                            confirm-delete actions.
  *   • `useCloudProviders`  — cloud-provider API keys + test results +
  *                            the save-key / set-consent / test-
- *                            connection actions (also owns the 4
+ *                            connection actions (also owns the 3
  *                            module-level helpers: `consentKeyFor`,
- *                            `apiKeyConfigField`, `safeApiKey`,
- *                            `testEndpointFor`).
+ *                            `apiKeyConfigField`, `safeApiKey`).
  *   • `useModelFolder`     — disk-info + open-folder-IPC probe state
  *                            + the import / open-folder actions.
  *
@@ -32,7 +31,7 @@
  *
  * The return object shape is **identical** to the pre-split hook —
  * `Models.tsx` and its tests consume the same 39-field surface (the
- * "27-field" count in DT-34 was an undercount; the actual return has
+ * "27-field" count in  was an undercount; the actual return has
  * 39 keys, all preserved here). The 4 internal helpers
  * (`refreshModelStatus`, `updateConfig`, `setConfig`, `setModels`)
  * are destructured out of `useModelConfig`'s return before spreading
@@ -112,8 +111,10 @@ export function useModelLifecycle() {
 	const cloud = useCloudProviders({
 		showSnack,
 		setConfig,
+		config: configRest.config,
 		apiKeys: configRest.apiKeys,
 		updateConfig,
+		call,
 	});
 
 	// 5. Disk-info probe + import / open-folder actions. Needs

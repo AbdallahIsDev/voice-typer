@@ -1,5 +1,5 @@
 /**
- * ModelCardActions unit tests — BG-76 / BG-R16.
+ * ModelCardActions unit tests —  /
  *
  * Coverage:
  *   1. All four visual states render the correct button label + icon:
@@ -7,14 +7,14 @@
  *      - Branch 4: Deps-installable, not depsOk ("Download Deps" button).
  *      - Branch 2: Not downloaded, not always-available ("Download" button).
  *      - Branch 3: Downloaded ("Select" button + Delete).
- *   2. BG-76: the Download + Download Deps buttons expose aria-busy=true
+ *   2. : the Download + Download Deps buttons expose aria-busy=true
  *      while their respective async action is in-flight, and swap their
  *      aria-label to the "Downloading…" string so SR users hear the
  *      in-progress state (not the stale per-model label).
- *   3. BG-R16 #8: the oneAtATimeTitle() English fallback is GONE — the
+ *   3.  #8: the oneAtATimeTitle() English fallback is GONE — the
  *      disabled-button title is sourced directly from
  *      `t("models.download.oneAtATime")` (which IS in the catalog).
- *   4. BG-R16 #9: the Select button uses Tick02Icon (not PlayIcon) —
+ *   4.  #9: the Select button uses Tick02Icon (not PlayIcon) —
  *      Select is a "mark active" affordance, not a "play media" one.
  *   5. DeleteButton only renders in the Active + Downloaded branches
  *      AND only when `model.downloaded && !model.alwaysAvailable`.
@@ -176,7 +176,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 			name: /Select small\.en/i,
 		});
 		expect(selectBtn).toHaveTextContent("Select");
-		// BG-R16 #9: Select uses Tick02Icon (was PlayIcon — semantically wrong).
+		//#9: Select uses Tick02Icon (was PlayIcon — semantically wrong).
 		// Branch 3 renders BOTH a Select button and a Delete button, so we
 		// scope the icon assertion to the Select button itself.
 		expect(selectBtn.querySelector('[data-testid="hugeicon"]')).toHaveAttribute(

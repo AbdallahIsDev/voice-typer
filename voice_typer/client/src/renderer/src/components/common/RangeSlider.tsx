@@ -102,7 +102,7 @@ export function RangeSlider({
 				max={max}
 				step={step}
 				aria-label={ariaLabel}
-				// PVT-A11Y: aria-valuetext gives screen-reader users the same
+				// aria-valuetext gives screen-reader users the same
 				// "value + unit" readout that sighted users see next to the
 				// thumb. Without it, SR users only hear the raw number with
 				// no unit context (e.g. "50" instead of "50ms").

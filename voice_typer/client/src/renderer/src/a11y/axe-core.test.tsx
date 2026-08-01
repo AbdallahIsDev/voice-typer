@@ -21,7 +21,7 @@
  *   - Onboarding
  *   - Dashboard
  *
- * PVT-046 (Sub-agent 16): previously 5 of the 9 promised pages
+ *  (Sub-agent 16): previously 5 of the 9 promised pages
  * (Home, Settings, Models, Microphone, Dashboard) were listed in the
  * header comment but had no `it()` blocks — the file only scanned
  * About, Onboarding, History, Vocabulary, and Templates.  The missing
@@ -165,7 +165,7 @@ vi.mock("@/stores/appStore", () => ({
 		selector({ config: STUB_CONFIG }),
 }));
 
-// PVT-046: additional mocks for the new page tests (Home, Settings,
+//additional mocks for the new page tests (Home, Settings,
 // Models, Microphone, Dashboard).  Each of these pages pulls in heavy
 // transitive dependencies (useConnection, useTheme, useSoundFeedback,
 // useLastUpdated, useStatsShare, useModelLifecycle, useSnackbar) that
@@ -212,7 +212,7 @@ vi.mock("@/hooks/useStatsShare", () => ({
 		chars: 0,
 		durationSec: 0,
 	})),
-	// BG-R19 #8: canShareStats is a pure function used by Home.tsx
+	//#8: canShareStats is a pure function used by Home.tsx
 	// and Dashboard.tsx to gate the share-image button.  Return
 	// false so the share button isn't rendered (keeps the mount
 	// light and avoids the unhandled "canShareStats is not defined
@@ -386,7 +386,7 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 	});
 
 	it.skip("Onboarding page: no axe violations", async () => {
-		// BG-13: re-evaluated after PVT-053 / EC-FIX-18 landed.
+		//re-evaluated after  /  landed.
 		// Onboarding.tsx itself is now a thin (~180 line) composition
 		// root delegating to 6 step components + 2 hooks, but the test
 		// STILL OOMs under jsdom — verified in this session
@@ -405,7 +405,7 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 		// with a lightweight stub for this test (preferred — preserves
 		// coverage of the wizard's progressbar / heading / button a11y),
 		// or (b) raise the Vitest worker `--max-old-space-size` above
-		// 2 GB in the project's vitest config. Tracked under BG-13.
+		//2 GB in the project's vitest config. Tracked under
 		const OnboardingPage = (await import("@/pages/Onboarding")).default;
 		const { container } = render(<OnboardingPage onComplete={vi.fn()} />);
 		await expectNoAxeViolations(container);
@@ -429,7 +429,7 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 		await expectNoAxeViolations(container);
 	});
 
-	// ── PVT-046 (Sub-agent 16): the 5 missing page scans ────────────
+	//(Sub-agent 16): the 5 missing page scans ────────────
 
 	it("Home page (idle): no axe violations", async () => {
 		const HomePage = (await import("@/pages/Home")).default;
@@ -444,7 +444,7 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 	});
 
 	it("Models page (stub lifecycle): no axe violations", async () => {
-		// NH-27 (session NH): the consent banner heading was promoted
+		//(session NH): the consent banner heading was promoted
 		// from <h3> to <h2> in components/models/LocalModelsPanel.tsx,
 		// so the heading hierarchy is now h1 (PageHeading) → h2
 		// (consent banner) — no more axe heading-order violation.
@@ -462,7 +462,7 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 	});
 
 	it("Dashboard page (empty state): no axe violations", async () => {
-		// PVT-046: previously the Dashboard loading state used
+		//previously the Dashboard loading state used
 		// `<div aria-label="Loading dashboard" aria-busy="true">` without a
 		// role attribute, triggering axe's `aria-prohibited-attr` rule. The
 		// fix (add a valid role or drop aria-label) has landed, so the

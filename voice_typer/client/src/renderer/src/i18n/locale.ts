@@ -1,6 +1,6 @@
 // Locale constants, labels, and browser-locale detection.
 //
-// UX-015: Internationalization support.
+//Internationalization support.
 // Supported locales: Arabic (ar), German (de), English (en), Russian (ru), Spanish (es), French (fr),
 // Chinese/Mandarin (zh), Hindi (hi).
 // Adding a new language requires:
@@ -8,7 +8,7 @@
 //   2. Add the locale to SUPPORTED_LOCALES below
 //   3. Import and register it via registerTranslations() (see store.ts).
 //
-// PVT-083: when no locale is saved in localStorage, the user's preferred
+//when no locale is saved in localStorage, the user's preferred
 // browser/OS language (navigator.languages) is matched against
 // SUPPORTED_LOCALES so first-run users see their language automatically.
 
@@ -28,7 +28,7 @@ const SUPPORTED_LOCALES = [
 ] as const;
 export type Locale = (typeof SUPPORTED_LOCALES)[number];
 
-// UX-015: export the list of supported locales for the UI language selector.
+//export the list of supported locales for the UI language selector.
 export { SUPPORTED_LOCALES };
 
 // Human-readable labels for each locale (used in the Settings dropdown).
@@ -50,7 +50,7 @@ export function getLocaleLabel(locale: Locale): string {
 	return LOCALE_LABELS[locale] ?? locale;
 }
 
-// PVT-083: detect the user's preferred browser/OS language and match it
+//detect the user's preferred browser/OS language and match it
 // against SUPPORTED_LOCALES. Returns the matched locale or "en" as the
 // fallback. Used only on first run (when no locale is saved in
 // localStorage).

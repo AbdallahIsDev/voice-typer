@@ -1,5 +1,5 @@
 /**
- * Regression test for CR-6: `usePythonEvent` must (re-)subscribe to the
+ * Regression test for : `usePythonEvent` must (re-)subscribe to the
  * Python event stream when `window.python` becomes available AFTER the
  * hook has already mounted.
  *
@@ -66,7 +66,7 @@ describe("CR-6: useBridgeReady + usePythonEvent lazy subscription", () => {
 
 	it("usePythonEvent creates NO subscription when window.python is undefined at mount", () => {
 		const onEvent = vi.fn(() => () => {});
-		// GT-78: `usePythonEvent` is now generic over
+		//`usePythonEvent` is now generic over
 		// `PythonPushEvent["type"]`. Use the real `"state_changed"`
 		// variant (was previously the non-existent `"status_changed"`
 		// string — a typo the old `type: string` signature silently

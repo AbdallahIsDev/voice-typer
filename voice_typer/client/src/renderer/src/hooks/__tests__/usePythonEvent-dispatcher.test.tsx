@@ -1,5 +1,5 @@
 /**
- * DJ-89: regression tests for the shared event dispatcher in
+ * : regression tests for the shared event dispatcher in
  * `hooks/usePython.ts`.
  *
  * Previously each `usePythonEvent` call subscribed to `api.onEvent`
@@ -22,7 +22,7 @@
  *      last subscriber unsubscribes (no dangling listener).
  *   4. The dispatcher re-subscribes if `window.python` is replaced
  *      (e.g. test `afterEach` deletes and re-sets it).
- *   5. The PVT-G5-019 cleanup contract is preserved: the cleanup
+ *   5. The  cleanup contract is preserved: the cleanup
  *      returned by the previous handler invocation is run before the
  *      next matching event's handler.
  */

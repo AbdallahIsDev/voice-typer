@@ -1,6 +1,6 @@
 /**
  * Single-slot callback for the renderer's "exit animation complete"
- * signal (DR-7 extract from `bubble-window.ts`).
+ * signal ( extract from `bubble-window.ts`).
  *
  * The `bubble:hidden` IPC handler (registered once in
  * bubble-handlers.ts) consumes this callback atomically. The previous
@@ -12,7 +12,7 @@
  * clear or replace the slot, and the persistent `bubble:hidden`
  * listener stays installed exactly once for the whole app lifetime.
  *
- * DR-7: the previous module-level `currentHideAnimationCallback`
+ * : the previous module-level `currentHideAnimationCallback`
  * variable + 4 accessor functions (`onHideAnimationComplete`,
  * `clearCurrentHideAnimationCallback`,
  * `consumeHideAnimationCallback`, and the unsubscribe closure
@@ -33,7 +33,7 @@
  *     unsubscribe function. The unsubscribe is *defensive*: it only
  *     clears the slot if it still points at `cb`, so a stale
  *     unsubscriber firing after a newer hide cycle has already
- *     replaced the callback is a no-op (PVT-G5-081).
+ *     replaced the callback is a no-op ().
  *   - `consume()` atomically retrieves AND clears the slot. Used by
  *     the persistent `bubble:hidden` IPC listener in
  *     bubble-handlers.ts so a single `bubble:hidden` event fires the

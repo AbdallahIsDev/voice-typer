@@ -17,6 +17,7 @@ export interface UseOnboardingWizardResult {
 	initError: string | null;
 	step: StepInfo | null;
 	submitting: boolean;
+	applyError: boolean;
 	skipConfirmOpen: boolean;
 	setSkipConfirmOpen: (v: boolean) => void;
 	selectedHotkey: string;
@@ -30,6 +31,7 @@ export interface UseOnboardingWizardResult {
 	microphones: MicrophoneOption[];
 	headingRef: RefObject<HTMLHeadingElement | null>;
 	retryInit: () => void;
+	refreshMics: () => void;
 	handleNext: () => Promise<void>;
 	handleApply: () => Promise<void>;
 	handlePrev: () => Promise<void>;
@@ -37,13 +39,6 @@ export interface UseOnboardingWizardResult {
 	skipOnInitError: () => Promise<void>;
 }
 
-/**
- * PVT-053 / EC-FIX-18: state + IPC orchestration for the Onboarding wizard,
- * extracted from the Onboarding.tsx monolith. Owns loading/initError/step/
- * retryCounter/submitting/skipConfirmOpen state, the selectedHotkey/
- * selectedModel/selectedMic selection state, the init effect, focus
- * management, and the four navigation handlers (next/apply/prev/skip).
- */
 export function useOnboardingWizard(
 	onComplete?: () => void,
 ): UseOnboardingWizardResult {
@@ -54,9 +49,8 @@ export function useOnboardingWizard(
 	const [initError, setInitError] = useState<string | null>(null);
 	const [step, setStep] = useState<StepInfo | null>(null);
 	const [retryCounter, setRetryCounter] = useState(0);
-	// Fix 11: `submitting` disables nav buttons during IPC calls.
 	const [submitting, setSubmitting] = useState(false);
-	// Fix 4: skip-confirmation dialog state.
+	const [applyError, setApplyError] = useState(false);
 	const [skipConfirmOpen, setSkipConfirmOpen] = useState(false);
 
 	const [selectedHotkey, setSelectedHotkey] = useState(HOTKEY_DEFAULT);
@@ -66,7 +60,6 @@ export function useOnboardingWizard(
 	const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
 	const [microphones, setMicrophones] = useState<MicrophoneOption[]>([]);
 
-	// Fix 15: shared heading ref — focused on every step change.
 	const headingRef = useRef<HTMLHeadingElement | null>(null);
 
 	const retryInit = useCallback(() => {
@@ -76,7 +69,6 @@ export function useOnboardingWizard(
 		setRetryCounter((c) => c + 1);
 	}, []);
 
-	// ── Init effect ────────────────────────────────────────────────
 	useEffect(() => {
 		void retryCounter;
 		let cancelled = false;
@@ -96,7 +88,6 @@ export function useOnboardingWizard(
 						setSelectedMic(cfg.microphone ?? "");
 					}
 				} catch (e) {
-					/* older backend without get_config */
 					console.warn("[useOnboardingWizard] get_config probe failed:", e);
 				}
 				const mics = await call<{
@@ -104,18 +95,6 @@ export function useOnboardingWizard(
 				}>("onboarding_get_microphones");
 				if (cancelled) return;
 				setMicrophones(mics.microphones || []);
-				// S2-CR-39: prefer the OS default input device
-				// (the backend marks it with `default: true` in
-				// `list_microphones()`). Previously the wizard
-				// unconditionally fell back to
-				// `mics.microphones[0].id` — which is just the
-				// first in sounddevice's enumeration order and is
-				// often NOT the system default (especially on
-				// Windows where WASAPI ordering differs from the
-				// OS default). Falling back to `[0]` only when no
-				// device is flagged `default` preserves the prior
-				// behaviour for backends/mocks that don't set the
-				// flag.
 				if (mics.microphones?.length > 0) {
 					setSelectedMic((prev) => {
 						if (prev && mics.microphones.some((m) => m.id === prev)) {
@@ -149,7 +128,6 @@ export function useOnboardingWizard(
 		};
 	}, [call, retryCounter]);
 
-	// ── Focus management (Fix 15) ──────────────────────────────────
 	useEffect(() => {
 		if (!step) return;
 		queueMicrotask(() => {
@@ -157,7 +135,6 @@ export function useOnboardingWizard(
 		});
 	}, [step?.step_name, step]);
 
-	// ── Navigation handlers (Fix 11: submitting + error snacks) ────
 	const handleNext = useCallback(async () => {
 		setSubmitting(true);
 		try {
@@ -190,17 +167,42 @@ export function useOnboardingWizard(
 	]);
 
 	const handleApply = useCallback(async () => {
+		setApplyError(false);
 		setSubmitting(true);
 		try {
-			await call("onboarding_apply");
+			void call("onboarding_apply").catch((err) => {
+				console.error("Failed to apply onboarding (async):", err);
+			});
 			if (onComplete) onComplete();
 		} catch (err) {
-			console.error("Failed to apply onboarding:", err);
+			console.error("Failed to apply onboarding (sync):", err);
+			setApplyError(true);
 			showSnack(t("onboarding.saveFailedSnack"), "error");
 		} finally {
 			setSubmitting(false);
 		}
 	}, [call, onComplete, showSnack]);
+
+	const refreshMics = useCallback(() => {
+		call<{ microphones: MicrophoneOption[] }>("onboarding_get_microphones")
+			.then((mics) => {
+				const list = mics?.microphones ?? [];
+				setMicrophones(list);
+				if (list.length > 0) {
+					setSelectedMic((prev) => {
+						if (prev && list.some((m) => m.id === prev)) {
+							return prev;
+						}
+						const defaultMic = list.find((m) => m.default === true);
+						return (defaultMic ?? list[0]).id;
+					});
+				}
+			})
+			.catch((err) => {
+				console.error("Failed to refresh microphones:", err);
+				showSnack(t("onboarding.saveFailedSnack"), "error");
+			});
+	}, [call, showSnack]);
 
 	const handlePrev = useCallback(async () => {
 		setSubmitting(true);
@@ -229,8 +231,6 @@ export function useOnboardingWizard(
 		}
 	}, [call, showSnack, onComplete]);
 
-	// Init-error Skip button — best-effort escape: even on failure, close
-	// the wizard so the user is not trapped on the error screen.
 	const skipOnInitError = useCallback(async () => {
 		try {
 			await call("onboarding_skip");
@@ -246,6 +246,7 @@ export function useOnboardingWizard(
 		initError,
 		step,
 		submitting,
+		applyError,
 		skipConfirmOpen,
 		setSkipConfirmOpen,
 		selectedHotkey,
@@ -259,6 +260,7 @@ export function useOnboardingWizard(
 		microphones,
 		headingRef,
 		retryInit,
+		refreshMics,
 		handleNext,
 		handleApply,
 		handlePrev,

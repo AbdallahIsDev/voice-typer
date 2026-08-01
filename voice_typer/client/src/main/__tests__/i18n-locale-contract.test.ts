@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * AC-114 contract test: the main-process i18n bundle must stay in sync
+ *  contract test: the main-process i18n bundle must stay in sync
  * with the renderer's `SUPPORTED_LOCALES`.
  *
  * The renderer's `SUPPORTED_LOCALES` (in

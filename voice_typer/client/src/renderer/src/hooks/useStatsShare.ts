@@ -45,7 +45,7 @@ export function canShareStats(opts: {
  * This is intentionally a pure function (no hooks, no side effects)
  * so it's easy to test and reuse.
  *
- * CR-060: the user-visible strings (mode display, faster-than-avg)
+ * : the user-visible strings (mode display, faster-than-avg)
  * previously hardcoded English ("Cloud", "Offline", "Cloud API",
  * "Local Model", "X% faster than avg typer") regardless of the
  * active locale. They now resolve through ``t()`` so the share image
@@ -97,7 +97,7 @@ export function computeShareStats(
  * Hook: captures a hidden DOM element and prompts the user to
  * download it as a PNG image.
  *
- * BG-90: the hook now accepts an optional ``onError`` callback that
+ * : the hook now accepts an optional ``onError`` callback that
  * fires when the capture / share / download pipeline throws. Callers
  * should pass a handler that surfaces ``t('stats.shareImage.captureFailed')``
  * (or a context-specific message) to the user via a toast — previously
@@ -126,7 +126,7 @@ export function computeShareStats(
  */
 export interface UseStatsShareOptions {
 	/**
-	 * BG-90: invoked when the capture / share / download pipeline
+	 * : invoked when the capture / share / download pipeline
 	 * fails. The argument is a localized error message
 	 * (``t('stats.shareImage.captureFailed')`` by default) suitable
 	 * for surfacing via ``toast.error``. Callers may pass a
@@ -157,7 +157,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 			// and toPng captured a 0×0 region. Log the dimensions so we
 			// can verify the element is actually rendered before capture.
 			const rect = el.getBoundingClientRect();
-			// XS-65: dev-only diagnostic — the previous build shipped these
+			//dev-only diagnostic — the previous build shipped these
 			// console.info calls in production, where they leaked user-data
 			// shape (offsetWidth, etc.) to the renderer DevTools console of
 			// anyone running the packaged app.
@@ -174,7 +174,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 					"[StatsShare] target has zero size — image will be blank. " +
 						"Check that the wrapper is not display:none or positioned off-screen.",
 				);
-				// BG-90: surface the failure to the caller so the user
+				//surface the failure to the caller so the user
 				// gets a visible toast instead of an invisible no-op.
 				onError?.(t("stats.shareImage.captureFailed"));
 				return;
@@ -224,7 +224,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 					},
 				});
 
-				// XS-65: dev-only success diagnostic.
+				//dev-only success diagnostic.
 				if (import.meta.env.DEV) {
 					console.info("[StatsShare] capture succeeded:", {
 						dataUrlLength: dataUrl.length,
@@ -234,7 +234,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 					});
 				}
 
-				// BG-90: prefer the native OS share sheet
+				//prefer the native OS share sheet
 				// (mobile / macOS / Windows share dialog) when
 				// the browser supports sharing files. This
 				// lets the user send the image directly to
@@ -257,7 +257,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 						const sharePayload = { files: [file] };
 						if (navigator.canShare(sharePayload)) {
 							await navigator.share(sharePayload);
-							// XS-65: dev-only post-share diagnostic.
+							//dev-only post-share diagnostic.
 							if (import.meta.env.DEV) {
 								console.info(
 									`[StatsShare] image shared via navigator.share: ${filename}.png`,
@@ -295,7 +295,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 				link.click();
 				document.body.removeChild(link);
 
-				// XS-65: dev-only post-download diagnostic.
+				//dev-only post-download diagnostic.
 				if (import.meta.env.DEV) {
 					console.info(
 						`[StatsShare] image saved: ${filename}.png ` +
@@ -305,7 +305,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 				}
 			} catch (err) {
 				console.error("[StatsShare] toPng threw:", err);
-				// BG-90: surface the failure to the caller so the
+				//surface the failure to the caller so the
 				// user gets a visible error toast instead of a
 				// silent console.error.
 				onError?.(t("stats.shareImage.captureFailed"));

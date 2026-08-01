@@ -11,7 +11,7 @@
 // - ``searchQuery`` / ``sortOrder`` / ``categoryFilter`` state +
 // ``filteredSorted`` memo (client-side search+filter+sort — mirrors
 // the History/Templates pattern)
-// - ``instantDeleteEntry`` (NEW-UX-004 instant delete + 6-second
+//``instantDeleteEntry`` ( instant delete + 6-second
 // Undo toast — see D2-FIX comment for the ref-based pattern)
 //
 // Extracted from the former monolithic ``pages/Vocabulary.tsx`` render
@@ -69,7 +69,7 @@ export function useVocabulary({
 	const [entries, setEntries] = useState<VocabRow[]>([]);
 	const [searchQuery, setSearchQuery] = useState("");
 	const [loading, setLoading] = useState(true);
-	// NF-R10-1 / fix #8: surface backend-load failures to the user
+	//fix #8: surface backend-load failures to the user
 	// instead of silently masking them as "no entries exist".  Matches
 	// the History/Templates retry pattern.
 	const [loadError, setLoadError] = useState<string | null>(null);
@@ -114,11 +114,11 @@ export function useVocabulary({
 		} catch (err) {
 			console.error("Failed to load vocabulary:", err);
 			setEntries([]);
-			// NF-R10-1 / fix #8: capture the error message so the render
+			//fix #8: capture the error message so the render
 			// path can show a retry EmptyState instead of an ambiguous
 			// empty list.
 			//
-			// BG-62: previously this was a hardcoded English string.
+			//previously this was a hardcoded English string.
 			// Use the i18n key so the message localises with the UI
 			// locale. If the caught error is a real Error instance we
 			// still surface its .message (which may come from the
@@ -167,7 +167,7 @@ export function useVocabulary({
 		[call],
 	);
 
-	// NEW-UX-004: instant-delete + Undo toast.  Triggered by the trash
+	//instant-delete + Undo toast.  Triggered by the trash
 	// icon.  Removes the entry immediately and offers a 6-second Undo
 	// window during which the user can restore it.
 	//

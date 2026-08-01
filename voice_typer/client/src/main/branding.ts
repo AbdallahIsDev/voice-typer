@@ -23,7 +23,7 @@
  *     would need to import branding.py and read the TS files at
  *     runtime (extend `scripts/check_branding.py` if needed).
  *
- * XS-66: the previous module-local `const _APP_DESCRIPTION` was removed —
+ * : the previous module-local `const _APP_DESCRIPTION` was removed —
  * it was declared but never read. The renderer's `branding.ts` still
  * exports its own `APP_DESCRIPTION` for its renderer-side consumers;
  * the main process has no consumer (its only export here is APP_NAME).

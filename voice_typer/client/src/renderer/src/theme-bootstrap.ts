@@ -1,6 +1,6 @@
 // theme-bootstrap.ts — pre-React theme application to prevent FOUC.
 //
-// PVT-018: Before this module existed, the renderer painted with the
+// Before this module existed, the renderer painted with the
 // stylesheet-default theme (light mode, no preset vars) for ~1 frame
 // before React mounted and ``useTheme`` ran its theme-application
 // effect.  On dark-mode or themed installs this produced a visible
@@ -156,10 +156,10 @@ export function applyBootstrapTheme(): void {
 // ``applyBootstrapTheme`` makes this a no-op.
 applyBootstrapTheme();
 
-// ── XA-9-10: invalidate the cached theme when prefers-color-scheme ──
+// ── invalidate the cached theme when prefers-color-scheme ──
 // changes.
 //
-// PVT-018 / original FOUC fix: this module reads the cached theme mode
+//  / original FOUC fix: this module reads the cached theme mode
 // from localStorage ONCE at module-import time and applies it before
 // React mounts. When the user's OS switches between light/dark while
 // the app is running (e.g. "auto" mode on macOS, scheduled dark mode
@@ -169,7 +169,7 @@ applyBootstrapTheme();
 // would stay in the old mode until the user manually toggled or
 // restarted the app.
 //
-// XA-9-10 (Low-Med): the original PVT-018 fix omitted this listener,
+//  (Low-Med): the original  fix omitted this listener,
 // so users running in ``"system"`` mode saw their renderer fall out
 // of sync with the OS after a daytime/nighttime transition. The
 // listener re-applies the bootstrap (which re-reads ``resolveIsDark``

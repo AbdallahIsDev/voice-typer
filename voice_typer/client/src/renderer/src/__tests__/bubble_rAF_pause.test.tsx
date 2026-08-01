@@ -1,15 +1,15 @@
 /**
- * DJ-90 regression test: `useAudioLevels` rAF loop pauses (stops
+ *  regression test: `useAudioLevels` rAF loop pauses (stops
  * scheduling new frames) when the bubble is hidden, and resumes via the
  * wake trigger when the bubble becomes visible again.
  *
- * Pre-DJ-90: the rAF loop scheduled the next frame at the START of the
+ * Pre-: the rAF loop scheduled the next frame at the START of the
  * callback, then early-returned if `!visibleRef.current` or
  * `!recordingRef.current`. That meant the loop kept spinning at 60 fps
  * even when the bubble was hidden — every frame paid the rAF scheduling
  * cost + the closure entry cost, even though no DOM work was done.
  *
- * Post-DJ-90: the scheduling call has moved to the END of the callback,
+ * Post-: the scheduling call has moved to the END of the callback,
  * guarded by `if (visibleRef.current && recordingRef.current)`. When the
  * bubble hides, the loop STOPS scheduling new frames. The
  * visibility-tracking effect's wake trigger (fired on `api.onShow`)

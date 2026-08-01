@@ -15,6 +15,7 @@
 			"**/*.css",
 			"!out",
 			"!**/dist",
+			"!**/node_modules",
 			"!**/data/hotkey_reserved.json"
 		]
 	},

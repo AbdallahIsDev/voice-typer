@@ -27,7 +27,7 @@ import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
 
-// UX-015: dropdown option labels are translated at render time so they
+//dropdown option labels are translated at render time so they
 // follow the user's chosen UI language. No `description` field is set
 // on any entry — earlier versions shipped inconsistent per-language
 // descriptions (only English and Auto-detect had them), which made the
@@ -109,7 +109,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 		updateConfig({ llm_polish: checked });
 	const handleLlmPresetChange = (v: string) => updateConfig({ llm_preset: v });
 
-	// UX-028: section-level visibility check for Post-Processing section.
+	//section-level visibility check for Post-Processing section.
 	const postProcessingTitle = t("settings.postProcessing");
 	const postProcessingItems = [
 		{
@@ -131,7 +131,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 		isVisible(item.label, item.info, postProcessingTitle),
 	);
 
-	// UX-028: section-level visibility check for LLM Polishing section.
+	//section-level visibility check for LLM Polishing section.
 	const llmPolishingTitle = t("settings.llmPolishing");
 	const llmPolishingItems = [
 		{ label: t("settings.enable"), info: t("settings.enableInfo") },
@@ -246,7 +246,7 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 								info={t("settings.apiKeyInfo")}
 							>
 								<div className="relative">
-									{/* RW-01: keyring status indicator next to the LLM API
+									{/*keyring status indicator next to the LLM API
 									 * key input. Shows a green lock icon when the secret
 									 * is stored in the OS keychain, or an amber warning
 									 * when only the plaintext fallback is available. */}

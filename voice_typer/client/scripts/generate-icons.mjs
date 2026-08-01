@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import sharp from "sharp";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// NEW-DEAD-034: renamed ``root`` → ``clientDir`` and kept
+//renamed ``root`` → ``clientDir`` and kept
 // ``projectRoot`` for the repo root.  The old names (``root`` vs
 // ``projectRoot``) were confusing — ``root`` sounded like the repo
 // root but was actually the client/ directory.
@@ -71,7 +71,7 @@ async function generateIcons(svg, label, suffix) {
 
 async function generateIco(pngPath, icoPath) {
 	const { execSync } = await import("node:child_process");
-	// NEW-DOC-024: previously this hardcoded a venv python path as the
+	//previously this hardcoded a venv python path as the
 	// FIRST candidate (``~/.voice-typer/venv/Scripts/python.exe``) —
 	// a path that almost never exists on a developer's machine (it
 	// only exists inside an installed app's bundled venv, not in a

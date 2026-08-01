@@ -21,7 +21,7 @@ interface TemplateToolbarProps {
 	/**
 	 * Export callback. The format ("json" | "csv") is chosen by the
 	 * ExportFormatMenu and forwarded here so the parent can pass it
-	 * through to the IPC bridge. BG-63: previously the parent's
+	 * through to the IPC bridge. : previously the parent's
 	 * arrow function `() => doExport()` dropped the format arg, so
 	 * CSV export silently behaved like JSON export.
 	 */

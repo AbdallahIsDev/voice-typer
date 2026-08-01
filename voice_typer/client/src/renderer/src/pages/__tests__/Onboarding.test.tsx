@@ -9,7 +9,7 @@
  *    them in the wizard UI, instead of overwriting with hardcoded
  *    defaults.
  *
- * 2. CR-6 (UX-4 / UX-27): the renderer must include a Permissions
+ * 2.  ( / ): the renderer must include a Permissions
  *    step at index 2 (between Microphone and Hotkey), matching the
  *    server's 6-step wizard declared in
  *    `voice_typer/server/onboarding.py:124-141`. The Permissions step
@@ -17,7 +17,7 @@
  *    platform-specific setup walkthrough returned by the IPC.
  *    Hotkey/Model/Done must shift to step indices 3/4/5.
  *
- * CR-6: server-side step order, mirrored from
+ * : server-side step order, mirrored from
  * `voice_typer/server/onboarding.py:131-138` so the renderer test
  * exercises the same step names the server actually emits. If the
  * server adds/reorders steps, this fixture must be updated in lock-
@@ -64,7 +64,7 @@ vi.mock("@hugeicons/react", () => ({
 	),
 }));
 
-// BG-100: mock the Radix Select wrapper so SelectItem children (the
+//mock the Radix Select wrapper so SelectItem children (the
 // VRAM/language badges) render inline in the DOM without needing to
 // drive the dropdown's pointer-capture / Portal machinery in jsdom.
 // The existing wizard tests don't assert on Select behaviour (they
@@ -121,7 +121,7 @@ const STEP_NAMES = [
 	"Done",
 ] as const;
 
-// BG-100: Radix Select's pointerDown handler calls
+//Radix Select's pointerDown handler calls
 // `target.hasPointerCapture(pointerId)` to decide whether to release
 // the capture before opening the dropdown. jsdom doesn't implement
 // the Pointer Capture API, so we stub the three methods Radix touches
@@ -355,7 +355,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
 		});
 		const summaryText = container.textContent ?? "";
-		// XA-11-5: default hotkey is `<caps_lock>` (not `<f2>`), so the
+		//default hotkey is `<caps_lock>` (not `<f2>`), so the
 		// Done-step summary should display the uppercase-normalized form.
 		// The renderer strips only `<`/`>` (not the underscore), so the
 		// displayed token is `CAPS_LOCK` rather than `CAPS LOCK`.
@@ -364,7 +364,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 	});
 });
 
-// ── CR-6: Permissions step at index 2 ────────────────────────────────
+//Permissions step at index 2 ────────────────────────────────
 
 describe("Onboarding wizard — CR-6: Permissions step at index 2", () => {
 	beforeEach(() => {
@@ -464,7 +464,7 @@ describe("Onboarding wizard — CR-6: Permissions step at index 2", () => {
 		// step=2 (Permissions) no longer falls through to the
 		// Hotkey branch.
 		//
-		// BG-12: the visible step-name label in the progress bar
+		//the visible step-name label in the progress bar
 		// now uses the localized title (`onboarding.permissionsTitle`
 		// = "Keyboard Monitoring Permission"), so the same text
 		// appears in both the <span> label and the <h2> heading —
@@ -593,12 +593,12 @@ describe("Onboarding wizard — CR-6: Permissions step at index 2", () => {
 	});
 
 	it("shifts Hotkey/Model/Done to step indices 3/4/5 (out of 6)", async () => {
-		// CR-6 regression guard: server-side step order is
+		//regression guard: server-side step order is
 		// [Welcome(0), Microphone(1), Permissions(2), Hotkey(3),
 		//  Model(4), Done(5)]. Verify each step renders the
 		// expected content when jumped to directly.
 		//
-		// BG-12: the visible step-name label in the progress bar
+		//the visible step-name label in the progress bar
 		// now uses the localized title (e.g. "Choose Your Hotkey"),
 		// matching the per-step <h2> heading. Use getAllByText to
 		// accept the intentional duplication.
@@ -643,7 +643,7 @@ describe("Onboarding wizard — CR-6: Permissions step at index 2", () => {
 			// "Get Started" should NOT appear before the Done step.
 			expect(screen.queryByRole("button", { name: /Get started/i })).toBeNull();
 			// Skip should appear on every non-Done step
-			// (CR-6: skip guard is now `!isDoneStep` rather
+			//(: skip guard is now `!isDoneStep` rather
 			// than `step < 4`).
 			expect(
 				screen.getByRole("button", { name: "Skip onboarding" }),
@@ -724,7 +724,7 @@ describe("Onboarding wizard — CR-6: Permissions step at index 2", () => {
 	});
 });
 
-// ── BG-11 / BG-12 / BG-14 / BG-100: regression guards ────────────────
+//regression guards ────────────────
 
 describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () => {
 	beforeEach(() => {
@@ -737,9 +737,9 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 	});
 
 	/**
-	 * Helper identical to `mockStartAtStep` in the CR-6 suite but
+	 * Helper identical to `mockStartAtStep` in the  suite but
 	 * parameterised so the BG regression tests can opt into
-	 * per-model VRAM/language metadata (BG-100). Older backends
+	 * per-model VRAM/language metadata (). Older backends
 	 * don't return these fields — the default is to omit them.
 	 */
 	function mockStartAtStepWithModels(
@@ -803,7 +803,7 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 		});
 	}
 
-	// BG-11: progressAria i18n template contains {current}/{total}
+	//progressAria i18n template contains {current}/{total}
 	// placeholders. The visible `stepProgress` span interpolates them
 	// correctly; the aria-label call must too, or screen readers
 	// announce the literal "{current}" / "{total}" tokens.
@@ -830,7 +830,7 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 		expect(label).not.toContain("{total}");
 	});
 
-	// BG-12: visible right-side step-name label was rendering the raw
+	//visible right-side step-name label was rendering the raw
 	// backend enum ("Permissions" / "Done" / etc.). After the fix it
 	// uses the localized title. Assert the raw enum no longer leaks
 	// (Done step is the cleanest case — "Done" doesn't appear in any
@@ -852,7 +852,7 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 		expect(screen.queryByText("Done", { exact: true })).toBeNull();
 	});
 
-	// BG-14: DoneStep must render the completeDescription paragraph
+	//DoneStep must render the completeDescription paragraph
 	// (warning the user about the background model download). The key
 	// includes a {hotkey} interpolation that must be the
 	// uppercased, <>-stripped selected hotkey.
@@ -879,13 +879,13 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 		expect(screen.getByText(/\(F2\)/)).toBeTruthy();
 	});
 
-	// BG-100: ModelStep must render per-option VRAM + language badges
+	//ModelStep must render per-option VRAM + language badges
 	// so users can compare models at a glance. The Select UI is mocked
 	// at the top of this file (vi.mock("@/components/ui/select")) so
 	// SelectItem children render inline in the DOM — no need to drive
 	// Radix's pointer-capture / Portal machinery.
 	//
-	// VALIDATE-ON-I18N (FIX-4): skipped because the i18n keys
+	//VALIDATE-ON-I18N (): skipped because the i18n keys
 	// `onboarding.vramBadge`, `onboarding.englishOnlyBadge`, and
 	// `onboarding.multilingualBadge` are referenced by
 	// `pages/onboarding/components/ModelStep.tsx` but are NOT yet
@@ -896,7 +896,7 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 	// test expects. The rendering LOGIC in ModelStep is correct
 	// (it conditionally renders the badge spans when vram_gb /
 	// languages are present); only the i18n strings are missing.
-	// `i18n/translations/en.json` is owned by FIX-2 — once those
+	//`i18n/translations/en.json` is owned by  — once those
 	// three keys are added there (and propagated to the other 7
 	// locale files via the i18n-completeness test in
 	// `tests/test_i18n_completeness.py`), remove the `.skip` and
@@ -943,7 +943,7 @@ describe("Onboarding wizard — BG-11 / BG-12 / BG-14 / BG-100 regressions", () 
 	});
 });
 
-// ── S5-CR-105: "Default: <selection>" hints + Continue validation ─────
+//"Default: <selection>" hints + Continue validation ─────
 
 describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue validation", () => {
 	beforeEach(() => {
@@ -962,7 +962,7 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 	 * and the microphone list (so we can simulate "OS default mic
 	 * available" → mic hint should show).
 	 *
-	 * S5-CR-105: the wizard pre-selects HOTKEY_DEFAULT ("<caps_lock>")
+	 * : the wizard pre-selects HOTKEY_DEFAULT ("<caps_lock>")
 	 * and MODEL_DEFAULT ("small.en") when get_config returns no
 	 * hotkey/model_size. It also auto-selects the OS default mic
 	 * (the one with `default: true`). When any of these defaults
@@ -1037,7 +1037,7 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 		});
 	}
 
-	// S5-CR-105 (a): Hotkey step hint.
+	//(a): Hotkey step hint.
 	it("Hotkey step: shows 'Default: CAPS_LOCK' hint when selectedHotkey is the default", async () => {
 		mockStartAtStepWithDefaults(3);
 
@@ -1073,7 +1073,7 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 		expect(screen.queryByTestId("onboarding-default-hotkey-hint")).toBeNull();
 	});
 
-	// S5-CR-105 (a): Model step hint.
+	//(a): Model step hint.
 	it("Model step: shows 'Default: small.en' hint when selectedModel is the default", async () => {
 		mockStartAtStepWithDefaults(4);
 
@@ -1105,7 +1105,7 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 		expect(screen.queryByTestId("onboarding-default-model-hint")).toBeNull();
 	});
 
-	// S5-CR-105 (a): Microphone step hint.
+	//(a): Microphone step hint.
 	it("Microphone step: shows 'Default: <mic name>' hint when the OS default mic is auto-selected", async () => {
 		mockStartAtStepWithDefaults(1, {
 			microphones: [
@@ -1146,7 +1146,7 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 		expect(screen.queryByTestId("onboarding-default-mic-hint")).toBeNull();
 	});
 
-	// S5-CR-105 (b): Continue button validation.
+	//(b): Continue button validation.
 	it("Model step: Continue is enabled when a model is selected (default or explicit)", async () => {
 		mockStartAtStepWithDefaults(4);
 
@@ -1164,9 +1164,9 @@ describe("Onboarding wizard — S5-CR-105: default-selection hints + Continue va
 	});
 
 	it("Microphone step: Continue is DISABLED when no microphones are detected", async () => {
-		// Reuse the S2-CR-39 regression: no mics → isMicStepBlocked.
+		//Reuse the  regression: no mics → isMicStepBlocked.
 		// This is the "Continue disabled when no selection" guard
-		// for S5-CR-105 (b): when the user has no mic to select,
+		//for  (b): when the user has no mic to select,
 		// Continue is blocked so they can't silently bypass the
 		// step with an empty selection.
 		mockStartAtStepWithDefaults(1, { microphones: [] });

@@ -1,4 +1,4 @@
-// DR-10: pure dashboard display/format helpers extracted from
+//pure dashboard display/format helpers extracted from
 // `pages/Dashboard.tsx`.
 //
 // These helpers render human-facing strings (day-of-week abbreviations,
@@ -40,12 +40,12 @@ export function dayLabel(dateStr: string): string {
 		const today = new Date();
 		const yesterday = new Date(today);
 		yesterday.setDate(yesterday.getDate() - 1);
-		// CR-90: use localDateKey (not toISOString().slice) so the
+		//use localDateKey (not toISOString().slice) so the
 		// "Today" / "Yesterday" comparison honors the user's local
 		// calendar day instead of UTC.
 		if (dateStr === localDateKey(today)) return t("analytics.today");
 		if (dateStr === localDateKey(yesterday)) return t("analytics.yesterday");
-		// CR-46: format the MM-DD fallback in the user-selected UI
+		//format the MM-DD fallback in the user-selected UI
 		// locale instead of slicing the ISO string (which is always
 		// Gregorian/ASCII and ignores locale-aware month formatting).
 		try {

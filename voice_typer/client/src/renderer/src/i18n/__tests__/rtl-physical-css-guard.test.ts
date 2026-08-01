@@ -1,5 +1,5 @@
 /**
- * S5-CR-45 regression guard: physical-side Tailwind utilities block RTL
+ *  regression guard: physical-side Tailwind utilities block RTL
  * mirroring. Logical-property utilities (`ms-*`, `me-*`, `ps-*`, `pe-*`,
  * `text-start`, `text-end`, `start-*`, `end-*`) auto-flip in RTL via the
  * `dir="rtl"` attribute that {@link setLocale} sets on
@@ -31,7 +31,7 @@
  *     `document.documentElement.dir`).
  *   - Logical-property utilities are downstream of that contract: they
  *     only "do the right thing" because the i18n layer sets `dir`.
- *   - The sub-agent (SA-12) that owns the i18n module also owns the
+ *   - The sub-agent () that owns the i18n module also owns the
  *     RTL contract end-to-end, so the regression guard belongs here.
  *
  * Platform: Linux sandbox / Windows host / macOS host (the test is a
@@ -59,16 +59,16 @@ const RENDERER_SRC = resolve(__dirname, "..", "..");
  * that's already in the set is silently tolerated (the migration is
  * still in progress there).
  *
- * Last audited: 2026-07-27 by SA-12 (client_root_i18n).
+ * Last audited: 2026-07-27 by  (client_root_i18n).
  */
 const CURRENTLY_VIOLATING: ReadonlySet<string> = new Set<string>([
 	// `text-left` on a `<pre>` rendering the error stack trace. Migrating
 	// to `text-start` requires touching ErrorBoundary.tsx (owned by
-	// another agent — out of SA-12's file scope).
+	//another agent — out of 's file scope).
 	"components/feedback/ErrorBoundary.tsx",
 	// `text-right` on a `<span>` rendering credits values. Migrating to
 	// `text-end` requires touching About.tsx (owned by another agent —
-	// out of SA-12's file scope).
+	//out of 's file scope).
 	"pages/About.tsx",
 ]);
 

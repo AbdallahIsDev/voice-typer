@@ -234,7 +234,14 @@
 		"importEmpty": "الملف لا يحتوي على إدخالات مفردات",
 		"loadFailedTitle": "فشل تحميل المفردات",
 		"retry": "إعادة المحاولة",
-		"loading": "جارٍ تحميل المفردات…"
+		"loading": "جارٍ تحميل المفردات…",
+		"noResultsDescription": "جرب مصطلح بحث مختلف أو امسح مرشح الفئة.",
+		"entryCount_zero": "{count} إدخال",
+		"entryCount_one": "{count} إدخال",
+		"entryCount_two": "{count} إدخالان",
+		"entryCount_few": "{count} إدخالات",
+		"entryCount_many": "{count} إدخالاً",
+		"entryCount_other": "{count} إدخال"
 	},
 	"templates": {
 		"title": "القوالب",
@@ -281,7 +288,13 @@
 		"matchModeAria": "وضع التطابق: {mode}",
 		"loading": "جارٍ تحميل القوالب…",
 		"noResults": "لا توجد نتائج",
-		"noResultsDescription": "جرّب مصطلح بحث مختلف أو امسح البحث لرؤية كل القوالب."
+		"noResultsDescription": "جرّب مصطلح بحث مختلف أو امسح البحث لرؤية كل القوالب.",
+		"count_zero": "{count} قالب",
+		"count_one": "{count} قالب",
+		"count_two": "{count} قالبان",
+		"count_few": "{count} قوالب",
+		"count_many": "{count} قالباً",
+		"count_other": "{count} قالب"
 	},
 	"analytics": {
 		"title": "تحليلات",
@@ -315,9 +328,11 @@
 		"unknown": "غير معروف",
 		"auto": "تلقائي",
 		"noDataTitle": "لا نشاط بعد",
-		"noDataDescription": "اضغط على المفتاح السريع (أو Caps Lock) في الصفحة الرئيسية للإملاء — ستظهر إحصائياتك هنا.",
+		"noDataDescription": "اضغط {hotkey} في الصفحة الرئيسية للإملاء — ستظهر إحصائياتك هنا.",
 		"startDictation": "بدء الإملاء",
 		"refreshFailed": "فشل تحديث الإحصائيات",
+		"refreshFailedHint": "تعذر تحميل بيانات لوحة المعلومات. تحقق من اتصالك وحاول مرة أخرى.",
+		"retry": "إعادة المحاولة",
 		"dayActivityAria": "{label}: {count} إملاء",
 		"loadingAria": "جاري تحميل لوحة المعلومات",
 		"cards": {
@@ -328,7 +343,13 @@
 		"durationZero": "0m",
 		"durationMinutes": "{m}m",
 		"durationHours": "{h}h",
-		"durationHoursMinutes": "{h}h {m}m"
+		"durationHoursMinutes": "{h}h {m}m",
+		"dayCountTooltip_zero": "{label}: {count} إملاء",
+		"dayCountTooltip_one": "{label}: {count} إملاء",
+		"dayCountTooltip_two": "{label}: {count} إملاءان",
+		"dayCountTooltip_few": "{label}: {count} إملاءات",
+		"dayCountTooltip_many": "{label}: {count} إملاءً",
+		"dayCountTooltip_other": "{label}: {count} إملاء"
 	},
 	"about": {
 		"title": "حول",
@@ -1158,11 +1179,15 @@
 		"openFolderAria": "افتح مجلد النماذج في مدير الملفات",
 		"openFolderFailed": "فشل فتح المجلد",
 		"disk": {
-			"lowSpaceBody": "لا توجد مساحة خالية كافية لتنزيل النماذج. وفّر مساحة أو اختر نموذجًا أصغر.",
-			"lowSpaceTitle": "مساحة قرص منخفضة"
+			"lowSpaceBody": "لا توجد مساحة كافية لتنزيل النماذج",
+			"lowSpaceTitle": "مساحة القرص منخفضة",
+			"freeSpace": "{space} حر"
 		},
 		"loading": "جارٍ تحميل النماذج…",
-		"openFolder": "فتح مجلد النماذج"
+		"openFolder": {
+			"label": "فتح مجلد النماذج",
+			"aria": "إظهار مجلد النماذج في مدير الملفات"
+		}
 	},
 	"tooltips": {
 		"toggleRecording": "بدء أو إيقاف الإملاء الصوتي",
@@ -1195,7 +1220,8 @@
 		"importNotAvailableOutsideElectron": "الاستيراد غير متاح خارج Electron",
 		"transcriptionComplete": "اكتمل التدوين.",
 		"moreInfoAbout": "مزيد من المعلومات حول {label}",
-		"toggleSidebarWithShortcut": "تبديل الشريط الجانبي ({shortcut})"
+		"toggleSidebarWithShortcut": "تبديل الشريط الجانبي ({shortcut})",
+		"transcriptionPasted": "تم لصق: {text}"
 	},
 	"help": {
 		"title": "اختصارات لوحة المفاتيح",
@@ -1432,7 +1458,8 @@
 		"secondsRemainingSuffix": "({count}ث)",
 		"clearAria": "مسح مفتاح الاختصار — {label}",
 		"holdingPrefix": "مضغوط: {modifiers}",
-		"clearTitle": "مسح مفتاح الاختصار"
+		"clearTitle": "مسح مفتاح الاختصار",
+		"capsLockSrConflictWarning": "مفتاح Caps Lock هو مفتاح التعديل الافتراضي لـ VoiceOver / Narrator. اختياره قد يعطل قارئ الشاشة. فكر في استخدام F2 أو Ctrl+Alt+D بدلاً من ذلك."
 	},
 	"hotkeyValidation": {
 		"empty": "المفتاح فارغ",
@@ -1671,6 +1698,31 @@
 		"unknown": "واجه التطبيق خطأ غير متوقع. بياناتك آمنة.",
 		"cudaOom": "نفذت ذاكرة GPU. جرب نموذجًا أصغر، أو أغلق تطبيقات GPU الأخرى، أو انتقل إلى وضع وحدة المعالجة المركزية.",
 		"rateLimited": "طلبات كثيرة جدًا. يرجى الانتظار لحظة والمحاولة مرة أخرى.",
-		"unknownBackend": "واجهت خدمة النسخ الصوتي خطأ غير متوقع. بياناتك آمنة — حاول مرة أخرى."
+		"unknownBackend": "واجهت خدمة النسخ الصوتي خطأ غير متوقع. بياناتك آمنة — حاول مرة أخرى.",
+		"viewLogsAction": "عرض السجلات",
+		"copyErrorAction": "نسخ الخطأ"
+	},
+	"connection": {
+		"respawnFailed": "تعذر إعادة تشغيل الواجهة الخلفية تلقائيًا",
+		"respawnFailedHint": "حاول Voice Typer استعادة الواجهة الخلفية عدة مرات وفشل. أعد تشغيل التطبيق، وإذا استمرت المشكلة، تحقق من السجلات أو أعد التثبيت."
+	},
+	"dialog": {
+		"pythonCrash": {
+			"title": "تعطلت الواجهة الخلفية لـ Python",
+			"body": "خرجت الواجهة الخلفية لـ Python من {appName} بشكل غير متوقع برمز {code} وستخرج الآن.",
+			"signalBody": "تم إنهاء الواجهة الخلفية لـ Python من {appName} بواسطة إشارة {signal} وستخرج الآن."
+		},
+		"pythonNotFound": {
+			"title": "لم يتم العثور على الواجهة الخلفية لـ Python",
+			"body": "تعذر على {appName} العثور على الواجهة الخلفية لـ Python. يرجى إعادة تثبيت التطبيق."
+		},
+		"pythonStartupTimeout": {
+			"title": "فشل بدء الواجهة الخلفية لـ Python",
+			"body": "تعذر على {appName} الاتصال بالواجهة الخلفية لـ Python خلال {seconds} ثانية."
+		},
+		"restartLoopBreak": {
+			"title": "لا يمكن إعادة تشغيل {appName} بأمان",
+			"body": "تتعطل الواجهة الخلفية لـ Python عند الإطلاق. بعد {count} محاولات على مدار {seconds} ثانية، تم تفعيل مانع حلقة إعادة التشغيل. يرجى التحقق من ملفات السجل وإعادة التثبيت إذا استمرت المشكلة."
+		}
 	}
 }

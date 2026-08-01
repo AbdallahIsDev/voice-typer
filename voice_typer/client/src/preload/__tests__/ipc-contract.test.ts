@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * XS-78: shared channel-name contract tests for the preload layer.
+ * : shared channel-name contract tests for the preload layer.
  *
  * The preload files (`preload/index.ts` + `preload/bubble.ts` +
  * `preload/_bubble-channels.ts`) declare the renderer→main IPC

@@ -1,10 +1,10 @@
 /**
- * CloudProvidersPanel unit tests — BG-74 / BG-77.
+ * CloudProvidersPanel unit tests —  /
  *
  * Coverage:
- *   1. BG-74: the test-result <span> exposes role=status + aria-live=polite
+ *   1. : the test-result <span> exposes role=status + aria-live=polite
  *      so SR users hear the test-connection outcome as it arrives.
- *   2. BG-77: the "info" branch uses the canonical `text-(--text-muted)`
+ *   2. : the "info" branch uses the canonical `text-(--text-muted)`
  *      Tailwind class (NOT the invalid `text-[(--text-muted)]` form).
  *   3. Three test-result color branches (success/failure/info) render the
  *      right text color class.
@@ -12,8 +12,12 @@
  *      API key is set AND no consent has been granted; it appears when
  *      EITHER condition is true.
  *   5. Consent granted / not-granted status strings render appropriately.
+ *   6. : the Save Key button is disabled when the input is empty.
+ *   7. : the Test Connection button shows a spinner + is disabled
+ *      while a test is in flight; stale results are cleared via
+ *      onClearTestResult when the API-key Input changes.
  */
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { CloudProvidersPanel } from "@/components/models/CloudProvidersPanel";
@@ -42,6 +46,11 @@ vi.mock("@hugeicons/core-free-icons", () => {
 	return {
 		Shield01Icon: make("Shield01Icon"),
 		SparklesIcon: make("SparklesIcon"),
+		//CloudProvidersPanel swaps the Test Connection button's
+		// icon to Loading03Icon (with animate-spin) while a test is
+		// in flight. The mock must include it or vitest 4.x throws
+		// "No export is defined on the mock".
+		Loading03Icon: make("Loading03Icon"),
 	};
 });
 
@@ -173,7 +182,7 @@ describe("CloudProvidersPanel — three test-result color branches (BG-77 invali
 			/>,
 		);
 		const span = screen.getByText("testing…");
-		// BG-77: `text-[(--text-muted)]` is invalid Tailwind v4 syntax.
+		//`text-[(--text-muted)]` is invalid Tailwind v4 syntax.
 		// The canonical form is `text-(--text-muted)` — matches every other
 		// call site in the codebase.
 		expect(span.className).toContain("text-(--text-muted)");
@@ -248,8 +257,16 @@ describe("CloudProvidersPanel — Save / Test buttons", () => {
 	it("Save Key button invokes onSaveApiKey with the provider key", () => {
 		// Provider label for "openai" is "OpenAI Whisper API" — so the aria-label
 		// resolves to "Save OpenAI Whisper API API key".
+		//the Save Key button is disabled when the input is empty,
+		// so the test must pass a non-empty key to click it.
 		const onSaveApiKey = vi.fn();
-		render(<CloudProvidersPanel {...baseProps} onSaveApiKey={onSaveApiKey} />);
+		render(
+			<CloudProvidersPanel
+				{...baseProps}
+				apiKeys={{ openai: "sk-test" }}
+				onSaveApiKey={onSaveApiKey}
+			/>,
+		);
 		screen
 			.getByRole("button", { name: /Save OpenAI Whisper API API key/i })
 			.click();
@@ -268,5 +285,124 @@ describe("CloudProvidersPanel — Save / Test buttons", () => {
 			.getByRole("button", { name: /Test OpenAI Whisper API connection/i })
 			.click();
 		expect(onTestConnection).toHaveBeenCalledWith("openai");
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────
+//the "Save Key" button is disabled when the input is empty
+// (prevents silently clobbering a stored secret with the empty string
+// that `safeApiKey` substitutes for the `<redacted>` sentinel on
+// every config fetch).
+// ─────────────────────────────────────────────────────────────────────
+describe("CloudProvidersPanel — ZU-6 (Save Key button disabled guard)", () => {
+	afterEach(() => cleanup());
+
+	it("disables the Save Key button when the API key input is empty", () => {
+		render(<CloudProvidersPanel {...baseProps} apiKeys={{ openai: "" }} />);
+		const saveBtn = screen.getByRole("button", {
+			name: /Save OpenAI Whisper API API key/i,
+		});
+		expect(saveBtn).toBeDisabled();
+	});
+
+	it("enables the Save Key button when the API key input has a non-whitespace value", () => {
+		render(
+			<CloudProvidersPanel
+				{...baseProps}
+				apiKeys={{ openai: "sk-test-key" }}
+			/>,
+		);
+		const saveBtn = screen.getByRole("button", {
+			name: /Save OpenAI Whisper API API key/i,
+		});
+		expect(saveBtn).not.toBeDisabled();
+	});
+
+	it("disables the Save Key button when the input is only whitespace", () => {
+		render(<CloudProvidersPanel {...baseProps} apiKeys={{ openai: "   " }} />);
+		const saveBtn = screen.getByRole("button", {
+			name: /Save OpenAI Whisper API API key/i,
+		});
+		expect(saveBtn).toBeDisabled();
+	});
+});
+
+// ─────────────────────────────────────────────────────────────────────
+//the "Test Connection" button shows a spinner + is disabled
+// while a test is in flight (`testResult?.status === "pending"`).
+// Stale results are cleared via `onClearTestResult` whenever the
+// API-key Input changes.
+// ─────────────────────────────────────────────────────────────────────
+describe("CloudProvidersPanel — ZU-23 (Test Connection pending state + clear-on-key-change)", () => {
+	afterEach(() => cleanup());
+
+	it("disables the Test Connection button + sets aria-busy when testResult.status is 'pending'", () => {
+		render(
+			<CloudProvidersPanel
+				{...baseProps}
+				apiKeys={{ openai: "sk-test" }}
+				testResults={{
+					openai: { message: "Testing…", status: "pending" },
+				}}
+			/>,
+		);
+		const testBtn = screen.getByRole("button", {
+			name: /Test OpenAI Whisper API connection/i,
+		});
+		expect(testBtn).toBeDisabled();
+		expect(testBtn).toHaveAttribute("aria-busy", "true");
+	});
+
+	it("renders the spinning Loading03Icon (NOT SparklesIcon) when testResult.status is 'pending'", () => {
+		render(
+			<CloudProvidersPanel
+				{...baseProps}
+				apiKeys={{ openai: "sk-test" }}
+				testResults={{
+					openai: { message: "Testing…", status: "pending" },
+				}}
+			/>,
+		);
+		const icons = screen.getAllByTestId("hugeicon");
+		const iconNames = icons.map((el) => el.getAttribute("data-name"));
+		expect(iconNames).toContain("Loading03Icon");
+		expect(iconNames).not.toContain("SparklesIcon");
+	});
+
+	it("enables the Test Connection button + uses SparklesIcon when no test is in flight", () => {
+		render(
+			<CloudProvidersPanel {...baseProps} apiKeys={{ openai: "sk-test" }} />,
+		);
+		const testBtn = screen.getByRole("button", {
+			name: /Test OpenAI Whisper API connection/i,
+		});
+		expect(testBtn).not.toBeDisabled();
+		expect(testBtn).toHaveAttribute("aria-busy", "false");
+		const icons = screen.getAllByTestId("hugeicon");
+		const iconNames = icons.map((el) => el.getAttribute("data-name"));
+		expect(iconNames).toContain("SparklesIcon");
+	});
+
+	it("clears the stale test result via onClearTestResult when the API key Input changes", () => {
+		const onApiKeyChange = vi.fn();
+		const onClearTestResult = vi.fn();
+		render(
+			<CloudProvidersPanel
+				{...baseProps}
+				apiKeys={{ openai: "sk-test" }}
+				testResults={{
+					openai: {
+						message: "Connection successful — API key is valid.",
+						status: "success",
+					},
+				}}
+				onApiKeyChange={onApiKeyChange}
+				onClearTestResult={onClearTestResult}
+			/>,
+		);
+		const input = screen.getByTestId("api-key-input");
+		fireEvent.change(input, { target: { value: "sk-new-key" } });
+		expect(onApiKeyChange).toHaveBeenCalledWith("openai", "sk-new-key");
+		expect(onClearTestResult).toHaveBeenCalledWith("openai");
 	});
 });

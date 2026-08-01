@@ -3,34 +3,34 @@
  *
  * Extracted from `index.ts` (REF-2). `bootstrapRuntime()` performs:
  *   1. SEC-029 per-session nonce generation (stored in `state.sessionNonce`).
- *   2. NEW-PRIV-010 userData override so Electron and Python share one
+ *   2.  userData override so Electron and Python share one
  *      config directory.
- *   3. SEC-012 / NEW-SEC-002 Content-Security-Policy headers (HTTP).
+ *   3. SEC-012 /  Content-Security-Policy headers (HTTP).
  *   4. SEC-021 uncaughtException / unhandledRejection handlers with a
- *      crash log + 5-error circuit breaker (CR-9: log rotation +
+ *      crash log + 5-error circuit breaker (: log rotation +
  *      REVIEW-12 alignment + REVIEW-9 sliding window).
  *
- * G4-H-24: the breaker's `exit` hook now (a) calls `stopPython()` +
+ * : the breaker's `exit` hook now (a) calls `stopPython()` +
  * `clearElectronPidFile()` BEFORE exiting so the Python backend doesn't
  * get orphaned with a held single-instance lock + listening port, and
  * (b) schedules `app.quit()` first (giving Electron's `before-quit` /
  * `will-quit` hooks a chance to fire) with a 2s `process.exit(1)`
  * backstop in case `before-quit` hangs.
  *
- * PVT-G5-006 (R6-F7): same rationale applied to the inline `stopPython()`
+ *  (R6-F7): same rationale applied to the inline `stopPython()`
  * defensive call inside `onUncaught` / `onRejection` — even when a test
  * injects an `exit` mock that bypasses `_productionExit`, the Python
  * backend is still cleaned up before the breaker trips.
  */
 
-// ER-65: prefer the static ``node:crypto`` import over the prior
+//prefer the static ``node:crypto`` import over the prior
 // defensive dynamic ``require("node:crypto")`` — ``node:crypto`` is a
 // guaranteed-built-in module (built into Node since v0.1.92), so the
 // dynamic require added ~0 safety at the cost of one extra require
 // resolution per ``generateSessionNonce()`` call. The static import
 // also lets the bundler tree-shake unused exports.
 //
-// XZ-LOG-08: ``randomUUID`` is used both for the SEC-029 session
+//``randomUUID`` is used both for the SEC-029 session
 // nonce AND for the 8-char ``VOICE_TYPER_SESSION_ID`` env var that
 // the Rust host / Python sidecar / Electron main process share for
 // cross-process log correlation.
@@ -50,7 +50,7 @@ import { state } from "./state";
  * timestamp+random string. Stored in `state.sessionNonce` and tagged
  * onto every python-event so the renderer can reject replayed frames.
  *
- * XZ-LOG-08: also derives the per-process `VOICE_TYPER_SESSION_ID`
+ * : also derives the per-process `VOICE_TYPER_SESSION_ID`
  * (8-char lowercase-hex) used by the cross-process log-correlation
  * bracket. If the env var is already set (e.g. by a parent process
  * like a test harness), the existing value is preserved — otherwise
@@ -64,7 +64,7 @@ import { state } from "./state";
  */
 function generateSessionNonce(): void {
 	try {
-		// ER-65: ``randomUUID`` is a top-level binding imported from
+		//``randomUUID`` is a top-level binding imported from
 		// ``node:crypto`` (see the import block above) — no dynamic
 		// require needed.
 		//
@@ -73,7 +73,7 @@ function generateSessionNonce(): void {
 		// ``package.json``'s ``engines.node`` field).
 		const uuid = randomUUID();
 		state.sessionNonce = uuid;
-		// XZ-LOG-08: derive the 8-char session ID from the UUID's
+		//derive the 8-char session ID from the UUID's
 		// first 8 hex chars (the ``uuid`` is already lowercase-hex
 		// with dashes; strip dashes and take the first 8). This
 		// matches the shape minted by the Rust host's
@@ -84,7 +84,7 @@ function generateSessionNonce(): void {
 		}
 	} catch {
 		state.sessionNonce = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-		// XZ-LOG-08: best-effort fallback — if ``randomUUID``
+		//best-effort fallback — if ``randomUUID``
 		// threw (truly broken Crypto module), mint a less-random
 		// 8-char ID from ``Date.now()`` + ``Math.random`` so the
 		// bracket is still present for cross-process correlation.
@@ -98,7 +98,7 @@ function generateSessionNonce(): void {
 }
 
 /**
- * NEW-PRIV-010: unify Electron's userData directory with the Python
+ * : unify Electron's userData directory with the Python
  * backend's config directory.  Previously these were two separate
  * directories:
  *   - Python: ~/.voice-typer (legacy) or platform-appropriate path
@@ -121,7 +121,7 @@ function setupUserData(): void {
 			/* ignore */
 		}
 		app.setPath("userData", configDir);
-		// DE-87 / S2-CR-75: route through the structured `log` logger so
+		//route through the structured `log` logger so
 		// the lifecycle message persists to `electron-runtime.log` instead
 		// of being lost in packaged builds where `console.warn` has no
 		// terminal attached.
@@ -133,7 +133,7 @@ function setupUserData(): void {
 }
 
 /**
- * SEC-012 / NEW-SEC-002: Content Security Policy (HTTP headers).
+ * SEC-012 / : Content Security Policy (HTTP headers).
  *
  * CSP is also set via <meta> tags in index.html and bubble.html for
  * production file:// loads, but certain directives (frame-ancestors,
@@ -184,7 +184,7 @@ function setupCsp(): void {
  * and exit non-zero after N consecutive errors so the user sees the
  * crash instead of a silent zombie.
  *
- * CR-9 (IMPL-7): the crash log used to grow unbounded — `appendFileSync`
+ *  (IMPL-7): the crash log used to grow unbounded — `appendFileSync`
  * with no rotation, no size cap. In a crash-looping renderer scenario
  * `electron-crashes.log` could reach hundreds of MB. We now:
  *   - Call `rotateIfNeeded()` before every append (1 MiB cap, single
@@ -254,7 +254,7 @@ export function _crashLogPaths(userDataDir: string): {
  * tests and the next test's `process.emit("uncaughtException", ...)`
  * would fire stale handlers from the previous test.
  *
- * G4-H-24: the production exit hook (passed in by `setupErrorHandlers`
+ * : the production exit hook (passed in by `setupErrorHandlers`
  * below) now calls `stopPython()` + `clearElectronPidFile()` BEFORE
  * `app.exit(1)`, then schedules a 2s `process.exit(1)` backstop. This
  * closes the orphan-Python bug where `process.exit(1)` (the old
@@ -274,7 +274,7 @@ export function _installErrorHandlers(opts: {
 	const exit =
 		opts.exit ??
 		((code: number) => {
-			// G4-H-24: production exit path. The injected `exit`
+			//production exit path. The injected `exit`
 			// hook below (in `setupErrorHandlers`) replaces
 			// this default with the full `stopPython` +
 			// `clearElectronPidFile` + `app.quit` + 2s
@@ -296,7 +296,7 @@ export function _installErrorHandlers(opts: {
 			}\n`;
 			fs.appendFileSync(filePath, line, { encoding: "utf-8" });
 		} catch (e) {
-			// GT-B3-8: surface the failure.
+			//surface the failure.
 			log.error("[bootstrap] logEvent failed for", filePath, e);
 		}
 	};
@@ -316,20 +316,20 @@ export function _installErrorHandlers(opts: {
 	};
 
 	/**
-	 * DT-15: shared trip-breaker logic for `uncaughtException` and
+	 * : shared trip-breaker logic for `uncaughtException` and
 	 * `unhandledRejection`. Both event types share the same counter
 	 * (REVIEW-12 alignment — a rejected promise leaves the app in
 	 * the same half-broken state as an uncaught exception: the
 	 * caller's `await` never resolves, locks may be held, state may
 	 * be inconsistent) and the same exit-cleanup sequence
-	 * (G4-H-24 + PVT-G5-006). Only the log file path + the kind
+	 * ( + ). Only the log file path + the kind
 	 * label differ — those are passed in so the helper can route
 	 * the log line + dialog message correctly.
 	 *
 	 * Behaviour (mirrors the original `onUncaught` / `onRejection`):
 	 *   1. `console.error("[VT] <kind>:", err)` — surface on stderr.
 	 *   2. `logEvent(logPath, kind, err)` — append to the per-kind
-	 *      log file (CR-9: rotates independently).
+	 *      log file (: rotates independently).
 	 *   3. `bumpCount()` — increment + sliding-window reset
 	 *      (REVIEW-9). On trip (`>= MAX_UNCAUGHT`):
 	 *      a. `console.error` the trip message (with " (rejection)"
@@ -352,7 +352,7 @@ export function _installErrorHandlers(opts: {
 		err: unknown,
 	): void => {
 		const suffix = kind === "unhandledRejection" ? " (rejection)" : "";
-		// DE-87 / S2-CR-75: route through the structured `log` logger so the
+		//route through the structured `log` logger so the
 		// uncaught/rejected error is captured in `electron-runtime.log` (with
 		// 5 MiB rotation) for post-mortem analysis — `console.error` alone is
 		// lost in packaged GUI builds where stderr is attached to a hidden
@@ -410,7 +410,7 @@ export function _installErrorHandlers(opts: {
 }
 
 /**
- * G4-H-24: production exit hook for the SEC-021 circuit breaker.
+ * : production exit hook for the SEC-021 circuit breaker.
  *
  * Replaces the previous `process.exit(1)` (which bypassed Electron's
  * `before-quit` lifecycle — `stopPython()` and `clearElectronPidFile()`
@@ -444,7 +444,7 @@ function _productionExit(code: number): void {
 	} catch (e) {
 		log.error("[VT] clearElectronPidFile() failed during production exit:", e);
 	}
-	// GT-12: synchronously SIGKILL the Python backend BEFORE the
+	//synchronously SIGKILL the Python backend BEFORE the
 	// quit call so the kill is NOT timer-dependent.
 	try {
 		state.pythonProcess?.kill("SIGKILL");
@@ -466,7 +466,7 @@ function _productionExit(code: number): void {
 	}, 2000).unref();
 }
 
-// ER-86: stores the dispose handle from the last `setupErrorHandlers` call so a
+//stores the dispose handle from the last `setupErrorHandlers` call so a
 // subsequent call can dispose old listeners before stacking new ones.
 let _errorHandlersDispose: (() => void) | undefined;
 
@@ -475,7 +475,7 @@ export function _resetErrorHandlersDisposeForTest(): void {
 }
 
 export function setupErrorHandlers(): void {
-	// ER-86: dispose previously installed handlers before adding new ones
+	//dispose previously installed handlers before adding new ones
 	// so repeated calls (e.g. in tests) don't accumulate listeners.
 	if (_errorHandlersDispose) {
 		_errorHandlersDispose();
@@ -496,13 +496,13 @@ export function bootstrapRuntime(): void {
 	setupUserData();
 	setupCsp();
 	setupErrorHandlers();
-	// GT-A3-7: best-effort crash reporter.
+	//best-effort crash reporter.
 	try {
 		crashReporter.start({ uploadToServer: false });
 	} catch (e) {
 		log.warn("[bootstrap] crashReporter.start failed (non-fatal):", e);
 	}
-	// GT-A3-7: surface child/GPU process crashes.
+	//surface child/GPU process crashes.
 	try {
 		app.on("child-process-gone", (_e: unknown, details: unknown) => {
 			log.error("child-process-gone", details);

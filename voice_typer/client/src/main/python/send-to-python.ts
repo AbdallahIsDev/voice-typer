@@ -178,10 +178,10 @@ function _rendererRateLimited(senderId: number | null): boolean {
 
 /**
  * Reset the per-renderer rate-limit state. Called from `stopPython()`
- * and `relaunchApp()` (production callers — TY-35) to give a freshly-
+ * and `relaunchApp()` (production callers — ) to give a freshly-
  * booted backend a clean slate, and from tests to isolate cases.
  *
- * TY-35: previously named `_resetIpcBackpressureForTests` (the `ForTests`
+ * : previously named `_resetIpcBackpressureForTests` (the `ForTests`
  * suffix was misleading — the docstring claimed production callers but
  * grep showed none). The Map was never cleared, so each destroyed
  * BrowserWindow leaked its `webContents.id` entry forever. Renaming to
@@ -253,7 +253,7 @@ function _isLongRunningCommand(cmd: string): boolean {
 }
 
 /**
- * AC-113: per-command timeout overrides for commands that should
+ * : per-command timeout overrides for commands that should
  * time out FASTER than the default 15s short timeout. These are
  * lifecycle / heartbeat commands whose handlers are documented to
  * return in well under 1s — a 15s wait for a ``heartbeat`` reply
@@ -337,9 +337,9 @@ export function sendToPython(
 		// SEC-010: allowlist check MUST precede _relaunching check so a
 		// _relaunching flag cannot be used to bypass the allowlist.
 		//
-		// ERR-IPC-002 (fix): previously missing `quit_app` and `restart_app`,
+		//(fix): previously missing `quit_app` and `restart_app`,
 		// which broke tray Quit/Restart (stopPython sends `quit_app`).
-		// ERR-IPC-003 (fix): removed 6 dead/mismatched entries (`quit`,
+		//(fix): removed 6 dead/mismatched entries (`quit`,
 		// `restart`, `save_config`, `save_vocabulary_with_diff`,
 		// `repaste_last`, `complete_onboarding`) — none exist as server
 		// IPC commands. The list now matches the server's actual command
@@ -396,12 +396,12 @@ export function sendToPython(
 		// blocking. The Python-side heartbeat watchdog is at 120s
 		// (ipc_server.py) for the same reason — both timeouts must
 		// stay in sync for long-running commands.
-		// AC-113: use the per-command timeout map so heartbeat /
+		//use the per-command timeout map so heartbeat /
 		// quit_app / relaunch_ack time out faster than the default
 		// 15s short timeout.
 		const timeoutMs = _commandTimeoutMs(cmd);
 		//
-		// CR-17: capture the timer handle and clearTimeout in BOTH the
+		//capture the timer handle and clearTimeout in BOTH the
 		// success and reject paths so the timer doesn't leak after
 		// a prompt reply. Previously the timer held a strong reference
 		// to `reject` (and the captured `msg`) for the full duration
@@ -415,7 +415,7 @@ export function sendToPython(
 			if (state.pendingRequests.has(id)) {
 				state.pendingRequests.delete(id);
 				const cmd = String(msg?.type ?? "unknown").trim();
-				// FR-31: attach a typed `code = "timeout"` property to
+				//attach a typed `code = "timeout"` property to
 				// the Error so downstream consumers (the
 				// `python-call-handler` IPC bridge) can branch on the
 				// error class WITHOUT regex-matching the human-readable

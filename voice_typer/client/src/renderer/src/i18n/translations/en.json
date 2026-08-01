@@ -36,7 +36,8 @@
 			"step3Ready": "Ready"
 		},
 		"pageNotFoundTitle": "Page not found",
-		"pageNotFoundDescription": "Unknown page: {page}"
+		"pageNotFoundDescription": "Unknown page: {page}",
+		"recordingInterrupted": "Recording interrupted — connection to backend lost"
 	},
 	"nav": {
 		"home": "Home",
@@ -85,7 +86,11 @@
 		"errorTitle": "Recording error",
 		"retry": "Retry",
 		"pasteFailedMessage": "Transcription complete, but the clipboard was unavailable. Your text was saved to the crash-recovery file so it is not lost.",
-		"toggleFailed": "Couldn't toggle dictation. Please try again."
+		"toggleFailed": "Couldn't toggle dictation. Please try again.",
+		"retryStartDictation": "Start dictation",
+		"timerLabel": "Recording duration",
+		"timerAria": "Recording duration: {duration}",
+		"transcribingHint": "Transcribing… please wait"
 	},
 	"dashboard": {
 		"cards": {
@@ -118,7 +123,8 @@
 		"import": "Import",
 		"importAria": "Import from file",
 		"lastUpdatedWithValue": "Last updated: {value}",
-		"close": "Close"
+		"close": "Close",
+		"confirm": "Confirm"
 	},
 	"microphone": {
 		"levelBarAria": "Microphone input level",
@@ -177,7 +183,9 @@
 			"qualityGood": "Good",
 			"qualityOk": "OK",
 			"qualityPoor": "Poor"
-		}
+		},
+		"loadFailedDescription": "We couldn't load your microphone data from the backend. Check the logs and try again.",
+		"selected": "Selected microphone"
 	},
 	"vocabulary": {
 		"title": "Custom Vocabulary",
@@ -241,7 +249,26 @@
 		"importEmpty": "File contains no vocabulary entries",
 		"loadFailedTitle": "Failed to load vocabulary",
 		"retry": "Retry",
-		"loading": "Loading vocabulary…"
+		"loading": "Loading vocabulary…",
+		"noResultsDescription": "Try a different search term or clear the search to see all entries.",
+		"importInvalidShape": "File does not contain a vocabulary array or data object",
+		"loadFailedDescription": "Failed to load vocabulary from the backend. Check your connection and try again.",
+		"duplicateOriginal": "An entry with the same trigger already exists in this category",
+		"showMore": "Show more",
+		"showingCap": "Showing {shown} of {total} — use search to narrow down",
+		"clearAll": "Clear All",
+		"clearAllAria": "Clear all vocabulary entries",
+		"clearAllTitle": "Clear All Vocabulary",
+		"clearAllMessage": "Are you sure you want to clear ALL vocabulary entries? This action cannot be undone.",
+		"clearAllConfirm": "Clear All",
+		"vocabularyCleared": "Vocabulary cleared",
+		"clearFailed": "Failed to clear vocabulary",
+		"entryCount_zero": "{count} entries",
+		"entryCount_one": "{count} entry",
+		"entryCount_two": "{count} entries",
+		"entryCount_few": "{count} entries",
+		"entryCount_many": "{count} entries",
+		"entryCount_other": "{count} entries"
 	},
 	"templates": {
 		"title": "Templates",
@@ -288,7 +315,28 @@
 		"matchModeAria": "Match mode: {mode}",
 		"loading": "Loading templates…",
 		"noResults": "No results found",
-		"noResultsDescription": "Try a different search term or clear the search to see all templates."
+		"noResultsDescription": "Try a different search term or clear the search to see all templates.",
+		"showMore": "Show more",
+		"showingCap": "Showing {shown} of {total}",
+		"clearAll": "Clear All",
+		"clearAllAria": "Clear all templates",
+		"clearAllTitle": "Clear All Templates",
+		"clearAllMessage": "Are you sure you want to clear all templates? This action cannot be undone.",
+		"clearAllConfirm": "Clear All",
+		"allCleared": "All templates cleared",
+		"clearFailed": "Failed to clear templates",
+		"exportNotAvailable": "Export not available — please restart the app",
+		"exportSaved": "{filename} saved successfully",
+		"exportFailed": "Export failed",
+		"importInvalidShape": "File does not contain a templates array",
+		"duplicateTrigger": "A template with this trigger and match mode already exists",
+		"loadFailedDescription": "Failed to load templates from the backend. Check your connection and try again.",
+		"count_zero": "{count} templates",
+		"count_one": "{count} template",
+		"count_two": "{count} templates",
+		"count_few": "{count} templates",
+		"count_many": "{count} templates",
+		"count_other": "{count} templates"
 	},
 	"analytics": {
 		"title": "Analytics",
@@ -322,9 +370,11 @@
 		"unknown": "Unknown",
 		"auto": "Auto",
 		"noDataTitle": "No activity yet",
-		"noDataDescription": "Press your hotkey (or Caps Lock) on the Home page to dictate — your stats will appear here.",
+		"noDataDescription": "Press {hotkey} on the Home page to dictate — your stats will appear here.",
 		"startDictation": "Start dictation",
 		"refreshFailed": "Failed to refresh stats",
+		"refreshFailedHint": "Could not load dashboard data. Check your connection and try again.",
+		"retry": "Retry",
 		"dayActivityAria": "{label}: {count} dictations",
 		"loadingAria": "Loading dashboard",
 		"cards": {
@@ -335,7 +385,16 @@
 		"durationZero": "0m",
 		"durationMinutes": "{m}m",
 		"durationHours": "{h}h",
-		"durationHoursMinutes": "{h}h {m}m"
+		"durationHoursMinutes": "{h}h {m}m",
+		"loadFailedTitle": "Couldn't load analytics",
+		"loadFailedDescription": "We couldn't load your analytics from the backend. Check the logs and try again.",
+		"sevenDayActivityChartAria": "7-day activity chart: {counts}",
+		"dayCountTooltip_zero": "{label}: {count} dictations",
+		"dayCountTooltip_one": "{label}: {count} dictation",
+		"dayCountTooltip_two": "{label}: {count} dictations",
+		"dayCountTooltip_few": "{label}: {count} dictations",
+		"dayCountTooltip_many": "{label}: {count} dictations",
+		"dayCountTooltip_other": "{label}: {count} dictations"
 	},
 	"about": {
 		"title": "About",
@@ -442,7 +501,12 @@
 		"creditsIconsLabel": "Icons",
 		"creditsIconsValue": "Hugeicons",
 		"documentationLink": "Documentation",
-		"loading": "Loading…"
+		"loading": "Loading…",
+		"noTagNameInResponse": "No tag_name in response",
+		"unknownError": "Unknown error",
+		"privacyPolicyNote": "See the full privacy policy below for details on how your data is handled.",
+		"privacyPolicyNoteLabel": "Privacy policy",
+		"updateCheckNoTagName": "No tag_name in response"
 	},
 	"settings": {
 		"title": "Settings",
@@ -710,7 +774,8 @@
 			"rangeErrorSeconds": "Must be between {min} and {max}",
 			"rangeErrorMinutes": "Must be between {min} and {max}",
 			"secondsSuffix": "s",
-			"minutesSuffix": "min"
+			"minutesSuffix": "min",
+			"stopOnSilenceInfoSearch": "Stop recording after a period of silence is detected."
 		},
 		"audioEnhancement": {
 			"title": "Audio Enhancement",
@@ -972,7 +1037,22 @@
 			"diagnosticBundleExportedWithPath": "Diagnostic bundle saved to: {path}",
 			"diagnosticBundleExportFailed": "Failed to export diagnostic bundle"
 		},
-		"pending": "Pending…"
+		"pending": "Pending…",
+		"searchAriaLabel": "Search settings",
+		"loadFailedTitle": "Couldn't load settings",
+		"loadFailedDescription": "We couldn't load your settings from the backend. Check the logs and try again.",
+		"unsavedChangesTitle": "Unsaved changes",
+		"unsavedChangesMessage": "You have unsaved setting changes that haven't been saved yet. Leave anyway?",
+		"unsavedChangesLeaveLabel": "Leave without saving",
+		"unsavedChangesCancelLabel": "Stay on this page",
+		"customFilterChainTitle": "Custom filter chain",
+		"customFilterChainSummary": "Show high-pass, noise suppression, noise gate, equalizer, compressor, limiter, and notch filter controls",
+		"apiKeyConfiguredPlaceholder": "•••••••• (configured)",
+		"apiKeyPlaceholder": "Paste your API key here",
+		"huggingFaceDownloads": "Hugging Face downloads",
+		"voiceBiometricProcessing": "Voice biometric processing",
+		"voiceBiometricProcessingAria": "Voice biometric processing status",
+		"voiceBiometricProcessingInfo": "Voice biometric data is processed locally on your device and never leaves your machine."
 	},
 	"models": {
 		"asrTitle": "Models",
@@ -1020,14 +1100,17 @@
 			"pauseFailed": "Failed to pause: {error}",
 			"cancelled": "Download cancelled. Partial files will be reused on retry.",
 			"cancelFailed": "Failed to cancel: {error}",
-			"parakeetDepsInstalled": "Parakeet dependencies installed successfully."
+			"parakeetDepsInstalled": "Parakeet dependencies installed successfully.",
+			"depsInstalled": "Dependencies installed successfully.",
+			"selectFailed": "Failed to select model."
 		},
 		"test": {
 			"needApiKey": "Please enter an API key first",
 			"connectionSuccessful": "Connection successful — API key is valid.",
 			"connectionFailed": "Connection failed: {status} {statusText}",
 			"endpointUnavailable": "API key saved — test endpoint not available for this provider.",
-			"connectionTestFailed": "Connection test failed: {error}"
+			"connectionTestFailed": "Connection test failed: {error}",
+			"connectionNetworkError": "Network error: could not reach the model server."
 		},
 		"benchmark": {
 			"notImplemented": "Benchmark not yet implemented.",
@@ -1042,7 +1125,8 @@
 			"downloaded": "Downloaded",
 			"depsRequired": "Dependencies required",
 			"available": "Available",
-			"insufficientDisk": "Insufficient disk space"
+			"insufficientDisk": "Insufficient disk space",
+			"insufficientDiskSpace": "Insufficient disk space"
 		},
 		"import": {
 			"title": "Import Model",
@@ -1094,7 +1178,8 @@
 			"useAria": "Use {name}",
 			"downloadAria": "Download {name}",
 			"selectAria": "Select {name}",
-			"deleteAria": "Delete {name}"
+			"deleteAria": "Delete {name}",
+			"accuracy": "Accuracy"
 		},
 		"cloud": {
 			"title": "Cloud speech recognition providers",
@@ -1115,7 +1200,8 @@
 		},
 		"deleteDialog": {
 			"title": "Delete Model",
-			"message": "Are you sure you want to delete \"{name}\"? This action cannot be undone."
+			"message": "Are you sure you want to delete \"{name}\"? This action cannot be undone.",
+			"messageWithSize": "Delete {name} ({size})? This cannot be undone."
 		},
 		"subtitle": "Download and manage speech recognition models",
 		"localModels": "Local Models",
@@ -1163,11 +1249,15 @@
 		"deepgramApi": "Deepgram API",
 		"configureEngines": "Configure your speech-to-text engines",
 		"openFolderFailed": "Open folder failed",
-		"openFolder": "Open models folder",
+		"openFolder": {
+			"label": "Open Models Folder",
+			"aria": "Reveal models folder in file manager"
+		},
 		"openFolderAria": "Open the models directory in your file manager",
 		"disk": {
 			"lowSpaceTitle": "Low disk space",
-			"lowSpaceBody": "Not enough free space to download models. Free up space or choose a smaller model."
+			"lowSpaceBody": "Not enough free space to download models",
+			"freeSpace": "{space} free"
 		},
 		"loading": "Loading models…"
 	},
@@ -1202,7 +1292,8 @@
 		"microphoneQualityPreset": "Microphone Quality Preset",
 		"noiseSuppressionMethod": "Noise Suppression Method",
 		"importNotAvailableOutsideElectron": "Import not available outside Electron",
-		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})"
+		"toggleSidebarWithShortcut": "Toggle sidebar ({shortcut})",
+		"transcriptionPasted": "Pasted: {text}"
 	},
 	"bubble": {
 		"recordingIndicatorAria": "Voice Typer recording indicator",
@@ -1273,7 +1364,15 @@
 			"capital": "Capital [word]",
 			"allCaps": "All caps [word]"
 		},
-		"description": "Keyboard shortcuts and voice punctuation commands."
+		"description": "Keyboard shortcuts and voice punctuation commands.",
+		"shortcuts": {
+			"settings": "Open Settings",
+			"home": "Go to Home",
+			"textSizeUp": "Increase text size",
+			"textSizeDown": "Decrease text size",
+			"title": "Keyboard Shortcuts",
+			"toggleSidebar": "Toggle sidebar"
+		}
 	},
 	"history": {
 		"title": "History",
@@ -1328,7 +1427,15 @@
 		"retry": "Retry",
 		"charsSuffix": " ({count} chars)",
 		"exportTruncatedWarning": "Export limited to {count} most recent records — use search to export older entries.",
-		"sortLabel": "Sort"
+		"sortLabel": "Sort",
+		"clearAllWithFilterMessage": "This will delete all transcriptions matching the current filter. This cannot be undone.",
+		"exportFilteredToast": "Exporting filtered transcriptions",
+		"charsSuffix_zero": " ({count} chars)",
+		"charsSuffix_one": " ({count} char)",
+		"charsSuffix_two": " ({count} chars)",
+		"charsSuffix_few": " ({count} chars)",
+		"charsSuffix_many": " ({count} chars)",
+		"charsSuffix_other": " ({count} chars)"
 	},
 	"onboarding": {
 		"welcomeTitle": "Welcome to Voice Typer",
@@ -1398,7 +1505,29 @@
 		"modelDownloadingHint": "Model will start downloading in the background — you can use the app while it loads.",
 		"vramBadge": "VRAM: ~{vram}",
 		"englishOnlyBadge": "English only",
-		"multilingualBadge": "Multilingual"
+		"multilingualBadge": "Multilingual",
+		"downloadedBadge": "Downloaded",
+		"bluetoothBadgeTooltip": "Bluetooth/HFP — audio quality may be limited",
+		"consentVoiceBiometric": "Allow voice biometric processing",
+		"consentVoiceBiometricInfo": "Lets Voice Typer process your voice recordings locally for transcription. Voice recordings may be considered biometric data under Illinois BIPA and GDPR Article 9. Voice Typer does not store raw audio after transcription — only the transcribed text is kept.",
+		"consentHuggingFace": "Allow model downloads from huggingface.co",
+		"consentHuggingFaceInfo": "Lets Voice Typer download Whisper model weights from huggingface.co. Reveals your IP to a US-headquartered third party (Hugging Face, Inc.). Audio itself is never sent.",
+		"consentRequired": "Please grant both consents (or use Skip) to continue.",
+		"copyError": "Copy error",
+		"copyErrorAria": "Copy error details to clipboard",
+		"copied": "Copied!",
+		"micTestButton": "Test microphone",
+		"micTestStopButton": "Stop test",
+		"micTestAria": "Test selected microphone",
+		"micTestListening": "Listening… speak into your microphone.",
+		"micLevelLabel": "Input level",
+		"micLevelAria": "Microphone input level meter",
+		"downloadingModel": "Downloading model…",
+		"downloadCancel": "Cancel download",
+		"downloadCancelAria": "Cancel the in-flight model download",
+		"downloadEta": "ETA: {eta}",
+		"downloadProgressAria": "Model download progress: {percent}%",
+		"skipConfirmModelWarning": "Skipping means no voice-biometric consent will be recorded and no model will be downloaded — dictation will be unavailable until you re-run this wizard or grant the consents in Settings → Privacy."
 	},
 	"titleBar": {
 		"minimize": "Minimize",
@@ -1424,7 +1553,8 @@
 		"resetFailedNotice": "Backend reset failed — clearing local state and reloading anyway.",
 		"resetSettingsHint": "Reset all settings to defaults and reload — useful if a bad config value caused this crash",
 		"componentStackLabel": "Component stack:",
-		"reportBug": "Report this bug"
+		"reportBug": "Report this bug",
+		"configCrashHint": "The settings file may be corrupted. Try resetting to defaults."
 	},
 	"hotkeyPicker": {
 		"pressAKey": "Press a key",
@@ -1439,7 +1569,9 @@
 		"clearTitle": "Clear hotkey",
 		"holdingPrefix": "Holding: {modifiers}",
 		"defaultAriaLabel": "Hotkey picker",
-		"secondsRemainingSuffix": "({count}s)"
+		"secondsRemainingSuffix": "({count}s)",
+		"capsLockSrConflictWarning": "Caps Lock is the default modifier key for VoiceOver / Narrator. Choosing it may break your screen reader. Consider using F2 or Ctrl+Alt+D instead.",
+		"captureTimedOut": "Capture timed out. Please try again."
 	},
 	"hotkeyValidation": {
 		"empty": "Hotkey is empty",
@@ -1460,7 +1592,8 @@
 		"dictationKeySingle": "Dictation key must be a single key (no modifiers). Use the re-paste key for combos.",
 		"dictationKeySingleShort": "Dictation key must be a single key",
 		"fnMacosOnly": "Fn key is only supported on macOS",
-		"holding": "Holding"
+		"holding": "Holding",
+		"bareModifierInterferes": "Bare modifier keys (Shift, Cmd, Win) interfere with typing. Please choose a different key."
 	},
 	"hotkeyKeys": {
 		"ctrl": "Ctrl",
@@ -1571,7 +1704,8 @@
 			"offlineMode": "Offline",
 			"cloudApi": "Cloud API",
 			"localModel": "Local Model",
-			"fasterThanAvg": "{percent}% faster than avg typer"
+			"fasterThanAvg": "{percent}% faster than avg typer",
+			"captureFailed": "Failed to capture stats image."
 		}
 	},
 	"hotkey": {
@@ -1671,6 +1805,31 @@
 		"unknown": "The app encountered an unexpected error. Your data is safe.",
 		"cudaOom": "GPU ran out of memory. Try a smaller model, close other GPU apps, or switch to CPU mode.",
 		"rateLimited": "Too many requests. Please wait a moment and try again.",
-		"unknownBackend": "The transcription backend hit an unexpected error. Your data is safe — try again."
+		"unknownBackend": "The transcription backend hit an unexpected error. Your data is safe — try again.",
+		"viewLogsAction": "View logs",
+		"copyErrorAction": "Copy error"
+	},
+	"connection": {
+		"respawnFailed": "Backend couldn't restart automatically",
+		"respawnFailedHint": "Voice Typer tried to recover its backend several times and gave up. Relaunch the app, and if the problem persists, check the logs or reinstall."
+	},
+	"dialog": {
+		"pythonCrash": {
+			"title": "Python backend crashed",
+			"body": "{appName}'s Python backend exited unexpectedly with code {code} and will now exit.",
+			"signalBody": "{appName}'s Python backend was killed by signal {signal} and will now exit."
+		},
+		"pythonNotFound": {
+			"title": "Python backend not found",
+			"body": "{appName} could not find its Python backend. Please reinstall the application."
+		},
+		"pythonStartupTimeout": {
+			"title": "Python backend failed to start",
+			"body": "{appName} could not connect to its Python backend within {seconds} seconds."
+		},
+		"restartLoopBreak": {
+			"title": "{appName} cannot restart safely",
+			"body": "The Python backend is crashing on launch. After {count} attempts over {seconds} seconds, the restart loop breaker has engaged. Please check the log files and reinstall if the problem persists."
+		}
 	}
 }

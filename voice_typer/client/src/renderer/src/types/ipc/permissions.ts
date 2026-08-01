@@ -1,15 +1,15 @@
 // types/ipc/permissions.ts
 //
-// TASK-24 supplementary IPC contracts for OS-level permission probes:
+//supplementary IPC contracts for OS-level permission probes:
 // `onboarding_check_permissions`, `get_autostart_status`,
 // `check_microphone_permission`.
 //
-// Split out from the original monolithic `types/ipc.ts` (DT-31 / DT-FIX-7).
+//Split out from the original monolithic `types/ipc.ts` ( / ).
 // No behaviour change vs. the original file — pure structural refactor.
 
 /**
- * TASK-24-FIX-9: response shape for the `onboarding_check_permissions`
- * IPC command (UX-4 / UX-27).
+ * : response shape for the `onboarding_check_permissions`
+ * IPC command ( / ).
  *
  * Mirrors `voice_typer/server/onboarding.py::check_permissions` (lines
  * 218-314): the backend probes the OS-level keyboard-monitoring
@@ -54,8 +54,8 @@ export interface PermissionsResult {
 }
 
 /**
- * TASK-24-FIX-10: autostart registration status. Returned by the
- * `get_autostart_status` IPC (PVT-060 — the autostart toggle previously
+ * : autostart registration status. Returned by the
+ * `get_autostart_status` IPC ( — the autostart toggle previously
  * had no failure feedback; this struct lets the Settings page surface
  * "Registered" vs "Registration failed: <reason>" to the user).
  *
@@ -78,8 +78,8 @@ export interface AutostartStatus {
 }
 
 /**
- * TASK-24-FIX-11: OS-level microphone permission state. Returned by the
- * `check_microphone_permission` IPC (PVT-036 / PVT-061 — the Onboarding
+ * : OS-level microphone permission state. Returned by the
+ * `check_microphone_permission` IPC ( /  — the Onboarding
  * and Microphone pages previously never probed the OS mic permission,
  * leaving users to discover the silent failure on first recording).
  *

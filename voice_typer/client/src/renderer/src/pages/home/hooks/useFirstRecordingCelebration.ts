@@ -21,7 +21,7 @@ export type CallFn = <T = unknown>(
  * only when the user has exactly one historical record (this just-added
  * one). The flag is persisted to localStorage so we never celebrate twice.
  *
- * EC-FIX-12 / EC-12: extracted from Home.tsx so the page file stays a
+ *  / : extracted from Home.tsx so the page file stays a
  * thin composition root. Behaviour is preserved byte-for-byte.
  *
  * The previous catch block exited the ENTIRE callback via `return`,

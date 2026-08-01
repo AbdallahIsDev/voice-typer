@@ -1,7 +1,7 @@
 /**
  * @vitest-environment node
  *
- * YJ-35 parity test: every entry in `_LONG_RUNNING_COMMANDS` must also
+ *  parity test: every entry in `_LONG_RUNNING_COMMANDS` must also
  * exist in `ALLOWED_COMMANDS`.
  *
  * Background
@@ -50,7 +50,7 @@ describe("YJ-35: _LONG_RUNNING_COMMANDS entries are all in ALLOWED_COMMANDS (par
 	});
 
 	it("the expected long-running commands are present (regression guard)", () => {
-		// YJ-35 fix: the 3 real model-download control commands are
+		//fix: the 3 real model-download control commands are
 		// present, AND the 3 stale entries are absent.
 		expect(_LONG_RUNNING_COMMANDS_FOR_TEST.has("download_model")).toBe(true);
 		expect(_LONG_RUNNING_COMMANDS_FOR_TEST.has("import_model")).toBe(true);

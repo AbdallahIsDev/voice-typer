@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * UE-39: runtime reject tests for `src/main/ipc/python-call-handler.ts`.
+ * : runtime reject tests for `src/main/ipc/python-call-handler.ts`.
  *
  * The preload's `python.call` is now typed
  * `{ type: string; data?: Record<string, unknown> }` (matching the

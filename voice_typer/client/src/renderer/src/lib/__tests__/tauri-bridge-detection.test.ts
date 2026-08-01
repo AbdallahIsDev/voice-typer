@@ -77,7 +77,11 @@ describe("tauri-bridge detection", () => {
 			window_: w.window_,
 		};
 		// Reset module registry so the auto-install side effect runs
-		// fresh on each `await import("@/lib/tauri-bridge")`.
+		// fresh on each `await import("@/lib/tauri-bridge/install")`.
+		//(: the side effect moved from `index.ts` to the sibling
+		// `install.ts` module — importing `@/lib/tauri-bridge` alone no
+		// longer triggers the installer; tests below also import
+		// `@/lib/tauri-bridge/install` for the side effect.)
 		vi.resetModules();
 	});
 
@@ -110,9 +114,13 @@ describe("tauri-bridge detection", () => {
 		const stub = makeTauriStub();
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
-		// Auto-install runs at module import time (line 357 of
-		// tauri-bridge.ts: `installTauriBridge();`).
+		// Auto-install runs at module import time (the side-effect
+		// call at the bottom of `install.ts`: `installTauriBridge();`).
+		//the side effect moved out of `index.ts` into the
+		// sibling `install.ts` module, so we import that explicitly
+		// to trigger it. `index.ts` alone is now side-effect-free.
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const python = (window as unknown as WindowBridgeState).python;
 		expect(python).toBeDefined();
@@ -134,6 +142,7 @@ describe("tauri-bridge detection", () => {
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const python = (window as unknown as WindowBridgeState).python;
 		await python?.call({ type: "set_config", data: { theme: "nord" } });
@@ -160,10 +169,12 @@ describe("tauri-bridge detection", () => {
 		// Ensure no Tauri global is present (Electron path).
 		delete w.__TAURI__;
 
-		// Importing the bridge module triggers the auto-install side
-		// effect, but isTauri() returns false so it should bail out
-		// immediately without touching the existing namespaces.
+		// Importing the install side-effect module triggers
+		// `installTauriBridge()`, but isTauri() returns false so it
+		// should bail out immediately without touching the existing
+		// namespaces.
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		// The Electron-installed namespaces must be untouched.
 		expect(w.python).toBe(electronPython);
@@ -176,6 +187,7 @@ describe("tauri-bridge detection", () => {
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		const bubble = (window as unknown as WindowBridgeState).bubble;
 		expect(bubble).toBeDefined();
@@ -211,6 +223,7 @@ describe("tauri-bridge detection", () => {
 		delete w.window_;
 
 		await import("@/lib/tauri-bridge");
+		await import("@/lib/tauri-bridge/install");
 
 		// No namespaces should have been installed by the bridge.
 		expect(w.python).toBeUndefined();

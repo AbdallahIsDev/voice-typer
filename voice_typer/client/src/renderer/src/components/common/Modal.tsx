@@ -1,7 +1,7 @@
 /**
  * Modal — accessible dialog with focus trap and backdrop dismissal.
  *
- * F-3: Wraps Radix Dialog primitive to provide consistent focus management
+ * Wraps the Radix Dialog primitive to provide consistent focus management
  * across all dialogs in the app. Features:
  *   - Automatic focus trap (Radix built-in)
  *   - Escape key closes
@@ -58,7 +58,7 @@ export function Modal({
 }: ModalProps) {
 	const handleOpenChange = useCallback(
 		(isOpen: boolean) => {
-			// DX-014: Radix Dialog fires onOpenChange(false) exactly once per
+			// Radix Dialog fires onOpenChange(false) exactly once per
 			// close event — button click, Escape key, or backdrop click. No
 			// additional handlers are needed; the old dismissedByAction ref
 			// was guarding against a non-existent double-fire.

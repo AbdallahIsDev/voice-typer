@@ -10,9 +10,14 @@ import "./index.css";
 // are available when `usePython` and other hooks initialize. In Electron
 // mode this is a no-op (the preload already installed the namespaces).
 // Must come before any code that reads `window.python`.
-import "./lib/tauri-bridge";
+//
+// The side-effect lives in `./lib/tauri-bridge/install` (the sibling
+// `install.ts` module) — `index.ts` only exports the named symbols and
+// does NOT auto-invoke `installTauriBridge()` at module load. Importing
+// `install` explicitly here is what triggers the bridge setup.
+import "./lib/tauri-bridge/install";
 
-// PVT-009 / G4-CR-10 / PVT-G5-016 (combined): install the global `error`
+//(combined): install the global `error`
 // and `unhandledrejection` listeners BEFORE `ReactDOM.createRoot().render()`
 // so the listeners are in place before any React render or effect runs.
 // This catches:
@@ -31,7 +36,7 @@ import "./lib/tauri-bridge";
 // if the `<Toaster />` hasn't mounted yet — see lib/globalErrorHandler.ts
 // for the defensive guard).
 //
-// Placement note: ESM static imports are hoisted, so `./lib/tauri-bridge`
+// Placement note: ESM static imports are hoisted, so `./lib/tauri-bridge/install`
 // above executes BEFORE this call. We accept that limitation: the primary
 // failure surface is React render + async effects, both of which happen
 // AFTER this install call. Module-eval failures in tauri-bridge.ts are
@@ -39,17 +44,17 @@ import "./lib/tauri-bridge";
 // renderer anyway.
 installGlobalErrorHandlers();
 
-// ERR-ERR-005 (fix): explicit null check instead of `!` non-null assertion.
+//(fix): explicit null check instead of `!` non-null assertion.
 // If the root element is missing, fail loudly with a clear error message
 // instead of crashing inside ReactDOM.createRoot.
 const rootEl = document.getElementById("root");
 if (!rootEl) throw new Error("Root element #root not found in index.html");
 
-// ERR-ERR-006: wrap <App /> in <ErrorBoundary> so a render-time
+//wrap <App /> in <ErrorBoundary> so a render-time
 // crash in any component (Settings, Models, History, etc.) shows a
 // graceful fallback UI with "Try Again" / "Reload App" buttons instead of
 // white-screening the entire renderer. The ErrorBoundary component already
-// existed (NEW-UX-015) but was never wired into the render tree — leaving
+//existed () but was never wired into the render tree — leaving
 // the renderer vulnerable to single-component crashes taking down the
 // whole app. See components/ErrorBoundary.tsx for the full fallback UI.
 ReactDOM.createRoot(rootEl).render(

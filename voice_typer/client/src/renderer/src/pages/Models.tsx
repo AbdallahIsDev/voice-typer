@@ -209,7 +209,7 @@ export default function ModelsPage() {
 				</div>
 			</div>
 
-			{/* CR-008: delete-model confirmation dialog. The delete
+			{/*delete-model confirmation dialog. The delete
 			    button stores the target in `deleteModelTarget`;
 			    this dialog surfaces the confirmation and invokes
 			    the `delete_model` IPC. */}

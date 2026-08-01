@@ -1,8 +1,8 @@
 /**
  * Rotation-cap size constants for the Electron main-process log files.
  *
- * Extracted from the original `main/logging.ts` (DT-35 Phase 4.5
- * spaghetti split). All three were already `export`ed from
+ * Extracted from the original `main/logging.ts` (spaghetti
+ * split). All three were already `export`ed from
  * `main/logging.ts` and are imported by `bootstrap.ts` (for
  * `DEFAULT_CRASH_LOG_MAX_BYTES`) and by `rotation.ts` /
  * `structuredLogger.ts` / `printfLogger.ts` internally.

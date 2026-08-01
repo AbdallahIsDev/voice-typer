@@ -1,4 +1,4 @@
-// DR-10: data-fetch + refresh + event-subscription hook extracted
+//data-fetch + refresh + event-subscription hook extracted
 // from `pages/Dashboard.tsx` (lines ~243-402 of the pre-split file).
 //
 // Owns the dashboard's `data` / `configRaw` / `refreshing` React state,
@@ -11,7 +11,7 @@
 // Behaviour is identical to the pre-split inline implementation. The
 // only structural change is that the dead `loadData` wrapper
 // (`const loadData = useCallback(async () => { await refreshData(); }, ...)`,
-// DR-9 Finding 10) is removed — `refreshData` is called directly at
+//Finding 10) is removed — `refreshData` is called directly at
 // both former `loadData` call sites (initial mount + manual refresh).
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -53,6 +53,8 @@ export interface UseDashboardDataResult {
 	debouncedRefreshFromEvent: () => (() => void) | undefined;
 	/** "Last updated" relative label (e.g. "5s ago") for the indicator. */
 	agoLabel: string;
+	/** Error from the most recent `refreshData()` call, or `null` if the last call succeeded or hasn't been called yet. */
+	fetchError: string | null;
 }
 
 export function useDashboardData({
@@ -73,6 +75,7 @@ export function useDashboardData({
 	// to surface staleness to the user.
 	const { agoLabel, markUpdated } = useLastUpdated();
 	const [refreshing, setRefreshing] = useState(false);
+	const [fetchError, setFetchError] = useState<string | null>(null);
 
 	/** Fetch all dashboard data from the Python backend. */
 	const refreshData = useCallback(async () => {
@@ -87,7 +90,7 @@ export function useDashboardData({
 				})),
 				call<HistoryRecord[]>("get_history", { limit: 200 }).catch(
 					() => [] as HistoryRecord[],
-				), // NEW-IPC-004: capped at 200
+				), //capped at 200
 				// Fetch the TRUE total dictation count via the dedicated
 				// `get_history_count` IPC. The `get_history({limit: 200})`
 				// sample above is still used for daily-activity / streak
@@ -139,6 +142,7 @@ export function useDashboardData({
 			cachedDataRef.current = newData;
 			setData(newData);
 			setConfigRaw(cfg ?? null);
+			setFetchError(null);
 		} catch (err) {
 			// Fix #9: surface refresh failures to the user instead of
 			// silently swallowing them.  The previous implementation
@@ -148,8 +152,10 @@ export function useDashboardData({
 			// indication that the refresh failed.  We now show a
 			// toast.error so the user knows to retry manually via the
 			// LastUpdatedIndicator refresh button.
+			const message = t("analytics.refreshFailed");
 			console.error("Dashboard refresh failed:", err);
-			toast.error(t("analytics.refreshFailed"));
+			toast.error(message);
+			setFetchError(message);
 		} finally {
 			// F4: bump the "last updated" timestamp after each refresh
 			// attempt (success or failure) so the indicator stays accurate.
@@ -157,7 +163,7 @@ export function useDashboardData({
 		}
 	}, [call, markUpdated]);
 
-	// DR-9 Finding 10: dead `loadData` wrapper removed. The pre-split
+	//Finding 10: dead `loadData` wrapper removed. The pre-split
 	// file wrapped `refreshData` in a no-op `useCallback` named
 	// `loadData` and called `loadData()` at the two sites below —
 	// `handleManualRefresh` and the mount `useEffect`. Both now call
@@ -214,5 +220,6 @@ export function useDashboardData({
 		handleManualRefresh,
 		debouncedRefreshFromEvent,
 		agoLabel,
+		fetchError,
 	};
 }

@@ -9,14 +9,14 @@
 //     main process / Tauri Rust host can show a native save dialog
 //     and write the file with SEC-015 CSV formula-injection defense).
 //
-// BG-52: when a filter is active (``searchQuery`` non-empty OR
+//when a filter is active (``searchQuery`` non-empty OR
 // ``favoritesOnly`` true), the export pages through the matching
 // endpoint (``search_history`` / ``get_favorites``) and fires an
 // info toast so the user knows the exported file reflects the
 // active filter, not the full history.
 //
 // Extracted from the former monolithic ``pages/History.tsx`` render
-// function as part of the BG-54 spaghetti split. The cache + IPC
+//function as part of the  spaghetti split. The cache + IPC
 // lifecycle lives in ``useHistoryCache``; the client-side sort lives
 // in ``historySort.ts``.
 
@@ -63,7 +63,7 @@ export function useHistoryExport({
 	const doExport = useCallback(
 		async (format: string) => {
 			const fmt: "json" | "csv" = format === "csv" ? "csv" : "json";
-			// BG-52: when a filter is active (``searchQuery`` non-empty OR
+			//when a filter is active (``searchQuery`` non-empty OR
 			// ``favoritesOnly`` true), the export pages through the matching
 			// endpoint (``search_history`` / ``get_favorites``). When no
 			// filter is active, it pages through ``get_history``.

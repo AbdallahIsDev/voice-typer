@@ -1,7 +1,7 @@
 /**
  * Capture-session state machine for ``HotkeyPicker``.
  *
- * DR-13: the hook now uses ``useReducer(hotkeyCaptureReducer, ...)`` for
+ * : the hook now uses ``useReducer(hotkeyCaptureReducer, ...)`` for
  * the visible UI state (status / error / secondsRemaining /
  * heldModifiersLabel). The reducer is a pure function exported from
  * ``hotkey-utils.ts`` so it can be unit-tested in isolation.
@@ -23,7 +23,7 @@
  *     depends on unstable parent props ``mode``/``value``/
  *     ``occupiedHotkeys``/``onChange``)
  *
- * Removed (vs. pre-DR-13):
+ * Removed (vs. pre-):
  *   - recordingRef sync effect (replaced by capturingRef sync effect on
  *     ``state.status``)
  *   - handleKeyDownRef / handleKeyUpRef (handlers are now stable thanks
@@ -65,7 +65,7 @@ export interface UseHotkeyCaptureParams {
 	mode: "single" | "combo";
 	onChange: (hotkey: string) => void;
 	/**
-	 * ESC-FIX-001: optional callback invoked when capture mode starts.
+	 * ESC-: optional callback invoked when capture mode starts.
 	 * Used by the parent to pause the global ESC cancel hotkey in the
 	 * backend so that pressing Escape during capture doesn't trigger
 	 * recording cancellation. Should be a stable ``useCallback`` so
@@ -73,7 +73,7 @@ export interface UseHotkeyCaptureParams {
 	 */
 	onCaptureStart?: () => void;
 	/**
-	 * ESC-FIX-001: optional callback invoked when capture mode ends
+	 * ESC-: optional callback invoked when capture mode ends
 	 * (user pressed Escape, selected a key, or clicked the button
 	 * again).  Used by the parent to resume the global ESC cancel
 	 * hotkey in the backend. Should be a stable ``useCallback``.
@@ -139,7 +139,7 @@ export function useHotkeyCapture({
 	// unmount cleanup. State is stale inside the always-attached DOM
 	// listener closure (registered once with [] deps), so we need a ref
 	// to read the latest capturing flag.
-	// DEVIATION from DR-13 spec: spec lists recordingRef among the 6
+	//DEVIATION from  spec: spec lists recordingRef among the 6
 	// mirror refs to remove, but the DOM-listener short-circuit and the
 	// unmount cleanup genuinely need it. Renamed to capturingRef to
 	// reflect that it tracks reducer status (not a separate useState).
@@ -153,7 +153,7 @@ export function useHotkeyCapture({
 	// occupiedHotkeys / onChange), so they're re-assigned every render.
 	// handleKeyUp reads them via the ref so it can stay stable (deps
 	// only on stable callbacks), avoiding the need for a handleKeyUpRef
-	// mirror (the pre-DR-13 pattern).
+	//mirror (the pre- pattern).
 	const commitModifierOnlyRef = useRef<() => void>(() => {});
 	const commitFullComboRef = useRef<() => void>(() => {});
 
@@ -246,7 +246,7 @@ export function useHotkeyCapture({
 
 	// ── Commit functions (assigned to refs every render) ─────────────
 	//
-	// DR-14: the duplicated validate-then-conflict-check sequence is
+	//the duplicated validate-then-conflict-check sequence is
 	// extracted into ``tryCommitHotkey`` (hotkey-utils.ts). Each commit
 	// function reduces to: validate via tryCommitHotkey → on failure
 	// dispatch SetError + resetCaptureSession; on success call onChange
@@ -518,7 +518,7 @@ export function useHotkeyCapture({
 		}
 	}, [state.status, onCaptureStart, onCaptureEnd, clearCountdown]);
 
-	// ESC-FIX-003: always-attached keyboard listener — NEVER re-register,
+	//ESC-: always-attached keyboard listener — NEVER re-register,
 	// avoiding the race window where listeners are removed and re-added.
 	// handleKeyDown / handleKeyUp are stable (dispatch-only deps), so
 	// this effect runs once on mount.

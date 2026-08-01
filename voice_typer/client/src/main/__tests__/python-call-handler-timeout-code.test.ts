@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * FR-31 regression tests for the typed `err.code = "timeout"` contract
+ *  regression tests for the typed `err.code = "timeout"` contract
  * between `sendToPython` and `python-call-handler`.
  *
  * Background
@@ -14,7 +14,7 @@
  * `command_timeout` became `command_failed` — breaking the renderer's
  * retry logic.
  *
- * FR-31 fix:
+ *  fix:
  *   1. `sendToPython` attaches `err.code = "timeout"` to the Error
  *      object when it throws a timeout (mirroring the existing pattern
  *      at `handle-message.ts:68-72` where Python-side error codes are
@@ -168,7 +168,7 @@ describe("FR-31 (a): sendToPython attaches err.code = 'timeout' when the timeout
 
 		expect(caughtErr).toBeInstanceOf(Error);
 		expect((caughtErr as Error).message).toMatch(/Timeout after 15s/);
-		// FR-31: the typed `code` property must be set to "timeout".
+		//the typed `code` property must be set to "timeout".
 		expect((caughtErr as { code?: string }).code).toBe("timeout");
 	});
 
@@ -317,7 +317,7 @@ describe("FR-31 (b): python-call-handler classifies err.code='timeout' as comman
 	});
 
 	it("returns _code='command_failed' when sendToPython rejects with err.code='disallowed' (non-timeout code)", async () => {
-		// FR-31: a non-"timeout" code must NOT be misclassified as a
+		//a non-"timeout" code must NOT be misclassified as a
 		// timeout. The check is strict equality on the string "timeout".
 		const otherErr = new Error("Disallowed IPC command: foo");
 		(otherErr as Error & { code: string }).code = "disallowed";
@@ -336,7 +336,7 @@ describe("FR-31 (b): python-call-handler classifies err.code='timeout' as comman
 	});
 
 	it("regex fallback still classifies a legacy timeout-shaped Error (defense-in-depth)", async () => {
-		// FR-31: the regex fallback exists for callers that throw
+		//the regex fallback exists for callers that throw
 		// timeout-shaped Errors without setting `code`. The fallback
 		// must still classify them as `command_timeout`.
 		const legacyErr = new Error("Request Timeout");

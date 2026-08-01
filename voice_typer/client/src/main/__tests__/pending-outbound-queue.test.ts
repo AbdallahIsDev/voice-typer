@@ -2,7 +2,7 @@
 /**
  * Outbound replay queue for transient TCP disconnects.
  *
- * Covers the DJ-87 fix: when ``state.tcpSocket`` is null AND the app
+ * Covers the  fix: when ``state.tcpSocket`` is null AND the app
  * has connected before (``state._hadConnectedBefore === true``),
  * idempotent commands are queued for flush-on-reconnect instead of
  * being rejected outright — eliminating the "flaky button" feel

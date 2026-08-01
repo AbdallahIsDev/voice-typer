@@ -36,7 +36,7 @@ export const IPC_TOKEN =
 export const START_HIDDEN = process.env.VT_START_HIDDEN === "1";
 
 // Bubble geometry (logical px).
-// BUBBLE-FIX-5.2 (Round 0): BUBBLE_HEIGHT bumped from 27 → 46 to match
+//BUBBLE- (Round 0): BUBBLE_HEIGHT bumped from 27 → 46 to match
 // the actual pill height (h-6 wrapper 24px + py-2.5 20px + border 2px = 46px).
 // The previous 27px caused the pill to be clipped for the entire 180ms
 // enter animation, then the renderer's useLayoutEffect resize caused a
@@ -46,18 +46,18 @@ export const START_HIDDEN = process.env.VT_START_HIDDEN === "1";
 export const BUBBLE_WIDTH = 74;
 export const BUBBLE_HEIGHT = 46;
 
-// RW-10: heartbeat interval.  Once the Python backend is connected (TCP
+//heartbeat interval.  Once the Python backend is connected (TCP
 // auth succeeded), we send a ``heartbeat`` IPC every 15 seconds.  The
 // backend's heartbeat-watchdog daemon thread calls ``app.quit()`` if 3
 // consecutive heartbeats are missed (45s timeout) so a crashed /
 // force-killed Electron doesn't strand the backend with the mic open,
 // hotkeys registered, volume ducked, and the single-instance mutex held.
-// DJ-43: bumped from 5s to 15s to reduce idle CPU wakeups on laptops on
+//bumped from 5s to 15s to reduce idle CPU wakeups on laptops on
 // battery. Same detection window (45s = 3 misses) as the prior 5s+45s
 // (9 misses) config — a crashed peer is still detected within 45s.
 export const HEARTBEAT_INTERVAL_MS = 15000;
 
-// FZ-64: named magic numbers previously inlined across `main/`.
+//named magic numbers previously inlined across `main/`.
 // Keeping them in one module makes the rationale (e.g. "why 3s vs 2s
 // for the SIGTERM vs production-exit backstop") discoverable and lets a
 // future tuning change touch one site instead of N.
@@ -77,7 +77,7 @@ export const PROCESS_EXIT_BACKSTOP_MS = 2000;
 
 // Crash-storm backoff: 2s wait before reloading a renderer that crashed
 // (`render-process-gone`) to avoid CPU-bound crash loops. Lives in
-// `main-window.ts` (was previously in `bubble-window.ts` before FZ-51
+//`main-window.ts` (was previously in `bubble-window.ts` before
 // split the bubble-window god-file).
 export const RENDER_RELOAD_BACKOFF_MS = 2000;
 
@@ -86,7 +86,7 @@ export const RENDER_RELOAD_BACKOFF_MS = 2000;
 // split). `tcp-connect.ts` drops the connection on overflow.
 export const TCP_FRAME_MAX_BYTES = 4 * 1024 * 1024;
 
-// FZ-64: IPC command timeouts in `send-to-python.ts::_commandTimeoutMs`.
+//IPC command timeouts in `send-to-python.ts::_commandTimeoutMs`.
 // Long-running commands (model load, transcription) get the long
 // timeout; everything else gets the short timeout. Per-command overrides
 // live in `_SHORT_TIMEOUT_COMMANDS`.

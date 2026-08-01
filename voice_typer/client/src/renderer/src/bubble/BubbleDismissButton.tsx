@@ -1,8 +1,5 @@
 /**
- * Bubble overlay package — `BubbleDismissButton` (BG-96).
- *
- * Extracted from the former `bubble-components.tsx` monolith (PVT-067 /
- * DR-16).
+ * Bubble overlay package — `BubbleDismissButton`.
  *
  * The dismiss '×' button. Shown whenever the bubble is in
  * `always_visible` mode (gated by the parent via the `dismissable`
@@ -10,16 +7,16 @@
  * `bubble:dismiss` IPC to the main process, which hides the bubble
  * window until the next show() (typically the next dictation start).
  *
- * BG-96 A11Y: same focusable:false trade-off as BubbleMicButton (see
- * the comment above that component) — the button is mouse-only in the
+ * A11Y: same focusable:false trade-off as BubbleMicButton (see the
+ * comment above that component) — the button is mouse-only in the
  * shipped app. The `aria-label` and `title` are populated so AT users
  * navigating via screen-reader cursor can still discover it.
  *
  * The `bubble:dismiss` IPC handler in `main/ipc/bubble-handlers.ts`
- * is owned by F11 — see the F10 return report for the handoff note.
- * Until F11 adds the handler, the IPC send is a no-op (Electron's
- * default ipcMain behavior is to silently drop messages with no
- * registered handler).
+ * routes to `hideBubbleWindow()`. Under Tauri, the `bubble_dismiss`
+ * Rust command (mirror of `bubble_hide_complete`) emits `bubble:hide`
+ * then hides the window unconditionally; gated by
+ * `require_bubble_window` (SEC-016).
  */
 import { t } from "@/i18n/i18n";
 import { BUBBLE_BUTTON_CLASS } from "./constants";

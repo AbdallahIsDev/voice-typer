@@ -1,11 +1,11 @@
 // @vitest-environment node
 /**
- * CR-11 / R6-F5 unit tests for `csp-plugin.ts`.
+ *  / R6-F5 unit tests for `csp-plugin.ts`.
  *
  * Verifies that the production CSP is split per window so the bubble
  * window's policy does NOT grant `connect-src https://api.github.com`,
  * while the main window's policy still does (the explicit "Check for
- * Updates" button needs it after CR-11 removed the auto-mount fetch).
+ * Updates" button needs it after  removed the auto-mount fetch).
  */
 import { describe, expect, it } from "vitest";
 import {

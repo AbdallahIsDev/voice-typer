@@ -51,7 +51,7 @@ const enFlat = getKeys(en, "");
 
 const translations = {};
 
-// XS-103: removed the dead `require("./translate-i18n-partial.js")` block —
+//removed the dead `require("./translate-i18n-partial.js")` block —
 // the partial file never existed (the catch swallowed MODULE_NOT_FOUND),
 // so the assignment was a no-op. Re-add only if a partial-translation
 // loader is actually introduced.

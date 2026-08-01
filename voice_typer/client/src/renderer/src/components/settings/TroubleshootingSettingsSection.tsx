@@ -1,7 +1,7 @@
 // TroubleshootingSettingsSection — the "Troubleshooting" block of the
 // Settings → Privacy tab.
 //
-// PVT-028: extracted from src/renderer/src/pages/Settings.tsx (which was
+//extracted from src/renderer/src/pages/Settings.tsx (which was
 // a 1125-line monolith). This component owns the six-button
 // "Diagnostic tools, help, and support" section: Open Log Folder,
 // Diagnostics, Help & FAQ, Report a Bug, Re-run setup wizard, and
@@ -107,7 +107,7 @@ export const TroubleshootingSettingsSection = memo(
 		// user land on the wizard page) then navigate. The toast confirms
 		// the action.
 		//
-		// XA-11-6: also call the `onboarding_reset` IPC so the backend clears
+		//also call the `onboarding_reset` IPC so the backend clears
 		// its `.onboarding_started` marker (otherwise the auto-heal in
 		// `startup_sequence.py` would treat onboarding as already-complete
 		// and skip the wizard). Previously this IPC handler + its
@@ -211,7 +211,7 @@ export const TroubleshootingSettingsSection = memo(
 					<p className="mt-1 text-xs text-muted-foreground">
 						{t("settings.troubleshooting.reRunWizardHint")}
 					</p>
-					{/* XA-4-9: visually separate the destructive Reset to Defaults
+					{/*visually separate the destructive Reset to Defaults
                                                 button from the 5 non-destructive buttons above with a
                                                 top border + padding so users don't click it by accident. */}
 					<div className="mt-4 border-t border-border pt-3">
@@ -223,7 +223,7 @@ export const TroubleshootingSettingsSection = memo(
 							title={t("settings.troubleshooting.resetToDefaultsHint")}
 						>
 							<HugeiconsIcon
-								// S5-CR-103: use a trash/delete icon
+								//use a trash/delete icon
 								// for the destructive Reset to Defaults
 								// action so it's visually distinct from
 								// the non-destructive "Re-run Wizard"

@@ -1,6 +1,6 @@
 /**
- * Switch component tests — covers BG-37 (RTL thumb translate) and the
- * BG-R12 follow-ups (sub-24px touch target via `after:-inset-y-3`,
+ * Switch component tests — covers  (RTL thumb translate) and the
+ *  follow-ups (sub-24px touch target via `after:-inset-y-3`,
  * visible `data-checked:border-primary/30` ring, `bg-clip-padding`
  * Safari-rendering-bug comment presence).
  *
@@ -42,7 +42,7 @@ describe("Switch — BG-37 RTL thumb translate", () => {
 			'[data-slot="switch-thumb"]',
 		) as HTMLElement;
 		expect(thumb).toBeTruthy();
-		// BG-37: the `rtl:` variant must be present so the translate sign
+		//the `rtl:` variant must be present so the translate sign
 		// flips under `[dir="rtl"]`. Without this class the thumb always
 		// slides right (physical translate-x), which is wrong for Arabic.
 		expect(thumb.className).toContain(
@@ -69,7 +69,7 @@ describe("Switch — BG-R12 sub-24px touch target", () => {
 
 		const root = document.querySelector('[data-slot="switch"]') as HTMLElement;
 		expect(root).toBeTruthy();
-		// BG-R12: previously `after:-inset-y-2` (8px each side → 36px
+		//previously `after:-inset-y-2` (8px each side → 36px
 		// total touch height on the 20px-tall default track). Now
 		// `after:-inset-y-3` (12px each side → 44px total, WCAG 2.5.5).
 		expect(root.className).toContain("after:-inset-y-3");
@@ -84,7 +84,7 @@ describe("Switch — BG-R12 visible checked-border ring", () => {
 
 		const root = document.querySelector('[data-slot="switch"]') as HTMLElement;
 		expect(root).toBeTruthy();
-		// BG-R12: the previous `data-checked:border-primary` was visually
+		//the previous `data-checked:border-primary` was visually
 		// identical to `data-checked:bg-primary` so the border was
 		// invisible. Now uses `/30` so the border shows as a subtle
 		// primary-tinted ring around the track when checked.

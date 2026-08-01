@@ -100,7 +100,7 @@ export const AiEnhancementSettingsSection = memo(
 		const handleAutoApplyConfidenceChange = (v: number) =>
 			updateConfigDebounced("vocabulary_auto_apply_threshold", v);
 
-		// UX-028: section-level visibility check for AI Enhancement section.
+		//section-level visibility check for AI Enhancement section.
 		const aiSectionTitle = t("settings.aiEnhancement.title");
 		const aiItems = [
 			{ label: aiEnableLabel, info: aiEnableInfoSearch },
@@ -112,7 +112,7 @@ export const AiEnhancementSettingsSection = memo(
 			isVisible(item.label, item.info, aiSectionTitle),
 		);
 
-		// UX-028: section-level visibility check for Vocabulary Automation section.
+		//section-level visibility check for Vocabulary Automation section.
 		const vocabSectionTitle = t("settings.vocabAutomation.title");
 		const vocabItems = [
 			{ label: vocabEnableLabel, info: vocabEnableInfoSearch },

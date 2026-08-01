@@ -1,4 +1,4 @@
-// DR-10: thin composition root. Data-fetch / refresh / event-subscription
+//thin composition root. Data-fetch / refresh / event-subscription
 // lives in `./dashboard/hooks/useDashboardData`; pure helpers in
 // `./dashboard/lib/{streaks,format}`; presentational sub-components in
 // `./dashboard/components/`. LOC history: 732 (pre-split) → <150 (post-split).
@@ -6,6 +6,7 @@
 import {
 	Activity03Icon,
 	AiBrain03Icon,
+	AlertCircleIcon,
 	Calendar01Icon,
 	File02Icon,
 	LayoutGridIcon,
@@ -55,18 +56,42 @@ const SHARE_IMAGE_CAPTURE_STYLE: CSSProperties = {
 	pointerEvents: "none",
 };
 
-// EC-FIX-14: DashboardPage obtains `navigate` via useNavigation directly.
+//DashboardPage obtains `navigate` via useNavigation directly.
 export default function DashboardPage() {
 	const { navigate } = useNavigation();
 	const { call } = usePython();
-	const { data, configRaw, refreshing, handleManualRefresh, agoLabel } =
-		useDashboardData({ call });
+	const {
+		data,
+		configRaw,
+		refreshing,
+		handleManualRefresh,
+		agoLabel,
+		fetchError,
+	} = useDashboardData({ call });
 	const { imageRef, shareAsImage } = useStatsShare();
 
 	// Fix #19: skeleton shown only on FIRST load (when `!data`); subsequent
 	// refreshes keep prior data visible (refreshing flag drives the
 	// LastUpdatedIndicator spinner instead).
-	if (!data) return <DashboardSkeleton />;
+	// When `fetchError` is set and `data` is null, the first fetch failed —
+	// render an error state with a Retry button instead of the skeleton.
+	if (!data) {
+		if (fetchError) {
+			return (
+				<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center px-6 pt-28 pb-6">
+					<EmptyState
+						variant="error"
+						icon={AlertCircleIcon}
+						title={t("analytics.refreshFailed")}
+						description={t("analytics.refreshFailedHint")}
+						actionLabel={t("analytics.retry")}
+						onAction={handleManualRefresh}
+					/>
+				</div>
+			);
+		}
+		return <DashboardSkeleton />;
+	}
 
 	const d = data;
 	const isFirstRun = d.totalCount === 0; // Fix #10: empty-state CTA

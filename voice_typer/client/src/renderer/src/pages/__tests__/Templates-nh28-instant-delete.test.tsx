@@ -1,5 +1,5 @@
 /**
- * Tests for the Templates page — NH-28 (instant-delete optimisation).
+ * Tests for the Templates page —  (instant-delete optimisation).
  *
  * Scenario under test: clicking the trash icon on a template row fires
  * `instantDeleteTemplate`, which previously:

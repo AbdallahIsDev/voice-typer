@@ -4,7 +4,7 @@
  * See ``themes.ts`` for the ``ThemePreset`` interface and how presets
  * are consumed.
  *
- * CR-061: light and dark now define the SAME superset of CSS vars.
+ * light and dark now define the SAME superset of CSS vars.
  * Previously the dark map defined ``--destructive``, ``--destructive-foreground``,
  * ``--scrollbar-thumb``, ``--scrollbar-thumb-hover``, ``--surface-page``,
  * and ``--text-primary`` that the light map did not — components
@@ -45,12 +45,14 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--muted": "oklch(0.92 0.02 75)",
 		"--muted-foreground": "oklch(0.45 0.02 40)",
 		// Borders / inputs / rings
-		"--border": "oklch(0.84 0.02 75)",
-		"--input": "oklch(0.84 0.02 75)",
-		/* PVT-044: bump L from 0.6 to 0.48 so the focus ring (combined with
+		/* WCAG 1.4.11: L lowered from 0.84 to 0.62 so the border clears
+		   3:1 contrast against the near-white background. */
+		"--border": "oklch(0.62 0.02 75)",
+		"--input": "oklch(0.62 0.02 75)",
+		/* bump L from 0.6 to 0.48 so the focus ring (combined with
 		   focus-visible:ring-ring/30) clears WCAG 1.4.11's 3:1 minimum. */
 		"--ring": "oklch(0.48 0.08 50)",
-		// Destructive (CR-061: added so light matches dark coverage.)
+		// Destructive (added so light matches dark coverage.)
 		"--destructive": "oklch(0.55 0.22 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
 		// Sidebar
@@ -68,10 +70,10 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--chart-3": "oklch(0.5 0.08 280)",
 		"--chart-4": "oklch(0.55 0.1 200)",
 		"--chart-5": "oklch(0.6 0.12 30)",
-		// Scrollbar (CR-061: added so light matches dark coverage.)
+		// Scrollbar (added so light matches dark coverage.)
 		"--scrollbar-thumb": "oklch(0.78 0.02 75)",
 		"--scrollbar-thumb-hover": "oklch(0.7 0.02 75)",
-		// NH-16: status tokens for light mode. Semantic
+		// status tokens for light mode. Semantic
 		// green/amber/blue so status meaning is preserved on
 		// this theme's palette (overrides the stylesheet default).
 		"--success": "oklch(0.62 0.17 149)",
@@ -96,8 +98,11 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		// Primary / accent
 		"--primary": "oklch(0.6 0.1 50)",
 		"--primary-foreground": "oklch(0.1 0 0)",
+		/* WCAG AA: --accent L=0.6 in dark mode means the default white
+		   --accent-foreground only reaches ~3.7:1. Switching to
+		   near-black clears AA 4.5:1 against the bright accent. */
 		"--accent": "oklch(0.6 0.08 50)",
-		"--accent-foreground": "oklch(0.97 0 0)",
+		"--accent-foreground": "oklch(0.1 0 0)",
 		"--accent-soft": "oklch(0.55 0.1 50 / 0.12)",
 		"--accent-muted": "oklch(0.55 0.1 50 / 0.4)",
 		// Secondary / muted
@@ -106,10 +111,12 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--muted": "oklch(0.2 0.015 40)",
 		"--muted-foreground": "oklch(0.65 0.015 40)",
 		// Borders / inputs / rings
-		"--border": "oklch(0.22 0.02 40)",
-		"--input": "oklch(0.24 0.02 40)",
+		/* WCAG 1.4.11: L raised from 0.22 to 0.52 so the border clears
+		   3:1 contrast against the dark background. */
+		"--border": "oklch(0.52 0.02 40)",
+		"--input": "oklch(0.54 0.02 40)",
 		"--ring": "oklch(0.7 0.08 60)",
-		// Destructive (CR-061: added --destructive-foreground so dark
+		// Destructive (added --destructive-foreground so dark
 		// matches light coverage; previously only --destructive was set.)
 		"--destructive": "oklch(0.55 0.25 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
@@ -131,7 +138,7 @@ export const sepiaTheme: Omit<ThemePreset, "nameKey"> = {
 		// Scrollbar
 		"--scrollbar-thumb": "oklch(0.3 0.02 40)",
 		"--scrollbar-thumb-hover": "oklch(0.4 0.02 40)",
-		// NH-16: status tokens for dark mode. Semantic
+		// status tokens for dark mode. Semantic
 		// green/amber/blue so status meaning is preserved on
 		// this theme's palette (overrides the stylesheet default).
 		"--success": "oklch(0.7 0.16 149)",

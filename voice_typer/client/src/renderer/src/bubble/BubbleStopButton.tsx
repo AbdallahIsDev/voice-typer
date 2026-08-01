@@ -1,8 +1,5 @@
 /**
- * Bubble overlay package — `BubbleStopButton` (XA-6-1 / XA-6-13).
- *
- * Extracted from the former `bubble-components.tsx` monolith (PVT-067 /
- * DR-16).
+ * Bubble overlay package — `BubbleStopButton`.
  *
  * The stop '■' / retry '↻' affordance shown at the trailing edge of
  * the pill. In `recording` mode it is always rendered (independent of
@@ -11,12 +8,11 @@
  * command — the same channel `BubbleMicButton` uses. When recording,
  * `toggle_dictation` stops the recording and triggers transcription.
  *
- * This is the highest-impact XA-6 sub-fix: previously the only way to
- * stop a recording was the global hotkey, which is invisible to a
+ * This is the highest-impact stop affordance: previously the only way
+ * to stop a recording was the global hotkey, which is invisible to a
  * user who has forgotten the binding. The pill's `focusable: false`
- * BrowserWindow means a keyboard handler is impossible (PVT-048), so
- * a visible mouse-only button is the only viable in-bubble
- * affordance.
+ * BrowserWindow means a keyboard handler is impossible, so a visible
+ * mouse-only button is the only viable in-bubble affordance.
  *
  * In `error` mode the same component is rendered with a refresh icon
  * and a different aria-label so the user can retry the failed

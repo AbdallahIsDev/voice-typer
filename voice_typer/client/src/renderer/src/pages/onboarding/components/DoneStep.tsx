@@ -18,7 +18,7 @@ export function DoneStep({
 	selectedMic,
 	microphones,
 }: DoneStepProps) {
-	// PVT-005: use existing `summaryHotkey`/`summaryMic`/`summaryModel`.
+	//use existing `summaryHotkey`/`summaryMic`/`summaryModel`.
 	// The old `doneHotkey`/`doneMic`/`doneModel` keys never existed in any
 	// locale, so the Done step rendered raw key strings instead of labels.
 	return (
@@ -26,7 +26,7 @@ export function DoneStep({
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.completeTitle")}
 			</h2>
-			{/* BG-14: surface the model-download warning so first-run
+			{/*surface the model-download warning so first-run
 			    users aren't surprised by a ~466 MB / ~1.5 GB download
 			    on a metered connection. The `completeDescription` key
 			    already exists in every locale; this is the only
@@ -36,7 +36,7 @@ export function DoneStep({
 					hotkey: selectedHotkey.replace(/[<>]/g, "").toUpperCase(),
 				})}
 			</p>
-			{/* NH-26: inline progress indicator so first-run users see
+			{/*inline progress indicator so first-run users see
 			    the model is loading in the background (and the button
 			    below is "Get Started" → navigates to Home where the
 			    Home page polls download progress). The spinner is

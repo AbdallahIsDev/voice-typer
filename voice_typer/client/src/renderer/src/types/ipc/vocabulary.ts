@@ -2,7 +2,7 @@
 //
 // Vocabulary-domain types — mirrors the Python `VocabularyManager`.
 //
-// Split out from the original monolithic `types/ipc.ts` (DT-31 / DT-FIX-7).
+//Split out from the original monolithic `types/ipc.ts` ( / ).
 // No behaviour change vs. the original file — pure structural refactor.
 
 export interface VocabularyData {

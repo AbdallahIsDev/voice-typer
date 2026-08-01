@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * XS-78: behavioral tests for `src/main/ipc/bubble-handlers.ts`.
+ * : behavioral tests for `src/main/ipc/bubble-handlers.ts`.
  *
  * Covers the testable surface of the bubble IPC handlers:
  *   - `BUBBLE_ONLY_TYPES` set membership (used by `handle-message.ts`

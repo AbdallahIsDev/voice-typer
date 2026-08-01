@@ -9,6 +9,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import type { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 
 interface ConfirmDialogProps {
@@ -17,7 +18,13 @@ interface ConfirmDialogProps {
 	message: string;
 	confirmLabel?: string;
 	cancelLabel?: string;
-	variant?: "destructive" | "warning";
+	/**
+	 * Visual variant forwarded to the underlying {@link Button}. Defaults
+	 * to `"destructive"` for the common "delete / discard" case. Pass
+	 * `"warning"` for mid-tier destructive actions (e.g. skip onboarding)
+	 * or any other Button variant the call site needs.
+	 */
+	variant?: React.ComponentProps<typeof Button>["variant"];
 	onConfirm: () => void;
 	onCancel: () => void;
 }
@@ -32,7 +39,7 @@ export default function ConfirmDialog({
 	onConfirm,
 	onCancel,
 }: ConfirmDialogProps) {
-	// DX-014: Radix AlertDialog fires onOpenChange(false) once per close.
+	// Radix AlertDialog fires onOpenChange(false) once per close.
 	// We use a ref to distinguish "user clicked Confirm" (which should NOT
 	// call onCancel) from Cancel/Escape/backdrop (which should).
 	// The old dismissedByButton ref guarded both actions; now only the
@@ -64,12 +71,10 @@ export default function ConfirmDialog({
 					<AlertDialogDescription>{message}</AlertDialogDescription>
 				</AlertDialogHeader>
 				<AlertDialogFooter>
-					{/* DX-014: Cancel button has NO onClick — handleOpenChange
+					{/* Cancel button has NO onClick — handleOpenChange
                                             calls onCancel when the dialog closes. Letting Radix
                                             trigger onOpenChange(false) is the single close signal. */}
-					<AlertDialogCancel aria-label={cancelLabel}>
-						{cancelLabel}
-					</AlertDialogCancel>
+					<AlertDialogCancel>{cancelLabel}</AlertDialogCancel>
 					<AlertDialogAction
 						// map variant through to the button's
 						// cva variant. destructive → destructive, warning →
@@ -81,7 +86,6 @@ export default function ConfirmDialog({
 						// safe primary action.
 						variant={variant}
 						onClick={handleConfirm}
-						aria-label={confirmLabel}
 					>
 						{confirmLabel}
 					</AlertDialogAction>

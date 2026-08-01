@@ -1,5 +1,5 @@
 /**
- * UE-39: parity test for `KNOWN_EVENT_TYPES` in `hooks/usePython.ts`.
+ * : parity test for `KNOWN_EVENT_TYPES` in `hooks/usePython.ts`.
  *
  * `KNOWN_EVENT_TYPES` is a hand-maintained runtime mirror of the
  * `PythonPushEvent["type"]` TS union declared in

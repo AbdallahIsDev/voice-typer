@@ -1,4 +1,4 @@
-// NEW-UX-015: ErrorBoundary — catches render errors so a single bad
+// ErrorBoundary — catches render errors so a single bad
 // config or component crash doesn't white-screen the entire app.
 //
 // Previously, any uncaught exception in a React render (e.g. a config
@@ -9,7 +9,7 @@
 //
 // Usage: wrap the top-level <App /> in <ErrorBoundary> in main.tsx.
 //
-// PVT-fix #11: the fallback now exposes three recovery affordances in
+// The fallback now exposes three recovery affordances in
 // addition to the existing "Try Again" / "Reload App" buttons:
 //
 //   - "Copy error" — copies the error name, message, and component
@@ -33,7 +33,7 @@
 //     Settings → Reset to Defaults flow but is callable from the
 //     error UI without needing the Settings page to render.
 //
-// G4-M-69: ``componentDidCatch`` forwards the caught error to the
+// ``componentDidCatch`` forwards the caught error to the
 // main process for explicit persistence in
 // ``electron-renderer-errors.log`` (separate from the
 // ``console-message`` path so React's ``componentStack`` is
@@ -56,7 +56,7 @@ interface ErrorBoundaryState {
 	copied: boolean;
 	resetting: boolean;
 	resetFailed: boolean;
-	// XZ-R16-06: loop guard. ``handleReset`` clears React error state
+	// Loop guard. ``handleReset`` clears React error state
 	// but NOT the underlying poisoned state (localStorage, malformed
 	// theme token) that caused the render crash. Without this guard,
 	// clicking "Try Again" re-mounts the children against the same
@@ -93,8 +93,8 @@ export class ErrorBoundary extends Component<
 	}
 
 	componentDidCatch(error: Error, errorInfo: ErrorInfo): void {
-		// G4-M-69: log to console for debugging. The main-window
-		// `console-message` handler (G4-M-67) persists level>=3
+		// Log to console for debugging. The main-window
+		// `console-message` handler persists level>=3
 		// (ERROR) console output to `electron-renderer-errors.log`
 		// so this `console.error` automatically lands in the file
 		// — the previous comment claiming "the renderer process's
@@ -102,10 +102,10 @@ export class ErrorBoundary extends Component<
 		// written to the log file" was misleading because the
 		// console-message handler only re-emitted to the terminal
 		// (lost when the terminal closed); it did NOT persist to
-		// disk before G4-M-67.
+		// disk before the console-message persistence path landed.
 		console.error("[ErrorBoundary] Caught render error:", error, errorInfo);
 
-		// G4-M-69: forward the caught error to the main process
+		// Forward the caught error to the main process
 		// for explicit persistence in `electron-renderer-errors.log`
 		// (separate from the console-message path so React's
 		// `componentStack` is preserved — the console.error above
@@ -137,13 +137,13 @@ export class ErrorBoundary extends Component<
 		}
 
 		// Persist errorInfo in state so the "Copy error" button
-		// (PVT-fix #11) can include the React component stack in
+		// can include the React component stack in
 		// the pasted bug-report blob.
 		this.setState({ errorInfo });
 	}
 
 	handleReset = (): void => {
-		// XZ-R16-06: increment the loop-guard counter so the
+		// Increment the loop-guard counter so the
 		// "Try Again" button is disabled after the first failed
 		// retry (see ``tryAgainCount`` field docstring). The user
 		// must then use "Reset settings" (which clears poisoned
@@ -364,7 +364,7 @@ export class ErrorBoundary extends Component<
 							type="button"
 							variant="default"
 							onClick={this.handleReset}
-							// XZ-R16-06: disable after the first failed retry so the
+							// Disable after the first failed retry so the
 							// user cannot loop on "Try Again" against poisoned state.
 							// The hint routes them to "Reset settings" instead.
 							// Re-enabled when ``handleResetSettings`` clears the

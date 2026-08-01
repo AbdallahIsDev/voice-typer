@@ -1,5 +1,5 @@
 /**
- * Sonner Toaster tests — covers BG-38 (Toaster position must update on
+ * Sonner Toaster tests — covers  (Toaster position must update on
  * runtime locale change).
  *
  * Strategy: mock the `sonner` module so we can capture the `position`
@@ -80,5 +80,39 @@ describe("Sonner Toaster — BG-38 reactive position", () => {
 		});
 		rerender(<Toaster />);
 		expect(lastToasterProps?.position).toBe("bottom-right");
+	});
+});
+
+describe("Sonner Toaster — ZU-33 stacking configuration", () => {
+	it("sets visibleToasts=6 so a flap or burst keeps recent history visible", () => {
+		// sonner's default is visibleToasts=3 — older toasts in the queue
+		// are hidden until newer ones expire. During a backend flap or a
+		// burst of error toasts (save + export + download all failing),
+		// the user only saw the 3 newest and lost the context of what
+		// else had failed. 6 keeps the recent history visible without
+		// flooding the corner.
+		render(<Toaster />);
+		expect(lastToasterProps).not.toBeNull();
+		expect(lastToasterProps?.visibleToasts).toBe(6);
+	});
+
+	it("sets expand=false so the stack stays collapsed by default", () => {
+		// Sonner expands the stack on hover (or when ``expand`` is true)
+		// — collapsed shows only the newest toast prominently with older
+		// ones peeking. Collapsed-by-default keeps the corner uncluttered;
+		// the user can hover to read the queue.
+		render(<Toaster />);
+		expect(lastToasterProps).not.toBeNull();
+		expect(lastToasterProps?.expand).toBe(false);
+	});
+
+	it("preserves the canonical richColors / closeButton / duration configuration", () => {
+		// Regression guard: the new visibleToasts / expand props must not
+		// clobber the existing canonical configuration.
+		render(<Toaster />);
+		expect(lastToasterProps).not.toBeNull();
+		expect(lastToasterProps?.richColors).toBe(true);
+		expect(lastToasterProps?.closeButton).toBe(true);
+		expect(lastToasterProps?.duration).toBe(4000);
 	});
 });

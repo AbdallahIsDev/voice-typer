@@ -20,7 +20,7 @@ export interface ModelStepProps {
 }
 
 /**
- * BG-100: derive the language-coverage badge key for a model option.
+ * : derive the language-coverage badge key for a model option.
  *
  * `languages` follows the same convention as
  * `ModelMetadata.supported_languages` in `lib/utils/models.ts`:
@@ -59,9 +59,15 @@ export function ModelStep({
 			<Select value={selectedModel} onValueChange={setSelectedModel}>
 				<SelectTrigger
 					className="w-full"
-					aria-label={t("onboarding.modelSelectAria")}
+					aria-label={t("onboarding.modelSelectAria", {
+						name: selectedModel,
+					})}
 				>
-					<SelectValue placeholder={t("onboarding.modelSelectAria")} />
+					<SelectValue
+						placeholder={t("onboarding.modelSelectAria", {
+							name: selectedModel,
+						})}
+					/>
 				</SelectTrigger>
 				<SelectContent>
 					{modelOptions.map((m) => {
@@ -76,7 +82,7 @@ export function ModelStep({
 									<span>
 										{m.description} — {m.size} ({formatModelSpeed(m.speed)})
 									</span>
-									{/* BG-100: per-option badge row showing VRAM
+									{/*per-option badge row showing VRAM
 									    requirement and language coverage. Both
 									    badges are optional — older backends don't
 									    return these fields. */}

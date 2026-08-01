@@ -1,8 +1,8 @@
 /**
- * XV-154 file-size cache for the Electron main-process loggers.
+ * File-size cache for the Electron main-process loggers.
  *
- * Extracted from the original `main/logging.ts` (DT-35 Phase 4.5
- * spaghetti split). `_fileSizeCache` memoizes `fs.statSync` results so
+ * Extracted from the original `main/logging.ts` (spaghetti
+ * split). `_fileSizeCache` memoizes `fs.statSync` results so
  * `appendLogLine` doesn't call `fs.statSync` on every write — only on
  * cache miss. The cache is bumped (updated) after every successful
  * append so the next call can skip stat. Rotations reset the cache
@@ -14,7 +14,7 @@
  */
 
 // ────────────────────────────────────────────────────────────────────
-// XV-154: _fileSizeCache memoizes statSync results so appendLogLine
+// _fileSizeCache memoizes statSync results so appendLogLine
 // doesn't call fs.statSync on every write — only on cache miss. The
 // cache is bumped (updated) after every successful append so the
 // next call can skip stat. Rotations reset the cache entry to 0.
@@ -24,7 +24,7 @@
 const _fileSizeCache = new Map<string, number>();
 
 /**
- * XV-154: reset the file-size cache. Exported for tests so each
+ * Reset the file-size cache. Exported for tests so each
  * test starts with a clean cache state.
  */
 export function _resetFileSizeCacheForTest(): void {

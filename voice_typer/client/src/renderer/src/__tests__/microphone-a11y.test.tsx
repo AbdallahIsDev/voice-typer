@@ -1,5 +1,5 @@
 /**
- * BG-45 / BG-71 / BG-72 / BG-94 — accessibility + perf fixes for the
+ *  /  /  /  — accessibility + perf fixes for the
  * Microphone page components.
  *
  * This file mounts the real components and asserts on the rendered DOM
@@ -11,10 +11,10 @@
  *     so we don't pull in the real icon runtime.
  *   - `@/components/audio/AudioFilterChain` is stubbed so the
  *     AudioPresetSelector test doesn't mount the full settings row
- *     graph (irrelevant to BG-94's memoization invariant).
+ *     graph (irrelevant to 's memoization invariant).
  *   - `@/i18n/i18n` is mocked with a `t` spy that returns the real
  *     English value (loaded from en.json) AND records every call so
- *     BG-94 can assert that `getPresetOptions()` runs exactly once per
+ *      can assert that `getPresetOptions()` runs exactly once per
  *     mount instead of three times.
  */
 import { cleanup, render } from "@testing-library/react";
@@ -131,7 +131,7 @@ afterEach(() => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// BG-45 — MicrophoneListItem 'Use' button aria-label includes mic name
+//MicrophoneListItem 'Use' button aria-label includes mic name
 // ──────────────────────────────────────────────────────────────────────
 describe("BG-45: MicrophoneListItem 'Use' button has a per-mic aria-label", () => {
 	it("uses the mic name in the aria-label so SR users can distinguish buttons", () => {
@@ -183,7 +183,7 @@ describe("BG-45: MicrophoneListItem 'Use' button has a per-mic aria-label", () =
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// BG-71 — TestReviewPanel exposes quality updates via aria-live +
+//TestReviewPanel exposes quality updates via aria-live +
 // role=status, and hides the decorative bullet from AT.
 // ──────────────────────────────────────────────────────────────────────
 describe("BG-71: TestReviewPanel quality block is announced to AT", () => {
@@ -281,7 +281,7 @@ describe("BG-71: TestReviewPanel quality block is announced to AT", () => {
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// BG-72 — AvailableMicrophonesList uses real list semantics (ul/li).
+//AvailableMicrophonesList uses real list semantics (ul/li).
 // ──────────────────────────────────────────────────────────────────────
 describe("BG-72: AvailableMicrophonesList renders a real list with ul/li + roles", () => {
 	it("wraps the mic rows in a <ul role=list>", () => {
@@ -360,7 +360,7 @@ describe("BG-72: AvailableMicrophonesList renders a real list with ul/li + roles
 });
 
 // ──────────────────────────────────────────────────────────────────────
-// BG-94 — AudioPresetSelector memoizes getPresetOptions() instead of
+//AudioPresetSelector memoizes getPresetOptions() instead of
 // calling it 3× per render.
 // ──────────────────────────────────────────────────────────────────────
 describe("BG-94: AudioPresetSelector memoizes getPresetOptions() to a single call per mount", () => {

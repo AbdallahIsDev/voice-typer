@@ -1,8 +1,8 @@
 // @vitest-environment node
 /**
- * XS-78: behavioral tests for `src/main/ipc/python-call-handler.ts`.
+ * : behavioral tests for `src/main/ipc/python-call-handler.ts`.
  *
- * Extends the existing `de-86-generic-error.test.ts` (which only
+ * Extends the existing `generic-error-dialog.test.ts` (which only
  * covers the `command_failed` envelope) to exercise ALL 4 structured
  * error codes declared in the `PythonCallErrorCode` union:
  *
@@ -126,7 +126,7 @@ describe("XS-78: python-call-handler.ts — structured {_error, _code} envelope"
 		};
 
 		expect(result._code).toBe("command_timeout");
-		// DE-86: timeout messages ARE safe to forward (they don't
+		//timeout messages ARE safe to forward (they don't
 		// contain filesystem paths or user data), so the generic
 		// message is appended with the raw errMsg for clarity.
 		expect(result._error).toMatch(/timed out/i);
@@ -146,7 +146,7 @@ describe("XS-78: python-call-handler.ts — structured {_error, _code} envelope"
 		};
 
 		expect(result._code).toBe("command_failed");
-		// DE-86: the raw Python traceback MUST NOT be forwarded to
+		//the raw Python traceback MUST NOT be forwarded to
 		// the renderer — the generic message replaces it.
 		expect(result._error).toBe("Python command failed.");
 		expect(result._error).not.toContain("/home/user/.voice-typer");

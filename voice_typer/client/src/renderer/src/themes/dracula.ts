@@ -16,18 +16,20 @@ export const draculaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--foreground": "oklch(0.18 0.015 320)",
 		"--bg-subtle": "oklch(0.93 0.012 320)",
 		"--surface-hover": "oklch(0.89 0.014 320)",
-		// PVT-001: backfill --surface-page (was missing in light, present in dark).
+		// backfill --surface-page (was missing in light, present in dark).
 		"--surface-page": "oklch(0.96 0.01 320)",
-		// Text (PVT-001: backfill --text-primary).
+		// Text (backfill --text-primary).
 		"--text-primary": "oklch(0.18 0.015 320)",
 		"--text-secondary": "oklch(0.38 0.018 320)",
 		// Borders / inputs / rings
-		"--border": "oklch(0.86 0.012 320)",
-		"--input": "oklch(0.86 0.012 320)",
-		/* PVT-044: bump L from 0.6 to 0.48 so the focus ring (combined with
+		/* WCAG 1.4.11: L lowered from 0.86 to 0.62 so the border clears
+		   3:1 contrast against the near-white background. */
+		"--border": "oklch(0.62 0.012 320)",
+		"--input": "oklch(0.62 0.012 320)",
+		/* bump L from 0.6 to 0.48 so the focus ring (combined with
 		   focus-visible:ring-ring/30) clears WCAG 1.4.11's 3:1 minimum. */
 		"--ring": "oklch(0.48 0.12 320)",
-		// Cards / popovers (PVT-001: backfill --card-foreground + --popover-foreground).
+		// Cards / popovers (backfill --card-foreground + --popover-foreground).
 		"--card": "oklch(0.97 0.01 320)",
 		"--card-foreground": "oklch(0.18 0.015 320)",
 		"--popover": "oklch(0.97 0.01 320)",
@@ -43,10 +45,10 @@ export const draculaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--accent-muted": "oklch(0.5 0.16 320 / 0.35)",
 		"--muted": "oklch(0.92 0.012 320)",
 		"--muted-foreground": "oklch(0.48 0.02 320)",
-		// Destructive (PVT-001/PVT-002: backfill --destructive + --destructive-foreground.)
+		// Destructive (/backfill --destructive + --destructive-foreground.)
 		"--destructive": "oklch(0.55 0.25 27)",
 		"--destructive-foreground": "oklch(0.97 0 0)",
-		// Sidebar (PVT-001: backfill --sidebar-primary, --sidebar-primary-foreground,
+		// Sidebar (backfill --sidebar-primary, --sidebar-primary-foreground,
 		// --sidebar-accent-foreground, --sidebar-ring.)
 		"--sidebar": "oklch(0.93 0.012 320)",
 		"--sidebar-foreground": "oklch(0.18 0.015 320)",
@@ -62,10 +64,10 @@ export const draculaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--chart-3": "oklch(0.5 0.12 340)",
 		"--chart-4": "oklch(0.55 0.1 240)",
 		"--chart-5": "oklch(0.6 0.14 30)",
-		// Scrollbar (PVT-001: backfill --scrollbar-thumb + --scrollbar-thumb-hover.)
+		// Scrollbar (backfill --scrollbar-thumb + --scrollbar-thumb-hover.)
 		"--scrollbar-thumb": "oklch(0.82 0.012 320)",
 		"--scrollbar-thumb-hover": "oklch(0.72 0.012 320)",
-		// NH-16: status tokens for light mode. Semantic
+		// status tokens for light mode. Semantic
 		// green/amber/blue so status meaning is preserved on
 		// this theme's palette (overrides the stylesheet default).
 		"--success": "oklch(0.62 0.17 149)",
@@ -77,7 +79,7 @@ export const draculaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--foreground": "oklch(0.9 0.01 320)",
 		"--bg-subtle": "oklch(0.11 0.012 320)",
 		"--surface-hover": "oklch(0.19 0.014 320)",
-		// PVT-001: backfill --surface-page so dark matches light coverage.
+		// backfill --surface-page so dark matches light coverage.
 		"--surface-page": "oklch(0.15 0.015 320)",
 		"--text-primary": "oklch(0.9 0.01 320)",
 		"--text-secondary": "oklch(0.75 0.015 320)",
@@ -92,11 +94,16 @@ export const draculaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--muted": "oklch(0.2 0.012 320)",
 		"--muted-foreground": "oklch(0.65 0.02 320)",
 		"--accent": "oklch(0.6 0.14 320)",
-		"--accent-foreground": "oklch(0.97 0 0)",
+		/* WCAG AA: --accent L=0.6 in dark mode means the default white
+		   --accent-foreground only reaches ~3.9:1. Switching to
+		   near-black clears AA 4.5:1 against the bright accent. */
+		"--accent-foreground": "oklch(0.1 0 0)",
 		"--accent-soft": "oklch(0.5 0.16 320 / 0.12)",
 		"--accent-muted": "oklch(0.5 0.16 320 / 0.4)",
-		"--border": "oklch(0.24 0.015 320)",
-		"--input": "oklch(0.26 0.015 320)",
+		/* WCAG 1.4.11: L raised from 0.24 to 0.52 so the border clears
+		   3:1 contrast against the dark background. */
+		"--border": "oklch(0.52 0.015 320)",
+		"--input": "oklch(0.54 0.015 320)",
 		"--ring": "oklch(0.7 0.15 320)",
 		"--sidebar": "oklch(0.12 0.015 320)",
 		"--sidebar-foreground": "oklch(0.9 0.01 320)",
@@ -107,7 +114,7 @@ export const draculaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--sidebar-border": "oklch(0.2 0.015 320)",
 		"--sidebar-ring": "oklch(0.7 0.15 320)",
 		"--destructive": "oklch(0.55 0.25 27)",
-		// PVT-002: backfill --destructive-foreground so destructive button text
+		// backfill --destructive-foreground so destructive button text
 		// is readable without relying on the stylesheet default.
 		"--destructive-foreground": "oklch(0.97 0 0)",
 		"--chart-1": "oklch(0.65 0.16 320)",
@@ -117,7 +124,7 @@ export const draculaTheme: Omit<ThemePreset, "nameKey"> = {
 		"--chart-5": "oklch(0.65 0.12 30)",
 		"--scrollbar-thumb": "oklch(0.3 0.015 320)",
 		"--scrollbar-thumb-hover": "oklch(0.4 0.015 320)",
-		// NH-16: status tokens for dark mode. Semantic
+		// status tokens for dark mode. Semantic
 		// green/amber/blue so status meaning is preserved on
 		// this theme's palette (overrides the stylesheet default).
 		"--success": "oklch(0.7 0.16 149)",

@@ -1,9 +1,9 @@
 /**
- * AB-39 regression tests: `useAudioLevels` rAF loop scheduling gate.
+ *  regression tests: `useAudioLevels` rAF loop scheduling gate.
  *
  * Background
  * ----------
- * Pre-AB-39: the rAF loop in `useAudioLevels.ts` unconditionally
+ * Pre-: the rAF loop in `useAudioLevels.ts` unconditionally
  * re-scheduled the next frame at the TOP of the `animate` callback:
  *
  *   const animate = () => {
@@ -19,7 +19,7 @@
  * for the entire app lifetime, even when the bubble was hidden (which
  * is ~90 % of the lifetime in `show_on_record` mode, the default).
  *
- * Post-AB-39: the scheduling call has moved to the END of the callback,
+ * Post-: the scheduling call has moved to the END of the callback,
  * guarded by `if (visibleRef.current && recordingRef.current)`. When
  * either gate closes, the loop STOPS scheduling new frames. A separate
  * `useEffect` watches the `isVisible` prop and (a) cancels the
@@ -182,7 +182,7 @@ describe("AB-39: useAudioLevels rAF scheduling gate", () => {
 		hideBubble();
 		await tickFrames(2);
 
-		// AB-39: at least one cancelAnimationFrame call must have
+		//at least one cancelAnimationFrame call must have
 		// fired against the in-flight frame. (Exactly one is expected,
 		// but `>= 1` is the safe assertion — React may re-run the
 		// effect in edge cases.)
@@ -212,7 +212,7 @@ describe("AB-39: useAudioLevels rAF scheduling gate", () => {
 		hideBubble();
 		await tickFrames(10);
 
-		// AB-39: the loop did NOT keep spinning. At most ZERO rAF
+		//the loop did NOT keep spinning. At most ZERO rAF
 		// calls post-hide (the in-flight frame was cancelled by the
 		// visibility-watcher effect, so even the one in-flight rAF
 		// callback may not fire).
@@ -248,14 +248,14 @@ describe("AB-39: useAudioLevels rAF scheduling gate", () => {
 		showBubble();
 		await tickFrames(3);
 
-		// AB-39: the loop resumed — rAF calls are happening again.
+		//the loop resumed — rAF calls are happening again.
 		expect(rafSpy.mock.calls.length).toBeGreaterThan(0);
 
 		rafSpy.mockRestore();
 	});
 
 	it("still animates when visible AND in recording mode (no regression)", async () => {
-		// AB-39 critical rule: the bubble MUST still animate when
+		//critical rule: the bubble MUST still animate when
 		// visible AND recording. This test verifies the loop runs
 		// per-frame in the default state (visible + recording).
 		const rafSpy = vi.spyOn(window, "requestAnimationFrame");

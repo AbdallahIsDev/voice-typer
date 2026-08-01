@@ -1,6 +1,6 @@
 // About page — diagnostics, privacy disclosure, and resources/feedback links.
 //
-// UX-20 SET-5: the previous 726-line catch-all version had Help, Cache
+//SET-5: the previous 726-line catch-all version had Help, Cache
 // Status, Updates, Diagnostics, Privacy, and Resources sections all crammed
 // together. The Help section duplicated the `?` overlay (already reachable
 // from TitleBar + the `?` keydown shortcut), and Cache Status + Updates
@@ -40,7 +40,7 @@ const SECURITY_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/SECURITY.md";
 const CONTRIBUTING_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/CONTRIBUTING.md";
-// XA-11-4: in-app changelog link so users can see what changed in the
+//in-app changelog link so users can see what changed in the
 // installed version without leaving the app to browse the repo. Uses
 // the existing ``about.viewChangelog`` i18n key (already translated to
 // all supported locales). ``CHANGELOG.md`` is the canonical release
@@ -52,7 +52,7 @@ const CHANGELOG_URL =
 // folder holds deeper references (FEATURES.md, ADRs, debugging guide).
 const DOCUMENTATION_URL =
 	"https://github.com/AbdallahIsDev/voice-typer/blob/main/README.md";
-// BG-59: SECURITY.md is the canonical privacy + security policy doc
+//SECURITY.md is the canonical privacy + security policy doc
 // in this repo (there is no separate PRIVACY.md). Previously the About
 // page rendered two byte-identical buttons ("Full Privacy Policy" and
 // "Security Policy") that both pointed at SECURITY.md — confusing UX.
@@ -197,7 +197,7 @@ export default function AboutPage() {
 	const [backendConnected, setBackendConnected] = useState<boolean | null>(
 		null,
 	);
-	// NEW-UX-038: the active model's loaded_via string (e.g.
+	//the active model's loaded_via string (e.g.
 	// "cuda/float16/small.en" or "cpu/int8/tiny.en").
 	const [loadedVia, setLoadedVia] = useState<string>("");
 
@@ -217,7 +217,7 @@ export default function AboutPage() {
 				if (!cancelled) {
 					setBackendConnected(true);
 					if (status?.config_dir) setConfigDir(status.config_dir);
-					// NEW-UX-038: capture loaded_via so the user can see if
+					//capture loaded_via so the user can see if
 					// their GPU is actually being used or if the model fell
 					// back to CPU.
 					if (status?.loaded_via) setLoadedVia(status.loaded_via);
@@ -287,7 +287,7 @@ export default function AboutPage() {
 					/>
 					<Row label={t("about.asrBackend")} value={asrBackend} />
 					<Row label={t("about.device")} value={device} />
-					{/* NEW-UX-038: show which device/compute_type the model
+					{/*show which device/compute_type the model
 	  actually loaded via. */}
 					<Row
 						label={t("about.loadedVia")}
@@ -298,7 +298,7 @@ export default function AboutPage() {
 				</SettingsSection>
 
 				{/* ── Privacy ──────────────────────────────────────────── */}
-				{/* NEW-PRIV-004 / NEW-PRIV-009: expanded privacy disclosure. */}
+				{/*expanded privacy disclosure. */}
 				<SettingsSection
 					title={t("about.privacyTitle")}
 					description={t("about.privacyDescription")}
@@ -337,7 +337,7 @@ export default function AboutPage() {
 								configDir: configDir || t("about.loading"),
 							})}
 						</p>
-						{/* BG-59: SECURITY.md is the canonical privacy +
+						{/*SECURITY.md is the canonical privacy +
 						 * security policy doc in this repo (there is no
 						 * separate PRIVACY.md). Previously this section
 						 * had a "Full Privacy Policy" button that pointed
@@ -355,7 +355,7 @@ export default function AboutPage() {
 				</SettingsSection>
 
 				{/* ── Resources ────────────────────────────────────────── */}
-				{/* NEW-UX-022: feedback channels. */}
+				{/*feedback channels. */}
 				<SettingsSection
 					title={t("about.resourcesTitle")}
 					description={t("about.resourcesDescription")}
@@ -370,7 +370,7 @@ export default function AboutPage() {
 								{t("about.documentationLink")}
 							</a>
 						</Button>
-						{/* XA-11-4: View Changelog button so users can see
+						{/*View Changelog button so users can see
 						 * what changed in the installed version. Links to
 						 * the canonical CHANGELOG.md at the repo root and
 						 * uses the existing ``about.viewChangelog`` i18n

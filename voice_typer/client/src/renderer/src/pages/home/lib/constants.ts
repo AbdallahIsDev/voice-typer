@@ -1,4 +1,4 @@
-// EC-FIX-12 / EC-12: shared constants extracted from Home.tsx so the
+//shared constants extracted from Home.tsx so the
 // main page file stays a thin composition root. Pure values — no
 // behaviour, no React, no IPC.
 
@@ -37,7 +37,7 @@ export const FORCE_CANCEL_DELAY_MS = 5_000;
 export const LAST_TEXT_AUTO_CLEAR_MS = 5_000;
 
 /**
- * FIX-15 (CR-14): aligned with `voice_typer/server/tray_icon.py:277-284`
+ *  (): aligned with `voice_typer/server/tray_icon.py:277-284`
  * color-blind-safe palette so the Home status pill matches the tray icon.
  * The key is the lowercase status string emitted by the backend's
  * `status_change` event / `RecordingState` enum.

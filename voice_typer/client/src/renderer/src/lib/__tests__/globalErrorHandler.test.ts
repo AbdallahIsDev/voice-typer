@@ -1,5 +1,5 @@
 /**
- * G4-CR-10 — unit tests for `installGlobalErrorHandlers()`.
+ *  — unit tests for `installGlobalErrorHandlers()`.
  *
  * Asserts that the renderer's global safety net is actually installed:
  * after calling `installGlobalErrorHandlers()` (the function
@@ -7,7 +7,7 @@
  * body, before React mounts), `window` MUST have both an `error` and
  * an `unhandledrejection` listener registered. Without this guarantee,
  * every unhandled promise rejection (the 13+ `.catch(() => {})`
- * swallows identified in G4-H-25) silently vanishes — no toast, no
+ * swallows identified in ) silently vanishes — no toast, no
  * console trace, no main-process log line.
  *
  * The test spies on `window.addEventListener` so it can verify the
@@ -35,7 +35,7 @@ describe("G4-CR-10: installGlobalErrorHandlers registers both listeners", () => 
 		typeof window.addEventListener
 	>;
 
-	// XZ-R16-07: track listeners actually registered on ``window`` so
+	//track listeners actually registered on ``window`` so
 	// ``afterEach`` can remove them. Pre-fix,
 	// ``_resetGlobalErrorHandlerStateForTests()`` only reset the
 	// module-level ``_installed`` flag — the REAL
@@ -80,7 +80,7 @@ describe("G4-CR-10: installGlobalErrorHandlers registers both listeners", () => 
 	});
 
 	afterEach(() => {
-		// XZ-R16-07: remove every listener the spy forwarded so the
+		//remove every listener the spy forwarded so the
 		// jsdom ``window`` is clean for the next test (and for
 		// subsequent test files in the same vitest worker).
 		for (const { type, cb } of installedListeners) {
@@ -142,7 +142,7 @@ describe("G4-CR-10: installGlobalErrorHandlers registers both listeners", () => 
  */
 describe("G4-CR-10: installed listener logs to console.error", () => {
 	let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
-	// XZ-R16-07: this describe block calls ``installGlobalErrorHandlers()``
+	//this describe block calls ``installGlobalErrorHandlers()``
 	// (which calls ``window.addEventListener`` for real) inside each
 	// ``it``. Track the listeners so ``afterEach`` can remove them.
 	// Pre-fix, each test leaked one ``error`` + one ``unhandledrejection``
@@ -178,7 +178,7 @@ describe("G4-CR-10: installed listener logs to console.error", () => {
 	});
 
 	afterEach(() => {
-		// XZ-R16-07: remove every listener the spy forwarded so the
+		//remove every listener the spy forwarded so the
 		// jsdom ``window`` is clean for the next test.
 		for (const { type, cb } of installedListeners) {
 			window.removeEventListener(type, cb);

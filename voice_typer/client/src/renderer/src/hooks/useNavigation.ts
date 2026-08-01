@@ -2,13 +2,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { isKnownPage } from "@/router/routes";
 import type { Page } from "@/types/ipc";
 
-// NEW-UX-041: persist the current page + nav history to localStorage
+// Persist the current page + nav history to localStorage
 // so the user returns to where they left off after closing/reopening
 // the app.  Previously the app always started at 'home' and the
 // user's navigation history was lost.
 const STORAGE_KEY_NAV = "vt_nav_state";
 
-// PVT-fix-14: cap the in-memory nav history to avoid unbounded growth
+// Cap the in-memory nav history to avoid unbounded growth
 // if a user navigates hundreds of times in a single session. 50 is
 // generous (browsers cap tab history at ~50 for similar reasons) and
 // the slice preserves back/forward semantics: when the cap is hit the
@@ -16,7 +16,7 @@ const STORAGE_KEY_NAV = "vt_nav_state";
 // same logical entry (its index shifts down by 1).
 const MAX_NAV_HISTORY = 50;
 
-// EC-FIX-13: the runtime page registry — the set of known page names
+// The runtime page registry — the set of known page names
 // and the `isKnownPage` type guard — now lives in `router/routes.ts`
 // (single source of truth, mirrored from the `Page` union in
 // `types/ipc.ts`). Previously this file maintained its own
@@ -43,7 +43,7 @@ function loadNavState(): NavState {
 				history?: unknown;
 				index?: unknown;
 			};
-			// PVT-fix-15: validate `parsed.page` against the known Page
+			// Validate `parsed.page` against the known Page
 			// union so a corrupted localStorage payload (e.g. a user
 			// hand-edited devtools, or a stale schema from an older
 			// build) cannot inject an unknown page value into React
@@ -84,7 +84,7 @@ function loadNavState(): NavState {
  * browser's back/forward navigation.
  */
 export function useNavigation() {
-	// PERF-FIX: previously `loadNavState()` was called on every render,
+	// Previously `loadNavState()` was called on every render,
 	// parsing localStorage + JSON.parse each time even though only the
 	// first call's result is used (passed to useState/useRef initializers
 	// which ignore subsequent values). Wrapped in a useState initializer
@@ -114,7 +114,7 @@ export function useNavigation() {
 
 	const navigate = useCallback(
 		(page: Page) => {
-			// PVT-fix-13: no-op when navigating to the page we're already
+			// No-op when navigating to the page we're already
 			// on. Previously this still pushed a duplicate entry onto the
 			// history stack and re-saved localStorage, polluting the
 			// back/forward chain (Ctrl+Click on a sidebar entry the user
@@ -129,7 +129,7 @@ export function useNavigation() {
 			];
 			let nextIndex = navIndex.current + 1;
 
-			// PVT-fix-14: cap the history so a long-lived session
+			// Cap the history so a long-lived session
 			// doesn't accumulate hundreds of entries (each one is
 			// serialized into localStorage on every navigate). Drop
 			// from the front; shift the index so the current pointer
@@ -149,7 +149,7 @@ export function useNavigation() {
 	);
 
 	/**
-	 * PVT-fix-12: replace the current history entry with `page` without
+	 * Replace the current history entry with `page` without
 	 * pushing a new entry onto the stack. Mirrors `history.replaceState`
 	 * in the browser API. Use this for route guards that should NOT
 	 * appear in the back/forward history (e.g. the onboarding-completed
@@ -202,6 +202,44 @@ export function useNavigation() {
 		};
 		document.addEventListener("mouseup", handler);
 		return () => document.removeEventListener("mouseup", handler);
+	}, [goBack, goForward]);
+
+	// Keyboard equivalent for back/forward navigation: Alt+ArrowLeft
+	// goes back, Alt+ArrowRight goes forward — matching the behaviour
+	// of every major browser so users with a keyboard-only workflow
+	// get the same affordance the mouse X1/X2 buttons already provide.
+	//
+	// The handler is suppressed when focus is inside an editable
+	// element (`<input>`, `<textarea>`, `<select>`, or
+	// `contentEditable`) so a user editing a text field with arrow keys
+	// doesn't get yanked to another page just because they happened to
+	// hold Alt. The browser's own Alt+Arrow text-editing shortcuts
+	// (e.g. Alt+Left/Right to move the caret by word on macOS) keep
+	// working because we return before calling `preventDefault()` in
+	// that branch.
+	useEffect(() => {
+		const handler = (e: KeyboardEvent) => {
+			if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+			if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+
+			const target = e.target as HTMLElement | null;
+			const tag = target?.tagName?.toLowerCase() ?? "";
+			const typing =
+				tag === "input" ||
+				tag === "textarea" ||
+				tag === "select" ||
+				target?.isContentEditable === true;
+			if (typing) return;
+
+			e.preventDefault();
+			if (e.key === "ArrowLeft") {
+				goBack();
+			} else {
+				goForward();
+			}
+		};
+		document.addEventListener("keydown", handler);
+		return () => document.removeEventListener("keydown", handler);
 	}, [goBack, goForward]);
 
 	return {

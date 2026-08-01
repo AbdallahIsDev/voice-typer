@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * NH-3 (session NH) unit tests for the re-added `i18n:set-locale` IPC
+ *  (session NH) unit tests for the re-added `i18n:set-locale` IPC
  * handler in `window-handlers.ts`.
  *
  * Verifies that:
@@ -52,7 +52,7 @@ vi.mock("../i18n", () => ({
 	// `mainT` is used by `model:import-dialog` handler — keep it as a
 	// passthrough so any test that triggers that handler doesn't crash.
 	mainT: (key: string) => key,
-	// `setMainLocale` is the function under test for NH-3. The mock
+	//`setMainLocale` is the function under test for  The mock
 	// records calls so we can assert the handler dispatches correctly.
 	setMainLocale: mocks.setMainLocale,
 }));

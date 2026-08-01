@@ -1,17 +1,17 @@
 /**
- * Tests for the Templates page — BG-60 (load-error variant) and BG-63
+ * Tests for the Templates page —  (load-error variant) and
  * (export format forwarding).
  *
- * BG-60: the load-error EmptyState in Templates.tsx previously used the
+ * : the load-error EmptyState in Templates.tsx previously used the
  * default ``"info"`` variant, which made a backend-load failure look
- * identical to "you haven't added anything yet". BG-60 switches the
+ * identical to "you haven't added anything yet".  switches the
  * load-error EmptyState to ``variant="error"`` so the failure is
  * visually distinct (destructive ring + Alert02Icon + role="alert").
  *
- * BG-63: the ExportFormatMenu picks "json" or "csv" and calls
+ * : the ExportFormatMenu picks "json" or "csv" and calls
  * onExport(format). Templates.tsx previously had ``onExport={() =>
  * doExport()}`` — the arrow function dropped the format arg, so CSV
- * export silently behaved like JSON export. BG-63 forwards the format
+ * export silently behaved like JSON export.  forwards the format
  * through to ``doExport`` and ultimately to the IPC bridge.
  */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -120,7 +120,7 @@ describe("Templates page — BG-60 load-error variant", () => {
 			expect(screen.getByText("Failed to load templates")).toBeTruthy();
 		});
 
-		// BG-62: the loadError description is the localised string from
+		//the loadError description is the localised string from
 		// templates.loadFailedDescription (not a hardcoded English
 		// fallback).
 		expect(
@@ -163,7 +163,7 @@ describe("Templates page — BG-63 export format forwarding", () => {
 
 		// Install a window_.exportTemplates mock so doExport can
 		// reach the bridge path. The cast mirrors the production code's
-		// ExportTemplatesWithFormat alias (BG-63).
+		//ExportTemplatesWithFormat alias ().
 		originalWindow_ = window.window_;
 		exportTemplatesMock.mockResolvedValue({
 			success: true,
@@ -209,7 +209,7 @@ describe("Templates page — BG-63 export format forwarding", () => {
 		await user.click(csvItem);
 
 		// The bridge.exportTemplates mock should have been called with
-		// the templates payload AND format="csv". Before BG-63, the
+		//the templates payload AND format="csv". Before , the
 		// format arg was dropped at the call site (onExport={() =>
 		// doExport()}) so the bridge received only the data arg.
 		await waitFor(() => {

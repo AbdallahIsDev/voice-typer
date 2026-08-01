@@ -5,7 +5,7 @@
 // on-demand history endpoints (`get_history_count` and
 // `get_transcription_text`).
 //
-// Split out from the original monolithic `types/ipc.ts` (DT-31 / DT-FIX-7).
+//Split out from the original monolithic `types/ipc.ts` ( / ).
 // No behaviour change vs. the original file — pure structural refactor.
 
 // ── History data shapes (from Python history_db) ───────────────────

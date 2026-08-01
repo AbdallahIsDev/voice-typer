@@ -1,16 +1,16 @@
 // @vitest-environment node
 /**
- * AB-40 regression tests: `appendLogLine` per-path "perms verified" cache.
+ *  regression tests: `appendLogLine` per-path "perms verified" cache.
  *
  * Background
  * ----------
- * Pre-AB-40: `appendLogLine` called `fs.chmodSync(filePath, 0o600)` on
+ * Pre-: `appendLogLine` called `fs.chmodSync(filePath, 0o600)` on
  * EVERY append — even though the chmod is idempotent (the file is
  * already 0o600 after the first call). This was 30 sync chmods/sec
  * when `VOICE_TYPER_ELECTRON_INFO_LOG=1` (30 Hz bubble_level lifecycle
  * logging).
  *
- * Post-AB-40: a per-path "perms verified" flag (`_permsVerified` Set
+ * Post-: a per-path "perms verified" flag (`_permsVerified` Set
  * in rotation.ts) skips the chmod after the first successful call.
  * The flag is reset on rotation (which creates a new file).
  *
@@ -79,7 +79,7 @@ describe("AB-40: appendLogLine per-path perms cache", () => {
 		logPath = path.join(tmpDir, "test.log");
 
 		vi.resetModules();
-		// AB-40: import directly from the rotation module (not the
+		//import directly from the rotation module (not the
 		// barrel) so we can access the internal `_resetPermsVerifiedForTest`
 		// which is NOT re-exported from the public barrel.
 		const rotationMod = await import("../rotation");
@@ -130,7 +130,7 @@ describe("AB-40: appendLogLine per-path perms cache", () => {
 		const chmodCalls = chmodSpy.mock.calls.filter(
 			(args: unknown[]) => args[0] === logPath,
 		);
-		// AB-40: chmod is called ONLY ONCE (on the first append). The
+		//chmod is called ONLY ONCE (on the first append). The
 		// subsequent 4 appends skip chmod because the flag is set.
 		expect(chmodCalls.length).toBe(1);
 	});
@@ -159,7 +159,7 @@ describe("AB-40: appendLogLine per-path perms cache", () => {
 		const chmodCalls = chmodSpy.mock.calls.filter(
 			(args: unknown[]) => args[0] === logPath,
 		);
-		// AB-40: at least 2 chmod calls total (one before rotation, one
+		//at least 2 chmod calls total (one before rotation, one
 		// after). The exact count depends on timing of the deferred
 		// rotation, but >= 2 proves the flag was reset.
 		expect(chmodCalls.length).toBeGreaterThanOrEqual(2);
@@ -183,7 +183,7 @@ describe("AB-40: appendLogLine per-path perms cache", () => {
 		const chmodCalls2 = chmodSpy.mock.calls.filter(
 			(args: unknown[]) => args[0] === logPath2,
 		);
-		// AB-40: each path gets exactly ONE chmod (independent flags).
+		//each path gets exactly ONE chmod (independent flags).
 		expect(chmodCalls1.length).toBe(1);
 		expect(chmodCalls2.length).toBe(1);
 	});

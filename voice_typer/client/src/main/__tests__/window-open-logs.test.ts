@@ -1,6 +1,6 @@
 // @vitest-environment node
 /**
- * CR-33 unit tests for `window:open-logs` IPC handler.
+ *  unit tests for `window:open-logs` IPC handler.
  *
  * Verifies that the handler resolves the log directory via
  * `computeConfigDir()` (NOT the legacy hardcoded `~/.voice-typer`)

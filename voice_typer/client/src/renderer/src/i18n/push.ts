@@ -19,7 +19,7 @@ import type { Locale } from "./locale";
 import { t } from "./translate";
 
 /**
- * NH-4: build a dictionary of tray-menu label keys → localized strings
+ * : build a dictionary of tray-menu label keys → localized strings
  * for the current locale. Keys whose translation resolves to the raw key
  * itself (meaning the key is missing from both the current locale and
  * English) are excluded so the backend keeps its English defaults.

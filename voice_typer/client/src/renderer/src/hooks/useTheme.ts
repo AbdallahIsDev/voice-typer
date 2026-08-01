@@ -16,7 +16,7 @@ import {
 } from "@/themes";
 import type { VoiceTyperConfig } from "@/types/config";
 
-// BG-81: the four ``LS_*`` constants previously lived here (and were
+//the four ``LS_*`` constants previously lived here (and were
 // duplicated in ``theme-bootstrap.ts``). They now live in
 // ``lib/theme-storage-keys.ts`` (single source of truth) so the
 // bootstrap and the hook cannot drift out of sync — a one-sided key
@@ -39,7 +39,7 @@ function readLsThemeMode(): VoiceTyperConfig["theme_mode"] {
 function readLsThemePreset(): VoiceTyperConfig["theme_preset"] {
 	try {
 		const v = localStorage.getItem(LS_THEME_PRESET);
-		// BG-82: validate against the canonical ``THEMES`` list
+		//validate against the canonical ``THEMES`` list
 		// (single source of truth in ``themes/index.ts``) instead
 		// of a hand-maintained string-literal chain. Adding a new
 		// preset previously required editing BOTH the themes/
@@ -115,7 +115,7 @@ export function useTheme(
 	const [themeMode, setThemeMode] = useState<VoiceTyperConfig["theme_mode"]>(
 		readLsThemeMode(),
 	);
-	// BG-91: the underlying useState setters are renamed to
+	//the underlying useState setters are renamed to
 	// ``*State`` so the public-facing names (``setThemePreset``,
 	// ``setCustomTheme``, ``setTextSize``) can be wrapped in
 	// debounce-and-save callbacks below. The internal callers that
@@ -132,7 +132,7 @@ export function useTheme(
 	);
 	const [textSize, setTextSizeState] = useState(readLsTextSize());
 
-	// PVT-018 / FLASH-FIX: tracks whether the first
+	//FLASH-FIX: tracks whether the first
 	// ``reloadThemeFromConfig`` call has completed on this mount.
 	// Until it has, the theme-application effect below is suppressed
 	// — the pre-React ``theme-bootstrap.ts`` already applied the
@@ -200,7 +200,7 @@ export function useTheme(
 		return () => prefersDark.removeEventListener("change", handler);
 	}, [themeMode, themePreset, customTheme, hasInitialReloadCompleted]);
 
-	// PLAT-017: Apply text_size as a CSS custom property so the entire UI
+	//Apply text_size as a CSS custom property so the entire UI
 	// scales proportionally. text_size=14 is the default (scale=1.0).
 	// The --font-scale variable is consumed by index.css to set the
 	// root font-size. This gives users a "Large Text" accessibility
@@ -213,7 +213,7 @@ export function useTheme(
 	// Load theme from config.  Extracted as a reusable callback so the
 	// onboarding-completion handler (in App.tsx) can re-trigger a full
 	// reload after the user finishes the wizard.
-	// NEW-TS-015: removed the ``if (!isReady) return`` guard — it was
+	//removed the ``if (!isReady) return`` guard — it was
 	// dead code (``isReady`` was always ``true`` because the preload
 	// installs ``window.python`` before React mounts).  The actual
 	// backend-readiness check is ``connectionStatus === 'connected'``,
@@ -369,7 +369,7 @@ export function useTheme(
 	// a flush-on-unmount effect + a `beforeunload` listener so the
 	// pending save fires synchronously before the renderer tears down.
 	//
-	// BG-91: the debounce + flush-on-unmount pattern was previously
+	//the debounce + flush-on-unmount pattern was previously
 	// applied ONLY to ``theme_mode`` (via ``handleThemeChange``).
 	// ``setThemePreset`` / ``setCustomTheme`` / ``setTextSize`` were
 	// bare ``useState`` setters — external callers (Settings page,
@@ -381,7 +381,7 @@ export function useTheme(
 	// its change with the same 300ms debounce and the same
 	// quit-flush guarantee.
 	const themeSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	// BG-91: unified pending-updates object. Each entry is a partial
+	//unified pending-updates object. Each entry is a partial
 	// ``set_config`` payload keyed by the field name. The flush path
 	// sends the merged object in a single IPC call.
 	const pendingThemeUpdatesRef = useRef<Partial<
@@ -455,7 +455,7 @@ export function useTheme(
 		[scheduleThemeSave],
 	);
 
-	// BG-91: public-facing setters for theme_preset / custom_theme /
+	//public-facing setters for theme_preset / custom_theme /
 	// text_size. Each updates the local state immediately (so the UI
 	// reflects the change without waiting for the backend round-trip)
 	// AND schedules a debounced save. The localStorage-sync effect
