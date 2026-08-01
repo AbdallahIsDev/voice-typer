@@ -69,6 +69,11 @@ class ElapsedTimer:
         # ``_set_timer_ref`` so tests that read ``tray._elapsed_timer``
         # see the same object.
         self._timer: threading.Timer | None = None
+        # Generation counter to prevent timer leaks on rapid
+        # stop/restart. start() increments _generation and captures
+        # the new value in the _tick closure; the tick only
+        # reschedules itself if self._generation == my_gen.
+        self._generation: int = 0
 
     @staticmethod
     def format_elapsed(seconds: float) -> str:
@@ -90,14 +95,31 @@ class ElapsedTimer:
         Cancels any prior timer first so rapid RECORDING → RECORDING
         transitions (e.g. from a stop/restart race) don't leak
         overlapping timers.
+
+        Generation counter: start() increments _generation and the
+        _tick closure captures the value at entry. The tick only
+        reschedules itself if self._generation == my_gen — a
+        subsequent start() invalidates the prior tick so it exits
+        without rescheduling.
         """
         self.cancel()
+        # Increment the generation so any in-flight _tick from a
+        # prior start() knows it has been superseded and exits
+        # without rescheduling.
+        self._generation += 1
+        my_gen = self._generation
 
         def _tick() -> None:
             # Re-check state inside the tick: a stop() may have fired
             # between the timer being scheduled and now. If we're no
             # longer recording, just exit without rescheduling.
             if not self._is_active():
+                return
+            # Generation guard: if a newer start() has incremented
+            # _generation since this _tick was scheduled, this _tick
+            # is stale — exit WITHOUT rescheduling so the new
+            # start()'s Timer is the sole owner of self._timer.
+            if self._generation != my_gen:
                 return
             try:
                 self._tick_callback()
@@ -106,9 +128,11 @@ class ElapsedTimer:
                     "[TRAY] elapsed-timer tick failed to refresh tooltip",
                     exc_info=True,
                 )
-            # Reschedule only if still active. The check happens AFTER
-            # the tick callback so a state change during the tick is
-            # caught.
+            # Reschedule only if still active AND our generation is
+            # still current. The state check happens AFTER the tick
+            # callback so a state change during the tick is caught;
+            # the generation check catches a rapid start() that
+            # happened during the tick callback's execution.
             #
             # wrap the reschedule in try/except so a
             # ``threading.Timer`` construction or ``t.start()``
@@ -120,7 +144,7 @@ class ElapsedTimer:
             # SILENTLY (no log, no reschedule). Log at WARNING so
             # the freeze shows up in diagnostics; recording itself
             # continues unaffected (the timer is tooltip-only).
-            if self._is_active():
+            if self._is_active() and self._generation == my_gen:
                 try:
                     t = threading.Timer(1.0, _tick)
                     t.daemon = True
@@ -147,7 +171,13 @@ class ElapsedTimer:
         and the owner's ``_elapsed_timer`` attribute (via
         ``set_timer_ref``) to ``None`` so ``set_state`` assertions on
         ``_elapsed_timer is None`` work.
+
+        Also increments _generation so any in-flight _tick from a
+        prior start() exits without overwriting self._timer.
         """
+        # Increment generation so an in-flight _tick from the prior
+        # start() doesn't reschedule after we've cleared the ref.
+        self._generation += 1
         t = self._timer
         self._timer = None
         self._set_timer_ref(None)

@@ -26,8 +26,9 @@ orchestrators. The per-step work is delegated to private
 ``_gdpr_unlink_personal_files`` / ``_gdpr_unlink_personal_globs`` /
 ``_gdpr_rmtree_rust_logs`` / ``_gdpr_rmtree_crash_archive`` /
 ``_gdpr_clear_keychain`` / ``_gdpr_invalidate_cached_engines`` /
-``_gdpr_recreate_history_db`` / ``_gdpr_post_cleanup_sweep`` /
-``_gdpr_build_zip`` / ``_gdpr_rotate_exports``). Each helper owns
+``_gdpr_invalidate_managers`` / ``_gdpr_recreate_history_db`` /
+``_gdpr_post_cleanup_sweep`` / ``_gdpr_build_zip`` /
+``_gdpr_rotate_exports``). Each helper owns
 one well-named slice of the GDPR pipeline; the orchestrator's job
 is to call them in order and assemble the result dict. No behavior
 change — the public return shapes and side effects are identical to
@@ -40,6 +41,7 @@ import logging
 import os
 
 from voice_typer.server._secrets import redact_secret, redact_url
+from voice_typer.server._user_data_files import _GDPR_PERSONAL_FILES
 from voice_typer.server.service._base import ServiceMixinBase
 
 log = logging.getLogger(__name__)
@@ -66,6 +68,14 @@ class PrivacyMixin(ServiceMixinBase):
     # Hardcoded list of personal-data file names (not glob patterns)
     # to delete / export.  Glob patterns are handled separately below.
     #
+    # The tuple itself is imported from
+    # :mod:`voice_typer.server._user_data_files` (the single source of
+    # truth shared with :func:`voice_typer.server.config.purge_user_data`)
+    # so the GDPR delete path and the uninstall-purge path cannot drift
+    # from each other or from the canonical ``*_FILENAME`` constants
+    # owned by each artifact's module. The detailed per-entry rationale
+    # is documented at the definition site in ``_user_data_files.py``.
+    #
     # ``history.db-wal`` and ``history.db-shm`` are SQLite's
     # WAL (Write-Ahead Log) sidecar files.  In WAL journal mode
     # (HistoryDB's default — see ``history_db._open_write_conn``),
@@ -83,55 +93,7 @@ class PrivacyMixin(ServiceMixinBase):
     # it is personal data for GDPR purposes.  Its rotated backups
     # (``prewarm.log.1`` .. ``prewarm.log.5``) are matched by the
     # ``prewarm.log.*`` glob below.
-    _GDPR_PERSONAL_FILES: tuple = (
-        "history.db",
-        "history.db-wal",
-        "history.db-shm",
-        "voice-typer-recovery.json",
-        "config.json",
-        "voice-typer-corrections.json",
-        "voice-typer-vocabulary.json",
-        "voice-typer-templates.json",
-        "voice-typer.log",
-        "prewarm.log",
-        # Electron renderer-error log: written by
-        # ``voice_typer/client/src/main/logging/structuredLogger.ts``
-        # to ``<userData>/electron-renderer-errors.log`` via
-        # ``rendererErrorsLogPath()``. On macOS / Windows the Electron
-        # ``userData`` path resolves to the SAME directory as the Python
-        # ``_config_dir()`` (``~/Library/Application Support/voice-typer``
-        # / ``%APPDATA%\voice-typer``), so listing the bare filename
-        # here lets the unlink walk below actually remove it on those
-        # platforms. On Linux ``userData`` is ``~/.config/voice-typer``
-        # while ``config_dir`` is ``~/.voice-typer`` (a different
-        # directory) — there the Python backend cannot reach the file
-        # and the entry is a no-op (handled by the ``path.exists()``
-        # guard below); the Electron host must expose its own
-        # ``deleteAllPersonalData`` IPC to cover that case (see
-        # ``docs/privacy/gdpr-delete.md`` "Electron logs gap").
-        # Per  the renderer-error toast payload may contain
-        # user-spoken text fragments, so the file IS personal data.
-        "electron-renderer-errors.log",
-        # Rust host log: per ``src-tauri/src/platform/logging.rs``
-        # the canonical Rust rotating log filename is ``voice-typer.log``
-        # (NOT ``voice-typer-rust.log``) and it lives inside the
-        # ``<config_dir>/logs/`` subdirectory, which is recursively
-        # removed by the ``shutil.rmtree(rust_logs_dir)`` step below —
-        # so the canonical Rust log is already covered. ``voice-typer-rust.log``
-        # is listed here as a DEFENSIVE entry: it covers the legacy /
-        # pre-migration filename still emitted by some build pipelines
-        # (``docs/home-directory.md`` notes an earlier draft used this
-        # name) and is a no-op on current builds via the ``path.exists()``
-        # guard. Per  the Rust logger has no PII redaction, so
-        # dictated-text fragments may be present in any Rust log file.
-        "voice-typer-rust.log",
-        # config.json.bak retains plaintext API keys
-        "config.json.bak",
-        # config.json.lock can hold stale PID + username
-        "config.json.lock",
-        # .restart_token — defensive entry
-        ".restart_token",
-    )
+    _GDPR_PERSONAL_FILES: tuple = _GDPR_PERSONAL_FILES
     # Glob patterns for personal-data files with timestamped / rotated
     # names.  See ``delete_all_personal_data`` / ``export_gdpr_bundle``
     # for the walk — both iterate this tuple against ``config_dir``.
@@ -512,6 +474,72 @@ class PrivacyMixin(ServiceMixinBase):
             app._cloud_engine = None
 
     @staticmethod
+    def _gdpr_invalidate_managers(app: object) -> None:
+        """Re-read the (now-empty) vocabulary / templates files into
+        the live in-memory managers.
+
+        The unlink step in :meth:`delete_all_personal_data` removes
+        ``voice-typer-vocabulary.json`` and ``voice-typer-templates.json``
+        from disk, but the live ``app._vocabulary_manager`` /
+        ``app._template_manager`` instances still hold their pre-delete
+        in-memory state (``_data`` / ``_templates`` populated with the
+        user's now-deleted PII). Without this invalidation step, the
+        next dictation would still apply the deleted vocabulary /
+        templates — a GDPR Art. 17 right-to-erasure violation (the
+        data "appears" deleted on disk but is still actively used by
+        the running process).
+
+        We re-read by calling the managers' own ``_load_and_merge`` /
+        ``_load`` methods — which now see the missing file and fall
+        back to the bundled defaults (vocabulary) / empty list
+        (templates). The acquire/release of each manager's ``_lock``
+        is required because both methods mutate the manager's
+        in-memory state and the docstring contract for
+        :meth:`TemplateManager._load` explicitly notes that callers
+        outside ``__init__`` must hold the lock (the in-memory list
+        is otherwise observable mid-swap by a concurrent ``match`` /
+        ``apply_to_text`` call).
+
+        Best-effort: if a manager is ``None`` (cold-start path where
+        the lazy property has not yet been triggered), there is
+        nothing to invalidate — the next access will construct a
+        fresh instance that reads the (now-empty) file.  All
+        exceptions are suppressed at WARNING level so a failure here
+        does not abort the GDPR delete (the on-disk files are already
+        gone — the user's right-to-erasure is satisfied; only the
+        in-memory cache invalidation failed, which is a quality-of-
+        service issue, not a privacy issue).
+        """
+        # VocabularyManager
+        try:
+            vm = getattr(app, "_vocabulary_manager", None)
+            if vm is not None and hasattr(vm, "_lock") and hasattr(vm, "_load_and_merge"):
+                with vm._lock:
+                    vm._load_and_merge()
+        except Exception:
+            log.warning(
+                "[SERVICE] GDPR delete: could not invalidate live "
+                "VocabularyManager in-memory state — the on-disk file "
+                "is gone but the in-memory cache may still hold deleted "
+                "PII until the next process restart",
+                exc_info=True,
+            )
+        # TemplateManager
+        try:
+            tm = getattr(app, "_template_manager", None)
+            if tm is not None and hasattr(tm, "_lock") and hasattr(tm, "_load"):
+                with tm._lock:
+                    tm._load()
+        except Exception:
+            log.warning(
+                "[SERVICE] GDPR delete: could not invalidate live "
+                "TemplateManager in-memory state — the on-disk file "
+                "is gone but the in-memory cache may still hold deleted "
+                "PII until the next process restart",
+                exc_info=True,
+            )
+
+    @staticmethod
     def _gdpr_recreate_history_db(app: object) -> None:
         """re-create the live HistoryDB after GDPR delete.
 
@@ -709,6 +737,12 @@ class PrivacyMixin(ServiceMixinBase):
         app = self._app
         self._gdpr_clear_keychain(app, failed)
         self._gdpr_invalidate_cached_engines(app)
+
+        # Re-read the (now-empty) vocabulary / templates files into the
+        # live in-memory managers so the next dictation doesn't apply
+        # the just-deleted PII (Art. 17 right-to-erasure: the data
+        # must not remain usable in any form).
+        self._gdpr_invalidate_managers(app)
 
         # Re-create the live HistoryDB instance so the app can keep
         # accepting dictations after the GDPR delete.

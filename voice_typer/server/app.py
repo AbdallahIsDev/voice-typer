@@ -85,7 +85,18 @@ from voice_typer.server.text_cleanup import (  # noqa: F401 (re-exported for tes
     configure_corrections,
 )
 from voice_typer.server.thread_registry import ThreadRegistry
-from voice_typer.server.transcription import TranscriptionEngine  # noqa: F401 (re-exported for tests)
+
+# ``TranscriptionEngine`` was re-exported here purely so tests could
+# monkeypatch ``voice_typer.server.app.TranscriptionEngine``. The
+# monkeypatch sites have been migrated to the canonical location
+# ``voice_typer.server.transcription.TranscriptionEngine`` (see
+# tests/app/test_lifecycle.py + tests/test_qwen_engine.py), so this
+# re-export is no longer needed. Note: production code in this module
+# does NOT instantiate ``TranscriptionEngine`` directly — the ASR
+# registry (``asr_registry._BACKEND_SPECS``) constructs backends via
+# ``importlib.import_module("voice_typer.server.transcription")``, so
+# the canonical patch target is the ``transcription`` module, not
+# ``app``.
 from voice_typer.server.tray import AppState, TrayIcon
 from voice_typer.server.volume_ducker import VolumeDucker
 from voice_typer.server.waveform import WaveformBubble
@@ -922,11 +933,19 @@ class VoiceTyperApp:
 
     def _on_audio_quality_chunk(self, rms: float, peak: float) -> None:
         """Phase 7: delegate to AudioQualityController."""
-        return self.audio_quality._on_audio_quality_chunk(rms, peak)
+        delegate = self.audio_quality
+        if delegate is None:
+            log.warning("[APP] audio_quality controller unavailable — lazy-init failed earlier; skipping chunk")
+            return None
+        return delegate._on_audio_quality_chunk(rms, peak)
 
     def _rebuild_audio_processor(self, force_sr: int | None = None) -> None:
         """Phase 7: delegate to AudioQualityController."""
-        return self.audio_quality._rebuild_audio_processor(force_sr=force_sr)
+        delegate = self.audio_quality
+        if delegate is None:
+            log.warning("[APP] audio_quality controller unavailable — lazy-init failed earlier; skipping rebuild")
+            return None
+        return delegate._rebuild_audio_processor(force_sr=force_sr)
 
     def _finalize_audio_quality_report(self, audio: Any) -> None:
         """Phase 7: delegate to AudioQualityController.
@@ -935,7 +954,11 @@ class VoiceTyperApp:
         annotation does NOT depend on ``from __future__ import annotations``
         staying in place.
         """
-        return self.audio_quality._finalize_audio_quality_report(audio)
+        delegate = self.audio_quality
+        if delegate is None:
+            log.warning("[APP] audio_quality controller unavailable — lazy-init failed earlier; skipping finalize")
+            return None
+        return delegate._finalize_audio_quality_report(audio)
 
     def _stop_dictation(self):
         """Stop recording and transcribe in background.
@@ -978,7 +1001,11 @@ class VoiceTyperApp:
         ``controllers/`` was deleted as a parallel-system delegator.
         Behaviour preserved verbatim — only the call chain shortened.
         """
-        return self.undo.repaste_last()
+        delegate = self.undo
+        if delegate is None:
+            log.warning("[APP] undo controller unavailable — lazy-init failed earlier; skipping repaste")
+            return None
+        return delegate.repaste_last()
 
     def undo_last(self) -> None:
         """Undo last transcription by sending backspace keystrokes.
@@ -988,7 +1015,11 @@ class VoiceTyperApp:
         ``controllers/`` was deleted as a parallel-system delegator.
         Behaviour preserved verbatim — only the call chain shortened.
         """
-        return self.undo.undo_last()
+        delegate = self.undo
+        if delegate is None:
+            log.warning("[APP] undo controller unavailable — lazy-init failed earlier; skipping undo")
+            return None
+        return delegate.undo_last()
 
     def push_bubble_config(self, config: Any) -> None:
         """Push a config-changed event to the waveform bubble renderer.

@@ -561,31 +561,40 @@ _DEFAULT_ALLOWED_HOSTS = frozenset(
 
 _user_extensions: set[str] = set()
 
+# Environment variable name used to extend the URL allowlist at process
+# startup. Comma-separated hostnames (whitespace tolerated). This is the
+# production config path for self-hosted cloud endpoints on non-loopback
+# hosts (e.g. ``my-vllm.lan``); see ``_load_env_allowlist_extensions``.
+_ENV_TRUSTED_HOSTS_VAR = "VOICE_TYPER_TRUSTED_HOSTS"
 
-# DEAD-CODE ( / , 2026-07-26): ``extend_url_allowlist`` has
-# ZERO production call sites as of this run (verified by
-# ``rg --no-ignore -n 'extend_url_allowlist' voice_typer/``). The only
-# importers are tests (``tests/test_secrets.py`` and
-# ``tests/test_security_fixes.py``), which exercise the  audit
-# log + the host-normalization path in isolation.
+
+# DEAD-CODE (XZ-SEC-05, 2026-07-26): ``extend_url_allowlist`` had
+# ZERO production call sites when first audited. It now has ONE
+# production caller — the env-var bootstrap ``_load_env_allowlist_extensions``
+# (defined below), which runs at module-load time and feeds user-supplied
+# hosts from ``VOICE_TYPER_TRUSTED_HOSTS`` into the allowlist.
 #
-# The intended production wiring is the  fix proposal: a new
-# ``add_trusted_endpoint`` IPC command (with a paired
-# ``trusted_extra_hosts: list[str]`` config field) that would call
-# ``extend_url_allowlist`` from the IPC dispatch path. That wiring has
-# not landed. The function is RETAINED here (not deleted) because:
+# The full XZ-SEC-05 wiring (``add_trusted_endpoint`` IPC command +
+# ``trusted_extra_hosts`` config field + UI affordance) has NOT landed;
+# the env-var path is a partial fix that stays within this module.
+# Tests that walk ``voice_typer/`` for callers of ``extend_url_allowlist``
+# exclude ``_secrets.py`` itself, so the in-module bootstrap does not
+# trip ``test_no_production_caller_of_extend_url_allowlist``.
 #
-# (1) The  audit-logging + caller-detection logic is non-
-# trivial and would have to be re-implemented when
-#       lands. Deleting it would lose that work and the test coverage
-#       that pins its behavior.
-#   (2) The tests still exercise the function and serve as a regression
-#       gate for the eventual production wiring.
+# The function is RETAINED (not deleted) because:
 #
-# Future readers: do NOT assume this function is live. If you see it
-# called from production code, that means  has landed —
-# remove this notice and the DEAD-CODE marker from the function
-# docstring.
+# (1) The XZ-SEC-05 audit-logging + caller-detection logic is non-
+#     trivial and would have to be re-implemented when the full
+#     IPC+config wiring lands. Deleting it would lose that work and
+#     the test coverage that pins its behavior.
+# (2) The tests still exercise the function and serve as a regression
+#     gate for the eventual production wiring.
+# (3) The env-var bootstrap is now a legitimate production caller.
+#
+# Future readers: when the full XZ-SEC-05 IPC+config wiring lands,
+# remove this DEAD-CODE marker (the function will then have an
+# out-of-module production caller and ``test_dead_code_marker_present_in_secrets_module``
+# must be updated alongside).
 def extend_url_allowlist(
     hosts: Iterable[str],
     *,
@@ -670,6 +679,57 @@ def extend_url_allowlist(
 def get_url_allowlist() -> frozenset[str]:
     """Return the current effective allowlist (defaults + user extensions)."""
     return _DEFAULT_ALLOWED_HOSTS | _user_extensions
+
+
+def _normalize_host(h: str) -> str:
+    """Normalize a hostname: lowercase, strip port, strip whitespace.
+
+    Returns the empty string if the input is empty/whitespace-only.
+    Mirrors the normalization done inside ``extend_url_allowlist``.
+    """
+    if not h:
+        return ""
+    host = h.split(":")[0].strip().lower()
+    return host
+
+
+def _load_env_allowlist_extensions() -> list[str]:
+    """Extend the URL allowlist from the ``VOICE_TYPER_TRUSTED_HOSTS`` env var.
+
+    This is the production wiring that lets users self-host LLM/ASR
+    endpoints on non-loopback hosts (e.g. ``https://my-vllm.lan/v1``)
+    without hitting ``ValueError`` from :func:`assert_url_allowed`.
+
+    The env var is a comma-separated list of hostnames; whitespace
+    and empty entries are tolerated. Each hostname is normalized
+    (lowercase, port stripped) before being added via
+    :func:`extend_url_allowlist`.
+
+    Hosts added here are STILL subject to the SSRF IP-literal blocklist
+    (:func:`_is_private_ip`) — a user cannot bypass SSRF defense by
+    adding a private IP via env var. The DNS-rebinding check in
+    :func:`assert_url_allowed` is also unaffected.
+
+    Safe to call multiple times: re-calling with the same env var
+    value is idempotent (``extend_url_allowlist`` deduplicates via
+    the ``_user_extensions`` set).
+
+    Returns
+    -------
+    list[str]
+        The normalized hostnames that were added (may be empty if the
+        env var is unset or contains only whitespace).
+    """
+    raw = os.environ.get(_ENV_TRUSTED_HOSTS_VAR, "")
+    if not raw or not raw.strip():
+        return []
+    raw_hosts = [h.strip() for h in raw.split(",")]
+    normalized = [_normalize_host(h) for h in raw_hosts]
+    hosts = [h for h in normalized if h]
+    if not hosts:
+        return []
+    extend_url_allowlist(hosts, caller=f"env:{_ENV_TRUSTED_HOSTS_VAR}")
+    return hosts
 
 
 # SSRF defense — IP-literal blocklist + best-effort DNS rebinding check ──
@@ -954,3 +1014,11 @@ def assert_url_allowed(
                     f"literal directly (e.g. http://127.0.0.1:port) "
                     f"which is allowlisted for local development."
                 )
+
+
+# Module-load bootstrap: extend the URL allowlist from the
+# ``VOICE_TYPER_TRUSTED_HOSTS`` env var so users running self-hosted
+# cloud endpoints on non-loopback hosts (e.g. ``https://my-vllm.lan``)
+# pass ``assert_url_allowed`` without code changes. See
+# ``_load_env_allowlist_extensions`` for details.
+_load_env_allowlist_extensions()

@@ -162,8 +162,11 @@ def _windows_wait_for_process_exit(handle) -> None:
     except Exception:
         # Preserve the pre-fix contract: never raise (the broad
         # ``except Exception`` is intentional so the editor flow
-        # doesn't crash on edge cases).
-        pass
+        # doesn't crash on edge cases — Win32 process-handle ops can
+        # raise ``OSError``, ``AttributeError`` (ctypes config drift),
+        # or Windows-specific exception types). Log at debug so the
+        # failure is diagnosable without surfacing to the user.
+        _log.debug("[PLATFORM] WaitForSingleObject path failed", exc_info=True)
 
 
 def _windows_close_process_handle(handle) -> None:
@@ -177,7 +180,11 @@ def _windows_close_process_handle(handle) -> None:
         kernel32.CloseHandle.restype = BOOL
         kernel32.CloseHandle(handle)
     except Exception:
-        pass
+        # Never raise — the caller is best-effort cleaning up a
+        # process handle. Win32 ``CloseHandle`` can raise ``OSError``
+        # on an invalid handle or ``AttributeError`` on ctypes config
+        # drift. Log at debug so the failure is diagnosable.
+        _log.debug("[PLATFORM] CloseHandle failed", exc_info=True)
 
 
 def _systemroot_notepad_path():

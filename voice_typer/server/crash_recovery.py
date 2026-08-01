@@ -800,7 +800,13 @@ class CrashRecovery:
 
     # ── Public API ───────────────────────────────────────────────────
 
-    def add(self, text: str, *, pasted: bool = False) -> None:
+    def add(
+        self,
+        text: str,
+        *,
+        pasted: bool = False,
+        cycle_id: str | None = None,
+    ) -> None:
         """Add a transcription to the recovery buffer.
 
         Keeps only the last MAX_RECOVERY_ENTRIES entries.
@@ -808,14 +814,25 @@ class CrashRecovery:
         Args:
             text: The transcribed text to store.
             pasted: Whether the text was successfully pasted.
+            cycle_id: Optional correlation id for the dictation cycle
+                that produced this text. When provided,
+                :meth:`_detect_and_notify_lost_dictation` can determine
+                whether partial text from THIS specific cycle was saved
+                before a hard crash (and is therefore recoverable). When
+                ``None`` (the default — backward-compatible with existing
+                callers in ``dictation_pipeline`` that don't yet pass a
+                cycle_id), the entry is anonymous and won't match any
+                cycle-specific lookup.
         """
         from datetime import datetime
 
-        entry = {
+        entry: dict = {
             "text": text,
             "timestamp": datetime.now().isoformat(),
             "pasted": pasted,
         }
+        if cycle_id is not None:
+            entry["cycle_id"] = cycle_id
         with self._lock:
             self._entries.append(entry)
             # Trim to max
@@ -905,10 +922,32 @@ class CrashRecovery:
         """Detect if a dictation was in-flight when the previous process crashed.
 
         If the ``.dictation-in-flight`` sentinel file exists in the config
-        directory, the previous process crashed mid-dictation. Delete the
-        sentinel (so it doesn't re-fire on every startup) and emit a
-        ``dictation_lost`` event via the event bus so the renderer can
-        show a user notification.
+        directory, the previous process crashed mid-dictation. The sentinel
+        contains the ``cycle_id`` of the interrupted dictation (written by
+        ``dictation_pipeline._transcribe``). Delete the sentinel (so it
+        doesn't re-fire on every startup), then look up that ``cycle_id``
+        in the in-memory recovery store:
+
+        • If an unpasted entry with a matching ``cycle_id`` exists, the
+          crash was SOFT (a Python exception was caught and
+          :meth:`add` was called from the exception handler before the
+          process died) — the partial TEXT is recoverable. Set
+          ``recoverable: True`` and ``recovery_type: "text_only"``.
+        • If no such entry exists, the crash was HARD (SIGKILL / OOM /
+          segfault) — the transcription thread never reached the
+          exception handler, so no text was saved. Nothing is
+          recoverable. Set ``recoverable: False`` and
+          ``recovery_type: "none"``.
+
+        AUDIO IS NEVER RECOVERABLE. The audio buffer lives only in
+        process memory (see ``dictation_pipeline._transcribe``'s finally
+        block — it zero-fills the numpy array after transcription
+        completes), and the ``.dictation-in-flight`` sentinel only
+        persists the ``cycle_id`` correlation string, never audio
+        samples. The previous message ("Partial audio may be
+        recoverable") was misleading and is replaced with an accurate
+        message that distinguishes soft-crash text recovery from
+        hard-crash total loss.
         """
         with contextlib.suppress(Exception):
             from voice_typer.server import event_bus
@@ -916,17 +955,53 @@ class CrashRecovery:
 
             _sentinel = _config_dir() / ".dictation-in-flight"
             if _sentinel.exists():
+                # Read the cycle_id BEFORE deleting the sentinel so we
+                # can look up matching recovery entries.
+                # ``dictation_pipeline`` writes ``str(cycle_id)`` to this
+                # file when a dictation starts; if the write was partial
+                # or the file is empty (e.g. crashed mid-write),
+                # ``cycle_id`` will be "" — the lookup below explicitly
+                # excludes the empty string so it falls through to the
+                # "hard crash, nothing recoverable" branch, which is the
+                # correct outcome.
+                cycle_id = ""
+                with contextlib.suppress(Exception):
+                    cycle_id = _sentinel.read_text(encoding="utf-8").strip()
                 # Delete FIRST so a publish failure can't cause a re-fire loop.
                 _sentinel.unlink(missing_ok=True)
+                # Look up matching unpasted entries. ``_lock`` guards the
+                # in-memory ``_entries`` deque against concurrent
+                # ``add()`` / ``mark_pasted()`` mutations during the scan.
+                # The ``bool(cycle_id)`` guard ensures a missing / blank
+                # sentinel (hard crash mid-write) is treated as
+                # unrecoverable rather than matching an unrelated entry
+                # that also lacks a ``cycle_id`` field.
+                with self._lock:
+                    recoverable = any(
+                        bool(cycle_id) and e.get("cycle_id") == cycle_id and not e.get("pasted", False)
+                        for e in self._entries
+                    )
+                recovery_type = "text_only" if recoverable else "none"
                 log.warning(
-                    "[RECOVERY] Detected interrupted dictation from previous session — emitting dictation_lost event"
+                    "[RECOVERY] Detected interrupted dictation from previous session "
+                    "(cycle_id=%r) — emitting dictation_lost event "
+                    "(recoverable=%s, recovery_type=%s)",
+                    cycle_id,
+                    recoverable,
+                    recovery_type,
                 )
                 event_bus.publish(
                     {
                         "type": "dictation_lost",
                         "data": {
-                            "message": "A dictation was interrupted by a crash. Partial audio may be recoverable.",
-                            "recoverable": True,
+                            "message": (
+                                "A dictation was interrupted by a crash. "
+                                "Partial text may be recoverable if the crash "
+                                "was soft; no audio is recoverable."
+                            ),
+                            "recoverable": recoverable,
+                            "recovery_type": recovery_type,
+                            "cycle_id": cycle_id,
                         },
                     }
                 )

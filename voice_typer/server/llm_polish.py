@@ -64,6 +64,30 @@ log = logging.getLogger(__name__)
 # modules,  finding #1).
 _opener = build_secure_opener()
 
+# upper bound on input size. Dictations above this length are
+# short-circuited before the API call — shipping 30k+ char inputs in full
+# to the LLM endpoint was wasteful (the ``max_tokens = 1024`` cap below
+# means only the first ~1024 tokens ever come back) and slow (the API
+# round-trip alone took several seconds for huge payloads). 8000 chars
+# comfortably covers normal prose dictation while preventing the worst
+# pathological cases. See ``tests/test_llm_polish_http_fixes.py``.
+MAX_INPUT_CHARS = 8000
+
+# configurable API call timeout. The previous hard-coded ``timeout=30``
+# blocked the transcription thread for up to 30s on a stalled connection.
+# 10s is generous for <500-char dictations (LLM completions typically
+# finish in <3s) and bounds the worst-case user wait. Callers can override
+# per-call via the ``timeout_s`` kwarg on ``polish`` / ``_call_api``.
+DEFAULT_TIMEOUT_S = 10
+
+# flat ``max_tokens`` value. The previous formula
+# ``min(4096, len(text) * 2 + 256)`` was dead code above ~1920 chars
+# (always hit the 4096 ceiling) and produced tiny requests for short
+# inputs (e.g. 5-char input → 266 tokens). A flat 1024 is the documented
+# ceiling for OpenAI-compatible chat completions in practice and avoids
+# the input-length coupling entirely.
+_FLAT_MAX_TOKENS = 1024
+
 # ─── Preset prompts ─────────────────────────────────────────────────────
 
 _PRESETS = {
@@ -106,6 +130,11 @@ _DEFAULT_MODEL = DEFAULT_LLM_MODEL
 class LLMPolisher:
     """Polish transcribed text using an LLM API."""
 
+    # default API call timeout in seconds. Exposed as a class
+    # attribute so tests can assert ``LLMPolisher.DEFAULT_TIMEOUT_S == 10``
+    # without importing the module-level constant.
+    DEFAULT_TIMEOUT_S = DEFAULT_TIMEOUT_S
+
     def __init__(
         self,
         api_key: str | None = None,
@@ -122,7 +151,7 @@ class LLMPolisher:
 
     # ── Public API ───────────────────────────────────────────────────
 
-    def polish(self, text: str, *, preset: str | None = None) -> str:
+    def polish(self, text: str, *, preset: str | None = None, timeout_s: float | None = None) -> str:
         """Send text to the LLM for polishing.
 
         If polishing is disabled, no API key is configured, or the text is
@@ -132,6 +161,8 @@ class LLMPolisher:
             text: The transcribed text to polish.
             preset: Optional preset name to override the default. Must be
                 a key in _PRESETS (e.g. "professional", "casual", "concise").
+            timeout_s: Optional override for the API call timeout (seconds).
+                When ``None``, falls back to ``DEFAULT_TIMEOUT_S`` (10s).
 
         Returns:
             The polished text string, or the original text if polishing
@@ -143,11 +174,25 @@ class LLMPolisher:
         if not text or len(text.strip()) < 5:
             return text
 
+        # short-circuit when the input exceeds MAX_INPUT_CHARS.
+        # Shipping oversized inputs to the LLM endpoint was wasteful
+        # (the flat ``max_tokens = 1024`` means only the first ~1024
+        # tokens ever come back) and slow. Log at INFO so operators can
+        # see why polish was skipped. The guard is strict-greater-than
+        # so the boundary (input length == MAX_INPUT_CHARS) is allowed.
+        if len(text) > MAX_INPUT_CHARS:
+            log.info(
+                "[LLM_POLISH] Skipping polish: input length %d exceeds MAX_INPUT_CHARS=%d",
+                len(text),
+                MAX_INPUT_CHARS,
+            )
+            return text
+
         use_preset = preset or self.preset
         system_prompt = _PRESETS.get(use_preset, _PRESETS["professional"])
 
         try:
-            result = self._call_api(text, system_prompt)
+            result = self._call_api(text, system_prompt, timeout_s=timeout_s)
             if result and result.strip():
                 log.info("[LLM_POLISH] Polished text: %d -> %d chars", len(text), len(result))
                 return result.strip()
@@ -206,7 +251,7 @@ class LLMPolisher:
 
     # ── API call ─────────────────────────────────────────────────────
 
-    def _call_api(self, text: str, system_prompt: str) -> str:
+    def _call_api(self, text: str, system_prompt: str, *, timeout_s: float | None = None) -> str:
         """Call the OpenAI-compatible chat completions API.
 
                 RELIABILITY-004: asserts ``self.api_url`` is in the trusted
@@ -223,6 +268,12 @@ class LLMPolisher:
                 and API keys. The redacted text is what's sent to the API;
                 the original (un-redacted) text is what's returned to the
                 user for pasting.
+
+        Args:
+            text: The user-content text to send.
+            system_prompt: The system prompt for the chosen preset.
+            timeout_s: Optional override for the API call timeout (seconds).
+                When ``None``, falls back to ``DEFAULT_TIMEOUT_S`` (10s).
         """
         # Opt in to allow_loopback_http=True — see the
         # test_connection path above for the rationale.
@@ -262,7 +313,14 @@ class LLMPolisher:
                     {"role": "user", "content": text},
                 ],
                 "temperature": 0.3,
-                "max_tokens": min(4096, len(text) * 2 + 256),
+                # flat ``max_tokens`` — the previous
+                # ``min(4096, len(text) * 2 + 256)`` formula was dead
+                # code above ~1920 chars (always hit the 4096 ceiling)
+                # and produced tiny requests for short inputs. A flat 1024
+                # is the documented ceiling for OpenAI-compatible chat
+                # completions in practice and decouples the request from
+                # the input length.
+                "max_tokens": _FLAT_MAX_TOKENS,
             }
         ).encode("utf-8")
 
@@ -273,11 +331,14 @@ class LLMPolisher:
 
         req = Request(self.api_url, data=payload, headers=headers, method="POST")
 
+        # configurable timeout. When ``timeout_s`` is ``None`` we
+        # fall back to ``DEFAULT_TIMEOUT_S`` (10s). The previous hard-coded
+        # ``timeout=30`` blocked the transcription thread for up to 30s on
+        # a stalled connection.
+        effective_timeout = DEFAULT_TIMEOUT_S if timeout_s is None else timeout_s
+
         try:
-            # was timeout=30 — on a stalled connection the user waited
-            # up to 30s before their text was pasted. 10s is generous for
-            # <500 char dictations (LLM completions typically finish in <3s).
-            with _opener.open(req, timeout=10) as resp:
+            with _opener.open(req, timeout=effective_timeout) as resp:
                 # SEC-030: cap response at 50 MB to prevent OOM from
                 # a malicious / buggy LLM endpoint.
                 from voice_typer.server.cloud_engines import _read_capped

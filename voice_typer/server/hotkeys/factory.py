@@ -26,7 +26,7 @@ def is_linux() -> bool:
     return _hotkeys_pkg.is_linux()
 
 
-def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
+def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBackend:
     """Create the best hotkey backend for the current platform.
 
     Selection order (per platform):
@@ -76,11 +76,15 @@ def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
             # Wrap the native backend so it satisfies the HotkeyBackend
             # interface expected by HotkeyDispatcher.
             log.info(
-                "[HOTKEY] Using native %s backend for %r",
+                "[HOTKEY] Using native %s backend for %r (role=%r)",
                 type(native).__name__,
                 hotkey_str,
+                role,
             )
-            return _NativeBackendAdapter(native)
+            # pass ``role`` through so the adapter can propagate
+            # it to a legacy WaylandHotkey if the native backend
+            # permanently fails and the adapter swaps to legacy.
+            return _NativeBackendAdapter(native, role=role)
     except Exception as exc:
         # native-backend unavailability is an EXPECTED fallback
         # (e.g. running from a source checkout without the prebuilt binary).
@@ -107,8 +111,12 @@ def create_hotkey_backend(hotkey_str: str) -> HotkeyBackend:
         wayland_display = os.environ.get("WAYLAND_DISPLAY", "")
         xdg_session = os.environ.get("XDG_SESSION_TYPE", "")
         if wayland_display or xdg_session == "wayland":
-            log.info("[HOTKEY] Wayland detected -> using WaylandHotkey (Unix socket, legacy)")
-            return WaylandHotkey(hotkey_str)
+            log.info(
+                "[HOTKEY] Wayland detected -> using WaylandHotkey (Unix socket, legacy, role=%r)",
+                role,
+            )
+            # pass ``role`` so the socket filename is per-backend.
+            return WaylandHotkey(hotkey_str, role=role)
 
     log.info("[HOTKEY] Platform is %s -> using PynputHotkey (legacy)", sys.platform)
     return PynputHotkey(hotkey_str)

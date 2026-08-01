@@ -464,8 +464,9 @@ def _probe_keyring() -> tuple[bool, str | None, str | None]:
     (5 providers at startup) from firing 5 probes back-to-back.
     """
     try:
-        import keyring  # type: ignore[import-not-found]
         from keyring.backends.fail import Keyring as FailKeyring  # type: ignore[import-not-found]
+
+        import keyring  # type: ignore[import-not-found]
     except Exception as e:
         # keyring not installed, or fail backend module missing (very
         # old keyring version). Either way, no keyring available.
@@ -1083,8 +1084,13 @@ def _write_plaintext_fallback(provider: str, value: str, *, caller_holds_config_
                     data = json.loads(_secure_read_text(config_file))
                     if not isinstance(data, dict):
                         data = {}
-                except Exception:
-                    data = {}
+                except Exception as e:
+                    log.error(
+                        "[CREDENTIAL_STORE] config.json parse failed — refusing to overwrite; "
+                        "preserving corrupt file for recovery: %s",
+                        _redact_sensitive(str(e)),
+                    )
+                    return
             field = PROVIDER_TO_CONFIG_FIELD.get(provider)
             if not field:
                 return

@@ -30,11 +30,14 @@ What lives here (and why):
   ``ipc_server.py`` (one as ``__main__``, one as canonical) does NOT
   create two logger objects — both modules bind the same singleton.
 
-- ``_READONLY_COMMANDS`` — immutable frozenset of dispatch command
-  names whose handlers do not mutate shared app/service state.  The
-  dispatcher consults this set on every dispatch to decide whether to
-  acquire ``_dispatch_lock``.  Defining it here keeps a single
-  authoritative object across both ``ipc_server.py`` load modes.
+- ``_READONLY_COMMANDS`` — re-exported from
+  :mod:`voice_typer.server.ipc.registry` (the canonical source).
+  Previously defined inline here as a legacy duplicate; the duplicate
+  was deleted by the registry unification so the two locations cannot silently
+  drift. The name is re-exported so existing
+  ``from voice_typer.server.ipc._helpers import _READONLY_COMMANDS``
+  callers keep working unchanged; both ``ipc_server.py`` and
+  ``ipc._helpers`` reference the SAME frozenset object.
 
 - ``_push_event_now`` — thin shim over :func:`event_bus.publish`.
   Domain modules and tests historically import this from
@@ -72,6 +75,17 @@ import logging
 
 from voice_typer.server import event_bus
 
+# Canonical source for ``_READONLY_COMMANDS`` is the leaf
+# :mod:`voice_typer.server.ipc.registry` submodule (the
+# ``ipc_server.py`` god-module used to host its own copy and this
+# module had a parallel legacy duplicate; both were collapsed onto
+# the registry by the registry unification so the two cannot silently drift).
+# The name is re-exported here so existing
+# ``from voice_typer.server.ipc._helpers import _READONLY_COMMANDS``
+# callers keep working unchanged; the imported object is the SAME
+# frozenset that ``ipc_server.py`` re-exports from the same source.
+from voice_typer.server.ipc.registry import _READONLY_COMMANDS  # noqa: F401
+
 # The IPC server's process-wide logger.  ``logging.getLogger`` returns
 # a singleton by name, so importing this object from ``_helpers`` yields
 # the same logger that ``ipc_server.py``'s inline definition produced.
@@ -80,21 +94,6 @@ from voice_typer.server import event_bus
 # ``_helpers.log`` reference the same object, so the patch is observed
 # regardless of which alias the caller used.
 log = logging.getLogger("voice_typer.server.ipc_server")
-
-# read-only IPC commands whose handlers do NOT mutate shared
-# app/service state. These bypass the per-server ``_dispatch_lock`` so a
-# long-running state-mutating handler (e.g. ``download_model``) does not
-# block a quick status poll from a second authenticated connection. The
-# set is intentionally minimal — only commands whose handler bodies are
-# pure reads (no recorder / config / model / history mutation).
-_READONLY_COMMANDS: frozenset[str] = frozenset(
-    {
-        "get_status",
-        "get_config",
-        "get_model_catalog",
-        "heartbeat",
-    }
-)
 
 
 def _push_event_now(msg: dict) -> bool:

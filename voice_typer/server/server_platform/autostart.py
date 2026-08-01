@@ -94,6 +94,28 @@ def _desktop_quote(arg: str) -> str:
     return f'"{escaped}"'
 
 
+def _resolve_tauri_binary_for_autostart() -> str | None:
+    """Resolve the installed Tauri binary path for autostart fallback.
+
+    When no Python interpreter is available (e.g. the venv was deleted
+    after registration, or a packaged Tauri install has no Python), the
+    autostart command can fall back to the Tauri binary directly. This
+    helper lazily imports ``autostart_launcher._tauri_binary`` to avoid
+    a circular import at module load time.
+
+    Returns the Tauri binary path as a string, or ``None`` if no Tauri
+    binary is found at the well-known install paths (dev checkouts,
+    CI environments, etc.).
+    """
+    try:
+        from voice_typer.server.autostart_launcher import _tauri_binary
+
+        return _tauri_binary()
+    except Exception:
+        log.debug("[AUTOSTART] _resolve_tauri_binary_for_autostart failed", exc_info=True)
+        return None
+
+
 def _autostart_command() -> str:
     """Build the command that the OS autostart entry should run.
 
@@ -127,6 +149,14 @@ def _autostart_command() -> str:
     spaces, apostrophes, or other reserved characters (e.g.
     ``/home/john doe/voice-typer``) survive XFCE's and KDE's
     .desktop file parsers without truncation.
+
+    AUTOSTART-CMD-VALIDATE: the resolved Python interpreter path is
+    validated to exist on disk before being baked into the autostart
+    command. If the venv was deleted after registration (dev-mode
+    installs), the pythonw.exe path no longer exists and the autostart
+    entry would silently fail at login. We validate and fall back to
+    the Tauri binary (production Tauri installs ship no Python) when
+    the Python path is dead.
     """
     # ADR-0009 Issue 4: single source of truth for the delay value.
     # Importing here (rather than at module top) avoids a circular
@@ -189,7 +219,37 @@ def _autostart_command() -> str:
                 "current user.",
                 python_exe,
             )
-    return " ".join(_desktop_quote(arg) for arg in args)
+
+    # AUTOSTART-CMD-VALIDATE: verify the resolved Python interpreter
+    # path actually exists on disk. If the venv was deleted after
+    # registration (dev-mode installs), the pythonw.exe path baked
+    # into the Run key would point at a nonexistent file and the
+    # autostart entry would silently fail at login. We validate here
+    # and fall back to the Tauri binary (production Tauri installs
+    # ship no Python interpreter) when the Python path is dead.
+    resolved_python = args[0] if args else ""
+    if resolved_python and not Path(resolved_python).exists():
+        log.warning(
+            "[AUTOSTART] Resolved Python interpreter does not exist on disk: %s — attempting Tauri binary fallback",
+            resolved_python,
+        )
+        tauri_bin = _resolve_tauri_binary_for_autostart()
+        if tauri_bin:
+            log.info(
+                "[AUTOSTART] Using Tauri binary as autostart command (no Python interpreter available): %s",
+                tauri_bin,
+            )
+            return _desktop_quote(tauri_bin)
+        log.error(
+            "[AUTOSTART] No Python interpreter AND no Tauri binary "
+            "available — autostart command will be non-functional. "
+            "Resolved python: %s",
+            resolved_python,
+        )
+
+    cmd = " ".join(_desktop_quote(arg) for arg in args)
+    log.info("[AUTOSTART] Resolved autostart command: %s", cmd)
+    return cmd
 
 
 def _system_python_can_import_launcher(system_python: str) -> bool:

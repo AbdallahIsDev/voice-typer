@@ -19,8 +19,30 @@ Architecture
         │     {"event":"server_started","port":<n>}
         ▼
     Rust reads stdout, parses the JSON, opens a WS client to
-    ws://127.0.0.1:<n>, sends the HMAC auth frame, then forwards
+    ws://127.0.0.1:<n>, sends the bearer-token auth frame, then forwards
     invoke('dispatch', {cmd, data}) envelopes over the WS.
+
+    Auth model (ADR-0020 §3, ZR-56 reconciliation)
+    -----------------------------------------------
+    The handshake is a **one-shot bearer-token** check, NOT an HMAC
+    scheme. The Rust host generates a 256-bit bearer token via
+    ``secrets.token_bytes(32)`` and the Python sidecar compares it with
+    :func:`hmac.compare_digest` (constant-time *comparison only* — no
+    key derivation, no signing). There is no per-message MAC, no nonce,
+    and no replay protection; subsequent frames skip re-auth (mirroring
+    the TCP handshake-once model from ADR-0014).
+
+    Compensating controls for the absence of per-message MAC:
+      - **Loopback-only bind**: ``127.0.0.1:0`` — never exposed to the
+        network.
+      - **Ephemeral port**: chosen by the OS at sidecar startup and
+        reported to the host over stdout; not predictable ahead of time.
+      - **Per-launch / per-respawn token rotation**: a new token is
+        generated on every sidecar spawn, so a stolen token is useless
+        after the process exits (ADR-0020 §3 rotation).
+    The historical "HMAC" wording was carried over from ADR-0014's
+    original design; ADR-0020 §3 has been reconciled (ZR-56) and this
+    module's docstrings mirror the corrected wording.
 
 Why a separate module (not a flag on ipc_server.py)?
 ----------------------------------------------------
@@ -94,6 +116,8 @@ import logging
 import os
 import sys
 import time
+from collections import deque
+from functools import partial
 from typing import TYPE_CHECKING
 
 # websockets is a hard new dep under ADR-0020 §14. Import lazily
@@ -178,6 +202,50 @@ _AUTH_TIMEOUT_SECONDS = 5.0
 # concurrent-connection limit (DoS protection).
 _MAX_WS_CONNECTIONS = 16
 
+# Heartbeat fast-path rate cap.
+#
+# The Rust host sends one ``heartbeat`` command every 10s (ADR-0018 /
+# ADR-0020 §10) — i.e. the legitimate steady-state rate is 1 per 10s.
+# The heartbeat fast-path in :func:`_read_loop` deliberately bypasses
+# the dispatch pool (and therefore the ADR-0019 per-frame
+# :class:`_RateLimiter` that lives inside ``_make_dispatch``) so the
+# ack latency stays at the WS round-trip (~1 ms loopback) instead of
+# the dispatch-pool queue depth — a slow ``download_model`` /
+# ``transcribe`` running on the pool must not delay the ack and trip
+# the host's "3 consecutive misses → respawn" liveness probe.
+#
+# But that bypass means a hostile or buggy client could spam
+# ``{"type":"heartbeat"}`` at line rate (tens of thousands per
+# second) and the read loop would ``await websocket.send(ack)`` for
+# every one of them — starving every other connection's reads, since
+# the read loop is single-threaded per connection and the event loop
+# is shared across all connections.
+#
+# This cap is a CHEAP sliding-window (a ``deque`` of timestamps,
+# popped from the left when older than the window). 100 per 10s is
+# ~10x the legitimate rate — generous enough that a slightly
+# over-eager host retry loop won't trip it, tight enough that a
+# flood is dropped at the read loop instead of fanning out acks.
+#
+# The window is PER-CONNECTION (not shared like the ADR-0019
+# limiter) because a heartbeat flood is a per-connection
+# misbehaviour — sharing the budget would let one flapping client
+# starve heartbeats from a well-behaved second connection. Each
+# connection's read loop is single-threaded, so the deque is
+# accessed without a lock from inside that coroutine.
+_HEARTBEAT_RATE_WINDOW_SECONDS = 10.0
+_HEARTBEAT_RATE_MAX_PER_WINDOW = 100
+
+# Outbound ``websocket.send`` timeout (seconds). A send that has not
+# completed within this window is treated as a stuck peer (TCP send
+# buffer full, slow consumer, half-open socket) — the connection is
+# closed so the host's reconnect path can take over instead of
+# letting the WS writer task block the event loop indefinitely on a
+# single ``await websocket.send``. 5s is generous for a 1 MiB frame
+# over loopback (sub-millisecond RTT, multi-GiB/s throughput) but
+# bounded enough that a wedged peer doesn't tie up the writer task
+# (and the asyncio loop thread) forever.
+_WS_SEND_TIMEOUT_SECONDS = 5.0
 # Cooperative shutdown hard timeout (ADR-0020 §10). When the host
 # sends {"type":"shutdown"} the sidecar must release the mic, ack,
 # and exit within this window; if it doesn't, the host force-kills
@@ -274,9 +342,10 @@ def _emit_server_started(port: int, protocol: int | None = None) -> None:
 
 
 async def _authenticate(websocket) -> bool:
-    """Read the first WS frame and validate the HMAC token.
+    """Read the first WS frame and validate the bearer token.
 
-    Per ADR-0020 §3, the client's first frame must be::
+    Per ADR-0020 §3 (ZR-56 reconciliation), the client's first frame
+    must be::
 
         {"type": "auth", "token": "<token>"}
 
@@ -285,6 +354,15 @@ async def _authenticate(websocket) -> bool:
     Rust host at spawn. On mismatch, the socket is closed immediately
     and the connection is rejected (the host treats this as a crash
     → respawn with a fresh token, ADR-0020 §10).
+
+    This is a **one-shot bearer-token** check, NOT an HMAC scheme:
+    :func:`hmac.compare_digest` is used purely as a constant-time
+    *comparison* helper — there is no key derivation, no signing, no
+    per-message MAC, and no nonce/replay protection. Subsequent frames
+    after the handshake skip re-auth (mirroring the TCP handshake-once
+    model from ADR-0014). Compensating controls for the absence of
+    per-message MAC are documented in this module's top-level docstring
+    (loopback-only bind + ephemeral port + per-respawn token rotation).
 
     Returns ``True`` if authenticated, ``False`` if rejected.
 
@@ -571,6 +649,13 @@ def _make_dispatch(server: IPCServer):
         # Dispatch on the worker thread pool so a slow handler
         # (e.g. download_model) doesn't block the WS reader.
         loop = asyncio.get_running_loop()
+        # Pre-bind ``result`` to None so the ``return result`` line
+        # below has a defined value to return even when
+        # ``loop.run_in_executor`` raises (in which case
+        # ``return_error`` is set to a non-None dict and we return
+        # early at ``if return_error is not None:`` — but pyrefly
+        # cannot track that early-return control flow).
+        result: dict | None = None
         try:
             # use the dedicated ``_ws_dispatch_pool`` (not the
             # asyncio default executor) so ``ShutdownController._do_cleanup``
@@ -971,13 +1056,24 @@ def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
 
     async def _writer() -> None:
         """Drain the outbound queue and write each event as a WS frame."""
+        loop = asyncio.get_running_loop()
         try:
             while True:
                 event = await outbound.get()
                 if event is None:
                     return
                 try:
-                    raw = json.dumps(event, ensure_ascii=False)
+                    # Offload ``json.dumps`` to the default executor. For
+                    # small frames this is roughly the cost of a thread
+                    # handoff (~50 µs) vs the in-line JSON encode
+                    # (~10-50 µs) — a wash. For near-cap frames (~1 MiB)
+                    # at 1-5 Hz the in-line encode was 50-100 ms of pure
+                    # CPU on the asyncio loop thread, stalling every
+                    # other connection's reads + the heartbeat fast-path.
+                    # ``functools.partial`` lets us pass the
+                    # ``ensure_ascii=False`` kwarg through the executor's
+                    # ``func, *args`` calling convention.
+                    raw = await loop.run_in_executor(None, partial(json.dumps, ensure_ascii=False), event)
                     # use ``len(raw)`` (char count) instead of
                     # ``len(raw.encode("utf-8"))`` (byte count) for the
                     # size check. Previously every outbound frame was
@@ -1011,7 +1107,26 @@ def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
                             _MAX_FRAME_BYTES,
                         )
                         continue
-                    await websocket.send(raw)
+                    # Cap the send at ``_WS_SEND_TIMEOUT_SECONDS`` so a
+                    # wedged peer (full TCP send buffer, half-open socket)
+                    # cannot tie up this writer task (and the asyncio
+                    # loop thread) indefinitely. On timeout we close the
+                    # connection so the host's reconnect path takes
+                    # over instead of silently dropping further events
+                    # into a buffer that will never drain.
+                    try:
+                        await asyncio.wait_for(
+                            websocket.send(raw),
+                            timeout=_WS_SEND_TIMEOUT_SECONDS,
+                        )
+                    except TimeoutError:
+                        log.warning(
+                            "[SIDECAR-WS] send timed out after %.1fs — closing connection",
+                            _WS_SEND_TIMEOUT_SECONDS,
+                        )
+                        with contextlib.suppress(Exception):
+                            await websocket.close(code=1011, reason="send timeout")
+                        return
                 except Exception:
                     log.warning("[SIDECAR-WS] send failed", exc_info=True)
                     return
@@ -1041,6 +1156,14 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
     log-level selection). Any other exception is propagated to the
     caller's catch-all.
     """
+    # Per-connection heartbeat sliding-window rate cap. The fast-path
+    # bypasses the dispatch-pool / ADR-0019 limiter, so a hostile or
+    # buggy client could flood ``{"type":"heartbeat"}`` at line rate
+    # and starve the event loop with ack sends. This deque holds the
+    # timestamps of the last ``_HEARTBEAT_RATE_MAX_PER_WINDOW``
+    # heartbeats; old entries are popleft when older than the window.
+    # Single-threaded access from this coroutine — no lock needed.
+    heartbeat_window: deque[float] = deque()
     async for raw in websocket:
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8")
@@ -1097,11 +1220,31 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
         # ``websocket.send()`` round-trip (~1 ms loopback) instead
         # of the dispatch-pool queue depth.
         if msg.get("type") == "heartbeat":
+            # Cheap heartbeat-specific rate cap. The fast-path bypasses
+            # the dispatch-pool / ADR-0019 limiter, so without this cap
+            # a flood of ``{"type":"heartbeat"}`` frames would be acked
+            # at line rate, starving the event loop. Allow at most
+            # ``_HEARTBEAT_RATE_MAX_PER_WINDOW`` per
+            # ``_HEARTBEAT_RATE_WINDOW_SECONDS``; drop the rest WITHOUT
+            # acking (a well-behaved host sending 1/10s will never
+            # trip this — even a 10x-over-eager retry loop has room).
+            now = time.monotonic()
+            window_edge = now - _HEARTBEAT_RATE_WINDOW_SECONDS
+            while heartbeat_window and heartbeat_window[0] < window_edge:
+                heartbeat_window.popleft()
+            if len(heartbeat_window) >= _HEARTBEAT_RATE_MAX_PER_WINDOW:
+                log.warning(
+                    "[SIDECAR-WS] heartbeat rate cap exceeded (%d in %.0fs) — dropping (no ack)",
+                    _HEARTBEAT_RATE_MAX_PER_WINDOW,
+                    _HEARTBEAT_RATE_WINDOW_SECONDS,
+                )
+                continue
+            heartbeat_window.append(now)
             # Mirror ``_handle_heartbeat``'s update of
             # ``_last_heartbeat_at`` so the Python-side heartbeat
             # watchdog (if installed) sees fresh liveness.
             with contextlib.suppress(AttributeError):
-                server._last_heartbeat_at = time.monotonic()
+                server._last_heartbeat_at = now
             ack: dict[str, object] = {"type": "heartbeat_ack"}
             if request_id is not None:
                 ack["id"] = request_id
@@ -1199,6 +1342,39 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
         log.info("[SIDECAR-WS] connection closed (peer=%s)", peer)
 
 
+async def _reject_browser_origins(connection, request):
+    """Reject WS connections that carry an ``Origin`` header.
+
+    The Rust host (Tauri ``externalBin``) opens its WS client with a raw
+    TCP socket and never sends an ``Origin`` header; browsers ALWAYS
+    attach one. Rejecting any connection WITH an ``Origin`` header closes
+    the browser-attacker CSWSH slot-starvation vector (a malicious page
+    calling ``new WebSocket("ws://127.0.0.1:<port>")`` many times to
+    park the single-connection auth-wait slot) while preserving legit
+    host connections.
+
+    Returns ``None`` to allow the handshake (no Origin header present),
+    or a :class:`websockets.http11.Response` with HTTP 403 to abort the
+    handshake before the auth-wait window even opens (Origin present).
+
+    AP-8: ``process_request`` callback contract per
+    :mod:`websockets.asyncio.server`.
+    """
+    origin = request.headers.get("Origin")
+    if origin is not None:
+        log.debug("[WS] rejected connection with Origin: %s", origin)
+        from websockets.datastructures import Headers
+        from websockets.http11 import Response
+
+        return Response(
+            403,
+            "Forbidden",
+            Headers(Connection="close"),
+            b"origin not allowed\n",
+        )
+    return None
+
+
 def run(server: IPCServer) -> int:
     """Bind a localhost WS server on an ephemeral port and run forever.
 
@@ -1238,6 +1414,7 @@ def run(server: IPCServer) -> int:
             _LOOPBACK_HOST,
             0,
             max_size=_MAX_FRAME_BYTES,
+            process_request=_reject_browser_origins,
         ) as ws_server:
             # Read back the OS-assigned port. websockets.asyncio.server
             # exposes the underlying socket via .sockets.

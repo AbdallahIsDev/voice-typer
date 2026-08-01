@@ -97,6 +97,43 @@ from voice_typer.server.branding import APP_NAME
 log = logging.getLogger(__name__)
 
 
+def _tauri_log_files() -> dict:
+    """Open rotating log files for Tauri host stdout/stderr (best-effort).
+
+    Mirrors :func:`_electron_log_files` but writes to ``tauri-stdout.log``
+    and ``tauri-stderr.log`` so Tauri crashes can be diagnosed separately
+    from Electron crashes. On any failure (disk full, permission denied),
+    falls back to :data:`subprocess.DEVNULL` so the launch still succeeds.
+    """
+    try:
+        from voice_typer.server._electron_build import _rotate_if_oversized
+        from voice_typer.server.config import _config_dir as _cfg
+
+        log_dir = _cfg() / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        stdout_path = log_dir / "tauri-stdout.log"
+        stderr_path = log_dir / "tauri-stderr.log"
+        _rotate_if_oversized(stdout_path)
+        _rotate_if_oversized(stderr_path)
+        stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
+        stderr_fd = open(stderr_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
+        return {
+            "stdout": stdout_fd,
+            "stderr": stderr_fd,
+            "stdin": subprocess.DEVNULL,
+        }
+    except Exception as exc:
+        log.debug(
+            "[AUTOSTART] Failed to open Tauri log files, using DEVNULL: %s",
+            exc,
+        )
+        return {
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.DEVNULL,
+            "stdin": subprocess.DEVNULL,
+        }
+
+
 def _close_log_files(sk: dict) -> None:
     """Close Electron log file handles in the parent process.
 
@@ -313,9 +350,12 @@ def _tauri_binary() -> str | None:
           bundle name comes from ``productName`` (APP_NAME) while
          the inner executable is the Cargo binary name
          (``voice-typer-tauri``).
-       - **Windows**: ``%PROGRAMFILES%\\Voice Typer\\voice-typer-tauri.exe``
-         and ``%LOCALAPPDATA%\\Programs\\Voice Typer\\voice-typer-tauri.exe``
-         (the NSIS installer target).
+       - **Windows**: ``%LOCALAPPDATA%\\Programs\\Voice Typer\
+         voice-typer-tauri.exe`` (preferred — the per-user NSIS
+         ``installMode=currentUser`` target) and
+         ``%PROGRAMFILES%\\Voice Typer\\voice-typer-tauri.exe`` (the
+         admin-install fallback). The per-user path is checked FIRST
+         because the NSIS installer defaults to ``currentUser``.
 
     On POSIX the candidate must additionally be executable
     (``os.access(..., X_OK)``) — a stale non-executable file at one of
@@ -327,15 +367,20 @@ def _tauri_binary() -> str | None:
     """
     env_path = os.environ.get("VT_TAURI_BINARY")
     if env_path and Path(env_path).is_file():
+        log.debug("[AUTOSTART] _tauri_binary: using VT_TAURI_BINARY env override: %s", env_path)
         return env_path
 
     candidates: list[Path] = []
     if sys.platform == "win32":
-        program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
-        candidates.append(Path(program_files) / APP_NAME / "voice-typer-tauri.exe")
+        # Check LOCALAPPDATA first because the NSIS installer defaults
+        # to ``installMode=currentUser`` which installs to
+        # ``%LOCALAPPDATA%\Programs\Voice Typer\``. The admin-install
+        # path (PROGRAMFILES) is the fallback.
         local_appdata = os.environ.get("LOCALAPPDATA")
         if local_appdata:
             candidates.append(Path(local_appdata) / "Programs" / APP_NAME / "voice-typer-tauri.exe")
+        program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        candidates.append(Path(program_files) / APP_NAME / "voice-typer-tauri.exe")
     elif sys.platform == "darwin":
         candidates.append(Path("/Applications") / f"{APP_NAME}.app" / "Contents" / "MacOS" / "voice-typer-tauri")
         candidates.append(Path.home() / "Applications" / f"{APP_NAME}.app" / "Contents" / "MacOS" / "voice-typer-tauri")
@@ -349,7 +394,10 @@ def _tauri_binary() -> str | None:
             continue
         if sys.platform != "win32" and not os.access(cand, os.X_OK):
             continue
+        log.debug("[AUTOSTART] _tauri_binary: resolved Tauri binary at install path: %s", cand)
         return str(cand)
+    log.debug("[AUTOSTART] _tauri_binary: no Tauri binary found at any install path (dev/CI mode)")
+    return None
     return None
 
 
@@ -414,8 +462,11 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
     # (see _launch_electron_built for rationale). Only sensitive KEY
     # NAMES are logged for audit; values are never printed.
     _log_sensitive_env_keys(env, context="autostart_launcher._spawn_tauri_host")
+    sk: dict = {}
+    sk.update(_tauri_log_files())
+    sk.update(_spawn_flags(hidden=hidden))
     try:
-        child = subprocess.Popen([binary], env=env)
+        child = subprocess.Popen([binary], env=env, **sk)
         log.info(
             "[AUTOSTART] spawned tauri app %s (child pid=%s, hidden=%s)",
             binary,
@@ -426,6 +477,8 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
     except Exception:
         log.exception("[AUTOSTART] tauri spawn failed: %s", binary)
         return None
+    finally:
+        _close_log_files(sk)
 
 
 # Backward-compat alias — older test imports use the previous name.
@@ -572,8 +625,11 @@ def _focus_running_app() -> bool:
         # sensitive KEY NAMES are logged for audit; values are never
         # printed.
         _log_sensitive_env_keys(env, context="autostart_launcher._focus_running_app")
+        sk: dict = {}
+        sk.update(_tauri_log_files())
+        sk.update(_spawn_flags(hidden=False))  # focus probe is intentionally foreground
         try:
-            child = subprocess.Popen([binary], env=env)
+            child = subprocess.Popen([binary], env=env, **sk)
             log.info(
                 "[AUTOSTART] spawned tauri focus probe (pid=%s)",
                 getattr(child, "pid", "?"),
@@ -582,6 +638,8 @@ def _focus_running_app() -> bool:
         except Exception:
             log.exception("[AUTOSTART] failed to spawn tauri focus probe")
             return False
+        finally:
+            _close_log_files(sk)
 
     # Legacy Electron focus path.
     exe = _electron_binary()
@@ -789,8 +847,17 @@ def launch() -> int:
     # Electron ``node_modules/`` tree is not shipped in production
     # Tauri installs, so the legacy ``electron .`` / ``npm run dev``
     # paths would silently fail).
-    if _is_tauri_mode():
-        binary = _tauri_binary()
+    tauri_mode = _is_tauri_mode()
+    tauri_bin = _tauri_binary() if tauri_mode else None
+    log.info(
+        "[AUTOSTART] launch decision: tauri_mode=%s, tauri_binary=%s, electron_binary=%s, force_dev=%s",
+        tauri_mode,
+        tauri_bin or "(none)",
+        _electron_binary() or "(none)",
+        force_dev,
+    )
+    if tauri_mode:
+        binary = tauri_bin
         if binary:
             log.info("[AUTOSTART] Tauri mode: spawning %s", binary)
             child = _spawn_tauri_host(binary, hidden=hidden)

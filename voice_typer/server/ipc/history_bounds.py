@@ -184,7 +184,21 @@ def _bound_history_limit(raw) -> int:
     Accepts ints, floats, and numeric strings (the renderer sometimes
     sends strings from form inputs).  Rejects anything else with the
     default.  Result is always in ``[1, _HISTORY_LIMIT_MAX]``.
+
+    Defense-in-depth against the bool-as-int type confusion:
+    ``bool`` subclasses ``int`` in Python, so ``isinstance(True, int)``
+    is ``True`` and ``int(True) == 1``. If validation ever accepts a
+    bool ``limit`` (e.g. a schema without ``reject_bool=True``), the
+    bounder falls back to the default rather than silently coercing
+    ``True`` → 1 or ``False`` → 1 (via the lower-bound clamp). A bool
+    is semantically a toggle, not a pagination count — treating it as
+    a number masks a caller bug.
     """
+    if isinstance(raw, bool):
+        # bool subclasses int — reject explicitly so a stray
+        # ``{"limit": true}`` payload uses the default rather than
+        # silently coercing to 1.
+        return _HISTORY_LIMIT_DEFAULT
     if raw is None:
         return _HISTORY_LIMIT_DEFAULT
     try:
@@ -208,7 +222,18 @@ def _bound_history_offset(raw) -> int:
 
         Accepts ints, floats, and numeric strings.  Rejects anything else
         with ``0``.  Result is always in ``[0, _HISTORY_OFFSET_MAX]``.
+
+    Defense-in-depth against the bool-as-int type confusion (see
+    :func:`_bound_history_limit`): ``bool`` subclasses ``int``, so a
+    stray ``{"offset": true}`` would silently coerce to ``1`` (or
+    ``0`` for ``False``). The bounder falls back to ``0`` (the
+    sensible default for "no offset") instead.
     """
+    if isinstance(raw, bool):
+        # bool subclasses int — reject explicitly so a stray
+        # ``{"offset": true}`` payload uses the default (0) rather
+        # than silently coercing to 1.
+        return 0
     if raw is None:
         return 0
     try:

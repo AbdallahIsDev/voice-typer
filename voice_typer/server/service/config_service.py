@@ -241,10 +241,12 @@ class ConfigMutationMixin(ServiceMixinBase):
 
             {"success": False, "message": "..."}
         """
-        import shutil
-
         from voice_typer.server import credential_store
         from voice_typer.server.config import Config, _config_dir
+        from voice_typer.server.secure_file_io import (
+            _secure_atomic_write,
+            _secure_read_text,
+        )
 
         app = self._app
         # Use ``getattr`` instead of direct attribute access so the
@@ -264,10 +266,23 @@ class ConfigMutationMixin(ServiceMixinBase):
             # install), skip the backup.  If the backup write fails
             # (disk full, permissions), return failure — we don't
             # want to reset without a recovery path.
+            #
+            # Use the shared secure helpers instead of ``shutil.copy2``:
+            #   * ``_secure_read_text`` opens with ``O_NOFOLLOW`` on
+            #     POSIX so a symlink-planted config.json can't be
+            #     followed (defense against symlink-TOCTOU exfiltration
+            #     into the .bak file).
+            #   * ``_secure_atomic_write`` writes to a unique tmp file
+            #     (``mkstemp`` + ``O_EXCL``), fsyncs, then ``os.replace``
+            #     (atomic + does NOT follow the destination symlink),
+            #     and chmod's to 0o600.  This is the same vulnerability
+            #     class as the one already fixed in
+            #     ``config.py:_backup_before_migration``.
             if config_file.exists():
                 try:
-                    shutil.copy2(config_file, backup_path)
-                except OSError as exc:
+                    raw = _secure_read_text(config_file)
+                    _secure_atomic_write(backup_path, raw)
+                except (OSError, ValueError) as exc:
                     log.error("[SERVICE] reset_config_to_defaults: backup failed: %s", exc)
                     return {
                         "success": False,

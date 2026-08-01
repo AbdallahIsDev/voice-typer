@@ -15,6 +15,7 @@ import io
 import json
 import logging
 import threading
+import time
 from collections.abc import Callable
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -563,6 +564,161 @@ class CloudEngine:
         else:
             return self._send_openai_compatible(wav_bytes, filename)
 
+    # ── Shared retry/backoff skeleton ──────────────────────────────────
+    #
+    # Both `_send_openai_compatible` and `_send_deepgram` previously
+    # duplicated the same ~60-line retry skeleton: `max_retries = 3` /
+    # `retried_429 = False` / `for attempt in range(max_retries):` /
+    # `HTTPError` 429 branch with `_parse_retry_after` / `URLError`
+    # branch with `backoff = 0.5 * (2**attempt)` / final
+    # `raise CloudEngineError(...)`. The two copies had already drifted:
+    # the OpenAI path's `Exception` branch included `{safe_msg}` in the
+    # raised message; the Deepgram path dropped it. Centralising here
+    # removes the drift surface and makes the retry policy a single
+    # editable block.
+    #
+    # The wrapper methods supply two callables so this helper has zero
+    # knowledge of provider-specific request shape or response schema:
+    #   - ``request_factory`` builds a fresh `Request` per attempt
+    #     (re-built each attempt so a streaming multipart body isn't
+    #     reused after a partial read — see the comment in
+    #     `_send_openai_compatible` for the truncated-body bug this
+    #     prevents).
+    #   - ``parse_response`` takes the raw response bytes and returns
+    #     the transcribed text (provider-specific JSON path).
+    def _transcribe_with_retry(
+        self,
+        provider: str,
+        request_factory: Callable[[], Request],
+        parse_response: Callable[[bytes], str],
+    ) -> str:
+        """Shared retry/backoff skeleton for cloud transcription HTTP calls.
+
+        Honors the per-engine ``_abort_event`` (checked before each
+        attempt), retries 429 once honoring ``Retry-After`` (capped at
+        60s by ``_parse_retry_after``), and applies exponential backoff
+        (0.5s, 1.0s, 2.0s) for transient ``URLError``s. Non-retryable
+        ``HTTPError``s and the catch-all ``Exception`` branch raise
+        typed ``CloudEngineError`` subclasses via
+        ``_cloud_http_error_class`` so the IPC layer can map them to
+        distinct ``server.cloud_*`` codes.
+        """
+        max_retries = 3
+        retried_429 = False
+        for attempt in range(max_retries):
+            # Check the abort token BEFORE each (potentially 10s) HTTP
+            # call. If the user hit ESC or the watchdog force-recovered
+            # during a previous attempt's backoff sleep, bail out
+            # immediately rather than issuing another request that the
+            # user has already cancelled.
+            if self._abort_event.is_set():
+                log.info(
+                    "[CLOUD] %s abort requested — skipping retry %d/%d",
+                    provider,
+                    attempt + 1,
+                    max_retries,
+                )
+                raise CloudEngineError(f"{provider} transcription aborted by user")
+            req = request_factory()
+            try:
+                with _opener.open(req, timeout=self._REQUEST_TIMEOUT_SECONDS) as resp:
+                    # SEC-030: cap response body at 50 MB to prevent
+                    # a malicious or buggy server from exhausting RAM.
+                    # Whisper / Groq / Deepgram responses are <100 KB
+                    # in practice; 50 MB is a generous ceiling.
+                    raw = _read_capped(resp, max_bytes=50 * 1024 * 1024)
+                    text = parse_response(raw)
+                    log.info("[CLOUD] %s transcription: %d chars", provider, len(text))
+                    return text
+            except HTTPError as exc:
+                # 429 Too Many Requests is the only retryable 4xx.
+                # Honor Retry-After (numeric seconds or HTTP-date); cap the
+                # wait at 60s so a hostile server can't stall us forever.
+                # Only retry once on 429 — the backoff loop is intended for
+                # transient network errors, not rate-limit backoff.
+                if exc.code == 429 and not retried_429 and attempt < max_retries - 1:
+                    retried_429 = True
+                    wait = _parse_retry_after(exc.headers.get("Retry-After"))
+                    log.warning(
+                        "[CLOUD] %s got 429 (attempt %d/%d); honoring Retry-After, retrying once in %.1fs",
+                        provider,
+                        attempt + 1,
+                        max_retries,
+                        wait,
+                    )
+                    time.sleep(wait)
+                    continue
+                # Non-retryable HTTPError (4xx other than 429, or 5xx that
+                # we also surface without retrying — 5xx from a cloud ASR
+                # provider typically indicates a sustained outage that
+                # won't clear in 2s of backoff).
+                safe_msg = redact_secret(redact_url(str(exc)))
+                # Include exc_info so the HTTPError traceback
+                # is captured for debugging.
+                log.error(
+                    "[CLOUD] %s HTTP %d error (not retried): %s",
+                    provider,
+                    exc.code,
+                    safe_msg,
+                    exc_info=True,
+                )
+                # Raise the typed ``CloudEngineError`` subclass
+                # matching the HTTP status (401/403 → auth, 429 → rate
+                # limit, 5xx → server error, else → generic cloud).
+                err_cls = _cloud_http_error_class(exc.code)
+                raise err_cls(f"{provider} API error (HTTP {exc.code})") from exc
+            except URLError as exc:
+                # URLError that is NOT an HTTPError = transient
+                # network error (timeout, connection reset, DNS failure).
+                # Retry with exponential backoff.
+                if attempt < max_retries - 1:
+                    backoff = 0.5 * (2**attempt)  # 0.5s, 1.0s, 2.0s
+                    log.warning(
+                        "[CLOUD] %s attempt %d/%d failed, retrying in %.1fs: %s",
+                        provider,
+                        attempt + 1,
+                        max_retries,
+                        backoff,
+                        redact_secret(redact_url(str(exc))),
+                    )
+                    time.sleep(backoff)
+                else:
+                    safe_msg = redact_secret(redact_url(str(exc)))
+                    # Include exc_info so the final URLError
+                    # traceback is captured for debugging.
+                    log.error(
+                        "[CLOUD] %s API error after %d attempts: %s",
+                        provider,
+                        max_retries,
+                        safe_msg,
+                        exc_info=True,
+                    )
+                    # Typed ``CloudNetworkError`` so the IPC layer can
+                    # map to ``server.cloud_network_error``.
+                    raise CloudNetworkError(f"{provider} API error") from exc
+            except Exception as exc:
+                # use the same ``redact_secret(redact_url(...))``
+                # chain as the HTTPError / URLError branches above so a
+                # generic Exception carrying a URL-embedded credential
+                # (e.g. ``https://user:pass@host/...`` echoed back in a
+                # 500 response body) is redacted the same way as the
+                # typed-network-error path. Both provider paths now
+                # include ``{safe_msg}`` in the raised message —
+                # previously only the OpenAI path did, which was the
+                # drift bug that motivated centralising this skeleton.
+                safe_msg = redact_secret(redact_url(str(exc)))
+                # Include exc_info so the unexpected-exception
+                # traceback is captured for debugging.
+                log.error("[CLOUD] %s request failed: %s", provider, safe_msg, exc_info=True)
+                # include the underlying error in the user-facing
+                # message so the user can tell if it's a network issue vs an
+                # API error. Raise the typed base ``CloudEngineError``
+                # so the IPC layer still maps to a cloud-specific code
+                # rather than the generic ``server.internal_error``.
+                raise CloudEngineError(f"{provider} request failed: {safe_msg}") from exc
+        # Should not reach here, but just in case
+        raise CloudEngineError(f"{provider} request failed after {max_retries} attempts")
+
     def _send_openai_compatible(self, wav_bytes: bytes, filename: str) -> str:
         """Send request to OpenAI-compatible API (OpenAI, Groq).
 
@@ -576,6 +732,11 @@ class CloudEngine:
         PERF-: exponential backoff retry (3 attempts) for
                 transient network errors.  Connection pooling via a module-
                 level OpenerDirector (urllib's equivalent of requests.Session).
+
+        Thin wrapper around ``_transcribe_with_retry`` — supplies the
+        OpenAI-specific request factory (multipart body, rebuilt per
+        attempt because ``_StreamingMultipartBody`` carries internal
+        state) and the OpenAI response parser (``result["text"]``).
         """
         # Defense-in-depth: SEC-002 already validates URL scheme at
         # set_config time, but assert again here in case the value
@@ -593,35 +754,13 @@ class CloudEngine:
 
         boundary = "----VoiceTyperBoundary7MA4YWxkTrZu0gW"
 
-        # PERF-: retry with exponential backoff.
-        # HTTPError is a subclass of URLError, so it must be
-        # caught FIRST. Retrying 4xx (auth failures, bad request) is
-        # counterproductive — the request will never succeed without a
-        # config change — and burns API quota. 429 (Too Many Requests) is
-        # the one 4xx that is retryable: the server explicitly tells us
-        # when to retry via the Retry-After header.
-        # Rebuild `body` and `req` INSIDE the retry loop.
-        # `_StreamingMultipartBody.read()` advances internal state with
-        # no `reset()` method — reusing the same body across retries
-        # sent a truncated/empty multipart with stale Content-Length,
-        # producing confusing 400/malformed-multipart errors that hid
-        # the real network failure.
-        max_retries = 3
-        retried_429 = False
-        for attempt in range(max_retries):
-            # Check the abort token BEFORE each (potentially 10s) HTTP
-            # call. If the user hit ESC or the watchdog force-recovered
-            # during a previous attempt's backoff sleep, bail out
-            # immediately rather than issuing another request that the
-            # user has already cancelled.
-            if self._abort_event.is_set():
-                log.info(
-                    "[CLOUD] %s abort requested — skipping retry %d/%d",
-                    self.provider,
-                    attempt + 1,
-                    max_retries,
-                )
-                raise CloudEngineError(f"{self.provider} transcription aborted by user")
+        def _build_request() -> Request:
+            # Rebuild `body` and `req` INSIDE the retry loop.
+            # `_StreamingMultipartBody.read()` advances internal state with
+            # no `reset()` method — reusing the same body across retries
+            # sent a truncated/empty multipart with stale Content-Length,
+            # producing confusing 400/malformed-multipart errors that hid
+            # the real network failure.
             body = self._build_multipart_body(wav_bytes, filename, boundary)
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
@@ -631,112 +770,13 @@ class CloudEngine:
                 # _StreamingMultipartBody.__len__ returns the total length.
                 "Content-Length": str(len(body)),
             }
-            req = Request(self.api_url, data=body, headers=headers, method="POST")
-            try:
-                with _opener.open(req, timeout=self._REQUEST_TIMEOUT_SECONDS) as resp:
-                    # SEC-030: cap response body at 50 MB to prevent
-                    # a malicious or buggy server from exhausting RAM.
-                    # Whisper / Groq / Deepgram responses are <100 KB
-                    # in practice; 50 MB is a generous ceiling.
-                    raw = _read_capped(resp, max_bytes=50 * 1024 * 1024)
-                    result = json.loads(raw.decode("utf-8"))
-                    text = result.get("text", "").strip()
-                    log.info("[CLOUD] %s transcription: %d chars", self.provider, len(text))
-                    return text
-            except HTTPError as exc:
-                # 429 Too Many Requests is the only retryable 4xx.
-                # Honor Retry-After (numeric seconds or HTTP-date); cap the
-                # wait at 60s so a hostile server can't stall us forever.
-                # Only retry once on 429 — the backoff loop is intended for
-                # transient network errors, not rate-limit backoff.
-                if exc.code == 429 and not retried_429 and attempt < max_retries - 1:
-                    retried_429 = True
-                    wait = _parse_retry_after(exc.headers.get("Retry-After"))
-                    log.warning(
-                        "[CLOUD] %s got 429 (attempt %d/%d); honoring Retry-After, retrying once in %.1fs",
-                        self.provider,
-                        attempt + 1,
-                        max_retries,
-                        wait,
-                    )
-                    import time as _time
+            return Request(self.api_url, data=body, headers=headers, method="POST")
 
-                    _time.sleep(wait)
-                    continue
-                # Non-retryable HTTPError (4xx other than 429, or 5xx that
-                # we also surface without retrying — 5xx from a cloud ASR
-                # provider typically indicates a sustained outage that
-                # won't clear in 2s of backoff).
-                safe_msg = redact_secret(redact_url(str(exc)))
-                # Include exc_info so the HTTPError traceback
-                # is captured for debugging.
-                log.error(
-                    "[CLOUD] %s HTTP %d error (not retried): %s",
-                    self.provider,
-                    exc.code,
-                    safe_msg,
-                    exc_info=True,
-                )
-                # Raise the typed ``CloudEngineError`` subclass
-                # matching the HTTP status (401/403 → auth, 429 → rate
-                # limit, 5xx → server error, else → generic cloud).
-                # Was: ``raise RuntimeError(...) from exc``.
-                err_cls = _cloud_http_error_class(exc.code)
-                raise err_cls(f"{self.provider} API error (HTTP {exc.code})") from exc
-            except URLError as exc:
-                # URLError that is NOT an HTTPError = transient
-                # network error (timeout, connection reset, DNS failure).
-                # Retry with exponential backoff.
-                if attempt < max_retries - 1:
-                    import time as _time
+        def _parse(raw: bytes) -> str:
+            result = json.loads(raw.decode("utf-8"))
+            return result.get("text", "").strip()
 
-                    backoff = 0.5 * (2**attempt)  # 0.5s, 1.0s, 2.0s
-                    log.warning(
-                        "[CLOUD] %s attempt %d/%d failed, retrying in %.1fs: %s",
-                        self.provider,
-                        attempt + 1,
-                        max_retries,
-                        backoff,
-                        redact_secret(redact_url(str(exc))),
-                    )
-                    _time.sleep(backoff)
-                else:
-                    safe_msg = redact_secret(redact_url(str(exc)))
-                    # Include exc_info so the final URLError
-                    # traceback is captured for debugging.
-                    log.error(
-                        "[CLOUD] %s API error after %d attempts: %s",
-                        self.provider,
-                        max_retries,
-                        safe_msg,
-                        exc_info=True,
-                    )
-                    # Typed ``CloudNetworkError`` (was generic
-                    # ``RuntimeError``) so the IPC layer can map to
-                    # ``server.cloud_network_error``.
-                    raise CloudNetworkError(f"{self.provider} API error") from exc
-            except Exception as exc:
-                # use the same ``redact_secret(redact_url(...))``
-                # chain as the HTTPError / URLError branches above so a
-                # generic Exception carrying a URL-embedded credential
-                # (e.g. ``https://user:pass@host/...`` echoed back in a
-                # 500 response body) is redacted the same way as the
-                # typed-network-error path.
-                safe_msg = redact_secret(redact_url(str(exc)))
-                # Include exc_info so the unexpected-exception
-                # traceback is captured for debugging.
-                log.error("[CLOUD] %s request failed: %s", self.provider, safe_msg, exc_info=True)
-                # include the underlying error in the user-facing
-                # message so the user can tell if it's a network issue vs an
-                # API error. Pre-fix this was a generic "request failed" with
-                # no hint about the cause.
-                # Raise the typed base ``CloudEngineError`` (was
-                # generic ``RuntimeError``) so the IPC layer still maps
-                # to a cloud-specific code rather than the generic
-                # ``server.internal_error``.
-                raise CloudEngineError(f"{self.provider} request failed: {safe_msg}") from exc
-        # Should not reach here, but just in case
-        raise CloudEngineError(f"{self.provider} request failed after {max_retries} attempts")
+        return self._transcribe_with_retry(self.provider, _build_request, _parse)
 
     def _send_deepgram(self, wav_bytes: bytes) -> str:
         """Send request to Deepgram API.
@@ -752,7 +792,8 @@ class CloudEngine:
                 "smart_format=true"``).
 
         PERF-: exponential backoff retry (3 attempts) for
-                transient network errors, matching the OpenAI-compatible path.
+                transient network errors, matching the OpenAI-compatible path
+                (now shared via ``_transcribe_with_retry``).
         """
         # Opt in to allow_loopback_http=True — see the
         # OpenAI-compatible transcribe path above for the rationale.
@@ -762,11 +803,6 @@ class CloudEngine:
             client_name="cloud/deepgram",
             allow_loopback_http=True,
         )
-
-        headers = {
-            "Authorization": f"Token {self.api_key}",
-            "Content-Type": "audio/wav",
-        }
 
         # SEC-005: urlencode escapes special characters in the model
         # and language values, preventing parameter injection.
@@ -786,101 +822,30 @@ class CloudEngine:
             }
         )
         url = f"{self.api_url}?{query}"
-        req = Request(url, data=wav_bytes, headers=headers, method="POST")
 
-        # PERF-: retry with exponential backoff (same as OpenAI path).
-        # HTTPError caught before URLError; 4xx (except 429)
-        # is not retried; 429 honors Retry-After (capped at 60s, retry once).
-        max_retries = 3
-        retried_429 = False
-        for attempt in range(max_retries):
-            # Same abort-token check as the OpenAI-compatible path —
-            # see ``_send_openai_compatible`` for the rationale.
-            if self._abort_event.is_set():
-                log.info(
-                    "[CLOUD] Deepgram abort requested — skipping retry %d/%d",
-                    attempt + 1,
-                    max_retries,
-                )
-                raise CloudEngineError("Deepgram transcription aborted by user")
-            try:
-                with _opener.open(req, timeout=self._REQUEST_TIMEOUT_SECONDS) as resp:
-                    # SEC-030: cap response body at 50 MB.
-                    raw = _read_capped(resp, max_bytes=50 * 1024 * 1024)
-                    result = json.loads(raw.decode("utf-8"))
-                    # Deepgram response format
-                    channels = result.get("results", {}).get("channels", [])
-                    if channels:
-                        alternatives = channels[0].get("alternatives", [])
-                        if alternatives:
-                            text = alternatives[0].get("transcript", "").strip()
-                            log.info("[CLOUD] Deepgram transcription: %d chars", len(text))
-                            return text
-                    return ""
-            except HTTPError as exc:
-                # 429 is the only retryable 4xx; honor Retry-After
-                # and retry once. All other 4xx/5xx surface immediately.
-                if exc.code == 429 and not retried_429 and attempt < max_retries - 1:
-                    retried_429 = True
-                    wait = _parse_retry_after(exc.headers.get("Retry-After"))
-                    log.warning(
-                        "[CLOUD] Deepgram got 429 (attempt %d/%d); honoring Retry-After, retrying once in %.1fs",
-                        attempt + 1,
-                        max_retries,
-                        wait,
-                    )
-                    import time as _time
+        # Deepgram's body is a plain ``bytes`` object (no internal
+        # streaming state), so it could be built once and reused across
+        # retries. We still rebuild the ``Request`` per attempt via the
+        # factory below for symmetry with the OpenAI path and so the
+        # ``_transcribe_with_retry`` skeleton has a single contract.
+        def _build_request() -> Request:
+            headers = {
+                "Authorization": f"Token {self.api_key}",
+                "Content-Type": "audio/wav",
+            }
+            return Request(url, data=wav_bytes, headers=headers, method="POST")
 
-                    _time.sleep(wait)
-                    continue
-                safe_msg = redact_secret(redact_url(str(exc)))
-                # Include exc_info so the Deepgram HTTPError
-                # traceback is captured for debugging.
-                log.error(
-                    "[CLOUD] Deepgram HTTP %d error (not retried): %s",
-                    exc.code,
-                    safe_msg,
-                    exc_info=True,
-                )
-                # Typed ``CloudEngineError`` subclass based on
-                # HTTP status (was generic ``RuntimeError``).
-                err_cls = _cloud_http_error_class(exc.code)
-                raise err_cls(f"Deepgram API error (HTTP {exc.code})") from exc
-            except URLError as exc:
-                # URLError (non-HTTPError) = transient network error.
-                if attempt < max_retries - 1:
-                    import time as _time
+        def _parse(raw: bytes) -> str:
+            result = json.loads(raw.decode("utf-8"))
+            # Deepgram response format
+            channels = result.get("results", {}).get("channels", [])
+            if channels:
+                alternatives = channels[0].get("alternatives", [])
+                if alternatives:
+                    return alternatives[0].get("transcript", "").strip()
+            return ""
 
-                    backoff = 0.5 * (2**attempt)  # 0.5s, 1.0s, 2.0s
-                    log.warning(
-                        "[CLOUD] Deepgram attempt %d/%d failed, retrying in %.1fs: %s",
-                        attempt + 1,
-                        max_retries,
-                        backoff,
-                        redact_secret(redact_url(str(exc))),
-                    )
-                    _time.sleep(backoff)
-                else:
-                    safe_msg = redact_secret(redact_url(str(exc)))
-                    # Include exc_info so the final Deepgram
-                    # URLError traceback is captured for debugging.
-                    log.error("[CLOUD] Deepgram API error after %d attempts: %s", max_retries, safe_msg, exc_info=True)
-                    # Typed ``CloudNetworkError`` (was generic
-                    # ``RuntimeError``).
-                    raise CloudNetworkError("Deepgram API error") from exc
-            except Exception as exc:
-                # same ``redact_secret(redact_url(...))``
-                # chain as the OpenAI-compatible path above — keeps
-                # redaction consistent across all four error branches.
-                safe_msg = redact_secret(redact_url(str(exc)))
-                # Include exc_info so the unexpected Deepgram
-                # exception traceback is captured for debugging.
-                log.error("[CLOUD] Deepgram request failed: %s", safe_msg, exc_info=True)
-                # Typed base ``CloudEngineError`` (was generic
-                # ``RuntimeError``).
-                raise CloudEngineError("Deepgram request failed") from exc
-        # Should not reach here, but just in case
-        raise CloudEngineError(f"Deepgram request failed after {max_retries} attempts")
+        return self._transcribe_with_retry(self.provider, _build_request, _parse)
 
     def _build_multipart_body(self, wav_bytes: bytes, filename: str, boundary: str):
         """Build multipart/form-data body for OpenAI-compatible APIs.

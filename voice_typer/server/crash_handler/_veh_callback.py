@@ -11,9 +11,13 @@ a crash-diagnostics blurb in ``_crash_msg_buf``, and writes it to
 ``crash_diagnostics.<PID>.txt`` via ``_write_to_file`` (raw kernel32
 ``CreateFileW`` + ``WriteFile``).
 
-``_write_to_file`` wraps the kernel32 file-I/O sequence (open, seek to
-end, write, close; delete on failure so 0-byte diagnostic files don't
-accumulate).
+``_write_to_file`` wraps the kernel32 file-I/O sequence (open with
+``CREATE_ALWAYS`` (truncates any existing file), write, close; delete on
+failure so 0-byte diagnostic files don't accumulate). The previous
+``OPEN_ALWAYS`` + seek-to-``FILE_END`` sequence appended to an existing
+file when a PID was recycled by the OS and the recycled process also
+crashed — the new crash record was concatenated onto the stale one.
+``CREATE_ALWAYS`` matches the Python excepthook's ``O_TRUNC`` semantics.
 
 At module-load time on Windows, ``_vectored_handler_impl`` is wrapped
 in a ``WINFUNCTYPE`` and cached on the facade as ``_vectored_handler``.
@@ -47,8 +51,18 @@ from voice_typer.server.crash_handler._constants import (
     FILE_SHARE_READ,
     FILE_SHARE_WRITE,
     GENERIC_WRITE,
-    OPEN_ALWAYS,
 )
+
+# Win32 ``CreateFileW`` creation disposition. ``CREATE_ALWAYS = 2`` is
+# defined locally rather than in ``_constants`` so this module stays
+# self-contained for the truncation fix (matches the Python excepthook's
+# ``O_WRONLY | O_CREAT | O_TRUNC`` pattern). The previous ``OPEN_ALWAYS``
+# (4) + seek-to-``FILE_END`` sequence appended to any pre-existing file
+# at the same path — when the OS recycled a PID and the recycled process
+# also crashed, the new ~10 KiB crash record was concatenated onto the
+# stale one. ``CREATE_ALWAYS`` truncates the file (or creates a new one)
+# so each crash writes a fresh record.
+CREATE_ALWAYS = 2
 
 
 def _write_u32_hex(value: int, buf: bytearray, offset: int) -> int:
@@ -406,7 +420,7 @@ def _write_to_file(path_str: str, data: bytes | bytearray) -> None:
         GENERIC_WRITE,
         FILE_SHARE_READ | FILE_SHARE_WRITE,
         None,
-        OPEN_ALWAYS,
+        CREATE_ALWAYS,
         FILE_ATTRIBUTE_NORMAL,
         None,
     )
@@ -416,9 +430,12 @@ def _write_to_file(path_str: str, data: bytes | bytearray) -> None:
 
     write_ok = False
     try:
-        # Seek to end (FILE_END = 2).  lpDistanceToMoveHigh=None is valid.
-        _ch._func_set_file_pointer(handle, 0, None, 2)
-
+        # ``CREATE_ALWAYS`` already truncated the file (or created a new
+        # one) so the file pointer is at offset 0 — no explicit
+        # ``SetFilePointer(handle, 0, None, FILE_END)`` is needed. The
+        # previous seek-to-end call was paired with ``OPEN_ALWAYS`` and
+        # caused append-mode growth when a PID was recycled; removing it
+        # matches the Python excepthook's ``O_TRUNC`` semantics.
         written = wintypes.DWORD(0)
         if _ch._func_write_file(
             handle,

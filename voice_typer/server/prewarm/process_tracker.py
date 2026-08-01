@@ -592,11 +592,45 @@ def wait_for_prewarm(timeout_s: float = 60.0) -> bool:
     if _pkg._wait_for_completion_event(timeout_s):
         return True
 
+    # The previous poll loop called ``_pkg.is_prewarm_running()`` on
+    # every iteration, which re-runs the PID-recycling guard
+    # (``_process_is_prewarm``). On macOS that guard forks ``ps -o
+    # command= -p {pid}`` (~5ms fork+exec per call), so a 60s wait with
+    # 1s poll cadence forked ``ps`` up to 60 times per ``wait_for_prewarm``
+    # invocation — and ``model_manager.try_load()`` calls this on every
+    # app launch. The PID-recycling guard only needs to run when the PID
+    # *changes* (i.e. the PID file rotated, pointing at a new prewarm or
+    # a recycled unrelated process). Once we have verified a given PID is
+    # prewarm, a cheap ``os.kill(pid, 0)`` liveness check is sufficient:
+    # the PID can only be recycled AFTER its owner dies, and at that
+    # point ``_process_alive`` returns False and we exit the loop. If the
+    # PID file disappears entirely, prewarm exited normally (its ``finally``
+    # block removed it) and we're done.
+    verified_pid = _pkg._read_prewarm_pid()
     deadline = wait_start + timeout_s
     while time.perf_counter() < deadline:
         time.sleep(1.0)  # CPU-04: reduced from 500ms to 1s (60 polls max)
-        if not _pkg.is_prewarm_running():
+        current_pid = _pkg._read_prewarm_pid()
+        if current_pid is None:
+            # PID file gone → prewarm exited normally and cleaned up.
             log.info("[PREWARM] prewarm finished -- proceeding")
+            return True
+        if current_pid != verified_pid:
+            # PID file rotated → re-validate the new PID is actually
+            # prewarm. If not, treat the stale file as cleaned up so we
+            # don't block the model load for the full 60s timeout on a
+            # recycled unrelated PID.
+            if not _pkg._process_is_prewarm(current_pid):
+                log.info(
+                    "[PREWARM] prewarm PID file now points at non-prewarm pid %d -- proceeding",
+                    current_pid,
+                )
+                return True
+            verified_pid = current_pid
+            continue
+        # Same PID as already verified → cheap liveness probe only.
+        if not _process_alive(current_pid):
+            log.info("[PREWARM] prewarm process exited -- proceeding")
             return True
 
     log.warning(

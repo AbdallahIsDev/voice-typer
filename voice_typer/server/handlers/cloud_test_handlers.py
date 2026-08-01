@@ -47,11 +47,20 @@ import contextlib
 import json
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import Request
 
+from voice_typer.server._http_safety import build_secure_opener
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import ResponseEnvelope, _validate_dict_payload
+from voice_typer.server.ipc.validation import (
+    LegacyErrorCodes,
+    ResponseEnvelope,
+    _validate_dict_payload,
+)
+
+# Secure opener installs _NoRedirectHandler + _HttpsOnlyHTTPHandler to
+# prevent API key exfiltration via 3xx redirect.
+_opener = build_secure_opener()
 
 # Per-provider HTTP test endpoint + Authorization header scheme.
 # ``/v1/models`` (OpenAI / Groq) and ``/v1/projects`` (Deepgram) are
@@ -200,7 +209,7 @@ class CloudTestHandlersMixin(HandlerBase):
             req = Request(url=url, headers=headers, method="GET")
 
             try:
-                with urlopen(req, timeout=_TEST_TIMEOUT_SECONDS) as http_resp:
+                with _opener.open(req, timeout=_TEST_TIMEOUT_SECONDS) as http_resp:
                     # ``http_resp.status`` is the HTTP status code (int).
                     status_code = int(getattr(http_resp, "status", 200) or 200)
                     # Drain the response body so the connection can be
@@ -297,9 +306,9 @@ def _http_error_message(status_code: int) -> str:
     and the renderer's status-code-to-i18n-key mapping.
     """
     if status_code in (401, 403):
-        return "auth_failed"
+        return LegacyErrorCodes.AUTH_FAILED
     if status_code == 429:
-        return "rate_limited"
+        return LegacyErrorCodes.RATE_LIMITED
     if 500 <= status_code < 600:
         return "server_error"
     return "http_error"

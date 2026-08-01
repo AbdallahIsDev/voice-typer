@@ -204,7 +204,10 @@ class HotkeyDispatcher:
         - ``set_on_release(app._stop_dictation)`` in push-to-talk mode.
         """
         app = self._app
-        new_backend = create_hotkey_backend(hotkey_str)
+        # pass role="dictation" so the WaylandHotkey backend (if
+        # selected on a Wayland session) binds a per-backend socket
+        # filename instead of colliding with the ESC / repaste backends.
+        new_backend = create_hotkey_backend(hotkey_str, role="dictation")
         log.info("[HOTKEY] Backend created: %s", type(new_backend).__name__)
         # give the backend a reference to the tray so
         # it can show permission/fallback/recovery notifications.
@@ -315,7 +318,9 @@ class HotkeyDispatcher:
         self._esc_pending_capture_exit_event.clear()
 
         try:
-            self._esc_backend = create_hotkey_backend("<esc>")
+            # pass role="esc" so the WaylandHotkey backend (if
+            # selected on a Wayland session) binds a per-backend socket.
+            self._esc_backend = create_hotkey_backend("<esc>", role="esc")
             # prefer the event-driven WM_HOTKEY message loop over
             # the per-keystroke WH_KEYBOARD_LL hook for the ESC backend.
             # Only the main dictation hotkey installs an LL hook (was 3).
@@ -471,7 +476,9 @@ class HotkeyDispatcher:
                 self._app.config.repaste_hotkey = ""
                 return
             try:
-                self._repaste_backend = create_hotkey_backend(self._app.config.repaste_hotkey)
+                # pass role="repaste" so the WaylandHotkey backend
+                # (if selected on a Wayland session) binds a per-backend socket.
+                self._repaste_backend = create_hotkey_backend(self._app.config.repaste_hotkey, role="repaste")
                 # same WM_HOTKEY-preference flag as the ESC backend
                 # (see register_esc for the full rationale).
                 with contextlib.suppress(AttributeError, TypeError):

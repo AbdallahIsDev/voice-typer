@@ -71,7 +71,15 @@ Icon=voice-typer
 Hidden=false
 NoDisplay=true
 """
-    desktop_path.write_text(desktop_content)
+    # Atomic write (temp + os.replace) so a crash mid-write cannot
+    # leave a half-truncated .desktop file that the desktop
+    # environment silently skips on next login. durability=False
+    # matches the existing prewarm/autostart pattern — these files do
+    # not need fsync. No chmod(0o600) is applied: desktop environments
+    # must be able to read the .desktop file (see comment below).
+    from voice_typer.server.secure_file_io import _secure_atomic_write
+
+    _secure_atomic_write(desktop_path, desktop_content, durability=False)
     # SEC-003: .desktop autostart files are written to a shared XDG
     # autostart directory (e.g. ~/.config/autostart/).  Restrictive
     # permissions (0o600) are NOT applied here because:

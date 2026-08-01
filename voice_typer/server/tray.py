@@ -44,6 +44,7 @@ from collections.abc import Callable
 # without an X display). The proxy re-reads sys.modules on every access
 # so monkeypatches of voice_typer.server.tray.pystray keep working.
 from voice_typer.server._lazy_import import lazy_module
+from voice_typer.server._paths import APP_SLUG
 from voice_typer.server.branding import APP_NAME
 
 # Re-exports (noqa: F401) for backward compat with tests/code that
@@ -141,6 +142,13 @@ class TrayIcon:
         self._hotkey: str = getattr(config, "hotkey", "<f2>") or "<f2>"
         self._cached_menu = None  # P4 #30: menu cache
         self._menu_cache_valid = False
+        # Tauri-side ``id → callback`` map populated by
+        # ``_maybe_publish_tray_menu`` (tray_menu.py). Read by
+        # ``dispatch_tray_action`` to route a Tauri tray-click IPC back
+        # to the right controller/window callback. Defaults to ``{}``
+        # so ``dispatch_tray_action`` returns False (unknown item)
+        # before the first menu publish lands.
+        self._tray_id_map: dict[str, Callable] = {}
         # cache-skip — skip ``_make_icon`` redraw when
         # ``state == _last_applied_state``. The 1s elapsed-recording tick
         # () calls ``_apply_state`` every second; pre- this
@@ -209,25 +217,31 @@ class TrayIcon:
         """Cache the mic device list + invalidate the menu cache ().
 
         None/empty normalized to []. ADR-0020 §6.5: push to Tauri.
+
+        Uses ``_invalidate_menu_cache_locked`` (not the eager
+        ``invalidate_menu_cache``) so the cache-validity flag is cleared
+        under ``_menu_lock`` without forcing a pystray ``_update_menu``
+        call — the Tauri publish path doesn't need the Win32 menu handle
+        rebuilt, and on pystray the next right-click rebuilds lazily.
         """
         self._microphones = list(mics) if mics else []
-        self._menu_cache_valid = False
+        self._invalidate_menu_cache_locked()
         self._maybe_publish_tray_menu()
 
     def set_autostart_enabled(self, enabled: bool) -> None:
         """Update the cached autostart state."""
         self._autostart_enabled = enabled
-        self._menu_cache_valid = False
+        self._invalidate_menu_cache_locked()
 
     def set_notifications_enabled(self, enabled: bool) -> None:
         """Update the cached notifications state."""
         self._notifications_enabled = enabled
-        self._menu_cache_valid = False
+        self._invalidate_menu_cache_locked()
 
     def set_hotkey(self, hotkey: str) -> None:
         """Update the stored hotkey string for the next menu rebuild."""
         self._hotkey = hotkey
-        self._menu_cache_valid = False
+        self._invalidate_menu_cache_locked()
         self._maybe_publish_tray_menu()
         self._publish_tray_state()
 
@@ -240,7 +254,7 @@ class TrayIcon:
         """Replace the cached Config reference and rebuild the menu ()."""
         self._config = config
         self._hotkey = getattr(config, "hotkey", self._hotkey) or self._hotkey
-        self._menu_cache_valid = False
+        self._invalidate_menu_cache_locked()
         self._maybe_publish_tray_menu()
         self._publish_tray_state()
 
@@ -322,7 +336,7 @@ class TrayIcon:
         menu = pystray.Menu(self._build_menu)
         try:
             self._icon = pystray.Icon(
-                name="voice-typer",
+                name=APP_SLUG,
                 icon=_make_icon(AppState.IDLE),
                 # title is both tooltip AND a11y name.
                 title=_("app_name"),
@@ -759,10 +773,85 @@ class TrayIcon:
     # ─── Menu building (delegates to tray_menu.py) ─────────────────────
 
     def invalidate_menu_cache(self) -> None:
-        """Mark the menu cache as stale (delegate to tray_menu.invalidate_menu_cache)."""
+        """Mark the menu cache as stale (delegate to tray_menu.invalidate_menu_cache).
+
+        EAGER variant: also forces ``self._icon._update_menu()`` so the
+        Win32 HMENU is rebuilt before the next right-click (pystray on
+        Windows only invokes ``_build_menu`` at icon creation, so the
+        cached HMENU would otherwise stay stale until restart). Reserve
+        for explicit user-facing refresh actions (model download
+        completed, autostart toggled from Settings, etc.).
+        """
         from voice_typer.server.tray_menu import invalidate_menu_cache
 
         return invalidate_menu_cache(self)
+
+    def _invalidate_menu_cache_locked(self) -> None:
+        """Clear ``_menu_cache_valid`` under ``_menu_lock`` without
+        touching pystray.
+
+        LAZY variant: the lazy setters (``set_microphones``,
+        ``set_autostart_enabled``, ``set_notifications_enabled``,
+        ``set_hotkey``, ``refresh_config``) mutate cached state and need
+        to flag the menu cache as stale so the next right-click rebuilds.
+        They previously wrote ``self._menu_cache_valid = False`` directly
+        WITHOUT holding ``_menu_lock`` — racing a concurrent
+        ``build_menu_for_tray`` (pystray right-click on the icon's loop
+        thread) that had already observed the (stale) True flag and
+        returned the cached tuple. The next right-click then rebuilt
+        correctly, leaving a one-click staleness window.
+
+        Holding the lock when clearing the flag closes that window: a
+        concurrent ``build_menu_for_tray`` either finishes before we
+        acquire the lock (and the NEXT build sees False → rebuilds) or
+        waits until we release (and then sees False → rebuilds). The
+        flag-clear is now happens-before the next cache check.
+
+        This does NOT call ``_icon._update_menu()`` — the eager variant
+        is reserved for explicit refresh actions because the Win32
+        DestroyMenu/CreatePopupMenu round-trip is unnecessary when the
+        Tauri host owns the native tray (``self._icon is None``) and
+        the next pystray right-click rebuilds lazily anyway.
+        """
+        with self._menu_lock:
+            self._menu_cache_valid = False
+
+    def dispatch_tray_action(self, item_id: str) -> bool:
+        """Dispatch a Tauri tray-click IPC to the registered callback.
+
+        ADR-0020 §6.5 / §16: the Tauri Rust host emits a ``tray_click``
+        IPC for every native menu item click; ``ipc_server.py`` calls
+        this method with the item's ``id``. The ``id → callback`` map is
+        populated by ``_maybe_publish_tray_menu`` (tray_menu.py) on
+        every menu publish, so this method simply looks up the id and
+        invokes the registered callback.
+
+        Returns ``True`` if the id was found and the callback was
+        invoked, ``False`` if the id is unknown (the IPC layer turns a
+        False return into a ``server.unknown_tray_item`` error envelope).
+        Before the first menu publish, ``self._tray_id_map`` is ``{}``
+        (initialised in ``__init__``) so every click returns False — the
+        Tauri host should publish the initial menu via
+        ``_wrap_bg_work`` before any click can land.
+
+        Callback exceptions are caught and logged so a single broken
+        callback (e.g. a controller method that raises) doesn't take
+        down the IPC server thread. The return value is still True on a
+        known id — the click was *dispatched*, the callback's success is
+        a separate concern (the renderer surfaces errors via toasts).
+        """
+        callback = self._tray_id_map.get(item_id)
+        if callback is None:
+            return False
+        try:
+            callback()
+        except Exception:
+            log.warning(
+                "[TRAY] dispatch_tray_action callback raised for item_id=%r",
+                item_id,
+                exc_info=True,
+            )
+        return True
 
     def _build_menu(self) -> tuple:
         """Build the tray menu (Models + Microphones submenus + shortcuts).

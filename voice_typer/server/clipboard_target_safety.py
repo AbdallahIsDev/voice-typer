@@ -832,7 +832,8 @@ def _is_password_field_macos() -> bool:
         # password text field role.
         try:
             role_result = ApplicationServices.AXUIElementCopyAttributeValue(focused, "AXRole", None)
-        except Exception:
+        except Exception as e:
+            _log().debug("macOS AXRole fetch failed for focused element: %s", e, exc_info=True)
             role_result = None
         # consolidated AX-tuple shape check.
         if _ax_result_value(role_result) == "AXSecureTextField":
@@ -846,7 +847,8 @@ def _is_password_field_macos() -> bool:
         # that hide password input behind a non-standard role).
         try:
             secure_result = ApplicationServices.AXUIElementCopyAttributeValue(focused, "AXIsSecure", None)
-        except Exception:
+        except Exception as e:
+            _log().debug("macOS AXIsSecure fetch failed: %s", e, exc_info=True)
             secure_result = None
         # consolidated AX-tuple shape check.
         if bool(_ax_result_value(secure_result)):
@@ -909,7 +911,8 @@ def _find_focused_atspi_accessible(
     # root, this catches the case where the root IS the focused leaf).
     try:
         root_state = desktop.getState()
-    except Exception:
+    except Exception as e:
+        _log().debug("Linux AT-SPI desktop.getState() failed: %s", e, exc_info=True)
         root_state = None
     if root_state is not None:
         try:
@@ -947,7 +950,8 @@ def _find_focused_atspi_accessible(
     for i in range(child_count):
         try:
             child = desktop.getChildAtIndex(i)
-        except Exception:
+        except Exception as e:
+            _log().debug("Linux AT-SPI desktop.getChildAtIndex(%d) failed: %s", i, e, exc_info=True)
             continue
         if child is None:
             continue
@@ -1037,11 +1041,8 @@ def _is_password_field_linux() -> bool:
     try:
         state_focused = pyatspi.STATE_FOCUSED
     except AttributeError:
-        # Defensive: older pyatspi versions may expose it differently.
-        try:
-            state_focused = pyatspi.STATE_FOCUSED
-        except Exception:
-            state_focused = 1 << 10  # fallback value
+        # Fallback for older pyatspi versions that may not expose STATE_FOCUSED.
+        state_focused = 1 << 10  # fallback value
     # Backward-compat: mirror the resolved value into the module-level
     # global so external code (re-exports in ``clipboard/__init__.py``,
     # test patches in ``test_clipboard_password_detection.py``) that

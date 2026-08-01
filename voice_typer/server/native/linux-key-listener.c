@@ -198,6 +198,44 @@ static int g_fds[MAX_DEVICES];
 static int g_num_fds = 0;
 static volatile sig_atomic_t g_should_exit = 0;
 
+/* ─── Cross-device evdev deduplication ────────────────────────────────────
+ *
+ * On systems with multiple keyboard-like /dev/input/eventN devices (laptop
+ * internal + USB dock, AT-translated + dock keyboard), the kernel broadcasts
+ * the same physical keystroke to every open keyboard fd. Without dedup, each
+ * press produces N KEY_DOWN:<Name> lines on stdout, and the Python matcher
+ * fires the callback N times.
+ *
+ * The kernel stamps every duplicate of a single hardware event with the SAME
+ * (tv_sec, tv_usec) timestamp, so we use that as a reliable dedup signal.
+ * A 5 ms slack window (inclusive) tolerates drivers that re-stamp duplicates
+ * at slightly different times, while remaining far below the ~80 ms
+ * inter-keystroke interval for fast typists (so genuine double-taps are
+ * never suppressed).
+ */
+#define DEDUP_WINDOW_MS 5
+static struct input_event g_last_emitted_ev;
+static int g_have_last_ev = 0;
+
+static int is_duplicate_event(const struct input_event *ev) {
+    if (!g_have_last_ev) return 0;
+    if (ev->type != g_last_emitted_ev.type) return 0;
+    if (ev->code != g_last_emitted_ev.code) return 0;
+    if (ev->value != g_last_emitted_ev.value) return 0;
+    /* Compare timestamps with a 5 ms slack window. Use long long to
+     * avoid int overflow when computing the delta. */
+    long long ev_ms = (long long)ev->time.tv_sec * 1000LL + (long long)ev->time.tv_usec / 1000LL;
+    long long last_ms = (long long)g_last_emitted_ev.time.tv_sec * 1000LL + (long long)g_last_emitted_ev.time.tv_usec / 1000LL;
+    long long delta = ev_ms - last_ms;
+    if (delta < 0) delta = -delta;
+    return delta <= DEDUP_WINDOW_MS;
+}
+
+static void remember_emitted_event(const struct input_event *ev) {
+    g_last_emitted_ev = *ev;
+    g_have_last_ev = 1;
+}
+
 /* ─── Signal handler ─────────────────────────────────────────────────────── */
 
 static void on_signal(int sig) {
@@ -433,12 +471,17 @@ static int run_loop(void) {
                 const key_name_t *kn = lookup_key((int)ev.code);
                 if (kn == NULL) continue; /* unmapped key — skip silently */
 
+                /* Cross-device dedup: suppress duplicate broadcasts of the
+                 * same hardware event arriving on multiple open keyboard fds. */
+                if (is_duplicate_event(&ev)) continue;
+
                 const char *prefix = (ev.value == 1) ? "DOWN" : "UP";
                 if (kn->is_modifier) {
                     emitf("MOD_%s:%s", prefix, kn->name);
                 } else {
                     emitf("KEY_%s:%s", prefix, kn->name);
                 }
+                remember_emitted_event(&ev);
             }
             /* EAGAIN is expected when O_NONBLOCK is set and we've drained */
         }

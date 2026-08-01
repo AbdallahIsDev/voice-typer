@@ -53,28 +53,36 @@ class WaylandHotkey(HotkeyBackend):
     ``_accept_loop``).
     """
 
+    # Per-instance socket path suffix. When ``HotkeyDispatcher``
+    # creates three backends (dictation / ESC / repaste) on a Wayland
+    # session, each one used to bind the SAME socket path
+    # (``$XDG_RUNTIME_DIR/voice-typer-hotkey.sock``). The second
+    # ``start()`` would ``os.unlink`` the first backend's socket and
+    # bind a new one — silently killing the first backend's IPC
+    # listener. The fix: each backend gets a per-role suffix.
     @staticmethod
-    def _socket_path() -> str | None:
+    def _sanitize_role(role: str | None) -> str:
+        """Return a filename-safe suffix derived from *role*."""
+        if not role:
+            return ""
+        safe = "".join(c if (c.isalnum() or c in "-_") else "-" for c in role).lower().strip("-_")
+        return safe
+
+    @staticmethod
+    def _socket_path(role: str | None = None) -> str | None:
         """Return the Unix socket path under ``$XDG_RUNTIME_DIR``, or ``None``.
 
-        ``$XDG_RUNTIME_DIR`` is the Freedesktop standard for
-        per-user runtime files (typically
-        ``/run/user/<uid>/voice-typer-hotkey.sock``). It is only
-        accessible by the owning UID, eliminating the cross-user
-        TOCTOU window between ``bind()`` and ``chmod()`` that existed
-        when the path was hardcoded to the world-writable ``/tmp``.
-
-        M-88: returns ``None`` when ``XDG_RUNTIME_DIR`` is unset.
-        Callers (``start``, ``stop``, ``diagnose``) must handle the
-        ``None`` case — typically by falling back to pynput-only and
-        logging the warning. The previous ``/tmp/voice-typer-hotkey.sock``
-        fallback was removed because ``/tmp`` is world-writable and
-        vulnerable to a symlink attack (another user pre-creates the
-        socket path as a symlink to a sensitive file).
+        ``role`` (optional) appends a per-backend suffix
+        (e.g. ``-dictation``, ``-esc``) so multiple WaylandHotkey
+        instances can coexist without colliding on the same socket
+        path. Without a role, the path is the historical
+        ``voice-typer-hotkey.sock`` (single-backend compat).
         """
         xdg = os.environ.get("XDG_RUNTIME_DIR")
         if xdg:
-            return os.path.join(xdg, "voice-typer-hotkey.sock")
+            suffix = WaylandHotkey._sanitize_role(role)
+            filename = f"voice-typer-hotkey-{suffix}.sock" if suffix else "voice-typer-hotkey.sock"
+            return os.path.join(xdg, filename)
         return None
 
     #  (pyrefly): expose the socket path as a read-only property so
@@ -88,9 +96,13 @@ class WaylandHotkey(HotkeyBackend):
     #
     # M-88: the property is now ``str | None`` — ``None`` signals that
     # ``XDG_RUNTIME_DIR`` is unset and the socket is disabled.
+    #
+    # The property now passes ``self._role`` to
+    # ``_socket_path()`` so each backend instance binds its own
+    # per-role socket filename.
     @property
     def SOCKET_PATH(self) -> str | None:  # noqa: N802 — matches existing attr-access call sites
-        return self._socket_path()
+        return self._socket_path(self._role)
 
     PING_RESPONSE = b"pong\n"
     TOGGLE_RESPONSE = b"toggled\n"
@@ -118,7 +130,16 @@ class WaylandHotkey(HotkeyBackend):
     # wlr-which-key reconnect, etc.) suppresses the fallback.
     PYNPUT_FALLBACK_DEFER_SECONDS: float = 5.0
 
-    def __init__(self, hotkey_str: str):
+    def __init__(self, hotkey_str: str, role: str | None = None):
+        # ``role`` is a short identifier ("dictation", "esc",
+        # "repaste") that disambiguates the three backends created by
+        # ``HotkeyDispatcher`` on a Wayland session. Without it, all
+        # three would bind the same ``voice-typer-hotkey.sock`` path
+        # and the second/third ``start()`` would ``os.unlink`` the
+        # earlier backend's socket. Defaults to None for backward
+        # compat with the historical single-backend construction
+        # ``WaylandHotkey("<f8>")`` used by tests.
+        self._role: str | None = role
         # call super().__init__() so the base class initializes
         # ``self.hotkey_str`` (the public attribute used by every other
         # backend via the ``HotkeyBackend`` interface),
@@ -490,7 +511,12 @@ class WaylandHotkey(HotkeyBackend):
                 self._pynput_fallback.stop()
                 log.info("[HOTKEY-WAYLAND] Pynput fallback stopped (timeout)")
             except Exception:
-                pass
+                # Pynput's stop() may raise implementation-specific
+                # exceptions on a half-initialized backend. Keep the
+                # broad catch (the backend is being torn down anyway)
+                # but log at debug so the failure is diagnosable.
+                # Previously a silent ``except Exception: pass``.
+                log.debug("[HOTKEY-WAYLAND] pynput fallback stop failed", exc_info=True)
         self._pynput_fallback = None
 
     def stop(self) -> None:

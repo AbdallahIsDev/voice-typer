@@ -486,6 +486,15 @@ class OnboardingController:
         Linux users not in the ``input`` group (and without
         the udev rule) hit the same silent failure.
 
+        This method is the **canonical entry point** for the
+        ``onboarding_check_permissions`` and
+        ``onboarding_recheck_permission`` IPC handlers — it is the
+        single source of truth that produces the renderer-facing
+        permission payload. (A previous ``check_permissions_payload``
+        free-function in ``permissions.py`` was dead code with a
+        misleading docstring claiming this same role; it has been
+        removed.)
+
         This method delegates to
         :func:`voice_typer.server.permissions.check_keyboard_permission`
         to detect the current state and returns a renderer-friendly

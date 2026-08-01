@@ -148,9 +148,13 @@ class _NativeBackendAdapter(HotkeyBackend):
     # this file doesn't need ``# type: ignore[attr-defined]`` markers.
     _tray: object | None = None
 
-    def __init__(self, native_backend):
+    def __init__(self, native_backend, role: str | None = None):
         # Don't call super().__init__ because we delegate hotkey_str
         # to the wrapped backend.
+        # IN-24: store ``role`` so ``_create_legacy_backend`` can pass
+        # it to ``WaylandHotkey`` when the native backend permanently
+        # fails and the adapter swaps to legacy.
+        self._role: str | None = role
         self._native = native_backend
         self.hotkey_str = native_backend.hotkey_str
         self._on_release_callback: Callable[[], None] | None = None
@@ -214,7 +218,11 @@ class _NativeBackendAdapter(HotkeyBackend):
                 from voice_typer.server.permissions import cancel_permission_retry
 
                 cancel_permission_retry()
-            except Exception:
+            except (ImportError, AttributeError):
+                # ``cancel_permission_retry`` was added in a later
+                # version of ``permissions.py``; on older checkouts
+                # the import fails. Previously a broad
+                # ``except Exception: pass``.
                 pass
             # Reset the permission notification flag so a restart
             # can show it again.
@@ -306,10 +314,33 @@ class _NativeBackendAdapter(HotkeyBackend):
     def _on_permission_granted(self) -> None:
         """Called when the permission retry timer detects the permission
         has been granted. Attempts to restart the native backend.
+
+        IN-27: stops the legacy backend BEFORE restarting native.
+        Previously the legacy backend was left running alongside the
+        native backend after a permission-grant recovery — both
+        backends would fire the same callback on the same keypress
+        (double-toggle, double-ESC-cancel, double-repaste) until the
+        next ``_retry_native`` cycle (~5 minutes later) cleaned it up.
         """
         log.info("[HOTKEY] Permission granted — restarting native backend")
         with contextlib.suppress(Exception):
             self._native.stop()
+        # IN-27: stop the legacy backend BEFORE restarting native so
+        # both backends aren't simultaneously alive (double-fire on
+        # the same keypress). Snapshot under the swap_lock to avoid
+        # racing with ``_swap_to_legacy`` / ``_retry_native`` which
+        # also touch ``self._legacy``.
+        with self._swap_lock:
+            legacy_to_stop = self._legacy
+            self._legacy = None
+        if legacy_to_stop is not None:
+            try:
+                legacy_to_stop.stop()
+            except Exception:
+                log.debug(
+                    "[HOTKEY] Failed to stop legacy backend during permission-grant recovery",
+                    exc_info=True,
+                )
         try:
             # narrow ``self._callback`` (typed
             # ``Callable[[], None] | None``) to the non-None local
@@ -427,7 +458,9 @@ class _NativeBackendAdapter(HotkeyBackend):
             wayland_display = os.environ.get("WAYLAND_DISPLAY", "")
             xdg_session = os.environ.get("XDG_SESSION_TYPE", "")
             if wayland_display or xdg_session == "wayland":
-                return WaylandHotkey(self.hotkey_str)
+                # IN-24: pass ``self._role`` so the legacy fallback on a
+                # Wayland session doesn't collide with other backends.
+                return WaylandHotkey(self.hotkey_str, role=self._role)
         return PynputHotkey(self.hotkey_str)
 
     def _schedule_native_retry(self) -> None:

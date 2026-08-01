@@ -652,6 +652,7 @@ def _close_writer(db: HistoryDB) -> None:
     _SHUTDOWN_SENTINEL = _hd._SHUTDOWN_SENTINEL  # noqa: N806
     _WRITE_QUEUE_MAXSIZE = _hd._WRITE_QUEUE_MAXSIZE  # noqa: N806
     _WRITER_JOIN_TIMEOUT = _hd._WRITER_JOIN_TIMEOUT  # noqa: N806
+    _BatchableInsert = _hd._BatchableInsert  # noqa: N806
     HistoryDBError = _hd.HistoryDBError  # noqa: N806
 
     # Best-effort wal_checkpoint(TRUNCATE) before shutdown.
@@ -691,8 +692,14 @@ def _close_writer(db: HistoryDB) -> None:
                 with contextlib.suppress(queue.Full):
                     db._queue.put_nowait(dropped)
                 break
-            # Dropped a real write — signal its future.
-            dropped_fn, dropped_future = dropped
+            # Dropped a real write — signal its future. The dropped
+            # item may be a ``(fn, future)`` tuple OR a
+            # ``_BatchableInsert`` structured payload; extract the
+            # future from either shape (mirrors _drop_oldest_for_overflow).
+            if isinstance(dropped, _BatchableInsert):
+                dropped_future = dropped.future
+            else:
+                _, dropped_future = dropped
             if dropped_future is not None:
                 with contextlib.suppress(concurrent.futures.InvalidStateError):
                     dropped_future.set_exception(HistoryDBError("Dropped during shutdown sentinel enqueue"))
@@ -703,9 +710,13 @@ def _close_writer(db: HistoryDB) -> None:
                 break
             except queue.Full:
                 continue
-    except RuntimeError as e:
-        # Can occur during interpreter shutdown if the queue module
-        # is in an inconsistent state.
+    except (RuntimeError, TypeError) as e:
+        # RuntimeError can occur during interpreter shutdown if the
+        # queue module is in an inconsistent state; TypeError can
+        # occur if a malformed (non-tuple, non-_BatchableInsert)
+        # payload sneaks into the queue — wider guard keeps close()
+        # best-effort and prevents the teardown crash reported when
+        # a _BatchableInsert hits the legacy tuple-unpack branch.
         log.debug("[HISTORY_DB] Could not enqueue shutdown sentinel: %s", e)
     # Wait for the writer to exit (it drains remaining items first).
     if db._writer_thread.is_alive():

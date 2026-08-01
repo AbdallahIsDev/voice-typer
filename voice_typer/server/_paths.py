@@ -53,6 +53,13 @@ LOOPBACK_HOST: str = "127.0.0.1"
 DEFAULT_LLM_API_URL: str = "https://api.openai.com/v1/chat/completions"
 DEFAULT_LLM_MODEL: str = "gpt-4o-mini"
 
+# Machine-readable application slug used for config-dir names, keyring
+# service names, desktop files. Distinct from APP_NAME (display name,
+# which lives in ``voice_typer.server.branding`` and is the human-
+# readable ``"Voice Typer"`` string). Keeping the slug centralized here
+# means a future rename only changes ONE literal in ONE file.
+APP_SLUG: str = "voice-typer"
+
 # canonical default IPC port. Previously the literal ``9876`` was
 # duplicated in ``autostart_launcher.py`` (``IPC_PORT = 9876``),
 # ``ipc/transport.py`` (``_pick_available_port(start: int = 9876, ...)``),

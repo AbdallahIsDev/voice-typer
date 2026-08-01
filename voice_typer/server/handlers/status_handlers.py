@@ -279,10 +279,20 @@ class StatusHandlersMixin(HandlerBase):
                 # File doesn't exist yet (prewarm hasn't run this boot).
                 # Create it with a header so the user's editor opens
                 # successfully with context about why it's empty.
+                # Atomic write (temp + os.replace) so a crash mid-write
+                # cannot leave a half-truncated placeholder that the
+                # editor would open as garbled text. durability=False
+                # matches the existing prewarm pattern — this is a
+                # non-critical placeholder file.
                 try:
                     from datetime import datetime as _dt
 
-                    log_file.write_text(
+                    from voice_typer.server.secure_file_io import (
+                        _secure_atomic_write,
+                    )
+
+                    _secure_atomic_write(
+                        log_file,
                         "# Prewarm log\n"
                         "#\n"
                         "# This file is created by the prewarm process\n"
@@ -291,7 +301,7 @@ class StatusHandlersMixin(HandlerBase):
                         "# the Run Prewarm Now button).\n"
                         "#\n"
                         "# Placeholder created: " + _dt.now().strftime("%Y-%m-%d %H:%M:%S") + "\n",
-                        encoding="utf-8",
+                        durability=False,
                     )
                 except OSError:
                     pass

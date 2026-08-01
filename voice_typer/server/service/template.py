@@ -110,11 +110,14 @@ class TemplateMixin(ServiceMixinBase):
                         "match_mode": match_mode,
                     }
                 )
-            # Use the manager's internal list + _save so the on-disk
-            # format matches what TemplateManager._load expects (a
-            # dict with a "templates" key).
-            tm._templates = normalized
-            tm._save()
+            # Use the manager's atomic full-replace method so the
+            # lock is acquired, the indexes are rebuilt, and the
+            # on-disk file is updated in one transaction. Pre-fix this
+            # directly assigned to tm._templates and called tm._save()
+            # — bypassing the lock (race with concurrent match) and
+            # skipping _rebuild_indexes (so the just-saved templates
+            # were not matchable until the next process restart).
+            tm.replace_all(normalized)
             log.info("[SERVICE] Saved %d templates", len(normalized))
             return True
         except Exception as exc:

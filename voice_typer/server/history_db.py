@@ -13,7 +13,9 @@ Architecture overview::
                                                      owns 1 write conn
                                                      drains queue, runs
                                                      PRAGMA wal_checkpoint
-                                                     every 300s
+                                                     every
+                                                     _WAL_CHECKPOINT_INTERVAL
+                                                     seconds (default 300)
 
     caller thread ──► HistoryDB.get_recent ──► _get_read_conn (thread-local)
                                                 PRAGMA query_only=1
@@ -182,6 +184,16 @@ _TODAY_STATS_CACHE_TTL_S = 15.0
 
 # maximum characters of ``text`` returned in list responses.
 _HISTORY_TEXT_PREVIEW_LENGTH = 500
+
+# hard upper bound on the ``limit`` parameter for the public list
+# methods (get_recent / search / get_favorites). Prevents a single
+# IPC call from materialising an unbounded result set (each row
+# carries up to _HISTORY_TEXT_PREVIEW_LENGTH chars of text plus 10
+# metadata fields — a hostile or buggy caller passing limit=10**9
+# would otherwise OOM the renderer). Callers asking for more than
+# this get silently clamped; the renderer paginates via cursor
+# parameters (before_timestamp / before_id) for deep reads.
+_MAX_LIST_LIMIT = 500
 
 # regex used by ``HistoryDB._try_iterdump_recovery`` to
 # filter iterdump() output and keep only ``INSERT INTO transcriptions``
@@ -714,7 +726,8 @@ class HistoryDB:
             if result is not None:
                 status, pages_checkpointed, total_pages = result
                 # Only log when a non-trivial checkpoint happens (>= 100
-                # pages) to avoid flooding the log every 300s. Tiny
+                # pages) to avoid flooding the log every
+                # ``_WAL_CHECKPOINT_INTERVAL`` seconds. Tiny
                 # checkpoints (e.g. 20 pages) are silent — the WAL is
                 # healthy, no action needed.
                 # status: 0=ok, 1=partial(active readers), 2=full(needs restart)
@@ -734,7 +747,7 @@ class HistoryDB:
         except sqlite3.OperationalError as e:
             # This can happen when an external process (e.g. antivirus
             # scan) holds a lock on the WAL file. The next checkpoint
-            # attempt in 300s will retry.
+            # attempt in ``_WAL_CHECKPOINT_INTERVAL`` seconds will retry.
             log.debug(
                 "[HISTORY_DB] WAL checkpoint skipped (will retry in %.0fs): %s",
                 _WAL_CHECKPOINT_INTERVAL,
@@ -813,10 +826,72 @@ class HistoryDB:
 
         See the delegated function for the full migration / index /
         integrity-check rationale (, , , FIX).
+
+        After schema init succeeds (``self._init_error is None``), runs
+        :meth:`_fts5_startup_rebuild` once on the writer connection.
+        This bounds the worst-case exposure window for any failed
+        delete / clear_all / apply_retention rebuilds in the previous
+        session to "between launches" — on every launch the FTS5
+        segment data is rebuilt from the current content table, so
+        lingering dictated text from a previously-failed delete is
+        cleared. Skipped on migration failure (``_init_error`` set)
+        because the schema is in an inconsistent state and the FTS5
+        table may not exist.
         """
         from voice_typer.server.history_db_internals.schema import init_schema
 
-        return init_schema(self, conn, _is_recovery=_is_recovery)
+        new_conn = init_schema(self, conn, _is_recovery=_is_recovery)
+        # Startup FTS5 sweep — best-effort, must not raise (a failure
+        # here is logged at WARNING and swallowed so the app still
+        # starts). Only run when schema init succeeded: on migration
+        # failure the FTS5 table may not exist and the schema is in an
+        # inconsistent state.
+        if self._init_error is None:
+            with contextlib.suppress(Exception):
+                self._fts5_startup_rebuild(new_conn)
+        return new_conn
+
+    def _fts5_startup_rebuild(self, conn: sqlite3.Connection) -> None:
+        """Best-effort FTS5 ``'rebuild'`` on every launch.
+
+        The ``delete``, ``clear_all``, and ``apply_retention`` paths
+        each issue the FTS5 ``'rebuild'`` command after their bulk
+        DELETEs to zero dictated text out of
+        ``transcriptions_fts_data`` (GDPR Art. 17 right-to-erasure).
+        But that rebuild is wrapped in a tolerant
+        ``try/except sqlite3.Error`` — if it fails (transient FTS5
+        error, disk full), the failure is logged and swallowed (no
+        raise, no rollback), incrementing ``self._fts5_rebuild_failures``
+        and publishing an ``event_bus`` event. The segment data from
+        the failed delete lingers in ``transcriptions_fts_data``,
+        recoverable via forensic tools, until FTS5's background
+        compaction happens to merge that segment (days or weeks
+        later).
+
+        This startup sweep bounds the worst-case exposure window to
+        "between launches": on every HistoryDB construction (after the
+        schema is initialized), we run ``'rebuild'`` once. If the
+        previous session's delete-time rebuild failed, this sweep
+        clears the lingering segment data on the next launch.
+
+        Best-effort: a failure here is logged at WARNING (not ERROR —
+        a startup sweep failure is not actionable mid-session; the
+        next session will retry) and swallowed — the app must still
+        start. Tolerant of older DBs that haven't yet run the V3
+        migration (no ``transcriptions_fts`` table) — the
+        ``sqlite3.Error`` raised by "no such table" is caught and
+        logged at WARNING.
+        """
+        try:
+            with contextlib.closing(conn.cursor()) as cursor:
+                cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
+            conn.commit()
+            log.debug("[HISTORY] FTS5 startup rebuild succeeded")
+        except sqlite3.Error as e:
+            log.warning(
+                "[HISTORY] FTS5 startup rebuild failed: %s — segments from failed deletes may persist",
+                e,
+            )
 
     def _backup_before_migration(self, current_version: int) -> None:
         """Best-effort copy of the DB (and ``-wal``/``-shm``
@@ -1963,6 +2038,8 @@ class HistoryDB:
         offset: int = 0,
         *,
         raise_on_error: bool = False,
+        before_timestamp: str | None = None,
+        before_id: int | None = None,
     ) -> list[dict]:
         """Get recent transcriptions with offset-based pagination.
 
@@ -1975,30 +2052,73 @@ class HistoryDB:
         via ``SUBSTR(text, 1, 500)`` to keep list responses under the
         1 MiB WS frame cap. Two new fields are added per row:
         ``text_truncated`` (bool) and ``text_full_length`` (int).
+
+        keyset pagination: when ``before_timestamp`` AND ``before_id``
+        are both supplied, the WHERE clause restricts to rows strictly
+        older than ``(before_timestamp, before_id)`` in (timestamp DESC,
+        id DESC) order — i.e. ``timestamp < ? OR (timestamp = ? AND
+        id < ?)``. This is O(log N) per page via ``idx_timestamp``,
+        whereas OFFSET is O(offset) (SQLite still scans & discards
+        ``offset`` rows). Callers paginating past the first page
+        should pass the (timestamp, id) of the last row of the
+        previous page. When either cursor value is ``None`` the
+        OFFSET fallback is used (backward-compatible with the
+        pre-cursor contract).
         """
+        limit = min(max(limit, 1), _MAX_LIST_LIMIT)
         try:
             conn = self._get_read_conn()
             with contextlib.closing(conn.cursor()) as cursor:
-                cursor.execute(
-                    """
-                    SELECT
-                        id,
-                        SUBSTR(text, 1, ?) AS text,
-                        LENGTH(text) AS text_full_length,
-                        timestamp,
-                        duration,
-                        model,
-                        device,
-                        word_count,
-                        char_count,
-                        favorite,
-                        language
-                    FROM transcriptions
-                    ORDER BY timestamp DESC
-                    LIMIT ? OFFSET ?
-                """,
-                    (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
-                )
+                use_cursor = before_timestamp is not None and before_id is not None
+                if use_cursor:
+                    cursor.execute(
+                        """
+                        SELECT
+                            id,
+                            SUBSTR(text, 1, ?) AS text,
+                            LENGTH(text) AS text_full_length,
+                            timestamp,
+                            duration,
+                            model,
+                            device,
+                            word_count,
+                            char_count,
+                            favorite,
+                            language
+                        FROM transcriptions
+                        WHERE timestamp < ? OR (timestamp = ? AND id < ?)
+                        ORDER BY timestamp DESC, id DESC
+                        LIMIT ?
+                    """,
+                        (
+                            _HISTORY_TEXT_PREVIEW_LENGTH,
+                            before_timestamp,
+                            before_timestamp,
+                            before_id,
+                            limit,
+                        ),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT
+                            id,
+                            SUBSTR(text, 1, ?) AS text,
+                            LENGTH(text) AS text_full_length,
+                            timestamp,
+                            duration,
+                            model,
+                            device,
+                            word_count,
+                            char_count,
+                            favorite,
+                            language
+                        FROM transcriptions
+                        ORDER BY timestamp DESC, id DESC
+                        LIMIT ? OFFSET ?
+                    """,
+                        (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
+                    )
                 rows = cursor.fetchall()
             return [_project_text_row(row) for row in rows]
         except Exception as e:
@@ -2043,10 +2163,13 @@ class HistoryDB:
         offset: int = 0,
         *,
         raise_on_error: bool = False,
+        before_timestamp: str | None = None,
+        before_id: int | None = None,
     ) -> list[dict]:
         """Search transcriptions by text with offset-based pagination.
 
-        see ``get_recent`` for ``raise_on_error`` semantics.
+        see ``get_recent`` for ``raise_on_error`` and cursor-pagination
+        (``before_timestamp`` / ``before_id``) semantics.
 
         FTS5 is used for any query that yields at least one tokenizable
         character (``_is_fts_compatible_query``). For empty queries and
@@ -2060,37 +2183,151 @@ class HistoryDB:
         MATCH syntax (e.g. ``foo*`` matches the literal token ``foo*``,
         not a prefix query).
         """
+        limit = min(max(limit, 1), _MAX_LIST_LIMIT)
         try:
             conn = self._get_read_conn()
             with contextlib.closing(conn.cursor()) as cursor:
                 capped = query[:_MAX_SEARCH_QUERY_CHARS]
+                use_cursor = before_timestamp is not None and before_id is not None
                 if capped and _is_fts_compatible_query(capped):
                     fts_query = _sanitize_fts_query(capped)
-                    cursor.execute(
-                        """
-                        SELECT
-                            t.id,
-                            SUBSTR(t.text, 1, ?) AS text,
-                            LENGTH(t.text) AS text_full_length,
-                            t.timestamp,
-                            t.duration,
-                            t.model,
-                            t.device,
-                            t.word_count,
-                            t.char_count,
-                            t.favorite,
-                            t.language
-                        FROM transcriptions t
-                        JOIN transcriptions_fts AS f ON f.rowid = t.id
-                        WHERE transcriptions_fts MATCH ?
-                        ORDER BY t.timestamp DESC
-                        LIMIT ? OFFSET ?
-                    """,
-                        (_HISTORY_TEXT_PREVIEW_LENGTH, fts_query, limit, offset),
-                    )
+                    if use_cursor:
+                        cursor.execute(
+                            """
+                            SELECT
+                                t.id,
+                                SUBSTR(t.text, 1, ?) AS text,
+                                LENGTH(t.text) AS text_full_length,
+                                t.timestamp,
+                                t.duration,
+                                t.model,
+                                t.device,
+                                t.word_count,
+                                t.char_count,
+                                t.favorite,
+                                t.language
+                            FROM transcriptions t
+                            JOIN transcriptions_fts AS f ON f.rowid = t.id
+                            WHERE transcriptions_fts MATCH ?
+                              AND (t.timestamp < ? OR (t.timestamp = ? AND t.id < ?))
+                            ORDER BY t.timestamp DESC, t.id DESC
+                            LIMIT ?
+                        """,
+                            (
+                                _HISTORY_TEXT_PREVIEW_LENGTH,
+                                fts_query,
+                                before_timestamp,
+                                before_timestamp,
+                                before_id,
+                                limit,
+                            ),
+                        )
+                    else:
+                        cursor.execute(
+                            """
+                            SELECT
+                                t.id,
+                                SUBSTR(t.text, 1, ?) AS text,
+                                LENGTH(t.text) AS text_full_length,
+                                t.timestamp,
+                                t.duration,
+                                t.model,
+                                t.device,
+                                t.word_count,
+                                t.char_count,
+                                t.favorite,
+                                t.language
+                            FROM transcriptions t
+                            JOIN transcriptions_fts AS f ON f.rowid = t.id
+                            WHERE transcriptions_fts MATCH ?
+                            ORDER BY t.timestamp DESC, t.id DESC
+                            LIMIT ? OFFSET ?
+                        """,
+                            (_HISTORY_TEXT_PREVIEW_LENGTH, fts_query, limit, offset),
+                        )
                 else:
                     # LIKE fallback.
                     pattern = _prepare_like_search_pattern(query)
+                    if use_cursor:
+                        cursor.execute(
+                            """
+                            SELECT
+                                id,
+                                SUBSTR(text, 1, ?) AS text,
+                                LENGTH(text) AS text_full_length,
+                                timestamp,
+                                duration,
+                                model,
+                                device,
+                                word_count,
+                                char_count,
+                                favorite,
+                                language
+                            FROM transcriptions
+                            WHERE text LIKE ? ESCAPE '\\'
+                              AND (timestamp < ? OR (timestamp = ? AND id < ?))
+                            ORDER BY timestamp DESC, id DESC
+                            LIMIT ?
+                        """,
+                            (
+                                _HISTORY_TEXT_PREVIEW_LENGTH,
+                                pattern,
+                                before_timestamp,
+                                before_timestamp,
+                                before_id,
+                                limit,
+                            ),
+                        )
+                    else:
+                        cursor.execute(
+                            """
+                            SELECT
+                                id,
+                                SUBSTR(text, 1, ?) AS text,
+                                LENGTH(text) AS text_full_length,
+                                timestamp,
+                                duration,
+                                model,
+                                device,
+                                word_count,
+                                char_count,
+                                favorite,
+                                language
+                            FROM transcriptions
+                            WHERE text LIKE ? ESCAPE '\\'
+                            ORDER BY timestamp DESC, id DESC
+                            LIMIT ? OFFSET ?
+                        """,
+                            (_HISTORY_TEXT_PREVIEW_LENGTH, pattern, limit, offset),
+                        )
+                rows = cursor.fetchall()
+            return [_project_text_row(row) for row in rows]
+        except Exception as e:
+            log.error("[HISTORY] Failed to search transcriptions: %s", e)
+            if raise_on_error:
+                raise HistoryDBError(str(e)) from e
+            return []
+
+    def get_favorites(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        *,
+        raise_on_error: bool = False,
+        before_timestamp: str | None = None,
+        before_id: int | None = None,
+    ) -> list[dict]:
+        """Get favorited transcriptions with offset-based pagination.
+
+        see ``get_recent`` for ``raise_on_error`` and cursor-pagination
+        (``before_timestamp`` / ``before_id``) semantics.
+        """
+        limit = min(max(limit, 1), _MAX_LIST_LIMIT)
+        try:
+            conn = self._get_read_conn()
+            with contextlib.closing(conn.cursor()) as cursor:
+                use_cursor = before_timestamp is not None and before_id is not None
+                if use_cursor:
                     cursor.execute(
                         """
                         SELECT
@@ -2106,55 +2343,41 @@ class HistoryDB:
                             favorite,
                             language
                         FROM transcriptions
-                        WHERE text LIKE ? ESCAPE '\\'
-                        ORDER BY timestamp DESC
+                        WHERE favorite = 1
+                          AND (timestamp < ? OR (timestamp = ? AND id < ?))
+                        ORDER BY timestamp DESC, id DESC
+                        LIMIT ?
+                    """,
+                        (
+                            _HISTORY_TEXT_PREVIEW_LENGTH,
+                            before_timestamp,
+                            before_timestamp,
+                            before_id,
+                            limit,
+                        ),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT
+                            id,
+                            SUBSTR(text, 1, ?) AS text,
+                            LENGTH(text) AS text_full_length,
+                            timestamp,
+                            duration,
+                            model,
+                            device,
+                            word_count,
+                            char_count,
+                            favorite,
+                            language
+                        FROM transcriptions
+                        WHERE favorite = 1
+                        ORDER BY timestamp DESC, id DESC
                         LIMIT ? OFFSET ?
                     """,
-                        (_HISTORY_TEXT_PREVIEW_LENGTH, pattern, limit, offset),
+                        (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
                     )
-                rows = cursor.fetchall()
-            return [_project_text_row(row) for row in rows]
-        except Exception as e:
-            log.error("[HISTORY] Failed to search transcriptions: %s", e)
-            if raise_on_error:
-                raise HistoryDBError(str(e)) from e
-            return []
-
-    def get_favorites(
-        self,
-        limit: int = 50,
-        offset: int = 0,
-        *,
-        raise_on_error: bool = False,
-    ) -> list[dict]:
-        """Get favorited transcriptions with offset-based pagination.
-
-        see ``get_recent`` for ``raise_on_error`` semantics.
-        """
-        try:
-            conn = self._get_read_conn()
-            with contextlib.closing(conn.cursor()) as cursor:
-                cursor.execute(
-                    """
-                    SELECT
-                        id,
-                        SUBSTR(text, 1, ?) AS text,
-                        LENGTH(text) AS text_full_length,
-                        timestamp,
-                        duration,
-                        model,
-                        device,
-                        word_count,
-                        char_count,
-                        favorite,
-                        language
-                    FROM transcriptions
-                    WHERE favorite = 1
-                    ORDER BY timestamp DESC
-                    LIMIT ? OFFSET ?
-                """,
-                    (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
-                )
                 rows = cursor.fetchall()
             return [_project_text_row(row) for row in rows]
         except Exception as e:

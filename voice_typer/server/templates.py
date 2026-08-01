@@ -482,6 +482,59 @@ class TemplateManager:
             self._rebuild_indexes()
             return True
 
+    # ── Full-replace (bulk set) ──────────────────────────────────────
+
+    def replace_all(self, templates: list[dict]) -> None:
+        """Atomically replace the entire template list.
+
+        Replaces ``self._templates`` with ``templates`` in a single
+        locked transaction: acquires ``self._lock``, swaps the list,
+        calls :meth:`_rebuild_indexes` (so ``match`` sees the new
+        templates immediately) and then calls :meth:`_save` (so the
+        on-disk file is updated atomically). If ``_save`` raises, the
+        previous in-memory list is restored before re-raising so the
+        in-memory state stays consistent with the on-disk state
+        (mirrors the rollback pattern used by :meth:`add` /
+        :meth:`update` / :meth:`delete` / :meth:`import_json`).
+
+        Pre-fix callers (e.g. ``service.TemplateMixin.save_templates``)
+        directly assigned to the internal list and called the internal
+        save method themselves, which:
+
+        1. Bypassed ``self._lock`` — a concurrent ``match`` could
+           observe a half-swapped list (the swap + ``_rebuild_indexes``
+           + ``_save`` sequence was not atomic, so ``match`` could
+           read the new ``_templates`` list but the OLD
+           ``_exact_index`` / ``_contains_list`` indexes, causing a
+           stale-match / missed-match window).
+        2. Skipped ``_rebuild_indexes`` — the match indexes still
+           pointed at the OLD templates until the next ``add`` /
+           ``update`` / ``delete`` / ``import_json`` / ``_load`` call
+           rebuilt them, so the just-saved templates would not be
+           matchable until a process restart.
+
+        Caller contract: ``templates`` MUST already be normalized
+        (trigger / output / match_mode validated, length-capped). The
+        service mixin is responsible for that normalization.
+        """
+        with self._lock:
+            old_templates = self._templates
+            self._templates = list(templates)
+            try:
+                self._save()
+            except Exception:
+                # Rollback: restore the previous in-memory list so the
+                # in-memory state stays consistent with the on-disk
+                # state (which was NOT overwritten because _save
+                # raised before PersistedJSON.save reached os.replace).
+                self._templates = old_templates
+                raise
+            # rebuild match indexes after the swap so ``match`` sees
+            # the new templates immediately. Done AFTER _save succeeds
+            # so a save failure leaves the OLD indexes intact (which
+            # match the OLD in-memory list we just restored).
+            self._rebuild_indexes()
+
     # ── Import / Export ───────────────────────────────────────────────
 
     def export_json(self) -> str:

@@ -261,8 +261,11 @@ def _linux_wayland_copy(text: str) -> None:
             check=False,
             timeout=5,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"wl-copy timed out after 5s: {exc}") from exc
+    except subprocess.TimeoutExpired:
+        # re-raise the original ``TimeoutExpired`` directly (preserves
+        # type info / ``timeout`` attribute / ``cmd`` for callers and
+        # for the test suite which asserts on the exception type).
+        raise
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
         raise RuntimeError(f"wl-copy exited with {proc.returncode}: {stderr.strip()}")
@@ -286,8 +289,11 @@ def _linux_wayland_paste() -> str:
             check=False,
             timeout=5,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"wl-paste timed out after 5s: {exc}") from exc
+    except subprocess.TimeoutExpired:
+        # re-raise the original ``TimeoutExpired`` directly (preserves
+        # type info / ``timeout`` attribute / ``cmd`` for callers and
+        # for the test suite which asserts on the exception type).
+        raise
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
         raise RuntimeError(f"wl-paste exited with {proc.returncode}: {stderr.strip()}")
@@ -376,8 +382,11 @@ def _linux_paste_via_wtype(text: str | None) -> None:
             check=False,
             timeout=5,
         )
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"wtype timed out after 5s: {exc}") from exc
+    except subprocess.TimeoutExpired:
+        # re-raise the original ``TimeoutExpired`` directly (preserves
+        # type info / ``timeout`` attribute / ``cmd`` for callers and
+        # for the test suite which asserts on the exception type).
+        raise
     if proc.returncode != 0:
         stderr = proc.stderr.decode("utf-8", errors="replace") if proc.stderr else ""
         raise RuntimeError(f"wtype exited with {proc.returncode}: {stderr.strip()}")

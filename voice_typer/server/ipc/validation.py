@@ -207,6 +207,22 @@ class LegacyErrorCodes:
     PAYLOAD_TOO_LARGE = "payload_too_large"
     HANDLER_ERROR = "handler_error"
     NOT_INITIALIZED = "not_initialized"
+    # Rust-host-only codes: emitted by the Tauri `#[tauri::command]`
+    # layer in `src-tauri/src/commands/sidecar_cmds.rs` (and the
+    # `require_main_window` guard in `commands/mod.rs`) BEFORE the
+    # dispatch reaches the Python sidecar. The Python server NEVER
+    # emits these — they live in `LEGACY_ERROR_CODES` (not the
+    # namespaced `ERROR_CODES` registry) because they are wire-format
+    # codes the renderer must recognise, not codes the Python side
+    # produces. The canonical Rust string constants
+    # `DISALLOWED_COMMAND_CODE` / `DISALLOWED_WINDOW_CODE` mirror these
+    # values; the cross-layer parity guard in
+    # `tests/test_error_codes_registry.py::TestTsErrorCodesParity`
+    # asserts both codes are present in the renderer's TS
+    # `ErrorCodes` union so the error-envelope switch can branch on
+    # them. Keeping the values here (rather than only in Rust) lets
+    # `ALL_ERROR_CODES` be the single source of truth for "every code
+    # the wire may carry".
     DISALLOWED_COMMAND = "disallowed_command"
     DISALLOWED_WINDOW = "disallowed_window"
     SIDECAR_DISCONNECTED = "sidecar_disconnected"
@@ -279,6 +295,31 @@ class FieldRule(TypedDict, total=False):
     # ``none_to_default=False`` to restore the strict pre-
     # behavior (only ABSENT fields get the default).
     none_to_default: bool
+    # opt-in bool rejection. When ``True``, a value that is a
+    # ``bool`` instance is rejected with an ``invalid_field`` error
+    # EVEN IF ``bool`` would otherwise pass the ``type`` check via
+    # the int-subclass loophole (``isinstance(True, int)`` is
+    # ``True`` in Python because ``bool`` subclasses ``int``).
+    # Without this rule, a schema declaring ``type: (int, str)``
+    # silently accepts ``{"limit": true}`` and the value is later
+    # coerced to ``1`` by ``int(True)`` — a type confusion that
+    # masks a caller bug (the renderer probably meant to send an
+    # integer but sent a boolean toggle state by mistake).
+    #
+    # The rule is opt-in (default ``False``) for backward compat:
+    # the 8+ already-validated handlers intentionally rely on the
+    # bool-as-int subclass loophole (see the
+    # ``test_bool_limit_accepted_due_to_int_subclass`` contract
+    # pin in ``tests/handlers/test_ipc_validation_coverage.py``).
+    # Flipping the default would be a behavior change for those
+    # handlers; instead, schemas that want strict bool rejection
+    # (e.g. numeric pagination fields where a bool is never
+    # meaningful) set ``reject_bool=True`` explicitly. The rule
+    # is a no-op when ``bool`` is itself in the declared
+    # ``type`` tuple (e.g. ``type: (bool, int)``) — in that case
+    # the schema explicitly accepts bools and the rule would
+    # contradict the schema's intent.
+    reject_bool: bool
 
 
 # A schema is a mapping from field name to its rule dict. Used as
@@ -520,6 +561,51 @@ def _validate_dict_payload(
                         "legacy_code": LegacyErrorCodes.INVALID_FIELD,
                         "field": field_name,
                         "message": f"'{field_name}' must be of type {expected_name}, got {type(value).__name__}",
+                    },
+                }
+            # opt-in bool rejection. ``bool`` subclasses
+            # ``int`` in Python, so ``isinstance(True, (int, str))`` is
+            # ``True`` — a schema declaring ``type: (int, str)``
+            # silently accepts ``{"limit": true}`` and the value is
+            # later coerced to ``1`` by ``int(True)``. This is a type
+            # confusion that masks a caller bug. Schemas that want
+            # strict bool rejection set ``reject_bool=True``; the rule
+            # is a no-op when ``bool`` is itself in the declared
+            # ``type`` tuple (e.g. ``type: (bool, int)``) because in
+            # that case the schema explicitly accepts bools.
+            if (
+                rules.get("reject_bool", False)
+                and isinstance(value, bool)
+                # if ``bool`` is in the declared type tuple, the
+                # schema explicitly accepts bools — skip the rejection
+                # (the rule would contradict the schema's intent).
+                and not (isinstance(expected_type, tuple) and bool in expected_type)
+                and expected_type is not bool
+            ):
+                # format the expected-type name for the error
+                # message (same idiom as the isinstance check
+                # above).
+                if isinstance(expected_type, tuple):
+                    expected_name = "|".join(t.__name__ for t in expected_type)
+                elif expected_type is None:
+                    expected_name = "non-bool"
+                else:
+                    expected_name = expected_type.__name__
+                return None, {
+                    # ErrorEnvelope contract — see validation.py
+                    "type": "error",
+                    "data": {
+                        # namespaced form (primary) + legacy
+                        # alias (one-release-cycle compat).
+                        # use ErrorCodes / LegacyErrorCodes constants.
+                        "code": ErrorCodes.INVALID_FIELD,
+                        "legacy_code": LegacyErrorCodes.INVALID_FIELD,
+                        "field": field_name,
+                        "message": (
+                            f"'{field_name}' must be of type {expected_name}, "
+                            f"got bool (bool is a subclass of int but is "
+                            f"semantically a toggle, not a number)"
+                        ),
                     },
                 }
             # per-value length cap. Only applies to string

@@ -1086,9 +1086,10 @@ class ModelManager:
         # ``recording_controller.start`` before the new recording
         # begins) re-invokes ``set_active_backend`` when the app is no
         # longer busy. The check is best-effort outside the lock —
-        # the background thread re-checks under the lock for
-        # race-safety (and re-defers if a recording started between
-        # this check and the lock acquisition).
+        # ``_set_active_backend_blocking`` re-checks ``recorder.recording``
+        # and ``_busy_event`` INSIDE ``_model_change_lock`` +
+        # ``_config_mutation_lock`` for race-safety (and re-defers if a
+        # recording started between this check and the lock acquisition).
         try:
             is_recording = bool(self._app.recorder.recording)
             is_busy = not self._app._busy_event.is_set()
@@ -1189,6 +1190,51 @@ class ModelManager:
                 old_backend = self._app.config.asr_backend
                 if old_backend == backend:
                     # No-op — backend already active.
+                    return
+                # Re-check ``recorder.recording`` and ``_busy_event``
+                # INSIDE both locks for race-safety. The non-blocking
+                # ``set_active_backend`` wrapper checks these OUTSIDE the
+                # lock (best-effort) before spawning this background
+                # thread; a recording could have started between that
+                # check and the lock acquisition. Without this re-check,
+                # we would unload the ctranslate2 model mid-inference
+                # (crashing / corrupting / hanging the transcribe
+                # thread). Mirrors the deferral pattern in
+                # ``_change_model_setattr_phase`` (line ~891).
+                try:
+                    rec_now = bool(self._app.recorder.recording)
+                    busy_now = not self._app._busy_event.is_set()
+                except Exception:
+                    log.debug(
+                        "[MODEL] busy/recording re-check in _set_active_backend_blocking failed (non-fatal)",
+                        exc_info=True,
+                    )
+                    rec_now = False
+                    busy_now = False
+                if rec_now or busy_now:
+                    log.info(
+                        "[CONFIG] Backend change to %s deferred (recording=%s, "
+                        "busy=%s at lock-acquire time); applying after active work",
+                        backend,
+                        rec_now,
+                        busy_now,
+                    )
+                    # Persist the new backend so a crash mid-recording
+                    # doesn't lose the user's intent (matches
+                    # ``change_model``'s setattr-before-deferral pattern).
+                    self._app.config.asr_backend = backend
+                    if not self._app.config.save():
+                        log.warning(
+                            "[MODEL] config.save() returned False during _set_active_backend_blocking (deferred)"
+                        )
+                    # Capture the request — ``apply_pending_model_change``
+                    # will re-invoke ``_set_active_backend_blocking`` when
+                    # the app is no longer busy.
+                    self._pending_backend_change = backend
+                    self._app.tray.notify(
+                        APP_NAME,
+                        f"Backend will change to {backend} after current recording",
+                    )
                     return
                 log.info(
                     "[MODEL] Switching active backend: %s -> %s (model_size=%s unchanged)",

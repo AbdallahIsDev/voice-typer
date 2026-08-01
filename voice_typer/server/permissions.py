@@ -50,6 +50,7 @@ from collections.abc import Callable
 from enum import Enum
 from typing import Any
 
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
@@ -302,151 +303,6 @@ def cancel_permission_retry() -> None:
         _retry_count = 0
 
 
-# Onboarding permission payload ( / ) ────────────────────
-
-
-def permission_probe_error_payload(error_message: str | None = None) -> dict:
-    """renderer-friendly error envelope for a failed permission probe.
-
-    The onboarding ``check_permissions`` flow previously fell back to
-    ``{"state": "unknown", "needed": False}`` when the underlying probe
-    raised an exception, which the renderer rendered as "No extra
-    permission needed" — masking the failure. This helper returns the
-    corrected envelope so the renderer can distinguish "probe failed"
-    (show a retry button) from "no permission needed" (auto-advance).
-
-    Parameters
-    ----------
-    error_message:
-        Optional short string describing the failure (e.g. "pyobjc
-        ImportError"). Surfaced in the ``error`` field so the renderer
-        can show it in a tooltip; not intended for end-user display.
-
-    Returns
-    -------
-    dict
-        ``{"platform": "unknown", "state": "error", "needed": False,
-        "instructions": None, "error": str | None}``. The ``error`` key
-        is the only addition beyond the four-key shape returned by
-        :func:`check_permissions_payload` — the renderer can ignore it
-        if it doesn't recognize it (backwards-compatible).
-    """
-    return {
-        "platform": "unknown",
-        "state": PermissionState.ERROR.value,
-        "needed": False,
-        "instructions": None,
-        "error": error_message,
-    }
-
-
-def check_permissions_payload() -> dict:
-    """re-probe OS permissions and return the renderer-friendly dict.
-
-        This is the canonical entry point for the ``onboarding_check_permissions``
-        and ``onboarding_recheck_permission`` IPC handlers. It returns a dict
-        matching :meth:`OnboardingController.check_permissions`'s shape so the
-        renderer doesn't need to know which entry point produced it.
-
-        The dict shape is::
-
-            {
-                "platform": "windows" | "macos" | "linux" | "unknown",
-                "state": "granted" | "denied" | "unknown" | "error",
-                "needed": bool,
-                "instructions": None | {
-                    "title": str,
-                    "steps": list[str],
-                    "commands": list[str] | None,
-                },
-                "microphone": "granted" | "denied" | "prompt" | "unknown",
-            }
-
-    if the probe itself raises an unexpected exception, this
-        returns :func:`permission_probe_error_payload` instead of letting the
-        exception propagate — so the IPC handler's generic ``except`` clause
-        never triggers the misleading "No extra permission needed" fallback.
-
-    also probes the OS-level microphone permission (macOS
-        AVCaptureDevice / Windows MediaFoundation) and returns it under the
-        ``microphone`` key. The renderer can use this to gate the Microphone
-        step (e.g. show "Open System Settings → Microphone" if denied).
-    """
-    try:
-        state = check_keyboard_permission()
-    except Exception as exc:
-        # Defensive — check_keyboard_permission already catches
-        # exceptions internally, but a future probe might not.
-        log.exception("[PERMISSION] check_permissions_payload: keyboard probe raised")
-        payload = permission_probe_error_payload(str(exc))
-        payload["microphone"] = MicrophonePermissionState.UNKNOWN.value
-        return payload
-
-    if is_windows():
-        platform_name = "windows"
-        instructions = None
-        needed = False
-    elif is_macos():
-        platform_name = "macos"
-        needed = state != PermissionState.GRANTED
-        instructions = (
-            {
-                "title": "Accessibility Permission Required",
-                "steps": [
-                    "Open System Settings → Privacy & Security → Accessibility",
-                    "Add Voice Typer (and its key-listener helper) to the list",
-                    "Toggle the switch ON for Voice Typer",
-                ],
-                "commands": None,
-            }
-            if needed
-            else None
-        )
-    elif is_linux():
-        platform_name = "linux"
-        needed = state != PermissionState.GRANTED
-        # LINUX-UDEV: use the corrected LINUX_UDEV_RULE constant
-        # (event[0-9]* + MODE="0660") instead of the old incorrect
-        # event* + MODE="0640" pattern.
-        instructions = (
-            {
-                "title": "Input Group + udev Rule Required",
-                "steps": [
-                    "Add yourself to the 'input' group",
-                    "Install the udev rule granting group-read on /dev/input/event[0-9]*",
-                    "Log out and back in (or reboot) for the group change to take effect",
-                ],
-                "commands": [
-                    "sudo usermod -aG input $USER",
-                    "# udev rule (installed by scripts/linux/install_permissions.py):",
-                    f"# {LINUX_UDEV_RULE}",
-                    "# Click 'Grant permission' to trigger pkexec install_permissions.py",
-                ],
-            }
-            if needed
-            else None
-        )
-    else:
-        platform_name = "unknown"
-        instructions = None
-        needed = False
-
-    # probe microphone permission alongside keyboard permission.
-    try:
-        mic_state = check_microphone_permission()
-    except Exception:
-        log.exception("[PERMISSION] check_permissions_payload: microphone probe raised")
-        mic_state = MicrophonePermissionState.UNKNOWN
-
-    return {
-        "platform": platform_name,
-        "state": state.value,
-        "needed": needed,
-        "instructions": instructions,
-        "microphone": mic_state.value,
-    }
-
-
 # pyobjc availability cache () ───────────────────────────────────
 
 
@@ -596,7 +452,7 @@ def _check_windows_microphone() -> MicrophonePermissionState:
         # triggers the PortAudio device-open which is where Windows
         # MediaFoundation checks the mic privacy setting.
         stream = _sd.InputStream(
-            samplerate=16000,
+            samplerate=WHISPER_SAMPLE_RATE,
             channels=1,
             dtype="int16",
             blocksize=1,
@@ -948,7 +804,13 @@ def _open_macos_microphone_settings() -> None:
                 )
                 log.info("[PERMISSION] Opened prefpane: %s", path)
                 return
-            except OSError:
+            except OSError as exc:
+                log.debug(
+                    "[PERMISSION] macOS Microphone prefpane open failed for %s: %s",
+                    path,
+                    exc,
+                    exc_info=True,
+                )
                 continue
 
     log.error("[PERMISSION] Could not open macOS Microphone settings")
@@ -1177,8 +1039,8 @@ def _open_linux_pkexec_prompt() -> None:
             )
             log.info("[PERMISSION] Launched gksu to install Linux permissions")
             return
-        except OSError:
-            pass
+        except OSError as exc:
+            log.debug("[PERMISSION] gksu launch failed: %s", exc, exc_info=True)
 
     # Fallback: kdesu (KDE)
     if shutil.which("kdesu"):
@@ -1191,8 +1053,8 @@ def _open_linux_pkexec_prompt() -> None:
             )
             log.info("[PERMISSION] Launched kdesu to install Linux permissions")
             return
-        except OSError:
-            pass
+        except OSError as exc:
+            log.debug("[PERMISSION] kdesu launch failed: %s", exc, exc_info=True)
 
     # Last resort: tell the user to run it manually in a terminal
     log.error(

@@ -48,21 +48,16 @@ call site — pinned by ``tests/test_ipc_shutdown_registry.py``,
 ``tests/tauri/test_tauri_sidecar_gate.py``,
 ``tests/test_dead_code_stays_removed.py`` — keeps working unchanged).
 
-``ipc_server.py`` continues to re-export the module-level
-``_READONLY_COMMANDS`` name (sourcing it from this module instead of
-``ipc._helpers``) so existing ``from voice_typer.server.ipc_server
-import _READONLY_COMMANDS`` callers keep working unchanged.
-
-.. note::
-
-   ``ipc._helpers._READONLY_COMMANDS`` still exists as a legacy
-duplicate (outside the  disjoint set). It is no longer the
-   authoritative source; the canonical source is the
-   :data:`_READONLY_COMMANDS` defined below. A follow-up task should
-   delete the duplicate in ``ipc/_helpers.py`` and re-export from
-   here. ``ipc_server.py`` no longer imports from
-   ``ipc._helpers._READONLY_COMMANDS`` — it sources the name from
-   this module — so the two definitions are decoupled.
+``ipc_server.py`` and ``ipc._helpers`` both re-export the
+module-level ``_READONLY_COMMANDS`` name (sourcing it from this
+module) so existing ``from voice_typer.server.ipc_server import
+_READONLY_COMMANDS`` and ``from voice_typer.server.ipc._helpers
+import _READONLY_COMMANDS`` callers keep working unchanged. Both
+re-exports point at the SAME frozenset object defined below — single
+source of truth. The legacy parallel ``_READONLY_COMMANDS`` definition
+that used to live in ``ipc/_helpers.py`` was deleted;
+``ipc._helpers`` now imports the name from this module so the two
+cannot silently drift.
 
 Registry history
 ----------------

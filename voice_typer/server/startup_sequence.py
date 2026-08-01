@@ -116,7 +116,14 @@ def _write_onboarding_fail_count(count: int, last_fail_ts: float) -> None:
     path = _onboarding_fail_counter_path()
     payload = json.dumps({"count": count, "last_fail_ts": last_fail_ts})
     try:
-        path.write_text(payload, encoding="utf-8")
+        # Atomic write (temp + os.replace) so a crash mid-write cannot
+        # leave a half-truncated JSON document that the load helper
+        # would treat as count=0 on next startup — defeating the
+        # onboarding-fail circuit breaker. durability=False matches
+        # the existing autostart/prewarm pattern.
+        from voice_typer.server.secure_file_io import _secure_atomic_write
+
+        _secure_atomic_write(path, payload, durability=False)
     except OSError as exc:
         log.debug(
             "[STARTUP] Could not persist onboarding fail counter to %s: %s",

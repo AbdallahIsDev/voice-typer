@@ -125,8 +125,15 @@ def on_parakeet_cpu_fallback(tray: TrayIcon, event: dict) -> None:
     # Re-apply the current state so the tooltip updates immediately
     # with the "(CPU fallback)" suffix. Best-effort — if the icon is
     # None (tray-unavailable path) ``_apply_state`` is a no-op.
+    #
+    # Also publish the state to the Tauri/Electron side via
+    # ``_publish_tray_state`` so the renderer's tray indicator picks
+    # up the "(CPU fallback)" tooltip suffix immediately. Mirrors the
+    # pattern used by ``_on_elapsed_tick`` (tray.py: ``_apply_state``
+    # then ``_publish_tray_state``).
     try:
         tray._apply_state(tray._state, tray._message)
+        tray._publish_tray_state()
     except Exception:
         log.debug(
             "[TRAY] could not apply CPU-fallback state to tray icon",

@@ -101,8 +101,8 @@ log = logging.getLogger(__name__)
 
 
 def _enable_autostart_windows() -> bool:
-    """STARTUP-7: register app autostart via HKCU Run key (preferred)
-    or Task Scheduler (fallback).
+    """STARTUP-7: register app autostart via HKCU Run key (preferred),
+    Task Scheduler (fallback), or Windows Startup-folder .bat (tertiary).
 
     AUTOSTART-UAC-FIX: The Run key is tried FIRST because it requires
     NO admin elevation (HKCU is per-user, always writable). Task
@@ -111,31 +111,45 @@ def _enable_autostart_windows() -> bool:
     created by an admin install (locked task). The Run key fires
     ~33 s after logon, which is soon enough for the autostart
     launcher (which has a --delay 15 internal delay).
+
+    AUTOSTART-STARTUP-FALLBACK: if BOTH the Run key and Task Scheduler
+    fail, we write a .bat file to the Windows Startup folder as a
+    tertiary mechanism. The .bat sets VT_START_HIDDEN=1 and spawns the
+    autostart command via ``start "" /B`` (no console window flash).
     """
-    # Try HKCU Run key first (no admin elevation needed).
     if _pkg._register_app_autostart_runkey():
-        # Clean up any stale Task Scheduler task from a previous install.
         with contextlib.suppress(Exception):
             _pkg._unregister_app_autostart_task()
+        with contextlib.suppress(Exception):
+            _pkg._unregister_app_autostart_startup()
         return True
-    # Fall back to Task Scheduler if the Run key fails.
     log.warning("[CONFIG] HKCU Run key autostart failed; trying Task Scheduler")
     if _pkg._register_app_autostart_task():
+        with contextlib.suppress(Exception):
+            _pkg._unregister_app_autostart_startup()
         return True
-    log.warning("[CONFIG] Both autostart mechanisms failed")
+    log.warning("[CONFIG] Task Scheduler autostart failed; trying Startup-folder .bat")
+    if _pkg._register_app_autostart_startup():
+        return True
+    log.warning("[CONFIG] All three autostart mechanisms failed")
     return False
 
 
 def _disable_autostart_windows() -> bool:
-    """STARTUP-7: remove app autostart from BOTH Task Scheduler and Run key."""
+    """STARTUP-7: remove app autostart from ALL mechanisms."""
     removed_task = _pkg._unregister_app_autostart_task()
     removed_reg = _pkg._unregister_app_autostart_runkey()
-    return removed_task or removed_reg
+    removed_startup = _pkg._unregister_app_autostart_startup()
+    return removed_task or removed_reg or removed_startup
 
 
 def _is_autostart_windows() -> bool:
-    """STARTUP-7: True if autostart is registered via EITHER mechanism."""
-    return _pkg._is_app_autostart_task_registered() or _pkg._is_app_autostart_runkey_registered()
+    """STARTUP-7: True if autostart is registered via ANY of the three mechanisms."""
+    return (
+        _pkg._is_app_autostart_task_registered()
+        or _pkg._is_app_autostart_runkey_registered()
+        or _pkg._is_app_autostart_startup_registered()
+    )
 
 
 # ── Task Scheduler autostart (preferred) ──────────────────────────────
@@ -197,7 +211,34 @@ def _app_autostart_command_and_args() -> tuple[str, str]:
                     "venv is deleted, but works for the current user.",
                     sys.executable,
                 )
+    # AUTOSTART-CMD-VALIDATE: verify the resolved Python interpreter
+    # path exists. If it doesn't (venv deleted, dev-mode install moved),
+    # fall back to the Tauri binary with empty args (the Tauri binary
+    # is the autostart target directly — no Python launcher needed).
+    if not Path(python_bin).exists():
+        log.warning(
+            "[AUTOSTART] Resolved Python interpreter does not exist: %s "
+            "— attempting Tauri binary fallback for Task Scheduler entry",
+            python_bin,
+        )
+        try:
+            from voice_typer.server.autostart_launcher import _tauri_binary
+
+            tauri_bin = _tauri_binary()
+        except Exception:
+            tauri_bin = None
+        if tauri_bin:
+            log.info(
+                "[AUTOSTART] Using Tauri binary for Task Scheduler entry (no Python interpreter available): %s",
+                tauri_bin,
+            )
+            return tauri_bin, ""
+        log.error(
+            "[AUTOSTART] No Python interpreter AND no Tauri binary "
+            "available — Task Scheduler entry will be non-functional"
+        )
     args = f'"{launcher}" --hidden --delay {delay_str}'
+    log.info("[AUTOSTART] Resolved Task Scheduler command: %s %s", python_bin, args)
     return python_bin, args
 
 
@@ -328,9 +369,20 @@ def _unregister_app_autostart_task() -> bool:
 
 
 def _is_app_autostart_task_registered() -> bool:
-    """True if the app autostart Task Scheduler task exists.
+    """True if the app autostart Task Scheduler task exists AND its
+    command path is valid (points at an existing file).
 
     Bug fix: removed redundant sys.platform != 'win32' check.
+
+    AUTOSTART-CMD-VALIDATE: previously this function returned True if
+    the schtasks /Query succeeded (task exists), WITHOUT verifying the
+    task's <Command> path actually exists on disk. If the venv was
+    deleted after registration, the task would still "exist" but its
+    command would point at a nonexistent pythonw.exe — the task would
+    fire at login, fail silently, and the Settings toggle would show
+    "autostart enabled" while the app never started. We now parse the
+    task XML, extract the <Command> element, and verify the path
+    exists. If the path is dead, we return False (the task is stale).
     """
     # (pyrefly): import subprocess BEFORE the try block so the
     # ``except subprocess.CalledProcessError`` clause has a guaranteed-bound
@@ -342,11 +394,72 @@ def _is_app_autostart_task_registered() -> bool:
 
         if not task_scheduler.is_supported():
             return False
-        rc, _ = task_scheduler._schtasks(["/Query", "/TN", _pkg._APP_AUTOSTART_TASK_NAME, "/XML"])
-        return rc == 0
+        rc, output = task_scheduler._schtasks(["/Query", "/TN", _pkg._APP_AUTOSTART_TASK_NAME, "/XML"])
+        if rc != 0:
+            return False
+        # AUTOSTART-CMD-VALIDATE: parse the task XML and verify the
+        # <Command> path exists. If the command points at a deleted
+        # pythonw.exe (venv removed), the task is stale — report False
+        # so the Settings toggle reflects the actual state.
+        command_path = _extract_command_from_task_xml(output)
+        if command_path is None:
+            # Could not parse the XML — conservatively report True
+            # (the task exists; we just can't validate the command).
+            log.debug(
+                "[AUTOSTART] Could not parse <Command> from task XML — "
+                "reporting task as registered (cannot validate path)"
+            )
+            return True
+        if not Path(command_path).exists():
+            log.warning(
+                "[AUTOSTART] Task Scheduler task exists but its command "
+                "path does not exist: %s — reporting as NOT registered "
+                "(stale task)",
+                command_path,
+            )
+            return False
+        log.debug(
+            "[AUTOSTART] Task Scheduler task registered with valid command: %s",
+            command_path,
+        )
+        return True
     except (OSError, subprocess.CalledProcessError, FileNotFoundError):
         log.debug("[PLATFORM] _is_app_autostart_task_registered failed", exc_info=True)
         return False
+
+
+def _extract_command_from_task_xml(xml_str: str) -> str | None:
+    """Extract the ``<Command>`` element's text from a Task Scheduler XML.
+
+    Returns the command path as a string, or ``None`` if the XML is
+    malformed or has no ``<Command>`` element. Used by
+    :func:`_is_app_autostart_task_registered` to validate that the
+    task's command path actually exists on disk (stale-task detection).
+
+    The Task Scheduler XML uses the namespace
+    ``http://schemas.microsoft.com/windows/2004/02/mit/task``. We
+    search for any element whose local name is ``Command`` (ignoring
+    the namespace) so the parse is robust to namespace prefix changes.
+    """
+    if not xml_str:
+        return None
+    try:
+        import xml.etree.ElementTree as ET
+
+        root = ET.fromstring(xml_str)
+        # Search for any element with local name "Command" (the Task
+        # Scheduler XML places it under Actions/Exec/Command, but we
+        # search recursively to be robust to schema variations).
+        for elem in root.iter():
+            tag = elem.tag
+            # Strip namespace prefix if present (e.g. "{ns}Command").
+            if "}" in tag:
+                tag = tag.split("}", 1)[1]
+            if tag == "Command" and elem.text:
+                return elem.text.strip()
+    except Exception:
+        log.debug("[AUTOSTART] _extract_command_from_task_xml parse failed", exc_info=True)
+    return None
 
 
 # ── HKCU Run-key autostart (fallback) ─────────────────────────────────
@@ -515,7 +628,19 @@ def _unregister_app_autostart_runkey() -> bool:
 
 
 def _is_app_autostart_runkey_registered() -> bool:
-    """True if the HKCU Run key has the VoiceTyper entry."""
+    """True if the HKCU Run key has the VoiceTyper entry AND the command
+    path it points at actually exists on disk.
+
+    AUTOSTART-CMD-VALIDATE: previously this function returned True if
+    the registry value existed (existence-only check). If the venv was
+    deleted after registration, the Run-key value would still exist
+    but its command would point at a nonexistent pythonw.exe — the
+    Run key would fire at login, fail silently, and the Settings toggle
+    would show "autostart enabled" while the app never started. We now
+    parse the stored command line, extract the exe path, and verify it
+    exists. If the path is dead, we delete the stale entry (best-effort)
+    and return False so the Settings toggle reflects the actual state.
+    """
     try:
         import winreg
     except ImportError:
@@ -531,7 +656,27 @@ def _is_app_autostart_runkey_registered() -> bool:
         )
         try:
             val, _ = winreg.QueryValueEx(key, reg_key_name)
-            return bool(val)
+            if not val:
+                return False
+            # AUTOSTART-CMD-VALIDATE: verify the command's exe path
+            # exists on disk. If the path is dead (venv deleted), the
+            # Run-key entry is stale — clean it up and return False.
+            if not _validate_runkey_command(val):
+                log.warning(
+                    "[AUTOSTART] Run-key entry %s exists but its command "
+                    "path is stale (target file does not exist): %s — "
+                    "cleaning up stale entry",
+                    reg_key_name,
+                    val,
+                )
+                _cleanup_stale_runkey_entry(reg_key_name)
+                return False
+            log.debug(
+                "[AUTOSTART] Run-key entry %s has valid command: %s",
+                reg_key_name,
+                val,
+            )
+            return True
         except FileNotFoundError:
             return False
         finally:
@@ -540,6 +685,77 @@ def _is_app_autostart_runkey_registered() -> bool:
         return False
     except OSError:
         return False
+
+
+def _validate_runkey_command(value: str) -> bool:
+    """Validate that a Run-key command line's exe path exists on disk.
+
+    Parses the command line with ``shlex.split(value, posix=False)``
+    (the cross-platform-safe Windows-command-line splitter), extracts
+    the first token (the exe path), strips surrounding quotes, and
+    checks if the path exists.
+
+    Returns ``True`` if the exe path exists (or if the command line is
+    empty/ambiguous — we err on the side of "valid" to avoid deleting
+    entries we can't parse confidently). Returns ``False`` only when
+    we're CERTAIN the exe path doesn't exist (quoted path or unquoted
+    single-token path that doesn't exist on disk).
+
+    This mirrors the CONSERVATIVE-DELETE policy from the stale-entry
+    cleanup loop in :func:`_register_app_autostart_runkey`.
+    """
+    if not value or not isinstance(value, str):
+        return True  # empty/None — don't claim stale (caller checks truthy)
+    tokens = shlex.split(value, posix=False)
+    if not tokens:
+        return True  # malformed — don't claim stale
+    exe_token = tokens[0]
+    exe_path = exe_token.strip('"')
+    if not exe_path:
+        return True  # malformed — don't claim stale
+    was_quoted = exe_token.startswith('"')
+    has_multiple_tokens = len(tokens) > 1
+    # CONSERVATIVE-DELETE: only claim stale when we're CERTAIN —
+    # quoted path or unquoted single-token path that doesn't exist.
+    # Ambiguous unquoted spaced paths are preserved (can't recover
+    # the full exe path without quotes).
+    if not was_quoted and has_multiple_tokens:
+        return True  # ambiguous — preserve (can't validate confidently)
+    return Path(exe_path).exists()
+
+
+def _cleanup_stale_runkey_entry(reg_key_name: str) -> None:
+    """Best-effort cleanup of a stale HKCU Run-key entry.
+
+    Opens the Run key with ``KEY_SET_VALUE`` and deletes the named
+    value. Non-fatal: any error (key not found, permission denied,
+    etc.) is logged at debug and swallowed so the caller
+    (``_is_app_autostart_runkey_registered``) doesn't raise.
+    """
+    try:
+        import winreg
+    except ImportError:
+        return
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Run",
+            0,
+            winreg.KEY_SET_VALUE,
+        )
+        try:
+            winreg.DeleteValue(key, reg_key_name)
+            log.info("[AUTOSTART] Cleaned up stale Run-key entry: %s", reg_key_name)
+        except FileNotFoundError:
+            pass  # already gone
+        finally:
+            winreg.CloseKey(key)
+    except OSError as exc:
+        log.debug(
+            "[AUTOSTART] Could not clean up stale Run-key entry %s: %s",
+            reg_key_name,
+            exc,
+        )
 
 
 # Uninstaller helper ( Windows part) ────────────────────────
@@ -680,3 +896,160 @@ def _unregister_all_voicetyper_tasks() -> list[str]:
     except (OSError, subprocess.SubprocessError) as exc:
         log.warning("[UNINSTALL] Task Scheduler sweep raised: %s", exc)
     return deleted
+
+
+# ── Windows Startup-folder .bat fallback (tertiary) ────────────────────
+#
+# AUTOSTART-STARTUP-FALLBACK: when BOTH the HKCU Run key and Task
+# Scheduler registration fail (e.g. HKCU locked by group policy,
+# schtasks unavailable, UAC declined), we write a ``.bat`` file to the
+# Windows Startup folder as a tertiary mechanism. The Startup folder
+# (``%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup``) is
+# always honored by Windows Explorer at login and requires no special
+# permissions — it's the most reliable fallback.
+#
+# The .bat sets ``VT_START_HIDDEN=1`` (so the Tauri app / Electron
+# launcher starts hidden) and spawns the autostart command via
+# ``start "" /B`` (no console window flash). The file is named
+# ``VoiceTyper_<hash>.bat`` to match the Run-key naming convention
+# (PLAT-RUN — multi-install support via the install-path hash).
+
+
+def _startup_bat_name() -> str:
+    """Return the Startup-folder .bat file name (hash-suffixed).
+
+    Uses the same install-path hash as the Run-key name (PLAT-RUN) so
+    two installations in different directories register distinct .bat
+    files and don't conflict.
+    """
+    return f"VoiceTyper{_pkg._install_hash_suffix()}.bat"
+
+
+def _startup_bat_path() -> Path:
+    """Return the full path to the Startup-folder .bat file.
+
+    Delegates to :func:`get_autostart_dir` (in :mod:`.autostart`) which
+    returns the platform-specific autostart directory. On Windows this
+    is ``%APPDATA%\\Microsoft\\Windows\\Start Menu\\Programs\\Startup``.
+    """
+    return _pkg.get_autostart_dir() / _startup_bat_name()
+
+
+def _register_app_autostart_startup() -> bool:
+    """Register app autostart via a Windows Startup-folder .bat file.
+
+    Writes a ``.bat`` to ``%APPDATA%\\Microsoft\\Windows\\Start Menu\\
+    Programs\\Startup\\VoiceTyper_<hash>.bat`` that sets
+    ``VT_START_HIDDEN=1`` and spawns the autostart command via
+    ``start "" /B`` (no console window flash).
+
+    Returns ``True`` on success, ``False`` on failure (e.g. the
+    Startup folder is not writable, or the autostart command can't be
+    resolved). Non-Windows platforms return ``False`` (the Startup
+    folder concept doesn't apply).
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        cmd = _pkg._autostart_command()
+        bat_path = _startup_bat_path()
+        bat_path.parent.mkdir(parents=True, exist_ok=True)
+        # Build the .bat content. ``@echo off`` suppresses command
+        # echo; ``set VT_START_HIDDEN=1`` passes the hidden flag to
+        # the spawned app (the Run key / Task Scheduler can't set env
+        # vars, but the .bat can). ``start "" /B`` spawns the command
+        # without a new console window and doesn't wait for it.
+        bat_content = f'@echo off\r\nset VT_START_HIDDEN=1\r\nstart "" /B {cmd}\r\n'
+        bat_path.write_text(bat_content, encoding="utf-8")
+        log.info(
+            "[CONFIG] Autostart enabled via Windows Startup-folder .bat: %s",
+            bat_path,
+        )
+        return True
+    except OSError as exc:
+        log.warning("[CONFIG] Could not write Startup-folder .bat: %s", exc)
+        return False
+    except Exception as exc:
+        log.warning("[CONFIG] Startup-folder .bat registration raised: %s", exc)
+        return False
+
+
+def _unregister_app_autostart_startup() -> bool:
+    """Remove the Windows Startup-folder .bat file.
+
+    Returns ``True`` on success (including when the file was already
+    absent — idempotent). Returns ``False`` only if the file exists
+    but couldn't be deleted (e.g. permission denied).
+    """
+    try:
+        bat_path = _startup_bat_path()
+    except Exception:
+        return False
+    if not bat_path.exists():
+        return True  # already absent — idempotent success
+    try:
+        bat_path.unlink()
+        log.info("[CONFIG] Removed Windows Startup-folder .bat: %s", bat_path)
+        return True
+    except OSError as exc:
+        log.warning("[CONFIG] Could not remove Startup-folder .bat: %s", exc)
+        return False
+
+
+def _is_app_autostart_startup_registered() -> bool:
+    """True if the Windows Startup-folder .bat exists AND its target
+    command is valid (points at an existing file).
+
+    AUTOSTART-CMD-VALIDATE: mirrors the validation in
+    :func:`_is_app_autostart_runkey_registered` — the .bat file's
+    existence alone is not enough; we also verify the spawned command's
+    exe path exists on disk. If the .bat is stale (target deleted), we
+    clean it up and return False.
+    """
+    try:
+        bat_path = _startup_bat_path()
+    except Exception:
+        return False
+    if not bat_path.exists():
+        return False
+    try:
+        content = bat_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+    # Extract the command from the ``start "" /B <cmd>`` line.
+    # We look for the line starting with ``start ""`` and parse the
+    # remainder as a Windows command line.
+    target_cmd = None
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.lower().startswith('start ""'):
+            # Everything after ``start "" /B `` is the command.
+            # Find the command portion (skip ``start ""`` and optional ``/B``).
+            after_start = stripped[len('start ""') :].strip()
+            # Strip leading ``/B`` flag if present.
+            if after_start.upper().startswith("/B"):
+                after_start = after_start[2:].strip()
+            target_cmd = after_start
+            break
+    if not target_cmd:
+        # Malformed .bat — can't validate. Conservatively report True
+        # (the file exists; we just can't parse it).
+        log.debug(
+            "[AUTOSTART] Startup .bat exists but could not parse command: %s",
+            bat_path,
+        )
+        return True
+    # Validate the target command's exe path exists.
+    if not _validate_runkey_command(target_cmd):
+        log.warning(
+            "[AUTOSTART] Startup .bat exists but its target command is stale: %s — cleaning up stale .bat",
+            target_cmd,
+        )
+        with contextlib.suppress(OSError):
+            bat_path.unlink()
+        return False
+    log.debug(
+        "[AUTOSTART] Startup .bat registered with valid command: %s",
+        target_cmd,
+    )
+    return True

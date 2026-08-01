@@ -32,14 +32,50 @@ class VocabularyMixin(ServiceMixinBase):
                 extra_word_patterns) — same shape as ``VocabularyManager.get_all()``.
                 We now delegate to ``get_all()`` and add the user-file path so
                 the renderer can show "edited" indicators.
-        """
-        from voice_typer.server.vocabulary import VocabularyManager
 
-        vm = VocabularyManager(config_dir=self._app.config.config_dir)
-        data = vm.get_all()
+        reuse the live VocabularyManager (already initialized
+                on the app via the ``_vocabulary_manager`` lazy property) instead
+                of constructing a throwaway per IPC call. The old impl did a
+                full disk read (bundled corrections.json + user vocabulary.json)
+                + merge on EVERY Vocabulary page load — a double file read on
+                every IPC call. We now reuse the already-merged ``_data`` on
+                the live instance. A fresh-instance fallback is kept for test
+                fixtures / cold-start paths where ``_vocabulary_manager`` is
+                None.
+
+        return a DEEP copy of the live data so the renderer
+                can't mutate the in-memory ``_data`` dict via the returned
+                reference. ``VocabularyManager.get_all()`` returns a SHALLOW
+                ``dict(self._data)`` copy — the top-level dict is unique but
+                the per-category values (dicts / lists) are the SAME objects
+                the manager iterates in ``apply_to_text``. A renderer that
+                mutated a returned category (e.g. ``data['misspellings'].pop(...)``)
+                would corrupt the live vocabulary mid-dictation. We deep-copy
+                each category value before returning.
+        """
+        import copy
+
+        # prefer the live VocabularyManager (already initialized on
+        # the app via the lazy ``_vocabulary_manager`` property).
+        vm = getattr(self._app, "_vocabulary_manager", None)
+        user_path_str: str | None = None
+        if vm is not None and hasattr(vm, "get_all"):
+            data = {k: copy.deepcopy(v) for k, v in vm.get_all().items()}
+            if hasattr(vm, "_user_path"):
+                user_path_str = str(vm._user_path)
+        else:
+            # Cold-start / test-fixture fallback: construct a
+            # throwaway VocabularyManager so the Vocabulary page can
+            # still render (with bundled defaults) even if the live
+            # instance is not yet initialized.
+            from voice_typer.server.vocabulary import VocabularyManager
+
+            fallback_vm = VocabularyManager(config_dir=self._app.config.config_dir)
+            data = {k: copy.deepcopy(v) for k, v in fallback_vm.get_all().items()}
+            user_path_str = str(fallback_vm._user_path) if hasattr(fallback_vm, "_user_path") else None
         # Attach the user-file path so the renderer can surface it in
         # the UI (e.g. "edit the file directly at ...").
-        data["_user_file"] = str(vm._user_path) if hasattr(vm, "_user_path") else None
+        data["_user_file"] = user_path_str
         return data
 
     def save_vocabulary_with_diff(self, data: dict) -> dict[str, object]:
@@ -64,10 +100,7 @@ class VocabularyMixin(ServiceMixinBase):
                 fallback is kept for test fixtures / cold-start paths where
                 ``_vocabulary_manager`` is None.
         """
-        import json
-
-        from voice_typer.server.config import _config_dir
-        from voice_typer.server.vocabulary import CATEGORIES, VOCAB_FILENAME, VocabularyManager
+        from voice_typer.server.vocabulary import CATEGORIES, VocabularyManager
 
         # prefer the live VocabularyManager.
         live_vm = getattr(self._app, "_vocabulary_manager", None)
@@ -104,16 +137,47 @@ class VocabularyMixin(ServiceMixinBase):
                 if diff:
                     user_only[cat] = diff
 
-        # Write only user customizations to the user file
-        # SEC-003: Use _secure_atomic_write to ensure 0o600 permissions
-        user_path = _config_dir() / VOCAB_FILENAME
-        user_path.parent.mkdir(parents=True, exist_ok=True)
-        from voice_typer.server.config import _secure_atomic_write
-
-        _secure_atomic_write(
-            user_path,
-            json.dumps(user_only, indent=2, ensure_ascii=False),
-        )
+        # Write only user customizations to the user file.
+        #
+        # Route through the live VocabularyManager's ``_user_store``
+        # (a :class:`PersistedJSON` instance) instead of calling
+        # ``_secure_atomic_write`` directly.  This gives the user
+        # vocabulary the same single-slot ``.bak`` before overwrite +
+        # corrupt-quarantine + recovery guarantees that
+        # ``VocabularyManager._save_user`` already relies on — closing
+        # the gap where this IPC path silently bypassed them (a crash
+        # mid-write would leave a half-written user file with no .bak
+        # to recover from).  ``durability=False`` matches
+        # ``_save_user``'s choice: vocabulary edits are frequent and a
+        # power-loss window of a few seconds is acceptable; the atomic
+        # ``os.replace`` still guarantees no half-written files.
+        #
+        # Diff-recompute semantics: we save ONLY ``user_only`` (the diff
+        # against bundled), NOT ``live_vm._data`` (the full merged
+        # data).  Saving the full merged data would break the
+        # load-time merge (list-based categories would double on every
+        # save → reload cycle).  ``_user_store.save(user_only)`` writes
+        # the user-only dict directly through PersistedJSON's atomic
+        # path, which is exactly what we want.
+        if live_vm is not None and hasattr(live_vm, "_user_store"):
+            try:
+                with live_vm._lock:
+                    live_vm._user_store.save(user_only, durability=False)
+            except Exception:
+                log.error(
+                    "[SERVICE] save_vocabulary_with_diff: PersistedJSON.save via live VocabularyManager failed",
+                    exc_info=True,
+                )
+                raise
+        else:
+            # Cold-start / test-fixture fallback: build a throwaway
+            # VocabularyManager just to get its ``_user_store``
+            # (PersistedJSON with .bak + quarantine + 0o600 perms).
+            # This is slower than the live-vm path (an extra
+            # bundled+user load), but cold-start is rare and the
+            # safety parity is worth it.
+            fallback_vm = VocabularyManager()
+            fallback_vm._user_store.save(user_only, durability=False)
 
         # reload the live VocabularyManager so its in-memory
         # ``_data`` reflects the just-written user file.

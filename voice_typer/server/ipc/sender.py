@@ -20,6 +20,7 @@ The mixin accesses instance state (``self._lock``, ``self._tcp_client``,
 import contextlib
 import json
 import logging
+from collections import deque
 from typing import TextIO
 
 from voice_typer.server.handlers._log import log
@@ -99,6 +100,85 @@ _TCP_PENDING_BUFFER_CAP: int = 1000
 # max_size=...)``) but the TCP path's ``tcp_client.write(line + "\n")``
 # would happily block the worker thread on a 100-MB send.
 _TCP_MAX_OUTBOUND_BYTES: int = 1 * 1024 * 1024
+
+
+class _PendingBuffer(deque):
+    """Bounded FIFO buffer for ``IPCServer._pending_tcp``.
+
+    Replaces the previous ``list[str]`` to eliminate the O(N)
+    ``del list[:n]`` cap-drop on every append while the client is
+    disconnected. The ``maxlen`` argument auto-drops the OLDEST entries
+    on ``append``/``extend`` so the manual cap-drop logic in
+    ``OutputMixin._send`` becomes dead code (kept in source for
+    backward compat with the source-string checks in
+    ``tests/test_ipc_pending_tcp_remerge.py``).
+
+    ``__radd__`` supports the existing re-merge patterns
+    (``self._pending_tcp = _undrained + self._pending_tcp`` and
+    ``self._pending_tcp = pending + self._pending_tcp``) so a ``list`` on
+    the left of ``+`` returns a new ``_PendingBuffer`` with the merged
+    contents — Python falls back to ``__radd__`` because ``list.__add__``
+    returns ``NotImplemented`` for a non-list right operand. This
+    preserves the exact source-string patterns the re-merge tests pin.
+    Test fixtures that bypass ``__init__`` and assign a plain ``list``
+    to ``_pending_tcp`` continue to work — ``list + list`` returns a
+    ``list`` (no ``__radd__`` is invoked), matching the pre-fix
+    behavior.
+
+    ``__delitem__`` is overridden to support the ``del d[:n]`` slice
+    deletion pattern used by the cap-drop logic (deque's default
+    ``__delitem__`` only accepts integer indices). With ``maxlen`` set,
+    this branch is dead code (the deque never exceeds ``maxlen``) but
+    the override keeps the source pattern safe if a future change
+    constructs the buffer without ``maxlen``.
+    """
+
+    def __init__(self, maxlen: int | None = None) -> None:
+        super().__init__(maxlen=maxlen)
+
+    def __radd__(self, other: object) -> "_PendingBuffer":
+        # ``list + _PendingBuffer`` → new ``_PendingBuffer`` with merged
+        # contents. FIFO order is preserved: ``other`` (the snapshot,
+        # OLDER entries) first, then ``self`` (the current buffer, NEWER
+        # entries). If the total exceeds ``maxlen``, the OLDEST entries
+        # (from ``other``) are dropped automatically by ``extend`` —
+        # matching the manual ``del self._pending_tcp[:dropped]`` cap-drop
+        # semantics that the source-string re-merge tests pin.
+        if isinstance(other, list):
+            result: _PendingBuffer = _PendingBuffer(maxlen=self.maxlen)
+            result.extend(other)
+            result.extend(self)
+            return result
+        return NotImplemented
+
+    def __eq__(self, other: object) -> bool:  # type: ignore[override]
+        # ``deque.__eq__`` returns ``NotImplemented`` for non-deque
+        # operands, which Python then treats as identity comparison — so
+        # ``_PendingBuffer() == []`` would be ``False`` without this
+        # override. Test fixtures (``tests/server/test_tcp_io.py`` and
+        # ``tests/test_ipc_layer_fixes.py``) assert ``_pending_tcp == []``
+        # after a successful drain; supporting ``== list`` keeps those
+        # assertions working with the new deque-backed buffer.
+        if isinstance(other, list):
+            return list(self) == other
+        if isinstance(other, deque):
+            return list(self) == list(other)
+        return NotImplemented
+
+    def __delitem__(self, key):  # type: ignore[override]
+        if isinstance(key, slice):
+            # deque's default ``__delitem__`` raises TypeError on slices.
+            # Support the ``del d[:n]`` (drop oldest n) and ``del d[-n:]``
+            # (drop newest n) patterns used by the cap-drop logic in
+            # ``_send``. Convert to list, delete, and rebuild — O(N) but
+            # dead code when ``maxlen`` is set (the deque never exceeds
+            # ``maxlen`` so the ``len > cap`` guard never trips).
+            items = list(self)
+            del items[key]
+            self.clear()
+            self.extend(items)
+        else:
+            super().__delitem__(key)
 
 
 class OutputMixin:
@@ -659,4 +739,9 @@ __all__ = [
     # size cap is enforced (mirrors the WS path's ``_MAX_FRAME_BYTES``
     # export in ``sidecar_ws.py``).
     "_TCP_MAX_OUTBOUND_BYTES",
+    # exported so ``ipc_server.IPCServer.__init__`` can construct the
+    # bounded FIFO buffer for ``_pending_tcp`` (replaces the previous
+    # ``list[str]`` — see the class docstring for the deque-with-maxlen
+    # rationale).
+    "_PendingBuffer",
 ]

@@ -29,7 +29,7 @@ import traceback as _traceback
 from pathlib import Path
 from typing import Any
 
-from voice_typer.server._secrets import redact_secret, redact_url
+from voice_typer.server._secrets import _redact_home_path, redact_secret, redact_url
 from voice_typer.server.secure_file_io import _secure_atomic_write, _secure_read_text
 
 log = logging.getLogger(__name__)
@@ -71,8 +71,56 @@ log = logging.getLogger(__name__)
 _FAST_TRIGGER = re.compile(r"[@+]|\d{3,}|Bearer|Token|sk-|key=|(?<![/\\])[A-Za-z0-9_\-]{20,}(?![/\\])")
 
 
+# Cache for the home-path-substring regex, keyed by the resolved home
+# dir string.  The home dir is resolved via ``os.path.expanduser("~")``
+# at call time (so tests that monkeypatch ``HOME`` / ``USERPROFILE`` see
+# the expected result); the cache is invalidated automatically when the
+# resolved home dir changes between calls.
+_HOME_PATH_RE_CACHE: tuple[str, "re.Pattern[str]"] | None = None
+
+
+def _redact_home_path_in_text(text: str) -> str:
+    """Replace home-directory path prefixes embedded anywhere in *text*.
+
+    :func:`voice_typer.server._secrets._redact_home_path` only redacts
+    when the *entire* input string is a single filesystem path under the
+    home dir (it checks ``s.startswith(home)``).  Log messages, by
+    contrast, embed paths inside larger sentences (e.g.
+    ``"Opening log file: /home/alice/.voice-typer/foo.log"``), so the
+    whole-string check returns the input unchanged and the OS username
+    leaks to ``voice-typer.log``.
+
+    This helper scans *text* for substrings that start with the home
+    directory followed by a path separator and applies
+    :func:`_redact_home_path` to each match -- replacing the home-dir
+    prefix with ``~`` while preserving the rest of the path.  The regex
+    is compiled once per unique home dir and cached.
+    """
+    global _HOME_PATH_RE_CACHE
+    try:
+        home = os.path.expanduser("~")
+    except (KeyError, RuntimeError):
+        # expanduser can raise on platforms where the user DB is
+        # unreadable; treat as "home unknown" and return text verbatim.
+        return text
+    if not home or home == "~":
+        return text
+    if _HOME_PATH_RE_CACHE is None or _HOME_PATH_RE_CACHE[0] != home:
+        flags = re.IGNORECASE if os.name == "nt" else 0
+        # Match the home dir followed by a path separator and any
+        # subsequent non-whitespace characters.  The ``[/\\]`` after the
+        # home dir ensures we do not partially match a longer path
+        # (e.g. ``/home/alice`` inside ``/home/alice2``).  Trailing
+        # punctuation (commas, parens) may be included in the match but
+        # is preserved by ``_redact_home_path`` which only swaps the
+        # home prefix for ``~``.
+        pattern = re.compile(re.escape(home) + r"[/\\]\S*", flags)
+        _HOME_PATH_RE_CACHE = (home, pattern)
+    return _HOME_PATH_RE_CACHE[1].sub(lambda m: _redact_home_path(m.group()), text)
+
+
 def _redact_text(text: str) -> str:
-    """Apply PII + API-secret + URL-credential redaction to *text*.
+    """Apply PII + API-secret + URL-credential + home-path redaction to *text*.
 
     shared helper used by :class:`PIIRedactionFilter` for both
     the formatted log message and the formatted traceback.  Order
@@ -102,6 +150,15 @@ def _redact_text(text: str) -> str:
     5-10x speedup for the common log line that carries no secret /
     PII / URL-credential trigger).
     """
+    # step 0 — redact the home-directory prefix unconditionally.
+    # This MUST run before the fast-path check below: a bare path like
+    # ``/home/alice/.voice-typer/foo.log`` carries no fast-path trigger
+    # (no ``@`` / ``+`` / 3+ consecutive digits / ``Bearer`` / ``Token``
+    # / ``sk-`` / ``key=`` / 20+ char token) so the trigger scan would
+    # return the input unchanged and the username would leak to
+    # ``voice-typer.log``.  ``_redact_home_path_in_text`` handles paths
+    # embedded inside larger sentences (the common log-message case).
+    text = _redact_home_path_in_text(text)
     # fast path — no trigger means no pattern can match, so
     # skip the substitution loop entirely.  ``str`` input only; the
     # ``PIIRedactionFilter.filter`` call site always passes the
@@ -137,6 +194,10 @@ class PIIRedactionFilter(logging.Filter):
       - URL-embedded credentials (``user:pass@host``) → credentials
         stripped, host preserved
         (via :func:`voice_typer.server._secrets.redact_url`)
+      - Filesystem paths containing the user's home directory
+        (``/home/alice/…``, ``/Users/alice/…``,
+        ``C:\\Users\\alice\\…``) → home prefix replaced with ``~``
+        (via :func:`voice_typer.server._secrets._redact_home_path`)
 
     Known limitations (NOT redacted — too high a false-positive rate
     on ordinary numeric text):

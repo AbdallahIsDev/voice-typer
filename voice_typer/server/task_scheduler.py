@@ -157,7 +157,12 @@ def _prewarm_command() -> str | None:
                     first = resolved.split(" ", 1)[0].strip('"')
                     if Path(first).is_file():
                         return first
-                except Exception:
+                except (IndexError, ValueError, OSError):
+                    # ``IndexError`` if split returned empty list
+                    # (shouldn't happen, defensive); ``ValueError`` if
+                    # ``Path()`` rejects the string; ``OSError`` if
+                    # ``is_file()`` fails on a broken symlink.
+                    # Previously a broad ``except Exception: pass``.
                     pass
                 # If parsing failed, fall through to the legacy path.
             else:

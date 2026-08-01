@@ -56,6 +56,7 @@ from pathlib import Path
 # keep affecting production code defined here (specifically
 # ``create_launcher_shortcut``'s ``SYSTEM != "win32"`` early return).
 from voice_typer.server import server_platform as _pkg
+from voice_typer.server._paths import APP_SLUG
 from voice_typer.server.branding import APP_NAME
 
 log = logging.getLogger(__name__)
@@ -87,7 +88,7 @@ def _generate_icon_ico() -> Path | None:
         return None
 
     appdata = Path(os.environ.get("APPDATA", Path.home()))
-    icon_dir = appdata / "voice-typer"
+    icon_dir = appdata / APP_SLUG
     icon_dir.mkdir(parents=True, exist_ok=True)
     ico_path = icon_dir / "icon.ico"
 

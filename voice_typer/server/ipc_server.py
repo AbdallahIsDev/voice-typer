@@ -270,6 +270,9 @@ def _get_rate_limiter(server: "object") -> _RateLimiter:
 #      discarded.  No observable behavior change.
 
 
+from voice_typer.server.handlers.cloud_test_handlers import (  # noqa: E402
+    CloudTestHandlersMixin,
+)
 from voice_typer.server.handlers.config_handlers import ConfigHandlersMixin  # noqa: E402
 from voice_typer.server.handlers.dictation_handlers import DictationHandlersMixin  # noqa: E402
 from voice_typer.server.handlers.history_handlers import HistoryHandlersMixin  # noqa: E402
@@ -304,6 +307,7 @@ from voice_typer.server.ipc.sender import (  # noqa: E402, F401
     _TCP_PENDING_BUFFER_CAP,
     _TCP_PENDING_DRAIN_CAP,
     OutputMixin,
+    _PendingBuffer,
 )
 from voice_typer.server.ipc.transport_tcp import TCPTransportMixin  # noqa: E402
 
@@ -326,6 +330,7 @@ class IPCServer(
     VocabularyAutomationHandlersMixin,
     RepasteHandlersMixin,
     PrivacyHandlersMixin,
+    CloudTestHandlersMixin,
 ):
     """Reads JSON commands from stdin or TCP, dispatches, writes responses.
 
@@ -448,7 +453,19 @@ class IPCServer(
         self._tcp_write_lock = threading.Lock()
         self._tcp_client: _TCPLineIO | None = None
         self._tcp_mode = False
-        self._pending_tcp: list[str] = []
+        # Bounded FIFO buffer for push events queued while the TCP
+        # client is disconnected. Pre-fix this was a plain ``list[str]``
+        # and the cap-drop in ``OutputMixin._send`` was an O(N)
+        # ``del list[:dropped]`` on every append (15-50 Hz waveform-bubble
+        # push rate while the client was disconnected). Now a
+        # ``_PendingBuffer`` (a ``deque`` subclass with ``maxlen``) — the
+        # cap is enforced automatically by ``append``/``extend`` (O(1)
+        # popleft on overflow). The manual cap-drop logic in ``_send``
+        # is kept in source for backward compat with the source-string
+        # checks in ``tests/test_ipc_pending_tcp_remerge.py`` but is dead
+        # code at runtime (the ``len > cap`` guard never trips because
+        # ``maxlen`` already prevents growth).
+        self._pending_tcp: _PendingBuffer = _PendingBuffer(maxlen=_TCP_PENDING_BUFFER_CAP)
         # store the listening TCP server socket so stop()
         # can close it to unblock the accept() loop.  Previously the
         # socket was a local variable in _accept_tcp and stop() had no
@@ -1903,8 +1920,13 @@ def main() -> None:
                 faulthandler.dump_traceback_later(timeout=1.0)
 
             signal.signal(signal.SIGUSR1, _on_sigusr1)
-    except Exception:
-        pass  # Not available on all platforms
+    except (AttributeError, ValueError, OSError, RuntimeError):
+        # Not available on all platforms (Windows lacks SIGUSR1;
+        # ValueError/OSError if the signal can't be registered; RuntimeError
+        # if faulthandler is already enabled). Previously a broad
+        # ``except Exception: pass`` — narrowed so an unexpected import-time
+        # bug surfaces instead of being silently swallowed.
+        pass
 
     # parse arguments BEFORE acquiring the single-instance
     # lock, so ``--version`` works even when another instance is running

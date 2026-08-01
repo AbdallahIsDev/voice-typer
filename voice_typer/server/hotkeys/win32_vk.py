@@ -279,7 +279,12 @@ def parse_hotkey_to_win32(hotkey_str: str) -> tuple[int | None, int] | None:
                 vk_scan = user32.VkKeyScanW(ord(key_name))
                 if vk_scan != -1:
                     vk = vk_scan & 0xFF
-            except Exception:
+            except (OSError, AttributeError, ValueError):
+                # ``user32`` is None on non-Windows hosts (AttributeError);
+                # ``VkKeyScanW`` returns -1 on un-mappable keys (ValueError
+                # if ``ord(key_name)`` fails); ``OSError`` if the win32
+                # call itself failed. Previously a broad
+                # ``except Exception: pass``.
                 pass
         if vk is None:
             return None

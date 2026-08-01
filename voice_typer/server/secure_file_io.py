@@ -635,45 +635,62 @@ class PersistedJSON(Generic[T]):
             return None
 
     def _quarantine_corrupt(self) -> None:
-        """Best-effort rename the corrupt file to ``<path>.corrupt-<ts>``.
+        """Best-effort rename the corrupt file to ``<path>.corrupt-<ts>-<pid>-<ns>``.
 
-                Mirrors ``crash_recovery.py:_quarantine_corrupt``: if a corrupt
-                file with the same timestamp already exists (extremely unlikely
-                — would need two corruptions within the same second), disambiguate
-                with a counter.  Best-effort — never raises.  If the file
-                disappeared between the ``exists()`` check and now, or the
-                rename fails (cross-device, permissions), the failure is logged
-                at debug level and swallowed so the caller's load still returns
-                the default cleanly.
+                Mirrors ``crash_recovery.py:_quarantine_corrupt``: the corrupt
+                file is renamed aside for forensic recovery.  Best-effort —
+                never raises.  If the file disappeared between the
+                ``exists()`` check and now, or the rename fails (cross-device,
+                permissions), the failure is logged at debug level and
+                swallowed so the caller's load still returns the default
+                cleanly.
+
+        the filename embeds epoch seconds + PID + sub-second
+                nanoseconds (``time.time_ns() % 1_000_000``) so two
+                concurrent corruptions — even within the same second from
+                DIFFERENT processes, or back-to-back from the same process
+                — produce distinct filenames without needing an
+                ``exists()`` probe loop.  This mirrors the
+                migration-backup path in ``config.py:1900-1903`` and the
+                corrupt-config rename in ``config.py:1779-1782``.  The
+                previous implementation used ``int(time.time())`` + a
+                counter loop with an ``exists()`` TOCTOU window: two
+                processes corrupting their files in the same second both
+                picked ``ts`` + ``counter=0`` and one overwrote the
+                other's quarantine via the subsequent ``os.replace`` —
+                losing forensic history.
 
         uses :func:`os.replace` instead of :meth:`Path.rename`.
                 ``os.rename`` is atomic on POSIX but FAILS on Windows if the
-                destination already exists (``OSError`` winerror 183).  Even
-                though the ``while corrupt_path.exists()`` loop above tries to
-                find a non-existing destination, there is a TOCTOU race window
-                between the ``exists()`` check and the rename: another process
-                (or another thread in this process calling ``_quarantine_corrupt``
-                concurrently) can create the destination file in that window,
-                causing the rename to fail on Windows.  ``os.replace`` is
-                atomic AND overwrites an existing destination on BOTH POSIX and
-                Windows, closing the race.  The loop is retained so we don't
-                normally overwrite an existing corrupt-<ts> file (preserving
-                forensic history); ``os.replace`` is the safety net for the
-                race window.
+                destination already exists (``OSError`` winerror 183).  The
+                PID + nanosecond suffix makes a destination collision
+                essentially impossible, but ``os.replace`` is retained as
+                the safety net: it is atomic AND overwrites an existing
+                destination on BOTH POSIX and Windows, so even if a future
+                change weakens the suffix uniqueness, the worst case is the
+                previous-behavior overwrite (no corruption, just lost
+                forensics — strictly better than raising).
         """
         try:
             if not self._path.exists():
                 return
+            # Embed epoch seconds + PID + sub-second nanoseconds so two
+            # concurrent quarantine events never pick the same filename
+            # (closes the same-second TOCTOU race that the previous
+            # ``while corrupt_path.exists(): counter += 1`` loop had).
+            # Mirrors the suffix scheme already used by
+            # ``config.py:_backup_before_migration`` and
+            # ``config.py:_backup_before_downgrade``.
             ts = int(time.time())
-            corrupt_path = self._path.with_name(f"{self._path.name}.corrupt-{ts}")
-            counter = 0
-            while corrupt_path.exists():
-                counter += 1
-                corrupt_path = self._path.with_name(f"{self._path.name}.corrupt-{ts}.{counter}")
+            pid = os.getpid()
+            ts_ns = time.time_ns() % 1_000_000
+            corrupt_path = self._path.with_name(f"{self._path.name}.corrupt-{ts}-{pid}-{ts_ns}")
             # os.replace is atomic AND overwrites the destination
             # on both POSIX and Windows (Path.rename / os.rename would
-            # fail on Windows if the destination exists, which can happen
-            # in the TOCTOU race between the loop above and the rename).
+            # fail on Windows if the destination exists).  With the
+            # pid + nanosecond suffix a collision is essentially
+            # impossible, but os.replace is the safety net so we never
+            # raise on the rename path.
             os.replace(str(self._path), str(corrupt_path))
             log.warning(
                 "[PERSISTED_JSON] Quarantined corrupt file: %s -> %s",

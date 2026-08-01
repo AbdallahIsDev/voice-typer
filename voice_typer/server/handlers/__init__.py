@@ -27,6 +27,9 @@ to break.  (A ``sys.modules`` canonical-name shim that used to live in
 pattern was confirmed.)
 """
 
+from voice_typer.server.handlers.cloud_test_handlers import (
+    CloudTestHandlersMixin,
+)
 from voice_typer.server.handlers.config_handlers import ConfigHandlersMixin
 from voice_typer.server.handlers.dictation_handlers import DictationHandlersMixin
 from voice_typer.server.handlers.history_handlers import HistoryHandlersMixin
@@ -67,6 +70,7 @@ from voice_typer.server.handlers.vocabulary_automation_handlers import (
 from voice_typer.server.handlers.vocabulary_handlers import VocabularyHandlersMixin
 
 __all__ = [
+    "CloudTestHandlersMixin",
     "ConfigHandlersMixin",
     "StatusHandlersMixin",
     "DictationHandlersMixin",

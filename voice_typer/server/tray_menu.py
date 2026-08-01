@@ -230,7 +230,7 @@ def build_tray_menu_model(
     hotkey: str,
     toggle_dictation: Callable[[], None],
     open_app: Callable[[], None],
-    repaste_last: Callable[[], None],
+    undo_last: Callable[[], None] | None = None,
     force_cancel_transcription: Callable[[], None] | None = None,
     is_transcribing: Callable[[], bool] = lambda: False,
     restart_app: Callable[[], None],
@@ -241,6 +241,9 @@ def build_tray_menu_model(
     active_mic_id: str | None = None,
     on_select_mic: Callable[[str], None] | None = None,
     on_refresh_mics: Callable[[], None] | None = None,
+    on_open_settings: Callable[[], None] | None = None,
+    on_open_history: Callable[[], None] | None = None,
+    on_open_help: Callable[[], None] | None = None,
     localize: Callable[[str], str] = lambda k: k,
 ) -> tuple[list[dict], dict[str, Callable]]:
     """Build the tray menu MODEL (dicts) for the Tauri/sidecar host.
@@ -248,11 +251,20 @@ def build_tray_menu_model(
     Returns ``(model, id_map)`` where ``model`` is a list of item dicts
     and ``id_map`` maps every actionable item id to its callback.
 
-    Mirrors the structure of :func:`build_menu` but produces serialisable
-    dicts instead of pystray objects.  Per  the ``force_cancel`` item
-    is only included when ``is_transcribing()`` is true.  Per  the
-    microphones render as a submenu with ``mic:<id>`` ids (the active one
-    carries ``checked=True``) plus a ``refresh_mics`` entry.
+    Mirrors the structure of :func:`build_menu_for_tray` (the pystray
+    builder) so both runtimes render the same item set — single source
+    of truth for the menu structure. Per C-TRAY-1 in CONSTRAINTS.md,
+    no "re-paste last transcription" item is emitted on either
+    runtime; the controller's re-paste method remains available to
+    the renderer's Undo button but is NOT surfaced in the tray menu.
+
+    Per the ``force_cancel`` item is only included when
+    ``is_transcribing()`` is true. Per the microphones render as a
+    submenu with ``mic:<id>`` ids (the active one carries
+    ``checked=True``) plus a ``refresh_mics`` entry. Settings/History/
+    Help quick shortcuts are wired via the ``on_open_*`` callbacks and
+    mirror the pystray-side shortcuts that open the Electron window on
+    the corresponding route.
     """
     id_map: dict[str, Callable] = {}
     items: list[dict] = []
@@ -300,8 +312,11 @@ def build_tray_menu_model(
         )
     )
 
-    # Repaste last transcription.
-    items.append(_item("repaste_last", localize("repaste_last"), callback=repaste_last))
+    # Undo Last — surfaces the previously-unreachable undo_last IPC
+    # (mirrors the pystray-side builder; was previously MISSING on
+    # Tauri, leaving the Undo IPC unreachable from the tray).
+    if undo_last is not None:
+        items.append(_item("undo_last", localize("undo_last"), callback=undo_last))
 
     # force-cancel only while transcribing.
     if force_cancel_transcription is not None and is_transcribing():
@@ -345,6 +360,18 @@ def build_tray_menu_model(
         if on_refresh_mics is not None:
             mic_sub.append(_item("refresh_mics", localize("refresh_mics"), callback=on_refresh_mics))
         items.append(_item("microphones", localize("microphones"), submenu=mic_sub))
+
+    items.append(_sep())
+
+    # Settings / History / Help quick shortcuts. Each opens the
+    # Electron window on the corresponding route — mirrors the
+    # pystray-side builder so both runtimes expose the same shortcuts.
+    if on_open_settings is not None:
+        items.append(_item("settings", localize("settings"), callback=on_open_settings))
+    if on_open_history is not None:
+        items.append(_item("history", localize("history"), callback=on_open_history))
+    if on_open_help is not None:
+        items.append(_item("help", localize("help"), callback=on_open_help))
 
     items.append(_sep())
 
@@ -751,7 +778,7 @@ def maybe_publish_tray_menu(tray) -> bool:
         hotkey=hotkey,
         toggle_dictation=controller.toggle_dictation,
         open_app=tray.open_electron_window,
-        repaste_last=getattr(controller, "repaste_last", lambda: None),
+        undo_last=getattr(controller, "undo_last", None),
         force_cancel_transcription=lambda: controller.recording._force_recover_from_stuck_transcription(force=True),
         is_transcribing=lambda: (
             getattr(tray._state, "name", "") == "TRANSCRIBING" or getattr(tray._state, "value", "") == "TRANSCRIBING"
@@ -775,6 +802,13 @@ def maybe_publish_tray_menu(tray) -> bool:
         active_mic_id=getattr(controller, "active_microphone_id", None),
         on_select_mic=getattr(controller, "change_microphone", None),
         on_refresh_mics=getattr(controller, "refresh_microphones", None),
+        # Settings/History/Help shortcuts — mirror the pystray-side
+        # build_menu_for_tray wiring so both runtimes expose the same
+        # quick shortcuts (previously MISSING on Tauri, leaving these
+        # routes unreachable from the tray).
+        on_open_settings=lambda: tray._open_page("/settings"),
+        on_open_history=lambda: tray._open_page("/history"),
+        on_open_help=lambda: tray._open_page("/about"),
     )
     tray._tray_id_map = _id_map
     return publish_tray_menu(model)

@@ -99,7 +99,12 @@ class Win32Clipboard:
             return False
         try:
             return bool(ctypes.windll.user32.EmptyClipboard())
-        except Exception:
+        except (OSError, AttributeError):
+            # narrowed from bare ``except Exception: return False``.
+            # EmptyClipboard is a Win32 ctypes call; ``OSError`` covers
+            # Win32 API failures and ``AttributeError`` covers a missing
+            # ctypes function pointer on stripped builds.
+            _cb.log.debug("[CLIPBOARD] EmptyClipboard failed", exc_info=True)
             return False
 
     @staticmethod

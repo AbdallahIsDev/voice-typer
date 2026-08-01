@@ -6,6 +6,7 @@ Split out in Phase 4.5 () without any semantic changes.
 
 import contextlib
 import ctypes
+import queue
 import threading
 import time
 from collections.abc import Callable
@@ -138,6 +139,69 @@ class WindowsNativeHotkey(HotkeyBackend):
         # the registration attempt so the per-run semantics are unchanged.
         self._last_error: int | None = None
         self._is_caps_lock_hotkey: bool = False
+        # Dedicated worker thread + queue for LL hook callbacks.
+        # The hook proc MUST return within ~1ms or Windows marks it
+        # unresponsive and bypasses it. Previously callback() ran inline
+        # (10-100ms of recorder/IPC work). Now the hook proc enqueues
+        # and returns immediately; the worker drains the queue.
+        self._hook_callback_queue: queue.Queue[Callable[[], None] | None] = queue.Queue(maxsize=64)
+        self._hook_callback_thread: threading.Thread | None = None
+        # VK codes the LL hook matches when _vk is None
+        # (modifier-only hotkeys). Populated in start().
+        self._modifier_vks_for_hook: list[int] = []
+
+    @staticmethod
+    def _compute_modifier_vks(modifiers: int) -> list[int]:
+        """Return VK codes for the modifier flags."""
+        modifier_vks: list[int] = []
+        if modifiers & _MOD_ALT:
+            modifier_vks.append(_VK_MENU)
+        if modifiers & _MOD_CONTROL:
+            modifier_vks.append(_VK_CONTROL)
+        if modifiers & _MOD_SHIFT:
+            modifier_vks.append(_VK_SHIFT)
+        if modifiers & _MOD_WIN:
+            modifier_vks.append(_VK_LWIN)
+            modifier_vks.append(_VK_RWIN)
+        return modifier_vks
+
+    def _start_hook_callback_worker(self) -> None:
+        """Start the dedicated worker thread for LL hook callbacks."""
+        if self._hook_callback_thread is not None and self._hook_callback_thread.is_alive():
+            return
+
+        def _worker() -> None:
+            while True:
+                try:
+                    fn = self._hook_callback_queue.get(timeout=0.5)
+                except queue.Empty:
+                    if self._stop_event.is_set():
+                        return
+                    continue
+                if fn is None:
+                    return
+                try:
+                    fn()
+                except Exception:
+                    log.exception(
+                        "[HOTKEY] Hook callback raised in worker thread — "
+                        "callback dropped, hotkey still armed for next press"
+                    )
+
+        self._hook_callback_thread = threading.Thread(target=_worker, daemon=True, name="WinHookCb")
+        self._hook_callback_thread.start()
+
+    def _enqueue_hook_callback(self, fn: Callable[[], None] | None) -> None:
+        """Enqueue a callback for the worker thread. Non-blocking."""
+        if fn is None:
+            return
+        try:
+            self._hook_callback_queue.put_nowait(fn)
+        except queue.Full:
+            log.warning(
+                "[HOTKEY] LL hook callback queue full (size=%d) — dropping callback.",
+                self._hook_callback_queue.maxsize,
+            )
 
     def start(self, callback: Callable[[], None]) -> None:
         import ctypes
@@ -287,7 +351,14 @@ class WindowsNativeHotkey(HotkeyBackend):
                 # (the polling loop's synthetic caps suppression corrupts the
                 # async key state and breaks key-up detection). Other simple
                 # non-PTT hotkeys also prefer the hook for robust delivery.
-                simple_key = self._on_release_callback is None and not self._is_modifier_only
+                # Drop the ``not self._is_modifier_only`` guard so
+                # modifier-only specs (e.g. ``<alt>``) ALSO use the LL hook
+                # when available — they were previously forced onto the
+                # 125Hz polling loop, burning CPU even when idle.
+                simple_key = self._on_release_callback is None
+                # Populate the per-instance modifier VK list so the
+                # LL hook proc closure can match modifier VKs when _vk is None.
+                self._modifier_vks_for_hook = self._compute_modifier_vks(self._modifiers)
                 # when ``_prefer_message_loop_first`` is set (ESC and
                 # repaste backends), prefer the event-driven WM_HOTKEY
                 # message loop over the per-keystroke LL hook. This reduces
@@ -756,6 +827,11 @@ class WindowsNativeHotkey(HotkeyBackend):
         if not self._user32 or not self._kernel32:
             return False
         try:
+            # Start the worker thread BEFORE installing the hook
+            # so the queue is being drained the moment the first key
+            # event arrives.
+            self._start_hook_callback_worker()
+
             # KeyboardProc signature: (nCode, wParam, lParam) -> LRESULT.
             # lParam is a pointer to KBDLLHOOKSTRUCT.
             hook_proc = ctypes.WINFUNCTYPE(
@@ -783,10 +859,17 @@ class WindowsNativeHotkey(HotkeyBackend):
                         ks = ctypes.cast(l_param, ctypes.POINTER(KBDLLHOOKSTRUCT)).contents
                         vk = ks.vkCode
                         is_caps = backend._is_caps_lock_hotkey
+                        # Match the configured key. For main-key
+                        # hotkeys (``backend._vk is not None``) this is
+                        # ``vk == backend._vk`` AND modifiers held. For
+                        # modifier-only hotkeys (``backend._vk is None``)
+                        # this is ``vk in backend._modifier_vks_for_hook``.
+                        if backend._vk is not None:
+                            vk_matches = vk == backend._vk and backend._modifiers_pressed()
+                        else:
+                            vk_matches = vk in backend._modifier_vks_for_hook
                         # Key-down path
-                        if w_param in (_WM_KEYDOWN, _WM_SYSKEYDOWN) and (
-                            vk == backend._vk and backend._modifiers_pressed()
-                        ):
+                        if w_param in (_WM_KEYDOWN, _WM_SYSKEYDOWN) and vk_matches:
                             if is_caps:
                                 # Caps Lock: swallow the keydown so the OS
                                 # never toggles caps state. The toggle fires
@@ -801,10 +884,8 @@ class WindowsNativeHotkey(HotkeyBackend):
                                     "[HOTKEY FIRED] WH_KEYBOARD_LL caught vk=0x%X (PTT)",
                                     vk,
                                 )
-                                try:
-                                    callback()
-                                except Exception:
-                                    log.exception("[HOTKEY] Callback raised in LL hook; hotkey still armed")
+                                # Dispatch to worker thread.
+                                backend._enqueue_hook_callback(callback)
                             elif getattr(backend, "_toggle_on_keyup", False):
                                 # Toggle mode (user requested): defer the
                                 # toggle to key-up so holding the key cannot
@@ -818,21 +899,17 @@ class WindowsNativeHotkey(HotkeyBackend):
                                     vk,
                                     backend.hotkey_str,
                                 )
-                                try:
-                                    callback()
-                                except Exception:
-                                    log.exception("[HOTKEY] Callback raised in LL hook; hotkey still armed")
+                                # Dispatch to worker thread.
+                                backend._enqueue_hook_callback(callback)
                         # Key-up path
-                        elif w_param in (_WM_KEYUP, _WM_SYSKEYUP) and (vk == backend._vk):
+                        elif w_param in (_WM_KEYUP, _WM_SYSKEYUP) and vk_matches:
                             if is_caps:
                                 # Caps Lock: fire the toggle exactly once on
                                 # the physical key-up, and swallow the keyup
                                 # so the OS sees no orphan key-up.
                                 log.info("[HOTKEY FIRED] WH_KEYBOARD_LL Caps Lock key-up (toggle)")
-                                try:
-                                    callback()
-                                except Exception:
-                                    log.exception("[HOTKEY] Callback raised in LL hook; hotkey still armed")
+                                # Dispatch to worker thread.
+                                backend._enqueue_hook_callback(callback)
                                 return 1  # swallow keyup
                             if backend._on_release_callback is not None:
                                 # Push-to-talk: stop recording on release.
@@ -840,10 +917,8 @@ class WindowsNativeHotkey(HotkeyBackend):
                                     "[HOTKEY] Key released via WH_KEYBOARD_LL hook (vk=0x%X)",
                                     vk,
                                 )
-                                try:
-                                    backend._on_release_callback()
-                                except Exception:
-                                    log.exception("[HOTKEY] on_release callback raised in LL hook")
+                                # Dispatch to worker thread.
+                                backend._enqueue_hook_callback(backend._on_release_callback)
                             elif getattr(backend, "_toggle_on_keyup", False):
                                 # Toggle mode: fire the toggle on key-up.
                                 # Holding the key (no key-up) never toggles,
@@ -854,10 +929,8 @@ class WindowsNativeHotkey(HotkeyBackend):
                                     "[HOTKEY FIRED] WH_KEYBOARD_LL key-up (toggle, vk=0x%X)",
                                     vk,
                                 )
-                                try:
-                                    callback()
-                                except Exception:
-                                    log.exception("[HOTKEY] Callback raised in LL hook; hotkey still armed")
+                                # Dispatch to worker thread.
+                                backend._enqueue_hook_callback(callback)
                 except Exception:
                     log.debug("[HOTKEY] LL hook proc error", exc_info=True)
                 # Pass to the next hook so we don't break other hooks.
@@ -1532,6 +1605,16 @@ class WindowsNativeHotkey(HotkeyBackend):
         if self._thread is not None:
             self._thread.join(timeout=0.5)  # was 3.0; 100ms poll = 500ms is plenty
             self._thread = None
+        # Tear down the LL hook callback worker thread. Push a
+        # ``None`` sentinel so the worker exits cleanly.
+        if self._hook_callback_thread is not None:
+            with contextlib.suppress(queue.Full):
+                self._hook_callback_queue.put_nowait(None)
+            try:
+                self._hook_callback_thread.join(timeout=1.0)
+            except Exception:
+                log.debug("[HOTKEY] Hook callback worker join failed", exc_info=True)
+            self._hook_callback_thread = None
 
     def is_alive(self) -> bool:
         return self._thread is not None and self._thread.is_alive()

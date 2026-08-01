@@ -24,7 +24,12 @@ from voice_typer.server import event_bus
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.validation import ErrorCodes, LegacyErrorCodes, _validate_dict_payload  # noqa: F401
+from voice_typer.server.ipc.validation import (  # noqa: F401
+    ErrorCodes,
+    LegacyErrorCodes,
+    _error_response,
+    _validate_dict_payload,
+)
 from voice_typer.server.platform_utils import is_macos
 
 
@@ -272,26 +277,33 @@ class SystemHandlersMixin(HandlerBase):
             # translations). Reject with ``invalid_field`` so a hostile
             # caller cannot turn the tray-i18n locale dict into a
             # multi-MB memory sink.
+            #
+            # The error envelope is built via the shared
+            # ``_error_response`` helper (consistent with the rest of
+            # the IPC handler layer) and the ``field`` key is stamped
+            # afterward — ``_error_response`` does not currently
+            # accept a ``field`` kwarg, but routing the envelope
+            # through it keeps the ``code`` / ``legacy_code`` /
+            # ``message`` shape uniform across every error path in
+            # this handler.
             if labels is not None:
                 for k, v in labels.items():
                     if not isinstance(k, str) or len(k) > 64:
-                        return {
-                            "type": "error",
-                            "data": {
-                                "code": "client.invalid_field",
-                                "field": "labels",
-                                "message": "label keys must be strings of <=64 chars",
-                            },
-                        }
+                        _error_response(
+                            resp,
+                            "label keys must be strings of <=64 chars",
+                            code=ErrorCodes.INVALID_FIELD,
+                        )
+                        resp["data"]["field"] = "labels"
+                        return resp
                     if not isinstance(v, str) or len(v) > 1024:
-                        return {
-                            "type": "error",
-                            "data": {
-                                "code": "client.invalid_field",
-                                "field": "labels",
-                                "message": "label values must be strings of <=1024 chars",
-                            },
-                        }
+                        _error_response(
+                            resp,
+                            "label values must be strings of <=1024 chars",
+                            code=ErrorCodes.INVALID_FIELD,
+                        )
+                        resp["data"]["field"] = "labels"
+                        return resp
                 register_tray_labels(locale, labels)
             set_tray_locale(locale)
             # Force a tray menu rebuild so the new labels show immediately.
@@ -442,13 +454,17 @@ class SystemHandlersMixin(HandlerBase):
             # accepting a misbehaving caller who swapped the
             # ``critical`` and ``duration_ms`` fields.
             if isinstance(data, dict) and isinstance(data.get("duration_ms"), bool):
-                resp["type"] = "error"
-                resp["data"] = {
-                    "code": ErrorCodes.INVALID_FIELD,
-                    "legacy_code": "invalid_field",
-                    "field": "duration_ms",
-                    "message": "'duration_ms' must be a number (milliseconds)",
-                }
+                # Route the envelope through the shared
+                # ``_error_response`` helper for shape consistency
+                # with the rest of the handler layer; ``field`` is
+                # stamped afterward because the helper does not yet
+                # accept a ``field`` kwarg.
+                _error_response(
+                    resp,
+                    "'duration_ms' must be a number (milliseconds)",
+                    code=ErrorCodes.INVALID_FIELD,
+                )
+                resp["data"]["field"] = "duration_ms"
                 return resp
 
             # pre-coerce ``None`` values to their defaults so the
@@ -530,13 +546,17 @@ class SystemHandlersMixin(HandlerBase):
             # body is common and harmless).
             for fname in ("title", "message"):
                 if _has_control_chars(validated.get(fname, "")):
-                    resp["type"] = "error"
-                    resp["data"] = {
-                        "code": ErrorCodes.INVALID_FIELD,
-                        "legacy_code": "invalid_field",
-                        "field": fname,
-                        "message": f"'{fname}' contains a control character",
-                    }
+                    # Route the envelope through the shared
+                    # ``_error_response`` helper for shape
+                    # consistency with the rest of the handler layer;
+                    # ``field`` is stamped afterward because the
+                    # helper does not yet accept a ``field`` kwarg.
+                    _error_response(
+                        resp,
+                        f"'{fname}' contains a control character",
+                        code=ErrorCodes.INVALID_FIELD,
+                    )
+                    resp["data"]["field"] = fname
                     return resp
 
             event_bus.publish(

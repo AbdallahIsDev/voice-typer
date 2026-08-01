@@ -326,14 +326,24 @@ def _is_file_reported(file_path: Path) -> bool:
 
 
 def _enforce_archive_retention(archive_dir: Path) -> None:
-    """Keep only the last ``_ARCHIVE_RETENTION_KEEP`` files.
+    """Keep only the last ``_ARCHIVE_RETENTION_KEEP`` crash-diagnostic files.
 
     Files are sorted by mtime (newest first); older files beyond the
     retention cap are deleted.  All errors are suppressed (best-effort).
+
+    Only ``*.txt`` files are counted toward the cap — ``.reported``
+    sidecar markers (which have newer mtimes than their corresponding
+    .txt files, since the sidecar is created by ``_mark_file_reported``
+    AFTER the .txt is written) are NOT counted. Without this exclusion,
+    retention would preferentially keep sidecars over .txt files
+    (because sidecars are newer) and delete the .txt files, leaving
+    orphan sidecars behind AND losing the crash record. When a .txt
+    file is deleted, its corresponding ``.reported`` sidecar (if any)
+    is also deleted so we don't leave orphan markers.
     """
     try:
         files = sorted(
-            archive_dir.glob("*"),
+            (p for p in archive_dir.glob("*.txt")),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
@@ -342,6 +352,12 @@ def _enforce_archive_retention(archive_dir: Path) -> None:
     for stale in files[_ARCHIVE_RETENTION_KEEP:]:
         with contextlib.suppress(Exception):
             stale.unlink()
+        # Also delete the corresponding ``.reported`` sidecar marker
+        # (if any) so we don't leave an orphan marker pointing at a
+        # deleted .txt file. Best-effort — a missing sidecar is fine.
+        sidecar = stale.with_name(stale.name + _REPORTED_SIDECAR_SUFFIX)
+        with contextlib.suppress(Exception):
+            sidecar.unlink()
 
 
 def _sweep_stale_diagnostics(config_dir: Path) -> None:
@@ -352,6 +368,16 @@ def _sweep_stale_diagnostics(config_dir: Path) -> None:
     ``crash_diagnostics.*.txt`` / ``python_crash.*.txt`` files.  This
     sweep is a safety net for files that were left behind by an older
     version (pre-archiving) or by a failed move.
+
+    The sweep ALSO walks the archive subdir (``crash_diagnostics_archive/``)
+    because VEH now writes crash files directly there — a sweep that
+    only walked the root would miss every post-fix crash file and the
+    archive would grow unbounded across crashes. The 30-day mtime
+    cutoff + keep-last-``_MAX_ACTIVE_FILES`` cap are applied uniformly
+    to both locations so the archive cannot accumulate more than
+    ``_MAX_ACTIVE_FILES`` stale files even if ``_enforce_archive_retention``
+    was never invoked (e.g. an old version wrote directly into the
+    archive without going through ``_archive_crash_file``).
 
     Policy:
       * Delete any file older than ``_MAX_AGE_DAYS`` days (mtime).
@@ -364,6 +390,15 @@ def _sweep_stale_diagnostics(config_dir: Path) -> None:
             return
         files = list(diagnostics_dir.glob("crash_diagnostics.*.txt"))
         files.extend(diagnostics_dir.glob("python_crash.*.txt"))
+        # Also walk the archive subdir — VEH writes crash files DIRECTLY
+        # there, so a root-only sweep would miss every post-fix crash
+        # file and the archive would grow unbounded across crashes.
+        # The guard handles the first-run case where the archive subdir
+        # doesn't exist yet.
+        archive_dir = diagnostics_dir / _CRASH_DIAGNOSTICS_ARCHIVE
+        if archive_dir.is_dir():
+            files.extend(archive_dir.glob("crash_diagnostics.*.txt"))
+            files.extend(archive_dir.glob("python_crash.*.txt"))
         if not files:
             return
         now = time.time()
@@ -659,9 +694,25 @@ def report_pending_crash(config_dir: Path) -> str | None:
     # Sweep the config_dir root for any stale diagnostics files (e.g.
     # left behind by a failed move or by an older version that unlinked
     # instead of archiving).  Applies a 30-day mtime cutoff and a
-    # keep-last-10 cap.
+    # keep-last-10 cap. The sweep ALSO walks the archive subdir (see
+    # ``_sweep_stale_diagnostics``) so VEH-written files there are
+    # bounded even when this function did not surface them.
     with contextlib.suppress(Exception):
         _sweep_stale_diagnostics(diagnostics_dir)
+
+    # Enforce the keep-last-N retention cap on the archive subdir
+    # explicitly. VEH writes crash files DIRECTLY into the archive
+    # subdir, so for archive-subdir files ``_summarize_crash_file``
+    # only creates a ``.reported`` sidecar (it does NOT call
+    # ``_archive_crash_file``, which is where the retention cap was
+    # previously enforced). Without this call the archive subdir would
+    # grow unbounded — every crash adds a new ``crash_diagnostics.<PID>.txt``
+    # and nothing deletes the old ones. The ``if archive_dir.exists():``
+    # guard handles the first-run case where the subdir doesn't exist
+    # yet (no crashes recorded).
+    with contextlib.suppress(Exception):
+        if archive_dir.exists():
+            _enforce_archive_retention(archive_dir)
 
     if not summary_parts:
         return None

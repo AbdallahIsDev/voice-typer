@@ -381,7 +381,7 @@ if not _SIGNAL_HANDLERS_REGISTERED:
         # covers normal-shutdown cases.
         pass
     except Exception:  # pragma: no cover — defensive
-        pass
+        log.debug("[CLIPBOARD] signal handler registration failed", exc_info=True)
 
 
 # ─── PEP 562 dynamic re-export of mutable globals ─────────────

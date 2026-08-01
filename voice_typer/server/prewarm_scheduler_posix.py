@@ -497,10 +497,19 @@ def register_linux_app_service() -> bool:
     if not is_linux():
         return False
     try:
+        from voice_typer.server.secure_file_io import _secure_atomic_write
+
         unit_dir = _linux_unit_dir()
         unit_dir.mkdir(parents=True, exist_ok=True)
         service_path = _linux_app_service_path()
-        service_path.write_text(_build_linux_app_service(), encoding="utf-8")
+        # Atomic write (temp + os.replace) — mirrors the sibling
+        # _register_prewarm_linux helper at lines 331-339 which already
+        # routes both its unit-file writes through
+        # _secure_atomic_write(..., durability=False). Pre-fix this call
+        # site used Path.write_text (truncate-then-write), so a crash
+        # mid-write could leave a half-truncated systemd unit file that
+        # systemctl --user daemon-reload would refuse to load.
+        _secure_atomic_write(service_path, _build_linux_app_service(), durability=False)
         import subprocess
 
         subprocess.run(

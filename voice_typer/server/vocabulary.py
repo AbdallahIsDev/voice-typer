@@ -214,21 +214,13 @@ class VocabularyManager:
         (``self._user_store``), which provides atomic write + single-slot
         ``.bak`` before overwrite + 0o600 perms (parity with
         ``config.py:1163-1182``). The Windows ``PermissionError`` retry
-        loop is preserved (): ``Path.replace`` is not atomic on
-        Windows when the destination is open by another process (e.g.
-        an editor or a cloud-sync client watching the file). The shared
+        loop is preserved: ``Path.replace`` is not atomic on Windows
+        when the destination is open by another process (e.g. an
+        editor or a cloud-sync client watching the file). The shared
         ``_secure_atomic_write`` itself is already atomic — the retries
         here are purely for the ``PermissionError`` race on Windows
         where the destination is locked by an editor / cloud-sync
         client.
-
-        ``Path.replace`` is not atomic on Windows when the
-        destination is open by another process (e.g. an editor or a
-        cloud-sync client watching the file). We now:
-          1. Write to a tmp file with ``fsync``.
-          2. Retry the rename up to 3 times with exponential backoff.
-          3. On final failure, log + leave the tmp file in place so
-             the user can recover manually.
 
         M-63: previously this method logged failures and returned
         silently — a contract described in the docstring as

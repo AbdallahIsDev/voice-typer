@@ -112,6 +112,11 @@ def sync_autostart(app: AppProtocol) -> dict:
                 "error": None,
                 "actual_post_sync": bool(registered),
             }
+            log.info(
+                "[CONFIG] Autostart sync: enable attempted, registered=%s, post_sync_state=%s",
+                result["registered"],
+                result["actual_post_sync"],
+            )
         elif not app.config.autostart and actual:
             log.info("[CONFIG] Config says autostart=false but it is enabled -- disabling")
             removed = _app_module.disable_autostart()
@@ -128,6 +133,11 @@ def sync_autostart(app: AppProtocol) -> dict:
                 "error": None,
                 "actual_post_sync": not bool(removed),
             }
+            log.info(
+                "[CONFIG] Autostart sync: disable attempted, removed=%s, post_sync_state=%s",
+                result["registered"],
+                result["actual_post_sync"],
+            )
         else:
             # Already in sync — report the current state.
             # (a): ``actual_post_sync`` mirrors the unchanged OS state.
@@ -136,6 +146,11 @@ def sync_autostart(app: AppProtocol) -> dict:
                 "error": None,
                 "actual_post_sync": bool(actual),
             }
+            log.info(
+                "[CONFIG] Autostart sync: already in sync, config=%s, os_state=%s",
+                bool(app.config.autostart),
+                bool(actual),
+            )
     except Exception as e:
         log.warning("[CONFIG] Autostart sync failed: %s", e)
         # (a): on failure we don't know the post-sync OS state — leave
@@ -438,8 +453,8 @@ def reset_onboarding_complete(
     *,
     app: object | None = None,
 ) -> dict:
-    """delete the ``.onboarding_complete`` marker so the wizard
-    re-runs on next launch.
+    """Delete the ``.onboarding_complete`` AND ``.onboarding_started``
+    markers so the wizard re-runs on next launch.
 
     This is the backend primitive for the "Re-run setup wizard"
     affordance in Settings → Advanced. The renderer calls a future
@@ -447,13 +462,14 @@ def reset_onboarding_complete(
     on next app launch, :meth:`OnboardingController.is_first_run`
     returns True (because the marker is gone) and the wizard re-appears.
 
-    NOTE: this function is defined here (in ``startup_tasks.py``) rather
-    than as a method on :class:`OnboardingController` because the file
-    scope of this fix sub-agent does not include ``onboarding.py``.
-    When ``onboarding.py`` is updated to add the
-    :meth:`OnboardingController.reset` method, that method should
-    delegate to this function so the marker-deletion logic has a single
-    source of truth.
+    Marker consistency: BOTH ``.onboarding_complete`` and
+    ``.onboarding_started`` are deleted. The
+    :meth:`OnboardingController.reset` method deletes both — the IPC
+    handler must do the same or it leaves a stale
+    ``.onboarding_started`` marker. If that marker survives, the
+    auto-heal (in ``startup_sequence``) treats the next launch as a
+    mid-wizard crash and SKIPS the auto-heal, so the wizard never
+    re-appears even though the user explicitly requested a re-run.
 
     Parameters
     ----------
@@ -491,6 +507,20 @@ def reset_onboarding_complete(
             log.info("[ONBOARDING] Reset onboarding marker: %s", marker)
         else:
             log.info("[ONBOARDING] Reset onboarding marker (already absent): %s", marker)
+        # Also delete ``.onboarding_started`` to stay consistent with
+        # ``OnboardingController.reset``. If this marker survives, the
+        # auto-heal treats the next launch as mid-wizard and
+        # SKIPS re-running the wizard — defeating the whole point of a
+        # "re-run setup" affordance.
+        started_marker = Path(config_dir) / ".onboarding_started"
+        if started_marker.exists():
+            started_marker.unlink()
+            log.info("[ONBOARDING] Reset onboarding started marker: %s", started_marker)
+        else:
+            log.debug(
+                "[ONBOARDING] Reset onboarding started marker (already absent): %s",
+                started_marker,
+            )
         # Also clear the ``onboarding_completed`` flag in config.json so
         # ``OnboardingController.is_first_run`` returns True even if the
         # marker file is recreated by a stale save.

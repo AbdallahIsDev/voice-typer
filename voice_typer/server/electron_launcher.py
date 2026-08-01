@@ -228,6 +228,11 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
             )
 
     # Fallback: npm run dev (Vite dev server + Electron).
+    # Pre-bind ``cmd`` to None so the ``except`` handlers below have a
+    # defined value to log even when ``_npm_command("dev")`` itself
+    # raises (e.g. an ``OSError`` from the underlying ``shutil.which``
+    # lookup) before the assignment completes.
+    cmd: list[str] | None = None
     try:
         cmd = _npm_command("dev")
         if cmd is None:

@@ -136,7 +136,13 @@ def _enable_autostart_macos() -> bool:
     <string>{escape(str(_paths.autostart_log()))}</string>
 </dict>
 </plist>"""
-    plist_path.write_text(plist_content)
+    # Atomic write (temp + os.replace) so a crash mid-write cannot
+    # leave a half-truncated plist that launchd refuses to load on next
+    # boot. durability=False matches the existing prewarm/autostart
+    # pattern — these plist files do not need fsync.
+    from voice_typer.server.secure_file_io import _secure_atomic_write
+
+    _secure_atomic_write(plist_path, plist_content, durability=False)
     plist_path.chmod(0o600)
     # ensure the log directory exists with private perms
     # use _paths.config_dir() instead of Path.home() / ".voice-typer"

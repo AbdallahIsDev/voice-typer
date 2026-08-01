@@ -124,7 +124,10 @@ if not _ATEXIT_REGISTERED:
     try:
         atexit.register(_force_restore_pending_at_exit)
         _ATEXIT_REGISTERED = True
-    except Exception:  # pragma: no cover — atexit.register only fails if interpreter is shutting down
+    except RuntimeError:  # pragma: no cover — atexit.register only fails if interpreter is shutting down
+        # ``RuntimeError`` is raised when atexit hooks fire during
+        # interpreter shutdown. Previously a broad
+        # ``except Exception: pass``.
         pass
 
 
@@ -391,6 +394,13 @@ class ClipboardManager:
             # credential-dialog heuristic when comtypes is unavailable.
             focused = None
             com_initialized = False
+            # Pre-bind ``comtypes`` to None so the ``finally`` block
+            # below has a defined value to reference even when the
+            # ``import comtypes`` raises ``ImportError`` (in which case
+            # ``com_initialized`` stays False and the
+            # ``comtypes.CoUninitialize()`` call is never reached, but
+            # pyrefly cannot track that correlation).
+            comtypes: Any = None
             try:
                 import comtypes
 
@@ -645,8 +655,18 @@ class ClipboardManager:
                         len(actual) if actual else 0,
                     )
                     _cb._copy_to_clipboard(text)
-                except Exception:
-                    pass  # pyperclip.paste() may not be supported on all platforms
+                except (ImportError, AttributeError, NotImplementedError, OSError):
+                    # narrowed from bare ``except Exception: pass``.
+                    # ``_paste_from_clipboard`` may raise ImportError if
+                    # pyperclip is missing, AttributeError / NotImplemented
+                    # if the platform backend lacks paste support, or
+                    # OSError on a Win32 / wl-paste failure. All are
+                    # non-fatal — verification is best-effort.
+                    _cb.log.debug(
+                        "[CLIPBOARD] verify attempt %d failed",
+                        verify_attempt,
+                        exc_info=True,
+                    )
             else:
                 _cb.log.error("[CLIPBOARD] Clipboard verification still failed after 3 retries")
 

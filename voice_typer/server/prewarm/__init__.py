@@ -108,9 +108,10 @@ mutable-state routing case) and :mod:`voice_typer.server.server_platform`.
 All three packages together account for ~500 LOC of ``__init__.py``
 boilerplate that exists purely for test-patch compatibility.
 
-TODO (2026-07-29,  / TECH-DEBT — OPEN, no migration in progress):
+TODO (2026-08-01, TECH-DEBT — OPEN, no migration in progress;
+tracking: ``docs/rw9-god-class-decomposition.md``):
 This ``__init__.py`` boilerplate exists for test-patch compatibility
-during the package reorganization.  Once  is complete, this
+during the package reorganization.  Once the migration is complete, this
 file will be simplified.  Migrate tests to patch submodules directly,
 then remove the ``_pkg.X`` indirection.  Concretely: replace
 ``monkeypatch.setattr("voice_typer.server.prewarm.X", ...)`` with
@@ -122,7 +123,7 @@ test site has been migrated, the ``_pkg.X`` references and the
 ``from voice_typer.server import prewarm as _pkg`` lines in the
 submodules can be deleted.  Estimated scope: 30-50 test files per
 package (so 90-150 test files total across the three packages).
-Tracked as  / TECH-DEBT (no owner assigned; no ETA — see
+Tracked as TECH-DEBT (no owner assigned; no ETA — see
 ``docs/rw9-god-class-decomposition.md`` for the migration plan).
 
 Patch-path compatibility
