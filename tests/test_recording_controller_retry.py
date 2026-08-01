@@ -45,7 +45,7 @@ def _make_controller_with_mock_app():
     # progress) so the toggle proceeds past the recording check.
     app.recorder.recording = False
     # ``app.models.active_transcriber()`` returns None — this is the
-    # precondition for the FR-15 path (model load failed, no active
+    # precondition for the  path (model load failed, no active
     # engine).
     app.models.active_transcriber.return_value = None
     # ``app.models._model_load_thread`` is None — the loader already
@@ -54,10 +54,10 @@ def _make_controller_with_mock_app():
     return ctrl, app
 
 
-# ─── FR-15: F2 re-triggers start_background_load on model-load failure ───
+# F2 re-triggers start_background_load on model-load failure ───
 
 
-class TestF2RetriesModelLoad:
+class TestRetriesModelLoad:
     """FR-15: pressing F2 after a model-load failure re-triggers
     ``start_background_load()`` instead of showing a misleading
     "starting up" message and doing nothing."""

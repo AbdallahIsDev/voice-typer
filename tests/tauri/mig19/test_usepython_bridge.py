@@ -294,8 +294,8 @@ _THIS_FILE = Path(__file__).resolve()
 _REPO_ROOT = _THIS_FILE.parents[3]
 _CLIENT_SRC = _REPO_ROOT / "voice_typer" / "client" / "src"
 _RENDERER_SRC = _CLIENT_SRC / "renderer" / "src"
-# XS-21: ``tauri-bridge.ts`` was split into a ``tauri-bridge/`` directory
-# (PVT-30) with submodules ``index.ts``, ``detect.ts``,
+# ``tauri-bridge.ts`` was split into a ``tauri-bridge/`` directory
+# () with submodules ``index.ts``, ``detect.ts``,
 # ``python-namespace.ts``, ``bubble-namespace.ts``, ``window-namespace.ts``.
 # The fixture below concatenates all submodules so the static regex
 # assertions authored against the original monolith still match patterns
@@ -600,7 +600,7 @@ def test_python_call_handler_registered_on_python_call_channel(
     resolves the IPC promise with the response envelope (or
     ``{_error: '...'}`` on not-connected / send-exception).
     """
-    # RT-FIX-9: the `ipcMain.handle("python-call", ...)` call may span
+    # the `ipcMain.handle("python-call", ...)` call may span
     # multiple lines (the handler arrow function body wraps), so a
     # simple `in` check fails when the `(` and `"python-call"` are on
     # different lines or separated by trailing whitespace. Use a regex

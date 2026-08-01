@@ -126,7 +126,7 @@ class TestQwenLoadMovesModelToCuda:
         assert result is True
         # Model moved to CUDA after from_pretrained().
         mock_model.to.assert_any_call("cuda")
-        # float16 conversion attempted (XV-65 fix step 2).
+        # float16 conversion attempted ( fix step 2).
         mock_model.to.assert_any_call("FLOAT16_SENTINEL")
         # self.device updated from "auto" to "cuda" so
         # transcribe_with_fallback's CUDA-error branch is reachable.

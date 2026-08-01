@@ -32,16 +32,17 @@ Post-fix (this commit):
   3. ``scripts/windows/uninstall.bat`` (NEW) — wrapper that invokes
      the Python script (preferred) and falls back to a native
      PowerShell sweep if Python is unavailable at uninstall time.
-  4. ``src-tauri/tauri.conf.json`` ``bundle.windows.nsis.preRemoveScript``
-     points at the .bat (Tauri v2 installerHooks path — uses the
-     ``preRemoveScript`` key WITH the ``Script`` suffix, NOT the v1
-     ``preRemove`` short form that the Tauri v1 schema accepted).
+  4. ``src-tauri/tauri.conf.json`` ``bundle.windows.nsis.installerHooks``
+     points at the .bat (the Tauri v2 NSIS hooks key — per the v2
+     schema NsisConfig has ``installerHooks``, NOT a
+     ``preRemoveScript`` key; the v1 ``preRemove`` short form from the
+     Tauri v1 schema is also forbidden).
   5. ``src-tauri/tauri.conf.json`` ``bundle.windows.webviewInstallMode``
      is set to ``downloadBootstrapper`` (Tauri v2 default — pinned
      explicitly so a future schema change can't silently flip it).
 
 Tests use the ``fake_winreg`` fixture pattern (mirrors
-``tests/test_autostart_windows_de67.py``) so the Windows-only ``winreg``
+``tests/test_autostart_windows_stale_entries.py``) so the Windows-only ``winreg``
 module is importable on the Linux test host. We mock ``EnumValue`` /
 ``DeleteValue`` / ``OpenKey`` and verify which entries the production
 helpers delete.
@@ -65,9 +66,10 @@ Test matrix
   - electron-builder.yml has ``nsis.include`` pointing at an existing
     .nsh file.
   - tauri.conf.json has ``bundle.windows.webviewInstallMode`` set.
-  - tauri.conf.json has ``bundle.windows.nsis.preRemoveScript`` set
-    (NOT the v1 ``preRemove`` short form).
-  - The preRemoveScript path resolves to an existing .bat file.
+  - tauri.conf.json has ``bundle.windows.nsis.installerHooks`` set
+    (NOT the v1 ``preRemove`` short form, and NOT a non-existent
+    nsis ``preRemoveScript`` key).
+  - The installerHooks path resolves to an existing .bat file.
 """
 
 from __future__ import annotations
@@ -92,7 +94,7 @@ RUN_KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
 
 
 # ---------------------------------------------------------------------------
-# Fixtures: fake winreg + win32 platform (mirrors test_autostart_windows_de67.py)
+# Fixtures: fake winreg + win32 platform (mirrors test_autostart_windows_stale_entries.py)
 # ---------------------------------------------------------------------------
 
 
@@ -100,7 +102,7 @@ RUN_KEY_PATH = r"Software\Microsoft\Windows\CurrentVersion\Run"
 def fake_winreg(monkeypatch):
     """Install a fake ``winreg`` module so Windows code paths import cleanly.
 
-    Mirrors the fixture in ``tests/test_autostart_windows_de67.py``. Returns
+    Mirrors the fixture in ``tests/test_autostart_windows_stale_entries.py``. Returns
     the fake module; tests can configure its ``EnumValue`` / ``DeleteValue``
     behavior as needed.
     """
@@ -614,10 +616,10 @@ class TestWiring:
             "skip",
         }, f"webviewInstallMode.type has unexpected value: {wim['type']}"
 
-    def test_tauri_conf_has_pre_remove_script_v2_key(self):
-        """tauri.conf.json bundle.windows.nsis.preRemoveScript must be
-        set WITH the 'Script' suffix (v2 key). The v1 short form
-        'preRemove' (no suffix) is FORBIDDEN — see constraint #7."""
+    def test_tauri_conf_has_nsis_installer_hooks_v2_key(self):
+        """tauri.conf.json bundle.windows.nsis.installerHooks must be
+        set (the Tauri v2 NSIS hooks key). The v1 short form 'preRemove'
+        (no suffix) is FORBIDDEN — see constraint #7."""
         # Verify the file does NOT contain the v1 short form.
         text = TAURI_CONF_JSON.read_text(encoding="utf-8")
         # Match `"preRemove":` or `"postInstall":` (v1 short form).
@@ -627,24 +629,24 @@ class TestWiring:
         assert not v1_matches, (
             f"tauri.conf.json contains forbidden v1 short-form keys: {v1_matches}. "
             "Use the v2 keys WITH the 'Script' suffix: 'postInstallScript' / "
-            "'preRemoveScript'."
+            "'preRemoveScript' (and for NSIS, 'installerHooks')."
         )
-        # Verify the v2 key IS present for Windows.
+        # Verify the v2 NSIS hooks key IS present for Windows.
         with TAURI_CONF_JSON.open("r", encoding="utf-8") as f:
             cfg = json.load(f)
         windows = cfg.get("bundle", {}).get("windows", {})
         nsis = windows.get("nsis", {})
-        assert "preRemoveScript" in nsis, (
-            "tauri.conf.json bundle.windows.nsis.preRemoveScript is missing — "
+        assert "installerHooks" in nsis, (
+            "tauri.conf.json bundle.windows.nsis.installerHooks is missing — "
             "the Tauri NSIS bundler won't run the uninstall .bat. See S2-CR-69."
         )
-        pre_remove = nsis["preRemoveScript"]
-        assert isinstance(pre_remove, str), f"preRemoveScript must be a string, got {type(pre_remove)}"
-        # tauri.conf.json is at src-tauri/tauri.conf.json; preRemoveScript
+        pre_remove = nsis["installerHooks"]
+        assert isinstance(pre_remove, str), f"installerHooks must be a string, got {type(pre_remove)}"
+        # tauri.conf.json is at src-tauri/tauri.conf.json; installerHooks
         # resolves relative to src-tauri/.
         resolved = (TAURI_CONF_JSON.parent / pre_remove).resolve()
         assert resolved.is_file(), (
-            f"bundle.windows.nsis.preRemoveScript points at {pre_remove} "
+            f"bundle.windows.nsis.installerHooks points at {pre_remove} "
             f"(resolved: {resolved}) but the .bat file does NOT exist."
         )
 
@@ -657,10 +659,10 @@ class TestWiring:
 
     def test_uninstall_bat_exists(self):
         """scripts/windows/uninstall.bat must exist (the .bat wrapper
-        wired by tauri.conf.json preRemoveScript)."""
+        wired by tauri.conf.json nsis.installerHooks)."""
         assert UNINSTALL_BAT.is_file(), (
             f"{UNINSTALL_BAT} does not exist — tauri.conf.json's "
-            "preRemoveScript points at a non-existent file. See S2-CR-69."
+            "nsis.installerHooks points at a non-existent file. See S2-CR-69."
         )
 
     def test_uninstaller_nsh_exists(self):

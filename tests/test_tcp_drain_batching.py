@@ -323,7 +323,7 @@ class TestSendDrainBatching:
 
         server._send({"type": "test_event", "id": 7})
 
-        # AB-37 + CR-79: all 3 recent entries must be re-merged because
+        # + : all 3 recent entries must be re-merged because
         # the batched flush failed.
         assert len(server._pending_tcp) == 3, (
             f"AB-37: expected 3 re-merged entries after batched flush "

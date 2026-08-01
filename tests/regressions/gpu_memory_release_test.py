@@ -172,7 +172,7 @@ class TestReleaseGpuMemoryFunctional:
         # Build a ParakeetEngine without loading the model.
         eng = ParakeetEngine.__new__(ParakeetEngine)
         eng._lock = threading.Lock()
-        # XV-66: unload() acquires ``_inference_cond`` (a Condition
+        # unload() acquires ``_inference_cond`` (a Condition
         # wrapping ``_lock``) and waits on ``_active_inference == 0``
         # before nulling ``self._model``. The constructor sets these
         # up (parakeet_engine.py:205-212), but ``__new__`` bypasses

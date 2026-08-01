@@ -270,7 +270,7 @@ def test_plist_uses_run_at_load_true(darwin_platform):
 
 
 # ─── Test 3: ProgramArguments CURRENT behavior (Python + launcher) ───────
-# Documents GAP-1 — see module docstring.
+# Documents  — see module docstring.
 
 
 def test_plist_program_arguments_current_behavior_python_launcher(darwin_platform):
@@ -308,8 +308,8 @@ def test_plist_program_arguments_current_behavior_python_launcher(darwin_platfor
     )
 
 
-# ─── Test 4: ProgramArguments MIG-1.6 EXPECTED behavior (Tauri host) ────
-# XFAIL strict — flips to XPASS-strict-fail when GAP-1 is fixed, prompting
+# Test 4: ProgramArguments  EXPECTED behavior (Tauri host) ────
+# XFAIL strict — flips to XPASS-strict-fail when  is fixed, prompting
 # removal of this marker.
 
 
@@ -493,7 +493,7 @@ def test_tauri_conf_has_macos_bundle_or_dmg_app_defaults():
     )
 
     # The .app bundle's main binary name is voice-typer-tauri (per Cargo.toml).
-    # This is the path that GAP-1's fix should reference in the plist:
+    # This is the path that 's fix should reference in the plist:
     #   /Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri
     assert CARGO_TOML.exists(), f"Cargo.toml missing at {CARGO_TOML}"
     cargo = CARGO_TOML.read_text(encoding="utf-8")
@@ -741,7 +741,7 @@ def test_ci_workflow_runs_codesign_notarytool_stapler():
         "CI workflow must build the x86_64 (Intel, via Rosetta 2) sidecar + prewarm"
     )
 
-    # 6. GAP-3 (report, do not fix): the workflow is currently disabled
+    # 6.  (report, do not fix): the workflow is currently disabled
     #    (if: false on all jobs) pending Phase 0-M manual validation.
     assert yaml_text.count("if: false") >= 3, (
         "GAP-3: the workflow must have `if: false` on all 3 jobs "

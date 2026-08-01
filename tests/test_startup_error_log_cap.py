@@ -65,7 +65,7 @@ def _simulate_app_start_failure(diag_path: Path, message: str) -> None:
     buf.write("\n--- app.start() failed at 2026-07-19 04:00:00 ---\n")
     buf.write(message)
     traceback.print_exc(file=buf)
-    # CR-10: OVERWRITE (not append).  The previous implementation
+    # OVERWRITE (not append).  The previous implementation
     # read existing content and appended, growing the file without
     # bound on repeated failures.
     _secure_atomic_write(diag_path, buf.getvalue())
@@ -79,7 +79,7 @@ class TestStartupErrorLogOverwrite:
         and append; it must overwrite.
         """
         src = inspect.getsource(ipc_server.main)
-        # CR-10 fix removes the read-existing-and-append pattern.
+        # fix removes the read-existing-and-append pattern.
         # Look for the diagnostic-write block.
         assert "startup-error.log" in src, "main() must write to startup-error.log on app.start() failure."
         # The old append pattern read existing content first.
@@ -119,7 +119,7 @@ class TestStartupErrorLogOverwrite:
         second_size = diag_path.stat().st_size
         second_content = diag_path.read_text(encoding="utf-8")
 
-        # CR-10: the file must NOT have grown by ~2× (which would
+        # the file must NOT have grown by ~2× (which would
         # indicate append).  It should be roughly the same size
         # (one traceback, overwritten).
         assert second_size < first_size * 1.5, (

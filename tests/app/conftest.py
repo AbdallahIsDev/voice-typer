@@ -39,7 +39,7 @@ def app(tmp_config_dir, monkeypatch):
     instance = VoiceTyperApp()
     # Ensure esc_cancel_enabled is False for deterministic test behavior
     instance.config.esc_cancel_enabled = False
-    # NEW-PRIV-009 (revised): RecordingController.start() now enforces
+    # (revised): RecordingController.start() now enforces
     # voice_biometric_consent before capturing audio. Tests that exercise
     # the recording path must explicitly opt in (just like real users
     # must enable the toggle in Settings > Privacy before recording).
@@ -53,7 +53,7 @@ def app(tmp_config_dir, monkeypatch):
     instance.models.transcriber = MagicMock()
     instance.models.transcriber.is_loaded = True
     yield instance
-    # WR-2: join the background model-load thread so it doesn't outlive
+    # join the background model-load thread so it doesn't outlive
     # the test and touch a torn-down VoiceTyperApp. Best-effort — if the
     # thread is None or already finished, the join is a no-op.
     loader = getattr(instance.models, "_model_load_thread", None)

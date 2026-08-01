@@ -201,7 +201,7 @@ class TestRecorderCallbackWithAudioProcessor:
             chunk = _make_sine(freq=440, duration_s=1024 / 16000, amp=0.3)
             stream.push_chunk(chunk)
 
-        # RT-SAFE-001: the callback pushes to the ring buffer and returns
+        # the callback pushes to the ring buffer and returns
         # immediately; the worker thread processes asynchronously. Wait
         # for the worker to drain before asserting on _buffer.
         _drain_ring_buffer(r)
@@ -407,7 +407,7 @@ class TestRecorderCallbackWithAudioProcessor:
         for _ in range(3):
             stream.push_chunk(_make_sine(freq=440, duration_s=0.05, amp=0.3))
 
-        # RT-SAFE-001: wait for the worker to drain the ring buffer.
+        # wait for the worker to drain the ring buffer.
         _drain_ring_buffer(r)
 
         assert len(r._buffer) == 3
@@ -457,7 +457,7 @@ class TestRecorderCallbackWithAudioProcessor:
         # actually passes — but any truthy value exercises the path.
         stream.callback(chunk, chunk.shape[0], None, "input overflow")
 
-        # RT-SAFE-001: wait for the worker to drain the ring buffer.
+        # wait for the worker to drain the ring buffer.
         _drain_ring_buffer(r)
 
         # Buffer should still have grown.

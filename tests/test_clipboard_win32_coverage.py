@@ -50,7 +50,7 @@ sys.modules.setdefault("pyperclip", MagicMock())
 
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 
-# ARCH-11: UIA singleton moved to clipboard_target_safety; reset it there.
+# UIA singleton moved to clipboard_target_safety; reset it there.
 from voice_typer.server import clipboard_target_safety as safety_mod  # noqa: E402
 from voice_typer.server.clipboard import (  # noqa: E402
     ClipboardCopyError,
@@ -551,7 +551,7 @@ class TestIsPasswordFieldWindows:
         safety_mod._UIA_SINGLETON = None
         safety_mod._UIA_MODULE = None
         safety_mod._UIA_SINGLETON_INIT_ATTEMPTED = False
-        # ARCH-11: _WE_ELEVATED is also a module-level cache in the
+        # _WE_ELEVATED is also a module-level cache in the
         # safety module; reset it so elevated-target tests don't read a
         # value cached by an earlier test in the session.
         safety_mod._WE_ELEVATED = None
@@ -1858,7 +1858,7 @@ class TestSendCtrlVWin32:
 
 
 # ===========================================================================
-# ClipboardManager._release_stuck_modifiers / _send_keystroke_sequence
+# ClipboardManager._release_stuck_modifiers
 # (exercise the except blocks)
 # ===========================================================================
 
@@ -1899,26 +1899,12 @@ class TestModifierReleaseExceptBranches:
             # Should not raise — outer except swallows.
             cm._release_stuck_modifiers()
 
-    def test_send_keystroke_sequence_finally_catches_release_exception(self):
-        """If the finally-block release raises, it's swallowed by the
-        inner ``except Exception: pass``.
-
-        We make the *try*-block releases succeed (so no exception
-        propagates out of the function) and the *finally*-block
-        releases raise (to exercise lines 911-913).
-        """
-        cm = ClipboardManager.__new__(ClipboardManager)
-        cm._keyboard = MagicMock()
-        # release order in try: char, modifier (2 successes)
-        # release order in finally: modifier, char (2 raises, swallowed)
-        cm._keyboard.release.side_effect = [
-            None,  # release(char) in try
-            None,  # release(modifier) in try
-            RuntimeError("finally 1"),  # release(modifier) in finally
-            RuntimeError("finally 2"),  # release(char) in finally
-        ]
-        modifier = MagicMock(name="modifier")
-        # Should not raise — finally's inner except swallows.
-        cm._send_keystroke_sequence(modifier, "v")
-        # All 4 release calls consumed.
-        assert cm._keyboard.release.call_count == 4
+    # NOTE: ``_send_keystroke_sequence`` was DELETED as dead production
+    # code () — the live keystroke path uses ``_safe_key_press``.
+    # The former ``test_send_keystroke_sequence_finally_catches_release_exception``
+    # case only exercised the deleted method's double-release finally
+    # block (``_safe_key_press`` doesn't have a double-release — it
+    # releases only the modifier in its finally). Coverage of the live
+    # path's release-on-exception is provided by
+    # ``TestSafeKeyPress::test_safe_key_press_releases_modifier_on_exception``
+    # in tests/test_clipboard_coverage.py.

@@ -66,7 +66,7 @@ def test_stop_watchdog_thread_joins_and_nulls():
 
     ctrl._stop_watchdog_thread()
 
-    # DJ-23 contract: thread reference MUST be None after stop.
+    # contract: thread reference MUST be None after stop.
     assert ctrl._watchdog_thread is None, (
         "DJ-23: _stop_watchdog_thread must null the thread reference. "
         "Pre-fix, the dead Thread object stayed referenced on "

@@ -449,7 +449,7 @@ def test_integration_with_real_logger_and_caplog(caplog):
         assert f"(suppressed occurrence {i})" in r.message
 
 
-# ── 8. GT-66: periodic INFO summary for chronic suppressed conditions ──
+# 8. : periodic INFO summary for chronic suppressed conditions ──
 
 
 class TestGt66PeriodicInfoSummary:
@@ -526,16 +526,16 @@ class TestGt66PeriodicInfoSummary:
         )
         msg_text = summaries[0].getMessage()
         assert "11 suppressed occurrences" in msg_text, f"expected delta=11 in summary; got {msg_text!r}"
-        # YJ-45: the counter key is formatted with %s (not %r), so it
+        # the counter key is formatted with %s (not %r), so it
         # appears in the message WITHOUT inner repr() quotes. Asserting
         # the bare key (not ``repr(msg)``) keeps the line grep-friendly.
         #
-        # YJ-FIX-C2-rework (review Issue 3): the previous assertion
+        # (review Issue 3): the previous assertion
         # ``assert msg in msg_text`` was too weak — ``msg`` is always a
         # substring of ``repr(msg)``, so the test PASSED with BOTH
-        # ``%s`` (YJ-45 fix) AND ``%r`` (reverted). The added
+        # ``%s`` ( fix) AND ``%r`` (reverted). The added
         # ``repr(msg) not in msg_text`` assertion makes the test FAIL
-        # if production code reverts to ``%r``, pinning the YJ-45 fix.
+        # if production code reverts to ``%r``, pinning the  fix.
         assert msg in msg_text, f"expected counter key {msg!r} in summary; got {msg_text!r}"
         assert repr(msg) not in msg_text, (
             f"YJ-45 regression: log line contains repr() quotes (production code reverted %s → %r): {msg_text!r}"
@@ -580,7 +580,7 @@ class TestGt66PeriodicInfoSummary:
         first = summaries[0].getMessage()
         second = summaries[1].getMessage()
         assert "10 suppressed occurrences" in first, f"first summary: {first!r}"
-        # PI-25: the second summary fires on the first call after the
+        # the second summary fires on the first call after the
         # deadline (count=12 at t=122), so its delta is 1 — NOT the
         # cumulative count of 13.  The "1" proves the delta was reset
         # after the first summary emission.
@@ -650,7 +650,7 @@ class TestGt66PeriodicInfoSummary:
             log_rate_limited(logger, logging.ERROR, msg_b, every_n=100)
 
         summaries = [r for r in caplog.records if r.levelno >= logging.INFO and "[rate-limit]" in r.message]
-        # PI-25: both keys were seeded at t=0 and both cross their
+        # both keys were seeded at t=0 and both cross their
         # 60s deadlines at t=61, so both fire — per-key independence
         # means each key fires on its own cadence, not "first key wins".
         assert len(summaries) == 2, (
@@ -658,7 +658,7 @@ class TestGt66PeriodicInfoSummary:
             f"got {len(summaries)}: {[r.message for r in summaries]!r}"
         )
         summary_msgs = [s.getMessage() for s in summaries]
-        # YJ-45: counter key is formatted with %s (not %r), so the bare
+        # counter key is formatted with %s (not %r), so the bare
         # key appears in the message WITHOUT repr() quotes. Pin the fix
         # with both a positive (``msg in m``) and negative
         # (``repr(msg) not in m``) check per key.
@@ -674,10 +674,10 @@ class TestGt66PeriodicInfoSummary:
         )
 
 
-# ── 9. GT-B1-12: counter dict capped at 1024 with LRU eviction ────────
+# 9. : counter dict capped at 1024 with LRU eviction ────────
 
 
-class TestGTB112LRUEviction:
+class TestEviction:
     """GT-B1-12: ``_RATE_LIMIT_COUNTS`` is capped at ``_MAX_COUNTERS``
     (1024) entries with LRU eviction.  When eviction fires, a WARNING
     is logged through the module logger so the operator notices caller
@@ -808,7 +808,7 @@ class TestGTB112LRUEviction:
         assert not log_rate_limit._RATE_LIMIT_NEXT_SUMMARY_DEADLINE
         assert not log_rate_limit._RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY
 
-    def test_eviction_prunes_summary_dicts_ue16(self, monkeypatch, caplog):
+    def test_eviction_prunes_summary_dicts(self, monkeypatch, caplog):
         """UE-16: when a counter is LRU-evicted from
         ``_RATE_LIMIT_COUNTS``, its entries in
         ``_RATE_LIMIT_NEXT_SUMMARY_DEADLINE`` and
@@ -843,7 +843,7 @@ class TestGTB112LRUEviction:
             "UE-16 regression: evicted key was not pruned from _RATE_LIMIT_SUPPRESSED_SINCE_SUMMARY (summary dict leak)"
         )
 
-    def test_eviction_keeps_summary_dicts_bounded_ue16(self):
+    def test_eviction_keeps_summary_dicts_bounded(self):
         """UE-16: driving >>_MAX_COUNTERS distinct keys must NOT cause
         the summary dicts to grow beyond ``_MAX_COUNTERS`` entries.
         """
@@ -871,7 +871,7 @@ class TestGTB112LRUEviction:
         )
 
 
-# ── 10. UE-16: summary severity tracks caller's configured level ──────
+# 10. : summary severity tracks caller's configured level ──────
 
 
 class TestUe16SummarySeverity:

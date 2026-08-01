@@ -339,7 +339,7 @@ def test_monkeypatch_setattr_on_proxy_then_access_works(monkeypatch, fake_module
     assert mock.InputStream == "fake_stream"
 
 
-# ── XV-78: __setattr__ mutates sys.modules (load-bearing) ────────────────
+# __setattr__ mutates sys.modules (load-bearing) ────────────────
 
 
 def test_xv_78_setattr_mutates_real_sys_modules_entry(monkeypatch, fake_module):
@@ -464,7 +464,7 @@ def test_xv_78_setattr_does_not_store_on_proxy_instance(fake_module):
     assert mock.should_not_land_on_proxy is True
 
 
-# ── G4-M-43: ImportError caching ────────────────────────────────────────
+# ImportError caching ────────────────────────────────────────
 
 
 class TestImportErrorCaching:
@@ -670,7 +670,7 @@ class TestResetCache:
         assert proxy.value == "ok"
 
 
-# GT-57: ``probe_required_deps`` + ``_REQUIRED_DEPS`` were deleted from
+# ``probe_required_deps`` + ``_REQUIRED_DEPS`` were deleted from
 # ``_lazy_import.py`` (zero production callers — the promised startup
 # diagnostic was never wired). The five ``TestProbeRequiredDeps`` tests
 # were removed alongside. If a startup diagnostic is needed in the

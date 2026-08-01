@@ -158,7 +158,7 @@ class TestMicrophoneDeviceWatcher:
     def test_watcher_logs_warning_on_callback_exception(self, caplog):
         """If the callback raises, a warning is logged and the thread continues."""
         state = {"entries": ["controlC0"]}
-        # S2-CR-63: instrument the listdir mock so we can wait
+        # instrument the listdir mock so we can wait
         # adaptively for the watcher's *initial* state read before
         # triggering a change. The original test used fixed
         # ``time.sleep(0.15)`` + ``time.sleep(0.3)`` wall-clock
@@ -811,7 +811,7 @@ class TestMicrophoneDeviceWatcherWindows:
         watcher._thread = None  # already exited
 
 
-# ── G4-M-41: active-mic-lost detection ──────────────────────────────
+# active-mic-lost detection ──────────────────────────────
 
 
 class TestMicrophoneWatcherActiveMicLost:
@@ -1067,7 +1067,7 @@ class TestMicrophoneWatcherActiveMicLost:
         assert watcher._thread is None
 
 
-# ── DJ-48: default poll_interval bumped to 5.0 ────────────────────────
+# default poll_interval bumped to 5.0 ────────────────────────
 
 
 class TestDefaultPollIntervalBumped:
@@ -1089,7 +1089,7 @@ class TestDefaultPollIntervalBumped:
         assert watcher._poll_interval == 0.05
 
 
-# ── DJ-66: default-device change detection ────────────────────────────
+# default-device change detection ────────────────────────────
 
 
 class TestDefaultDeviceChangeDetection:
@@ -1177,7 +1177,7 @@ class TestDefaultDeviceChangeDetection:
         )
 
 
-# ── UE-12-F2 / UE-12-F14: lifecycle + hooks lock tests ──────────────
+# lifecycle + hooks lock tests ──────────────
 
 
 class TestMicrophoneWatcherLifecycleLock:

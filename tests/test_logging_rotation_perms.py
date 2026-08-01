@@ -110,7 +110,7 @@ def test_post_rotation_mode_is_0o600(tmp_path, monkeypatch):
     vt_log.reset()
     vt_log.setup_logging(tmp_path, debug=True)
     log_file = tmp_path / "voice-typer.log"
-    # Sanity: initial mode is 0o600 (G4-H-07 invariant).
+    # Sanity: initial mode is 0o600 ( invariant).
     assert oct(stat.S_IMODE(os.stat(log_file).st_mode)) == "0o600"
 
     # Force a rotation by writing >5 MiB of records. Use a long
@@ -187,7 +187,7 @@ def test_secure_rotating_file_handler_chmods_after_rollover(tmp_path):
     handler.close()
 
 
-# ─── UE-17: umask tightening + chmod inside the lock ────────────────────
+# umask tightening + chmod inside the lock ────────────────────
 
 
 def test_do_rollover_restores_umask_after_success(tmp_path):

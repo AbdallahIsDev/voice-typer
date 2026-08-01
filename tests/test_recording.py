@@ -53,7 +53,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
-        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [
             np.array([[1.0], [2.0]], dtype=np.float32),
@@ -63,7 +63,7 @@ class TestStopAudioPrep:
         audio = r.stop()
 
         np.testing.assert_array_equal(audio, np.array([1.0, 2.0, 3.0], dtype=np.float32))
-        # MEM-04: buffer is replaced with a fresh deque (not cleared in-place)
+        # buffer is replaced with a fresh deque (not cleared in-place)
         assert len(r._buffer) == 0, f"Expected empty buffer after stop(), got {r._buffer!r}"
         assert r._stream is None
 
@@ -82,7 +82,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 48000
-        r._post_filter_sr = 48000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 48000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
@@ -101,7 +101,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
-        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((4, 1), dtype=np.float32)]
 
@@ -279,7 +279,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
-        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [
             np.array([[1.0], [2.0]], dtype=np.float32),
@@ -291,10 +291,10 @@ class TestStopAudioPrep:
         np.testing.assert_array_equal(snapshot, np.array([1.0, 2.0, 3.0], dtype=np.float32))
         assert len(r._buffer) == 2
 
-        # G4-H-06: stop() now securely zeroes the cached resampled array
+        # stop() now securely zeroes the cached resampled array
         # in-place via _secure_clear_caches() (which calls
         # _secure_clear_array → arr.fill(0)).  snapshot() returns a VIEW
-        # into that cached array (NEW-PERF-003), so the view's contents
+        # into that cached array (), so the view's contents
         # are zeroed by stop().  Capture a COPY of the snapshot before
         # stop() so we can compare the post-stop audio against the
         # pre-stop snapshot values.
@@ -309,7 +309,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
-        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
         r._buffer = []
 
         snapshot = r.snapshot()
@@ -332,7 +332,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 48000
-        r._post_filter_sr = 48000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 48000  # mirror _effective_sr (no audio_processor)
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
         snapshot = r.snapshot()
@@ -355,7 +355,7 @@ class TestStopAudioPrep:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 48000
-        r._post_filter_sr = 48000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 48000  # mirror _effective_sr (no audio_processor)
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
         with caplog.at_level("INFO"):
@@ -392,7 +392,7 @@ class TestStopCallbackBackoff:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
-        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.array([[1.0]], dtype=np.float32)]
 
@@ -420,7 +420,7 @@ class TestStopCallbackBackoff:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
-        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.array([[1.0]], dtype=np.float32)]
 
@@ -468,7 +468,7 @@ class TestStopCallbackBackoff:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
-        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.array([[1.0]], dtype=np.float32)]
 
@@ -514,7 +514,7 @@ class TestStopCallbackBackoff:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
-        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.array([[1.0]], dtype=np.float32)]
 
@@ -556,7 +556,7 @@ class TestCachedResampling:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 48000
-        r._post_filter_sr = 48000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 48000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
@@ -581,7 +581,7 @@ class TestCachedResampling:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
-        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((4, 1), dtype=np.float32)]
 
@@ -590,7 +590,7 @@ class TestCachedResampling:
         np.testing.assert_array_equal(result, np.ones(4, dtype=np.float32))
 
 
-class TestH12SilenceDetection:
+class TestSilenceDetection:
     """H12: Silent mic disconnection - silence detection."""
 
     def test_silence_timer_starts_at_zero(self):
@@ -648,7 +648,7 @@ class TestH12SilenceDetection:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
-        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((4, 1), dtype=np.float32)]
         r._cached_resampled = np.ones(10, dtype=np.float32)
@@ -676,7 +676,7 @@ class TestH12SilenceDetection:
         assert r._cached_native_chunk_count == 0
 
 
-# ── TEST-020: Resample fallback tests ──────────────────────────────────
+# Resample fallback tests ──────────────────────────────────
 
 
 class TestResampleFallback:
@@ -695,7 +695,7 @@ class TestResampleFallback:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 48000
-        r._post_filter_sr = 48000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 48000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((6, 1), dtype=np.float32)]
 
@@ -710,7 +710,7 @@ class TestResampleFallback:
 
         # Set the error time far enough in the past that retry is allowed
         rec_mod._resample_poly_error = RuntimeError("transient error")
-        # AUDIO-003: use time.monotonic() to match the source code at
+        # use time.monotonic() to match the source code at
         # recording.py:163 (which reads time.monotonic() - error_time).
         # Pre-fix this used time.time() (wall clock) which differs from
         # the monotonic clock by an arbitrary offset — under NTP/DST
@@ -738,7 +738,7 @@ class TestResampleFallback:
 
         # Set the error time very recently (within retry interval)
         rec_mod._resample_poly_error = RuntimeError("recent error")
-        # AUDIO-003: use time.monotonic() to match source code at
+        # use time.monotonic() to match source code at
         # recording.py:163. See test_resample_retry_after_timeout for
         # the full rationale.
         rec_mod._resample_poly_error_time = time.monotonic()
@@ -815,7 +815,7 @@ class TestResampleFallback:
         assert len(result) == 0
 
 
-# ── TEST-032: Parametrized recording tests ──────────────────────────────
+# Parametrized recording tests ──────────────────────────────
 
 
 class TestRecordingParametrized:
@@ -856,7 +856,7 @@ class TestRecordingParametrized:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
-        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((chunk_size, 1), dtype=np.float32)]
 
@@ -873,7 +873,7 @@ class TestRecordingParametrized:
         r = Recorder(config)
         r._recording_event.set()
         r._effective_sr = 16000
-        r._post_filter_sr = 16000  # CR-15/CR-20: mirror _effective_sr (no audio_processor)
+        r._post_filter_sr = 16000  # mirror _effective_sr (no audio_processor)
         r._stream = MagicMock()
         r._buffer = [np.ones((4, 1), dtype=np.float32) for _ in range(num_chunks)]
 
@@ -1024,7 +1024,7 @@ class TestScipyPreloaderDeferredSpawn:
         )
 
 
-# ─── FIX-2: REC-1..REC-8 + AUDIO-6/9 regression tests ──────────────────
+# REC-1..REC-8 + /9 regression tests ──────────────────
 
 
 class TestRec1StaleWorkerGuard:
@@ -1568,14 +1568,14 @@ class TestAudio69RebuildOnSampleRateMismatch:
         # Attach a mock audio processor built for 16 kHz.
         audio_proc = MagicMock()
         audio_proc._sample_rate = 16000
-        # set_sample_rate is NOT available pre-FIX-19 — the fallback
+        # set_sample_rate is NOT available pre- — the fallback
         # path calls rebuild_from_config.
         del audio_proc.set_sample_rate  # ensure hasattr returns False
         r._audio_processor = audio_proc
 
         r.start()
         try:
-            # AUDIO-6: rebuild_from_config must have been called because
+            # rebuild_from_config must have been called because
             # the device native rate (48000) != chain rate (16000).
             audio_proc.rebuild_from_config.assert_called_once_with(config)
         finally:
@@ -1662,7 +1662,7 @@ class TestAudio69RebuildOnSampleRateMismatch:
         r = Recorder(config)
         audio_proc = MagicMock()
         audio_proc._sample_rate = 16000
-        # set_sample_rate IS available (post-FIX-19).
+        # set_sample_rate IS available (post-).
         audio_proc.set_sample_rate = MagicMock()
         r._audio_processor = audio_proc
 

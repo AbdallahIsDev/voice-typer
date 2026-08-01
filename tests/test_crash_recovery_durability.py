@@ -112,7 +112,7 @@ class TestMkdirGatedByFlag:
         # it), but ``_save_sync`` doesn't know that — it still calls
         # mkdir on the first save because ``_dir_ensured`` is False.
         recovery.add("hello", pasted=False)
-        # AB-44 test-setup note: ``recovery.add()`` above triggers a
+        # test-setup note: ``recovery.add()`` above triggers a
         # synchronous ``_save_sync()`` (the worker was stopped in the
         # ``recovery`` fixture), which sets ``_dir_ensured = True``.
         # Reset the flag here so the NEXT ``_save_sync()`` call (inside
@@ -213,7 +213,7 @@ class TestAtexitDelUseDurabilityTrue:
     def test_del_uses_durability_true(self, recovery_dir):
         """``__del__`` calls ``_save_sync(durability=True)``."""
         cr = CrashRecovery(config_dir=recovery_dir)
-        # AB-44 test-setup note: stop the background save worker BEFORE
+        # test-setup note: stop the background save worker BEFORE
         # adding an entry. Otherwise the worker's asynchronous
         # ``_save_sync()`` call (which uses the default
         # ``durability=False``) is captured by the patch below and

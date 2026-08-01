@@ -156,7 +156,7 @@ WS_RS = _SRC_TAURI / "src" / "sidecar" / "ws.rs"
 TAURI_CONF_JSON = _SRC_TAURI / "tauri.conf.json"
 CAPABILITIES_JSON = (
     _SRC_TAURI / "capabilities" / "main-runtime.json"
-)  # CR-5: migrate-runtime split; notification perms live in main-runtime
+)  # migrate-runtime split; notification perms live in main-runtime
 POSTINST_SCRIPT = _REPO_ROOT / "scripts" / "linux" / "postinst"
 POSTINST_RPM_SCRIPT = _REPO_ROOT / "scripts" / "linux" / "postinst.rpm"
 SYSTEM_HANDLERS_PY = _REPO_ROOT / "voice_typer" / "server" / "handlers" / "system_handlers.py"
@@ -188,7 +188,7 @@ def _make_ipc_server():
     app = MagicMock()
     app._config_mutation_lock = RLock()
     server = IPCServer.__new__(IPCServer)
-    # G4-H-30 / IPC-001: ``IPCServer.__init__`` creates ``_dispatch_lock``
+    # ``IPCServer.__init__`` creates ``_dispatch_lock``
     # as a ``threading.RLock``. ``__new__`` skips ``__init__``, so the
     # attribute is missing and ``_dispatch`` raises ``AttributeError``.
     # Create it explicitly so the dispatch path can acquire the lock.
@@ -385,7 +385,7 @@ class TestWsRsRenamesElectronNotificationToNotification:
     Phase 0-L gate).
     """
 
-    # GT-E3-6: ``test_ws_rs_has_electron_notification_alias_branch`` and
+    # ``test_ws_rs_has_electron_notification_alias_branch`` and
     # ``test_ws_rs_alias_branch_emits_notification_with_payload`` were
     # REMOVED — the legacy ``electron_notification`` → ``notification``
     # alias branch was deleted from ``ws.rs`` (the Python sidecar now
@@ -737,12 +737,12 @@ class TestPostinstDoesNotNeedNotificationLogic:
     def test_postinst_script_exists(self):
         """The ``.deb`` postinst script MUST exist at
         ``scripts/linux/postinst`` — it's referenced by
-        ``tauri.conf.json``'s ``bundle.linux.deb.postInstall`` field and
-        is a hard dependency of the .deb build (Tauri's bundler copies
-        it into the .deb control archive)."""
+        ``tauri.conf.json``'s ``bundle.linux.deb.postInstallScript``
+        field and is a hard dependency of the .deb build (Tauri's
+        bundler copies it into the .deb control archive)."""
         assert POSTINST_SCRIPT.is_file(), (
             f"postinst script MUST exist at {POSTINST_SCRIPT} — it's "
-            f"referenced by tauri.conf.json bundle.linux.deb.postInstall."
+            f"referenced by tauri.conf.json bundle.linux.deb.postInstallScript."
         )
 
     def test_postinst_does_not_install_libnotify(self):
@@ -873,7 +873,7 @@ class TestSourceInspectionBeltAndBraces:
         ``electron_notification`` alias branch (the Python sidecar now
         publishes ``notification`` directly)."""
         src = _read(WS_RS)
-        # GT-E3-6 / PVT-G5-062: ``let emit_name = event_type;`` was
+        # ``let emit_name = event_type;`` was
         # replaced by ``let emit_name = translate_event_name(event_type);``.
         # Accept both forms so the test stays green if the helper is
         # inlined back into a direct assignment.

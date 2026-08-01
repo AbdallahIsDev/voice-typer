@@ -28,7 +28,7 @@ sync gate that the original review proposed but no test file pinned:
    silently breaking the onboarding flow under Electron.
 
 The dedicated parity file
-``tests/test_ec4_python_command_registry_parity.py`` already covers
+``tests/test_command_registry_parity.py`` already covers
 the full TS ↔ Python ↔ Rust parity contract; the test here is the
 narrow "renderer can call every command" gate that the original
 finding #99 / #156 proposed under this file name.
@@ -50,7 +50,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_COMMANDS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
 
 
-# ── S3-CR-27: _dispatch stamps request id on validation-error responses ──
+# _dispatch stamps request id on validation-error responses ──
 
 
 def _make_server() -> IPCServer:
@@ -73,7 +73,7 @@ def _make_server() -> IPCServer:
     return server
 
 
-class TestS3CR27RequestIdPreservedOnValidationErrors:
+class TestRequestIdPreservedOnValidationErrors:
     """S3-CR-27: ``_dispatch`` stamps the inbound request ``id`` on
     every response — including validation-error responses that bypass
     the ``resp`` dict pre-populated with ``id``.
@@ -156,10 +156,10 @@ class TestS3CR27RequestIdPreservedOnValidationErrors:
         assert result.get("type") == "onboarding_first_run"
 
 
-# ── S1-CR-80: _accept_tcp pool.submit race with stop()'s shutdown ──────
+# _accept_tcp pool.submit race with stop()'s shutdown ──────
 
 
-class TestS1CR80AcceptTcpPoolSubmitRace:
+class TestAcceptTcpPoolSubmitRace:
     """S1-CR-80: ``_accept_tcp`` must gracefully handle the race where
     ``stop()`` shuts down the TCP worker pool between the read of
     ``self._tcp_worker_pool`` and the ``pool.submit(...)`` call.
@@ -283,7 +283,7 @@ class TestS1CR80AcceptTcpPoolSubmitRace:
         assert leaked_conn_closed, "S1-CR-80: wrapped submit must close the leaked conn"
 
 
-# ── S2-CR-73 / S4-CR-35: ALLOWED_COMMANDS contains every renderer-callable command ──
+# ALLOWED_COMMANDS contains every renderer-callable command ──
 
 
 def _python_registry_keys() -> set[str]:
@@ -304,7 +304,7 @@ def _python_only_commands() -> set[str]:
 def _ts_allowed_commands() -> set[str]:
     """Parse the TS ``ALLOWED_COMMANDS = new Set([...])`` literal.
 
-    Mirrors the parser in ``test_ec4_python_command_registry_parity.py``
+    Mirrors the parser in ``test_command_registry_parity.py``
     and ``test_security_doc_command_count.py`` — same regex, same
     anchoring. Duplicated here so this test file is self-contained.
     """
@@ -323,7 +323,7 @@ class TestAllowedCommandsCoversRegistry:
     without being silently rejected by ``sendToPython``.
 
     The broader TS ↔ Python ↔ Rust parity contract is pinned by
-    ``tests/test_ec4_python_command_registry_parity.py``; this test is
+    ``tests/test_command_registry_parity.py``; this test is
     the narrower "renderer can call every command" gate that the
     original finding #99 / #156 proposed under this file name. It
     exists as an additional regression guard because the original

@@ -155,7 +155,7 @@ class _MockApp:
         self._quit_called = False
         self._restart_called = False
 
-        # XS-23: use monkeypatch.setenv (auto-restored at teardown) instead of
+        # use monkeypatch.setenv (auto-restored at teardown) instead of
         # raw os.environ assignment (which leaked across tests).
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR_OVERRIDE", str(tmp_path))
         try:
@@ -221,8 +221,8 @@ def live_server(tmp_path, monkeypatch):
     yield server, port, token
 
     server.stop()
-    # FT-2: close HistoryDB writer thread so it doesn't leak across the
-    # pytest session (Windows native thread-limit crash — see FT-2).
+    # close HistoryDB writer thread so it doesn't leak across the
+    # pytest session (Windows native thread-limit crash — see ).
     with suppress(Exception):
         if hasattr(app, "history_db") and hasattr(app.history_db, "close"):
             app.history_db.close()
@@ -244,7 +244,7 @@ def authenticated_client(live_server):
     client.connect(("127.0.0.1", port))
     _send_line(client, {"type": "auth", "token": token})
     # Drain any post-auth connect-time events (e.g. state_changed from
-    # ERR-017) so the first response the test reads is the response
+    # ) so the first response the test reads is the response
     # to its own command.
     _drain(client, timeout=0.3)
     yield client, server

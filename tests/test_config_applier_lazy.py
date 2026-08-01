@@ -38,7 +38,7 @@ def _make_service_and_app(tmp_config_dir, monkeypatch):
     """Build a VoiceTyperService backed by a mock app for apply_config tests.
 
     Mirrors the fixture pattern in ``tests/test_history_and_models.py
-    ::TestSVC11ApplyConfigPersistsOnSideEffectFailure._make_service_and_app``
+    ::TestApplyConfigPersistsOnSideEffectFailure._make_service_and_app``
     but returns a real ``Config()`` instance (not a MagicMock) so the
     dirty-check has concrete values to compare.
     """
@@ -80,7 +80,7 @@ def _make_service_and_app(tmp_config_dir, monkeypatch):
     return service, app
 
 
-class TestDJ29LazyPreStateDict:
+class TestLazyPreStateDict:
     """DJ-29: ``dataclasses.asdict()`` MUST NOT be called eagerly on
     every ``apply_config`` invocation. The dirty-check uses
     ``set_keys`` (captured per-key in the setattr loop) and the
@@ -200,7 +200,7 @@ class TestDJ29LazyPreStateDict:
         was always a no-op because nothing else was mutated."""
         service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
 
-        # Make save_strict raise to trigger the G4-H-12 rollback path.
+        # Make save_strict raise to trigger the  rollback path.
         app.config.save_strict = MagicMock(side_effect=OSError("disk full"))
 
         original_hotkey = app.config.hotkey
@@ -209,7 +209,7 @@ class TestDJ29LazyPreStateDict:
         with pytest.raises(OSError, match="disk full"):
             service.apply_config({"hotkey": new_hotkey})
 
-        # G4-H-12: the in-memory Config MUST be rolled back to the
+        # the in-memory Config MUST be rolled back to the
         # pre-setattr value for the mutated key.
         assert app.config.hotkey == original_hotkey, (
             "DJ-29 + G4-H-12: after save_strict failure, the mutated key "
@@ -228,7 +228,7 @@ class TestDJ29LazyPreStateDict:
         content for the keys the caller asked to change."""
         service, app = _make_service_and_app(tmp_config_dir, monkeypatch)
 
-        # Make save_strict raise to trigger the G4-H-12 rollback path.
+        # Make save_strict raise to trigger the  rollback path.
         app.config.save_strict = MagicMock(side_effect=OSError("disk full"))
 
         # Capture the updates dict passed to apply_config_side_effects

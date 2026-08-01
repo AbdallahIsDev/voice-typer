@@ -27,7 +27,7 @@ class TestGetTemplates:
         fake_service.get_templates.side_effect = RuntimeError("disk error")
         resp = ipc_server._handle_get_templates({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 

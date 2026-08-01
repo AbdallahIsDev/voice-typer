@@ -30,7 +30,7 @@ import sys
 
 import pytest
 
-# WR-6: mig15 / mig16 / mig17 / mig18 ALL now use file-name-based
+# mig15 / mig16 / mig17 / mig18 ALL now use file-name-based
 # platform detection. The previous directory-level mapping for
 # mig15/mig16/mig17 caused structural source-grep tests (which read
 # `tauri.conf.json` and `*.rs` files as text and assert on their
@@ -38,7 +38,7 @@ import pytest
 # tests' own docstrings explicitly state "These tests run in the Linux
 # sandbox". The 9-point ADR-0020 behavioral gate still requires real
 # Windows/macOS/Linux host execution (see review.md
-# HP-1/HP-2/HP-3), but the structural source-grep scaffolding runs on
+# ), but the structural source-grep scaffolding runs on
 # every platform so regressions in tauri.conf.json / spawn.rs / build
 # scripts are caught in CI, not just on real-host validation.
 #
@@ -52,7 +52,7 @@ _PLATFORM_FOR_FILE_TOKEN: list[tuple[str, str]] = [
     ("windows", "win32"),
 ]
 
-# Directories that use file-name-based platform detection. WR-6: now
+# Directories that use file-name-based platform detection. : now
 # includes mig15/mig16/mig17 in addition to mig18 — all four Tauri
 # migration-test directories contain a mix of platform-specific tests
 # (whose file name carries the platform token) and cross-platform

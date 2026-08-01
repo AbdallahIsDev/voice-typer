@@ -89,7 +89,7 @@ def _make_registry(*, asr_backend: str = "parakeet") -> AsrBackendRegistry:
 # ── Test classes ──────────────────────────────────────────────────────
 
 
-class TestUE48IsBusyDefault:
+class TestIsBusyDefault:
     """UE-48: ``is_busy`` returns False by default."""
 
     def test_is_busy_false_by_default(self):
@@ -114,7 +114,7 @@ class TestUE48IsBusyDefault:
         assert registry.is_busy("nonexistent") is False
 
 
-class TestUE48SetClearBusy:
+class TestSetClearBusy:
     """UE-48: ``set_busy`` / ``clear_busy`` mutate the flag."""
 
     def test_set_busy_makes_is_busy_true(self):
@@ -165,7 +165,7 @@ class TestUE48SetClearBusy:
         assert registry.is_busy("parakeet") is False
 
 
-class TestUE48BusyContext:
+class TestBusyContext:
     """UE-48: ``busy_context`` sets the flag on enter and clears on
     exit (including the exception path)."""
 
@@ -220,7 +220,7 @@ class TestUE48BusyContext:
             assert name == "parakeet"
 
 
-class TestUE48TranscribeWithFallbackWrapper:
+class TestTranscribeWithFallbackWrapper:
     """UE-48: the registry's ``transcribe_with_fallback`` wrapper sets
     and clears the busy flag around the backend's call."""
 
@@ -358,7 +358,7 @@ class TestUE48TranscribeWithFallbackWrapper:
         assert registry.is_busy("parakeet") is False
 
 
-class TestUE48ForceClearBusy:
+class TestForceClearBusy:
     """UE-48: ``force_clear_busy`` is an alias for ``clear_busy``
     exposed under a more discoverable name for the watchdog's
     force-recover path."""
@@ -393,7 +393,7 @@ class TestUE48ForceClearBusy:
         assert registry.is_busy("parakeet") is False
 
 
-class TestUE48BusyFlagSurvivesBackendSwap:
+class TestBusyFlagSurvivesBackendSwap:
     """UE-48: the flag is keyed by backend NAME, not the backend
     object — a backend that was unregistered + re-registered under the
     same name (e.g. by ``change_model``) doesn't carry over a stale
@@ -442,7 +442,7 @@ class TestUE48BusyFlagSurvivesBackendSwap:
         assert registry.is_busy("parakeet") is False
 
 
-class TestUE48ThreadSafety:
+class TestThreadSafety:
     """UE-48: the busy flag is thread-safe — the transcribe thread
     sets it, the IPC thread reads it. Both paths acquire the
     registry's ``_lock``."""

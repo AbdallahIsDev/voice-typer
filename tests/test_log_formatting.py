@@ -80,7 +80,7 @@ def _restore_logging_state():
     _module_level_overrides.update(saved_overrides)
 
 
-# ─── GT-2: formatters must append exc_info ─────────────────────────────────
+# formatters must append exc_info ─────────────────────────────────
 
 
 def _make_record_with_exc(msg: str = "boom") -> logging.LogRecord:
@@ -180,7 +180,7 @@ def test_exception_log_reaches_file_on_disk(tmp_path: Path) -> None:
         reset()
 
 
-# ─── GT-13: always attach a stderr StreamHandler ───────────────────────────
+# always attach a stderr StreamHandler ───────────────────────────
 
 
 def test_setup_logging_attaches_stream_handler_without_tty(tmp_path: Path, monkeypatch) -> None:
@@ -235,7 +235,7 @@ def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Pat
         reset()
 
 
-# ─── GT-65: warn on skipped per-module entries ────────────────────────────
+# warn on skipped per-module entries ────────────────────────────
 
 
 def test_apply_per_module_log_levels_warns_on_unknown_level(tmp_path: Path, monkeypatch, caplog) -> None:
@@ -282,7 +282,7 @@ def test_apply_per_module_log_levels_warns_on_missing_equals(tmp_path: Path, mon
         reset()
 
 
-# ─── GT-61: ISO 8601 timestamps with millis + tz ───────────────────────────
+# ISO 8601 timestamps with millis + tz ───────────────────────────
 
 
 _ISO_RE_TEXT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{4}")
@@ -346,7 +346,7 @@ def test_json_formatter_iso_timestamp_utc_z_suffix() -> None:
     )
 
 
-# ─── GT-62: cheap pre-filter for _BubbleLevelExclusionFilter ───────────────
+# cheap pre-filter for _BubbleLevelExclusionFilter ───────────────
 
 
 def test_bubble_filter_keeps_warning_records_mentioning_marker() -> None:
@@ -406,7 +406,7 @@ def test_bubble_filter_keeps_unrelated_info_records() -> None:
     assert filt.filter(rec) is True
 
 
-# ─── GT-64: runtime log-level change API ───────────────────────────────────
+# runtime log-level change API ───────────────────────────────────
 
 
 def test_set_module_level_changes_logger_level() -> None:

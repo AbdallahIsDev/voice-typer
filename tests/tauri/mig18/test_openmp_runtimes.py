@@ -408,7 +408,7 @@ def test_ctranslate2_lib_data_dir_is_unconditional(script: Path):
             )
 
 
-# ─── 6. ctranslate2/libs data-dir is GUARDED (XPLAT-3 pattern) ───────────────
+# 6. ctranslate2/libs data-dir is GUARDED ( pattern) ───────────────
 def test_macos_has_xplat3_ctranslate2_libs_guard(macos_text: str):
     """macOS must guard ``ctranslate2/libs`` (plural) with ``if [[ -d ... ]]``.
 

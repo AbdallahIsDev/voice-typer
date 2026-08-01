@@ -79,10 +79,10 @@ def _patch_app_platform_helpers(monkeypatch):
     monkeypatch.setattr(_app_mod, "list_microphones", lambda: [], raising=False)
 
 
-# ─── DJ-2: no eager TemplateManager / VocabularyManager ────────────────
+# no eager TemplateManager / VocabularyManager ────────────────
 
 
-class TestDJ2NoEagerManagerConstruction:
+class TestNoEagerManagerConstruction:
     """DJ-2: ``VoiceTyperApp.__init__`` must NOT construct the JSON-reading
     managers (TemplateManager / VocabularyManager) eagerly on the main
     thread. The lazy fallback in ``service/template.py`` /
@@ -125,7 +125,7 @@ class TestDJ2NoEagerManagerConstruction:
         from voice_typer.server.app import VoiceTyperApp
 
         instance = VoiceTyperApp()
-        # DJ-2: __init__ must NOT eagerly construct TemplateManager.
+        # __init__ must NOT eagerly construct TemplateManager.
         assert construct_count["n"] == 0, (
             "DJ-2: VoiceTyperApp.__init__ eagerly constructed TemplateManager "
             f"{construct_count['n']} time(s); it should be lazy-constructed on "
@@ -203,10 +203,10 @@ class TestDJ2NoEagerManagerConstruction:
         assert instance._template_manager is tm, "The lazy fallback should be able to populate _template_manager."
 
 
-# ─── DJ-57: vad.preload() called during startup ───────────────────────
+# vad.preload() called during startup ───────────────────────
 
 
-class TestDJ57VadPreloadCalled:
+class TestVadPreloadCalled:
     """DJ-57: ``vad.preload()`` must be invoked during startup so the
     Silero VAD model is hot by the time the user first presses F2.
 
@@ -298,10 +298,10 @@ class TestDJ57VadPreloadCalled:
         app_for_startup_perf.models.start_background_load.assert_called_once()
 
 
-# ─── DJ-3: no eager _ensure_engine("qwen") in __init__ ─────────────────
+# no eager _ensure_engine("qwen") in __init__ ─────────────────
 
 
-class TestDJ3NoEagerQwenEnsureEngine:
+class TestNoEagerQwenEnsureEngine:
     """DJ-3: ``VoiceTyperApp.__init__`` must NOT eagerly call
     ``self.models._ensure_engine("qwen")``. The background load thread
     (started by ``ModelManager.start_background_load()`` in
@@ -331,11 +331,11 @@ class TestDJ3NoEagerQwenEnsureEngine:
         instance = VoiceTyperApp()
         # Configure qwen backend AFTER construction so we can verify
         # __init__ didn't call _ensure_engine even when the config was
-        # set to qwen (mirrors the pre-DJ-3 code path).
+        # set to qwen (mirrors the pre- code path).
         instance.config.asr_backend = "qwen"
         instance.config.qwen_model_path = "/nonexistent/qwen/model"
 
-        # Re-run the eager-init check that pre-DJ-3 code would have
+        # Re-run the eager-init check that pre- code would have
         # triggered: __init__ must NOT have called _ensure_engine at
         # all (the bg load thread handles it instead).
         assert ensure_engine_calls == [], (

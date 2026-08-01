@@ -432,7 +432,7 @@ def test_tauri_conf_shell_scope_declares_sidecar():
     )
     entry = sidecar_entries[0]
     assert entry.get("cmd") == "bin/python-sidecar"
-    # FIX-5 #299: changed ``args: true`` → ``args: ["--ws"]`` in
+    # #299: changed ``args: true`` → ``args: ["--ws"]`` in
     # src-tauri/tauri.conf.json so the sidecar is always spawned with
     # the WebSocket mode flag (the new IPC default). The args list
     # is no longer a free-form bool — it pins the --ws contract.
@@ -595,7 +595,7 @@ def test_script_includes_ctranslate2_package(script_texts: dict[str, str], platf
     )
 
 
-# ─── 7. XPLAT-3 ctranslate2/libs guard (Linux + macOS only) ─────────────────
+# 7.  ctranslate2/libs guard (Linux + macOS only) ─────────────────
 def test_linux_script_has_xplat3_ctranslate2_libs_guard(script_texts: dict[str, str]):
     """The Linux script must carry the XPLAT-3 ``ctranslate2/libs`` (plural) guard.
 

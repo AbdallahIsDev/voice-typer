@@ -59,7 +59,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# FIX-18 (test infra & config sub-agent): the ``ctypes.WINFUNCTYPE``
+# (test infra & config sub-agent): the ``ctypes.WINFUNCTYPE``
 # alias previously installed at module-load time has been moved into
 # the ``winfunctype_alias`` autouse fixture below. The fixture installs
 # the alias per-test via ``monkeypatch.setattr`` so the global
@@ -67,7 +67,7 @@ import pytest
 # fixture docstring for the full rationale.
 
 
-# XS-46: dedicated warning category for mock_heavy_imports patch
+# dedicated warning category for mock_heavy_imports patch
 # failures. Previously these used the bare ``UserWarning`` default,
 # which made them impossible to filter separately from real warnings
 # emitted by the SUT. Contributors can now filter them with::
@@ -93,7 +93,7 @@ class MockHeavyImportsWarning(UserWarning):
     """
 
 
-# XS-46: per-session dedup flag. Each key is a warning kind
+# per-session dedup flag. Each key is a warning kind
 # (``"atexit_register"``, ``"force_pynput_hotkey_backend"``,
 # ``"keyboard_ownership_reset"``). The first test to hit a given kind
 # emits the warning; subsequent tests skip the ``warnings.warn`` call.
@@ -175,10 +175,10 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(skip_slow)
 
 
-# TEST-024: WAV fixture file ``tests/fixtures/test_440hz_1s_16k.wav``
+# WAV fixture file ``tests/fixtures/test_440hz_1s_16k.wav``
 # (1-second 440Hz sine wave at 16kHz mono, 16-bit PCM) is retained on
 # disk for ad-hoc use, but the ``wav_fixture_path`` pytest fixture that
-# RT-16 identified as dead code has been removed — no test imported it.
+# identified as dead code has been removed — no test imported it.
 # Tests that need the WAV file should construct the path inline:
 #   ``Path(__file__).parent / "fixtures" / "test_440hz_1s_16k.wav"``
 
@@ -237,7 +237,7 @@ def mock_heavy_imports(monkeypatch, request):
     monkeypatch.setitem(sys.modules, "faster_whisper", mock_whisper)
     monkeypatch.setitem(sys.modules, "faster_whisper.WhisperModel", MagicMock())
 
-    # TEST-003: only mock pynput if the test doesn't request real pynput
+    # only mock pynput if the test doesn't request real pynput
     if not request.node.get_closest_marker("real_pynput"):
         mock_pynput = MagicMock()
         mock_pynput_kb = MagicMock()
@@ -247,7 +247,7 @@ def mock_heavy_imports(monkeypatch, request):
     mock_pystray = MagicMock()
     monkeypatch.setitem(sys.modules, "pystray", mock_pystray)
 
-    # TEST-033: only mock PIL if the test doesn't request real PIL
+    # only mock PIL if the test doesn't request real PIL
     if not request.node.get_closest_marker("real_pil"):
         mock_pil = MagicMock()
         monkeypatch.setitem(sys.modules, "PIL", mock_pil)
@@ -289,7 +289,7 @@ def mock_heavy_imports(monkeypatch, request):
 
     monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
 
-    # XS-45: torch is a heavy optional dep (~17s import cost on the
+    # torch is a heavy optional dep (~17s import cost on the
     # sandbox) that is lazily imported by 6 production modules
     # (transcription.py, dictation_pipeline.py, vad.py,
     # crash_recovery.py, parakeet_engine.py, noise_suppressor.py).
@@ -298,7 +298,7 @@ def mock_heavy_imports(monkeypatch, request):
     # ``torch.backends.mps``, some didn't). Hoisting the mock into the
     # autouse fixture eliminates the 17s import tax and the drift.
     #
-    # TEST-003 / XS-45: tests marked with @pytest.mark.real_torch will
+    # tests marked with @pytest.mark.real_torch will
     # NOT have torch mocked, so they can exercise real
     # ``torch.backends.mps`` semantics on Apple Silicon.
     if not request.node.get_closest_marker("real_torch"):
@@ -359,7 +359,7 @@ def mock_heavy_imports(monkeypatch, request):
         # parakeet_engine + noise_suppressor paths lazily import it.
         monkeypatch.setitem(sys.modules, "transformers", MagicMock(name="mock_transformers"))
 
-    # Prevent atexit handler from polluting test output. FIX-18:
+    # Prevent atexit handler from polluting test output. :
     # previously this was wrapped in ``contextlib.suppress(Exception)``,
     # which silently swallowed typos in the monkeypatch target and let
     # tests pass against unpatched code. The targeted ``except`` below
@@ -380,7 +380,7 @@ def mock_heavy_imports(monkeypatch, request):
             "during tests.",
         )
 
-    # CR-068 (IMPROVE-mode run, 2026-07-21): hoist the
+    # (IMPROVE-mode run, 2026-07-21): hoist the
     # ``force_pynput_hotkey_backend`` patch from the deleted
     # ``tests/test_app.py:76-88`` into this autouse fixture so
     # ``tests/app/test_hotkeys.py`` (and other hotkey tests) work on
@@ -391,7 +391,7 @@ def mock_heavy_imports(monkeypatch, request):
     # ``tests/test_app.py:73-75``. With the hoist, the patch is applied
     # uniformly across platforms.
     #
-    # FIX-18: replaced ``contextlib.suppress(Exception)`` with targeted
+    # replaced ``contextlib.suppress(Exception)`` with targeted
     # ``except (ImportError, AttributeError)`` + ``warnings.warn`` so a
     # renamed module or moved function surfaces as a warning rather
     # than a silent patch-skip.
@@ -417,14 +417,14 @@ def mock_heavy_imports(monkeypatch, request):
             "on non-Linux platforms.",
         )
 
-    # CR-017 (IMPROVE-mode run, 2026-07-21): reset the keyboard_ownership
+    # (IMPROVE-mode run, 2026-07-21): reset the keyboard_ownership
     # singleton before each test so stale state from a prior test (e.g.
     # ``set_owner("hotkey_capture")``) doesn't cause ``undo_last`` /
     # ``_cancel_dictation`` to early-return. The singleton persists across
     # tests because it's a class-level ``_instance``; without this reset,
     # test ordering affects test outcomes.
     #
-    # FIX-18: replaced ``contextlib.suppress(Exception)`` with targeted
+    # replaced ``contextlib.suppress(Exception)`` with targeted
     # ``except (ImportError, AttributeError)`` + ``warnings.warn`` so a
     # renamed singleton or removed ``reset`` method surfaces as a
     # warning rather than a silent skip.
@@ -495,7 +495,7 @@ def templates_dir(tmp_path, monkeypatch):
     return tmp_path
 
 
-# ── XV-112: clear ``get_native_binary_path`` LRU cache between tests ──────
+# clear ``get_native_binary_path`` LRU cache between tests ──────
 
 
 @pytest.fixture(autouse=True)
@@ -540,7 +540,7 @@ def clear_binary_path_cache():
     # refactor split out ``native_hotkeys`` while keeping ``prewarm``
     # importable, the new ``_resolve_hf_cache_dir`` clear below would
     # silently stop running. Converted to the same try/except/else
-    # pattern XV-100 already uses so every clear runs independently of
+    # pattern  already uses so every clear runs independently of
     # the others.
     try:
         from voice_typer.server.native_hotkeys.binary_path import (
@@ -562,7 +562,7 @@ def clear_binary_path_cache():
         if cache_clear is not None:
             cache_clear()
 
-    # XV-100: clear the memoised ``shutil.which`` cache in
+    # clear the memoised ``shutil.which`` cache in
     # ``voice_typer.server.clipboard.linux``.  Same rationale as above:
     # tests that monkeypatch ``shutil.which`` to simulate different
     # ``$PATH`` states need a fresh cache per test, otherwise the
@@ -607,7 +607,7 @@ def clear_binary_path_cache():
         if resolve_hf_cache_clear is not None:
             resolve_hf_cache_clear()
 
-    # XV-19: also clear ``_cached_active_config`` so tests that
+    # also clear ``_cached_active_config`` so tests that
     # monkeypatch ``Config.load`` (e.g. test_e2e_smoke's prewarm
     # filter test) don't see a stale cached config from a prior test.
     # Without this clear, the first test that calls
@@ -626,7 +626,7 @@ def clear_binary_path_cache():
             cached_cfg_clear()
 
 
-# ── FT-2: daemon-thread leak prevention ──────────────────────────────────
+# daemon-thread leak prevention ──────────────────────────────────
 #
 # The original per-test autouse cleanup (iterating a WeakSet of all live
 # HistoryDB/CrashRecovery instances and calling close()/shutdown() on each)

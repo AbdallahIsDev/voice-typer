@@ -58,7 +58,7 @@ class MockTrayIcon:
         self._current_message = ""
 
     def set_state(self, state, message=""):
-        # NEW-DEAD-002: AppState moved from voice_typer.tray to
+        # AppState moved from voice_typer.tray to
         # voice_typer.server.tray_types.
         from voice_typer.server.tray_types import AppState
 
@@ -89,7 +89,7 @@ class MockTrayIcon:
 
 def run_runtime_proof():
     """Run the actual runtime verification cycle."""
-    # NEW-DEAD-002: fixed the module paths.  The script previously
+    # fixed the module paths.  The script previously
     # imported from ``voice_typer.config``, ``voice_typer.transcription``,
     # and ``voice_typer.tray`` — all of which were moved to
     # ``voice_typer.server.*`` during the package reorganization.
@@ -331,7 +331,7 @@ if __name__ == "__main__":
         sys.exit(2)
 
 
-# TASK-013: expose a stable ``run()`` alias so ``tests/test_manual_slow.py``
+# expose a stable ``run()`` alias so ``tests/test_manual_slow.py``
 # can wrap this script as a ``@pytest.mark.slow`` test without coupling to
 # the historical ``run_runtime_proof`` name. The alias is defined AFTER the
 # ``__main__`` block so running the script directly still uses the

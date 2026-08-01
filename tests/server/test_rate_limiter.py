@@ -124,7 +124,7 @@ class TestRateLimiter:
         assert len(accepted) <= 1000
 
 
-# ── TEST-001: IPC DoS/flood test ─────────────────────────────────────────
+# IPC DoS/flood test ─────────────────────────────────────────
 
 
 class TestServerFloodResistance:

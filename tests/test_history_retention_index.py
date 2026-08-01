@@ -172,7 +172,7 @@ class TestRetentionUsesIndex:
             f"expected retention subquery to use idx_favorite_timestamp, got plan: {plan_text!r}"
         )
         # A covering index walk eliminates the temp b-tree for ORDER BY.
-        # Before TY-21 the plan included "USE TEMP B-TREE FOR ORDER BY".
+        # Before  the plan included "USE TEMP B-TREE FOR ORDER BY".
         assert "USE TEMP B-TREE FOR ORDER BY" not in plan_text, (
             "retention subquery should NOT need a temp b-tree for "
             "ORDER BY — the composite index provides the sort order"
@@ -246,7 +246,7 @@ class TestRetentionFunctional:
         assert len(fav_remaining) == 2
 
 
-class TestRetentionTimezoneXE9B:
+class TestRetentionTimezone:
     """XE-9-B regression: ``apply_retention`` cutoff must be UTC and
     formatted as ``'%Y-%m-%d %H:%M:%S'`` (matching SQLite's
     ``CURRENT_TIMESTAMP``), not naive local time + ISO 8601 (which
@@ -404,7 +404,7 @@ class TestRetentionTimezoneXE9B:
         )
 
 
-class TestRetentionFts5RebuildFailureXE9E:
+class TestRetentionFts5RebuildFailure:
     """XE-9-E regression: when the FTS5 ``'rebuild'`` command fails
     after a retention sweep, the failure is no longer silent. The
     returned :class:`RetentionResult` carries ``fts5_rebuild_ok=False``,

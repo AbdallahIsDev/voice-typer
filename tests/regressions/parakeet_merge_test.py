@@ -106,12 +106,12 @@ class TestMergeChunksRegression:
         result = engine_no_model._merge_chunks([chunk_a, chunk_b])
         # All of chunk_a must appear.
         assert chunk_a in result
-        # RW-T1: no words from chunk_b's head may be dropped.
+        # no words from chunk_b's head may be dropped.
         b_words = chunk_b.split()
         # Find where chunk_b content starts in result.
         result_words = result.split()
         # Last len(chunk_a) words should be the start of chunk_b (no
-        # allowance skip with the RW-T1 fix).
+        # allowance skip with the  fix).
         # Easier: ensure every word of chunk_b is present in order.
         b_idx = 0
         b_to_find = b_words
@@ -154,7 +154,7 @@ class TestMergeChunksRegression:
         result = engine_no_model._merge_chunks([chunk_a, chunk_b])
         result_words = result.split()
         # chunk_a contributes 5 words; chunk_b contributes 50 words
-        # (RW-T1: no allowance skip when no overlap is detected).
+        # (: no allowance skip when no overlap is detected).
         assert len(result_words) >= 5 + 50, (
             f"Too many words lost: result has {len(result_words)} words, expected at least 55. Result: {result!r}"
         )
@@ -209,7 +209,7 @@ class TestComputeOverlapSkip:
         """
         # Two completely different word sets, new chunk has >1 word.
         skip = engine_no_model._compute_overlap_skip(["alpha", "bravo"], ["charlie", "delta"])
-        assert skip == 0  # RW-T1: no allowance — do not drop legitimate words
+        assert skip == 0  # no allowance — do not drop legitimate words
 
     def test_single_word_new_chunk_no_allowance(self, engine_no_model):
         skip = engine_no_model._compute_overlap_skip(["alpha", "bravo"], ["charlie"])

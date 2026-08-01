@@ -149,7 +149,7 @@ class TestSetStateNoop:
         assert len(apply_calls) == 1, f"First call should apply, got {apply_calls}"
         assert len(publish_calls) == 1, f"First call should publish, got {publish_calls}"
 
-        # Same state + same message — short-circuited (DJ-41).
+        # Same state + same message — short-circuited ().
         tray.set_state(AppState.IDLE, "msg")
         assert len(apply_calls) == 1, f"No-op call should NOT _apply_state, got {apply_calls}"
         assert len(publish_calls) == 1, f"No-op call should NOT _publish_tray_state, got {publish_calls}"

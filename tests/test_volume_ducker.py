@@ -458,11 +458,11 @@ class TestDuckCrashRecoveryFile:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# UE-23: restore() must call _stop_smart_duck_monitor() under self._lock
+# restore() must call _stop_smart_duck_monitor() under self._lock
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestUE23StopMonitorUnderLock:
+class TestStopMonitorUnderLock:
     """UE-23: restore() must call _stop_smart_duck_monitor() from inside
     self._lock so the stop + _saved_state-clear is atomic with respect
     to a concurrent duck() (which calls _start_smart_duck_monitor()
@@ -485,7 +485,7 @@ class TestUE23StopMonitorUnderLock:
 
         def spy_stop() -> None:
             # From a worker thread, try to acquire the lock with a short
-            # timeout.  If restore() holds the lock (the UE-23 fix), the
+            # timeout.  If restore() holds the lock (the  fix), the
             # worker times out and acquired is False.  We use a worker
             # thread because Lock.acquire(blocking=False) from the same
             # thread that holds the lock also returns False (Lock is not
@@ -561,11 +561,11 @@ class TestUE23StopMonitorUnderLock:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# UE-12-F6: duck() must drop self._lock during backend.fade_to()
+# duck() must drop self._lock during backend.fade_to()
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestUE12F6DuckDropsLockDuringFade:
+class TestDuckDropsLockDuringFade:
     """UE-12-F6: duck() must NOT hold self._lock during backend.fade_to()
     (up to 150 ms).  Holding the lock serialises restore() (ESC cancel)
     behind the fade -- visible as a 150 ms "ESC doesn't respond" delay.
@@ -707,7 +707,7 @@ class TestUE12F6DuckDropsLockDuringFade:
         t.start()
         assert fade_started.wait(timeout=2.0), "fade_to not called"
 
-        # While duck()'s fade is blocked (lock released per UE-12-F6),
+        # While duck()'s fade is blocked (lock released per ),
         # run restore().  It should acquire the lock, clear _saved_state,
         # and fade back.
         ducker.restore()
@@ -729,3 +729,186 @@ class TestUE12F6DuckDropsLockDuringFade:
             "must skip the state update)"
         )
         assert not ducker.is_ducked
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# crash_recovery.save() must be called BEFORE backend.fade_to()
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestCrashRecoveryBeforeFade:
+    """FR-33: ``crash_recovery.save()`` must be called BEFORE
+    ``backend.fade_to()`` in the duck flow.
+
+    If the process crashes during the 150 ms fade, the volume is
+    partially ducked but — without a pre-fade recovery file — no
+    crash-recovery file exists for the next launch, leaving the
+    speakers stuck at the ducked level.  Saving before the fade
+    guarantees the file exists for the entire fade duration.
+
+    Covers both the synchronous ``duck()`` path and the asynchronous
+    ``_smart_duck_monitor_loop`` retroactive-duck path.
+    """
+
+    @staticmethod
+    def _make_order_recording_spies(
+        crash_recovery: DuckCrashRecovery,
+        backend: FakeBackend,
+    ) -> tuple[list[str], Callable[..., bool], Callable[..., bool]]:
+        """Wrap ``crash_recovery.save`` and ``backend.fade_to`` so they
+        append ``"save"`` / ``"fade"`` to a shared list in call order.
+        Returns ``(call_order, spy_save, spy_fade)``.
+        """
+        call_order: list[str] = []
+        original_save = crash_recovery.save
+        original_fade = backend.fade_to
+
+        def spy_save(state: VolumeState) -> bool:
+            call_order.append("save")
+            return original_save(state)
+
+        def spy_fade(target_linear: float, duration_ms: int = 150, steps: int = 10) -> bool:
+            call_order.append("fade")
+            return original_fade(target_linear, duration_ms, steps)
+
+        return call_order, spy_save, spy_fade
+
+    def test_first_duck_saves_crash_recovery_before_fade(self, crash_recovery: DuckCrashRecovery) -> None:
+        """First-duck path: ``crash_recovery.save()`` precedes
+        ``backend.fade_to()``."""
+        backend = FakeBackend(current=0.6, speaker_active=True)
+        ducker = VolumeDucker(backend=backend, crash_recovery=crash_recovery)
+        ducker.initialize()
+
+        call_order, spy_save, spy_fade = self._make_order_recording_spies(crash_recovery, backend)
+        crash_recovery.save = spy_save  # type: ignore[assignment]
+        backend.fade_to = spy_fade  # type: ignore[assignment]
+
+        ok = ducker.duck(0.25)
+        assert ok is True
+
+        assert "save" in call_order, "crash_recovery.save() was not called"
+        assert "fade" in call_order, "backend.fade_to() was not called"
+        save_idx = call_order.index("save")
+        fade_idx = call_order.index("fade")
+        assert save_idx < fade_idx, (
+            f"FR-33: crash_recovery.save() must be called BEFORE "
+            f"backend.fade_to() in duck() (call order was: {call_order}). "
+            f"If the process crashes during the 150ms fade, the recovery "
+            f"file must already exist for next-launch recovery."
+        )
+
+    def test_retroactive_duck_saves_crash_recovery_before_fade(self, crash_recovery: DuckCrashRecovery) -> None:
+        """Retroactive-duck path (smart-duck monitor):
+        ``crash_recovery.save()`` precedes ``backend.fade_to()``.
+
+        Also verifies the smart-duck skip did NOT save a file (the
+        volume was unchanged) — guards against the FR-33 refactor
+        accidentally writing the file on the skip path.
+        """
+        backend = FakeBackend(current=0.6, speaker_active=False)
+        ducker = VolumeDucker(backend=backend, crash_recovery=crash_recovery)
+        ducker.set_smart_duck_poll_interval(50)
+        ducker.initialize()
+
+        # First duck: smart-duck skips (no audio), monitor starts.
+        # No crash-recovery file should be written on this path.
+        ducker.duck(0.25)
+        assert ducker.is_monitor_running, "smart-duck monitor should be running"
+        assert crash_recovery.load_stale() is None, (
+            "smart-duck skip must NOT save a crash-recovery file (volume was not changed — nothing to recover)"
+        )
+
+        call_order, spy_save, spy_fade = self._make_order_recording_spies(crash_recovery, backend)
+        crash_recovery.save = spy_save  # type: ignore[assignment]
+        backend.fade_to = spy_fade  # type: ignore[assignment]
+
+        # Simulate audio starting mid-dictation — the monitor's next
+        # poll detects speaker activity and applies the retroactive duck.
+        backend._speaker_active = True
+
+        deadline = time.monotonic() + 2.0
+        while not ducker.actually_ducked and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ducker.actually_ducked, (
+            "retroactive duck was not applied within 2s — monitor may not have detected speaker activity"
+        )
+
+        assert "save" in call_order, "crash_recovery.save() was not called by retroactive duck"
+        assert "fade" in call_order, "backend.fade_to() was not called by retroactive duck"
+        save_idx = call_order.index("save")
+        fade_idx = call_order.index("fade")
+        assert save_idx < fade_idx, (
+            f"FR-33: retroactive-duck path must save crash-recovery BEFORE fade (call order was: {call_order})"
+        )
+
+        ducker.restore()
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# retroactive-duck path must drop self._lock during backend.fade_to()
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestRetroactiveDuckDropsLockDuringFade:
+    """FR-32: ``_smart_duck_monitor_loop``'s retroactive-duck path must
+    NOT hold ``self._lock`` during ``backend.fade_to()`` (up to 150 ms).
+
+    Holding the lock serialises ``restore()`` (ESC cancel) behind the
+    fade — the same 150 ms "ESC doesn't respond" delay UE-12-F6 fixed
+    for ``duck()``.  The fix mirrors the UE-12-F6 pattern: snapshot
+    under the lock, release for the fade, re-acquire for the post-fade
+    state writes.
+    """
+
+    def test_retroactive_duck_drops_lock_during_fade(self, crash_recovery: DuckCrashRecovery) -> None:
+        backend = FakeBackend(current=0.6, speaker_active=False)
+        ducker = VolumeDucker(backend=backend, crash_recovery=crash_recovery)
+        ducker.set_smart_duck_poll_interval(50)
+        ducker.initialize()
+
+        # Smart-duck skip → monitor starts.
+        ducker.duck(0.25)
+        assert ducker.is_monitor_running, "smart-duck monitor should be running"
+
+        # Wrap fade_to: from a worker thread, try to acquire the lock
+        # during the fade.  If the retroactive-duck path holds the lock
+        # during fade (the  bug), the worker times out and
+        # ``lock_held_during_fade`` is True.
+        lock_held_during_fade: list[bool] = [False]
+        original_fade = backend.fade_to
+
+        def spy_fade(target_linear: float, duration_ms: int = 150, steps: int = 10) -> bool:
+            result: list[bool] = [True]
+
+            def worker() -> None:
+                acquired = ducker._lock.acquire(timeout=0.1)
+                if acquired:
+                    ducker._lock.release()
+                else:
+                    result[0] = False
+
+            t = threading.Thread(target=worker)
+            t.start()
+            t.join(timeout=1.0)
+            lock_held_during_fade[0] = not result[0]
+            return original_fade(target_linear, duration_ms, steps)
+
+        backend.fade_to = spy_fade  # type: ignore[assignment]
+
+        # Trigger retroactive duck by simulating audio.
+        backend._speaker_active = True
+        deadline = time.monotonic() + 2.0
+        while not ducker.actually_ducked and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert ducker.actually_ducked, (
+            "retroactive duck was not applied within 2s — monitor may not have detected speaker activity"
+        )
+
+        assert lock_held_during_fade[0] is False, (
+            "FR-32: retroactive-duck path must NOT hold self._lock "
+            "during backend.fade_to() (ESC cancel would wait 150ms for "
+            "the fade to complete — same bug UE-12-F6 fixed for duck())"
+        )
+
+        ducker.restore()

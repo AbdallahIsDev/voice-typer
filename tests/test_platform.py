@@ -31,7 +31,7 @@ class TestAutostartCommand:
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Non-Windows test")
     def test_unix_uses_quoted_executable(self):
-        # NEW-XPLAT-007: the autostart command now uses spec-compliant
+        # the autostart command now uses spec-compliant
         # quoting — paths without reserved characters are NOT wrapped
         # in quotes (per the freedesktop Desktop Entry Spec).  We just
         # verify the executable appears in the command and the
@@ -341,6 +341,68 @@ class TestStartMenuProgramsDir:
         p = _start_menu_programs_dir()
         assert "Programs" in str(p)
         assert "Start Menu" in str(p)
+
+
+# Linux autostart dir (: XDG_CONFIG_HOME empty-string bug) ──────
+
+
+class TestGetAutostartDirLinux:
+    """FR-9: get_autostart_dir() must treat XDG_CONFIG_HOME="" as unset.
+
+    Regression for the bug where ``os.environ.get("XDG_CONFIG_HOME",
+    default)`` returned the empty string when the env var was set but
+    empty, causing ``Path("") / "autostart"`` to produce a RELATIVE
+    ``PosixPath("autostart")`` — the .desktop file would be written to
+    the process's CWD instead of ``~/.config/autostart/``, and the
+    desktop environment would never pick it up. Mirrors the
+    ``TestLinuxUnitDirHandlesEmptyXdgConfigHome`` suite already covering
+    ``prewarm_scheduler_posix._linux_unit_dir``.
+    """
+
+    def test_empty_string_xdg_config_home_uses_fallback(self, monkeypatch, tmp_path):
+        from voice_typer.server.server_platform import autostart as autostart_mod
+        from voice_typer.server.server_platform import get_autostart_dir
+
+        # Force the Linux branch regardless of host platform.
+        monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
+        fake_home = tmp_path
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+        # Empty string must be treated as unset per the XDG spec.
+        monkeypatch.setattr(autostart_mod.os, "environ", {"XDG_CONFIG_HOME": ""})
+
+        result = get_autostart_dir()
+
+        # Critical: must NOT be a relative path (the bug produced
+        # PosixPath("autostart") which is relative).
+        assert result.is_absolute(), f"FR-9 regression: empty XDG_CONFIG_HOME produced relative path {result!r}"
+        expected = fake_home / ".config" / "autostart"
+        assert result == expected
+
+    def test_unset_xdg_config_home_uses_fallback(self, monkeypatch, tmp_path):
+        from voice_typer.server.server_platform import autostart as autostart_mod
+        from voice_typer.server.server_platform import get_autostart_dir
+
+        monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
+        fake_home = tmp_path
+        monkeypatch.setattr(Path, "home", lambda: fake_home)
+        # No XDG_CONFIG_HOME key at all.
+        monkeypatch.setattr(autostart_mod.os, "environ", {})
+
+        result = get_autostart_dir()
+
+        assert result.is_absolute()
+        assert result == fake_home / ".config" / "autostart"
+
+    def test_set_nonempty_xdg_config_home_is_respected(self, monkeypatch, tmp_path):
+        from voice_typer.server.server_platform import autostart as autostart_mod
+        from voice_typer.server.server_platform import get_autostart_dir
+
+        monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
+        monkeypatch.setattr(autostart_mod.os, "environ", {"XDG_CONFIG_HOME": str(tmp_path)})
+
+        result = get_autostart_dir()
+
+        assert result == tmp_path / "autostart"
 
 
 # ─── Autostart command includes --hidden ───────────────────────────────

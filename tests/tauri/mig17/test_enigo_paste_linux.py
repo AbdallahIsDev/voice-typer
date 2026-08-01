@@ -70,7 +70,7 @@ def commands_mod_src() -> str:
     return COMMANDS_MOD_RS.read_text(encoding="utf-8")
 
 
-# ─── FZ-19 / PVT-051: paste_text deletion regression guard ───────────────
+# paste_text deletion regression guard ───────────────
 
 
 def test_paste_text_symbol_absent_from_sidecar_cmds(sidecar_cmds_src: str) -> None:

@@ -70,7 +70,7 @@ def _cleanup_lock_fd(fd) -> None:
         os.close(int(fd))
 
 
-# ─── FR-37: config dir chmod'd 0o700 ──────────────────────────────────
+# config dir chmod'd 0o700 ──────────────────────────────────
 
 
 class TestConfigDirChmod:
@@ -100,7 +100,7 @@ class TestConfigDirChmod:
         from voice_typer.server import single_instance as si_mod
 
         # Pre-create the config dir with looser perms (simulating a
-        # prior run that didn't have the FR-37 fix).
+        # prior run that didn't have the  fix).
         isolated_config_dir.mkdir(parents=True, exist_ok=True, mode=0o755)
         # Verify the pre-condition (mode is 0o755, possibly masked by
         # umask — but mkdir with mode=0o755 should produce 0o755 on
@@ -121,7 +121,7 @@ class TestConfigDirChmod:
             _cleanup_lock_fd(fd)
 
 
-# ─── FR-37: O_NOFOLLOW on os.open ─────────────────────────────────────
+# O_NOFOLLOW on os.open ─────────────────────────────────────
 
 
 class TestNoFollowSymlink:
@@ -147,7 +147,7 @@ class TestNoFollowSymlink:
         from voice_typer.server import single_instance as si_mod
 
         # Pre-create the config dir with restrictive perms (as the
-        # FR-37 fix would).
+        # fix would).
         isolated_config_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
 
         # Plant a symlink at backend.lock pointing to /etc/passwd
@@ -174,7 +174,7 @@ class TestNoFollowSymlink:
             # ELOOP — in that case, the function returns normally
             # (FileExistsError is caught and the flock-based path
             # runs). We treat that as a sandbox limitation, not a
-            # FR-37 regression: fall through to the source-level
+            # regression: fall through to the source-level
             # invariant check below.
             behavioral_passed = False
             try:
@@ -216,7 +216,7 @@ class TestNoFollowSymlink:
         else:
             # Source-level invariant: the ``os.open`` call must include
             # ``O_NOFOLLOW``. This is a defensive check that runs even
-            # on sandboxes that block symlink creation, so the FR-37
+            # on sandboxes that block symlink creation, so the
             # fix is still verified.
             import inspect
 

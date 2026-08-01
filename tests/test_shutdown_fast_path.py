@@ -38,7 +38,7 @@ def _src() -> str:
 # ── Static (source-inspection) contract tests ───────────────────────
 
 
-class TestDJ9SequentialHistoryAndCrashRecovery:
+class TestSequentialHistoryAndCrashRecovery:
     """DJ-9: ``_teardown_history_db`` and ``_teardown_crash_recovery``
     run SEQUENTIALLY (post-drain), NOT in the parallel batch."""
 
@@ -84,7 +84,7 @@ class TestDJ9SequentialHistoryAndCrashRecovery:
         )
 
 
-class TestDJ8OsExitOnStuckWsDrain:
+class TestOsExitOnStuckWsDrain:
     """DJ-8: if the WS pool drain doesn't complete in 5s, the cleanup
     path calls ``os._exit(0)``."""
 
@@ -93,7 +93,7 @@ class TestDJ8OsExitOnStuckWsDrain:
         branch) must call ``os._exit(0)`` (after running the critical
         fast-path)."""
         s = _src()
-        # Find the DJ-8 block: ``if join_thread.is_alive():`` followed
+        # Find the  block: ``if join_thread.is_alive():`` followed
         # by ``log.warning(...)`` + ``self._run_critical_fast_path(app)``
         # + ``os._exit(0)``.
         drain_timeout_idx = s.find("if join_thread.is_alive():")
@@ -108,7 +108,7 @@ class TestDJ8OsExitOnStuckWsDrain:
         )
 
 
-class TestDJ6CriticalOnlyMode:
+class TestCriticalOnlyMode:
     """DJ-6: when ``_critical_only_mode`` is True, the parallel batch
     is reduced to ONLY the fast-tier helpers."""
 
@@ -190,7 +190,7 @@ class _FakeApp:
         self._shutting_down_event.set()
 
 
-class TestDJ6CriticalOnlyDynamic:
+class TestCriticalOnlyDynamic:
     """Dynamic test: actually invoke ``_do_cleanup`` in critical-only
     mode and verify the slow-tier helpers are skipped."""
 
@@ -307,7 +307,7 @@ class TestDJ6CriticalOnlyDynamic:
         ctrl._teardown_event_bus.assert_called_once()
 
         # history_db + crash_recovery are now in the SEQUENTIAL phase
-        # (DJ-9), so they MUST also have been called.
+        # (), so they MUST also have been called.
         ctrl._teardown_crash_recovery.assert_called_once()
         ctrl._teardown_history_db.assert_called_once()
 

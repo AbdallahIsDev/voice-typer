@@ -173,7 +173,7 @@ class TestStreamingIntegration:
 
         session = MagicMock()
         session.finalize = MagicMock(return_value="streamed text")
-        # RW-9 Phase 1: was ``app._set_streaming_session(session)`` (test-seam
+        # Phase 1: was ``app._set_streaming_session(session)`` (test-seam
         # delegate removed); call the controller method directly.
         app.recording.set_streaming_session(session)
 
@@ -200,13 +200,13 @@ class TestStreamingIntegration:
         app._start_dictation()
 
         session_cls.assert_not_called()
-        # RW-9 Phase 1: was ``app._get_streaming_session()`` (test-seam
+        # Phase 1: was ``app._get_streaming_session()`` (test-seam
         # delegate removed); call the controller method directly.
         assert app.recording.get_streaming_session() is None
 
     def test_quit_cancels_active_streaming_session(self, app):
         session = MagicMock()
-        # RW-9 Phase 1: was ``app._set_streaming_session(session)`` (test-seam
+        # Phase 1: was ``app._set_streaming_session(session)`` (test-seam
         # delegate removed); call the controller method directly.
         app.recording.set_streaming_session(session)
         app.recorder = MagicMock()
@@ -322,7 +322,7 @@ class TestModelLoadingQueue:
         app.tray = MagicMock()
         # Stub the engine init so the loader body doesn't do real work.
         app.models._ensure_engine = MagicMock()
-        # RW-9 Phase 2: was ``app._try_load_model = MagicMock()`` /
+        # Phase 2: was ``app._try_load_model = MagicMock()`` /
         # ``app._fallback_to_whisper = MagicMock()`` (delegates removed);
         # patch the ModelManager methods directly.
         app.models.try_load = MagicMock()
@@ -355,7 +355,7 @@ class TestModelLoadingQueue:
         """If the user did NOT press F2 during load, nothing is scheduled."""
         app.tray = MagicMock()
         app.models._ensure_engine = MagicMock()
-        # RW-9 Phase 2: was ``app._try_load_model = MagicMock()`` /
+        # Phase 2: was ``app._try_load_model = MagicMock()`` /
         # ``app._fallback_to_whisper = MagicMock()`` (delegates removed);
         # patch the ModelManager methods directly.
         app.models.try_load = MagicMock()
@@ -374,13 +374,13 @@ class TestModelLoadingQueue:
         """A crashing loader sets ERROR state but does not propagate."""
         app.tray = MagicMock()
         app.models._ensure_engine = MagicMock()
-        # ARCH-007: _load_transcription_engine_background now delegates
+        # _load_transcription_engine_background now delegates
         # to AsrBackendRegistry.load_with_fallback. Mock it to raise.
-        # ARCH-REFAC-003: assign to ModelManager._registry directly (was
+        # assign to ModelManager._registry directly (was
         # a @property delegate on VoiceTyperApp).
         app.models._registry = MagicMock()
         app.models.registry.load_with_fallback = MagicMock(side_effect=RuntimeError("disk on fire"))
-        # ARCH-REFAC-003: write to ModelManager directly (was a @property
+        # write to ModelManager directly (was a @property
         # delegate on VoiceTyperApp).
         app.models._pending_dictation = False
         app.config.asr_backend = "whisper"
@@ -415,7 +415,7 @@ class TestTryLoadModel:
         app.models.transcriber.device_info = "cpu (int8)"
         app.models.transcriber.loaded_via = "cpu/int8/small.en"
 
-        # RW-9 Phase 2: was ``app._try_load_model()`` (delegate removed);
+        # Phase 2: was ``app._try_load_model()`` (delegate removed);
         # call the ModelManager method directly.
         app.models.try_load()
 
@@ -435,7 +435,7 @@ class TestTryLoadModel:
         app.models.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
         app.models.transcriber.is_loaded = False
 
-        # RW-9 Phase 2: was ``app._try_load_model()`` (delegate removed);
+        # Phase 2: was ``app._try_load_model()`` (delegate removed);
         # call the ModelManager method directly.
         app.models.try_load()
 
@@ -452,7 +452,7 @@ class TestTryLoadModel:
         app.models.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
         app.models.transcriber.is_loaded = False
 
-        # RW-9 Phase 2: was ``app._try_load_model(notify_on_failure=True)``
+        # Phase 2: was ``app._try_load_model(notify_on_failure=True)``
         # (delegate removed); call the ModelManager method directly.
         app.models.try_load(notify_on_failure=True)
 
@@ -467,7 +467,7 @@ class TestTryLoadModel:
         app.models.transcriber.load = MagicMock(side_effect=RuntimeError("OOM"))
         app.models.transcriber.is_loaded = False
 
-        # RW-9 Phase 2: was ``app._try_load_model(notify_on_failure=False)``
+        # Phase 2: was ``app._try_load_model(notify_on_failure=False)``
         # (delegate removed); call the ModelManager method directly.
         app.models.try_load(notify_on_failure=False)
 
@@ -480,7 +480,7 @@ class TestTryLoadModel:
         app.models.transcriber.load = MagicMock()
 
         assert app.models._model_load_attempted is False
-        # RW-9 Phase 2: was ``app._try_load_model()`` (delegate removed);
+        # Phase 2: was ``app._try_load_model()`` (delegate removed);
         # call the ModelManager method directly.
         app.models.try_load()
         # pyrefly: ignore [unnecessary-comparison]
@@ -508,7 +508,7 @@ class TestTryLoadModel:
             lambda timeout_s=60.0: False,  # simulate timeout
         )
 
-        # PW-2: production call is spawn_background_prewarm(force=True,
+        # production call is spawn_background_prewarm(force=True,
         # trigger="manual") — the mock must accept the trigger kwarg or
         # the TypeError is silently swallowed by model_manager's
         # ``except Exception as bg_exc`` block, making the test pass
@@ -521,7 +521,7 @@ class TestTryLoadModel:
             _spawn,
         )
 
-        # RW-9 Phase 2: was ``app._try_load_model()`` (delegate removed);
+        # Phase 2: was ``app._try_load_model()`` (delegate removed);
         # call the ModelManager method directly.
         app.models.try_load()
 
@@ -575,7 +575,7 @@ class TestTryLoadModel:
             lambda force=True, trigger="manual": spawn_called.append((force, trigger)),
         )
 
-        # RW-9 Phase 2: was ``app._try_load_model()`` (delegate removed);
+        # Phase 2: was ``app._try_load_model()`` (delegate removed);
         # call the ModelManager method directly.
         app.models.try_load()
 

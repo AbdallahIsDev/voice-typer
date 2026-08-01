@@ -302,8 +302,8 @@ class TestPythonArgsLooksUpEmbeddedBackend:
     def test_python_args_uses_platform_switch(self):
         src = self._index_ts()
         assert "process.platform" in src
-        # RW-5 coordination: use a switch on process.platform so each
-        # platform's branch is independent (rw-4 adds win32, RW-5 adds
+        # coordination: use a switch on process.platform so each
+        # platform's branch is independent (rw-4 adds win32,  adds
         # darwin + linux).
         assert "switch" in src, (
             "pythonArgs() should use a switch on process.platform for "

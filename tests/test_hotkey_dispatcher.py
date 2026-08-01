@@ -38,6 +38,7 @@ from unittest.mock import MagicMock
 
 import pytest
 from voice_typer.server import event_bus
+from voice_typer.server.branding import APP_NAME
 from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 
@@ -66,7 +67,7 @@ def _make_mock_app() -> SimpleNamespace:
     # Legacy alias that ``_on_esc_release`` keeps in sync with the
     # canonical owner. Real app initializes this to ``False``.
     app._esc_cancel_paused = False
-    # XZ-R17-02: shutdown flag the dictation/repaste/ESC callbacks
+    # shutdown flag the dictation/repaste/ESC callbacks
     # consult before doing anything else.
     app._shutting_down = False
     return app
@@ -212,7 +213,7 @@ class TestOnEscRelease:
         assert dispatcher._app._esc_cancel_paused is False
 
 
-# ─── Shutdown guards (XZ-R17-02) ────────────────────────────────────────
+# Shutdown guards () ────────────────────────────────────────
 
 
 class TestShutdownGuards:
@@ -348,6 +349,241 @@ class TestStopAll:
 
         dispatcher.stop_all()  # must not raise
 
+        assert dispatcher._hotkey_backend is None
+        assert dispatcher._esc_backend is None
+        assert dispatcher._repaste_backend is None
+
+
+# registration-failure surfaces to tray ───────────────────────
+
+
+class TestRegistrationFailureSurfacesToTray:
+    """FR-20: when ``register_esc`` / ``register_repaste`` fail (e.g.
+    the OS already claimed the key via Win32 ``RegisterHotKey`` or an X11
+    grab), the failure must be surfaced to the user via the tray's
+    safety channel (``tray.notify_safety``) — not just silently
+    ``log.warning``'d.
+
+    Previously the except blocks in ``register_esc`` (line ~351) and
+    ``register_repaste`` (line ~471) only emitted a ``log.warning`` and
+    nulled the backend reference. The user had no signal that ESC cancel
+    or repaste was unavailable until they pressed the key and nothing
+    happened. ``register()`` (the main dictation hotkey) already called
+    ``app.tray.notify`` on failure — this contract is now extended to
+    ESC and repaste via the stronger ``notify_safety`` channel (which
+    bypasses the user's notification-toggle preference, since these are
+    safety-critical: a missing ESC cancel means the user cannot abort a
+    misfired recording).
+    """
+
+    def test_register_esc_calls_notify_safety_on_factory_failure(self, dispatcher: HotkeyDispatcher, monkeypatch):
+        """ESC: ``create_hotkey_backend("<esc>")`` raises →
+        ``tray.notify_safety`` must be called once with ``APP_NAME`` as
+        the title and a message that mentions ESC."""
+
+        def _raise(spec):
+            raise RuntimeError("RegisterHotKey failed: atom already claimed")
+
+        monkeypatch.setattr(
+            "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+            _raise,
+        )
+
+        dispatcher.register_esc()  # must not raise
+
+        dispatcher._app.tray.notify_safety.assert_called_once()
+        args = dispatcher._app.tray.notify_safety.call_args.args
+        assert args[0] == APP_NAME
+        assert "ESC" in args[1]
+        # contract preserved: failed backend is nulled.
+        assert dispatcher._esc_backend is None
+        assert dispatcher._esc_spec is None
+        # The non-safety ``notify`` channel must NOT be used (
+        # mandates the safety channel so the message bypasses the
+        # notification toggle).
+        dispatcher._app.tray.notify.assert_not_called()
+
+    def test_register_esc_calls_notify_safety_on_start_failure(self, dispatcher: HotkeyDispatcher, monkeypatch):
+        """ESC: ``create_hotkey_backend`` succeeds but ``backend.start()``
+        raises → same ``notify_safety`` contract."""
+        mock_backend = MagicMock()
+        mock_backend.start.side_effect = RuntimeError("listener thread died")
+
+        monkeypatch.setattr(
+            "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+            lambda spec: mock_backend,
+        )
+
+        dispatcher.register_esc()  # must not raise
+
+        dispatcher._app.tray.notify_safety.assert_called_once()
+        args = dispatcher._app.tray.notify_safety.call_args.args
+        assert args[0] == APP_NAME
+        assert "ESC" in args[1]
+        assert dispatcher._esc_backend is None
+        assert dispatcher._esc_spec is None
+
+    def test_register_esc_does_not_notify_on_success(self, dispatcher: HotkeyDispatcher, monkeypatch):
+        """Sanity: when ESC registration succeeds, ``notify_safety`` is
+        NOT called (the notification is reserved for failures only)."""
+        mock_backend = MagicMock()
+        monkeypatch.setattr(
+            "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+            lambda spec: mock_backend,
+        )
+
+        dispatcher.register_esc()
+
+        dispatcher._app.tray.notify_safety.assert_not_called()
+        assert dispatcher._esc_backend is mock_backend
+        assert dispatcher._esc_spec == "<esc>"
+
+    def test_register_repaste_calls_notify_safety_on_factory_failure(self, dispatcher: HotkeyDispatcher, monkeypatch):
+        """Repaste: ``create_hotkey_backend`` raises →
+        ``tray.notify_safety`` must be called once with a message that
+        mentions repaste."""
+        # ``<f8>`` is a single non-alphanumeric function key — passes
+        # all 8 validation stages in ``_validate_hotkey``.
+        dispatcher._app.config.repaste_hotkey = "<f8>"
+
+        def _raise(spec):
+            raise RuntimeError("RegisterHotKey failed: F8 already claimed")
+
+        monkeypatch.setattr(
+            "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+            _raise,
+        )
+
+        dispatcher.register_repaste()  # must not raise
+
+        dispatcher._app.tray.notify_safety.assert_called_once()
+        args = dispatcher._app.tray.notify_safety.call_args.args
+        assert args[0] == APP_NAME
+        assert "Repaste" in args[1] or "repaste" in args[1].lower()
+        assert dispatcher._repaste_backend is None
+        assert dispatcher._repaste_spec is None
+        dispatcher._app.tray.notify.assert_not_called()
+
+    def test_register_repaste_calls_notify_safety_on_start_failure(self, dispatcher: HotkeyDispatcher, monkeypatch):
+        """Repaste: ``backend.start()`` raises → same ``notify_safety``
+        contract."""
+        dispatcher._app.config.repaste_hotkey = "<f8>"
+
+        mock_backend = MagicMock()
+        mock_backend.start.side_effect = RuntimeError("start failed")
+
+        monkeypatch.setattr(
+            "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+            lambda spec: mock_backend,
+        )
+
+        dispatcher.register_repaste()  # must not raise
+
+        dispatcher._app.tray.notify_safety.assert_called_once()
+        args = dispatcher._app.tray.notify_safety.call_args.args
+        assert args[0] == APP_NAME
+        assert "Repaste" in args[1] or "repaste" in args[1].lower()
+        assert dispatcher._repaste_backend is None
+        assert dispatcher._repaste_spec is None
+
+    def test_register_repaste_does_not_notify_on_success(self, dispatcher: HotkeyDispatcher, monkeypatch):
+        """Sanity: when repaste registration succeeds, ``notify_safety``
+        is NOT called."""
+        dispatcher._app.config.repaste_hotkey = "<f8>"
+
+        mock_backend = MagicMock()
+        monkeypatch.setattr(
+            "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+            lambda spec: mock_backend,
+        )
+
+        dispatcher.register_repaste()
+
+        dispatcher._app.tray.notify_safety.assert_not_called()
+        assert dispatcher._repaste_backend is mock_backend
+        assert dispatcher._repaste_spec == "<f8>"
+
+
+# stop_all 3s timeout budget ──────────────────────────────────
+
+
+class TestStopAllTimeoutBudget:
+    """FR-25: ``stop_all`` wraps each ``backend.stop()`` in a
+    ``concurrent.futures.ThreadPoolExecutor`` worker with a hard 3s
+    budget shared across all three backends. A hung backend (e.g. a
+    Win32 ``UnregisterHotKey`` that never returns, or a pynput listener
+    thread join that blocks forever) cannot block the shutdown sequence
+    for more than 3s — previously the worst case was ~15s (3 backends ×
+    5s sequential join each).
+
+    These tests verify the budget ENFORCES the timeout (a slow backend
+    is leaked, not joined) and that the existing contracts (clears all
+    three backend references, swallows ``stop()`` exceptions) still
+    hold under the new concurrent implementation.
+    """
+
+    def test_stop_all_3s_budget_leaks_hung_backend(self, dispatcher: HotkeyDispatcher, monkeypatch):
+        """A ``backend.stop()`` that blocks for longer than the 3s budget
+        must NOT block ``stop_all`` for that long. The future is
+        cancelled (logged as "did not stop within 3s budget") and the
+        method returns promptly.
+
+        Note: the test patches the 3.0 budget down to 0.2s and sleeps 2s
+        on the hung backend — the relative ordering is what we're
+        verifying, not the absolute 3s. If the budget were NOT enforced,
+        elapsed would be ~2s.
+        """
+        import time
+
+        import voice_typer.server.hotkey_dispatcher as hd_mod
+
+        # Patch the 3.0 budget down to 0.2s so the test is fast.
+        original_wait = hd_mod.concurrent.futures.wait
+
+        def _fast_wait(futures, timeout=None):
+            return original_wait(futures, timeout=0.2)
+
+        monkeypatch.setattr(hd_mod.concurrent.futures, "wait", _fast_wait)
+
+        main = MagicMock()
+        # Sleep 2s — far longer than the patched 0.2s budget.
+        main.stop.side_effect = lambda: time.sleep(2.0)
+        esc = MagicMock()
+        repaste = MagicMock()
+        dispatcher._hotkey_backend = main
+        dispatcher._esc_backend = esc
+        dispatcher._repaste_backend = repaste
+
+        start = time.monotonic()
+        dispatcher.stop_all()  # must return in ~0.2s, NOT ~2s
+        elapsed = time.monotonic() - start
+
+        # Budget is 0.2s; allow generous slack for CI scheduling jitter.
+        # If the budget were NOT enforced, elapsed would be ~2s.
+        assert elapsed < 1.0, f"stop_all took {elapsed:.2f}s — 3s budget not enforced"
+        # The two fast backends stopped normally.
+        esc.stop.assert_called_once()
+        repaste.stop.assert_called_once()
+
+    def test_stop_all_swallows_stop_failures_under_pool(self, dispatcher: HotkeyDispatcher, monkeypatch):
+        """FR-25 preserves the prior contract: a ``stop()`` that raises
+        does NOT propagate out of ``stop_all`` (the future's exception
+        is logged at debug level, not re-raised). All three backend
+        references are still cleared."""
+        main = MagicMock()
+        main.stop.side_effect = RuntimeError("join timed out")
+        esc = MagicMock()
+        esc.stop.side_effect = OSError("EBADF")
+        repaste = MagicMock()
+        dispatcher._hotkey_backend = main
+        dispatcher._esc_backend = esc
+        dispatcher._repaste_backend = repaste
+
+        dispatcher.stop_all()  # must not raise
+
+        main.stop.assert_called_once()
+        esc.stop.assert_called_once()
+        repaste.stop.assert_called_once()
         assert dispatcher._hotkey_backend is None
         assert dispatcher._esc_backend is None
         assert dispatcher._repaste_backend is None

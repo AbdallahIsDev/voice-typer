@@ -35,7 +35,7 @@ class TestRunLoop:
         lines = output.strip().split("\n")
         assert len(lines) == 1
         msg = json.loads(lines[0])
-        # ERR-021: get_status now returns a dict with xruns_since_start.
+        # get_status now returns a dict with xruns_since_start.
         assert msg["id"] == 1
         assert msg["type"] == "status"
         assert msg["data"]["status"] == "idle"
@@ -52,12 +52,12 @@ class TestRunLoop:
         lines = stdout.getvalue().strip().split("\n")
         assert len(lines) == 3
         msg1 = json.loads(lines[0])
-        # ERR-021: get_status now returns a dict with xruns_since_start.
+        # get_status now returns a dict with xruns_since_start.
         assert msg1["id"] == 1
         assert msg1["type"] == "status"
         assert msg1["data"]["status"] == "idle"
         msg2 = json.loads(lines[1])
-        # NEW-IPC-006: ack responses now include ``data: {}``.
+        # ack responses now include ``data: {}``.
         assert msg2 == {"id": 2, "type": "ack", "data": {}}
         msg3 = json.loads(lines[2])
         assert msg3["id"] == 3
@@ -101,7 +101,7 @@ class TestRunLoopRestartQuit:
         result = server._dispatch({"id": 1, "type": "restart_app"})
 
         assert result is None
-        # NEW-IPC-006: ack now includes explicit ``data: {}``.
+        # ack now includes explicit ``data: {}``.
         server._send.assert_called_once_with({"id": 1, "type": "ack", "data": {}})
         assert mock_app.restart_called is True
 
@@ -112,7 +112,7 @@ class TestRunLoopRestartQuit:
         result = server._dispatch({"id": 1, "type": "quit_app"})
 
         assert result is None
-        # NEW-IPC-006: ack now includes explicit ``data: {}``.
+        # ack now includes explicit ``data: {}``.
         server._send.assert_called_once_with({"id": 1, "type": "ack", "data": {}})
         assert mock_app.quit_called is True
 
@@ -131,7 +131,7 @@ class TestRunLoopRestartQuit:
         assert msg2["type"] == "status"
 
 
-# === NEW-IPC-001: TCP accept loop must be unblockable by stop() ===
+# === : TCP accept loop must be unblockable by stop() ===
 """Regression tests for NEW-IPC-001: TCP accept loop must be unblockable
 by stop().
 
@@ -278,7 +278,7 @@ class TestStopUnblocksAcceptLoop:
         assert "_tcp_server_socket" in stop_src, "stop() must close the listening socket"
 
 
-# ── TEST-002: End-to-end happy-path test ─────────────────────────────────
+# End-to-end happy-path test ─────────────────────────────────
 
 
 class TestEndToEndHappyPath:
@@ -292,7 +292,7 @@ class TestEndToEndHappyPath:
 
     def test_full_ipc_roundtrip(self, server, mock_app):
         """Verify a sequence of IPC commands produces correct responses."""
-        # TEST-021: removed unused local `import json` (ruff F401).
+        # removed unused local `import json` (ruff F401).
         # json is already imported at module level (line 8).
 
         # 1. Check initial status
@@ -351,7 +351,7 @@ class TestEndToEndHappyPath:
         mock_app.undo_last = undo_last
 
         result = server._dispatch({"id": 1, "type": "undo_last"})
-        # NEW-IPC-006: ack responses now include ``data: {}``.
+        # ack responses now include ``data: {}``.
         assert result == {"id": 1, "type": "ack", "data": {}}
         assert mock_app.undo_called is True
 
@@ -367,7 +367,7 @@ class TestEndToEndHappyPath:
 
         result = server._dispatch({"id": 1, "type": "toggle_dictation"})
         assert result["type"] == "error"
-        # PVT-G5-021 (CR-20): generic envelope, no str(e) leak.
+        # (): generic envelope, no str(e) leak.
         assert result["data"]["code"] == "server.internal_error"
         assert result["data"]["message"] == "internal error"
 

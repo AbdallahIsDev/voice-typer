@@ -18,7 +18,7 @@ from pathlib import Path
 
 import pytest
 
-# WP-1: the previous Linux test-env shim that aliased
+# the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
 # removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``

@@ -225,7 +225,7 @@ class TestCompareLogic:
 
     def test_equal_counts_passes(self) -> None:
         # Use a rule with count > 1 from the current baseline to avoid brittleness.
-        # WR-14: previously hardcoded N806 with fallback 27, but N806 dropped to 0
+        # previously hardcoded N806 with fallback 27, but N806 dropped to 0
         # after parallel agents cleaned up naming violations. Now we pick a
         # representative rule dynamically from the baseline so the test stays
         # valid as the baseline evolves.
@@ -264,7 +264,7 @@ class TestCompareLogic:
         # by 1 while UP007 shrinks by 1, so total stays at 4. The
         # script must flag the B007 per-rule regression even though
         # the total is unchanged.
-        # ZR-40: previously this test relied on the actual repo
+        # previously this test relied on the actual repo
         # baseline having a B007 entry; the synthetic baseline
         # fixture now provides B007: 3 + UP007: 1 = 4 total.
         _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
@@ -282,7 +282,7 @@ class TestCompareLogic:
 
     def test_total_shrunk_passes_with_improved_hint(self) -> None:
         # Use the representative rule - 1 to show shrinkage.
-        # WR-14: previously hardcoded N806 with fallback 27; switched to
+        # previously hardcoded N806 with fallback 27; switched to
         # dynamic rule selection so the test survives baseline regeneration.
         _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
         _rule, _count = _pick_representative_rule(_baseline)
@@ -341,7 +341,7 @@ class TestRegenerateLogic:
     def _restore_baseline(self) -> Iterator[None]:
         """Seed a synthetic baseline before each test, restore the original after."""
         original = BASELINE_PATH.read_text(encoding="utf-8")
-        # ZR-40: seed a known starting point so tests are deterministic.
+        # seed a known starting point so tests are deterministic.
         # Use 3 UP007 violations as the synthetic baseline — the
         # regenerate tests below use 2 / 3 / etc. UP007 inputs and
         # rely on the refuse-to-grow guard comparing against this
@@ -425,7 +425,7 @@ class TestRatchetHolds:
         - A new violation was introduced → fix it OR update the baseline.
         - The ruff version changed and emits different counts → update the baseline.
         """
-        # WR-14: scope now matches ruff-baseline.json _target
+        # scope now matches ruff-baseline.json _target
         # (voice_typer/ tests/ scripts/ conftest.py). Previously this
         # test ran ruff against voice_typer/server/ only (3 violations)
         # but compared against the 180-violation baseline — the test

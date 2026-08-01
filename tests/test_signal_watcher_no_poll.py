@@ -61,9 +61,9 @@ def test_signal_watcher_exits_quickly_on_set():
     time.sleep(0.05)
 
     # Signal shutdown and measure how quickly the watcher dispatches
-    # ``quit()``. UE-1-F4: the watcher loops forever, so we do NOT
+    # ``quit()``. : the watcher loops forever, so we do NOT
     # join the thread (it's still alive, waiting for the next signal).
-    # The AB-32 contract is: ``Event.set()`` wakes the watcher
+    # The  contract is: ``Event.set()`` wakes the watcher
     # promptly, the watcher calls ``controller.quit()`` promptly, and
     # the whole dispatch finishes well under 1s.
     start = time.perf_counter()
@@ -76,7 +76,7 @@ def test_signal_watcher_exits_quickly_on_set():
         f"Watcher took {elapsed:.3f}s to dispatch quit() after event.set() — "
         "should be < 0.2s (AB-32: indefinite wait, not 1s poll)"
     )
-    # UE-1-F4: the watcher thread is still alive, waiting for the
+    # the watcher thread is still alive, waiting for the
     # next signal. It is a daemon so it will not block process exit.
     assert t.is_alive(), (
         "Watcher thread exited after a single signal — UE-1-F4 requires it to survive multiple signal deliveries."

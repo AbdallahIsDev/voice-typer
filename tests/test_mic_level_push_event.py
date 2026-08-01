@@ -55,13 +55,13 @@ def _reset_level_monitor_state():
     lm._dropped_level_chunks = 0
     lm._last_drop_log_time = 0.0
     lm._level_ring_buffer.clear()
-    # TY-4: reset disconnect-detection state.
+    # reset disconnect-detection state.
     lm._consecutive_zero_chunks = 0
     lm._device_lost_emitted = False
     # Stop any worker threads from a previous test.
     lm._stop_level_worker()
     lm._stop_mic_level_worker()
-    # TY-18: clear the mic_level queue + reset throttle timestamp so a
+    # clear the mic_level queue + reset throttle timestamp so a
     # previous test's last-push time doesn't suppress the first push
     # in this test.
     while lm._mic_level_queue:
@@ -146,11 +146,11 @@ def _wait_for_event_count(captured, predicate, expected, timeout=2.0):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TY-18: mic_level events published when monitoring is active
+# mic_level events published when monitoring is active
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestTY18MicLevelPublishedWhenActive:
+class TestMicLevelPublishedWhenActive:
     """TY-18: ``mic_level`` events are published when monitoring is ACTIVE."""
 
     def test_single_chunk_emits_mic_level(self, monkeypatch):
@@ -227,11 +227,11 @@ class TestTY18MicLevelPublishedWhenActive:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TY-18: mic_level NOT published when monitoring is inactive
+# mic_level NOT published when monitoring is inactive
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestTY18MicLevelNotPublishedWhenInactive:
+class TestMicLevelNotPublishedWhenInactive:
     """TY-18: ``mic_level`` events are NOT published when monitoring is
     inactive (the early-return in ``_process_level_chunk`` short-circuits
     before the ``_push_mic_level`` call site)."""
@@ -279,11 +279,11 @@ class TestTY18MicLevelNotPublishedWhenInactive:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TY-18: coalescing to ≤30 Hz
+# coalescing to ≤30 Hz
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestTY18Coalescing30Hz:
+class TestCoalescing30Hz:
     """TY-18: ``_push_mic_level`` coalesces to ≤30 Hz via a monotonic-clock
     gate. Calling it 100 times in <33ms publishes AT MOST a few events."""
 
@@ -376,11 +376,11 @@ class TestTY18Coalescing30Hz:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TY-18: worker thread lifecycle
+# worker thread lifecycle
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestTY18WorkerLifecycle:
+class TestWorkerLifecycle:
     """TY-18: the mic_level push worker thread is started by
     ``start_monitoring`` and stopped by ``stop_monitoring`` (idempotent)."""
 

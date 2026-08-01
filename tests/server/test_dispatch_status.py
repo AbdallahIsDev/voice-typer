@@ -22,7 +22,7 @@ class TestDispatchGetStatus:
 
         mock_app.tray.state = AppState.RECORDING
         result = server._dispatch({"id": 1, "type": "get_status"})
-        # ERR-021: payload now includes xruns_since_start.
+        # payload now includes xruns_since_start.
         assert result["id"] == 1
         assert result["type"] == "status"
         assert result["data"]["status"] == "recording"
@@ -48,7 +48,7 @@ class TestDispatchGetTodayStats:
         }
 
 
-# ── UX-018: get_defaults IPC ─────────────────────────────────────────────
+# get_defaults IPC ─────────────────────────────────────────────
 
 
 class TestGetDefaultsIpc:

@@ -206,7 +206,7 @@ def live_server(tmp_path, monkeypatch):
     app = MockApp(tmp_path=tmp_path, token=token)
     server = IPCServer(app)
     app._ipc_server = server
-    # NEW-TEST-001: production code calls start() THEN start_tcp().
+    # production code calls start() THEN start_tcp().
     # start() sets _running=True (which the accept loop checks) and
     # hooks tray state.  Without start(), the accept loop exits
     # immediately.
@@ -239,7 +239,7 @@ def live_server(tmp_path, monkeypatch):
         if server._tcp_server_socket is None:
             break
         time.sleep(0.02)
-    # FT-2: close the HistoryDB writer thread and shut down the
+    # close the HistoryDB writer thread and shut down the
     # CrashRecovery saver thread so their daemon threads don't accumulate
     # across the full pytest run (on Windows the accumulated threads trip
     # a native limit and crash the process mid-suite).
@@ -407,7 +407,7 @@ class TestTcpConnectionLifecycle:
         # Brief pause to let server detect the disconnect
         time.sleep(0.1)
 
-        # Second connection — NEW-IPC-001 guarantees the accept loop
+        # Second connection —  guarantees the accept loop
         # continues after a disconnect.
         c2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         c2.connect(("127.0.0.1", port))
@@ -482,7 +482,7 @@ class TestTcpServerStop:
             c.settimeout(0.5)
             c.connect(("127.0.0.1", port))
             # If connect succeeded, the server is still listening — that's
-            # a NEW-IPC-001 regression.  Allow the connect to succeed
+            # a  regression.  Allow the connect to succeed
             # (some platforms have SO_REUSEADDR weirdness) but require
             # that the connection is closed quickly.
             try:

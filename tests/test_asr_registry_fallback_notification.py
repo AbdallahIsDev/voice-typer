@@ -115,7 +115,7 @@ class TestLastResortNotificationFires:
 
         result = registry.get_active()
 
-        # Return contract preserved (XZ-14-06 fix is ADDITIVE):
+        # Return contract preserved ( fix is ADDITIVE):
         assert result is primary, (
             "get_active() must still return the last-resort backend (return contract unchanged by XZ-14-06)."
         )
@@ -148,7 +148,7 @@ class TestLastResortNotificationFires:
         # The event must include the backend name so the IPC push channel
         # can render a useful message in the renderer.
         last_resort_events = [e for e in published if e.get("type") == "asr_last_resort_unloaded"]
-        # DT-16: payload fields now wrapped under the canonical ``data``
+        # payload fields now wrapped under the canonical ``data``
         # key (matching every other event_bus.publish caller) so the Rust
         # WS reader + usePythonEvent forwarding actually surface them.
         assert last_resort_events[0]["data"]["backend"] == "parakeet", (
@@ -548,7 +548,7 @@ class TestLastResortReturnContractPreserved:
         ADDITION, not instead."""
         registry, primary = _make_registry_with_only_unloaded_primary()
 
-        # Add a subscriber (the XZ-14-06 fix):
+        # Add a subscriber (the  fix):
         registry.add_last_resort_subscriber(lambda name: None)
 
         result = registry.get_active()

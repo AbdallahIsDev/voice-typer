@@ -124,14 +124,26 @@ class TestConfigLoadSave:
         assert c.streaming_left_overlap_seconds == 3.0
         assert c.streaming_right_guard_seconds == 1.5
 
-    @pytest.mark.parametrize("legacy_model", ["large-v3", "base.en", "unsupported"])
-    def test_load_normalizes_legacy_or_unsupported_model_to_small_en(self, tmp_path, monkeypatch, legacy_model):
+    @pytest.mark.parametrize("unsupported_model", ["large-v4", "mega.en", "nonexistent-model"])
+    def test_load_normalizes_legacy_or_unsupported_model_to_small_en(self, tmp_path, monkeypatch, unsupported_model):
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = tmp_path / "config.json"
-        config_file.write_text(json.dumps({"model_size": legacy_model}))
+        config_file.write_text(json.dumps({"model_size": unsupported_model}))
 
         c = Config.load()
         assert c.model_size == "small.en"
+
+    @pytest.mark.parametrize("valid_model", ["large-v3", "base.en"])
+    def test_load_keeps_now_supported_models_unchanged(self, tmp_path, monkeypatch, valid_model):
+        """Models that were once rejected but are now in MODEL_REGISTRY must
+        round-trip unchanged instead of being normalized to small.en.
+        """
+        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        config_file = tmp_path / "config.json"
+        config_file.write_text(json.dumps({"model_size": valid_model}))
+
+        c = Config.load()
+        assert c.model_size == valid_model
 
     def test_load_keeps_medium_en_model(self, tmp_path, monkeypatch):
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
@@ -182,7 +194,7 @@ class TestConfigLoadSave:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()
 
-        # RW-9: warning must include the failure-mode name and file path.
+        # warning must include the failure-mode name and file path.
         assert any("JSONDecodeError" in r.message for r in caplog.records)
         assert any(str(config_file) in r.message for r in caplog.records)
 
@@ -378,7 +390,7 @@ class TestAtomicConfigSave:
         original_data = config_file.read_text()
 
         c2 = Config(hotkey="<f9>")
-        # NEW-SEC-008: save() now delegates to _secure_atomic_write.
+        # save() now delegates to _secure_atomic_write.
         # Mock it to raise OSError so the test verifies the existing
         # config is preserved when the write fails.
         with (
@@ -402,7 +414,7 @@ class TestAtomicConfigSave:
         assert (tmp_path / "config.json").exists()
 
 
-class TestH1NonNumericFieldValidation:
+class TestNonNumericFieldValidation:
     """H1: No type validation on loaded JSON config values."""
 
     def test_bool_field_coerces_truthy_string(self, tmp_path, monkeypatch):
@@ -488,7 +500,7 @@ class TestH1NonNumericFieldValidation:
         assert c.volume_duck_smart_poll_interval_ms == 1500
 
 
-class TestM3ConfigSchemaVersion:
+class TestConfigSchemaVersion:
     """M3: No config schema versioning."""
 
     def test_config_has_schema_version_field(self):
@@ -520,7 +532,7 @@ class TestM3ConfigSchemaVersion:
         assert loaded.hotkey == "<f3>"
 
 
-class TestM4SaveErrorHandling:
+class TestSaveErrorHandling:
     """M4: save() has no error handling."""
 
     def test_save_returns_false_on_permission_error(self, tmp_path, monkeypatch):
@@ -529,7 +541,7 @@ class TestM4SaveErrorHandling:
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
 
-        # NEW-SEC-008: save() now uses json.dumps (string) not json.dump (file).
+        # save() now uses json.dumps (string) not json.dump (file).
         # Mock json.dumps to raise OSError so the test verifies save()
         # returns False on error.
         def failing_dumps(*args, **kwargs):
@@ -610,7 +622,7 @@ class TestConfigSaveEnforcesPosixFilePermissions:
         assert mode == 0o600
 
 
-# ── TEST-032: Parametrized config tests ─────────────────────────────────
+# Parametrized config tests ─────────────────────────────────
 
 
 class TestConfigParametrized:
@@ -714,7 +726,7 @@ class TestConfigParametrized:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# CFG-5: validate_config_update accumulates ALL errors (was: break on first)
+# validate_config_update accumulates ALL errors (was: break on first)
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -836,7 +848,7 @@ class TestCfg5AccumulateAllErrors:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# CFG-6: string validators reject control characters
+# string validators reject control characters
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -925,7 +937,7 @@ class TestCfg6ControlCharRejection:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# CFG-7: URL validator rejects embedded credentials
+# URL validator rejects embedded credentials
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -1030,7 +1042,7 @@ class TestCfg7UrlCredentialsRejection:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# CFG-8: deprecated fields removed from IPC_CONFIG_ALLOWLIST
+# deprecated fields removed from IPC_CONFIG_ALLOWLIST
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -1054,7 +1066,7 @@ class TestCfg8DeprecatedFieldsRemoved:
         "noise_filter_post_capture",
         "volume_duck_per_session",
         "volume_duck_smart",
-        # GT-58: also removed from IPC_CONFIG_ALLOWLIST — these were
+        # also removed from IPC_CONFIG_ALLOWLIST — these were
         # declared, validated, and persisted but never read at runtime
         # (ADR 0007 §4.3 / §5.2). The Config dataclass fields themselves
         # were also removed; existing config.json values are silently
@@ -1063,7 +1075,7 @@ class TestCfg8DeprecatedFieldsRemoved:
         "silence_peak_threshold",
         "normalize_audio",
         "normalize_target_peak",
-        # GT-F2-8: removed from IPC allowlist to match the TS-side
+        # removed from IPC allowlist to match the TS-side
         # contract (config.ts documents this as a write-only back-compat
         # field the renderer MUST NOT write). The Config dataclass field
         # is retained — only the IPC write path is closed.
@@ -1148,11 +1160,11 @@ class TestCfg8DeprecatedFieldsRemoved:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# GT-58: deprecated fields silently scrubbed on load (backward compat)
+# deprecated fields silently scrubbed on load (backward compat)
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestGT58DeprecatedFieldsScrubbedOnLoad:
+class TestDeprecatedFieldsScrubbedOnLoad:
     """GT-58: existing ``config.json`` files written by older app versions
     that still carry the 7 now-removed deprecated fields MUST load without
     raising. The unknown-key filter in ``Config.load()`` (``data = {k: v
@@ -1212,11 +1224,11 @@ class TestGT58DeprecatedFieldsScrubbedOnLoad:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# GT-D1-6 / GT-D1-7: validator and migration function return types
+# validator and migration function return types
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestGTD1ValidatorAndMigrationTypes:
+class TestValidatorAndMigrationTypes:
     """GT-D1-6 / GT-D1-7: the validator entry points and migration
     functions are now typed with parameterised generics instead of bare
     ``dict``/``list``. These tests pin the new type contracts.

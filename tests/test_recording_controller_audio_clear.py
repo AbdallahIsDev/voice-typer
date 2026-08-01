@@ -90,7 +90,7 @@ def test_current_audio_cleared_after_stop_spawns_transcription_thread(monkeypatc
 
         def run(self, **kwargs):
             pipeline_started.set()
-            # DJ-17 assertion: by the time run() is called, the shared
+            # assertion: by the time run() is called, the shared
             # slot MUST already be None (the thread captured the audio
             # into a local and cleared the slot before calling run).
             assert ctrl._current_audio is None, (
@@ -187,7 +187,7 @@ def test_force_recover_clear_still_works():
     ctrl._app._busy_event.is_set.return_value = False
     ctrl._app._cycle_id = "#3"
     # The force-recover path also stops the watchdog thread — provide
-    # a current_thread-safe setup (None is fine — the DJ-23 fix guards
+    # a current_thread-safe setup (None is fine — the  fix guards
     # against None and self-join).
     ctrl._watchdog_thread = None
 

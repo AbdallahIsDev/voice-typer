@@ -150,7 +150,7 @@ class TestMissingFieldsHandledGracefully:
     """Older Config snapshots that lack a secret field must not crash."""
 
     def test_missing_secret_field_not_synthesized(self):
-        # FR-20: with ``dataclasses.asdict``, every declared dataclass
+        # with ``dataclasses.asdict``, every declared dataclass
         # field is present in the output. ``_FakeConfig`` declares all
         # the secret fields with defaults, so they're always present
         # after ``asdict``. The sanitizer must NOT add a phantom
@@ -166,7 +166,7 @@ class TestMissingFieldsHandledGracefully:
         assert result["cloud_api_key"] == ""
 
     def test_empty_config_returns_only_declared_fields(self):
-        # FR-20: ``asdict`` returns exactly the set of declared
+        # ``asdict`` returns exactly the set of declared
         # dataclass fields, even if all of them are at their defaults.
         cfg = _FakeConfig()
         result = sanitize_config_for_ipc(cfg)
@@ -249,12 +249,16 @@ class TestNoTransientAttributesLeaked:
         expected_keys = {
             name
             for name, f in Config.__dataclass_fields__.items()
-            if typing.get_type_hints(Config).get(name, f.type) is not typing.ClassVar
+            if typing.get_origin(typing.get_type_hints(Config).get(name, f.type)) is not typing.ClassVar
+            and typing.get_type_hints(Config).get(name, f.type) is not typing.ClassVar
             and not (isinstance(f.type, str) and "ClassVar" in f.type)
         }
-        # Belt-and-suspenders: also exclude the known ClassVar
-        # ``_mutation_lock`` by name (the only ClassVar on Config).
+        # Belt-and-suspenders: also exclude the known ClassVar fields on
+        # Config (``_mutation_lock`` and ``_SECRET_FIELD_NAMES_FALLBACK``)
+        # — both are ``ClassVar[...]`` and ``dataclasses.asdict``
+        # correctly excludes them.
         expected_keys.discard("_mutation_lock")
+        expected_keys.discard("_SECRET_FIELD_NAMES_FALLBACK")
         assert set(result.keys()) == expected_keys, (
             f"Sanitizer output keys mismatch.\n"
             f"  Expected (Config dataclass fields, ClassVar excluded): "
@@ -273,14 +277,14 @@ class TestSentinelValue:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# FR-22: IPC ``set_config`` handler returns the FULL errors list in the
+# IPC ``set_config`` handler returns the FULL errors list in the
 # error envelope (not just ``errors[0]``), so a new renderer can surface
 # all N field errors at once instead of forcing the user to fix-and-
 # resubmit N times.
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestFR22SetConfigErrorEnvelope:
+class TestSetConfigErrorEnvelope:
     """FR-22: ``_handle_set_config`` includes ``data.errors`` (full list)
     alongside ``data.message`` (first error, backward compat)."""
 
@@ -307,7 +311,7 @@ class TestFR22SetConfigErrorEnvelope:
         resp = ipc_server._handle_set_config({"model_size": "not-a-real-model"}, {})
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "invalid_field"
-        # FR-22: full errors list present.
+        # full errors list present.
         assert "errors" in resp["data"]
         assert isinstance(resp["data"]["errors"], list)
         assert len(resp["data"]["errors"]) == 1
@@ -332,7 +336,7 @@ class TestFR22SetConfigErrorEnvelope:
         )
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "invalid_field"
-        # FR-22: errors list has BOTH errors.
+        # errors list has BOTH errors.
         errors = resp["data"]["errors"]
         assert isinstance(errors, list)
         assert len(errors) >= 2, f"FR-22: expected >=2 errors in envelope, got {len(errors)}: {errors}"
@@ -345,12 +349,12 @@ class TestFR22SetConfigErrorEnvelope:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# FR-28: ``history_enabled`` field on Config (config.py part only —
+# ``history_enabled`` field on Config (config.py part only —
 # P4-A4 owns the dictation_pipeline.py gate).
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestFR28HistoryEnabledField:
+class TestHistoryEnabledField:
     """FR-28: Config has a ``history_enabled: bool = True`` field and
     the IPC allowlist accepts it (so the renderer can toggle it via
     set_config)."""
@@ -429,14 +433,14 @@ class TestFR28HistoryEnabledField:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# FR-21: dead ``volume_duck_smart`` / ``push_to_talk_hotkey`` branches
+# dead ``volume_duck_smart`` / ``push_to_talk_hotkey`` branches
 # removed from config_applier. Verified via source inspection (the
 # branches are gone) + behavior parity (existing hotkey restart path
 # still fires when recording_mode / hotkey changes).
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestFR21DeadBranchesRemoved:
+class TestDeadBranchesRemoved:
     """FR-21: the dead ``if "volume_duck_smart" in updates:`` branch
     and the ``or "push_to_talk_hotkey" in updates`` disjunct have been
     removed from ``config_applier.apply_config_side_effects``.

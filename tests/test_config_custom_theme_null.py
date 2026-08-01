@@ -55,7 +55,7 @@ VALID_CUSTOM_THEME: dict = {
 }
 
 
-class TestFR3ValidatorAcceptsNone:
+class TestValidatorAcceptsNone:
     """FR-3: ``_make_custom_theme_validator`` accepts None."""
 
     def test_validator_returns_none_for_none(self) -> None:
@@ -101,7 +101,7 @@ class TestFR3ValidatorAcceptsNone:
         assert "must be a string" in result or "must be a dict" in result
 
 
-class TestFR3AllowlistAcceptsNone:
+class TestAllowlistAcceptsNone:
     """FR-3: the IPC_CONFIG_ALLOWLIST entry accepts None at the
     type-check stage (before the field validator runs)."""
 
@@ -120,7 +120,7 @@ class TestFR3AllowlistAcceptsNone:
         assert type(None) in expected_type, f"FR-3: expected_type tuple must include type(None); got {expected_type}"
 
 
-class TestFR3ValidateConfigUpdateAcceptsNone:
+class TestValidateConfigUpdateAcceptsNone:
     """FR-3 end-to-end: ``validate_config_update({'custom_theme': None})``
     succeeds and returns the value in the validated dict."""
 
@@ -151,7 +151,7 @@ class TestFR3ValidateConfigUpdateAcceptsNone:
         assert "custom_theme" not in validated
 
 
-class TestFR3ConfigRoundTripWithNone:
+class TestConfigRoundTripWithNone:
     """FR-3: Config.load() and Config.save() round-trip None correctly."""
 
     def test_save_load_round_trip_with_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -197,7 +197,7 @@ class TestFR3ConfigRoundTripWithNone:
 
         cfg = Config.load()
         assert cfg.custom_theme is None
-        # No load warnings about custom_theme (the pre-fix DE-29
+        # No load warnings about custom_theme (the pre-fix
         # validator would have rejected None and added a warning).
         warnings = cfg.last_load_warnings or []
         assert not any("custom_theme" in w for w in warnings), (

@@ -657,8 +657,8 @@ def test_dynamic_microphone_list_api_present_but_noop(
     never have to special-case a missing list.
     """
     # The function MUST be defined on TrayIcon. The signature now
-    # accepts ``list[dict] | None`` (UX-2 / FIX-10 — was ``list[dict]``
-    # in the NEW-CQ-008 no-op era).
+    # accepts ``list[dict] | None`` ( /  — was ``list[dict]``
+    # in the  no-op era).
     set_mics_match = re.search(
         r"def set_microphones\(self,\s*mics:\s*list\[dict\]\s*(?:\|\s*None)?\)\s*->\s*None:",
         tray_py_source,
@@ -999,7 +999,7 @@ def test_cargo_toml_tray_icon_feature_is_enabled(
     )
 
 
-# ─── Section F: Rust host owns the tray (ADR-0020 §6.5 + MIG-1.9 Phase 3) ────
+# Section F: Rust host owns the tray (ADR-0020 §6.5 +  Phase 3) ────
 
 
 def test_main_rs_sets_up_rust_host_tray(main_rs_source) -> None:
@@ -1080,7 +1080,7 @@ def test_tray_rs_routes_clicks_via_tray_click_dispatch() -> None:
         "a tray menu item is clicked — this routes the click back to the "
         "Python sidecar (ADR-0020 §6.5 + MIG-1.9 Phase 3)."
     )
-    # CR-1/CR-2: the tray menu click must be forwarded DIRECTLY through the
+    # the tray menu click must be forwarded DIRECTLY through the
     # WS writer channel — NOT emitted as a Tauri event. The frame is written
     # via `ws_tx.send(Message::Text(frame.to_string()))` after acquiring
     # SidecarState's `ws_tx` mutex.
@@ -1094,7 +1094,7 @@ def test_tray_rs_routes_clicks_via_tray_click_dispatch() -> None:
         "tray.rs must build a WS Message::Text frame to forward tray_click "
         "(CR-1 fix — direct WS write, not a Tauri event emit)."
     )
-    # CR-1 regression guard: the OLD buggy `emit("dispatch", ...)` pattern
+    # regression guard: the OLD buggy `emit("dispatch", ...)` pattern
     # must NOT be present. If it ever returns, the tray menu will be
     # non-functional again (the renderer never listens for the dispatch event).
     assert 'emit("dispatch"' not in src, (
@@ -1175,7 +1175,7 @@ def test_capability_file_grants_core_tray_permissions(
         "needs the default tray-observation permission set (ADR-0020 "
         "§6.5 + XZ-R4-015)."
     )
-    # XZ-R4-015: the explicit manipulation grants MUST NOT be present
+    # the explicit manipulation grants MUST NOT be present
     # (the renderer never invokes them; the Rust host owns the tray
     # and does not need a capability grant).
     forbidden_tray_perms = [

@@ -63,7 +63,7 @@ def diag_dir(tmp_path: Path) -> Path:
     return tmp_path / "config"
 
 
-# ─── GT-14: log level is CRITICAL, not ERROR; no [FATAL] prefix ─────────
+# log level is CRITICAL, not ERROR; no [FATAL] prefix ─────────
 
 
 class TestGt14CriticalLevel:
@@ -190,10 +190,10 @@ class TestGt14CriticalLevel:
         )
 
 
-# ─── GT-B1-5: stderr print fallback must pipe through _redact_text ────
+# stderr print fallback must pipe through _redact_text ────
 
 
-class TestGTB15StderrRedaction:
+class TestStderrRedaction:
     """GT-B1-5: the ``print(buf.getvalue(), file=sys.stderr)`` third-tier
     fallback must call ``redact_for_export`` on the payload BEFORE the
     print so secrets embedded in the traceback are masked the same way
@@ -340,7 +340,7 @@ class TestGTB15StderrRedaction:
             #   2. primary-write payload (inside the outer try, before
             #      _secure_atomic_write raises OSError).
             # The 3rd call is inside the stderr-fallback try block —
-            # raise here so the GT-B1-5 except branch fires.
+            # raise here so the  except branch fires.
             if call_state["n"] >= 3:
                 raise RuntimeError("redactor broken on stderr fallback")
             return real_redact(text)
@@ -365,7 +365,7 @@ class TestGTB15StderrRedaction:
         stderr_text = captured.err
         # The diagnostic header must still be on stderr even though the
         # redactor blew up on the stderr-fallback call — proves the
-        # GT-B1-5 fallback-to-unredacted branch fired.
+        # fallback-to-unredacted branch fired.
         assert "Voice Typer startup failed at" in stderr_text
         # And we must have actually taken the raising branch (i.e. the
         # side_effect was called at least 3 times).
@@ -459,7 +459,7 @@ class TestHeaderPreservation:
         assert "--- custom-phase failed at" in written_payloads[0]
 
 
-# ─── PI-12: /tmp fallback uses O_TRUNC (not O_EXCL) so repeated crash dumps ─
+# tmp fallback uses O_TRUNC (not O_EXCL) so repeated crash dumps ─
 # ─── can overwrite a previous diagnostic file ──────────────────────────────
 
 
@@ -509,7 +509,7 @@ class TestPi12TmpFallbackOverwrite:
         ):
             # First crash dump.
             write_startup_diagnostic("construction", exc=RuntimeError("first crash"))
-            # Second crash dump — must NOT raise. Pre-PI-12, this would
+            # Second crash dump — must NOT raise. Pre-, this would
             # raise FileExistsError (caught by the outer except) and the
             # second crash's traceback would be lost.
             write_startup_diagnostic("construction", exc=RuntimeError("second crash"))

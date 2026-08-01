@@ -32,7 +32,7 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
-# ── Whisper (transcription.py) — DJ-12 abort infrastructure ────────────
+# Whisper (transcription.py) —  abort infrastructure ────────────
 
 
 @pytest.fixture(autouse=True)
@@ -171,7 +171,7 @@ class TestTranscriptionEngineAbort:
         assert "segment 4" not in result, f"abort should have stopped the loop early, but got full result: {result!r}"
 
 
-# ── Parakeet (parakeet_engine.py) — DJ-12 StoppingCriteria ─────────────
+# Parakeet (parakeet_engine.py) —  StoppingCriteria ─────────────
 
 
 class TestParakeetAbortStoppingCriteria:
@@ -321,7 +321,7 @@ class TestParakeetEngineAbort:
         assert results == ["chunk-1", "chunk-2"]
 
 
-# ── Cloud (cloud_engines.py) — DJ-12 + DJ-13 ───────────────────────────
+# Cloud (cloud_engines.py) —  +  ───────────────────────────
 
 
 class TestCloudEngineAbort:
@@ -520,7 +520,7 @@ class TestCloudEngineTimeout:
         assert captured_kwargs.get("timeout") == 10.0
 
 
-# ── Pipeline (dictation_pipeline.py) — DJ-12 wiring ────────────────────
+# Pipeline (dictation_pipeline.py) —  wiring ────────────────────
 
 
 class TestDictationPipelineRequestAbort:

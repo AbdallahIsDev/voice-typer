@@ -32,7 +32,7 @@ from voice_typer.server.config_validators import (
 )
 
 
-class TestYJ24NonStringHotkeyCoercion:
+class TestNonStringHotkeyCoercion:
     """Pin the YJ-24 behaviour: non-string hotkeys become ``None``.
 
     Each test constructs a ``Config``-like object with one or more
@@ -66,10 +66,10 @@ class TestYJ24NonStringHotkeyCoercion:
         ):
             errors = validate_config(cfg)
 
-        # YJ-24: function does NOT raise.
+        # function does NOT raise.
         assert isinstance(errors, list)
-        # YJ-24: the non-string ``123`` was coerced to ``None`` (NOT
-        # stored as-is). The pre-YJ-24 behaviour would have left
+        # the non-string ``123`` was coerced to ``None`` (NOT
+        # stored as-is). The pre- behaviour would have left
         # ``hotkey=123`` in the dict.
         assert "field_values" in captured, "_check_cross_field_hotkey_conflicts was not invoked — patch failed"
         fv = captured["field_values"]

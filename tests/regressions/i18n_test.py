@@ -17,7 +17,7 @@ import json
 from pathlib import Path
 
 
-# WP-1: the previous Linux test-env shim that aliased
+# the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
 # removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
@@ -76,7 +76,7 @@ class TestSpanishTranslationComplete:
         assert not missing, f"UX-015: es.json is missing keys that en.json has: {sorted(missing)}"
 
     def test_i18n_ts_registers_spanish(self):
-        # RW-8: KEEP — pins UX-015 (Spanish translation registered in i18n.ts).
+        # KEEP — pins  (Spanish translation registered in i18n.ts).
         # A behavioral test would need to render a component and verify the
         # Spanish label appears, which is heavy (requires a renderer test
         # harness); the file-content check catches removal of the import
@@ -92,7 +92,7 @@ class TestSpanishTranslationComplete:
             / "i18n.ts"
         )
         src = i18n_path.read_text(encoding="utf-8")
-        # ER-65: non-English locales are now dynamically imported via
+        # non-English locales are now dynamically imported via
         # ensureLocaleLoaded() rather than static `import es from ...`.
         # Verify "es" is listed in SUPPORTED_LOCALES and that the dynamic
         # import mechanism (ensureLocaleLoaded) exists.
@@ -100,7 +100,7 @@ class TestSpanishTranslationComplete:
         assert "ensureLocaleLoaded" in src, "UX-015: i18n.ts must define ensureLocaleLoaded for dynamic locale loading"
 
     def test_i18n_ts_exports_locale_helpers(self):
-        # RW-8: KEEP — pins UX-015 (i18n.ts exports SUPPORTED_LOCALES and
+        # KEEP — pins  (i18n.ts exports SUPPORTED_LOCALES and
         # getLocaleLabel). Same rationale as test_i18n_ts_registers_spanish.
         i18n_path = (
             Path(__file__).resolve().parent.parent.parent
@@ -117,12 +117,12 @@ class TestSpanishTranslationComplete:
         assert "export function getLocaleLabel" in src, "UX-015: i18n.ts must export getLocaleLabel"
 
     def test_settings_tsx_has_ui_language_selector(self):
-        # RW-8: KEEP — pins UX-015 (UI language selector in
+        # KEEP — pins  (UI language selector in
         # GeneralSettingsSection.tsx). A behavioral test would need to
         # render the component and interact with the selector, which is
         # heavy; the file-content check catches removal of the selector
         # directly.
-        # UX-015: The UI language selector was refactored out of
+        # The UI language selector was refactored out of
         # Settings.tsx into the dedicated GeneralSettingsSection
         # component (see components/settings/GeneralSettingsSection.tsx).
         # We assert against the new location.
@@ -149,7 +149,7 @@ class TestSpanishTranslationComplete:
         assert "voice-typer-ui-locale" in src, "UX-015: Settings.tsx must persist locale to localStorage"
 
     def test_i18n_ts_restores_locale_from_local_storage(self):
-        # RW-8: KEEP — pins UX-015 (i18n.ts restores locale from localStorage
+        # KEEP — pins  (i18n.ts restores locale from localStorage
         # on startup). Same rationale as test_i18n_ts_registers_spanish.
         i18n_path = (
             Path(__file__).resolve().parent.parent.parent
@@ -237,7 +237,7 @@ class TestTrayLocaleSwitchingRebuildsMenu:
         tray.set_tray_locale("en")
 
     def test_ipc_set_tray_locale_handler_exists(self):
-        # RW-8: KEEP — pins TRAY-008 (IPC handler for set_tray_locale exists
+        # KEEP — pins  (IPC handler for set_tray_locale exists
         # and rebuilds the tray menu). The sibling test_locale_switching_to_spanish
         # tests the locale switching behavior, but doesn't verify the IPC
         # handler exists; the source-string check catches removal of the

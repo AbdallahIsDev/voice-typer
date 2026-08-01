@@ -254,11 +254,11 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
     """
     from voice_typer.server.recording import Recorder
 
-    # ZR-60: secure-clear call sites live in the helper (extracted from
+    # secure-clear call sites live in the helper (extracted from
     # ``Recorder.start`` to keep ``start()`` a thin orchestrator).
     src = inspect.getsource(Recorder._secure_clear_session_caches)
     # The secure-clear call sites must be present (regression check for
-    # CR-21 itself: the import fix means the call no longer raises
+    # itself: the import fix means the call no longer raises
     # NameError, so the call sites must still be there).
     assert "_secure_clear_array(self._cached_resampled)" in src, (
         "Recorder._secure_clear_session_caches must call _secure_clear_array on _cached_resampled"
@@ -271,7 +271,7 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
     # ``except Exception:`` is absent from the whole helper source
     # because the helper has several other ``except Exception:`` clauses
     # for unrelated concerns (device probing, audio stream teardown, etc.)
-    # that are out of scope for CR-21.
+    # that are out of scope for
     lines = src.split("\n")
     secure_clear_block: list[str] = []
     in_block = False
@@ -287,7 +287,7 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
             # Stop after we've seen the body of the second ``except ...:``
             # clause (one for _cached_resampled, one for
             # _cached_no_resample_arr).  The body may be ``pass`` (the
-            # original CR-21 form) or — per the project's
+            # original  form) or — per the project's
             # "no ``except: pass``" rule — a real handler such as
             # ``log.warning(...)``.  Either way, the first non-empty,
             # non-``except`` line after the 2nd ``except`` marks the end
@@ -366,7 +366,7 @@ def test_secure_clear_array_idempotent_across_sessions(iteration: int):
         assert np.all(previous_audio == 0), f"iteration {i}: previous_audio must be zeroed after start()"
 
 
-# ─── 6. G4-H-06: stop() / discard() zero cached arrays in-place ────────
+# 6. : stop() / discard() zero cached arrays in-place ────────
 
 
 def test_stop_clears_cached_arrays():
@@ -411,7 +411,7 @@ def test_stop_clears_cached_arrays():
     # ``_secure_clear_caches()`` must be called either way.
     rec.stop()
 
-    # G4-H-06: the underlying numpy buffers must be zeroed in-place
+    # the underlying numpy buffers must be zeroed in-place
     # (not just dereferenced).  If ``stop()`` had only reassigned the
     # cache attributes, these separate refs would still hold the
     # original non-zero data.
@@ -480,7 +480,7 @@ def test_discard_clears_cached_arrays():
     assert np.all(cached_no_resample == 0), "Recorder.discard() must zero _cached_no_resample_arr in-place (G4-H-06)."
 
 
-# ─── 7. XE-6-1: stop()/discard()/start() zero the segments list in-place ──
+# 7. : stop()/discard()/start() zero the segments list in-place ──
 
 
 def _assert_array_memory_zeroed(arr: np.ndarray, *, ctx: str = "") -> None:

@@ -57,7 +57,7 @@ import pytest
 from voice_typer.server.ipc_server import IPCServer
 from voice_typer.server.tray import AppState
 
-# ── DE-30: class-attribute and subclass tests ───────────────────────────
+# class-attribute and subclass tests ───────────────────────────
 
 
 class TestConsentRequiredErrorAttributes:
@@ -149,7 +149,7 @@ class TestConsentRequiredErrorAttributes:
         assert "cloud consent missing" in str(exc)
 
 
-# ── DE-30: cloud_engines raise site uses the typed subclass ─────────────
+# cloud_engines raise site uses the typed subclass ─────────────
 
 
 class TestCloudEngineRaisesCloudConsentRequiredError:
@@ -194,7 +194,7 @@ class TestCloudEngineRaisesCloudConsentRequiredError:
             assert exc_info.value.scope == "transcribe"
 
 
-# ── DE-31: transcribe_with_fallback no longer swallows consent errors ──
+# transcribe_with_fallback no longer swallows consent errors ──
 
 
 class TestTranscribeWithFallbackRespectsConsent:
@@ -341,7 +341,7 @@ def _patch_transcribe(engine, side_effect):
     return _PatchTranscribe(engine, side_effect)
 
 
-# ── DE-31: IPC dispatch path produces a consent_required envelope ──────
+# IPC dispatch path produces a consent_required envelope ──────
 # (mirrors tests/test_ipc_dispatch_errors.py infrastructure)
 
 
@@ -555,7 +555,7 @@ class TestIpcDispatchConsentRequiredEnvelope:
         assert resp.get("id") == 7
         assert resp["data"]["code"] == "server.consent_required"
         # ``provider`` / ``scope`` come from the subclass's class
-        # attributes (DE-30) — they're NOT set per-instance like
+        # attributes () — they're NOT set per-instance like
         # ``CloudConsentRequiredError``.
         assert resp["data"]["provider"] == "huggingface"
         assert resp["data"]["scope"] == "download"

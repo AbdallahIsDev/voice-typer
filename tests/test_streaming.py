@@ -13,7 +13,7 @@ from voice_typer.server.streaming import (
     WordTiming,
 )
 
-# WR-11: detect once at import time whether hypothesis is installed.
+# detect once at import time whether hypothesis is installed.
 # Tests in TestHypothesisAudioPipeline require it; the class-level
 # pytestmark below skips them as a group if it isn't, replacing the
 # previous per-method ``setup_method`` skip (which called
@@ -321,7 +321,7 @@ def test_streaming_session_start_and_cancel_stop_worker():
     )
 
     session.start()
-    # ARCH-025: cancel() is non-blocking by default; pass blocking=True
+    # cancel() is non-blocking by default; pass blocking=True
     # to wait for the worker.
     session.cancel(blocking=True)
 
@@ -376,7 +376,7 @@ class TestConcurrentAccess:
         assert len(errors) == 0, f"Concurrent access errors: {errors}"
 
 
-class TestH8Pruning:
+class TestPruning:
     """H8: Unbounded memory growth in streaming assembler."""
 
     def test_old_words_are_pruned_after_commit_horizon(self):
@@ -413,7 +413,7 @@ class TestH8Pruning:
         assert "keep" in assembler.committed_text
 
 
-class TestH14FinalizeRace:
+class TestFinalizeRace:
     """H14: Streaming finalize() races with still-running thread."""
 
     def test_cancel_uses_10_second_timeout(self):
@@ -458,7 +458,7 @@ class TestH14FinalizeRace:
         assert session._stopped_event.is_set()
 
 
-class TestM16WordKeyIndex:
+class TestWordKeyIndex:
     """M16: O(n²) near-duplicate detection in streaming."""
 
     def test_near_duplicate_uses_index(self):
@@ -489,7 +489,7 @@ class TestM16WordKeyIndex:
         assert result == ""  # Duplicate was rejected
 
 
-class TestM18AssemblerLock:
+class TestAssemblerLock:
     """M18: Streaming committed_text read without lock."""
 
     def test_committed_text_is_thread_safe(self):
@@ -531,7 +531,7 @@ class TestM18AssemblerLock:
         assert len(errors) == 0
 
 
-class TestM17TransientErrorRetry:
+class TestTransientErrorRetry:
     """M17: Transient errors permanently disable streaming — now uses retry counter."""
 
     def test_single_failure_does_not_require_fallback(self):
@@ -610,7 +610,7 @@ class TestM17TransientErrorRetry:
         assert session._fallback_required is False
 
 
-# ── TEST-005: property-based test for audio pipeline ─────────────────────
+# property-based test for audio pipeline ─────────────────────
 
 
 class TestAudioPipelineProperties:
@@ -704,7 +704,7 @@ class TestAudioPipelineProperties:
             assert int16.max() <= 32767
 
 
-# ── TEST-005: Hypothesis-based generative property tests ─────────────────
+# Hypothesis-based generative property tests ─────────────────
 
 
 class TestHypothesisAudioPipeline:
@@ -778,10 +778,10 @@ class TestHypothesisAudioPipeline:
         check()
 
 
-# ─── DE-57 (Session DE — Group 4): eviction log privacy ───────────────
+# (Session DE — Group 4): eviction log privacy ───────────────
 
 
-class TestDE57EvictionLogPrivacy:
+class TestEvictionLogPrivacy:
     """DE-57: the DEBUG-level eviction log in
     ``StreamingTextAssembler._insert_word_unlocked`` must NOT emit the
     evicted word's textual content.
@@ -876,40 +876,7 @@ class TestDE57EvictionLogPrivacy:
         )
 
 
-# ── XZ-PRIV-02: streaming session securely zeros audio buffers ──────────
-
-
-def test_secure_clear_audio_helper_zeros_in_place():
-    """XZ-PRIV-02: ``_secure_clear_audio`` mirrors the batch path's
-    ``_secure_clear_array`` so the streaming path doesn't leak voice
-    data via process memory after transcription.
-
-    Pre-fix: ``streaming.py`` had no secure-clear helper at all — audio
-    arrays (recorder snapshots + window views) lingered until the next
-    GC pass.  Post-fix: the helper exists and zeros non-empty numpy
-    arrays in-place.
-    """
-    from voice_typer.server.streaming import _secure_clear_audio
-
-    arr = np.array([0.5, -0.3, 0.8, 0.0, -1.0], dtype=np.float32)
-    assert np.any(arr != 0), "test setup: array must start non-zero"
-
-    _secure_clear_audio(arr)
-
-    assert np.all(arr == 0), "_secure_clear_audio must zero the array in-place (XZ-PRIV-02 / SEC-audit-008)"
-    assert arr.shape == (5,)
-    assert arr.dtype == np.float32
-
-
-def test_secure_clear_audio_handles_none_and_empty():
-    """XZ-PRIV-02: ``_secure_clear_audio`` must be a safe no-op for
-    ``None`` / empty arrays so callers don't have to pre-check."""
-    from voice_typer.server.streaming import _secure_clear_audio
-
-    _secure_clear_audio(None)  # must not raise
-    empty = np.array([], dtype=np.float32)
-    _secure_clear_audio(empty)
-    assert empty.size == 0
+# streaming session securely zeros audio buffers ──────────
 
 
 def test_process_available_audio_once_zeros_snapshot_after_transcription():
@@ -937,7 +904,7 @@ def test_process_available_audio_once_zeros_snapshot_after_transcription():
 
     assert session.process_available_audio_once() is True
 
-    # The snapshot buffer must be zeroed in-place (XZ-PRIV-02 / SEC-audit-008).
+    # The snapshot buffer must be zeroed in-place ( / SEC-audit-008).
     assert np.all(snapshot == 0), (
         "StreamingTranscriptionSession.process_available_audio_once must zero "
         "the recorder snapshot in-place after transcription (XZ-PRIV-02). "

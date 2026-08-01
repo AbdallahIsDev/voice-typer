@@ -385,7 +385,7 @@ class TestExtractionPatternConsistency:
     using the 2 shipped reference classes as the source of truth.
     """
 
-    # Already-shipped reference extractions (RW-9 Phase 1 + Phase 6).
+    # Already-shipped reference extractions ( Phase 1 + Phase 6).
     # These are NOT skipped via importorskip -- if either is missing,
     # the pattern itself has drifted and we want a hard failure.
     REFERENCE_CLASSES: tuple[tuple[str, str], ...] = (
@@ -393,7 +393,7 @@ class TestExtractionPatternConsistency:
         ("voice_typer.server.recording_controller", "RecordingController"),
     )
 
-    # New RW-9 Phase 7 extractions. importorskip per module so the test
+    # New  Phase 7 extractions. importorskip per module so the test
     # skips cleanly if any parallel sub-agent hasn't landed their module
     # yet (the per-class contract tests above already cover this case;
     # this test exists to enforce cross-class consistency once all 5

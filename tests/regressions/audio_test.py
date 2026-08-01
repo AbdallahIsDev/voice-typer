@@ -21,7 +21,7 @@ import numpy as np
 import pytest
 
 
-# WP-1: the previous Linux test-env shim that aliased
+# the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
 # removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
@@ -108,7 +108,7 @@ class TestAudioCallbackUsesMinimalLockScope:
         """
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-        # S3-CR-17 / Phase 4.5: the buffer-append lock scope moved to
+        # Phase 4.5: the buffer-append lock scope moved to
         # AudioPipeline.append_to_buffer_locked. Recorder._process_audio_chunk
         # is now a 1-line delegator — inspect the pipeline method instead.
         src = inspect.getsource(AudioPipeline.append_to_buffer_locked)
@@ -130,11 +130,11 @@ class TestRmsSnapshotReadsInsideLock:
     """
 
     def test_recent_rms_set_inside_lock(self):
-        # RW-8: KEEP — pins RACE-003 invariant (RMS written inside lock
+        # KEEP — pins RACE-003 invariant (RMS written inside lock
         # so the audio callback and the level-monitor reader never race).
-        # S3-CR-17 / Phase 4.5: the processing body moved from
+        # Phase 4.5: the processing body moved from
         # Recorder._process_audio_chunk to AudioPipeline.process_audio_chunk.
-        # The old snapshot pattern was removed (PVT-27) — _last_rms is now
+        # The old snapshot pattern was removed () — _last_rms is now
         # set atomically under the lock.
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
@@ -274,7 +274,7 @@ class TestVadGreyZonePreservesCounters:
     """
 
     def test_grey_zone_does_not_reset_counters(self):
-        # RW-8: KEEP — pins AUDIO-013 fix (grey-zone else block uses
+        # KEEP — pins  fix (grey-zone else block uses
         # `pass` instead of resetting both counters). The sibling
         # test_grey_zone_preserves_counters_at_runtime tests behaviorally,
         # but the source-string check catches regressions where the
@@ -283,32 +283,28 @@ class TestVadGreyZonePreservesCounters:
         from voice_typer.server import recording as rec_mod
 
         src = inspect.getsource(rec_mod.Recorder._vad_update)
-        # Find the AUDIO-013 grey-zone else block. The method has two
-        # AUDIO-013 comments — the first is in the docstring, the second
+        # Find the  grey-zone else block. The method has two
+        # comments — the first is in the docstring, the second
         # is the grey-zone fix comment. We want the SECOND one.
-        audio013_idx = src.find("AUDIO-013: Grey zone")
-        assert audio013_idx >= 0, "AUDIO-013 grey-zone comment not found"
+        audio013_idx = src.find("Grey zone (between speech and silence thresholds)")
+        assert audio013_idx >= 0, "grey-zone comment not found"
         # Extract a generous window after the comment to capture the
         # full else body (the comment block + the actual `pass` line).
         following = src[audio013_idx : audio013_idx + 800]
         # The grey zone block must contain 'pass' (the fix)
-        assert "pass" in following, (
-            "AUDIO-013 fix: the grey-zone else block must use 'pass' instead of resetting both counters."
-        )
+        assert "pass" in following, "grey-zone fix: the else block must use 'pass' instead of resetting both counters."
         # The else block must NOT contain counter resets in the lines
-        # immediately following the AUDIO-013 comment (before the next
+        # immediately following the  comment (before the next
         # "State transitions" section).
         state_transitions_idx = following.find("State transitions")
         if state_transitions_idx < 0:
             state_transitions_idx = len(following)
         else_body = following[:state_transitions_idx]
         assert "_vad_consecutive_silence_frames = 0" not in else_body, (
-            "AUDIO-013 regression: grey-zone else block resets "
-            "_vad_consecutive_silence_frames — should preserve counters."
+            "grey-zone regression: else block resets _vad_consecutive_silence_frames — should preserve counters."
         )
         assert "_vad_consecutive_speech_frames = 0" not in else_body, (
-            "AUDIO-013 regression: grey-zone else block resets "
-            "_vad_consecutive_speech_frames — should preserve counters."
+            "grey-zone regression: else block resets _vad_consecutive_speech_frames — should preserve counters."
         )
 
     def test_grey_zone_preserves_counters_at_runtime(self):
@@ -338,7 +334,7 @@ class TestVadGreyZonePreservesCounters:
 
         # Simulate a grey-zone chunk: between silence (-50) and speech (-30)
         rec._vad_update(-40.0)  # grey zone
-        # AUDIO-013 fix: counters must NOT be reset
+        # fix: counters must NOT be reset
         assert rec._vad_consecutive_speech_frames == 1, (
             f"AUDIO-013 regression: grey-zone chunk reset speech counter "
             f"from 1 to {rec._vad_consecutive_speech_frames} — should "
@@ -367,7 +363,7 @@ class TestVadAutoCalibrationBehavior:
         rec = Recorder(cfg)
         # This test verifies RMS/dB-threshold auto-calibration. When Silero
         # VAD is the active backend, dB calibration is intentionally skipped
-        # (AUDIO-4: Silero uses probability thresholds), so force the RMS
+        # (: Silero uses probability thresholds), so force the RMS
         # backend path to exercise the calibration logic under test.
         rec._vad._silero_available = False
         rec._vad._use_silero_vad = False
@@ -570,7 +566,7 @@ class TestAudioAgcLastRmsPostAgc:
         """
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
-        # S3-CR-17 / Phase 4.5: inspect AudioPipeline.process_audio_chunk
+        # Phase 4.5: inspect AudioPipeline.process_audio_chunk
         # (the new home of the body, running on the audio worker thread).
         src = inspect.getsource(AudioPipeline.process_audio_chunk)
         # The old AGC recompute block should NOT exist anymore
@@ -760,7 +756,7 @@ class TestAudioClipRealtimeIpcEvent:
     def test_clipping_pushes_audio_clip_ipc_event(self):
         from voice_typer.server import recording
 
-        # RT-SAFE-001: the callback body moved to _process_audio_chunk
+        # the callback body moved to _process_audio_chunk
         # (runs on the audio worker thread instead of the real-time
         # audio thread). The clipping IPC event is still pushed from
         # there — the invariant is preserved.
@@ -777,7 +773,7 @@ class TestAudioClipRealtimeIpcEvent:
         assert "audio_clip" in combined, (
             "AUDIO-CLIP: recording callback must push an 'audio_clip' IPC event when clipping is detected."
         )
-        # B-1 + RW-8: production code now enqueues the event on
+        # B-1 + : production code now enqueues the event on
         # ``self._event_queue`` (a queue.Queue) instead of calling
         # ``event_bus.publish`` directly. A dedicated worker thread
         # drains the queue and calls ``event_bus.publish`` off the
@@ -856,7 +852,7 @@ class TestNumpyVectorizedOpsRegression:
     """
 
     def test_recording_uses_np_dot_for_rms(self):
-        # RW-8: KEEP — pins AUDIO-007 (vectorized np.dot RMS computation).
+        # KEEP — pins  (vectorized np.dot RMS computation).
         # The sibling test_np_dot_rms_matches_naive_computation tests the
         # numerical equivalence, but doesn't catch a regression where the
         # callback switches to a naive np.mean(audio**2) implementation
@@ -939,14 +935,14 @@ class TestAudioDeviceDisconnectHandling:
         rec.on_silence_auto_stop = lambda: None
         rec.on_max_duration_auto_stop = lambda: None
 
-        # S3-CR-17 / Phase 4.5: the device-disconnect body moved from
+        # Phase 4.5: the device-disconnect body moved from
         # Recorder._process_audio_chunk to
         # AudioPipeline.detect_device_disconnect.
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
         src = inspect.getsource(AudioPipeline.detect_device_disconnect)
         assert "_device_disconnected" in src
-        # AUDIO-008 / RT-SAFE-001: the zero-filled disconnect check.
+        # the zero-filled disconnect check.
         # The implementation uses ``not np.any(indata)``
         # (equivalent to ``np.count_nonzero(indata) == 0`` / ``np.all(indata == 0)``);
         # accept any of the three idioms so the test pins the
@@ -992,13 +988,13 @@ class TestBackpressureDetectionOnDequeOverflow:
         assert rec._dropped_chunks >= 1, "AUDIO-010: _dropped_chunks must be incremented when buffer is full."
 
     def test_backpressure_source_uses_maxlen_check(self):
-        # RW-8: KEEP — pins AUDIO-010 (backpressure check compares
+        # KEEP — pins  (backpressure check compares
         # against _buffer.maxlen). The sibling test_backpressure_detection_increments_dropped_chunks
         # tests the increment behavior, but doesn't catch a regression
         # where the comparison is against a hardcoded length. Source-string
         # check catches the implementation choice.
         #
-        # S3-CR-17 / Phase 4.5: backpressure lives in
+        # Phase 4.5: backpressure lives in
         # AudioPipeline.append_to_buffer_locked.
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
@@ -1110,20 +1106,20 @@ class TestPeakMeterAccuracy:
         assert rec._peak == 0.95, f"AUDIO-017: _peak must be 0.95 (max of {test_peaks}), got {rec._peak}"
 
     def test_peak_source_uses_abs_max(self):
-        # RW-8: KEEP — pins AUDIO-017 (peak computation uses abs().max()).
+        # KEEP — pins  (peak computation uses abs().max()).
         # The sibling test_peak_tracking_increments_correctly tests the
         # peak-tracking behavior, but doesn't catch a regression where
         # the implementation switches to max(filtered) (without abs),
         # which would return wrong values for negative-going signals.
         #
-        # S3-CR-17 / Phase 4.5: peak computation lives in
+        # Phase 4.5: peak computation lives in
         # AudioPipeline.compute_rms_and_peak.
         from voice_typer.server.recording.audio_pipeline import AudioPipeline
 
         src = inspect.getsource(AudioPipeline.compute_rms_and_peak)
         # The peak computation returns max(|x|). The canonical forms
         # are ``abs_filtered.max()`` and ``np.abs(filtered).max()``.
-        # PERF-FIX-2 introduced an allocation-free equivalent:
+        # PERF- introduced an allocation-free equivalent:
         # ``max(float(flat.max()), -float(flat.min()))`` — same value
         # (max of absolute values), no intermediate ``np.abs`` array.
         assert (

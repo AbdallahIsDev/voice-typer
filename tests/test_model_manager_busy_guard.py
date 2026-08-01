@@ -155,10 +155,10 @@ def _make_mm(
     return mm, app, config, registry
 
 
-# ── UE-11: set_active_backend deferral ──────────────────────────────
+# set_active_backend deferral ──────────────────────────────
 
 
-class TestUE11SetActiveBackendDefersWhenBusy:
+class TestSetActiveBackendDefersWhenBusy:
     """UE-11: ``set_active_backend`` must defer when the user is
     recording OR the transcribe thread holds the busy event."""
 
@@ -181,7 +181,7 @@ class TestUE11SetActiveBackendDefersWhenBusy:
 
         mm.set_active_backend("qwen")
 
-        # UE-11 contract: the request was deferred.
+        # contract: the request was deferred.
         assert mm._pending_backend_change == "qwen", (
             "UE-11: set_active_backend must capture the requested backend "
             "in _pending_backend_change when recording, so the next "
@@ -284,7 +284,7 @@ class TestUE11SetActiveBackendDefersWhenBusy:
         )
 
 
-class TestUE11ApplyPendingBackendChange:
+class TestApplyPendingBackendChange:
     """UE-11: ``apply_pending_model_change`` must apply a deferred
     backend change captured by ``set_active_backend``."""
 
@@ -311,7 +311,7 @@ class TestUE11ApplyPendingBackendChange:
         # full unload/load cycle.
         mm._pending_backend_change = "whisper"
 
-        # Spy: track _set_active_backend_blocking calls (the AB-10
+        # Spy: track _set_active_backend_blocking calls (the
         # BLOCKING variant — see design note in the docstring above).
         set_backend_calls: list[str] = []
         original_set_active_backend_blocking = mm._set_active_backend_blocking
@@ -367,7 +367,7 @@ class TestUE11ApplyPendingBackendChange:
         mm._pending_model_change = "medium.en"
         mm._pending_backend_change = "whisper"
 
-        # Spy: track apply order on the BLOCKING variants (see AB-10
+        # Spy: track apply order on the BLOCKING variants (see
         # design note in the docstring above).
         apply_calls: list[str] = []
         mm._change_model_blocking = lambda model_size: apply_calls.append(("_change_model_blocking", model_size))
@@ -491,10 +491,10 @@ class TestUE11ApplyPendingBackendChange:
         assert set_backend_calls == ["whisper"]
 
 
-# ── UE-48: ensure_active_engine_loaded busy rejection ───────────────
+# ensure_active_engine_loaded busy rejection ───────────────
 
 
-class TestUE48EnsureActiveEngineLoadedBusyRejection:
+class TestEnsureActiveEngineLoadedBusyRejection:
     """UE-48: ``ensure_active_engine_loaded`` must reject when the
     active backend is busy."""
 
@@ -575,10 +575,10 @@ class TestUE48EnsureActiveEngineLoadedBusyRejection:
         )
 
 
-# ── UE-48: force_unload_active ──────────────────────────────────────
+# force_unload_active ──────────────────────────────────────
 
 
-class TestUE48ForceUnloadActive:
+class TestForceUnloadActive:
     """UE-48: ``force_unload_active`` is the watchdog's escalation
     path — tears down the stuck model's GPU resources AND clears the
     busy flag so the next dictation isn't rejected."""
@@ -745,10 +745,10 @@ class TestUE48ForceUnloadActive:
         )
 
 
-# ── UE-48 + UE-11 integration: end-to-end stuck recovery ────────────
+# +  integration: end-to-end stuck recovery ────────────
 
 
-class TestUE48StuckRecoveryIntegration:
+class TestStuckRecoveryIntegration:
     """UE-48 + UE-11 integration: simulate the watchdog's full stuck-
     recovery flow and verify the next dictation succeeds."""
 

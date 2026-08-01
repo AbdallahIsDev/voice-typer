@@ -276,7 +276,7 @@ class TestGetWeElevatedLockSemantics:
         # Widen the race window: the mock OpenProcessToken sleeps briefly
         # (releasing the GIL) so other threads get a chance to observe
         # the still-empty cache and enter the cold path too. With the
-        # XV-103 lock, only one thread enters the cold path; the others
+        # lock, only one thread enters the cold path; the others
         # block on the lock and then take the fast path.
         advapi32 = fake_win32_elevated["advapi32"]
 
@@ -304,7 +304,7 @@ class TestGetWeElevatedLockSemantics:
         assert len(results) == n_threads
         assert all(r is True for r in results), f"All threads should see elevated=True; got {results}"
 
-        # XV-103 contract: the Win32 OpenProcessToken call must happen
+        # contract: the Win32 OpenProcessToken call must happen
         # EXACTLY once across all N threads. Before the lock, this would
         # be N calls.
         assert advapi32.OpenProcessToken.call_count == 1, (
@@ -409,7 +409,7 @@ class TestGetUiaSingletonLockSemantics:
         assert len(results) == n_threads
         assert all(r is expected_uia for r in results), "All threads should see the same cached UIA singleton"
 
-        # XV-103 contract: CoCreateInstance must be called EXACTLY once.
+        # contract: CoCreateInstance must be called EXACTLY once.
         assert comtypes.CoCreateInstance.call_count == 1, (
             f"CoCreateInstance should be called once (lock serializes init); got {comtypes.CoCreateInstance.call_count}"
         )

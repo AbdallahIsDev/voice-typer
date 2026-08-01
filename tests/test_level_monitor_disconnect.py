@@ -55,13 +55,13 @@ def _reset_level_monitor_state():
     lm._dropped_level_chunks = 0
     lm._last_drop_log_time = 0.0
     lm._level_ring_buffer.clear()
-    # TY-4: reset disconnect-detection state.
+    # reset disconnect-detection state.
     lm._consecutive_zero_chunks = 0
     lm._device_lost_emitted = False
     # Stop any worker threads from a previous test.
     lm._stop_level_worker()
     lm._stop_mic_level_worker()
-    # TY-18: clear the mic_level queue + reset throttle timestamp.
+    # clear the mic_level queue + reset throttle timestamp.
     while lm._mic_level_queue:
         try:
             lm._mic_level_queue.popleft()
@@ -143,11 +143,11 @@ def _patch_event_bus_publish(monkeypatch):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TY-4: finished_callback wiring
+# finished_callback wiring
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestTY4FinishedCallbackWiring:
+class TestFinishedCallbackWiring:
     """TY-4: ``sd.InputStream`` is constructed with a ``finished_callback``.
 
     Without this parameter, PortAudio's device-lost signal is silently
@@ -190,11 +190,11 @@ class TestTY4FinishedCallbackWiring:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TY-4: device_lost IPC event emission
+# device_lost IPC event emission
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestTY4DeviceLostEventEmitted:
+class TestDeviceLostEventEmitted:
     """TY-4: a ``device_lost`` IPC event is published on disconnect.
 
     Event shape: ``{type: "device_lost", data: {source: <str>}}`` where
@@ -301,11 +301,11 @@ class TestTY4DeviceLostEventEmitted:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TY-4: idempotency
+# idempotency
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestTY4Idempotency:
+class TestIdempotency:
     """TY-4: ``device_lost`` is emitted ONCE per disconnect episode.
 
     The ``_device_lost_emitted`` flag guards both the finished_callback
@@ -395,7 +395,7 @@ class TestTY4Idempotency:
         holder2 = _wire_stream_with_callback_capture(monkeypatch)
         lm.start_monitoring(mic_id=None)
 
-        # TY-4: flag must be cleared by start_monitoring.
+        # flag must be cleared by start_monitoring.
         assert lm._device_lost_emitted is False, (
             "TY-4: start_monitoring must clear _device_lost_emitted so a "
             "fresh disconnect can emit a new device_lost event"

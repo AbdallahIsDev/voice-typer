@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
 
-# ── CR-10: ``onboarding_check_permissions`` returns a permission-state dict ──
+# ``onboarding_check_permissions`` returns a permission-state dict ──
 
 
 class TestOnboardingCheckPermissions:
@@ -66,7 +66,7 @@ class TestOnboardingCheckPermissions:
         # Windows / unknown) or a dict with title / steps / commands
         # (macOS / Linux when permission is still needed).
         if data["instructions"] is not None:
-            # NH-49 (session NH): server returns i18n keys (title_key /
+            # (session NH): server returns i18n keys (title_key /
             # steps_keys) for the renderer to localize. Accept either the
             # i18n-key form or the legacy literal form.
             assert "title_key" in data["instructions"] or "title" in data["instructions"]
@@ -118,7 +118,7 @@ class TestOnboardingCheckPermissions:
         assert data["state"] == "denied"
         assert data["needed"] is True
         assert data["instructions"] is not None
-        # NH-49 (session NH): server returns i18n keys (steps_keys) for the
+        # (session NH): server returns i18n keys (steps_keys) for the
         # renderer to localize. Resolve them via en.json before checking.
         import json
         from pathlib import Path
@@ -178,7 +178,7 @@ class TestOnboardingCheckPermissions:
         assert data["instructions"] is None
 
 
-# ── CR-64: ``onboarding_set_microphone`` accepts ``mic_id=None`` ────────────
+# ``onboarding_set_microphone`` accepts ``mic_id=None`` ────────────
 
 
 class TestOnboardingSetMicrophoneAcceptsNull:

@@ -50,7 +50,7 @@ class TestDownloadModel:
         fake_service.download_model.side_effect = RuntimeError("network down")
         resp = ipc_server._handle_download_model({"model": "small.en"}, {})
         assert resp["type"] == "error"
-        # CR-20 + G4-M-22: generic WS-path envelope (no ``str(exc)`` leak).
+        # + : generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -69,7 +69,7 @@ class TestCancelModelDownload:
         fake_service.cancel_model_download.side_effect = RuntimeError("no download in progress")
         resp = ipc_server._handle_cancel_model_download({}, {})
         assert resp["type"] == "error"
-        # CR-20 + G4-M-22: generic WS-path envelope (no ``str(exc)`` leak).
+        # + : generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -93,7 +93,7 @@ class TestPauseAndResumeModelDownload:
         fake_service.pause_model_download.side_effect = RuntimeError("no download")
         resp = ipc_server._handle_pause_model_download({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope.
+        # generic WS-path envelope.
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -196,6 +196,6 @@ class TestDeleteModel:
         fake_service.delete_model.side_effect = RuntimeError("model in use")
         resp = ipc_server._handle_delete_model({"model": "small.en"}, {})
         assert resp["type"] == "error"
-        # CR-20 + G4-M-22: generic WS-path envelope (no ``str(exc)`` leak).
+        # + : generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"

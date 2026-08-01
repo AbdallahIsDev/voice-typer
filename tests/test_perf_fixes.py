@@ -10,7 +10,7 @@ Covers GROUP-2 fixes that the comprehensive review labelled XV-1 .. XV-6:
 * XV-2: ``service.download_model``'s progress-polling loop walks ONLY
   the in-progress repo's HF cache subdir, not the entire HF cache tree.
   (Source-level guard already exists in
-  ``tests/test_history_and_models.py::TestPERF21DownloadPollScopedToModelDir``
+  ``tests/test_history_and_models.py::TestDownloadPollScopedToModelDir``
   — we add a complementary spec-resolution test here.)
 * XV-5: ``service._microphones_cache`` is initialised to ``None`` (not
   ``[]``) so a legitimately-empty device list is served from cache
@@ -30,10 +30,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ── XV-1: deps probes use find_spec ───────────────────────────────────
+# deps probes use find_spec ───────────────────────────────────
 
 
-class TestXV1DepsProbesUseFindSpec:
+class TestDepsProbesUseFindSpec:
     """XV-1: replace ``importlib.import_module`` with
     ``importlib.util.find_spec`` in deps-probe helpers so probing for
     ``torch`` / ``qwen_asr`` doesn't execute their (heavy) top-level
@@ -158,15 +158,15 @@ class TestXV1DepsProbesUseFindSpec:
         assert svc._check_qwen_deps() is False
 
 
-# ── XV-2: download_model polling walks only the per-repo subdir ──────
+# download_model polling walks only the per-repo subdir ──────
 
 
-class TestXV2DownloadPollScopedToModelDir:
+class TestDownloadPollScopedToModelDir:
     """XV-2: ``download_model``'s progress-polling loop walks ONLY the
     in-progress repo's HF cache subdir, not the entire HF cache tree.
 
     A source-level guard already exists in
-    ``tests/test_history_and_models.py::TestPERF21DownloadPollScopedToModelDir``.
+    ``tests/test_history_and_models.py::TestDownloadPollScopedToModelDir``.
     We add a complementary assertion here that pins the exact name of
     the per-repo subdir helper so a future refactor that inlines the
     construction in a way that re-widens the rglob still trips this
@@ -190,10 +190,10 @@ class TestXV2DownloadPollScopedToModelDir:
         )
 
 
-# ── XV-5: empty microphone list is served from cache ────────────────
+# empty microphone list is served from cache ────────────────
 
 
-class TestXV5MicrophonesCacheEmptyList:
+class TestMicrophonesCacheEmptyList:
     """XV-5: ``_microphones_cache`` starts as ``None`` (not ``[]``) and
     a legitimately-empty device list is served from cache.
 
@@ -247,7 +247,7 @@ class TestXV5MicrophonesCacheEmptyList:
         )
 
         result = svc.refresh_microphones()
-        # XV-5 fix: empty cache is served (not bypassed).
+        # fix: empty cache is served (not bypassed).
         assert result == [], (
             "XV-5: refresh_microphones must serve the cached empty list "
             "instead of re-querying PortAudio when the cache is empty."
@@ -300,10 +300,10 @@ class TestXV5MicrophonesCacheEmptyList:
         )
 
 
-# ── XV-6: bounded port-readiness poll replaces fixed sleep(2) ────────
+# bounded port-readiness poll replaces fixed sleep(2) ────────
 
 
-class TestXV6WaitForIpcReady:
+class TestWaitForIpcReady:
     """XV-6: ``_wait_for_ipc_ready`` provides a bounded (5 s deadline)
     port-readiness poll that replaces the previous fixed
     ``time.sleep(2)`` after spawning a fresh backend / Electron / Tauri
@@ -412,7 +412,7 @@ class TestXV6WaitForIpcReady:
         assert call_idx["n"] == 3, f"XV-6: expected 3 polls (2 fail + 1 succeed), got {call_idx['n']}"
 
 
-class TestXV6NoFixedSleepTwoInLaunch:
+class TestNoFixedSleepTwoInLaunch:
     """XV-6: the ``launch()`` function must NOT contain any
     ``time.sleep(2)`` calls — they have all been replaced by
     ``_wait_for_ipc_ready()``."""
@@ -425,7 +425,7 @@ class TestXV6NoFixedSleepTwoInLaunch:
 
         src = inspect.getsource(al.launch)
         # Strip comments before checking so a docstring or inline
-        # comment mentioning "time.sleep(2)" (e.g. in XV-6 rationale)
+        # comment mentioning "time.sleep(2)" (e.g. in  rationale)
         # doesn't trip the assertion.
         code_lines = []
         for line in src.splitlines():
@@ -443,10 +443,10 @@ class TestXV6NoFixedSleepTwoInLaunch:
         )
 
 
-# ── XV-4: numpy dead-import removed ──────────────────────────────────
+# numpy dead-import removed ──────────────────────────────────
 
 
-class TestXV4NumpyDeadImportRemoved:
+class TestNumpyDeadImportRemoved:
     """XV-4: the dead ``import numpy as np`` at the top of ``app.py``
     must be removed (it was never used in the module)."""
 

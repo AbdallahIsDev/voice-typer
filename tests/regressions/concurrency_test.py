@@ -19,7 +19,7 @@ from unittest.mock import MagicMock
 import numpy as np
 
 
-# WP-1: the previous Linux test-env shim that aliased
+# the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
 # removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
@@ -51,7 +51,7 @@ class TestConfigMutationLockSharedAcrossIpc:
     """
 
     def test_app_has_config_mutation_lock(self):
-        # RW-8: KEEP — pins RACE-011 fix (app holds a re-entrant lock
+        # KEEP — pins RACE-011 fix (app holds a re-entrant lock
         # for Config mutations). A behavioral test would need to spawn
         # two threads doing set_config concurrently and detect a torn
         # state, which is non-deterministic; the source-string check
@@ -67,7 +67,7 @@ class TestConfigMutationLockSharedAcrossIpc:
         assert "threading.RLock()" in src
 
     def test_ipc_set_config_uses_lock(self):
-        # RW-8: KEEP — pins ADR 0008 §3.1 refactor (lock acquisition
+        # KEEP — pins ADR 0008 §3.1 refactor (lock acquisition
         # moved from IPC handler to service layer). A behavioral test
         # would dispatch set_config concurrently and detect a race,
         # which is non-deterministic; the source-string check catches
@@ -76,7 +76,7 @@ class TestConfigMutationLockSharedAcrossIpc:
         from voice_typer.server.config_applier import ConfigApplier
         from voice_typer.server.service import VoiceTyperService
 
-        # PVT-21 / CR-18: the lock acquisition moved from
+        # the lock acquisition moved from
         # config_handlers._handle_set_config into
         # VoiceTyperService.apply_config, which now delegates to
         # ConfigApplier.apply_config.  The handler still calls
@@ -93,7 +93,7 @@ class TestConfigMutationLockSharedAcrossIpc:
             "facade into ConfigApplier during the PVT-21 wiring)."
         )
         # Belt-and-suspenders: VoiceTyperService.apply_config must
-        # delegate to ConfigApplier (PVT-21 wiring), not re-implement
+        # delegate to ConfigApplier ( wiring), not re-implement
         # the lock inline.
         svc_src = inspect.getsource(VoiceTyperService.apply_config)
         assert "_config_applier" in svc_src, (
@@ -132,7 +132,7 @@ class TestConfigMutationLockSharedAcrossIpc:
         # defensive lookup, which reaches the lock via ``getattr``
         # rather than direct attribute access) don't false-positive.
         # The handler IS allowed to reach the lock via ``getattr`` on
-        # a string literal — that's the documented DE-37 defensive
+        # a string literal — that's the documented  defensive
         # pattern. What's forbidden is treating
         # ``_config_mutation_lock`` as a bare identifier (e.g.
         # ``with self.app._config_mutation_lock:``).
@@ -420,7 +420,7 @@ class TestConfigMutationLockExercisedByConcurrentWrites:
         cfg.save = lambda: True  # avoid disk I/O
         # Mirror the production contract: app owns an RLock that
         # set_config acquires for the full setattr + side-effects
-        # sequence (G4-H-14 in handlers/config_handlers.py).
+        # sequence ( in handlers/config_handlers.py).
         config_mutation_lock = threading.RLock()
 
         # Track how many times a setter had to WAIT for the lock

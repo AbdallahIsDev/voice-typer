@@ -286,7 +286,7 @@ class TestLegacyFieldPropertyDelegatesToRegistry:
         assert registry.get("parakeet") is None
 
 
-# ── G4-CR-08: ModelManager.set_active_backend regression tests ──────
+# ModelManager.set_active_backend regression tests ──────
 
 
 class TestSetActiveBackend:
@@ -458,7 +458,7 @@ class TestSetActiveBackend:
         assert config.asr_backend == "qwen", (
             f"set_active_backend('qwen') should set config.asr_backend='qwen', got {config.asr_backend!r}"
         )
-        # model_size must be PRESERVED (G4-CR-08: "WITHOUT changing model_size").
+        # model_size must be PRESERVED (: "WITHOUT changing model_size").
         assert config.model_size == "small.en", (
             f"set_active_backend should NOT change model_size; expected 'small.en', got {config.model_size!r}"
         )
@@ -468,7 +468,7 @@ class TestSetActiveBackend:
         whisper_engine.unload.assert_called()
 
 
-# ── G4-H-19: whisper fallback constructs whisper on cold boot ───────
+# whisper fallback constructs whisper on cold boot ───────
 
 
 class TestWhisperFallbackConstructsOnColdBoot:
@@ -514,7 +514,7 @@ class TestWhisperFallbackConstructsOnColdBoot:
         # Pre-register the parakeet engine (simulating _ensure_engine having run).
         registry.register("parakeet", failing_engine)
         # IMPORTANT: do NOT register a whisper engine — this is the
-        # cold-boot scenario G4-H-19 addresses.
+        # cold-boot scenario  addresses.
 
         result = registry.load_with_fallback(progress_callback=lambda msg: None)
 
@@ -529,7 +529,7 @@ class TestWhisperFallbackConstructsOnColdBoot:
         )
 
 
-# ── G4-M-45: circuit breaker tests ──────────────────────────────────
+# circuit breaker tests ──────────────────────────────────
 
 
 class TestCircuitBreaker:

@@ -101,7 +101,7 @@ class TestPosixMutexHandleRelease:
         with a ``release()`` method, ``_do_cleanup`` must call
         ``release()`` and set ``_mutex_handle = None``.
         """
-        # Fake the POSIX platform so the YJ-2 branch runs.
+        # Fake the POSIX platform so the  branch runs.
         monkeypatch.setattr("sys.platform", "linux")
 
         handle = MagicMock(name="_PosixSingleInstanceHandle")
@@ -136,7 +136,7 @@ class TestPosixMutexHandleRelease:
         # we don't actually want to run). Set to None to skip the Win32
         # branch entirely (it would try ``ctypes.windll`` which doesn't
         # exist on the Linux test host — the surrounding try/except
-        # swallows the AttributeError, but we want to isolate the YJ-2
+        # swallows the AttributeError, but we want to isolate the
         # POSIX branch in this test).
         fake_app._mutex_handle = None
 

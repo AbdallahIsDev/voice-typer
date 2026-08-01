@@ -144,11 +144,11 @@ class _MockController:
     def quit_app(self) -> None:
         pass
 
-    # DEAD-008: toggle_autostart, set_notifications, set_silence_*,
+    # toggle_autostart, set_notifications, set_silence_*,
     # set_max_recording_time_seconds, create_desktop_shortcut removed from
     # TrayController protocol — no caller existed.
 
-    # UX-1 (FIX-10): undo_last added to TrayController protocol so the
+    # (): undo_last added to TrayController protocol so the
     # tray menu's new "Undo Last" item can call it.
     def undo_last(self) -> None:
         pass
@@ -402,7 +402,7 @@ class TestFullStartRunCycle:
             pytest.fail(f"start() + run() cycle raised unexpectedly: {exc}")
 
 
-# ─── PVT-G5-001: tray-unavailable fallback (Wayland / VOICE_TYPER_NO_TRAY) ──
+# tray-unavailable fallback (Wayland / VOICE_TYPER_NO_TRAY) ──
 
 
 class TestTrayUnavailableFallback:
@@ -680,7 +680,7 @@ class TestWrapSystemExitHandling:
             wrapper(icon=MagicMock(), item=MagicMock())
 
 
-# ─── UX-1 (FIX-10): Undo Last tray menu item ───────────────────────────────
+# (): Undo Last tray menu item ───────────────────────────────
 
 
 class TestUndoLastTrayItem:
@@ -716,7 +716,7 @@ class TestUndoLastTrayItem:
         menu_items = [i for i in items if isinstance(i, _FakeMenuItem)]
         labels = [str(m.args[0]) for m in menu_items]
         undo_idx = next((i for i, lb in enumerate(labels) if "Undo Last" in lb), None)
-        # NH-17: canonical label is "Force cancel transcription" (lowercase c).
+        # canonical label is "Force cancel transcription" (lowercase c).
         force_idx = next((i for i, lb in enumerate(labels) if "Force cancel transcription" in lb), None)
         assert undo_idx is not None, "Undo Last item not found"
         assert force_idx is not None, "Force cancel transcription item not found"
@@ -725,7 +725,7 @@ class TestUndoLastTrayItem:
         )
 
 
-# ─── UX-2 (FIX-10): Microphone submenu + set_microphones cache ────────────
+# (): Microphone submenu + set_microphones cache ────────────
 
 
 class TestMicrophoneSubmenu:
@@ -813,7 +813,7 @@ class TestMicrophoneSubmenu:
         tray._controller.change_microphone.assert_called_once_with("7")
 
 
-# ─── UX-3 (FIX-10): Force Cancel conditional on state == TRANSCRIBING ──────
+# (): Force Cancel conditional on state == TRANSCRIBING ──────
 
 
 class TestForceCancelConditional:
@@ -876,7 +876,7 @@ class TestForceCancelConditional:
         )
 
 
-# ─── UX-11 (FIX-10): Elapsed recording time in tooltip ────────────────────
+# (): Elapsed recording time in tooltip ────────────────────
 
 
 class TestElapsedRecordingTooltip:
@@ -961,7 +961,7 @@ class TestElapsedRecordingTooltip:
         assert ":" not in title, f"IDLE tooltip should NOT include elapsed mm:ss, got: {title!r}"
 
 
-# ─── UX-33 (FIX-10): _open_page generalization ────────────────────────────
+# (): _open_page generalization ────────────────────────────
 
 
 class TestOpenPageGeneralization:
@@ -1022,7 +1022,7 @@ class TestOpenPageGeneralization:
         assert called_paths == ["/settings", "/history", "/about"]
 
 
-# ─── I18N-2 (FIX-10): Tray locale support for all 8 renderer locales ──────
+# I18N-2 (): Tray locale support for all 8 renderer locales ──────
 
 
 class TestTrayLocaleFullCoverage:
@@ -1103,7 +1103,7 @@ class TestTrayLocaleFullCoverage:
         assert _("quit") == "Quit"
 
 
-# ─── UX-5 (FIX-10): update_available_body uses localized template ─────────
+# (): update_available_body uses localized template ─────────
 
 
 class TestUpdateAvailableBodyLocalized:

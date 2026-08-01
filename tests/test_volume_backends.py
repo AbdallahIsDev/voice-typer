@@ -407,7 +407,7 @@ class TestVolumeBackendFadeTo:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# UE-25: per-backend consecutive-error counter (observability)
+# per-backend consecutive-error counter (observability)
 # ═══════════════════════════════════════════════════════════════════════════
 #
 # Backends swallow errors and return safe defaults (True for
@@ -415,14 +415,14 @@ class TestVolumeBackendFadeTo:
 # corrupted by a transient backend hiccup.  But a stuck/revoked COM
 # pointer (Windows), a missing CLI tool (Linux), or revoked AppleScript
 # permission (macOS 13+) would degrade ducking to a silent no-op with
-# no log breadcrumb.  UE-25 adds a per-backend consecutive-error
+# no log breadcrumb.   adds a per-backend consecutive-error
 # counter that surfaces a WARNING after N consecutive failures.
 #
 # The safe-default return values are preserved -- the counter is purely
 # additive observability.
 
 
-class TestUE25WinBackendErrorCounter:
+class TestWinBackendErrorCounter:
     """UE-25: WinVolumeBackend.get_state / is_speaker_active error counter."""
 
     def test_get_state_warns_after_threshold(self, caplog):
@@ -540,7 +540,7 @@ class TestUE25WinBackendErrorCounter:
         assert b._consecutive_errors == 0, "Counter must reset on success"
 
 
-class TestUE25LinuxBackendErrorCounter:
+class TestLinuxBackendErrorCounter:
     """UE-25: LinuxVolumeBackend._alsa_is_playing error counter."""
 
     def test_alsa_is_playing_warns_after_threshold(self, caplog, monkeypatch):
@@ -599,7 +599,7 @@ class TestUE25LinuxBackendErrorCounter:
         assert b._consecutive_errors == 0, "Counter must reset on success"
 
 
-class TestUE25MacBackendErrorCounter:
+class TestMacBackendErrorCounter:
     """UE-25: MacVolumeBackend._osascript_run / _osascript_get_state error counter."""
 
     def test_osascript_run_warns_after_threshold(self, caplog, monkeypatch):
@@ -734,7 +734,7 @@ class TestUE25MacBackendErrorCounter:
         )
 
 
-class TestUE25CrossPlatformImportSafety:
+class TestCrossPlatformImportSafety:
     """UE-25: all backends import cleanly on any OS (no pycaw/pyobjc required)."""
 
     def test_windows_backend_imports_without_pycaw(self):

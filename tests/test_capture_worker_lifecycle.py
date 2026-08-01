@@ -486,7 +486,7 @@ class TestStopEventWorkerBody:
         assert fake._event_worker_thread is None
 
 
-# ── Source-inspection contracts (GT-23 negative) ──────────────────────────
+# Source-inspection contracts ( negative) ──────────────────────────
 
 
 def _strip_docstring(src: str) -> str:

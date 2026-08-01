@@ -65,10 +65,10 @@ def _make_server() -> IPCServer:
     return IPCServer(app, service=service)
 
 
-# ── GT-29: __init__-time registry validation (DT-5 dead-cache removal) ──
+# __init__-time registry validation ( dead-cache removal) ──
 
 
-class TestGT29DispatchTableTyped:
+class TestDispatchTableTyped:
     """GT-29 / DT-5: ``IPCServer.__init__`` validates the
     ``_COMMAND_REGISTRY`` at construction time by looping over every
     entry, resolving it via ``getattr(self, method_name)``, and raising
@@ -172,10 +172,10 @@ class TestGT29DispatchTableTyped:
         assert CommandHandler is not None
 
 
-# ── GT-30: _rate_limiter_instance declared on IPCServer ───────────────
+# _rate_limiter_instance declared on IPCServer ───────────────
 
 
-class TestGT30RateLimiterInstanceDeclared:
+class TestRateLimiterInstanceDeclared:
     """GT-30: ``_rate_limiter_instance`` is declared on IPCServer.__init__
     so the type checker can verify the assignment in
     ``_get_rate_limiter`` without ``# type: ignore[attr-defined]``.
@@ -215,10 +215,10 @@ class TestGT30RateLimiterInstanceDeclared:
         assert server._rate_limiter_instance is limiter
 
 
-# ── GT-25 + GT-45: dispatch lock + TOCTOU re-check ────────────────────
+# + : dispatch lock + TOCTOU re-check ────────────────────
 
 
-class TestGT25GT45DispatchLockAndTOCTOU:
+class TestDispatchLockAndTOCTOU:
     """GT-25: state-mutating dispatches serialize on ``_dispatch_lock``.
     GT-45: shutdown re-check inside the lock closes the TOCTOU window.
     """
@@ -271,7 +271,7 @@ class TestGT25GT45DispatchLockAndTOCTOU:
             resp["data"] = {"ok": True}
             return resp
 
-        # Patch the bound method on the instance. DT-5: the previous
+        # Patch the bound method on the instance. : the previous
         # ``_command_handlers`` instance cache was deleted; ``_dispatch``
         # resolves the handler via ``getattr(self, handler_name, None)``
         # at dispatch time, so monkey-patching the instance attribute is
@@ -313,7 +313,7 @@ class TestGT25GT45DispatchLockAndTOCTOU:
         """
         server = _make_server()
         # Make get_status return a trivial response.
-        # DT-5: the previous ``_command_handlers`` instance cache was
+        # the previous ``_command_handlers`` instance cache was
         # deleted; ``_dispatch`` resolves the handler via
         # ``getattr(self, handler_name, None)`` at dispatch time, so
         # patching the instance attribute is observed directly.
@@ -359,7 +359,7 @@ class TestGT25GT45DispatchLockAndTOCTOU:
         """
         server = _make_server()
         server.app._shutting_down = True  # type: ignore[assignment]
-        # DJ-32: _dispatch reads the cached snapshot (refreshed in
+        # _dispatch reads the cached snapshot (refreshed in
         # start()/stop()) instead of getattr(self.app, "_shutting_down").
         # Mirror the production contract by setting the cached snapshot
         # so the gate at the top of _dispatch observes the shutdown.
@@ -401,10 +401,10 @@ class TestGT25GT45DispatchLockAndTOCTOU:
         )
 
 
-# ── GT-48: FIFO re-merge ──────────────────────────────────────────────
+# FIFO re-merge ──────────────────────────────────────────────
 
 
-class TestGT48FIFOReMerge:
+class TestReMerge:
     """GT-48: the pending-event re-merge preserves FIFO order.
 
     The re-merge code (in ``_send``'s tcp_mode branch) must use
@@ -432,7 +432,7 @@ class TestGT48FIFOReMerge:
 
         src = inspect.getsource(IPCServer._send)
         # Strip comment-only lines (a line whose first non-whitespace
-        # token is ``#``). The GT-48 explanatory comment in the source
+        # token is ``#``). The  explanatory comment in the source
         # mentions the old buggy expression; the source-grep must look
         # only at actual Python statements.
         code_lines = [line for line in src.splitlines() if line.strip() and not line.strip().startswith("#")]
@@ -445,7 +445,7 @@ class TestGT48FIFOReMerge:
             "OLD snapshot events AFTER concurrent-thread NEW events."
         )
         # The buggy extend-based re-merge must be GONE from code lines.
-        # (Allow it in comments — the GT-48 explanation mentions the
+        # (Allow it in comments — the  explanation mentions the
         # old form to document the fix.)
         buggy_pattern = re.compile(r"^\s*self\._pending_tcp\.extend\(pending\)\s*$", re.MULTILINE)
         assert not buggy_pattern.search(code_only), (
@@ -504,10 +504,10 @@ class TestGT48FIFOReMerge:
         )
 
 
-# ── GT-5: ack before cleanup (integration-level unit) ─────────────────
+# ack before cleanup (integration-level unit) ─────────────────
 
 
-class TestGT5AckBeforeCleanup:
+class TestAckBeforeCleanup:
     """GT-5: ``_handle_shutdown`` returns the ack BEFORE ``service.quit()``
     runs. Cleanup runs on a background daemon thread.
     """
@@ -566,10 +566,10 @@ class TestGT5AckBeforeCleanup:
         )
 
 
-# ── GT-C3-7: BaseException catch ──────────────────────────────────────
+# BaseException catch ──────────────────────────────────────
 
 
-class TestGTC37BaseExceptionCatch:
+class TestBaseExceptionCatch:
     """GT-C3-7: ``_handle_shutdown``'s cleanup thread catches
     ``BaseException`` (not just ``Exception``) so a ``SystemExit`` /
     ``KeyboardInterrupt`` inside ``service.quit()`` is logged rather
@@ -608,10 +608,10 @@ class TestGTC37BaseExceptionCatch:
         )
 
 
-# ── GT-D1-5: concrete types for service and _frame ────────────────────
+# concrete types for service and _frame ────────────────────
 
 
-class TestGTD15ConcreteTypes:
+class TestConcreteTypes:
     """GT-D1-5: ``service`` parameter and ``_on_sigusr1``'s ``_frame``
     parameter use concrete types instead of ``Any``.
     """
@@ -648,10 +648,10 @@ class TestGTD15ConcreteTypes:
         assert "def _on_sigusr1(_signum: int, _frame: typing.Any)" not in src
 
 
-# ── GT-D1-10: _send typed params ──────────────────────────────────────
+# _send typed params ──────────────────────────────────────
 
 
-class TestGTD110SendTypedParams:
+class TestSendTypedParams:
     """GT-D1-10: ``_send``'s ``_out`` and ``_client`` parameters are
     typed (were untyped ``None`` defaults).
     """
@@ -674,10 +674,10 @@ class TestGTD110SendTypedParams:
         )
 
 
-# ── YJ-27: dispatch handler assignment uses typing.cast, not suppression ──
+# dispatch handler assignment uses typing.cast, not suppression ──
 
 
-class TestYJ27DispatchCastNotSuppression:
+class TestDispatchCastNotSuppression:
     """YJ-27: ``IPCServer._dispatch``'s ``handler = _resolved`` line
     MUST use ``typing.cast(CommandHandler, _resolved)`` and NOT carry a
     ``# type: ignore[assignment]`` suppression marker.
@@ -735,7 +735,7 @@ class TestYJ27DispatchCastNotSuppression:
         """End-to-end sanity: dispatching a real command (heartbeat)
         returns a normal envelope. The cast must not corrupt the call
         path. Pre-existing behavior preserved."""
-        # Use the lightweight in-process fake that GT-29 already built.
+        # Use the lightweight in-process fake that  already built.
         # The fixture returns a tuple of (server, fake_app, fake_service).
         from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
 

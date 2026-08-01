@@ -142,7 +142,7 @@ class TestWaveformBubbleThreadSafety:
         bubble.on_level = cb
         for _ in range(200):
             bubble.update_level(0.05, 0.1)
-        # TEST-034 (fix): replaced time.sleep(0.05) with a direct
+        # (fix): replaced time.sleep(0.05) with a direct
         # assertion. The call-queue is synchronous (update_level calls
         # the callback inline), so no waiting is needed — all 200
         # callbacks have already fired by the time we reach the assert.
@@ -299,7 +299,7 @@ class TestModuleLevelPushHook:
         # instance attribute set in __init__ (not part of the class
         # spec), so Mock(spec=...) doesn't expose it.  Provide one.
         app._thread_registry = MagicMock()
-        # RW-9 Phase 7: the wiring code now lives on WaveformBubbleWiring.
+        # Phase 7: the wiring code now lives on WaveformBubbleWiring.
         # Install a real WaveformBubbleWiring so the delegate reaches real code.
         app.waveform_wiring = WaveformBubbleWiring(app)
         # Bypass the real __init__ and call only the wire method.
@@ -330,7 +330,7 @@ class TestModuleLevelPushHook:
 
         # No hook registered.  This is the state before
         # IPCServer.start() has run, or after it stopped.
-        # NEW-IPC-013: the registry is a set, not a single Optional.
+        # the registry is a set, not a single Optional.
         from voice_typer.server import event_bus
 
         with event_bus._lock:
@@ -347,13 +347,13 @@ class TestModuleLevelPushHook:
         app = MagicMock(spec=VoiceTyperApp)
         app._waveform_bubble = real_bubble
         app._thread_registry = MagicMock()
-        # RW-9 Phase 7: install a real WaveformBubbleWiring. Its
+        # Phase 7: install a real WaveformBubbleWiring. Its
         # __init__ initializes the worker state to None, so the wiring
         # code's "is the worker already alive?" check doesn't get
         # fooled by MagicMock's auto-attribute behavior.
         app.waveform_wiring = WaveformBubbleWiring(app)
         # Reset the throttle timestamp so the first update_level call
-        # isn't dropped by the 16ms throttle (BUBBLE-FIX-4.1 changed it
+        # isn't dropped by the 16ms throttle (BUBBLE- changed it
         # from 33ms to 16ms = ~60Hz; other tests in the suite may have
         # set it recently).
         app.waveform_wiring._last_bubble_level_push_ts = 0.0
@@ -367,7 +367,7 @@ class TestModuleLevelPushHook:
         # Force the throttle to allow the first push.
         app.waveform_wiring._last_bubble_level_push_ts = 0.0
         real_bubble.update_level(0.05, 0.12)
-        # PERF-NEW-001: pushes are now async (drained by a background
+        # PERF-: pushes are now async (drained by a background
         # worker thread).  Wait briefly for the worker to drain.
         # The queue has maxsize=64 so a single item drains in well
         # under 100 ms.
@@ -385,7 +385,7 @@ class TestModuleLevelPushHook:
         assert "rms" in last and "peak" in last
         assert 0.0 < last["rms"] <= 1.0
 
-        # Cleanup: stop the worker thread (RW-9 Phase 7: via the
+        # Cleanup: stop the worker thread ( Phase 7: via the
         # WaveformBubbleWiring.stop() helper).
         app.waveform_wiring.stop()
 
@@ -403,7 +403,7 @@ class TestModuleLevelPushHook:
             assert ipc_server._push_event_now({"type": "x", "data": 1}) is True
             assert sent == [{"type": "x", "data": 1}]
         finally:
-            # NEW-IPC-013: unregister via the registry helper.
+            # unregister via the registry helper.
             event_bus.unsubscribe(sent.append)
 
     def test_push_event_now_swallows_hook_exceptions(self):
@@ -438,7 +438,7 @@ class TestAppMainWiresIpcHook:
         from voice_typer.server import event_bus, ipc_server
 
         # Reset hook
-        # NEW-IPC-013: clear the registry instead of setting a single None.
+        # clear the registry instead of setting a single None.
         with event_bus._lock:
             event_bus._subscribers.clear()
 
@@ -464,7 +464,7 @@ class TestAppMainWiresIpcHook:
 
         monkeypatch.setattr(app_module, "VoiceTyperApp", FakeApp)
 
-        # TEST-007: previously this FakeServer class was defined twice
+        # previously this FakeServer class was defined twice
         # in the same test function — the second definition silently
         # shadowed the first. Deleted the duplicate; kept the second
         # (it's the one that was actually used by the monkeypatch
@@ -481,7 +481,7 @@ class TestAppMainWiresIpcHook:
                 event_bus.subscribe(self.push)
 
             def start_tcp(self, port=None):
-                # P1-FIX-001: standalone mode calls start_tcp(port);
+                # P1-: standalone mode calls start_tcp(port);
                 # stub it so the test doesn't AttributeError.
                 pass
 
@@ -511,11 +511,11 @@ class TestAppMainWiresIpcHook:
             assert calls["ipc_started"] == 1, "IPCServer.start was not called by ipc_server.main()"
             assert calls["app_started"] == 1, "VoiceTyperApp.start was not called"
             # Module-level hook must be set (the whole point of the fix).
-            # NEW-IPC-013: the registry is a set — non-empty means at
+            # the registry is a set — non-empty means at
             # least one server registered its push callable.
             with event_bus._lock:
                 assert len(event_bus._subscribers) > 0, "ipc_server.main() did not register the IPC push hook"
         finally:
-            # NEW-IPC-013: clear the registry on teardown.
+            # clear the registry on teardown.
             with event_bus._lock:
                 event_bus._subscribers.clear()

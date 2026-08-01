@@ -232,14 +232,22 @@ def _make_minimal_tray_with_icon(icon: object) -> TrayIcon:
       * ``_cpu_fallback_active``   — False (SK-b flag in tooltip)
       * ``_config``            — None (TRAY-022 model-name source)
       * ``_hotkey``            — None (falls through to "<f2>" default)
+      * ``_icon_lock``         — RLock (FR-23: _apply_state holds it)
+      * ``_last_applied_state`` — None (AB-16/DJ-36 cache-skip read)
     """
+    import threading
+
     tray = TrayIcon.__new__(TrayIcon)
     tray._icon = icon
     tray._state = AppState.IDLE
     tray._recording_started_at = None
     tray._cpu_fallback_active = False  # SK-b
-    tray._config = None  # TRAY-022: model name source
+    tray._config = None  # model name source
     tray._hotkey = None  # falls through to "<f2>" default
+    # _apply_state now acquires _icon_lock around the icon-write pair.
+    tray._icon_lock = threading.RLock()
+    # _apply_state reads _last_applied_state for the cache-skip.
+    tray._last_applied_state = None
     return tray
 
 

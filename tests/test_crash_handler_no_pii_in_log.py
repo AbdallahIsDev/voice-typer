@@ -95,18 +95,18 @@ class TestCrashExcepthookNoPIIInLog:
         critical_records = [r for r in caplog.records if r.levelno >= logging.CRITICAL]
         assert critical_records, "excepthook must emit at least one CRITICAL log record"
 
-        # Find the "Unhandled Python exception" record (YJ-19 main line).
+        # Find the "Unhandled Python exception" record ( main line).
         unhandled_records = [r for r in critical_records if "Unhandled Python exception" in r.message]
         assert unhandled_records, "excepthook must emit a CRITICAL log line containing 'Unhandled Python exception'"
 
-        # YJ-19: the CRITICAL log line MUST contain "ValueError"
+        # the CRITICAL log line MUST contain "ValueError"
         # (exc_type.__name__).
         combined_critical_text = " ".join(r.getMessage() for r in critical_records)
         assert "ValueError" in combined_critical_text, (
             f"YJ-19: CRITICAL log line must contain exc_type.__name__ ('ValueError'); got: {combined_critical_text!r}"
         )
 
-        # YJ-19: the CRITICAL log line MUST NOT contain "John Smith"
+        # the CRITICAL log line MUST NOT contain "John Smith"
         # (the PII embedded in exc_value). This is the key assertion —
         # pre-fix, the redacted_value was logged and PII like names
         # passed through verbatim because PIIRedactionFilter only
@@ -144,7 +144,7 @@ class TestCrashExcepthookNoPIIInLog:
 
         msg = unhandled_records[0].getMessage()
 
-        # YJ-19 + YJ-14: the main CRITICAL line must be exactly
+        # + : the main CRITICAL line must be exactly
         # "[CRASH] Unhandled Python exception: RuntimeError" (no ": <value>"
         # suffix). We use ``startswith`` to be robust against logger
         # prefix differences.
@@ -174,7 +174,7 @@ class TestCrashExcepthookNoPIIInLog:
             with caplog.at_level(logging.CRITICAL, logger="voice_typer"):
                 sys.excepthook(type(exc), exc, exc.__traceback__)
 
-        # YJ-14: the redacted traceback CRITICAL record must be present
+        # the redacted traceback CRITICAL record must be present
         # (even though VOICE_TYPER_DEBUG is NOT set in the env).
         redacted_tb_records = [
             r for r in caplog.records if r.levelno >= logging.CRITICAL and "Redacted traceback" in r.getMessage()

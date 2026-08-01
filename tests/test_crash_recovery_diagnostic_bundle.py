@@ -259,7 +259,7 @@ class TestDiagnosticBundleNoPII:
             )
 
 
-# ─── G4-M-33: archived crash_diagnostics in diagnostic bundle ──────────
+# archived crash_diagnostics in diagnostic bundle ──────────
 
 
 class TestDiagnosticBundleArchiveInclusion:
@@ -340,7 +340,7 @@ class TestDiagnosticBundleArchiveInclusion:
             assert not any(n.startswith("crash_diagnostics_archive/") for n in names)
 
 
-# ─── G4-M-35: extended system_info ──────────────────────────────────────
+# extended system_info ──────────────────────────────────────
 
 
 class TestDiagnosticBundleExtendedSystemInfo:
@@ -445,10 +445,10 @@ class TestDiagnosticBundleExtendedSystemInfo:
         assert "bin" in sys_info
 
 
-# ─── UE-5-F1: archived crash dumps are REDACTED in the bundle ──────
+# archived crash dumps are REDACTED in the bundle ──────
 
 
-class TestUE5F1ArchiveRedaction:
+class TestArchiveRedaction:
     """UE-5-F1: archived ``crash_diagnostics_archive/*`` files are
     redacted line-by-line via ``redact_for_export`` before being
     written into the diagnostic zip. Pre-fix, ``zf.write(...)`` shipped
@@ -612,10 +612,10 @@ class TestUE5F1ArchiveRedaction:
         assert "RuntimeError" in content
 
 
-# ─── UE-5-F3: VOICE_TYPER_* env vars are redacted ──────────────────
+# VOICE_TYPER_* env vars are redacted ──────────────────
 
 
-class TestUE5F3EnvVarRedaction:
+class TestEnvVarRedaction:
     """UE-5-F3: VOICE_TYPER_* env-var values are piped through
     ``redact_secret(value, aggressive=True)`` before being written
     into the bundle. Pre-fix, a user-set
@@ -714,10 +714,10 @@ class TestUE5F3EnvVarRedaction:
         )
 
 
-# ─── UE-5-F2: home-directory prefix redacted in prewarm.json + log ─
+# home-directory prefix redacted in prewarm.json + log ─
 
 
-class TestUE5F2HomePathRedaction:
+class TestHomePathRedaction:
     """UE-5-F2: filesystem paths embedded in the diagnostic bundle
     (``sentinel_path``, ``pid_file_path``, ``bundle_path``) are piped
     through ``_redact_home_path`` so the user-home prefix is replaced
@@ -803,10 +803,10 @@ class TestUE5F2HomePathRedaction:
         assert "~" in msg, f"UE-5-F2: log message should contain ~: {msg!r}"
 
 
-# ─── UE-5-F6: bundle uses mkstemp (not fixed-name .zip.tmp) ────────
+# bundle uses mkstemp (not fixed-name .zip.tmp) ────────
 
 
-class TestUE5F6Mkstemp:
+class TestMkstemp:
     """UE-5-F6: the diagnostic bundle tmp file is created via
     ``tempfile.mkstemp`` (NOT the pre-fix fixed name
     ``bundle_path.with_suffix(".zip.tmp")``). The fixed name collided
@@ -863,10 +863,10 @@ class TestUE5F6Mkstemp:
         assert tmp_files == [], f"UE-5-F6: tmp files left in config dir after successful export: {tmp_files!r}"
 
 
-# ─── UE-5-F9: audio device names are PII-redacted ──────────────────
+# audio device names are PII-redacted ──────────────────
 
 
-class TestUE5F9DeviceNameRedaction:
+class TestDeviceNameRedaction:
     """UE-5-F9: audio device names are redacted via ``redact_pii``
     before being written into ``system_info.txt``. Device names like
     "John's AirPods Pro" can carry user-identifying names; Bluetooth

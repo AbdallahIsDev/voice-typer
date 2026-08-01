@@ -154,8 +154,8 @@ EXPECTED_DEV_URL = "http://localhost:1420"
 #: and be invoked by both beforeDevCommand + beforeBuildCommand.
 EXPECTED_RENDERER_BUILD_SCRIPT = "build:renderer"
 
-#: ADR-0020 §7 + CR-5: capability identifier referenced by tauri.conf.json's
-#: ``app.security.capabilities`` list. CR-5 split the original
+# ADR-0020 §7 + : capability identifier referenced by tauri.conf.json's
+# ``app.security.capabilities`` list.  split the original
 #: ``migrate-runtime.json`` into ``main-runtime.json`` (full grant set,
 #: scoped to the main window) + ``bubble-runtime.json`` (minimal sandboxed
 #: grant, scoped to the bubble window).
@@ -187,8 +187,8 @@ EXPECTED_MAIN_RS_PLUGINS = [
     "tauri_plugin_single_instance",
     "tauri_plugin_shell",
     "tauri_plugin_notification",
-    # XE-4-4: tauri_plugin_clipboard_manager REMOVED — the paste path
-    # was deleted (FZ-19/PVT-051) and the renderer uses the web-API
+    # tauri_plugin_clipboard_manager REMOVED — the paste path
+    # was deleted (/) and the renderer uses the web-API
     # navigator.clipboard.writeText() for all writes. The plugin
     # registration was pure dead code, and the capability grant
     # `clipboard-manager:allow-read-text` let a compromised renderer
@@ -197,36 +197,36 @@ EXPECTED_MAIN_RS_PLUGINS = [
     "tauri_plugin_dialog",
 ]
 
-#: ADR-0020 §6.2 + §7 + §9 + §10 + MIG-1.1 + MIG-1.2 + CR-33: commands
+# ADR-0020 §6.2 + §7 + §9 + §10 +  +  + : commands
 #: that main.rs MUST register in ``tauri::generate_handler![...]``.
 EXPECTED_MAIN_RS_COMMANDS = [
     # ADR-0020 §6.2 + §10 — generic dispatch + shutdown.
-    # FZ-19 / PVT-051: ``paste_text`` was removed (dead in
+    # ``paste_text`` was removed (dead in
     # production — Python sidecar owns the paste path).
     "dispatch",
     "shutdown_sidecar",
-    # MIG-1.1 — export commands (dialog save-file flow)
+    # export commands (dialog save-file flow)
     "export_history",
     "export_vocabulary",
-    # MIG-1.2 / ADR-0020 §9 — bubble window commands
+    # ADR-0020 §9 — bubble window commands
     "bubble_show",
     "bubble_signal_ready",
     "bubble_set_position",
     "bubble_set_draggable",
     "bubble_move_by",
     "bubble_hide_complete",
-    # CR-33 — bubble window extensions (resize / toggle).
-    # GT-82: `bubble_emit_state` removed — dead in production.
+    # bubble window extensions (resize / toggle).
+    # `bubble_emit_state` removed — dead in production.
     "bubble_resize",
     "bubble_toggle_dictation",
-    # CR-33 — system-level window_ commands.
+    # system-level window_ commands.
     "open_logs",
-    # GT-83: dedicated host-log-dir opener.
+    # dedicated host-log-dir opener.
     "open_host_logs",
     "open_model_import_dialog",
     "export_templates",
     "export_config",
-    # GT-35: renderer-side error log sink.
+    # renderer-side error log sink.
     "renderer_log_error",
 ]
 
@@ -689,7 +689,7 @@ def test_main_rs_does_not_register_unknown_commands(main_rs_source) -> None:
     assert handler_match, "main.rs must call tauri::generate_handler![...] (ADR-0020 §6.2 + §7)"
     handler_body = handler_match.group("body")
     # Strip `//` line comments before tokenizing — the macro body carries
-    # explanatory comments (e.g. "// CR-33: bubble window extensions
+    # explanatory comments (e.g. "// : bubble window extensions
     # (resize / state / toggle)") whose prose words would otherwise be
     # mis-read as command identifiers.
     handler_body = re.sub(r"//[^\n]*", "", handler_body)

@@ -4,17 +4,17 @@ in :mod:`voice_typer.server.config_validators`.
 Coverage map (one ``test_*`` function per fix branch):
 
 * XZ-14-04 — cross-field hotkey conflict check
-    - :func:`TestXZ1404CrossFieldHotkeyConflicts`
-    - :func:`TestXZ1404CrossFieldViaValidateConfigUpdate`
-    - :func:`TestXZ1404CrossFieldViaValidateConfig`
+    - :func:`TestCrossFieldHotkeyConflicts`
+    - :func:`TestCrossFieldViaValidateConfigUpdate`
+    - :func:`TestCrossFieldViaValidateConfig`
 * XZ-14-05 — cross-platform hotkey portability warnings
-    - :func:`TestXZ1405CrossPlatformWarnings`
+    - :func:`TestCrossPlatformWarnings`
 * XZ-14-08 — language code validator with Whisper allowlist
-    - :func:`TestXZ1408LanguageValidator`
+    - :func:`TestLanguageValidator`
 * XZ-14-09 — arbitrary lower bounds fixed
-    - :func:`TestXZ1409BoundsFixes`
+    - :func:`TestBoundsFixes`
 * XZ-14-15 — custom-theme dict key-count caps
-    - :func:`TestXZ1415CustomThemeCaps`
+    - :func:`TestCustomThemeCaps`
 
 All tests run ON LINUX (sandbox).  Windows / macOS code paths are exercised
 by mocking ``sys.platform`` (the existing ``test_reserved_hotkeys.py`` uses
@@ -42,11 +42,11 @@ from voice_typer.server.config_validators import (
 )
 
 # ──────────────────────────────────────────────────────────────────────────
-# XZ-14-04 — cross-field hotkey conflict check
+# cross-field hotkey conflict check
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestXZ1404CrossFieldHotkeyConflicts:
+class TestCrossFieldHotkeyConflicts:
     """Direct tests for :func:`_check_cross_field_hotkey_conflicts`."""
 
     def test_no_conflict_when_all_three_differ(self) -> None:
@@ -146,7 +146,7 @@ class TestXZ1404CrossFieldHotkeyConflicts:
         )
 
 
-class TestXZ1404CrossFieldViaValidateConfigUpdate:
+class TestCrossFieldViaValidateConfigUpdate:
     """Integration: the cross-field check runs in ``validate_config_update``."""
 
     def test_conflict_between_hotkey_and_repaste_via_ipc(self) -> None:
@@ -169,7 +169,7 @@ class TestXZ1404CrossFieldViaValidateConfigUpdate:
     def test_push_to_talk_hotkey_silently_dropped_no_cross_field_error(
         self,
     ) -> None:
-        # GT-F2-8 (regression): ``push_to_talk_hotkey`` is NOT in the
+        # (regression): ``push_to_talk_hotkey`` is NOT in the
         # IPC allowlist, so it's silently dropped.  The cross-field
         # check should NOT produce an error for the dropped field.
         # (This is the same contract as
@@ -199,7 +199,7 @@ class TestXZ1404CrossFieldViaValidateConfigUpdate:
         )
 
 
-class TestXZ1404CrossFieldViaValidateConfig:
+class TestCrossFieldViaValidateConfig:
     """Integration: the cross-field check runs in ``validate_config`` (load path).
 
     Unlike ``validate_config_update`` (which only sees fields the renderer
@@ -247,11 +247,11 @@ class TestXZ1404CrossFieldViaValidateConfig:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# XZ-14-05 — cross-platform hotkey portability warnings
+# cross-platform hotkey portability warnings
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestXZ1405CrossPlatformWarnings:
+class TestCrossPlatformWarnings:
     """Tests for :func:`_cross_platform_hotkey_warning` and
     :func:`cross_platform_hotkey_warnings`.
     """
@@ -378,11 +378,11 @@ class TestXZ1405CrossPlatformWarnings:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# XZ-14-08 — language code validator
+# language code validator
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestXZ1408LanguageValidator:
+class TestLanguageValidator:
     """Tests for :func:`_validate_language` and the allowlist."""
 
     @pytest.mark.parametrize(
@@ -504,27 +504,29 @@ class TestXZ1408LanguageValidator:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# XZ-14-09 — arbitrary lower bounds fixed
+# arbitrary lower bounds fixed
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestXZ1409BoundsFixes:
+class TestBoundsFixes:
     """Tests for the lowered / raised lower bounds on three int fields."""
 
-    # ── max_recording_time_seconds: lo=300 → lo=30 ──────────────────────
+    # ── max_recording_time_seconds: lo=300 (reverted from lo=30) ────────
 
-    def test_max_recording_time_seconds_30_now_accepted(self) -> None:
-        # Was rejected under the old lo=300; now accepted under lo=30.
-        validated, errors = validate_config_update({"max_recording_time_seconds": 30})
+    def test_max_recording_time_seconds_300_now_accepted(self) -> None:
+        # Was rejected under the old lo=30; the lower bound was reverted
+        # back to lo=300, so 300 (5 minutes) is now the smallest accepted
+        # value and must round-trip cleanly.
+        validated, errors = validate_config_update({"max_recording_time_seconds": 300})
         assert errors == []
-        assert validated == {"max_recording_time_seconds": 30}
+        assert validated == {"max_recording_time_seconds": 300}
 
-    def test_max_recording_time_seconds_29_still_rejected(self) -> None:
-        # The new lower bound is 30, so 29 must still be rejected.
-        validated, errors = validate_config_update({"max_recording_time_seconds": 29})
+    def test_max_recording_time_seconds_299_still_rejected(self) -> None:
+        # The current lower bound is 300, so 299 must still be rejected.
+        validated, errors = validate_config_update({"max_recording_time_seconds": 299})
         assert len(errors) == 1
-        assert "[30, 3600]" in errors[0]
-        assert "29" in errors[0]
+        assert "[300, 3600]" in errors[0]
+        assert "299" in errors[0]
         assert "max_recording_time_seconds" not in validated
 
     def test_max_recording_time_seconds_900_still_accepted(self) -> None:
@@ -582,7 +584,7 @@ class TestXZ1409BoundsFixes:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# XZ-14-15 — custom-theme dict key-count caps
+# custom-theme dict key-count caps
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -602,7 +604,7 @@ def _valid_theme() -> dict[str, object]:
     return {"light": _valid_mode_dict(), "dark": _valid_mode_dict()}
 
 
-class TestXZ1415CustomThemeCaps:
+class TestCustomThemeCaps:
     """Tests for the key-count caps added to ``_make_custom_theme_validator``."""
 
     def test_valid_theme_still_accepted(self) -> None:
@@ -722,11 +724,11 @@ class TestXZ1415CustomThemeCaps:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# PI-18 / PI-24 — cross-field cloud/LLM config validation
+# cross-field cloud/LLM config validation
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestPI18CrossFieldCloudConfig:
+class TestCrossFieldCloudConfig:
     """PI-18: ``_check_cross_field_cloud_config`` catches cloud/LLM
     config inconsistencies at IPC save time (and at config-load time
     via :func:`validate_config`) so the user doesn't discover the

@@ -18,7 +18,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 
-# WP-1: the previous Linux test-env shim that aliased
+# the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
 # removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
@@ -101,7 +101,7 @@ class TestModelIntegrityWarnsOnEmptyHashes:
 
         # Create a fake qwen model dir with config.json + a model file
         # (safetensors) so the structural checks pass and we reach the
-        # empty-files hard-fail branch (NF-R18-9).
+        # empty-files hard-fail branch ().
         model_dir = tmp_path / "fake-qwen"
         model_dir.mkdir()
         (model_dir / "config.json").write_text("{}")
@@ -117,7 +117,7 @@ class TestModelIntegrityWarnsOnEmptyHashes:
         with patch.object(security, "MODEL_HASHES", fake_manifest), caplog.at_level(logging.ERROR):
             result = verify_model_integrity(local_dir=str(model_dir), repo_id="qwen")
 
-        # NF-R18-9: HARD-FAIL — empty files + revision="local" means
+        # HARD-FAIL — empty files + revision="local" means
         # no upstream SHA pin and no pinned hashes, so a tampered
         # directory would load unchecked. Return False so the caller
         # refuses to load.

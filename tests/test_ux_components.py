@@ -28,7 +28,7 @@ class TestBubbleSupportsKeyboardArrowMove:
         assert "bubble:move-by" in preload
 
     def test_window_bubble_type_has_move_by(self):
-        # DT-31 / DT-FIX-7: the former monolithic ipc types file was
+        # the former monolithic ipc types file was
         # split into a ``types/ipc/`` directory. The bubble-window
         # ``moveBy`` mutator now lives in ``types/ipc/bubble_bridge.ts``
         # (BubbleWindowExtras).

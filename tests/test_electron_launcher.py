@@ -150,7 +150,7 @@ class TestLaunchElectronFrontend:
         assert captured_argv == ["/usr/bin/npm", "run", "dev"]
 
 
-# ── G4-H-02: sensitive env var stripping ─────────────────────────────────
+# sensitive env var stripping ─────────────────────────────────
 
 
 class TestStripSensitiveEnv:
@@ -574,7 +574,7 @@ class TestPickAvailablePort:
         # The port we just released should be picked.
         # (There's a small race window, but in practice this is reliable.)
         result = _pick_available_port(free_port, max_tries=1)
-        # CR-7: result is now a (port, sock) tuple.
+        # result is now a (port, sock) tuple.
         assert isinstance(result, tuple)
         assert len(result) == 2
         port, sock = result
@@ -605,7 +605,7 @@ class TestPickAvailablePort:
             # Result should be a valid port >= the start port.
             assert isinstance(port, int)
             assert port >= some_port
-            # CR-7: the returned socket is already bound — verify by
+            # the returned socket is already bound — verify by
             # checking its getsockname() matches the returned port.
             bound_port = sock.getsockname()[1]
             assert bound_port == port
@@ -630,7 +630,7 @@ class TestPickAvailablePort:
                 # Result should be a valid port (ephemeral, not the busy one).
                 assert isinstance(port, int)
                 assert 1 <= port <= 65535
-                # CR-7: verify the returned socket is actually bound to
+                # verify the returned socket is actually bound to
                 # the returned port (gold-standard contract).
                 assert sock.getsockname()[1] == port
             finally:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-# WR-11: single-assignment pytestmark. The previous code first set
+# single-assignment pytestmark. The previous code first set
 # ``pytestmark = pytest.mark.skipif(True, ...)`` then reassigned it to
 # ``pytest.mark.skipif(False, ...)`` inside the ``try`` block if
 # hypothesis imported cleanly. The reassignment worked but was
@@ -85,7 +85,7 @@ if HAS_HYPOTHESIS:
             result = assembler.committed_text
             assert isinstance(result, str)
 
-            # TEST-009: verify sort order. The committed_text joins words
+            # verify sort order. The committed_text joins words
             # with spaces; we split to get the word sequence and compare
             # against the input sorted by the same key the assembler uses:
             # (start_seconds, end_seconds).

@@ -170,7 +170,7 @@ class TestEnsureMonoThreadLocal:
         assert not errors, f"thread-local isolation failed: {errors}"
 
 
-# ── DisconnectHandler.restart_stream: UE-35 lock atomicity ──────────────
+# DisconnectHandler.restart_stream:  lock atomicity ──────────────
 
 
 class TestRestartStreamLockAtomicity:
@@ -262,7 +262,7 @@ class TestRestartStreamLockAtomicity:
         assert "raise" in reraise_block[:500], "the programming-bug clause must re-raise (raise not found nearby)"
 
 
-# ── DisconnectHandler.restart_stream: UE-36 buffer flush ───────────────
+# DisconnectHandler.restart_stream:  buffer flush ───────────────
 
 
 class TestRestartStreamBufferFlush:

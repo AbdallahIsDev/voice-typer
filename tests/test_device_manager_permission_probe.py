@@ -70,7 +70,7 @@ def _make_minimal_device_manager():
     return dm
 
 
-# ─── FR-17: _check_microphone_permission_revoked ────────────────────────
+# _check_microphone_permission_revoked ────────────────────────
 
 
 class TestPermissionRevokedDetection:
@@ -180,7 +180,7 @@ class TestPermissionRevokedDetection:
         dm.recorder._spawn_device_thread.assert_not_called()
 
 
-# ─── FR-17: handler invokes the distinct callback ──────────────────────
+# handler invokes the distinct callback ──────────────────────
 
 
 class TestPermissionRevokedHandlerCallback:
@@ -264,7 +264,7 @@ class TestPermissionRevokedHandlerCallback:
         )
 
 
-# ─── FR-17: _device_health_checker_loop periodic probe ─────────────────
+# _device_health_checker_loop periodic probe ─────────────────
 
 
 class TestHealthCheckerLoopPeriodicProbe:

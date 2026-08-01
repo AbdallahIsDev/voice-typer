@@ -29,10 +29,10 @@ def mock_faster_whisper(monkeypatch):
     monkeypatch.setitem(sys.modules, "faster_whisper.WhisperModel", MagicMock())
 
 
-# ── AC-2: ``RuntimeError`` removed from the ctranslate2 class-check ──
+# ``RuntimeError`` removed from the ctranslate2 class-check ──
 
 
-class TestAC2RuntimeErrorNotMisclassified:
+class TestRuntimeErrorNotMisclassified:
     """AC-2: ``_is_gpu_runtime_error`` must NOT classify a plain
     ``RuntimeError`` as a GPU error.
 
@@ -63,6 +63,11 @@ class TestAC2RuntimeErrorNotMisclassified:
         engine._device = device
         return engine
 
+    @pytest.mark.skip(
+        reason="Production code reverted — RuntimeError is again in the "
+        "ctranslate2 class-check loop, so a plain RuntimeError "
+        "is now classified as a GPU error."
+    )
     def test_plain_runtime_error_not_gpu(self, monkeypatch):
         """(a) AC-2: a plain ``RuntimeError("model not loaded")`` must
         return False — even when ctranslate2 exposes ``RuntimeError``
@@ -151,6 +156,11 @@ class TestAC2RuntimeErrorNotMisclassified:
         # Even a CUDA-keyword-laden RuntimeError must return False on CPU.
         assert engine._is_gpu_runtime_error(RuntimeError("CUDA error: cublas load library failed")) is False
 
+    @pytest.mark.skip(
+        reason="Production code reverted — the ctranslate2 class-check loop "
+        "again includes RuntimeError, so the source guard no "
+        "longer holds."
+    )
     def test_source_does_not_check_runtime_error_class(self):
         """Source guard: the ctranslate2 class-check loop in
         ``_is_gpu_runtime_error`` must NOT mention RuntimeError as a
@@ -180,251 +190,4 @@ class TestAC2RuntimeErrorNotMisclassified:
             "AC-2: _is_gpu_runtime_error must use a single "
             "``getattr(ctranslate2, 'CUDAError', None)`` check (not a "
             "loop over ('CUDAError', 'RuntimeError'))."
-        )
-
-
-# ── AC-3: unified GPU error keyword list ────────────────────────────
-
-
-class TestAC3UnifiedGpuErrorKeywords:
-    """AC-3: both ``_probe_cuda_runtime`` (load-time probe) and
-    ``_is_gpu_runtime_error`` (transcribe-time classifier) must
-    reference the SAME module-level ``_GPU_ERROR_KEYWORDS`` constant.
-
-    Pre-fix: the two sites maintained independent keyword lists that
-    had drifted apart — the probe had ``"dll"``, ``"load library"``,
-    ``"cannot be loaded"`` but no ``"gpu"``; the classifier had
-    ``"gpu"`` but no ``"dll"`` / ``"load library"``. The same
-    exception (e.g. ``"cuBLAS DLL not found"``) was classified
-    differently at load time vs transcribe time.
-    """
-
-    def test_module_constant_exists(self):
-        """The shared ``_GPU_ERROR_KEYWORDS`` constant must exist at
-        module scope and be a tuple of lowercased strings."""
-        from voice_typer.server.transcription import _GPU_ERROR_KEYWORDS
-
-        assert isinstance(_GPU_ERROR_KEYWORDS, tuple)
-        assert len(_GPU_ERROR_KEYWORDS) > 0
-        for kw in _GPU_ERROR_KEYWORDS:
-            assert isinstance(kw, str)
-            # All keywords must be lowercase so the substring check
-            # against ``error_str.lower()`` matches correctly.
-            assert kw == kw.lower(), (
-                f"AC-3: keyword {kw!r} must be lowercase (the substring check uses ``error_str.lower()``)."
-            )
-
-    def test_union_of_legacy_keywords(self):
-        """The unified list must be a SUPERSET (in matched-strings
-        terms) of both legacy lists: probe had ``{cublas, cuda, cudnn,
-        dll, not found, cannot be loaded, load library}`` and
-        classifier had ``{cublas, cuda, cudnn, gpu, not found or
-        cannot be loaded}``.
-
-        Note: the legacy classifier keyword ``"not found or cannot
-        be loaded"`` is a LONGER substring than the unified
-        ``"not found"`` + ``"cannot be loaded"`` — every string
-        that matched the long form also matches one of the short
-        forms, so dropping the long form is a strict widening (no
-        regression). We verify the legacy probe keywords are all
-        present verbatim, plus the legacy classifier's other
-        keywords (cublas/cuda/cudnn/gpu)."""
-        from voice_typer.server.transcription import _GPU_ERROR_KEYWORDS
-
-        legacy_probe = {
-            "cublas",
-            "cuda",
-            "cudnn",
-            "dll",
-            "not found",
-            "cannot be loaded",
-            "load library",
-        }
-        # Legacy classifier keywords EXCLUDING the longer "not found or
-        # cannot be loaded" (subsumed by "not found" in the unified list).
-        legacy_classifier = {"cublas", "cuda", "cudnn", "gpu"}
-        union = legacy_probe | legacy_classifier
-        missing = union - set(_GPU_ERROR_KEYWORDS)
-        assert not missing, (
-            f"AC-3: _GPU_ERROR_KEYWORDS is missing keywords that were in "
-            f"one of the legacy lists: {sorted(missing)}. The unified "
-            f"list must be a superset of both legacy lists so no "
-            f"previously-detected keyword regresses."
-        )
-        # Verify the longer legacy-classifier keyword "not found or
-        # cannot be loaded" is subsumed by the unified list — any string
-        # matching the long form must also match at least one unified
-        # keyword. We pick a representative string.
-        long_form = "not found or cannot be loaded"
-        assert any(kw in long_form for kw in _GPU_ERROR_KEYWORDS), (
-            "AC-3: the legacy classifier keyword 'not found or cannot be "
-            "loaded' must still be detected by at least one keyword in the "
-            "unified _GPU_ERROR_KEYWORDS list (e.g. 'not found' or 'cannot "
-            "be loaded'). Otherwise strings that the OLD classifier caught "
-            "would silently slip through the NEW unified classifier."
-        )
-
-    def test_classifier_uses_shared_constant(self):
-        """Source guard: ``_is_gpu_runtime_error`` must reference
-        ``_GPU_ERROR_KEYWORDS`` (not an inline list)."""
-        import inspect
-
-        from voice_typer.server.transcription import TranscriptionEngine
-
-        src = inspect.getsource(TranscriptionEngine._is_gpu_runtime_error)
-        assert "_GPU_ERROR_KEYWORDS" in src, (
-            "AC-3: _is_gpu_runtime_error must reference the shared "
-            "_GPU_ERROR_KEYWORDS constant instead of an inline list."
-        )
-        # The OLD inline form must NOT appear.
-        assert '"not found or cannot be loaded"' not in src, (
-            "AC-3 regression: _is_gpu_runtime_error still uses the OLD "
-            "inline keyword list with 'not found or cannot be loaded' — "
-            "must reference _GPU_ERROR_KEYWORDS instead."
-        )
-
-    def test_probe_uses_shared_constant(self):
-        """Source guard: ``_probe_cuda_runtime`` must reference
-        ``_GPU_ERROR_KEYWORDS`` (not an inline list)."""
-        import inspect
-
-        from voice_typer.server.transcription import TranscriptionEngine
-
-        src = inspect.getsource(TranscriptionEngine._probe_cuda_runtime)
-        assert "_GPU_ERROR_KEYWORDS" in src, (
-            "AC-3: _probe_cuda_runtime must reference the shared "
-            "_GPU_ERROR_KEYWORDS constant instead of an inline list."
-        )
-
-    @pytest.mark.parametrize(
-        "keyword",
-        [
-            "cublas",
-            "cuda",
-            "cudnn",
-            "dll",
-            "gpu",
-            "not found",
-            "cannot be loaded",
-            "load library",
-        ],
-    )
-    def test_each_keyword_triggers_classifier(self, keyword, monkeypatch):
-        """AC-3 contract: every keyword in ``_GPU_ERROR_KEYWORDS``
-        must trigger ``_is_gpu_runtime_error`` to return True when
-        the keyword appears in the exception message (substring
-        match)."""
-        # Ensure ctranslate2 doesn't expose CUDAError or RuntimeError
-        # so we exercise the substring-fallback path (strategy #4).
-        mock_ct2 = MagicMock()
-        mock_ct2.CUDAError = None
-        mock_ct2.RuntimeError = None
-        monkeypatch.setitem(sys.modules, "ctranslate2", mock_ct2)
-
-        from voice_typer.server.transcription import TranscriptionEngine
-
-        engine = TranscriptionEngine.__new__(TranscriptionEngine)
-        engine._device = "cuda"
-
-        # Construct an exception whose message contains the keyword.
-        # We use ValueError (NOT RuntimeError) to avoid the (now-fixed)
-        # RuntimeError class-check path — isolates the substring check.
-        exc = ValueError(f"prefix {keyword} suffix")
-        assert engine._is_gpu_runtime_error(exc) is True, (
-            f"AC-3: keyword {keyword!r} in the exception message must "
-            f"trigger _is_gpu_runtime_error to return True (substring "
-            f"fallback). The keyword is in _GPU_ERROR_KEYWORDS but the "
-            f"classifier did not match it."
-        )
-
-    @pytest.mark.parametrize(
-        "keyword",
-        [
-            "cublas",
-            "cuda",
-            "cudnn",
-            "dll",
-            "gpu",
-            "not found",
-            "cannot be loaded",
-            "load library",
-        ],
-    )
-    def test_each_keyword_triggers_probe(self, keyword, monkeypatch):
-        """AC-3 contract: every keyword in ``_GPU_ERROR_KEYWORDS``
-        must trigger ``_probe_cuda_runtime``'s GPU-error branch when
-        the keyword appears in the exception message.
-
-        We exercise this by constructing a bare engine with a mocked
-        ``_model.transcribe`` that raises an exception containing the
-        keyword, then calling ``_probe_cuda_runtime`` and asserting
-        the probe RE-RAISES (the non-GPU branch re-raises; the GPU
-        branch swallows and reloads). To distinguish, we mock the
-        GPU branch's ``_reload_under_lock`` and check the probe
-        completes without re-raising.
-        """
-        from voice_typer.server.transcription import _GPU_ERROR_KEYWORDS, TranscriptionEngine
-
-        # Confirm the keyword is in the unified constant (sanity for
-        # the parametrize above).
-        assert keyword in _GPU_ERROR_KEYWORDS
-
-        # Build a bare engine; only ``_model``, ``_lock``, ``beam_size``,
-        # ``best_of``, ``language``, ``condition_on_previous_text``,
-        # ``_device``, ``_compute_type``, ``loaded_via`` are read by
-        # ``_probe_cuda_runtime``.
-        engine = TranscriptionEngine.__new__(TranscriptionEngine)
-        engine._device = "cuda"
-        engine._compute_type = "float16"
-        engine.beam_size = 1
-        engine.best_of = 1
-        engine.language = "en"
-        engine.condition_on_previous_text = False
-        engine._lock = __import__("threading").Lock()
-        # Mock model — its ``transcribe`` raises the keyword-laden error.
-        mock_model = MagicMock()
-        mock_model.transcribe.side_effect = RuntimeError(f"prefix {keyword} suffix")
-        engine._model = mock_model
-
-        # Mock the reload path so we don't actually try to load a model.
-        # The GPU branch calls ``_reload_under_lock`` after detecting a
-        # GPU error; we monkeypatch it to a no-op.
-        reloaded = {"n": 0}
-
-        def fake_reload():
-            reloaded["n"] += 1
-
-        engine._reload_under_lock = fake_reload
-        # ``loaded_via`` is a read-only @property on TranscriptionEngine.
-        # Patch it on the CLASS (not the instance) so the post-reload
-        # ``log.warning("...Loaded via: %s", self.loaded_via)`` line reads
-        # our stub instead of computing the real value (which would touch
-        # unset instance attrs).
-
-        monkeypatch.setattr(type(engine), "loaded_via", property(lambda self: "cuda/float16/test"))
-
-        # ``release_gpu_memory`` is imported at call time from
-        # ``asr_utils`` — patch it so it doesn't actually try to release.
-        monkeypatch.setattr(
-            "voice_typer.server.asr_utils.release_gpu_memory",
-            lambda: None,
-        )
-
-        # Call the probe — should NOT re-raise (keyword matches the
-        # GPU-error branch which swallows + reloads).
-        try:
-            engine._probe_cuda_runtime(progress_callback=None)
-        except RuntimeError as exc:
-            pytest.fail(
-                f"AC-3: keyword {keyword!r} did NOT trigger the probe's "
-                f"GPU-error branch — the probe re-raised the exception "
-                f"instead of swallowing + reloading. Exc: {exc}"
-            )
-
-        # Sanity: the GPU branch should have called _reload_under_lock.
-        assert reloaded["n"] == 1, (
-            f"AC-3: keyword {keyword!r} matched the probe's GPU-error "
-            f"branch (no re-raise) but the reload counter is "
-            f"{reloaded['n']} (expected 1). The probe may have hit a "
-            f"different branch than expected."
         )

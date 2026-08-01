@@ -85,7 +85,7 @@ def wiring(app) -> WaveformBubbleWiring:
     return WaveformBubbleWiring(app)
 
 
-# ── DJ-28: stop() nulls the 5 callbacks ─────────────────────────────────
+# stop() nulls the 5 callbacks ─────────────────────────────────
 
 
 class TestStopNullsCallbacks:
@@ -186,7 +186,7 @@ class TestStopNullsCallbacks:
         assert first_worker is not None and first_worker.is_alive()
 
         wiring.stop()
-        # All callbacks nulled (DJ-28).
+        # All callbacks nulled ().
         for attr in self._CALLBACK_ATTRS:
             assert getattr(bubble, attr) is None
 

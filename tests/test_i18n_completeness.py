@@ -39,7 +39,7 @@ ALLOWED_UNTRANSLATED = {
     "settings.presetCode",  # "Code" — technical term
     "settings.notifications",  # "Notifications" — technical term
     "home.error",  # "ERROR" — technical term
-    # SA-12 (client_root_i18n): "⚠ Error" — universal warning symbol +
+    # (client_root_i18n): "⚠ Error" — universal warning symbol +
     # technical term, identical across all locales (same rationale as
     # home.error). The bubble renders this as a small status badge
     # during dictation errors; translating the word "Error" would not
@@ -363,21 +363,21 @@ PRE_EXISTING_UNTRANSLATED = {
     "settings.hotkeySection.secondsSuffix",
 }
 
-# RW-2: Keys backfilled into non-English locale files using English fallback
+# Keys backfilled into non-English locale files using English fallback
 # values. These keys were added to en.json in prior rounds but never
 # propagated to ar/de/fr/hi/ru/zh. Rather than leave the locales missing the
 # keys (which broke the key-parity CI gate and caused silent English-fallback
-# via t() at runtime), RW-2 backfilled them with English values so the gate
+# via t() at runtime),  backfilled them with English values so the gate
 # passes. Native translation is commissioned in a follow-up round.
 #
 # This set is the UNION of every key any locale was missing — different
 # locales had different subsets missing (ar: 18, de: 41, fr/hi/ru/zh: 49).
-# es.json was already backfilled by RW-13 with English fallback values for
+# es.json was already backfilled by  with English fallback values for
 # the same 49 keys; de.json already had settings.searchHints.* as English
 # fallback. All of those are covered by this single union set so the
 # values-translated gate passes uniformly across every locale.
 #
-# Maintenance contract (enforced by TestRW2BackfillSetIsMinimal below):
+# Maintenance contract (enforced by TestBackfillSetIsMinimal below):
 #   - When a key is properly translated in EVERY non-English locale (i.e.
 #     its value differs from the English value in all of ar/de/es/fr/hi/ru/zh),
 #     it MUST be removed from this set. The ratchet test will fail if any
@@ -431,7 +431,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "microphoneTest.voiceDetected",
     "microphoneTest.voiceNotDetected",
     "microphoneTest.volume",
-    # settings.fastStartup* (2 keys) — added by PW-3 (prewarm toggle)
+    # settings.fastStartup* (2 keys) — added by  (prewarm toggle)
     # settings.searchHints.* (4 keys) — settings search bar hint keywords
     "settings.searchHints.aiAudio",
     "settings.searchHints.appearance",
@@ -440,8 +440,8 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "settings.bubbleMicButton",  # English placeholder in fr.json
     "settings.bubbleMicButtonDescription",  # English placeholder in fr.json
     # settings.troubleshooting.reRunWizard* (4 keys)
-    # IMPROVE-mode RW-2 backfill (25 keys) — English-fallback pending native
-    # translation. Added when CR-4/CR-51/CR-54/CR-55 i18n parity gates were
+    # IMPROVE-mode  backfill (25 keys) — English-fallback pending native
+    # translation. Added when /// i18n parity gates were
     # enforced. Remove each key from this set once it is properly translated
     # in EVERY non-English locale (ar/de/es/fr/hi/ru/zh).
     "onboarding.permissionsTitle",
@@ -456,12 +456,12 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "onboarding.permissionsTestButton",
     "onboarding.skipConfirmTitle",
     "onboarding.skipConfirmLabel",
-    # SA-12 (client_root_i18n): bubble.micButtonStartAria and
+    # (client_root_i18n): bubble.micButtonStartAria and
     # bubble.micButtonStopAria REMOVED — these keys are now properly
     # translated in EVERY non-English locale (commit e4b7d4b "fix(i18n):
     # complete bubble aria-label translations across all locales"),
     # so leaving them in RW2_BACKFILLED_PENDING_TRANSLATION would be
-    # dead weight flagged by TestRW2BackfillSetIsMinimal.
+    # dead weight flagged by TestBackfillSetIsMinimal.
     # a11y (1 keys)
     "a11y.moreInfoAbout",  # "More info about {label}"
     # about (13 keys)
@@ -476,9 +476,9 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     # analytics (2 keys)
     "analytics.auto",  # "Auto"
     "analytics.dayActivityAria",  # "{label}: {count} transcriptions"
-    # SA-12 (client_root_i18n): bubble.idleLabel REMOVED — translated
+    # (client_root_i18n): bubble.idleLabel REMOVED — translated
     # in every non-English locale by commit e4b7d4b. Leaving it here
-    # would be flagged as stale by TestRW2BackfillSetIsMinimal.
+    # would be flagged as stale by TestBackfillSetIsMinimal.
     # help (3 keys)
     # history (3 keys)
     "history.charsSuffix",  # " ({count} chars)"
@@ -632,7 +632,7 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "vocabulary.categoryBadgeAria",  # "Category: {category}"
     "vocabulary.replacementPlaceholder",  # "treat this, My Name Is"
     "vocabulary.triggerPlaceholder",  # "treat three, mynameis"
-    # S1-CR-49: 96 keys backfilled with English-fallback values across all
+    # 96 keys backfilled with English-fallback values across all
     # 7 non-English locales (ar/de/es/fr/hi/ru/zh). These keys were added
     # to en.json but never propagated to the locale files, causing the
     # key-parity + extra-keys CI gate to fail (14 of 15 tests red).
@@ -750,7 +750,7 @@ def en_flat(en_data: dict) -> dict[str, str]:
 
 
 @pytest.mark.parametrize("locale", NON_ENGLISH_LOCALES)
-class TestI18nCompleteness:
+class Test8nCompleteness:
     """Per-locale completeness tests."""
 
     def test_locale_file_exists(self, locale: str) -> None:
@@ -880,7 +880,7 @@ class TestEnJson:
             assert sub in history, f"en.json history.{sub} must exist"
 
 
-class TestRW2BackfillSetIsMinimal:
+class TestBackfillSetIsMinimal:
     """RW-2 ratchet: ensure RW2_BACKFILLED_PENDING_TRANSLATION only shrinks.
 
     Every key in the set must currently be English-fallback in at least one
@@ -913,7 +913,7 @@ class TestRW2BackfillSetIsMinimal:
         stale: list[str] = []
         for key in RW2_BACKFILLED_PENDING_TRANSLATION:
             en_value = en_flat.get(key, "")
-            # PVT-016: a key that is MISSING from a locale must not be
+            # a key that is MISSING from a locale must not be
             # classified as "translated". The previous implementation used
             # ``locale_flats[loc].get(key) == en_value`` which is True when
             # the key is absent (None == en_value is False for non-None
@@ -956,7 +956,7 @@ class TestRW2BackfillSetIsMinimal:
         )
 
 
-class TestI18nGateSummary:
+class Test8nGateSummary:
     """RW-2: per-locale missing-key count summary.
 
     This is a meta-test that fails loudly if any locale has even a single

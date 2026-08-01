@@ -293,7 +293,7 @@ class TestGetNativeBinaryPathLegacyFallback:
         monkeypatch.setattr(_platform_module, "machine", lambda: "x86_64")
         native_dir = tmp_path / "native"
         native_dir.mkdir()
-        # Only the legacy name is shipped (pre-CR-32 bundle).
+        # Only the legacy name is shipped (pre- bundle).
         legacy = native_dir / "linux-key-listener"
         legacy.write_text("dummy")
 
@@ -321,7 +321,7 @@ class TestGetNativeBinaryPathLegacyFallback:
 
     def test_arch_suffix_preferred_over_legacy_when_both_present(self, monkeypatch, tmp_path):
         # When both the arch-suffixed and legacy binaries are shipped,
-        # the arch-suffixed one wins (CR-32 preferred).
+        # the arch-suffixed one wins ( preferred).
         monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr(_platform_module, "machine", lambda: "x86_64")
         native_dir = tmp_path / "native"

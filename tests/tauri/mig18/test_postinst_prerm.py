@@ -214,10 +214,10 @@ def _bash_syntax_ok(path: Path) -> bool:
 def test_postinst_exists():
     """``scripts/linux/postinst`` exists as a regular file in the repo.
 
-    The Debian .deb bundler (Tauri ``bundle.linux.deb.postInstall``) ships
-    this script into the .deb maintainer-scripts directory, so apt runs it
-    as root during ``apt install voice-typer``.  ADR-0020 §13.3 mandates
-    reusing this exact script (not authoring a new one).
+    The Debian .deb bundler (Tauri ``bundle.linux.deb.postInstallScript``)
+    ships this script into the .deb maintainer-scripts directory, so apt
+    runs it as root during ``apt install voice-typer``.  ADR-0020 §13.3
+    mandates reusing this exact script (not authoring a new one).
     """
     assert POSTINST.is_file(), (
         f"scripts/linux/postinst missing at {POSTINST} — the Debian .deb "
@@ -413,10 +413,10 @@ def test_postinst_warns_user_to_logout_and_login():
 def test_prerm_exists():
     """``scripts/linux/prerm`` exists as a regular file in the repo.
 
-    The Debian .deb bundler (Tauri ``bundle.linux.deb.preRemove``) ships
-    this script into the .deb maintainer-scripts directory, so apt runs it
-    as root during ``apt remove voice-typer``.  ADR-0020 §13.3 mandates
-    reusing this exact script.
+    The Debian .deb bundler (Tauri ``bundle.linux.deb.preRemoveScript``)
+    ships this script into the .deb maintainer-scripts directory, so apt
+    runs it as root during ``apt remove voice-typer``.  ADR-0020 §13.3
+    mandates reusing this exact script.
     """
     assert PRERM.is_file(), (
         f"scripts/linux/prerm missing at {PRERM} — the Debian .deb "
@@ -570,8 +570,8 @@ def test_prerm_does_not_remove_user_from_input_group():
 def test_postinst_rpm_exists():
     """``scripts/linux/postinst.rpm`` exists as a regular file in the repo.
 
-    The RPM .rpm bundler (Tauri ``bundle.linux.rpm.postInstall``) ships
-    this script into the .rpm %post section, so dnf runs it as root
+    The RPM .rpm bundler (Tauri ``bundle.linux.rpm.postInstallScript``)
+    ships this script into the .rpm %post section, so dnf runs it as root
     during ``dnf install voice-typer``.  Functionally identical to the
     Debian postinst (same install_permissions.py helper).
     """
@@ -585,8 +585,8 @@ def test_postinst_rpm_exists():
 def test_prerm_rpm_exists():
     """``scripts/linux/prerm.rpm`` exists as a regular file in the repo.
 
-    The RPM .rpm bundler (Tauri ``bundle.linux.rpm.preRemove``) ships
-    this script into the .rpm %preun section, so dnf runs it as root
+    The RPM .rpm bundler (Tauri ``bundle.linux.rpm.preRemoveScript``)
+    ships this script into the .rpm %preun section, so dnf runs it as root
     during ``dnf remove voice-typer``.  Functionally identical to the
     Debian prerm (same uninstall_permissions.py helper).
     """

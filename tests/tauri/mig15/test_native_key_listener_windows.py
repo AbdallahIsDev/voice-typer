@@ -91,7 +91,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
 COMPILE_NATIVE_PS1 = PROJECT_ROOT / "scripts" / "build" / "compile_native.ps1"
 WINDOWS_KEY_LISTENER_C = PROJECT_ROOT / "voice_typer" / "server" / "native" / "windows-key-listener.c"
-# Phase 4.5 / ARCH-045 — ``native_hotkeys.py`` was split into a package at
+# Phase 4.5 /  — ``native_hotkeys.py`` was split into a package at
 # ``voice_typer/server/native_hotkeys/`` with one submodule per concern
 # (base / mac_backend / windows_backend / linux_backend / factory / ...).
 # The ``__init__.py`` re-exports every public name.  Tests below that

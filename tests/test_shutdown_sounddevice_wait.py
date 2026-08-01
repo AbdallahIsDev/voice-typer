@@ -92,10 +92,10 @@ def _make_controller() -> ShutdownController:
     return controller
 
 
-# ── UE-2: source-level contract ────────────────────────────────────
+# source-level contract ────────────────────────────────────
 
 
-class TestUE2SounddeviceWaitSource:
+class TestSounddeviceWaitSource:
     """UE-2: source-level contract for ``_teardown_sounddevice``."""
 
     def test_teardown_sounddevice_calls_sd_wait(self):
@@ -199,10 +199,10 @@ class TestUE2SounddeviceWaitSource:
         )
 
 
-# ── UE-2: behavioral tests ─────────────────────────────────────────
+# behavioral tests ─────────────────────────────────────────
 
 
-class TestUE2SounddeviceWaitBehavior:
+class TestSounddeviceWaitBehavior:
     """UE-2: behavioral verification that ``_teardown_sounddevice``
     checks the ``wait()`` return value and force-aborts on timeout."""
 
@@ -399,10 +399,10 @@ class TestUE2SounddeviceWaitBehavior:
         controller._teardown_sounddevice()
 
 
-# ── UE-2: TIMEOUT sentinel integration ──────────────────────────────
+# TIMEOUT sentinel integration ──────────────────────────────
 
 
-class TestUE2TimeoutSentinelIntegration:
+class TestTimeoutSentinelIntegration:
     """UE-2: ``_run_with_timeout`` returns the ``TIMEOUT`` sentinel
     when the worker doesn't finish in time. ``_teardown_sounddevice``
     must check against this sentinel (NOT against ``None`` or falsy)."""

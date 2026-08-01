@@ -174,7 +174,7 @@ def _make_fake_server():
     server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
     server.app = MagicMock()
     server.app.quit = MagicMock()
-    # RT-FIX-9 / EC-FIX-3: force the lazy-create branch in
+    # force the lazy-create branch in
     # ``_make_dispatch`` to run (it creates a real ThreadPoolExecutor).
     # If we leave this unset, MagicMock auto-vivifies a child mock
     # that fails the ``wrap_future`` isinstance assertion.
@@ -741,7 +741,7 @@ def test_run_passes_max_size_to_serve(monkeypatch):
     assert mock_serve.call_args.kwargs["max_size"] == sw._MAX_FRAME_BYTES
 
 
-# ─── 8. Rate limiter applied (ADR-0019 + CR-11) ─────────────────────────
+# 8. Rate limiter applied (ADR-0019 + ) ─────────────────────────
 
 
 async def test_rate_limiter_applied_to_ws_frames():

@@ -218,7 +218,7 @@ class TestOpenStreamForCandidates:
         assert kwargs["finished_callback"] is recorder._stream_finished_callback
         # The stream was started.
         stream.start.assert_called_once_with()
-        # ARCH-021: _effective_sr updated under the lock.
+        # _effective_sr updated under the lock.
         assert recorder._effective_sr == 48000
         # AUDIO-CH: actual_channels stored.
         assert recorder._actual_channels == 1
@@ -432,7 +432,7 @@ class TestOpenStreamFallback:
         assert selected == 42
         assert used_fb is True
         # The post-success log line includes the device name even when
-        # ``dev_info_extra`` was non-None (RW-6 guard).
+        # ``dev_info_extra`` was non-None ( guard).
         assert any("USB Headset" in rec.getMessage() for rec in caplog.records)
 
     def test_fallback_succeeds_with_unknown_dev_info(self, monkeypatch, caplog):
@@ -457,7 +457,7 @@ class TestOpenStreamFallback:
 
         assert selected == 42
         assert used_fb is True
-        # RW-6 guard: the fallback placeholder must appear.
+        # guard: the fallback placeholder must appear.
         assert any("(unknown)" in rec.getMessage() for rec in caplog.records)
 
 

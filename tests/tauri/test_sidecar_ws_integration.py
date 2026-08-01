@@ -37,7 +37,7 @@ async def test_sidecar_round_trip_auth_dispatch_response(monkeypatch):
     server.app.quit = MagicMock()
     # push is called by start() — make it a no-op.
     server.push = MagicMock()
-    # RT-FIX-9 / EC-FIX-3: force the lazy-create branch in
+    # force the lazy-create branch in
     # ``_make_dispatch`` to run (creates a real ThreadPoolExecutor so
     # ``loop.run_in_executor`` doesn't fail the ``wrap_future``
     # isinstance assertion on a MagicMock.submit() return).
@@ -101,7 +101,7 @@ async def test_sidecar_rejects_bad_token(monkeypatch):
     server._dispatch = MagicMock()
     server.app = MagicMock()
     server.push = MagicMock()
-    # RT-FIX-9 / EC-FIX-3: force the lazy-create branch in
+    # force the lazy-create branch in
     # ``_make_dispatch`` to run.
     server._ws_dispatch_pool = None
 
@@ -120,7 +120,7 @@ async def test_sidecar_rejects_bad_token(monkeypatch):
         # Connect with the wrong token.
         async with websockets.connect(f"ws://127.0.0.1:{port}") as client:
             await client.send(json.dumps({"type": "auth", "token": "wrong-token"}))
-            # RT-FIX-9 / EC-11: the sidecar now sends an ``auth_failed``
+            # the sidecar now sends an ``auth_failed``
             # error frame BEFORE closing the WS with code 1008. Read
             # the error frame first, then expect the connection to
             # close on the next recv().
@@ -145,7 +145,7 @@ async def test_sidecar_handles_malformed_frame_without_crashing(monkeypatch):
     server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
     server.app = MagicMock()
     server.push = MagicMock()
-    # RT-FIX-9 / EC-FIX-3: force the lazy-create branch in
+    # force the lazy-create branch in
     # ``_make_dispatch`` to run.
     server._ws_dispatch_pool = None
 

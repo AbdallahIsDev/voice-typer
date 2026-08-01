@@ -356,7 +356,7 @@ class TestFts5SearchTriggersSync:
             # Delete the secret row.
             assert db2.delete(secret_row["id"]) is True
 
-            # XE-9-A: after delete, the FTS5 shadow segment data must
+            # after delete, the FTS5 shadow segment data must
             # NOT contain the secret text — the rebuild should have
             # dropped all segments and rebuilt from the content table
             # (which no longer contains the secret row).

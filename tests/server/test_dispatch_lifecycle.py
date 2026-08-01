@@ -22,7 +22,7 @@ from tests.server.conftest import (  # noqa: F401
 class TestDispatchToggleDictation:
     def test_calls_toggle_and_returns_ack(self, server, mock_app):
         result = server._dispatch({"id": 1, "type": "toggle_dictation"})
-        # NEW-IPC-006: ack responses now always include ``data: {}`` for
+        # ack responses now always include ``data: {}`` for
         # shape consistency.  Previously this returned just
         # ``{"id": 1, "type": "ack"}`` with no data, forcing the renderer
         # to defensively guard against ``undefined``.
@@ -39,7 +39,7 @@ class TestDispatchToggleDictation:
         result = server._dispatch({"id": 1, "type": "toggle_dictation"})
         assert result["type"] == "error"
         assert result["id"] == 1
-        # PVT-G5-021 (CR-20): handler now uses _respond_with_error which emits
+        # (): handler now uses _respond_with_error which emits
         # a generic envelope (code=internal_error, message=internal error) to
         # avoid leaking str(e) to the renderer.
         assert result["data"]["code"] == "server.internal_error"
@@ -52,7 +52,7 @@ class TestDispatchRestartApp:
         result = server._dispatch({"id": 1, "type": "restart_app"})
         # Returns None because ack was already sent
         assert result is None
-        # NEW-IPC-006: ack now includes explicit ``data: {}``.
+        # ack now includes explicit ``data: {}``.
         server._send.assert_called_once_with({"id": 1, "type": "ack", "data": {}})
         assert mock_app.restart_called is True
 

@@ -103,7 +103,7 @@ class TestMigrationTransactionality:
         # column; the second statement fails (insert into nonexistent
         # table). With the OLD code, the `favorite` column would be
         # committed individually (DDL autocommits in default isolation
-        # mode) and the version would be bumped to 2. With the CR-36
+        # mode) and the version would be bumped to 2. With the
         # fix, the entire transaction rolls back: `favorite` column is
         # NOT added and version is NOT bumped.
         failing_migration = """

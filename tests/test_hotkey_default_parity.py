@@ -55,7 +55,7 @@ def _extract_hotkey_default(ts_source: str) -> str:
         ts_source,
     )
     assert m is not None, (
-        "constants.ts is missing `export const HOTKEY_DEFAULT = \"...\";`. "
+        'constants.ts is missing `export const HOTKEY_DEFAULT = "...";`. '
         "Either the constant was renamed (update this test) or removed "
         "(update the onboarding wizard to source the default via the "
         "`get_defaults` IPC call per FZ-54)."
@@ -71,8 +71,7 @@ def test_constants_ts_hotkey_default_matches_config_default() -> None:
     ``_default_hotkey_for_platform``. The renderer copy MUST match.
     """
     assert CONSTANTS_TS_PATH.exists(), (
-        f"constants.ts not found at {CONSTANTS_TS_PATH} — has the "
-        "renderer's onboarding directory moved?"
+        f"constants.ts not found at {CONSTANTS_TS_PATH} — has the renderer's onboarding directory moved?"
     )
     ts_source = CONSTANTS_TS_PATH.read_text(encoding="utf-8")
     ts_value = _extract_hotkey_default(ts_source)

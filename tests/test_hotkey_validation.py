@@ -54,13 +54,13 @@ ALLOWED_HOTKEYS = [
     "<ctrl>+<alt>+<v>",
     # Ctrl+Q is now allowed (user choice — no longer in blocked list).
     "<ctrl>+<q>",
-    # CFG-3: multi-key non-modifier combos (e.g. ``<delete>+<end>``) are
+    # multi-key non-modifier combos (e.g. ``<delete>+<end>``) are
     # NO LONGER allowed — they're structurally invalid for a global
     # hotkey listener.  Moved to BLOCKED_HOTKEYS below.
     # F-key combos with modifiers are allowed.
     "<shift>+<f5>",
     "<ctrl>+<f1>",
-    # XS-99: ``<ctrl>+<alt>+<f2>`` switches to VT2 on Linux (a
+    # ``<ctrl>+<alt>+<f2>`` switches to VT2 on Linux (a
     # kernel-level console switch that pynput / the X server cannot
     # intercept). The Linux reserved-shortcut table correctly blocks
     # it, so this parametrize entry is skipped on Linux to avoid a
@@ -152,7 +152,7 @@ BLOCKED_HOTKEYS = [
     "<shift>+<z>",
     "<shift>+<a>",
     "<shift>+<m>",
-    # CFG-3: multi-key non-modifier combos are structurally invalid for
+    # multi-key non-modifier combos are structurally invalid for
     # a global hotkey listener (pynput, the Windows low-level hook, and
     # the macOS CGEventTap all register a single non-modifier key plus
     # zero-or-more modifiers).  Such combos would either fail to register,
@@ -363,7 +363,7 @@ class TestHotkeyModifiers:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# CFG-1: whitespace bypass in reserved-shortcut lookup
+# whitespace bypass in reserved-shortcut lookup
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -417,7 +417,7 @@ class TestCfg1WhitespaceBypass:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# CFG-2: ``win`` alias for ``super`` on Linux per-platform reserved lookup
+# ``win`` alias for ``super`` on Linux per-platform reserved lookup
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -493,7 +493,7 @@ class TestCfg2WinAliasForSuperOnLinux:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# CFG-3: reject multi-key non-modifier combos
+# reject multi-key non-modifier combos
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -569,7 +569,7 @@ class TestCfg3MultiKeyComboRejection:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# XE-12-1: caps_lock / capslock are NOT modifiers
+# caps_lock / capslock are NOT modifiers
 # ──────────────────────────────────────────────────────────────────────────
 
 

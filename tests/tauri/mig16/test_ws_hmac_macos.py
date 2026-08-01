@@ -640,7 +640,7 @@ def test_run_passes_max_size_to_serve(monkeypatch):
     assert mock_serve.call_args.kwargs["max_size"] == sw._MAX_FRAME_BYTES
 
 
-# ─── 8. Rate limiter applied (ADR-0019 + CR-11) ─────────────────────────
+# 8. Rate limiter applied (ADR-0019 + ) ─────────────────────────
 
 
 async def test_rate_limiter_applied_to_ws_frames():

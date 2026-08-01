@@ -264,7 +264,7 @@ class TestSystemRootEmptyValueContinues:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# CFG-10: path-traversal check uses path COMPONENTS, not substring match
+# path-traversal check uses path COMPONENTS, not substring match
 # ──────────────────────────────────────────────────────────────────────────
 
 

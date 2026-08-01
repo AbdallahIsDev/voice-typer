@@ -60,7 +60,7 @@ class TestAb27ReaderCacheSize:
         assert -3000 <= cache_size <= -1000, (
             f"AB-27: reader connection should use cache_size≈-2000 (2 MB). Got cache_size={cache_size}."
         )
-        # Specifically: it must NOT be -20000 (the pre-AB-27 value).
+        # Specifically: it must NOT be -20000 (the pre- value).
         assert cache_size != -20000, (
             "AB-27 regression: reader connection still uses -20000 (20 MB). "
             "Readers should use -2000 (2 MB) to avoid 120-180 MB idle RAM."

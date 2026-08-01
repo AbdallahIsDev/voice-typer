@@ -223,7 +223,7 @@ class TestFinalizeAudioQualityReport:
         app._audio_quality = MagicMock()
         ctrl._finalize_audio_quality_report(audio)
         app._audio_quality.analyze_full_audio.assert_not_called()
-        # ER-44: reset() MUST be called even on the early-return path so
+        # reset() MUST be called even on the early-return path so
         # accumulator state doesn't leak across sessions.
         app._audio_quality.reset.assert_called_once()
         # And tray.notify must NEVER be called (FIX-HOTKEY-AND-NOTIFICATION).
@@ -318,11 +318,11 @@ class TestFinalizeAudioQualityReport:
 
         ctrl._finalize_audio_quality_report(np.ones(16, dtype=np.float32))
 
-        # ER-44: reset() is in finally: so it runs even on exception.
+        # reset() is in finally: so it runs even on exception.
         mock_aq.reset.assert_called_once()
 
 
-# ── AUDIO-8: live RMS EMA wiring ──────────────────────────────────────
+# live RMS EMA wiring ──────────────────────────────────────
 
 
 class TestOnAudioQualityChunkRmsEma:
@@ -406,7 +406,7 @@ class TestOnAudioQualityChunkRmsEma:
         assert elapsed < 2.0, f"AUDIO-8: EMA update must not block the audio callback; 10k calls took {elapsed:.3f}s"
 
 
-# ── AUDIO-6 + AUDIO-9: force_sr parameter ────────────────────────────
+# + : force_sr parameter ────────────────────────────
 
 
 class TestRebuildAudioProcessorForceSr:

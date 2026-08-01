@@ -114,7 +114,7 @@ class TestAudioQualityAnalyzerProperties:
         assert analyzer.peak == 0.0
 
 
-# ── AUDIO-8: per-chunk RMS EMA accumulator ────────────────────────────
+# per-chunk RMS EMA accumulator ────────────────────────────
 
 
 class TestAudioQualityAnalyzerRmsEma:

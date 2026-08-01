@@ -447,7 +447,7 @@ def test_known_gap_tauri_conf_missing_bundle_windows(tauri_conf_json: dict):
     """XPLAT-4 FIXED: ``tauri.conf.json`` now HAS a ``bundle.windows`` block.
 
     The bundle config previously had a ``linux`` block (deb + rpm with
-    postInstall / preRemove scripts) but NO ``windows`` block. Authenticode
+    postInstallScript / preRemoveScript entries) but NO ``windows`` block. Authenticode
     signing of the host exe + MSI/NSIS was therefore entirely CI-driven
     (via signtool in the workflow) — Tauri's bundler did not auto-sign
     because no ``TAURI_SIGNING_PRIVATE_KEY`` / ``WIN_CSC_LINK`` was
@@ -463,9 +463,10 @@ def test_known_gap_tauri_conf_missing_bundle_windows(tauri_conf_json: dict):
     bundle = tauri_conf_json.get("bundle", {})
     # The linux block must exist (sanity check that the config is loaded).
     assert "linux" in bundle, (
-        "Reference pattern broken: tauri.conf.json bundle should have a `linux` block (deb + rpm postInstall scripts)."
+        "Reference pattern broken: tauri.conf.json bundle should have a "
+        "`linux` block (deb + rpm postInstallScript entries)."
     )
-    # XPLAT-4 FIXED: the windows block is now present.
+    # FIXED: the windows block is now present.
     assert "windows" in bundle, "tauri.conf.json should have a `bundle.windows` block (XPLAT-4 fix)."
     windows = bundle["windows"]
     assert "signCommand" in windows, (
@@ -473,7 +474,7 @@ def test_known_gap_tauri_conf_missing_bundle_windows(tauri_conf_json: dict):
     )
 
 
-# ─── 6. GAP-1: MSI is NOT signed by the workflow ─────────────────────────────
+# 6. : MSI is NOT signed by the workflow ─────────────────────────────
 def test_known_gap_msi_not_signed_in_workflow(workflow_text: str):
     """GAP-1 (documented): the workflow does NOT sign the MSI installer.
 

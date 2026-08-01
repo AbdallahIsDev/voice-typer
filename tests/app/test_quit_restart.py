@@ -57,12 +57,12 @@ class TestQuitAppCleanShutdown:
         # Stub out clean-shutdown side effects so quit() can run without
         # actually joining threads / stopping pystray.
         app._cancel_pending_timers = MagicMock()
-        # RW-9 Phase 1: was ``app._get_streaming_session`` / ``app._set_streaming_session``
+        # Phase 1: was ``app._get_streaming_session`` / ``app._set_streaming_session``
         # (test-seam delegates removed); patch the controller methods directly.
         app.recording.get_streaming_session = MagicMock(return_value=None)
         app.recording.set_streaming_session = MagicMock()
         app.recorder = MagicMock()
-        # ARCH-REFAC-003: write to RecordingController directly (was a
+        # write to RecordingController directly (was a
         # @property delegate on VoiceTyperApp).
         app.recording._transcription_thread = None
         app.hotkeys._hotkey_backend = MagicMock()
@@ -126,15 +126,15 @@ class TestQuitAppCleanShutdown:
         """RELIABILITY-003: quit() (called by quit_app) must stop
         esc_backend and repaste_backend, not just hotkey_backend."""
         app._cancel_pending_timers = MagicMock()
-        # RW-9 Phase 1: was ``app._get_streaming_session`` / ``app._set_streaming_session``
+        # Phase 1: was ``app._get_streaming_session`` / ``app._set_streaming_session``
         # (test-seam delegates removed); patch the controller methods directly.
         app.recording.get_streaming_session = MagicMock(return_value=None)
         app.recording.set_streaming_session = MagicMock()
         app.recorder = MagicMock()
-        # ARCH-REFAC-003: write to RecordingController directly (was a
+        # write to RecordingController directly (was a
         # @property delegate on VoiceTyperApp).
         app.recording._transcription_thread = None
-        # XZ-R17-02: ``shutdown_controller._teardown_hotkeys`` now NULLS
+        # ``shutdown_controller._teardown_hotkeys`` now NULLS
         # out ``_hotkey_backend`` / ``_esc_backend`` / ``_repaste_backend``
         # after calling ``stop()`` (so a late hotkey callback from a
         # not-yet-joined listener thread finds ``None`` instead of a
@@ -195,7 +195,7 @@ class TestRestartAppCleanShutdown:
         monkeypatch.setattr("time.sleep", lambda s: None)
         # Belt-and-suspenders: don't let os._exit kill the pytest process.
         monkeypatch.setattr("os._exit", lambda code: None)
-        # XZ-R17-02: shutdown_controller now nulls the backend attrs after
+        # shutdown_controller now nulls the backend attrs after
         # stop() — capture mocks in locals so assertions still work.
         hotkey_backend = MagicMock()
         esc_backend = MagicMock()
@@ -284,7 +284,7 @@ class TestRestartAppCleanupPath:
         monkeypatch.setattr("time.sleep", lambda s: None)
         monkeypatch.setattr("os._exit", lambda code: None)
         monkeypatch.setattr("voice_typer.server.app.sys.exit", lambda code=0: (_ for _ in ()).throw(SystemExit(code)))
-        # XZ-R17-02: shutdown_controller now nulls the backend attrs after
+        # shutdown_controller now nulls the backend attrs after
         # stop() — capture mocks in locals so assertions still work.
         hotkey_backend = MagicMock()
         esc_backend = MagicMock()
@@ -413,7 +413,7 @@ class TestAppQuitAppAlwaysPushesEvent:
         quit_calls = []
         monkeypatch.setattr(app, "quit", lambda: quit_calls.append(True))
         app._shutting_down = True
-        # DE-49: the re-entry guard now reads _shutting_down_event.is_set()
+        # the re-entry guard now reads _shutting_down_event.is_set()
         # instead of the plain boolean.  Set the Event too so the guard
         # triggers (mirrors production — quit() / restart_app() set both).
         app._shutting_down_event.set()
@@ -529,4 +529,4 @@ class TestSingleInstanceEnforcement:
         )
 
 
-# ── APP-N regression tests (FIX-8) ─────────────────────────────────────
+# APP-N regression tests () ─────────────────────────────────────

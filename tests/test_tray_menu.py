@@ -106,7 +106,7 @@ class TestBuildMenu:
             build_models_submenu=lambda: [],
         )
         labels = [it.label for it in result if hasattr(it, "label")]
-        # TRAY-008: labels now use localization keys by default
+        # labels now use localization keys by default
         assert any("toggle_dictation" in lbl for lbl in labels)
         assert "open_app" in labels
         assert "models" in labels
@@ -176,7 +176,7 @@ class TestBuildMenu:
 
 
 # =============================================================================
-# === Merged from test_new_perf_consolidated.py (NEW-PERF-004: tray models cache) ===
+# === Merged from test_new_perf_consolidated.py (: tray models cache) ===
 # =============================================================================
 """Regression tests for NEW-PERF-004: tray models submenu caching.
 

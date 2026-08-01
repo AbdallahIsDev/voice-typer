@@ -101,7 +101,7 @@ class TestErrorCodesRegistry:
 class TestHandlerFilesUseHelper:
     HANDLERS_DIR = Path("voice_typer/server/handlers")
     NON_HANDLER_FILES = {"__init__.py", "_base.py", "_log.py"}
-    # UE-15 (2026-07-30): these handlers were reduced to empty stubs
+    # (2026-07-30): these handlers were reduced to empty stubs
     # (the IPC dispatch routes were deleted; the Tauri host invokes
     # the service layer directly via dedicated Rust commands). They
     # have no catch-all to wrap, so the helper-coverage test must
@@ -205,7 +205,7 @@ class TestHandlerCatchAllLogging:
         assert any(r.exc_info is not None for r in error_records)
 
     def test_catch_all_does_not_leak_traceback_to_client(self, ipc_server, fake_service):
-        # UE-15: was ``_handle_export_diagnostics`` — switched to
+        # was ``_handle_export_diagnostics`` — switched to
         # ``_handle_cancel_model_download`` (same catch-all path) after
         # the export_diagnostics handler was deleted.
         fake_service.cancel_model_download.side_effect = ValueError("malformed input\n  detail line 1\n  detail line 2")

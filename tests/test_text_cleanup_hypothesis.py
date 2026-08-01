@@ -101,7 +101,7 @@ def _configure_corrections():
     configure_corrections()
 
 
-# ── TEST-009: Property-based tests for clean_transcribed_text ──────────
+# Property-based tests for clean_transcribed_text ──────────
 
 
 class TestCleanTextProperties:
@@ -162,7 +162,7 @@ class TestCleanTextProperties:
         assert result[0].isupper() or not result[0].isalpha()
 
 
-# ── TEST-013: Fuzzing for _load_external_corrections() ──────────────────
+# Fuzzing for _load_external_corrections() ──────────────────
 
 
 class TestCorrectionsJsonFuzzing:

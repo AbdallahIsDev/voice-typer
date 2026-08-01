@@ -115,7 +115,7 @@ def patch_transcription_engine(monkeypatch):
     return _fake_ctor, construct_calls
 
 
-class TestDJ14PreloadContract:
+class TestPreloadContract:
     """DJ-14: ``ModelManager._preload_cpu_fallback_backend`` MUST
     construct a CPU whisper-tiny.en backend, register it under the
     documented name, and call ``.load()`` to pull the model into RSS."""
@@ -327,7 +327,7 @@ class TestDJ14PreloadContract:
         mock_registry.register.assert_not_called()
 
 
-class TestDJ14SpawnFromStartBackgroundLoad:
+class TestSpawnFromStartBackgroundLoad:
     """DJ-14: ``start_background_load`` MUST spawn a daemon thread that
     pre-warms the CPU fallback backend after the active load finishes."""
 
@@ -412,7 +412,7 @@ class TestDJ14SpawnFromStartBackgroundLoad:
         )
 
 
-class TestDJ14ConfigField:
+class TestConfigField:
     """DJ-14: ``preload_cpu_fallback`` is a new Config field with a
     default of True. Exposed via IPC so users can opt out from
     Settings."""

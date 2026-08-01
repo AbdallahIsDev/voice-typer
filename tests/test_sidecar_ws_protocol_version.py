@@ -69,9 +69,7 @@ async def test_auth_without_protocol_version_still_succeeds(monkeypatch) -> None
 
 
 @pytest.mark.asyncio
-async def test_auth_with_matching_protocol_version_succeeds(
-    monkeypatch, caplog
-) -> None:
+async def test_auth_with_matching_protocol_version_succeeds(monkeypatch, caplog) -> None:
     """Matching ``protocol_version`` → auth succeeds, no skew warning."""
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
     ws = _make_fake_websocket(
@@ -86,20 +84,14 @@ async def test_auth_with_matching_protocol_version_succeeds(
         result = await sidecar_ws._authenticate(ws)
 
     assert result is True, "auth must succeed when protocol_version matches"
-    skew_warnings = [
-        r for r in caplog.records
-        if "protocol version skew" in r.getMessage()
-    ]
+    skew_warnings = [r for r in caplog.records if "protocol version skew" in r.getMessage()]
     assert skew_warnings == [], (
-        "matching protocol_version must NOT log a skew warning; got: "
-        f"{[r.getMessage() for r in skew_warnings]}"
+        f"matching protocol_version must NOT log a skew warning; got: {[r.getMessage() for r in skew_warnings]}"
     )
 
 
 @pytest.mark.asyncio
-async def test_auth_with_mismatched_protocol_version_logs_warning_but_succeeds(
-    monkeypatch, caplog
-) -> None:
+async def test_auth_with_mismatched_protocol_version_logs_warning_but_succeeds(monkeypatch, caplog) -> None:
     """Mismatched ``protocol_version`` → WARNING logged, auth STILL succeeds.
 
     S1-CR-78: the version negotiation is defense-in-depth, NOT a
@@ -119,13 +111,8 @@ async def test_auth_with_mismatched_protocol_version_logs_warning_but_succeeds(
     with caplog.at_level(logging.WARNING, logger="voice_typer.server.sidecar_ws"):
         result = await sidecar_ws._authenticate(ws)
 
-    assert result is True, (
-        "auth must STILL succeed on protocol_version mismatch (field is advisory)"
-    )
-    skew_warnings = [
-        r for r in caplog.records
-        if "protocol version skew" in r.getMessage()
-    ]
+    assert result is True, "auth must STILL succeed on protocol_version mismatch (field is advisory)"
+    skew_warnings = [r for r in caplog.records if "protocol version skew" in r.getMessage()]
     assert len(skew_warnings) == 1, (
         f"expected exactly one skew warning, got {len(skew_warnings)}; "
         f"records={[r.getMessage() for r in caplog.records]}"
@@ -134,15 +121,11 @@ async def test_auth_with_mismatched_protocol_version_logs_warning_but_succeeds(
     # the operator can see the actual skew magnitude.
     msg = skew_warnings[0].getMessage()
     assert f"host={wrong_version}" in msg, f"warning must include host version: {msg!r}"
-    assert f"sidecar={sidecar_ws.PROTOCOL_VERSION}" in msg, (
-        f"warning must include sidecar version: {msg!r}"
-    )
+    assert f"sidecar={sidecar_ws.PROTOCOL_VERSION}" in msg, f"warning must include sidecar version: {msg!r}"
 
 
 @pytest.mark.asyncio
-async def test_auth_with_non_int_protocol_version_logs_warning_but_succeeds(
-    monkeypatch, caplog
-) -> None:
+async def test_auth_with_non_int_protocol_version_logs_warning_but_succeeds(monkeypatch, caplog) -> None:
     """Non-int ``protocol_version`` → WARNING logged, auth STILL succeeds."""
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "good-token")
     ws = _make_fake_websocket(
@@ -156,13 +139,8 @@ async def test_auth_with_non_int_protocol_version_logs_warning_but_succeeds(
     with caplog.at_level(logging.WARNING, logger="voice_typer.server.sidecar_ws"):
         result = await sidecar_ws._authenticate(ws)
 
-    assert result is True, (
-        "auth must STILL succeed when protocol_version is a bad type"
-    )
-    bad_type_warnings = [
-        r for r in caplog.records
-        if "protocol_version is not an int" in r.getMessage()
-    ]
+    assert result is True, "auth must STILL succeed when protocol_version is a bad type"
+    bad_type_warnings = [r for r in caplog.records if "protocol_version is not an int" in r.getMessage()]
     assert len(bad_type_warnings) == 1, (
         f"expected one bad-type warning, got {len(bad_type_warnings)}; "
         f"records={[r.getMessage() for r in caplog.records]}"

@@ -2,7 +2,7 @@
 filter is added to ``pyproject.toml``.
 
 Mirrors the TS assertion at
-``voice_typer/client/src/renderer/src/__tests__/rw1-rewrite/electron-ipc-build-behavior.test.tsx:1051``
+``voice_typer/client/src/renderer/src/__tests__/behavior-rewrite/electron-ipc-build-behavior.test.tsx:1051``
 (RW-1 rewrite of TestNoBlanketResourceWarningFilter). The TS test runs
 only under ``vitest``; this Python guard runs under ``pytest`` so a
 contributor who only runs the Python suite still catches the regression.

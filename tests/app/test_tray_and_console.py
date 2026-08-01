@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 class TestTrayControllerProtocolCompliance:
     """Verify VoiceTyperApp implements all TrayController protocol methods."""
 
-    # DEAD-008: toggle_autostart, set_notifications, set_silence_*,
+    # toggle_autostart, set_notifications, set_silence_*,
     # set_max_recording_time_seconds, create_desktop_shortcut removed
     # from TrayController protocol — no caller existed.  The public
     # methods are now just the ones the tray menu actually invokes.
@@ -30,7 +30,7 @@ class TestTrayControllerProtocolCompliance:
         "_toggle_autostart",
         "_set_notifications",
         "_select_microphone",
-        # RW-9 Phase 2: ``_change_model`` and ``_restart_hotkey`` removed —
+        # Phase 2: ``_change_model`` and ``_restart_hotkey`` removed —
         # the tray now calls ``change_model`` (a TrayController Protocol
         # method) which internally invokes ``self.models.change_model``
         # directly. Hotkey changes go through ``app.hotkeys.restart``
@@ -99,7 +99,7 @@ class TestWin32ConsoleHandler:
         assert result is False
 
 
-# ── TEST-004: restart_app cleanup path ───────────────────────────────────
+# restart_app cleanup path ───────────────────────────────────
 
 
 class TestMicrophoneSelection:

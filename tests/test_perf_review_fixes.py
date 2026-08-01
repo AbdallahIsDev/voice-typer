@@ -171,7 +171,7 @@ class TestWin32PollingLoopUsesSleepEight:
         # Find every ``Sleep(N)`` call in the polling loop body.
         sleep_calls = re.findall(r"Sleep\((\d+)\)", src)
         assert sleep_calls, "_run_polling_loop must call kernel32.Sleep(N) — no Sleep call found"
-        # The main-loop sleep MUST be 8 ms (XV-107: was previously
+        # The main-loop sleep MUST be 8 ms (: was previously
         # documented as 1ms, but the actual cadence is 8ms with
         # timeBeginPeriod(8) — see PERF-01/CPU-01).
         assert "8" in sleep_calls, (

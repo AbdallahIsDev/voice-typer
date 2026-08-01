@@ -49,14 +49,11 @@ class TestVadSourceUsesToFloat32:
         from voice_typer.server import vad
 
         src = inspect.getsource(vad.compute_vad_prob)
-        # DJ-76: accept either the bare form (.to(torch.float32)) or
+        # accept either the bare form (.to(torch.float32)) or
         # the copy=False form (.to(torch.float32, copy=False)). The
         # copy=False form is a strict improvement (no-op when dtype
         # already matches, same as the bare form).
-        uses_to_float32 = (
-            ".to(torch.float32)" in src
-            or ".to(torch.float32, copy=False)" in src
-        )
+        uses_to_float32 = ".to(torch.float32)" in src or ".to(torch.float32, copy=False)" in src
         assert uses_to_float32, (
             "TY-26: compute_vad_prob must use .to(torch.float32) instead "
             "of .float(). The .to() form is a no-op when the dtype "
@@ -71,7 +68,7 @@ class TestVadSourceUsesToFloat32:
         from voice_typer.server import vad
 
         src = inspect.getsource(vad.compute_vad_prob)
-        # The two pre-TY-26 forms that always cloned the data buffer.
+        # The two pre- forms that always cloned the data buffer.
         assert "from_numpy(audio_chunk).float()" not in src, (
             "TY-26: compute_vad_prob must not use "
             "torch.from_numpy(audio_chunk).float() — use "
@@ -97,7 +94,7 @@ class TestVadSourceUsesToFloat32:
         from voice_typer.server import vad
 
         src = inspect.getsource(vad.compute_vad_prob)
-        # DJ-76: count both the bare form (.to(torch.float32)) and the
+        # count both the bare form (.to(torch.float32)) and the
         # copy=False form (.to(torch.float32, copy=False)). The substring
         # `.to(torch.float32` (without the closing paren) matches both,
         # so we count occurrences of that prefix instead.
@@ -368,8 +365,8 @@ class _MockTensor:
         return self
 
     def to(self, dtype, copy=True):
-        # TY-26: .to(float32) is a no-op for an already-float32 tensor.
-        # DJ-76: ``copy=False`` kwarg accepted (real torch supports it).
+        # .to(float32) is a no-op for an already-float32 tensor.
+        # ``copy=False`` kwarg accepted (real torch supports it).
         return self
 
     def float(self):

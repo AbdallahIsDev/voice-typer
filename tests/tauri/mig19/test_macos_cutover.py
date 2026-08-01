@@ -549,7 +549,7 @@ def test_workflow_runs_macos_signing_notarization_stapling(
     GAP-1.
     """
     # 1. Signing: codesign with --sign (the .dmg is explicitly signed;
-    #    the .app relies on cargo tauri build's internal signing — GAP-2).
+    # the .app relies on cargo tauri build's internal signing — ).
     assert "codesign" in workflow_text, (
         "tauri-macos-build.yml does NOT invoke 'codesign'. ADR-0020 §13.2 "
         "+ §'Phase 5' mandate that the macOS bundle is signed with a "

@@ -186,7 +186,7 @@ def _wire_parakeet_mocks(engine, decode_text: str = "hello world"):
     return mock_processor, mock_model
 
 
-# ─── AB-11: Parakeet inference_mode tests ───────────────────────────────
+# Parakeet inference_mode tests ───────────────────────────────
 
 
 class TestParakeetInferenceModeEntered:
@@ -338,7 +338,7 @@ class TestParakeetInferenceModeEntered:
         )
 
 
-# ─── AB-11: Qwen inference_mode tests ───────────────────────────────────
+# Qwen inference_mode tests ───────────────────────────────────
 
 
 class TestQwenInferenceModeEntered:
@@ -453,7 +453,7 @@ class TestQwenInferenceModeEntered:
         assert exit_count == t_count
 
 
-# ─── AB-11: graceful fallback when torch is not installed ──────────────
+# graceful fallback when torch is not installed ──────────────
 
 
 class TestInferenceModeFallback:

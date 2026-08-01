@@ -46,7 +46,7 @@ def _mock_pipeline_helpers(monkeypatch, model_dir: Path) -> None:
     monkeypatch.setattr(prewarm, "_mark_warmed", lambda elapsed: None)
 
 
-# ─── AB-17: high cache ratio → skip warming ─────────────────────────────
+# high cache ratio → skip warming ─────────────────────────────
 
 
 class TestCacheRatioSkipWarming:
@@ -160,7 +160,7 @@ class TestCacheRatioSkipWarming:
         assert warm_calls, "AB-17: probe failure must fall through to _warm_file"
 
 
-# ─── AB-17: constants are defined and exported (regression guard) ──────
+# constants are defined and exported (regression guard) ──────
 
 
 class TestCacheRatioConstants:

@@ -246,7 +246,7 @@ def test_tray_click_unknown_id_returns_error(monkeypatch):
         result = server._dispatch({"type": "tray_click", "data": {"id": "nope"}})
 
         assert result["type"] == "error"
-        # RT-FIX-9: error codes are now namespaced. Accept either the
+        # error codes are now namespaced. Accept either the
         # namespaced ``server.unknown_tray_item`` form or the bare
         # legacy ``unknown_tray_item`` form for forward-compat.
         assert result["data"]["code"] in (
@@ -269,7 +269,7 @@ def test_tray_click_missing_id_returns_error():
     result = server._dispatch({"type": "tray_click", "data": {}})
 
     assert result["type"] == "error"
-    # RT-FIX-9: error codes are now namespaced. Accept either the
+    # error codes are now namespaced. Accept either the
     # namespaced form (``client.missing_field`` / ``client.invalid_payload``)
     # or the bare legacy form for forward-compat.
     assert result["data"]["code"] in (
@@ -280,7 +280,7 @@ def test_tray_click_missing_id_returns_error():
     )
 
 
-# ─── S1-CR-6: tray_menu + tray_state publish wiring ──────────────────────
+# tray_menu + tray_state publish wiring ──────────────────────
 
 
 def _make_full_controller():

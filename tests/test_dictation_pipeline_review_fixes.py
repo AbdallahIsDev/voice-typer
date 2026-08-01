@@ -558,7 +558,7 @@ class TestCloudEngineIgnoresAudioStats:
         assert result == "text"
 
 
-# ─── ZR-64: _timed_stage context manager ─────────────────────────────────
+# _timed_stage context manager ─────────────────────────────────
 
 
 class TestTimedStageContextManager:
@@ -586,7 +586,7 @@ class TestTimedStageContextManager:
         assert 1.0 < timings["transcribe"] < 1000.0
 
     def test_exception_propagates_and_timing_still_recorded(self) -> None:
-        # ZR-64: the ``finally`` clause runs before the exception
+        # the ``finally`` clause runs before the exception
         # propagates so a ``[PIPE-PERF]`` log emitted from the
         # ``except`` block in ``run()`` has a best-effort timing for
         # the stage that failed.

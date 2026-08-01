@@ -184,7 +184,7 @@ class TestCspPluginConstants:
 
     def test_csp_prod_allows_github_api(self, csp_plugin_source: str):
         # Update check uses https://api.github.com.
-        # CR-11 / R6-F5: the ``connect-src`` directive is now built
+        # R6-F5: the ``connect-src`` directive is now built
         # dynamically via ``buildConnectSrc({ allowGitHub: true })`` for
         # the main window (CSP_PROD_MAIN, which CSP_PROD aliases). The
         # function literal includes ``https://api.github.com`` as a
@@ -238,7 +238,7 @@ class TestCspPluginWiredIn:
         assert "configResolved" in csp_plugin_source
         assert "isProduction" in csp_plugin_source
         assert "CSP_PROD" in csp_plugin_source and "CSP_DEV" in csp_plugin_source
-        # CR-11 / R6-F5: the plugin now uses ``pickProdCsp(filePath)`` in
+        # R6-F5: the plugin now uses ``pickProdCsp(filePath)`` in
         # production (per-window split) instead of the bare ``CSP_PROD``
         # ternary. Accept either form:
         #   - legacy: ``isProduction ? CSP_PROD : CSP_DEV``

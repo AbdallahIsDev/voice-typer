@@ -73,7 +73,7 @@ def _reset_leaked_workers():
                 t.join(timeout=0.5)
 
 
-# ─── UE-21 / UE-11-F7: leaked worker registry ──────────────────────────
+# leaked worker registry ──────────────────────────
 
 
 class TestLeakedWorkerRegistry:
@@ -320,7 +320,7 @@ class TestLeakedWorkerRegistryThreadSafety:
             join_leaked_workers(timeout=2.0)
 
 
-# ─── UE-11-F8: duplicate desc guard ─────────────────────────────────────
+# duplicate desc guard ─────────────────────────────────────
 
 
 class TestRunParallelWithTimeoutDuplicateDesc:
@@ -425,7 +425,7 @@ class TestRunParallelWithTimeoutDuplicateDesc:
             join_leaked_workers(timeout=2.0)
 
 
-# ─── UE-11-F9: __all__ cleanup ──────────────────────────────────────────
+# __all__ cleanup ──────────────────────────────────────────
 
 
 class TestAllCleanup:
@@ -435,7 +435,7 @@ class TestAllCleanup:
         """``_TIMEOUT`` is removed from ``__all__``."""
         assert "_TIMEOUT" not in _tu.__all__, f"_TIMEOUT should not be in __all__; got: {_tu.__all__}"
 
-    def test_all_does_not_contain_de11_grace_period_alias(self):
+    def test_all_does_not_contain_grace_period_alias(self):
         """``_DE11_GRACE_PERIOD_SECONDS`` is removed from ``__all__``."""
         assert "_DE11_GRACE_PERIOD_SECONDS" not in _tu.__all__, (
             f"_DE11_GRACE_PERIOD_SECONDS should not be in __all__; got: {_tu.__all__}"

@@ -36,7 +36,7 @@ _LOGGER_NAME = "voice_typer.server.container_detect"
 
 # ── helpers ────────────────────────────────────────────────────────────
 #
-# TEST-GAP-1 (2026-07-18): Path comparison helpers use ``PurePosixPath``
+# (2026-07-18): Path comparison helpers use ``PurePosixPath``
 # for normalization so the tests pass on win32, Linux, and macOS without
 # depending on the runner's native ``Path`` string representation. The
 # SUT constructs ``Path("/.dockerenv")`` etc.; on win32 the native str
@@ -354,7 +354,7 @@ class TestWarnIfInContainer:
         assert not any("PLAT-021" in r.message for r in caplog.records)
 
 
-# ── DE-66: cgroup v2-aware detection ───────────────────────────────────
+# cgroup v2-aware detection ───────────────────────────────────
 
 
 def _set_proc_files(monkeypatch, contents: dict[str, str | None]) -> None:

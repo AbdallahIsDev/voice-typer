@@ -80,7 +80,7 @@ def _make_mm_with_mock_backend(
     return mm, app, engine, mock_registry
 
 
-# ── AB-10: change_model returns immediately ──────────────────────────
+# change_model returns immediately ──────────────────────────
 
 
 class TestChangeModelReturnsImmediately:
@@ -124,7 +124,7 @@ class TestChangeModelReturnsImmediately:
         assert ack["pending"]["model_size"] == "medium.en"
 
 
-# ── AB-10: set_active_backend returns immediately ────────────────────
+# set_active_backend returns immediately ────────────────────
 
 
 class TestSetActiveBackendReturnsImmediately:
@@ -168,7 +168,7 @@ class TestSetActiveBackendReturnsImmediately:
         mm._registry.load_active.assert_not_called()
 
 
-# ── AB-10: asr_backend_ready event fires on completion ───────────────
+# asr_backend_ready event fires on completion ───────────────
 
 
 class TestBackendReadyEventFires:
@@ -221,7 +221,7 @@ class TestBackendReadyEventFires:
         assert evt["data"]["backend"] == "qwen"
 
 
-# ── AB-10: concurrent calls serialize via _model_change_lock ─────────
+# concurrent calls serialize via _model_change_lock ─────────
 
 
 class TestConcurrentCallsSerialize:
@@ -300,7 +300,7 @@ class TestConcurrentCallsSerialize:
         )
 
 
-# ── AB-10: blocking variant still works for sync callers ─────────────
+# blocking variant still works for sync callers ─────────────
 
 
 class TestBlockingVariantStillWorks:
@@ -345,7 +345,7 @@ class TestBlockingVariantStillWorks:
         assert app.config.asr_backend == "qwen"
 
 
-# ── AB-10: apply_pending_model_change uses blocking variant ──────────
+# apply_pending_model_change uses blocking variant ──────────
 
 
 class TestApplyPendingModelChangeUsesBlocking:

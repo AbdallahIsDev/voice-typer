@@ -81,7 +81,7 @@ CONSTANTS = [
     "STATUS_ACCESS_VIOLATION",
     "STATUS_STACK_BUFFER_OVERRUN",
     "STATUS_FATAL_APP_EXIT",
-    # YJ-42: extended fatal codes
+    # extended fatal codes
     "STATUS_ILLEGAL_INSTRUCTION",
     "STATUS_INT_DIVIDE_BY_ZERO",
     "STATUS_PRIVILEGED_INSTRUCTION",
@@ -126,7 +126,7 @@ READONLY_REFS = [
     "_NAME_ACCESS",
     "_NAME_STACK",
     "_NAME_FATAL",
-    # YJ-42: friendly names for the extended fatal codes
+    # friendly names for the extended fatal codes
     "_NAME_ILLEGAL_INSTRUCTION",
     "_NAME_INT_DIVIDE_BY_ZERO",
     "_NAME_PRIVILEGED_INSTRUCTION",

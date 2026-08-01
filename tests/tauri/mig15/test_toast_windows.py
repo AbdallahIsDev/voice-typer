@@ -96,7 +96,7 @@ WS_RS = _SRC_TAURI / "src" / "sidecar" / "ws.rs"
 TAURI_CONF_JSON = _SRC_TAURI / "tauri.conf.json"
 CAPABILITIES_JSON = (
     _SRC_TAURI / "capabilities" / "main-runtime.json"
-)  # CR-5: migrate-runtime split; notification perms live in main-runtime
+)  # migrate-runtime split; notification perms live in main-runtime
 TRAY_PY = _REPO_ROOT / "voice_typer" / "server" / "tray.py"
 SYSTEM_HANDLERS_PY = _REPO_ROOT / "voice_typer" / "server" / "handlers" / "system_handlers.py"
 
@@ -323,7 +323,7 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
         release cycle, then the alias is dropped.
         """
         src = _read(WS_RS)
-        # PVT-2 cleanup: the relaunch_electron → relaunch_app rename arm
+        # cleanup: the relaunch_electron → relaunch_app rename arm
         # was REMOVED (the Python side now publishes relaunch_app directly,
         # and main.rs has a listener for it). The match arm was replaced
         # with a direct assignment:
@@ -533,7 +533,7 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
 # IMPLEMENTATION GAP (reported, not fixed):
 #   The task description said the payload shape is
 #   ``{"type":"electron_notification","data":{"title":"...","body":"..."}}``.
-#   The ACTUAL shape (per CR-8 + the validation logic in
+# The ACTUAL shape (per  + the validation logic in
 #   system_handlers.py::_handle_show_electron_notification) is:
 #     {"type": "notification",
 #      "data": {"title": "...", "message": "...",

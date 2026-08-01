@@ -127,7 +127,7 @@ TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
 COMPILE_NATIVE_SH = PROJECT_ROOT / "scripts" / "build" / "compile_native.sh"
 BUILD_NATIVE_LISTENER_MACOS_SH = PROJECT_ROOT / "scripts" / "build" / "build_native_listener_macos.sh"
 MACOS_KEY_LISTENER_SWIFT = PROJECT_ROOT / "voice_typer" / "server" / "native" / "macos-key-listener.swift"
-# Phase 4.5 / ARCH-045 — ``native_hotkeys.py`` was split into a package at
+# Phase 4.5 /  — ``native_hotkeys.py`` was split into a package at
 # ``voice_typer/server/native_hotkeys/`` with one submodule per concern
 # (base / mac_backend / windows_backend / linux_backend / factory / ...).
 # The ``__init__.py`` re-exports every public name.  Tests below that

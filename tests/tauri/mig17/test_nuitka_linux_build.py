@@ -319,7 +319,7 @@ def test_sidecar_script_onefile_tempdir_pinned_to_cache(sidecar_text: str):
     assert "voice-typer/onefile-tmp" in sidecar_text
 
 
-# ─── 4. ctranslate2/libs guard (plural — XPLAT-3 pattern, source on Linux) ──
+# 4. ctranslate2/libs guard (plural —  pattern, source on Linux) ──
 def test_sidecar_script_has_xplat3_ctranslate2_libs_guard(sidecar_text: str):
     """The sidecar script must have the XPLAT-3 ``ctranslate2/libs`` guard.
 
@@ -375,7 +375,7 @@ def test_sidecar_script_documents_xplat3_guard_rationale(sidecar_text: str):
     on missing source paths). Without the comment, a future reader may
     mistake the guard for dead code and remove it.
     """
-    # The XPLAT-3 comment block in build_sidecar_linux.sh mentions both
+    # The  comment block in build_sidecar_linux.sh mentions both
     # the CPU-only aarch64 case and the macOS/Windows sibling reference.
     assert "ctranslate2/libs" in sidecar_text
     assert "XPLAT-3" in sidecar_text or "CPU-only" in sidecar_text or "fails hard" in sidecar_text, (
@@ -756,7 +756,7 @@ def test_prewarm_script_has_xplat3_ctranslate2_libs_guard(prewarm_text: str):
     assert '--include-data-dir="$CT2_LIBS_DIR=$CT2_LIBS_DIR"' in prewarm_text
 
 
-# ─── 9. Sibling parity (macOS + Windows siblings have the XPLAT-3 guard) ────
+# 9. Sibling parity (macOS + Windows siblings have the  guard) ────
 def test_macos_sibling_has_xplat3_ctranslate2_libs_guard():
     """Sanity check: the macOS sibling MUST have the XPLAT-3 guard.
 
@@ -857,7 +857,7 @@ def test_known_gap_prewarm_check_is_stub(prewarm_text: str):
     This test ASSERTS the gap is present. DO NOT fix this gap as part
     of MIG-1.7 gate check 1 — report it to the primary agent.
     """
-    # WR-18 fixed the stub: --check now delegates to build_sidecar_linux.sh --check
+    # fixed the stub: --check now delegates to build_sidecar_linux.sh --check
     # instead of just echoing "OK if that passes" and exiting 0.
     assert "build_sidecar_linux.sh" in prewarm_text and "--check" in prewarm_text, (
         "build_prewarm_linux.sh --check must delegate to build_sidecar_linux.sh --check "

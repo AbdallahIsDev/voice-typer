@@ -73,10 +73,10 @@ def _isolate_counters():
     reset()
 
 
-# ── UE-16 (a): summary dicts bounded by the counter-dict LRU cap ────
+# (a): summary dicts bounded by the counter-dict LRU cap ────
 
 
-class TestUE16SummaryDictsBounded:
+class TestSummaryDictsBounded:
     """UE-16: the two GT-66 summary dicts MUST stay bounded at
     ``_MAX_COUNTERS`` (1024) entries.
 
@@ -216,10 +216,10 @@ class TestUE16SummaryDictsBounded:
         )
 
 
-# ── UE-16 (b): summary severity tracks the caller's configured level ──
+# (b): summary severity tracks the caller's configured level ──
 
 
-class TestUE16SummarySeverity:
+class TestSummarySeverity:
     """UE-16: the GT-66 periodic summary severity is
     ``max(logging.INFO, level)`` -- so an ERROR-rate-limited path
     surfaces an ERROR summary (not INFO).

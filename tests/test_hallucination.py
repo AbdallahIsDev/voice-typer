@@ -38,7 +38,7 @@ from voice_typer.server.hallucination import (
 LOGGER_NAME = "voice_typer.server.hallucination"
 
 
-# ─── SEC-009 / CR-87: PII redaction parity with PIIRedactionFilter ────────
+# SEC-009 / : PII redaction parity with PIIRedactionFilter ────────
 
 
 @pytest.mark.parametrize(

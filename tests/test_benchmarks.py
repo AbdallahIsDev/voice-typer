@@ -8,6 +8,15 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+
+# pytest-benchmark exposes a ``benchmark`` *fixture* (not a
+# ``pytest.benchmark`` attribute), so ``hasattr(pytest, "benchmark")``
+# is always ``False`` and the previous ``skipif`` guard silently
+# skipped the whole module even when the plugin was installed.
+# ``importorskip`` is the canonical idiom — it skips the whole module
+# only if ``pytest_benchmark`` is genuinely missing.
+pytest.importorskip("pytest_benchmark")
+
 from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
 
 
@@ -15,13 +24,6 @@ from voice_typer.server.text_cleanup import clean_transcribed_text, configure_co
 def _configure_corrections():
     """Initialize corrections before each benchmark."""
     configure_corrections()
-
-
-# Only run benchmarks if pytest-benchmark is installed
-pytestmark = pytest.mark.skipif(
-    not hasattr(pytest, "benchmark"),
-    reason="pytest-benchmark not installed — install with: pip install pytest-benchmark",
-)
 
 
 class TestTextCleanupBenchmarks:

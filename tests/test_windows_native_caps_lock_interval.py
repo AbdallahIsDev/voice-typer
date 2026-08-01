@@ -111,7 +111,7 @@ def test_caps_lock_check_fires_within_30_iterations(mock_win32, monkeypatch):
         backend._ensure_caps_lock_off = orig_ensure  # type: ignore[assignment]
         backend.stop()
 
-    # AB-36 fixed behavior: the periodic check fires at iteration 25.
+    # fixed behavior: the periodic check fires at iteration 25.
     # There are 2 proactive calls (one from start(), one from
     # _run_polling_loop's registration-time check) PLUS the periodic
     # call at iteration 25. So with the fix (% 25) we get ≥3 calls in

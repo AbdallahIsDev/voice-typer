@@ -61,7 +61,7 @@ class TestElapsedTimerSingleThread:
             )
 
             # During the session, set_timer_ref is called exactly ONCE
-            # with a non-None value (the worker). Pre-DJ-37 it was
+            # with a non-None value (the worker). Pre- it was
             # called once per tick (with a fresh Timer each time).
             non_none_refs = [r for r in refs if r is not None]
             assert len(non_none_refs) == 1, (

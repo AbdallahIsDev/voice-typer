@@ -96,7 +96,7 @@ class _MockApp:
         self.models = MagicMock()
         self.change_model = MagicMock()
 
-        # XS-23: use monkeypatch.setenv (auto-restored at teardown) instead of
+        # use monkeypatch.setenv (auto-restored at teardown) instead of
         # raw os.environ assignment (which leaked across tests).
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(tmp_path))
         try:
@@ -239,7 +239,7 @@ def sec8_server(tmp_path, monkeypatch):
     time.sleep(0.2)
 
 
-class TestSEC8AcceptLoopWorkerPool:
+class TestAcceptLoopWorkerPool:
     """SEC-8: the TCP accept loop must dispatch connections to a worker
     pool IMMEDIATELY after accept() so a slow-auth client cannot stall
     the accept loop.
@@ -415,7 +415,7 @@ class TestSEC8AcceptLoopWorkerPool:
 # ──────────────────────────────────────────────────────────────────────
 
 
-class TestSEC9RedactSecretFlagForms:
+class TestRedactSecretFlagForms:
     """SEC-9: ``redact_secret`` must redact ``--token=abc``,
     ``--token abc``, and ``token=abc`` forms — not just Bearer/Token/
     sk-/32+ char generic alphanumerics.
@@ -611,7 +611,7 @@ class TestSEC9RedactSecretFlagForms:
 # ──────────────────────────────────────────────────────────────────────
 
 
-class TestSEC10PsSingleQuote:
+class TestPsSingleQuote:
     """SEC-10: ``_ps_single_quote`` must produce a PowerShell
     single-quoted string that disables ALL variable expansion,
     command substitution, and escape-sequence processing.
@@ -712,7 +712,7 @@ class TestSEC10PsSingleQuote:
         assert '""' not in _ps_single_quote('a"b')
 
 
-class TestSEC10BuildPowershellLnkScript:
+class TestBuildPowershellLnkScript:
     """SEC-10: the generated .lnk-creation PowerShell script must wrap
     every user-supplied value in a single-quoted string.
     """
@@ -896,7 +896,7 @@ class TestSEC10BuildPowershellLnkScript:
         )
 
 
-class TestSEC10CreateLnkShortcutIntegration:
+class TestCreateLnkShortcutIntegration:
     """SEC-10: end-to-end check that ``_create_lnk_shortcut`` passes a
     single-quoted PowerShell script to ``powershell -Command`` when the
     win32com path is unavailable. We mock subprocess.run so no real
@@ -941,7 +941,7 @@ class TestSEC10CreateLnkShortcutIntegration:
 
         def _fake_run(cmd, *args, **kwargs):
             captured["cmd"] = cmd
-            # XZ-R6-AS-08: cmd is now
+            # cmd is now
             # ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass",
             #  "-Command", <script>]
             # (previously: ["powershell", ..., "-File", <tmp_path>])
@@ -965,7 +965,7 @@ class TestSEC10CreateLnkShortcutIntegration:
         assert result is True, "shortcut creation should have succeeded"
         assert "script" in captured, "subprocess.run was not invoked"
         cmd = captured["cmd"]
-        # XZ-R6-AS-08: must use ``-Command`` (not ``-File``) so no
+        # must use ``-Command`` (not ``-File``) so no
         # on-disk .ps1 artifact exists for a TOCTOU attacker to swap.
         assert "-Command" in cmd, f"must use -Command (XZ-R6-AS-08); got cmd: {cmd}"
         assert "-File" not in cmd, f"must NOT use -File (XZ-R6-AS-08 TOCTOU); got cmd: {cmd}"
@@ -1023,11 +1023,11 @@ def test_sec10_helper_functions_exist():
 
 
 # ──────────────────────────────────────────────────────────────────────
-# G4-L-06: redact_secret generic threshold lowered from 32 to 20 chars
+# redact_secret generic threshold lowered from 32 to 20 chars
 # ──────────────────────────────────────────────────────────────────────
 
 
-class TestG4L06RedactSecretThreshold20:
+class TestRedactSecretThreshold20:
     """G4-L-06: the generic ``[A-Za-z0-9_\\-]{N,}`` pattern threshold
     is lowered from 32 to 20 to match ``_MIN_REDACT_LEN``.
 
@@ -1118,11 +1118,11 @@ class TestG4L06RedactSecretThreshold20:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# G4-M-55: extend_url_allowlist emits WARNING-level audit log
+# extend_url_allowlist emits WARNING-level audit log
 # ──────────────────────────────────────────────────────────────────────
 
 
-class TestG4M55ExtendUrlAllowlistAuditLog:
+class TestExtendUrlAllowlistAuditLog:
     """G4-M-55: ``extend_url_allowlist`` emits a WARNING-level audit
     log on every call so operators can trace every runtime expansion
     of the trusted-host set back to its origin."""
@@ -1198,11 +1198,11 @@ class TestG4M55ExtendUrlAllowlistAuditLog:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# G4-M-56: assert_url_allowed gains allow_loopback_http kwarg (default False)
+# assert_url_allowed gains allow_loopback_http kwarg (default False)
 # ──────────────────────────────────────────────────────────────────────
 
 
-class TestG4M56AssertUrlAllowedLoopbackOptIn:
+class TestAssertUrlAllowedLoopbackOptIn:
     """G4-M-56: ``assert_url_allowed`` gains an ``allow_loopback_http``
     kwarg (default ``False``). Pre-fix, loopback hosts (localhost,
     127.0.0.1, ::1) were ALWAYS exempt from the HTTPS requirement.

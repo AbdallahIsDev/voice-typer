@@ -129,7 +129,7 @@ class TestPushEventNow:
             event_bus.unsubscribe(broken_fn)
 
 
-# === NEW-IPC-013, NEW-IPC-006, NEW-IPC-008 ===
+# === , ,  ===
 """Regression tests for NEW-IPC-013, NEW-IPC-006, NEW-IPC-008.
 
 NEW-IPC-013: Two IPCServer instances in the same process used to stomp

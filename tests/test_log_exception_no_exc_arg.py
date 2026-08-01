@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-# Source files to check (excluding recorder.py which is owned by FIX-5)
+# Source files to check (excluding recorder.py which is owned by )
 SOURCE_FILES = [
     "voice_typer/server/parakeet_engine.py",
     "voice_typer/server/qwen_engine.py",

@@ -177,7 +177,7 @@ def main():
 
     # Wait for the stop/transcription cycle
     print("\n[8] Waiting for transcription cycle to complete (up to 60s)...")
-    # NEW-DEAD-002: previously this grepped for "_busy reset to False"
+    # previously this grepped for "_busy reset to False"
     # which was a Flet-era marker that no longer exists in the
     # refactored code.  The production code now logs
     # "[TRANSCRIBE] Transcription complete" (dictation_pipeline.py:98)
@@ -232,7 +232,7 @@ def main():
     audio_too_short = any("too short" in line.lower() for line in lines)
 
     # Check: _busy recovered?
-    # NEW-DEAD-002: the production code no longer logs "_busy reset to
+    # the production code no longer logs "_busy reset to
     # False".  Instead, the transcription-completion path logs
     # "[TRANSCRIBE] Transcription complete" and the recovery path
     # logs "FORCE RECOVER".  We treat either as the "busy recovered"
@@ -320,7 +320,7 @@ if __name__ == "__main__":
     main()
 
 
-# TASK-013: expose a stable ``run()`` alias so ``tests/test_manual_slow.py``
+# expose a stable ``run()`` alias so ``tests/test_manual_slow.py``
 # can wrap this script as a ``@pytest.mark.slow`` test. Defined AFTER the
 # ``__main__`` block so running the script directly still uses the
 # zero-arg ``main()`` call above.

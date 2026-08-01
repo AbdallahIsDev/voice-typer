@@ -256,7 +256,7 @@ def test_verify_model_integrity_fails_when_pinned_file_missing(monkeypatch, tmp_
     assert result is False
 
 
-# ── GT-E1-3: ALLOW_PATTERNS aliases regression ──────────────────────────
+# ALLOW_PATTERNS aliases regression ──────────────────────────
 
 
 def test_allow_patterns_parakeet_omits_bin():

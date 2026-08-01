@@ -1,8 +1,8 @@
-# GT-FIX-08: Regression tests for GT-41, GT-42, GT-A1-3.
+# Regression tests for , ,
 #
-# These tests pin the three findings assigned to fix sub-agent GT-FIX-08:
+# These tests pin the three findings assigned to fix sub-agent :
 #
-#   GT-41 (Medium): POSIX single-instance PID-recycling false positive.
+# (Medium): POSIX single-instance PID-recycling false positive.
 #     On ``O_EXCL`` failure, ``_ensure_single_instance_posix`` must
 #     attempt ``fcntl.flock(fd, LOCK_EX | LOCK_NB)`` on the existing
 #     lockfile FIRST — before any PID liveness check. ``flock`` is the
@@ -10,14 +10,14 @@
 #     the old PID-check-first behavior was fooled by PID recycling
 #     after a hard crash (SIGKILL, OOM, power loss).
 #
-#   GT-42 (Medium): POSIX single-instance flock fd never closed in
+# (Medium): POSIX single-instance flock fd never closed in
 #     ``_do_cleanup``. The POSIX fd must now be wrapped in a
 #     ``_PosixSingleInstanceHandle`` (int subclass) whose ``release()``
 #     method closes the fd (and best-effort unlinks the lockfile).
 #     ``release()`` is idempotent and safe to call after the underlying
 #     fd has been closed by other means.
 #
-#   GT-A1-3 (Low): Startup sequence futures awaited sequentially
+# (Low): Startup sequence futures awaited sequentially
 #     summing timeouts. The prewarm + mic parallel work must use
 #     ``concurrent.futures.wait({f1, f2}, timeout=10)`` to enforce a
 #     SINGLE shared 10s budget — not per-future ``result(timeout=10)``
@@ -33,7 +33,7 @@ import time
 
 import pytest
 
-# GT-41/GT-42: ``fcntl`` is POSIX-only; skip the entire module on
+# ``fcntl`` is POSIX-only; skip the entire module on
 # Windows. The Windows mutex path is exercised in
 # tests/regressions/security_test.py instead.
 pytest.importorskip("fcntl")
@@ -88,10 +88,10 @@ def _hold_flock(lock_path):
             os.close(fd)
 
 
-# ── GT-41: flock-first on stale O_EXCL ─────────────────────────────────
+# flock-first on stale O_EXCL ─────────────────────────────────
 
 
-class TestGT41FlockAcquiredAfterStaleOExcl:
+class TestFlockAcquiredAfterStaleOExcl:
     """GT-41: On ``O_EXCL`` failure, ``flock`` must be attempted FIRST.
 
     The old code read the PID and called ``_is_pid_alive`` before
@@ -124,7 +124,7 @@ class TestGT41FlockAcquiredAfterStaleOExcl:
         handle = None
         try:
             handle = si_mod._ensure_single_instance_posix(silent=True)
-            # GT-42: handle is a _PosixSingleInstanceHandle (int subclass).
+            # handle is a _PosixSingleInstanceHandle (int subclass).
             assert isinstance(handle, int)
             assert handle > 0
             assert hasattr(handle, "release")
@@ -210,10 +210,10 @@ class TestGT41FlockAcquiredAfterStaleOExcl:
                     handle.release()
 
 
-# ── GT-42: _PosixSingleInstanceHandle.release() ────────────────────────
+# _PosixSingleInstanceHandle.release() ────────────────────────
 
 
-class TestGT42PosixSingleInstanceHandleRelease:
+class TestPosixSingleInstanceHandleRelease:
     """GT-42: The POSIX fd is wrapped in a ``_PosixSingleInstanceHandle``
     (int subclass) whose ``release()`` method closes the fd and
     best-effort unlinks the lockfile.
@@ -285,10 +285,10 @@ class TestGT42PosixSingleInstanceHandleRelease:
         handle.release()
 
 
-# ── GT-A1-3: shared 10s budget for startup parallel work ──────────────
+# shared 10s budget for startup parallel work ──────────────
 
 
-class TestGTA13StartupSharedBudget:
+class TestStartupSharedBudget:
     """GT-A1-3: ``startup_sequence._startup_parallel_work`` must enforce
     a SINGLE shared 10s budget across both the prewarm and mic
     futures via ``concurrent.futures.wait({f1, f2}, timeout=10)``.

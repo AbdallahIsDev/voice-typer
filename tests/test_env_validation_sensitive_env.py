@@ -140,7 +140,7 @@ class TestNonSensitiveVarsPreserved:
     def test_non_sensitive_var_preserved(self, monkeypatch, var):
         # HF_ENDPOINT and HF_HOME have their own validation logic in
         # _validate_env_vars() — set them to a valid value so they
-        # survive the full validator (not just the FR-18 strip block).
+        # survive the full validator (not just the  strip block).
         if var == "HF_HOME":
             from pathlib import Path
 

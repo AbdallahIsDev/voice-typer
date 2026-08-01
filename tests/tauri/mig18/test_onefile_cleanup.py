@@ -144,7 +144,7 @@ BUILD_SCRIPTS: dict[str, Path] = {
     "linux": BUILD_DIR / "build_sidecar_linux.sh",
 }
 
-# Per-platform acceptable tempdir-spec patterns (per MIG-1.8 task spec).
+# Per-platform acceptable tempdir-spec patterns (per  task spec).
 # Each pattern is a regex that matches the ``--onefile-tempdir-spec`` value
 # as it appears literally in the bash script (we do NOT expand bash vars;
 # patterns use the script's own variable syntax like ``%LOCALAPPDATA%`` /

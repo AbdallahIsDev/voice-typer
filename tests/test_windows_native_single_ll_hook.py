@@ -100,12 +100,12 @@ def test_three_backends_install_only_one_ll_hook(mock_win32):
         main.start(MagicMock())
         backends.append(main)
 
-        # ESC cancel hotkey: prefer WM_HOTKEY (AB-35).
+        # ESC cancel hotkey: prefer WM_HOTKEY ().
         esc = _make_backend("<esc>", prefer_message_loop=True)
         esc.start(MagicMock())
         backends.append(esc)
 
-        # Repaste hotkey: prefer WM_HOTKEY (AB-35).
+        # Repaste hotkey: prefer WM_HOTKEY ().
         repaste = _make_backend("<f6>", prefer_message_loop=True)
         repaste.start(MagicMock())
         backends.append(repaste)
@@ -117,7 +117,7 @@ def test_three_backends_install_only_one_ll_hook(mock_win32):
             if b._thread is not None:
                 b._thread.join(timeout=2.0)
 
-        # AB-35 core assertion: only ONE LL hook installed (for main).
+        # core assertion: only ONE LL hook installed (for main).
         set_hook_calls = mock_user32.SetWindowsHookExW.call_count
         assert set_hook_calls == 1, (
             f"AB-35 regression: expected exactly 1 SetWindowsHookExW call "
@@ -184,7 +184,7 @@ def test_prefer_message_loop_with_failed_register_hotkey_falls_back_to_ll_hook(m
         if backend._thread is not None:
             backend._thread.join(timeout=2.0)
 
-        # AB-35 fallback: RegisterHotKey failed → prefer_message_loop
+        # fallback: RegisterHotKey failed → prefer_message_loop
         # branch is skipped (because `_registered` is False) → falls
         # through to the LL hook branch.
         assert mock_user32.SetWindowsHookExW.call_count == 1, (

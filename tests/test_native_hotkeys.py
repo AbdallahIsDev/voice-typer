@@ -582,7 +582,7 @@ class TestConfigDefaults:
         assert config._default_hotkey_for_platform() == "<caps_lock>"
 
 
-# ─── G4-H-31: Liveness watchdog ─────────────────────────────────────────
+# Liveness watchdog ─────────────────────────────────────────
 
 
 class TestLivenessWatchdog:
@@ -717,7 +717,7 @@ class TestLivenessWatchdog:
             "voice_typer.server.native_hotkeys.binary_path.get_native_binary_path",
             lambda: fake_bin,
         )
-        # XZ-R6-NH-01: ``_spawn_process`` now re-verifies the binary's
+        # ``_spawn_process`` now re-verifies the binary's
         # SHA-256 against the manifest on every spawn (including the
         # watchdog respawn path). The fake binary in this test has no
         # manifest entry, so the verifier would FAIL CLOSED and skip
@@ -752,4 +752,266 @@ class TestLivenessWatchdog:
         assert captured_kwargs.get("stdin") == subprocess.PIPE, (
             f"G4-H-31: _spawn_process must use stdin=subprocess.PIPE so the "
             f"watchdog can write PING; got stdin={captured_kwargs.get('stdin')!r}"
+        )
+
+
+# watchdog respawn race / shutdown latch ────────────────────────
+
+
+class TestWatchdogRespawnRace:
+    """FR-21 (High): the watchdog's respawn path (``stop()`` + ``start(cb)``)
+    races a concurrent main-thread ``stop()``.  Pre-fix, the main-thread
+    ``stop()`` was a no-op (idempotency guard) and the watchdog's
+    ``start(cb)`` resurrected an orphaned native binary that held the
+    keyboard hook (Windows) or evdev FDs (Linux) after app shutdown.
+
+    Post-fix: ``stop(shutdown=True)`` (the default) latches
+    ``_shutdown_requested=True`` BEFORE the idempotency guard, and
+    ``_watchdog_loop`` checks the latch before calling ``start(cb)``.
+    """
+
+    def test_shutdown_requested_initialized_false(self, monkeypatch):
+        """``__init__`` initializes ``_shutdown_requested`` to False."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        assert hasattr(b, "_shutdown_requested"), (
+            "FR-21: SubprocessHotkeyBackend must have a _shutdown_requested attribute"
+        )
+        assert b._shutdown_requested is False, "FR-21: _shutdown_requested must initialize to False"
+
+    def test_stop_default_latches_shutdown_requested(self, monkeypatch):
+        """``stop()`` (default ``shutdown=True``) latches
+        ``_shutdown_requested=True`` so the watchdog cannot respawn."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        assert b._shutdown_requested is False
+
+        b.stop()  # default shutdown=True
+
+        assert b._shutdown_requested is True, "FR-21: stop() (default shutdown=True) must latch _shutdown_requested"
+        assert b._stop_event.is_set()
+
+    def test_stop_latches_shutdown_before_idempotency_guard(self, monkeypatch):
+        """FR-21 regression: the main-thread ``stop()`` must latch
+        ``_shutdown_requested=True`` BEFORE the idempotency guard returns.
+
+        Simulates the race: the watchdog's cleanup ``stop(shutdown=False)``
+        has already set ``_stop_event``, so the main-thread ``stop()``
+        would be a no-op pre-fix.  Post-fix, the latch is set BEFORE the
+        guard, so the main-thread ``stop()`` still records the shutdown.
+        """
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        assert b._shutdown_requested is False
+
+        # Simulate the watchdog's cleanup stop() having already set
+        # _stop_event (so the main-thread stop() hits the idempotency
+        # guard and would be a no-op pre-fix).
+        b._stop_event.set()
+
+        # Main thread calls stop() (default shutdown=True).
+        b.stop()
+
+        # _shutdown_requested MUST be latched even though stop()
+        # was a no-op for everything else (the idempotency guard
+        # returned early).
+        assert b._shutdown_requested is True, (
+            "FR-21: stop() must set _shutdown_requested=True BEFORE the "
+            "idempotency guard returns, so a concurrent main-thread stop() "
+            "latches the shutdown request even when _stop_event is already set"
+        )
+
+    def test_watchdog_cleanup_stop_does_not_latch_shutdown(self, monkeypatch):
+        """FR-21: ``stop(shutdown=False)`` (used by the watchdog's own
+        respawn cleanup and by ``start()``'s error-recovery paths) must
+        NOT latch ``_shutdown_requested`` — otherwise the watchdog could
+        never respawn (its own cleanup would disable it) and a failed
+        ``start()`` would permanently disable the watchdog."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        assert b._shutdown_requested is False
+
+        # Watchdog's cleanup stop: shutdown=False.
+        b.stop(shutdown=False)
+
+        # Must NOT latch the shutdown flag.
+        assert b._shutdown_requested is False, (
+            "FR-21: stop(shutdown=False) must not set _shutdown_requested — "
+            "the watchdog's cleanup stop is a respawn step, not a shutdown"
+        )
+        # But it MUST still set _stop_event (tear down the backend).
+        assert b._stop_event.is_set(), (
+            "FR-21: stop(shutdown=False) must still set _stop_event to "
+            "tear down the backend (only the shutdown latch is suppressed)"
+        )
+
+    def test_watchdog_does_not_respawn_after_shutdown_requested(self, monkeypatch):
+        """FR-21 end-to-end regression: if ``_shutdown_requested`` is True
+        (main thread called ``stop()``) when the watchdog reaches its
+        respawn path, the watchdog must NOT call ``start(cb)``.
+
+        Reproduces the race:
+          1. watchdog detects hung binary (stale event/PONG timestamps)
+          2. watchdog calls ``stop(shutdown=False)`` for cleanup
+          3. main thread calls ``stop()`` concurrently (default
+             ``shutdown=True``) — latches ``_shutdown_requested=True``
+          4. watchdog reaches the respawn check; post-fix it sees the
+             latch and returns WITHOUT calling ``start(cb)``.
+
+        Pre-fix: step 4 would call ``start(cb)`` and resurrect an
+        orphaned native binary.
+        """
+        from unittest.mock import MagicMock
+
+        from voice_typer.server import native_hotkeys
+        from voice_typer.server.native_hotkeys import base
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        b._callback = lambda: None  # stashed callback for respawn
+
+        # Simulate a hung binary: stale timestamps + PONG supported so
+        # the respawn condition (event_stale AND pong_stale) is True.
+        b._last_event_received_at = 0.0
+        b._last_pong_received_at = 0.0
+        b._pong_supported = True
+
+        # Make the watchdog's PING/PONG waits return fast (otherwise
+        # the loop blocks for 30s+5s on every iteration).
+        monkeypatch.setattr(base, "_WATCHDOG_PING_INTERVAL_SECONDS", 0.01)
+        monkeypatch.setattr(base, "_WATCHDOG_PONG_TIMEOUT_SECONDS", 0.01)
+
+        # Fake alive process so the PING write proceeds (the loop
+        # skips the PING write if ``_process`` is None or has exited).
+        fake_proc = MagicMock()
+        fake_proc.poll.return_value = None  # alive
+        fake_proc.stdin = MagicMock()
+        b._process = fake_proc
+
+        # Track stop() and start() calls.  We mock stop() to avoid the
+        # real teardown side-effects (joining threads, killing the fake
+        # process) that would interfere with the test.
+        start_calls: list = []
+        stop_shutdown_flags: list = []
+
+        def tracking_stop(*, shutdown: bool = True) -> None:
+            stop_shutdown_flags.append(shutdown)
+            # Simulate the side-effect of stop() that the watchdog
+            # relies on: set _stop_event so the next loop iteration's
+            # ``if self._stop_event.is_set(): return`` would short-circuit
+            # (though we expect the shutdown-latch check to fire first).
+            b._stop_event.set()
+            # Also set _watchdog_stop_event as the real stop() does, so
+            # the watchdog's ``_watchdog_stop_event.clear()`` after
+            # stop() has something to clear.
+            b._watchdog_stop_event.set()
+
+        b.stop = tracking_stop
+        b.start = lambda cb: start_calls.append(cb)
+
+        # Race simulation: the main thread called stop() (shutdown=True)
+        # between the watchdog's cleanup stop() and start().  We latch
+        # the flag directly to simulate the post-fix behavior of
+        # stop(shutdown=True).
+        b._shutdown_requested = True
+
+        # Run the watchdog loop inline (deterministic — no real thread).
+        # It should reach the respawn path, call stop(shutdown=False)
+        # for cleanup, then check _shutdown_requested and return
+        # WITHOUT calling start().
+        b._watchdog_loop()
+
+        assert start_calls == [], (
+            f"FR-21: watchdog must NOT call start() when _shutdown_requested is True; got start_calls={start_calls}"
+        )
+        # The watchdog's cleanup stop must use shutdown=False (otherwise
+        # it would itself latch _shutdown_requested, breaking respawn).
+        assert stop_shutdown_flags == [False], (
+            f"FR-21: watchdog cleanup must call stop(shutdown=False); got stop_shutdown_flags={stop_shutdown_flags}"
+        )
+
+    def test_watchdog_respawns_when_shutdown_not_requested(self, monkeypatch):
+        """FR-21 negative control: when ``_shutdown_requested`` is False
+        (no concurrent main-thread shutdown), the watchdog's respawn
+        path MUST still call ``start(cb)`` — the fix must not break the
+        legitimate respawn functionality.
+        """
+        from unittest.mock import MagicMock
+
+        from voice_typer.server import native_hotkeys
+        from voice_typer.server.native_hotkeys import base
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<caps_lock>")
+        cb = lambda: None  # noqa: E731
+        b._callback = cb
+
+        # Hung binary.
+        b._last_event_received_at = 0.0
+        b._last_pong_received_at = 0.0
+        b._pong_supported = True
+
+        monkeypatch.setattr(base, "_WATCHDOG_PING_INTERVAL_SECONDS", 0.01)
+        monkeypatch.setattr(base, "_WATCHDOG_PONG_TIMEOUT_SECONDS", 0.01)
+
+        fake_proc = MagicMock()
+        fake_proc.poll.return_value = None
+        fake_proc.stdin = MagicMock()
+        b._process = fake_proc
+
+        start_calls: list = []
+
+        def tracking_stop(*, shutdown: bool = True) -> None:
+            b._stop_event.set()
+            b._watchdog_stop_event.set()
+
+        b.stop = tracking_stop
+        b.start = lambda c: start_calls.append(c)
+
+        # _shutdown_requested is False (no concurrent shutdown).
+        assert b._shutdown_requested is False
+
+        b._watchdog_loop()
+
+        assert start_calls == [cb], (
+            "FR-21 negative control: watchdog must still call start(cb) "
+            f"when _shutdown_requested is False; got start_calls={start_calls}"
         )

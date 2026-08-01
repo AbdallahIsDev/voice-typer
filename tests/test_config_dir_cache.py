@@ -57,7 +57,7 @@ def _reset_cache_around_each_test():
     config._reset_config_dir_cache()
 
 
-# ─── XV-119: the function is wrapped in functools.lru_cache ──────────────
+# the function is wrapped in functools.lru_cache ──────────────
 
 
 def test_config_dir_exposes_lru_cache_api():
@@ -87,7 +87,7 @@ def test_config_dir_lru_cache_maxsize_is_one():
     assert info.maxsize == 1, f"_config_dir lru_cache maxsize must be 1 (got {info.maxsize})"
 
 
-# ─── XV-119: repeated calls hit the cache (same Path object) ─────────────
+# repeated calls hit the cache (same Path object) ─────────────
 
 
 def test_config_dir_returns_same_object_on_repeated_calls():
@@ -130,7 +130,7 @@ def test_config_dir_cache_hit_miss_counts():
     assert info.currsize == 1, f"expected currsize=1 (one slot, one entry), got {info.currsize}"
 
 
-# ─── XV-119: _reset_config_dir_cache() clears the cache ──────────────────
+# _reset_config_dir_cache() clears the cache ──────────────────
 
 
 def test_reset_config_dir_cache_clears_cache():
@@ -179,7 +179,7 @@ def test_reset_config_dir_cache_forces_re_resolution():
     assert info.hits == 0, f"expected 0 hits after reset + 1 call, got {info.hits}"
 
 
-# ─── XV-119: env-var changes require a cache reset (mirrors keyring) ─────
+# env-var changes require a cache reset (mirrors keyring) ─────
 
 
 def test_cache_returns_stale_value_until_reset(monkeypatch, tmp_path):

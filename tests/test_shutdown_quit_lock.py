@@ -105,7 +105,7 @@ def test_concurrent_quit_calls_dont_both_enter_shutdown_all() -> None:
     assert not t1.is_alive(), "Thread 1 did not finish within 5s"
     assert not t2.is_alive(), "Thread 2 did not finish within 5s"
 
-    # CR-51 regression guard: shutdown_all() should have been called
+    # regression guard: shutdown_all() should have been called
     # at most once.
     assert len(shutdown_calls) <= 1, (
         f"Expected shutdown_all() to be called at most once, but got "

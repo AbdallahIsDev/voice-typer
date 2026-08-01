@@ -151,7 +151,7 @@ def _make_recorder_with_processor(monkeypatch, *, device_native_sr: int, chain_s
     monkeypatch.setattr(rec_mod.sd, "InputStream", fake_input_stream)
 
     # Simulate a device whose native rate is ``device_native_sr`` — the
-    # CR-5 failure scenario is a non-16 kHz mic (e.g. 48000).
+    # failure scenario is a non-16 kHz mic (e.g. 48000).
     def fake_query_devices(device=None, kind=None):
         return {
             "name": "fake-mic",
@@ -221,7 +221,7 @@ class TestNoDoubleResample:
         captured_streams[0].push_chunk(chunk_48k)
         _drain_ring_buffer(r)
 
-        # CR-5: _buffer_sr must reflect the chain's construction rate
+        # _buffer_sr must reflect the chain's construction rate
         # (16000), NOT the device's native rate (48000).
         assert r._buffer_sr == 16000, (
             f"Expected _buffer_sr=16000 (chain rate after process_chunk), "
@@ -288,7 +288,7 @@ class TestNoDoubleResample:
         captured_streams[0].push_chunk(chunk_48k)
         _drain_ring_buffer(r)
 
-        # CR-5 else-branch: no processor → buffer stores native-rate audio.
+        # else-branch: no processor → buffer stores native-rate audio.
         assert r._buffer_sr == 48000, (
             f"Expected _buffer_sr=48000 (device native rate when no processor), got {r._buffer_sr}"
         )
@@ -413,7 +413,7 @@ class TestNoDoubleResample:
 
         audio = r.snapshot()
 
-        # CR-5: no resampling should have happened.
+        # no resampling should have happened.
         assert resample_calls == [], (
             f"Expected _resample_chunk NOT to be called (buffer_sr=16000 "
             f"== target_sr=16000), but it was called with: "

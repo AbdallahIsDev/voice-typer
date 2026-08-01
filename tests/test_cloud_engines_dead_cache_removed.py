@@ -141,7 +141,7 @@ class TestCachedEngineInfrastructureRemoved:
             "clear_all_cached_engines",
         ):
             occurrences = source.count(symbol)
-            # The FR-6 docblock references each symbol 1x; the test
+            # The  docblock references each symbol 1x; the test
             # class below references them in strings. Allow up to 3
             # textual mentions (docblock + this test's reference is
             # in a separate file, but defensive upper bound is loose).
@@ -165,7 +165,7 @@ class TestCachedEngineInfrastructureRemoved:
         source = inspect.getsource(cloud_engines)
         # Heuristic: forbid module-level ``_CACHED*`` assignments or
         # annotations. The cloud_engines module has no legitimate
-        # module-level cache after FR-6.
+        # module-level cache after
         for line in source.splitlines():
             stripped = line.lstrip()
             # Skip indented (in-class / in-function) lines.
@@ -194,7 +194,7 @@ class TestPerTranscriptionLifecycleDocumented:
         import voice_typer.server.cloud_engines as cloud_engines
 
         source = inspect.getsource(cloud_engines)
-        # The FR-6 docblock at the top of the module documents the
+        # The  docblock at the top of the module documents the
         # per-transcription lifecycle. Verify key phrases are present.
         assert "per-transcription" in source, (
             "FR-6 contract: cloud_engines.py must document that "

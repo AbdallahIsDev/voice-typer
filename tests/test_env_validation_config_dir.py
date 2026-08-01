@@ -12,7 +12,7 @@ already performs on the consumer side.
 
 Scope (this file only):
   * VOICE_TYPER_CONFIG_DIR-specific path-safety behaviour.
-  * The HF_HOME equivalent is covered by ``TestGtB1_14PathSafetyExceptionType``
+  * The HF_HOME equivalent is covered by ``TestPathSafetyExceptionType``
     in ``tests/test_env_validation.py`` — not duplicated here.
 
 The tests use the REAL ``_validate_path_safety`` wherever possible
@@ -192,7 +192,7 @@ class TestConfigDirInHomePreserved:
         assert os.environ.get("VOICE_TYPER_CONFIG_DIR") == safe_path
 
 
-# ─── Mocked _validate_path_safety: exception-type-name parity (GT-B1-14) ──
+# Mocked _validate_path_safety: exception-type-name parity () ──
 
 
 class TestConfigDirPathSafetyExceptionType:
@@ -202,7 +202,7 @@ class TestConfigDirPathSafetyExceptionType:
     predicate failed (``ValueError`` vs ``OSError`` vs
     ``RuntimeError``) without grepping source.
 
-    Mirrors ``TestGtB1_14PathSafetyExceptionType`` in
+    Mirrors ``TestPathSafetyExceptionType`` in
     ``tests/test_env_validation.py`` (which covers the same contract
     for HF_HOME) — we mock ``_validate_path_safety`` so the test
     doesn't depend on cwd / home layout for raising a specific

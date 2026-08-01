@@ -86,7 +86,7 @@ class TestTcpIpcAuthHandshake:
     def test_auth_with_wrong_token_drops_connection(self, monkeypatch):
         """When the client sends the wrong auth token, the connection
         must be dropped without processing any subsequent messages."""
-        # TEST-021: removed unused `import json as _json` (ruff F401).
+        # removed unused `import json as _json` (ruff F401).
         from voice_typer.server.ipc_server import IPCServer
 
         token = "correct-token"

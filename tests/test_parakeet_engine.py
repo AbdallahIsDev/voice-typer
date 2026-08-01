@@ -527,7 +527,7 @@ class TestParakeetEngineTranscribeWithFallback:
 
         assert result == "cpu result"
         mock_model.to.assert_called_once()
-        # CPU retry must pin dtype=float32 (HIGH-18 / PERF-REL-1).
+        # CPU retry must pin dtype=float32 ( / PERF-REL-1).
         call_kwargs = mock_model.to.call_args.kwargs
         assert call_kwargs.get("device") == "cpu"
         assert call_kwargs.get("dtype") == mock_torch.float32
@@ -579,7 +579,7 @@ class TestParakeetEngineUnload:
         engine._processor = MagicMock()
         assert engine.is_loaded is True
 
-        # EC-FIX-8: ``release_gpu_memory`` is imported locally inside
+        # ``release_gpu_memory`` is imported locally inside
         # ``unload()`` from ``voice_typer.server.asr_utils`` (the canonical
         # location). Patching ``voice_typer.server.transcription.release_gpu_memory``
         # does NOT intercept the local import resolution — the test must
@@ -693,10 +693,10 @@ class TestSplitAudio:
             )
 
 
-# ─── G4-H-04 / G4-CR-06 / G4-M-44 (Session 7 — Group 4) regression tests ──
+# (Session 7 — Group 4) regression tests ──
 
 
-class TestG4H04ConsentGate:
+class TestConsentGate:
     """G4-H-04: ParakeetEngine.load() must gate HuggingFace downloads on
     explicit ``config.huggingface_consent``.  Cache hits (model already
     on disk) do NOT need consent; only the network download does.
@@ -799,7 +799,7 @@ class TestG4H04ConsentGate:
         assert result is True
 
 
-class TestG4CR06UnconditionalIntegrityVerify:
+class TestUnconditionalIntegrityVerify:
     """G4-CR-06: ``ParakeetEngine.load()`` must call
     ``verify_model_integrity`` UNCONDITIONALLY on every load, not just
     after a fresh download.  Cache hits (model already on disk) must
@@ -876,7 +876,7 @@ class TestG4CR06UnconditionalIntegrityVerify:
 
         assert result is False
         assert engine.is_loaded is False
-        # G4-CR-06 / cache cleanup: the tampered cache dir MUST have
+        # cache cleanup: the tampered cache dir MUST have
         # been removed so the next load() doesn't re-discover it.
         assert not model_dir.exists(), (
             "G4-CR-06: tampered HF cache directory must be removed after "
@@ -885,7 +885,7 @@ class TestG4CR06UnconditionalIntegrityVerify:
         )
 
 
-class TestG4M44CpuFallbackNotification:
+class TestCpuFallbackNotification:
     """G4-M-44: Parakeet CUDA→CPU fallback must emit a ONE-TIME tray
     notification via ``event_bus.publish`` and must NOT permanently
     set ``self.device`` to ``"cpu"`` — the next ``load()`` re-attempts
@@ -921,14 +921,14 @@ class TestG4M44CpuFallbackNotification:
             result = engine.transcribe_with_fallback(np.ones(16000, dtype=np.float32))
 
         assert result == "cpu result"
-        # G4-M-44: notification event must have been published.
+        # notification event must have been published.
         notif_events = [e for e in published_events if e.get("type") == "notification"]
         assert notif_events, (
             "G4-M-44: CUDA→CPU fallback must emit a 'notification' event "
             "via event_bus.publish so the user knows why dictation got slower."
         )
         assert "GPU transcription failed" in notif_events[0]["data"]["message"]
-        # G4-M-44: status event for tray "(CPU fallback)" suffix.
+        # status event for tray "(CPU fallback)" suffix.
         status_events = [e for e in published_events if e.get("type") == "parakeet_cpu_fallback"]
         assert status_events, (
             "G4-M-44: CUDA→CPU fallback must emit a 'parakeet_cpu_fallback' "

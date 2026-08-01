@@ -549,7 +549,7 @@ class TestDispatchesTestLlmConnection:
 
         result = srv._dispatch({"id": 1, "type": "test_llm_connection"})
 
-        # ZR-45: the service method MUST NOT be invoked — there is no
+        # the service method MUST NOT be invoked — there is no
         # dispatch route to it.
         srv.service.test_llm_connection.assert_not_called()
         assert result["type"] == "error", (
@@ -558,7 +558,7 @@ class TestDispatchesTestLlmConnection:
             "command was intentionally re-added, update _COMMAND_REGISTRY + "
             "the renderer allowlist + this test together."
         )
-        # ERR-009 / EC-FIX-2: the error envelope carries a structured
+        # the error envelope carries a structured
         # ``code`` field; ``server.unknown_command`` is the canonical
         # code for an unregistered command.
         assert result["data"].get("code") == "server.unknown_command", (
@@ -599,14 +599,14 @@ class TestRendererAllowlist:
     def test_allowlist_does_not_include_test_llm_connection(self):
         from pathlib import Path
 
-        # WR-14: allowlist moved from index.ts to allowed-commands.ts per CR-063.
+        # allowlist moved from index.ts to allowed-commands.ts per
         main_ts = (
             Path(__file__).resolve().parent.parent / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
         )
         source = main_ts.read_text(encoding="utf-8")
-        # ZR-45: the literal must NOT appear inside the
+        # the literal must NOT appear inside the
         # ``ALLOWED_COMMANDS = new Set<string>([...])`` block. We
-        # tolerate the name appearing in comments (e.g. the GT-32
+        # tolerate the name appearing in comments (e.g. the
         # stale-entry-removal note), so the check is scoped to the
         # Set block specifically.
         set_start = source.find("ALLOWED_COMMANDS = new Set")
@@ -625,7 +625,7 @@ class TestRendererAllowlist:
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
 
-# === Source: CR-1 — ipc/ subpackage dead-code removal ===
+# === Source:  — ipc/ subpackage dead-code removal ===
 
 """Regression tests for CR-1: ``voice_typer/server/ipc/`` subpackage is
 NOT a parallel implementation of ``ipc_server.py``.

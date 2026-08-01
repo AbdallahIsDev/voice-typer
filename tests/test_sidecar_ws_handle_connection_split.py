@@ -19,7 +19,7 @@ short, and the helpers are actually invoked from the orchestrator.
 They do NOT exercise the runtime behavior (that's covered by the
 existing ``tests/test_sidecar_ws_auth_failed.py`` /
 ``tests/test_sidecar_ws_protocol_version.py`` /
-``tests/test_sidecar_ws_xz_ipc_003.py`` suites, which all pass on
+``tests/test_sidecar_ws_connection_cap.py`` suites, which all pass on
 the refactored module).
 """
 
@@ -44,7 +44,7 @@ def _src() -> str:
 # ── Helpers exist as module-level callables ──────────────────────────
 
 
-class TestUE29HelpersExist:
+class TestHelpersExist:
     """UE-29: the five extracted helpers must exist as module-level
     callables on :mod:`voice_typer.server.sidecar_ws`."""
 
@@ -72,7 +72,7 @@ class TestUE29HelpersExist:
 # ── Orchestrator is a short coordinator ──────────────────────────────
 
 
-class TestUE29OrchestratorIsShort:
+class TestOrchestratorIsShort:
     """UE-29: ``_handle_connection_inner`` must be a short coordinator
     (~30 lines) that delegates to the extracted helpers — NOT the
     original ~375-line monolith."""
@@ -131,7 +131,7 @@ class TestUE29OrchestratorIsShort:
 # ── Helpers have the right signatures ────────────────────────────────
 
 
-class TestUE29HelperSignatures:
+class TestHelperSignatures:
     """UE-29: the extracted helpers must have the expected signatures
     so the orchestrator can delegate cleanly."""
 
@@ -172,7 +172,7 @@ class TestUE29HelperSignatures:
 # ── Behavior preserved: orchestrator still owns lifecycle ───────────
 
 
-class TestUE29LifecycleOwnership:
+class TestLifecycleOwnership:
     """UE-29: the orchestrator must STILL own the connection-lifecycle
     ``try/except/finally`` — the helpers don't clean up after
     themselves; the orchestrator guarantees subscriber unsubscribe +

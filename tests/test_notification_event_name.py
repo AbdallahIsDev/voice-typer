@@ -92,7 +92,7 @@ class TestShowNotificationEventName:
         assert captured.get("type") == "notification", (
             f"CR-8: event_bus.publish must be called with type='notification' (got {captured.get('type')!r})"
         )
-        # CR-8: the legacy name must NOT appear in the published event.
+        # the legacy name must NOT appear in the published event.
         assert captured.get("type") != "electron_notification", (
             "CR-8: legacy 'electron_notification' name must not be used"
         )

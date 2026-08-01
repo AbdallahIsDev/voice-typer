@@ -135,7 +135,7 @@ WS_RS = _SRC_TAURI / "src" / "sidecar" / "ws.rs"
 TAURI_CONF_JSON = _SRC_TAURI / "tauri.conf.json"
 CAPABILITIES_JSON = (
     _SRC_TAURI / "capabilities" / "main-runtime.json"
-)  # CR-5: migrate-runtime split; notification perms live in main-runtime
+)  # migrate-runtime split; notification perms live in main-runtime
 ENTITLEMENTS_PLIST = _SRC_TAURI / "entitlements.plist"
 SYSTEM_HANDLERS_PY = _REPO_ROOT / "voice_typer" / "server" / "handlers" / "system_handlers.py"
 MACOS_RUNBOOK = _REPO_ROOT / "docs" / "migration" / "macos-validation-runbook.md"

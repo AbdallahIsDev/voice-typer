@@ -66,7 +66,7 @@ from voice_typer.server.clipboard_snapshot import (  # noqa: E402
 )
 
 # ---------------------------------------------------------------------------
-# Display-env isolation (XS-22) — mirrors test_clipboard_borrow_restore.py
+# Display-env isolation () — mirrors test_clipboard_borrow_restore.py
 # ---------------------------------------------------------------------------
 
 
@@ -125,7 +125,7 @@ def _make_snapshot() -> ClipboardSnapshot:
 
 
 # ===========================================================================
-# SA-4 / S1-CR-84 (1): atexit-vs-daemon race on the SAME snapshot
+# (1): atexit-vs-daemon race on the SAME snapshot
 # ===========================================================================
 
 
@@ -304,7 +304,7 @@ class TestAtexitVsDaemonSameSnapshot:
             daemon_thread.join(timeout=2.0)
 
         # Exactly ONE restore() call — either from atexit or from the daemon,
-        # never both. The DE-63 claim-step guarantees this.
+        # never both. The  claim-step guarantees this.
         assert len(restore_calls) == 1, (
             f"Expected exactly 1 restore() call (either atexit OR daemon); "
             f"got {len(restore_calls)}: {restore_calls}. "
@@ -314,7 +314,7 @@ class TestAtexitVsDaemonSameSnapshot:
 
 
 # ===========================================================================
-# SA-4 / S1-CR-84 (2): concurrent restore() on DIFFERENT snapshots
+# (2): concurrent restore() on DIFFERENT snapshots
 # ===========================================================================
 
 
@@ -534,7 +534,7 @@ class TestConcurrentRestoreSerialization:
 
 
 # ===========================================================================
-# SA-4 / S1-CR-84 (3): atexit handler iterates ALL pending entries
+# (3): atexit handler iterates ALL pending entries
 # ===========================================================================
 
 
@@ -662,7 +662,7 @@ class TestAtexitIteratesAllPending:
 
 
 # ===========================================================================
-# SA-4 / S1-CR-84 (4): atexit + concurrent daemon on DIFFERENT entries
+# (4): atexit + concurrent daemon on DIFFERENT entries
 # ===========================================================================
 
 
@@ -756,7 +756,7 @@ class TestAtexitAndDaemonDifferentEntries:
 
 
 # ===========================================================================
-# SA-4 / S1-CR-84 (5): _restore_lock does not deadlock with _pending_restores_lock
+# (5): _restore_lock does not deadlock with _pending_restores_lock
 # ===========================================================================
 
 

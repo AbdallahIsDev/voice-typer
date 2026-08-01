@@ -36,7 +36,7 @@ class TestGetVocabulary:
         fake_service.get_vocabulary.side_effect = RuntimeError("corrupt file")
         resp = ipc_server._handle_get_vocabulary({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 

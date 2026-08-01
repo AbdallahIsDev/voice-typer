@@ -77,12 +77,12 @@ def _seed_personal_data(tmp_path: Path) -> None:
     (tmp_path / "voice-typer-templates.json").write_text(json.dumps({"greeting": "Hi <name>"}))
     (tmp_path / "mic-test-20240101-120000.wav").write_bytes(b"RIFF\x00\x00\x00\x00WAVEfmt ")
     (tmp_path / "voice-typer.log").write_text("2024-01-01 12:00:00 INFO [SERVICE] transcript='secret text'\n")
-    # PI-4: rotated log backups produced by RotatingFileHandler(backupCount=5)
-    # in voice_typer/server/log.py:911-915.  Per XZ-PII-01 / XZ-PRIV-04 these
+    # rotated log backups produced by RotatingFileHandler(backupCount=5)
+    # in voice_typer/server/log.py:911-915.  Per  /  these
     # may contain user-spoken text, so they MUST be included in the export.
     (tmp_path / "voice-typer.log.1").write_text("2024-01-01 11:00:00 DEBUG transcript='rotated secret 1'\n")
     (tmp_path / "voice-typer.log.2").write_text("2024-01-01 10:00:00 DEBUG transcript='rotated secret 2'\n")
-    # PI-5: real crash files (not the fictional ``crash-*.dmp``).
+    # real crash files (not the fictional ``crash-*.dmp``).
     #   * ``crash_diagnostics.<PID>.txt`` — Windows VEH handler (crash_handler.py:722)
     #   * ``python_crash.<PID>.txt``     — Python excepthook marker (crash_handler.py:1190)
     _pid = os.getpid()

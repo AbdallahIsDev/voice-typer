@@ -572,7 +572,7 @@ class TestTemplatesPersistToDisk:
         assert bad_mode_entry["match_mode"] == "exact"
 
 
-# ── FIX-5 regression tests (SVC-2/6/7/8/9/10/11, PERF-21) ────────────
+# regression tests (SVC-2/6/7/8/9/10/11, PERF-21) ────────────
 #
 # Each test class below pins one of the SVC-N fixes applied to
 # ``voice_typer/server/service.py`` in FIX sub-agent #5. Tests are
@@ -581,7 +581,7 @@ class TestTemplatesPersistToDisk:
 # heavy app/conftest autouse-mock machinery.
 
 
-class TestSVC6KeyringStatusHelper:
+class TestKeyringStatusHelper:
     """SVC-6: ``_keyring_status()`` centralizes the duplicated probe."""
 
     def test_returns_dict_with_expected_keys(self, tmp_config_dir, monkeypatch):
@@ -656,7 +656,7 @@ class TestSVC6KeyringStatusHelper:
 
         monkeypatch.setattr(VoiceTyperService, "_keyring_status", _spy)
 
-        # EC-FIX-15 / EC-22: the sanitizer moved out of ``ipc_server``
+        # the sanitizer moved out of ``ipc_server``
         # into the transport-neutral ``config_sanitizer`` module.
         # Patch both symbols so the test stays valid against either
         # import path (legacy ``ipc_server._sanitize_config_for_ipc``
@@ -679,7 +679,7 @@ class TestSVC6KeyringStatusHelper:
         )
 
 
-class TestSVC7DeleteModelUsesRegistryUnconditionally:
+class TestDeleteModelUsesRegistryUnconditionally:
     """SVC-7: ``delete_model`` resolves ``repo_id`` from
     :data:`MODEL_REGISTRY` for ALL models (whisper/distil/parakeet/qwen)
     — the inline ``elif model_name == "parakeet"`` / ``elif model_name ==
@@ -744,7 +744,7 @@ class TestSVC7DeleteModelUsesRegistryUnconditionally:
         assert "Unknown model" in result["message"]
 
 
-class TestSVC8RefreshMicrophonesForce:
+class TestRefreshMicrophonesForce:
     """SVC-8: ``refresh_microphones(force=True)`` bypasses the 5 s TTL
     cache so callers that *know* a hot-plug event happened can refresh
     immediately."""
@@ -802,7 +802,7 @@ class TestSVC8RefreshMicrophonesForce:
         assert forced == mics_v2, "force=True must bypass the TTL cache and re-query PortAudio"
 
 
-class TestSVC9GetModelStatusCache:
+class TestGetModelStatusCache:
     """SVC-9 / PERF-10: ``get_model_status`` caches its result for 5 s
     and is invalidated by ``delete_model`` + successful downloads."""
 
@@ -882,7 +882,7 @@ class TestSVC9GetModelStatusCache:
         )
 
 
-class TestSVC10OnboardingUsesServiceChangeModel:
+class TestOnboardingUsesServiceChangeModel:
     """SVC-10: ``onboarding_apply`` routes the model switch through
     ``self.change_model`` (the ADR-0008-§3.1 service-layer wrapper)
     instead of reaching into ``app.models.change_model`` directly."""
@@ -931,7 +931,7 @@ class TestSVC10OnboardingUsesServiceChangeModel:
         )
 
 
-class TestSVC11ApplyConfigPersistsOnSideEffectFailure:
+class TestApplyConfigPersistsOnSideEffectFailure:
     """SVC-11: ``apply_config`` persists config via ``save_strict()``.
 
     PVT-21 (session-1) extracted ``apply_config`` orchestration from
@@ -965,7 +965,7 @@ class TestSVC11ApplyConfigPersistsOnSideEffectFailure:
         app = MagicMock()
         app._config_mutation_lock = _fake_lock()
         app.config = MagicMock()
-        # PVT-21 + CR-97: config_applier now calls save_strict() (not save()).
+        # + : config_applier now calls save_strict() (not save()).
         # save_strict() raises RuntimeError if save() returns False.
         app.config.save = MagicMock(return_value=True)
         app.config.save_strict = MagicMock(return_value=None)
@@ -1031,7 +1031,7 @@ class TestSVC11ApplyConfigPersistsOnSideEffectFailure:
         def _boom(updates):
             raise RuntimeError("side effect blew up")
 
-        # PVT-21: side-effects now live on config_applier, not service.
+        # side-effects now live on config_applier, not service.
         monkeypatch.setattr(service._config_applier, "apply_config_side_effects", _boom)
 
         with pytest.raises(RuntimeError, match="side effect blew up"):
@@ -1064,7 +1064,7 @@ class TestSVC11ApplyConfigPersistsOnSideEffectFailure:
         monkeypatch.setattr(dataclasses, "asdict", _fake_asdict)
         monkeypatch.setattr(cap, "_json_dumps_sorted", lambda d: repr(d))
 
-        # CR-97: save_strict raises when save() returned False.
+        # save_strict raises when save() returned False.
         # We mock save_strict to raise OSError directly to simulate
         # a disk-write failure that propagated (rather than the
         # save-returns-False → save_strict-raises-RuntimeError path).
@@ -1074,7 +1074,7 @@ class TestSVC11ApplyConfigPersistsOnSideEffectFailure:
             service.apply_config({"hotkey": "<f4>"})
 
 
-class TestSVC2ConfigSideEffectDispatcher:
+class TestConfigSideEffectDispatcher:
     """SVC-2: ``apply_config_side_effects`` is a thin dispatcher over
     :data:`_CONFIG_SIDE_EFFECTS`. Behavior is preserved 1:1 (per-handler
     try/except, same log messages, same call order)."""
@@ -1181,7 +1181,7 @@ class TestSVC2ConfigSideEffectDispatcher:
             svc_mod._CONFIG_SIDE_EFFECTS = original_registry
 
 
-class TestPERF21DownloadPollScopedToModelDir:
+class TestDownloadPollScopedToModelDir:
     """PERF-21: the download-progress polling loop walks ONLY the
     in-progress model's directory, not the entire HF cache tree."""
 

@@ -46,7 +46,7 @@ def _make_recorder():
     return r
 
 
-# ── 17-H-FIX-2: discard() must drain the in-flight callback ────────────
+# 17-H-: discard() must drain the in-flight callback ────────────
 
 
 class TestDiscardWaitsForCallback:
@@ -161,7 +161,7 @@ class TestDiscardWaitsForCallback:
         assert r._stream is None
 
 
-# ── 17-H-FIX-2: _teardown_stream() must be idempotent ──────────────────
+# 17-H-: _teardown_stream() must be idempotent ──────────────────
 
 
 class TestDiscardIdempotent:
@@ -220,7 +220,7 @@ class TestDiscardIdempotent:
         assert r._stream is None
 
 
-# ── 17-H-FIX-2: discard() parity with stop() ───────────────────────────
+# 17-H-: discard() parity with stop() ───────────────────────────
 
 
 class TestDiscardStopGeneration:

@@ -75,7 +75,7 @@ class TestWatchdogForceRecover:
         ctrl._watchdog_stop_event = MagicMock()
         ctrl._watchdog_event = MagicMock()
         ctrl._watchdog_thread = None
-        # GT-46: _force_recover_from_stuck_transcription now snapshots
+        # _force_recover_from_stuck_transcription now snapshots
         # _transcription_thread + _watchdog_firings under _watchdog_lock.
         ctrl._watchdog_lock = threading.Lock()
         # Force-recover path also touches _cancelled_cycle_ids_lock +
@@ -107,7 +107,7 @@ class TestWatchdogForceRecover:
         ctrl._watchdog_stop_event = MagicMock()
         ctrl._watchdog_event = MagicMock()
         ctrl._watchdog_thread = None
-        # GT-46: snapshot block needs _watchdog_lock.
+        # snapshot block needs _watchdog_lock.
         ctrl._watchdog_lock = threading.Lock()
         app = MagicMock()
         app._busy_event.is_set.return_value = False
@@ -134,7 +134,7 @@ class TestWatchdogForceRecover:
         ctrl._watchdog_stop_event = MagicMock()
         ctrl._watchdog_event = MagicMock()
         ctrl._watchdog_thread = None
-        # GT-46: snapshot block needs _watchdog_lock.
+        # snapshot block needs _watchdog_lock.
         ctrl._watchdog_lock = threading.Lock()
         app = MagicMock()
         app._busy_event.is_set.return_value = False
@@ -432,7 +432,7 @@ class TestCancelGuaranteesTrayReset:
         ctrl = RecordingController.__new__(RecordingController)
         ctrl._streaming_session_lock = threading.Lock()
         ctrl._watchdog_lock = threading.Lock()
-        # GT-22: cancel() now acquires _toggle_lock (RLock) at entry.
+        # cancel() now acquires _toggle_lock (RLock) at entry.
         ctrl._toggle_lock = threading.RLock()
         ctrl._watchdog_firings = 0
         ctrl._watchdog_max_firings = 3
@@ -471,7 +471,7 @@ class TestCancelSetsCancellingState:
         ctrl = RecordingController.__new__(RecordingController)
         ctrl._streaming_session_lock = threading.Lock()
         ctrl._watchdog_lock = threading.Lock()
-        # GT-22: cancel() now acquires _toggle_lock (RLock) at entry.
+        # cancel() now acquires _toggle_lock (RLock) at entry.
         ctrl._toggle_lock = threading.RLock()
         ctrl._watchdog_firings = 0
         ctrl._watchdog_max_firings = 3
@@ -512,7 +512,7 @@ class TestSetConfigInvalidatesTrayCache:
 
         app = MagicMock()
         app.config = cfg
-        # RW-9/RW-17: the app-level test-seam delegates were removed;
+        # the app-level test-seam delegates were removed;
         # production code reaches ``startup_tasks.*`` / ``app.hotkeys.*``
         # directly. ``app`` is a MagicMock so those attributes are
         # auto-stubbed on access — nothing to pre-assign here.
@@ -733,7 +733,7 @@ class TestGetVoiceTyperPythonRemoved:
         assert not hasattr(asr_setup, "get_voice_typer_python")
 
 
-# ── RT-SAFE-001: Audio callback → worker thread architecture ──────────
+# Audio callback → worker thread architecture ──────────
 
 
 class TestAudioWorkerThreadLifecycle:
@@ -942,27 +942,34 @@ class TestAudioWorkerThreadLifecycle:
         audio callback. This is a source-inspection test that pins the
         architecture: the heavy work must be on the worker thread.
 
-        ZR-60: the heavy-pipeline call sites were extracted from
-        ``_process_audio_chunk`` into named helpers
-        (``_apply_filter_chain`` / ``_run_silero_vad`` / etc.) which
-        the orchestrator delegates to. All of these helpers run on the
-        same worker thread as the orchestrator (they're called
-        synchronously from ``_process_audio_chunk``), so the
-        architecture is preserved. The source-inspection check now
-        aggregates the orchestrator + the four helpers that own the
-        heavy operations.
+        The heavy-pipeline call sites were extracted from
+        ``_process_audio_chunk`` into named helpers and ultimately
+        delegated to ``AudioPipeline.process_audio_chunk`` /
+        ``AudioPipeline.run_vad_state_machine``. Both run
+        synchronously on the same worker thread as the Recorder
+        orchestrator (called via ``self._audio_pipeline.<method>``),
+        so the real-time-safety architecture is preserved. The
+        source-inspection check aggregates the orchestrator + the
+        delegator helpers + the AudioPipeline implementations so the
+        heavy-pipeline call sites are still found.
         """
         from voice_typer.server import recording
+        from voice_typer.server.recording import audio_pipeline
 
         worker_src = inspect.getsource(recording.Recorder._process_audio_chunk)
-        # ZR-60: aggregate the helper sources so the source-inspection
-        # checks still find the heavy-pipeline call sites after the
-        # split. All helpers are called synchronously from the
-        # orchestrator on the same worker thread.
+        # Aggregate the helper / delegator sources so the
+        # source-inspection checks still find the heavy-pipeline call
+        # sites after the split. All helpers are called synchronously
+        # from the orchestrator on the same worker thread.
         worker_src += "\n" + inspect.getsource(recording.Recorder._apply_filter_chain)
-        worker_src += "\n" + inspect.getsource(recording.Recorder._run_silero_vad)
+        worker_src += "\n" + inspect.getsource(recording.Recorder._run_vad_state_machine)
         worker_src += "\n" + inspect.getsource(recording.Recorder._compute_rms_and_peak)
-        worker_src += "\n" + inspect.getsource(recording.Recorder._update_silence_state_machine)
+        # The actual heavy operations now live in AudioPipeline (the
+        # Recorder helpers above are 1-line delegators). Include them
+        # so the call-site assertions find ``compute_vad_prob`` /
+        # ``_get_resample_poly`` / ``process_chunk`` / ``_vad_update``.
+        worker_src += "\n" + inspect.getsource(audio_pipeline.AudioPipeline.process_audio_chunk)
+        worker_src += "\n" + inspect.getsource(audio_pipeline.AudioPipeline.run_vad_state_machine)
         # The worker thread MUST run these heavy operations
         assert "compute_vad_prob" in worker_src, "RT-SAFE-001: Silero VAD must run on the worker thread"
         assert "_get_resample_poly" in worker_src, "RT-SAFE-001: scipy resample must run on the worker thread"

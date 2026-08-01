@@ -17,7 +17,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 
-# WP-1: the previous Linux test-env shim that aliased
+# the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
 # removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
@@ -118,7 +118,7 @@ class TestElectronNotificationIpcEndpoint:
         # handler method itself is unchanged.
         resp = server._handle_show_electron_notification("not a dict", {"id": "test"})
         assert resp["type"] == "error"
-        # DE-36: the validation helper now emits the namespaced
+        # the validation helper now emits the namespaced
         # ``client.invalid_payload`` as the primary ``code`` (with the
         # legacy bare ``invalid_payload`` preserved in ``legacy_code``).
         # Accept either form so the test survives the one-release-cycle
@@ -177,7 +177,7 @@ class TestElectronNotificationFieldValidation:
             {"id": "t1"},
         )
         assert resp["type"] == "error"
-        # DE-36: code is now namespaced as ``client.invalid_field``
+        # code is now namespaced as ``client.invalid_field``
         # (legacy bare form preserved in ``legacy_code``). Accept either.
         assert resp["data"]["code"].endswith("invalid_field"), (
             f"expected code endswith 'invalid_field', got {resp['data']['code']!r}"
@@ -194,7 +194,7 @@ class TestElectronNotificationFieldValidation:
             {"id": "t2"},
         )
         assert resp["type"] == "error"
-        # DE-36: code is now namespaced as ``client.invalid_field``
+        # code is now namespaced as ``client.invalid_field``
         # (legacy bare form preserved in ``legacy_code``). Accept either.
         assert resp["data"]["code"].endswith("invalid_field"), (
             f"expected code endswith 'invalid_field', got {resp['data']['code']!r}"
@@ -209,7 +209,7 @@ class TestElectronNotificationFieldValidation:
             {"id": "t3"},
         )
         assert resp["type"] == "error"
-        # DE-36: code is now namespaced as ``client.invalid_field``
+        # code is now namespaced as ``client.invalid_field``
         # (legacy bare form preserved in ``legacy_code``). Accept either.
         assert resp["data"]["code"].endswith("invalid_field"), (
             f"expected code endswith 'invalid_field', got {resp['data']['code']!r}"
@@ -255,7 +255,7 @@ class TestElectronNotificationFieldValidation:
                 {"id": "t5"},
             )
         assert resp["type"] == "ack"
-        # CR-8: event renamed from `electron_notification` → `notification`
+        # event renamed from `electron_notification` → `notification`
         # (platform-agnostic — the Tauri Rust host no longer renames it).
         assert captured["type"] == "notification"
         assert captured["data"] == {
@@ -296,7 +296,7 @@ class TestUpxDisabledInPyinstallerSpec:
     """
 
     def test_upx_is_false_in_spec(self):
-        # RW-8: KEEP — pins TEST-034 (upx=False in voice-typer.spec).
+        # KEEP — pins  (upx=False in voice-typer.spec).
         # A behavioral test would need to run PyInstaller and inspect the
         # build output, which is heavy; the file-content check catches
         # reintroduction of upx=True directly.
@@ -316,7 +316,7 @@ class TestSettingsRendererCallsPythonBridgeCall:
     """
 
     def test_settings_uses_call_not_ipc(self):
-        # RW-8: KEEP — pins TS error fix (Settings uses window.python?.call(),
+        # KEEP — pins TS error fix (Settings uses window.python?.call(),
         # not .ipc()). A behavioral test would need to render the component
         # and click a setting, but the TypeScript compiler already catches
         # .ipc() usage at build time; the file-content check is a belt-and-

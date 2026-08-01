@@ -43,7 +43,7 @@ def app_for_startup(tmp_config_dir, monkeypatch):
     enable/disable_autostart, list_microphones) and the
     hardware/IO-bound startup_tasks functions.
     """
-    # SA-05: raising=False — these app-module attributes may have
+    # raising=False — these app-module attributes may have
     # been removed/renamed in a prior refactor (autostart functions
     # moved to voice_typer.server.server_platform). The monkeypatch
     # is a defensive no-op when they're absent (the StartupSequence
@@ -341,10 +341,10 @@ class TestStartupSequenceDoesNotCrashOnMissingDeps:
         app_for_startup.models.start_background_load.assert_called_once()
 
 
-# ── XZ-R12-01: onboarding auto-heal must respect .onboarding_started marker ─
+# onboarding auto-heal must respect .onboarding_started marker ─
 
 
-class TestXZR1201OnboardingStartedMarkerGate:
+class TestOnboardingStartedMarkerGate:
     """XZ-R12-01: ``startup_sequence.py``'s auto-heal logic must NOT
     fire when the ``.onboarding_started`` marker is present. The marker
     indicates the wizard is currently in progress (renderer called

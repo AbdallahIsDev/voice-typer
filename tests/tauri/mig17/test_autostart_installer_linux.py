@@ -37,11 +37,11 @@ INSTALLER ARCHITECTURE
   - ``desktopTemplate``: ``"voice-typer.desktop.template"`` → the menu entry
     at ``/usr/share/applications/voice-typer.desktop`` (NOT the autostart
     entry — that's written at runtime by ``_enable_autostart_linux``)
-  - ``postInstall``: ``"../../scripts/linux/postinst"`` → adds the user to the
-    ``input`` group + installs the udev rule + configures Caps Lock
+  - ``postInstallScript``: ``"../../scripts/linux/postinst"`` → adds the user
+    to the ``input`` group + installs the udev rule + configures Caps Lock
     neutralization (delegates to ``install_permissions.py``)
-  - ``preRemove``: ``"../../scripts/linux/prerm"`` → removes the udev rule +
-    XKB config (delegates to ``uninstall_permissions.py``)
+  - ``preRemoveScript``: ``"../../scripts/linux/prerm"`` → removes the udev
+    rule + XKB config (delegates to ``uninstall_permissions.py``)
 
 For ``.rpm``: parallel ``postinst.rpm`` / ``prerm.rpm`` scripts.
 
@@ -393,7 +393,7 @@ def test_tauri_conf_has_linux_deb_depends():
 
 
 def test_tauri_conf_has_linux_deb_postinstall():
-    """``bundle.linux.deb.postInstall`` points to ``scripts/linux/postinst``.
+    """``bundle.linux.deb.postInstallScript`` points to ``scripts/linux/postinst``.
 
     Per ADR-0020 §13.3, the path is ``"../../scripts/linux/postinst"`` (relative
     to ``src-tauri/`` — Tauri's bundler resolves it relative to the
@@ -401,53 +401,59 @@ def test_tauri_conf_has_linux_deb_postinstall():
     """
     conf = json.loads(TAURI_CONF.read_text())
     deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
-    # Tauri v2 Debian/RPM bundle schema uses the short-form keys
-    # `postInstall` / `preRemove` (NOT `postInstallScript` / `preRemoveScript`
-    # which were Tauri v1 keys). See https://v2.tauri.app/reference/config/#debconfig
+    # Tauri v2 Debian/RPM bundle schema uses the long-form keys
+    # `postInstallScript` / `preRemoveScript` (WITH the 'Script' suffix;
+    # the v1 short forms `postInstall` / `preRemove` were Tauri v1 keys).
+    # See https://v2.tauri.app/reference/config/#debconfig
     # Assert the v2 form and reject the v1 form so any regression is caught here.
-    assert "postInstall" in deb, "bundle.linux.deb.postInstall missing — Tauri v2 requires the 'postInstall' key"
-    assert "postInstallScript" not in deb, (
-        "stale long-form 'postInstallScript' key present on bundle.linux.deb — should use Tauri v2 'postInstall'"
+    assert "postInstallScript" in deb, (
+        "bundle.linux.deb.postInstallScript missing — Tauri v2 requires the 'postInstallScript' key"
     )
-    post_install = deb["postInstall"]
+    assert "postInstall" not in deb, (
+        "stale short-form 'postInstall' key present on bundle.linux.deb — should use Tauri v2 'postInstallScript'"
+    )
+    post_install = deb["postInstallScript"]
 
-    assert post_install is not None, "bundle.linux.deb.postInstall is missing"
+    assert post_install is not None, "bundle.linux.deb.postInstallScript is missing"
     # The path is relative to src-tauri/ per Tauri v2 docs (ADR-0020 §13.3
     # confirms: "../../scripts/linux/postinst" — two levels up from
     # src-tauri/ to escape back to <repo_root>/, then into scripts/linux/).
-    # NOTE: don't try to pathlib.resolve() the postInstall string ourselves —
-    # Tauri's bundler resolves it via its own (workspace-root-aware) logic,
-    # and a naive `SRC_TAURI_DIR / post_install` produces a wrong absolute
-    # path because pathlib collapses `../../` lexically without knowing
-    # about Tauri's workspace-root resolution.  Instead, assert the string
-    # shape + verify the actual file exists at the canonical repo location.
+    # NOTE: don't try to pathlib.resolve() the postInstallScript string
+    # ourselves — Tauri's bundler resolves it via its own
+    # (workspace-root-aware) logic, and a naive `SRC_TAURI_DIR / post_install`
+    # produces a wrong absolute path because pathlib collapses `../../`
+    # lexically without knowing about Tauri's workspace-root resolution.
+    # Instead, assert the string shape + verify the actual file exists at
+    # the canonical repo location.
     assert post_install.endswith("scripts/linux/postinst"), (
-        f"postInstall must point at scripts/linux/postinst, got: {post_install!r}"
+        f"postInstallScript must point at scripts/linux/postinst, got: {post_install!r}"
     )
     assert POSTINST.is_file(), (
-        f"postInstall target does not exist on disk at the canonical repo "
-        f"location: {POSTINST} (postInstall={post_install!r})"
+        f"postInstallScript target does not exist on disk at the canonical repo "
+        f"location: {POSTINST} (postInstallScript={post_install!r})"
     )
 
 
 def test_tauri_conf_has_linux_deb_preremove():
-    """``bundle.linux.deb.preRemove`` points to ``scripts/linux/prerm``."""
+    """``bundle.linux.deb.preRemoveScript`` points to ``scripts/linux/prerm``."""
     conf = json.loads(TAURI_CONF.read_text())
     deb = conf.get("bundle", {}).get("linux", {}).get("deb", {})
-    # Tauri v2 uses the short-form `preRemove` key (NOT `preRemoveScript` which was Tauri v1).
-    # See https://v2.tauri.app/reference/config/#debconfig
-    assert "preRemove" in deb, "bundle.linux.deb.preRemove missing — Tauri v2 requires the 'preRemove' key"
-    assert "preRemoveScript" not in deb, (
-        "stale long-form 'preRemoveScript' key present on bundle.linux.deb — should use Tauri v2 'preRemove'"
+    # Tauri v2 uses the long-form `preRemoveScript` key (NOT the v1
+    # short-form `preRemove`). See https://v2.tauri.app/reference/config/#debconfig
+    assert "preRemoveScript" in deb, (
+        "bundle.linux.deb.preRemoveScript missing — Tauri v2 requires the 'preRemoveScript' key"
     )
-    pre_remove = deb["preRemove"]
+    assert "preRemove" not in deb, (
+        "stale short-form 'preRemove' key present on bundle.linux.deb — should use Tauri v2 'preRemoveScript'"
+    )
+    pre_remove = deb["preRemoveScript"]
 
-    assert pre_remove is not None, "bundle.linux.deb.preRemove is missing"
+    assert pre_remove is not None, "bundle.linux.deb.preRemoveScript is missing"
     # See test_tauri_conf_has_linux_deb_postinstall for why we don't
-    # pathlib.resolve() the preRemove string ourselves (Tauri's bundler
-    # uses workspace-root-aware resolution).
+    # pathlib.resolve() the preRemoveScript string ourselves (Tauri's
+    # bundler uses workspace-root-aware resolution).
     assert pre_remove.endswith("scripts/linux/prerm"), (
-        f"preRemove must point at scripts/linux/prerm, got: {pre_remove!r}"
+        f"preRemoveScript must point at scripts/linux/prerm, got: {pre_remove!r}"
     )
     assert PRERM.is_file(), (
         f"preRemove target does not exist on disk at the canonical repo location: {PRERM} (preRemove={pre_remove!r})"

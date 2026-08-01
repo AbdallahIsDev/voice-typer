@@ -13,7 +13,7 @@ updating the dedicated tests:
   the atomic ``pop_streaming_session()`` helper + public
   ``session.cancel()``) and must NOT poke the private
   ``session._cancel_event.set()``.  Runtime behaviour is pinned in
-  ``tests/test_recording_controller_ue9_fixes.py``.
+  ``tests/test_recording_controller_lifecycle_fixes.py``.
 - ``useHotkeyCapture`` effect without a deps array — every
   ``useEffect(...)`` call in ``useHotkeyCapture.ts`` must close with a
   dependency array (``}, [...]);``), never a bare ``});``.  Runtime

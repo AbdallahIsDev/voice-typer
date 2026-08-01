@@ -20,7 +20,7 @@ from unittest.mock import patch
 import pytest
 
 
-# WP-1: the previous Linux test-env shim that aliased
+# the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
 # removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
@@ -39,7 +39,7 @@ class TestManifestInExists:
         assert manifest.exists(), "PLAT-036: MANIFEST.in must exist at the repo root."
 
     def test_manifest_in_includes_key_files(self):
-        # RW-8: KEEP — pins PLAT-036 (MANIFEST.in includes critical data
+        # KEEP — pins  (MANIFEST.in includes critical data
         # files). A behavioral test would need to run `python setup.py
         # sdist` and inspect the archive, which is heavy; the file-content
         # check catches removal of the include directives directly.
@@ -66,7 +66,7 @@ class TestWindowsManifestAsInvoker:
         assert manifest.exists(), "PLAT-037: voice-typer.manifest must exist in scripts/build/."
 
     def test_manifest_declares_as_invoker(self):
-        # RW-8: KEEP — pins PLAT-037 (manifest declares asInvoker).
+        # KEEP — pins  (manifest declares asInvoker).
         # A behavioral test would need to inspect the embedded manifest
         # in a built .exe (heavy Windows-only); the file-content check
         # catches removal of the asInvoker declaration directly.
@@ -78,7 +78,7 @@ class TestWindowsManifestAsInvoker:
         )
 
     def test_spec_file_embeds_manifest(self):
-        # RW-8: KEEP — pins PLAT-037 (.spec file references the manifest).
+        # KEEP — pins  (.spec file references the manifest).
         # A behavioral test would need to run PyInstaller and inspect the
         # built .exe resources (heavy); the file-content check catches
         # removal of the manifest reference in the .spec directly.
@@ -97,7 +97,7 @@ class TestPlatRunAutostartTaskHashed:
     """
 
     def test_autostart_task_name_includes_hash_suffix(self):
-        # RW-8: KEEP — pins PLAT-RUN (autostart task name includes
+        # KEEP — pins PLAT-RUN (autostart task name includes
         # install-path hash suffix). The sibling test_install_hash_suffix_returns_underscore_prefix
         # and test_two_different_executables_get_different_hashes test the
         # hash function behavior, but don't catch a regression where the
@@ -144,7 +144,7 @@ class TestPlatWaylandSocketPermissions:
     """
 
     def test_socket_chmod_is_owner_only(self):
-        # RW-8: KEEP — pins PLAT-WAYLAND (socket restricted to 0o600).
+        # KEEP — pins PLAT-WAYLAND (socket restricted to 0o600).
         # A behavioral test would need to start the socket server and
         # inspect the socket file's permissions, which requires a running
         # WaylandHotkey instance (heavy). Source-string check catches
@@ -207,7 +207,7 @@ class TestPlatHleakDeadCodeRemoved:
 
         from voice_typer.server import app as app_mod
 
-        # CR-11: _ensure_single_instance is now a thin dispatcher; the
+        # _ensure_single_instance is now a thin dispatcher; the
         # Windows mutex logic (which sets the mutex name) lives in
         # _ensure_windows_single_instance. Inspect that function so the
         # PLAT-HLEAK invariant is still pinned.
@@ -225,7 +225,7 @@ class TestPlatPumpImportHoisted:
     """
 
     def test_import_hoisted_out_of_loop(self):
-        # RW-8: KEEP — pins PLAT-PUMP (win32gui import hoisted out of
+        # KEEP — pins PLAT-PUMP (win32gui import hoisted out of
         # the 1ms polling loop). A behavioral test would need to measure
         # import time per loop iteration, which is flaky; the source-string
         # check catches reintroduction of the in-loop import directly.

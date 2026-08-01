@@ -50,7 +50,7 @@ def _warning_records(caplog):
     return [r for r in caplog.records if r.name == "voice_typer.server.config" and r.levelno >= logging.WARNING]
 
 
-# ── CR-62: corrupt config moved aside on load ─────────────────────────────
+# corrupt config moved aside on load ─────────────────────────────
 
 
 class TestCorruptConfigBackup:
@@ -99,7 +99,7 @@ class TestCorruptConfigBackup:
             "(byte-for-byte) so the user can inspect/recover their settings manually."
         )
 
-        # XZ-R10-10: the filename pattern is now
+        # the filename pattern is now
         # ``config.json.corrupt-<int-timestamp>-<pid>-<microseconds>``
         # (PID + microsecond suffix added to disambiguate same-second
         # loads from different processes and back-to-back loads within
@@ -123,7 +123,7 @@ class TestCorruptConfigBackup:
             f"Backup timestamp {ts} is not recent (now={now}) — "
             f"the .corrupt-<timestamp> suffix must use int(time.time())."
         )
-        # XZ-R10-10: the PID group must match os.getpid() (the test
+        # the PID group must match os.getpid() (the test
         # runs in-process so the PID is the current process's PID).
         import os as _os
 
@@ -279,7 +279,7 @@ class TestCorruptConfigBackup:
         config_file.write_text("CORRUPT_2", encoding="utf-8")
         Config.load()
 
-        # XZ-R10-10: two corrupt loads MUST produce two distinct
+        # two corrupt loads MUST produce two distinct
         # backups (PID + microsecond suffix disambiguates them even
         # within the same second from the same process).
         corrupt_backups = list(tmp_path.glob("config.json.corrupt-*"))
@@ -358,7 +358,7 @@ class TestCorruptConfigBackup:
         assert cfg.hotkey == _default_hotkey_for_platform()
 
 
-# ── CR-38: backup before overwrite on save ────────────────────────────────
+# backup before overwrite on save ────────────────────────────────
 
 
 class TestSaveBackupBeforeOverwrite:
@@ -491,7 +491,7 @@ class TestSaveBackupBeforeOverwrite:
         cfg.save()
         assert config_file.exists()
 
-        # FR-24 / XZ-R10-02: the .bak write is routed through
+        # the .bak write is routed through
         # ``_secure_atomic_write`` (atomic os.replace + fsync + 0o600),
         # NOT through ``Path.write_bytes``. We patch
         # ``voice_typer.server.config._secure_atomic_write`` directly
@@ -561,7 +561,7 @@ class TestSaveBackupBeforeOverwrite:
         bak = tmp_path / "config.json.bak"
 
         # Write a config with unusual formatting (no indent, trailing newline).
-        # G4-M-15 / G4-H-09 note: set schema_version=_CURRENT_SCHEMA_VERSION
+        # note: set schema_version=_CURRENT_SCHEMA_VERSION
         # and secrets_migrated=True so that Config.load() does NOT trigger
         # any migration (which would eager-save a normalized version) and
         # does NOT trigger credential_store.migrate_secrets_to_keyring
@@ -615,7 +615,7 @@ class TestSaveBackupBeforeOverwrite:
         # "older build" doesn't know about.  We can't actually add
         # unknown fields to the Config dataclass (it would reject
         # them), so we simulate by writing raw JSON with extra keys.
-        # G4-H-09 / G4-H-10 note: set secrets_migrated=True so that
+        # note: set secrets_migrated=True so that
         # Config.load() does NOT trigger credential_store.migrate_secrets_to_keyring
         # (which would overwrite config.json with a normalized version before
         # the test's cfg.save() runs, causing the .bak to contain the normalized
@@ -658,11 +658,11 @@ class TestSaveBackupBeforeOverwrite:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# GT-58: stale config.json with deprecated keys still loads (silent scrub)
+# stale config.json with deprecated keys still loads (silent scrub)
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestGT58DeprecatedKeysSilentlyScrubbed:
+class TestDeprecatedKeysSilentlyScrubbed:
     """GT-58: ``Config.load()`` must accept a stale ``config.json``
     written by an older app version that still carries the 7 deprecated
     fields which have been removed from the ``Config`` dataclass.

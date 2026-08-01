@@ -26,11 +26,11 @@ class _MockTensor:
         return self
 
     def to(self, dtype, copy=True):
-        # TY-26: ``.to(torch.float32)`` is a no-op (returns the same
+        # ``.to(torch.float32)`` is a no-op (returns the same
         # tensor) when the dtype already matches — mirroring real
         # torch's behaviour. The mock tensor is always float32, so
         # ``.to(<any dtype>)`` returns ``self``.
-        # DJ-76: ``copy=False`` kwarg accepted (real torch's ``.to()``
+        # ``copy=False`` kwarg accepted (real torch's ``.to()``
         # supports it; the no-op-same-dtype semantics are preserved).
         return self
 
@@ -262,7 +262,7 @@ class TestSileroVadSlicesLongChunksIntoSubchunks:
         assert prob == 0.4
 
 
-# ── WR-12: classes moved from tests/test_waveform_bubble.py ──────────
+# classes moved from tests/test_waveform_bubble.py ──────────
 #
 # These three classes were originally defined in
 # ``tests/test_waveform_bubble.py`` (lines 526-701). They were moved
@@ -398,7 +398,7 @@ class TestWaveformVADGate:
         assert bubble.is_speaking is False
 
 
-class TestT021ProductionWiring:
+class TestProductionWiring:
     """T021: verify the audio_chunk path is wired end-to-end.
 
     The VAD gate existed in waveform.py but was inert in production

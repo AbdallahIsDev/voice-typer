@@ -40,7 +40,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SECURITY_MD = REPO_ROOT / "SECURITY.md"
-# PVT-G5-009: previously pointed at `index.ts`, but R6-F10 moved the
+# previously pointed at `index.ts`, but R6-F10 moved the
 # canonical `ALLOWED_COMMANDS = new Set([...])` literal out of `index.ts`
 # into its own dependency-free leaf module `allowed-commands.ts`
 # (`index.ts:56` now just re-exports it). The parity parsers below look
@@ -51,19 +51,19 @@ SECURITY_MD = REPO_ROOT / "SECURITY.md"
 # `test_electron_ipc_and_build.py` fixture). Pointing at the canonical
 # file restores the cross-layer safety net.
 INDEX_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
-# CR-4 (Fix-C): Rust host's allowlist literal — kept in lockstep with
+# (Fix-C): Rust host's allowlist literal — kept in lockstep with
 # the TS allowlist by this parity test. Both files MUST be updated in
 # the same PR when a command is added or removed.
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
 
-# S4-CR-18 (this session): Python backend's ``_COMMAND_REGISTRY`` literal —
+# (this session): Python backend's ``_COMMAND_REGISTRY`` literal —
 # asserted to match the renderer allowlist PLUS the documented set of
 # host-only commands (routed by the Rust host directly, never via the
 # renderer's ``dispatch`` path). If this count drifts from
 # ``allowed-commands.ts`` + ``_HOST_ONLY_COMMANDS`` (in either direction),
 # the test below fails with the drifted file's name.
 IPC_SERVER_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
-# S4-CR-18 / DT-41: the ``_COMMAND_REGISTRY`` literal was extracted
+# the ``_COMMAND_REGISTRY`` literal was extracted
 # from ``ipc_server.py`` into the dedicated ``ipc/registry.py`` module
 # (the class-body ``_COMMAND_REGISTRY: dict[str, str] = _COMMAND_REGISTRY``
 # line in ``ipc_server.py`` is now just a re-binding of the imported
@@ -73,7 +73,7 @@ IPC_SERVER_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
 # refactor.
 IPC_REGISTRY_PY = REPO_ROOT / "voice_typer" / "server" / "ipc" / "registry.py"
 
-# S4-CR-18: commands present in ``_COMMAND_REGISTRY`` but intentionally
+# commands present in ``_COMMAND_REGISTRY`` but intentionally
 # absent from the renderer ``ALLOWED_COMMANDS`` because the Rust host
 # routes them directly (they don't go through the renderer's
 # ``dispatch`` path). When a host-only command is added or removed,
@@ -228,11 +228,11 @@ def test_security_md_allowlist_count_matches_source() -> None:
     so this test stays useful as a parity guard.
     """
     actual = _count_allowed_commands()
-    # YJ-10 invariant: Rust ↔ TS allowlist count MUST match (modulo
+    # invariant: Rust ↔ TS allowlist count MUST match (modulo
     # _TS_ONLY_EXCEPTIONS, which are intentionally TS-only because the
     # Rust host dispatches them directly — see _TS_ONLY_EXCEPTIONS
     # docstrings for the rationale). This is the regression-guard
-    # portion of the test (the YJ-10 fix's primary contract). Already
+    # portion of the test (the  fix's primary contract). Already
     # enforced separately by
     # `test_rust_allowlist_matches_ts_allowlist_count`, but duplicated
     # here so this test stays useful as a parity guard.
@@ -251,10 +251,10 @@ def test_security_md_allowlist_count_matches_source() -> None:
         "parseable form (expected: 'only the N commands listed in "
         "ALLOWED_COMMANDS')."
     )
-    # YJ-FIX-A2: strict regression guard restored. SECURITY.md was updated
+    # strict regression guard restored. SECURITY.md was updated
     # in this same fix wave to document 59 entries (matching the
-    # `allowed-commands.ts` count after GT-32's 17-command prune +
-    # YJ-10's Rust reconciliation). If this assertion fires, either
+    # `allowed-commands.ts` count after 's 17-command prune +
+    # 's Rust reconciliation). If this assertion fires, either
     # SECURITY.md drifted (a contributor added/removed a command in the
     # renderer allowlist without updating the doc) or the parser in
     # `_documented_count` needs updating because the prose shape changed.
@@ -273,7 +273,7 @@ def test_allowed_commands_nonempty() -> None:
     assert _count_allowed_commands() > 0
 
 
-# ─── CR-4 (Fix-C): Rust ↔ TS allowlist parity ──────────────────────────
+# (Fix-C): Rust ↔ TS allowlist parity ──────────────────────────
 
 
 def test_rust_allowlist_matches_ts_allowlist_count() -> None:
@@ -389,7 +389,7 @@ def test_rust_allowlist_contains_key_commands() -> None:
     )
 
 
-# ─── S4-CR-18 (this session): Python _COMMAND_REGISTRY ↔ TS allowlist parity ──
+# (this session): Python _COMMAND_REGISTRY ↔ TS allowlist parity ──
 
 
 def _command_registry_entries() -> set[str]:
@@ -402,7 +402,7 @@ def _command_registry_entries() -> set[str]:
     ``voice_typer/server/ipc_server.py`` for branches that haven't yet
     picked up the registry-extraction refactor.
     """
-    # DT-41: try the extracted registry module first, then fall back to
+    # try the extracted registry module first, then fall back to
     # the legacy ipc_server.py location. The literal shape is the same
     # in both files (``_COMMAND_REGISTRY: dict[str, str] = { ... }``).
     sources = [IPC_REGISTRY_PY, IPC_SERVER_PY]

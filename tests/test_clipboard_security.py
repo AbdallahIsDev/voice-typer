@@ -46,12 +46,12 @@ def test_release_stuck_modifiers(clipboard):
         clip_mod._Key = None
 
 
-def test_send_keystroke_sequence_uses_finally(clipboard):
-    """_send_keystroke_sequence releases modifier even on error."""
+def test_safe_key_press_uses_finally(clipboard):
+    """_safe_key_press releases modifier even on error."""
     # Make the char press raise
     clipboard._keyboard.press.side_effect = [None, Exception("test error"), None]
     with pytest.raises(Exception, match="test error"):
-        clipboard._send_keystroke_sequence(MagicMock(), "v")
+        clipboard._safe_key_press(MagicMock(), "v")
     # Modifier should still be released (finally block)
     # The last release call should be for the modifier
 

@@ -14,7 +14,7 @@ logged + reset every 5s (if >0), and escalates from WARNING to ERROR
 when the per-second rate exceeds
 ``_LEVEL_WORKER_ERROR_RATE_THRESHOLD`` (default 10/sec).
 
-These tests mirror the structure of ``TestXV58DroppedChunksLogging`` in
+These tests mirror the structure of ``TestDroppedChunksLogging`` in
 ``tests/test_level_monitor.py``.
 """
 
@@ -69,7 +69,7 @@ def _run_one_worker_iteration():
       4. sees ``_level_worker_stop_event`` set and returns
 
     Mirrors the pattern in
-    ``TestXV58DroppedChunksLogging::test_worker_logs_dropped_chunks_with_throttling``.
+    ``TestDroppedChunksLogging::test_worker_logs_dropped_chunks_with_throttling``.
     """
     import voice_typer.server.level_monitor as lm
 
@@ -82,11 +82,11 @@ def _run_one_worker_iteration():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# UE-24: throttled WARNING logging of per-chunk processing errors
+# throttled WARNING logging of per-chunk processing errors
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestUE24WorkerErrorThrottledWarning:
+class TestWorkerErrorThrottledWarning:
     """UE-24: ``_level_worker_errors`` is logged with 5s throttling inside
     ``_level_worker_loop`` and reset to 0 after logging.
 
@@ -111,7 +111,7 @@ class TestUE24WorkerErrorThrottledWarning:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.level_monitor"):
             _run_one_worker_iteration()
 
-        # UE-24: at least one WARNING-level record mentioning
+        # at least one WARNING-level record mentioning
         # "level-worker chunk errors" should have been emitted.
         error_warnings = [
             r for r in caplog.records if r.levelno >= logging.WARNING and "level-worker chunk errors" in r.message
@@ -124,15 +124,15 @@ class TestUE24WorkerErrorThrottledWarning:
         assert "7" in error_warnings[0].message, (
             f"UE-24: log should mention '7' level-worker chunk errors; got: {error_warnings[0].message}"
         )
-        # UE-24: WARNING (not ERROR) because rate is below threshold.
+        # WARNING (not ERROR) because rate is below threshold.
         assert error_warnings[0].levelno == logging.WARNING, (
             f"UE-24: low-rate errors should log at WARNING (not ERROR); got level={error_warnings[0].levelname}"
         )
-        # UE-24: counter should be reset to 0 after logging.
+        # counter should be reset to 0 after logging.
         assert worker._level_worker_errors == 0, (
             f"UE-24: _level_worker_errors should be reset to 0 after logging; got {worker._level_worker_errors}"
         )
-        # UE-24: window-start should also be reset to 0.0.
+        # window-start should also be reset to 0.0.
         assert worker._level_worker_error_window_start == 0.0, (
             f"UE-24: _level_worker_error_window_start should be reset to 0.0 "
             f"after logging; got {worker._level_worker_error_window_start}"
@@ -150,7 +150,7 @@ class TestUE24WorkerErrorThrottledWarning:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.level_monitor"):
             _run_one_worker_iteration()
 
-        # UE-24: no log should be emitted (within the 5s throttle window).
+        # no log should be emitted (within the 5s throttle window).
         error_warnings = [
             r for r in caplog.records if r.levelno >= logging.WARNING and "level-worker chunk errors" in r.message
         ]
@@ -224,7 +224,7 @@ class TestUE24WorkerErrorThrottledWarning:
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.level_monitor"):
             _run_one_worker_iteration()
 
-        # UE-24: 3 errors should have been counted (one per chunk) and
+        # 3 errors should have been counted (one per chunk) and
         # then reset to 0 by the throttled-log block.
         assert worker._level_worker_errors == 0, (
             # Counter is reset AFTER logging; we expect the WARNING to
@@ -233,7 +233,7 @@ class TestUE24WorkerErrorThrottledWarning:
             f"WARNING reset it; got {worker._level_worker_errors}"
         )
 
-        # UE-24: 3 per-chunk DEBUG logs should have been emitted (one
+        # 3 per-chunk DEBUG logs should have been emitted (one
         # per chunk) — the per-chunk traceback breadcrumb is retained.
         debug_chunks = [
             r
@@ -245,7 +245,7 @@ class TestUE24WorkerErrorThrottledWarning:
             f"got {len(debug_chunks)}: {[r.message for r in debug_chunks]}"
         )
 
-        # UE-24: a WARNING summarising the burst should also have fired.
+        # a WARNING summarising the burst should also have fired.
         # Rate = 3 / 10s = 0.3/sec, well below the 10/sec threshold.
         warnings = [
             r for r in caplog.records if r.levelno == logging.WARNING and "level-worker chunk errors" in r.message
@@ -257,11 +257,11 @@ class TestUE24WorkerErrorThrottledWarning:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# UE-24: ERROR escalation when rate exceeds threshold
+# ERROR escalation when rate exceeds threshold
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestUE24WorkerErrorEscalationToError:
+class TestWorkerErrorEscalationToError:
     """UE-24: when the per-second error rate exceeds
     ``_LEVEL_WORKER_ERROR_RATE_THRESHOLD`` (default 10/sec), the throttled
     log escalates from WARNING to ERROR so a frozen level bar surfaces
@@ -376,11 +376,11 @@ class TestUE24WorkerErrorEscalationToError:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# UE-24: counter state isolation between tests (no leakage)
+# counter state isolation between tests (no leakage)
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestUE24WorkerErrorStateReset:
+class TestWorkerErrorStateReset:
     """UE-24: the autouse fixture resets ``_level_worker_errors`` /
     ``_last_worker_error_log_time`` / ``_level_worker_error_window_start``
     between tests so a sustained-error test doesn't leak its counter
@@ -447,7 +447,7 @@ class TestUE24WorkerErrorStateReset:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestUE24RetainsPerChunkDebugLog:
+class TestRetainsPerChunkDebugLog:
     """UE-24: the existing per-chunk DEBUG log is retained so a full
     traceback is still available at DEBUG level for diagnosis. The
     throttled WARNING/ERROR is a SEPARATE log line (count summary),
@@ -486,7 +486,7 @@ class TestUE24RetainsPerChunkDebugLog:
             if r.levelno == logging.DEBUG and "level worker thread error processing chunk" in r.message
         ]
         assert len(debug_logs) == 1
-        # UE-24: ``exc_info=True`` means the record's ``exc_info`` is
+        # ``exc_info=True`` means the record's ``exc_info`` is
         # populated (a 3-tuple of (type, value, traceback)).
         assert debug_logs[0].exc_info is not None, (
             "UE-24: per-chunk DEBUG log must carry exc_info=True so the "
@@ -499,17 +499,17 @@ class TestUE24RetainsPerChunkDebugLog:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Sanity: UE-24 doesn't break the existing _dropped_level_chunks path
+# Sanity:  doesn't break the existing _dropped_level_chunks path
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestUE24DoesNotBreakDroppedChunksPath:
+class TestDoesNotBreakDroppedChunksPath:
     """UE-24 added a SECOND throttled-log block right after the existing
     ``_dropped_level_chunks`` block. This test verifies the dropped-chunks
     path still works (the new block doesn't shadow it or short-circuit
     the loop).
 
-    Mirrors ``TestXV58DroppedChunksLogging::test_worker_logs_dropped_chunks_with_throttling``
+    Mirrors ``TestDroppedChunksLogging::test_worker_logs_dropped_chunks_with_throttling``
     but lives here so a UE-24 regression that breaks the dropped-chunks
     path (e.g. an early ``return`` in the new block) fails this test
     file directly.
@@ -523,7 +523,7 @@ class TestUE24DoesNotBreakDroppedChunksPath:
 
         lm._dropped_level_chunks = 7
         lm._last_drop_log_time = time.monotonic() - 10.0
-        # UE-24 state: zero errors so the new block is a no-op.
+        # state: zero errors so the new block is a no-op.
         worker._level_worker_errors = 0
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.level_monitor"):
@@ -534,7 +534,7 @@ class TestUE24DoesNotBreakDroppedChunksPath:
             f"UE-24: dropped-chunks WARNING should still fire; got records: {[r.message for r in caplog.records]}"
         )
         assert "7" in drop_warnings[0].message
-        # UE-24 counter should be unchanged (no errors occurred).
+        # counter should be unchanged (no errors occurred).
         assert worker._level_worker_errors == 0
 
 

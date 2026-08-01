@@ -96,7 +96,7 @@ class TestGetVolumeBackendStatus:
         fake_service.get_volume_backend_status.side_effect = RuntimeError("no backend")
         resp = ipc_server._handle_get_volume_backend_status({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -118,7 +118,7 @@ class TestGetModelStatus:
         fake_service.get_model_status.side_effect = RuntimeError("registry corrupt")
         resp = ipc_server._handle_get_model_status({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -151,7 +151,7 @@ class TestGetPrewarmStatus:
         )
         resp = ipc_server._handle_get_prewarm_status({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 

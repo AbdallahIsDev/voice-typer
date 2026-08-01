@@ -790,7 +790,7 @@ class TestWorkerStopContracts:
         recorder = _build_mock_recorder(buffer_chunks=[np.ones(50, dtype=np.float32)])
         stop_recording(recorder)
         # Fire-and-forget: timeout=0.0 so the helper only signals the
-        # stop event without joining (CPU-03 / 17-H-FIX-2).
+        # stop event without joining (CPU-03 / 17-H-).
         recorder._stop_device_health_checker.assert_called_once_with(timeout=0.0)
 
 

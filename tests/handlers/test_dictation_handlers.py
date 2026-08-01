@@ -31,7 +31,7 @@ class TestToggleDictation:
         fake_service.toggle_dictation.side_effect = RuntimeError("mic in use")
         resp = ipc_server._handle_toggle_dictation({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -48,7 +48,7 @@ class TestUndoLast:
         fake_service.undo_last.side_effect = RuntimeError("nothing to undo")
         resp = ipc_server._handle_undo_last({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -73,7 +73,7 @@ class TestForceCancelTranscription:
         fake_service.force_cancel_transcription.side_effect = RuntimeError("no transcription in progress")
         resp = ipc_server._handle_force_cancel_transcription({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -93,7 +93,7 @@ class TestForceCancelTranscription:
         assert resp["data"]["success"] is False
 
 
-# ── PI-17: typed cloud/LLM exception → IPC error code mapping ────────────
+# typed cloud/LLM exception → IPC error code mapping ────────────
 
 
 class TestCloudErrorMapping:

@@ -61,7 +61,7 @@ class TestPendingTcpBufferCappedAtThousand:
         assert len(server._pending_tcp) <= 1000
 
 
-# === NEW-IPC-013, NEW-IPC-006, NEW-IPC-008 === (ack shape subset)
+# === , ,  === (ack shape subset)
 
 
 class TestAckShapeConsistency:
@@ -117,12 +117,12 @@ class TestAckShapeConsistency:
 
         result = srv._dispatch({"id": 1, "type": "toggle_dictation"})
         assert result["type"] == "error"
-        # PVT-G5-021 (CR-20): generic envelope, no str(e) leak.
+        # (): generic envelope, no str(e) leak.
         assert result["data"]["code"] == "server.internal_error"
         assert result["data"]["message"] == "internal error"
 
 
-# === NEW-IPC-014, NEW-CONC-001, NEW-CONC-003 ===
+# === , ,  ===
 """Regression tests for NEW-IPC-014, NEW-CONC-001, NEW-CONC-003.
 
 NEW-IPC-014: ``_send`` used to hold ``self._lock`` through the entire
@@ -220,7 +220,7 @@ class TestSendDoesNotHoldLockDuringWrite:
 
         fake_conn = MagicMock()
         fake_conn.settimeout = MagicMock()
-        # CR-2: gettimeout() is called to capture the previous timeout
+        # gettimeout() is called to capture the previous timeout
         # before overwriting it.  Mock it to return a distinctive
         # sentinel so we can verify the restore.
         _PREV_TIMEOUT = 7.0  # noqa: N806  simulates an auth-read deadline
@@ -254,7 +254,7 @@ class TestSendDoesNotHoldLockDuringWrite:
         assert first_call[0][0] == _TCP_WRITE_TIMEOUT_SECONDS, (
             f"first settimeout must be {_TCP_WRITE_TIMEOUT_SECONDS}, got {first_call[0][0]}"
         )
-        # CR-2: last call must restore _PREV_TIMEOUT (the auth-read
+        # last call must restore _PREV_TIMEOUT (the auth-read
         # deadline), NOT None.  Restoring None was the root cause of
         # the auth-timeout/close deadlock: a blocking socket could
         # never time out, so the reader thread never exited and

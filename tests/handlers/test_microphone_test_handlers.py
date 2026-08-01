@@ -83,7 +83,7 @@ class TestMicrophoneTestStart:
         fake_service.microphone_test_start.side_effect = RuntimeError("mic busy")
         resp = ipc_server._handle_microphone_test_start({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -104,7 +104,7 @@ class TestMicrophoneTestStart:
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.consent_required"
         # The structured fields let the renderer deep-link to the
-        # exact toggle in Settings (NEW-PRIV-006).
+        # exact toggle in Settings ().
         assert resp["data"]["consent_field"] == "voice_biometric_consent"
         assert resp["data"]["engine_name"] == "microphone_test"
         # Service must NOT have been called — the gate fires BEFORE
@@ -141,7 +141,7 @@ class TestMicrophoneTestStop:
         fake_service.microphone_test_stop.side_effect = RuntimeError("no test running")
         resp = ipc_server._handle_microphone_test_stop({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -159,7 +159,7 @@ class TestMicrophoneTestCancel:
         fake_service.microphone_test_cancel.side_effect = RuntimeError("already finished")
         resp = ipc_server._handle_microphone_test_cancel({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -181,6 +181,6 @@ class TestMicrophoneTestGetLevel:
         fake_service.microphone_test_get_level.side_effect = RuntimeError("no test")
         resp = ipc_server._handle_microphone_test_get_level({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"

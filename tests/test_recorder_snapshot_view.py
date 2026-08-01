@@ -57,7 +57,7 @@ def _make_recorder(sample_rate: int = 16000, effective_sr: int | None = None) ->
     r = Recorder(config)
     r._recording_event.set()
     r._effective_sr = effective_sr if effective_sr is not None else sample_rate
-    # CR-15/CR-20: mirror _effective_sr (no audio_processor in these tests)
+    # mirror _effective_sr (no audio_processor in these tests)
     r._post_filter_sr = r._effective_sr
     r._stream = MagicMock()
     return r

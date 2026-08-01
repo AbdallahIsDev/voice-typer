@@ -182,7 +182,7 @@ def app_with_fake_ducker(tmp_config_dir, monkeypatch):
 
     instance = VoiceTyperApp()
     instance.config.esc_cancel_enabled = False
-    # NEW-PRIV-009 (revised): RecordingController.start() now enforces
+    # (revised): RecordingController.start() now enforces
     # voice_biometric_consent before capturing audio. Tests that exercise
     # the recording path must explicitly opt in (just like real users
     # must enable the toggle in Settings → Privacy before recording).
@@ -237,7 +237,7 @@ class TestStartDictationDucksVolume:
         app.config.volume_duck_enabled = True
         app.config.volume_duck_level = 0.25
         app.config.volume_duck_fade_ms = 200
-        # GT-58: volume_duck_per_session was REMOVED from the Config dataclass.
+        # volume_duck_per_session was REMOVED from the Config dataclass.
         app.recorder.recording = False
         app.recorder.start = MagicMock()
 
@@ -421,7 +421,7 @@ class TestQuitRestoresVolumeInstantly:
         # Patch out the parts of quit() that would actually exit the
         # process or block on hotkey backends.
         app._cancel_pending_timers = MagicMock()
-        # RW-9 Phase 1: was ``app._get_streaming_session`` /
+        # Phase 1: was ``app._get_streaming_session`` /
         # ``app._set_streaming_session`` (test-seam delegates removed);
         # patch the controller methods directly.
         app.recording.get_streaming_session = MagicMock(return_value=None)
@@ -430,7 +430,7 @@ class TestQuitRestoresVolumeInstantly:
         app.hotkeys._esc_backend = MagicMock()
         app.hotkeys._repaste_backend = MagicMock()
         app._crash_recovery = MagicMock()
-        # ARCH-REFAC-003: write to RecordingController directly (was a
+        # write to RecordingController directly (was a
         # @property delegate on VoiceTyperApp).
         app.recording._transcription_thread = None
         app.tray = MagicMock()
@@ -481,7 +481,7 @@ class TestRestartRestoresBeforeExiting:
             app.hotkeys._repaste_backend = MagicMock()
             app._crash_recovery = MagicMock()
             app.tray = MagicMock()
-            # ARCH-REFAC-003: write to RecordingController directly (was
+            # write to RecordingController directly (was
             # a @property delegate on VoiceTyperApp).
             app.recording._transcription_thread = None
 
@@ -582,7 +582,7 @@ class TestPerSessionDuckGatedOnSupport:
         app, backend = app_with_fake_ducker
         # FakeBackend defaults to supports_per_session=False
         app.config.volume_duck_enabled = True
-        # GT-58: volume_duck_per_session was REMOVED from the Config dataclass.
+        # volume_duck_per_session was REMOVED from the Config dataclass.
         app.recorder.recording = False
         app.recorder.start = MagicMock()
 
@@ -606,7 +606,7 @@ class TestPerSessionDuckGatedOnSupport:
 
         instance = VoiceTyperApp()
         instance.config.esc_cancel_enabled = False
-        # NEW-PRIV-009 (revised): RecordingController.start() enforces
+        # (revised): RecordingController.start() enforces
         # voice_biometric_consent — tests that exercise the recording
         # path must explicitly opt in.
         instance.config.voice_biometric_consent = True
@@ -625,13 +625,13 @@ class TestPerSessionDuckGatedOnSupport:
         instance.recorder.recording = False
         instance.recorder.start = MagicMock()
         instance.config.volume_duck_enabled = True
-        # GT-58: volume_duck_per_session was REMOVED from the Config
+        # volume_duck_per_session was REMOVED from the Config
         # dataclass. The app MUST always use master-volume ducking
-        # regardless of any legacy on-disk value (UX-2).
+        # regardless of any legacy on-disk value ().
 
         instance._start_dictation()
 
-        # UX-2: per-session duck should NOT be attempted — master fade instead
+        # per-session duck should NOT be attempted — master fade instead
         assert backend.duck_session_calls == [], "per-session ducking was removed (UX-2); master fade should be used"
         assert len(backend.fade_calls) > 0, "master fade_to should have been called"
 

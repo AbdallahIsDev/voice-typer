@@ -264,7 +264,6 @@ def test_send_settimeout_dance_documented() -> None:
     the next pass has the context.
     """
     src = inspect.getsource(IPCServer._send)
-    assert "TY-24" in src, "TY-24 marker comment missing from _send"
     assert "PERF NOTE" in src, (
         "TY-24: _send must contain a 'PERF NOTE' comment documenting "
         "the per-write settimeout dance overhead (the dance itself was "
@@ -310,7 +309,7 @@ def test_send_suppresses_non_allowlisted_push_when_shutting_down() -> None:
 
         tcp_client = _TCPLineIO(srv)
         server._tcp_client = tcp_client
-        # TY-24: cache the shutting-down flag (was previously
+        # cache the shutting-down flag (was previously
         # ``server.app._shutting_down = True``).
         server._cached_shutting_down = True
 

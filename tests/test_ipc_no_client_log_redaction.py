@@ -96,7 +96,7 @@ class TestNoClientLogRedaction:
             "Expected an INFO log record about the dropped event. "
             "If no record was emitted, the no-client path may have changed."
         )
-        # CR-8: the dictated text must NOT appear in the log.
+        # the dictated text must NOT appear in the log.
         for record in drop_records:
             assert secret_text not in record.getMessage(), (
                 "CR-8 PII leak: the no-client drop log includes the dictated "

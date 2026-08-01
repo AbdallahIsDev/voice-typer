@@ -199,7 +199,7 @@ class TestPasteReturnsTrueOnFullSuccess:
         assert result is True, (
             f"S2-CR-46 regression: paste() must return True when SendInput returns 4 (full success); got {result!r}."
         )
-        # S2-CR-46 specifically: NO spurious "Auto-paste failed" warning
+        # specifically: NO spurious "Auto-paste failed" warning
         # should fire on full success.
         warning_msgs = [str(c) for c in mock_log.warning.call_args_list]
         spurious = [m for m in warning_msgs if "Auto-paste failed" in m and "partial success" in m]
@@ -251,7 +251,7 @@ class TestPasteReturnsTrueOnFullSuccess:
 # ===========================================================================
 # Windows-only sentinel (skipped on non-Windows)
 # ===========================================================================
-# Per the S2-CR-46 fix task instructions: a Windows-only sentinel test
+# Per the  fix task instructions: a Windows-only sentinel test
 # that mocks the REAL ``ctypes.windll.user32.SendInput`` attribute (only
 # present on Windows) and verifies ``paste()`` returns True. This
 # validates the fix against the real Windows ctypes surface; cross-

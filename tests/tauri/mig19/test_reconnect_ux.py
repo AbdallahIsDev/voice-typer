@@ -184,8 +184,8 @@ _SRC_TAURI = _REPO_ROOT / "src-tauri"
 
 # ─── Source files inspected by these tests ─────────────────────────────
 _APP_STORE_TS = _RENDERER_SRC / "stores" / "appStore.ts"
-# XS-21: ``tauri-bridge.ts`` was split into a ``tauri-bridge/`` directory
-# (PVT-30) with submodules ``index.ts``, ``detect.ts``,
+# ``tauri-bridge.ts`` was split into a ``tauri-bridge/`` directory
+# () with submodules ``index.ts``, ``detect.ts``,
 # ``python-namespace.ts``, ``bubble-namespace.ts``, ``window-namespace.ts``.
 # The fixture below concatenates all submodules so the static regex
 # assertions authored against the original monolith still match patterns
@@ -195,7 +195,7 @@ _TAURI_BRIDGE_TS = _TAURI_BRIDGE_DIR / "index.ts"
 _USE_CONNECTION_TS = _RENDERER_SRC / "hooks" / "useConnection.ts"
 _USE_PYTHON_TS = _RENDERER_SRC / "hooks" / "usePython.ts"
 _APP_TSX = _RENDERER_SRC / "App.tsx"
-# DT-31 / DT-FIX-7: the former monolithic ipc types file was split
+# the former monolithic ipc types file was split
 # into a ``types/ipc/`` directory. The ``PythonPushEvent``
 # discriminated union + all *Event interfaces now live in
 # ``types/ipc/push_events.ts``.
@@ -204,7 +204,7 @@ _SUPERVISOR_RS = _SRC_TAURI / "src" / "sidecar" / "supervisor.rs"
 _WS_RS = _SRC_TAURI / "src" / "sidecar" / "ws.rs"
 
 # ─── Expected connection-status literals (single source of truth) ──────
-# ADR-0020 §10 + MIG-1.9 task spec call for these 4 states. The actual
+# ADR-0020 §10 +  task spec call for these 4 states. The actual
 # ConnectionStatus union in appStore.ts uses "connecting" instead of
 # "reconnecting" — see GAP-A in the module docstring above.
 _REQUIRED_STATUS_LITERALS = ("connected", "disconnected", "restarting")
@@ -434,7 +434,7 @@ def test_bridge_subscribes_to_supervisor_relaunching_event(
     the ``onEvent`` callback (so usePythonEvent sees it).
     """
     # The bridge must register a Tauri event listener for the supervisor events.
-    # Post-PVT-30 split, the bridge inlines TWO separate
+    # Post- split, the bridge inlines TWO separate
     # `tauri.event.listen("supervisor_relaunching", ...)` and
     # `tauri.event.listen("supervisor_reconnected", ...)` calls (one per event)
     # in python-namespace.ts, rather than iterating an `supervisorEvents` table
@@ -503,7 +503,7 @@ def test_ws_rs_emits_supervisor_relaunching_on_disconnect(ws_rs_source: str) -> 
     + the respawn attempt — visible as a frozen UI with no feedback.
     """
     # The emit call site must reference supervisor_relaunching with reason
-    # "disconnected" (the CR-5 path — distinct from supervisor.rs:52,113
+    # "disconnected" (the  path — distinct from supervisor.rs:52,113
     # which use "exhausted_retries" / "backoff_exhausted").
     emit_re = re.compile(
         r'emit\s*\(\s*["\']' + re.escape(_TAURI_EVENT_SUPERVISOR_RELAUNCHING) + r'["\']',
@@ -515,7 +515,7 @@ def test_ws_rs_emits_supervisor_relaunching_on_disconnect(ws_rs_source: str) -> 
         f"emit path that lets the UI show a 'reconnecting…' banner before "
         f"the backoff schedule runs."
     )
-    # Verify the "disconnected" reason (the CR-5 path).
+    # Verify the "disconnected" reason (the  path).
     assert '"disconnected"' in ws_rs_source, (
         "ws.rs must emit supervisor_relaunching with reason='disconnected' on "
         "the CR-5 immediate-emit path (distinct from supervisor.rs's "
@@ -539,7 +539,7 @@ def test_bridge_subscribes_to_supervisor_reconnected_event(
     path). The bridge translates it to a synthesised
     ``{type: "reconnected", ...}`` frame.
     """
-    # Post-PVT-30 split: the bridge inlines a separate
+    # Post- split: the bridge inlines a separate
     # `tauri.event.listen("supervisor_reconnected", ...)` call. We verify the
     # literal string subscription (not a loop variable).
     listen_re = re.compile(
@@ -918,7 +918,7 @@ def test_app_tsx_renders_connection_status_screen_when_connecting(
     )
 
 
-# RT-FIX-9: the prior per-state ``<Spinner/>`` + ``<Button/>`` assertions
+# the prior per-state ``<Spinner/>`` + ``<Button/>`` assertions
 # were collapsed into a single ConnectionStatusScreen render. Keep the
 # legacy test names as aliases so any external test-selection scripts
 # that reference them still resolve, but route them through the new
@@ -946,7 +946,7 @@ def test_app_tsx_renders_connection_status_screen_when_restarting(
     )
     # The restarting branch must use the dedicated i18n copy (NOT the
     # cold-start "firstLaunchHint" key which advertises a model download).
-    # RT-FIX-9 (2026-07-24): the ``restartingHint`` key moved into
+    # (2026-07-24): the ``restartingHint`` key moved into
     # ``ConnectionStatusScreen.tsx``; App.tsx still references the
     # ``restartingBackend`` key in its a11y live region.
     assert "restartingBackend" in app_tsx_source, (
@@ -985,7 +985,7 @@ def test_app_tsx_renders_retry_button_when_disconnected(
         "render the Retry button."
     )
     # The disconnected branch must use the lostConnection i18n key.
-    # RT-FIX-9 (2026-07-24): the ``retryConnection`` key moved into
+    # (2026-07-24): the ``retryConnection`` key moved into
     # ``ConnectionStatusScreen.tsx`` (renders the Retry button label);
     # App.tsx still references ``lostConnection`` in its a11y live
     # region.
@@ -1327,7 +1327,7 @@ def test_bridge_installs_window_python_with_onevent(
       - ``window.python.call({type, data}) → Promise<data>``
       - ``window.python.onEvent(callback) → () => void``
     """
-    # window.python assignment — post-PVT-30 split, the bridge calls
+    # window.python assignment — post- split, the bridge calls
     # `createPythonNamespace(tauri)` and assigns the result to
     # `window.python`. The old `window.python = python` (local variable)
     # pattern no longer exists.
@@ -1415,7 +1415,7 @@ def test_app_tsx_imports_connection_status_screen(app_tsx_source: str) -> None:
     )
 
 
-# RT-FIX-9: alias the legacy test name to the new assertion so any
+# alias the legacy test name to the new assertion so any
 # external test-selection scripts that reference the old name still
 # resolve.
 test_app_tsx_imports_spinner = test_app_tsx_imports_connection_status_screen

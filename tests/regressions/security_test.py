@@ -21,7 +21,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
-# WP-1: the previous Linux test-env shim that aliased
+# the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
 # removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
@@ -102,9 +102,9 @@ class TestTranscriptionLoggingRedactsPii:
             pipeline._store_result(raw_text)
 
         # ``hashlib.sha256`` MUST have been invoked with the raw text
-        # bytes (the G4-H-08 contract). If this fails, the source has
+        # bytes (the  contract). If this fails, the source has
         # regressed to either logging raw text or to ``redact_pii()``
-        # (the pre-G4-H-08 four-pattern masker).
+        # (the pre- four-pattern masker).
         assert sha256_calls, (
             "SEC-009 / G4-H-08: _store_result must call hashlib.sha256 on "
             "the transcription text when log_transcriptions is True."
@@ -405,7 +405,7 @@ class TestMutexHardenedWithSecurityDescriptor:
         assert "install_hash" not in src, "PLAT-040-FIXED: no install-path hash in app module."
 
     def test_mutex_uses_restrictive_security_attributes(self):
-        # RW-8: KEEP — pins PLAT-040 (mutex uses restrictive DACL via
+        # KEEP — pins  (mutex uses restrictive DACL via
         # _create_restrictive_security_attributes). A behavioral test
         # would need to inspect the mutex's security descriptor via
         # Windows APIs (heavy, Windows-only); the source-string check
@@ -427,7 +427,7 @@ class TestClipboardRetryNarrowedException:
     """
 
     def test_retry_catches_oserror_not_broad_exception(self):
-        # RW-8: KEEP — pins PLAT-007 (clipboard retry narrowed to OSError
+        # KEEP — pins  (clipboard retry narrowed to OSError
         # with winerror == 5). A behavioral test would need to trigger
         # ERROR_ACCESS_DENIED on the clipboard, which is Windows-specific
         # and flaky; the source-string check catches reintroduction of
@@ -451,7 +451,7 @@ class TestClipboardRetryNarrowedException:
 
         src = inspect.getsource(clipboard)
         # The pre-fix pattern was: except Exception as copy_err
-        # (inside the PLAT-007 retry block). It must be gone.
+        # (inside the  retry block). It must be gone.
         # We check the copy() method source specifically.
         copy_methods = [line for line in src.split("\n") if "except Exception as copy_err" in line]
         assert len(copy_methods) == 0, (
@@ -538,16 +538,16 @@ class TestMutexAcquisitionHasRetryAndTimeout:
     """
 
     def test_ensure_single_instance_exits_on_already_exists(self):
-        # RW-8: KEEP — pins PLAT-011 (immediate-exit on ERROR_ALREADY_EXISTS,
+        # KEEP — pins  (immediate-exit on ERROR_ALREADY_EXISTS,
         # no retry). A behavioral test would need to spawn two processes
         # and observe the exit, which is heavy; the source-string check
         # catches reintroduction of a retry loop directly.
         from voice_typer.server import app as app_mod
 
-        # CR-11: _ensure_single_instance is now a thin dispatcher; the
+        # _ensure_single_instance is now a thin dispatcher; the
         # Windows mutex logic (which checks error_already_exists) lives
         # in _ensure_windows_single_instance. Inspect that function so
-        # the PLAT-011 invariant is still pinned.
+        # the  invariant is still pinned.
         src = inspect.getsource(app_mod._ensure_windows_single_instance)
         # Must check ERROR_ALREADY_EXISTS and exit. The implementation
         # may use either the symbolic name "ERROR_ALREADY_EXISTS" or the
@@ -604,7 +604,7 @@ class TestSystemRootValidationFunctional:
         # form (see docstring above for rationale).
         monkeypatch.setenv("SYSTEMROOT", r"C:\Windows\..\..\attacker")
 
-        # CR-19: must abort startup (fail-closed) — not silently reset.
+        # must abort startup (fail-closed) — not silently reset.
         with pytest.raises(SystemExit) as exc_info:
             _validate_systemroot()
         assert exc_info.value.code == 1, (

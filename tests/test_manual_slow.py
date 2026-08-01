@@ -200,7 +200,7 @@ def test_runtime_test_runner_parses() -> None:
     source = script.read_text()
     ast.parse(source)  # raises SyntaxError on failure
     # Quick sanity: the script still exposes the ``run`` alias added
-    # in TASK-013 so this test module has a stable import target.
+    # in  so this test module has a stable import target.
     assert "run = main" in source, (
         "runtime_test_runner.py must expose ``run = main`` so the slow test wrapper has a stable callable name"
     )

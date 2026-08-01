@@ -27,7 +27,7 @@ import pytest
 from voice_typer.server import prewarm
 from voice_typer.server.prewarm import process_tracker
 
-# ─── AB-18: spawn delegates to resolve_prewarm_exe ──────────────────────
+# spawn delegates to resolve_prewarm_exe ──────────────────────
 
 
 class TestSpawnDelegatesToResolver:
@@ -188,7 +188,7 @@ class TestSpawnDelegatesToResolver:
         assert "--force" in captured["cmd"]
 
 
-# ─── AB-18: --force / --trigger flags still appended ────────────────────
+# force / --trigger flags still appended ────────────────────
 
 
 class TestSpawnStillAppendsFlags:

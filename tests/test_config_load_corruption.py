@@ -248,7 +248,7 @@ class TestConfigLoadCaughtFailureModes:
             assert str(config_file) in recs[0].message
         finally:
             # Restore permissions so pytest can clean up tmp_path.
-            # G4-H-10: the corrupt config may have been moved aside to
+            # the corrupt config may have been moved aside to
             # config.json.corrupt-<timestamp>; chmod that if the original
             # is gone (best-effort cleanup).
             try:
@@ -514,10 +514,10 @@ class TestConfigLoadWarningMessageQuality:
         assert recs[0].levelno == logging.WARNING
 
 
-# ── S2-CR-44: extracted coercion helpers ─────────────────────────────────
+# extracted coercion helpers ─────────────────────────────────
 
 
-class TestS2CR44CoercionHelpers:
+class TestCoercionHelpers:
     """S2-CR-44: ``_warn_and_reset`` and ``_warn_and_coerce`` extract
     the duplicated 5-line "build msg → log → append → reset" pattern
     that appeared 6 times in the original

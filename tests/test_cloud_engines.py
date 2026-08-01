@@ -528,7 +528,7 @@ class TestDeepgramUrlParameterInjection:
             engine.transcribe(np.zeros(16000, dtype=np.float32))
 
 
-# ── PI-17: typed cloud/LLM exception hierarchy ───────────────────────────
+# typed cloud/LLM exception hierarchy ───────────────────────────
 
 
 class TestCloudEngineTypedExceptions:

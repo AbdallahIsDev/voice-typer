@@ -154,7 +154,7 @@ class TestPyobjcCacheAvailablePath:
                     else:
                         sys.modules["AVFoundation"] = original
             assert result == MicrophonePermissionState.UNKNOWN
-            # XV-123 invariant: cache is updated to False so future
+            # invariant: cache is updated to False so future
             # calls short-circuit.
             assert permissions._PYOBJC_AVAILABLE is False
 

@@ -46,7 +46,7 @@ def cr(recovery_dir):
         inst._save_thread.join(timeout=2.0)
 
 
-# ─── DJ-42 tests ──────────────────────────────────────────────────────────
+# tests ──────────────────────────────────────────────────────────
 
 
 class TestCrashRecoveryIdleFootprint:

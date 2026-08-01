@@ -244,7 +244,7 @@ class TestSystemRootNotepadPath:
         def fake_exists(self):
             call_count["n"] += 1
             if call_count["n"] == 1:
-                # First candidate (default_path per XZ-R6-AS-07 order)
+                # First candidate (default_path per  order)
                 # raises OSError — function must continue to the next.
                 raise OSError("permission denied")
             return self == systemroot_path

@@ -196,7 +196,7 @@ _REPO_ROOT = _THIS_FILE.parents[3]
 _SRC_TAURI = _REPO_ROOT / "src-tauri"
 _TAURI_CONF = _SRC_TAURI / "tauri.conf.json"
 _CAPABILITIES_DIR = _SRC_TAURI / "capabilities"
-# CR-5: migrate-runtime.json was split into main-runtime.json + bubble-runtime.json
+# migrate-runtime.json was split into main-runtime.json + bubble-runtime.json
 _MAIN_RUNTIME_CAPABILITY = _CAPABILITIES_DIR / "main-runtime.json"
 _BUBBLE_RUNTIME_CAPABILITY = _CAPABILITIES_DIR / "bubble-runtime.json"
 _MAIN_RS = _SRC_TAURI / "src" / "main.rs"
@@ -205,8 +205,8 @@ _SIDECAR_CMDS_RS = _SRC_TAURI / "src" / "commands" / "sidecar_cmds.rs"
 
 # ─── Expected wiring constants (single source of truth) ────────────────
 
-#: ADR-0020 §7 + CR-5: capability identifier referenced by tauri.conf.json's
-#: ``app.security.capabilities`` list. CR-5 split the original
+# ADR-0020 §7 + : capability identifier referenced by tauri.conf.json's
+# ``app.security.capabilities`` list.  split the original
 #: ``migrate-runtime.json`` into ``main-runtime.json`` (full grant set)
 #: + ``bubble-runtime.json`` (minimal sandboxed grant).
 EXPECTED_MAIN_CAPABILITY_IDENTIFIER = "main-runtime"
@@ -259,7 +259,7 @@ def bubble_runtime_capability() -> dict:
 
 
 # Back-compat alias fixture so existing test signatures that take
-# ``migrate_runtime_capability`` continue to work after the CR-5 split.
+# ``migrate_runtime_capability`` continue to work after the  split.
 @pytest.fixture(scope="module")
 def migrate_runtime_capability(main_runtime_capability: dict) -> dict:
     """Back-compat alias — delegates to ``main_runtime_capability`` after CR-5."""
@@ -325,7 +325,7 @@ def test_tauri_conf_references_migrate_runtime_capability(
     )
 
 
-# ─── Test 3: identifier matches filename (CR-5: both files) ────────────
+# Test 3: identifier matches filename (: both files) ────────────
 
 
 def test_capability_identifier_matches_filename(
@@ -473,7 +473,7 @@ def test_grants_notification_permission(
     )
 
 
-# ─── Test 7: clipboard-manager plugin REMOVED (XE-4-4) ────────────────
+# Test 7: clipboard-manager plugin REMOVED () ────────────────
 
 
 def test_clipboard_manager_plugin_removed(
@@ -632,7 +632,7 @@ def test_dispatch_command_is_registered_as_tauri_command(
         "sidecar_cmds.rs must define at least one #[tauri::command] — no tauri::command attribute found"
     )
     # The public generic dispatch command is `pub async fn dispatch(`.
-    # (The CR-5/CR-14 decomposition also adds `dispatch_inner` and
+    # (The / decomposition also adds `dispatch_inner` and
     # `dispatch_frame` internal helpers — match the public command
     # exactly so those helpers don't shadow this check.)
     assert "fn dispatch(" in sidecar_cmds_rs_source, (

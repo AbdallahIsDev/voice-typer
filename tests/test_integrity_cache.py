@@ -90,7 +90,7 @@ def _override_cache_path(tmp_path, monkeypatch):
     monkeypatch.setattr(security, "_integrity_cache_path_override", None)
 
 
-# ─── AB-8: cache hit on second load ─────────────────────────────────────
+# cache hit on second load ─────────────────────────────────────
 
 
 def test_integrity_cache_hit_on_second_load_skips_rehash(tmp_path):
@@ -171,7 +171,7 @@ def test_integrity_cache_persists_across_module_reloads(tmp_path):
         assert entry["size"] == len(b'{"model_type": "ab8-test"}')
 
 
-# ─── AB-8: cache invalidation ───────────────────────────────────────────
+# cache invalidation ───────────────────────────────────────────
 
 
 def test_integrity_cache_invalidated_when_mtime_changes(tmp_path):
@@ -330,7 +330,7 @@ def test_integrity_cache_stale_entry_does_not_cause_false_pass(tmp_path):
         )
 
 
-# ─── AB-8: compute_file_sha256 — mmap fast path + empty-file fallback ──
+# compute_file_sha256 — mmap fast path + empty-file fallback ──
 
 
 def test_compute_file_sha256_uses_mmap_for_non_empty_file(tmp_path):
@@ -385,7 +385,7 @@ def test_compute_file_sha256_matches_chunk_loop(tmp_path):
     path = tmp_path / "crosses_chunk.bin"
     path.write_bytes(content)
 
-    # Replicate the pre-AB-8 chunk-loop hash for comparison.
+    # Replicate the pre- chunk-loop hash for comparison.
     h = hashlib.sha256()
     with open(path, "rb") as f:
         while True:
@@ -399,7 +399,7 @@ def test_compute_file_sha256_matches_chunk_loop(tmp_path):
     assert actual == expected_chunk_loop
 
 
-# ─── AB-8: cache path + atomic write ────────────────────────────────────
+# cache path + atomic write ────────────────────────────────────
 
 
 def test_integrity_cache_path_in_config_dir(tmp_path, monkeypatch):
@@ -482,3 +482,180 @@ def test_integrity_cache_corrupt_json_is_replaced(tmp_path):
     with _patch_manifest(repo_id, config_sha256):
         result = security.verify_model_integrity(str(model_dir), repo_id)
         assert result is True
+
+
+# symlink rejection on _load_integrity_cache ──────────────────
+
+
+def test_load_integrity_cache_rejects_symlink(tmp_path):
+    """FR-28: a symlink planted at ``integrity_cache.json`` MUST NOT be
+    followed. ``_load_integrity_cache`` must return the empty cache
+    instead of reading the symlink target's contents.
+
+    Pre-FR-28, the loader used ``Path.read_text`` which follows
+    symlinks. An attacker with write access to ``<config_dir>/cache/``
+    could plant a symlink at ``integrity_cache.json`` pointing to an
+    arbitrary file (e.g. a world-readable ``/etc/passwd`` or a
+    crafted JSON they control), and the loader would happily parse
+    it — letting the attacker inject arbitrary cached SHA-256 entries
+    and bypass model-integrity verification.
+
+    Post-FR-28, the loader uses ``_secure_read_text`` which opens
+    with ``O_NOFOLLOW`` on POSIX (raises ``OSError`` / ``ELOOP``) and
+    rejects reparse points on Windows. The broad ``except Exception``
+    in the loader catches the raise and returns the empty cache.
+
+    POSIX-only — Windows reparse-point semantics are exercised by
+    ``test_secure_file_io.py``.
+    """
+    import sys
+
+    if sys.platform == "win32":
+        pytest.skip("FR-28 POSIX O_NOFOLLOW test — Windows uses reparse-point rejection")
+
+    from voice_typer.server import security
+
+    cache_path = security._integrity_cache_path()
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Craft a malicious "attacker-controlled" cache payload that, if
+    # loaded, would let a tampered model pass verification. The
+    # sha256 below is a deliberate fake ("a"*64) that does NOT match
+    # any real config.json content — but if the symlink is followed
+    # and this payload is loaded as a cache entry, a subsequent
+    # verify_model_integrity() against a model whose manifest ALSO
+    # pins "a"*64 (attacker-controlled manifest) would false-pass.
+    malicious_cache = {
+        "version": 1,
+        "repos": {
+            "evil/repo": {
+                "config.json": {
+                    "mtime_ns": 1,
+                    "size": 1,
+                    "sha256": "a" * 64,
+                }
+            }
+        },
+    }
+
+    # Plant the malicious payload OUTSIDE the cache dir, then create a
+    # symlink at the cache path pointing to it. This simulates an
+    # attacker who can write symlinks in the cache dir but cannot
+    # directly write the cache file itself (e.g. due to a stale fd
+    # hold or a parent-dir permission boundary).
+    attacker_file = tmp_path / "attacker_cache.json"
+    attacker_file.write_text(json.dumps(malicious_cache), encoding="utf-8")
+    try:
+        os.symlink(attacker_file, cache_path)
+    except OSError:
+        pytest.skip("Cannot create symlinks on this system")
+
+    # Sanity check: the symlink really does point at the attacker file.
+    assert cache_path.is_symlink(), "test setup: cache_path must be a symlink"
+
+    # the loader MUST refuse to follow the symlink and return
+    # the empty cache — NOT the malicious payload.
+    cache = security._load_integrity_cache()
+    assert cache == {"version": 1, "repos": {}}, (
+        "FR-28: _load_integrity_cache must reject a symlink at the cache "
+        "path and return the empty cache. Got the attacker-controlled "
+        f"payload instead: {cache}. This means Path.read_text (symlink-"
+        "following) is being used instead of _secure_read_text (O_NOFOLLOW)."
+    )
+
+
+def test_load_integrity_cache_normal_file_still_works(tmp_path):
+    """FR-28 regression: the switch to ``_secure_read_text`` must NOT
+    break the normal (non-symlink) load path. A regular JSON cache
+    file with a valid structure must still load successfully.
+    """
+    from voice_typer.server import security
+
+    cache_path = security._integrity_cache_path()
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "version": 1,
+        "repos": {
+            "test/repo": {
+                "config.json": {
+                    "mtime_ns": 999,
+                    "size": 42,
+                    "sha256": "b" * 64,
+                }
+            }
+        },
+    }
+    cache_path.write_text(json.dumps(payload), encoding="utf-8")
+    # Ensure perms are loose enough that the chmod-to-0o600 path is
+    # exercised (and doesn't fail). 0o644 is the typical default.
+    os.chmod(cache_path, 0o644)
+
+    cache = security._load_integrity_cache()
+    assert cache == payload, (
+        "FR-28: a regular (non-symlink) cache file must still load "
+        f"correctly after the switch to _secure_read_text. Got: {cache}"
+    )
+
+    # Defense-in-depth: the loader should have tightened perms to 0o600.
+    # POSIX-only check (Windows ignores POSIX permission bits).
+    import sys
+
+    if sys.platform != "win32":
+        mode = cache_path.stat().st_mode & 0o777
+        assert mode == 0o600, (
+            "FR-28: _load_integrity_cache should chmod the cache file to "
+            f"0o600 after a successful read (defense-in-depth). Got 0o{mode:o}."
+        )
+
+
+# _save_integrity_cache uses _secure_atomic_write ─────────────
+
+
+def test_save_integrity_cache_uses_secure_atomic_write(tmp_path, monkeypatch):
+    """FR-30: ``_save_integrity_cache`` MUST delegate to
+    ``_secure_atomic_write`` (which provides the FR-50 ``owned_fd``
+    sentinel, explicit ``_chmod_owner_only``, and symlink-safe
+    ``tempfile.mkstemp``) instead of a bare ``tempfile.mkstemp`` +
+    ``os.fdopen`` + ``os.replace`` block.
+
+    This test patches ``_secure_atomic_write`` in the security module's
+    namespace and asserts it is invoked with ``durability=False`` (the
+    no-fsync cache-write behaviour must be preserved).
+    """
+    from voice_typer.server import security
+
+    calls: list[tuple] = []
+
+    real_secure_atomic_write = security._secure_atomic_write
+
+    def _spy(path, content, *, durability=True):
+        calls.append((str(path), content, durability))
+        # Delegate to the real implementation so the file is actually
+        # written (downstream assertions in other tests rely on this).
+        return real_secure_atomic_write(path, content, durability=durability)
+
+    monkeypatch.setattr(security, "_secure_atomic_write", _spy)
+
+    cache = {"version": 1, "repos": {}}
+    security._save_integrity_cache(cache)
+
+    assert len(calls) == 1, (
+        f"FR-30: _save_integrity_cache must call _secure_atomic_write exactly once. Got {len(calls)} calls."
+    )
+    path_arg, content_arg, durability_arg = calls[0]
+    assert durability_arg is False, (
+        "FR-30: _save_integrity_cache must pass durability=False to "
+        "_secure_atomic_write to preserve the no-fsync cache-write "
+        f"behaviour (cache is a perf optimization, not security-critical "
+        f"state). Got durability={durability_arg}."
+    )
+    # The content must be the JSON-serialized cache.
+    assert json.loads(content_arg) == cache, (
+        "FR-30: _save_integrity_cache must pass json.dumps(cache) as the "
+        f"content to _secure_atomic_write. Got: {content_arg!r}"
+    )
+    # The path must be the integrity cache path.
+    assert path_arg == str(security._integrity_cache_path()), (
+        f"FR-30: _save_integrity_cache must pass the integrity cache path. Got: {path_arg}"
+    )

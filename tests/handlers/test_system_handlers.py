@@ -297,7 +297,7 @@ class TestShowElectronNotification:
         assert resp["type"] == "ack"
         assert len(captured) == 1
         evt = captured[0]
-        # CR-8: the event type was renamed from "electron_notification"
+        # the event type was renamed from "electron_notification"
         # to the platform-agnostic "notification" so the Tauri Rust host
         # doesn't need to rename it on the way through.
         assert evt["type"] == "notification"

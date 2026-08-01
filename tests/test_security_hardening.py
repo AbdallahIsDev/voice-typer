@@ -22,7 +22,7 @@ import pytest
 # ─── SEC-audit-005: Model Integrity Verification ──────────────────────────
 
 
-class TestModelIntegritySHA256:
+class TestModelIntegrity:
     """SEC-audit-005: verify_model_integrity with SHA-256 hash checking."""
 
     def test_verify_model_integrity_valid(self, tmp_path):
@@ -110,7 +110,7 @@ class TestModelIntegritySHA256:
         assert callable(_verify_model_integrity)
 
 
-# ─── G4-H-33: Qwen model integrity hard-fail (NF-R18-9 canonical path) ────
+# Qwen model integrity hard-fail ( canonical path) ────
 
 
 class TestQwenModelIntegrityHardFail:
@@ -609,7 +609,7 @@ class TestSecureFileWrites:
             source = f.read()
         assert "_secure_atomic_write" in source
 
-    # PI-3 (IMPROVE-mode run PI): ``test_security_restart_token_uses_secure_write``
+    # (IMPROVE-mode run PI): ``test_security_restart_token_uses_secure_write``
     # removed — the ``generate_restart_token`` function it pinned was dead code
     # (imported into ``app.py`` but never called in production) and has been
     # deleted from ``voice_typer/server/security.py``. The other tests in this
@@ -689,7 +689,7 @@ class TestSecureReadUsage:
             source = f.read()
         assert "_secure_read_text" in source
 
-    # PI-3 (IMPROVE-mode run PI): ``test_security_verify_restart_uses_secure_read``
+    # (IMPROVE-mode run PI): ``test_security_verify_restart_uses_secure_read``
     # removed — the ``verify_restart_token`` function it pinned was dead code
     # (imported into ``app.py`` but never called in production) and has been
     # deleted from ``voice_typer/server/security.py``. The other tests in this

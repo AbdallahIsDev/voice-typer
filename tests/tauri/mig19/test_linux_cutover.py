@@ -301,27 +301,30 @@ def test_ci_workflow_builds_rpm_via_bundle_config(tauri_conf: dict) -> None:
     )
     rpm_cfg = bundle["linux"]["rpm"]
     assert isinstance(rpm_cfg, dict), "bundle.linux.rpm must be a dict"
-    # Tauri v2 schema (ADR-0020) uses 'postInstall' / 'preRemove' (no
-    # 'Script' suffix). The previous comment incorrectly claimed
-    # "WP-15: Tauri v2 uses postInstallScript / preRemoveScript field
-    # names" — that's backwards; per ADR-0020 + Tauri v2 schema the v2
-    # keys are 'postInstall' and 'preRemove' (the 'Script' suffix is
-    # the legacy Tauri v1 form). Strict v2-only assertions below catch
-    # any regression to the v1 names.
-    assert "postInstall" in rpm_cfg, "bundle.linux.rpm.postInstall missing — Tauri v2 requires the 'postInstall' key"
-    assert "postInstallScript" not in rpm_cfg, (
-        "stale long-form 'postInstallScript' key present on bundle.linux.rpm — should use Tauri v2 'postInstall'"
+    # Tauri v2 schema uses 'postInstallScript' / 'preRemoveScript' (with
+    # the 'Script' suffix). The v1 short forms 'postInstall' / 'preRemove'
+    # (no 'Script' suffix) are legacy Tauri v1 keys. Strict v2-only
+    # assertions below catch any regression to the v1 names.
+    assert "postInstallScript" in rpm_cfg, (
+        "bundle.linux.rpm.postInstallScript missing — Tauri v2 requires the 'postInstallScript' key"
     )
-    assert "preRemove" in rpm_cfg, "bundle.linux.rpm.preRemove missing — Tauri v2 requires the 'preRemove' key"
-    assert "preRemoveScript" not in rpm_cfg, (
-        "stale long-form 'preRemoveScript' key present on bundle.linux.rpm — should use Tauri v2 'preRemove'"
+    assert "postInstall" not in rpm_cfg, (
+        "stale short-form 'postInstall' key present on bundle.linux.rpm — should use Tauri v2 'postInstallScript'"
     )
-    rpm_postinst = rpm_cfg["postInstall"]
-    rpm_prerm = rpm_cfg["preRemove"]
+    assert "preRemoveScript" in rpm_cfg, (
+        "bundle.linux.rpm.preRemoveScript missing — Tauri v2 requires the 'preRemoveScript' key"
+    )
+    assert "preRemove" not in rpm_cfg, (
+        "stale short-form 'preRemove' key present on bundle.linux.rpm — should use Tauri v2 'preRemoveScript'"
+    )
+    rpm_postinst = rpm_cfg["postInstallScript"]
+    rpm_prerm = rpm_cfg["preRemoveScript"]
     assert rpm_postinst.endswith("postinst.rpm"), (
-        f"bundle.linux.rpm.postInstall must reference postinst.rpm, got {rpm_postinst!r}"
+        f"bundle.linux.rpm.postInstallScript must reference postinst.rpm, got {rpm_postinst!r}"
     )
-    assert rpm_prerm.endswith("prerm.rpm"), f"bundle.linux.rpm.preRemove must reference prerm.rpm, got {rpm_prerm!r}"
+    assert rpm_prerm.endswith("prerm.rpm"), (
+        f"bundle.linux.rpm.preRemoveScript must reference prerm.rpm, got {rpm_prerm!r}"
+    )
     # `bundle.targets` must be "all" OR include "rpm".
     targets = bundle.get("targets")
     if isinstance(targets, str):

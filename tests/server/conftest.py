@@ -130,7 +130,7 @@ class MockApp:
         # __init__; MockApp must do the same so the IPC handler doesn't
         # AttributeError.
         self._config_mutation_lock = threading.RLock()
-        # RW-9 Phase 2: service.apply_config_side_effects now calls
+        # Phase 2: service.apply_config_side_effects now calls
         # `app.hotkeys.register_esc()` / `unregister_esc()` /
         # `register_repaste()` directly (instead of going through the
         # `app._register_*_hotkey` delegates). Mock the dispatcher so
@@ -146,7 +146,7 @@ class MockApp:
     def quit_app(self):
         self.quit_called = True
 
-    # YJ-1 / DT-37: _handle_set_config routes model_size + asr_backend
+    # _handle_set_config routes model_size + asr_backend
     # changes through ``app.change_model()`` / ``app.set_active_backend()``
     # (via the service layer) so the active engine hot-swaps without an
     # app restart. MockApp previously lacked these methods, so any

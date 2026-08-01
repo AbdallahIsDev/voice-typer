@@ -272,7 +272,7 @@ class TestDurabilityFalse:
             except ValueError as exc:
                 crash_handler._crash_excepthook(type(exc), exc, exc.__traceback__)
             mock_atomic.assert_called_once()
-            # AB-33: durability=False — fsync on a terminating process
+            # durability=False — fsync on a terminating process
             # provides no durability benefit and can hang the crashing
             # thread on a stuck disk.
             assert mock_atomic.call_args.kwargs.get("durability") is False

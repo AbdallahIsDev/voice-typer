@@ -18,7 +18,7 @@ from unittest.mock import MagicMock
 def _make_pipeline(history_enabled=True, add_returns=1):
     """Build a minimal DictationPipeline for testing ``_store_result``.
 
-    Mirrors the pattern in ``test_dictation_pipeline_h17_and_s3_cr10_fixes.py``:
+    Mirrors the pattern in ``test_dictation_pipeline_lock_fixes.py``:
     a MagicMock-backed app with explicit ``history_enabled`` (which may
     be missing on older Config instances).
     """

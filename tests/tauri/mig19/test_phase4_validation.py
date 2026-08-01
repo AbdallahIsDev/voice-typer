@@ -140,7 +140,7 @@ import pytest
 #   parents[3] = <project root> (voice-typer/)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 IPC_SERVER_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
-# Phase 4.5 / ARCH-045 — the prior split into ``voice_typer/server/ipc/``
+# Phase 4.5 /  — the prior split into ``voice_typer/server/ipc/``
 # was rolled back: ``IPCServer.__init__`` (with the heartbeat-watchdog
 # TAURI_SIDECAR gate + ``_heartbeat_thread = None`` skip path) AND the
 # ``main()`` entry point (with the ``--ws`` mode env-var propagation +
@@ -176,7 +176,7 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "toggle_dictation",
         "undo_last",
         "force_cancel_transcription",
-        "repaste_last",  # UX-23: re-paste last transcription; handler in handlers/repaste_handlers.py
+        "repaste_last",  # re-paste last transcription; handler in handlers/repaste_handlers.py
         # history_handlers
         "get_history",
         "get_today_stats",
@@ -227,8 +227,8 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "onboarding_get_microphones",
         "onboarding_get_model_options",
         "onboarding_get_hotkey_presets",
-        # CR-7 (IMPROVE-2026-07-19): macOS/Linux permission probe added
-        # server-side for UX-4/UX-27. The renderer's permission flow
+        # (IMPROVE-2026-07-19): macOS/Linux permission probe added
+        # server-side for / The renderer's permission flow
         # now uses this + a Tauri-side invocation.
         "onboarding_check_permissions",
         # REMOVED: ``onboarding_get_model_catalog`` — the renderer uses
@@ -289,15 +289,15 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # Electron path. See ``test_dead_code_stays_removed.py``.
         "set_tray_locale",
         "set_esc_cancel_paused",
-        # ipc_server (RW-10 / ADR-0018) — kept on the registry even
+        # ipc_server ( / ADR-0018) — kept on the registry even
         # though it is REMOVED on the Tauri path; a stray frame from a
         # legacy UI must still hit the handler (not ``unknown_command``).
         "heartbeat",
-        # RT-FIX-9 / ADR-0020 §16 addendum (2026-07-24): commands added
+        # ADR-0020 §16 addendum (2026-07-24): commands added
         # since the prior baseline. Each has a ``_handle_<cmd>`` mixin +
         # ``_validate_dict_payload`` schema + dispatch-errors test.
         #   - ``shutdown`` (system_handlers.py — graceful IPC shutdown;
-        #     the EC-FIX-3 controller lives in ``shutdown_controller.py``).
+        # the  controller lives in ``shutdown_controller.py``).
         # REMOVED: ``delete_all_personal_data`` + ``export_gdpr_bundle``
         # — the Tauri host now invokes them via dedicated Rust commands
         # (with their own allowlist entries and consent prompts) rather
@@ -354,7 +354,7 @@ KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
         # sleep in favour of an event-driven wait (bounded by a 2s
         # timeout). Added without an ADR-0020 §16 addendum.
         "relaunch_ack",
-        # MIG-1.9 Phase 3 (Rust-host tray, ADR-0020 §6.5): ``tray_click``
+        # Phase 3 (Rust-host tray, ADR-0020 §6.5): ``tray_click``
         # is a host-initiated dispatch command the Rust tray emits when
         # the user clicks a menu item (``dispatch({cmd:'tray_click',
         # data:{id}})``). It is NOT in the frozen 68-command table and
@@ -377,7 +377,7 @@ KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
 # as a Tauri event of the same name (modulo the backward-compat
 # ``electron_notification`` → ``notification`` alias below; the
 # ``relaunch_electron`` → ``relaunch_app`` rename was dropped in the
-# PVT-2 cleanup — the Python sidecar now publishes ``relaunch_app``
+# cleanup — the Python sidecar now publishes ``relaunch_app``
 # directly, so the bridge forwards it unchanged).
 EXPECTED_EVENTS: frozenset[str] = frozenset(
     {
@@ -401,12 +401,12 @@ EXPECTED_EVENTS: frozenset[str] = frozenset(
         "navigate",
         "show_window",
         "quit_app",
-        # PVT-2 cleanup: the Python sidecar now publishes ``relaunch_app``
+        # cleanup: the Python sidecar now publishes ``relaunch_app``
         # directly (no rename by the Rust bridge). ``main.rs`` listens for
         # ``relaunch_app`` via ``app.listen("relaunch_app", ...)`` and calls
         # ``app.restart()``.
         "relaunch_app",
-        # RT-FIX-9 / ADR-0020 §16 addendum (2026-07-24): three events
+        # ADR-0020 §16 addendum (2026-07-24): three events
         # added since the prior 21-event baseline. All three are emitted
         # via ``event_bus.publish`` (or ``IPCServer.push``) and flow
         # through the same channel.
@@ -429,9 +429,9 @@ assert len(EXPECTED_EVENTS) == 24, (
 # events (ADR-0020 §6.1 — payloads are unchanged, only the event name
 # changes). The Rust bridge also emits a backward-compat
 # ``notification`` alias when it sees the legacy
-# ``electron_notification`` event name (CR-8 in ws.rs).
+# ``electron_notification`` event name ( in ws.rs).
 #
-# PVT-2 cleanup: the ``relaunch_electron`` → ``relaunch_app`` entry was
+# cleanup: the ``relaunch_electron`` → ``relaunch_app`` entry was
 # REMOVED — the Python sidecar now publishes ``relaunch_app`` directly,
 # so the Rust bridge forwards it unchanged. ``main.rs`` listens for the
 # renamed event directly. This dict is intentionally empty; it remains
@@ -581,7 +581,7 @@ def test_validate_dict_payload_rejects_non_dict_data():
     assert validated is None
     assert error is not None
     assert error["type"] == "error"
-    # RT-FIX-9: error codes are now namespaced (client.* / server.*). The
+    # error codes are now namespaced (client.* / server.*). The
     # bare legacy form is preserved in ``legacy_code``. Accept either the
     # namespaced or the legacy form for forward-compat with older builds.
     assert error["data"]["code"] in ("client.invalid_payload", "invalid_payload")
@@ -779,7 +779,7 @@ def test_ws_bridge_coalesces_bubble_level():
 
 
 # Events whose source name has been renamed in the Python sidecar
-# (CR-8 in ws.rs + handlers/system_handlers.py + startup_sequence.py).
+# ( in ws.rs + handlers/system_handlers.py + startup_sequence.py).
 # The Rust bridge has a backward-compat alias so legacy sidecars that
 # still emit the OLD name keep working — but new sidecars emit the
 # NEW name directly. The Phase 4 test accepts EITHER name in the

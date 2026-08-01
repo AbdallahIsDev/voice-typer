@@ -58,7 +58,7 @@ def _make_device_manager(recorder=None, config=None):
     return DeviceManager(recorder)
 
 
-# ── DJ-68: service-layer cache invalidation callback ─────────────────
+# service-layer cache invalidation callback ─────────────────
 
 
 class TestServiceCacheInvalidator:
@@ -134,7 +134,7 @@ class TestServiceCacheInvalidator:
         assert called["count"] == 1, "unregistered callback must NOT fire"
 
 
-# ── TY-5: proactive disconnect recovery on hot-plug ─────────────────
+# proactive disconnect recovery on hot-plug ─────────────────
 
 
 class TestHotplugDisconnectRecovery:
@@ -190,7 +190,7 @@ class TestHotplugDisconnectRecovery:
         assert spawn_calls == [], "TY-5: no recovery spawn when recording has been stopped"
 
 
-# ── DJ-69: name-based device resolution ──────────────────────────────
+# name-based device resolution ──────────────────────────────
 
 
 class TestNameBasedDeviceResolution:
@@ -299,7 +299,7 @@ class TestNameBasedDeviceResolution:
         )
 
 
-# ── DJ-70: BT-aware retry policy ──────────────────────────────────────
+# BT-aware retry policy ──────────────────────────────────────
 
 
 class TestBTAwareRetryPolicy:
@@ -384,7 +384,7 @@ class TestBTAwareRetryPolicy:
             monkeypatch_target.query_devices = original
 
 
-# ── DJ-99 (helper) + DJ-67 + DJ-64: disconnect_handler unit tests ─────
+# (helper) +  + : disconnect_handler unit tests ─────
 
 
 class TestRetuneAudioProcessorHelper:

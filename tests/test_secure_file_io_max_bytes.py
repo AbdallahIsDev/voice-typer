@@ -60,7 +60,7 @@ _DEFAULT_MAX_READ_BYTES = 16 * 1024 * 1024  # mirrors secure_file_io._DEFAULT_MA
 
 
 # ---------------------------------------------------------------------------
-# FR-53: default cap rejects oversized files
+# default cap rejects oversized files
 # ---------------------------------------------------------------------------
 
 
@@ -94,7 +94,7 @@ class TestSecureReadTextMaxBytesDefault:
 
 
 # ---------------------------------------------------------------------------
-# FR-53: explicit max_bytes
+# explicit max_bytes
 # ---------------------------------------------------------------------------
 
 
@@ -151,7 +151,7 @@ class TestSecureReadTextExplicitMaxBytes:
 
 
 # ---------------------------------------------------------------------------
-# FR-53: byte counting (not character counting) for non-ASCII content
+# byte counting (not character counting) for non-ASCII content
 # ---------------------------------------------------------------------------
 
 
@@ -210,7 +210,7 @@ class TestSecureReadTextByteCounting:
 
 
 # ---------------------------------------------------------------------------
-# FR-53: chunked abort does not read the whole file
+# chunked abort does not read the whole file
 # ---------------------------------------------------------------------------
 
 
@@ -300,7 +300,7 @@ class TestSecureReadTextChunkedAbort:
 
 
 # ---------------------------------------------------------------------------
-# FR-53: PersistedJSON.load respects the cap (corrupt quarantine path)
+# PersistedJSON.load respects the cap (corrupt quarantine path)
 # ---------------------------------------------------------------------------
 
 

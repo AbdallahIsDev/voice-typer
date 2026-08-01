@@ -31,7 +31,7 @@ def _wait_for_busy_clear(app, timeout=2.0):
 
 class TestAppStateTransitions:
     def test_initial_state_is_idle(self, app):
-        # TEST-008 (fix): removed redundant `assert not not` — the
+        # (fix): removed redundant `assert not not` — the
         # following assert is a strict superset.
         assert app._busy_event.is_set()  # event is SET when not busy
         assert app.recorder.recording is False
@@ -86,7 +86,7 @@ class TestAppStateTransitions:
 
         _wait_for_busy_clear(app)
         assert app._busy_event.is_set()
-        # WR-2: the short-audio branch must NOT call into the transcription
+        # the short-audio branch must NOT call into the transcription
         # engine at all (duration < 0.5s short-circuits before the
         # transcription thread is started in RecordingController.stop).
         app.models.transcriber.transcribe_with_fallback.assert_not_called()
@@ -129,7 +129,7 @@ class TestAppStateTransitions:
         _wait_for_busy_clear(app)
 
         # Forced terminal punctuation was removed from the pipeline.
-        # NEW-UX-010: auto_punctuation now defaults to True, so the
+        # auto_punctuation now defaults to True, so the
         # auto-punctuation step adds a "?" at the end of the question.
         app.clipboard.copy.assert_called_once_with("Can we test this now?")
 
@@ -195,7 +195,7 @@ class TestAppStateTransitions:
         app.recorder.recording = True
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
 
-        # WR-2: mock the tray so the ERROR-state transition is observable.
+        # mock the tray so the ERROR-state transition is observable.
         # The dictation pipeline's except handler calls
         # ``tray.set_state(AppState.ERROR, "Transcription failed")``.
         app.tray = MagicMock()
@@ -206,7 +206,7 @@ class TestAppStateTransitions:
 
         # Should not crash; error state should be set
         assert app._busy_event.is_set()
-        # WR-2: verify the ERROR tray state was actually entered (the
+        # verify the ERROR tray state was actually entered (the
         # dictation pipeline's except handler must call
         # tray.set_state(AppState.ERROR, ...) — previously this test
         # never checked that the ERROR state was reached).
@@ -234,7 +234,7 @@ class TestAppStateTransitions:
         ``TestTranscribeWithFallback`` in test_transcription.py.
         """
         app.models.transcriber = MagicMock()
-        # WR-2: first call raises CUDA error, second call succeeds —
+        # first call raises CUDA error, second call succeeds —
         # exercises the fallback path (production catches the exception
         # and retries; here the mock just returns the second value).
         app.models.transcriber.transcribe_with_fallback = MagicMock(
@@ -264,7 +264,7 @@ class TestAppStateTransitions:
         app._busy_event.clear()  # set busy
         app.tray = MagicMock()
 
-        # RW-9 Phase 1: was ``app._force_recover_from_stuck_transcription()``
+        # Phase 1: was ``app._force_recover_from_stuck_transcription()``
         # (test-seam delegate removed); call the controller method directly.
         app.recording._force_recover_from_stuck_transcription()
 
@@ -337,7 +337,7 @@ class TestAppStateTransitions:
         app._busy_event.set()  # not busy
         app.tray = MagicMock()
 
-        # RW-9 Phase 1: was ``app._force_recover_from_stuck_transcription()``
+        # Phase 1: was ``app._force_recover_from_stuck_transcription()``
         # (test-seam delegate removed); call the controller method directly.
         app.recording._force_recover_from_stuck_transcription()
 
@@ -348,12 +348,12 @@ class TestAppStateTransitions:
         """Watchdog must not allow a second transcription while the old one runs."""
         app._busy_event.clear()  # busy
         app.tray = MagicMock()
-        # ARCH-REFAC-003: write to RecordingController directly (was a
+        # write to RecordingController directly (was a
         # @property delegate on VoiceTyperApp).
         app.recording._transcription_thread = MagicMock()
         app.recording._transcription_thread.is_alive.return_value = True
 
-        # RW-9 Phase 1: was ``app._force_recover_from_stuck_transcription()``
+        # Phase 1: was ``app._force_recover_from_stuck_transcription()``
         # (test-seam delegate removed); call the controller method directly.
         app.recording._force_recover_from_stuck_transcription()
 
@@ -411,7 +411,7 @@ class TestAppStateTransitions:
         app.recorder = MagicMock()
         app.recorder.recording = True
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
-        # XZ-R18 dictation-pipeline refactor: ``RecordingController.stop``
+        # dictation-pipeline refactor: ``RecordingController.stop``
         # now drives a real ``DictationPipeline`` that calls
         # ``transcriber.transcribe_with_fallback`` and pipes the result
         # through ``clean_transcribed_text`` / vocabulary / auto-punct.
@@ -468,7 +468,7 @@ class TestAppStartupIntegration:
         app = VoiceTyperApp()
 
         # Run _do_startup directly (normally called in a thread by tray.start)
-        # RW-9 Phase 1: was ``app._sync_prewarm_task = MagicMock()`` (test-seam
+        # Phase 1: was ``app._sync_prewarm_task = MagicMock()`` (test-seam
         # delegate removed); patch the standalone function directly.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
         app._do_startup()
@@ -541,18 +541,18 @@ class TestStartupResilience:
         def track_model_load(*args, **kwargs):
             call_order.append("model")
 
-        # RW-9 Phase 2: production callers now invoke ``app.hotkeys.register()``
+        # Phase 2: production callers now invoke ``app.hotkeys.register()``
         # directly (the ``app._register_hotkey`` facade is no longer in the
         # hot path). Monkeypatch the real call site.
         app.hotkeys.register = track_register_hotkey
-        # ARCH-007: model load now goes through _sync_asr_registry +
+        # model load now goes through _sync_asr_registry +
         # _asr_registry.load_with_fallback. Mock the registry so we
         # can track when model loading happens.
-        # ARCH-REFAC-003: assign to ModelManager._registry directly (was
+        # assign to ModelManager._registry directly (was
         # a @property delegate on VoiceTyperApp).
         app.models._registry = MagicMock()
         app.models.registry.load_with_fallback = track_model_load
-        # RW-9 Phase 1: was ``app._sync_autostart = MagicMock()`` etc.
+        # Phase 1: was ``app._sync_autostart = MagicMock()`` etc.
         # (test-seam delegates removed); patch the standalone functions
         # directly so production callers see the no-op.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
@@ -571,18 +571,18 @@ class TestStartupResilience:
 
     def test_startup_survives_model_load_exception(self, app, monkeypatch):
         """Even if model load raises, _do_startup should not crash."""
-        # RW-9 Phase 1: was ``app._sync_autostart = MagicMock()`` etc.
+        # Phase 1: was ``app._sync_autostart = MagicMock()`` etc.
         # (test-seam delegates removed); patch the standalone functions
         # directly so production callers see the no-op.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
         monkeypatch.setattr("voice_typer.server.startup_tasks.load_microphones", MagicMock())
-        # RW-9 Phase 2: production callers invoke ``app.hotkeys.register()``
+        # Phase 2: production callers invoke ``app.hotkeys.register()``
         # directly — monkeypatch the real call site (not the delegate).
         app.hotkeys.register = MagicMock()
         # _try_load_model runs inside the background loader thread; make it
         # raise to simulate a model-load failure.  The loader catches it.
-        # RW-9 Phase 2: was ``app._try_load_model = MagicMock(...)``
+        # Phase 2: was ``app._try_load_model = MagicMock(...)``
         # (delegate removed); patch the ModelManager method directly.
         app.models.try_load = MagicMock(side_effect=RuntimeError("OOM"))
         app.tray = MagicMock()
@@ -632,7 +632,7 @@ class TestStartupResilience:
 
         app._start_dictation()
 
-        # AB-9: recorder.start() is called first (to buffer audio), then
+        # recorder.start() is called first (to buffer audio), then
         # model loading is attempted. When model still fails, the recorder
         # is discarded to avoid leaking the mic stream.
         app.recorder.start.assert_called_once()
@@ -738,7 +738,7 @@ class TestAppInitManagerFailureWarning:
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.app"):
             app_instance = VoiceTyperApp()
-            # AB-30: trigger lazy init by accessing the property
+            # trigger lazy init by accessing the property
             _tm = app_instance._template_manager
 
         try:
@@ -789,7 +789,7 @@ class TestAppInitManagerFailureWarning:
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.app"):
             app_instance = VoiceTyperApp()
-            # AB-30: trigger lazy init by accessing the property
+            # trigger lazy init by accessing the property
             _vm = app_instance._vocabulary_manager
 
         try:

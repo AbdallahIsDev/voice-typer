@@ -199,7 +199,7 @@ def _collect_getattr_string_accesses(py_path: Path, base_attr: str) -> set:
     return used
 
 
-# CR-59: known ``getattr(self.app, "_X")`` bypasses in
+# known ``getattr(self.app, "_X")`` bypasses in
 # ``voice_typer/server/ipc_server.py`` that pre-date the
 # strengthening of this introspection test.  Each entry is a private
 # attribute read via ``getattr`` that is NOT yet declared on
@@ -377,13 +377,13 @@ class TestProtocolDrift:
         used_attrs: set[str] = set()
         for handler_py in _all_handler_files():
             used_attrs |= _collect_attr_accesses(handler_py, base_attr="app")
-            # CR-59: also collect getattr(self.app, "X", ...) patterns.
+            # also collect getattr(self.app, "X", ...) patterns.
             used_attrs |= _collect_getattr_string_accesses(handler_py, base_attr="app")
         # Also include self.app.X accesses in ipc_server.py itself —
         # IPCServer.__init__, .start(), ._hook_tray_set_state(), and
         # the TCP connection handler all reach into self.app.X.
         used_attrs |= _collect_attr_accesses(_IPC_SERVER_PY, base_attr="app")
-        # CR-59: also include getattr(self.app, "X", ...) accesses in
+        # also include getattr(self.app, "X", ...) accesses in
         # ipc_server.py (the IPCServer class also uses getattr for
         # defensive None-checks of optional attributes like
         # ``_thread_registry``).
@@ -391,7 +391,7 @@ class TestProtocolDrift:
 
         declared = _protocol_declared_names(AppProtocol)
 
-        # CR-59: subtract the small grandfathered allowlist of known
+        # subtract the small grandfathered allowlist of known
         # getattr bypasses that pre-date this strengthening.  See
         # ``_KNOWN_APP_GETATTR_BYPASSES`` for the rationale and the
         # per-entry TODOs for the follow-up cleanups.
@@ -492,7 +492,7 @@ class TestProtocolDrift:
             "_ipc_server",
             "_shutting_down",
             "_esc_cancel_paused",
-            # CR-59: promoted to AppProtocol because handlers read
+            # promoted to AppProtocol because handlers read
             # them via getattr(self.app, "_X", None).
             "_vocabulary_automation",
             "_waveform_bubble",
@@ -514,7 +514,7 @@ class TestProtocolDrift:
             assert required in declared, (
                 f"AppProtocol must declare `{required}()` — the service layer delegates this call to the app."
             )
-        # TASK-2: private attrs removed from AppProtocol because the
+        # private attrs removed from AppProtocol because the
         # service layer now wraps their access.  These MUST NOT be
         # re-added — handlers reaching into them is a smell that ADR
         # 0008 §3.1 explicitly prohibits.
@@ -541,7 +541,7 @@ class TestProtocolDrift:
             "toggle_dictation",
             "undo_last",
             "get_config",
-            # PVT-G5-024: set_config removed (dead method, IPC command removed in ERR-IPC-003).
+            # set_config removed (dead method, IPC command removed in ).
             "get_history",
             "clear_history",
             "get_microphones",
@@ -556,7 +556,7 @@ class TestProtocolDrift:
             "quit",
             "export_diagnostics",
             "apply_config_side_effects",
-            # TASK-2 (ADR 0008 §3.1): new service-layer wrappers for
+            # (ADR 0008 §3.1): new service-layer wrappers for
             # private-attr access previously done in handlers.
             "get_audio_status",
             "change_model",
@@ -676,7 +676,7 @@ class TestProtocolStructuralCompat:
         # the right default value (e.g. a real RLock for
         # _config_mutation_lock vs. a child mock that breaks `with`).
         annotated = set(getattr(AppProtocol, "__annotations__", {}).keys())
-        # CR-59: ``_vocabulary_automation`` and ``_waveform_bubble``
+        # ``_vocabulary_automation`` and ``_waveform_bubble``
         # were promoted to ``AppProtocol`` (typed ``Any``) so the
         # drift-detection test catches handler ``getattr(self.app,
         # "_X")`` reads.  Their production default is ``None`` and
@@ -742,7 +742,7 @@ class TestProtocolStructuralCompat:
         assert _structurally_satisfies(real_service, ServiceProtocol)
 
 
-# ── Tests: YJ-7 — ServiceProtocol parameter type narrowing ────────────
+# Tests:  — ServiceProtocol parameter type narrowing ────────────
 
 
 def _service_protocol_method_node(method_name: str):
@@ -763,7 +763,7 @@ def _service_protocol_method_node(method_name: str):
     return None
 
 
-class TestServiceProtocolTypeNarrowingYJ7:
+class TestServiceProtocolTypeNarrowing:
     """YJ-7 regression: ``ServiceProtocol`` must NOT use ``Any`` for
     ``mic_id`` / ``duration`` / ``filters``.
 

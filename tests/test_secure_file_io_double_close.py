@@ -68,7 +68,7 @@ _POSIX_ONLY = pytest.mark.skipif(
 
 
 # ---------------------------------------------------------------------------
-# FR-50: source-level sentinel check (strongest static assertion)
+# source-level sentinel check (strongest static assertion)
 # ---------------------------------------------------------------------------
 
 
@@ -123,7 +123,7 @@ class TestOwnedFdSentinelInSource:
 
 
 # ---------------------------------------------------------------------------
-# FR-50: _secure_atomic_write — failure path does NOT double-close
+# _secure_atomic_write — failure path does NOT double-close
 # ---------------------------------------------------------------------------
 
 
@@ -198,7 +198,7 @@ class TestSecureAtomicWriteNoDoubleClose:
         with pytest.raises(OSError, match="simulated write failure"):
             _secure_atomic_write(target, '{"x": 1}')
 
-        # FR-50: the original mkstemp fd must NOT appear in the
+        # the original mkstemp fd must NOT appear in the
         # os.close call list.  Pre-fix, the except path called
         # os.close(fd) AFTER f.close() had already closed it via
         # the C-level buffer — a double-close that under concurrent
@@ -308,7 +308,7 @@ class TestSecureAtomicWriteNoDoubleClose:
 
 
 # ---------------------------------------------------------------------------
-# FR-50: _secure_read_text — failure path does NOT double-close
+# _secure_read_text — failure path does NOT double-close
 # ---------------------------------------------------------------------------
 
 

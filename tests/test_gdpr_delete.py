@@ -130,9 +130,9 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     log_path.write_text("2024-01-01 12:00:00 INFO [SERVICE] transcript='secret text'\n")
     artifacts["voice-typer.log"] = log_path
 
-    # 8b. PI-4: voice-typer.log.{1,2} — rotated backups produced by
+    # 8b. : voice-typer.log.{1,2} — rotated backups produced by
     # RotatingFileHandler(backupCount=5) in voice_typer/server/log.py.
-    # Per XZ-PII-01 / XZ-PRIV-04 these backups may contain user-spoken
+    # Per  /  these backups may contain user-spoken
     # text via _crash_excepthook's CRITICAL log + per-segment DEBUG
     # logs, so they MUST be unlinked by GDPR delete.
     log1_path = tmp_path / "voice-typer.log.1"
@@ -142,7 +142,7 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     log2_path.write_text("2024-01-01 10:00:00 DEBUG transcript='rotated secret 2'\n")
     artifacts["voice-typer.log.2"] = log2_path
 
-    # 9. PI-5: real crash files — crash_diagnostics.<PID>.txt
+    # 9. : real crash files — crash_diagnostics.<PID>.txt
     # (Windows VEH handler, crash_handler.py:722) and
     # python_crash.<PID>.txt (_crash_excepthook marker,
     # crash_handler.py:1190).  The previous test created a fictional
@@ -159,7 +159,7 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     py_crash_path.write_text(f"Python excepthook marker for PID {_pid}\ntraceback with secret='pii'\n")
     artifacts["python_crash.txt"] = py_crash_path
 
-    # 10. PI-6: prewarm.log + rotated backup (prewarm process
+    # 10. : prewarm.log + rotated backup (prewarm process
     # rotating log, prewarm/logging_setup.py:84 — same
     # RotatingFileHandler config as the main log).
     prewarm_path = tmp_path / "prewarm.log"
@@ -169,11 +169,11 @@ def _seed_personal_data(tmp_path: Path) -> dict[str, Path]:
     prewarm1_path.write_text("2024-01-01 11:00:00 DEBUG [PREWARM] rotated secret\n")
     artifacts["prewarm.log.1"] = prewarm1_path
 
-    # 11. PI-6: Rust host logs/ subdirectory (written by
+    # 11. : Rust host logs/ subdirectory (written by
     # src-tauri/src/platform/logging.rs:30-34).  The GDPR delete
     # walks _GDPR_PERSONAL_GLOBS against the config_dir root only,
     # so without an explicit ``shutil.rmtree(config_dir / "logs")``
-    # step these files survive.  Per XZ-LOG-02 the Rust logger has
+    # step these files survive.  Per  the Rust logger has
     # no PII redaction, so dictated-text fragments may be present.
     rust_logs_dir = tmp_path / "logs"
     rust_logs_dir.mkdir(parents=True, exist_ok=True)
@@ -516,11 +516,11 @@ def test_delete_all_personal_data_succeeds_when_nothing_exists(tmp_path) -> None
         mp.undo()
 
 
-# ── XZ-SEC-03 regression guards ────────────────────────────────────
+# regression guards ────────────────────────────────────
 # The original GDPR inventory missed several personal-data artifacts.
 # Each test seeds one artifact, runs delete_all_personal_data, and
 # asserts the artifact is gone. Covers every filename / glob added by
-# XZ-SEC-03 to ``_GDPR_PERSONAL_FILES`` and ``_GDPR_PERSONAL_GLOBS``.
+# to ``_GDPR_PERSONAL_FILES`` and ``_GDPR_PERSONAL_GLOBS``.
 
 
 def _seed_xz_sec_03_artifacts(tmp_path: Path) -> dict[str, Path]:

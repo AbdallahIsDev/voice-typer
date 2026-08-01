@@ -78,7 +78,7 @@ POSTRM = _REPO_ROOT / "scripts" / "linux" / "postrm"
 POSTRM_RPM = _REPO_ROOT / "scripts" / "linux" / "postrm.rpm"
 POLKIT = _REPO_ROOT / "scripts" / "linux" / "voice-typer.polkit"
 
-# CR-14: the bundled linux-scripts resource directory + its 5 files.
+# the bundled linux-scripts resource directory + its 5 files.
 LINUX_SCRIPTS_DIR = _REPO_ROOT / "src-tauri" / "resources" / "linux-scripts"
 LINUX_SCRIPTS_FILES = (
     "install_permissions.py",
@@ -88,17 +88,17 @@ LINUX_SCRIPTS_FILES = (
     "voice-typer.polkit",
 )
 
-# CR-14 / CR-15: Tauri config files that must list the linux-scripts
+# Tauri config files that must list the linux-scripts
 # resources in bundle.resources.
 TAURI_CONF = _REPO_ROOT / "src-tauri" / "tauri.conf.json"
 TAURI_LINUX_X86_64 = _REPO_ROOT / "src-tauri" / "tauri.linux-x86_64.conf.json"
 TAURI_LINUX_AARCH64 = _REPO_ROOT / "src-tauri" / "tauri.linux-aarch64.conf.json"
 
-# CR-44: autostart launcher source file.
+# autostart launcher source file.
 AUTOSTART_LAUNCHER = _REPO_ROOT / "voice_typer" / "server" / "autostart_launcher.py"
 
 # The 5 canonical candidate paths that the postinst / prerm probe loops
-# MUST check (per CR-39 / CR-40 / CR-41 task spec).
+# MUST check (per  /  /  task spec).
 INSTALL_CANDIDATES = (
     "/usr/share/voice-typer/scripts/install_permissions.py",
     "/usr/lib/voice-typer/scripts/install_permissions.py",
@@ -115,7 +115,7 @@ TAURI_V2_PATH_NESTED = "/usr/lib/voice-typer/resources/scripts/linux"
 TAURI_V2_LINUX_SCRIPTS = "/usr/lib/voice-typer/resources/linux-scripts"
 LEGACY_PATH = "/usr/share/voice-typer/scripts"
 
-# The polkit-stable path (CR-42): the polkit policy hard-codes this path,
+# The polkit-stable path (): the polkit policy hard-codes this path,
 # and the postinst installs a symlink at this path so the polkit action
 # resolves to a working script across Tauri v2 / AppImage installs.
 POLKIT_STABLE_PATH = "/usr/share/voice-typer/scripts/install_permissions.py"
@@ -157,7 +157,7 @@ def _has_probe_loop(text: str, script_name: str) -> bool:
     return has_for and has_multiple_paths and has_legacy
 
 
-# ─── CR-14: src-tauri/resources/linux-scripts/ exists + has 5 files ─────
+# src-tauri/resources/linux-scripts/ exists + has 5 files ─────
 
 
 class TestLinuxScriptsResourceDir:
@@ -210,7 +210,7 @@ class TestLinuxScriptsResourceDir:
         )
 
 
-# ─── CR-14 / CR-15: Tauri config files list the linux-scripts resources ──
+# Tauri config files list the linux-scripts resources ──
 
 
 class TestTauriConfigResources:
@@ -282,7 +282,7 @@ class TestTauriConfigResources:
         )
 
 
-# ─── CR-39 / CR-40 / CR-41: probe loops in postinst / prerm ──────────────
+# probe loops in postinst / prerm ──────────────
 
 
 class TestPostinstProbeLoop:
@@ -441,7 +441,7 @@ def test_postinst_debian_still_has_probe_loop() -> None:
     assert _has_probe_loop(text, "postinst"), "Debian postinst must retain the probe loop (NF-R9-2 regression guard)."
 
 
-# ─── CR-42: polkit policy + postinst symlink ─────────────────────────────
+# polkit policy + postinst symlink ─────────────────────────────
 
 
 class TestPolkitStableSymlink:
@@ -517,7 +517,7 @@ class TestPolkitStableSymlink:
         )
 
 
-# ─── CR-43: prerm removes autostart .desktop + postrm purge semantics ────
+# prerm removes autostart .desktop + postrm purge semantics ────
 
 
 class TestPrermRemovesAutostart:
@@ -551,9 +551,11 @@ class TestPostrmPurgeSemantics:
     removes user data on full uninstall ($1 = 0), not on upgrade
     ($1 = 1).
 
-    Tauri v2 limitation: as of Tauri 2.x, the bundle config supports
-    ``postInstall`` and ``preRemove`` (Tauri v2 keys) but NOT
-    ``postRemoveScript``. The postrm scripts are therefore NOT
+    Tauri v2 note: the bundle config uses the v2 long-form keys
+    ``postInstallScript`` / ``preRemoveScript`` (WITH the 'Script'
+    suffix; the v1 short forms ``postInstall`` / ``preRemove`` were
+    Tauri v1 keys). The current ``tauri.conf.json`` does NOT wire a
+    ``postRemoveScript``, so the postrm scripts are therefore NOT
     automatically wired into the .deb / .rpm by Tauri's bundler —
     they exist as standalone files for future CI post-processing
     (e.g. via ``dpkg-deb --extract`` + re-pack, or ``rpmrebuild``).
@@ -642,7 +644,7 @@ class TestPostrmPurgeSemantics:
         # and contains `rm -rf` of user data.
 
 
-# ─── CR-44: autostart_launcher.py is Tauri-aware ────────────────────────
+# autostart_launcher.py is Tauri-aware ────────────────────────
 
 
 class TestAutostartLauncherTauriMode:

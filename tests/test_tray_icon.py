@@ -284,7 +284,7 @@ class TestMakeIcon:
 
 
 # =============================================================================
-# === Merged from test_new_perf_consolidated.py (NEW-PERF-005: DPI cache) ===
+# === Merged from test_new_perf_consolidated.py (: DPI cache) ===
 # =============================================================================
 """Regression tests for NEW-PERF-005: DPI-aware icon size caching.
 

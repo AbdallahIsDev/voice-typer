@@ -39,7 +39,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ── APP-3 / CR-015: config.save() must happen inside _config_mutation_lock ─
+# config.save() must happen inside _config_mutation_lock ─
 
 
 class TestSaveInsideLock:
@@ -89,7 +89,7 @@ class TestSaveInsideLock:
 # ── B-4: macOS must use `open -W`, macOS/Linux must not use bare Popen ────
 
 
-class TestB4MacosLinuxCommandShape:
+class TestMacosLinuxCommandShape:
     """Behavioral replacement for the source-string command-shape tests.
 
     Verifies:
@@ -152,7 +152,7 @@ class TestB4MacosLinuxCommandShape:
 # ── B-4: all platforms reload config after editor closes ─────────────────
 
 
-class TestB4ReloadAfterEditor:
+class TestReloadAfterEditor:
     """Behavioral replacement for the source-string reload-count test.
 
     Verifies every platform branch reloads the config from disk after
@@ -207,7 +207,7 @@ class TestB4ReloadAfterEditor:
                 def __init__(self, a):
                     self._a = a
 
-                # XZ-EH-018: ``wait`` now accepts an optional ``timeout`` kwarg
+                # ``wait`` now accepts an optional ``timeout`` kwarg
                 # because the notepad fallback calls ``proc.wait(timeout=1800)``.
                 def wait(self, timeout=None):
                     return _popen_wait_with_disk_write(self._a)
@@ -330,7 +330,7 @@ def _install_fake_editor(monkeypatch, editor: _FakeEditor, platform: str) -> Non
             def __init__(self, a):
                 self._a = a
 
-            # XZ-EH-018: ``wait`` now accepts an optional ``timeout`` kwarg
+            # ``wait`` now accepts an optional ``timeout`` kwarg
             # because the notepad fallback calls ``proc.wait(timeout=1800)``.
             def wait(self, timeout=None):
                 return editor.popen_wait(self._a)
@@ -393,7 +393,7 @@ def _assert_concurrent_set_config_blocks(app, editor, timeout=5.0):
     assert not setter_thread.is_alive(), "setter thread should have exited"
 
 
-class TestB4MacosRuntime:
+class TestMacosRuntime:
     """Runtime test for the macOS ``open -W`` branch."""
 
     def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
@@ -431,7 +431,7 @@ class TestB4MacosRuntime:
         )
 
 
-class TestB4LinuxRuntime:
+class TestLinuxRuntime:
     """Runtime test for the Linux ``xdg-open`` branch."""
 
     def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
@@ -465,7 +465,7 @@ class TestB4LinuxRuntime:
         assert editor.call_args[0] == "xdg-open", f"Expected 'xdg-open' command, got {editor.call_args[0]!r}"
 
 
-class TestB4WindowsRuntime:
+class TestWindowsRuntime:
     """Runtime test for the Windows notepad branch (parity check).
 
     The Windows branch already held the lock pre-B-4. This test pins
@@ -487,7 +487,7 @@ class TestB4WindowsRuntime:
             def __init__(self, args):
                 self._args = args
 
-            # XZ-EH-018: ``wait`` now accepts an optional ``timeout`` kwarg
+            # ``wait`` now accepts an optional ``timeout`` kwarg
             # because the notepad fallback calls ``proc.wait(timeout=1800)``.
             def wait(self, timeout=None):
                 return editor.popen_wait(self._args)
@@ -513,7 +513,7 @@ class TestB4WindowsRuntime:
         assert errors == [], f"_open_config_file raised: {errors}"
 
 
-class TestB4ReloadPicksUpDiskChanges:
+class TestReloadPicksUpDiskChanges:
     """After the editor closes, ``_open_config_file`` must reload config.
 
     This is what makes the user's saved edits visible to the running
@@ -561,10 +561,10 @@ class TestB4ReloadPicksUpDiskChanges:
         )
 
 
-# ── XZ-EH-018: bounded subprocess timeouts on all editor launch paths ────
+# bounded subprocess timeouts on all editor launch paths ────
 
 
-class TestXZEH018EditorTimeouts:
+class TestEditorTimeouts:
     """XZ-EH-018: every ``subprocess.Popen().wait()`` / ``subprocess.run()``
     in the editor-launch path must be bounded by a 30-minute timeout.
 
@@ -803,11 +803,11 @@ class TestXZEH018EditorTimeouts:
         monkeypatch.setattr(config_editor, "_current_platform", lambda: "macos")
 
         launcher = config_editor.ConfigEditorLauncher(_FakeApp())
-        # Must NOT raise — DR-19 contract: non-timeout errors swallowed.
+        # Must NOT raise —  contract: non-timeout errors swallowed.
         launcher.launch("/tmp/config.json")
 
         # Tray must NOT be notified for a non-timeout launch error
-        # (DR-19 historical behavior on macOS / Linux).
+        # ( historical behavior on macOS / Linux).
         assert notify_calls == [], (
             f"DR-19: non-timeout launch errors must NOT trigger a tray notification. Got: {notify_calls}"
         )

@@ -85,7 +85,7 @@ def _patch_binary_path(monkeypatch: pytest.MonkeyPatch, fake_bin: Path | None) -
     )
 
 
-# ─── XZ-R6-NH-01: _spawn_process re-verifies on every call ──────────────
+# _spawn_process re-verifies on every call ──────────────
 
 
 class TestSpawnProcessReVerifiesBinary:
@@ -167,7 +167,7 @@ class TestSpawnProcessReVerifiesBinary:
         assert not popen_calls
 
 
-# ─── XZ-R6-NH-01: start() short-circuits on _spawn_process failure ─────
+# start() short-circuits on _spawn_process failure ─────
 
 
 class TestStartShortCircuitsOnSpawnFailure:
@@ -230,7 +230,7 @@ class TestStartShortCircuitsOnSpawnFailure:
         )
 
 
-# ─── XZ-R6-NH-02: __init__ accepts optional binary_path ────────────────
+# __init__ accepts optional binary_path ────────────────
 
 
 class TestInitAcceptsBinaryPathParameter:
@@ -277,7 +277,7 @@ class TestInitAcceptsBinaryPathParameter:
         assert b._binary_path == fake_bin
 
 
-# ─── XZ-R6-NH-01: re-verification is called on every spawn ─────────────
+# re-verification is called on every spawn ─────────────
 
 
 class TestReVerificationOnEverySpawn:

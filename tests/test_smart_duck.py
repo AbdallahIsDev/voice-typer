@@ -22,8 +22,10 @@ Covers:
 
 from __future__ import annotations
 
+import sys
 import threading
 
+import pytest
 from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 from voice_typer.server.volume_backends import (
     LinuxVolumeBackend,
@@ -420,6 +422,10 @@ class TestMacIsSpeakerActive:
         b._osascript_run = lambda script, timeout=2.0: "Spotify, Safari, Finder"
         assert b.is_speaker_active() is True
 
+    @pytest.mark.skipif(
+        sys.platform != "darwin",
+        reason="MacVolumeBackend uses osascript — macOS only",
+    )
     def test_osascript_with_only_text_editor_returns_false(self, monkeypatch):
         b = MacVolumeBackend()
         b._use_coreaudio = False

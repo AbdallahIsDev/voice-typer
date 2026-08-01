@@ -45,7 +45,7 @@ from pathlib import Path
 
 import pytest
 
-# RW-9 test-infrastructure shim: ``voice_typer.server.crash_handler``
+# test-infrastructure shim: ``voice_typer.server.crash_handler``
 # decorates its VEH callback with ``@ctypes.WINFUNCTYPE(...)`` at
 # module-load time. ``WINFUNCTYPE`` only exists on Windows — on
 # Linux/macOS the attribute is missing, so importing ``crash_handler``
@@ -59,7 +59,7 @@ if not hasattr(ctypes, "WINFUNCTYPE"):
 
 SERVER_DIR = Path(__file__).resolve().parent.parent / "voice_typer" / "server"
 APP_PY = SERVER_DIR / "app.py"
-# ``service.py`` was refactored into a ``service/`` package (ARCH-5). The
+# ``service.py`` was refactored into a ``service/`` package (). The
 # app-level locks now live in ``service/_base.py`` (the App class) and may
 # be acquired from any of the service submodules. Collect all of them.
 SERVICE_DIR = SERVER_DIR / "service"
@@ -68,6 +68,13 @@ SERVICE_PY_FILES = sorted(SERVICE_DIR.glob("*.py")) if SERVICE_DIR.is_dir() else
 # point at the App-class host (the primary lock holder).
 SERVICE_PY = SERVICE_DIR / "_base.py"
 DICTATION_PIPELINE_PY = SERVER_DIR / "dictation_pipeline.py"
+# ``_pending_timers_lock`` was migrated to ``TimerCoordinator`` (
+# Phase 7). The real ``threading.Lock()`` construction lives here —
+# ``app.py`` only keeps a shadow assignment
+# (``self._pending_timers_lock = self.timers._pending_timers_lock``) that
+# points at the coordinator's lock. The inventory test must therefore read
+# ``timer_coordinator.py`` for this lock, not ``app.py``.
+TIMER_COORDINATOR_PY = SERVER_DIR / "timer_coordinator.py"
 
 # The three app-level locks enumerated in the contract. ``_lock`` is the
 # bare name; ``_config_mutation_lock`` and ``_pending_timers_lock`` are
@@ -103,6 +110,41 @@ def _read_source(path: Path) -> str:
     """Read a source file. Fail loudly if missing (test infra broken)."""
     assert path.exists(), f"missing source file: {path}"
     return path.read_text(encoding="utf-8")
+
+
+def _strip_comments_and_docstrings(source: str) -> str:
+    """Strip ``#`` comments and triple-quoted strings before regex matching.
+
+    SI-5: the previous ``_LOCK_DECL_RE`` matched a COMMENT in
+    ``app.py:465`` (``# pins app.py source for `` ``self._pending_timers_lock
+    = threading.Lock()`` ``)``) rather than the real declaration. The real
+    ``threading.Lock()`` construction for ``_pending_timers_lock`` lives in
+    ``timer_coordinator.py`` (RW-9 Phase 7); ``app.py:469`` is only a
+    shadow assignment (``self._pending_timers_lock =
+    self.timers._pending_timers_lock``). Without comment stripping the test
+    passed on a comment — a false green that gave no real coverage.
+
+    This helper removes:
+
+    1. Triple-quoted strings (``\"\"\"...\"\"\"`` / ``'''...'''``) — covers
+       module/function docstrings that quote lock declarations as code
+       examples (e.g. ``timer_coordinator.py`` module docstring lists
+       ``self._pending_timers_lock = threading.Lock()`` as a migrated
+       attribute).
+    2. ``#`` comments per line (``line.split('#', 1)[0]``) — covers inline
+       comments like the false-green in ``app.py:465``.
+
+    Line numbers are preserved (each stripped region is replaced with an
+    empty triple-quoted string or the comment's leading code), so regex
+    match offsets still map back to the original source for diagnostics.
+    """
+    # Remove triple-quoted strings (docstrings + multi-line strings).
+    # Replace with an empty triple-quoted pair to preserve line count.
+    source = re.sub(r'"""[\s\S]*?"""', '""""""', source)
+    source = re.sub(r"'''[\s\S]*?'''", "''''''", source)
+    # Remove ``#`` comments per line (keep code before the ``#``).
+    lines = [line.split("#", 1)[0] for line in source.split("\n")]
+    return "\n".join(lines)
 
 
 def _find_with_blocks(source: str) -> list[tuple[int, str, int, int]]:
@@ -159,31 +201,65 @@ class TestLockInventory:
     expected locations. Pins the inventory so a rename is caught."""
 
     def test_app_locks_declared(self):
-        source = _read_source(APP_PY)
-        declarations: dict[str, str] = {}
-        for m in _LOCK_DECL_RE.finditer(source):
-            declarations[m.group(1)] = m.group(2)
-        assert "_lock" in declarations, (
+        # previously this test read ``APP_PY`` for ALL three locks and
+        # used a raw ``_LOCK_DECL_RE.finditer(source)`` over the unstripped
+        # text. That matched a COMMENT at ``app.py:465`` (``# pins app.py
+        # source for \`self._pending_timers_lock = threading.Lock()\`)``)
+        # instead of a real declaration — the actual line at ``app.py:469``
+        # is a SHADOW assignment (``self._pending_timers_lock =
+        # self.timers._pending_timers_lock``), not a ``threading.Lock()``
+        # construction. The test gave false confidence: removing the
+        # comment would have made it fail even though the architecture is
+        # correct.
+        #
+        # Fix: (a) strip ``#`` comments AND triple-quoted docstrings before
+        # matching so code-in-comments / docstring examples cannot satisfy
+        # the regex; (b) read ``timer_coordinator.py`` for
+        # ``_pending_timers_lock`` because that is where the real
+        # ``threading.Lock()`` construction lives ( Phase 7 migrated
+        # the timer state into ``TimerCoordinator``; ``app.py`` only keeps
+        # a shadow attribute pointing at the coordinator's lock).
+        app_source = _strip_comments_and_docstrings(_read_source(APP_PY))
+        app_declarations: dict[str, str] = {}
+        for m in _LOCK_DECL_RE.finditer(app_source):
+            app_declarations[m.group(1)] = m.group(2)
+        assert "_lock" in app_declarations, (
             "app._lock (threading.Lock) must be declared in app.py — see docs/architecture/lock-order-contract.md §1"
         )
-        assert declarations["_lock"] == "Lock", f"app._lock must be threading.Lock (got {declarations['_lock']})"
-        assert "_config_mutation_lock" in declarations, (
+        assert app_declarations["_lock"] == "Lock", (
+            f"app._lock must be threading.Lock (got {app_declarations['_lock']})"
+        )
+        assert "_config_mutation_lock" in app_declarations, (
             "app._config_mutation_lock (threading.RLock) must be declared — "
             "see docs/architecture/lock-order-contract.md §1"
         )
-        assert declarations["_config_mutation_lock"] == "RLock", (
+        assert app_declarations["_config_mutation_lock"] == "RLock", (
             "app._config_mutation_lock must be threading.RLock (defensive reentrancy — see contract §3 rationale)"
         )
-        assert "_pending_timers_lock" in declarations, (
-            "app._pending_timers_lock (threading.Lock) must be declared — "
-            "see docs/architecture/lock-order-contract.md §1"
+
+        # ``_pending_timers_lock`` is owned by ``TimerCoordinator`` (
+        # Phase 7). Read its real source file. The shadow assignment in
+        # ``app.py:469`` (``self._pending_timers_lock =
+        # self.timers._pending_timers_lock``) does NOT match
+        # ``_LOCK_DECL_RE`` (the RHS is not ``threading.Lock()``), which is
+        # correct — the lock is constructed in the coordinator, not the app.
+        tc_source = _strip_comments_and_docstrings(_read_source(TIMER_COORDINATOR_PY))
+        tc_declarations: dict[str, str] = {}
+        for m in _LOCK_DECL_RE.finditer(tc_source):
+            tc_declarations[m.group(1)] = m.group(2)
+        assert "_pending_timers_lock" in tc_declarations, (
+            "app._pending_timers_lock (threading.Lock) must be declared in "
+            "timer_coordinator.py (RW-9 Phase 7 migrated the timer state "
+            "to TimerCoordinator; app.py only keeps a shadow attribute "
+            "pointing at the coordinator's lock) — see "
+            "docs/architecture/lock-order-contract.md §1"
         )
-        assert declarations["_pending_timers_lock"] == "Lock", (
-            f"app._pending_timers_lock must be threading.Lock (got {declarations['_pending_timers_lock']})"
+        assert tc_declarations["_pending_timers_lock"] == "Lock", (
+            f"app._pending_timers_lock must be threading.Lock (got {tc_declarations['_pending_timers_lock']})"
         )
 
     def test_app_events_declared(self):
-        source = _read_source(APP_PY)
+        source = _strip_comments_and_docstrings(_read_source(APP_PY))
         declared_events: set[str] = set()
         for m in _EVENT_DECL_RE.finditer(source):
             declared_events.add(m.group(1))
@@ -319,7 +395,7 @@ def app_shell():
     # Match the production declarations exactly.
     shell._lock = threading.Lock()  # app.py:324
     shell._config_mutation_lock = threading.RLock()  # app.py:336
-    # RW-9 Phase 7: install a real TimerCoordinator so the delegate
+    # Phase 7: install a real TimerCoordinator so the delegate
     # methods (_schedule_timer / _cancel_pending_timers) reach real code.
     shell.timers = TimerCoordinator(shell)
     # Shadow declarations (mirror production __init__): point the shell's

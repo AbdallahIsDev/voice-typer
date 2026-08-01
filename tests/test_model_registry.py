@@ -42,7 +42,7 @@ _EXPECTED_WHISPER_VARIANTS = {
     "large-v2",
     "large-v3",
     "large",
-    # NEW-MODEL-001: turbo + distilled
+    # turbo + distilled
     "large-v3-turbo",
     "turbo",
     "distil-large-v3",
@@ -251,7 +251,7 @@ class TestDistilModelsMarkedAsDistilled:
             assert meta.is_distilled is False, f"{name}: should NOT be marked is_distilled"
 
 
-# ── G4-M-40: network_behavior field ─────────────────────────────────
+# network_behavior field ─────────────────────────────────
 
 
 class TestModelMetadataHasNetworkBehaviorField:
@@ -392,7 +392,7 @@ class TestModelMetadataHasNetworkBehaviorField:
         assert meta.network_behavior == "local-only", (
             f"qwen: expected 'local-only' (user supplies the model path manually), got {meta.network_behavior!r}"
         )
-        # G4-M-40: description must NOT claim auto-download.
+        # description must NOT claim auto-download.
         assert "Auto-downloaded" not in meta.description, (
             "qwen description must not say 'Auto-downloaded' — that "
             f"was the inaccurate pre-G4-M-40 wording. Got: {meta.description!r}"

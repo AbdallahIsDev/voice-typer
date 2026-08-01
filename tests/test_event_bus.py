@@ -342,14 +342,14 @@ class TestSubscriberExceptionIsolation:
             event_bus.publish({"type": "test"})
         assert first_called == [True]
         assert second_received == [{"type": "test"}]
-        # GT-3: the first exception from this subscriber must be logged
+        # the first exception from this subscriber must be logged
         # (no longer silently dropped at DEBUG). The exact level is
         # verified by ``TestSubscriberExceptionLogLevel`` below; here
         # we only assert the message is captured.
         assert any("subscriber raised" in r.getMessage() for r in caplog.records)
 
 
-# ── GT-3: subscriber exception log level ───────────────────────────────
+# subscriber exception log level ───────────────────────────────
 
 
 class TestSubscriberExceptionLogLevel:
@@ -484,7 +484,8 @@ class TestConfigChangeListenerExceptionLogLevel:
             def on_config_changed(self, _updates: dict) -> None:
                 raise RuntimeError("config boom")
 
-        event_bus.subscribe_config_changes(_BadListener())
+        bad = _BadListener()
+        event_bus.subscribe_config_changes(bad)
         with caplog.at_level("DEBUG", logger="voice_typer.server.event_bus"):
             result = event_bus._publish_config_change({"foo": 1})
         # No successful delivery (the only listener raised).
@@ -850,7 +851,7 @@ class TestRTThreadGuard:
             event_bus.unsubscribe(cb)
 
 
-# ── GT-C1-7: shutdown function consolidation ───────────────────────────
+# shutdown function consolidation ───────────────────────────
 
 
 class TestShutdownConsolidation:
@@ -892,7 +893,7 @@ class TestShutdownConsolidation:
         event_bus.shutdown()
 
 
-# ── GT-53: canonical catalogue completeness ────────────────────────────
+# canonical catalogue completeness ────────────────────────────
 
 
 class TestCanonicalCatalogue:
@@ -921,7 +922,7 @@ class TestCanonicalCatalogue:
         assert "Total: 24 events" not in event_bus.__doc__
 
 
-# ── ZR-20: async dispatch option ───────────────────────────────────────
+# async dispatch option ───────────────────────────────────────
 
 
 class TestAsyncDispatch:

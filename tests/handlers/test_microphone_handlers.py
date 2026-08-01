@@ -45,6 +45,6 @@ class TestGetMicrophones:
         fake_service.get_microphones.side_effect = RuntimeError("portaudio init failed")
         resp = ipc_server._handle_get_microphones({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"

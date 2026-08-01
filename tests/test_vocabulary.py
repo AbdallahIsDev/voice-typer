@@ -165,7 +165,7 @@ class TestVocabularyImportExport:
                 "technical_terms": {"dockr": "docker"},
             }
         )
-        # G4-M-37: import_json now returns a tuple of
+        # import_json now returns a tuple of
         # (categories_imported, dropped_entries).
         count, dropped = vm.import_json(json_str, merge=True)
         assert count >= 1
@@ -182,7 +182,7 @@ class TestVocabularyImportExport:
         assert dropped == 0
 
 
-# ─── G4-M-37 / G4-M-38 regression tests ──────────────────────────────────────
+# regression tests ──────────────────────────────────────
 
 
 class TestVocabularyImportValidation:
@@ -312,7 +312,7 @@ class TestVocabularyImportValidation:
         assert dropped == 3
 
 
-# ─── PI-8 regression tests ────────────────────────────────────────────────
+# regression tests ────────────────────────────────────────────────
 
 
 class TestVocabularyBackupAndQuarantine:
@@ -500,3 +500,105 @@ class TestTemplatesEnforcesCaps:
         # Only the first 3 fit within the cap.
         assert count == 3
         assert len(tm._templates) == 3
+
+
+# regression tests ────────────────────────────────────────────
+
+
+class TestVocabularyGetCategoryLockAndSnapshot:
+    """FR-38: ``VocabularyManager.get_category`` must acquire
+    ``self._lock`` and return a SHALLOW COPY of the underlying
+    container. Pre-fix, the method bypassed the lock and returned
+    the live internal ``self._data[category]`` dict/list, so a
+    concurrent ``add_entry`` / ``remove_entry`` / ``import_json``
+    mutation could mutate the dict mid-iteration, raising
+    ``RuntimeError: dictionary changed size during iteration``."""
+
+    def test_get_category_dict_returns_copy(self, vm):
+        """Mutating the returned dict must NOT affect the manager's
+        internal state."""
+        miss = vm.get_category("misspellings")
+        assert isinstance(miss, dict)
+        # Snapshot the original state.
+        original_len = len(miss)
+        # Mutate the returned dict.
+        miss["__injected_key__"] = "__injected_value__"
+        # The manager's internal state must be unchanged.
+        miss_again = vm.get_category("misspellings")
+        assert "__injected_key__" not in miss_again, (
+            "FR-38 regression: get_category returned the LIVE internal dict, "
+            "not a copy — mutating the returned object corrupted the manager's state."
+        )
+        assert len(miss_again) == original_len
+
+    def test_get_category_list_returns_copy(self, vm):
+        """Mutating the returned list must NOT affect the manager's
+        internal state."""
+        phrases = vm.get_category("phrase_corrections")
+        assert isinstance(phrases, list)
+        original_len = len(phrases)
+        # Mutate the returned list.
+        phrases.append(["__injected__", "__injected__"])
+        # The manager's internal state must be unchanged.
+        phrases_again = vm.get_category("phrase_corrections")
+        assert len(phrases_again) == original_len, (
+            "FR-38 regression: get_category returned the LIVE internal list, "
+            "not a copy — mutating the returned object corrupted the manager's state."
+        )
+        assert not any(p == ["__injected__", "__injected__"] for p in phrases_again)
+
+    def test_get_category_concurrent_with_mutation(self, vm):
+        """Iterating ``get_category``'s return value while another
+        thread mutates the same category must NOT raise
+        ``RuntimeError: dictionary changed size during iteration``.
+
+        Pre-fix, this test would intermittently raise RuntimeError
+        because the returned dict was the LIVE internal container.
+        """
+        import threading
+        import time
+
+        # Seed with a baseline set of entries.
+        for i in range(50):
+            vm.add_entry("technical_terms", f"key-{i}", f"val-{i}")
+
+        errors: list[Exception] = []
+        stop = threading.Event()
+
+        def reader():
+            while not stop.is_set():
+                try:
+                    # get_category must return a SNAPSHOT under the
+                    # lock — iterating it can't see a concurrent
+                    # mutation.
+                    tech = vm.get_category("technical_terms")
+                    # Iterate the snapshot — pre-fix this could see
+                    # a half-applied mutation and raise RuntimeError.
+                    for k in tech:
+                        _ = tech[k]
+                except Exception as exc:
+                    errors.append(exc)
+                    return
+                time.sleep(0.0005)
+
+        t = threading.Thread(target=reader, daemon=True)
+        t.start()
+        try:
+            # Aggressively mutate the same category while the reader
+            # iterates snapshots.
+            for i in range(100):
+                vm.add_entry("technical_terms", f"concurrent-{i}", f"cval-{i}")
+                if i % 2 == 0:
+                    vm.remove_entry("technical_terms", f"concurrent-{i}")
+        finally:
+            stop.set()
+            t.join(timeout=2.0)
+
+        assert errors == [], f"get_category raised during concurrent mutation (FR-38 regression): {errors}"
+
+    def test_get_category_unknown_returns_empty_list(self, vm):
+        """An unknown category must return an empty list (not crash
+        or return None)."""
+        result = vm.get_category("nonexistent_category")
+        assert isinstance(result, list)
+        assert result == []

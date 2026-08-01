@@ -77,7 +77,7 @@ from voice_typer.server._secrets import (
 )
 
 # ---------------------------------------------------------------------------
-# FR-25: _is_private_ip — direct tests
+# _is_private_ip — direct tests
 # ---------------------------------------------------------------------------
 
 
@@ -186,7 +186,7 @@ class TestIsPrivateIp:
 
 
 # ---------------------------------------------------------------------------
-# FR-25: _is_ip_literal — direct tests
+# _is_ip_literal — direct tests
 # ---------------------------------------------------------------------------
 
 
@@ -226,7 +226,7 @@ class TestIsIpLiteral:
 
 
 # ---------------------------------------------------------------------------
-# FR-25: assert_url_allowed — IP-literal blocklist (allowlisted private IP rejected)
+# assert_url_allowed — IP-literal blocklist (allowlisted private IP rejected)
 # ---------------------------------------------------------------------------
 
 
@@ -287,7 +287,7 @@ class TestAssertUrlAllowedIpLiteralBlocklist:
 
 
 # ---------------------------------------------------------------------------
-# FR-25: assert_url_allowed — DNS-rebinding defense (hostname resolves to private IP)
+# assert_url_allowed — DNS-rebinding defense (hostname resolves to private IP)
 # ---------------------------------------------------------------------------
 
 
@@ -394,7 +394,7 @@ class TestAssertUrlAllowedDnsRebindingDefense:
 
 
 # ---------------------------------------------------------------------------
-# FR-25: assert_url_allowed — loopback exemption edge cases
+# assert_url_allowed — loopback exemption edge cases
 # ---------------------------------------------------------------------------
 
 
@@ -437,7 +437,7 @@ class TestAssertUrlAllowedLoopbackExemption:
 
 
 # ---------------------------------------------------------------------------
-# FR-25: assert_url_allowed — defense-in-depth regression guards
+# assert_url_allowed — defense-in-depth regression guards
 # ---------------------------------------------------------------------------
 
 

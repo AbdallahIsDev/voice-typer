@@ -22,10 +22,10 @@ from __future__ import annotations
 from voice_typer.server import crash_handler
 from voice_typer.server.crash_handler import _constants
 
-# ─── FR-13: STATUS_GUARD_PAGE_VIOLATION excluded from _CRASH_CODES ────
+# STATUS_GUARD_PAGE_VIOLATION excluded from _CRASH_CODES ────
 
 
-class TestFR13GuardPageExcluded:
+class TestGuardPageExcluded:
     """``STATUS_GUARD_PAGE_VIOLATION`` is NOT in ``_CRASH_CODES``.
 
     This is the core FR-13 invariant — without it, a single non-fatal
@@ -74,7 +74,7 @@ class TestFR13GuardPageExcluded:
             "fatal crash. The 0xC... codes in _CRASH_CODES all have severity=3."
         )
 
-    def test_all_other_yj42_codes_still_in_crash_codes(self):
+    def test_all_other_codes_still_in_crash_codes(self):
         """FR-13 non-regression: the OTHER 8 YJ-42 extended codes remain
         in ``_CRASH_CODES``. Only STATUS_GUARD_PAGE_VIOLATION was
         removed — the fix is surgical, not a blanket rollback of YJ-42.

@@ -51,7 +51,7 @@ import pytest
 # imports numpy eagerly (e.g. ``audio_filters.base`` does
 # ``import numpy as np``), numpy will appear in ``sys.modules`` even
 # though our target module is innocent. The test pinpoints WHICH module
-# is the eager importer so the next pass can target it. As of TY-2
+# is the eager importer so the next pass can target it. As of
 # the only known remaining eager importer on the
 # ``voice_typer.server.app`` import path is
 # ``voice_typer.server.audio_filters.base`` (outside this sub-agent's

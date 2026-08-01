@@ -164,7 +164,7 @@ class TestEndToEndSmoke:
         from voice_typer.server.app import VoiceTyperApp
 
         app = VoiceTyperApp()
-        # ARCH-REFAC-003: registry now lives on ModelManager; the legacy
+        # registry now lives on ModelManager; the legacy
         # app._asr_registry @property delegate was removed.
         assert app.models._registry is not None
         assert app.models.registry is not None

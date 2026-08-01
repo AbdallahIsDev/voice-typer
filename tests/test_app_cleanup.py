@@ -16,6 +16,7 @@ unconditionally without double-flushing.
 """
 
 import contextlib
+import sys
 from unittest.mock import MagicMock
 
 import pytest
@@ -213,6 +214,10 @@ class TestRestartAppSharedCleanup:
 
         app.recorder.shutdown_mic_watcher.assert_called_once()
 
+    @pytest.mark.skipif(
+        sys.platform != "win32" and sys.platform != "darwin",
+        reason="hotkey backend is None on Linux — native backends are Windows/macOS only",
+    )
     def test_restart_app_stops_all_three_hotkey_backends(self, app, monkeypatch):
         """Sanity: restart_app must still stop _hotkey_backend,
         _esc_backend, and _repaste_backend (RELIABILITY-003) after the
@@ -282,6 +287,10 @@ class TestDoCleanupIdempotency:
     the recorder / double-closing the Win32 mutex handle.
     """
 
+    @pytest.mark.skipif(
+        sys.platform != "win32" and sys.platform != "darwin",
+        reason="hotkey backend is None on Linux — native backends are Windows/macOS only",
+    )
     def test_do_cleanup_twice_does_not_crash(self, app, monkeypatch):
         """Calling _do_cleanup() twice (e.g. once from quit() and once
         from _atexit_cleanup) must not crash, and the second call must
@@ -374,6 +383,10 @@ class TestAtexitCleanupSafetyNet:
         app.recorder.stop.assert_called_once()
         app.history_db.flush.assert_called_once()
 
+    @pytest.mark.skipif(
+        sys.platform != "win32" and sys.platform != "darwin",
+        reason="hotkey backend is None on Linux — native backends are Windows/macOS only",
+    )
     def test_atexit_cleanup_runs_when_not_shutting_down(self, app, monkeypatch):
         """_atexit_cleanup() must run _do_cleanup() when the process
         is killed externally (_shutting_down stays False), so critical
@@ -574,7 +587,7 @@ class TestRelaunchAckEventDriven:
         )
 
 
-# ── APP-1: restart_app re-entry guard ──────────────────────────────────
+# restart_app re-entry guard ──────────────────────────────────
 
 
 class TestRestartAppReentryGuard:
@@ -616,7 +629,7 @@ class TestRestartAppReentryGuard:
 
         monkeypatch.setattr(app, "_do_cleanup", spy_do_cleanup)
 
-        # DE-49: the re-entry guard in restart_app now checks
+        # the re-entry guard in restart_app now checks
         # ``_shutting_down_event.is_set()`` (threading.Event version)
         # instead of the plain boolean.  Setting only the boolean no
         # longer short-circuits the guard; the Event must be set too.
@@ -678,7 +691,7 @@ class TestRestartAppReentryGuard:
             stripped = line.strip()
             if not stripped or stripped.startswith("#"):
                 continue
-            # DE-49: the guard uses the threading.Event version
+            # the guard uses the threading.Event version
             # (``_shutting_down_event.is_set()``) instead of the plain
             # boolean — see the rationale in restart_app's inline
             # comment.
@@ -701,7 +714,7 @@ class TestRestartAppReentryGuard:
             )
 
 
-# ── APP-11: restart_app no longer calls _restore_volume(fade_ms=0) ─────
+# restart_app no longer calls _restore_volume(fade_ms=0) ─────
 
 
 class TestRestartAppRemovesRedundantRestoreVolume:
@@ -767,7 +780,7 @@ class TestRestartAppRemovesRedundantRestoreVolume:
         )
 
 
-# ─── S2-CR-70 (SA-6): user-data-dir purge helpers ──────────────────────
+# (): user-data-dir purge helpers ──────────────────────
 
 
 class TestUserDataPurgeHelpers:
@@ -905,7 +918,7 @@ class TestUserDataPurgeHelpers:
         )
 
 
-# ── GT-38: real-collaborator integration tests ─────────────────────────
+# real-collaborator integration tests ─────────────────────────
 #
 # The tests above use MagicMock collaborators (history_db, recorder,
 # crash_recovery). They verify CALL ROUTING only — they do NOT verify

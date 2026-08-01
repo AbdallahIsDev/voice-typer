@@ -63,6 +63,9 @@ def _make_tray_unavailable_tray() -> TrayIcon:
     tray._pending_states = []
     tray._pending_notifications = []
     tray._queue_lock = threading.Lock()
+    # stop() now acquires _icon_lock around the _icon teardown pair
+    # so a concurrent _apply_state cannot write to a torn-down Icon.
+    tray._icon_lock = threading.RLock()
     tray._elapsed_timer_helper = None  # defensive: no timer on this path
     tray._elapsed_timer = None
     tray._recording_started_at = None

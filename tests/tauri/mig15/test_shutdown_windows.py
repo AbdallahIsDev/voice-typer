@@ -476,7 +476,7 @@ class TestSupervisorSource:
         with reason ``backoff_exhausted``.
         """
         src = _read(_SUPERVISOR_RS)
-        # NF-R19-2: the cap is the backoff-schedule length, enforced by
+        # the cap is the backoff-schedule length, enforced by
         # iterating SUPERVISOR_BACKOFF_MS exactly once per entry, then the
         # post-loop exhaustion relaunch fires.
         assert "backoff_exhausted" in src, (
@@ -530,7 +530,7 @@ class TestSupervisorSource:
         # `return Ok(())` appears in that same arm — i.e. BEFORE the
         # arm closes and the `Err(e) =>` arm begins. Anchoring on the
         # Err arm boundary (rather than a fixed char count) keeps this
-        # robust against the CR-29/CR-13 success-branch logic (counter
+        # robust against the / success-branch logic (counter
         # reset + supervisor_reconnected emit + respawn_in_progress clear),
         # which legitimately lengthens the arm to ~1300 chars.
         idx_log = src.index("respawn succeeded")

@@ -759,7 +759,7 @@ class TestQueueBounded:
             db.close()
 
 
-# ─── PI-10 / PI-11 regression tests ────────────────────────────────────────
+# regression tests ────────────────────────────────────────
 
 
 class TestPreMigrationBackup:
@@ -902,7 +902,7 @@ class TestPreMigrationBackup:
             )
         """)
         # _CURRENT_SCHEMA_VERSION was moved to history_db_internals.schema
-        # during the AC-92 / XZ-R10-03 decomposition; history_db.py no longer
+        # during the  /  decomposition; history_db.py no longer
         # re-exports it. Import from the canonical location.
         from voice_typer.server.history_db_internals.schema import (
             _CURRENT_SCHEMA_VERSION,

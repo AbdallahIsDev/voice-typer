@@ -91,10 +91,10 @@ class TestAudioCallbackDispatcherConstruction:
         dispatcher = AudioCallbackDispatcher(fake)
         assert dispatcher._recorder is fake
 
-    def test_module_docstring_mentions_s3_cr17(self):
+    def test_module_docstring_describes_dispatcher(self):
         from voice_typer.server.recording import capture
 
-        assert "S3-CR-17" in capture.__doc__
+        assert "AudioCallbackDispatcher" in capture.__doc__
 
 
 # ── dispatch_callback_body ─────────────────────────────────────────────
@@ -221,7 +221,7 @@ class TestDispatchCallbackBodyRecordingPath:
 
 
 # ── Source-inspection contract: dispatch_callback_body must NOT contain
-# the heavy-pipeline operations that the RT-SAFE-001 source test pins
+# the heavy-pipeline operations that the  source test pins
 # out of Recorder._audio_callback_dispatch. (The recorder-side check
 # is owned by the primary agent; this just guards the helper side.)
 def _strip_docstring(src: str) -> str:
@@ -247,7 +247,7 @@ class TestDispatchCallbackBodySourceContract:
 
     def test_dispatch_callback_body_source_omits_heavy_ops(self):
         src = _strip_docstring(inspect.getsource(AudioCallbackDispatcher.dispatch_callback_body))
-        # The forbidden literals — the same ones the RT-SAFE-001 test
+        # The forbidden literals — the same ones the  test
         # checks are absent from Recorder._audio_callback_dispatch.
         for forbidden in (
             "compute_vad_prob",

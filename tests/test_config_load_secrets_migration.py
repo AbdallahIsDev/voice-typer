@@ -98,7 +98,7 @@ def mock_keyring_available(monkeypatch: pytest.MonkeyPatch) -> dict:
     return store
 
 
-class TestFR1SecretsMigrationDeferralPreserved:
+class TestSecretsMigrationDeferralPreserved:
     """FR-1: ``Config.load()`` must NOT clobber the XZ-SEC-04 deferral."""
 
     def test_deferral_preserved_when_keyring_unavailable(
@@ -125,7 +125,7 @@ class TestFR1SecretsMigrationDeferralPreserved:
         )
 
         cfg = Config.load()
-        # FR-1: the in-memory flag must reflect the on-disk deferred
+        # the in-memory flag must reflect the on-disk deferred
         # state (False), NOT the pre-fix unconditional True.
         assert cfg.secrets_migrated is False, (
             "FR-1 regression: Config.load() clobbered the XZ-SEC-04 "
@@ -178,13 +178,13 @@ class TestFR1SecretsMigrationDeferralPreserved:
             "The next launch will see True and skip migration entirely — "
             "plaintext API keys stay in config.json forever."
         )
-        # NOTE: the XZ-SEC-04 diagnostic flag
+        # NOTE: the  diagnostic flag
         # (``secrets_migrated_keyring_was_unavailable``) is NOT a
         # declared Config dataclass field, so ``Config.save()`` (which
         # writes ``asdict(self)``) drops it. That's acceptable — the
         # flag's purpose was to record the deferral state at migrate
         # time; once ``Config.save()`` writes ``secrets_migrated=False``
-        # (the FR-1 fix), the False value itself communicates "migration
+        # (the  fix), the False value itself communicates "migration
         # has not completed" and the next load re-runs migrate.
 
     def test_migration_reruns_after_keyring_becomes_available(
@@ -245,7 +245,7 @@ class TestFR1SecretsMigrationDeferralPreserved:
         finally:
             credential_store._probe_keyring = original_probe
 
-        # FR-1: migration re-ran, plaintext moved to keyring, reference
+        # migration re-ran, plaintext moved to keyring, reference
         # token in config.json.
         assert cfg2.secrets_migrated is True, (
             "FR-1 phase 2: after keyring became available, the "
@@ -266,7 +266,7 @@ class TestFR1SecretsMigrationDeferralPreserved:
         assert "secrets_migrated_keyring_was_unavailable" not in on_disk
 
 
-class TestFR1NonDeferredMigrationStillSetsFlag:
+class TestNonDeferredMigrationStillSetsFlag:
     """FR-1: when migration actually succeeds (or there's nothing to
     migrate), the in-memory flag must still be ``True`` (preserving the
     existing behavior). The fix only changes the deferred path."""
@@ -304,7 +304,7 @@ class TestFR1NonDeferredMigrationStillSetsFlag:
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only 0o600 check")
-class TestFR1FilePermissionsPreserved:
+class TestFilePermissionsPreserved:
     """FR-1: the file permission invariant (0o600 on POSIX) is
     preserved across the deferred-then-resumed migration flow."""
 

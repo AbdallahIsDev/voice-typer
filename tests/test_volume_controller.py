@@ -94,7 +94,7 @@ class TestDuckVolume:
     def test_duck_calls_ducker_with_config_level_and_fade(self, fake_app, controller):
         controller._duck_volume()
 
-        # Smart duck always on (UX-2).
+        # Smart duck always on ().
         fake_app._volume_ducker.set_smart_duck_enabled.assert_called_once_with(True)
         # Poll interval pulled from config.
         fake_app._volume_ducker.set_smart_duck_poll_interval.assert_called_once_with(500)

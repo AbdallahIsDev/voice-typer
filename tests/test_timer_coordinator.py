@@ -230,7 +230,7 @@ class TestGenerationGuard:
         assert not fired_b.is_set(), "Timer B (gen 1) must be suppressed"
 
 
-# ─── Thread safety (ARCH-022 / NEW-CONC-002) ───────────────────────────
+# Thread safety ( / ) ───────────────────────────
 
 
 class TestThreadSafety:

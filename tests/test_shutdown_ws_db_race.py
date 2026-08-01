@@ -134,10 +134,10 @@ def _make_server_for_dispatch() -> MagicMock:
     return server
 
 
-# ── DJ-9: source-level contracts ───────────────────────────────────
+# source-level contracts ───────────────────────────────────
 
 
-class TestDJ9SourceContracts:
+class TestSourceContracts:
     """DJ-9: source-level contract for the Event coordination."""
 
     def test_sidecar_ws_attaches_drained_event(self):
@@ -226,10 +226,10 @@ class TestDJ9SourceContracts:
         assert "log.warning" in block, "DJ-9: the drain-timeout branch must log at WARNING level"
 
 
-# ── DJ-9: behavioral — dispatch path ───────────────────────────────
+# behavioral — dispatch path ───────────────────────────────
 
 
-class TestDJ9DispatchEventCoordination:
+class TestDispatchEventCoordination:
     """DJ-9: behavioral verification that ``_make_dispatch``'s
     ``dispatch`` coroutine coordinates via the Event."""
 
@@ -323,7 +323,7 @@ class TestDJ9DispatchEventCoordination:
         # existing exception handler converts to a structured error).
         assert result["type"] == "error"
         assert result["data"]["code"] == "server.internal_error"
-        # UE-2 / DJ-9: Event MUST be re-set even though the dispatch
+        # Event MUST be re-set even though the dispatch
         # raised (the finally block guarantees this).
         assert server._ws_drained_event.is_set(), (
             "DJ-9: _ws_drained_event must be SET even when dispatch raises "
@@ -466,10 +466,10 @@ class TestDJ9DispatchEventCoordination:
         assert server._ws_drained_event.is_set()
 
 
-# ── DJ-9: behavioral — _do_cleanup waits on Event ──────────────────
+# behavioral — _do_cleanup waits on Event ──────────────────
 
 
-class TestDJ9DoCleanupWaitsOnEvent:
+class TestDoCleanupWaitsOnEvent:
     """DJ-9: ``_do_cleanup`` must wait on ``_ws_drained_event`` with
     a bounded timeout BEFORE tearing down the DB."""
 

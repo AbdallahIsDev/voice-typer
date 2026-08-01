@@ -81,7 +81,7 @@ _POSIX_ONLY = pytest.mark.skipif(
 
 
 # ---------------------------------------------------------------------------
-# FR-7: PersistedJSON.save refuses to follow symlinks on .bak read/write
+# PersistedJSON.save refuses to follow symlinks on .bak read/write
 # ---------------------------------------------------------------------------
 
 
@@ -127,7 +127,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         pj = PersistedJSON(config_path, default=None)
         pj.save({"openai_api_key": "sk-new-key"})
 
-        # FR-7: the attacker_target file must NOT contain the
+        # the attacker_target file must NOT contain the
         # previous-config bytes (the .bak write was skipped because
         # the .bak path is a symlink).
         assert attacker_target.read_text() == "attacker-controlled content", (
@@ -177,7 +177,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         pj = PersistedJSON(config_path, default=None)
         pj.save({"hotkey": "<f5>"})
 
-        # FR-7: the .bak file must NOT contain the sensitive file's
+        # the .bak file must NOT contain the sensitive file's
         # bytes (the backup was skipped because self._path is a
         # symlink).
         assert bak_path.read_text() == "previous bak content", (
@@ -282,7 +282,7 @@ class TestPersistedJSONSaveSymlinkDefense:
 
 
 # ---------------------------------------------------------------------------
-# FR-7: PersistedJSON.save uses _secure_read_text + _secure_atomic_write
+# PersistedJSON.save uses _secure_read_text + _secure_atomic_write
 # ---------------------------------------------------------------------------
 
 
@@ -375,7 +375,7 @@ class TestPersistedJSONSaveUsesSecureHelpers:
 
 
 # ---------------------------------------------------------------------------
-# FR-51: _quarantine_corrupt uses os.replace (not os.rename)
+# _quarantine_corrupt uses os.replace (not os.rename)
 # ---------------------------------------------------------------------------
 
 

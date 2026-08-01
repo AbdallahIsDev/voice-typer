@@ -37,10 +37,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# ── XV-81: running totals in _RateLimiter ──────────────────────────────
+# running totals in _RateLimiter ──────────────────────────────
 
 
-class TestXV81RateLimiterRunningTotals:
+class TestRateLimiterRunningTotals:
     """XV-81: ``_RateLimiter`` keeps ``self._burst_total`` /
     ``self._sustained_total`` int fields in sync with the deques,
     replacing the O(n) ``sum(c for _, c in deque)`` recomputation
@@ -143,10 +143,10 @@ class TestXV81RateLimiterRunningTotals:
         assert rl._sustained_total >= 0, "XV-81: _sustained_total must never go negative (clamp at 0)."
 
 
-# ── XV-82: pending snapshot only when tcp_client is not None ───────────
+# pending snapshot only when tcp_client is not None ───────────
 
 
-class TestXV82PendingSnapshotGatedOnTcpClient:
+class TestPendingSnapshotGatedOnTcpClient:
     """XV-82: ``IPCServer._send`` only snapshots+clears ``_pending_tcp``
     when ``tcp_client is not None``. The disconnected-mode (``tcp_mode``
     branch) only appends+trims — O(1) amortized."""
@@ -188,7 +188,7 @@ class TestXV82PendingSnapshotGatedOnTcpClient:
         # Issue a push event — should append + trim, NOT clear.
         server._send({"type": "test", "id": 1})
 
-        # The two pre-existing entries must still be there (XV-82
+        # The two pre-existing entries must still be there (
         # gated off the snapshot+clear), plus the new entry.
         assert len(server._pending_tcp) == 3, (
             f"XV-82: expected 3 entries in _pending_tcp (2 pre-existing "
@@ -229,7 +229,7 @@ class TestXV82PendingSnapshotGatedOnTcpClient:
             reader.join(timeout=2.0)
             assert received, "reader should have received the message"
 
-            # XV-82: the snapshot+clear must have run when tcp_client
+            # the snapshot+clear must have run when tcp_client
             # is not None, so _pending_tcp is now empty.
             assert server._pending_tcp == [], (
                 "XV-82 regression: _pending_tcp should have been cleared "
@@ -240,10 +240,10 @@ class TestXV82PendingSnapshotGatedOnTcpClient:
             cli.close()
 
 
-# ── XV-83: compact JSON serialization matches WS path ──────────────────
+# compact JSON serialization matches WS path ──────────────────
 
 
-class TestXV83CompactJsonSerialization:
+class TestCompactJsonSerialization:
     """XV-83: ``IPCServer._send`` serializes messages with
     ``ensure_ascii=False, separators=(",", ":")`` to match the WS
     path's convention and shrink the wire format."""
@@ -323,10 +323,10 @@ class TestXV83CompactJsonSerialization:
                 srv.close()
 
 
-# ── XV-84: sidecar_ws._writer encodes once ─────────────────────────────
+# sidecar_ws._writer encodes once ─────────────────────────────
 
 
-class TestXV84WriterEncodesOnce:
+class TestWriterEncodesOnce:
     """XV-84: ``sidecar_ws._writer`` encodes the outbound event to
     bytes ONCE and reuses the buffer for both the size check and the
     send. Pre-XV-84 the code did ``raw.encode("utf-8")`` for the size
@@ -355,10 +355,10 @@ class TestXV84WriterEncodesOnce:
         )
 
 
-# ── XV-85: validation helper hoists json + caches max_payload_bytes ────
+# validation helper hoists json + caches max_payload_bytes ────
 
 
-class TestXV85ValidationHoistsJsonAndCaches:
+class TestValidationHoistsJsonAndCaches:
     """XV-85: ``_validate_dict_payload`` hoists ``import json`` to
     module top and caches the per-schema ``max_payload_bytes`` lookup
     so the schema scan runs once per schema (not per call)."""
@@ -478,10 +478,10 @@ class TestXV85ValidationHoistsJsonAndCaches:
         assert "payload too large" in err["data"]["message"]
 
 
-# ── XV-86: transport uses io.DEFAULT_BUFFER_SIZE for reads ─────────────
+# transport uses io.DEFAULT_BUFFER_SIZE for reads ─────────────
 
 
-class TestXV86TransportBuffering:
+class TestTransportBuffering:
     """XV-86: ``_TCPLineIO.__init__`` uses ``io.DEFAULT_BUFFER_SIZE``
     (8192) for the read-side ``socket.makefile`` buffering argument
     instead of ``1`` (line buffering, which is a write-side concept)."""
@@ -528,10 +528,10 @@ class TestXV86TransportBuffering:
             cli.close()
 
 
-# ── XV-87: sidecar_ws._make_dispatch resolves rate_limiter once ────────
+# sidecar_ws._make_dispatch resolves rate_limiter once ────────
 
 
-class TestXV87RateLimiterResolvedOnce:
+class TestRateLimiterResolvedOnce:
     """XV-87: ``sidecar_ws._make_dispatch`` resolves the shared rate
     limiter ONCE (alongside ``ws_dispatch_pool``) and captures it in
     the closure. The per-frame ``_get_rate_limiter(server)`` lookup

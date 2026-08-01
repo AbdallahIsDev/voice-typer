@@ -29,7 +29,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-# WP-1: the previous Linux test-env shim that aliased
+# the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
 # removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
@@ -220,7 +220,7 @@ class TestAccessibilityIpcBehavioral:
         server = IPCServer.__new__(IPCServer)
         server.app = app
         server.service = MagicMock()
-        # NH-50: ``_dispatch`` acquires ``self._dispatch_lock`` for
+        # ``_dispatch`` acquires ``self._dispatch_lock`` for
         # state-mutating handlers (``check_accessibility`` is NOT in
         # ``_READONLY_COMMANDS``). The test bypasses ``__init__`` via
         # ``__new__`` (for speed — full ``__init__`` builds the

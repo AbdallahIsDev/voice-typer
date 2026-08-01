@@ -16,7 +16,7 @@ import inspect
 from pathlib import Path
 
 
-# WP-1: the previous Linux test-env shim that aliased
+# the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
 # removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
@@ -58,7 +58,7 @@ class TestTrayRecordingColorIsGreen:
     """
 
     def test_recording_color_is_green(self):
-        # RW-8: KEEP — pins TRAY-006 (RECORDING color is green RGB
+        # KEEP — pins  (RECORDING color is green RGB
         # (46, 204, 113)). The sibling test_recording_and_error_colors_are_distinct
         # tests visual distinctness, but doesn't pin the exact RGB values.
         # Source-string check catches a regression where the color changes.
@@ -69,7 +69,7 @@ class TestTrayRecordingColorIsGreen:
         assert "(46, 204, 113" in src, "TRAY-006: RECORDING color must be green (46, 204, 113), not red"
 
     def test_error_color_is_red(self):
-        # RW-8: KEEP — pins TRAY-006 (ERROR color is red RGB (231, 76, 60)).
+        # KEEP — pins  (ERROR color is red RGB (231, 76, 60)).
         # Same rationale as test_recording_color_is_green.
         from voice_typer.server import tray_icon
 
@@ -78,7 +78,7 @@ class TestTrayRecordingColorIsGreen:
         assert "(231, 76, 60" in src, "TRAY-006: ERROR color must be red (231, 76, 60)"
 
     def test_cancelling_color_is_orange(self):
-        # RW-8: KEEP — pins TRAY-006 (CANCELLING color is orange RGB
+        # KEEP — pins  (CANCELLING color is orange RGB
         # (243, 156, 18)). Same rationale as test_recording_color_is_green.
         from voice_typer.server import tray_icon
 
@@ -104,7 +104,7 @@ class TestTrayIconHasAccessibleName:
     """PLAT-010: title serves as accessible name (pystray limitation)."""
 
     def test_tray_icon_has_non_empty_title(self):
-        # RW-8: KEEP — pins PLAT-010 (TrayIcon.start passes a non-empty
+        # KEEP — pins  (TrayIcon.start passes a non-empty
         # title= for accessible name). A behavioral test would need to
         # start TrayIcon and inspect the system tray icon's accessible
         # name, which is heavy (platform-specific); the source-string
@@ -157,11 +157,11 @@ class TestTextSizeConfigWiredToCssScale:
     """PLAT-017: text_size config wired to CSS --font-scale variable."""
 
     def test_app_tsx_sets_font_scale(self):
-        # RW-8: KEEP — pins PLAT-017 (--font-scale / text_size application
+        # KEEP — pins  (--font-scale / text_size application
         # in useTheme.ts). A behavioral test would need to render the app
         # and inspect the computed CSS variable, which is heavy; the
         # file-content check catches removal of the --font-scale setter.
-        # PLAT-017: --font-scale / text_size application was refactored
+        # font-scale / text_size application was refactored
         # out of App.tsx into the dedicated useTheme hook.
         app_path = (
             Path(__file__).resolve().parent.parent.parent
@@ -178,7 +178,7 @@ class TestTextSizeConfigWiredToCssScale:
         assert "text_size" in src
 
     def test_index_css_consumes_font_scale(self):
-        # RW-8: KEEP — pins PLAT-017 (index.css consumes --font-scale).
+        # KEEP — pins  (index.css consumes --font-scale).
         # Same rationale as test_app_tsx_sets_font_scale.
         css_path = (
             Path(__file__).resolve().parent.parent.parent
@@ -194,9 +194,9 @@ class TestTextSizeConfigWiredToCssScale:
         assert "font-size" in src
 
     def test_settings_has_text_size_slider(self):
-        # RW-8: KEEP — pins PLAT-017 (Text Size slider in ThemeSettingsSection.tsx).
+        # KEEP — pins  (Text Size slider in ThemeSettingsSection.tsx).
         # Same rationale as test_app_tsx_sets_font_scale.
-        # PLAT-017: the "Text Size" slider was refactored out of
+        # the "Text Size" slider was refactored out of
         # Settings.tsx into the ThemeSettingsSection component.
         settings_path = (
             Path(__file__).resolve().parent.parent.parent

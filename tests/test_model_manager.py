@@ -46,7 +46,7 @@ def _make_mm_with_failing_registry() -> tuple[ModelManager, MagicMock]:
     mock_registry.load_with_fallback.return_value = None  # falsy → fail path
     # ``available_backends`` is a @property — mock it as a list, NOT a
     # callable. The OLD buggy code would call this with parens and
-    # raise TypeError. The AC-5 fix accesses it as a property.
+    # raise TypeError. The  fix accesses it as a property.
     mock_registry.available_backends = ["whisper", "parakeet"]
     mock_registry.active_name = "whisper"
     mock_registry.get_active.return_value = None
@@ -64,7 +64,7 @@ def _make_mm_with_failing_registry() -> tuple[ModelManager, MagicMock]:
     return mm, app
 
 
-class TestAC5AvailableBackendsPropertyNoParens:
+class TestAvailableBackendsPropertyNoParens:
     """AC-5: ``available_backends`` is a @property — must be accessed
     WITHOUT parens."""
 

@@ -1,4 +1,4 @@
-# CR-16: Regression tests for POSIX single-instance enforcement.
+# Regression tests for POSIX single-instance enforcement.
 #
 # These tests verify that ``_ensure_single_instance_posix`` (and the
 # ``_ensure_single_instance`` dispatcher) correctly enforce single-instance
@@ -34,7 +34,7 @@ import os
 import pytest
 from voice_typer.server import single_instance as si_mod
 
-# CR-16/GT-41: ``fcntl`` is POSIX-only; skip the entire module on
+# ``fcntl`` is POSIX-only; skip the entire module on
 # Windows (the Windows mutex path is exercised in regressions/
 # security_test.py instead).
 pytest.importorskip("fcntl")
@@ -74,7 +74,7 @@ def _cleanup_lock_fd(fd: int | None) -> None:
     """
     if fd is None:
         return
-    # GT-42: prefer the handle's ``release()`` method (idempotent,
+    # prefer the handle's ``release()`` method (idempotent,
     # also unlinks the lockfile best-effort).
     release = getattr(fd, "release", None)
     if callable(release):

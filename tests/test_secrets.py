@@ -263,7 +263,7 @@ class TestRedactUrl:
         bad = "not a url at all"
         assert redact_url(bad) == bad
 
-    # ── UE-5-F5: query-string API keys must be redacted ──────────
+    # query-string API keys must be redacted ──────────
 
     def test_ue5_f5_redacts_query_string_api_key(self):
         """UE-5-F5: a ``?key=sk-…`` query-string secret is masked.
@@ -327,7 +327,7 @@ class TestRedactUrl:
         assert out == url, f"benign query string was mangled: {out!r}"
 
 
-# ─── UE-5-F2: _redact_home_path ──────────────────────────────────
+# _redact_home_path ──────────────────────────────────
 
 
 class TestRedactHomePath:
@@ -406,7 +406,7 @@ class TestRedactHomePath:
         assert out == "~/.voice-typer/.prewarm-sentinel", out
 
 
-# ─── UE-5-F4 / UE-5-F7: redact_for_export unified pipeline ───────
+# redact_for_export unified pipeline ───────
 
 
 class TestRedactForExport:

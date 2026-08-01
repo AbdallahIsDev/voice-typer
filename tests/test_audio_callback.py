@@ -112,10 +112,10 @@ def _patch_count_disconnect_handler_spawns(monkeypatch):
     return spawn_count
 
 
-# ── RW-7: thread-spawn storm on silent input ──────────────────────
+# thread-spawn storm on silent input ──────────────────────
 
 
-class TestRW7SilentInputThreadStorm:
+class TestSilentInputThreadStorm:
     """RW-7: zero-filled indata must not spawn a thread-per-chunk storm."""
 
     def test_zero_filled_indata_does_not_spawn_disconnect_handler_storm(self, monkeypatch):
@@ -145,7 +145,7 @@ class TestRW7SilentInputThreadStorm:
             # Push 100 zero-filled chunks. The first ~11 chunks warm up
             # _chunk_count past 10; chunk 12 triggers the first (and
             # only) disconnect detection. Chunks 13-100 must be
-            # short-circuited by the RW-7 guard.
+            # short-circuited by the  guard.
             indata = np.zeros((512, 1), dtype=np.float32)
             for _ in range(100):
                 r._current_callback(indata, 512, None, 0)
@@ -269,10 +269,10 @@ class TestRW7SilentInputThreadStorm:
             r.stop()
 
 
-# ── RW-8: event worker thread lifecycle ───────────────────────────
+# event worker thread lifecycle ───────────────────────────
 
 
-class TestRW8EventWorkerLifecycle:
+class TestEventWorkerLifecycle:
     """RW-8: the IPC event worker thread starts on start(), joins on
     stop()/discard(). Mirrors the ``TestAudioWorkerThreadLifecycle``
     suite (RT-SAFE-001) so the two workers are held to the same
@@ -366,10 +366,10 @@ class TestRW8EventWorkerLifecycle:
         assert r._event_worker_thread is None
 
 
-# ── RW-8: non-blocking audio worker ────────────────────────────────
+# non-blocking audio worker ────────────────────────────────
 
 
-class TestRW8NonBlockingCallback:
+class TestNonBlockingCallback:
     """RW-8: the audio worker must not block on event_bus.publish."""
 
     def test_audio_worker_does_not_block_on_slow_publish(self, monkeypatch):
@@ -403,7 +403,7 @@ class TestRW8NonBlockingCallback:
 
         # Patch the module-level event_bus.publish reference. The event
         # worker thread calls ``event_bus.publish`` via the module-level
-        # import in recording.py (hoisted by RW-8).
+        # import in recording.py (hoisted by ).
         monkeypatch.setattr(event_bus, "publish", slow_publish)
 
         config = MagicMock(sample_rate=16000, microphone=None)
@@ -417,7 +417,7 @@ class TestRW8NonBlockingCallback:
             r._current_callback(clipping, 512, None, 0)
 
             # Wait for the audio worker to drain the ring buffer.
-            # If _process_audio_chunk blocked on publish (pre-RW-8),
+            # If _process_audio_chunk blocked on publish (pre-),
             # the ring buffer would not drain for ~1 second.
             deadline = time.perf_counter() + 2.0
             while time.perf_counter() < deadline:
@@ -449,10 +449,10 @@ class TestRW8NonBlockingCallback:
         )
 
 
-# ── RW-8: all queued events are eventually published ──────────────
+# all queued events are eventually published ──────────────
 
 
-class TestRW8AllEventsPublished:
+class TestAllEventsPublished:
     """RW-8: all events pushed to the queue are eventually published."""
 
     def test_all_queued_events_are_eventually_published_on_stop(self, monkeypatch):
@@ -538,10 +538,10 @@ class TestRW8AllEventsPublished:
         )
 
 
-# ── RW-8: hoisted imports (source inspection) ─────────────────────
+# hoisted imports (source inspection) ─────────────────────
 
 
-class TestRW8HoistedImports:
+class TestHoistedImports:
     """RW-8: event_bus and compute_vad_prob are hoisted to module top,
     removing the per-chunk inline import from _process_audio_chunk."""
 
@@ -607,7 +607,7 @@ class TestRW8HoistedImports:
             "RW-8: _process_audio_chunk must not call event_bus.publish "
             "directly — route through self._event_queue.put instead"
         )
-        # ZR-60: the put_nowait call site lives in the clipping helper
+        # the put_nowait call site lives in the clipping helper
         # (extracted from _process_audio_chunk).
         clipping_src = inspect.getsource(Recorder._detect_and_emit_clipping)
         assert "event_bus.publish" not in clipping_src, (

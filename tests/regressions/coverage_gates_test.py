@@ -57,7 +57,7 @@ class TestVkLookupBenchmarkExists:
         assert elapsed_ms < 100, f"PLAT-002: VK map init took {elapsed_ms:.1f}ms (target < 100ms)"
 
     def test_vk_lookup_is_o1_dict_get(self):
-        # RW-8: KEEP — pins PLAT-002 (VK lookup uses dict.get, O(1)).
+        # KEEP — pins  (VK lookup uses dict.get, O(1)).
         # The sibling test_vk_map_initialization_is_fast and
         # test_vk_lookup_returns_correct_code_for_f2 test the speed and
         # correctness, but don't catch a regression where the lookup

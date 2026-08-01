@@ -353,7 +353,7 @@ class TestCheckResourcesGracefulDegradation:
         assert complete_lines, "_check_resources must complete without crashing even when ALL sub-checks fail"
 
 
-# ── XZ-EH-008 / XZ-EH-022: silent except:pass replaced with log.debug ──
+# silent except:pass replaced with log.debug ──
 
 
 class TestCheckResourcesXZEH008SilentExcept:
@@ -464,7 +464,7 @@ class TestCheckResourcesXZEH008SilentExcept:
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):
             pipeline._check_resources()
 
-        # XZ-EH-008: the ctypes-fallback DEBUG line MUST be present.
+        # the ctypes-fallback DEBUG line MUST be present.
         ctypes_debug_lines = [
             r
             for r in caplog.records
@@ -482,7 +482,7 @@ class TestCheckResourcesXZEH008SilentExcept:
         emitted (not silent ``pass``)."""
 
         # Make ``torch.cuda.is_available`` raise — the production
-        # GPU-check try/except catches this and (post-XZ-EH-008) logs
+        # GPU-check try/except catches this and (post-) logs
         # a DEBUG line.
         def _raising_is_available():
             raise RuntimeError("CUDA driver mismatch")

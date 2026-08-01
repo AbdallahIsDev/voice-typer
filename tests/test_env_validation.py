@@ -209,7 +209,7 @@ class TestPathVars:
 
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_valid_path_preserved(self, monkeypatch, var):
-        # XZ-14-07: use a path under ``Path.home()`` because both
+        # use a path under ``Path.home()`` because both
         # VOICE_TYPER_CONFIG_DIR and HF_HOME now run
         # ``_validate_path_safety(Path(val), Path.home())`` (mirroring
         # the SEC-HFHOME-001 pattern). A path like ``/home/user/...`` is
@@ -237,7 +237,7 @@ class TestPathVars:
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_unicode_path_preserved(self, monkeypatch, var):
         # Non-ASCII chars are allowed (only NUL is forbidden).
-        # XZ-14-07: keep the path under ``Path.home()`` so the
+        # keep the path under ``Path.home()`` so the
         # ``_validate_path_safety`` check (run for both VOICE_TYPER_CONFIG_DIR
         # and HF_HOME) does not reject it as an out-of-home traversal.
         safe_path = str(Path.home() / "配置" / "voice-typer")
@@ -266,7 +266,7 @@ class TestAllVarsSet:
     """End-to-end: every validated var present and valid — all preserved."""
 
     def test_all_valid_all_preserved(self, monkeypatch):
-        # XZ-14-07: ``/tmp/voice-typer`` is outside ``Path.home()`` so it
+        # ``/tmp/voice-typer`` is outside ``Path.home()`` so it
         # is now rejected by the path-safety check for both
         # VOICE_TYPER_CONFIG_DIR and HF_HOME. Use a path under home.
         safe_path = str(Path.home() / ".voice-typer-test")
@@ -291,14 +291,14 @@ class TestAllVarsSet:
             monkeypatch.setenv(var, "'; rm -rf /")
         for var in _PATH_VARS:
             monkeypatch.setenv(var, "a" * 5000)
-        # G4-M-58: HF_ENDPOINT invalid value (HTTP scheme) — must be popped.
+        # HF_ENDPOINT invalid value (HTTP scheme) — must be popped.
         monkeypatch.setenv("HF_ENDPOINT", "http://evil.example.com")
         _validate_env_vars()
         for var in _ALL_VARS:
             assert var not in os.environ, f"{var} should have been removed"
 
 
-# ─── HF_ENDPOINT (G4-M-58) ─────────────────────────────────────────────
+# HF_ENDPOINT () ─────────────────────────────────────────────
 
 
 class TestHfEndpoint:
@@ -384,7 +384,7 @@ class TestHfEndpoint:
         assert "HF_ENDPOINT" not in os.environ
 
 
-# ─── GT-63: env-var values pre-redacted in log records ─────────────────
+# env-var values pre-redacted in log records ─────────────────
 
 
 class TestGt63EnvVarValuesRedacted:
@@ -478,10 +478,10 @@ class TestGt63EnvVarValuesRedacted:
         assert any("evil.example.com" in m for m in rejected)
 
 
-# ─── GT-B1-14: path-safety validation failure includes exception type ──
+# path-safety validation failure includes exception type ──
 
 
-class TestGtB1_14PathSafetyExceptionType:  # noqa: N801
+class TestPathSafetyExceptionType:  # noqa: N801
     """GT-B1-14: when ``_validate_path_safety`` rejects ``HF_HOME``, the
     log message must include ``type(exc).__name__`` so the operator
     knows which validation predicate failed (``ValueError`` vs

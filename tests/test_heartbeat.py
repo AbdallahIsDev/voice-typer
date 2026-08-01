@@ -508,7 +508,7 @@ def test_heartbeat_over_real_tcp_socket_updates_timestamp(monkeypatch) -> None:
     # before the dispatch loop is entered).
     client_sock.sendall((json.dumps({"type": "auth", "token": _test_token}) + "\n").encode("utf-8"))
 
-    # Drain the post-auth connect-time events (ERR-017 state_changed
+    # Drain the post-auth connect-time events ( state_changed
     # push + any pending flush) so the first response the test reads
     # is the heartbeat_ack, not the state_changed event.
     client_sock.settimeout(1.0)

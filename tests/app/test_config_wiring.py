@@ -84,7 +84,7 @@ class TestConfigWiring:
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
         transcriber_cls = MagicMock()
-        # ARCH-007: construction is now centralized in AsrBackendRegistry.create()
+        # construction is now centralized in AsrBackendRegistry.create()
         # which imports TranscriptionEngine dynamically from voice_typer.server.transcription.
         # Monkeypatch the SOURCE module (not app.TranscriptionEngine) so the
         # registry's dynamic import picks up the mock.
@@ -94,7 +94,7 @@ class TestConfigWiring:
 
         app = VoiceTyperApp()
         # TranscriptionEngine is now created in _do_startup (background), not __init__
-        # RW-9 Phase 1: the app-level test-seam delegates have been removed;
+        # Phase 1: the app-level test-seam delegates have been removed;
         # patch the controllers / module-level functions directly.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
@@ -128,7 +128,7 @@ class TestConfigWiring:
         from voice_typer.server.app import VoiceTyperApp
 
         app = VoiceTyperApp()
-        # RW-9 Phase 1: was ``app._sync_autostart()`` (test-seam delegate
+        # Phase 1: was ``app._sync_autostart()`` (test-seam delegate
         # removed); call the standalone function directly.
         startup_tasks.sync_autostart(app)
 
@@ -148,7 +148,7 @@ class TestConfigWiring:
         from voice_typer.server.app import VoiceTyperApp
 
         app = VoiceTyperApp()
-        # RW-9 Phase 1: was ``app._sync_autostart()`` (test-seam delegate
+        # Phase 1: was ``app._sync_autostart()`` (test-seam delegate
         # removed); call the standalone function directly.
         startup_tasks.sync_autostart(app)
 
@@ -181,7 +181,7 @@ class TestTextCleanupConfig:
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
         app.recorder.last_rms = 0.5
 
-        # TEST-028 (fix): use the monkeypatch fixture instead of
+        # (fix): use the monkeypatch fixture instead of
         # pytest.MonkeyPatch() so the patch is auto-reverted after the
         # test. Previously the manual instantiation bypassed pytest's
         # lifecycle and could leak patches on test failure.
@@ -225,13 +225,13 @@ class TestExternalCorrectionsWiring:
         def spy(config_dir=None, corrections_path=None):
             called_with["config_dir"] = config_dir
 
-        # Patch the name in startup_sequence's namespace (RW-9 Phase 5 moved
+        # Patch the name in startup_sequence's namespace ( Phase 5 moved
         # the call there). Also patch app's namespace for backwards compat
         # in case any other code path still reaches it via app.configure_corrections.
         monkeypatch.setattr("voice_typer.server.startup_sequence.configure_corrections", spy)
         monkeypatch.setattr("voice_typer.server.app.configure_corrections", spy)
         app._settings_window = None
-        # RW-9 Phase 1: was ``app._sync_prewarm_task = MagicMock()``
+        # Phase 1: was ``app._sync_prewarm_task = MagicMock()``
         # (test-seam delegate removed); patch the standalone function.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_prewarm_task", MagicMock())
         # Prevent the background model loader from doing real work — we
@@ -258,7 +258,7 @@ class TestSettingsWindowIntegration:
         # Monkeypatch the dispatcher method directly.
         app.hotkeys.register = MagicMock()
 
-        # RW-9 Phase 2: was ``app._restart_hotkey("<f3>")`` (test-seam
+        # Phase 2: was ``app._restart_hotkey("<f3>")`` (test-seam
         # delegate removed); call the dispatcher method directly.
         app.hotkeys.restart("<f3>")
 
@@ -343,14 +343,14 @@ class TestSettingsWindowIntegration:
     def test_model_change_uses_config_device(self, app, monkeypatch):
         """_change_model should use self.config.device, not hardcoded cuda."""
         transcriber_cls = MagicMock()
-        # ARCH-007: construction is now centralized in AsrBackendRegistry.create()
+        # construction is now centralized in AsrBackendRegistry.create()
         # which imports TranscriptionEngine dynamically from voice_typer.server.transcription.
         monkeypatch.setattr("voice_typer.server.transcription.TranscriptionEngine", transcriber_cls)
 
         app.config.device = "cpu"
-        # RW-9 Phase 2: was ``app._change_model("medium.en")`` (test-seam
+        # Phase 2: was ``app._change_model("medium.en")`` (test-seam
         # delegate removed); call the ModelManager method directly.
-        # AB-10: change_model is now non-blocking (returns immediately with
+        # change_model is now non-blocking (returns immediately with
         # "loading" status); tests that need to inspect the synchronous result
         # must call the blocking variant.
         app.models._change_model_blocking("medium.en")

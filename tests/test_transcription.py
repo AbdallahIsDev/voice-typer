@@ -515,7 +515,7 @@ class TestTranscribeWords:
         assert engine._model is None
 
 
-class TestM9GpuMemoryFree:
+class TestGpuMemoryFree:
     """M9: GPU fallback doesn't explicitly free GPU memory."""
 
     def test_transcribe_with_fallback_frees_gpu_memory(self):
@@ -575,7 +575,7 @@ class TestM9GpuMemoryFree:
         mock_gc.assert_called()
 
 
-class TestM11GpuRuntimeErrorTypeCheck:
+class TestGpuRuntimeErrorTypeCheck:
     """M11: _is_gpu_runtime_error uses fragile string matching."""
 
     def test_detects_cublas_exception_type(self):
@@ -659,7 +659,7 @@ class TestCudaDll001TorchLib:
 
 
 # =============================================================================
-# === Merged from test_new_perf_consolidated.py (NEW-PERF-010: audio stats) ===
+# === Merged from test_new_perf_consolidated.py (: audio stats) ===
 # =============================================================================
 """Regression tests for NEW-PERF-010: avoid duplicate RMS/peak/silence_pct
 computation between Recorder.stop() and the transcription engine.

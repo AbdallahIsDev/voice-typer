@@ -48,7 +48,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
 ALLOWED_COMMANDS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
 
-# DT-41 / DT-50: commands present in the TS allowlist but intentionally
+# commands present in the TS allowlist but intentionally
 # ABSENT from the Rust allowlist because the Rust host dispatches them
 # directly (they don't flow through the renderer's ``invoke('dispatch')``
 # path). The authoritative definition lives in
@@ -181,7 +181,7 @@ def test_rust_allowlist_entries_match_ts() -> None:
     )
 
 
-def test_rust_allowlist_does_not_contain_yj10_removed_commands() -> None:
+def test_rust_allowlist_does_not_contain_removed_commands() -> None:
     """YJ-10 negative regression guard.
 
     The 17 commands removed by the YJ-10 fix (none had renderer

@@ -150,7 +150,7 @@ class TestShutdownControllerWiring:
 
     def test_app_has_shutdown_attribute(self, tmp_config_dir, monkeypatch):
         """``self.shutdown`` must be a ``ShutdownController`` instance."""
-        # SA-05: raising=False — these app-module attributes may have
+        # raising=False — these app-module attributes may have
         # been removed/renamed in a prior refactor; the monkeypatch is
         # a defensive no-op when they're absent.
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False, raising=False)
@@ -166,7 +166,7 @@ class TestShutdownControllerWiring:
 
     def test_shutdown_back_references_app(self, tmp_config_dir, monkeypatch):
         """``ShutdownController._app`` must be the ``VoiceTyperApp`` instance."""
-        # SA-05: raising=False — see test_app_has_shutdown_attribute.
+        # raising=False — see test_app_has_shutdown_attribute.
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False, raising=False)
         monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True, raising=False)
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True, raising=False)
@@ -274,8 +274,8 @@ class TestDoCleanupIdempotency:
     def test_do_cleanup_twice_is_noop(self, controller, fake_app):
         """Calling ``_do_cleanup()`` twice must invoke each subsystem
         exactly once — the second call is a true no-op."""
-        # XE-17-1: capture backend refs BEFORE _do_cleanup() because the
-        # XZ-R17-11 fix nulls _hotkey_backend/_esc_backend/_repaste_backend
+        # capture backend refs BEFORE _do_cleanup() because the
+        # fix nulls _hotkey_backend/_esc_backend/_repaste_backend
         # after _teardown_hotkeys (production code is correct; tests must
         # capture refs before they're nulled).
         hk = fake_app.hotkeys._hotkey_backend
@@ -375,7 +375,7 @@ class TestDoCleanupIdempotency:
         t1.join(timeout=5.0)
         t2.join(timeout=5.0)
 
-        # PVT-G5-026: ``_cancel_pending_timers`` (the FIRST operation
+        # ``_cancel_pending_timers`` (the FIRST operation
         # in the cleanup body) must have been called EXACTLY ONCE —
         # proving only one of the two concurrent callers entered the
         # body. Pre-fix, both could enter and call_count would be 2.
@@ -419,8 +419,8 @@ class TestDoCleanupSubsystemCoverage:
         fake_app._restore_volume.assert_called_once_with(fade_ms=0)
 
     def test_calls_all_three_hotkey_backend_stops(self, controller, fake_app):
-        # XE-17-1: capture backend refs BEFORE _do_cleanup() because the
-        # XZ-R17-11 fix nulls them after _teardown_hotkeys.
+        # capture backend refs BEFORE _do_cleanup() because the
+        # fix nulls them after _teardown_hotkeys.
         hk = fake_app.hotkeys._hotkey_backend
         esc = fake_app.hotkeys._esc_backend
         repaste = fake_app.hotkeys._repaste_backend
@@ -749,10 +749,10 @@ class TestWin32ConsoleHandlerRouting:
         assert result is False
 
 
-# ── GT-43: post-cleanup shutdown watchdog (non-main-thread quit) ──────
+# post-cleanup shutdown watchdog (non-main-thread quit) ──────
 
 
-class TestGT43ShutdownWatchdog:
+class TestShutdownWatchdog:
     """GT-43: when ``quit()`` runs on a non-main thread, ``_do_cleanup()``
     completes, and the main thread is still parked in ``tray.run()``, a
     daemon-thread watchdog fires ``os._exit(0)`` after
@@ -827,10 +827,10 @@ class TestGT43ShutdownWatchdog:
         assert elapsed >= 0.2, f"GT-43: watchdog fired too early — expected ≥0.2s, got {elapsed:.2f}s"
 
 
-# ── GT-70: recorder _force_closed shutdown barrier ────────────────────
+# recorder _force_closed shutdown barrier ────────────────────
 
 
-class TestGT70RecorderForceClosedBarrier:
+class TestRecorderForceClosedBarrier:
     """GT-70: when ``recorder.stop()`` (or ``recorder.discard()``) times
     out, ``_do_cleanup()`` must set a ``_force_closed`` flag on the
     recorder and SKIP the subsequent ``recorder.shutdown_mic_watcher()``
@@ -881,10 +881,10 @@ class TestGT70RecorderForceClosedBarrier:
         assert TIMEOUT is TIMEOUT, "TIMEOUT sentinel identity check"
 
 
-# ── ZR-35: _force_closed read-side behavior test ──────────────────────
+# _force_closed read-side behavior test ──────────────────────
 
 
-class TestZR35ForceClosedReadSideGuard:
+class TestForceClosedReadSideGuard:
     """ZR-35: the ``_force_closed`` flag must be a REAL behavior gate, not
     a write-only test-visible attribute.
 
@@ -893,7 +893,7 @@ class TestZR35ForceClosedReadSideGuard:
     ``contextlib.suppress(Exception)`` wrapper when ``recorder.stop()``
     timed out — but the ``Recorder`` class never declared, read, nor
     used ``_force_closed``. The attribute was dead write-only state,
-    and the old test (TestGT70RecorderForceClosedBarrier above) only
+    and the old test (TestRecorderForceClosedBarrier above) only
     asserted the WRITE happened, not that any behavior depended on it.
     The comment in ``shutdown_controller.py`` promised "so the
     recorder itself can [use it]" — the read side never landed.
@@ -995,10 +995,10 @@ class TestZR35ForceClosedReadSideGuard:
         assert recorder._force_closed is False, "ZR-35: _force_closed must default to False"
 
 
-# ── GT-72: in-flight timer drain after _cancel_pending_timers ──────────
+# in-flight timer drain after _cancel_pending_timers ──────────
 
 
-class TestGT72InFlightTimerDrain:
+class TestInFlightTimerDrain:
     """GT-72: ``_do_cleanup()`` must drain in-flight timer threads with a
     short bounded timeout AFTER ``_cancel_pending_timers()``. The
     delegate only calls ``Timer.cancel()`` (a no-op for already-fired

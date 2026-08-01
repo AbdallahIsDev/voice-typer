@@ -129,7 +129,7 @@ def test_restart_success_installs_new_backend_and_stops_old(dispatcher: HotkeyDi
     # OLD backend was stopped
     old_backend.stop.assert_called_once()
 
-    # PVT-G5-027: OLD backend's stop() was called BEFORE NEW backend's
+    # OLD backend's stop() was called BEFORE NEW backend's
     # start() — no window where both backends are simultaneously
     # listening on the same hotkey (would cause double-toggle on Linux
     # pynput/Wayland where multiple registrations are permitted).
@@ -186,7 +186,7 @@ def test_restart_failure_in_factory_restores_old_hotkey_spec(dispatcher: HotkeyD
 
     dispatcher.restart("<bad>")
 
-    # PVT-G5-027: OLD backend's stop() WAS called (before register)
+    # OLD backend's stop() WAS called (before register)
     old_backend.stop.assert_called_once()
 
     # Factory was called twice: once for the new (failing) hotkey,
@@ -206,7 +206,7 @@ def test_restart_failure_in_factory_restores_old_hotkey_spec(dispatcher: HotkeyD
     # Tray hotkey label is set to the OLD (restored) spec, NOT "<bad>"
     dispatcher._app.tray.set_hotkey.assert_called_once_with("<f2>")
 
-    # PVT-G5-027 + UX-002: tray notification was shown naming the
+    # + : tray notification was shown naming the
     # rejected hotkey (register() shows this notification).
     notify_calls = dispatcher._app.tray.notify.call_args_list
     assert any("<bad>" in str(call) for call in notify_calls), (
@@ -277,7 +277,7 @@ def test_restart_failure_in_start_restores_old_hotkey_spec(dispatcher: HotkeyDis
 
     dispatcher.restart("<f5>")
 
-    # PVT-G5-027: OLD backend's stop() WAS called
+    # OLD backend's stop() WAS called
     old_backend.stop.assert_called_once()
 
     # Factory was called twice: once for "<f5>" (returned the broken
@@ -438,18 +438,18 @@ def test_register_failure_with_no_existing_backend_leaves_field_none(dispatcher:
     assert dispatcher._hotkey_backend is None
 
 
-# ─── G4-H-17 negative: restart() must NOT restore on success path ──────
+# negative: restart() must NOT restore on success path ──────
 #
-# This test was contributed by session-4 (G4-H-17) and is retained in the
-# merged tree because it is COMPATIBLE with session-5's PVT-G5-027 behavior
+# This test was contributed by session-4 () and is retained in the
+# merged tree because it is COMPATIBLE with session-5's  behavior
 # (both agree: on the success path, no restoration occurs, only one save
-# is made, and the OLD backend is stopped). The other two G4-H-17 tests
+# is made, and the OLD backend is stopped). The other two  tests
 # (``test_restart_restores_hotkey_on_register_failure`` and
 # ``test_restart_restores_hotkey_on_start_failure``) were DROPPED because
 # they assert ``old_backend.stop.assert_not_called()`` and
 # ``dispatcher._hotkey_backend is old_backend``, which directly
-# contradict PVT-G5-027's stop-before-start + restore-with-old-spec
-# behavior. The merged ``hotkey_dispatcher.py`` follows PVT-G5-027 (the
+# contradict 's stop-before-start + restore-with-old-spec
+# behavior. The merged ``hotkey_dispatcher.py`` follows  (the
 # more robust strategy that eliminates the double-backend window on
 # Linux pynput/Wayland). See sub-agent SO report for the full conflict
 # analysis.

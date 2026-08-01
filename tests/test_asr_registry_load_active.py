@@ -39,7 +39,7 @@ def _make_registry_with_failing_backend(*, backend_name: str = "parakeet") -> tu
     return registry, failing_engine
 
 
-class TestAC6LoadActiveCircuitBreaker:
+class TestLoadActiveCircuitBreaker:
     """AC-6: ``load_active`` exception path must increment the failure
     counter (circuit breaker), mirroring ``load_with_fallback``."""
 
@@ -114,7 +114,7 @@ class TestAC6LoadActiveCircuitBreaker:
         )
 
 
-class TestAC6LoadActiveUnloadOnFailure:
+class TestLoadActiveUnloadOnFailure:
     """AC-6 / MEM-01: ``load_active`` exception path must call
     ``backend.unload()`` (resource cleanup), mirroring
     ``load_with_fallback``."""

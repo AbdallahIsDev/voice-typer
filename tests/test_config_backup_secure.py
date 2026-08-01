@@ -44,11 +44,11 @@ def _isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
     yield tmp_path
 
 
-# ── FR-23: _backup_before_downgrade uses secure helpers ──────────────
+# _backup_before_downgrade uses secure helpers ──────────────
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only symlink test")
-class TestFR23BackupBeforeDowngradeSecure:
+class TestBackupBeforeDowngradeSecure:
     """FR-23: ``_backup_before_downgrade`` must use ``_secure_read_text``
     + ``_secure_atomic_write`` (not ``shutil.copy2``)."""
 
@@ -76,11 +76,9 @@ class TestFR23BackupBeforeDowngradeSecure:
 
         cfg = Config.load()
 
-        # XE-10-1: backup filename now has a timestamp suffix — glob
+        # backup filename now has a timestamp suffix — glob
         # for any matching filename.
-        bak_candidates = sorted(
-            _isolated_config_dir.glob(f"config.json.v{_CURRENT_SCHEMA_VERSION + 5}-*.bak")
-        )
+        bak_candidates = sorted(_isolated_config_dir.glob(f"config.json.v{_CURRENT_SCHEMA_VERSION + 5}-*.bak"))
         assert bak_candidates, (
             f"FR-23: expected a downgrade backup matching "
             f"config.json.v{_CURRENT_SCHEMA_VERSION + 5}-*.bak in "
@@ -203,11 +201,9 @@ class TestFR23BackupBeforeDowngradeSecure:
 
         Config.load()
 
-        # XE-10-1: backup filename now has a timestamp suffix — glob
+        # backup filename now has a timestamp suffix — glob
         # for any matching filename.
-        bak_candidates = sorted(
-            _isolated_config_dir.glob(f"config.json.v{_CURRENT_SCHEMA_VERSION + 2}-*.bak")
-        )
+        bak_candidates = sorted(_isolated_config_dir.glob(f"config.json.v{_CURRENT_SCHEMA_VERSION + 2}-*.bak"))
         assert bak_candidates, (
             f"FR-23: expected a downgrade backup matching "
             f"config.json.v{_CURRENT_SCHEMA_VERSION + 2}-*.bak in "
@@ -221,11 +217,11 @@ class TestFR23BackupBeforeDowngradeSecure:
         assert bak_data == original_content
 
 
-# ── FR-24: _save_unlocked backup READ uses _secure_read_text ─────────
+# _save_unlocked backup READ uses _secure_read_text ─────────
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only symlink test")
-class TestFR24SaveUnlockedBackupSecure:
+class TestSaveUnlockedBackupSecure:
     """FR-24: ``Config._save_unlocked`` must read the existing
     config.json via ``_secure_read_text`` (O_NOFOLLOW), not
     ``config_file.read_bytes()`` (follows symlinks)."""
@@ -390,12 +386,12 @@ class TestFR24SaveUnlockedBackupSecure:
         assert mode == 0o600, f"FR-24: config.json.bak should be 0o600 on POSIX, got 0o{mode:o}"
 
 
-# ── XZ-R10-03 / XZ-CFG-11: pre-migration backup uses secure helpers + ────
+# pre-migration backup uses secure helpers + ────
 #   unique filename + retention cap                                       ────
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX-only symlink test")
-class TestXZR1003PreMigrationBackupSecure:
+class TestPreMigrationBackupSecure:
     """XZ-R10-03: ``_backup_before_migration`` must use
     ``_secure_read_text`` + ``_secure_atomic_write`` (not
     ``shutil.copy2``).

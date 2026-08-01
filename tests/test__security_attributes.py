@@ -234,7 +234,7 @@ class TestErrorPaths:
         adv.SetEntriesInAclW.return_value = 5  # ERROR_ACCESS_DENIED
         adv.SetSecurityDescriptorDacl.return_value = 0  # would fail if reached
         assert _create_restrictive_security_attributes() is None
-        # CR-003: the SUT must NOT call SetSecurityDescriptorDacl on the
+        # the SUT must NOT call SetSecurityDescriptorDacl on the
         # SetEntriesInAclW failure path (no NULL-DACL fallback).
         adv.SetSecurityDescriptorDacl.assert_not_called()
 
@@ -378,7 +378,7 @@ class TestSetEntriesInAclSemantics:
         adv.SetSecurityDescriptorDacl.return_value = 1  # would succeed if reached
         result = _create_restrictive_security_attributes()
         assert result is None
-        # CR-003: the SUT must NOT call SetSecurityDescriptorDacl on the
+        # the SUT must NOT call SetSecurityDescriptorDacl on the
         # SetEntriesInAclW failure path (no NULL-DACL fallback).
         adv.SetSecurityDescriptorDacl.assert_not_called()
 

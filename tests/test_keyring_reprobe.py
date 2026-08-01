@@ -72,7 +72,7 @@ def _install_fake_probe(monkeypatch, available: bool, reason: str | None = None)
     return probe_calls
 
 
-# ── DJ-27: re-probe policy ──────────────────────────────────────────────
+# re-probe policy ──────────────────────────────────────────────
 
 
 class TestReprobePolicy:

@@ -484,7 +484,7 @@ class TestCrashHandlerReportPending:
         assert result is not None
         assert "Python crash" in result
         assert "ValueError" in result
-        # XE-7-2: ``exc_value`` is dropped from the user-facing summary
+        # ``exc_value`` is dropped from the user-facing summary
         # (the redacted value remains in the on-disk marker file only).
         assert "test python crash" not in result, (
             "XE-7-2: exc_value must NOT be surfaced in the user-facing "
@@ -498,7 +498,7 @@ class TestCrashHandlerReportPending:
         archive_dir = tmp_path / "crash_diagnostics_archive"
         archived = list(archive_dir.glob("python_crash.*.txt"))
         assert len(archived) == 1
-        # XE-7-2: the on-disk marker file RETAINS the full (redacted)
+        # the on-disk marker file RETAINS the full (redacted)
         # exc_value so support engineers with disk access can still
         # diagnose the crash.
         archived_content = archived[0].read_text(encoding="utf-8")
@@ -605,7 +605,7 @@ class TestCrashHandlerReportPending:
         assert not crash_file.exists()
 
 
-# ─── S1-CR-136: report_pending_crash summary "Next steps" hint ──────────
+# report_pending_crash summary "Next steps" hint ──────────
 
 
 class TestReportPendingCrashNextStepsHint:
@@ -799,7 +799,7 @@ class TestCrashHandlerConstants:
             "YJ-42: the original four fatal codes MUST remain in _CRASH_CODES after the extension (superset check)."
         )
 
-    def test_crash_codes_set_contains_yj42_extended_codes(self):
+    def test_crash_codes_set_contains_extended_codes(self):
         """YJ-42: ``_CRASH_CODES`` covers 8 additional fatal Windows
         exception codes that were silently bypassed by the VEH handler
         pre-fix. STATUS_BREAKPOINT and STATUS_SINGLE_STEP are deliberately
@@ -875,8 +875,8 @@ class TestCrashHandlerConstants:
         # Map each extended STATUS_* code to its expected _NAME_* bytes.
         # The original 4 codes (HEAP / ACCESS / STACK / FATAL) are
         # already covered by existing tests, so we focus on the 8
-        # new codes added by YJ-42 that remain in ``_CRASH_CODES``
-        # (FR-13 removed STATUS_GUARD_PAGE_VIOLATION from the set).
+        # new codes added by  that remain in ``_CRASH_CODES``
+        # ( removed STATUS_GUARD_PAGE_VIOLATION from the set).
         yj42_mapping = {
             crash_handler.STATUS_ILLEGAL_INSTRUCTION: crash_handler._NAME_ILLEGAL_INSTRUCTION,
             crash_handler.STATUS_INT_DIVIDE_BY_ZERO: crash_handler._NAME_INT_DIVIDE_BY_ZERO,
@@ -1129,7 +1129,7 @@ class TestVectoredHandlerPosix:
 
 
 # ============================================================================
-# GT-4: Python crash marker carries a redacted traceback + static triage ctx
+# Python crash marker carries a redacted traceback + static triage ctx
 # ============================================================================
 
 
@@ -1235,7 +1235,7 @@ class TestPythonCrashMarkerTraceback:
 
 
 # ============================================================================
-# GT-7: crash_diagnostics file includes app/python/OS version header
+# crash_diagnostics file includes app/python/OS version header
 # ============================================================================
 
 
@@ -1287,7 +1287,7 @@ class TestCrashDiagnosticsHeader:
         assert isinstance(header, bytes), f"GT-7: _compute_crash_header must return bytes; got {type(header).__name__}"
         assert header.decode("utf-8", errors="replace")
 
-    # ── S1-CR-136: reproduction hint + Windows version ───────────────
+    # reproduction hint + Windows version ───────────────
 
     def test_header_includes_reproduction_hint(self, tmp_path):
         """S1-CR-136: the static crash-diagnostics header includes a
@@ -1382,7 +1382,7 @@ class TestCrashDiagnosticsHeader:
 
 
 # ============================================================================
-# GT-B2-14: VEH buffer layout is data-driven + auto-computed size
+# VEH buffer layout is data-driven + auto-computed size
 # ============================================================================
 
 

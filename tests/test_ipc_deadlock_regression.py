@@ -36,7 +36,7 @@ from unittest.mock import MagicMock
 import pytest
 from voice_typer.server.ipc_server import IPCServer, _TCPLineIO
 
-# ─── CR-2 part 1: _send restores _prev_timeout (not None) ──────────────
+# part 1: _send restores _prev_timeout (not None) ──────────────
 
 
 class TestSendRestoresPrevTimeout:
@@ -117,7 +117,7 @@ class TestSendRestoresPrevTimeout:
             reader.join(timeout=2.0)
             assert received, "reader should have received the message"
 
-            # CR-2: the previous timeout must be preserved, NOT clobbered
+            # the previous timeout must be preserved, NOT clobbered
             # to None (which would be the bug).
             assert srv.gettimeout() == AUTH_DEADLINE, (
                 f"_send must restore the PREVIOUS timeout ({AUTH_DEADLINE}s), "
@@ -159,7 +159,7 @@ class TestSendRestoresPrevTimeout:
             reader.join(timeout=2.0)
             assert received
 
-            # CR-2: restore _prev_timeout — if prev was None, restored
+            # restore _prev_timeout — if prev was None, restored
             # value is None.  This is correct (no clobbering of a real
             # deadline).
             assert srv.gettimeout() is None, (
@@ -172,7 +172,7 @@ class TestSendRestoresPrevTimeout:
             cli.close()
 
 
-# ─── CR-2 part 2: _TCPLineIO.close uses shutdown(SHUT_RDWR) ────────────
+# part 2: _TCPLineIO.close uses shutdown(SHUT_RDWR) ────────────
 
 
 class TestTCPLineIOCloseUsesShutdown:

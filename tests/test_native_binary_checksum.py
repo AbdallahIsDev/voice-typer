@@ -35,6 +35,21 @@ longer match any manifest entry, so 6 tests failed. This file now:
   3. Adds a parametrized test that runs ``verify_native_binary_or_skip``
      against each manifest entry name.
 
+FR-19 (this file): the manifest now ALSO carries the legacy
+non-arch-suffixed names (``linux-key-listener``,
+``windows-key-listener.exe``) as ALIASES, with the same sha256 as
+their arch-suffixed x86_64 counterparts (where the binary exists).
+This fixes the FR-19 bug where ``compile_native.sh`` still emits the
+legacy names on Linux/Windows, so ``path.name`` was always the legacy
+form, ``get_expected_sha256(path.name)`` returned ``None``, and
+``verify_native_binary_or_skip`` fail-closed — disabling the native
+hotkey backend on 4 of 5 platform/arch combinations. The
+``TestLegacyNameManifestLookup`` class pins the new behavior, and
+two pre-FR-19 tests that pinned the OLD behavior
+(``test_returns_none_for_legacy_non_suffixed_names``,
+``test_manifest_does_not_have_legacy_non_suffixed_entries``) are
+rewritten to assert the new (correct) contract.
+
 G4-L-09 + G4-H-34: the trusted-path override now requires BOTH the
 ``VOICE_TYPER_NATIVE_TRUST=1`` confirmation env var AND the discovered
 path actually living under an env-specified directory. Tests in
@@ -174,23 +189,44 @@ class TestVerifyNativeBinary:
 class TestGetExpectedSha256:
     """Tests for ``get_expected_sha256(binary_name)`` — manifest lookup.
 
-    G4-L-11: the manifest is now keyed by the arch-suffixed names that
-    the build actually emits. The legacy non-suffixed names
-    (``linux-key-listener``, ``windows-key-listener.exe``) are NOT in
-    the manifest, so lookups for those names return ``None``.
+    G4-L-11: the manifest is keyed by the arch-suffixed names that
+    the build emits. FR-19: the manifest ALSO carries the legacy
+    non-suffixed names as aliases, so lookups for both forms resolve
+    to the same sha256 (where the binary exists).
     """
 
     def test_returns_none_for_unknown_binary(self):
         """An unknown binary name (not in the manifest) returns None."""
         assert get_expected_sha256("nonexistent-binary-name-xyz") is None
 
-    def test_returns_none_for_legacy_non_suffixed_names(self):
-        """G4-L-11: the legacy non-arch-suffixed names are no longer in
-        the manifest — lookups for them return None (CR-002 fail-closed
-        will trigger if a binary with the legacy name is discovered).
+    def test_legacy_non_suffixed_names_resolve_via_equivalence(self):
+        """FR-19: the legacy non-arch-suffixed names now resolve to the
+        same sha256 as their arch-suffixed x86_64 counterparts (when
+        populated). This is the core FR-19 regression:
+        ``compile_native.sh`` emits the legacy names on Linux/Windows,
+        so ``path.name`` is the legacy form; pre-FR-19 the lookup
+        returned ``None`` and ``verify_native_binary_or_skip``
+        fail-closed, disabling the native hotkey backend.
+
+        ``linux-key-listener`` (legacy) and ``linux-key-listener-x86_64``
+        (arch) both have the same sha256 in the dev manifest (the Linux
+        x86_64 build is present). ``windows-key-listener.exe`` (legacy)
+        and ``windows-key-listener-x86_64.exe`` (arch) both have EMPTY
+        sha256 in the dev tree (Windows build not produced on Linux),
+        so both must return ``None`` (CR-002 fail-closed).
         """
-        assert get_expected_sha256("linux-key-listener") is None
+        # Linux x86_64: both forms populated with the same sha256.
+        legacy_linux = get_expected_sha256("linux-key-listener")
+        arch_linux = get_expected_sha256("linux-key-listener-x86_64")
+        assert arch_linux is not None, "Manifest must have a non-empty sha256 for linux-key-listener-x86_64"
+        assert legacy_linux == arch_linux, (
+            f"FR-19: legacy 'linux-key-listener' sha256 ({legacy_linux}) must "
+            f"equal arch-suffixed 'linux-key-listener-x86_64' sha256 ({arch_linux})"
+        )
+        # Windows x86_64: both forms empty (not built on Linux dev host) →
+        # both return None (fail-closed).
         assert get_expected_sha256("windows-key-listener.exe") is None
+        assert get_expected_sha256("windows-key-listener-x86_64.exe") is None
 
     def test_returns_none_for_empty_sha256_entry(self):
         """A manifest entry with an empty sha256 field returns None.
@@ -238,7 +274,7 @@ class TestGetExpectedSha256:
         assert get_expected_sha256("linux-key-listener-x86_64") is None
 
 
-# ─── _is_trusted_path_override (G4-L-09 + G4-H-34) ────────────────────────
+# _is_trusted_path_override ( + ) ────────────────────────
 
 
 class TestIsTrustedPathOverride:
@@ -321,7 +357,7 @@ class TestIsTrustedPathOverride:
         assert _is_trusted_path_override() is False
 
 
-# ─── _path_matches_env_override (G4-H-34) ─────────────────────────────────
+# _path_matches_env_override () ─────────────────────────────────
 
 
 class TestPathMatchesEnvOverride:
@@ -414,7 +450,7 @@ class TestVerifyNativeBinaryOrSkip:
         # fake_binary lives OUTSIDE env_dir → path does NOT match →
         # the trust bypass does NOT apply → falls through to manifest
         # lookup → fake_binary.name is "fake-key-listener" (not in
-        # manifest) → CR-002 fail-closed returns False.
+        # manifest) →  fail-closed returns False.
         assert verify_native_binary_or_skip(fake_binary) is False
 
     def test_does_not_skip_when_path_matches_but_trust_unset(self, monkeypatch, fake_binary):
@@ -466,7 +502,7 @@ class TestVerifyNativeBinaryOrSkip:
         monkeypatch.delenv("VOICE_TYPER_NATIVE_BINARY", raising=False)
         monkeypatch.delenv("VOICE_TYPER_NATIVE_DIR", raising=False)
         monkeypatch.delenv("VOICE_TYPER_NATIVE_TRUST", raising=False)
-        # Rename the tampered binary to the arch-suffixed name (G4-L-11)
+        # Rename the tampered binary to the arch-suffixed name ()
         # so the manifest lookup finds a non-None expected sha256.
         named = tampered_binary.parent / "linux-key-listener-x86_64"
         tampered_binary.rename(named)
@@ -480,7 +516,7 @@ class TestVerifyNativeBinaryOrSkip:
         monkeypatch.delenv("VOICE_TYPER_NATIVE_DIR", raising=False)
         monkeypatch.delenv("VOICE_TYPER_NATIVE_TRUST", raising=False)
         # Create a binary whose content matches the manifest's sha256
-        # for linux-key-listener-x86_64 (G4-L-11: arch-suffixed name).
+        # for linux-key-listener-x86_64 (: arch-suffixed name).
         # We do this by reading the REAL linux-key-listener-x86_64
         # binary from the source tree (which is the basis for the
         # manifest's sha256) and copying it to a temp path with the
@@ -495,7 +531,7 @@ class TestVerifyNativeBinaryOrSkip:
         assert verify_native_binary_or_skip(named) is True
 
 
-# ─── Parametrized manifest entry coverage (G4-L-11) ──────────────────────
+# Parametrized manifest entry coverage () ──────────────────────
 
 
 class TestManifestEntryParametrized:
@@ -528,10 +564,13 @@ class TestManifestEntryParametrized:
             "windows-key-listener-x86_64.exe",
             "windows-key-listener-aarch64.exe",
             "macos-key-listener",
+            # legacy non-arch-suffixed aliases now in the manifest.
+            "linux-key-listener",
+            "windows-key-listener.exe",
         ],
     )
     def test_each_manifest_entry_is_handled(self, entry_name, tmp_path):
-        """G4-L-11: every manifest entry is handled correctly by
+        """G4-L-11 + FR-19: every manifest entry is handled correctly by
         ``verify_native_binary_or_skip``. A temp file named after the
         manifest entry is created with bogus content; the function
         must return False (either fail-closed for empty-sha256 entries
@@ -569,7 +608,7 @@ class TestFactoryChecksumGate:
         """Factory returns None (→ legacy fallback) when the binary is tampered."""
         from voice_typer.server.native_hotkeys import factory as factory_mod
 
-        # G4-L-11: rename tampered binary to the arch-suffixed name
+        # rename tampered binary to the arch-suffixed name
         # (linux-key-listener-x86_64) so the manifest lookup finds a
         # non-None expected sha256.
         named = tampered_binary.parent / "linux-key-listener-x86_64"
@@ -618,7 +657,7 @@ class TestFactoryChecksumGate:
         """Factory returns a real backend when the checksum matches the manifest."""
         from voice_typer.server.native_hotkeys import factory as factory_mod
 
-        # G4-L-11: use the arch-suffixed name that the manifest is keyed by.
+        # use the arch-suffixed name that the manifest is keyed by.
         real_binary = (
             Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "native" / "linux-key-listener-x86_64"
         )
@@ -655,7 +694,7 @@ class TestFactoryChecksumGate:
         """
         from voice_typer.server.native_hotkeys import factory as factory_mod
 
-        # G4-L-09: set BOTH the trust flag AND the path env var.
+        # set BOTH the trust flag AND the path env var.
         monkeypatch.setenv("VOICE_TYPER_NATIVE_DIR", str(tampered_binary.parent))
         monkeypatch.setenv("VOICE_TYPER_NATIVE_TRUST", "1")
         # Name the tampered binary correctly (arch-suffixed) for the
@@ -719,8 +758,12 @@ class TestManifestSanity:
     """Sanity checks on the shipped ``binaries.json`` manifest.
 
     G4-L-11: the manifest is keyed by the arch-suffixed names that the
-    build actually emits. The legacy non-suffixed names
-    (``linux-key-listener``, ``windows-key-listener.exe``) are GONE.
+    build emits. FR-19: the manifest ALSO carries the legacy
+    non-suffixed names (``linux-key-listener``,
+    ``windows-key-listener.exe``) as aliases with the same sha256 as
+    their arch-suffixed x86_64 counterparts (where the binary exists),
+    because ``compile_native.sh`` still emits the legacy names on
+    Linux/Windows.
     """
 
     def test_manifest_file_exists(self):
@@ -742,17 +785,22 @@ class TestManifestSanity:
         assert "binaries" in manifest
         binaries = manifest["binaries"]
         assert isinstance(binaries, dict)
-        # G4-L-11: all five arch-suffixed binary names must be present
+        # all five arch-suffixed binary names must be present
         # (sha256 may be empty for platforms not built in the current
         # dev tree, but the entries must exist so the manifest lookup
         # at least finds an entry and fails-closed with a clear "empty
         # sha256" error rather than a "missing entry" error).
+        # the two legacy non-suffixed alias names must ALSO be
+        # present (compile_native.sh still emits them on Linux/Windows).
         for name in (
             "linux-key-listener-x86_64",
             "linux-key-listener-aarch64",
             "windows-key-listener-x86_64.exe",
             "windows-key-listener-aarch64.exe",
             "macos-key-listener",
+            # legacy aliases.
+            "linux-key-listener",
+            "windows-key-listener.exe",
         ):
             assert name in binaries, f"Manifest missing entry for {name}"
             entry = binaries[name]
@@ -761,45 +809,264 @@ class TestManifestSanity:
             assert "version" in entry
             assert "min_proto_version" in entry
 
-    def test_manifest_does_not_have_legacy_non_suffixed_entries(self):
-        """G4-L-11: the legacy non-suffixed names (which did not match
-        the build output) MUST NOT be present — their presence would
-        imply a stale manifest that needs re-running of
-        ``update_native_manifests.py``.
+    def test_manifest_has_legacy_non_suffixed_entries_as_aliases(self):
+        """FR-19: the manifest now includes BOTH arch-suffixed AND legacy
+        non-suffixed entries. The legacy entries are aliases that carry
+        the SAME sha256 as their arch-suffixed x86_64 counterparts
+        (where the binary exists), so ``verify_native_binary_or_skip``
+        works regardless of which name form
+        ``compile_native.sh`` emitted onto disk.
+
+        Pre-FR-19 this test asserted the legacy entries were ABSENT
+        (because the G4-L-11 manifest was keyed only by arch-suffixed
+        names). That assumption was wrong: the build script emits the
+        legacy names on Linux/Windows, so the manifest MUST carry the
+        legacy aliases or every legacy-named on-disk binary fails
+        CR-002 fail-closed and the native hotkey backend is disabled.
         """
         manifest = load_binary_manifest()
         assert manifest is not None
         binaries = manifest["binaries"]
-        # The legacy names that CR-002 found were silently failing.
-        assert "linux-key-listener" not in binaries, (
-            "Manifest still has legacy 'linux-key-listener' entry — "
-            "this name does not match the build output (linux-key-listener-x86_64). "
-            "Run scripts/build/update_native_manifests.py."
+        # The legacy alias names must be present.
+        assert "linux-key-listener" in binaries, (
+            "FR-19: manifest must have legacy 'linux-key-listener' entry — "
+            "compile_native.sh emits this name (not the arch-suffixed "
+            "'linux-key-listener-x86_64') on Linux, so "
+            "verify_native_binary_or_skip needs a manifest entry to verify it."
         )
-        assert "windows-key-listener.exe" not in binaries, (
-            "Manifest still has legacy 'windows-key-listener.exe' entry — "
-            "this name does not match the build output (windows-key-listener-x86_64.exe). "
-            "Run scripts/build/update_native_manifests.py."
+        assert "windows-key-listener.exe" in binaries, (
+            "FR-19: manifest must have legacy 'windows-key-listener.exe' entry — "
+            "compile_native.sh emits this name (not the arch-suffixed "
+            "'windows-key-listener-x86_64.exe') on Windows, so "
+            "verify_native_binary_or_skip needs a manifest entry to verify it."
+        )
+        # The legacy entries must carry the SAME sha256 as their
+        # arch-suffixed x86_64 counterparts (where the binary exists).
+        # Linux x86_64 is built in the dev tree → both forms populated.
+        legacy_linux_sha = binaries["linux-key-listener"]["sha256"]
+        arch_linux_sha = binaries["linux-key-listener-x86_64"]["sha256"]
+        assert legacy_linux_sha == arch_linux_sha, (
+            f"FR-19: legacy 'linux-key-listener' sha256 ({legacy_linux_sha}) "
+            f"must equal arch-suffixed 'linux-key-listener-x86_64' sha256 "
+            f"({arch_linux_sha}) — they are the same binary, just different "
+            f"filename conventions."
+        )
+        # Windows x86_64 is not built on the Linux dev host → both empty.
+        legacy_windows_sha = binaries["windows-key-listener.exe"]["sha256"]
+        arch_windows_sha = binaries["windows-key-listener-x86_64.exe"]["sha256"]
+        assert legacy_windows_sha == arch_windows_sha, (
+            f"FR-19: legacy 'windows-key-listener.exe' sha256 "
+            f"({legacy_windows_sha}) must equal arch-suffixed "
+            f"'windows-key-listener-x86_64.exe' sha256 ({arch_windows_sha}) — "
+            f"they are the same binary, just different filename conventions."
         )
 
     def test_linux_binary_sha256_matches_actual_binary(self):
-        """The manifest's linux-key-listener-x86_64 sha256 matches the
-        actual binary (G4-L-11: arch-suffixed name).
+        """The manifest's linux sha256 matches the actual on-disk binary.
+
+        FR-19: ``compile_native.sh`` emits the legacy name
+        ``linux-key-listener`` (no arch suffix) on Linux, so we look
+        for that name on disk first and fall back to the arch-suffixed
+        name. The manifest has entries for both names (with the same
+        sha256), so the lookup works either way.
 
         This catches a stale manifest: if the binary was rebuilt but the
         manifest wasn't updated, this test fails.
         """
-        # G4-L-11: use the arch-suffixed name.
-        real_binary = (
-            Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "native" / "linux-key-listener-x86_64"
-        )
-        if not real_binary.is_file():
-            pytest.skip("linux-key-listener-x86_64 binary not built in this tree")
-        expected = get_expected_sha256("linux-key-listener-x86_64")
-        assert expected is not None, "Manifest must have a non-empty sha256 for linux-key-listener-x86_64"
+        native_dir = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "native"
+        # try the legacy name first (what compile_native.sh
+        # actually emits on Linux), then the arch-suffixed name.
+        real_binary = None
+        binary_name = None
+        for name in ("linux-key-listener-x86_64", "linux-key-listener"):
+            candidate = native_dir / name
+            if candidate.is_file():
+                real_binary = candidate
+                binary_name = name
+                break
+        if real_binary is None:
+            pytest.skip("no linux-key-listener binary built in this tree")
+        expected = get_expected_sha256(binary_name)
+        assert expected is not None, f"Manifest must have a non-empty sha256 for {binary_name}"
         actual = hashlib.sha256(real_binary.read_bytes()).hexdigest()
         assert actual == expected, (
-            f"Manifest sha256 for linux-key-listener-x86_64 is STALE: "
+            f"Manifest sha256 for {binary_name} is STALE: "
             f"manifest says {expected}, actual binary is {actual}. "
             f"Run scripts/build/update_native_manifests.py to refresh."
         )
+
+
+# regression: legacy-named binaries are verifiable ──────────────
+
+
+class TestLegacyNameManifestLookup:
+    """FR-19 regression: legacy-named binaries (``linux-key-listener``,
+    ``windows-key-listener.exe``) must be verifiable against the manifest.
+
+    Root cause (FR-19): ``scripts/build/compile_native.sh`` emits the
+    legacy non-arch-suffixed names on Linux/Windows
+    (``linux-key-listener``, ``windows-key-listener.exe``, and the
+    universal ``macos-key-listener`` for macOS). The CR-002 manifest
+    fix (G4-L-11) keyed ``binaries.json`` ONLY by the arch-suffixed
+    names (``linux-key-listener-x86_64``,
+    ``windows-key-listener-x86_64.exe``, etc.). As a result,
+    ``get_native_binary_path()`` discovered the legacy-named binary on
+    disk, ``verify_native_binary_or_skip(path)`` called
+    ``get_expected_sha256(path.name)`` with the legacy name, got
+    ``None`` (not in manifest), and CR-002 fail-closed returned
+    ``False`` — disabling the native hotkey backend on 4 of 5
+    platform/arch combinations (everywhere except macOS, whose
+    universal name happens to match both the build output and the
+    manifest key).
+
+    Fix: ``binaries.json`` now carries BOTH arch-suffixed AND legacy
+    non-suffixed entries (with the same sha256 where the binary
+    exists), and ``get_expected_sha256`` falls back to equivalent
+    names (legacy <-> arch-suffixed x86_64 only — aarch64 has no
+    legacy equivalent) if the direct lookup misses or hits an empty
+    sha256 entry. These tests pin the fix.
+    """
+
+    def test_legacy_linux_name_resolves_to_same_sha_as_arch_suffix(self):
+        """FR-19: ``get_expected_sha256('linux-key-listener')`` returns the
+        same sha256 as ``get_expected_sha256('linux-key-listener-x86_64')``
+        when the arch-suffixed entry is populated (which it is in the
+        dev tree — the Linux x86_64 binary is built).
+        """
+        arch_sha = get_expected_sha256("linux-key-listener-x86_64")
+        legacy_sha = get_expected_sha256("linux-key-listener")
+        # The arch-suffixed entry IS populated in the dev tree.
+        assert arch_sha is not None, "Manifest must have a non-empty sha256 for linux-key-listener-x86_64"
+        assert legacy_sha is not None, (
+            "FR-19: legacy 'linux-key-listener' must resolve to a sha256 when "
+            "arch-suffixed 'linux-key-listener-x86_64' is populated — otherwise "
+            "verify_native_binary_or_skip fails-closed for the on-disk legacy-"
+            "named binary and the native hotkey backend is disabled."
+        )
+        assert legacy_sha == arch_sha, (
+            f"FR-19: legacy 'linux-key-listener' sha256 ({legacy_sha}) must "
+            f"equal arch-suffixed 'linux-key-listener-x86_64' sha256 "
+            f"({arch_sha}) — they are the same binary."
+        )
+
+    def test_legacy_windows_name_resolves_same_as_arch_suffix(self):
+        """FR-19: ``get_expected_sha256('windows-key-listener.exe')``
+        returns the same sha256 as
+        ``get_expected_sha256('windows-key-listener-x86_64.exe')`` when
+        the arch-suffixed entry is populated. In the dev tree both are
+        empty (Windows binary not built on Linux host), so both must
+        return ``None`` (CR-002 fail-closed).
+        """
+        arch_sha = get_expected_sha256("windows-key-listener-x86_64.exe")
+        legacy_sha = get_expected_sha256("windows-key-listener.exe")
+        if arch_sha is not None:
+            assert legacy_sha == arch_sha, (
+                f"FR-19: legacy 'windows-key-listener.exe' sha256 "
+                f"({legacy_sha}) must equal arch-suffixed "
+                f"'windows-key-listener-x86_64.exe' sha256 ({arch_sha}) — "
+                f"they are the same binary."
+            )
+        else:
+            # Dev tree: both empty → both must return None (fail-closed).
+            assert legacy_sha is None, (
+                "FR-19: legacy 'windows-key-listener.exe' must return None "
+                "when arch-suffixed 'windows-key-listener-x86_64.exe' is "
+                "empty — fail-closed must still apply (no silent trust)."
+            )
+
+    def test_aarch64_names_do_not_fall_back_to_legacy_x86_64(self):
+        """FR-19 safety: aarch64 arch-suffixed names must NOT fall back to
+        the legacy name (which is the x86_64 binary). aarch64 builds are
+        new in CR-32 and have NO legacy equivalent; conflating them with
+        the x86_64 legacy name would verify an aarch64 binary against
+        the x86_64 sha256, breaking the supply-chain gate.
+
+        In the dev tree both aarch64 entries have empty sha256, so they
+        must return ``None`` (not the x86_64 sha256 from the legacy
+        alias).
+        """
+        # linux-key-listener-aarch64: empty in dev tree, must NOT fall
+        # back to linux-key-listener (which has the x86_64 sha256).
+        assert get_expected_sha256("linux-key-listener-aarch64") is None, (
+            "FR-19: 'linux-key-listener-aarch64' must NOT fall back to the "
+            "legacy 'linux-key-listener' (x86_64) sha256 — aarch64 is a "
+            "different binary and must be verified against its own sha256."
+        )
+        # windows-key-listener-aarch64.exe: empty in dev tree, must NOT
+        # fall back to windows-key-listener.exe (which would resolve to
+        # the x86_64 sha256 if populated).
+        assert get_expected_sha256("windows-key-listener-aarch64.exe") is None, (
+            "FR-19: 'windows-key-listener-aarch64.exe' must NOT fall back to "
+            "the legacy 'windows-key-listener.exe' (x86_64) sha256 — aarch64 "
+            "is a different binary and must be verified against its own sha256."
+        )
+
+    def test_verify_native_binary_or_skip_accepts_on_disk_legacy_linux_binary(self, monkeypatch):
+        """FR-19 end-to-end: ``verify_native_binary_or_skip`` returns
+        ``True`` for the actual on-disk ``linux-key-listener`` binary
+        (which has the LEGACY name, not the arch-suffixed name, because
+        ``compile_native.sh`` emits the legacy name on Linux).
+
+        Pre-FR-19 this returned ``False`` (CR-002 fail-closed) because
+        ``get_expected_sha256('linux-key-listener')`` returned ``None``
+        (the manifest was keyed only by the arch-suffixed name). This
+        test pins the fix: the manifest now carries the legacy alias
+        with the same sha256, so verification succeeds.
+        """
+        monkeypatch.delenv("VOICE_TYPER_NATIVE_BINARY", raising=False)
+        monkeypatch.delenv("VOICE_TYPER_NATIVE_DIR", raising=False)
+        monkeypatch.delenv("VOICE_TYPER_NATIVE_TRUST", raising=False)
+        real_binary = (
+            Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "native" / "linux-key-listener"
+        )
+        if not real_binary.is_file():
+            pytest.skip("linux-key-listener binary not built in this tree")
+        assert verify_native_binary_or_skip(real_binary) is True, (
+            "FR-19: verify_native_binary_or_skip must accept the on-disk "
+            "linux-key-listener binary (legacy name) — its sha256 must "
+            "match the manifest's legacy alias entry. Pre-FR-19 this "
+            "returned False (fail-closed) because the manifest was keyed "
+            "only by the arch-suffixed name."
+        )
+
+    def test_equivalent_manifest_names_helper(self):
+        """FR-19: pin the ``_equivalent_manifest_names`` helper that
+        ``get_expected_sha256`` uses to find equivalent manifest keys.
+        """
+        from voice_typer.server.native_hotkeys.binary_path import (
+            _equivalent_manifest_names,
+        )
+
+        # Legacy name → [legacy, arch-suffixed x86_64].
+        assert _equivalent_manifest_names("linux-key-listener") == [
+            "linux-key-listener",
+            "linux-key-listener-x86_64",
+        ]
+        assert _equivalent_manifest_names("windows-key-listener.exe") == [
+            "windows-key-listener.exe",
+            "windows-key-listener-x86_64.exe",
+        ]
+        # Arch-suffixed x86_64 name → [arch-suffixed, legacy].
+        assert _equivalent_manifest_names("linux-key-listener-x86_64") == [
+            "linux-key-listener-x86_64",
+            "linux-key-listener",
+        ]
+        assert _equivalent_manifest_names("windows-key-listener-x86_64.exe") == [
+            "windows-key-listener-x86_64.exe",
+            "windows-key-listener.exe",
+        ]
+        # aarch64 names → NO legacy equivalent (single-element list).
+        assert _equivalent_manifest_names("linux-key-listener-aarch64") == [
+            "linux-key-listener-aarch64",
+        ]
+        assert _equivalent_manifest_names("windows-key-listener-aarch64.exe") == [
+            "windows-key-listener-aarch64.exe",
+        ]
+        # macOS universal name → no equivalents (single-element list).
+        assert _equivalent_manifest_names("macos-key-listener") == [
+            "macos-key-listener",
+        ]
+        # Unknown name → single-element list (no equivalents).
+        assert _equivalent_manifest_names("nonexistent-binary") == [
+            "nonexistent-binary",
+        ]

@@ -145,7 +145,7 @@ class TestNewPriv003SensitiveEnvRedaction:
 
         with caplog.at_level(logging.INFO, logger="voice_typer.server._electron_build"):
             _log_sensitive_env_keys({"PATH": "/usr/bin"}, context="test")
-        # No PRIV-003 log line should fire for an env with no sensitive keys.
+        # No  log line should fire for an env with no sensitive keys.
         assert not any("PRIV-003" in rec.message for rec in caplog.records), (
             f"_log_sensitive_env_keys emitted a spurious audit line for a benign env: {caplog.records}"
         )

@@ -23,7 +23,7 @@ from unittest.mock import MagicMock
 
 # Source-inspection: read the module source so we can assert on the
 # structure WITHOUT importing it (which would pull in VoiceTyperApp +
-# the entire server stack). Same pattern as the DJ-10 / R6-F7 tests.
+# the entire server stack). Same pattern as the  / R6-F7 tests.
 _SHUTDOWN_CONTROLLER_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
@@ -41,7 +41,7 @@ def _src() -> str:
 # ── Static (source-inspection) contract tests ───────────────────────
 
 
-class TestDJ7TeardownAsrModelsContract:
+class TestTeardownAsrModelsContract:
     """DJ-7: ``_teardown_asr_models`` is wired into the parallel batch
     as the FIRST item, calls ``app._asr_registry.unload()``, and guards
     the CUDA cache clear."""
@@ -157,7 +157,7 @@ class _FakeApp:
         # is the only observable side-effect we assert.
 
 
-class TestDJ7TeardownAsrModelsDynamic:
+class TestTeardownAsrModelsDynamic:
     """Dynamic test: actually invoke ``_teardown_asr_models`` and verify
     the unload() call fires."""
 

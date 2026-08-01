@@ -101,7 +101,7 @@ class TestAudioWorkerLoopDrainStopCheck:
         ≤ ``_DRAIN_STOP_CHECK_INTERVAL`` chunks of the stop signal.
         """
         # 20 chunks × 20ms/chunk = 400ms of CPU per full drain. With
-        # the AB-2 fix, the worker bails out within ≤ 4 chunks of the
+        # the  fix, the worker bails out within ≤ 4 chunks of the
         # stop signal = ≤ 80ms post-stop CPU.
         chunk_process_seconds = 0.02
         fake = _SlowFakeRecorder(chunk_process_seconds=chunk_process_seconds)
@@ -143,7 +143,7 @@ class TestAudioWorkerLoopDrainStopCheck:
         total_processed = len(fake._process_audio_chunk_calls)
         post_stop_processed = total_processed - stop_set_at_calls
 
-        # AB-2 contract: the worker must process at most
+        # contract: the worker must process at most
         # ``_DRAIN_STOP_CHECK_INTERVAL`` additional chunks after the
         # stop signal is set (the check happens every N chunks, so the
         # worst case is N chunks processed before the next check fires).
@@ -230,7 +230,7 @@ class TestAudioWorkerLoopDrainStopCheck:
         drain_idx = src.find(drain_marker)
         assert drain_idx != -1, "could not locate drain loop in source"
         drain_body = src[drain_idx:]
-        # The drain body must include a stop-event check (the AB-2 fix).
+        # The drain body must include a stop-event check (the  fix).
         assert "_worker_stop_event.is_set()" in drain_body, (
             "AB-2: the drain loop body must contain a "
             "``_worker_stop_event.is_set()`` check between chunk "

@@ -68,7 +68,7 @@ def processor(default_config):
     return AudioProcessor(default_config, sample_rate=16000)
 
 
-# XS-42: ``make_sine`` was previously defined inline here. It has been
+# ``make_sine`` was previously defined inline here. It has been
 # migrated to :func:`tests.fixtures.app_helpers.make_sine` and is now
 # imported at the top of this module. The 5 call sites below use the
 # shared helper directly.
@@ -269,7 +269,7 @@ class TestIntrospection:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# AUDIO-6 + AUDIO-9: set_sample_rate / sample-rate mismatch
+# + : set_sample_rate / sample-rate mismatch
 # ═══════════════════════════════════════════════════════════════════════════
 
 

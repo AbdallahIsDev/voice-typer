@@ -60,12 +60,12 @@ class TestOnboardingFirstRun:
 
 class TestOnboardingSteps:
     def test_initial_step(self, ctrl):
-        # UX-4/UX-27: total_steps bumped 5 → 6 (Permissions step added).
+        # total_steps bumped 5 → 6 (Permissions step added).
         assert ctrl.current_step == 0
         assert ctrl.total_steps == 6
 
     def test_step_names(self, ctrl):
-        # UX-4/UX-27: "Permissions" inserted between Microphone and Hotkey.
+        # "Permissions" inserted between Microphone and Hotkey.
         names = [
             "Welcome",
             "Microphone",
@@ -146,7 +146,7 @@ class TestOnboardingSelections:
         assert ctrl.selected_model == "tiny.en"
 
     def test_model_options(self, ctrl):
-        # UX-32: list now includes multilingual variants (tiny, small,
+        # list now includes multilingual variants (tiny, small,
         # medium without .en) and Parakeet, in addition to the original
         # 3 English-only Whisper variants.
         assert len(ctrl.MODEL_OPTIONS) == 7
@@ -191,7 +191,7 @@ class TestOnboardingApplySettings:
         assert config.microphone == "old-mic"
 
 
-class TestOnboardingWizardE2E:
+class TestOnboardingWizard:
     """#8: End-to-end test of the wizard flow through the service layer.
 
     Verifies that:
@@ -212,7 +212,7 @@ class TestOnboardingWizardE2E:
         # 2) Wizard starts
         ctrl = OnboardingController(config_dir=onboarding_dir)
         assert ctrl.current_step == 0
-        # UX-4/UX-27: total_steps bumped 5 → 6 (Permissions step added).
+        # total_steps bumped 5 → 6 (Permissions step added).
         assert ctrl.total_steps == 6
 
         # 3) Step 1: select microphone
@@ -220,7 +220,7 @@ class TestOnboardingWizardE2E:
         ctrl.set_microphone("mic-usb")
         assert ctrl.selected_microphone == "mic-usb"
 
-        # 4) Step 2: Permissions (UX-4/UX-27) — no user action required
+        # 4) Step 2: Permissions (/) — no user action required
         #    in this unit test; the renderer probes via the
         #    onboarding_check_permissions IPC and either shows the
         #    platform walkthrough or auto-advances.
@@ -241,7 +241,7 @@ class TestOnboardingWizardE2E:
         ctrl.next_step()
 
         # 8) Apply settings to a mock config (mirrors service.onboarding_apply).
-        #    UX-31: apply_settings() now calls mark_complete() internally
+        # apply_settings() now calls mark_complete() internally
         #    after config.save() succeeds, so the explicit ctrl.mark_complete()
         #    below is a redundant no-op (kept for clarity / backward compat).
         from voice_typer.server.config import Config
@@ -291,7 +291,7 @@ class TestOnboardingWizardE2E:
         assert cfg.model_size == "small.en"  # default
 
 
-# ── 17-H-FIX-1: service-layer onboarding_apply side effects ────────────
+# 17-H-: service-layer onboarding_apply side effects ────────────
 
 
 @pytest.fixture
@@ -332,7 +332,7 @@ def app_with_service(tmp_path, monkeypatch):
 
     # Force PynputHotkey backend so tests can assert hotkey_str
     # without depending on native binaries. Patch BOTH app and
-    # hotkey_dispatcher namespaces (see TEST-033 / fix in
+    # hotkey_dispatcher namespaces (see  / fix in
     # tests/test_app.py for why both are required).
     from voice_typer.server.hotkeys import PynputHotkey
 
@@ -393,7 +393,7 @@ class TestOnboardingApplySideEffects:
         assert result == {"ok": True}, f"onboarding_apply failed: {result}"
 
         # The hotkey dispatcher should have a live backend whose
-        # hotkey_str matches the user's selection. Before 17-H-FIX-1,
+        # hotkey_str matches the user's selection. Before 17-H-,
         # apply_config_side_effects was never called so the backend
         # would still be None (or hold the default hotkey).
         backend = app.hotkeys._hotkey_backend
@@ -481,11 +481,11 @@ class TestOnboardingApplySideEffects:
         )
 
 
-# ── FIX-11: onboarding bug regressions (UX-31 / UX-32 / UX-13 /    ──
-# ── UX-4 / UX-27)                                                    ──
+# onboarding bug regressions ( /  /  /    ──
+# )                                                    ──
 
 
-class TestUX31ApplySettingsMarksComplete:
+class TestApplySettingsMarksComplete:
     """UX-31: onboarding must NOT mark itself complete until the user's
     selections are actually persisted via ``apply_settings`` (or
     explicitly discarded via ``skip``).
@@ -558,7 +558,191 @@ class TestUX31ApplySettingsMarksComplete:
         assert ctrl.is_first_run() is False
 
 
-class TestUX32ModelOptionsIncludeMultilingualAndParakeet:
+class TestMarkCompleteFailurePropagation:
+    """FR-6: if the onboarding marker write fails (disk full, read-only
+    ``config_dir``, permission revoked), the wizard must surface the
+    error rather than silently swallowing it.
+
+    Root cause: ``mark_complete`` caught all exceptions via
+    ``except Exception: log.exception(...)`` without re-raising, AND
+    ``apply_settings`` never set ``config.onboarding_completed = True``
+    before ``config.save()``. Result: settings were saved to
+    ``config.json`` but the marker was missing and
+    ``onboarding_completed`` stayed ``False`` — so ``is_first_run()``
+    returned ``True`` on every launch, trapping the user in an infinite
+    wizard-reappear loop.
+
+    Fix (two halves):
+    1. ``apply_settings`` sets ``config.onboarding_completed = True``
+       BEFORE ``config.save()`` — the config flag becomes the source of
+       truth; the marker file becomes a fast-path cache.
+    2. ``mark_complete`` re-raises on failure so the IPC layer can
+       surface the disk error to the user.
+    """
+
+    def test_mark_complete_raises_on_marker_write_failure(self, ctrl, onboarding_dir, monkeypatch):
+        """``mark_complete`` re-raises ``OSError`` from
+        ``_secure_atomic_write`` instead of swallowing it."""
+        from voice_typer.server import config as config_mod
+
+        def _boom(path, content, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(config_mod, "_secure_atomic_write", _boom)
+        with pytest.raises(OSError, match="disk full"):
+            ctrl.mark_complete()
+        # Marker was NOT written.
+        assert not (onboarding_dir / ".onboarding_complete").exists()
+
+    def test_apply_settings_sets_onboarding_completed_before_save(self, ctrl, onboarding_dir):
+        """FR-6: ``apply_settings`` sets ``config.onboarding_completed = True``
+        BEFORE calling ``config.save()`` so the config flag is persisted
+        even if the marker write later fails."""
+        ctrl.set_microphone("mic-1")
+        ctrl.set_hotkey("<f4>")
+        ctrl.set_model("tiny.en")
+
+        saved_state = {}
+
+        class CapturingConfig:
+            microphone = None
+            hotkey = "<f2>"
+            model_size = "small.en"
+            onboarding_completed = False
+
+            def save(self):
+                # Snapshot the flag value at save() time.
+                saved_state["onboarding_completed_at_save"] = self.onboarding_completed
+                return True
+
+        config = CapturingConfig()
+        ctrl.apply_settings(config)
+        # The flag was True when save() was called (before the marker write).
+        assert saved_state["onboarding_completed_at_save"] is True, (
+            "config.onboarding_completed must be set to True BEFORE config.save() "
+            "so the persisted config flag is the source of truth"
+        )
+        # And it's still True after apply_settings returns.
+        assert config.onboarding_completed is True
+
+    def test_apply_settings_surfaces_marker_write_failure(self, ctrl, onboarding_dir, monkeypatch):
+        """FR-6: if ``mark_complete`` fails (marker write error),
+        ``apply_settings`` propagates the exception so the IPC layer
+        can surface the error to the user. ``config.onboarding_completed``
+        was set to ``True`` and persisted via ``config.save()`` BEFORE
+        the marker write, so the wizard will NOT reappear on the next
+        launch even though the marker file is missing."""
+        from voice_typer.server import config as config_mod
+
+        def _boom(path, content, **kwargs):
+            raise OSError("read-only filesystem")
+
+        monkeypatch.setattr(config_mod, "_secure_atomic_write", _boom)
+
+        ctrl.set_microphone("mic-1")
+        ctrl.set_hotkey("<f4>")
+        ctrl.set_model("tiny.en")
+
+        class MockConfig:
+            microphone = None
+            hotkey = "<f2>"
+            model_size = "small.en"
+            onboarding_completed = False
+
+            def save(self):
+                # Real Config.save() would persist onboarding_completed=True
+                # to disk here. The mock returns True (success); the test
+                # asserts below that the flag was flipped before save.
+                return True
+
+        config = MockConfig()
+        # apply_settings propagates the OSError from mark_complete (:
+        # no longer swallowed).
+        with pytest.raises(OSError, match="read-only filesystem"):
+            ctrl.apply_settings(config)
+
+        # Config flag was set to True BEFORE save() was called — so even
+        # though the marker write failed, the persisted config flag breaks
+        # the infinite wizard-reappear loop on next launch.
+        assert config.onboarding_completed is True, (
+            "config.onboarding_completed must be set to True BEFORE config.save() "
+            "so the wizard doesn't reappear when the marker write fails"
+        )
+        # Marker was NOT written (the write raised).
+        assert not (onboarding_dir / ".onboarding_complete").exists()
+
+    def test_apply_settings_marker_failure_does_not_reappear(self, ctrl, onboarding_dir, monkeypatch):
+        """FR-6 end-to-end: when the marker write fails but the config
+        flag was persisted, ``is_first_run()`` returns ``False`` on the
+        next launch (simulated by writing the persisted config to disk
+        and constructing a fresh controller). This is the core
+        acceptance criterion — the infinite wizard-reappear loop is
+        broken."""
+        import json as _json
+        from pathlib import Path
+
+        from voice_typer.server import config as config_mod
+        from voice_typer.server.config import Config
+
+        # Capture the real _secure_atomic_write BEFORE patching so the
+        # patched version can delegate non-marker writes to it.
+        real_write = config_mod._secure_atomic_write
+
+        def _boom_on_marker(path, content, **kwargs):
+            if Path(path).name == ".onboarding_complete":
+                raise OSError("read-only filesystem")
+            return real_write(path, content, **kwargs)
+
+        monkeypatch.setattr(config_mod, "_secure_atomic_write", _boom_on_marker)
+
+        ctrl.set_microphone("mic-usb")
+        ctrl.set_hotkey("<f4>")
+        ctrl.set_model("tiny.en")
+
+        cfg = Config()
+        cfg.microphone = None
+        cfg.hotkey = "<f2>"
+        cfg.model_size = "small.en"
+        cfg.onboarding_completed = False
+
+        # apply_settings sets cfg.onboarding_completed=True, saves (real
+        # write to config.json succeeds), then mark_complete raises
+        # OSError for the marker path.
+        with pytest.raises(OSError, match="read-only filesystem"):
+            ctrl.apply_settings(cfg)
+
+        # config.json was persisted with onboarding_completed=True...
+        assert (onboarding_dir / "config.json").exists()
+        persisted = _json.loads((onboarding_dir / "config.json").read_text(encoding="utf-8"))
+        assert persisted.get("onboarding_completed") is True
+        # ...but the marker is missing.
+        assert not (onboarding_dir / ".onboarding_complete").exists()
+
+        # Simulate next launch: fresh controller reads disk state.
+        from voice_typer.server.onboarding import OnboardingController
+
+        ctrl2 = OnboardingController(config_dir=onboarding_dir)
+        assert ctrl2.is_first_run() is False, (
+            "Wizard must NOT reappear when config.onboarding_completed=True "
+            "is persisted, even if the .onboarding_complete marker is missing"
+        )
+
+    def test_skip_propagates_marker_write_failure(self, ctrl, onboarding_dir, monkeypatch):
+        """FR-6: ``skip`` propagates marker write failures so the IPC
+        layer can surface the error to the user (instead of silently
+        swallowing it and leaving the wizard in an inconsistent state)."""
+        from voice_typer.server import config as config_mod
+
+        def _boom(path, content, **kwargs):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(config_mod, "_secure_atomic_write", _boom)
+        with pytest.raises(OSError, match="disk full"):
+            ctrl.skip()
+        assert not (onboarding_dir / ".onboarding_complete").exists()
+
+
+class TestModelOptionsIncludeMultilingualAndParakeet:
     """UX-32: the wizard's curated ``MODEL_OPTIONS`` list previously
     excluded multilingual Whisper variants (tiny/small/medium without
     ``.en``) and the NVIDIA Parakeet model, so non-English users had
@@ -642,7 +826,7 @@ class TestUX32ModelOptionsIncludeMultilingualAndParakeet:
                 sys.modules["voice_typer.server.model_registry"] = real_module
 
 
-class TestUX13ModelOptionsVramAndLanguages:
+class TestModelOptionsVramAndLanguages:
     """UX-13: each ``MODEL_OPTIONS`` entry must carry ``vram_gb`` and
     ``languages`` fields so the renderer can render VRAM / language
     badges on each model card.
@@ -687,7 +871,7 @@ class TestUX13ModelOptionsVramAndLanguages:
                 )
 
 
-class TestUX4UX27PermissionsStep:
+class TestPermissionsStep:
     """UX-4 / UX-27: onboarding wizard must include a platform-
     conditional Permissions step between Microphone and Hotkey that
     detects OS-level keyboard-monitoring permission state and shows
@@ -763,7 +947,7 @@ class TestUX4UX27PermissionsStep:
         assert result["needed"] is True
         instructions = result["instructions"]
         assert instructions is not None
-        # NH-49 (session NH): server returns i18n keys (title_key / steps_keys)
+        # (session NH): server returns i18n keys (title_key / steps_keys)
         # so the renderer can localize the title + step text. The literal
         # `title` / `steps` fields remain available as a legacy fallback for
         # older backends. Assert on the i18n-key fields first, then fall
@@ -849,16 +1033,16 @@ class TestUX4UX27PermissionsStep:
         assert result["needed"] is True
         instructions = result["instructions"]
         assert instructions is not None
-        # NH-49 (session NH): server returns i18n keys (title_key / steps_keys).
+        # (session NH): server returns i18n keys (title_key / steps_keys).
         assert "title_key" in instructions or "title" in instructions
         assert "steps_keys" in instructions or "steps" in instructions
         assert "commands" in instructions
-        # UX-27: must include the usermod command for the input group.
+        # must include the usermod command for the input group.
         commands = instructions["commands"] or []
         joined_cmds = " ".join(commands)
         assert "usermod" in joined_cmds
         assert "input" in joined_cmds
-        # UX-27: must include the udev rule snippet.
+        # must include the udev rule snippet.
         assert "KERNEL" in joined_cmds or "udev" in joined_cmds.lower(), (
             f"Linux instructions should include the udev rule snippet, got commands: {commands}"
         )

@@ -104,7 +104,7 @@ def _find_highpass(p: AudioProcessor) -> HighPassFilter:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# XV-31: _sample_rate must change
+# _sample_rate must change
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -141,7 +141,7 @@ class TestSetSampleRateUpdatesInternalRate:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# XV-31: chain filters must reflect the new rate
+# chain filters must reflect the new rate
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -221,7 +221,7 @@ class TestSetSampleRateRebuildsFilters:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# XV-31: subsequent rebuild_from_config uses the NEW rate (AUDIO-6/AUDIO-9
+# subsequent rebuild_from_config uses the NEW rate (/
 # contract: controller calls set_sample_rate(force_sr) BEFORE
 # rebuild_from_config(config))
 # ═══════════════════════════════════════════════════════════════════════════
@@ -250,7 +250,7 @@ class TestSetSampleRateThenRebuildFromConfig:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# XV-31: smoke test — the rebuilt chain must be functional
+# smoke test — the rebuilt chain must be functional
 # ═══════════════════════════════════════════════════════════════════════════
 
 

@@ -320,7 +320,7 @@ class TestTranscribeChunkedDedup:
         assert result == "a b c d e f g h i j"
 
 
-class TestPVT019ModuleConstants:
+class TestModuleConstants:
     """PVT-019: verify the dedup constants are exported and tuned as documented."""
 
     def test_qwen_overlap_dedup_words_default_is_3(self):

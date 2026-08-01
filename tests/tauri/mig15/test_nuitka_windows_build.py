@@ -429,7 +429,7 @@ def test_script_documents_signing_next_step(script_text: str):
     )
 
 
-# ─── 7. Sibling parity (Linux + macOS scripts have the XPLAT-3 guard) ───────
+# 7. Sibling parity (Linux + macOS scripts have the  guard) ───────
 def test_linux_sibling_has_xplat3_ctranslate2_libs_guard():
     """Sanity check: the Linux sibling MUST have the XPLAT-3 guard.
 

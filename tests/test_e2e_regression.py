@@ -214,7 +214,7 @@ class TestPrewarmFiltersImportsByActiveBackend:
         real_import = __builtins__["__import__"] if isinstance(__builtins__, dict) else __builtins__.__import__
 
         def tracking_import(name, *args, **kwargs):
-            # XV-19: production should NOT call __import__("torch") —
+            # production should NOT call __import__("torch") —
             # it warms files instead. Track any unexpected imports so
             # we can fail the test if a future regression reintroduces
             # the import path.

@@ -106,7 +106,7 @@ def mock_keyring_unavailable(monkeypatch):
     return fake_keyring
 
 
-# ── DJ-24: _clear_plaintext_config_cache helper ─────────────────────────
+# _clear_plaintext_config_cache helper ─────────────────────────
 
 
 class TestClearPlaintextConfigCacheHelper:
@@ -143,7 +143,7 @@ class TestClearPlaintextConfigCacheHelper:
         assert not credential_store._plaintext_config_cache
 
 
-# ── DJ-24: delete_secret clears the cache ───────────────────────────────
+# delete_secret clears the cache ───────────────────────────────
 
 
 class TestDeleteSecretClearsCache:
@@ -169,7 +169,7 @@ class TestDeleteSecretClearsCache:
         assert cached_entry[1].get("openai_api_key") == "sk-secret-to-delete"
 
         # Act: delete the secret. This calls _write_plaintext_fallback('')
-        # which writes "" to config.json, AND (DJ-24) calls
+        # which writes "" to config.json, AND () calls
         # _clear_plaintext_config_cache() so the stale cache is dropped.
         credential_store.delete_secret("openai")
 
@@ -198,7 +198,7 @@ class TestDeleteSecretClearsCache:
         # Act: delete just one provider.
         credential_store.delete_secret("openai")
 
-        # Assert: cache is cleared (DJ-24).
+        # Assert: cache is cleared ().
         assert not credential_store._plaintext_config_cache
         # And a subsequent load re-reads from disk — the deleted
         # provider is gone, the other provider is still there.
@@ -206,7 +206,7 @@ class TestDeleteSecretClearsCache:
         assert credential_store.load_secret("groq") == "gsk_groq"
 
 
-# ── DJ-24: clear_in_memory_secrets clears the cache ─────────────────────
+# clear_in_memory_secrets clears the cache ─────────────────────
 
 
 class TestClearInMemorySecretsClearsCache:
@@ -228,7 +228,7 @@ class TestClearInMemorySecretsClearsCache:
         # Act.
         credential_store.clear_in_memory_secrets(config)
 
-        # Assert: cache is empty (DJ-24).
+        # Assert: cache is empty ().
         assert not credential_store._plaintext_config_cache, (
             "DJ-24: clear_in_memory_secrets() must invalidate _plaintext_config_cache"
         )

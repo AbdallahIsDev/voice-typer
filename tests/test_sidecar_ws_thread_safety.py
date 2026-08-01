@@ -242,7 +242,7 @@ async def test_concurrent_publish_no_events_lost(monkeypatch) -> None:
 
         # Barrier so all threads start publishing simultaneously,
         # maximizing the chance of cross-thread contention on the
-        # queue (the exact scenario CR-4 fixes).
+        # queue (the exact scenario  fixes).
         barrier = threading.Barrier(N_THREADS)
 
         def publish_batch(tid: int) -> None:

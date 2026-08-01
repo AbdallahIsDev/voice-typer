@@ -85,7 +85,7 @@ class TestIsPathWithin:
         # On win32/darwin the comparison is lower-cased, so C:\Users\X
         # is within c:\users\X.
         #
-        # XE-1-F: previously ``monkeypatch.setattr(config.sys, "platform",
+        # previously ``monkeypatch.setattr(config.sys, "platform",
         # "win32")`` — but ``config`` does NOT import ``sys`` at module
         # level (no ``import sys`` in ``config.py``), so ``config.sys``
         # raised ``AttributeError`` and the test always errored out
@@ -93,7 +93,7 @@ class TestIsPathWithin:
         # module's ``platform`` attribute (which ``_is_path_within``
         # reads via its own ``import sys``) is the correct fix.
         #
-        # XE-1-E: even more robust — pass ``case_sensitive=False`` to
+        # even more robust — pass ``case_sensitive=False`` to
         # ``_is_path_within`` explicitly so the test no longer depends
         # on the global ``sys.platform`` value at all (the
         # case-insensitive branch is exercised deterministically
@@ -113,10 +113,10 @@ class TestIsPathWithin:
         # On Linux the comparison is case-sensitive, so /Home/X is NOT
         # within /home/X.
         #
-        # XE-1-F: same AttributeError bug — ``config.sys`` doesn't
+        # same AttributeError bug — ``config.sys`` doesn't
         # exist.  Patch the global ``sys`` module instead.
         #
-        # XE-1-E: pass ``case_sensitive=True`` explicitly so the test
+        # pass ``case_sensitive=True`` explicitly so the test
         # exercises the case-sensitive branch deterministically (the
         # Linux CI runner is already case-sensitive, but pinning the
         # parameter makes the intent obvious and survives a future
@@ -132,9 +132,9 @@ class TestIsPathWithin:
         # commonpath raises ValueError for paths on different drives;
         # the function must return False rather than raise.
         #
-        # XE-1-F: same AttributeError bug — patch the global ``sys``
+        # same AttributeError bug — patch the global ``sys``
         # module instead of ``config.sys`` (which doesn't exist).
-        # XE-1-E: pass ``case_sensitive=False`` explicitly to exercise
+        # pass ``case_sensitive=False`` explicitly to exercise
         # the Windows-style (case-insensitive) branch deterministically.
         #
         # NOTE: on a Linux CI runner ``Path("C:/voice-typer").resolve()``

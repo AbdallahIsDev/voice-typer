@@ -53,7 +53,7 @@ from voice_typer.server.shutdown_controller import ShutdownController
 # ``_INIT_LOCK``, etc.) that don't exist yet in the WIP
 # ``clipboard_target_safety.py``.
 #
-# These XV-7 / XV-8 / XV-10 tests don't need ``voice_typer.server.app``
+# These  /  /  tests don't need ``voice_typer.server.app``
 # at all — they use a ``_FakeApp`` duck-typed stand-in. We override the
 # autouse fixture with a no-op so the broken import doesn't break our
 # test setup. The override is scoped to this module only.
@@ -150,10 +150,10 @@ def controller(fake_app):
     return ctrl
 
 
-# ── XV-7: parallel teardown batch ──────────────────────────────────────
+# parallel teardown batch ──────────────────────────────────────
 
 
-class TestXV7ParallelTeardownBatch:
+class TestParallelTeardownBatch:
     """XV-7: ``_do_cleanup`` runs the independent middle teardowns in a
     ``ThreadPoolExecutor`` with a shared 10 s deadline. The bookends
     (``ipc_server.stop`` + WS pool drain at the start, ``tray.stop`` at
@@ -214,7 +214,7 @@ class TestXV7ParallelTeardownBatch:
         """
         import time as _time
 
-        # DJ-9: history_db + crash_recovery are now sequential. Use
+        # history_db + crash_recovery are now sequential. Use
         # two helpers that remain in the parallel batch.
         def _slow_teardown(*args, **kwargs):
             _time.sleep(0.3)
@@ -297,10 +297,10 @@ class TestXV7ParallelTeardownBatch:
         )
 
 
-# ── XV-8: Electron termination timeout + SIGKILL escalation ────────────
+# Electron termination timeout + SIGKILL escalation ────────────
 
 
-class TestXV8ElectronTerminationTimeout:
+class TestElectronTerminationTimeout:
     """XV-8: ``_teardown_electron`` wraps BOTH branches in
     ``_run_with_timeout(timeout=5.0)`` and adds SIGKILL escalation
     after 2 s on POSIX for the legacy tray_window fallback path."""
@@ -417,10 +417,10 @@ class TestXV8ElectronTerminationTimeout:
         assert 1.5 < elapsed < 6.0, f"XV-8: SIGKILL escalation should fire after ~2s; took {elapsed:.2f}s"
 
 
-# ── XV-10: tray.stop() timeout fallback ────────────────────────────────
+# tray.stop() timeout fallback ────────────────────────────────
 
 
-class TestXV10TrayStopTimeoutFallback:
+class TestTrayStopTimeoutFallback:
     """XV-10: if ``tray.stop()`` times out AND we're on a non-main
     thread, the cleanup thread calls ``os._exit(0)`` to unblock the
     main thread (parked in pystray's ``run()`` loop)."""

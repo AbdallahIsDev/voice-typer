@@ -20,7 +20,7 @@ from unittest.mock import patch
 import pytest
 
 
-# WP-1: the previous Linux test-env shim that aliased
+# the previous Linux test-env shim that aliased
 # ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE`` and inserted a ``MagicMock``
 # for ``voice_typer.server.crash_handler`` into ``sys.modules`` has been
 # removed. ``crash_handler.py`` now gates the ``@ctypes.WINFUNCTYPE(...)``
@@ -120,7 +120,7 @@ class TestDuplicateDiskSpaceCheckRemoved:
         # raise ``RuntimeError`` so the function short-circuits after
         # the check (no actual download attempt).
         #
-        # DE-58 / G4-H-04: ``download_parakeet_weights`` now enforces a
+        # ``download_parakeet_weights`` now enforces a
         # defense-in-depth HuggingFace consent gate. ``config=None``
         # (the default) is treated as "consent NOT given" (GDPR Art.
         # 6/13 safe default), so a bare ``download_parakeet_weights()``
@@ -142,7 +142,7 @@ class TestDuplicateDiskSpaceCheckRemoved:
         ):
             result = asr_setup.download_parakeet_weights(force=True)
 
-        # G4-M-46: the function returns a 3-tuple
+        # the function returns a 3-tuple
         # ``(success, reason, exc_info)``. On insufficient space,
         # ``success`` is False and ``reason`` is
         # ``"disk_space_insufficient"``.
@@ -174,7 +174,7 @@ class TestDaemonThreadRationaleDocumented:
     """
 
     def test_hotkeys_win32_thread_has_rationale(self):
-        # RW-8: KEEP — pins RACE-008 rationale comment on the daemon
+        # KEEP — pins RACE-008 rationale comment on the daemon
         # thread. The comment is documentation, not behavior; a
         # behavioral test can't verify rationale presence. Source-string
         # check is the only way to catch removal.
@@ -186,7 +186,7 @@ class TestDaemonThreadRationaleDocumented:
         )
 
     def test_hotkeys_ipc_thread_has_rationale(self):
-        # RW-8: KEEP — pins RACE-008 rationale comment on the WaylandHotkey
+        # KEEP — pins RACE-008 rationale comment on the WaylandHotkey
         # socket-accept daemon thread. Same rationale as the win32 variant.
         from voice_typer.server.hotkeys import WaylandHotkey
 
@@ -199,7 +199,7 @@ class TestDaemonThreadRationaleDocumented:
         )
 
     def test_tray_bg_thread_has_rationale(self):
-        # RW-8: KEEP — pins RACE-008 rationale comment on the tray
+        # KEEP — pins RACE-008 rationale comment on the tray
         # background-thread daemon. Same rationale as the win32 variant.
         from voice_typer.server.tray import TrayIcon
 
@@ -209,7 +209,7 @@ class TestDaemonThreadRationaleDocumented:
         )
 
     def test_service_download_thread_has_rationale(self):
-        # RW-8: KEEP — pins RACE-008 rationale comment on the service.py
+        # KEEP — pins RACE-008 rationale comment on the service.py
         # model-download daemon thread. Same rationale as the win32 variant.
         from voice_typer.server import service
 
@@ -232,7 +232,11 @@ class TestSystemdUserUnitForMainApp:
         service = psp._build_linux_app_service()
         assert "Restart=on-failure" in service
         assert "Type=simple" in service
-        assert "voice_typer.server.ipc_server" in service
+        # ExecStart must use the autostart launcher (frontend +
+        # backend orchestration), NOT the bare ipc_server backend.
+        # Prior assertion of ``voice_typer.server.ipc_server`` was
+        # pinning the  bug; updated to assert the fixed behaviour.
+        assert "voice_typer.server.autostart_launcher" in service
 
 
 class TestContainerEnvironmentDetection:
@@ -271,7 +275,7 @@ class TestContainerEnvironmentDetection:
         assert result is None or isinstance(result, str)
 
     def test_container_detect_called_in_startup(self):
-        # RW-8: KEEP — pins PLAT-021 (app.py calls warn_if_in_container
+        # KEEP — pins  (app.py calls warn_if_in_container
         # at startup). A behavioral test would need to capture log output
         # from app startup, which is heavy; the source-string check
         # catches removal of the call directly.

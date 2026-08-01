@@ -187,3 +187,42 @@ class TestBackupBeforeMigrationSecure:
         assert any("Pre-migration backup FAILED" in r.getMessage() for r in caplog.records), (
             "expected a WARNING log about the failed backup"
         )
+
+
+# single definition ────────────────────────────────────────────
+
+
+class TestSecureCopyDbFileSingleDefinition:
+    """FR-29: ``_secure_copy_db_file`` must be defined exactly once in
+    ``history_db.py``.
+
+    Pre-fix, the module had two byte-for-byte identical definitions
+    (the second silently shadowed the first — 58 lines of dead code,
+    and a maintenance trap: edits to the first definition had no
+    runtime effect). This test pins the single-definition invariant
+    via ``inspect.getsource`` so future copy-paste regressions are
+    caught at test time.
+    """
+
+    def test_secure_copy_db_file_defined_exactly_once(self):
+        import inspect
+
+        from voice_typer.server import history_db
+
+        module_source = inspect.getsource(history_db)
+        count = module_source.count("def _secure_copy_db_file(")
+        assert count == 1, (
+            f"FR-29 regression: expected exactly 1 definition of "
+            f"_secure_copy_db_file, found {count}. The module must not "
+            f"contain duplicate definitions (the second silently shadows "
+            f"the first)."
+        )
+
+    def test_secure_copy_db_file_call_sites_resolve_to_single_def(self):
+        """The two call sites (``_backup_before_migration``) must resolve
+        to the one-and-only definition. This is implicitly tested by the
+        integration tests above, but we also assert the attribute lookup
+        succeeds and is callable."""
+        from voice_typer.server import history_db
+
+        assert callable(history_db._secure_copy_db_file)

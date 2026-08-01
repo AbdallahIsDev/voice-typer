@@ -27,7 +27,7 @@ from unittest.mock import MagicMock
 
 from voice_typer.server.prewarm import logging_setup
 
-# ─── AB-19: setiopolicy_np called on macOS ──────────────────────────────
+# setiopolicy_np called on macOS ──────────────────────────────
 
 
 class TestMacOSIoPriority:
@@ -134,7 +134,7 @@ class TestMacOSIoPriority:
         logging_setup._lower_io_priority()
 
 
-# ─── AB-19: source-level regression guards ─────────────────────────────
+# source-level regression guards ─────────────────────────────
 
 
 class TestMacOSIoPrioritySourceGuards:

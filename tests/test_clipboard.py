@@ -188,7 +188,7 @@ class TestWaylandFallback:
         assert len(captured) == 1
         cmd, kw = captured[0]
         assert cmd[0] == "wl-copy"
-        # XZ-CLIP-02 (security): text is piped via stdin (NOT passed as
+        # (security): text is piped via stdin (NOT passed as
         # a positional CLI argument) so it isn't visible in
         # /proc/<pid>/cmdline to other local users.
         assert "hello wayland" in kw.get("input", b"").decode("utf-8"), (

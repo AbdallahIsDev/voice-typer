@@ -57,7 +57,7 @@ class TestOnboardingIsFirstRun:
         fake_service.onboarding_is_first_run.side_effect = RuntimeError("disk error")
         resp = ipc_server._handle_onboarding_is_first_run({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -85,7 +85,7 @@ class TestOnboardingStepNavigation:
         fake_service.onboarding_next_step.side_effect = RuntimeError("at last step")
         resp = ipc_server._handle_onboarding_next_step({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -103,7 +103,7 @@ class TestOnboardingSetMicrophone:
     def test_missing_mic_id_returns_missing_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_onboarding_set_microphone({}, {})
         assert resp["type"] == "error"
-        # DE-36: validator now emits namespaced ``client.missing_field``.
+        # validator now emits namespaced ``client.missing_field``.
         # ``legacy_code`` carries the bare form for one release cycle so
         # older renderer error-handling code that switches on the bare
         # string keeps working until the migration completes.
@@ -115,7 +115,7 @@ class TestOnboardingSetMicrophone:
     def test_non_string_mic_id_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_onboarding_set_microphone({"mic_id": 123}, {})
         assert resp["type"] == "error"
-        # DE-36: namespaced ``client.invalid_field`` (legacy bare form
+        # namespaced ``client.invalid_field`` (legacy bare form
         # preserved in ``legacy_code``).
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["legacy_code"] == "invalid_field"
@@ -156,7 +156,7 @@ class TestOnboardingSetHotkey:
     def test_non_string_hotkey_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_onboarding_set_hotkey({"hotkey": 99}, {})
         assert resp["type"] == "error"
-        # DE-36: namespaced ``client.invalid_field`` (legacy bare form
+        # namespaced ``client.invalid_field`` (legacy bare form
         # preserved in ``legacy_code``).
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["legacy_code"] == "invalid_field"
@@ -181,7 +181,7 @@ class TestOnboardingSetModel:
     def test_non_string_model_returns_invalid_field_error(self, ipc_server, fake_service):
         resp = ipc_server._handle_onboarding_set_model({"model": ["small"]}, {})
         assert resp["type"] == "error"
-        # DE-36: namespaced ``client.invalid_field`` (legacy bare form
+        # namespaced ``client.invalid_field`` (legacy bare form
         # preserved in ``legacy_code``).
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["legacy_code"] == "invalid_field"
@@ -213,7 +213,7 @@ class TestOnboardingSkipAndApply:
         fake_service.onboarding_apply.side_effect = RuntimeError("config save failed")
         resp = ipc_server._handle_onboarding_apply({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
@@ -249,12 +249,12 @@ class TestOnboardingListHandlers:
         fake_service.onboarding_get_microphones.side_effect = RuntimeError("portaudio")
         resp = ipc_server._handle_onboarding_get_microphones({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
 
-# ── FIX-11: new onboarding IPC handlers (UX-4 / UX-27) ────────────────
+# new onboarding IPC handlers ( / ) ────────────────
 
 
 class TestOnboardingCheckPermissionsHandler:
@@ -300,13 +300,13 @@ class TestOnboardingCheckPermissionsHandler:
         monkeypatch.setattr(onboarding_mod.OnboardingController, "check_permissions", _boom)
         resp = ipc_server._handle_onboarding_check_permissions({}, {})
         assert resp["type"] == "error"
-        # CR-20: generic WS-path envelope (no ``str(exc)`` leak).
+        # generic WS-path envelope (no ``str(exc)`` leak).
         assert resp["data"]["code"] == "server.internal_error"
         assert resp["data"]["message"] == "internal error"
 
 
 # ──────────────────────────────────────────────────────────────────────
-# XZ-EH-002: service-returned ``{"error": str(exc)}`` redaction
+# service-returned ``{"error": str(exc)}`` redaction
 # ──────────────────────────────────────────────────────────────────────
 
 

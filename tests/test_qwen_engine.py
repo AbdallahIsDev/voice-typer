@@ -38,7 +38,7 @@ class TestQwenEngineUnit:
         # config.json before importing qwen_asr. Use a real tmp dir with a
         # config.json so the security gates pass.
         #
-        # G4-H-33 (Session 7 — Group 4): ``load()`` now calls
+        # (Session 7 — Group 4): ``load()`` now calls
         # ``security.verify_model_integrity(model_path, "qwen")`` instead
         # of the deleted local ``_verify_qwen_model_hashes``.  The
         # shared verifier hard-fails on the default ship-state manifest
@@ -192,7 +192,7 @@ class TestQwenIntegration:
         assert isinstance(result, str)
 
 
-class TestP1WhisperSkipWhenQwenActive:
+class TestWhisperSkipWhenQwenActive:
     """P1 fix: Skip Whisper load when Qwen is active, with lazy Whisper fallback."""
 
     def _make_app_with_qwen(self, monkeypatch, tmp_path, qwen_loaded=True):
@@ -241,7 +241,7 @@ class TestP1WhisperSkipWhenQwenActive:
                 {
                     "asr_backend": "qwen",
                     "qwen_model_path": str(tmp_path / "qwen_model"),
-                    # PRIV-001: dictation now requires explicit voice-biometric
+                    # dictation now requires explicit voice-biometric
                     # consent — without this the recorder refuses to start.
                     "voice_biometric_consent": True,
                 }
@@ -265,7 +265,7 @@ class TestP1WhisperSkipWhenQwenActive:
     def test_startup_skips_whisper_when_qwen_active(self, monkeypatch, tmp_path):
         """When Qwen backend is active and loaded, Whisper should NOT be loaded during startup."""
         app = self._make_app_with_qwen(monkeypatch, tmp_path, qwen_loaded=True)
-        # RW-9 Phase 1: the app-level test-seam delegates have been removed;
+        # Phase 1: the app-level test-seam delegates have been removed;
         # patch the controllers / module-level functions directly.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
         monkeypatch.setattr("voice_typer.server.startup_tasks.load_microphones", MagicMock())
@@ -274,7 +274,7 @@ class TestP1WhisperSkipWhenQwenActive:
 
         # Track if Whisper load was attempted
         whisper_load_called = []
-        # RW-9 Phase 2: ``app._try_load_model`` delegate removed; patch
+        # Phase 2: ``app._try_load_model`` delegate removed; patch
         # the ModelManager method directly.
         original_try_load = app.models.try_load
 
@@ -306,7 +306,7 @@ class TestP1WhisperSkipWhenQwenActive:
     def test_startup_falls_back_to_whisper_when_qwen_fails(self, monkeypatch, tmp_path):
         """When Qwen backend fails to load, Whisper should be loaded as fallback."""
         app = self._make_app_with_qwen(monkeypatch, tmp_path, qwen_loaded=False)
-        # RW-9 Phase 1: the app-level test-seam delegates have been removed;
+        # Phase 1: the app-level test-seam delegates have been removed;
         # patch the controllers / module-level functions directly.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
         monkeypatch.setattr("voice_typer.server.startup_tasks.load_microphones", MagicMock())
@@ -390,7 +390,7 @@ class TestP1WhisperSkipWhenQwenActive:
         app.recorder.start.assert_called_once()
 
 
-class TestM23LoadReturnValues:
+class TestLoadReturnValues:
     """M23: QwenEngine load() silently eats errors."""
 
     def _make_engine(self, model_path="/fake/qwen/model", **kwargs):
@@ -402,7 +402,7 @@ class TestM23LoadReturnValues:
         # SEC-audit-007: load() validates the model directory and reads
         # config.json before importing qwen_asr. Use a real tmp dir with
         # a config.json so the security gates pass.
-        # G4-H-33: mock verify_model_integrity (see
+        # mock verify_model_integrity (see
         # ``test_load_success`` for rationale).
         import json as _json
 
@@ -447,7 +447,7 @@ class TestM23LoadReturnValues:
         assert result is True
 
 
-class TestM13HallucinationDetection:
+class TestHallucinationDetection:
     """M13: QwenEngine no hallucination detection."""
 
     def _make_engine(self, model_path="/fake/qwen/model", **kwargs):
@@ -492,10 +492,10 @@ class TestM13HallucinationDetection:
         assert result == "Hello world"
 
 
-# ─── G4-H-33 (Session 7 — Group 4): regression tests ─────────────────────
+# (Session 7 — Group 4): regression tests ─────────────────────
 
 
-class TestG4H33QwenIntegrityHardFail:
+class TestQwenIntegrityHardFail:
     """G4-H-33: ``qwen_engine._verify_qwen_model_hashes`` deleted; load()
     now delegates to ``security.verify_model_integrity(model_path, "qwen")``
     which hard-fails on a tampered local directory.

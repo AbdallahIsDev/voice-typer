@@ -49,7 +49,7 @@ def test_buffer_zeroed_on_stop():
     # Buffer should be empty after stop
     assert len(recorder._buffer) == 0
 
-    # WR-8: drain the buffer-clear background worker so the
+    # drain the buffer-clear background worker so the
     # asynchronous fill(0) has actually executed on chunk_ref, then
     # assert the chunk's contents were zeroed in-place. Previously
     # this test only checked the buffer length, which passes even if

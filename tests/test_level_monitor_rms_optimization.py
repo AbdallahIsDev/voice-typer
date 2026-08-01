@@ -61,7 +61,7 @@ def _new_peak(flat: np.ndarray) -> float:
     return max(float(flat.max()), -float(flat.min()))
 
 
-class TestTY17NumericalEquivalence:
+class TestNumericalEquivalence:
     """The NEW RMS/peak computations match the OLD ones to fp tolerance."""
 
     @pytest.mark.parametrize("seed", [0, 1, 42, 1337, 99999])
@@ -152,7 +152,7 @@ class TestTY17NumericalEquivalence:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestTY17AllocationCount:
+class TestAllocationCount:
     """The NEW RMS+peak path calls ZERO allocation-inducing numpy
     functions (``np.abs``, ``np.mean``); the OLD path calls them once
     each per chunk.
@@ -270,7 +270,7 @@ class TestTY17AllocationCount:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestTY17ProcessLevelChunkEndToEnd:
+class TestProcessLevelChunkEndToEnd:
     """The end-to-end level computation in ``_process_level_chunk`` (NEW
     path) produces the same ``_monitor_level`` / ``_monitor_peak`` as
     the OLD path would have.

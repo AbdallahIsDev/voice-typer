@@ -89,7 +89,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-# ── TEST-009: Corrections roundtrip ────────────────────────────────────
+# Corrections roundtrip ────────────────────────────────────
 
 
 class TestCorrectionsRoundtrip:
@@ -119,7 +119,7 @@ class TestCorrectionsRoundtrip:
         assert second == first
 
 
-# ── TEST-009: Config serialization roundtrip ───────────────────────────
+# Config serialization roundtrip ───────────────────────────
 
 
 class TestConfigSerializationRoundtrip:
@@ -148,7 +148,7 @@ class TestConfigSerializationRoundtrip:
         assert loaded.beam_size == beam_size
 
 
-# ── TEST-009: Audio buffer operations with random sizes ────────────────
+# Audio buffer operations with random sizes ────────────────
 
 
 class TestAudioBufferOperations:
@@ -174,7 +174,7 @@ class TestAudioBufferOperations:
         assert abs(rms - 1.0) < 1e-6
 
 
-# ── TEST-009: Text cleanup with random strings ─────────────────────────
+# Text cleanup with random strings ─────────────────────────
 
 
 class TestTextCleanupRandom:
@@ -195,7 +195,7 @@ class TestTextCleanupRandom:
             assert result[0].isupper() or result == s
 
 
-# ── TEST-013: Fuzzing for corrections.json parser ──────────────────────
+# Fuzzing for corrections.json parser ──────────────────────
 
 
 class TestCorrectionsJsonFuzzing:

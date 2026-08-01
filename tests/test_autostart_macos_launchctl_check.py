@@ -83,7 +83,7 @@ def _make_completed(returncode: int = 0, stdout: bytes = b"", stderr: bytes = b"
     return MagicMock(returncode=returncode, stdout=stdout, stderr=stderr)
 
 
-# ─── FR-38: launchctl load success path ──────────────────────────────
+# launchctl load success path ──────────────────────────────
 
 
 class TestLaunchctlLoadSuccess:
@@ -112,7 +112,7 @@ class TestLaunchctlLoadSuccess:
         assert mod._enable_autostart_macos() is True
 
 
-# ─── FR-38: launchctl load failure paths ─────────────────────────────
+# launchctl load failure paths ─────────────────────────────
 
 
 class TestLaunchctlLoadFailure:
@@ -205,7 +205,7 @@ class TestLaunchctlLoadFailure:
         assert mod._enable_autostart_macos() is False
 
 
-# ─── FR-38: existing source-level assertions still hold ─────────────
+# existing source-level assertions still hold ─────────────
 
 
 class TestSourceLevelInvariants:

@@ -47,14 +47,14 @@ from voice_typer.server.clipboard import (  # noqa: E402
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Display-env isolation (XS-22)
+# Display-env isolation ()
 # ---------------------------------------------------------------------------
 # Previously this module mutated the process environment at import time
 # (setting DISPLAY=":99" and removing WAYLAND_DISPLAY) to keep clipboard
 # code happy on a headless Linux box. Those mutations leaked into the
 # entire test session. The autouse fixture below uses ``monkeypatch`` so
 # the mutations are auto-restored after each test (no cross-test leak).
-# XS-FIX-2 could consolidate this into ``tests/conftest.py`` as a
+# could consolidate this into ``tests/conftest.py`` as a
 # session-scoped fixture; for now it is duplicated per-file because
 # conftest.py is owned by another sub-agent.
 

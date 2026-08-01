@@ -106,11 +106,11 @@ def _wire_stream_with_callback_capture(monkeypatch):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# XV-54: only _test_raw_chunks is populated; audio derived from raw_audio.copy()
+# only _test_raw_chunks is populated; audio derived from raw_audio.copy()
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestXV54OnlyRawChunksPopulated:
+class TestOnlyRawChunksPopulated:
     """XV-54: the worker thread populates ONLY ``_test_raw_chunks``.
 
     Previously both ``_test_chunks`` (filtered-then-stored) and
@@ -149,11 +149,11 @@ class TestXV54OnlyRawChunksPopulated:
                 break
             time.sleep(0.01)
 
-        # XV-54: only _test_raw_chunks should have been appended to.
+        # only _test_raw_chunks should have been appended to.
         assert len(lm._test_raw_chunks) == 1, (
             f"worker should append to _test_raw_chunks; got len={len(lm._test_raw_chunks)}"
         )
-        # XV-54: _test_chunks should NOT be appended to by the worker.
+        # _test_chunks should NOT be appended to by the worker.
         assert len(lm._test_chunks) == 0, (
             f"XV-54: worker should NOT append to _test_chunks (only _test_raw_chunks); got len={len(lm._test_chunks)}"
         )
@@ -207,14 +207,14 @@ class TestXV54OnlyRawChunksPopulated:
         lm.start_test_recording(duration=5.0)
 
         # Simulate a legacy test that appends to _test_chunks only (not
-        # _test_raw_chunks). XV-54: stop_test_recording ignores _test_chunks
+        # _test_raw_chunks). : stop_test_recording ignores _test_chunks
         # and reads only from _test_raw_chunks.
         chunk = np.ones((512, 1), dtype=np.float32) * 0.25
         lm._test_chunks.append(chunk)
         # _test_raw_chunks is empty.
 
         result = lm.stop_test_recording()
-        # XV-54: _test_raw_chunks is the source of truth. With it empty,
+        # _test_raw_chunks is the source of truth. With it empty,
         # stop returns "No audio captured".
         assert result["success"] is True
         assert result["audio_base64"] == ""
@@ -241,10 +241,10 @@ class TestXV54OnlyRawChunksPopulated:
                 break
             time.sleep(0.01)
 
-        # XV-54: only ONE copy of each chunk is stored.
+        # only ONE copy of each chunk is stored.
         assert len(lm._test_raw_chunks) == 5
         assert len(lm._test_chunks) == 0  # NOT populated by the worker
-        # Total chunks stored: 5 (was 10 before XV-54).
+        # Total chunks stored: 5 (was 10 before ).
         total = len(lm._test_raw_chunks) + len(lm._test_chunks)
         assert total == 5, f"XV-54: total chunks stored should be 5 (one copy each); got {total}"
 
@@ -253,11 +253,11 @@ class TestXV54OnlyRawChunksPopulated:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# XV-55: heavy work runs OUTSIDE _monitor_lock in _process_level_chunk
+# heavy work runs OUTSIDE _monitor_lock in _process_level_chunk
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestXV55HeavyWorkOutsideLock:
+class TestHeavyWorkOutsideLock:
     """XV-55: the filter chain + RMS/peak + quality metrics run OUTSIDE
     ``_monitor_lock`` so ``get_level()`` / ``stop_test_recording()`` /
     other worker iterations are not blocked waiting for the lock while
@@ -307,11 +307,11 @@ class TestXV55HeavyWorkOutsideLock:
 
             assert isinstance(level, dict)
             assert "level" in level
-            # XV-55: get_level() should NOT block on the slow filter.
+            # get_level() should NOT block on the slow filter.
             # The lock is held only for the brief shared-state writes
             # (sub-microsecond), so get_level() returns in microseconds
             # even while the worker is mid-filter. Tight 10ms upper bound
-            # (the pre-XV-55 behavior would have blocked ~50ms — N×50ms
+            # (the pre- behavior would have blocked ~50ms — N×50ms
             # when the worker falls behind and multiple chunks queue up).
             assert elapsed_ms < 10.0, (
                 f"XV-55: get_level() took {elapsed_ms:.2f}ms with a 50ms slow "
@@ -371,9 +371,9 @@ class TestXV55HeavyWorkOutsideLock:
                 assert "level" in level
                 time.sleep(0.05)  # advance to mid-drain of next chunk
 
-            # XV-55: even with the worker falling behind (multiple 50ms
+            # even with the worker falling behind (multiple 50ms
             # chunks queued), get_level() must return in <10ms.
-            # Pre-XV-55 this would have been ~50ms (or N×50ms once the
+            # Pre- this would have been ~50ms (or N×50ms once the
             # lock was contended by a queued chunk's processing).
             assert max_elapsed_ms < 10.0, (
                 f"XV-55: get_level() took {max_elapsed_ms:.2f}ms (max of 3 samples) "
@@ -410,16 +410,16 @@ class TestXV55HeavyWorkOutsideLock:
             time.sleep(0.02)
 
             # stop_test_recording() acquires _monitor_lock to clear
-            # _test_mode. With XV-55, this should NOT block on the
+            # _test_mode. With , this should NOT block on the
             # 50ms filter (the filter runs outside the lock).
             t0 = time.perf_counter()
             result = lm.stop_test_recording()
             elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
             assert result["success"] is True
-            # XV-55: stop_test_recording should NOT block on the slow
+            # stop_test_recording should NOT block on the slow
             # filter. Allow generous 100ms upper bound for CI jitter
-            # (the pre-XV-55 behavior would have blocked ~50ms).
+            # (the pre- behavior would have blocked ~50ms).
             assert elapsed_ms < 100.0, (
                 f"XV-55: stop_test_recording() took {elapsed_ms:.2f}ms with a "
                 f"50ms slow filter on the worker — heavy work must run OUTSIDE "
@@ -490,7 +490,7 @@ class TestXV55HeavyWorkOutsideLock:
                     break
                 time.sleep(0.01)
 
-            # XV-55: quality metrics from RAW audio (0.5), not filtered (0.0).
+            # quality metrics from RAW audio (0.5), not filtered (0.0).
             assert len(lm._test_rms_history) > 0
             raw_rms = lm._test_rms_history[-1]
             assert raw_rms > 0.4, (
@@ -545,7 +545,7 @@ class TestXV55HeavyWorkOutsideLock:
 
             # Wait for the filter to start.
             assert filter_started.wait(timeout=1.0), "filter didn't start"
-            # XV-55: during the slow filter, the worker should NOT be
+            # during the slow filter, the worker should NOT be
             # holding _monitor_lock (the heavy work runs outside the lock).
             # filter_in_progress is set ONLY if the lock was held by someone
             # else during the filter — which shouldn't happen because the
@@ -566,11 +566,11 @@ class TestXV55HeavyWorkOutsideLock:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# XV-58: throttled logging of _dropped_level_chunks + get_level_diagnostics()
+# throttled logging of _dropped_level_chunks + get_level_diagnostics()
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestXV58DroppedChunksLogging:
+class TestDroppedChunksLogging:
     """XV-58: ``_dropped_level_chunks`` is logged with 5s throttling inside
     ``_level_worker_loop`` and reset to 0 after logging.
 
@@ -668,7 +668,7 @@ class TestXV58DroppedChunksLogging:
         assert "7" in drop_warnings[0].message, (
             f"XV-58: log should mention '7' dropped chunks; got: {drop_warnings[0].message}"
         )
-        # XV-58: counter should be reset to 0 after logging.
+        # counter should be reset to 0 after logging.
         assert lm._dropped_level_chunks == 0, (
             f"XV-58: _dropped_level_chunks should be reset to 0 after logging; got {lm._dropped_level_chunks}"
         )
@@ -692,7 +692,7 @@ class TestXV58DroppedChunksLogging:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.level_monitor"):
             lm._level_worker_loop()
 
-        # XV-58: no log should be emitted (within the 5s throttle window).
+        # no log should be emitted (within the 5s throttle window).
         drop_warnings = [r for r in caplog.records if "dropped" in r.message.lower()]
         assert len(drop_warnings) == 0, (
             f"XV-58: worker should NOT log within 5s throttle window; got: {[r.message for r in drop_warnings]}"
@@ -761,11 +761,11 @@ class TestXV58DroppedChunksLogging:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# YJ-50: _test_auto_stop_timer mutation must be locked in cancel_test_recording
+# _test_auto_stop_timer mutation must be locked in cancel_test_recording
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-class TestYJ50CancelTestRecordingLock:
+class TestCancelTestRecordingLock:
     """YJ-50 (review-fix-C2-rework): ``cancel_test_recording`` must
     acquire ``_monitor_lock`` before cancelling + clearing the auto-stop
     timer.
@@ -833,11 +833,11 @@ class TestYJ50CancelTestRecordingLock:
         # of cancel_test_recording acquires it again).
         result = lm.cancel_test_recording()
 
-        # YJ-50 (review-fix-C2-rework): the timer cancel block at the
+        # (review-fix-C2-rework): the timer cancel block at the
         # top of cancel_test_recording must acquire the lock. With the
         # fix, we see at least 2 entries: one for the timer-cancel
         # block and one for _cancel_test_locked. Without the fix (the
-        # original YJ-50 bug), we'd see only 1 entry (from
+        # original  bug), we'd see only 1 entry (from
         # _cancel_test_locked).
         assert len(enter_calls) >= 2, (
             f"YJ-50: cancel_test_recording must acquire _monitor_lock "
@@ -927,7 +927,7 @@ class TestYJ50CancelTestRecordingLock:
         # Give cancel_thread time to reach the lock acquisition point.
         time.sleep(0.1)
 
-        # YJ-50: cancel_test_recording must be blocked (the lock is held
+        # cancel_test_recording must be blocked (the lock is held
         # by the worker). If the timer-cancel wrap were removed, the
         # timer would be cancelled immediately (without waiting for the
         # lock) and cancel_thread would proceed past the timer-cancel
@@ -940,7 +940,7 @@ class TestYJ50CancelTestRecordingLock:
             "released — the timer-cancel block did NOT wait for "
             "_monitor_lock (the with-lock wrap is missing)."
         )
-        # Critical YJ-50 assertion: the timer was NOT cancelled while
+        # Critical  assertion: the timer was NOT cancelled while
         # the lock was held by another thread. With the wrap, the timer
         # cancel happens INSIDE the lock, so it can't happen until the
         # worker releases the lock.

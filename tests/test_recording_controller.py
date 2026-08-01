@@ -41,7 +41,7 @@ def _make_minimal_controller():
     return ctrl
 
 
-# ─── XV-134: silence / max-duration auto-stop dispatch ────────────────────
+# silence / max-duration auto-stop dispatch ────────────────────
 
 
 class TestSilenceAutoStopDispatch:
@@ -75,7 +75,7 @@ class TestSilenceAutoStopDispatch:
 
         ctrl.on_silence_auto_stop()
 
-        # Must have scheduled with delay=0 (XV-134 short-circuit trigger).
+        # Must have scheduled with delay=0 ( short-circuit trigger).
         assert len(captured) == 1
         delay, func = captured[0]
         assert delay == 0, (
@@ -96,7 +96,7 @@ class TestSilenceAutoStopDispatch:
         ctrl = _make_minimal_controller()
         ran_on: list[threading.Thread] = []
 
-        # Use a real TimerCoordinator so XV-134's short-circuit path
+        # Use a real TimerCoordinator so 's short-circuit path
         # actually fires.
         from voice_typer.server.timer_coordinator import TimerCoordinator
 
@@ -193,7 +193,7 @@ class TestMaxDurationAutoStopDispatch:
         assert ran_on[0].daemon
 
 
-# ─── GT-22: lifecycle lock serializes toggle / start / stop / cancel ─────
+# lifecycle lock serializes toggle / start / stop / cancel ─────
 
 
 class TestLifecycleLockSerialization:
@@ -357,7 +357,7 @@ class TestLifecycleLockSerialization:
         assert reentrant_call_succeeded.is_set(), "GT-22: re-entrant start() call from toggle() did not complete"
 
 
-# ─── GT-46: _transcription_thread snapshot under _watchdog_lock ─────────
+# _transcription_thread snapshot under _watchdog_lock ─────────
 
 
 class TestTranscriptionThreadSnapshot:
@@ -471,7 +471,7 @@ class TestTranscriptionThreadSnapshot:
             live_thread.join(timeout=1.0)
 
 
-# ─── GT-47: set_thread_registry holds _buffer_clear_worker_lock ─────────
+# set_thread_registry holds _buffer_clear_worker_lock ─────────
 
 
 class TestSetThreadRegistryLock:
@@ -502,7 +502,7 @@ class TestSetThreadRegistryLock:
         assert register_calls == [], "GT-47: register must not be called when worker is None"
 
 
-# ─── GT-72: timer callback during shutdown is suppressed ───────────────
+# timer callback during shutdown is suppressed ───────────────
 
 
 class TestTimerShutdownSuppression:

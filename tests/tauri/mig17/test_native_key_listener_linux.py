@@ -131,7 +131,7 @@ TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
 COMPILE_NATIVE_SH = PROJECT_ROOT / "scripts" / "build" / "compile_native.sh"
 BUILD_NATIVE_LISTENER_LINUX_SH = PROJECT_ROOT / "scripts" / "build" / "build_native_listener_linux.sh"
 LINUX_KEY_LISTENER_C = PROJECT_ROOT / "voice_typer" / "server" / "native" / "linux-key-listener.c"
-# Phase 4.5 / ARCH-045: ``native_hotkeys`` and ``hotkeys`` were split
+# Phase 4.5 / : ``native_hotkeys`` and ``hotkeys`` were split
 # from god-modules into packages. The tests below read the package
 # ``__init__.py`` (which re-exports the public surface) and the
 # relevant submodule (``linux_backend.py`` for LinuxEvdevHotkey,
@@ -187,7 +187,7 @@ def linux_env(monkeypatch):
     monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
     monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
     monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
-    # XE-12-5 / RT-8: bypass the SHA-256 manifest gate so
+    # bypass the SHA-256 manifest gate so
     # ``_spawn_process`` reaches the ``subprocess.Popen`` call (the
     # ``TestSubprocessSpawn`` tests inject their own ``fake_popen`` and
     # assert on its arguments; they don't exercise the verifier).
@@ -389,7 +389,7 @@ class TestSubprocessSpawn:
         assert kwargs.get("stderr") == subprocess.STDOUT, (
             "stderr must redirect to stdout so errors surface in the wire stream"
         )
-        # G4-H-31: stdin is now PIPE (was DEVNULL) so the watchdog can
+        # stdin is now PIPE (was DEVNULL) so the watchdog can
         # write ``PING\n`` to the binary's stdin and verify it's alive
         # via the ``PONG\n`` response. The binary is still event-driven
         # for hotkey detection (poll on /dev/input/event* fds); the
@@ -439,7 +439,7 @@ class TestSubprocessSpawn:
         """
         backend = linux_env.LinuxEvdevHotkey("<f8>")
         backend._binary_path = tmp_path / "linux-key-listener"
-        # XE-12-5 / RT-8: ``_spawn_process`` opens the binary with
+        # ``_spawn_process`` opens the binary with
         # ``os.open`` (O_RDONLY | O_CLOEXEC) BEFORE the SHA-256 verify +
         # Popen so the fd pins the inode for the pre-Popen stat check.
         # The file must exist on disk or the ``os.open`` fails first
@@ -582,7 +582,7 @@ class TestBinaryDiscovery:
         # ``Path(__file__).resolve().parent.parent / "native"``, i.e.
         # it goes UP from ``native_hotkeys/`` to ``server/`` before
         # descending into ``native/``. ``NATIVE_HOTKEYS_PY`` points at
-        # the package ``__init__.py`` (Phase 4.5 / ARCH-045 split), so
+        # the package ``__init__.py`` (Phase 4.5 /  split), so
         # we mirror the source's ``.parent.parent`` traversal here.
         server_dir = NATIVE_HOTKEYS_PY.resolve().parent.parent
         expected_dev_path = server_dir / "native" / "linux-key-listener"
@@ -1196,7 +1196,7 @@ class TestSidecarOwnership:
         # LinuxEvdevHotkey is defined in the native_hotkeys package
         # (linux_backend.py), not in hotkeys/factory.py. The factory
         # references it via create_native_backend (which returns it).
-        # XPLAT-13 removed the stale docstring reference; check the
+        # removed the stale docstring reference; check the
         # native_hotkeys package __init__.py + linux_backend.py instead.
         native_init = HOTKEYS_PY.parent.parent / "native_hotkeys" / "__init__.py"
         native_linux = HOTKEYS_PY.parent.parent / "native_hotkeys" / "linux_backend.py"
@@ -1235,7 +1235,7 @@ class TestSidecarOwnership:
         monkeypatch.delenv("VOICE_TYPER_NATIVE_BINARY", raising=False)
         monkeypatch.setenv("VOICE_TYPER_NATIVE_DIR", str(native_dir))
 
-        # CR-002: the dummy binary has no manifest entry, so
+        # the dummy binary has no manifest entry, so
         # ``verify_native_binary_or_skip`` would fail-closed and return
         # False. Monkeypatch it to return True so the Linux code path is
         # exercised (the manifest verification is tested elsewhere).

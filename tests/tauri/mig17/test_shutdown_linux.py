@@ -307,7 +307,7 @@ class TestShutdownSidecarSource:
         """
         body = _shutdown_sidecar_body()
         # Takes the child out of the Option (single-use after kill).
-        # CR-29: ``state.child.lock().unwrap()`` was replaced by the
+        # ``state.child.lock().unwrap()`` was replaced by the
         # poison-safe ``mutex_lock(&state.child)`` helper.
         take_match = re.search(
             r"(?:mutex_lock\(&state\.child\)|state\.child\.lock\(\)\.unwrap\(\))\.take\(\)",
@@ -319,7 +319,7 @@ class TestShutdownSidecarSource:
             "`state.child.lock().unwrap().take()` (pre-CR-29)"
         )
         # Calls .kill().await or .kill_tree().await on the child.
-        # CR-29: kill_tree (recursive) replaced kill (direct child only).
+        # kill_tree (recursive) replaced kill (direct child only).
         kill_match = re.search(r"child\.(?:kill_tree|kill)\(\)\.await", body)
         assert kill_match is not None, (
             "shutdown_sidecar must call child.kill().await or child.kill_tree().await "
@@ -379,7 +379,7 @@ class TestShutdownSidecarSource:
         tokio::process::Child::kill) instead of SIGTERM.
         """
         body = _shutdown_sidecar_body()
-        # RT-8: the production code uses the literal ``dev-mode``
+        # the production code uses the literal ``dev-mode``
         # substring in both the comment block ("Dev-mode path
         # (tokio::process::Child) — no CommandEvent receiver") and the
         # log line ("[SHUTDOWN] dev-mode sidecar — sleeping ...ms
@@ -388,7 +388,7 @@ class TestShutdownSidecarSource:
             "shutdown_sidecar must have an explicit dev-mode fallback branch "
             "(tokio::process::Child has no CommandEvent receiver)"
         )
-        # RT-8: the dev-mode branch must sleep for the configured
+        # the dev-mode branch must sleep for the configured
         # ``SHUTDOWN_ACK_TIMEOUT_MS`` window before force-killing. The
         # implementation chose a single bounded sleep (not incremental
         # ``SHUTDOWN_POLL_INTERVAL_MS`` polling) because there is no
@@ -401,7 +401,7 @@ class TestShutdownSidecarSource:
         # polling refactor; the current dev-mode path does not need
         # it. Asserting on ``SHUTDOWN_ACK_TIMEOUT_MS`` (not
         # ``SHUTDOWN_POLL_INTERVAL_MS``) matches the implementation
-        # as of the CR-2 cooperative-shutdown landing.
+        # as of the  cooperative-shutdown landing.
         assert "SHUTDOWN_ACK_TIMEOUT_MS" in body, (
             "shutdown_sidecar must reference SHUTDOWN_ACK_TIMEOUT_MS — the "
             "dev-mode fallback sleeps for the full cooperative-shutdown "
@@ -835,7 +835,7 @@ class TestSupervisorSource:
             "each retry sleeps for the corresponding backoff delay"
         )
 
-    # NF-R19-2: ``test_caps_restarts_at_supervisor_max_retries`` was
+    # ``test_caps_restarts_at_supervisor_max_retries`` was
     # REMOVED — the in-loop ``if attempt as u32 >= SUPERVISOR_MAX_RETRIES``
     # guard was dead code (the post-loop ``app.restart()`` exhaustion
     # path is the actual cap). The test asserted the presence of the
@@ -873,14 +873,14 @@ class TestSupervisorSource:
         idx_log = src.index("respawn succeeded")
         # Search forward from the log line for `return Ok(())`.
         idx_return = src.index("return Ok(())", idx_log)
-        # NF-R19-2 / CR-29 / CR-13 / RT-8: the gap between the "respawn
+        # the gap between the "respawn
         # succeeded" log and the `return Ok(())` widened across two
-        # refactors — CR-29 added a ``write_restart_counter(0)`` call +
+        # refactors —  added a ``write_restart_counter(0)`` call +
         # a ``supervisor_reconnected`` event emit + a
         # ``respawn_in_progress.store(false, ...)`` flag clear, and
-        # CR-13 added a 17-line comment block explaining the flag-clear
+        # added a 17-line comment block explaining the flag-clear
         # ordering rationale. Accept a 2000-char gap so the test stays
-        # green across the CR-29 + CR-13 refactors while still
+        # green across the  +  refactors while still
         # asserting the return is in the same match arm (the actual
         # code-without-comments gap is ~760 chars — well under the
         # threshold).
@@ -1057,11 +1057,11 @@ class TestPythonShutdownHandler:
         from voice_typer.server.ipc_server import IPCServer
 
         server = IPCServer.__new__(IPCServer)
-        # G4-H-30 / IPC-001: ``_dispatch`` acquires ``self._dispatch_lock``
+        # ``_dispatch`` acquires ``self._dispatch_lock``
         # (an RLock created in ``__init__``). ``__new__`` skips
         # ``__init__``, so create it explicitly.
         server._dispatch_lock = threading.RLock()
-        # UE-18 / RT-8: ``_handle_shutdown`` accesses ``self._shutdown_started``
+        # ``_handle_shutdown`` accesses ``self._shutdown_started``
         # (a threading.Event created in ``__init__``) before scheduling the
         # background cleanup thread. ``__new__`` skips ``__init__``, so create
         # it explicitly (otherwise the dispatch raises AttributeError and the
@@ -1069,12 +1069,12 @@ class TestPythonShutdownHandler:
         # "server.internal_error"}`` frame).
         server._shutdown_started = threading.Event()
         server.app = MagicMock(name="VoiceTyperApp")
-        # PVT-G5-004: ``_dispatch`` checks ``app._shutting_down is True``
+        # ``_dispatch`` checks ``app._shutting_down is True``
         # (strict identity check, not truthiness) — MagicMock auto-vivifies
         # ``_shutting_down`` as a truthy child mock, but it's NOT ``is True``.
         # Set it explicitly to ``False`` for clarity.
         server.app._shutting_down = False
-        # EC-FIX-3: the shutdown handler delegates to ``self.service.quit()``
+        # the shutdown handler delegates to ``self.service.quit()``
         # (NOT ``self.app.quit()``) so shutdown side-effects added to
         # ``VoiceTyperService.quit`` run identically across TCP/stdin/WS.
         server.service = MagicMock(name="VoiceTyperService")
@@ -1100,7 +1100,7 @@ class TestPythonShutdownHandler:
             "shutdown frame it just sent"
         )
 
-    # EC-FIX-3: ``test_shutdown_logs_release_mic_message`` was REMOVED —
+    # ``test_shutdown_logs_release_mic_message`` was REMOVED —
     # the ``[SIDECAR-WS] shutdown received — releasing mic and exiting``
     # log string was removed when the shutdown handler moved from
     # ``sidecar_ws._make_dispatch`` (inline branch) to
@@ -1166,7 +1166,7 @@ class TestPythonShutdownHandler:
             quit_can_finish.wait(timeout=5.0)
 
         dispatch, server = self._make_dispatch()
-        # EC-FIX-3: the shutdown handler delegates to ``self.service.quit()``
+        # the shutdown handler delegates to ``self.service.quit()``
         # (NOT ``self.app.quit()``).
         server.service.quit = slow_quit
 
@@ -1207,7 +1207,7 @@ class TestPythonShutdownHandler:
 
         with patch.object(ipc_server.log, "error") as mock_err:
             dispatch, server = self._make_dispatch()
-            # EC-FIX-3: the shutdown handler delegates to ``self.service.quit()``.
+            # the shutdown handler delegates to ``self.service.quit()``.
             server.service.quit = boom
             await dispatch({"type": "shutdown"}, websocket=MagicMock())
             # Give the background daemon thread a moment to run _bg_cleanup
@@ -1220,12 +1220,12 @@ class TestPythonShutdownHandler:
             "server.service.quit() so a stuck shutdown is diagnosable"
         )
 
-    # EC-FIX-3: ``test_shutdown_does_not_hit_rate_limiter`` was REMOVED —
+    # ``test_shutdown_does_not_hit_rate_limiter`` was REMOVED —
     # the shutdown frame now flows through the standard dispatch path
     # (``sidecar_ws._make_dispatch`` → rate limiter →
     # ``loop.run_in_executor(ws_dispatch_pool, server._dispatch, msg)``
     # → ``_COMMAND_REGISTRY["shutdown"]`` → ``_handle_shutdown``). The
-    # rate limiter IS now hit (it was bypassed pre-EC-FIX-3 when the
+    # rate limiter IS now hit (it was bypassed pre- when the
     # shutdown branch was inlined in the WS dispatch closure). The new
     # behavior is correct — shutdown is a regular command that goes
     # through the same rate-limit + dispatch path as every other
@@ -1262,7 +1262,7 @@ class TestPythonShutdownHandler:
         with patch("voice_typer.server.ipc_server._get_rate_limiter", return_value=limiter):
             result = await dispatch({"type": "get_state"}, websocket=MagicMock())
         # quit() never scheduled.
-        # EC-FIX-3: the shutdown handler delegates to ``self.service.quit()``
+        # the shutdown handler delegates to ``self.service.quit()``
         # (NOT ``self.app.quit()``); a non-shutdown frame must NOT trigger it.
         assert server.service.quit.call_count == 0, "non-shutdown frames must NOT schedule server.service.quit()"
         # And the frame dispatched normally.
@@ -1350,7 +1350,7 @@ class TestPythonShutdownReleasesMic:
 
         server = IPCServer.__new__(IPCServer)
         server._dispatch_lock = threading.RLock()
-        # UE-18 / RT-8: ``_handle_shutdown`` accesses ``self._shutdown_started``
+        # ``_handle_shutdown`` accesses ``self._shutdown_started``
         # (threading.Event created in ``__init__``). ``__new__`` skips
         # ``__init__``, so create it explicitly — same rationale as the
         # ``_dispatch_lock`` line above. Without this, dispatch returns
@@ -1359,7 +1359,7 @@ class TestPythonShutdownReleasesMic:
         server._shutdown_started = threading.Event()
         server.app = MagicMock(name="VoiceTyperApp")
         server.app._shutting_down = False
-        # EC-FIX-3: the shutdown handler delegates to ``self.service.quit()``.
+        # the shutdown handler delegates to ``self.service.quit()``.
         server.service = MagicMock(name="VoiceTyperService")
         server.service.quit = MagicMock(name="service.quit")
 
@@ -1553,7 +1553,7 @@ class TestRunbookCoverage:
             "Step 10 grep (grep 'SHUTDOWN|shutdown') matches"
         )
 
-    # EC-FIX-3: ``test_python_log_string_matches_runbook`` was REMOVED —
+    # ``test_python_log_string_matches_runbook`` was REMOVED —
     # the ``[SIDECAR-WS] shutdown received — releasing mic and exiting``
     # log string was removed when the shutdown handler moved from
     # ``sidecar_ws._make_dispatch`` (inline branch with a log line) to

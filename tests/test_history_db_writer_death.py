@@ -258,3 +258,102 @@ class TestDictationPipelineHistoryFailNotification:
         app.history_db.add_transcription.assert_not_called()
         app.history_db.flush.assert_not_called()
         app.tray.notify.assert_not_called()
+
+
+# __del__ must not join the writer thread ──────────────────────
+
+
+class TestDelDoesNotJoinWriter:
+    """FR-31: ``HistoryDB.__del__`` must NOT call ``close()`` (which
+    joins the writer thread with a 10s timeout).
+
+    Pre-fix, ``__del__`` called ``self.close()``. If a HistoryDB was
+    GC'd while the writer was stuck (mid-VACUUM, antivirus-locked WAL),
+    the GC pause blocked for up to 10s — visible to the user as a
+    frozen UI. The writer is a daemon thread and will be killed at
+    process exit regardless; the only thing ``__del__`` needs to do is
+    close read connections (to suppress ``ResourceWarning``) and signal
+    ``_shutdown`` so the writer exits on its next iteration.
+    """
+
+    def test_del_does_not_call_close(self):
+        """The source of ``__del__`` must not invoke ``self.close()``."""
+        import inspect
+
+        from voice_typer.server.history_db import HistoryDB
+
+        src = inspect.getsource(HistoryDB.__del__)
+        # ``self.close()`` would join the writer thread (10s timeout).
+        # ``close`` may appear in the docstring (referencing the method
+        # by name) — we only forbid the call form.
+        assert "self.close()" not in src, (
+            "FR-31 regression: __del__ must NOT call self.close() — that "
+            "joins the writer thread with a 10s timeout and can freeze GC. "
+            "Use _shutdown.set() + close read connections instead."
+        )
+
+    def test_del_does_not_join_writer_thread(self):
+        """The source of ``__del__`` must not call
+        ``self._writer_thread.join(...)`` (the 10s-blocking call)."""
+        import inspect
+
+        from voice_typer.server.history_db import HistoryDB
+
+        src = inspect.getsource(HistoryDB.__del__)
+        assert "_writer_thread.join" not in src, (
+            "FR-31 regression: __del__ must NOT join the writer thread — "
+            "it can block GC for up to 10s if the writer is stuck."
+        )
+
+    def test_del_signals_shutdown_and_closes_read_conns(self):
+        """``__del__`` must set ``_shutdown`` and close ``_all_read_connections``.
+
+        This is the non-blocking substitute for the old ``self.close()``
+        call — enough to suppress ResourceWarnings without blocking GC.
+        """
+        import inspect
+
+        from voice_typer.server.history_db import HistoryDB
+
+        src = inspect.getsource(HistoryDB.__del__)
+        assert "_shutdown.set()" in src, (
+            "FR-31: __del__ must signal _shutdown so the writer exits on "
+            "its next iteration (it is a daemon and will be killed at "
+            "process exit regardless)."
+        )
+        assert "_all_read_connections" in src, (
+            "FR-31: __del__ must close _all_read_connections to suppress ResourceWarning on GC."
+        )
+
+    def test_del_does_not_block_when_writer_is_stuck(self, db, monkeypatch):
+        """End-to-end: if the writer thread is "stuck" (we simulate by
+        making ``Thread.join`` raise), ``__del__`` must complete in
+        well under the old 10s timeout — proving it never calls join.
+
+        We patch ``_writer_thread.join`` to raise (so any accidental
+        call would surface immediately) and assert ``__del__`` returns
+        in under 1 second. Pre-FR-31 this would have taken up to 10s.
+        """
+        import time as _time
+
+        def _boom_join(*a, **kw):
+            raise AssertionError("FR-31: __del__ must not call _writer_thread.join (simulated stuck-writer scenario).")
+
+        monkeypatch.setattr(db._writer_thread, "join", _boom_join)
+        start = _time.monotonic()
+        db.__del__()
+        elapsed = _time.monotonic() - start
+        assert elapsed < 1.0, (
+            f"FR-31 regression: __del__ took {elapsed:.2f}s — expected "
+            "sub-second (no writer join). Pre-FR-31 this blocked up to 10s."
+        )
+
+    def test_del_safe_on_partially_constructed_instance(self):
+        """``__del__`` must not raise even on a partially-constructed
+        HistoryDB (e.g. if ``__init__`` raised before ``_shutdown`` /
+        ``_read_local`` were set). Mirrors the REC-7 / SA-09 patterns."""
+        from voice_typer.server.history_db import HistoryDB
+
+        instance = HistoryDB.__new__(HistoryDB)
+        # __del__ must not raise even though none of the instance attrs exist.
+        instance.__del__()

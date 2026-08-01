@@ -29,7 +29,7 @@ def generate():
         pcm = max(-32768, min(32767, pcm))
         samples.append(pcm)
 
-    # WR-1: resolve the output path relative to THIS file so the script
+    # resolve the output path relative to THIS file so the script
     # works regardless of the caller's CWD. The previous relative path
     # (`"tests/fixtures/test_440hz_1s_16k.wav"`) only worked when invoked
     # from the repo root; running `cd tests/fixtures && python

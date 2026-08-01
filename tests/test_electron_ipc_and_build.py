@@ -107,7 +107,7 @@ class TestSetConfigRejectsSensitiveAttrs:
 
         app = MagicMock()
         app.config = cfg
-        # RW-9/RW-17: the app-level test-seam delegates (``_sync_autostart``,
+        # the app-level test-seam delegates (``_sync_autostart``,
         # ``_register_esc_hotkey``, etc.) were removed; production now calls
         # ``startup_tasks.*`` / ``app.hotkeys.*`` directly, so there is
         # nothing on the app object to pre-stub here. ``app`` is a MagicMock,
@@ -156,7 +156,7 @@ class TestUnknownIPCCommandCode:
         result = server._dispatch({"id": 7, "type": "totally_made_up_command"})
 
         assert result["type"] == "error"
-        # PI-23 namespaced the error code as ``server.unknown_command``;
+        # namespaced the error code as ``server.unknown_command``;
         # the bare ``unknown_command`` is preserved as ``legacy_code``
         # for back-compat with any consumer still reading ``code``.
         code = result["data"]["code"]
@@ -197,7 +197,7 @@ class TestAllowlistCorrectness:
 
     @pytest.fixture
     def allowlist_entries(self):
-        # PVT-G5-009: previously pointed at `index.ts`, but R6-F10 moved
+        # previously pointed at `index.ts`, but R6-F10 moved
         # the canonical `ALLOWED_COMMANDS = new Set([...])` literal out of
         # `index.ts` into its own dependency-free leaf module
         # `allowed-commands.ts` (`index.ts:56` now just re-exports it).
@@ -214,7 +214,7 @@ class TestAllowlistCorrectness:
         return set(entries)
 
     def test_repaste_last_in_allowlist(self, allowlist_entries):
-        # UX-23: repaste_last is wired in the renderer (Home.tsx + tray menu)
+        # repaste_last is wired in the renderer (Home.tsx + tray menu)
         # and dispatched by the backend (_COMMAND_REGISTRY in
         # voice_typer/server/ipc/server.py). It must be in the renderer's
         # ALLOWED_COMMANDS so the IPC call is not rejected. (Was previously
@@ -232,7 +232,7 @@ class TestAllowlistCorrectness:
         server_cmds = old_cmds | new_cmds
         orphans = allowlist_entries - server_cmds
         assert not orphans, f"Allowlist has orphan entries: {sorted(orphans)}"
-        # PVT-G5-075: `tray_click` is a Rust-only command. The server
+        # `tray_click` is a Rust-only command. The server
         # registry has a `_handle_tray_click` handler (invoked by the
         # Rust tray menu handler in `src-tauri/src/tray.rs::on_menu_event`
         # via `dispatch_inner`, which bypasses the renderer allowlist
@@ -240,7 +240,7 @@ class TestAllowlistCorrectness:
         # intentionally NOT in the TS `ALLOWED_COMMANDS` Set. Exclude
         # it from the "missing" check so the parity test does not flag
         # it as a renderer-reachable gap.
-        # PVT-G5-075 + XZ-17 reviewer feedback: `tray_click` and
+        # +  reviewer feedback: `tray_click` and
         # `shutdown` are Rust-only / host-supervised commands. The
         # server registry has handlers for both, but neither is ever
         # sent by the renderer:
@@ -526,7 +526,7 @@ class TestRestartAppStopsBackends:
             patch.object(app_module, "list_microphones", return_value=[], create=True),
         ):
             app = app_module.VoiceTyperApp()
-            # XZ-R17-11: production ``_teardown_hotkey_backends`` (in
+            # production ``_teardown_hotkey_backends`` (in
             # ``voice_typer/server/shutdown_controller.py``) nulls the
             # ``app.hotkeys._hotkey_backend`` / ``_esc_backend`` /
             # ``_repaste_backend`` attributes AFTER calling ``stop()``

@@ -168,7 +168,7 @@ def test_spawn_site_passes_four_args() -> None:
 
     from voice_typer.server import clipboard as cb
 
-    # The clipboard package was split (ARCH-11): the spawn site may live
+    # The clipboard package was split (): the spawn site may live
     # in ``__init__.py`` or in a submodule (e.g. ``manager.py``). Walk
     # all .py files in the package and look for the spawn.
     pkg_dir = Path(cb.__file__).parent

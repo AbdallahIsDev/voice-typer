@@ -332,7 +332,7 @@ def test_raises_when_config_dir_uncreatable(tmp_path: Path, monkeypatch, clean_e
         logging_setup._setup_logging()
 
 
-# ─── G4-H-07: secure log file permissions ─────────────────────────────────
+# secure log file permissions ─────────────────────────────────
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX-only file mode check")
@@ -427,10 +427,10 @@ def test_per_module_log_levels_ignores_invalid_entries(config_dir, clean_env, st
     assert logging.getLogger("voice_typer.server.another").level == logging.INFO
 
 
-# ─── GT-B1-15: startup banner logging the active log configuration ─────
+# startup banner logging the active log configuration ─────
 
 
-class TestGtB1_15StartupBanner:  # noqa: N801
+class TestStartupBanner:  # noqa: N801
     """GT-B1-15: after ``_setup_logging_shared`` returns, emit a single
     INFO-level banner so operators can see at a glance which logging
     configuration took effect::

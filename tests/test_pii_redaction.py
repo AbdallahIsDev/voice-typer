@@ -56,7 +56,7 @@ def test_pii_redaction_no_false_positives():
     assert record.msg == original
 
 
-# ─── RW-6: API-key redaction in log messages ──────────────────────────────
+# API-key redaction in log messages ──────────────────────────────
 
 
 def test_rw6_api_key_redaction_openai_style():
@@ -164,7 +164,7 @@ def test_rw6_short_messages_unchanged():
     assert record.msg == original
 
 
-# ─── RW-6: API-key redaction in tracebacks ────────────────────────────────
+# API-key redaction in tracebacks ────────────────────────────────
 
 
 def test_rw6_traceback_redaction_exc_text():
@@ -266,7 +266,7 @@ def test_rw6_traceback_redaction_chained_exception():
     assert "***" in record.exc_text
 
 
-# ─── RW-6: End-to-end — actual log file does not contain the key ──────────
+# End-to-end — actual log file does not contain the key ──────────
 
 
 def test_rw6_end_to_end_log_file_no_api_key(tmp_path):
@@ -324,7 +324,7 @@ def test_rw6_end_to_end_log_file_pii_still_redacted(tmp_path):
     reset()
 
 
-# ─── G4-M-26: International phone + IBAN patterns ─────────────────────────
+# International phone + IBAN patterns ─────────────────────────
 
 
 def test_g4_m_26_international_phone_redacted():
@@ -427,7 +427,7 @@ def test_g4_m_26_redact_pii_helper_covers_new_patterns():
     assert "[IBAN]" in redacted
 
 
-# ─── G4-H-03: PIIRedactionFilter on logging.lastResort ────────────────────
+# PIIRedactionFilter on logging.lastResort ────────────────────
 
 
 def test_g4_h_03_lastresort_is_stream_handler_with_pii_filter():

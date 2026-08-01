@@ -188,7 +188,7 @@ class TestCrashRecoveryAsyncWrites:
         assert cr._save_queue.qsize() <= 32 + 1  # +1 for race tolerance
 
 
-# ── TEST-036: integration test for crash-recovery loop ────────────────
+# integration test for crash-recovery loop ────────────────
 
 
 class TestCrashRecoveryFlushTimeout:
@@ -290,7 +290,7 @@ class TestCrashRecoveryFlushTimeout:
         assert cr._save_thread.is_alive()
 
 
-# ── TEST-036: integration test for crash-recovery loop ────────────────
+# integration test for crash-recovery loop ────────────────
 
 
 class TestCrashRecoveryIntegration:
@@ -308,7 +308,7 @@ class TestCrashRecoveryIntegration:
         from voice_typer.server.crash_recovery import CrashRecovery
 
         # Session A: dictation completes but paste fails (simulated by
-        # pasted=False — this is exactly what ERR-004 now does when the
+        # pasted=False — this is exactly what  now does when the
         # clipboard is unavailable).
         cr_a = CrashRecovery(config_dir=recovery_dir)
         cr_a.add("Recover me — clipboard was unavailable", pasted=False)
@@ -344,7 +344,7 @@ class TestCrashRecoveryIntegration:
         # New session: nothing should be unpasted.
         cr2 = CrashRecovery(config_dir=recovery_dir)
         result = cr2.check_on_startup()
-        # TEST-009 (fix): tighten the weak `result is None or []` assertion.
+        # (fix): tighten the weak `result is None or []` assertion.
         # check_on_startup() is documented to return None when there are no
         # unpasted entries (crash_recovery.py:248-252). The `or []` branch
         # was defensive against an implementation drift that never happened;
@@ -789,7 +789,7 @@ class TestCrashRecoveryDelAfterShutdown:
 
 
 # ============================================================================
-# GT-A1-5: corrupt recovery file is quarantined (not silently dropped)
+# corrupt recovery file is quarantined (not silently dropped)
 # ============================================================================
 
 
@@ -870,7 +870,7 @@ class TestCrashRecoveryQuarantineCorrupt:
 
 
 # ============================================================================
-# GT-B2-13: log file added to diagnostic zip is redacted line-by-line
+# log file added to diagnostic zip is redacted line-by-line
 # ============================================================================
 
 

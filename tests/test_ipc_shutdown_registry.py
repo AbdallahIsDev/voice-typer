@@ -117,13 +117,13 @@ class TestShutdownCommandRegistry:
         resp: dict = {"id": 1}
         result = server._handle_shutdown(data=None, resp=resp)
 
-        # EC-9: the service layer is the canonical shutdown path.
+        # the service layer is the canonical shutdown path.
         service.quit.assert_called_once_with()
-        # EC-9: ``self.app.quit()`` must NOT be called — that's the
-        # bypass-the-service-layer bug EC-9 is fixing.
+        # ``self.app.quit()`` must NOT be called — that's the
+        # bypass-the-service-layer bug  is fixing.
         app.quit.assert_not_called()
 
-        # EC-9: the ack envelope matches the prior WS-path ack shape
+        # the ack envelope matches the prior WS-path ack shape
         # (``{"type": "result", "data": {"ack": True}}``) so the
         # Tauri Rust host's ``shutdown`` match arm — which awaits this
         # exact envelope before tearing down — keeps working unchanged.

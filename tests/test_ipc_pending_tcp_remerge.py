@@ -41,7 +41,7 @@ from unittest.mock import MagicMock
 import pytest
 from voice_typer.server.ipc_server import IPCServer, _TCPLineIO
 
-# ─── CR-79 part 1: re-merge on first-write failure ─────────────────────
+# part 1: re-merge on first-write failure ─────────────────────
 
 
 class TestRemergeOnWriteFailure:
@@ -101,7 +101,7 @@ class TestRemergeOnWriteFailure:
             # Send a push event — first write should fail with OSError.
             server._send({"type": "test_event", "id": 99})
 
-            # CR-79: the three pre-existing pending entries must still
+            # the three pre-existing pending entries must still
             # be in _pending_tcp (re-merged after the write failure).
             # The new event itself is a dispatch response (has ``id``)
             # and is NOT re-merged — only the pending snapshot is.
@@ -123,7 +123,7 @@ class TestRemergeOnWriteFailure:
                 cli.close()
 
 
-# ─── CR-79 part 2: re-merge on drain-cap overflow ──────────────────────
+# part 2: re-merge on drain-cap overflow ──────────────────────
 
 
 class TestRemergeOnDrainCapOverflow:
@@ -192,7 +192,7 @@ class TestRemergeOnDrainCapOverflow:
             reader_stop.set()
             reader_thread.join(timeout=2.0)
 
-            # CR-79: the 5 older entries must be in _pending_tcp.
+            # the 5 older entries must be in _pending_tcp.
             assert len(server._pending_tcp) == 5, (
                 f"CR-79: expected 5 re-merged older entries after drain-cap "
                 f"overflow, got {len(server._pending_tcp)}: "
@@ -210,7 +210,7 @@ class TestRemergeOnDrainCapOverflow:
                 cli.close()
 
 
-# ─── CR-79 part 3: re-merge on drain failure mid-way ───────────────────
+# part 3: re-merge on drain failure mid-way ───────────────────
 
 
 class TestRemergeOnDrainFailureMidway:
@@ -272,7 +272,7 @@ class TestRemergeOnDrainFailureMidway:
 
         server._send({"type": "test_event", "id": 7})
 
-        # CR-79: the 3rd pending entry (which the drain never reached)
+        # the 3rd pending entry (which the drain never reached)
         # must be re-merged. The 2nd entry (which the drain attempted
         # but failed) is also re-merged because it was never confirmed
         # written. So _pending_tcp should contain at least 1 entry,
@@ -293,7 +293,7 @@ class TestRemergeOnDrainFailureMidway:
         # fails again.
 
 
-# ─── CR-79 part 4: re-merge on shutdown short-circuit ──────────────────
+# part 4: re-merge on shutdown short-circuit ──────────────────
 
 
 class TestRemergeOnShutdownShortCircuit:
@@ -343,7 +343,7 @@ class TestRemergeOnShutdownShortCircuit:
             # short-circuit branch.
             server._send({"type": "bubble_level", "level": 0.5})
 
-            # CR-79: the two pre-existing entries must be re-merged.
+            # the two pre-existing entries must be re-merged.
             assert len(server._pending_tcp) == 2, (
                 f"CR-79: expected 2 re-merged pending entries after "
                 f"shutdown short-circuit, got "

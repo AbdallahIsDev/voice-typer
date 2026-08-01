@@ -183,7 +183,7 @@ class TestTemplateImportExport:
         assert count == 0
 
 
-# ─── PI-8 regression tests ────────────────────────────────────────────────
+# regression tests ────────────────────────────────────────────────
 
 
 class TestTemplatesBackupAndQuarantine:
@@ -274,7 +274,7 @@ class TestTemplatesBackupAndQuarantine:
         assert len(tm.templates) == 0
 
 
-# ── XZ-R11-06: TemplateManager concurrency ─────────────────────────
+# TemplateManager concurrency ─────────────────────────
 
 
 class TestTemplateManagerLock:
@@ -381,3 +381,121 @@ class TestTemplateManagerLock:
         snapshot.clear()
         # Manager's view must be unchanged.
         assert len(tm.templates) == 1, "templates property returned a non-snapshot list (XZ-R11-06 regression)."
+
+
+# regression tests ────────────────────────────────────
+
+
+class TestTemplatesLoadValidatesStructure:
+    """FR-36: ``TemplateManager._load`` must validate each item's
+    structure (must be a dict with both ``trigger`` and ``output``
+    keys) before assigning to ``self._templates``. Pre-fix, a
+    valid-JSON-but-wrong-structure file (e.g. mixed-type list, or a
+    list of dicts missing ``output``) passed the ``isinstance(data,
+    list)`` check but crashed ``_rebuild_indexes`` with
+    ``AttributeError: 'int' object has no attribute 'get'`` — and
+    since ``_load`` is called from ``__init__`` with no try/except,
+    the constructor raised, crashing app startup with an opaque
+    traceback and no recovery path (the file is NOT quarantined
+    because the JSON itself is valid)."""
+
+    def test_load_drops_non_dict_items(self, template_dir, caplog):
+        """Items that aren't dicts (ints, strings, null) must be
+        dropped, not crash the constructor."""
+        import logging
+
+        from voice_typer.server.templates import TEMPLATES_FILENAME, TemplateManager
+
+        # Valid JSON, wrong structure: mixed-type list.
+        (template_dir / TEMPLATES_FILENAME).write_text(
+            '{"templates": [42, "foo", null, {"trigger": "ok", "output": "OK"}]}',
+            encoding="utf-8",
+        )
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.templates"):
+            tm = TemplateManager(config_dir=template_dir)
+        # The one valid template survived.
+        assert len(tm.templates) == 1
+        assert tm.templates[0]["trigger"] == "ok"
+        # A warning was logged about the dropped items.
+        assert any("Dropped" in r.getMessage() for r in caplog.records)
+
+    def test_load_drops_dict_missing_output(self, template_dir, caplog):
+        """Dict items missing ``output`` must be dropped (FR-36 +
+        FR-37: this is what would have caused KeyError in ``match``
+        pre-fix)."""
+        import logging
+
+        from voice_typer.server.templates import TEMPLATES_FILENAME, TemplateManager
+
+        (template_dir / TEMPLATES_FILENAME).write_text(
+            '{"templates": ['
+            '{"trigger": "no_output"},'  # missing output
+            '{"output": "no_trigger"},'  # missing trigger
+            '{"trigger": "ok", "output": "OK"}'  # valid
+            "]}",
+            encoding="utf-8",
+        )
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.templates"):
+            tm = TemplateManager(config_dir=template_dir)
+        # Only the valid template survived.
+        assert len(tm.templates) == 1
+        assert tm.templates[0]["trigger"] == "ok"
+        # A warning was logged about the 2 dropped items.
+        dropped_msgs = [r.getMessage() for r in caplog.records if "Dropped" in r.getMessage()]
+        assert dropped_msgs, "Expected a warning about dropped malformed templates"
+        assert "2" in dropped_msgs[0], f"Expected 2 dropped items, got: {dropped_msgs[0]}"
+
+    def test_load_does_not_crash_on_bare_list_payload(self, template_dir):
+        """A bare list (not wrapped in ``{"templates": [...]}``) of
+        malformed items must also be tolerated without crashing."""
+        from voice_typer.server.templates import TEMPLATES_FILENAME, TemplateManager
+
+        (template_dir / TEMPLATES_FILENAME).write_text(
+            '[42, "foo", null, {"trigger": "ok", "output": "OK"}]',
+            encoding="utf-8",
+        )
+        tm = TemplateManager(config_dir=template_dir)
+        assert len(tm.templates) == 1
+        assert tm.templates[0]["trigger"] == "ok"
+
+
+class TestTemplatesMatchHandlesMissingOutput:
+    """FR-37: ``TemplateManager.match`` must not raise ``KeyError``
+    even if a template without ``output`` somehow reaches the match
+    index (defense-in-depth: ``_rebuild_indexes`` already skips
+    such templates, but ``match`` uses ``.get("output", "")`` so a
+    future code path that adds an entry to the index without going
+    through ``_rebuild_indexes``'s validation can't crash the
+    dictation pipeline)."""
+
+    def test_match_does_not_keyerror_on_missing_output(self, tm):
+        """Directly mutate the index to inject a template without
+        ``output`` and verify ``match`` doesn't raise."""
+        # Seed with a valid template so ``match`` doesn't early-exit
+        # on ``not self._templates`` (the  defense-in-depth is
+        # the .get("output", "") call — we want to exercise that path).
+        tm.add("seed-trigger", "seed-output")
+        # Inject a malformed template directly into the live index
+        # (bypasses _rebuild_indexes validation — simulates a future
+        # bug where a code path adds to the index without validating).
+        with tm._lock:
+            tm._exact_index["trigger-no-output"] = {"trigger": "trigger-no-output"}
+        # match must NOT raise KeyError — it must return "" (the
+        # default from .get("output", "")).
+        result = tm.match("trigger-no-output")
+        assert result == "", f"FR-37 regression: match should return '' for a template without 'output', got {result!r}"
+
+    def test_rebuild_indexes_skips_templates_without_output(self, tm):
+        """``_rebuild_indexes`` must NOT index templates that lack
+        an ``output`` field, so ``match`` never sees them."""
+        # Add a malformed template directly to the internal list
+        # (bypasses add()'s validation).
+        with tm._lock:
+            tm._templates.append({"trigger": "no-output-trigger"})
+            tm._rebuild_indexes()
+            # The malformed template must NOT be in the exact index.
+            assert "no-output-trigger" not in tm._exact_index
+            # And must NOT be in the contains list.
+            assert all(trigger != "no-output-trigger" for trigger, _ in tm._contains_list), (
+                "FR-37 regression: _rebuild_indexes indexed a template without 'output'"
+            )

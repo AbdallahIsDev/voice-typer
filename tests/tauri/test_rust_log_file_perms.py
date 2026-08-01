@@ -304,7 +304,7 @@ def test_pi7_rust_unit_test_log_file_mode_0o600_passes() -> None:
                 "layer (above) is the only guard in this run. stderr "
                 f"excerpt: {stderr[:200]}"
             )
-        # The test compiled but failed — this is a real PI-7 regression.
+        # The test compiled but failed — this is a real  regression.
         pytest.fail(
             "PI-7 regression: the Rust unit test "
             "`test_rotating_file_writer_log_file_mode_is_0o600_on_posix` "

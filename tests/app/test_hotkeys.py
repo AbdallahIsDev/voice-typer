@@ -26,7 +26,7 @@ class TestHotkeyMapping:
         # pyrefly: ignore [missing-attribute]
         mock_kb.GlobalHotKeys = mock_ghk_cls
 
-        # RW-9 Phase 1: was ``app._register_hotkey()`` (test-seam delegate
+        # Phase 1: was ``app._register_hotkey()`` (test-seam delegate
         # removed); call the dispatcher method directly.
         app.hotkeys.register()
 
@@ -44,7 +44,7 @@ class TestHotkeyMapping:
         mock_kb.Listener = MagicMock(side_effect=Exception("no input"))
 
         # Should not raise
-        # RW-9 Phase 1: was ``app._register_hotkey()`` (test-seam delegate
+        # Phase 1: was ``app._register_hotkey()`` (test-seam delegate
         # removed); call the dispatcher method directly.
         app.hotkeys.register()
         # Backend was created but start() failed -> not alive or None
@@ -68,12 +68,12 @@ class TestHotkeyMapping:
         mock_kb.GlobalHotKeys = mock_ghk_cls
 
         assert app.hotkeys._esc_backend is None
-        # RW-9 Phase 1: was ``app._register_esc_hotkey()`` (test-seam delegate
+        # Phase 1: was ``app._register_esc_hotkey()`` (test-seam delegate
         # removed); call the dispatcher method directly.
         app.hotkeys.register_esc()
 
         assert app.hotkeys._esc_backend is not None
-        # The callback is now a closure (ARCH-ESC-001), so accept any
+        # The callback is now a closure (), so accept any
         # callable rather than asserting it's the raw bound method.
         mock_ghk_cls.assert_called_once()
         call_args = mock_ghk_cls.call_args
@@ -93,7 +93,7 @@ class TestHotkeyMapping:
             MagicMock(return_value=mock_backend),
         )
 
-        # RW-9 Phase 1: was ``app._register_esc_hotkey()`` /
+        # Phase 1: was ``app._register_esc_hotkey()`` /
         # ``app._unregister_esc_hotkey()`` (test-seam delegates removed);
         # call the dispatcher methods directly.
         app.hotkeys.register_esc()
@@ -107,7 +107,7 @@ class TestHotkeyMapping:
     def test_unregister_esc_hotkey_noop_when_none(self, app):
         """_unregister_esc_hotkey should not crash when _esc_backend is None."""
         app.hotkeys._esc_backend = None
-        # RW-9 Phase 1: was ``app._unregister_esc_hotkey()`` (test-seam
+        # Phase 1: was ``app._unregister_esc_hotkey()`` (test-seam
         # delegate removed); call the dispatcher method directly.
         app.hotkeys.unregister_esc()  # Must not raise
 
@@ -121,7 +121,7 @@ class TestHotkeyMapping:
         # hotkey_dispatcher, so monkeypatch it there.
         monkeypatch.setattr("voice_typer.server.hotkey_dispatcher.create_hotkey_backend", failing_create)
         # Should not raise even though create_hotkey_backend raises
-        # RW-9 Phase 1: was ``app._register_esc_hotkey()`` (test-seam delegate
+        # Phase 1: was ``app._register_esc_hotkey()`` (test-seam delegate
         # removed); call the dispatcher method directly.
         app.hotkeys.register_esc()
         assert app.hotkeys._esc_backend is None
@@ -137,7 +137,7 @@ class TestHotkeyMapping:
         mock_kb.GlobalHotKeys = mock_ghk_cls
 
         app.config.esc_cancel_enabled = True
-        # RW-9 Phase 1: was ``app._register_hotkey()`` (test-seam delegate
+        # Phase 1: was ``app._register_hotkey()`` (test-seam delegate
         # removed); call the dispatcher method directly.
         app.hotkeys.register()
 
@@ -209,7 +209,7 @@ class TestHotkeyMapping:
         mock_kb.GlobalHotKeys = mock_ghk_cls
 
         app.config.esc_cancel_enabled = False
-        # RW-9 Phase 1: was ``app._register_hotkey()`` (test-seam delegate
+        # Phase 1: was ``app._register_hotkey()`` (test-seam delegate
         # removed); call the dispatcher method directly.
         app.hotkeys.register()
 
@@ -317,7 +317,7 @@ class TestHotkeyCallbackChain:
         app._busy_event.set()  # not busy
 
         # Register hotkey - this captures the mapping
-        # RW-9 Phase 1: was ``app._register_hotkey()`` (test-seam delegate
+        # Phase 1: was ``app._register_hotkey()`` (test-seam delegate
         # removed); call the dispatcher method directly.
         app.hotkeys.register()
 
@@ -326,7 +326,7 @@ class TestHotkeyCallbackChain:
         expected_hotkey = app.config.hotkey
         assert expected_hotkey in captured_mapping
         callback = captured_mapping[expected_hotkey]
-        # HOTKEY-FIX-001: the callback is now an ownership-checking
+        # HOTKEY-: the callback is now an ownership-checking
         # wrapper (_dictation_callback) that calls app.toggle_dictation
         # internally, not the raw bound method. Accept any callable and
         # verify it fires toggle_dictation when ownership is "normal".

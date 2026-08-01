@@ -586,7 +586,7 @@ def test_tauri_windows_workflow_has_if_true_after_cutover(
     )
 
 
-# RT-FIX-9: alias the legacy pre-cutover test name to the new
+# alias the legacy pre-cutover test name to the new
 # post-cutover assertion so any external test-selection scripts that
 # reference the old name still resolve.
 test_tauri_windows_workflow_has_phase0w_if_false_guard = test_tauri_windows_workflow_has_if_true_after_cutover

@@ -57,10 +57,10 @@ def _make_service(tmp_config_dir):
     return svc_mod.VoiceTyperService(FakeApp())
 
 
-# ── XV-1: deps probes use find_spec ───────────────────────────────────
+# deps probes use find_spec ───────────────────────────────────
 
 
-class TestXV1DepsProbesUseFindSpec:
+class TestDepsProbesUseFindSpec:
     """XV-1: replace ``importlib.import_module`` with
     ``importlib.util.find_spec`` in both deps-probe helpers so probing
     for ``torch`` / ``qwen_asr`` doesn't execute their (heavy) top-level
@@ -152,10 +152,10 @@ class TestXV1DepsProbesUseFindSpec:
         )
 
 
-# ── XV-2: download_model polling walks only the per-repo subdir ──────
+# download_model polling walks only the per-repo subdir ──────
 
 
-class TestXV2DownloadPollScopedToModelDir:
+class TestDownloadPollScopedToModelDir:
     """XV-2: ``download_model``'s progress-polling loop walks ONLY the
     in-progress repo's HF cache subdir, not the entire HF cache tree."""
 
@@ -314,10 +314,10 @@ class TestXV2DownloadPollScopedToModelDir:
         )
 
 
-# ── XV-5: empty microphone list is served from cache ────────────────
+# empty microphone list is served from cache ────────────────
 
 
-class TestXV5MicrophonesCacheEmptyList:
+class TestMicrophonesCacheEmptyList:
     """XV-5: ``_microphones_cache`` starts as ``None`` (not ``[]``) and
     a legitimately-empty device list is served from cache."""
 

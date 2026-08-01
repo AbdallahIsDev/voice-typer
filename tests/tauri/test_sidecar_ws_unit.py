@@ -194,7 +194,7 @@ def _make_fake_server():
     server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
     server.app = MagicMock()
     server.app.quit = MagicMock()
-    # RT-FIX-9 / EC-FIX-3: force the lazy-create branch in
+    # force the lazy-create branch in
     # ``_make_dispatch`` to run (it creates a real ThreadPoolExecutor).
     # If we leave this unset, MagicMock auto-vivifies a child mock
     # that fails the ``wrap_future`` isinstance assertion.
@@ -232,7 +232,7 @@ async def test_dispatch_shutdown_returns_ack_and_schedules_quit(monkeypatch):
     # ``{"type": "result", "data": {"ok": True}}``.
     assert result == {"type": "result", "data": {"ok": True}}
     # ``server._dispatch`` MUST have been called with the shutdown
-    # message (the EC-FIX-3 relocation routes shutdown through the
+    # message (the  relocation routes shutdown through the
     # shared dispatch path, not a special-case branch).
     server._dispatch.assert_called_once()
     msg = server._dispatch.call_args[0][0]
@@ -298,7 +298,7 @@ async def test_dispatch_dispatch_raises_returns_internal_error():
     result = await dispatch({"type": "get_status", "data": {}}, MagicMock())
 
     assert result["type"] == "error"
-    # RT-FIX-9: error codes are now namespaced. The internal-error
+    # error codes are now namespaced. The internal-error
     # path emits ``server.internal_error`` (with the bare
     # ``internal_error`` legacy form preserved in ``legacy_code`` for
     # older clients). Accept either form for forward-compat.
@@ -370,7 +370,7 @@ def test_max_frame_bytes_is_1_mib():
 
 # ─── Cooperative shutdown hard timeout (ADR-0020 §10) ─────────────────
 #
-# DT-54: the previous ``test_shutdown_ack_timeout_is_2s`` test asserted
+# the previous ``test_shutdown_ack_timeout_is_2s`` test asserted
 # ``sidecar_ws._SHUTDOWN_ACK_TIMEOUT_SECONDS == 2.0``. That Python
 # constant was dead code — Python never enforced the cooperative-shutdown
 # timeout (it just acked ``{"type":"shutdown"}`` and exited; the Rust

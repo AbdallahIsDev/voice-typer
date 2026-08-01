@@ -243,7 +243,7 @@ class TestStateTransitions:
         assert vp.state == VadState.UNKNOWN
 
 
-# ── Grey-zone decay (AUDIO-5) ─────────────────────────────────────────
+# Grey-zone decay () ─────────────────────────────────────────
 
 
 class TestGreyZoneDecay:
@@ -452,15 +452,15 @@ class TestAutoCalibration:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.vad_processor"):
             vp.auto_calibrate(0.01, elapsed_seconds=10.0)
 
-        # AUDIO-4: calibrated is True (set by the skip branch to prevent re-entry)
+        # calibrated is True (set by the skip branch to prevent re-entry)
         assert vp.calibrated is True
-        # AUDIO-4: no RMS values were collected (skip happened before append)
+        # no RMS values were collected (skip happened before append)
         assert vp.calibration_rms_values == []
-        # AUDIO-4: the one-time INFO log was emitted
+        # the one-time INFO log was emitted
         assert any("auto-calibration skipped" in record.getMessage() for record in caplog.records), (
             f"expected skip log, got: {[r.getMessage() for r in caplog.records]}"
         )
-        # AUDIO-4: status is explicit + inspectable (not a silent no-op)
+        # status is explicit + inspectable (not a silent no-op)
         assert vp.calibration_status == "skipped_silero"
 
         # Re-entry is prevented (calibrated flag short-circuits).
@@ -472,7 +472,7 @@ class TestAutoCalibration:
         assert vp.calibration_status == "skipped_silero"
 
 
-# ── calibration_status (AUDIO-4) ──────────────────────────────────────
+# calibration_status () ──────────────────────────────────────
 
 
 class TestCalibrationStatus:

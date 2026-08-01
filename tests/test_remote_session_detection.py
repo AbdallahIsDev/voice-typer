@@ -26,7 +26,7 @@ import os
 import sys
 from unittest.mock import MagicMock
 
-# All POSIX env vars the FR-40 fix checks. Tests clear these to ensure
+# All POSIX env vars the  fix checks. Tests clear these to ensure
 # a deterministic baseline.
 _ALL_POSIX_REMOTE_ENV_VARS = (
     "SSH_CLIENT",
@@ -47,7 +47,7 @@ def _clear_all_remote_env(monkeypatch):
         monkeypatch.delenv(var, raising=False)
 
 
-# ─── FR-40: POSIX env-var detection ──────────────────────────────────
+# POSIX env-var detection ──────────────────────────────────
 
 
 class TestPosixEnvVarDetection:
@@ -130,7 +130,7 @@ class TestPosixEnvVarDetection:
         assert remote_session.is_remote_session() is True
 
 
-# ─── FR-40: POSIX /proc/*/comm scan ──────────────────────────────────
+# POSIX /proc/*/comm scan ──────────────────────────────────
 
 
 class TestPosixProcScan:
@@ -237,7 +237,7 @@ class TestPosixProcScan:
         assert remote_session.is_remote_session() is False
 
 
-# ─── FR-40: Windows detection (mocked) ───────────────────────────────
+# Windows detection (mocked) ───────────────────────────────
 
 
 class TestWindowsDetection:
@@ -333,7 +333,7 @@ class TestWindowsDetection:
         assert remote_session.is_remote_session() is True
 
 
-# ─── FR-40: no false positive on local Linux session ─────────────────
+# no false positive on local Linux session ─────────────────
 
 
 class TestNoFalsePositiveLocalSession:

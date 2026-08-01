@@ -379,10 +379,10 @@ class TestSpawnBackgroundPrewarm:
         assert "app-start" in captured["cmd"]
 
 
-# ─── YJ-52: spawn_background_prewarm must check is_prewarm_running ──────────
+# spawn_background_prewarm must check is_prewarm_running ──────────
 
 
-class TestYJ52SpawnSkipsWhenPrewarmRunning:
+class TestSpawnSkipsWhenPrewarmRunning:
     """YJ-52 (review-fix-C2-rework): ``spawn_background_prewarm`` must
     call ``_pkg.is_prewarm_running()`` at the top and short-circuit
     (returning the existing PID) if a prewarm subprocess is already

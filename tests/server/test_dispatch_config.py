@@ -42,7 +42,7 @@ class TestDispatchSetConfig:
                 "data": {"hotkey": "<f3>", "model_size": "medium.en"},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         assert mock_app.config.hotkey == "<f3>"
         assert mock_app.config.model_size == "medium.en"
         assert mock_app.config._saved is True
@@ -56,7 +56,7 @@ class TestDispatchSetConfig:
                 "data": {},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         assert mock_app.config._saved is True
 
     def test_no_data_returns_error(self, server, mock_app):
@@ -82,7 +82,7 @@ class TestDispatchSetConfig:
                 "data": {"nonexistent_field": "nope"},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         assert mock_app.config._saved is True
 
     def test_non_dict_data_returns_error(self, server, mock_app):
@@ -109,7 +109,7 @@ class TestDispatchEscCancelLive:
 
     def test_enable_esc_cancel_calls_register_esc_hotkey(self, server, mock_app):
         """set_config with esc_cancel_enabled=true should call _register_esc_hotkey."""
-        # RW-9 Phase 2: service now calls `app.hotkeys.register_esc()` directly.
+        # Phase 2: service now calls `app.hotkeys.register_esc()` directly.
         mock_app.hotkeys.register_esc = MagicMock()
         mock_app.hotkeys.unregister_esc = MagicMock()
 
@@ -120,13 +120,13 @@ class TestDispatchEscCancelLive:
                 "data": {"esc_cancel_enabled": True},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         mock_app.hotkeys.register_esc.assert_called_once()
         mock_app.hotkeys.unregister_esc.assert_not_called()
 
     def test_disable_esc_cancel_calls_unregister_esc_hotkey(self, server, mock_app):
         """set_config with esc_cancel_enabled=false should call _unregister_esc_hotkey."""
-        # RW-9 Phase 2: service now calls `app.hotkeys.unregister_esc()` directly.
+        # Phase 2: service now calls `app.hotkeys.unregister_esc()` directly.
         mock_app.hotkeys.register_esc = MagicMock()
         mock_app.hotkeys.unregister_esc = MagicMock()
 
@@ -137,7 +137,7 @@ class TestDispatchEscCancelLive:
                 "data": {"esc_cancel_enabled": False},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         mock_app.hotkeys.unregister_esc.assert_called_once()
         mock_app.hotkeys.register_esc.assert_not_called()
 
@@ -152,7 +152,7 @@ class TestDispatchEscCancelLive:
         and is also used by the passing sibling test
         test_side_effect_repaste_fires_on_repaste_hotkey.
         """
-        # RW-9 Phase 2: service now calls `app.hotkeys.register_repaste()` directly.
+        # Phase 2: service now calls `app.hotkeys.register_repaste()` directly.
         mock_app.hotkeys.register_repaste = MagicMock()
 
         result = server._dispatch(
@@ -162,7 +162,7 @@ class TestDispatchEscCancelLive:
                 "data": {"repaste_hotkey": "<ctrl>+<alt>+v"},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         mock_app.hotkeys.register_repaste.assert_called_once()
 
 
@@ -194,7 +194,7 @@ class TestDispatchSetConfigAllowlist:
         app = MockApp()
         app.config = real_config
         # Pre-warm / autostart / hotkey side-effects: no-op by default.
-        # RW-9 Phase 2/RW-17: service.apply_config_side_effects now calls
+        # Phase 2/: service.apply_config_side_effects now calls
         # `startup_tasks.sync_autostart(app)` directly (not
         # `app._sync_autostart()`); the MockApp's `hotkeys` MagicMock
         # already stubs `register_esc/unregister_esc/register_repaste`.
@@ -213,7 +213,7 @@ class TestDispatchSetConfigAllowlist:
             }
         )
         # Silent drop — preserves the existing "unknown field" contract.
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         assert real_config.schema_version == original
 
     def test_rejects_internal_state_field_wayland_warned(self, real_server, real_config):
@@ -226,7 +226,7 @@ class TestDispatchSetConfigAllowlist:
                 "data": {"wayland_warned": True},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         assert real_config.wayland_warned == original
 
     def test_rejects_onboarding_completed_via_set_config(self, real_server, real_config):
@@ -240,7 +240,7 @@ class TestDispatchSetConfigAllowlist:
                 "data": {"onboarding_completed": True},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         assert real_config.onboarding_completed == original
 
     def test_rejects_trusted_path_field_qwen_model_path(self, real_server, real_config):
@@ -254,7 +254,7 @@ class TestDispatchSetConfigAllowlist:
             }
         )
         assert result["type"] == "ack"
-        # NEW-IPC-015: rejected keys are now echoed in data
+        # rejected keys are now echoed in data
         assert "qwen_model_path" in result.get("data", {}).get("rejected", [])
         assert real_config.qwen_model_path == original
 
@@ -470,7 +470,7 @@ class TestDispatchSetConfigAllowlist:
                 "data": {"model_size": "tiny.en"},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         assert real_config.model_size == "tiny.en"
 
     def test_rejects_invalid_asr_backend(self, real_server, real_config):
@@ -612,7 +612,7 @@ class TestDispatchSetConfigAllowlist:
                 "data": {"llm_api_url": "https://api.openai.com/v1/chat/completions"},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
 
     def test_rejects_http_llm_api_url_non_loopback(self, real_server, real_config):
         """NEW-SEC-003 defense-in-depth: a cleartext HTTP URL for a public
@@ -682,7 +682,7 @@ class TestDispatchSetConfigAllowlist:
                 },
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         assert real_config.hotkey == "<f4>"
         assert real_config.autostart is False
         assert real_config.language == "fr"
@@ -715,7 +715,7 @@ class TestDispatchSetConfigAllowlist:
         sync_prewarm_mock.assert_called_once()
 
     def test_side_effect_autostart_fires_on_autostart_change(self, real_server, real_config, monkeypatch):
-        # RW-9 Phase 2: service now calls `startup_tasks.sync_autostart(app)` directly.
+        # Phase 2: service now calls `startup_tasks.sync_autostart(app)` directly.
         from voice_typer.server import startup_tasks
 
         sync_autostart_mock = MagicMock()
@@ -727,7 +727,7 @@ class TestDispatchSetConfigAllowlist:
                 "data": {"autostart": False},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         sync_autostart_mock.assert_called_once()
 
     def test_side_effect_esc_hotkey_fires_on_esc_cancel_enabled(self, real_server, real_config):
@@ -739,8 +739,8 @@ class TestDispatchSetConfigAllowlist:
                 "data": {"esc_cancel_enabled": True},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
-        # RW-9 Phase 2: service now calls `app.hotkeys.register_esc()` directly.
+        assert result["type"] == "ack"  # may include data field
+        # Phase 2: service now calls `app.hotkeys.register_esc()` directly.
         real_server.app.hotkeys.register_esc.assert_called_once()
 
     def test_side_effect_repaste_fires_on_repaste_hotkey(self, real_server, real_config):
@@ -751,8 +751,8 @@ class TestDispatchSetConfigAllowlist:
                 "data": {"repaste_hotkey": "<ctrl>+<alt>+v"},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
-        # RW-9 Phase 2: service now calls `app.hotkeys.register_repaste()` directly.
+        assert result["type"] == "ack"  # may include data field
+        # Phase 2: service now calls `app.hotkeys.register_repaste()` directly.
         real_server.app.hotkeys.register_repaste.assert_called_once()
 
 
@@ -858,7 +858,7 @@ class TestTrustedPathFieldsBlockedInSetConfig:
                 "data": {"corrections_path": "/etc/passwd"},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         assert mock_app.config.corrections_path is None  # unchanged
 
     def test_qwen_model_path_silently_dropped(self, server, mock_app):
@@ -870,7 +870,7 @@ class TestTrustedPathFieldsBlockedInSetConfig:
                 "data": {"qwen_model_path": "/tmp/poisoned-model"},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         assert mock_app.config.qwen_model_path is None  # unchanged
 
     def test_parakeet_model_path_silently_dropped(self, server, mock_app):
@@ -882,5 +882,5 @@ class TestTrustedPathFieldsBlockedInSetConfig:
                 "data": {"parakeet_model_path": "/tmp/poisoned-parakeet"},
             }
         )
-        assert result["type"] == "ack"  # NEW-IPC-015: may include data field
+        assert result["type"] == "ack"  # may include data field
         assert mock_app.config.parakeet_model_path is None  # unchanged

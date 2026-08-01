@@ -62,8 +62,8 @@ REPO_ROOT = TESTS_DIR.parent
 SERVER_DIR = REPO_ROOT / "voice_typer" / "server"
 CLIENT_DIR = REPO_ROOT / "voice_typer" / "client"
 
-# AC-16: the original monolithic ``types/ipc.ts`` was split into a
-# ``types/ipc/`` directory (DT-31 / DT-FIX-7). The ``ErrorCodes`` union
+# the original monolithic ``types/ipc.ts`` was split into a
+# ``types/ipc/`` directory ( / ). The ``ErrorCodes`` union
 # now lives in ``types/ipc/enums.ts``; the import surface
 # ``types/ipc/index.ts`` re-exports it. Both paths are checked below
 # so the test keeps working regardless of which file a future refactor
@@ -74,12 +74,12 @@ TS_ERROR_CODES_CANDIDATE_PATHS = (
 )
 
 # ────────────────────────────────────────────────────────────────────────────
-# Required namespaced codes (per EC-FIX-4 spec)
+# Required namespaced codes (per  spec)
 # ────────────────────────────────────────────────────────────────────────────
 
 # Every code in this set MUST be in ``ERROR_CODES``. If a code is
 # missing, the registry needs to be expanded (or the code was
-# accidentally renamed). The set mirrors the EC-FIX-4 task spec
+# accidentally renamed). The set mirrors the  task spec
 # verbatim.
 REQUIRED_NAMESPACED_CODES: frozenset[str] = frozenset(
     {
@@ -94,7 +94,7 @@ REQUIRED_NAMESPACED_CODES: frozenset[str] = frozenset(
         "client.invalid_payload",
         "client.rate_limited",
         # Pre-existing namespaced codes (kept for stability — these
-        # were in the registry before EC-FIX-4 and must remain).
+        # were in the registry before  and must remain).
         "client.invalid_field",
         "client.missing_field",
         "client.path_not_allowed",
@@ -135,7 +135,7 @@ LEGACY_ALIASES: dict[str, str] = {
     # ``code="..."`` keyword-arg form in ``vocabulary_handlers.py`` and
     # ``vocabulary_automation_handlers.py`` respectively. They have no
     # namespaced counterpart in ``ERROR_CODES`` yet — they pre-date the
-    # G4-M-22 namespacing migration and are still emitted as bare
+    # namespacing migration and are still emitted as bare
     # codes. Listed here (with an empty counterpart) so the literal
     # grep below accepts them; the counterpart-presence test in
     # ``TestLegacyAliases`` skips entries whose counterpart is empty.
@@ -371,7 +371,7 @@ class TestErrorResponseDefaultCode:
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# AC-16: cross-layer parity test (Python ERROR_CODES ⊆ TS ErrorCodes)
+# cross-layer parity test (Python ERROR_CODES ⊆ TS ErrorCodes)
 # ────────────────────────────────────────────────────────────────────────────
 
 # Matches a single line of the form ``| "some.code"`` (with optional

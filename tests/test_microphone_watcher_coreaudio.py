@@ -208,7 +208,7 @@ def test_instantiation_on_macos_with_pyobjc() -> None:
     assert watcher._ca is None
 
 
-# ── UE-12-F3 / UE-12-F9: lock + inline-callback tests (cross-platform) ──
+# lock + inline-callback tests (cross-platform) ──
 #
 # These tests run on EVERY platform by stubbing
 # ``_try_import_coreaudio`` with a fake ``SimpleNamespace`` of pyobjc
@@ -369,7 +369,7 @@ def test_coreaudio_listener_calls_on_change_directly() -> None:
         return_value=fake_ca,
     ):
         watcher = CoreAudioMicrophoneWatcher(on_change)
-        # UE-12-F9: the redundant wrapper has been removed.
+        # the redundant wrapper has been removed.
         assert not hasattr(watcher, "_invoke_callback"), (
             "_invoke_callback should be deleted (UE-12-F9); the outer "
             "MicrophoneDeviceWatcher._invoke_callback already has "

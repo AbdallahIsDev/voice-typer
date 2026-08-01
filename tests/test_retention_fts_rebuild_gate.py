@@ -178,7 +178,7 @@ class TestAb25FtsRebuildGate:
         deleted = db.apply_retention(retention_days=1)
         assert deleted == 20, f"expected 20 rows deleted, got {deleted}"
 
-        # FTS5 'rebuild' MUST have been issued (FR-27 privacy guarantee).
+        # FTS5 'rebuild' MUST have been issued ( privacy guarantee).
         assert _rebuild_seen(executed_sql), (
             "AB-25 regression: apply_retention did NOT issue the FTS5 "
             "'rebuild' command for a large delete (20/25 = 80% > 20% "

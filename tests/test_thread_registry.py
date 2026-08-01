@@ -503,7 +503,7 @@ class TestThreadRegistryEntry:
         assert entry.stop_event is None
 
 
-# ─── UE-11-F3: register() auto-prune ────────────────────────────────────
+# register() auto-prune ────────────────────────────────────
 
 
 class TestRegisterAutoPrune:
@@ -612,7 +612,7 @@ class TestRegisterAutoPrune:
                 t.join(timeout=2.0)
 
 
-# ─── UE-11-F3: shutdown_all() auto-prune ────────────────────────────────
+# shutdown_all() auto-prune ────────────────────────────────
 
 
 class TestShutdownAllAutoPrune:
@@ -715,7 +715,7 @@ class TestShutdownAllAutoPrune:
             t.join(timeout=2.0)
 
 
-# ─── UE-11-F3: register(join_previous_timeout=...) ─────────────────────
+# register(join_previous_timeout=...) ─────────────────────
 
 
 class TestJoinPreviousTimeout:
@@ -868,7 +868,7 @@ class TestJoinPreviousTimeout:
             t.join(timeout=2.0)
 
 
-# ─── UE-11-F3: spawn_and_register ──────────────────────────────────────
+# spawn_and_register ──────────────────────────────────────
 
 
 class TestSpawnAndRegister:

@@ -81,7 +81,7 @@ class E2EMockApp:
         # change_model is called when model_size changes
         self.change_model = MagicMock()
 
-        # XS-23: use monkeypatch.setenv (auto-restored at teardown) instead of
+        # use monkeypatch.setenv (auto-restored at teardown) instead of
         # raw os.environ assignment (which leaked across tests).
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", str(tmp_path))
         try:
@@ -248,7 +248,7 @@ def e2e_server(tmp_path, monkeypatch):
     _set_push_event(server._push_fn)
     server._running = True
     server._hook_tray_set_state()
-    # S2-CR-59: pass the (port, bound_socket) tuple so start_tcp
+    # pass the (port, bound_socket) tuple so start_tcp
     # listens on the already-bound socket — no race window between
     # _free_port()'s probe and the listen call.
     server.start_tcp((port, bound_sock))
@@ -289,7 +289,7 @@ def e2e_server(tmp_path, monkeypatch):
             server._tcp_client.close()
         server._tcp_client = None
     # Wait for the OS to release the listening port before the next test
-    # claims it. With the S2-CR-59 bound-socket handoff the TIME_WAIT
+    # claims it. With the  bound-socket handoff the TIME_WAIT
     # drain is much faster (the kernel saw a clean SO_REUSEADDR transfer),
     # so the deadline is tightened from 2.0s to 1.0s. Retry-bind with
     # SO_REUSEADDR until the port is free or the deadline expires.
@@ -316,7 +316,7 @@ def _connect_and_auth(port: int, token: str) -> socket.socket:
 # ── E2E tests ─────────────────────────────────────────────────────────
 
 
-class TestE2EFullPipeline:
+class TestFullPipeline:
     """E2E tests for the full TCP IPC pipeline."""
 
     def test_auth_handshake_then_get_config(self, e2e_server):
@@ -491,7 +491,7 @@ class TestE2EFullPipeline:
 
         assert resp["id"] == 6
         assert resp["type"] == "error"
-        # PI-23: error codes are now namespaced (server.unknown_command).
+        # error codes are now namespaced (server.unknown_command).
         # The bare form is preserved as ``legacy_code`` for back-compat
         # with older Electron builds.
         code = resp["data"]["code"]
@@ -586,7 +586,7 @@ class TestE2EFullPipeline:
             assert hasattr(IPCServer, handler_name), f"Handler method '{handler_name}' not found on IPCServer"
 
 
-class TestE2EAuthEnforcement:
+class TestAuthEnforcement:
     """E2E tests for SEC-018 TCP session token auth."""
 
     def test_stalled_auth_connection_times_out(self, e2e_server, monkeypatch):
@@ -617,7 +617,7 @@ class TestE2EAuthEnforcement:
         socket timeout with its own ``timeout`` argument, so the
         conversion has no observable effect on the test client side.
         """
-        # WR-12: patch socket.socket.settimeout so the production
+        # patch socket.socket.settimeout so the production
         # server-side auth timeout (5.0s) is scaled down to 0.5s for
         # faster testing. See the docstring above for why a direct
         # patch of ``_tcp_auth_timeout_seconds`` is impossible.
@@ -668,7 +668,7 @@ class TestE2EAuthEnforcement:
             )
             return
 
-        # WR-12: verify the elapsed time is roughly the 0.5s scaled-down
+        # verify the elapsed time is roughly the 0.5s scaled-down
         # timeout. The bounds are wider than 0.5s to tolerate process
         # scheduling / GC pauses on slow CI runners (the test no longer
         # waits 5s for the timeout to fire, so it completes ~10x faster).
@@ -684,7 +684,7 @@ class TestE2EAuthEnforcement:
         sock2.settimeout(5.0)
         sock2.connect(("127.0.0.1", port))
         _send_line(sock2, {"type": "auth", "token": token})
-        # Drain the initial connect-time push (ERR-017 state_changed, sent
+        # Drain the initial connect-time push ( state_changed, sent
         # right after auth) so the next line we read is the get_status
         # response, not the push.  This mirrors every other E2E test in
         # this file (e.g. test_auth_handshake_then_get_config), which

@@ -116,10 +116,10 @@ class TestStartupDiagnosticsFallback:
             with pytest.raises(SystemExit) as excinfo:
                 main()
 
-        # NEW-CLI-003: main() exits with EXIT_CRASH (== 1) on this path.
+        # main() exits with EXIT_CRASH (== 1) on this path.
         assert excinfo.value.code == 1
 
-        # CR-40 second-tier fallback: a tempfile was written.
+        # second-tier fallback: a tempfile was written.
         fallback_file = tmp_path / "voice-typer-startup-error.log"
         assert fallback_file.exists(), f"tempfile fallback not written; tmp_path contains: {list(tmp_path.iterdir())}"
 
@@ -166,7 +166,7 @@ class TestStartupDiagnosticsFallback:
 
         assert excinfo.value.code == 1
 
-        # CR-40 third-tier fallback: stderr must contain the traceback.
+        # third-tier fallback: stderr must contain the traceback.
         # We assert on the unique "Voice Typer startup failed at" header
         # that only appears in ``buf.getvalue()`` (which is what the
         # ``print(buf.getvalue(), file=sys.stderr)`` line emits), NOT on

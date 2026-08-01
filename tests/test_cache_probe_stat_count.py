@@ -87,7 +87,7 @@ class TestCacheProbeStatCount:
             f"pages unwarmed)."
         )
 
-        # DJ-46: stat calls should be bounded by the number of DIRECTORIES
+        # stat calls should be bounded by the number of DIRECTORIES
         # (not files). With 6 dirs (root + 5 subdirs) and 100 files total,
         # the old code would issue ~100 stats; the new code should issue
         # 0-10 (zero on filesystems that populate d_type, up to 10 for
@@ -124,7 +124,7 @@ class TestCacheProbeStatCount:
 
         # No warmable files should be discovered.
         assert files == [], f"expected zero warmable files (only .py files in tree), got {len(files)}"
-        # DJ-46: the suffix filter should run BEFORE is_file(), so no
+        # the suffix filter should run BEFORE is_file(), so no
         # stat() calls at all for non-warmable entries.
         assert stat_calls["n"] <= 1, (
             f"DJ-46: non-warmable files triggered {stat_calls['n']} stat() "

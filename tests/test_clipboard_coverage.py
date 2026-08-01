@@ -15,7 +15,11 @@ Coverage gap analysis:
 - _is_terminal_process (line 571): test known terminal names
 - _release_stuck_modifiers (line 693): exercise with mocked keyboard
 - _safe_key_press (line 712): exercise with mocked keyboard
-- _send_keystroke_sequence (line 896): exercise with mocked keyboard
+- _send_keystroke_sequence: DELETED (dead production code — the actual
+  keystroke path uses _safe_key_press). The two former tests
+  (test_presses_and_releases_in_order / test_double_release_guarantees_modifier_freed)
+  only exercised the dead method; coverage of the live _safe_key_press
+  path is provided by TestSafeKeyPress above.
 - _send_ctrl_v_win32 (line 915): non-Windows no-op + Windows mocked
 - schedule_clipboard_clear: DELETED in ADR-0010 §5.6 (replaced by
   ClipboardSnapshot capture/restore; see test_clipboard_borrow_restore.py)
@@ -248,37 +252,6 @@ class TestSafeKeyPress:
 
 
 # =============================================================================
-# ClipboardManager._send_keystroke_sequence
-# =============================================================================
-
-
-class TestSendKeystrokeSequence:
-    def test_presses_and_releases_in_order(self):
-        """_send_keystroke_sequence should press modifier+char, release both."""
-        mock_kb = MagicMock()
-        cm = ClipboardManager.__new__(ClipboardManager)
-        cm._keyboard = mock_kb
-        modifier = MagicMock(name="modifier")
-        cm._send_keystroke_sequence(modifier, "v")
-        mock_kb.press.assert_any_call(modifier)
-        mock_kb.press.assert_any_call("v")
-        mock_kb.release.assert_any_call("v")
-        mock_kb.release.assert_any_call(modifier)
-
-    def test_double_release_guarantees_modifier_freed(self):
-        """Even if release raises, the finally block re-attempts release."""
-        mock_kb = MagicMock()
-        # First release(char) raises, but release(modifier) in finally should still run
-        mock_kb.release.side_effect = [RuntimeError("char release failed"), None, None]
-        cm = ClipboardManager.__new__(ClipboardManager)
-        cm._keyboard = mock_kb
-        modifier = MagicMock(name="modifier")
-        # Should not propagate — finally block catches
-        with contextlib.suppress(RuntimeError):
-            cm._send_keystroke_sequence(modifier, "v")
-
-
-# =============================================================================
 # ClipboardManager._send_ctrl_v_win32
 # =============================================================================
 
@@ -453,7 +426,7 @@ class TestIsSafePasteTarget:
 
 
 # =============================================================================
-# YJ-22 (retry / partial fix): _Controller narrowed from Any to type | None
+# (retry / partial fix): _Controller narrowed from Any to type | None
 # =============================================================================
 
 
@@ -525,19 +498,31 @@ class TestYj22PynputBindingsTyping:
         )
 
     def test_key_annotation_remains_any_with_documented_rationale(self):
-        """``_Key`` stays ``Any`` — narrowing to ``type | None`` would
-        break the 6 downstream ``_cb._Key.cmd`` / etc. accesses in
-        clipboard/manager.py. The source MUST carry a comment block
-        documenting why ``_Key`` was not narrowed."""
+        """``_Key`` stays ``Any`` (or ``Any | None`` — the ``| None``
+        widening is acceptable because it still admits the lazy-import
+        sentinel ``None`` and doesn't narrow away the pynput ``Key``
+        enum members the way ``type | None`` did). Narrowing to
+        ``type | None`` would break the 6 downstream
+        ``_cb._Key.cmd`` / etc. accesses in clipboard/manager.py. The
+        source MUST carry a comment block documenting why ``_Key`` was
+        not narrowed to ``type | None``."""
         import voice_typer.server.clipboard as clip_mod
 
         ann = clip_mod.__annotations__.get("_Key")
         assert ann is not None, "YJ-22: ``_Key`` must have an explicit annotation."
-        # ``Any`` is the documented retained annotation (full narrowing
-        # requires a pynput stub or Protocol — deferred).
-        assert ann == "Any" or ann is Any, (
-            f"YJ-22: ``_Key`` annotation must remain ``Any`` (full "
-            f"narrowing deferred — see source comment). Got: {ann!r}"
+        # ``Any`` (or the widened ``Any | None``) is the documented
+        # retained annotation — full narrowing to ``type | None``
+        # requires a pynput stub or Protocol and is deferred. Because
+        # the clipboard package uses ``from __future__ import
+        # annotations``, the annotation is stored as a string, so we
+        # accept the PEP-604 form ``"Any | None"`` as well as the bare
+        # ``"Any"`` form (and the resolved ``Any`` object, just in
+        # case the future import is ever dropped).
+        assert ann == "Any" or ann is Any or ann == "Any | None", (
+            f"YJ-22: ``_Key`` annotation must remain ``Any`` (or "
+            f"``Any | None``); narrowing to ``type | None`` would "
+            f"break the 6 downstream ``_cb._Key.cmd`` accesses. "
+            f"Got: {ann!r}"
         )
 
     def test_key_no_type_ignore_marker(self):

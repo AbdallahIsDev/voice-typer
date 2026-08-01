@@ -6,7 +6,7 @@ import pytest
 from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
 
 
-# TEST-019 (fix): previously configure_corrections() was called at module
+# (fix): previously configure_corrections() was called at module
 # import time, mutating global state and making test order matter. Now it
 # runs in an autouse fixture so each test gets a clean corrections state.
 @pytest.fixture(autouse=True)
@@ -255,7 +255,7 @@ class TestFileExtensionFix:
         assert "test" in result
 
 
-# ── ARCH-004: corrections load error surfacing ───────────────────────────
+# corrections load error surfacing ───────────────────────────
 
 
 class TestConfigureCorrectionsSurfacesLoadErrors:
@@ -301,7 +301,7 @@ class TestConfigureCorrectionsSurfacesLoadErrors:
         assert result is not None
 
 
-# ── TEST-008: Additional edge case tests for text_cleanup ──────────────
+# Additional edge case tests for text_cleanup ──────────────
 
 
 class TestTextCleanupEdgeCases:
@@ -376,7 +376,7 @@ class TestTextCleanupEdgeCases:
         assert "  " not in result
 
 
-# ── TEST-032: Parametrized tests for text_cleanup ──────────────────────
+# Parametrized tests for text_cleanup ──────────────────────
 
 
 class TestTextCleanupParametrized:
@@ -453,7 +453,7 @@ class TestTextCleanupParametrized:
         assert result == expected
 
 
-# ── TEST-016: Corrections.json corruption recovery ──────────────────────
+# Corrections.json corruption recovery ──────────────────────
 
 
 class TestCorruptionsRecoveryWithBuiltins:
@@ -515,7 +515,7 @@ class TestCorruptionsRecoveryWithBuiltins:
         assert "the" in clean_transcribed_text("teh code").lower()
 
 
-# ── TEST-039: corrections.json explicit loadability test ────────────────
+# corrections.json explicit loadability test ────────────────
 
 
 class TestCorrectionsJsonIsValid:
@@ -545,7 +545,7 @@ class TestCorrectionsJsonIsValid:
         assert len(data["misspellings"]) >= 1, "corrections.json must have at least 1 misspelling entry"
 
 
-# ── TEST-008: Text cleanup test depth — Unicode + boundary + concurrent ─
+# Text cleanup test depth — Unicode + boundary + concurrent ─
 
 
 class TestTextCleanupUnicode:
@@ -622,7 +622,7 @@ class TestTextCleanupUnicode:
             assert isinstance(r, str)
 
 
-# ── TEST-032: Additional parametrized tests ─────────────────────────────
+# Additional parametrized tests ─────────────────────────────
 
 
 class TestTextCleanupAdditionalParametrized:
@@ -734,10 +734,10 @@ class TestTextCleanupAdditionalParametrized:
         assert "investigate" in result.lower() or "weird" in result.lower() or "grammar" in result.lower()
 
 
-# ── XV-42 / XV-52: performance-refactor regression tests ──────────────
+# performance-refactor regression tests ──────────────
 
 
-class TestXZ3PhraseCorrectionPerformance:
+class TestPhraseCorrectionPerformance:
     """XZ-3 / XV-42: ``_correct_whisper_phrases`` and ``_remove_extra_words``
     must use a cheap ``bad.lower() in lower`` substring check for the
     per-phrase membership test (instead of an O(N×M) regex search per
@@ -864,7 +864,7 @@ class TestXZ3PhraseCorrectionPerformance:
             text_cleanup._active_phrase_patterns = saved[1]
 
 
-class TestXZ3SingleTokenization:
+class TestSingleTokenization:
     """XZ-3 / XV-52: ``clean_transcribed_text`` must tokenize the dictation
     ONCE and pass the token list through the four token-based structural
     helpers, instead of calling ``text.split(" ")`` four times.
@@ -910,7 +910,7 @@ class TestXZ3SingleTokenization:
         assert clean_transcribed_text("infestigate this") == "Investigate this"
 
 
-class TestXZ3PrecompiledRegexes:
+class TestPrecompiledRegexes:
     """XZ-3 / XV-52: all regex patterns used in the hot path must be
     precompiled at module load (no ``re.match`` / ``re.search`` /
     ``re.findall`` / ``re.split`` with uncompiled string patterns)."""
@@ -980,7 +980,7 @@ class TestXZ3PrecompiledRegexes:
         assert text_cleanup._looks_like_question("do you know. can you help") is True
 
 
-class TestXZ3IdempotenceAndConcurrency:
+class TestIdempotenceAndConcurrency:
     """XZ-3: the refactor must not break idempotence or concurrency."""
 
     def test_idempotent_after_refactor(self):

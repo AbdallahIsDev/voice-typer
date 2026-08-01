@@ -215,7 +215,7 @@ UTIL_RS = SRC_TAURI_DIR / "util.rs"
 STATE_RS = SRC_TAURI_DIR / "state.rs"
 SIDECAR_WS_PY = PROJECT_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
 IPC_SERVER_PY = PROJECT_ROOT / "voice_typer" / "server" / "ipc_server.py"
-# Phase 4.5 / ARCH-045 — ``ipc_server.py`` is now a thin shim re-exporting
+# Phase 4.5 /  — ``ipc_server.py`` is now a thin shim re-exporting
 # symbols from the ``voice_typer/server/ipc/`` package.  Tests that
 # source-inspect the rate-limiter implementation read ``ipc/rate_limiter.py``
 # (where ``_RateLimiter`` / ``_get_rate_limiter`` / the ``_RATE_LIMIT_*``
@@ -556,8 +556,8 @@ def test_ws_reader_skips_respawn_during_shutdown(ws_source: str) -> None:
     """
     # The shutdown check MUST reference a ``shutting_down.load(...)``
     # call on a state handle local to the reader task. The local is
-    # named ``state_for_cleanup`` post-RT-FIX-9 (was
-    # ``state_for_reader`` pre-RT-FIX-9).
+    # named ``state_for_cleanup`` post- (was
+    # ``state_for_reader`` pre-).
     assert re.search(
         r"state_for_(?:reader|cleanup)\.shutting_down\.load\s*\(",
         ws_source,
@@ -692,7 +692,7 @@ def test_supervisor_clears_flag_on_all_exit_paths(supervisor_source: str) -> Non
     # The clear must come AFTER respawn_inner resolves (so the
     # inner body's MutexGuards are dropped first, maintaining the
     # "drop guards before await" Send-safety pattern). The local
-    # binding is now ``inner_result`` (GT-9 — wraps the call in
+    # binding is now ``inner_result`` ( — wraps the call in
     # AssertUnwindSafe so a panic in respawn_inner clears the flag
     # in the catch_unwind Err arm).
     assert re.search(
@@ -839,7 +839,7 @@ def test_gap_no_persistent_crash_counter_across_invocations(supervisor_source: s
     assert "flap_count" not in state_source
     # The per-call exhaustion path lives in the post-loop branch (the
     # in-loop ``attempt as u32 >= SUPERVISOR_MAX_RETRIES`` guard was removed as
-    # dead code — see NF-R19-2 in supervisor.rs). Assert the dead guard is GONE
+    # dead code — see  in supervisor.rs). Assert the dead guard is GONE
     # so a future edit that reintroduces it (which would never fire,
     # since SUPERVISOR_BACKOFF_MS.len() == SUPERVISOR_MAX_RETRIES == 5) is caught.
     assert "attempt as u32 >= SUPERVISOR_MAX_RETRIES" not in supervisor_source, (
@@ -894,7 +894,7 @@ def test_rust_ws_client_enforces_max_message_and_frame_size(ws_source: str) -> N
     """
     # max_message_size MUST be set to Some(MAX_FRAME_BYTES) via
     # assignment (tungstenite 0.27 non_exhaustive config — see ws.rs
-    # XZ-CC-10 comment).
+    # comment).
     assert re.search(
         r"\.max_message_size\s*=\s*Some\s*\(\s*MAX_FRAME_BYTES\s*\)",
         ws_source,
@@ -1018,7 +1018,7 @@ def test_sidecar_ws_returns_rate_limited_error(sidecar_ws_source: str) -> None:
     )
 
 
-def test_rate_limiter_is_per_process_cr11(ipc_server_source: str) -> None:
+def test_rate_limiter_is_per_process(ipc_server_source: str) -> None:
     """CR-11: the rate limiter must be PER-PROCESS (one
     ``_RateLimiter`` per ``IPCServer`` instance), NOT per-connection.
 
@@ -1160,7 +1160,7 @@ def test_supervisor_respawn_inner_swaps_child_handle_under_lock(supervisor_sourc
     """
     # The child-handle swap must acquire state.child under a Mutex —
     # either the legacy `.lock().unwrap()` form OR the new poison-safe
-    # `mutex_lock(&...)` helper (G4-H-27).
+    # `mutex_lock(&...)` helper ().
     assert "state.child.lock().unwrap()" in supervisor_source or "mutex_lock(&state.child)" in supervisor_source, (
         "supervisor must store the new child handle under state.child's "
         "Mutex (legacy .lock().unwrap() or new mutex_lock helper) — kill_children "
@@ -1218,10 +1218,10 @@ def test_ws_reader_does_not_rename_relaunch_app(ws_source: str) -> None:
         "ws.rs MUST NOT match the legacy `relaunch_electron` event name "
         "in a per-type branch (PVT-2 cleanup — the rename arm is gone)."
     )
-    # RT-FIX-9 (2026-07-24): ws.rs was refactored — the prior
+    # (2026-07-24): ws.rs was refactored — the prior
     # ``let emit_name = event_type;`` direct assignment was replaced
     # by ``let emit_name = translate_event_name(event_type);``
-    # (PVT-G5-062 — extracted the snake→kebab bubble_* renames into
+    # ( — extracted the snake→kebab bubble_* renames into
     # a unit-testable function). The translate function has an
     # ``other => other`` arm so any event NOT in the rename table is
     # forwarded under its own name (preserving the original
@@ -1243,7 +1243,7 @@ def test_ws_reader_does_not_rename_relaunch_app(ws_source: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# YJ-21: respawn_inner install-time guard + atomic install (CR-81)
+# respawn_inner install-time guard + atomic install ()
 # ═══════════════════════════════════════════════════════════════════════════
 
 
@@ -1291,7 +1291,7 @@ def test_yj21_respawn_inner_acquires_child_lock_before_shutting_down_recheck(
     # Pull the next ~4500 chars (enough to cover the install block +
     # the inside-lock recheck). The block ends at the next top-level
     # match arm or the closing brace of the match. The post-spawn
-    # block has a long CR-81 docstring (~50 lines) before the actual
+    # block has a long  docstring (~50 lines) before the actual
     # mutex_lock call, so the window must be wide enough to span it.
     install_block = supervisor_source[install_block_start : install_block_start + 4500]
 

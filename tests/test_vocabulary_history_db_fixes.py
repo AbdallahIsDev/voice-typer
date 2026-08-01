@@ -52,7 +52,7 @@ VOCAB_SOURCE = Path(inspect.getsourcefile(__import__("voice_typer.server.vocabul
 HISTORY_DB_SOURCE = Path(inspect.getsourcefile(__import__("voice_typer.server.history_db", fromlist=["x"]))).read_text()
 
 
-# ── XV-88: dead duplicate retry loop removed from _save_user ───────────
+# dead duplicate retry loop removed from _save_user ───────────
 
 
 def _save_user_src() -> str:
@@ -61,7 +61,7 @@ def _save_user_src() -> str:
     return inspect.getsource(VocabularyManager._save_user)
 
 
-class TestXV88DeadCodeRemoved:
+class TestDeadCodeRemoved:
     """XV-88: the dead duplicate retry loop in ``_save_user`` is gone."""
 
     def test_save_user_has_exactly_one_secure_atomic_write_call(self):
@@ -144,7 +144,7 @@ class TestXV88DeadCodeRemoved:
         )
 
 
-class TestXV88LiveRetryBehaviourPreserved:
+class TestLiveRetryBehaviourPreserved:
     """XV-88: removing the dead block must NOT change the live retry
     behaviour (M-63: raise after the retry loop is exhausted)."""
 
@@ -266,10 +266,10 @@ class TestXV88LiveRetryBehaviourPreserved:
         )
 
 
-# ── XV-95: WAL checkpoint docstring/log says 300s, matching the actual interval ──
+# WAL checkpoint docstring/log says 300s, matching the actual interval ──
 
 
-class TestXV95CheckpointIntervalDocs:
+class TestCheckpointIntervalDocs:
     """XV-95: documentation of the WAL checkpoint interval must match
     the actual constant ``_WAL_CHECKPOINT_INTERVAL = 300.0``."""
 
@@ -405,7 +405,7 @@ class TestXV95CheckpointIntervalDocs:
         )
 
 
-class TestXV95CheckpointLogBehaviour:
+class TestCheckpointLogBehaviour:
     """XV-95: when a WAL checkpoint is skipped due to an
     ``OperationalError``, the log message must report the ACTUAL
     retry interval (300s), proving the doc fix matches the runtime

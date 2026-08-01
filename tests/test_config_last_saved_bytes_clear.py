@@ -125,7 +125,7 @@ def _make_config_with_last_saved_bytes(*, plaintext_bytes: bytes | None) -> Magi
     return config
 
 
-# ── DJ-25: clear_in_memory_secrets clears _last_saved_bytes ─────────────
+# clear_in_memory_secrets clears _last_saved_bytes ─────────────
 
 
 class TestClearInMemorySecretsClearsLastSavedBytes:
@@ -144,7 +144,7 @@ class TestClearInMemorySecretsClearsLastSavedBytes:
         # Act.
         credential_store.clear_in_memory_secrets(config)
 
-        # Assert: the byte cache is invalidated (DJ-25).
+        # Assert: the byte cache is invalidated ().
         assert object.__getattribute__(config, "_last_saved_bytes") is None, (
             "DJ-25: _last_saved_bytes must be None after clear_in_memory_secrets() "
             "so a memory dump between the GDPR delete and the next app restart "
@@ -191,7 +191,7 @@ class TestClearInMemorySecretsClearsLastSavedBytes:
         # ``object.__setattr__`` so it succeeds even on a frozen dataclass.
         cleared = credential_store.clear_in_memory_secrets(config)
 
-        # Assert: _last_saved_bytes is None (DJ-25).
+        # Assert: _last_saved_bytes is None ().
         assert object.__getattribute__(config, "_last_saved_bytes") is None, (
             "DJ-25: _last_saved_bytes must be None after clear_in_memory_secrets() "
             "even on a frozen dataclass (uses object.__setattr__)"

@@ -135,7 +135,7 @@ class TestWsDispatchPoolDrain:
         # thread — it's a daemon, so it won't block process exit. We
         # can't cancel it (``shutdown(wait=False, cancel_futures=True)``
         # only cancels QUEUED tasks, not RUNNING ones — that's the
-        # entire point of YJ-20).
+        # entire point of ).
 
     def test_pool_drain_no_in_flight_tasks_completes_immediately(self):
         """When there are no in-flight tasks, the drain completes
@@ -184,7 +184,7 @@ class TestWsDispatchPoolDrain:
         assert first.result(timeout=3.0) == "first"
 
 
-# ── YJ-FIX-C1-rework (Issue 1): production-path test ─────────────────────
+# (Issue 1): production-path test ─────────────────────
 
 
 class _FakeAppForDoCleanup:
@@ -413,5 +413,5 @@ class TestDoCleanupDrainsWsPoolViaProductionPath:
         # threads are non-daemon, so the ``concurrent.futures.thread``
         # atexit handler will join it at interpreter shutdown (adding
         # ~1s to the test process exit time). This is the behavior
-        # documented in the YJ-20 comment note (Issue 4) — the 5s bound
+        # documented in the  comment note (Issue 4) — the 5s bound
         # only unblocks _do_cleanup, not the atexit join.

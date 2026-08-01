@@ -82,7 +82,7 @@ class TrackedConnection:
 
     def execute(self, sql, *args, **kwargs):
         # ``conn.execute(...)`` returns a cursor that auto-closes when
-        # iterated — DJ-18 explicitly does NOT require tracking those.
+        # iterated —  explicitly does NOT require tracking those.
         return self._real.execute(sql, *args, **kwargs)
 
     def commit(self):
@@ -118,7 +118,7 @@ def db(tmp_path):
 
 
 # ──────────────────────────────────────────────────────────────────
-# Read-method cursor close (DJ-18)
+# Read-method cursor close ()
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -152,7 +152,7 @@ def test_read_method_closes_cursor(db, monkeypatch, method, kwargs, setup):
 
 
 # ──────────────────────────────────────────────────────────────────
-# Write-method cursor close (DJ-18)
+# Write-method cursor close ()
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -204,7 +204,7 @@ def test_write_method_closes_cursor(db, monkeypatch, method, kwargs, setup):
 
 
 # ──────────────────────────────────────────────────────────────────
-# _drain_batchable_inserts cursor close (DJ-18 — writer-thread path)
+# _drain_batchable_inserts cursor close ( — writer-thread path)
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -292,7 +292,7 @@ def test_drain_batchable_inserts_closes_cursor_on_exception(db, monkeypatch):
 
 
 # ──────────────────────────────────────────────────────────────────
-# _do_retention cursor close (DJ-18 — writer-thread path)
+# _do_retention cursor close ( — writer-thread path)
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -329,7 +329,7 @@ def test_apply_retention_closes_cursor(db):
 
 
 # ──────────────────────────────────────────────────────────────────
-# schema.init_schema cursor close (DJ-18)
+# schema.init_schema cursor close ()
 # ──────────────────────────────────────────────────────────────────
 
 

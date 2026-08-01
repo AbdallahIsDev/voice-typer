@@ -415,7 +415,7 @@ class TestMigrateSecretsToKeyring:
         # Plaintext value preserved
         data = json.loads(config_file.read_text())
         assert data["openai_api_key"] == "sk-keep-me"
-        # XZ-SEC-04 deferred-migration contract: ``secrets_migrated``
+        # deferred-migration contract: ``secrets_migrated``
         # is NOT set (so the next launch re-runs migration once keyring
         # becomes available). The diagnostic flag IS set so operators
         # can see why migration was deferred.
@@ -874,9 +874,9 @@ class TestMigrationMidFailureSafety:
         assert data["openai_api_key"] == "keyring://openai"
         # groq plaintext preserved (not replaced with reference token)
         assert data["groq_api_key"] == "gsk-groq-migrate-fail"
-        # XE-3-2: ``secrets_migrated`` must NOT be set — the next launch
+        # ``secrets_migrated`` must NOT be set — the next launch
         # must re-attempt migration so groq's plaintext is moved once
-        # the keychain is unlocked. The XZ-SEC-04 diagnostic flag IS
+        # the keychain is unlocked. The  diagnostic flag IS
         # set so operators see why migration was deferred.
         assert "secrets_migrated" not in data, (
             "XE-3-2: secrets_migrated must NOT be set when set_password "

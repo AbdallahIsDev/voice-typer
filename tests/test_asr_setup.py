@@ -192,21 +192,21 @@ class TestConsentGateReturnShape:
         assert exc_info is None
 
 
-# ── DE-58: consent gate safe default (config=None → consent not given) ──
+# consent gate safe default (config=None → consent not given) ──
 #
-# These tests pin the DE-58 safe-default behaviour: when ``config`` is
+# These tests pin the  safe-default behaviour: when ``config`` is
 # ``None`` the consent gate MUST treat consent as NOT given (GDPR Art.
 # 6/13), aligned with ``parakeet_engine.ParakeetEngine.load``'s safe
 # default.  Pre-fix, a ``None`` config silently bypassed the gate.
 #
-# NOTE: the return shape here follows the GT-15 3-tuple contract
+# NOTE: the return shape here follows the  3-tuple contract
 # ``(success, reason, exc_info)`` — ``exc_info`` is ``None`` for the
 # consent-gate path because no exception was raised. If the production
 # ``download_parakeet_weights`` is reverted to the 2-tuple contract,
 # these assertions must be updated in lock-step.
 
 
-class TestDE58ConsentGateSafeDefault:
+class TestConsentGateSafeDefault:
     """DE-58: ``download_parakeet_weights`` must treat ``config=None``
     as "consent NOT given" (safe default per GDPR Art. 6/13), aligned
     with ``parakeet_engine.ParakeetEngine.load``'s safe default.
@@ -304,7 +304,7 @@ class TestDE58ConsentGateSafeDefault:
         assert result == (True, "", None)
 
 
-class TestDE58ConsentGateProgressCallback:
+class TestConsentGateProgressCallback:
     """DE-58: when the consent gate refuses, the progress_callback (if
     provided) MUST be invoked with a human-readable consent message so
     the renderer / tray can surface the reason to the user.
