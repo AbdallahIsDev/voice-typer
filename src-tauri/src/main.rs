@@ -21,7 +21,7 @@
 //! # Module layout
 //!
 //! Wiring-only (~280 lines): app builder, plugin registration, `.setup`
-//! glue, `generate_handler!` list, single-instance gate. All real logic
+//! glue, Tauri command registration, single-instance gate. All real logic
 //! lives in focused modules (`state`, `util`, `sidecar::*`,
 //! `commands::*`, `platform::*`). See ADR-0020.
 
@@ -172,7 +172,9 @@ fn main() {
                 crate::state::on_relaunch_app(&restart_handle, event);
             });
             // ADR-0020 §6.5: create the system tray. Failure is
-            // non-fatal — the app still runs without a tray.
+            // non-fatal — the app still runs without a tray. The tray
+            // is built from the sidecar's `tray_menu` event (tray.rs
+            // listens for it and rebuilds the native menu on demand).
             if let Err(e) = crate::tray::create_tray(app.handle()) {
                 log::error!("[TRAY] init failed: {}", e);
             }

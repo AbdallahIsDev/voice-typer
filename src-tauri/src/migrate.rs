@@ -869,7 +869,7 @@ mod tests {
         let root = _scratch.path().to_path_buf();
         let src = root.join("nonexistent.bin");
         let dst = root.join("dst.bin");
-        let err = atomic_copy_file(&src, &dst)
+        let err = util::atomic_copy_file(&src, &dst)
             .expect_err("missing source must produce an error");
         assert!(err.contains("copy"), "error should mention copy: {}", err);
         assert!(!dst.exists(), "destination must NOT exist after failure");

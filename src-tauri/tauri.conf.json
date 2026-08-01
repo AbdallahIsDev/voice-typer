@@ -106,7 +106,8 @@
       "nsis": {
         "installMode": "currentUser",
         "installerHooks": "../scripts/windows/uninstall.bat"
-      }
+      },
+      "signCommand": "..\\scripts\\tauri-sign.cmd %1"
     },
     "macOS": {
       "entitlements": "entitlements.plist",

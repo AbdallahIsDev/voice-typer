@@ -825,7 +825,7 @@ pub async fn shutdown_sidecar(
         let mut rx_guard = state.child_exit_rx.lock().await;
         rx_guard.take()
     };
-    if let Some(rx) = rx_opt {
+    if let Some(mut rx) = rx_opt {
         match tokio::time::timeout(deadline_dur, rx.recv()).await {
             Ok(Some(CommandEvent::Terminated(payload))) => {
                 log::info!(
