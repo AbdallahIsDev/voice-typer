@@ -538,19 +538,26 @@ def _compile_phrase_patterns(
 # for alternations of ``re.escape``d strings because every alternative is
 # a literal with no regex metacharacters).
 #
-# The cache is keyed on ``id(phrases_list)`` so it auto-invalidates when
-# ``configure_corrections`` (or a test) replaces the module-level
-# ``_active_phrases`` / ``_active_extra_words`` list object. Tests that
-# mutate the list in-place (rare) would still hit the cached regex —
-# but the test suite replaces the list (assigns a new list to the
-# module attribute), so the id changes and the cache rebuilds.
-_phrases_re_cache: tuple[int, "re.Pattern[str] | None", dict[str, str]] = (
-    -1,
+# The cache holds a reference to the exact list object it was built
+# from and invalidates via identity (``cached_list is _active_phrases``),
+# NOT ``id()``. Keying on ``id()`` was an id-reuse hazard: once the old
+# list was GC'd, CPython could allocate the NEW list at the same address,
+# so ``id(new_list) == id(old_list)`` returned a stale cached regex built
+# from the PREVIOUS corrections (wrong substitutions in production, and
+# a flaky cross-file test interaction). Holding the object reference in
+# the cache keeps the old list alive, so its address can never be reused
+# for a different list — identity comparison is both correct and O(1).
+# ``configure_corrections`` (and the test suite) REPLACES the module
+# attribute with a new list object, so ``is`` fails and the cache
+# rebuilds; in-place mutation (rare, and equally stale under the old
+# ``id()`` key) is not cached.
+_phrases_re_cache: tuple[object | None, "re.Pattern[str] | None", dict[str, str]] = (
+    None,
     None,
     {},
 )
-_extra_words_re_cache: tuple[int, "re.Pattern[str] | None", dict[str, str]] = (
-    -1,
+_extra_words_re_cache: tuple[object | None, "re.Pattern[str] | None", dict[str, str]] = (
+    None,
     None,
     {},
 )
@@ -604,29 +611,28 @@ def _build_phrases_regex(
 def _get_phrases_regex() -> "tuple[re.Pattern[str] | None, dict[str, str]]":
     """Return the combined regex for ``_active_phrases``, rebuilding if stale.
 
-    Cached by ``id(_active_phrases)``: when
-    ``configure_corrections`` (or a test) replaces the list object,
-    the id changes and the cache rebuilds on the next call.
+    Cached by object identity: when ``configure_corrections`` (or a test)
+    replaces the list object, ``cached_list is _active_phrases`` fails and
+    the cache rebuilds on the next call. Identity (not ``id()``) is used
+    so a GC'd list whose address was reused cannot produce a stale hit.
     """
     global _phrases_re_cache
-    current_id = id(_active_phrases)
-    cached_id, cached_re, cached_lookup = _phrases_re_cache
-    if cached_id == current_id:
+    cached_list, cached_re, cached_lookup = _phrases_re_cache
+    if cached_list is _active_phrases:
         return cached_re, cached_lookup
     new_re, new_lookup = _build_phrases_regex(_active_phrases)
-    _phrases_re_cache = (current_id, new_re, new_lookup)
+    _phrases_re_cache = (_active_phrases, new_re, new_lookup)
     return new_re, new_lookup
 
 
 def _get_extra_words_regex() -> "tuple[re.Pattern[str] | None, dict[str, str]]":
     """Return the combined regex for ``_active_extra_words``, rebuilding if stale."""
     global _extra_words_re_cache
-    current_id = id(_active_extra_words)
-    cached_id, cached_re, cached_lookup = _extra_words_re_cache
-    if cached_id == current_id:
+    cached_list, cached_re, cached_lookup = _extra_words_re_cache
+    if cached_list is _active_extra_words:
         return cached_re, cached_lookup
     new_re, new_lookup = _build_phrases_regex(_active_extra_words)
-    _extra_words_re_cache = (current_id, new_re, new_lookup)
+    _extra_words_re_cache = (_active_extra_words, new_re, new_lookup)
     return new_re, new_lookup
 
 
@@ -962,10 +968,10 @@ def _apply_phrase_substitutions(
     substitution string).
 
     Both call sites route pattern resolution through the same
-    id-keyed combined-regex cache (``_get_phrases_regex`` /
+    identity-keyed combined-regex cache (``_get_phrases_regex`` /
     ``_get_extra_words_regex``), so a concurrent
     ``configure_corrections`` call invalidates the cache via the
-    ``id(_active_*)`` change — closing the parallel-lists race the
+    ``is`` identity change — closing the parallel-lists race the
     prior ``_remove_extra_words`` had reintroduced.
     """
     pattern, lookup = get_regex()
