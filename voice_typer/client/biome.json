@@ -16,7 +16,8 @@
 			"!out",
 			"!**/dist",
 			"!**/node_modules",
-			"!**/data/hotkey_reserved.json"
+			"!**/data/hotkey_reserved.json",
+			"!**/coverage"
 		]
 	},
 	"linter": {
