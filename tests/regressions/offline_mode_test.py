@@ -122,6 +122,19 @@ class TestCloudEngineFailsGracefullyOnNetworkError:
         eng.language = "en"
         eng._device = "cpu"
         eng._compute_type = "int8"
+        # ``_transcribe_unlocked`` reads the ``log_transcriptions`` flag
+        # off ``self.config`` (hoisted out of the segment loop); the
+        # offline-mode contract is that a local engine works with no
+        # network, so give it a config that keeps logging off.
+        eng.config = MagicMock()
+        eng.config.log_transcriptions = False
+        # ``_transcribe_unlocked`` also touches the abort + inference
+        # bookkeeping attrs (abort check per segment; active-inference
+        # counter is managed by the lock wrapper, but the unlocked body
+        # reads ``_abort_event`` directly).
+        eng._abort_event = threading.Event()
+        eng._active_inference = 0
+        eng._inference_cond = threading.Condition()
 
         audio = np.full(16000, 0.5, dtype=np.float32)
 

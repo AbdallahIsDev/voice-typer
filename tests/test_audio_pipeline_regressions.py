@@ -234,13 +234,13 @@ class TestDeepFilterNetInitFallback:
         _install_fake_df(monkeypatch)
         _install_fake_pyrnnoise(monkeypatch)
 
+        from voice_typer.server._audio_constants import RNNOISE_SAMPLE_RATE
         from voice_typer.server.audio_filters.noise_suppressor import (
             _RNNOISE_FRAME_SIZE,
-            _RNNOISE_SAMPLE_RATE,
             NoiseSuppressor,
         )
 
-        ns = NoiseSuppressor(method="deepfilternet", sample_rate=_RNNOISE_SAMPLE_RATE)
+        ns = NoiseSuppressor(method="deepfilternet", sample_rate=RNNOISE_SAMPLE_RATE)
         assert ns._method == "rnnoise"  # narrowed at __init__
 
         # Feed a full rnnoise frame at the native 48kHz rate so no
@@ -249,7 +249,7 @@ class TestDeepFilterNetInitFallback:
         # test is reproducible.
         t = np.linspace(0, 1.0, _RNNOISE_FRAME_SIZE, endpoint=False, dtype=np.float32)
         audio = (0.3 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
-        result = ns.process(audio, _RNNOISE_SAMPLE_RATE)
+        result = ns.process(audio, RNNOISE_SAMPLE_RATE)
 
         # The stub RNNoise returns the input frame unchanged, so the
         # result equals the input — but the *path* went through
@@ -539,6 +539,16 @@ class TestVectorizedDynamicsFilters:
 
         monkeypatch.setattr(sig, "lfilter", counting_lfilter)
 
+        # `_get_lfilter` caches the resolved lfilter reference in
+        # `audio_filters.base._lfilter` after the first successful import,
+        # so a plain `scipy.signal.lfilter` patch is bypassed once any
+        # earlier test has warmed the cache. Reset the cache (monkeypatch
+        # restores it after the test) so the counting wrapper is captured
+        # by this process() call.
+        from voice_typer.server.audio_filters import base as _af_base
+
+        monkeypatch.setattr(_af_base, "_lfilter", None)
+
         result = eq.process(small_audio, 16000)
 
         assert result is not None
@@ -575,6 +585,12 @@ class TestVectorizedDynamicsFilters:
 
         monkeypatch.setattr(sig, "lfilter", counting_lfilter)
 
+        # See test_equalizer_uses_lfilter_not_per_sample_loop — reset the
+        # `_get_lfilter` cache so the counting wrapper is captured.
+        from voice_typer.server.audio_filters import base as _af_base
+
+        monkeypatch.setattr(_af_base, "_lfilter", None)
+
         result = comp.process(small_audio, 16000)
 
         assert result is not None
@@ -601,6 +617,12 @@ class TestVectorizedDynamicsFilters:
         import scipy.signal as sig
 
         monkeypatch.setattr(sig, "lfilter", counting_lfilter)
+
+        # See test_equalizer_uses_lfilter_not_per_sample_loop — reset the
+        # `_get_lfilter` cache so the counting wrapper is captured.
+        from voice_typer.server.audio_filters import base as _af_base
+
+        monkeypatch.setattr(_af_base, "_lfilter", None)
 
         result = lim.process(small_audio, 16000)
 

@@ -68,8 +68,11 @@ class TestAccessibilityIpcEndpointExists:
         # Invoke the handler directly. The command was removed from
         # ``_COMMAND_REGISTRY`` (the Tauri host handles it natively),
         # so ``_dispatch`` would route to ``unknown_command`` — but the
-        # handler method itself is unchanged.
-        resp = server._handle_check_accessibility(None, {"id": "test"})
+        # handler method itself is unchanged. The handler runs
+        # empty-schema payload validation (a non-dict payload is
+        # rejected with ``invalid_payload``), so pass ``{}`` — NOT
+        # ``None`` — as the data arg.
+        resp = server._handle_check_accessibility({}, {"id": "test"})
 
         assert resp["type"] == "accessibility_status"
         assert resp["data"]["granted"] is True

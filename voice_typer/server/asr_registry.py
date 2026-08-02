@@ -473,6 +473,19 @@ class AsrBackendRegistry:
     def load_active(self, progress_callback: ProgressCallback | None = None) -> AsrBackend | None:
         """Load the active backend and return it."""
         _cb = progress_callback or (lambda msg: None)
+        # OI-15: the circuit-breaker disabled gate must be enforced
+        # BEFORE attempting to load. Pre-fix, load_active skipped the
+        # _is_disabled check: get_active()'s last-resort branch returns
+        # an unloaded backend even when that backend is in
+        # _disabled_backends, and load_active would then attempt (and
+        # usually fail) the load — silently re-attempting the exact
+        # failure mode the breaker exists to prevent.
+        if self._is_disabled(self.active_name):
+            log.warning(
+                "[ASR_REGISTRY] active backend %s is disabled — refusing to load (OI-15)",
+                self.active_name,
+            )
+            return None
         backend = self.get_active()
         if backend is None:
             log.warning("[ASR_REGISTRY] no active backend to load")

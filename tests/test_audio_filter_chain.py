@@ -22,6 +22,18 @@ def _read_component_source() -> str:
     return COMPONENT_PATH.read_text(encoding="utf-8")
 
 
+REGISTRY_PATH = Path(
+    "voice_typer/client/src/renderer/src/components/audio/audioFilterRowDescriptors.ts"
+)
+
+
+def _read_registry_source() -> str:
+    """Read the descriptor render-spec source (skip if missing in CI)."""
+    if not REGISTRY_PATH.exists():
+        pytest.skip(f"{REGISTRY_PATH} not found — F-1 not implemented")
+    return REGISTRY_PATH.read_text(encoding="utf-8")
+
+
 class TestAudioFilterChainExists:
     """F-1: the shared component file exists at the canonical path."""
 
@@ -84,9 +96,18 @@ class TestAudioFilterChainUsesSharedPrimitives:
 
 
 class TestAudioFilterChainRendersAllFilters:
-    """F-1: the shared component renders all 7 filter rows that were
+    """F-1: the shared component renders all filter rows that were
     previously duplicated across AudioSettingsSection and
     AudioPresetSelector.
+
+    Since the F-1 refactor the component is data-driven: the per-row
+    render spec (configKey, control kind, min/max/step, i18n keys)
+    lives in the `audioFilterRowDescriptors` registry and the
+    component maps over the registry unconditionally (the `isVisible`
+    default is permissive `() => true`). A field is therefore rendered
+    iff it appears in the registry, so these tests assert against the
+    registry AND that the component consumes the registry as its
+    render source.
     """
 
     @pytest.mark.parametrize(
@@ -112,7 +133,17 @@ class TestAudioFilterChainRendersAllFilters:
     )
     def test_renders_field(self, field):
         src = _read_component_source()
-        assert field in src, f"F-1: AudioFilterChain must render the {field} config field"
+        registry = _read_registry_source()
+        assert f'configKey: "{field}"' in registry, (
+            f"F-1: AudioFilterChain must render the {field} config field — "
+            f"missing from the {self.REGISTRY_PATH.name} render spec"
+        )
+        # The component must iterate the registry so every descriptor
+        # (including the field above) is actually rendered.
+        assert "audioFilterRowDescriptors.map" in src, (
+            "F-1: AudioFilterChain must iterate audioFilterRowDescriptors — "
+            "the registry is the render spec"
+        )
 
 
 class TestAudioFilterChainCallSitesUseIt:
@@ -158,15 +189,36 @@ class TestAudioFilterChainIStrI18nKeys:
 
     def test_uses_t_function(self):
         src = _read_component_source()
-        assert 'from "@/i18n/i18n"' in src or 'from "@/i18n/i18n"' in src, (
-            "F-1: AudioFilterChain must import t from @/i18n/i18n"
+        # F-1 refactor: the component consumes the `buildAudioFilterLabels`
+        # builder, which resolves every descriptor i18n key through `t()`
+        # (no hardcoded English). Verify the wiring AND that the builder
+        # actually invokes `t()`.
+        assert "buildAudioFilterLabels" in src, (
+            "F-1: AudioFilterChain must use buildAudioFilterLabels (the "
+            "t()-driven label builder) — no hardcoded English"
         )
-        # Count t() calls — should be many (one per label).
-        t_calls = src.count('t("settings.audioEnhancement')
-        assert t_calls >= 10, (
-            f"F-1: AudioFilterChain only has {t_calls} t() calls — expected "
-            "at least 10 (one per label). The Microphone page must NOT use "
-            "hardcoded English."
+        labels_path = Path(
+            "voice_typer/client/src/renderer/src/components/audio/audioFilterLabels.ts"
+        )
+        if not labels_path.exists():
+            pytest.skip(f"{labels_path} not found — F-1 not implemented")
+        labels_src = labels_path.read_text(encoding="utf-8")
+        # The builder must call t() to resolve each key.
+        assert "t(key)" in labels_src, (
+            "F-1: audioFilterLabels must resolve descriptor i18n keys via t()"
+        )
+        # The registry must carry a substantial set of settings.audioEnhancement
+        # keys (the pre-refactor inline useMemo had 40+ t() calls).
+        registry = _read_registry_source()
+        i18n_keys = {
+            line.split('"')[1]
+            for line in registry.splitlines()
+            if "settings.audioEnhancement" in line and '"' in line
+        }
+        assert len(i18n_keys) >= 10, (
+            f"F-1: audioFilterRowDescriptors only has {len(i18n_keys)} "
+            "settings.audioEnhancement keys — expected at least 10 (one per "
+            "label). The Microphone page must NOT use hardcoded English."
         )
 
     def test_no_hardcoded_english_labels(self):

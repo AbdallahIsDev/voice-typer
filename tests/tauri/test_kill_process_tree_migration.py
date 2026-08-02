@@ -11,8 +11,10 @@ method referenced it. With the migration complete:
   to the shim in the same module).
 * ``spawn.rs`` MUST NOT reference ``crate::state::kill_process_tree`` any more.
 * ``spawn.rs`` MUST reference ``crate::platform::process::kill_process_tree``
-  exactly four times (the four spawn-timeout / Terminated / Error cleanup
-  call sites that previously went through the shim).
+  exactly six times (the four original spawn-timeout / Terminated / Error
+  cleanup call sites that previously went through the shim, PLUS two
+  later additions: a dev-mode server-started-deadline fallback and a
+  shared-process cleanup path that were added after the shim removal).
 
 These checks are static (read-the-source) so they run in the Linux sandbox
 without needing a real sidecar process.
@@ -141,8 +143,15 @@ def test_spawn_rs_uses_platform_module_exactly_four_times() -> None:
     """
     body = _read(_SPAWN_RS)
     matches = re.findall(r"crate::platform::process::kill_process_tree\s*\(", body)
-    assert len(matches) == 4, (
+    # Six call sites: the four original spawn-timeout / Terminated / Error
+    # cleanup paths (which migrated off the state.rs shim) + two later
+    # additions (a dev-mode server-started-deadline fallback wrapped in
+    # spawn_blocking, and a shared-process cleanup helper). Bump this pin
+    # deliberately when adding ANOTHER kill path — the point is that
+    # spawn.rs must route through the platform module, never resurrect
+    # the state.rs shim.
+    assert len(matches) == 6, (
         f"spawn.rs must call `crate::platform::process::kill_process_tree` "
-        f"exactly 4 times (one per spawn-timeout / cleanup path); found "
-        f"{len(matches)}."
+        f"exactly 6 times (4 spawn-timeout/cleanup paths + 2 later "
+        f"additions); found {len(matches)}."
     )

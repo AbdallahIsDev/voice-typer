@@ -47,7 +47,10 @@ class TestDispatchSetConfig:
         assert mock_app.config.model_size == "medium.en"
         assert mock_app.config._saved is True
 
-    def test_empty_data_still_saves_and_acks(self, server, mock_app):
+    def test_empty_data_acks_without_saving(self, server, mock_app):
+        # G4-L-20: an empty update is a no-op — apply_config's dirty-check
+        # skips save_strict() when nothing changed. The contract is
+        # "ack + no disk write", not "ack + always save".
         mock_app.config._saved = False
         result = server._dispatch(
             {
@@ -57,7 +60,7 @@ class TestDispatchSetConfig:
             }
         )
         assert result["type"] == "ack"  # may include data field
-        assert mock_app.config._saved is True
+        assert mock_app.config._saved is False
 
     def test_no_data_returns_error(self, server, mock_app):
         """NEW-IPC-005: set_config with no data field must return an error,
@@ -83,7 +86,9 @@ class TestDispatchSetConfig:
             }
         )
         assert result["type"] == "ack"  # may include data field
-        assert mock_app.config._saved is True
+        # G4-L-20: unknown keys are dropped, leaving a no-op update —
+        # the dirty-check skips save_strict() when nothing changed.
+        assert mock_app.config._saved is False
 
     def test_non_dict_data_returns_error(self, server, mock_app):
         """NEW-IPC-005: set_config with non-dict data must return an error,
@@ -450,13 +455,16 @@ class TestDispatchSetConfigAllowlist:
     # ── Enum validation ──────────────────────────────────────────────
 
     def test_rejects_invalid_model_size(self, real_server, real_config):
-        """model_size must be in ALLOWED_USER_MODELS — 'large' is not."""
+        """model_size must be in ALLOWED_USER_MODELS — a non-registry id is not."""
+        # NOTE: 'large' IS in ALLOWED_USER_MODELS (the model registry now
+        # includes the generic model ids); use a value that is genuinely
+        # NOT in the registry.
         original = real_config.model_size
         result = real_server._dispatch(
             {
                 "id": 1,
                 "type": "set_config",
-                "data": {"model_size": "large"},
+                "data": {"model_size": "large-not-a-real-model"},
             }
         )
         assert result["type"] == "error"

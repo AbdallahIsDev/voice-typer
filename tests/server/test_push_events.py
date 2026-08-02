@@ -109,7 +109,7 @@ class TestPushEventNow:
         server._send.assert_called()
         server.stop()
 
-    def test_exception_in_push_returns_false(self, server, monkeypatch):
+    def test_exception_in_push_returns_false(self, server, monkeypatch, clean_registry):
         """If the push function raises, _push_event_now should return False.
 
         NEW-IPC-013: a broken fn registered via _set_push_event is now
@@ -311,7 +311,9 @@ class TestGetInstancePushFnTracking:
         finally:
             srv.stop()
 
-    def test_stop_clears_instance_push_fn(self, server_with_mock_app_for_push_events):
+    def test_stop_clears_instance_push_fn(
+        self, server_with_mock_app_for_push_events, clean_registry
+    ):
         srv = server_with_mock_app_for_push_events
         srv.app.tray = MagicMock()
         srv._hook_tray_set_state = lambda: None
