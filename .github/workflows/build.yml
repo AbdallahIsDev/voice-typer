@@ -65,16 +65,6 @@ jobs:
     # XS-25: cap test job runtime — a hung pytest leg should not consume a
     # runner for 6h (the GitHub default).
     timeout-minutes: 30
-    # The "Test results" step (mikepenz/action-junit-report@v6) creates
-    # a check run to annotate failing tests on the PR/diff. The
-    # workflow-level default is `contents: read` + `pull-requests: read`
-    # only, so the junit-report step failed with "Resource not
-    # accessible by integration" on every run. `checks: write` grants it
-    # the API permission to create the check run.
-    permissions:
-      contents: read
-      checks: write
-      pull-requests: read
     strategy:
       # CI-02: PRs run a reduced matrix (one Python per OS) to save CI
       # minutes; the full 4×3 matrix runs on push (branches/tags) where we
@@ -97,17 +87,7 @@ jobs:
       fail-fast: false
 
     steps:
-      # fetch-depth: 2 — the "Audit pyrefly baseline changes" step reads
-      # the PARENT commit's committed pyrefly-baseline.json via
-      # `git show HEAD~1:pyrefly-baseline.json` on push events. With the
-      # default depth=1 the parent commit isn't present, the `git show`
-      # fails, OLD_COUNT falls back to 0, and the ratchet spuriously
-      # trips on any live error count > 0 (see the 2026-08-02 main
-      # push failure: "Pyrefly error count grew from 0 (baseline) to
-      # 256 (live)" while the parent baseline actually holds 266).
       - uses: actions/checkout@v5
-        with:
-          fetch-depth: 2
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v7
