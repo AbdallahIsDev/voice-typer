@@ -4861,23 +4861,6 @@ The reader task (519-757) and the heartbeat task (758-893) have no shared intern
 
 ---
 
-### FZ-14 — IPC channel-name strings hardcoded as literals across 8+ TS files (no shared contract module)
-**Status:** ❌ Not Fixed — too large (~50 literal sites to migrate; deferred to dedicated IPC-contract sprint)
-**Description:** Every IPC channel name is a hand-typed string literal duplicated between preload (sender) and main process (receiver). 16 distinct channel prefixes, each duplicated 2-7× as inline literals. Examples: `"python-call"`, `"python-event"`, `"window:minimize"`, `"history:export"`, `"bubble:move-by"`, `"bubble:resize"`, `"bubble:draggable"` (7 non-test sites), `"bubble:hidden"` (7 non-test sites). No shared `IpcChannel` constants module exists.
-**Root Cause:** Pre-existing pattern from the original monolithic `index.ts`; the REF-2 split into per-domain handler files preserved the inline literals rather than extracting a shared channel-name registry. The Tauri bridge added a third copy of each name (snake_case Rust commands).
-**Impact:** A typo in any one of these literals silently breaks IPC at runtime with no compile-time error. Channel renames require manual find/replace across 2-3 sites with no safety net. The Tauri/Electron naming-convention split compounds the divergence risk.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/client/src/preload/{index.ts, _bubble-channels.ts}`
-- `voice_typer/client/src/main/ipc/{bubble-handlers.ts, window-handlers.ts, export-handlers.ts, python-call-handler.ts}`
-- `voice_typer/client/src/main/windows/{bubble-window.ts, main-window.ts}`
-- `voice_typer/client/src/main/python/handle-message.ts`
-- `voice_typer/client/src/renderer/src/lib/tauri-bridge/bubble-namespace.ts`
-- `src-tauri/src/commands/bubble.rs`
-- `src-tauri/src/sidecar/ws.rs`
-**Fix:** Introduce `src/shared/ipc-channels.ts` exporting `const IPC_CHANNEL = { PYTHON_CALL: "python-call", PYTHON_EVENT: "python-event", WINDOW_MINIMIZE: "window:minimize", BUBBLE_MOVE_BY: "bubble:move-by", ... } as const`. Replace every inline literal with the constant. Add a vitest test asserting every `ipcMain.handle/on` channel has a matching `ipcRenderer.invoke/send` constant.
-**Severity:** 🔴 High
-
 ### FZ-23 — `shutdown_controller.py` (1488 LOC) is a god-module mixing 5 separable concerns
 **Status:** ❌ Not Fixed — too large (~5 new files; deferred)
 **Description:** Single `ShutdownController` class mixes: generic timeout helpers (115 LOC), watchdog (50 LOC), POSIX signal handling (95 LOC), Win32 console handling (90 LOC), 14 teardown step methods (520 LOC), core orchestration (300 LOC).
@@ -4931,44 +4914,6 @@ The reader task (519-757) and the heartbeat task (758-893) have no shared intern
 - `src-tauri/src/sidecar/ws.rs`
 - `voice_typer/server/event_bus.py`**Fix:** Define the event-type registry ONCE in Python as `KNOWN_EVENT_TYPES: frozenset[str]`. Have the Python sidecar emit this list at WS handshake. The Rust host builds its `ALLOWED_EVENT_TYPES` from the handshake response + a static "extra-safe" superset. Add a parity test.
 **Severity:** 🔴 High
-
-### FZ-54 — Default hotkey `"<caps_lock>"` hardcoded as literal in 5 server-side sites + 1 TS site
-**Status:** ❌ Not Fixed — moderate scope (6 sites); deferred
-**Description:** `config.py:76` (canonical), `hotkey_dispatcher.py:122` (fallback — comment EXPLICITLY says "platform default (see config._default_hotkey_for_platform)"), `onboarding.py:69,307` (wizard state), `onboarding.py:404` (preset list), `client/src/renderer/src/pages/onboarding/lib/constants.ts:17` (TS-side copy). The TS file documents `HOTKEY_DEFAULT` as a local constant with no reference to the server-side `_default_hotkey_for_platform()`. The `hotkey_dispatcher.py` comment proves the maintainer is aware of the duplication.
-**Root Cause:** The default hotkey pre-dates the Python↔TS IPC bridge; each layer has its own copy.
-**Impact:** If the default hotkey changes, 5 Python sites + 1 TS site must be updated. The `hotkey_dispatcher.py` fallback would silently use the wrong default if `config.py` changes. The TS↔Python drift is invisible to any test.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/config.py`
-- `voice_typer/server/hotkey_dispatcher.py`
-- `voice_typer/server/onboarding.py`
-- `voice_typer/client/src/renderer/src/pages/onboarding/lib/constants.ts`
-**Fix:** Server side — import the canonical value in all 4 secondary sites. TS side — the renderer should learn the default via the existing `get_defaults` IPC call. Add a parity test that asserts `constants.ts::HOTKEY_DEFAULT === Config().hotkey`.
-**Severity:** 🟡 Medium
-
-### FZ-55 — `noise_filter_*` defaults duplicated between `Config` dataclass and `audio_chain_builder._DEFAULTS` test dict
-**Status:** ❌ Not Fixed — moderate scope; deferred
-**Description:** `audio_chain_builder.py:143` comment: "Default values matching the Config class defaults (ADR 0007 §5)". The two dictionaries are byte-for-byte identical for 23 of 24 entries. `config.py:1208` even has a comment "ADR 0007: was 150, now 200 (matches OBS)" for `noise_filter_gate_hold_ms` — a default that was bumped from 150→200. If the same bump is ever made to another field, the `audio_chain_builder._DEFAULTS` dict will silently drift.
-**Root Cause:** `build_chain_from_dict` (used by tests) accepts a plain dict and uses `_DEFAULTS` for missing keys, because constructing a real `Config()` instance in unit tests was deemed too heavy.
-**Impact:** Changing a Config default silently breaks the `build_chain_from_dict` test path — tests will pass with the OLD default while production uses the NEW default. The `_DEFAULTS` dict has no parity test.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/config.py`
-- `voice_typer/server/audio_chain_builder.py`
-**Fix:** Replace `_DEFAULTS` with a `Config()` instance: `def build_chain_from_dict(config_dict, sample_rate=16000): cfg = Config(); for k, v in config_dict.items(): setattr(cfg, k, v); return build_chain(cfg, sample_rate=sample_rate)`.
-**Severity:** 🟡 Medium
-
-### FZ-56 — `vad_speech_threshold: 0.5` and `vad_silence_threshold: 0.3` duplicated as `getattr` fallback literals
-**Status:** ❌ Not Fixed — small scope; deferred
-**Description:** `config.py:1109-1110` (canonical defaults) vs `vad_processor.py:177-178` (fallback literals in getattr): `self._speech_threshold: float = getattr(config, "vad_speech_threshold", 0.5)`. The `0.5` is a hardcoded fallback that must match `config.py:1109`'s `0.5` but is not imported from it.
-**Root Cause:** `vad_processor.py` accepts a config-like object (duck-typed) for testability; the `getattr` fallback was added so tests can pass a stub config.
-**Impact:** Drift between `config.py` defaults and `vad_processor` fallbacks. A test that constructs a minimal stub config will exercise a different threshold than production.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/config.py`
-- `voice_typer/server/vad_processor.py`
-**Fix:** Import the defaults: `from voice_typer.server.config import Config as _Config; _DEFAULT_VAD_SPEECH_THRESHOLD = _Config.vad_speech_threshold`.
-**Severity:** 🟡 Medium
 
 ### FZ-57 — Platform-detection `sys.platform == "win32"` repeated inline despite `platform_utils.is_windows()` existing
 **Status:** ❌ Not Fixed — moderate scope (8 sites); deferred
