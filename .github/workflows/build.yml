@@ -88,6 +88,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@v5
+        with:
+          # RT-FIX-12: fetch-depth 2 so the pyrefly baseline audit step
+          # can resolve HEAD~1 (the previous main commit) for push events.
+          # The default shallow checkout (depth 1) has no parent commit,
+          # so `git show HEAD~1:pyrefly-baseline.json` fails and the
+          # audit falls back to OLD_COUNT=0 — which is always < the live
+          # error count (~260), failing every push build with a bogus
+          # "Pyrefly error count grew from 0 to 260" gate. PR events use
+          # origin/<base_ref> instead, so they are unaffected.
+          fetch-depth: 2
 
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v7
