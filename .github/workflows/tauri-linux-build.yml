@@ -257,7 +257,11 @@ jobs:
       - name: cargo test (Tauri Rust host unit tests)
         working-directory: src-tauri
         run: |
-          cargo test --target ${{ env.RUST_TARGET }} --lib
+          # voice-typer-tauri is a binary-only crate (no lib target), so
+          # `--lib` fails with "no library targets found". `--bin` runs
+          # the unit tests in src-tauri/src/*.rs without paying the cost
+          # of any integration-test crates.
+          cargo test --target ${{ env.RUST_TARGET }} --bin voice-typer-tauri
 
       - name: Validate tauri.conf.json (parse-only)
         working-directory: src-tauri
