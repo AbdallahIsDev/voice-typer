@@ -726,9 +726,7 @@ class AudioPipeline:
         # worker thread, so the handoff is single-threaded.
         if indata.size:
             _raw_flat = indata.reshape(-1)
-            self._pending_raw_chunk_rms = float(
-                np.sqrt(np.dot(_raw_flat, _raw_flat) / _raw_flat.size)
-            )
+            self._pending_raw_chunk_rms = float(np.sqrt(np.dot(_raw_flat, _raw_flat) / _raw_flat.size))
         else:
             self._pending_raw_chunk_rms = 0.0
 

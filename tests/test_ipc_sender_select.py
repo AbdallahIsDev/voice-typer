@@ -144,13 +144,10 @@ def test_select_called_before_sendall() -> None:
     assert len(select_calls) >= 1, "select.select must be called before sendall"
     rlist, wlist, xlist, timeout = select_calls[0]
     assert rlist == [], "select.select readable list must be empty"
-    assert wlist == [tcp_client.conn], (
-        "select.select writable list must contain the tcp client's socket"
-    )
+    assert wlist == [tcp_client.conn], "select.select writable list must contain the tcp client's socket"
     assert xlist == [], "select.select exceptional list must be empty"
     assert timeout == _TCP_WRITE_TIMEOUT_SECONDS, (
-        f"select.select timeout must be _TCP_WRITE_TIMEOUT_SECONDS "
-        f"({_TCP_WRITE_TIMEOUT_SECONDS}), got {timeout}"
+        f"select.select timeout must be _TCP_WRITE_TIMEOUT_SECONDS ({_TCP_WRITE_TIMEOUT_SECONDS}), got {timeout}"
     )
 
     # select must be called BEFORE sendall.
@@ -194,14 +191,12 @@ def test_select_timeout_logs_error_and_drops_frame(
 
     # Client must be marked dead.
     assert server._tcp_client is None, (
-        "_send must mark the client dead when select returns empty "
-        "(socket.timeout caught → dead-client path)"
+        "_send must mark the client dead when select returns empty (socket.timeout caught → dead-client path)"
     )
 
     # The pending snapshot must be re-merged (not silently lost).
     assert len(server._pending_tcp) >= 2, (
-        f"Pending entries must be re-merged after write timeout; "
-        f"got {server._pending_tcp!r}"
+        f"Pending entries must be re-merged after write timeout; got {server._pending_tcp!r}"
     )
     assert '{"old": 1}' in server._pending_tcp
     assert '{"old": 2}' in server._pending_tcp
@@ -209,8 +204,7 @@ def test_select_timeout_logs_error_and_drops_frame(
     # The write failure must be logged at DEBUG level.
     debug_msgs = [r.message for r in caplog.records if r.levelno == logging.DEBUG]
     assert any("client write failed" in m for m in debug_msgs), (
-        f"Expected a DEBUG log mentioning 'client write failed'; "
-        f"got debug messages: {debug_msgs}"
+        f"Expected a DEBUG log mentioning 'client write failed'; got debug messages: {debug_msgs}"
     )
 
 
@@ -240,8 +234,7 @@ def test_select_writable_sendall_called_with_correct_data() -> None:
 
     # sendall must have been called exactly once (no pending, no drain).
     assert len(sent_data) == 1, (
-        f"Expected exactly 1 sendall call (just the current line); "
-        f"got {len(sent_data)} calls with data {sent_data}"
+        f"Expected exactly 1 sendall call (just the current line); got {len(sent_data)} calls with data {sent_data}"
     )
 
     # The sent data must be the JSON-encoded line + newline.
@@ -285,18 +278,15 @@ def test_select_writable_sendall_called_with_correct_data_and_drain() -> None:
 
     msg = {"type": "test_event", "id": 99}
     expected_current = (json.dumps(msg) + "\n").encode("utf-8")
-    expected_drain = (b'{"pending": 1}\n{"pending": 2}\n')
+    expected_drain = b'{"pending": 1}\n{"pending": 2}\n'
 
     with patch.object(sender_module, "select", mock_mod):
         server._send(msg)
 
     # Two sendall calls: current line + batched drain.
-    assert len(sent_data) == 2, (
-        f"Expected 2 sendall calls (current + drain); got {len(sent_data)}: {sent_data}"
-    )
+    assert len(sent_data) == 2, f"Expected 2 sendall calls (current + drain); got {len(sent_data)}: {sent_data}"
     assert sent_data[0] == expected_current, (
-        f"First sendall must be the current line; "
-        f"expected {expected_current!r}, got {sent_data[0]!r}"
+        f"First sendall must be the current line; expected {expected_current!r}, got {sent_data[0]!r}"
     )
     assert sent_data[1] == expected_drain, (
         f"Second sendall must be the batched drain (2 pending entries); "
@@ -304,18 +294,13 @@ def test_select_writable_sendall_called_with_correct_data_and_drain() -> None:
     )
 
     # Two select calls: one before each flush.
-    assert len(select_calls) == 2, (
-        f"Expected 2 select.select calls (one per flush); "
-        f"got {len(select_calls)}"
-    )
+    assert len(select_calls) == 2, f"Expected 2 select.select calls (one per flush); got {len(select_calls)}"
     for _rlist, wlist, _xlist, timeout in select_calls:
         assert timeout == _TCP_WRITE_TIMEOUT_SECONDS
         assert wlist == [tcp_client.conn]
 
     # All pending drained — none re-merged.
-    assert len(server._pending_tcp) == 0, (
-        f"Pending must be fully drained; got {server._pending_tcp!r}"
-    )
+    assert len(server._pending_tcp) == 0, f"Pending must be fully drained; got {server._pending_tcp!r}"
 
     # Client stays alive.
     assert server._tcp_client is tcp_client

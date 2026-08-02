@@ -79,8 +79,7 @@ class TestScipyImportHoisted:
         # _sp_signal may be None if scipy is broken in the env, but the
         # name must exist.
         assert hasattr(audio_pipeline_mod, "_sp_signal"), (
-            "audio_pipeline module must bind '_sp_signal' at module top "
-            "(may be None if scipy is unavailable)."
+            "audio_pipeline module must bind '_sp_signal' at module top (may be None if scipy is unavailable)."
         )
 
     def test_call_site_uses_module_aliases(self) -> None:
@@ -151,9 +150,7 @@ def _make_process_chunk_recorder_stub() -> MagicMock:
     recorder._handle_xrun_status.return_value = False
     # _apply_filter_chain returns a filtered array with a DIFFERENT RMS
     # than the raw indata, so the test can distinguish raw vs filtered.
-    recorder._apply_filter_chain.return_value = np.array(
-        [0.5, -0.5, 0.5, -0.5], dtype=np.float32
-    )
+    recorder._apply_filter_chain.return_value = np.array([0.5, -0.5, 0.5, -0.5], dtype=np.float32)
     recorder._append_to_buffer_locked.return_value = (1, 1)
     # _compute_rms_and_peak returns the FILTERED RMS (0.5) — distinct
     # from the raw RMS of the test's indata.
@@ -211,9 +208,7 @@ class TestVadAutoCalibrateReceivesRawRms:
             max_duration_cb=None,
         )
 
-        recorder._vad_auto_calibrate.assert_called_once_with(
-            raw_rms, 0.032
-        )
+        recorder._vad_auto_calibrate.assert_called_once_with(raw_rms, 0.032)
 
     def test_auto_calibrate_falls_back_to_chunk_rms_when_no_raw(
         self,
@@ -240,9 +235,7 @@ class TestVadAutoCalibrateReceivesRawRms:
             max_duration_cb=None,
         )
 
-        recorder._vad_auto_calibrate.assert_called_once_with(
-            filtered_rms, 0.032
-        )
+        recorder._vad_auto_calibrate.assert_called_once_with(filtered_rms, 0.032)
 
     def test_process_audio_chunk_sets_pending_raw_rms_from_indata(
         self,
@@ -258,18 +251,15 @@ class TestVadAutoCalibrateReceivesRawRms:
         # indata with a known, computable RMS (distinct from the
         # filtered array's RMS of 0.5).
         indata = np.array([0.1, -0.2, 0.3, -0.4], dtype=np.float32)
-        expected_raw_rms = float(np.sqrt(np.mean(indata ** 2)))
+        expected_raw_rms = float(np.sqrt(np.mean(indata**2)))
 
         pipeline.process_audio_chunk(indata, 4, None, 0, 12345.0)
 
         # The transient attribute was set to the raw RMS of indata.
         assert hasattr(pipeline, "_pending_raw_chunk_rms"), (
-            "process_audio_chunk must set '_pending_raw_chunk_rms' "
-            "before calling _apply_filter_chain."
+            "process_audio_chunk must set '_pending_raw_chunk_rms' before calling _apply_filter_chain."
         )
-        assert pipeline._pending_raw_chunk_rms == pytest.approx(
-            expected_raw_rms
-        ), (
+        assert pipeline._pending_raw_chunk_rms == pytest.approx(expected_raw_rms), (
             f"_pending_raw_chunk_rms must be the raw RMS of indata "
             f"({expected_raw_rms}), got "
             f"{pipeline._pending_raw_chunk_rms}."
@@ -277,8 +267,7 @@ class TestVadAutoCalibrateReceivesRawRms:
         # And it must NOT be the filtered RMS (0.5) returned by
         # _compute_rms_and_peak.
         assert pipeline._pending_raw_chunk_rms != pytest.approx(0.5), (
-            "_pending_raw_chunk_rms must be the RAW (pre-filter) RMS, "
-            "not the post-filter chunk_rms (0.5)."
+            "_pending_raw_chunk_rms must be the RAW (pre-filter) RMS, not the post-filter chunk_rms (0.5)."
         )
 
     def test_process_audio_chunk_sets_raw_rms_before_filter_chain(
@@ -298,16 +287,14 @@ class TestVadAutoCalibrateReceivesRawRms:
         def capture_filter_chain(indata: np.ndarray) -> np.ndarray:
             # Record the value of _pending_raw_chunk_rms on the pipeline
             # at the moment _apply_filter_chain is invoked.
-            raw_rms_at_filter_time.append(
-                getattr(pipeline, "_pending_raw_chunk_rms", None)
-            )
+            raw_rms_at_filter_time.append(getattr(pipeline, "_pending_raw_chunk_rms", None))
             return recorder._apply_filter_chain.return_value
 
         recorder._apply_filter_chain.side_effect = capture_filter_chain
 
         pipeline = AudioPipeline(recorder)
         indata = np.array([0.3, -0.3, 0.3, -0.3], dtype=np.float32)
-        expected_raw_rms = float(np.sqrt(np.mean(indata ** 2)))
+        expected_raw_rms = float(np.sqrt(np.mean(indata**2)))
 
         pipeline.process_audio_chunk(indata, 4, None, 0, 12345.0)
 
@@ -344,10 +331,7 @@ class TestAudioQualityControllerLazyNumpy:
             "'np' must not be in audio_quality_controller.__dict__ at "
             "runtime — move 'import numpy as np' under TYPE_CHECKING."
         )
-        assert "numpy" not in aqc.__dict__, (
-            "'numpy' must not be in audio_quality_controller.__dict__ "
-            "at runtime."
-        )
+        assert "numpy" not in aqc.__dict__, "'numpy' must not be in audio_quality_controller.__dict__ at runtime."
 
     def test_numpy_import_under_type_checking(self) -> None:
         """The module source must contain ``if TYPE_CHECKING:`` with
@@ -363,8 +347,7 @@ class TestAudioQualityControllerLazyNumpy:
             if stripped == "import numpy as np":
                 # This line must be indented (inside the TYPE_CHECKING block).
                 assert line != stripped, (
-                    "'import numpy as np' must be indented under "
-                    "'if TYPE_CHECKING:', not at module top level."
+                    "'import numpy as np' must be indented under 'if TYPE_CHECKING:', not at module top level."
                 )
 
     def test_module_imports_without_numpy_being_used_at_runtime(

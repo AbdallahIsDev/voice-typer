@@ -660,9 +660,7 @@ def start_recording(recorder: Recorder) -> None:
     # float32 arrays survive until GC).
     _uu36_sizing_sr = effective_sr if effective_sr > 0 else recorder.config.sample_rate
     if _uu36_sizing_sr > 0:
-        _uu36_new_ring_capacity = max(
-            64, int(_uu36_sizing_sr / _AUDIO_BLOCKSIZE * 2.0)
-        )
+        _uu36_new_ring_capacity = max(64, int(_uu36_sizing_sr / _AUDIO_BLOCKSIZE * 2.0))
         for _payload in recorder._ring_buffer:
             _arr = _payload[0] if isinstance(_payload, tuple) else _payload
             if isinstance(_arr, np.ndarray):

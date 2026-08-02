@@ -79,9 +79,7 @@ class TestNumericalEquivalence:
         # np.dot uses a fused multiply-add (single-pass BLAS sdot)
         # while x**2 + np.mean uses two passes; allow 1e-5 relative
         # tolerance for accumulation-order differences.
-        assert abs(old - new) <= 1e-5 * max(1.0, abs(old)), (
-            f"NEW RMS {new} != OLD RMS {old} (size={size}, seed={seed})"
-        )
+        assert abs(old - new) <= 1e-5 * max(1.0, abs(old)), f"NEW RMS {new} != OLD RMS {old} (size={size}, seed={seed})"
 
     @pytest.mark.parametrize("seed", [0, 1, 42, 1337, 99999])
     @pytest.mark.parametrize("size", [128, 512, 1024, 4096])
@@ -191,9 +189,7 @@ class TestAllocationCount:
         mean_calls = 0
         _ = _new_rms(flat)
         new_mean_calls = mean_calls
-        assert new_mean_calls == 0, (
-            f"NEW RMS path must NOT call np.mean (uses np.dot); got {new_mean_calls} calls"
-        )
+        assert new_mean_calls == 0, f"NEW RMS path must NOT call np.mean (uses np.dot); got {new_mean_calls} calls"
 
     def test_new_peak_does_not_call_np_abs(self, monkeypatch):
         """``_new_peak`` uses ``max(max, -min)`` — ``np.abs`` is NOT called."""
@@ -218,9 +214,7 @@ class TestAllocationCount:
         abs_calls = 0
         _ = _new_peak(flat)
         new_abs_calls = abs_calls
-        assert new_abs_calls == 0, (
-            f"NEW peak path must NOT call np.abs (uses max/min); got {new_abs_calls} calls"
-        )
+        assert new_abs_calls == 0, f"NEW peak path must NOT call np.abs (uses max/min); got {new_abs_calls} calls"
 
     def test_combined_rms_peak_new_calls_fewer_allocating_fns(self, monkeypatch):
         """The combined RMS+peak computation (the actual code path used

@@ -156,8 +156,7 @@ class TestSounddeviceWaitSource:
         assert "_run_with_timeout" in body and "sd.wait" in body, "sd.wait() must be wrapped in _run_with_timeout"
         # The return value is captured into a variable.
         assert "_wait_result" in body, (
-            "the sd.wait() return value must be captured into a "
-            "local variable so it can be checked against TIMEOUT"
+            "the sd.wait() return value must be captured into a local variable so it can be checked against TIMEOUT"
         )
         # The return value is checked against TIMEOUT.
         assert "_wait_result is TIMEOUT" in body, (
@@ -198,9 +197,7 @@ class TestSounddeviceWaitSource:
         assert idx > -1
         next_def = src.find("\ndef ", idx + 1)
         body = src[idx:] if next_def == -1 else src[idx:next_def]
-        assert "_streams" in body, (
-            "abort_sounddevice_streams must iterate the sd._streams registry of active streams"
-        )
+        assert "_streams" in body, "abort_sounddevice_streams must iterate the sd._streams registry of active streams"
         assert ".abort()" in body, (
             "abort_sounddevice_streams must call stream.abort() "
             "on each active stream — 'terminate the stream immediately' "
@@ -255,9 +252,7 @@ class TestSounddeviceWaitBehavior:
 
         controller._teardown_sounddevice()
 
-        assert stop_calls == [1], (
-            "_teardown_sounddevice must call sd.stop() when recorder teardown did not time out"
-        )
+        assert stop_calls == [1], "_teardown_sounddevice must call sd.stop() when recorder teardown did not time out"
         assert wait_calls == [1], "_teardown_sounddevice must call sd.wait() (the bounded drain) after sd.stop()"
 
     def test_sd_skipped_when_recorder_force_closed(self, monkeypatch):
@@ -340,8 +335,7 @@ class TestSounddeviceWaitBehavior:
         elapsed = time.monotonic() - start
 
         assert elapsed < 6.0, (
-            f"_teardown_sounddevice must not block >6s when "
-            f"sd.stop() hangs (3s timeout + abort); took {elapsed:.2f}s"
+            f"_teardown_sounddevice must not block >6s when sd.stop() hangs (3s timeout + abort); took {elapsed:.2f}s"
         )
         (
             stream_a.abort.assert_called_once(),

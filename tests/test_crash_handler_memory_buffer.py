@@ -49,27 +49,19 @@ class TestMemoryBufferInstallation:
         n_before = len(voice_typer_root.handlers)
         install_memory_buffer(tmp_path)
         n_after = len(voice_typer_root.handlers)
-        assert n_after == n_before + 1, (
-            "MemoryHandler must be attached to the voice_typer root logger"
-        )
+        assert n_after == n_before + 1, "MemoryHandler must be attached to the voice_typer root logger"
         assert _ch._memory_handler in voice_typer_root.handlers
 
     def test_install_creates_target_rotating_file_handler(self, tmp_path: Path):
         install_memory_buffer(tmp_path)
-        assert _ch._crash_buffer_handler is not None, (
-            "target RotatingFileHandler must be installed"
-        )
-        assert isinstance(
-            _ch._crash_buffer_handler, logging.handlers.RotatingFileHandler
-        )
+        assert _ch._crash_buffer_handler is not None, "target RotatingFileHandler must be installed"
+        assert isinstance(_ch._crash_buffer_handler, logging.handlers.RotatingFileHandler)
 
     def test_target_file_is_voice_typer_crash_buffer_log(self, tmp_path: Path):
         install_memory_buffer(tmp_path)
         # ``RotatingFileHandler.baseFilename`` is the absolute path of
         # the file it writes to.
-        assert _ch._crash_buffer_handler.baseFilename == str(
-            tmp_path / "voice-typer-crash-buffer.log"
-        )
+        assert _ch._crash_buffer_handler.baseFilename == str(tmp_path / "voice-typer-crash-buffer.log")
 
     def test_install_is_idempotent(self, tmp_path: Path):
         """Calling ``install_memory_buffer`` twice with the same
@@ -80,9 +72,7 @@ class TestMemoryBufferInstallation:
         n_after_first = len(voice_typer_root.handlers)
         install_memory_buffer(tmp_path)
         n_after_second = len(voice_typer_root.handlers)
-        assert n_after_second == n_after_first, (
-            "idempotent install must not double-attach the MemoryHandler"
-        )
+        assert n_after_second == n_after_first, "idempotent install must not double-attach the MemoryHandler"
 
     def test_memory_handler_level_is_info(self, tmp_path: Path):
         """The MemoryHandler must be at INFO level so INFO records
@@ -175,27 +165,22 @@ class TestUninstallMemoryBuffer:
         # identity against the (now-cleared) ``_ch._memory_handler``
         # which is None, and also check the logger doesn't have a
         # MemoryHandler anymore.
-        assert not any(
-            isinstance(h, logging.handlers.MemoryHandler)
-            for h in voice_typer_root.handlers
-        ), "MemoryHandler must be detached from the logger after uninstall"
+        assert not any(isinstance(h, logging.handlers.MemoryHandler) for h in voice_typer_root.handlers), (
+            "MemoryHandler must be detached from the logger after uninstall"
+        )
 
 
 class TestSetCrashHandlerConfigDirInstallsBuffer:
     """``set_crash_handler_config_dir`` must install the MemoryHandler
     buffer alongside the crash file path / header."""
 
-    def test_set_crash_handler_config_dir_installs_memory_handler(
-        self, tmp_path: Path
-    ):
+    def test_set_crash_handler_config_dir_installs_memory_handler(self, tmp_path: Path):
         # The buffer is installed best-effort inside
         # ``set_crash_handler_config_dir``; verify it's attached after
         # the call returns.
         _ch.set_crash_handler_config_dir(tmp_path)
         try:
-            assert _ch._memory_handler is not None, (
-                "set_crash_handler_config_dir must install the MemoryHandler"
-            )
+            assert _ch._memory_handler is not None, "set_crash_handler_config_dir must install the MemoryHandler"
         finally:
             uninstall_memory_buffer()
             # Reset the rest of the crash_handler state so this test

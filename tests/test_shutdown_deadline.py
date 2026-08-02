@@ -173,6 +173,7 @@ class TestUU7OverallDeadline:
         def _make_spy(desc):
             def _spy():
                 called.append(desc)
+
             return _spy
 
         # Patch every teardown method on the controller with a spy that
@@ -270,6 +271,7 @@ class TestUU7OverallDeadline:
         def _make_spy(desc):
             def _spy():
                 called.append(desc)
+
             return _spy
 
         all_teardowns = [
@@ -299,8 +301,7 @@ class TestUU7OverallDeadline:
         expected_called = {desc for (_attr, desc) in all_teardowns}
         for desc in expected_called:
             assert desc in called, (
-                f"when the deadline is NOT near, teardown {desc!r} "
-                f"must run (no skip). Called: {called}"
+                f"when the deadline is NOT near, teardown {desc!r} must run (no skip). Called: {called}"
             )
 
         # tray.stop bookend must have run.
@@ -352,9 +353,7 @@ class TestUU7OverallDeadline:
         # may drift); we assert the summary line exists and mentions
         # at least one non-critical teardown name.
         summary_lines = [
-            r.message
-            for r in caplog.records
-            if "skipped" in r.message.lower() and "teardown" in r.message.lower()
+            r.message for r in caplog.records if "skipped" in r.message.lower() and "teardown" in r.message.lower()
         ]
         assert summary_lines, (
             "expected at least one WARNING log line mentioning "
@@ -372,10 +371,7 @@ class TestUU7OverallDeadline:
                 "teardown_event_bus",
                 "teardown_asr_models",
             )
-        ), (
-            f"the skipped-teardown summary must list at least one "
-            f"non-critical teardown name. Summary: {combined}"
-        )
+        ), f"the skipped-teardown summary must list at least one non-critical teardown name. Summary: {combined}"
 
 
 # ── sequential history_db + crash_recovery ──────────────────────
@@ -557,24 +553,12 @@ class TestUU24InnerOuterTimeoutSlack:
 
         source = inspect.getsource(hist_module.teardown_history_db)
         # The flush timeout must be 8.0 (was 10.0 previously).
-        assert "timeout=8.0" in source, (
-            f"history_db.flush must use timeout=8.0 (was 10.0 pre-fix). "
-            f"Source:\n{source}"
-        )
+        assert "timeout=8.0" in source, f"history_db.flush must use timeout=8.0 (was 10.0 pre-fix). Source:\n{source}"
         # The close timeout must be 4.0 (was 5.0 previously).
-        assert "timeout=4.0" in source, (
-            f"history_db.close must use timeout=4.0 (was 5.0 pre-fix). "
-            f"Source:\n{source}"
-        )
+        assert "timeout=4.0" in source, f"history_db.close must use timeout=4.0 (was 5.0 pre-fix). Source:\n{source}"
         # The OLD timeouts must NOT be present (regression guard).
-        assert "timeout=10.0" not in source, (
-            f"history_db.flush must NOT use timeout=10.0 anymore. "
-            f"Source:\n{source}"
-        )
-        assert "timeout=5.0" not in source, (
-            f"history_db.close must NOT use timeout=5.0 anymore. "
-            f"Source:\n{source}"
-        )
+        assert "timeout=10.0" not in source, f"history_db.flush must NOT use timeout=10.0 anymore. Source:\n{source}"
+        assert "timeout=5.0" not in source, f"history_db.close must NOT use timeout=5.0 anymore. Source:\n{source}"
 
     def test_inner_timeouts_provide_slack_under_outer_budget(self, controller, fake_app):
         """Functional check: even if ``history_db.flush`` takes the full

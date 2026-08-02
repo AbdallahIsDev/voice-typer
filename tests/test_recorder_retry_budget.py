@@ -301,20 +301,16 @@ class TestBTAwareRetryPolicyWiring:
 
         src = inspect.getsource(Recorder._handle_device_disconnect)
         assert "_build_device_info_for_retry_policy" in src, (
-            "DJ-70: _handle_device_disconnect must call "
-            "_build_device_info_for_retry_policy to detect BT devices."
+            "DJ-70: _handle_device_disconnect must call _build_device_info_for_retry_policy to detect BT devices."
         )
         assert "_get_max_retries_for_device" in src, (
-            "DJ-70: _handle_device_disconnect must call "
-            "_get_max_retries_for_device to use the BT-aware retry budget."
+            "DJ-70: _handle_device_disconnect must call _get_max_retries_for_device to use the BT-aware retry budget."
         )
         assert "_get_retry_sleep_for_device" in src, (
-            "DJ-70: _handle_device_disconnect must call "
-            "_get_retry_sleep_for_device to sleep between BT retries."
+            "DJ-70: _handle_device_disconnect must call _get_retry_sleep_for_device to sleep between BT retries."
         )
         assert "time.sleep(_retry_sleep)" in src, (
-            "DJ-70: _handle_device_disconnect must sleep for the BT-aware "
-            "retry interval between retries."
+            "DJ-70: _handle_device_disconnect must sleep for the BT-aware retry interval between retries."
         )
 
     def test_non_bt_device_uses_immediate_retry(self, monkeypatch):
@@ -341,9 +337,8 @@ class TestBTAwareRetryPolicyWiring:
 
             sleep_calls: list[float] = []
             import voice_typer.server.recording.recorder as rec_mod
-            monkeypatch.setattr(
-                rec_mod.time, "sleep", lambda s: sleep_calls.append(s)
-            )
+
+            monkeypatch.setattr(rec_mod.time, "sleep", lambda s: sleep_calls.append(s))
 
             captured_gen = r._stop_generation
             r._handle_device_disconnect(_captured_generation=captured_gen)
@@ -379,15 +374,14 @@ class TestBTAwareRetryPolicyWiring:
                 "default_samplerate": 8000,
             }
             r._devices._get_max_retries_for_device = lambda info: 6
-            r._devices._get_retry_sleep_for_device = (
-                lambda info: 0.75 if r._devices._get_max_retries_for_device(info) >= 6 else 0.0
+            r._devices._get_retry_sleep_for_device = lambda info: (
+                0.75 if r._devices._get_max_retries_for_device(info) >= 6 else 0.0
             )
 
             sleep_calls: list[float] = []
             import voice_typer.server.recording.recorder as rec_mod
-            monkeypatch.setattr(
-                rec_mod.time, "sleep", lambda s: sleep_calls.append(s)
-            )
+
+            monkeypatch.setattr(rec_mod.time, "sleep", lambda s: sleep_calls.append(s))
 
             # Simulate the 2nd retry attempt (retry counter starts at 0,
             # _handle_device_disconnect increments to 1 on first call,
@@ -401,8 +395,7 @@ class TestBTAwareRetryPolicyWiring:
                 f"the 2nd+ attempt). Got {len(sleep_calls)} sleep calls."
             )
             assert sleep_calls[0] == 0.75, (
-                f"BT retry sleep must be 0.75s (default _bt_retry_sleep_seconds). "
-                f"Got {sleep_calls[0]}"
+                f"BT retry sleep must be 0.75s (default _bt_retry_sleep_seconds). Got {sleep_calls[0]}"
             )
         finally:
             r._device_disconnected = False
@@ -431,9 +424,8 @@ class TestBTAwareRetryPolicyWiring:
 
             sleep_calls: list[float] = []
             import voice_typer.server.recording.recorder as rec_mod
-            monkeypatch.setattr(
-                rec_mod.time, "sleep", lambda s: sleep_calls.append(s)
-            )
+
+            monkeypatch.setattr(rec_mod.time, "sleep", lambda s: sleep_calls.append(s))
 
             # First attempt: retry counter starts at 0, incremented to 1.
             r._device_disconnect_retries = 0

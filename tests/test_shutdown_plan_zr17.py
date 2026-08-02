@@ -258,9 +258,7 @@ class TestRunPlanDriver:
         assert "slow_step" in result
         assert "fast_step" not in result
 
-    def test_run_plan_gt70_barrier_skips_dependent_sequenced_step(
-        self, controller, monkeypatch
-    ) -> None:
+    def test_run_plan_gt70_barrier_skips_dependent_sequenced_step(self, controller, monkeypatch) -> None:
         """barrier: a sequenced step with ``depends_on`` +
         ``skip_if_dep_timed_out=True`` is SKIPPED when the dependency
         timed out in ``prior_timed_out``."""
@@ -285,9 +283,7 @@ class TestRunPlanDriver:
         assert "upstream" in result
         assert "downstream" not in result
 
-    def test_run_plan_gt70_barrier_runs_step_when_dep_succeeded(
-        self, controller
-    ) -> None:
+    def test_run_plan_gt70_barrier_runs_step_when_dep_succeeded(self, controller) -> None:
         """When the dependency did NOT time out, the barrier does NOT
         fire and the step runs normally."""
         run_spy = MagicMock()
@@ -352,9 +348,7 @@ class TestDoCleanupCallOrder:
         assert "tray.stop" in order
         tray_idx = order.index("tray.stop")
         for name in sequenced_names + parallel_names:
-            assert order.index(name) < tray_idx, (
-                f"tray.stop must run AFTER {name}; got order: {order}"
-            )
+            assert order.index(name) < tray_idx, f"tray.stop must run AFTER {name}; got order: {order}"
 
     def test_sequenced_phase_runs_in_declaration_order(self, controller) -> None:
         """The sequenced phase must run in the declaration order:
@@ -363,12 +357,17 @@ class TestDoCleanupCallOrder:
         controller._do_cleanup()
         order = controller._call_order  # type: ignore[attr-defined]
 
-        seq_order = [n for n in order if n in {
-            "_teardown_timers_and_recording",
-            "_teardown_recorder",
-            "_teardown_history_db",
-            "_teardown_crash_recovery",
-        }]
+        seq_order = [
+            n
+            for n in order
+            if n
+            in {
+                "_teardown_timers_and_recording",
+                "_teardown_recorder",
+                "_teardown_history_db",
+                "_teardown_crash_recovery",
+            }
+        ]
         assert seq_order == [
             "_teardown_timers_and_recording",
             "_teardown_recorder",
@@ -404,9 +403,7 @@ class TestGT70BarrierEndToEnd:
     skips ``_teardown_sounddevice`` (the downstream call that touches
     the same PortAudio resource)."""
 
-    def test_sounddevice_skipped_when_recorder_times_out(
-        self, controller, fake_app, monkeypatch
-    ) -> None:
+    def test_sounddevice_skipped_when_recorder_times_out(self, controller, fake_app, monkeypatch) -> None:
         """Force ``_teardown_recorder`` to time out. The driver should
         skip ``_teardown_sounddevice`` (it declares
         ``depends_on="teardown_recorder"`` +
@@ -451,9 +448,7 @@ class TestGT70BarrierEndToEnd:
         )
         sd_spy.assert_not_called()
 
-    def test_sounddevice_runs_when_recorder_succeeds(
-        self, controller, fake_app
-    ) -> None:
+    def test_sounddevice_runs_when_recorder_succeeds(self, controller, fake_app) -> None:
         """Sanity: when ``_teardown_recorder`` succeeds, the barrier
         does NOT fire and ``_teardown_sounddevice`` runs normally."""
         # Default: recorder not recording → teardown_recorder is a
@@ -463,6 +458,5 @@ class TestGT70BarrierEndToEnd:
 
         assert "_teardown_recorder" in order
         assert "_teardown_sounddevice" in order, (
-            "_teardown_sounddevice must run when _teardown_recorder "
-            "succeeded (barrier does not fire)"
+            "_teardown_sounddevice must run when _teardown_recorder succeeded (barrier does not fire)"
         )

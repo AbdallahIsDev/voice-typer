@@ -89,9 +89,7 @@ class TestPushEvents:
         server._send = MagicMock()
         server._hook_tray_set_state()
 
-        mock_app.tray.set_state(
-            AppState.ERROR, "Transcription failed: model crashed"
-        )
+        mock_app.tray.set_state(AppState.ERROR, "Transcription failed: model crashed")
 
         server._send.assert_called_once()
         push_msg = server._send.call_args[0][0]
@@ -357,9 +355,7 @@ class TestGetInstancePushFnTracking:
         finally:
             srv.stop()
 
-    def test_stop_clears_instance_push_fn(
-        self, server_with_mock_app_for_push_events, clean_registry
-    ):
+    def test_stop_clears_instance_push_fn(self, server_with_mock_app_for_push_events, clean_registry):
         srv = server_with_mock_app_for_push_events
         srv.app.tray = MagicMock()
         srv._hook_tray_set_state = lambda: None

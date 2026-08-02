@@ -650,9 +650,7 @@ class ShutdownController:
         # launch isn't blocked. Everything else is non-critical under a
         # tight deadline — the OS will reap those resources at process
         # exit.
-        _shutdown_critical_parallel: frozenset[str] = frozenset(
-            {"teardown_pid_file", "teardown_mutex_handle"}
-        )
+        _shutdown_critical_parallel: frozenset[str] = frozenset({"teardown_pid_file", "teardown_mutex_handle"})
         all_parallel_items: list[tuple[str, object, float, str | None, bool]] = [
             ("teardown_asr_models", self._teardown_asr_models, 10.0, None, False),
             ("teardown_restore_volume", self._teardown_restore_volume, 10.0, None, False),
@@ -670,8 +668,7 @@ class ShutdownController:
         for _desc, _func, _timeout, _dep, _skip in all_parallel_items:
             if _shutdown_deadline_near() and _desc not in _shutdown_critical_parallel:
                 log.warning(
-                    "[SHUTDOWN] deadline near (%.1fs remaining) — "
-                    "skipping non-critical %s",
+                    "[SHUTDOWN] deadline near (%.1fs remaining) — skipping non-critical %s",
                     _shutdown_remaining(),
                     _desc,
                 )
@@ -691,8 +688,7 @@ class ShutdownController:
         # teardown that was skipped due to the 20s deadline.
         if _shutdown_skipped:
             log.warning(
-                "[SHUTDOWN] skipped %d teardown(s) due to 20s "
-                "deadline: %s",
+                "[SHUTDOWN] skipped %d teardown(s) due to 20s deadline: %s",
                 len(_shutdown_skipped),
                 ", ".join(_shutdown_skipped),
             )
@@ -801,11 +797,7 @@ class ShutdownController:
 
         if plan.phase == "sequenced":
             for step in plan.steps:
-                if (
-                    step.depends_on is not None
-                    and step.skip_if_dep_timed_out
-                    and step.depends_on in timed_out
-                ):
+                if step.depends_on is not None and step.skip_if_dep_timed_out and step.depends_on in timed_out:
                     log.warning(
                         "[SHUTDOWN] skipping %s because dependency %s "
                         "timed out (barrier — downstream call "
@@ -856,11 +848,7 @@ class ShutdownController:
             # flag).
             items: list[tuple[str, object, float]] = []
             for step in plan.steps:
-                if (
-                    step.depends_on is not None
-                    and step.skip_if_dep_timed_out
-                    and step.depends_on in timed_out
-                ):
+                if step.depends_on is not None and step.skip_if_dep_timed_out and step.depends_on in timed_out:
                     log.warning(
                         "[SHUTDOWN] skipping %s because dependency %s "
                         "timed out (barrier — downstream call "
@@ -869,9 +857,7 @@ class ShutdownController:
                         step.name,
                         step.depends_on,
                     )
-                    degraded.append(
-                        f"{step.name} (skipped: dep {step.depends_on} timed out)"
-                    )
+                    degraded.append(f"{step.name} (skipped: dep {step.depends_on} timed out)")
                     continue
                 items.append((step.name, step.func, step.timeout))
             results = _run_parallel_with_timeout(items)

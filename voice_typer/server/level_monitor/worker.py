@@ -417,9 +417,7 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
         # test's "after" WAV needs the filtered audio) OR when the user
         # has explicitly opted in via ``_level_bar_filtered = True``.
         processor = _state._level_processor
-        run_filter_chain = processor is not None and (
-            test_mode or _state._level_bar_filtered
-        )
+        run_filter_chain = processor is not None and (test_mode or _state._level_bar_filtered)
         if run_filter_chain:
             filtered = processor.process_chunk(indata.reshape(-1, 1))
             # ``process_chunk`` may return ``None`` to pass-through

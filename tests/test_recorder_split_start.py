@@ -674,10 +674,9 @@ class TestAudioProcessorRetune:
         with caplog.at_level("WARNING", logger="voice_typer.server.recording"):
             start_recording(recorder)
         audio_processor.set_sample_rate.assert_not_called()
-        assert not any(
-            "set_sample_rate" in rec.message and "failed" in rec.message
-            for rec in caplog.records
-        ), "set_sample_rate must not be invoked (and thus not fail) after the refactor."
+        assert not any("set_sample_rate" in rec.message and "failed" in rec.message for rec in caplog.records), (
+            "set_sample_rate must not be invoked (and thus not fail) after the refactor."
+        )
 
     def test_rebuild_from_config_failure_does_not_break_start(self, caplog):
         audio_processor = MagicMock(name="AudioProcessor")
@@ -695,10 +694,9 @@ class TestAudioProcessorRetune:
         with caplog.at_level("WARNING", logger="voice_typer.server.recording"):
             start_recording(recorder)
         audio_processor.rebuild_from_config.assert_not_called()
-        assert not any(
-            "rebuild_from_config" in rec.message and "failed" in rec.message
-            for rec in caplog.records
-        ), "rebuild_from_config must not be invoked (and thus not fail) after the refactor."
+        assert not any("rebuild_from_config" in rec.message and "failed" in rec.message for rec in caplog.records), (
+            "rebuild_from_config must not be invoked (and thus not fail) after the refactor."
+        )
 
     def test_no_retune_when_processor_sr_is_none(self, caplog):
         """Defensive: when ``_audio_processor._sample_rate`` is None

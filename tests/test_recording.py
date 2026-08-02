@@ -1132,9 +1132,7 @@ class TestRec1StaleWorkerGuard:
 
         r._stop_audio_worker(timeout=0.01, drain=False)
 
-        assert not r._worker_stop_event.is_set(), (
-            "stop event should be cleared when worker is dead (normal path)."
-        )
+        assert not r._worker_stop_event.is_set(), "stop event should be cleared when worker is dead (normal path)."
         assert r._worker_thread is None, "thread ref should be None when worker is dead (normal path)."
 
 
@@ -1195,8 +1193,7 @@ class TestRec2StartRollbackOnWorkerFailure:
 
         # stream must be torn down.
         assert len(teardown_calls) >= 1, (
-            "regression: start() did not call _teardown_stream() on "
-            "worker-start failure — leaked PortAudio stream."
+            "regression: start() did not call _teardown_stream() on worker-start failure — leaked PortAudio stream."
         )
         # recording event must be cleared.
         assert not r._recording_event.is_set(), (
@@ -1287,9 +1284,7 @@ class TestRec4CounterReset:
 
         r.start()
         try:
-            assert r._dropped_chunks == 0, (
-                f"regression: _dropped_chunks not reset on start() (got {r._dropped_chunks})"
-            )
+            assert r._dropped_chunks == 0, f"regression: _dropped_chunks not reset on start() (got {r._dropped_chunks})"
             assert r._rms_callback_error_count == 0, (
                 f"regression: _rms_callback_error_count not reset on start() (got {r._rms_callback_error_count})"
             )
@@ -1520,9 +1515,7 @@ class TestRec8BufferOpsLocked:
         # ``recorder._buffer = collections.deque(...)`` literal pair on
         # the actual implementation sites.
         discard_src = inspect.getsource(discard_recording)
-        assert "with recorder._lock:" in discard_src, (
-            "discard_recording does not acquire recorder._lock for buffer ops"
-        )
+        assert "with recorder._lock:" in discard_src, "discard_recording does not acquire recorder._lock for buffer ops"
         assert "recorder._buffer = collections.deque(" in discard_src, (
             "discard_recording does not rebind recorder._buffer"
         )
@@ -1560,12 +1553,8 @@ class TestRec8BufferOpsLocked:
         # acquisition on either path surfaces here.
         for fn in (discard_recording, stop_recording):
             src = inspect.getsource(fn)
-            assert "with recorder._lock:" in src, (
-                f"{fn.__name__} does not acquire recorder._lock for buffer rebind"
-            )
-            assert "recorder._buffer = collections.deque(" in src, (
-                f"{fn.__name__} does not rebind recorder._buffer"
-            )
+            assert "with recorder._lock:" in src, f"{fn.__name__} does not acquire recorder._lock for buffer rebind"
+            assert "recorder._buffer = collections.deque(" in src, f"{fn.__name__} does not rebind recorder._buffer"
 
 
 class TestAudio69RebuildOnSampleRateMismatch:

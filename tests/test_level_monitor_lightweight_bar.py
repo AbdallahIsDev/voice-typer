@@ -194,19 +194,14 @@ class TestUpdateLevelProcessorPropagatesFlag:
         # Call update_level_processor with a config dict that doesn't
         # have level_bar_filtered — should reset to False.
         lm.update_level_processor({"noise_filter_enabled": False})
-        assert lm._level_bar_filtered is False, (
-            "update_level_processor must default _level_bar_filtered to False"
-        )
+        assert lm._level_bar_filtered is False, "update_level_processor must default _level_bar_filtered to False"
 
     def test_update_level_processor_sets_flag_true_when_opted_in(self):
         """When ``level_bar_filtered=True`` is in the config dict, the
         flag is set to True (user opted in to filtered bar)."""
         import voice_typer.server.level_monitor as lm
 
-        lm.update_level_processor(
-            {"noise_filter_enabled": False, "level_bar_filtered": True}
-        )
+        lm.update_level_processor({"noise_filter_enabled": False, "level_bar_filtered": True})
         assert lm._level_bar_filtered is True, (
-            "update_level_processor must set _level_bar_filtered=True "
-            "when the config dict opts in"
+            "update_level_processor must set _level_bar_filtered=True when the config dict opts in"
         )

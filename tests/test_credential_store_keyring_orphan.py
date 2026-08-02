@@ -106,9 +106,7 @@ class TestOrphanTracking:
             deadline = time.monotonic() + 2.0
             while credential_store._orphaned_thread_count > 0 and time.monotonic() < deadline:
                 time.sleep(0.01)
-            assert credential_store._orphaned_thread_count == 0, (
-                "orphan thread did not decrement the counter on finish"
-            )
+            assert credential_store._orphaned_thread_count == 0, "orphan thread did not decrement the counter on finish"
 
     def test_non_timeout_exception_resets_consecutive_timeouts(self, monkeypatch):
         _fast_timeout(monkeypatch)
@@ -290,10 +288,7 @@ class TestOrphanThresholdWarning:
                 for _ in range(2):
                     with pytest.raises(TimeoutError):
                         credential_store._run_keyring_call(slow_call)
-            threshold_logs = [
-                r for r in caplog.records
-                if "orphaned keyring-io threads" in r.getMessage()
-            ]
+            threshold_logs = [r for r in caplog.records if "orphaned keyring-io threads" in r.getMessage()]
             assert len(threshold_logs) >= 1, (
                 "expected a threshold-exceeded WARNING when orphan count > threshold; "
                 f"got logs: {[r.getMessage() for r in caplog.records]}"

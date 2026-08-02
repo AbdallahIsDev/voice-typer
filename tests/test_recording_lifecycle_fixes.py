@@ -149,8 +149,7 @@ class TestUU13LatencyLow:
         kwargs = attempts[0]
         # latency='low' is present.
         assert kwargs.get("latency") == "low", (
-            f"open_stream_for_candidates must pass latency='low'; "
-            f"got kwargs={kwargs}"
+            f"open_stream_for_candidates must pass latency='low'; got kwargs={kwargs}"
         )
         # Sanity: the other essential kwargs are still wired up.
         assert kwargs["samplerate"] == 48000
@@ -180,10 +179,7 @@ class TestUU13LatencyLow:
         assert len(attempts) == 1, "exactly one fallback InputStream attempt expected"
         kwargs = attempts[0]
         # latency='low' on the fallback path too.
-        assert kwargs.get("latency") == "low", (
-            f"open_stream_fallback must pass latency='low'; "
-            f"got kwargs={kwargs}"
-        )
+        assert kwargs.get("latency") == "low", f"open_stream_fallback must pass latency='low'; got kwargs={kwargs}"
 
     def test_disconnect_hot_restart_passes_latency_low(self, monkeypatch):
         """``DisconnectHandler.restart_stream`` must pass
@@ -213,15 +209,11 @@ class TestUU13LatencyLow:
         with r._stream_lifecycle_lock:
             DisconnectHandler(r).restart_stream(_captured_generation=0)
 
-        assert len(attempts) == 1, (
-            f"exactly one hot-restart InputStream attempt expected; "
-            f"got {len(attempts)}"
-        )
+        assert len(attempts) == 1, f"exactly one hot-restart InputStream attempt expected; got {len(attempts)}"
         kwargs = attempts[0]
         # latency='low' on the hot-restart path too.
         assert kwargs.get("latency") == "low", (
-            f"DisconnectHandler.restart_stream must pass "
-            f"latency='low'; got kwargs={kwargs}"
+            f"DisconnectHandler.restart_stream must pass latency='low'; got kwargs={kwargs}"
         )
 
 
@@ -259,9 +251,7 @@ class TestUU36RingBufferScaling:
         recorder._open_stream_for_candidates.return_value = (5, effective_sr, None)
         recorder._stream = MagicMock(name="opened-stream")
         # Real ring buffer so we can assert on maxlen.
-        recorder._ring_buffer = collections.deque(
-            maxlen=max(64, int(effective_sr / _AUDIO_BLOCKSIZE * 2.0))
-        )
+        recorder._ring_buffer = collections.deque(maxlen=max(64, int(effective_sr / _AUDIO_BLOCKSIZE * 2.0)))
         # ``_recording_event`` must be a real Event so ``is_set()`` works.
         recorder._recording_event = threading.Event()
         recorder._audio_processor = None
@@ -284,8 +274,7 @@ class TestUU36RingBufferScaling:
 
         expected_capacity = max(64, int(48000 / 512 * 2.0))
         assert expected_capacity == 187, (
-            f"sanity: 48000/512*2.0 = {int(48000 / 512 * 2.0)}; "
-            f"expected 187, got {expected_capacity}"
+            f"sanity: 48000/512*2.0 = {int(48000 / 512 * 2.0)}; expected 187, got {expected_capacity}"
         )
         actual_maxlen = recorder._ring_buffer.maxlen
         assert actual_maxlen == expected_capacity, (
@@ -313,8 +302,7 @@ class TestUU36RingBufferScaling:
         expected_capacity = 64  # floor kicks in
         actual_maxlen = recorder._ring_buffer.maxlen
         assert actual_maxlen == expected_capacity, (
-            f"at 16 kHz, ring buffer maxlen must be floored at "
-            f"64 (int(16000/512*2.0)=62 < 64); got {actual_maxlen}."
+            f"at 16 kHz, ring buffer maxlen must be floored at 64 (int(16000/512*2.0)=62 < 64); got {actual_maxlen}."
         )
 
     def test_8khz_ring_buffer_capacity_floors_at_64(self):
@@ -328,8 +316,7 @@ class TestUU36RingBufferScaling:
         expected_capacity = 64  # floor kicks in (31 < 64)
         actual_maxlen = recorder._ring_buffer.maxlen
         assert actual_maxlen == expected_capacity, (
-            f"at 8 kHz, ring buffer maxlen must be floored at "
-            f"64 (int(8000/512*2.0)=31 < 64); got {actual_maxlen}."
+            f"at 8 kHz, ring buffer maxlen must be floored at 64 (int(8000/512*2.0)=31 < 64); got {actual_maxlen}."
         )
 
     def test_ring_buffer_reassignment_clears_stale_chunks(self):
@@ -356,16 +343,12 @@ class TestUU36RingBufferScaling:
 
         # The new deque is empty (stale chunks dropped).
         assert len(recorder._ring_buffer) == 0, (
-            "stale ring buffer chunks must be cleared on "
-            "start_recording reassignment."
+            "stale ring buffer chunks must be cleared on start_recording reassignment."
         )
         # the stale array was zeroed before the deque
         # reference was dropped (so the user's voice data doesn't
         # linger in process memory until GC).
-        assert float(stale_arr.max()) == 0.0, (
-            "stale ring buffer chunk must be "
-            "zeroed before reassignment."
-        )
+        assert float(stale_arr.max()) == 0.0, "stale ring buffer chunk must be zeroed before reassignment."
 
 
 # ── teardown_stream_body force=True uses stream.abort() ────────
@@ -437,8 +420,7 @@ class TestUU38ForceTeardownUsesAbort:
         fake_stream.close.assert_called_once_with()
         # _stream still cleared so the next start() opens a fresh stream.
         assert recorder._stream is None, (
-            "_stream must be cleared even if abort() raised — "
-            "the disconnect-recovery path must not be blocked."
+            "_stream must be cleared even if abort() raised — the disconnect-recovery path must not be blocked."
         )
 
     def test_force_true_suppresses_close_exception(self):
@@ -516,9 +498,7 @@ class TestUU38ForceTeardownUsesAbort:
         import inspect
 
         sig = inspect.signature(StreamLifecycle.teardown_stream_body)
-        assert "force" in sig.parameters, (
-            "teardown_stream_body must accept a 'force' parameter."
-        )
+        assert "force" in sig.parameters, "teardown_stream_body must accept a 'force' parameter."
         # Default is False (CLEAN path).
         assert sig.parameters["force"].default is False, (
             "teardown_stream_body's 'force' parameter must "
@@ -528,6 +508,5 @@ class TestUU38ForceTeardownUsesAbort:
         # Keyword-only (so callers can't accidentally pass it positionally
         # and shadow the recorder arg).
         assert sig.parameters["force"].kind == inspect.Parameter.KEYWORD_ONLY, (
-            "'force' must be keyword-only so the recorder arg "
-            "stays positional."
+            "'force' must be keyword-only so the recorder arg stays positional."
         )

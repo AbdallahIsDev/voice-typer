@@ -336,18 +336,14 @@ def resample_audio(
             # float32. ``np.asarray(..., dtype=np.float32)`` is a no-op
             # (returns the same array) when the dtype already matches —
             # avoiding the per-call ``.astype(np.float32)`` allocation.
-            audio = np.asarray(
-                upfirdn(taps, audio, up=up, down=down), dtype=np.float32
-            )
+            audio = np.asarray(upfirdn(taps, audio, up=up, down=down), dtype=np.float32)
         except Exception:
             # Fall back to ``resample_poly`` if ``upfirdn`` fails for
             # any reason (e.g. scipy version doesn't ship ``upfirdn``,
             # or the cached-taps path produces a shape mismatch on an
             # edge case). This preserves the original behaviour and
             # guarantees the resample still succeeds.
-            audio = np.asarray(
-                resample_poly(audio, up, down), dtype=np.float32
-            )
+            audio = np.asarray(resample_poly(audio, up, down), dtype=np.float32)
         if log_resample:
             log.info(
                 "[RECORDING] Resampled %d Hz -> %d Hz (%d -> %d samples)",

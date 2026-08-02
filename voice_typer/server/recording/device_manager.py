@@ -1003,10 +1003,7 @@ class DeviceManager:
                 # Both cache and live query failed — raise to trigger
                 # the outer except branch (logs a warning, returns the
                 # target rate so PortAudio does internal resampling).
-                raise RuntimeError(
-                    f"Could not query device info for device {device} "
-                    "(cache miss + live query failed)"
-                )
+                raise RuntimeError(f"Could not query device info for device {device} (cache miss + live query failed)")
             native_rate = int(dev_info.get("default_samplerate", 0))
             host_api_idx = dev_info.get("hostapi", 0)
             host_api_name = self._host_api_name(host_api_idx)

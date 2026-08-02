@@ -87,13 +87,10 @@ class TestHistoryDbLazyConstruction:
 
         instance = VoiceTyperApp()
         assert instance._history_db_backing is None, (
-            "HistoryDB must NOT be eagerly constructed in __init__; "
-            "_history_db_backing should start as None."
+            "HistoryDB must NOT be eagerly constructed in __init__; _history_db_backing should start as None."
         )
 
-    def test_history_db_not_constructed_at_init_via_mock(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_history_db_not_constructed_at_init_via_mock(self, tmp_config_dir, monkeypatch):
         """(a): ``HistoryDB()`` is NOT called during
         ``VoiceTyperApp.__init__``. Verified by spying on the
         ``HistoryDB`` class constructor.
@@ -114,14 +111,11 @@ class TestHistoryDbLazyConstruction:
 
         # HistoryDB() must NOT have been called during __init__.
         assert mock_history_db_cls.call_count == 0, (
-            "HistoryDB() was called during __init__ — "
-            "the lazy property should defer construction to first access."
+            "HistoryDB() was called during __init__ — the lazy property should defer construction to first access."
         )
         assert instance._history_db_backing is None
 
-    def test_history_db_constructed_on_first_access(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_history_db_constructed_on_first_access(self, tmp_config_dir, monkeypatch):
         """(b): first access of ``app.history_db`` constructs a
         ``HistoryDB`` and caches it in ``_history_db_backing``.
         """
@@ -134,19 +128,14 @@ class TestHistoryDbLazyConstruction:
 
         # First access triggers construction.
         db = instance.history_db
-        assert isinstance(db, HistoryDB), (
-            "First access to app.history_db must construct a HistoryDB."
-        )
+        assert isinstance(db, HistoryDB), "First access to app.history_db must construct a HistoryDB."
         # Cached: a second access returns the same instance.
         assert instance.history_db is db
         assert instance._history_db_backing is db, (
-            "First access must cache the constructed instance in "
-            "_history_db_backing."
+            "First access must cache the constructed instance in _history_db_backing."
         )
 
-    def test_history_db_setter_bypasses_construction(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_history_db_setter_bypasses_construction(self, tmp_config_dir, monkeypatch):
         """(c): assigning via the setter stores directly into the
         backing — a subsequent getter call returns the assigned value
         without invoking the lazy constructor. This is the contract
@@ -178,9 +167,7 @@ class TestHistoryDbLazyConstruction:
             "called even though a sentinel was assigned via the setter."
         )
 
-    def test_history_db_returns_none_during_shutdown(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_history_db_returns_none_during_shutdown(self, tmp_config_dir, monkeypatch):
         """when ``_shutting_down_event`` is set, the lazy getter
         returns ``None`` instead of constructing a ``HistoryDB``. This
         prevents the shutdown teardown path
@@ -205,9 +192,7 @@ class TestHistoryDbLazyConstruction:
             "history_db getter must return None when _shutting_down_event "
             "is set — prevents lazy construction during shutdown teardown."
         )
-        assert mock_history_db_cls.call_count == 0, (
-            "HistoryDB() must NOT be called when _shutting_down_event is set."
-        )
+        assert mock_history_db_cls.call_count == 0, "HistoryDB() must NOT be called when _shutting_down_event is set."
 
 
 # ─── lazy _audio_processor ───────────────────────────────────────
@@ -220,9 +205,7 @@ class TestAudioProcessorLazyConstruction:
     first attribute access.
     """
 
-    def test_audio_processor_backing_is_proxy_after_init(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_audio_processor_backing_is_proxy_after_init(self, tmp_config_dir, monkeypatch):
         """After ``__init__``, ``_audio_processor_backing`` is a
         ``_LazyAudioProcessorProxy`` (NOT a real ``AudioProcessor``).
         The proxy defers construction to first attribute access.
@@ -240,8 +223,7 @@ class TestAudioProcessorLazyConstruction:
             "after __init__ (the Recorder constructor accesses the property)."
         )
         assert isinstance(backing, _LazyAudioProcessorProxy), (
-            "_audio_processor_backing should be a _LazyAudioProcessorProxy, "
-            f"got {type(backing).__name__}."
+            f"_audio_processor_backing should be a _LazyAudioProcessorProxy, got {type(backing).__name__}."
         )
         # The proxy's _real must be None (no construction yet).
         assert object.__getattribute__(backing, "_real") is None, (
@@ -249,9 +231,7 @@ class TestAudioProcessorLazyConstruction:
             "real AudioProcessor during __init__ — _real should be None."
         )
 
-    def test_audio_processor_not_constructed_at_init_via_mock(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_audio_processor_not_constructed_at_init_via_mock(self, tmp_config_dir, monkeypatch):
         """(a): ``AudioProcessor(...)`` is NOT called during
         ``VoiceTyperApp.__init__``. Verified by spying on the
         ``AudioProcessor`` class constructor inside the proxy's
@@ -279,9 +259,7 @@ class TestAudioProcessorLazyConstruction:
             "access."
         )
 
-    def test_audio_processor_constructed_on_first_attribute_access(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_audio_processor_constructed_on_first_attribute_access(self, tmp_config_dir, monkeypatch):
         """(b): first attribute access on the proxy triggers
         construction of the real ``AudioProcessor`` and wires
         ``set_quality_callback``.
@@ -304,17 +282,12 @@ class TestAudioProcessorLazyConstruction:
 
         # AudioProcessor(config, sample_rate=...) was called once.
         assert mock_ap_cls.call_count == 1, (
-            "First attribute access on the _LazyAudioProcessorProxy must "
-            "construct a real AudioProcessor."
+            "First attribute access on the _LazyAudioProcessorProxy must construct a real AudioProcessor."
         )
         # set_quality_callback was wired on the constructed instance.
-        mock_ap_instance.set_quality_callback.assert_called_once_with(
-            instance._on_audio_quality_chunk
-        )
+        mock_ap_instance.set_quality_callback.assert_called_once_with(instance._on_audio_quality_chunk)
 
-    def test_audio_processor_setter_bypasses_proxy(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_audio_processor_setter_bypasses_proxy(self, tmp_config_dir, monkeypatch):
         """(c): assigning via the setter stores directly into the
         backing — a subsequent getter call returns the assigned value
         without invoking the proxy. This is the contract tests rely on
@@ -347,9 +320,7 @@ class TestAudioProcessorLazyConstruction:
             "even though a sentinel was assigned via the setter."
         )
 
-    def test_audio_processor_proxy_caches_real_instance(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_audio_processor_proxy_caches_real_instance(self, tmp_config_dir, monkeypatch):
         """The proxy caches the real ``AudioProcessor`` after first
         construction — subsequent attribute accesses reuse the cached
         instance (no re-construction).
@@ -371,13 +342,10 @@ class TestAudioProcessorLazyConstruction:
         # Second attribute access reuses the cached instance.
         _ = instance._audio_processor.sample_rate
         assert mock_ap_cls.call_count == 1, (
-            "Subsequent attribute accesses must reuse the cached "
-            "AudioProcessor — no re-construction."
+            "Subsequent attribute accesses must reuse the cached AudioProcessor — no re-construction."
         )
 
-    def test_audio_processor_proxy_forwards_attribute_access(
-        self, tmp_config_dir, monkeypatch
-    ):
+    def test_audio_processor_proxy_forwards_attribute_access(self, tmp_config_dir, monkeypatch):
         """Attribute access on the proxy is forwarded to the real
         ``AudioProcessor``.
         """

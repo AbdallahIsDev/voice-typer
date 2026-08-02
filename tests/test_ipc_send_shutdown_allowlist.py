@@ -276,8 +276,7 @@ def test_send_uses_select_not_settimeout() -> None:
         "doesn't mutate the socket timeout, so there's nothing to restore."
     )
     assert "finally:" not in src, (
-        "_send must NOT have a finally block — without the settimeout "
-        "dance there's no timeout state to restore."
+        "_send must NOT have a finally block — without the settimeout dance there's no timeout state to restore."
     )
 
 
@@ -369,9 +368,7 @@ def test_send_delivers_allowlisted_push_when_shutting_down() -> None:
             "MUST still write the event to the TCP client. No bytes "
             "were received."
         )
-        assert b"relaunch_app" in received[0], (
-            f"expected 'relaunch_app' in the written bytes; got {received[0]!r}."
-        )
+        assert b"relaunch_app" in received[0], f"expected 'relaunch_app' in the written bytes; got {received[0]!r}."
     finally:
         srv.close()
         cli.close()

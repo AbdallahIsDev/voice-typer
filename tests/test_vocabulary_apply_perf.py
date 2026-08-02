@@ -60,10 +60,7 @@ class TestSingleTokenizationPass:
         # loop body). Post-fix: exactly 1 (single tokenization pass).
         split_token = '.split(" ")'
         actual = src.count(split_token)
-        assert actual == 1, (
-            f"apply_to_text must tokenize exactly once; found "
-            f"{actual} {split_token!r} calls in source"
-        )
+        assert actual == 1, f"apply_to_text must tokenize exactly once; found {actual} {split_token!r} calls in source"
 
     def test_single_join_call_in_source(self) -> None:
         src = _apply_to_text_source()
@@ -71,8 +68,7 @@ class TestSingleTokenizationPass:
         join_token = '" ".join('
         actual = src.count(join_token)
         assert actual == 1, (
-            f"apply_to_text must join tokens exactly once; found "
-            f"{actual} {join_token!r} calls in source"
+            f"apply_to_text must join tokens exactly once; found {actual} {join_token!r} calls in source"
         )
 
     def test_no_inline_re_sub_or_re_match(self, tmp_path) -> None:
@@ -93,12 +89,9 @@ class TestSingleTokenizationPass:
         # precompiled patterns' .sub() / .match() methods are used
         # instead (no re-cache lookup).
         assert "re.sub(" not in src, (
-            "apply_to_text must use _RE_TOKEN_KEY.sub(), not re.sub() — "
-            "re.sub incurs a per-call re-cache lookup"
+            "apply_to_text must use _RE_TOKEN_KEY.sub(), not re.sub() — re.sub incurs a per-call re-cache lookup"
         )
-        assert "re.match(" not in src, (
-            "apply_to_text must use _RE_MISSPELL_WRAP.match(), not re.match()"
-        )
+        assert "re.match(" not in src, "apply_to_text must use _RE_MISSPELL_WRAP.match(), not re.match()"
 
         # Dynamic check: patch re.sub / re.match, run apply_to_text,
         # verify neither is called.
@@ -123,12 +116,10 @@ class TestSingleTokenizationPass:
         with patch("re.sub", side_effect=counting_sub), patch("re.match", side_effect=counting_match):
             vm.apply_to_text("I teh pyathon")
         assert call_count["sub"] == 0, (
-            f"apply_to_text must use precompiled patterns, not re.sub; "
-            f"got {call_count['sub']} re.sub calls"
+            f"apply_to_text must use precompiled patterns, not re.sub; got {call_count['sub']} re.sub calls"
         )
         assert call_count["match"] == 0, (
-            f"apply_to_text must use precompiled patterns, not re.match; "
-            f"got {call_count['match']} re.match calls"
+            f"apply_to_text must use precompiled patterns, not re.match; got {call_count['match']} re.match calls"
         )
 
 
@@ -206,6 +197,4 @@ class TestSequentialSemanticsPreserved:
 
         # Leading + trailing punctuation must survive the correction.
         result = vm.apply_to_text("I said, 'teh' wrong way.")
-        assert result == "I said, 'the' wrong way.", (
-            f"punctuation wrapping broken; got {result!r}"
-        )
+        assert result == "I said, 'the' wrong way.", f"punctuation wrapping broken; got {result!r}"

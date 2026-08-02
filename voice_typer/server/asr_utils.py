@@ -358,16 +358,13 @@ def _require_huggingface_consent(
     if consent:
         return
     log.warning(
-        "%s HuggingFace consent not given — refusing to download %s. "
-        "The renderer should show a consent dialog.",
+        "%s HuggingFace consent not given — refusing to download %s. The renderer should show a consent dialog.",
         log_prefix,
         model_identifier,
     )
     if progress_callback is not None:
         if progress_message is None:
-            progress_message = (
-                f"HuggingFace consent required before downloading {model_identifier}."
-            )
+            progress_message = f"HuggingFace consent required before downloading {model_identifier}."
         try:
             progress_callback(progress_message)
         except Exception:
@@ -378,6 +375,4 @@ def _require_huggingface_consent(
             )
     from voice_typer.server.asr_errors import ConsentRequiredError
 
-    raise ConsentRequiredError(
-        f"HuggingFace consent not given — refusing to download {model_identifier}."
-    )
+    raise ConsentRequiredError(f"HuggingFace consent not given — refusing to download {model_identifier}.")

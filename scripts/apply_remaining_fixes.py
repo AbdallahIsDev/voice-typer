@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Apply remaining Dashboard config-dir display and theme-dedup fixes."""
+
 import re
 from pathlib import Path
 
@@ -24,20 +25,17 @@ src = src.replace(
 src = src.replace(
     "const [configRaw, setConfigRaw] = useState<VoiceTyperConfig | null>(null);",
     "const [configRaw, setConfigRaw] = useState<VoiceTyperConfig | null>(null);\n"
-    "\tconst [configDir, setConfigDir] = useState<string>(\"\");",
+    '\tconst [configDir, setConfigDir] = useState<string>("");',
     1,
 )
 
 # Add get_status to the Promise.all
 src = src.replace(
+    'call<{ count: number }>("get_history_count").catch(() => ({\n\t\t\t\t\t\tcount: 0,\n\t\t\t\t\t})),\n\t\t\t]);',
     'call<{ count: number }>("get_history_count").catch(() => ({\n'
     "\t\t\t\t\t\tcount: 0,\n"
     "\t\t\t\t\t})),\n"
-    "\t\t\t]);",
-    'call<{ count: number }>("get_history_count").catch(() => ({\n'
-    "\t\t\t\t\t\tcount: 0,\n"
-    "\t\t\t\t\t})),\n"
-    "\t\t\t\tcall<{ config_dir?: string }>(\"get_status\").catch(() => null),\n"
+    '\t\t\t\tcall<{ config_dir?: string }>("get_status").catch(() => null),\n'
     "\t\t\t]);",
     1,
 )
@@ -82,11 +80,11 @@ if "tChoice" not in src:
         'import { t, tChoice } from "@/i18n/i18n";',
     )
     # If no t import exists, add it
-    if 'import { t, tChoice }' not in src:
+    if "import { t, tChoice }" not in src:
         # Try alternate import pattern
-        for pat in ['import { t } from', 'import {t} from']:
+        for pat in ["import { t } from", "import {t} from"]:
             if pat in src:
-                src = src.replace(pat, 'import { t, tChoice } from')
+                src = src.replace(pat, "import { t, tChoice } from")
                 break
 
 # Replace the binary plural pattern with tChoice
@@ -98,14 +96,14 @@ old_pattern = (
 # Simpler: just replace the two t() calls with a single tChoice
 src = re.sub(
     r't\("analytics\.dayCountTooltipSingular",\s*(\{[^}]+\})\)\s*\n?\s*:\s*t\("analytics\.dayCountTooltipPlural",\s*\{[^}]+\}\)',
-    lambda m: 'tChoice("analytics.dayCountTooltip", ' + m.group(1).replace('count:', '').strip('{} ').strip() + ')',
+    lambda m: 'tChoice("analytics.dayCountTooltip", ' + m.group(1).replace("count:", "").strip("{} ").strip() + ")",
     src,
 )
 
 # If the above didn't match (different formatting), try a broader approach
 if "dayCountTooltipSingular" in src or "dayCountTooltipPlural" in src:
     # Find the ternary and replace
-    lines = src.split('\n')
+    lines = src.split("\n")
     new_lines = []
     skip_next = False
     for i, line in enumerate(lines):
@@ -115,17 +113,17 @@ if "dayCountTooltipSingular" in src or "dayCountTooltipPlural" in src:
         if "dayCountTooltipSingular" in line:
             # Extract the count value from the line
             # Pattern: ? t("analytics.dayCountTooltipSingular", { count: String(count) })
-            count_match = re.search(r'count:\s*String\(([^)]+)\)', line)
+            count_match = re.search(r"count:\s*String\(([^)]+)\)", line)
             if count_match:
                 count_var = count_match.group(1)
-                indent = line[:len(line) - len(line.lstrip())]
+                indent = line[: len(line) - len(line.lstrip())]
                 new_lines.append(f'{indent}tChoice("analytics.dayCountTooltip", {count_var})')
                 # Skip the next line (the : t("...Plural", ...) part)
-                if i + 1 < len(lines) and "dayCountTooltipPlural" in lines[i+1]:
+                if i + 1 < len(lines) and "dayCountTooltipPlural" in lines[i + 1]:
                     skip_next = True
                 continue
         new_lines.append(line)
-    src = '\n'.join(new_lines)
+    src = "\n".join(new_lines)
 
 f.write_text(src)
 print(f"Updated: {f.name}")
@@ -146,42 +144,42 @@ src = f.read_text()
 # Check what theme-storage-keys exports
 tsk = (REPO / "voice_typer/client/src/renderer/src/lib/theme-storage-keys.ts").read_text()
 print("theme-storage-keys.ts exports:")
-for line in tsk.split('\n'):
-    if 'export' in line.lower() and ('const' in line or 'type' in line or 'function' in line):
+for line in tsk.split("\n"):
+    if "export" in line.lower() and ("const" in line or "type" in line or "function" in line):
         print(f"  {line.strip()}")
 
 # Replace local LS_* consts with imports
 # First, add the import
 if 'from "@/lib/theme-storage-keys"' not in src:
     # Find a good place to add the import (after existing imports)
-    import_section_end = src.find('\n', src.find('import'))
+    import_section_end = src.find("\n", src.find("import"))
     if import_section_end == -1:
         import_section_end = 0
     # Add after the last import line
     last_import = 0
-    for m in re.finditer(r'^import\s.*$', src, re.MULTILINE):
+    for m in re.finditer(r"^import\s.*$", src, re.MULTILINE):
         last_import = m.end()
     src = (
         src[:last_import]
-        + '\nimport { LS_THEME_MODE, LS_THEME_PRESET, LS_CUSTOM_THEME } '
+        + "\nimport { LS_THEME_MODE, LS_THEME_PRESET, LS_CUSTOM_THEME } "
         + 'from "@/lib/theme-storage-keys";'
         + src[last_import:]
     )
 
 # Remove the local const declarations
-src = re.sub(r'const LS_THEME_MODE\s*=\s*"[^"]+";\n', '', src)
-src = re.sub(r'const LS_THEME_PRESET\s*=\s*"[^"]+";\n', '', src)
-src = re.sub(r'const LS_CUSTOM_THEME\s*=\s*"[^"]+";\n', '', src)
+src = re.sub(r'const LS_THEME_MODE\s*=\s*"[^"]+";\n', "", src)
+src = re.sub(r'const LS_THEME_PRESET\s*=\s*"[^"]+";\n', "", src)
+src = re.sub(r'const LS_CUSTOM_THEME\s*=\s*"[^"]+";\n', "", src)
 
 # Remove the "Mirror of the localStorage keys" comment block if present
-src = re.sub(r'//\s*Mirror of the localStorage keys.*?(?=\n\n|\nimport|\nconst |\nexport )', '', src, flags=re.DOTALL)
+src = re.sub(r"//\s*Mirror of the localStorage keys.*?(?=\n\n|\nimport|\nconst |\nexport )", "", src, flags=re.DOTALL)
 
 f.write_text(src)
 print(f"Updated: {f.name}")
 
 # Verify
 src2 = f.read_text()
-local_consts = len(re.findall(r'^const LS_THEME_(MODE|PRESET|CUSTOM_THEME)\s*=', src2, re.MULTILINE))
+local_consts = len(re.findall(r"^const LS_THEME_(MODE|PRESET|CUSTOM_THEME)\s*=", src2, re.MULTILINE))
 print(f"  Local LS_* consts remaining: {local_consts} (should be 0)")
 
 # ============================================================
@@ -205,23 +203,23 @@ f = REPO / "voice_typer/client/src/renderer/src/lib/theme-contrast.ts"
 src = f.read_text()
 
 # Add import of pickContrastForeground from themes
-if 'pickContrastForeground' not in src or 'from "@/themes"' not in src:
+if "pickContrastForeground" not in src or 'from "@/themes"' not in src:
     # Check existing imports from @/themes
     themes_import_match = re.search(r'import\s*\{([^}]+)\}\s*from\s*"@/themes"', src)
     if themes_import_match:
         existing_imports = themes_import_match.group(1)
-        if 'pickContrastForeground' not in existing_imports:
-            new_imports = existing_imports.rstrip().rstrip(',') + ', pickContrastForeground'
+        if "pickContrastForeground" not in existing_imports:
+            new_imports = existing_imports.rstrip().rstrip(",") + ", pickContrastForeground"
             src = src.replace(existing_imports, new_imports)
     else:
         # Add new import line
         last_import = 0
-        for m in re.finditer(r'^import\s.*$', src, re.MULTILINE):
+        for m in re.finditer(r"^import\s.*$", src, re.MULTILINE):
             last_import = m.end()
         src = src[:last_import] + '\nimport { pickContrastForeground } from "@/themes";' + src[last_import:]
 
 # Remove the local _pickContrastForeground function
-src = re.sub(r'function _pickContrastForeground\([^)]*\):\s*string\s*\{[^}]+\}\n', '', src)
+src = re.sub(r"function _pickContrastForeground\([^)]*\):\s*string\s*\{[^}]+\}\n", "", src)
 
 # Update the caller to use the imported version
 src = src.replace("_pickContrastForeground(", "pickContrastForeground(")
@@ -229,17 +227,17 @@ src = src.replace("_pickContrastForeground(", "pickContrastForeground(")
 # Normalize non-hex colors in getContrastPair
 # Find getContrastPair and add cssColorToHex normalization
 # Check if cssColorToHex is already imported
-if 'cssColorToHex' not in src:
+if "cssColorToHex" not in src:
     # Import it from color-utils
     cu_import_match = re.search(r'import\s*\{([^}]+)\}\s*from\s*"@/lib/color-utils"', src)
     if cu_import_match:
         existing = cu_import_match.group(1)
-        if 'cssColorToHex' not in existing:
-            new_imports = existing.rstrip().rstrip(',') + ', cssColorToHex'
+        if "cssColorToHex" not in existing:
+            new_imports = existing.rstrip().rstrip(",") + ", cssColorToHex"
             src = src.replace(existing, new_imports)
     else:
         last_import = 0
-        for m in re.finditer(r'^import\s.*$', src, re.MULTILINE):
+        for m in re.finditer(r"^import\s.*$", src, re.MULTILINE):
             last_import = m.end()
         src = src[:last_import] + '\nimport { cssColorToHex } from "@/lib/color-utils";' + src[last_import:]
 
@@ -257,7 +255,7 @@ print(f"Updated: {f.name}")
 
 # Verify
 src2 = f.read_text()
-if '_pickContrastForeground' in src2:
+if "_pickContrastForeground" in src2:
     print("  WARNING: theme-contrast.ts still has _pickContrastForeground")
 else:
     print("  OK: theme-contrast.ts uses imported pickContrastForeground")

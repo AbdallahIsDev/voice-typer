@@ -142,8 +142,7 @@ class TestListMicrophonesCache:
         # Cache must detect the module swap and re-query → returns [].
         result2 = _ml.list_microphones()
         assert result2 == [], (
-            "module swap must invalidate cache so the patched raising sd "
-            "is actually used (got non-empty result)"
+            "module swap must invalidate cache so the patched raising sd is actually used (got non-empty result)"
         )
 
     def test_cache_returns_shallow_copy_not_internal_list(self, monkeypatch):

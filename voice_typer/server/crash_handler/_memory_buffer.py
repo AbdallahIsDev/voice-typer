@@ -154,9 +154,7 @@ def install_memory_buffer(config_dir: Path) -> None:
 
             target_handler.setFormatter(_FileFormatter())
         except Exception:
-            target_handler.setFormatter(
-                logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-            )
+            target_handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s"))
         target_handler.setLevel(logging.DEBUG)
         # Close the previous target (if any) to release its file handle.
         previous_target = getattr(_ch, "_crash_buffer_handler", None)

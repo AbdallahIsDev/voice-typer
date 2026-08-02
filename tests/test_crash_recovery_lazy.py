@@ -55,9 +55,7 @@ class TestCrashRecoveryLazyLoad:
         cr = CrashRecovery(config_dir=recovery_dir)
         # _load() always sets _loaded = True. If _loaded is False,
         # _load() was not called in __init__.
-        assert cr._loaded is False, (
-            "__init__ must not call _load() — _loaded should be False"
-        )
+        assert cr._loaded is False, "__init__ must not call _load() — _loaded should be False"
         cr.shutdown()
 
     def test_check_on_startup_calls_load(self, recovery_dir: Path) -> None:
@@ -146,9 +144,7 @@ class TestCrashRecoveryLazyLoad:
         assert entries[0]["text"] == "lazy-load-test"
         cr2.shutdown()
 
-    def test_add_before_load_does_not_clobber_entries(
-        self, recovery_dir: Path
-    ) -> None:
+    def test_add_before_load_does_not_clobber_entries(self, recovery_dir: Path) -> None:
         """if ``add()`` is called before ``_load()`` (e.g. in
         tests or edge cases), a subsequent read accessor must NOT
         clobber the in-memory entries by loading from disk.
@@ -171,9 +167,7 @@ class TestCrashRecoveryLazyLoad:
 
             # Reading count triggers _load(), but _load() sees
             # _entries is non-empty and skips the disk read.
-            assert cr.count == 2, (
-                "_load() must not clobber in-memory entries"
-            )
+            assert cr.count == 2, "_load() must not clobber in-memory entries"
             assert cr._loaded is True
         finally:
             cr.shutdown()

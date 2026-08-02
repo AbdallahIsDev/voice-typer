@@ -701,10 +701,7 @@ class VocabularyManager:
         # dictation cycle (~30K ref-copies); post-fix only the 4 dict
         # references are captured (no entry copies).
         with self._lock:
-            word_cats = [
-                self._data.get(cat)
-                for cat in ("misspellings", "technical_terms", "names", "products")
-            ]
+            word_cats = [self._data.get(cat) for cat in ("misspellings", "technical_terms", "names", "products")]
 
         tokens = text.split(" ")
         for entries in word_cats:
@@ -719,9 +716,7 @@ class VocabularyManager:
                 correction = entries.get(key)
                 if correction is not None:
                     match = _RE_MISSPELL_WRAP.match(token)
-                    tokens[i] = (
-                        f"{match.group(1)}{correction}{match.group(3)}" if match else correction
-                    )
+                    tokens[i] = f"{match.group(1)}{correction}{match.group(3)}" if match else correction
         text = " ".join(tokens)
 
         return text

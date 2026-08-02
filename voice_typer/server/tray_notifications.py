@@ -135,8 +135,7 @@ def notify(tray: TrayIcon, title: str, message: str) -> None:
         return
     if _notify_dedup_seen(title, message):
         log.debug(
-            "[TRAY] Suppressing duplicate notification (title=%r, message=%r) "
-            "within %ss TTL window",
+            "[TRAY] Suppressing duplicate notification (title=%r, message=%r) within %ss TTL window",
             title,
             message,
             _NOTIFY_DEDUP_TTL_SECONDS,

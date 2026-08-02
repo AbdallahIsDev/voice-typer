@@ -22,9 +22,7 @@ def _read_component_source() -> str:
     return COMPONENT_PATH.read_text(encoding="utf-8")
 
 
-REGISTRY_PATH = Path(
-    "voice_typer/client/src/renderer/src/components/audio/audioFilterRowDescriptors.ts"
-)
+REGISTRY_PATH = Path("voice_typer/client/src/renderer/src/components/audio/audioFilterRowDescriptors.ts")
 
 
 def _read_registry_source() -> str:
@@ -141,8 +139,7 @@ class TestAudioFilterChainRendersAllFilters:
         # The component must iterate the registry so every descriptor
         # (including the field above) is actually rendered.
         assert "audioFilterRowDescriptors.map" in src, (
-            "F-1: AudioFilterChain must iterate audioFilterRowDescriptors — "
-            "the registry is the render spec"
+            "F-1: AudioFilterChain must iterate audioFilterRowDescriptors — the registry is the render spec"
         )
 
 
@@ -197,23 +194,17 @@ class TestAudioFilterChainIStrI18nKeys:
             "F-1: AudioFilterChain must use buildAudioFilterLabels (the "
             "t()-driven label builder) — no hardcoded English"
         )
-        labels_path = Path(
-            "voice_typer/client/src/renderer/src/components/audio/audioFilterLabels.ts"
-        )
+        labels_path = Path("voice_typer/client/src/renderer/src/components/audio/audioFilterLabels.ts")
         if not labels_path.exists():
             pytest.skip(f"{labels_path} not found — F-1 not implemented")
         labels_src = labels_path.read_text(encoding="utf-8")
         # The builder must call t() to resolve each key.
-        assert "t(key)" in labels_src, (
-            "F-1: audioFilterLabels must resolve descriptor i18n keys via t()"
-        )
+        assert "t(key)" in labels_src, "F-1: audioFilterLabels must resolve descriptor i18n keys via t()"
         # The registry must carry a substantial set of settings.audioEnhancement
         # keys (the pre-refactor inline useMemo had 40+ t() calls).
         registry = _read_registry_source()
         i18n_keys = {
-            line.split('"')[1]
-            for line in registry.splitlines()
-            if "settings.audioEnhancement" in line and '"' in line
+            line.split('"')[1] for line in registry.splitlines() if "settings.audioEnhancement" in line and '"' in line
         }
         assert len(i18n_keys) >= 10, (
             f"F-1: audioFilterRowDescriptors only has {len(i18n_keys)} "

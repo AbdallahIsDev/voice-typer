@@ -87,10 +87,7 @@ class TestUU1MicIdTypeMismatch:
         NOT ``[m["id"] for m in ...]`` (strs)."""
         ctrl, _app = _make_controller_for_mic_id_test()
         ids = ctrl._list_active_mic_ids()
-        assert ids == [0, 1, 5], (
-            "_list_active_mic_ids must return int indices "
-            f"(not str ids); got {ids!r}"
-        )
+        assert ids == [0, 1, 5], f"_list_active_mic_ids must return int indices (not str ids); got {ids!r}"
         # All elements must be ints (not strs).
         assert all(isinstance(i, int) for i in ids), (
             f"all mic IDs must be ints; got types {[type(i).__name__ for i in ids]}"
@@ -172,8 +169,7 @@ class TestUU1MicIdTypeMismatch:
         watcher._check_active_mic_lost()
 
         assert fired.is_set(), (
-            "sanity: on_active_mic_lost MUST fire when the int "
-            "mic_id (99) is absent from the int-typed device list."
+            "sanity: on_active_mic_lost MUST fire when the int mic_id (99) is absent from the int-typed device list."
         )
 
 
@@ -226,12 +222,10 @@ class TestUU40ActiveMicLostPublishesEvent:
         )
         # Find the call with the "type" key == "microphone_disconnected".
         published_events = [
-            call.args[0] if call.args else call.kwargs.get("event")
-            for call in mock_publish.call_args_list
+            call.args[0] if call.args else call.kwargs.get("event") for call in mock_publish.call_args_list
         ]
         assert any(
-            isinstance(evt, dict) and evt.get("type") == "microphone_disconnected"
-            for evt in published_events
+            isinstance(evt, dict) and evt.get("type") == "microphone_disconnected" for evt in published_events
         ), (
             "on_active_mic_lost must publish an event with "
             f'type="microphone_disconnected"; got calls: {mock_publish.call_args_list}'
@@ -246,19 +240,14 @@ class TestUU40ActiveMicLostPublishesEvent:
             ctrl.on_device_lost()
 
         assert mock_publish.called, (
-            "on_device_lost must still publish the "
-            "microphone_disconnected event after the refactor."
+            "on_device_lost must still publish the microphone_disconnected event after the refactor."
         )
         published_events = [
-            call.args[0] if call.args else call.kwargs.get("event")
-            for call in mock_publish.call_args_list
+            call.args[0] if call.args else call.kwargs.get("event") for call in mock_publish.call_args_list
         ]
         assert any(
-            isinstance(evt, dict) and evt.get("type") == "microphone_disconnected"
-            for evt in published_events
-        ), (
-            "on_device_lost must publish type=microphone_disconnected."
-        )
+            isinstance(evt, dict) and evt.get("type") == "microphone_disconnected" for evt in published_events
+        ), "on_device_lost must publish type=microphone_disconnected."
 
     def test_both_paths_use_shared_helper(self) -> None:
         """Both ``on_active_mic_lost`` and ``on_device_lost`` MUST route
@@ -268,8 +257,7 @@ class TestUU40ActiveMicLostPublishesEvent:
         ctrl, _app = _make_controller_for_event_test()
         # The helper MUST exist as a bound method on the controller.
         assert hasattr(ctrl, "_publish_microphone_disconnected_event"), (
-            "RecordingController must expose the shared "
-            "_publish_microphone_disconnected_event helper."
+            "RecordingController must expose the shared _publish_microphone_disconnected_event helper."
         )
         assert callable(ctrl._publish_microphone_disconnected_event), (
             "_publish_microphone_disconnected_event must be callable."
@@ -310,9 +298,7 @@ def _make_vad_processor_in_silence_state():
     # quiet = rms_db < silence_threshold_db (-50 dB). -60 dB is quiet.
     for _ in range(20):
         vp.update_frame(-60.0)
-    assert vp.state == VadState.SILENCE, (
-        f"test setup: expected SILENCE after 20 quiet frames, got {vp.state}"
-    )
+    assert vp.state == VadState.SILENCE, f"test setup: expected SILENCE after 20 quiet frames, got {vp.state}"
     return vp
 
 
@@ -363,8 +349,7 @@ class TestUU42GreyZonePromote:
         # Feed 1 more grey frame — tips the state machine into SPEECH.
         vp.update_frame(grey_db)
         assert vp.state == VadState.SPEECH, (
-            "after 31 grey frames (30 seed + 1 tip), state must "
-            f"transition to SPEECH; got {vp.state}"
+            f"after 31 grey frames (30 seed + 1 tip), state must transition to SPEECH; got {vp.state}"
         )
 
     def test_grey_zone_promote_does_not_fire_before_hold_limit(self) -> None:
@@ -382,12 +367,10 @@ class TestUU42GreyZonePromote:
             vp.update_frame(grey_db)
 
         assert vp.state == VadState.SILENCE, (
-            "29 grey frames (below hold limit) must NOT promote "
-            f"to SPEECH; got {vp.state}"
+            f"29 grey frames (below hold limit) must NOT promote to SPEECH; got {vp.state}"
         )
         assert vp.consecutive_speech_frames == 0, (
-            "before the hold limit, speech_frames must stay 0 "
-            f"(no seed yet); got {vp.consecutive_speech_frames}"
+            f"before the hold limit, speech_frames must stay 0 (no seed yet); got {vp.consecutive_speech_frames}"
         )
 
     def test_grey_zone_promote_resets_grey_counter_after_seed(self) -> None:
@@ -401,6 +384,5 @@ class TestUU42GreyZonePromote:
             vp.update_frame(grey_db)
 
         assert vp._consecutive_grey_frames == 0, (
-            "after the seed fires, _consecutive_grey_frames must "
-            f"reset to 0; got {vp._consecutive_grey_frames}"
+            f"after the seed fires, _consecutive_grey_frames must reset to 0; got {vp._consecutive_grey_frames}"
         )

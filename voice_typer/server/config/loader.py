@@ -301,8 +301,7 @@ def _load_config(cls) -> "Config":
             # credential_store exceptions can echo the secret value
             # being loaded, which would leak into log files.
             log.warning(
-                "[CONFIG] RW-01: credential_store integration failed: %s — "
-                "continuing with config.json values as-is",
+                "[CONFIG] RW-01: credential_store integration failed: %s — continuing with config.json values as-is",
                 type(e).__name__,
             )
 

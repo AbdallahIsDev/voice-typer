@@ -378,8 +378,7 @@ def poll_download_progress(
                 elapsed_s=effective_elapsed,
             )
             log.warning(
-                "[SERVICE] Download of '%s' exceeded max duration %.0fs "
-                "(elapsed %.1fs, bytes=%d) — aborting",
+                "[SERVICE] Download of '%s' exceeded max duration %.0fs (elapsed %.1fs, bytes=%d) — aborting",
                 model_name,
                 max_duration_s,
                 effective_elapsed,
@@ -401,8 +400,7 @@ def poll_download_progress(
                 elapsed_s=stall_elapsed,
             )
             log.warning(
-                "[SERVICE] Download of '%s' stalled — no progress for "
-                "%.0fs (bytes=%d) — aborting",
+                "[SERVICE] Download of '%s' stalled — no progress for %.0fs (bytes=%d) — aborting",
                 model_name,
                 max_stall_s,
                 last_total_bytes_seen,

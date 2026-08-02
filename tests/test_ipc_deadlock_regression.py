@@ -54,8 +54,7 @@ class TestSendRestoresPrevTimeout:
         src = inspect.getsource(IPCServer._send)
         # The new approach uses _await_socket_writable (select.select).
         assert "_await_socket_writable" in src, (
-            "_send must use _await_socket_writable to gate writes on "
-            "socket write-readiness (select-based timeout)."
+            "_send must use _await_socket_writable to gate writes on socket write-readiness (select-based timeout)."
         )
         # The old dance variables and calls must be gone.
         assert "_prev_timeout" not in src, (
@@ -64,13 +63,11 @@ class TestSendRestoresPrevTimeout:
             "nothing to capture or restore."
         )
         assert "gettimeout()" not in src, (
-            "_send must NOT call gettimeout() — the select-based approach "
-            "doesn't need to read the previous timeout."
+            "_send must NOT call gettimeout() — the select-based approach doesn't need to read the previous timeout."
         )
         # No finally block needed (nothing to restore).
         assert "finally:" not in src, (
-            "_send must NOT have a finally block — without the settimeout "
-            "dance there's no timeout state to restore."
+            "_send must NOT have a finally block — without the settimeout dance there's no timeout state to restore."
         )
 
     def test_send_restores_prev_timeout_behaviorally(self):

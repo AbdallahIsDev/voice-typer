@@ -194,9 +194,7 @@ class _LazyAudioProcessorProxy:
                 # Recorder (which holds the proxy) is owned by the app.
                 # Defensive: raise AttributeError so the caller sees a
                 # clear failure rather than a None dereference.
-                raise AttributeError(
-                    "_LazyAudioProcessorProxy: owning VoiceTyperApp was garbage-collected"
-                )
+                raise AttributeError("_LazyAudioProcessorProxy: owning VoiceTyperApp was garbage-collected")
             # Deferred import — AudioProcessor pulls in the
             # ``audio_filters`` package (scipy.signal.butter, RNNoise).
             from voice_typer.server.audio_processor import AudioProcessor

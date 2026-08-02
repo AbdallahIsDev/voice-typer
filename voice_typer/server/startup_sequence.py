@@ -131,7 +131,6 @@ def _sweep_stale_backup_files(config_dir: Path) -> None:
             log.debug("[STARTUP] glob error for pattern %s: %s", pattern, exc)
 
 
-
 def _onboarding_fail_counter_path() -> Path:
     """Return the absolute path to the onboarding fail-counter file."""
     return _config_dir() / _ONBOARDING_FAIL_COUNTER_FILENAME

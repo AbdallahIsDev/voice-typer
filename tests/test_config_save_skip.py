@@ -38,9 +38,7 @@ def config_dir(tmp_path: Path, monkeypatch) -> Path:
 class TestConfigSaveSkip:
     """``Config.save()`` skips the write when content is unchanged."""
 
-    def test_save_skips_write_when_content_unchanged(
-        self, config_dir: Path
-    ) -> None:
+    def test_save_skips_write_when_content_unchanged(self, config_dir: Path) -> None:
         """``Config.save()`` with unchanged content must NOT call
         ``_secure_atomic_write``.
 
@@ -58,22 +56,21 @@ class TestConfigSaveSkip:
         # to the actual serialized bytes.
         assert cfg.save() is True
         # The cache should now be populated (not None).
-        assert cfg._last_saved_bytes is not None, (
-            "first save should have populated _last_saved_bytes"
-        )
+        assert cfg._last_saved_bytes is not None, "first save should have populated _last_saved_bytes"
 
         # Second save — identical content. Mock _secure_atomic_write
         # to verify it is NOT called (the diff-cache check should
         # short-circuit before reaching the write).
-        with patch(
-            "voice_typer.server.config._secure_atomic_write"
-        ) as mock_write:
+        with patch("voice_typer.server.config._secure_atomic_write") as mock_write:
             result = cfg.save()
             assert result is True, "save() should return True on skip"
-            mock_write.assert_not_called(), (
-                "_secure_atomic_write must NOT be called when "
-                "content is unchanged — the diff-cache check should skip "
-                "the write entirely"
+            (
+                mock_write.assert_not_called(),
+                (
+                    "_secure_atomic_write must NOT be called when "
+                    "content is unchanged — the diff-cache check should skip "
+                    "the write entirely"
+                ),
             )
 
     def test_save_writes_when_content_changed(self, config_dir: Path) -> None:
@@ -98,21 +95,20 @@ class TestConfigSaveSkip:
 
         # Second save — changed content. Mock _secure_atomic_write to
         # verify it IS called.
-        with patch(
-            "voice_typer.server.config._secure_atomic_write"
-        ) as mock_write:
+        with patch("voice_typer.server.config._secure_atomic_write") as mock_write:
             result = cfg.save()
             assert result is True
-            mock_write.assert_called(), (
-                "_secure_atomic_write must be called when content "
-                "has changed — the diff-cache check should fall through"
+            (
+                mock_write.assert_called(),
+                (
+                    "_secure_atomic_write must be called when content "
+                    "has changed — the diff-cache check should fall through"
+                ),
             )
 
         # The cache should have been updated to the new bytes.
         assert cfg._last_saved_bytes is not None
-        assert cfg._last_saved_bytes != cached_bytes, (
-            "cache should be updated after a changed-content save"
-        )
+        assert cfg._last_saved_bytes != cached_bytes, "cache should be updated after a changed-content save"
 
     def test_first_save_always_writes(self, config_dir: Path) -> None:
         """A fresh ``Config()`` instance (``_last_saved_bytes is None``)
@@ -128,14 +124,12 @@ class TestConfigSaveSkip:
         # Fresh instance — cache is None.
         assert cfg._last_saved_bytes is None
 
-        with patch(
-            "voice_typer.server.config._secure_atomic_write"
-        ) as mock_write:
+        with patch("voice_typer.server.config._secure_atomic_write") as mock_write:
             result = cfg.save()
             assert result is True
-            mock_write.assert_called(), (
-                "first save (cache is None) must always write — "
-                "the 'is not None' guard prevents skipping"
+            (
+                mock_write.assert_called(),
+                ("first save (cache is None) must always write — the 'is not None' guard prevents skipping"),
             )
 
         # Cache is now populated.

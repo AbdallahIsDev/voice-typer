@@ -1488,9 +1488,7 @@ class DictationPipeline:
         # the executor is GC-eligible. A fresh executor per call
         # keeps the implementation simple (no lifecycle management on
         # the pipeline) and is cheap (one thread, no queueing).
-        executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=1, thread_name_prefix="llm-polish"
-        )
+        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="llm-polish")
         future = executor.submit(polisher.polish, text)
         try:
             return future.result(timeout=timeout_s)
@@ -1588,9 +1586,7 @@ class DictationPipeline:
                         preset=self._app.config.llm_preset,
                         enabled=True,
                     )
-                text = self._call_polish_with_timeout(
-                    self._app._llm_polisher, text
-                )
+                text = self._call_polish_with_timeout(self._app._llm_polisher, text)
             except Exception as exc:
                 # redact the exception message before
                 # logging. LLM API errors can echo the request URL +

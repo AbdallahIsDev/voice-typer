@@ -101,9 +101,7 @@ class TestSweepDeletesStaleBackups:
         ss_mod._sweep_stale_backup_files(tmp_path)
 
         for name in stale_files:
-            assert not (tmp_path / name).exists(), (
-                f"expected {name} to be purged (stale)"
-            )
+            assert not (tmp_path / name).exists(), f"expected {name} to be purged (stale)"
 
 
 # ── (b) recent .bak file (mtime < 30 days) — preserved ────────────────
@@ -132,9 +130,7 @@ class TestSweepPreservesFreshBackups:
 
         ss_mod._sweep_stale_backup_files(tmp_path)
 
-        assert path.exists(), (
-            f"expected {filename} to be PRESERVED (fresh — forensic value)"
-        )
+        assert path.exists(), f"expected {filename} to be PRESERVED (fresh — forensic value)"
 
     def test_mixed_dir_only_deletes_stale(self, tmp_path: Path) -> None:
         """In a dir with both stale and fresh files, only stale ones are purged."""
@@ -198,9 +194,7 @@ class TestSweepCorruptFiles:
         ss_mod._sweep_stale_backup_files(tmp_path)
 
         for name in unmatched_files:
-            assert (tmp_path / name).exists(), (
-                f"unmatched file {name} must NOT be swept"
-            )
+            assert (tmp_path / name).exists(), f"unmatched file {name} must NOT be swept"
 
 
 # ── Per-file error tolerance ──────────────────────────────────────────
@@ -216,9 +210,7 @@ class TestSweepErrorTolerance:
         # Must not raise.
         ss_mod._sweep_stale_backup_files(bogus)
 
-    def test_sweep_continues_after_one_bad_file(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_sweep_continues_after_one_bad_file(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         """If ``unlink`` raises on one file, subsequent files are still swept."""
         bad = tmp_path / "config.json.corrupt-bad"
         good = tmp_path / "config.json.corrupt-good"
@@ -260,9 +252,7 @@ class TestSweepBoundary:
 
         ss_mod._sweep_stale_backup_files(tmp_path)
 
-        assert path.exists(), (
-            "file just under 30 days must be preserved (strict > comparison)"
-        )
+        assert path.exists(), "file just under 30 days must be preserved (strict > comparison)"
 
     def test_sweep_is_idempotent(self, tmp_path: Path) -> None:
         """Calling the sweep twice is a no-op the second time (no files

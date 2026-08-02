@@ -69,7 +69,7 @@ class TestWindowsManifestAsInvoker:
         # source is present in the .spec (the build-time manifest source).
         spec = Path(__file__).resolve().parent.parent.parent / "scripts" / "build" / "voice-typer.spec"
         content = spec.read_text()
-        assert "requestedExecutionLevel level=\"asInvoker\"" in content, (
+        assert 'requestedExecutionLevel level="asInvoker"' in content, (
             "PLAT-037: the .spec's inlined manifest must declare requestedExecutionLevel asInvoker."
         )
 

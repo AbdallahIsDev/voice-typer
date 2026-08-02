@@ -157,9 +157,7 @@ def test_windows_lock_timeout_fails_closed_and_warns(windows_env):
     # (blocking ~10s) and once with LK_NBLCK (non-blocking retry).
     modes_called = [call[1] for call in windows_env["msvcrt"].lock_calls]
     assert _LK_LOCK in modes_called, f"LK_LOCK must be attempted; got {modes_called!r}"
-    assert _LK_NBLCK in modes_called, (
-        f"LK_NBLCK retry must be attempted after LK_LOCK times out; got {modes_called!r}"
-    )
+    assert _LK_NBLCK in modes_called, f"LK_NBLCK retry must be attempted after LK_LOCK times out; got {modes_called!r}"
     # LK_LOCK must come BEFORE LK_NBLCK (retry happens after timeout).
     assert modes_called.index(_LK_LOCK) < modes_called.index(_LK_NBLCK), (
         f"LK_LOCK must precede LK_NBLCK retry; got {modes_called!r}"
@@ -190,21 +188,16 @@ def test_windows_lock_nblck_retry_succeeds_after_lk_lock_timeout(windows_env):
 
     # The retry succeeded — the fd must be returned (lock held).
     assert isinstance(fd, int), (
-        "fd must be returned when LK_NBLCK retry succeeds (lock IS held); "
-        "fail-closed is only for the both-fail path"
+        "fd must be returned when LK_NBLCK retry succeeds (lock IS held); fail-closed is only for the both-fail path"
     )
 
     # No warning should be emitted — the lock was acquired.
     warnings = [r for r in windows_env["records"] if r.levelno == logging.WARNING]
-    assert not warnings, (
-        f"unexpected warnings on LK_NBLCK retry success (lock acquired): {warnings}"
-    )
+    assert not warnings, f"unexpected warnings on LK_NBLCK retry success (lock acquired): {warnings}"
 
     # Both modes must have been attempted: LK_LOCK first, LK_NBLCK retry second.
     modes_called = [call[1] for call in windows_env["msvcrt"].lock_calls]
-    assert modes_called == [_LK_LOCK, _LK_NBLCK], (
-        f"expected [LK_LOCK, LK_NBLCK] call sequence; got {modes_called!r}"
-    )
+    assert modes_called == [_LK_LOCK, _LK_NBLCK], f"expected [LK_LOCK, LK_NBLCK] call sequence; got {modes_called!r}"
 
 
 def test_windows_lock_success_no_warning(windows_env, monkeypatch):

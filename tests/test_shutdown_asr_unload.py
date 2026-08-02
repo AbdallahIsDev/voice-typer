@@ -109,17 +109,13 @@ class TestTeardownAsrModelsContract:
         # type-annotated form) and closes with the matching ``]``.
         # The first tuple inside MUST be ``("teardown_asr_models", ...)``.
         parallel_open_idx = s.find("parallel_items")
-        assert parallel_open_idx > -1, (
-            "_do_cleanup must define a parallel_items list for the parallel batch"
-        )
+        assert parallel_open_idx > -1, "_do_cleanup must define a parallel_items list for the parallel batch"
         # Find the opening ``[`` after ``parallel_items``.
         bracket_open = s.find("[", parallel_open_idx)
         assert bracket_open > -1
         # Find the first ``("teardown_`` entry inside the bracket.
         first_entry_idx = s.find('("teardown_', bracket_open)
-        assert first_entry_idx > -1, (
-            "parallel_items must contain at least one teardown entry"
-        )
+        assert first_entry_idx > -1, "parallel_items must contain at least one teardown entry"
         # Slice a small window to read the entry name.
         first_entry = s[first_entry_idx : first_entry_idx + 40]
         assert first_entry.startswith('("teardown_asr_models",'), (
@@ -175,8 +171,7 @@ class TestTeardownAsrModelsContract:
         if "release_gpu_memory" in body:
             return
         assert "torch.cuda.empty_cache()" in body, (
-            "_teardown_asr_models must call torch.cuda.empty_cache() "
-            "(or release_gpu_memory)"
+            "_teardown_asr_models must call torch.cuda.empty_cache() (or release_gpu_memory)"
         )
         assert "torch.cuda.synchronize()" in body or (
             'hasattr(torch.cuda, "synchronize")' in body and "torch.cuda.synchronize()" in body

@@ -272,9 +272,7 @@ def test_lockfile_pinned_versions_satisfy_pyproject_constraints() -> None:
             violations.append(f"  {name}: failed to parse spec={spec_str!r} or pin={pin!r} ({exc})")
             continue
         if ver not in spec:
-            violations.append(
-                f"  {name}: lockfile pins {pin} but pyproject.toml requires {spec_str}"
-            )
+            violations.append(f"  {name}: lockfile pins {pin} but pyproject.toml requires {spec_str}")
     assert not violations, (
         "Lockfile drift detected — the lockfile pin violates the version "
         "specifier declared in pyproject.toml. CI (which resolves from "
@@ -282,8 +280,7 @@ def test_lockfile_pinned_versions_satisfy_pyproject_constraints() -> None:
         "-r requirements-lock.txt` path now install DIFFERENT versions. "
         "Regenerate the lockfile with:\n"
         "  uv pip compile --generate-hashes --universal --python-version 3.12 "
-        "pyproject.toml -o requirements-lock.txt\n\nViolations:\n"
-        + "\n".join(violations)
+        "pyproject.toml -o requirements-lock.txt\n\nViolations:\n" + "\n".join(violations)
     )
 
 

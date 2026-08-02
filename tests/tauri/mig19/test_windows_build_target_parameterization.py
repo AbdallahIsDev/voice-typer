@@ -192,15 +192,10 @@ def test_cargo_tauri_build_uses_matrix_target(workflow_text: str):
     assert step_start != -1, "Build the Tauri app step not found"
     next_step = workflow_text.find("\n      - name:", step_start + 1)
     run_block_slice = workflow_text[step_start:next_step]
-    assert "cargo tauri build" in run_block_slice, (
-        "cargo tauri build command not found in Build the Tauri app step"
-    )
-    assert re.search(
-        r"--target\s+\$\{\{\s*matrix\.target\s*\}\}", run_block_slice
-    ), (
+    assert "cargo tauri build" in run_block_slice, "cargo tauri build command not found in Build the Tauri app step"
+    assert re.search(r"--target\s+\$\{\{\s*matrix\.target\s*\}\}", run_block_slice), (
         "cargo tauri build --target must use ${{ matrix.target }} (dynamic), "
-        "not a hardcoded x86_64-pc-windows-msvc literal. Found run block:\n"
-        + run_block_slice
+        "not a hardcoded x86_64-pc-windows-msvc literal. Found run block:\n" + run_block_slice
     )
     # And the hardcoded literal must NOT appear on the cargo tauri build line.
     cargo_line = next(
@@ -226,12 +221,9 @@ def test_cargo_tauri_build_uses_matrix_tauri_config(workflow_text: str):
     assert step_start != -1, "Build the Tauri app step not found"
     next_step = workflow_text.find("\n      - name:", step_start + 1)
     run_block_slice = workflow_text[step_start:next_step]
-    assert re.search(
-        r"--config\s+\$\{\{\s*matrix\.tauri_config\s*\}\}", run_block_slice
-    ), (
+    assert re.search(r"--config\s+\$\{\{\s*matrix\.tauri_config\s*\}\}", run_block_slice), (
         "cargo tauri build --config must use ${{ matrix.tauri_config }} so "
-        "each leg picks its own arch-specific Tauri config. Run block:\n"
-        + run_block_slice
+        "each leg picks its own arch-specific Tauri config. Run block:\n" + run_block_slice
     )
 
 

@@ -98,14 +98,12 @@ class TestLLMPolishPipelineTimeout:
         """When ``polish`` takes longer than the pipeline timeout, the
         pipeline returns the original (unpolished) text WITHOUT waiting
         for the slow polish to finish."""
-        app = _make_app_with_polish(lambda text: ("polished-" + text))
+        app = _make_app_with_polish(lambda text: "polished-" + text)
 
         pipeline = _new_pipeline(app)
         # Shrink the timeout so the test runs in real-time without
         # waiting 4s. 0.1s is well under the 5s sleep below.
-        monkeypatch.setattr(
-            pipeline, "_LLM_POLISH_PIPELINE_TIMEOUT_S", 0.1
-        )
+        monkeypatch.setattr(pipeline, "_LLM_POLISH_PIPELINE_TIMEOUT_S", 0.1)
 
         def slow_polish(text):
             time.sleep(5.0)
@@ -119,15 +117,13 @@ class TestLLMPolishPipelineTimeout:
 
         # The pipeline returned the ORIGINAL text (not the polished one).
         assert result == "hello world", (
-            "on timeout, _call_polish_with_timeout must return the "
-            f"original text. Got: {result!r}"
+            f"on timeout, _call_polish_with_timeout must return the original text. Got: {result!r}"
         )
         # The pipeline returned well under the 5s sleep — bounded by
         # the 0.1s timeout (plus a small grace margin for thread
         # scheduling / executor shutdown overhead).
         assert elapsed < 1.0, (
-            "on timeout, _call_polish_with_timeout must return "
-            f"within ~the pipeline timeout. Elapsed: {elapsed:.2f}s"
+            f"on timeout, _call_polish_with_timeout must return within ~the pipeline timeout. Elapsed: {elapsed:.2f}s"
         )
 
     def test_fast_polish_returns_polished_text(self):
@@ -140,8 +136,7 @@ class TestLLMPolishPipelineTimeout:
         result = pipeline._call_polish_with_timeout(app._llm_polisher, "hello world")
 
         assert result == "polished text", (
-            "on success, _call_polish_with_timeout must return the "
-            f"polished text. Got: {result!r}"
+            f"on success, _call_polish_with_timeout must return the polished text. Got: {result!r}"
         )
         # The polish mock was called once with the original text.
         app._llm_polisher.polish.assert_called_once_with("hello world")
@@ -186,9 +181,7 @@ class TestLLMPolishPipelineTimeout:
         app = _make_app_with_polish("polished text")
         pipeline = _new_pipeline(app)
         pipeline._templates_applied = False
-        monkeypatch.setattr(
-            pipeline, "_LLM_POLISH_PIPELINE_TIMEOUT_S", 0.1
-        )
+        monkeypatch.setattr(pipeline, "_LLM_POLISH_PIPELINE_TIMEOUT_S", 0.1)
 
         def slow_polish(text):
             time.sleep(5.0)

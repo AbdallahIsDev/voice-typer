@@ -179,9 +179,7 @@ def test_prewarm_post_rotation_mode_is_0o600(tmp_path, monkeypatch):
     # it was renamed from the original active file (which was 0o600), so
     # the mode carries over via rename.
     backup = tmp_path / "prewarm.log.1"
-    assert backup.exists(), (
-        "the fix-4: expected a rotated backup file prewarm.log.1 after >5 MiB write"
-    )
+    assert backup.exists(), "the fix-4: expected a rotated backup file prewarm.log.1 after >5 MiB write"
     backup_mode = stat.S_IMODE(os.stat(backup).st_mode)
     assert oct(backup_mode) == "0o600", (
         f"the fix-4: rotated prewarm.log.1 mode must be 0o600 on POSIX; got {oct(backup_mode)}"

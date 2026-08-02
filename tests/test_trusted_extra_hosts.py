@@ -102,9 +102,7 @@ class TestAddTrustedEndpointIpc:
         server, mock_app = server_app
         """The add_trusted_endpoint IPC command extends the runtime
         allowlist AND persists the host to config.trusted_extra_hosts."""
-        result = server._dispatch(
-            {"id": 1, "type": "add_trusted_endpoint", "data": {"host": "my-vllm.lan"}}
-        )
+        result = server._dispatch({"id": 1, "type": "add_trusted_endpoint", "data": {"host": "my-vllm.lan"}})
         assert result["type"] == "ack"
         assert result["data"]["host"] == "my-vllm.lan"
         assert mock_app.config.trusted_extra_hosts == ["my-vllm.lan"]
@@ -126,17 +124,13 @@ class TestAddTrustedEndpointIpc:
     def test_idempotent(self, server_app):
         server, mock_app = server_app
         for _ in range(2):
-            server._dispatch(
-                {"id": 1, "type": "add_trusted_endpoint", "data": {"host": "my-vllm.lan"}}
-            )
+            server._dispatch({"id": 1, "type": "add_trusted_endpoint", "data": {"host": "my-vllm.lan"}})
         assert mock_app.config.trusted_extra_hosts == ["my-vllm.lan"]
 
     def test_rejects_invalid_payload(self, server_app):
         server, mock_app = server_app
         for bad in (None, {"host": 42}, {"host": "https://my-vllm.lan"}, {"host": "a b c"}):
-            result = server._dispatch(
-                {"id": 1, "type": "add_trusted_endpoint", "data": bad}
-            )
+            result = server._dispatch({"id": 1, "type": "add_trusted_endpoint", "data": bad})
             assert result["type"] == "error", f"expected error for {bad!r}, got {result!r}"
         # MockConfig.__getattr__ returns None instead of raising, so
         # getattr-with-default would see None; read __dict__ directly.
@@ -161,9 +155,7 @@ class TestSetConfigReappliesTrustedHosts:
         assert_url_allowed("https://my-vllm.lan/v1")
 
     def test_set_config_validator_rejects_invalid_hosts(self):
-        validated, errors = validate_config_update(
-            {"trusted_extra_hosts": ["my-vllm.lan", "bad host"]}
-        )
+        validated, errors = validate_config_update({"trusted_extra_hosts": ["my-vllm.lan", "bad host"]})
         assert errors, "invalid host list must produce validation errors"
         assert "bad host" not in validated.get("trusted_extra_hosts", [])
 

@@ -143,8 +143,8 @@ _T = TypeVar("_T")
 # can safely mutate. The lock is held briefly (no I/O under it).
 _keyring_state_lock = threading.Lock()
 _orphaned_thread_count: int = 0  # daemon threads still running whose caller already gave up
-_consecutive_timeouts: int = 0   # reset to 0 on any non-timeout completion
-_wedged_until: float = 0.0       # monotonic timestamp; while > now, short-circuit calls
+_consecutive_timeouts: int = 0  # reset to 0 on any non-timeout completion
+_wedged_until: float = 0.0  # monotonic timestamp; while > now, short-circuit calls
 
 
 def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
@@ -199,7 +199,7 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
         "result": None,
         "exc": None,
         "completed": False,  # set under lock in the runner's finally
-        "orphaned": False,   # set under lock by the caller on timeout
+        "orphaned": False,  # set under lock by the caller on timeout
     }
 
     def _runner() -> None:

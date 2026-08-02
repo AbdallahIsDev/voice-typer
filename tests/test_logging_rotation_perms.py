@@ -363,9 +363,7 @@ def test_do_rollover_chmod_failure_emits_warning(tmp_path, monkeypatch, caplog):
     )
     msg = chmod_warnings[0].getMessage()
     # Must NOT leak the log file path (PII: home directory).
-    assert str(log_file) not in msg, (
-        f"the fix-5: chmod-failure WARNING must not leak the log file path; got: {msg!r}"
-    )
+    assert str(log_file) not in msg, f"the fix-5: chmod-failure WARNING must not leak the log file path; got: {msg!r}"
     # Must include the exception class name so the operator can diagnose.
     # ``os.chmod`` raises ``PermissionError`` (a subclass of ``OSError``)
     # on EPERM/EACCES — either name is acceptable as long as SOME
@@ -376,6 +374,4 @@ def test_do_rollover_chmod_failure_emits_warning(tmp_path, monkeypatch, caplog):
     assert class_name_match, (
         f"the fix-5: chmod-failure WARNING must include the exception class name in parens; got: {msg!r}"
     )
-    assert class_name_match.group(1), (
-        f"the fix-5: exception class name in parens must be non-empty; got: {msg!r}"
-    )
+    assert class_name_match.group(1), f"the fix-5: exception class name in parens must be non-empty; got: {msg!r}"

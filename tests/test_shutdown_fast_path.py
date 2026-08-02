@@ -53,18 +53,14 @@ class TestSequentialHistoryAndCrashRecovery:
         s = _src()
         # Find the ``parallel_items`` list literal.
         parallel_idx = s.find("parallel_items")
-        assert parallel_idx > -1, (
-            "_do_cleanup must define a parallel_items list"
-        )
+        assert parallel_idx > -1, "_do_cleanup must define a parallel_items list"
         # Slice from the opening ``[`` to the matching ``]``.
         list_start = s.find("[", parallel_idx)
         assert list_start > -1
         list_end = s.find("]\n", list_start)
         assert list_end > -1
         parallel_block = s[list_start:list_end]
-        assert "teardown_history_db" not in parallel_block, (
-            "_teardown_history_db must NOT be in the parallel batch"
-        )
+        assert "teardown_history_db" not in parallel_block, "_teardown_history_db must NOT be in the parallel batch"
         assert "teardown_crash_recovery" not in parallel_block, (
             "_teardown_crash_recovery must NOT be in the parallel batch"
         )
@@ -77,13 +73,9 @@ class TestSequentialHistoryAndCrashRecovery:
         s = _src()
         # The sequenced_items list contains both helpers as tuples.
         seq_history = s.find('"teardown_history_db"', s.find("sequenced_items"))
-        assert seq_history > -1, (
-            "_teardown_history_db must be in the sequenced_items list"
-        )
+        assert seq_history > -1, "_teardown_history_db must be in the sequenced_items list"
         seq_crash = s.find('"teardown_crash_recovery"', s.find("sequenced_items"))
-        assert seq_crash > -1, (
-            "_teardown_crash_recovery must be in the sequenced_items list"
-        )
+        assert seq_crash > -1, "_teardown_crash_recovery must be in the sequenced_items list"
         # The sequenced_items list must come BEFORE the parallel_items
         # list in the source (the sequenced phase runs first).
         parallel_idx = s.find("parallel_items")
@@ -91,8 +83,7 @@ class TestSequentialHistoryAndCrashRecovery:
         sequenced_idx = s.find("sequenced_items")
         assert sequenced_idx > -1
         assert sequenced_idx < parallel_idx, (
-            "sequenced_items must be defined BEFORE parallel_items "
-            "(the sequenced phase runs first)"
+            "sequenced_items must be defined BEFORE parallel_items (the sequenced phase runs first)"
         )
 
 
@@ -108,14 +99,11 @@ class TestOsExitOnStuckWsDrain:
         detector) must exist in ``_do_cleanup`` and log a WARNING."""
         s = _src()
         drain_timeout_idx = s.find("if join_thread.is_alive():")
-        assert drain_timeout_idx > -1, (
-            "the ws-drain timeout branch (if join_thread.is_alive():) must exist"
-        )
+        assert drain_timeout_idx > -1, "the ws-drain timeout branch (if join_thread.is_alive():) must exist"
         # Slice a generous window for the block.
         block = s[drain_timeout_idx : drain_timeout_idx + 800]
         assert "log.warning" in block, (
-            "the drain-timeout branch must log a WARNING so operators "
-            "see the degraded-shutdown event"
+            "the drain-timeout branch must log a WARNING so operators see the degraded-shutdown event"
         )
 
     def test_do_fast_cleanup_calls_os_exit(self) -> None:
@@ -124,16 +112,12 @@ class TestOsExitOnStuckWsDrain:
         callback does not return True to the OS without exiting."""
         s = _src()
         fast_path_idx = s.find("def _do_fast_cleanup(self) -> None:")
-        assert fast_path_idx > -1, (
-            "_do_fast_cleanup method must be defined (the Windows "
-            "logoff/shutdown fast path)"
-        )
+        assert fast_path_idx > -1, "_do_fast_cleanup method must be defined (the Windows logoff/shutdown fast path)"
         # Slice to the next ``def `` (end of the method body).
         next_def = s.find("\n    def ", fast_path_idx + 1)
         body = s[fast_path_idx:next_def] if next_def > -1 else s[fast_path_idx:]
         assert "os._exit(0)" in body, (
-            "_do_fast_cleanup must call os._exit(0) at the end "
-            "so the OS force-kill is pre-empted"
+            "_do_fast_cleanup must call os._exit(0) at the end so the OS force-kill is pre-empted"
         )
 
 
@@ -147,9 +131,7 @@ class TestDoFastCleanup:
         """``_do_fast_cleanup`` must be defined as a method on
         ``ShutdownController``."""
         s = _src()
-        assert "def _do_fast_cleanup(self) -> None:" in s, (
-            "_do_fast_cleanup method must be defined"
-        )
+        assert "def _do_fast_cleanup(self) -> None:" in s, "_do_fast_cleanup method must be defined"
 
     def test_do_fast_cleanup_invokes_critical_flushes(self) -> None:
         """``_do_fast_cleanup`` must invoke the critical flushes:
@@ -171,9 +153,7 @@ class TestDoFastCleanup:
             "_mutex_handle",
             "_restore_volume",
         ]:
-            assert expected in body, (
-                f"_do_fast_cleanup must touch critical resource: {expected}"
-            )
+            assert expected in body, f"_do_fast_cleanup must touch critical resource: {expected}"
 
 
 # ── Dynamic test: verify _do_cleanup runs all helpers in normal mode ──

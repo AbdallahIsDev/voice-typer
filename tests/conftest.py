@@ -111,6 +111,7 @@ def wait_until(
     detail = msg or f"wait_until did not satisfy within {timeout}s"
     raise AssertionError(detail)
 
+
 # (test infra & config sub-agent): the ``ctypes.WINFUNCTYPE``
 # alias previously installed at module-load time has been moved into
 # the ``winfunctype_alias`` autouse fixture below. The fixture installs
