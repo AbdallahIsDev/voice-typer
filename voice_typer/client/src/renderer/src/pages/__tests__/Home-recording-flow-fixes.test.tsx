@@ -408,11 +408,14 @@ describe("Home renders an inline status hint while transcribing or loading", () 
 
 		await renderHome();
 
-		// en.json value for home.transcribingHint.
+		// en.json value for home.transcribingHint. The inline hint is an
+		// <output> element (biome useSemanticElements) — the semantic
+		// HTML5 live region — carrying the explicit aria-live="polite"
+		// that the previous <p role="status"> provided.
 		const hint = screen.getByText("Transcribing… please wait");
 		expect(hint).toBeTruthy();
-		expect(hint.tagName.toLowerCase()).toBe("p");
-		expect(hint.getAttribute("role")).toBe("status");
+		expect(hint.tagName.toLowerCase()).toBe("output");
+		expect(hint.getAttribute("aria-live")).toBe("polite");
 	});
 
 	it("renders t('home.downloadingModel') when recordingState is 'loading' and no downloadPct has arrived yet", async () => {
@@ -426,7 +429,7 @@ describe("Home renders an inline status hint while transcribing or loading", () 
 		// takes over) — verified in a separate test below.
 		const hint = screen.getByText("Downloading model…");
 		expect(hint).toBeTruthy();
-		expect(hint.getAttribute("role")).toBe("status");
+		expect(hint.getAttribute("aria-live")).toBe("polite");
 	});
 
 	it("does NOT render the inline hint when recordingState is 'idle'", async () => {

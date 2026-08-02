@@ -33,6 +33,7 @@
 import { render } from "@testing-library/react";
 import axe from "axe-core";
 import { describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 // Disable color-contrast — the test environment doesn't load the full
 // Tailwind stylesheet, so axe's computed contrast values would be
@@ -378,10 +379,21 @@ async function expectNoAxeViolations(container: HTMLElement): Promise<void> {
 	expect(violations).toEqual([]);
 }
 
+/**
+ * Page-render helper. Pages use Radix `Tooltip` (via SettingRow and
+ * other ui primitives); the real App shell wraps everything in a
+ * `TooltipProvider` (App.tsx), so tests mounting pages directly must
+ * provide one too — otherwise every Tooltip render throws
+ * "Tooltip must be used within TooltipProvider" (surfaced as an
+ * unhandled error on the CI Client test run during the axe scans).
+ */
+const renderPage = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 describe("F-17: axe-core automated WCAG scan — all pages", () => {
 	it("About page: no axe violations", async () => {
 		const AboutPage = (await import("@/pages/About")).default;
-		const { container } = render(<AboutPage />);
+		const { container } = renderPage(<AboutPage />);
 		await expectNoAxeViolations(container);
 	});
 
@@ -407,25 +419,25 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 		// or (b) raise the Vitest worker `--max-old-space-size` above
 		//2 GB in the project's vitest config. Tracked under
 		const OnboardingPage = (await import("@/pages/Onboarding")).default;
-		const { container } = render(<OnboardingPage onComplete={vi.fn()} />);
+		const { container } = renderPage(<OnboardingPage onComplete={vi.fn()} />);
 		await expectNoAxeViolations(container);
 	});
 
 	it("History page (empty): no axe violations", async () => {
 		const HistoryPage = (await import("@/pages/History")).default;
-		const { container } = render(<HistoryPage />);
+		const { container } = renderPage(<HistoryPage />);
 		await expectNoAxeViolations(container);
 	});
 
 	it("Vocabulary page (empty): no axe violations", async () => {
 		const VocabularyPage = (await import("@/pages/Vocabulary")).default;
-		const { container } = render(<VocabularyPage />);
+		const { container } = renderPage(<VocabularyPage />);
 		await expectNoAxeViolations(container);
 	});
 
 	it("Templates page (empty): no axe violations", async () => {
 		const TemplatesPage = (await import("@/pages/Templates")).default;
-		const { container } = render(<TemplatesPage />);
+		const { container } = renderPage(<TemplatesPage />);
 		await expectNoAxeViolations(container);
 	});
 
@@ -433,13 +445,13 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 
 	it("Home page (idle): no axe violations", async () => {
 		const HomePage = (await import("@/pages/Home")).default;
-		const { container } = render(<HomePage />);
+		const { container } = renderPage(<HomePage />);
 		await expectNoAxeViolations(container);
 	});
 
 	it("Settings page (stub config): no axe violations", async () => {
 		const SettingsPage = (await import("@/pages/Settings")).default;
-		const { container } = render(<SettingsPage />);
+		const { container } = renderPage(<SettingsPage />);
 		await expectNoAxeViolations(container);
 	});
 
@@ -451,13 +463,13 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 		// Flipped back from `it.fails` to `it` so this acts as a
 		// regression spec.
 		const ModelsPage = (await import("@/pages/Models")).default;
-		const { container } = render(<ModelsPage />);
+		const { container } = renderPage(<ModelsPage />);
 		await expectNoAxeViolations(container);
 	});
 
 	it("Microphone page (no devices): no axe violations", async () => {
 		const MicrophonePage = (await import("@/pages/Microphone")).default;
-		const { container } = render(<MicrophonePage />);
+		const { container } = renderPage(<MicrophonePage />);
 		await expectNoAxeViolations(container);
 	});
 
@@ -468,7 +480,7 @@ describe("F-17: axe-core automated WCAG scan — all pages", () => {
 		// fix (add a valid role or drop aria-label) has landed, so the
 		// test now passes. Flip back from `it.fails` to `it`.
 		const DashboardPage = (await import("@/pages/Dashboard")).default;
-		const { container } = render(<DashboardPage />);
+		const { container } = renderPage(<DashboardPage />);
 		await expectNoAxeViolations(container);
 	});
 });

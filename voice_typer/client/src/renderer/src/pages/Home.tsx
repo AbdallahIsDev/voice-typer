@@ -571,17 +571,16 @@ export default function Home() {
 			/>
 
 			{inlineStatus && (
-				<p
-					// role="status" so screen readers treat this as a
-					// live region (announced on change) without forcing
-					// the duplicate `aria-live` that would compete with
-					// App.tsx's sr-only live region.
-					role="status"
+				// The <output> element maps to the implicit `status` role,
+				// so screen readers treat this as a live region (announced
+				// on change) without forcing a duplicate `aria-live` that
+				// would compete with App.tsx's sr-only live region.
+				<output
 					aria-live="polite"
-					className="text-[13px] text-(--text-muted) animate-fade-in"
+					className="block text-[13px] text-(--text-muted) animate-fade-in"
 				>
 					{inlineStatus}
-				</p>
+				</output>
 			)}
 
 			<p className="flex items-center gap-2 text-[13px] text-(--text-muted)">

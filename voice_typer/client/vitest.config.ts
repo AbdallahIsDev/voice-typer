@@ -37,18 +37,16 @@ export default defineConfig({
 		// Main-process tests that use `// @vitest-environment node` are
 		// also thread-safe (fs operations are synchronous).
 		pool: "threads",
-		// PERF-007: disable per-file process isolation to share worker
-		// threads across test files within the same pool. Each worker
-		// thread runs multiple files sequentially but reuses the same
-		// V8 isolate, avoiding the ~200ms fork overhead per file.
-		// NOTE: `isolate: false` was tested alongside `pool: "threads"`
-		// and caused 9 additional test failures (see C-TEST-1 in
-		// CONSTRAINTS.md). Those failures are from the other agent's
-		// concurrent test file modifications, NOT from `isolate: false`
-		// itself — the same 9 files fail with `isolate: true` when
-		// those test files are also modified. Keeping isolation ON for
-		// correctness; pool:threads alone provides the speedup.
-		isolate: false,
+		// PERF-007: pool: "threads" provides the speedup; keep per-file
+		// V8 isolation ON (vitest default) so the module registry, the
+		// jsdom window globals, and vi mock state never leak across
+		// test files that share a reused worker thread. `isolate: false`
+		// caused nondeterministic cross-file pollution on CI (sound-
+		// manager localStorage spies silently not recording + spurious
+		// "Tooltip must be used within TooltipProvider" unhandled
+		// errors) because module-scope `Object.defineProperty(window,
+		// "localStorage", ...)` in other test files leaked into them.
+		isolate: true,
 		environment: "jsdom",
 		setupFiles: ["./src/renderer/src/test-setup.ts"],
 		// Generous timeouts: many tests wait on async IPC round-trips
