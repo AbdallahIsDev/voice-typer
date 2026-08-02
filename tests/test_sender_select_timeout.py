@@ -62,8 +62,11 @@ def _make_buffered_mock_client() -> MagicMock:
     tcp_client.conn = MagicMock()
     write_buffer: list[bytes] = []
 
-    def mock_write(text: str) -> None:
-        write_buffer.append(text.encode("utf-8"))
+    def mock_write(text: str | bytes) -> None:
+        # The real ``_TCPLineIO.write`` accepts BOTH ``str`` and
+        # pre-encoded ``bytes`` (the sender's ``line_bytes`` fast path
+        # passes bytes and skips the re-encode). Mirror that contract.
+        write_buffer.append(text.encode("utf-8") if isinstance(text, str) else text)
 
     def mock_flush() -> None:
         if write_buffer:

@@ -1,11 +1,11 @@
-"""CR-2 regression tests: TCP-teardown deadlock in ``IPCServer._send``.
+"""regression tests: TCP-teardown deadlock in ``IPCServer._send``.
 
 The bug
 -------
 ``IPCServer._send`` (in ``voice_typer/server/ipc_server.py``) set a
 write timeout on the TCP socket before sending, then restored the
 timeout to ``None`` (blocking) in the ``finally`` block.  ``None``
-clobbers the auth-read deadline set on the connection (PR-3-FIX-1),
+clobbers the auth-read deadline set on the connection (the fix),
 so the dispatch-loop ``readline`` could block forever — meaning the
 reader thread could never exit and ``_TCPLineIO.close()`` would
 deadlock against the in-progress ``recv``.
@@ -40,37 +40,37 @@ from voice_typer.server.ipc_server import IPCServer, _TCPLineIO
 
 
 class TestSendRestoresPrevTimeout:
-    """CR-2: ``_send`` must restore the PREVIOUS timeout (not ``None``)."""
+    """``_send`` must restore the PREVIOUS timeout (not ``None``)."""
 
-    def test_send_source_captures_prev_timeout(self):
-        """The source of ``_send`` must capture ``_prev_timeout`` before
-        setting the write timeout, and restore it (not ``None``) in the
-        ``finally`` block.
+    def test_send_does_not_mutate_socket_timeout(self):
+        """The select-based write-readiness gate (``_await_socket_writable``)
+        replaces the previous ``gettimeout`` / ``settimeout`` / restore
+        dance. The socket's timeout attribute is NEVER mutated by
+        ``_send``, so there's no ``_prev_timeout`` to capture and no
+        ``finally:`` block to restore it. This preserves the auth-read
+        deadline set on the connection — the original deadlock root cause
+        was ``settimeout(None)`` clobbering that deadline.
         """
         src = inspect.getsource(IPCServer._send)
-        # The capture must happen before the settimeout call.
-        assert "_prev_timeout" in src, (
-            "_send must capture _prev_timeout before setting the write timeout (CR-2 deadlock fix)."
+        # The new approach uses _await_socket_writable (select.select).
+        assert "_await_socket_writable" in src, (
+            "_send must use _await_socket_writable to gate writes on "
+            "socket write-readiness (select-based timeout)."
         )
-        assert "gettimeout()" in src, (
-            "_send must call tcp_client.conn.gettimeout() to capture the previous timeout before overwriting it."
+        # The old dance variables and calls must be gone.
+        assert "_prev_timeout" not in src, (
+            "_send must NOT capture _prev_timeout — the select-based "
+            "approach doesn't mutate the socket timeout, so there's "
+            "nothing to capture or restore."
         )
-        # The finally block must restore _prev_timeout, NOT None.
-        # Find the finally block.
-        finally_idx = src.rfind("finally:")
-        assert finally_idx != -1, "_send must have a finally block."
-        finally_block = src[finally_idx:]
-        assert "settimeout(_prev_timeout)" in finally_block, (
-            "_send finally block must restore _prev_timeout (NOT None) so "
-            "the auth-read deadline survives the write. Restoring None was "
-            "the root cause of the CR-2 deadlock."
+        assert "gettimeout()" not in src, (
+            "_send must NOT call gettimeout() — the select-based approach "
+            "doesn't need to read the previous timeout."
         )
-        # The previous bug restored None — assert that's gone from the
-        # finally block (it may still appear elsewhere in _send, e.g. in
-        # a comment, so we only check the finally block).
-        assert "settimeout(None)" not in finally_block, (
-            "_send finally block must NOT call settimeout(None) — that was "
-            "the CR-2 deadlock root cause (clobbers the auth-read deadline)."
+        # No finally block needed (nothing to restore).
+        assert "finally:" not in src, (
+            "_send must NOT have a finally block — without the settimeout "
+            "dance there's no timeout state to restore."
         )
 
     def test_send_restores_prev_timeout_behaviorally(self):
@@ -122,7 +122,7 @@ class TestSendRestoresPrevTimeout:
             assert srv.gettimeout() == AUTH_DEADLINE, (
                 f"_send must restore the PREVIOUS timeout ({AUTH_DEADLINE}s), "
                 f"not None (blocking). Got {srv.gettimeout()!r} — this is the "
-                "CR-2 deadlock root cause if it's None."
+                "deadlock root cause if it's None."
             )
         finally:
             srv.close()
@@ -176,7 +176,7 @@ class TestSendRestoresPrevTimeout:
 
 
 class TestTCPLineIOCloseUsesShutdown:
-    """CR-2: ``_TCPLineIO.close`` must ``shutdown(SHUT_RDWR)`` before
+    """``_TCPLineIO.close`` must ``shutdown(SHUT_RDWR)`` before
     ``close()`` so an in-progress ``recv`` on another thread is
     interrupted and ``BufferedReader.close()`` doesn't deadlock.
     """
@@ -187,7 +187,7 @@ class TestTCPLineIOCloseUsesShutdown:
         """
         src = inspect.getsource(_TCPLineIO.close)
         assert "shutdown" in src, (
-            "_TCPLineIO.close must call self.conn.shutdown() to interrupt in-progress reads (CR-2 deadlock fix)."
+            "_TCPLineIO.close must call self.conn.shutdown() to interrupt in-progress reads (deadlock fix)."
         )
         assert "SHUT_RDWR" in src, (
             "_TCPLineIO.close must use socket.SHUT_RDWR (full duplex "
@@ -239,7 +239,7 @@ class TestTCPLineIOCloseUsesShutdown:
             # in-progress readline and this assert fails.
             assert close_done.wait(timeout=2.0), (
                 "_TCPLineIO.close() deadlocked against a concurrent "
-                "readline() — CR-2 fix (shutdown before close) is missing "
+                "readline() — the fix (shutdown before close) is missing "
                 "or broken."
             )
             # The reader thread should also have exited (readline returned

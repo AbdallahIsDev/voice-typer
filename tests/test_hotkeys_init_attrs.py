@@ -1,6 +1,6 @@
 """Verify hotkey backends initialize their instance attributes in ``__init__``.
 
-SI-fix-10 (SI-9-C, SI-9-D, SI-9-E, SI-9-F, SI-21):
+This test pins several attribute-initialization invariants:
 - ``PynputHotkey.__init__`` must set ``self._fallback: bool = False`` so
   ``diagnose()`` and other accessors don't raise ``AttributeError`` before
   ``_start_fallback()`` has run.
@@ -15,9 +15,9 @@ SI-fix-10 (SI-9-C, SI-9-D, SI-9-E, SI-9-F, SI-21):
   ``timeout=1.0`` (covered here indirectly by ensuring ``_thread`` is
   present after ``__init__`` so the ``if self._thread is not None`` guard
   in ``stop()`` is reachable).
-- ``windows_native.py`` must contain exactly ONE ``AB-35`` /
-  ``_prefer_message_loop_first: bool = False`` block (the byte-for-byte
-  duplicate was deleted).
+- ``windows_native.py`` must contain exactly ONE
+  ``_prefer_message_loop_first: bool = False`` assignment (the
+  byte-for-byte duplicate was deleted).
 - ``base.py`` ``set_tray`` docstring references ``_NativeBackendAdapter``
   (not ``WindowsNativeHotkey`` which doesn't override ``set_tray``).
 
@@ -80,16 +80,14 @@ class TestWindowsNativeHotkeyInitAttrs:
         assert hasattr(backend, "_prefer_message_loop_first")
         assert backend._prefer_message_loop_first is False
 
-    def test_ab_35_block_not_duplicated(self) -> None:
-        """SI-21: the byte-for-byte duplicate AB-35 comment + attribute
-        assignment was deleted. Exactly one ``_prefer_message_loop_first:
-        bool = False`` assignment must remain in the source."""
+    def test_prefer_message_loop_first_assignment_not_duplicated(self) -> None:
+        """The byte-for-byte duplicate ``_prefer_message_loop_first: bool =
+        False`` assignment was deleted. Exactly one assignment must remain in
+        the source."""
         import voice_typer.server.hotkeys.windows_native as wn_module
 
         source = inspect_getsource(wn_module)
         assert source.count("_prefer_message_loop_first: bool = False") == 1
-        # comment should appear exactly once now (was twice).
-        assert source.count("# AB-35: when True,") == 1
 
 
 # --------------------------------------------------------------------------- #
@@ -158,4 +156,4 @@ def _ensure_xdg_runtime_dir(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # Skip on non-Linux platforms — the orchestrator's acceptance criteria
 # explicitly require this suite to pass on LINUX.
-pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="SI-fix-10 acceptance: LINUX-only")
+pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="acceptance: LINUX-only")

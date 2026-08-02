@@ -1,7 +1,7 @@
-"""UE-2 regression: ``_teardown_sounddevice`` checks ``wait()``
+"""regression: ``_teardown_sounddevice`` checks ``wait()``
 return value + force-aborts streams on timeout.
 
-The bug (UE-2 / DE-54 follow-up)
+The bug (follow-up)
 --------------------------------
 ``shutdown_controller._teardown_sounddevice`` calls ``sd.stop()`` to
 signal active PortAudio streams to stop, then wraps it via
@@ -21,7 +21,7 @@ signal active PortAudio streams to stop, then wraps it via
      Without a bounded ``wait()`` + force-abort fallback, the cleanup
      thread blocks indefinitely on the deadlock.
 
-The fix (UE-2)
+The fix (the fix)
 --------------
 ``_teardown_sounddevice`` now does BOTH:
 
@@ -35,7 +35,7 @@ The fix (UE-2)
      ``_abort_sounddevice_streams`` helper.
 
 The ``_run_with_timeout`` return value is checked explicitly against
-the ``TIMEOUT`` sentinel — this is the UE-2 contract: "wait() return
+the ``TIMEOUT`` sentinel — this is the contract: "wait() return
 value is checked". ``Stream.abort()`` is documented as "terminate
 the stream immediately" — it bypasses the orderly stop handshake and
 invokes ``Pa_AbortStream`` under the hood, releasing the PortAudio
@@ -60,6 +60,21 @@ sounddevice = pytest.importorskip("sounddevice")
 from voice_typer.server._timeout_utils import TIMEOUT  # noqa: E402
 from voice_typer.server.shutdown_controller import ShutdownController  # noqa: E402
 
+# The ``_teardown_sounddevice`` body was extracted to
+# ``voice_typer/server/shutdown/teardowns/sounddevice.py`` (Phase 4.5
+# god-module decomposition). The source-inspection tests below read the
+# body from the extracted module; the dynamic / behavioural tests still
+# drive the delegate on ``ShutdownController`` (which forwards to the
+# extracted function).
+_TEARDOWNS_SOUNDDEVICE_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "voice_typer",
+    "server",
+    "shutdown",
+    "teardowns",
+    "sounddevice.py",
+)
 _SHUTDOWN_CONTROLLER_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
@@ -70,8 +85,29 @@ _SHUTDOWN_CONTROLLER_PATH = os.path.join(
 
 
 def _src() -> str:
-    with open(_SHUTDOWN_CONTROLLER_PATH, encoding="utf-8") as f:
+    """Read the source of the extracted teardown_sounddevice body.
+
+    Returns the contents of ``shutdown/teardowns/sounddevice.py`` (where
+    the body lives post Phase-4.5 extraction). The
+    ``_teardown_sounddevice`` method on ``ShutdownController`` is now a
+    thin delegate that forwards to ``teardown_sounddevice(controller)``
+    defined in that module.
+    """
+    with open(_TEARDOWNS_SOUNDDEVICE_PATH, encoding="utf-8") as f:
         return f.read()
+
+
+def _teardown_sounddevice_body() -> str:
+    """Return the source slice of the ``teardown_sounddevice`` function
+    (the body that used to live inline on ``_teardown_sounddevice``)."""
+    src = _src()
+    idx = src.find("def teardown_sounddevice(controller) -> None:")
+    assert idx > -1, "teardown_sounddevice function must exist in the extracted module"
+    next_def = src.find("\ndef ", idx + 1)
+    if next_def == -1:
+        # Last function in the module — slice to end.
+        return src[idx:]
+    return src[idx:next_def]
 
 
 def _make_controller() -> ShutdownController:
@@ -96,44 +132,36 @@ def _make_controller() -> ShutdownController:
 
 
 class TestSounddeviceWaitSource:
-    """UE-2: source-level contract for ``_teardown_sounddevice``."""
+    """source-level contract for ``_teardown_sounddevice``."""
 
     def test_teardown_sounddevice_calls_sd_wait(self):
         """``_teardown_sounddevice`` MUST call ``sd.wait`` (the bounded
-        drain) — not just ``sd.stop``. Pre-UE-2 only ``sd.stop`` was
+        drain) — not just ``sd.stop``. Previously only ``sd.stop`` was
         called; the streams could still be mid-drain when the next
         teardown step proceeded."""
-        src = _src()
-        idx = src.find("def _teardown_sounddevice(self) -> None:")
-        assert idx > -1, "UE-2: _teardown_sounddevice method must exist"
-        next_def = src.find("\n    def ", idx + 1)
-        assert next_def > -1
-        body = src[idx:next_def]
+        body = _teardown_sounddevice_body()
         assert "sd.wait" in body, (
-            "UE-2: _teardown_sounddevice must call sd.wait() (the bounded "
-            "drain that blocks until streams close) — pre-UE-2 only "
+            "_teardown_sounddevice must call sd.wait() (the bounded "
+            "drain that blocks until streams close) — previously only "
             "sd.stop() was called, leaving streams mid-drain"
         )
 
     def test_teardown_sounddevice_checks_wait_return_value(self):
         """The ``sd.wait()`` call MUST be wrapped in
         ``_run_with_timeout`` and the return value MUST be checked
-        against ``TIMEOUT``. This is the UE-2 contract: 'wait()
+        against ``TIMEOUT``. This is the contract: 'wait()
         return value is checked'."""
-        src = _src()
-        idx = src.find("def _teardown_sounddevice(self) -> None:")
-        next_def = src.find("\n    def ", idx + 1)
-        body = src[idx:next_def]
+        body = _teardown_sounddevice_body()
         # The wait call is wrapped in _run_with_timeout.
-        assert "_run_with_timeout" in body and "sd.wait" in body, "UE-2: sd.wait() must be wrapped in _run_with_timeout"
+        assert "_run_with_timeout" in body and "sd.wait" in body, "sd.wait() must be wrapped in _run_with_timeout"
         # The return value is captured into a variable.
         assert "_wait_result" in body, (
-            "UE-2: the sd.wait() return value must be captured into a "
+            "the sd.wait() return value must be captured into a "
             "local variable so it can be checked against TIMEOUT"
         )
         # The return value is checked against TIMEOUT.
         assert "_wait_result is TIMEOUT" in body, (
-            "UE-2: the sd.wait() return value MUST be checked against "
+            "the sd.wait() return value MUST be checked against "
             "TIMEOUT — this is the explicit 'wait() return value is "
             "checked' contract"
         )
@@ -144,38 +172,37 @@ class TestSounddeviceWaitSource:
         ``_abort_sounddevice_streams(sd)`` to force-abort every active
         stream — breaking the PortAudio deadlock that wait() timed out
         on."""
-        src = _src()
-        idx = src.find("def _teardown_sounddevice(self) -> None:")
-        next_def = src.find("\n    def ", idx + 1)
-        body = src[idx:next_def]
-        assert "_abort_sounddevice_streams" in body, (
-            "UE-2: _teardown_sounddevice must call _abort_sounddevice_streams "
+        body = _teardown_sounddevice_body()
+        assert "abort_sounddevice_streams" in body, (
+            "_teardown_sounddevice must call abort_sounddevice_streams "
             "when sd.wait() or sd.stop() times out — force-abort breaks the "
             "PortAudio deadlock"
         )
 
     def test_abort_sounddevice_streams_method_exists(self):
-        """``_abort_sounddevice_streams`` must be defined as a method
-        on ``ShutdownController``."""
+        """``abort_sounddevice_streams`` must be defined as a function
+        in the extracted teardowns module (post Phase-4.5 the body
+        lives there; ``ShutdownController._abort_sounddevice_streams``
+        is a thin delegate)."""
         src = _src()
-        assert "def _abort_sounddevice_streams(self, sd_module) -> None:" in src, (
-            "UE-2: _abort_sounddevice_streams(sd_module) method must be defined"
+        assert "def abort_sounddevice_streams(controller, sd_module) -> None:" in src, (
+            "abort_sounddevice_streams(controller, sd_module) function must be defined"
         )
 
     def test_abort_sounddevice_streams_calls_stream_abort(self):
-        """``_abort_sounddevice_streams`` must iterate ``sd._streams``
+        """``abort_sounddevice_streams`` must iterate ``sd._streams``
         (the module-level registry of active streams) and call
         ``stream.abort()`` on each."""
         src = _src()
-        idx = src.find("def _abort_sounddevice_streams(self, sd_module) -> None:")
+        idx = src.find("def abort_sounddevice_streams(controller, sd_module) -> None:")
         assert idx > -1
-        next_def = src.find("\n    def ", idx + 1)
-        body = src[idx:next_def]
+        next_def = src.find("\ndef ", idx + 1)
+        body = src[idx:] if next_def == -1 else src[idx:next_def]
         assert "_streams" in body, (
-            "UE-2: _abort_sounddevice_streams must iterate the sd._streams registry of active streams"
+            "abort_sounddevice_streams must iterate the sd._streams registry of active streams"
         )
         assert ".abort()" in body, (
-            "UE-2: _abort_sounddevice_streams must call stream.abort() "
+            "abort_sounddevice_streams must call stream.abort() "
             "on each active stream — 'terminate the stream immediately' "
             "(Pa_AbortStream under the hood)"
         )
@@ -184,10 +211,7 @@ class TestSounddeviceWaitSource:
         """When ``sd.wait()`` times out, the log MUST be at ERROR
         level (not DEBUG/WARNING) — PortAudio deadlock is a serious
         condition that operators need to see."""
-        src = _src()
-        idx = src.find("def _teardown_sounddevice(self) -> None:")
-        next_def = src.find("\n    def ", idx + 1)
-        body = src[idx:next_def]
+        body = _teardown_sounddevice_body()
         # Find the wait-timeout block (the ``if _wait_result is TIMEOUT:``
         # branch) and check it logs at ERROR.
         wait_timeout_idx = body.find("if _wait_result is TIMEOUT:")
@@ -195,7 +219,7 @@ class TestSounddeviceWaitSource:
         # Slice a generous window for the block.
         block = body[wait_timeout_idx : wait_timeout_idx + 800]
         assert "log.error" in block, (
-            "UE-2: the sd.wait() timeout branch must log at ERROR level (PortAudio deadlock is a serious condition)"
+            "the sd.wait() timeout branch must log at ERROR level (PortAudio deadlock is a serious condition)"
         )
 
 
@@ -203,7 +227,7 @@ class TestSounddeviceWaitSource:
 
 
 class TestSounddeviceWaitBehavior:
-    """UE-2: behavioral verification that ``_teardown_sounddevice``
+    """behavioral verification that ``_teardown_sounddevice``
     checks the ``wait()`` return value and force-aborts on timeout."""
 
     def test_sd_stop_and_wait_called_when_recorder_not_force_closed(self, monkeypatch):
@@ -232,12 +256,12 @@ class TestSounddeviceWaitBehavior:
         controller._teardown_sounddevice()
 
         assert stop_calls == [1], (
-            "UE-2: _teardown_sounddevice must call sd.stop() when recorder teardown did not time out"
+            "_teardown_sounddevice must call sd.stop() when recorder teardown did not time out"
         )
-        assert wait_calls == [1], "UE-2: _teardown_sounddevice must call sd.wait() (the bounded drain) after sd.stop()"
+        assert wait_calls == [1], "_teardown_sounddevice must call sd.wait() (the bounded drain) after sd.stop()"
 
     def test_sd_skipped_when_recorder_force_closed(self, monkeypatch):
-        """DE-54 (preserved): when ``_recorder_force_closed`` is True
+        """(preserved): when ``_recorder_force_closed`` is True
         (recorder.stop() / discard() timed out), ``_teardown_sounddevice``
         must SKIP ``sd.stop()`` / ``sd.wait()`` entirely — the leaked
         recorder worker thread is still accessing the PortAudio stream,
@@ -253,7 +277,7 @@ class TestSounddeviceWaitBehavior:
         fake_sd.wait.assert_not_called()
 
     def test_abort_called_when_sd_wait_times_out(self, monkeypatch):
-        """UE-2: when ``sd.wait()`` does not return within the bounded
+        """when ``sd.wait()`` does not return within the bounded
         timeout (simulated by making wait() block forever),
         ``_teardown_sounddevice`` MUST call
         ``_abort_sounddevice_streams(sd)`` which iterates
@@ -281,21 +305,21 @@ class TestSounddeviceWaitBehavior:
 
         # The wait must have timed out (~2s) and aborted both streams.
         assert elapsed < 5.0, (
-            f"UE-2: _teardown_sounddevice must not block >5s when "
+            f"_teardown_sounddevice must not block >5s when "
             f"sd.wait() hangs (the bounded _run_with_timeout must "
             f"fire); took {elapsed:.2f}s"
         )
         (
             stream_a.abort.assert_called_once(),
-            ("UE-2: _abort_sounddevice_streams must call .abort() on stream A when sd.wait() times out"),
+            ("_abort_sounddevice_streams must call .abort() on stream A when sd.wait() times out"),
         )
         (
             stream_b.abort.assert_called_once(),
-            ("UE-2: _abort_sounddevice_streams must call .abort() on stream B when sd.wait() times out"),
+            ("_abort_sounddevice_streams must call .abort() on stream B when sd.wait() times out"),
         )
 
     def test_abort_called_when_sd_stop_times_out(self, monkeypatch):
-        """UE-2: when ``sd.stop()`` itself times out (rare — the
+        """when ``sd.stop()`` itself times out (rare — the
         signal non-blocking call hangs because PortAudio is wedged),
         ``_teardown_sounddevice`` MUST abort streams and return early
         (skip the wait)."""
@@ -316,19 +340,19 @@ class TestSounddeviceWaitBehavior:
         elapsed = time.monotonic() - start
 
         assert elapsed < 6.0, (
-            f"UE-2: _teardown_sounddevice must not block >6s when "
+            f"_teardown_sounddevice must not block >6s when "
             f"sd.stop() hangs (3s timeout + abort); took {elapsed:.2f}s"
         )
         (
             stream_a.abort.assert_called_once(),
-            ("UE-2: _abort_sounddevice_streams must be called when sd.stop() times out"),
+            ("_abort_sounddevice_streams must be called when sd.stop() times out"),
         )
         # sd.wait MUST NOT be called when sd.stop already timed out
         # (we returned early).
         fake_sd.wait.assert_not_called()
 
     def test_no_abort_when_drain_succeeds(self, monkeypatch):
-        """UE-2: when both ``sd.stop()`` and ``sd.wait()`` return
+        """when both ``sd.stop()`` and ``sd.wait()`` return
         successfully (within their timeouts), ``stream.abort()`` MUST
         NOT be called — the orderly drain worked, no force-abort
         needed."""
@@ -347,7 +371,7 @@ class TestSounddeviceWaitBehavior:
         stream_b.abort.assert_not_called()
 
     def test_abort_swallows_per_stream_exceptions(self, monkeypatch):
-        """UE-2: ``_abort_sounddevice_streams`` is best-effort — if
+        """``_abort_sounddevice_streams`` is best-effort — if
         one ``stream.abort()`` raises, the others MUST still be
         aborted (one bad stream must not prevent the rest from
         releasing their PortAudio resources)."""
@@ -374,13 +398,13 @@ class TestSounddeviceWaitBehavior:
         (
             stream_b.abort.assert_called_once(),
             (
-                "UE-2: _abort_sounddevice_streams must continue to stream B "
+                "_abort_sounddevice_streams must continue to stream B "
                 "even if stream A's abort() raised (best-effort cleanup)"
             ),
         )
 
     def test_teardown_never_raises(self, monkeypatch):
-        """UE-2: ``_teardown_sounddevice`` must NEVER propagate
+        """``_teardown_sounddevice`` must NEVER propagate
         exceptions — every step is guarded by try/except so a failure
         in the sounddevice teardown does not prevent the rest of
         ``_do_cleanup`` from running."""
@@ -403,7 +427,7 @@ class TestSounddeviceWaitBehavior:
 
 
 class TestTimeoutSentinelIntegration:
-    """UE-2: ``_run_with_timeout`` returns the ``TIMEOUT`` sentinel
+    """``_run_with_timeout`` returns the ``TIMEOUT`` sentinel
     when the worker doesn't finish in time. ``_teardown_sounddevice``
     must check against this sentinel (NOT against ``None`` or falsy)."""
 
@@ -417,12 +441,9 @@ class TestTimeoutSentinelIntegration:
         """The source MUST use ``is TIMEOUT`` (identity check) — not
         ``== TIMEOUT`` or truthiness — because TIMEOUT is a singleton
         sentinel."""
-        src = _src()
-        idx = src.find("def _teardown_sounddevice(self) -> None:")
-        next_def = src.find("\n    def ", idx + 1)
-        body = src[idx:next_def]
+        body = _teardown_sounddevice_body()
         assert "is TIMEOUT" in body, (
-            "UE-2: the TIMEOUT check must use `is TIMEOUT` (identity check on the singleton sentinel)"
+            "the TIMEOUT check must use `is TIMEOUT` (identity check on the singleton sentinel)"
         )
 
 

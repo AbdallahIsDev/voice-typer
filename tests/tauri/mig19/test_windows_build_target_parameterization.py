@@ -1,46 +1,55 @@
-"""S2-CR-66 — Windows Tauri workflow target-triple parameterization.
+"""Windows Tauri workflow target-triple parameterization (matrix-based).
 
 This test file validates that ``.github/workflows/tauri-windows-build.yml``
 no longer hardcodes ``x86_64-pc-windows-msvc`` for the Rust target triple,
 python-build-standalone triple, and ``cargo tauri build --target`` flag.
-The workflow now accepts a ``target`` workflow_dispatch + workflow_call
-input (default ``x86_64-pc-windows-msvc``) and derives ``RUST_TARGET``,
-``PYBS_TRIPLE``, and ``RUST_ARCH`` env vars from it, so a maintainer can
-dispatch the workflow with ``target=aarch64-pc-windows-msvc`` to produce
-Windows-on-ARM binaries (Surface Pro X, Copilot+ PCs, Snapdragon X laptops).
+The workflow uses a job-level matrix that spans both x86_64 (enabled) and
+aarch64 (gated off pending a Windows-on-ARM runner) legs; each leg derives
+``RUST_TARGET`` / ``PYBS_TRIPLE`` from ``matrix.target`` and selects an
+arch-specific Tauri config file via ``matrix.tauri_config``. The Nuitka
+build steps emit ``python-sidecar-${{ matrix.target }}.exe`` and
+``prewarm-${{ matrix.target }}.exe``, and ``cargo tauri build`` consumes
+``--target ${{ matrix.target }} --config ${{ matrix.tauri_config }}``.
 
 The Linux sandbox CANNOT run a real GitHub Actions workflow, so these
 tests validate the YAML **structure** of the parameterization:
 
-  1. ``workflow_dispatch.inputs.target`` exists with the correct default.
-  2. ``workflow_call.inputs.target`` continues to exist (was already
-     present pre-fix; the bug was that it was unused).
-  3. The top-level ``env:`` block sources ``RUST_TARGET`` and
-     ``PYBS_TRIPLE`` from ``inputs.target`` (with a default fallback to
-     ``x86_64-pc-windows-msvc``).
-  4. The ``cargo tauri build`` step uses ``$env:RUST_TARGET`` (dynamic)
-     instead of a hardcoded ``x86_64-pc-windows-msvc`` literal.
+  1. The matrix includes BOTH an x86_64 leg (enabled) and an aarch64
+     leg (gated off — ``enabled: false``) so a Windows-on-ARM build path
+     exists once a runner is available.
+  2. Each matrix leg sets ``target`` to the corresponding Rust target
+     triple (``x86_64-pc-windows-msvc`` / ``aarch64-pc-windows-msvc``)
+     and ``tauri_config`` to the matching arch-specific config filename.
+  3. The job-level ``env:`` block sources ``RUST_TARGET`` and
+     ``PYBS_TRIPLE`` from ``matrix.target`` (NOT a hardcoded literal).
+  4. The ``cargo tauri build`` step uses ``${{ matrix.target }}`` (dynamic)
+     instead of a hardcoded ``x86_64-pc-windows-msvc`` literal, and
+     ``--config ${{ matrix.tauri_config }}`` so each leg picks its own
+     arch-specific Tauri config.
   5. The default value ``x86_64-pc-windows-msvc`` still appears in the
-     workflow text (as the default fallback) so existing tests that
-     assert ``"x86_64-pc-windows-msvc" in workflow_text`` keep passing.
+     workflow text (as the x86_64 leg's matrix.target) so existing tests
+     that assert ``"x86_64-pc-windows-msvc" in workflow_text`` keep passing.
   6. The literal ``python-sidecar-x86_64-pc-windows-msvc.exe`` and
-     ``prewarm-x86_64-pc-windows-msvc.exe`` strings are preserved
-     (in a documentation comment listing the default filenames) so the
-     mig18 signing tests that grep for these literals keep passing.
+     ``prewarm-x86_64-pc-windows-msvc.exe`` strings are preserved in a
+     documentation comment listing the default filenames, so the mig18
+     signing tests that grep for these literals keep passing on a
+     Windows host (they skip on Linux).
 
 VALIDATE ON WINDOWS HOST:
     1. Dispatch the workflow with default inputs → assert
        ``python-sidecar-x86_64-pc-windows-msvc.exe`` is produced.
-    2. Dispatch with ``target=aarch64-pc-windows-msvc`` on a
-       windows-11-arm runner → assert
-       ``python-sidecar-aarch64-pc-windows-msvc.exe`` is produced.
-    Expected: both dispatches produce a signed installer matching the
+    2. Once a ``windows-11-arm`` runner is available, flip the aarch64
+       matrix leg's ``enabled: false`` → ``enabled: true``, create
+       ``src-tauri/tauri.windows-aarch64.conf.json``, and dispatch →
+       assert ``python-sidecar-aarch64-pc-windows-msvc.exe`` is produced.
+    Expected: both legs produce a signed installer matching the
     requested target triple.
 
 References:
-  - review.md entry #17 (S2-CR-66) — Windows Tauri workflow hardcodes
-    x86_64 (no Windows-on-ARM build).
-  - .github/workflows/tauri-windows-build.yml — the parameterized workflow.
+  - review.md entry #17 — Windows Tauri workflow hardcodes x86_64 (no
+    Windows-on-ARM build).
+  - .github/workflows/tauri-windows-build.yml — the matrix-parameterized
+    workflow (see the GATE STATUS block at the top of the file).
 """
 
 from __future__ import annotations
@@ -65,98 +74,96 @@ def workflow_text() -> str:
     return WORKFLOW_FILE.read_text(encoding="utf-8")
 
 
-# ─── 1. workflow_dispatch surface ────────────────────────────────────────────
-def test_workflow_dispatch_has_target_input(workflow_text: str):
-    """The ``workflow_dispatch`` block must accept a ``target`` input.
+# ─── 1. Matrix spans x86_64 (enabled) + aarch64 (gated off) ──────────────────
+def test_matrix_includes_x86_64_leg_enabled(workflow_text: str):
+    """The matrix must include an x86_64 leg with ``enabled: true``.
 
-    Without this input, a maintainer dispatching the workflow from the
-    Actions UI cannot select a target triple — they are forced into
-    x86_64. The input is the user-facing surface for S2-CR-66.
+    The x86_64 leg is the primary release target — it runs on the
+    ``windows-2022`` GitHub-hosted runner and produces the installers
+    that ship to x86_64 Windows users. Without this leg, no Windows
+    build is produced at all.
     """
-    # Locate the workflow_dispatch: block and assert `target:` is under it.
-    # We match the indentation: workflow_dispatch inputs are at 6 spaces.
-    m = re.search(
-        r"^  workflow_dispatch:\s*\n(?P<block>(?:    .*\n)+)",
+    # Locate the matrix.include block. The x86_64 leg has:
+    #   - arch: x86_64
+    #   - target: x86_64-pc-windows-msvc
+    #   - runner: windows-2022
+    #   - tauri_config: tauri.windows-x86_64.conf.json
+    #   - enabled: true
+    assert re.search(
+        r"- arch:\s*x86_64\s*\n"
+        r"\s*target:\s*x86_64-pc-windows-msvc\s*\n"
+        r"\s*runner:\s*windows-2022\s*\n"
+        r"\s*tauri_config:\s*tauri\.windows-x86_64\.conf\.json\s*\n"
+        r"\s*enabled:\s*true",
         workflow_text,
         re.MULTILINE,
-    )
-    assert m, "workflow_dispatch: block not found in workflow"
-    block = m.group("block")
-    assert re.search(r"^      target:", block, re.MULTILINE), (
-        "workflow_dispatch.inputs.target is missing — a maintainer "
-        "cannot dispatch a Windows-on-ARM build from the Actions UI."
+    ), (
+        "Matrix x86_64 leg (enabled: true, target: x86_64-pc-windows-msvc) "
+        "not found — the primary Windows release path is missing."
     )
 
 
-def test_workflow_dispatch_target_default_is_x86_64(workflow_text: str):
-    """The ``target`` input must default to ``x86_64-pc-windows-msvc``.
+def test_matrix_includes_aarch64_leg_gated_off(workflow_text: str):
+    """The matrix must include an aarch64 leg with ``enabled: false``.
 
-    Defaulting to x86_64 preserves the pre-fix behavior for every
-    existing dispatch (tauri-build.yml orchestrator + manual dispatches
-    that don't pass `target`). A non-x86_64 default would silently
-    change the build target of every release.
+    The aarch64 leg is the Windows-on-ARM build path. It is gated off
+    (``enabled: false``) because GitHub does not ship a public
+    ``windows-11-arm`` runner as of 2026-08. The leg is included in
+    the matrix (rather than deleted) so that enabling it is a one-line
+    flip when a runner becomes available — the matrix entry, env vars,
+    and build steps already parameterize on ``matrix.target``.
     """
-    m = re.search(
-        r"^      target:\s*\n(?:        [^\n]*\n)*?        default:\s*"
-        r"\"(?P<default>[^\"]+)\"",
+    assert re.search(
+        r"- arch:\s*aarch64\s*\n"
+        r"\s*target:\s*aarch64-pc-windows-msvc\s*\n"
+        r"\s*runner:\s*windows-11-arm\s*\n"
+        r"\s*tauri_config:\s*tauri\.windows-aarch64\.conf\.json\s*\n"
+        r"\s*enabled:\s*false",
         workflow_text,
         re.MULTILINE,
+    ), (
+        "Matrix aarch64 leg (enabled: false, target: aarch64-pc-windows-msvc) "
+        "not found — the Windows-on-ARM scaffold is missing."
     )
+
+
+def test_job_if_uses_matrix_enabled(workflow_text: str):
+    """The job's ``if:`` guard must use ``matrix.enabled``.
+
+    ``if: matrix.enabled`` is the per-leg gate: the x86_64 leg runs
+    (enabled: true), the aarch64 leg is skipped (enabled: false). A
+    hardcoded ``if: true`` would attempt to run the aarch64 leg on a
+    ``windows-11-arm`` runner that does not exist; ``if: false`` would
+    skip both legs.
+    """
+    # The job-level `if:` line.
+    m = re.search(r"^\s+if:\s*matrix\.enabled\s*$", workflow_text, re.MULTILINE)
     assert m, (
-        "target input's default value not found — the input must have a default to preserve x86_64-first behavior."
-    )
-    assert m.group("default") == "x86_64-pc-windows-msvc", (
-        f"target input default is {m.group('default')!r}, expected "
-        f"'x86_64-pc-windows-msvc' (the Phase 0-W primary target)."
+        "Job-level `if: matrix.enabled` not found — the per-leg gate is "
+        "missing, which means either both legs always run (broken aarch64) "
+        "or both legs always skip (no Windows build at all)."
     )
 
 
-# ─── 2. workflow_call surface (pre-existing, now actually used) ──────────────
-def test_workflow_call_has_target_input(workflow_text: str):
-    """The ``workflow_call`` block must accept a ``target`` input.
-
-    This input existed pre-fix but was unused — the bug S2-CR-66 cites.
-    The test asserts it still exists (so the tauri-build.yml orchestrator
-    can pass a target through) AND that it is now actually consumed by
-    the env block (covered by test_env_uses_inputs_target).
-    """
-    m = re.search(
-        r"^  workflow_call:\s*\n(?P<block>(?:    .*\n)+)",
-        workflow_text,
-        re.MULTILINE,
-    )
-    assert m, "workflow_call: block not found in workflow"
-    block = m.group("block")
-    assert re.search(r"^      target:", block, re.MULTILINE), (
-        "workflow_call.inputs.target is missing — the tauri-build.yml "
-        "orchestrator cannot pass a target triple through to this workflow."
-    )
-
-
-# ─── 3. env block sources RUST_TARGET / PYBS_TRIPLE from inputs.target ──────
-def test_env_rust_target_uses_inputs_target(workflow_text: str):
-    """``RUST_TARGET`` env var must be sourced from ``inputs.target``.
+# ─── 2. Job-level env sources RUST_TARGET / PYBS_TRIPLE from matrix.target ──
+def test_env_rust_target_uses_matrix_target(workflow_text: str):
+    """``RUST_TARGET`` env var must be sourced from ``matrix.target``.
 
     Pre-fix: ``RUST_TARGET: x86_64-pc-windows-msvc`` (hardcoded literal).
-    Post-fix: ``RUST_TARGET: ${{ inputs.target || ... || 'x86_64-pc-windows-msvc' }}``
-    so dispatching with target=aarch64-pc-windows-msvc flows through.
+    Post-fix: ``RUST_TARGET: ${{ matrix.target }}`` so each leg's
+    RUST_TARGET follows its matrix.target entry.
     """
-    m = re.search(r"^  RUST_TARGET:\s*(?P<value>.+)$", workflow_text, re.MULTILINE)
-    assert m, "RUST_TARGET env var not found in top-level env: block"
-    value = m.group("value")
-    assert "inputs.target" in value, (
-        f"RUST_TARGET must reference inputs.target (found: {value!r}). "
-        "Without this, dispatching with target=aarch64-pc-windows-msvc "
-        "has no effect on the actual build target."
-    )
-    assert "x86_64-pc-windows-msvc" in value, (
-        f"RUST_TARGET must default to 'x86_64-pc-windows-msvc' (found: {value!r}). "
-        "A different default would change every existing dispatch's target."
+    m = re.search(r"^\s+RUST_TARGET:\s*\$\{\{\s*matrix\.target\s*\}\}", workflow_text, re.MULTILINE)
+    assert m, (
+        "RUST_TARGET env var must be sourced from ${{ matrix.target }} so "
+        "the aarch64 leg (when enabled) actually builds for aarch64. "
+        "A hardcoded x86_64 literal here would silently keep building "
+        "x86_64 even when the aarch64 leg is dispatched."
     )
 
 
-def test_env_pybs_triple_uses_inputs_target(workflow_text: str):
-    """``PYBS_TRIPLE`` env var must be sourced from ``inputs.target``.
+def test_env_pybs_triple_uses_matrix_target(workflow_text: str):
+    """``PYBS_TRIPLE`` env var must be sourced from ``matrix.target``.
 
     PYBS_TRIPLE controls which python-build-standalone release is
     downloaded (cpython-<ver>+<date>-<triple>-install_only.tar.gz).
@@ -165,63 +172,37 @@ def test_env_pybs_triple_uses_inputs_target(workflow_text: str):
     release — producing a broken aarch64 sidecar that can't run any
     pure-Python extensions.
     """
-    m = re.search(r"^  PYBS_TRIPLE:\s*(?P<value>.+)$", workflow_text, re.MULTILINE)
-    assert m, "PYBS_TRIPLE env var not found in top-level env: block"
-    value = m.group("value")
-    assert "inputs.target" in value, (
-        f"PYBS_TRIPLE must reference inputs.target (found: {value!r}). "
-        "Without this, an aarch64 dispatch would still download the "
-        "x86_64 python-build-standalone release."
-    )
-
-
-def test_env_rust_arch_derived_from_target(workflow_text: str):
-    """``RUST_ARCH`` env var must be derived from ``inputs.target``.
-
-    RUST_ARCH is the short arch token (x86_64 / aarch64) used to select
-    the arch-specific Tauri config file (tauri.windows-<arch>.conf.json).
-    It must be derived from inputs.target so an aarch64 dispatch picks
-    tauri.windows-aarch64.conf.json (when it exists) instead of the
-    x86_64 config.
-    """
-    m = re.search(r"^  RUST_ARCH:\s*(?P<value>.+)$", workflow_text, re.MULTILINE)
+    m = re.search(r"^\s+PYBS_TRIPLE:\s*\$\{\{\s*matrix\.target\s*\}\}", workflow_text, re.MULTILINE)
     assert m, (
-        "RUST_ARCH env var not found — needed to select the arch-specific "
-        "Tauri config file (tauri.windows-<arch>.conf.json)."
+        "PYBS_TRIPLE env var must be sourced from ${{ matrix.target }} so "
+        "the aarch64 leg downloads the aarch64 python-build-standalone "
+        "release (not the x86_64 one)."
     )
-    value = m.group("value")
-    assert "inputs.target" in value, f"RUST_ARCH must reference inputs.target (found: {value!r})."
-    assert "aarch64" in value and "x86_64" in value, f"RUST_ARCH must distinguish aarch64 vs x86_64 (found: {value!r})."
 
 
-# ─── 4. cargo tauri build uses dynamic --target ─────────────────────────────
-def test_cargo_tauri_build_uses_dynamic_target(workflow_text: str):
-    """The ``cargo tauri build --target`` flag must use the env var.
+# ─── 3. cargo tauri build uses dynamic --target + --config ───────────────────
+def test_cargo_tauri_build_uses_matrix_target(workflow_text: str):
+    """The ``cargo tauri build --target`` flag must use ``matrix.target``.
 
     Pre-fix: ``cargo tauri build --target x86_64-pc-windows-msvc ...``
-    Post-fix: ``cargo tauri build --target $env:RUST_TARGET ...``
-    so the build target follows the dispatched input.
+    Post-fix: ``cargo tauri build --target ${{ matrix.target }} ...``
+    so the build target follows the matrix leg.
     """
-    # Find the "Build the Tauri app" step's run block. The step has the
-    # form:
-    #       - name: Build the Tauri app (ADR-0020 §7)
-    #         shell: pwsh
-    #         run: |
-    #           cd src-tauri
-    #           ...
-    #           cargo tauri build --target $env:RUST_TARGET --config $archConfig
-    # The run-block body is indented 10 spaces.
     step_start = workflow_text.find("name: Build the Tauri app")
     assert step_start != -1, "Build the Tauri app step not found"
-    # Find the next "name:" (start of the following step) to bound the slice.
     next_step = workflow_text.find("\n      - name:", step_start + 1)
     run_block_slice = workflow_text[step_start:next_step]
-    assert "cargo tauri build" in run_block_slice, "cargo tauri build command not found in Build the Tauri app step"
-    assert re.search(r"--target\s+\$env:RUST_TARGET", run_block_slice), (
-        "cargo tauri build --target must use $env:RUST_TARGET (dynamic), "
-        "not a hardcoded x86_64-pc-windows-msvc literal. Found run block:\n" + run_block_slice
+    assert "cargo tauri build" in run_block_slice, (
+        "cargo tauri build command not found in Build the Tauri app step"
     )
-    # And the hardcoded literal must NOT appear in the cargo tauri build line.
+    assert re.search(
+        r"--target\s+\$\{\{\s*matrix\.target\s*\}\}", run_block_slice
+    ), (
+        "cargo tauri build --target must use ${{ matrix.target }} (dynamic), "
+        "not a hardcoded x86_64-pc-windows-msvc literal. Found run block:\n"
+        + run_block_slice
+    )
+    # And the hardcoded literal must NOT appear on the cargo tauri build line.
     cargo_line = next(
         (ln for ln in run_block_slice.splitlines() if "cargo tauri build" in ln),
         "",
@@ -231,26 +212,54 @@ def test_cargo_tauri_build_uses_dynamic_target(workflow_text: str):
     )
 
 
-def test_cargo_tauri_build_uses_arch_specific_config(workflow_text: str):
-    """The ``--config`` flag must use the arch-specific config filename.
+def test_cargo_tauri_build_uses_matrix_tauri_config(workflow_text: str):
+    """The ``--config`` flag must use ``matrix.tauri_config``.
 
-    Post-fix, the config filename is constructed from $env:RUST_ARCH:
-    ``tauri.windows-$env:RUST_ARCH.conf.json`` with a fallback to
-    ``tauri.conf.json`` if the arch-specific config is missing. This
-    lets an aarch64 dispatch pick ``tauri.windows-aarch64.conf.json``
-    when it exists, instead of always using the x86_64 config.
+    Post-fix, the config filename is sourced from the matrix entry:
+    ``--config ${{ matrix.tauri_config }}``. The x86_64 leg picks
+    ``tauri.windows-x86_64.conf.json``; the aarch64 leg (when enabled)
+    picks ``tauri.windows-aarch64.conf.json``. Each config narrows
+    ``bundle.resources`` to only the arch-appropriate prewarm binary
+    so the installer doesn't bloat with the wrong arch's prewarm.
     """
     step_start = workflow_text.find("name: Build the Tauri app")
     assert step_start != -1, "Build the Tauri app step not found"
     next_step = workflow_text.find("\n      - name:", step_start + 1)
     run_block_slice = workflow_text[step_start:next_step]
-    assert "RUST_ARCH" in run_block_slice, (
-        "Build the Tauri app step must reference $env:RUST_ARCH to "
-        "select the arch-specific config file. Run block:\n" + run_block_slice
+    assert re.search(
+        r"--config\s+\$\{\{\s*matrix\.tauri_config\s*\}\}", run_block_slice
+    ), (
+        "cargo tauri build --config must use ${{ matrix.tauri_config }} so "
+        "each leg picks its own arch-specific Tauri config. Run block:\n"
+        + run_block_slice
     )
-    assert "tauri.windows-" in run_block_slice, (
-        "Build the Tauri app step must construct a tauri.windows-<arch>.conf.json "
-        "filename. Run block:\n" + run_block_slice
+
+
+# ─── 4. Nuitka output filenames use matrix.target ────────────────────────────
+def test_nuitka_sidecar_output_uses_matrix_target(workflow_text: str):
+    """The Nuitka sidecar build step must emit ``python-sidecar-${{ matrix.target }}.exe``.
+
+    Pre-fix the output filename was the hardcoded literal
+    ``python-sidecar-x86_64-pc-windows-msvc.exe``. Post-fix it is
+    ``python-sidecar-${{ matrix.target }}.exe`` so each leg produces a
+    distinctly-named binary (avoids silent overwrite when both legs run).
+    """
+    assert "python-sidecar-${{ matrix.target }}.exe" in workflow_text, (
+        "Nuitka sidecar output filename must use ${{ matrix.target }} so "
+        "the aarch64 leg produces python-sidecar-aarch64-pc-windows-msvc.exe "
+        "instead of overwriting the x86_64 binary."
+    )
+
+
+def test_nuitka_prewarm_output_uses_matrix_target(workflow_text: str):
+    """The Nuitka prewarm build step must emit ``prewarm-${{ matrix.target }}.exe``.
+
+    Same rationale as ``test_nuitka_sidecar_output_uses_matrix_target`` —
+    the aarch64 leg must produce ``prewarm-aarch64-pc-windows-msvc.exe``.
+    """
+    assert "prewarm-${{ matrix.target }}.exe" in workflow_text, (
+        "Nuitka prewarm output filename must use ${{ matrix.target }} so "
+        "the aarch64 leg produces prewarm-aarch64-pc-windows-msvc.exe."
     )
 
 
@@ -260,13 +269,14 @@ def test_default_x86_64_literal_preserved(workflow_text: str):
 
     Backward-compat assertion: tests/tauri/mig19/test_windows_cutover.py:415
     asserts ``"x86_64-pc-windows-msvc" in workflow_text``. The
-    parameterization keeps this literal as the default value of the
-    ``target`` input + the fallback in the env vars, so the cutover
-    test (which validates the Phase 0-W primary target) keeps passing.
+    matrix-based parameterization keeps this literal as the x86_64
+    leg's ``target`` value, so the cutover test (which validates the
+    Phase 0-W primary target) keeps passing.
     """
     assert "x86_64-pc-windows-msvc" in workflow_text, (
         "The literal 'x86_64-pc-windows-msvc' must still appear in the "
-        "workflow (as the default target) so existing cutover tests pass."
+        "workflow (as the x86_64 leg's matrix.target) so existing cutover "
+        "tests pass."
     )
 
 
@@ -275,14 +285,15 @@ def test_default_sidecar_filename_preserved(workflow_text: str):
 
     Backward-compat assertion: tests/tauri/mig18/test_windows_signing.py:153
     asserts this literal is in the workflow text (it greps for the sidecar
-    binary filename to confirm signing is wired). The parameterization
-    keeps this literal in a documentation comment listing the default
-    filenames, so the mig18 signing test keeps passing.
+    binary filename to confirm signing is wired). The matrix-based
+    parameterization keeps this literal in a documentation comment
+    listing the default filenames, so the mig18 signing test keeps passing
+    on a Windows host (it skips on Linux).
     """
     assert "python-sidecar-x86_64-pc-windows-msvc.exe" in workflow_text, (
         "The literal 'python-sidecar-x86_64-pc-windows-msvc.exe' must still "
-        "appear (in a documentation comment) so tests/tauri/mig18/"
-        "test_windows_signing.py keeps passing."
+        "appear (in a documentation comment listing the default filenames) "
+        "so tests/tauri/mig18/test_windows_signing.py keeps passing."
     )
 
 
@@ -290,12 +301,12 @@ def test_default_prewarm_filename_preserved(workflow_text: str):
     """The literal ``prewarm-x86_64-pc-windows-msvc.exe`` must appear.
 
     Backward-compat assertion: tests/tauri/mig18/test_windows_signing.py:167
-    asserts this literal is in the workflow text. The parameterization
-    keeps this literal in a documentation comment listing the default
-    filenames, so the mig18 signing test keeps passing.
+    asserts this literal is in the workflow text. The matrix-based
+    parameterization keeps this literal in a documentation comment
+    listing the default filenames, so the mig18 signing test keeps passing.
     """
     assert "prewarm-x86_64-pc-windows-msvc.exe" in workflow_text, (
         "The literal 'prewarm-x86_64-pc-windows-msvc.exe' must still appear "
-        "(in a documentation comment) so tests/tauri/mig18/test_windows_signing.py "
-        "keeps passing."
+        "(in a documentation comment listing the default filenames) so "
+        "tests/tauri/mig18/test_windows_signing.py keeps passing."
     )

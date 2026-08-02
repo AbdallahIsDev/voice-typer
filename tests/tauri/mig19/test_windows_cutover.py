@@ -554,30 +554,36 @@ def test_electron_builder_yml_not_scheduled_for_deletion(
 def test_tauri_windows_workflow_has_if_true_after_cutover(
     tauri_windows_workflow_text: str,
 ):
-    """The Tauri Windows workflow MUST have ``if: true`` on the job
-    AFTER the Phase 0-W host validation passed and the cutover was
-    flipped.
+    """The Tauri Windows workflow MUST have a per-leg ``if: matrix.enabled``
+    guard (post-cutover + post-matrix-refactor state).
 
     GAP-2 in the module docstring. ``tauri-windows-build.yml`` was
     originally disabled (``if: false`` on the job) so it did NOT run
     on push or PR until the Phase 0-W host validation gate (see
     ``docs/migration/windows-validation-runbook.md``) had passed on a
-    real Windows 10 22H2 / Windows 11 host. Flipping ``if: false`` →
-    ``if: true`` is the cutover lever (playbook Step 2.1).
+    real Windows 10 22H2 / Windows 11 host.
 
-    RT-FIX-9 (2026-07-24): the cutover was flipped — the workflow now
-    runs on every push / PR. This test was renamed from
-    ``test_tauri_windows_workflow_has_phase0w_if_false_guard`` and
-    inverted to assert the POST-cutover state (``if: true``). The
-    legacy pre-cutover assertion is preserved as a comment for the
-    audit trail.
+    RT-FIX-9 (2026-07-24): the cutover was flipped — the workflow ran
+    on every push / PR with ``if: true``.
+
+    The matrix refactor (which spans x86_64 enabled + aarch64 gated off)
+    replaced the single ``if: true`` with ``if: matrix.enabled``. This
+    is functionally equivalent for the x86_64 leg (which has
+    ``enabled: true`` and therefore runs on every dispatch), while also
+    gating the aarch64 leg off until a Windows-on-ARM runner is
+    available. The cutover gate therefore now lives in the matrix's
+    per-leg ``enabled`` field, not in a top-level ``if:`` literal.
     """
-    # The workflow must now have `if: true` (post-cutover state).
-    assert "if: true" in tauri_windows_workflow_text, (
-        "tauri-windows-build.yml must have `if: true` on the job "
-        "(Phase 0-W host gate has passed — this is the post-cutover "
-        "state). If the cutover was rolled back, update this test "
-        "to assert `if: false` again."
+    # The workflow's job-level `if:` must be `matrix.enabled` (the
+    # per-leg gate that runs the x86_64 leg and skips the aarch64 leg
+    # until a Windows-on-ARM runner is available).
+    assert "if: matrix.enabled" in tauri_windows_workflow_text, (
+        "tauri-windows-build.yml must have `if: matrix.enabled` on the job "
+        "(post-cutover + post-matrix-refactor state). The x86_64 leg has "
+        "`enabled: true` and runs on every dispatch; the aarch64 leg has "
+        "`enabled: false` and is gated off until a Windows-on-ARM runner "
+        "is available. If the matrix refactor was rolled back to a single "
+        "x86_64-only build, update this test to assert `if: true` again."
     )
     # The header comment must reference Phase 0-W.
     assert "Phase 0-W" in tauri_windows_workflow_text, (

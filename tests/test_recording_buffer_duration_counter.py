@@ -323,8 +323,6 @@ def _make_session_state_stub() -> MagicMock:
     recorder._preroll_buffer = collections.deque(maxlen=10)
     recorder._device_disconnected = True
     recorder._device_disconnect_retries = 5
-    recorder._previous_chunk_pending = True
-    recorder._skipped_frames = 99
     recorder._dropped_ring_chunks = 5
     recorder._device_check_counter = 7
     recorder._cached_target_sr = 0

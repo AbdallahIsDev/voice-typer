@@ -89,29 +89,33 @@ class TestConfigDeclaresConsentFlags:
 
 
 class TestNoAutoUpdateFetchOnSettingsMount:
-    """S3-CR-11 regression guard: PrewarmAndUpdates must NOT auto-fire the
-    GitHub release-check ``fetch`` on mount.
+    """C-DATA-1 regression guard: PrewarmAndUpdates must NOT issue
+    ANY network call — not on mount, not on user click, not anywhere
+    in the production code path.
 
-    The pre-fix code (removed by CR-11) fired a ``fetch`` to
-    ``https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest``
-    inside a ``useEffect`` on every mount of the Settings section.
-    This leaked the user's public IP, request timestamp, and Electron
-    User-Agent on every Settings page open, breaking the "offline
-    guarantee" the project advertises (and violating the implicit
-    consent contract — no ``Config.auto_update_check_consent`` flag
-    gated the call).
-
-    The fix removed the auto-firing ``checkForUpdate`` callback and its
-    ``useEffect`` invocation. The manual "Check for Updates" button
-    (``handleManualCheck``) is the explicit opt-in path and remains.
+    History:
+      1. The original implementation fired a ``fetch`` to
+         ``https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest``
+         inside a ``useEffect`` on every mount of the Settings section.
+         This leaked the user's public IP, request timestamp, and
+         Electron User-Agent on every Settings page open (the fix).
+      2. The the fix removed the auto-firing ``useEffect`` but
+         KEPT the manual "Check for Updates" button (``handleManualCheck``)
+         which still issued a renderer ``fetch()`` on explicit user click.
+      3. C-DATA-1 (the offline guarantee) forbids ANY network call in
+         the production code path — including an explicit user click.
+         The manual button + handler + ``latestVersion`` state have all
+         been removed; the Updates section now shows the installed
+         version plus a static offline message directing the user to
+         open the GitHub releases page in their own browser.
 
     These tests are static source-inspection guards (we cannot mount
     the React component from a Python test runner). They fail loudly if
-    a future contributor re-introduces the auto-fire pattern. The
-    ``test_consent_and_privacy.py`` module owns this guard because the
-    finding's fix explicitly requested "Add regression test in
-    ``test_consent_and_privacy.py`` asserting no fetch fires on mount
-    when consent is False".
+    a future contributor re-introduces any of the removed network
+    surfaces. The ``test_consent_and_privacy.py`` module owns this
+    guard because the finding's fix explicitly requested
+    "Add regression test in ``test_consent_and_privacy.py`` asserting
+    no fetch fires on mount when consent is False".
     """
 
     PREWARM_UPDATES_TSX = (
@@ -157,10 +161,9 @@ class TestNoAutoUpdateFetchOnSettingsMount:
         for idx, body in enumerate(bodies):
             assert "checkForUpdate" not in body, (
                 f"PrewarmAndUpdates.tsx useEffect #{idx} references "
-                f"'checkForUpdate' — S3-CR-11 regression: auto-firing the "
+                f"'checkForUpdate' — regression: auto-firing the "
                 f"GitHub release check on mount leaks the user's IP and "
-                f"breaks the offline guarantee. The manual "
-                f"'handleManualCheck' button is the explicit opt-in path."
+                f"breaks the C-DATA-1 offline guarantee."
             )
 
     def test_no_api_github_fetch_in_use_effect(self, component_source):
@@ -173,20 +176,58 @@ class TestNoAutoUpdateFetchOnSettingsMount:
         for idx, body in enumerate(bodies):
             assert not github_pattern.search(body), (
                 f"PrewarmAndUpdates.tsx useEffect #{idx} fetches the "
-                f"GitHub releases API on mount — S3-CR-11 regression: "
-                f"this leaks the user's public IP + Electron User-Agent "
-                f"on every Settings page open. Move the fetch behind "
-                f"the explicit 'handleManualCheck' button click handler."
+                f"GitHub releases API on mount — regression: this leaks "
+                f"the user's public IP + Electron User-Agent on every "
+                f"Settings page open. C-DATA-1 forbids any network call "
+                f"in the production code path."
             )
 
-    def test_manual_check_handler_still_exists(self, component_source):
-        """The manual ``handleManualCheck`` opt-in path must remain."""
-        assert "handleManualCheck" in component_source, (
-            "PrewarmAndUpdates.tsx is missing the 'handleManualCheck' "
-            "handler — S3-CR-11 fix removed the AUTO-fire, not the "
-            "manual update-check feature. Users must still be able to "
-            "check for updates via the explicit 'Check for Updates' "
-            "button."
+    def test_no_api_github_reference_anywhere_in_component(self, component_source):
+        """C-DATA-1: the component source must NOT reference the GitHub
+        releases API anywhere — not in a ``useEffect``, not in a click
+        handler, not in a constant.
+
+        The earlier the fix removed the auto-fire ``useEffect``
+        but kept the manual ``handleManualCheck`` button which still
+        issued a renderer ``fetch()`` on click. C-DATA-1 forbids any
+        network call in the production code path; the manual button,
+        the ``handleManualCheck`` handler, the ``latestVersion`` state,
+        and the ``LATEST_RELEASE_API`` constant have all been removed.
+        This test guards against a future contributor re-adding ANY of
+        those surfaces.
+        """
+        github_pattern = re.compile(
+            r"(api\.github\.com|LATEST_RELEASE_API|releases/latest)",
+            re.IGNORECASE,
+        )
+        assert not github_pattern.search(component_source), (
+            "PrewarmAndUpdates.tsx references the GitHub releases API "
+            "(`api.github.com`, `LATEST_RELEASE_API`, or `releases/latest`) "
+            "— C-DATA-1 forbids any network call in the production code "
+            "path. The 'Check for Updates' button, handleManualCheck "
+            "handler, latestVersion state, and LATEST_RELEASE_API constant "
+            "were all removed; re-adding any of them is a regression."
+        )
+
+    def test_no_handle_manual_check_handler(self, component_source):
+        """The ``handleManualCheck`` handler must NOT exist — it was the
+        click handler that fired the renderer ``fetch()`` to
+        ``api.github.com``.
+
+        Earlier the fix kept ``handleManualCheck`` as the explicit
+        opt-in path. C-DATA-1 supersedes that decision: even an explicit
+        user click is a network call in the production code path, which
+        the offline guarantee forbids. The handler has been removed; the
+        Updates section now shows a static offline message + a
+        user-clicked external ``<a href>`` link to the GitHub releases
+        page (which is the user's browser making the call, not Voice
+        Typer).
+        """
+        assert "handleManualCheck" not in component_source, (
+            "PrewarmAndUpdates.tsx contains 'handleManualCheck' — "
+            "C-DATA-1 forbids any network call in the production code path. "
+            "The manual update-check handler was removed because its "
+            "fetch() to api.github.com violated the offline guarantee."
         )
 
     def test_no_config_auto_update_consent_flag_required(self):
@@ -196,7 +237,7 @@ class TestNoAutoUpdateFetchOnSettingsMount:
         auto-check behind a new ``Config.auto_update_check_consent``
         flag, OR (b) remove the auto-fire ``useEffect`` and only run
         the check on explicit button click. The project chose (b)
-        (per the CR-11 comment in PrewarmAndUpdates.tsx) — simpler,
+        (per the comment in PrewarmAndUpdates.tsx) — simpler,
         no new config surface, no implicit-consent ambiguity. This
         test documents that decision.
         """
@@ -291,11 +332,11 @@ class TestWhisperPreDownloadRespectsHuggingFaceConsent:
 
     def test_pre_download_skips_download_without_consent(self, monkeypatch):
         """When consent is False and model is not cached, _pre_download_model
-        raises ``ConsentRequiredError`` (EC-FIX-8) and never makes a network
+        raises ``ConsentRequiredError`` (EC-the fix) and never makes a network
         download call.
 
-        Pre-EC-FIX-8 the SUT silently returned; the test asserted
-        ``network_calls == []`` with no exception. EC-FIX-8 changed the
+        Pre-EC-the SUT silently returned; the test asserted
+        ``network_calls == []`` with no exception. EC-changed the
         SUT to raise ``ConsentRequiredError`` so the IPC layer can
         ``isinstance``-check and surface a consent dialog (mirroring
         ``parakeet_engine.load`` and ``cloud_engines.CloudEngine.transcribe``).
@@ -349,7 +390,7 @@ class TestEngineAcceptsConfigInRealConstructionPath:
 
     def test_pre_download_does_not_crash_without_config(self, tmp_path, monkeypatch):
         """When ``config`` is None the SUT treats consent as not-given
-        (GDPR-safe default) and raises ``ConsentRequiredError`` (EC-FIX-8)
+        (GDPR-safe default) and raises ``ConsentRequiredError`` (EC-the fix)
         — it does NOT crash with ``AttributeError`` (the pre-fix bug where
         ``getattr(self.config, ...)`` was called on ``None``).
 
@@ -441,11 +482,11 @@ class TestEngineAcceptsConfigInRealConstructionPath:
 
     def test_pre_download_refuses_download_without_consent(self, tmp_path, monkeypatch):
         """When consent is False and the model is not cached,
-        ``_pre_download_model`` raises ``ConsentRequiredError`` (EC-FIX-8)
+        ``_pre_download_model`` raises ``ConsentRequiredError`` (EC-the fix)
         and never makes a network download call.
 
-        Pre-EC-FIX-8 the SUT silently returned; the test asserted
-        ``non_local_calls == 0`` with no exception. EC-FIX-8 changed the
+        Pre-EC-the SUT silently returned; the test asserted
+        ``non_local_calls == 0`` with no exception. EC-changed the
         SUT to raise ``ConsentRequiredError`` so the IPC layer can
         ``isinstance``-check and surface a consent dialog (mirroring
         ``parakeet_engine.load`` and ``cloud_engines.CloudEngine.transcribe``).

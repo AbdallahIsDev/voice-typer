@@ -1,6 +1,6 @@
-"""TY-17: level_monitor RMS/peak numpy optimization tests.
+"""level_monitor RMS/peak numpy optimization tests.
 
-Verifies that the AUDIO-NP / PERF-FIX-2 pattern ported from
+Verifies that the AUDIO-NP / PERF-pattern ported from
 ``recorder.py:2740-2749`` into ``level_monitor._process_level_chunk``:
 
 1. **Numerical equivalence**: the new RMS (``np.sqrt(np.dot(x, x) / size)``)
@@ -37,27 +37,27 @@ import pytest
 
 
 def _old_rms(flat: np.ndarray) -> float:
-    """OLD level_monitor RMS — pre-TY-17 pattern (allocates x**2)."""
+    """OLD level_monitor RMS — previously pattern (allocates x**2)."""
     return float(np.sqrt(np.mean(flat**2)))
 
 
 def _old_peak(flat: np.ndarray) -> float:
-    """OLD level_monitor peak — pre-TY-17 pattern (allocates np.abs(x))."""
+    """OLD level_monitor peak — previously pattern (allocates np.abs(x))."""
     return float(np.abs(flat).max())
 
 
 def _old_raw_rms(flat: np.ndarray) -> float:
-    """OLD raw-quality RMS — pre-TY-17 pattern (allocates astype + square)."""
+    """OLD raw-quality RMS — previously pattern (allocates astype + square)."""
     return float(np.sqrt(np.mean(np.square(flat.astype(np.float32)))))
 
 
 def _new_rms(flat: np.ndarray) -> float:
-    """NEW (TY-17 AUDIO-NP) RMS — uses np.dot (no squared array)."""
+    """NEW (AUDIO-NP) RMS — uses np.dot (no squared array)."""
     return float(np.sqrt(np.dot(flat, flat) / flat.size))
 
 
 def _new_peak(flat: np.ndarray) -> float:
-    """NEW (TY-17 PERF-FIX-2) peak — uses max(max, -min) (no abs array)."""
+    """NEW (PERF-the fix) peak — uses max(max, -min) (no abs array)."""
     return max(float(flat.max()), -float(flat.min()))
 
 
@@ -80,7 +80,7 @@ class TestNumericalEquivalence:
         # while x**2 + np.mean uses two passes; allow 1e-5 relative
         # tolerance for accumulation-order differences.
         assert abs(old - new) <= 1e-5 * max(1.0, abs(old)), (
-            f"TY-17: NEW RMS {new} != OLD RMS {old} (size={size}, seed={seed})"
+            f"NEW RMS {new} != OLD RMS {old} (size={size}, seed={seed})"
         )
 
     @pytest.mark.parametrize("seed", [0, 1, 42, 1337, 99999])
@@ -95,7 +95,7 @@ class TestNumericalEquivalence:
         old = _old_peak(flat)
         new = _new_peak(flat)
         # max/min are exact reductions — match to bit-level (use ==).
-        assert old == new, f"TY-17: NEW peak {new} != OLD peak {old} (size={size}, seed={seed})"
+        assert old == new, f"NEW peak {new} != OLD peak {old} (size={size}, seed={seed})"
 
     def test_peak_handles_mixed_signs(self):
         """Peak is correct when min < 0 < max (the typical case).
@@ -106,7 +106,7 @@ class TestNumericalEquivalence:
         flat = np.array([-0.5, 0.1, 0.3, -0.8, 0.2], dtype=np.float32)
         new_peak = _new_peak(flat)
         old_peak = _old_peak(flat)
-        assert abs(new_peak - old_peak) < 1e-7, f"TY-17: NEW peak {new_peak} != OLD peak {old_peak}"
+        assert abs(new_peak - old_peak) < 1e-7, f"NEW peak {new_peak} != OLD peak {old_peak}"
         # Both should be ~0.8 (the abs value of -0.8 in float32).
         assert abs(new_peak - 0.8) < 1e-6
         assert abs(old_peak - 0.8) < 1e-6
@@ -124,13 +124,13 @@ class TestNumericalEquivalence:
         assert abs(_new_peak(flat) - 0.5) < 1e-7
 
     def test_peak_zero_chunk(self):
-        """Peak is 0.0 for an all-zero chunk (TY-4 disconnect detector
+        """Peak is 0.0 for an all-zero chunk (disconnect detector
         relies on this exact behavior)."""
         flat = np.zeros(512, dtype=np.float32)
         assert _new_peak(flat) == _old_peak(flat) == 0.0
 
     def test_rms_zero_chunk(self):
-        """RMS is 0.0 for an all-zero chunk (TY-4 disconnect detector
+        """RMS is 0.0 for an all-zero chunk (disconnect detector
         relies on this exact behavior)."""
         flat = np.zeros(512, dtype=np.float32)
         assert _new_rms(flat) == _old_rms(flat) == 0.0
@@ -144,7 +144,7 @@ class TestNumericalEquivalence:
         old = _old_raw_rms(flat)
         # NEW path: same as _new_rms (no astype, np.dot).
         new = _new_rms(flat)
-        assert abs(old - new) <= 1e-5 * max(1.0, abs(old)), f"TY-17: NEW raw RMS {new} (no astype) != OLD raw RMS {old}"
+        assert abs(old - new) <= 1e-5 * max(1.0, abs(old)), f"NEW raw RMS {new} (no astype) != OLD raw RMS {old}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -192,7 +192,7 @@ class TestAllocationCount:
         _ = _new_rms(flat)
         new_mean_calls = mean_calls
         assert new_mean_calls == 0, (
-            f"TY-17: NEW RMS path must NOT call np.mean (uses np.dot); got {new_mean_calls} calls"
+            f"NEW RMS path must NOT call np.mean (uses np.dot); got {new_mean_calls} calls"
         )
 
     def test_new_peak_does_not_call_np_abs(self, monkeypatch):
@@ -219,7 +219,7 @@ class TestAllocationCount:
         _ = _new_peak(flat)
         new_abs_calls = abs_calls
         assert new_abs_calls == 0, (
-            f"TY-17: NEW peak path must NOT call np.abs (uses max/min); got {new_abs_calls} calls"
+            f"NEW peak path must NOT call np.abs (uses max/min); got {new_abs_calls} calls"
         )
 
     def test_combined_rms_peak_new_calls_fewer_allocating_fns(self, monkeypatch):
@@ -259,7 +259,7 @@ class TestAllocationCount:
         _new_peak(flat)
         new_combined = alloc_calls
         assert new_combined == 0, (
-            f"TY-17: NEW combined RMS+peak must call 0 allocating "
+            f"NEW combined RMS+peak must call 0 allocating "
             f"functions (np.dot + max/min return scalars); got "
             f"{new_combined}"
         )
@@ -330,23 +330,32 @@ class TestProcessLevelChunkEndToEnd:
             expected_rms = _new_rms(chunk.ravel())
             expected_level = 0.0 * 0.6 + expected_rms * 0.4
             assert abs(lm._monitor_level - expected_level) < 1e-6, (
-                f"TY-17: _monitor_level={lm._monitor_level} != expected "
+                f"_monitor_level={lm._monitor_level} != expected "
                 f"{expected_level} (NEW RMS path; chunk RMS={expected_rms})"
             )
             # Expected: NEW peak = max(max, -min) = 0.25.
             # EMA: peak = max(0 * 0.8, 0.25) = 0.25.
             expected_peak = _new_peak(chunk.ravel())
             assert abs(lm._monitor_peak - expected_peak) < 1e-6, (
-                f"TY-17: _monitor_peak={lm._monitor_peak} != expected {expected_peak} (NEW peak path)"
+                f"_monitor_peak={lm._monitor_peak} != expected {expected_peak} (NEW peak path)"
             )
         finally:
             lm.stop_monitoring()
 
     def test_process_chunk_with_processor_uses_optimized_path(self, monkeypatch):
         """The processor-active branch ALSO uses the NEW AUDIO-NP /
-        PERF-FIX-2 pattern. Verify by passing through a processor that
+        PERF-pattern. Verify by passing through a processor that
         returns the input unchanged and comparing against the manual
-        OLD-pattern computation."""
+        OLD-pattern computation.
+
+        note: post the lightweight level-bar fix, the filter chain
+        is SKIPPED for the cosmetic bar (``_test_mode == False``) unless
+        ``_level_bar_filtered`` is True. This test sets
+        ``_level_bar_filtered = True`` so the processor branch is
+        exercised — without that opt-in, the worker would compute RMS
+        on raw audio (which gives the same numerical result for a
+        passthrough processor, but doesn't actually invoke the
+        processor)."""
         import voice_typer.server.level_monitor as lm
 
         holder = {"callback": None}
@@ -380,6 +389,9 @@ class TestProcessLevelChunkEndToEnd:
         processor = MagicMock()
         processor.process_chunk.side_effect = lambda x: x
         lm._level_processor = processor
+        # opt IN to running the filter chain for the cosmetic bar
+        # so this test still exercises the processor branch.
+        lm._level_bar_filtered = True
 
         lm.start_monitoring(mic_id=None)
         try:
@@ -403,10 +415,10 @@ class TestProcessLevelChunkEndToEnd:
 
             expected_level = 0.0 * 0.6 + expected_rms * 0.4
             assert abs(lm._monitor_level - expected_level) < 1e-6, (
-                f"TY-17 (processor branch): _monitor_level={lm._monitor_level} != expected {expected_level}"
+                f"(processor branch): _monitor_level={lm._monitor_level} != expected {expected_level}"
             )
             assert abs(lm._monitor_peak - expected_peak) < 1e-6, (
-                f"TY-17 (processor branch): _monitor_peak={lm._monitor_peak} != expected {expected_peak}"
+                f"(processor branch): _monitor_peak={lm._monitor_peak} != expected {expected_peak}"
             )
         finally:
             lm.stop_monitoring()

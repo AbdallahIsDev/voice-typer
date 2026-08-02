@@ -1,13 +1,13 @@
 """TCP I/O tests: pending-buffer cap, lock-split send, write timeout, ack shape.
 
 Classes:
-- TestPendingTcpBufferCappedAtThousand  — SEC-008 _pending_tcp cap
-- TestAckShapeConsistency               — NEW-IPC-006 ack shape (data field)
-- TestSendDoesNotHoldLockDuringWrite    — NEW-IPC-014/CONC-001/CONC-003 send() lock split
-- TestWriteTimeoutConstant              — NEW-CONC-003 timeout constant
+- TestPendingTcpBufferCappedAtThousand  — _pending_tcp cap
+- TestAckShapeConsistency               — ack shape (data field)
+- TestSendDoesNotHoldLockDuringWrite    — send() lock split
+- TestWriteTimeoutConstant              — timeout constant
 - TestSendStillDeliversMessages         — regression: lock-split doesn't break delivery
 
-Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
+Split out from the original monolithic tests/test_server.py (the fix, Phase 4.5).
 """
 
 import json
@@ -26,11 +26,11 @@ from tests.server.conftest import (  # noqa: F401
     server_with_mock_app_for_tcp_io,
 )
 
-# ── SEC-008: _pending_tcp cap ────────────────────────────────────────────
+# ── _pending_tcp cap ────────────────────────────────────────────
 
 
 class TestPendingTcpBufferCappedAtThousand:
-    """SEC-008: when the TCP client disconnects, push events accumulate
+    """when the TCP client disconnects, push events accumulate
     in ``_pending_tcp``.  Without a cap, a 16 Hz waveform bubble
     source could grow the list to GB within minutes.  The fix caps
     the list at 1000 entries, dropping the oldest."""
@@ -65,7 +65,7 @@ class TestPendingTcpBufferCappedAtThousand:
 
 
 class TestAckShapeConsistency:
-    """NEW-IPC-006: every response must include a ``data`` field."""
+    """every response must include a ``data`` field."""
 
     @pytest.mark.parametrize(
         "cmd",
@@ -123,18 +123,18 @@ class TestAckShapeConsistency:
 
 
 # === , ,  ===
-"""Regression tests for NEW-IPC-014, NEW-CONC-001, NEW-CONC-003.
+"""Regression tests for the fix, the fix, the fix.
 
-NEW-IPC-014: ``_send`` used to hold ``self._lock`` through the entire
+``_send`` used to hold ``self._lock`` through the entire
 ``json.dumps + sendall + pending drain`` path.  This blocked every
 other IPC dispatcher while a slow Electron renderer drained its TCP
 receive buffer.
 
-NEW-CONC-001: same root cause — bubble push from the audio callback
+same root cause — bubble push from the audio callback
 worker held the same lock as ``_dispatch``, so user-visible commands
 like ``get_microphones`` lagged during recording.
 
-NEW-CONC-003: ``sendall`` had no write timeout, so a stalled renderer
+``sendall`` had no write timeout, so a stalled renderer
 could block the worker thread indefinitely, causing an XRUN storm.
 
 Fix:
@@ -145,7 +145,7 @@ Fix:
 
 
 class TestSendDoesNotHoldLockDuringWrite:
-    """NEW-IPC-014: ``sendall`` must run OUTSIDE ``self._lock``."""
+    """``sendall`` must run OUTSIDE ``self._lock``."""
 
     def test_concurrent_send_and_dispatch_do_not_serialize(self, server_with_mock_app_for_tcp_io):
         """A slow ``_send`` (simulated via a blocking socket) must NOT
@@ -210,21 +210,21 @@ class TestSendDoesNotHoldLockDuringWrite:
             f"Lock took {lock_grab_latency:.3f}s to acquire — _send is still holding the lock during the slow write"
         )
 
-    def test_settimeout_called_on_tcp_socket(self, server_with_mock_app_for_tcp_io):
-        """NEW-CONC-003 / CR-2: _send must call settimeout before sendall so a
-        stalled client can't block the worker forever, and must restore the
-        PREVIOUS timeout (NOT clobber to None) so the dispatch-loop readline
-        keeps its auth-read deadline and the connection can be reaped on
-        cleanup."""
+    def test_select_gate_used_not_settimeout(self, server_with_mock_app_for_tcp_io):
+        """The per-write ``settimeout`` dance has been replaced with a
+        ``select.select``-based write-readiness gate
+        (``_await_socket_writable``). ``_send`` must NOT call
+        ``settimeout`` or ``gettimeout`` on the socket — the socket's
+        timeout attribute is never mutated, so the auth-read deadline
+        set on the connection survives the write trivially (the
+        original deadlock root cause was ``settimeout(None)``
+        clobbering that deadline; with select there's nothing to
+        clobber)."""
         srv = server_with_mock_app_for_tcp_io
 
         fake_conn = MagicMock()
         fake_conn.settimeout = MagicMock()
-        # gettimeout() is called to capture the previous timeout
-        # before overwriting it.  Mock it to return a distinctive
-        # sentinel so we can verify the restore.
-        _PREV_TIMEOUT = 7.0  # noqa: N806  simulates an auth-read deadline
-        fake_conn.gettimeout = MagicMock(return_value=_PREV_TIMEOUT)
+        fake_conn.gettimeout = MagicMock(return_value=7.0)
 
         class FakeClient:
             def __init__(self):
@@ -244,31 +244,13 @@ class TestSendDoesNotHoldLockDuringWrite:
 
         srv._send({"type": "test"})
 
-        # settimeout must have been called with the write timeout, then
-        # restored to _PREV_TIMEOUT (NOT None) in the finally block.
-        assert fake_conn.settimeout.call_count >= 2, (
-            f"settimeout must be called at least twice (set + restore): {fake_conn.settimeout.call_count}"
-        )
-        # First call sets the timeout.
-        first_call = fake_conn.settimeout.call_args_list[0]
-        assert first_call[0][0] == _TCP_WRITE_TIMEOUT_SECONDS, (
-            f"first settimeout must be {_TCP_WRITE_TIMEOUT_SECONDS}, got {first_call[0][0]}"
-        )
-        # last call must restore _PREV_TIMEOUT (the auth-read
-        # deadline), NOT None.  Restoring None was the root cause of
-        # the auth-timeout/close deadlock: a blocking socket could
-        # never time out, so the reader thread never exited and
-        # _TCPLineIO.close() deadlocked against the in-progress recv.
-        last_call = fake_conn.settimeout.call_args_list[-1]
-        assert last_call[0][0] == _PREV_TIMEOUT, (
-            f"last settimeout must restore the PREVIOUS timeout "
-            f"({_PREV_TIMEOUT}), got {last_call[0][0]!r}. Restoring None "
-            "clobbers the auth-read deadline and re-introduces the CR-2 "
-            "deadlock."
-        )
+        # The select-based approach must NOT call settimeout or gettimeout
+        # on the socket — the timeout attribute is never read or written.
+        fake_conn.settimeout.assert_not_called()
+        fake_conn.gettimeout.assert_not_called()
 
     def test_write_failure_drops_client(self, server_with_mock_app_for_tcp_io):
-        """NEW-CONC-003: when sendall raises (timeout or OSError), the
+        """when sendall raises (timeout or OSError), the
         client must be marked dead so the accept loop can pick up the
         next reconnect."""
         srv = server_with_mock_app_for_tcp_io
@@ -302,7 +284,7 @@ class TestSendDoesNotHoldLockDuringWrite:
 
 
 class TestWriteTimeoutConstant:
-    """NEW-CONC-003: the timeout constant must be defined and reasonable."""
+    """the timeout constant must be defined and reasonable."""
 
     def test_timeout_is_positive_and_bounded(self):
         assert 0.5 <= _TCP_WRITE_TIMEOUT_SECONDS <= 10.0, (

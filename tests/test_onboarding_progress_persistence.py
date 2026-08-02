@@ -1,7 +1,7 @@
-"""NH-23 regression: in-progress onboarding wizard state persists across
+"""regression: in-progress onboarding wizard state persists across
 Python-process restarts.
 
-Before NH-23, ``OnboardingController`` stored ``_current_step``,
+Before the fix, ``OnboardingController`` stored ``_current_step``,
 ``selected_microphone``, ``selected_hotkey``, and ``selected_model`` as
 INSTANCE variables only — never written to disk. ``onboarding_start()``
 always created a NEW ``OnboardingController()``. When the Python process
@@ -11,7 +11,7 @@ persisted selections to ``config.json``. If a user closed the app
 mid-wizard, they lost ALL selections and restarted at the Welcome step
 on next launch.
 
-NH-23 added a ``.onboarding_progress`` marker file alongside the
+added a ``.onboarding_progress`` marker file alongside the
 existing ``.onboarding_started`` marker. State mutations (next/prev/
 set_microphone/set_hotkey/set_model) call ``_persist_progress()``;
 terminal transitions (mark_complete/skip/reset/apply_settings) call
@@ -188,7 +188,7 @@ def test_progress_marker_uses_secure_atomic_write(config_dir: Path, monkeypatch:
 
     calls: list[Any] = []
 
-    def fake_write(path: Path, data: str) -> None:
+    def fake_write(path: Path, data: str, **kwargs) -> None:
         calls.append((path, data))
 
     monkeypatch.setattr(cfg_mod, "_secure_atomic_write", fake_write)

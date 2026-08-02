@@ -1,7 +1,7 @@
-"""Regression test for CR-42: ``prewarm.log`` handler must have PIIRedactionFilter attached.
+"""Regression test for ``prewarm.log`` handler must have PIIRedactionFilter attached.
 
 The prewarm pipeline runs detached from the main app and writes to a
-dedicated ``prewarm.log`` (next to ``voice-typer.log``).  CR-42 found
+dedicated ``prewarm.log`` (next to ``voice-typer.log``).  found
 that this handler was missing the three filters the main log handler
 attaches:
 
@@ -105,7 +105,7 @@ def _setup_prewarm_to_tmp(tmp_path: Path, monkeypatch) -> None:
 
 
 class TestPrewarmLogFilter:
-    """CR-42: the prewarm.log handler must carry the same filters as the
+    """the prewarm.log handler must carry the same filters as the
     main log handler."""
 
     def test_prewarm_handler_has_pii_filter(self, tmp_path, monkeypatch):
@@ -119,7 +119,7 @@ class TestPrewarmLogFilter:
 
         prewarm_handlers = _prewarm_handlers()
         assert prewarm_handlers, (
-            "no prewarm.log handler found on voice_typer root logger after _setup_logging() — CR-42 fix not applied?"
+            "no prewarm.log handler found on voice_typer root logger after _setup_logging() — the fix not applied?"
         )
         for h in prewarm_handlers:
             filter_types = [type(f).__name__ for f in h.filters]
@@ -199,16 +199,20 @@ class TestPrewarmLogFilter:
             )
 
     def test_prewarm_handler_rotation_policy_matches_main(self, tmp_path, monkeypatch):
-        """The prewarm handler must use 5 MiB × 5 rotation to match
-        ADR-0020 §11 (was 1 MiB × 2 pre-CR-42).
+        """The prewarm handler uses reduced 1 MiB × 1 rotation because the
+        shared _SecureRotatingFileHandler already writes all prewarm records
+        to voice-typer-prewarm.log (5 MiB × 5). The dedicated prewarm.log
+        handler is kept for backwards-compat (UI 'Open Prewarm Log' button)
+        but with reduced rotation since it's a strict subset of the shared
+        log.
         """
         _setup_prewarm_to_tmp(tmp_path, monkeypatch)
 
         prewarm_handlers = _prewarm_handlers()
         assert prewarm_handlers
         for h in prewarm_handlers:
-            assert h.maxBytes == 5 * 1024 * 1024, f"prewarm handler maxBytes is {h.maxBytes}, expected 5 MiB"
-            assert h.backupCount == 5, f"prewarm handler backupCount is {h.backupCount}, expected 5"
+            assert h.maxBytes == 1 * 1024 * 1024, f"prewarm handler maxBytes is {h.maxBytes}, expected 1 MiB"
+            assert h.backupCount == 1, f"prewarm handler backupCount is {h.backupCount}, expected 1"
 
     def test_prewarm_handler_redacts_pii_in_messages(self, tmp_path, monkeypatch):
         """End-to-end: a log message containing an email actually gets

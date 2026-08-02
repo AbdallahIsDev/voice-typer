@@ -1,4 +1,4 @@
-"""Focused unit tests for :class:`SessionState` (S3-CR-17 / Phase 4.5).
+"""Focused unit tests for :class:`SessionState` (Phase 4.5).
 
 These tests exercise the public API of
 :class:`voice_typer.server.recording.session_state.SessionState`
@@ -12,18 +12,17 @@ Scope
 - ``reset_session_state`` — verifies the per-session state reset
   touches every documented attribute (ARCH-023 invariant).
 - ``cache_session_config`` — verifies the cached-scalar assignment +
-  the ``max_rec`` return value (PERF-NEW-006).
-- ``secure_clear_caches`` — verifies the SEC-audit-008 / G4-H-06
-  secure-zeroing of the two cached audio arrays + the audio-processor
+  the ``max_rec`` return value (the fix).
+- ``secure_clear_caches`` — verifies the secure-zeroing of the two cached audio arrays + the audio-processor
   ``reset()`` + the ``_buffer_sr`` reset. Also verifies the
   ``_recording_pkg._secure_clear_array`` patch-path indirection
-  (CR-21 regression).
+  (regression).
 - ``resize_buffers_for_sample_rate`` — verifies dynamic buffer sizing
   for the effective sample rate + ring buffer resizing + preroll
   deque resizing (defensive preservation of existing contents).
 - ``prepend_preroll_to_buffer`` — verifies the preroll is filtered
   through the audio processor (R18-F12), prepended to ``_buffer``, and
-  the preroll deque is zeroed + cleared (SEC-audit-008 privacy gap).
+  the preroll deque is zeroed + cleared (privacy gap).
 """
 
 from __future__ import annotations
@@ -142,8 +141,6 @@ def _make_recorder(
     rec._preroll_buffer = collections.deque(maxlen=64)
     rec._device_disconnected = True  # sentinel: reset to False
     rec._device_disconnect_retries = 999
-    rec._previous_chunk_pending = True
-    rec._skipped_frames = 999
     rec._dropped_ring_chunks = 999
     rec._device_check_counter = 999
     rec._cached_target_sr = None
@@ -299,7 +296,7 @@ def test_reset_session_state_clears_user_stop_pending_and_disconnect_state():
 
 
 def test_reset_session_state_zeros_and_clears_preroll_buffer():
-    """SEC-audit-008: preroll chunks are zero-filled BEFORE the deque is cleared."""
+    """preroll chunks are zero-filled BEFORE the deque is cleared."""
     rec = _make_recorder()
     chunk_a = np.array([0.1, 0.2, 0.3], dtype=np.float32)
     chunk_b = np.array([0.4, 0.5, 0.6], dtype=np.float32)
@@ -311,24 +308,22 @@ def test_reset_session_state_zeros_and_clears_preroll_buffer():
     assert len(rec._preroll_buffer) == 0
     # The original numpy buffers (which we kept a separate reference to)
     # must be zeroed in-place — not just dropped from the deque.
-    assert np.all(chunk_a == 0), "preroll chunk must be zeroed in-place (SEC-audit-008)"
-    assert np.all(chunk_b == 0), "preroll chunk must be zeroed in-place (SEC-audit-008)"
+    assert np.all(chunk_a == 0), "preroll chunk must be zeroed in-place (the fix)"
+    assert np.all(chunk_b == 0), "preroll chunk must be zeroed in-place (the fix)"
 
 
-def test_reset_session_state_resets_frame_skip_and_ring_drop_counters():
-    """PERF-011 / RT-SAFE-001 frame-skip + ring-drop counters are reset."""
+def test_reset_session_state_resets_ring_drop_counters():
+    """ring-drop counter is reset (frame-skip counters removed)."""
     rec = _make_recorder()
 
     SessionState(_make_recorder()).reset_session_state(rec)
 
-    assert rec._previous_chunk_pending is False
-    assert rec._skipped_frames == 0
     assert rec._dropped_ring_chunks == 0
     assert rec._device_check_counter == 0
 
 
 def test_reset_session_state_caches_target_sample_rate():
-    """PERF-NEW-021: ``_cached_target_sr`` is set from ``config.sample_rate``."""
+    """``_cached_target_sr`` is set from ``config.sample_rate``."""
     rec = _make_recorder(config=_make_config(sample_rate=48000))
 
     SessionState(_make_recorder()).reset_session_state(rec)
@@ -488,7 +483,7 @@ def test_cache_session_config_silently_coerces_magicmock_to_one():
 
 
 def test_secure_clear_caches_zeros_cached_resampled_in_place():
-    """SEC-audit-008 / G4-H-06: ``_cached_resampled`` is zeroed in-place BEFORE reassignment."""
+    """``_cached_resampled`` is zeroed in-place BEFORE reassignment."""
     rec = _make_recorder()
     cached_resampled = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32)
     rec._cached_resampled = cached_resampled
@@ -502,7 +497,7 @@ def test_secure_clear_caches_zeros_cached_resampled_in_place():
 
 
 def test_secure_clear_caches_zeros_cached_no_resample_in_place():
-    """SEC-audit-008 / G4-H-06: ``_cached_no_resample_arr`` is zeroed in-place BEFORE reassignment."""
+    """``_cached_no_resample_arr`` is zeroed in-place BEFORE reassignment."""
     rec = _make_recorder()
     cached_no_resample = np.array([0.5, 0.6, 0.7], dtype=np.float32)
     rec._cached_no_resample_arr = cached_no_resample
@@ -571,7 +566,7 @@ def test_secure_clear_caches_handles_already_empty_caches():
 
 
 def test_secure_clear_caches_routes_through_recording_pkg_indirection(monkeypatch):
-    """CR-21 regression: the secure-clear call goes via ``_recording_pkg._secure_clear_array``.
+    """regression: the secure-clear call goes via ``_recording_pkg._secure_clear_array``.
 
     Tests use ``monkeypatch.setattr("voice_typer.server.recording._secure_clear_array", ...)``
     to inject a fake; the extracted body must honour that patch (the
@@ -604,7 +599,7 @@ def test_secure_clear_caches_routes_through_recording_pkg_indirection(monkeypatc
 
 
 def test_secure_clear_caches_does_not_swallow_unexpected_exceptions(monkeypatch):
-    """CR-21 invariant: the ``except`` clause is narrowed to ``(OSError, ValueError)``.
+    """invariant: the ``except`` clause is narrowed to ``(OSError, ValueError)``.
 
     A ``RuntimeError`` from ``_secure_clear_array`` must propagate (it
     must NOT be silently swallowed by a broad ``except Exception:``).
@@ -648,7 +643,7 @@ def test_secure_clear_caches_swallows_oserror_and_value_error(monkeypatch):
 def test_resize_buffers_grows_main_buffer_for_high_sample_rate():
     """A 48 kHz device + 900s max_rec must size the buffer for the full duration.
 
-    Reproduces the S3-CR-17 / AUDIO-HOT fix: the old 1024/16kHz sizing
+    Reproduces the AUDIO-HOT fix: the old 1024/16kHz sizing
     under-allocated by ~3x at 48kHz, silently evicting the first ~25min
     of a 30-min dictation. The new sizing uses the actual chunk_seconds
     (512/48000 ≈ 0.0107s) + a +1K safety margin.
@@ -867,7 +862,7 @@ def test_prepend_preroll_to_buffer_prepends_chunks_in_chronological_order():
     rec._preroll_buffer.append(mid)
     rec._preroll_buffer.append(new)
     # Keep copies to assert against — the in-place zeroing of the
-    # preroll deque (SEC-audit-008) overwrites the original arrays.
+    # preroll deque (the fix) overwrites the original arrays.
     expected_old = old.copy()
     expected_mid = mid.copy()
     expected_new = new.copy()
@@ -894,8 +889,7 @@ def test_prepend_preroll_to_buffer_calls_audio_processor_process_chunk():
     rec._audio_processor.process_chunk.assert_called_once()
     # The first positional arg is the (mono) chunk; the keyword arg
     # ``input_sample_rate`` is set from ``_effective_sr``. We can't
-    # assert on the array contents because the body's SEC-audit-008
-    # in-place zeroing of the preroll deque (after the prepend) wipes
+    # assert on the array contents because the body's # in-place zeroing of the preroll deque (after the prepend) wipes
     # the same numpy buffer the mock captured by reference. We
     # therefore assert on the call SHAPE only.
     args, kwargs = rec._audio_processor.process_chunk.call_args
@@ -912,7 +906,7 @@ def test_prepend_preroll_to_buffer_falls_back_to_raw_chunk_on_processor_exceptio
     rec._audio_processor.process_chunk = MagicMock(side_effect=RuntimeError("filter failure"))
     chunk = np.array([0.1, 0.2, 0.3], dtype=np.float32)
     rec._preroll_buffer.append(chunk)
-    expected = chunk.copy()  # SEC-audit-008 zeros the original in-place
+    expected = chunk.copy()  # zeros the original in-place
 
     # Must NOT raise — the exception is caught + logged.
     SessionState(_make_recorder()).prepend_preroll_to_buffer(rec)
@@ -928,7 +922,7 @@ def test_prepend_preroll_to_buffer_skips_filter_when_processor_none():
     rec._audio_processor = None
     chunk = np.array([0.1, 0.2, 0.3], dtype=np.float32)
     rec._preroll_buffer.append(chunk)
-    expected = chunk.copy()  # SEC-audit-008 zeros the original in-place
+    expected = chunk.copy()  # zeros the original in-place
 
     # Must not raise.
     SessionState(_make_recorder()).prepend_preroll_to_buffer(rec)
@@ -939,7 +933,7 @@ def test_prepend_preroll_to_buffer_skips_filter_when_processor_none():
 
 
 def test_prepend_preroll_to_buffer_zeros_and_clears_preroll_deque():
-    """SEC-audit-008: the preroll deque is zeroed + cleared after the prepend.
+    """the preroll deque is zeroed + cleared after the prepend.
 
     Without this, the preroll chunks (which are now duplicated into
     ``_buffer``) remain referenced by ``_preroll_buffer`` until the
@@ -956,8 +950,8 @@ def test_prepend_preroll_to_buffer_zeros_and_clears_preroll_deque():
 
     assert len(rec._preroll_buffer) == 0
     # The original numpy buffers must be zeroed in-place.
-    assert np.all(chunk_a == 0), "preroll chunk must be zeroed in-place after prepend (SEC-audit-008)"
-    assert np.all(chunk_b == 0), "preroll chunk must be zeroed in-place after prepend (SEC-audit-008)"
+    assert np.all(chunk_a == 0), "preroll chunk must be zeroed in-place after prepend (the fix)"
+    assert np.all(chunk_b == 0), "preroll chunk must be zeroed in-place after prepend (the fix)"
 
 
 def test_prepend_preroll_to_buffer_noop_on_empty_preroll():

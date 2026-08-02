@@ -95,12 +95,12 @@ class TestOnboardingSteps:
         assert ctrl.prev_step() == 0
 
     def test_step_change_advances_step(self, ctrl):
-        """NEW-DEAD-033: callbacks were removed; verify step still advances."""
+        """callbacks were removed; verify step still advances."""
         assert ctrl.next_step() == 1
         assert ctrl._current_step == 1
 
     def test_next_step_does_not_mark_complete(self, ctrl):
-        """UX-31: reaching the last step via next_step() must NOT mark
+        """reaching the last step via next_step() must NOT mark
         onboarding complete. Completion is now triggered only by
         apply_settings() (after config.save() succeeds) or skip().
 
@@ -118,7 +118,7 @@ class TestOnboardingSteps:
 
 class TestOnboardingSkip:
     def test_skip_marks_complete(self, ctrl):
-        """NEW-DEAD-033: callbacks were removed; verify skip still
+        """callbacks were removed; verify skip still
         marks the onboarding as complete."""
         ctrl.skip()
         assert ctrl.is_first_run() is False
@@ -284,7 +284,7 @@ class TestOnboardingWizard:
 
         # Config retains defaults (wizard was skipped before any set_* call)
         cfg = Config.load()
-        # NATIVE-001: default hotkey is platform-aware
+        # default hotkey is platform-aware
         from voice_typer.server.config import _default_hotkey_for_platform
 
         assert cfg.hotkey == _default_hotkey_for_platform()
@@ -336,10 +336,9 @@ def app_with_service(tmp_path, monkeypatch):
     # tests/test_app.py for why both are required).
     from voice_typer.server.hotkeys import PynputHotkey
 
-    def _force_pynput(hotkey_str):
+    def _force_pynput(hotkey_str, **kwargs):
         return PynputHotkey(hotkey_str)
 
-    monkeypatch.setattr("voice_typer.server.app.create_hotkey_backend", _force_pynput)
     monkeypatch.setattr(
         "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
         _force_pynput,
@@ -371,7 +370,7 @@ def captured_events(monkeypatch):
 
 
 class TestOnboardingApplySideEffects:
-    """17-H-FIX-1: onboarding_apply must re-register the hotkey and
+    """17-H-onboarding_apply must re-register the hotkey and
     push a config_changed event so the user's wizard choices take
     effect immediately (without app restart).
 
@@ -486,7 +485,7 @@ class TestOnboardingApplySideEffects:
 
 
 class TestApplySettingsMarksComplete:
-    """UX-31: onboarding must NOT mark itself complete until the user's
+    """onboarding must NOT mark itself complete until the user's
     selections are actually persisted via ``apply_settings`` (or
     explicitly discarded via ``skip``).
 
@@ -548,7 +547,7 @@ class TestApplySettingsMarksComplete:
         # Walk all the way to the last step.
         for _ in range(ctrl.total_steps):
             ctrl.next_step()
-        assert called == [], "next_step() must not call mark_complete() — UX-31"
+        assert called == [], "next_step() must not call mark_complete() — the fix"
 
     def test_skip_still_marks_complete(self, ctrl, onboarding_dir):
         """``skip`` is the other valid completion path."""
@@ -559,7 +558,7 @@ class TestApplySettingsMarksComplete:
 
 
 class TestMarkCompleteFailurePropagation:
-    """FR-6: if the onboarding marker write fails (disk full, read-only
+    """if the onboarding marker write fails (disk full, read-only
     ``config_dir``, permission revoked), the wizard must surface the
     error rather than silently swallowing it.
 
@@ -595,7 +594,7 @@ class TestMarkCompleteFailurePropagation:
         assert not (onboarding_dir / ".onboarding_complete").exists()
 
     def test_apply_settings_sets_onboarding_completed_before_save(self, ctrl, onboarding_dir):
-        """FR-6: ``apply_settings`` sets ``config.onboarding_completed = True``
+        """``apply_settings`` sets ``config.onboarding_completed = True``
         BEFORE calling ``config.save()`` so the config flag is persisted
         even if the marker write later fails."""
         ctrl.set_microphone("mic-1")
@@ -626,7 +625,7 @@ class TestMarkCompleteFailurePropagation:
         assert config.onboarding_completed is True
 
     def test_apply_settings_surfaces_marker_write_failure(self, ctrl, onboarding_dir, monkeypatch):
-        """FR-6: if ``mark_complete`` fails (marker write error),
+        """if ``mark_complete`` fails (marker write error),
         ``apply_settings`` propagates the exception so the IPC layer
         can surface the error to the user. ``config.onboarding_completed``
         was set to ``True`` and persisted via ``config.save()`` BEFORE
@@ -672,7 +671,7 @@ class TestMarkCompleteFailurePropagation:
         assert not (onboarding_dir / ".onboarding_complete").exists()
 
     def test_apply_settings_marker_failure_does_not_reappear(self, ctrl, onboarding_dir, monkeypatch):
-        """FR-6 end-to-end: when the marker write fails but the config
+        """end-to-end: when the marker write fails but the config
         flag was persisted, ``is_first_run()`` returns ``False`` on the
         next launch (simulated by writing the persisted config to disk
         and constructing a fresh controller). This is the core
@@ -728,7 +727,7 @@ class TestMarkCompleteFailurePropagation:
         )
 
     def test_skip_propagates_marker_write_failure(self, ctrl, onboarding_dir, monkeypatch):
-        """FR-6: ``skip`` propagates marker write failures so the IPC
+        """``skip`` propagates marker write failures so the IPC
         layer can surface the error to the user (instead of silently
         swallowing it and leaving the wizard in an inconsistent state)."""
         from voice_typer.server import config as config_mod
@@ -743,7 +742,7 @@ class TestMarkCompleteFailurePropagation:
 
 
 class TestModelOptionsIncludeMultilingualAndParakeet:
-    """UX-32: the wizard's curated ``MODEL_OPTIONS`` list previously
+    """the wizard's curated ``MODEL_OPTIONS`` list previously
     excluded multilingual Whisper variants (tiny/small/medium without
     ``.en``) and the NVIDIA Parakeet model, so non-English users had
     no in-wizard path to pick a multilingual model."""
@@ -755,7 +754,7 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
         assert "medium.en" in names
 
     def test_includes_multilingual_whisper_variants(self, ctrl):
-        """UX-32: ``tiny``, ``small``, ``medium`` (without ``.en``)
+        """``tiny``, ``small``, ``medium`` (without ``.en``)
         must be present so non-English users can pick a multilingual
         model from the wizard."""
         names = {opt["name"] for opt in ctrl.MODEL_OPTIONS}
@@ -764,12 +763,12 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
         assert "medium" in names
 
     def test_includes_parakeet(self, ctrl):
-        """UX-32: NVIDIA Parakeet must be a first-class wizard option."""
+        """NVIDIA Parakeet must be a first-class wizard option."""
         names = {opt["name"] for opt in ctrl.MODEL_OPTIONS}
         assert "parakeet" in names
 
     def test_get_model_catalog_delegates_to_registry(self):
-        """UX-32: ``get_model_catalog()`` returns the full registry
+        """``get_model_catalog()`` returns the full registry
         catalog (rich metadata: VRAM, languages, speed/accuracy,
         repo_id, backend, is_distilled) — superset of MODEL_OPTIONS."""
         from voice_typer.server.model_registry import MODEL_REGISTRY
@@ -785,7 +784,7 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
             assert name in catalog_names, f"registry model {name!r} missing from get_model_catalog()"
 
     def test_get_model_catalog_entries_have_rich_metadata(self):
-        """UX-32 / UX-13: catalog entries must carry the rich metadata
+        """catalog entries must carry the rich metadata
         fields (download_size_mb, required_vram_mb, backend,
         multilingual, supported_languages, repo_id, speed_rating,
         accuracy_rating) so the renderer can render VRAM / language /
@@ -827,7 +826,7 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
 
 
 class TestModelOptionsVramAndLanguages:
-    """UX-13: each ``MODEL_OPTIONS`` entry must carry ``vram_gb`` and
+    """each ``MODEL_OPTIONS`` entry must carry ``vram_gb`` and
     ``languages`` fields so the renderer can render VRAM / language
     badges on each model card.
 
@@ -860,7 +859,7 @@ class TestModelOptionsVramAndLanguages:
                 )
 
     def test_multilingual_variants_have_none_languages(self, ctrl):
-        """UX-32: the multilingual variants (tiny/small/medium without
+        """the multilingual variants (tiny/small/medium without
         ``.en``) and Parakeet must have ``languages=None`` so the
         renderer renders a 'Multilingual' badge."""
         multilingual_names = {"tiny", "small", "medium", "parakeet"}
@@ -872,14 +871,14 @@ class TestModelOptionsVramAndLanguages:
 
 
 class TestPermissionsStep:
-    """UX-4 / UX-27: onboarding wizard must include a platform-
+    """onboarding wizard must include a platform-
     conditional Permissions step between Microphone and Hotkey that
     detects OS-level keyboard-monitoring permission state and shows
     platform-specific setup instructions.
 
     - **Windows**: no permission needed (``needed=False``).
-    - **macOS**: Accessibility permission walkthrough (UX-4).
-    - **Linux**: input group + udev rule walkthrough (UX-27).
+    - **macOS**: Accessibility permission walkthrough (the fix).
+    - **Linux**: input group + udev rule walkthrough (the fix).
     """
 
     def test_permissions_step_exists_between_mic_and_hotkey(self, ctrl):
@@ -893,7 +892,7 @@ class TestPermissionsStep:
         assert ctrl.step_name == "Hotkey"
 
     def test_total_steps_is_six(self, ctrl):
-        """UX-4/UX-27: bumped from 5 → 6 to add Permissions step."""
+        """bumped from 5 → 6 to add Permissions step."""
         assert ctrl.total_steps == 6
 
     def test_check_permissions_returns_dict_shape(self, ctrl):
@@ -906,7 +905,7 @@ class TestPermissionsStep:
         assert isinstance(result["needed"], bool)
 
     def test_check_permissions_windows_no_instructions(self, ctrl, monkeypatch):
-        """UX-4: on Windows, no permission is needed → ``needed=False``,
+        """on Windows, no permission is needed → ``needed=False``,
         ``instructions=None``."""
         from voice_typer.server import permissions as perm_mod
         from voice_typer.server.permissions import PermissionState
@@ -927,7 +926,7 @@ class TestPermissionsStep:
         assert result["instructions"] is None
 
     def test_check_permissions_macos_denied_returns_instructions(self, ctrl, monkeypatch):
-        """UX-4: on macOS with Accessibility denied, return the
+        """on macOS with Accessibility denied, return the
         System Settings → Accessibility walkthrough."""
         from voice_typer.server import permissions as perm_mod
         from voice_typer.server.permissions import PermissionState
@@ -991,7 +990,7 @@ class TestPermissionsStep:
         assert "accessibility" in joined
 
     def test_check_permissions_macos_granted_no_instructions(self, ctrl, monkeypatch):
-        """UX-4: on macOS with Accessibility already granted, no
+        """on macOS with Accessibility already granted, no
         instructions needed (``needed=False``)."""
         from voice_typer.server import permissions as perm_mod
         from voice_typer.server.permissions import PermissionState
@@ -1012,7 +1011,7 @@ class TestPermissionsStep:
         assert result["instructions"] is None
 
     def test_check_permissions_linux_denied_returns_input_group_instructions(self, ctrl, monkeypatch):
-        """UX-27: on Linux without input-group access, return the
+        """on Linux without input-group access, return the
         ``sudo usermod -aG input $USER`` command and the udev rule
         snippet so the user can grant access manually."""
         from voice_typer.server import permissions as perm_mod
@@ -1048,7 +1047,7 @@ class TestPermissionsStep:
         )
 
     def test_check_permissions_linux_granted_no_instructions(self, ctrl, monkeypatch):
-        """UX-27: on Linux with input-group access already granted,
+        """on Linux with input-group access already granted,
         no instructions needed (``needed=False``)."""
         from voice_typer.server import permissions as perm_mod
         from voice_typer.server.permissions import PermissionState

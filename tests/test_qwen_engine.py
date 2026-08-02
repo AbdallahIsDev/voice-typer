@@ -34,7 +34,7 @@ class TestQwenEngineUnit:
         assert result == ""
 
     def test_load_success(self, tmp_path):
-        # SEC-audit-007: load() now validates the model directory and reads
+        # load() now validates the model directory and reads
         # config.json before importing qwen_asr. Use a real tmp dir with a
         # config.json so the security gates pass.
         #
@@ -227,9 +227,14 @@ class TestWhisperSkipWhenQwenActive:
         monkeypatch.setattr("voice_typer.server.app.atexit.register", lambda *a, **kw: None)
         from voice_typer.server.hotkeys import PynputHotkey
 
+        # ``create_hotkey_backend`` was moved from ``app.py`` to
+        # ``hotkeys/factory.py`` and is now imported directly by
+        # ``hotkey_dispatcher.py``. Patching ``app.create_hotkey_backend``
+        # silently no-ops (the attribute no longer exists on ``app``);
+        # patch the dispatcher's imported reference instead.
         monkeypatch.setattr(
-            "voice_typer.server.app.create_hotkey_backend",
-            lambda hotkey_str: PynputHotkey(hotkey_str),
+            "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+            lambda hotkey_str, role=None: PynputHotkey(hotkey_str),
         )
 
         # Write a config with Qwen backend
@@ -399,7 +404,7 @@ class TestLoadReturnValues:
         return QwenEngine(model_path=model_path, **kwargs)
 
     def test_load_returns_true_on_success(self, tmp_path):
-        # SEC-audit-007: load() validates the model directory and reads
+        # load() validates the model directory and reads
         # config.json before importing qwen_asr. Use a real tmp dir with
         # a config.json so the security gates pass.
         # mock verify_model_integrity (see
@@ -496,7 +501,7 @@ class TestHallucinationDetection:
 
 
 class TestQwenIntegrityHardFail:
-    """G4-H-33: ``qwen_engine._verify_qwen_model_hashes`` deleted; load()
+    """``qwen_engine._verify_qwen_model_hashes`` deleted; load()
     now delegates to ``security.verify_model_integrity(model_path, "qwen")``
     which hard-fails on a tampered local directory.
 
@@ -507,7 +512,7 @@ class TestQwenIntegrityHardFail:
       3. The default ship-state manifest (``revision: local, files: {}``)
          causes ``load()`` to return False — operators MUST populate the
          ``files`` dict with real SHA-256 hashes before a local Qwen
-         model can be loaded.  This is the NF-R18-9 hard-fail that was
+         model can be loaded.  This is the the fix-9 hard-fail that was
          previously dead code (the local helper soft-passed).
     """
 
@@ -517,7 +522,7 @@ class TestQwenIntegrityHardFail:
         return QwenEngine(model_path=model_path, **kwargs)
 
     def test_deleted_helper_raises(self):
-        """G4-H-33: the divergent local helper is gone.
+        """the divergent local helper is gone.
 
         Calling it raises ``RuntimeError`` pointing the caller at the
         replacement ``security.verify_model_integrity``.  This catches
@@ -525,11 +530,11 @@ class TestQwenIntegrityHardFail:
         """
         from voice_typer.server.qwen_engine import _verify_qwen_model_hashes
 
-        with pytest.raises(RuntimeError, match="deleted in G4-H-33"):
+        with pytest.raises(RuntimeError, match="deleted in the fix"):
             _verify_qwen_model_hashes("/some/path")
 
     def test_load_returns_false_for_empty_files_manifest(self, tmp_path):
-        """G4-H-33 / NF-R18-9: default ship-state manifest (``revision:
+        """the fix-9: default ship-state manifest (``revision:
         local, files: {}``) → ``load()`` returns False.
 
         Pre-fix the local ``_verify_qwen_model_hashes`` SOFT-PASSED on
@@ -557,10 +562,10 @@ class TestQwenIntegrityHardFail:
             result = engine.load()
 
         assert result is False, (
-            "G4-H-33: load() must return False when the qwen manifest "
+            "load() must return False when the qwen manifest "
             'has empty "files" dict (revision: local). Pre-fix the local '
             "_verify_qwen_model_hashes soft-passed, defeating the "
-            "NF-R18-9 hard-fail in security.verify_model_integrity."
+            "the fix-9 hard-fail in security.verify_model_integrity."
         )
         assert engine.is_loaded is False
         # qwen_asr.Qwen3ASRModel.from_pretrained must NOT have been
@@ -568,7 +573,7 @@ class TestQwenIntegrityHardFail:
         mock_qwen_module.Qwen3ASRModel.from_pretrained.assert_not_called()
 
     def test_load_returns_false_on_pinned_hash_mismatch(self, tmp_path, monkeypatch):
-        """G4-H-33: when the qwen manifest pins hashes and a file's
+        """when the qwen manifest pins hashes and a file's
         SHA-256 doesn't match, ``load()`` returns False (tampered model
         refused)."""
         import hashlib
@@ -601,13 +606,13 @@ class TestQwenIntegrityHardFail:
             result = engine.load()
 
         assert result is False, (
-            "G4-H-33: load() must return False when a pinned file's SHA-256 doesn't match (tampered local Qwen model)."
+            "load() must return False when a pinned file's SHA-256 doesn't match (tampered local Qwen model)."
         )
         assert engine.is_loaded is False
         mock_qwen_module.Qwen3ASRModel.from_pretrained.assert_not_called()
 
     def test_load_succeeds_when_pinned_hashes_match(self, tmp_path, monkeypatch):
-        """G4-H-33 happy path: when the qwen manifest pins the correct
+        """happy path: when the qwen manifest pins the correct
         SHA-256 for every file, ``load()`` proceeds to from_pretrained
         and returns True."""
         import hashlib

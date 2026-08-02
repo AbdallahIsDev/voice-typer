@@ -3,11 +3,11 @@
 Modules mocked: sounddevice, faster_whisper, pynput, pystray, PIL,
 pyperclip.
 
-TEST-003: the autouse mock is now conditional — tests that need real
+the autouse mock is now conditional — tests that need real
 pynput (e.g. to test the actual keyboard listener) can use the
 ``@pytest.mark.real_pynput`` marker to opt out of the pynput mock.
 
-FIX-18 (test infra & config sub-agent): the ``ctypes.WINFUNCTYPE`` alias
+(test infra & config sub-agent): the ``ctypes.WINFUNCTYPE`` alias
 that previously lived at module-load time has been moved into the
 ``winfunctype_alias`` autouse fixture below so the global ``ctypes``
 module is no longer mutated at collection time. Tests that exercise
@@ -23,7 +23,7 @@ swallowed. Previously a typo in the monkeypatch target (or a renamed
 module) would silently skip the patch and tests would pass against an
 unpatched code path; now the warning surfaces the drift.
 
-TEST-033: Mocking Convention
+Mocking Convention
 ============================
 
 This project uses two mocking styles. Follow these rules to keep tests
@@ -54,10 +54,62 @@ consistent and maintainable:
 
 import ctypes
 import sys
+import time
 import warnings
+from collections.abc import Callable
 from unittest.mock import MagicMock
 
 import pytest
+
+
+def wait_until(
+    predicate: Callable[[], bool],
+    *,
+    timeout: float = 2.0,
+    interval: float = 0.01,
+    msg: str | None = None,
+) -> None:
+    """Poll ``predicate`` until it returns truthy or ``timeout`` elapses.
+
+    Drop-in replacement for ``time.sleep(N)`` + ``assert condition``
+    patterns that are flakiness-prone. Raises ``AssertionError`` with
+    ``msg`` (or a synthesized message) on timeout so the failure
+    surfaces in the test report instead of silently passing because the
+    sleep was slightly too short.
+
+    For thread-synchronization tests, prefer ``threading.Event.wait(timeout)``
+    over this helper — ``Event.wait`` is non-busy and deterministic.
+    ``wait_until`` is appropriate when no ``Event``/``Condition`` is
+    available (e.g. waiting for a side effect on a MagicMock, a file on
+    disk, or a thread state the test can't directly observe).
+
+    Migrating ``time.sleep`` call sites: replace ::
+
+        time.sleep(0.5)
+        assert obj.ready
+
+    with ::
+
+        wait_until(lambda: obj.ready, timeout=2.0,
+                   msg="obj.ready did not become True within 2s")
+
+    The default ``interval=0.01`` keeps the poll loop responsive without
+    burning CPU; for sub-millisecond synchronization, use ``Event.wait``
+    instead. The default ``timeout=2.0`` is generous enough for most
+    thread-scheduling latency on a loaded CI runner.
+
+    Introduced as part of the effort to migrate the
+    codebase's 99+ ``time.sleep`` calls in test files to deterministic
+    waiters. This helper is the canonical replacement; the migration of
+    individual call sites is incremental.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(interval)
+    detail = msg or f"wait_until did not satisfy within {timeout}s"
+    raise AssertionError(detail)
 
 # (test infra & config sub-agent): the ``ctypes.WINFUNCTYPE``
 # alias previously installed at module-load time has been moved into
@@ -87,7 +139,7 @@ class MockHeavyImportsWarning(UserWarning):
     - ``keyboard_ownership_reset``: the per-test ``keyboard_ownership``
       singleton reset failed.
 
-    XS-46 also dedupes each warning kind to fire at most once per
+    also dedupes each warning kind to fire at most once per
     pytest session via :data:`_mock_heavy_imports_warned` so a 102-test
     file no longer emits 102 copies of the same warning.
     """
@@ -106,7 +158,7 @@ _mock_heavy_imports_warned: dict[str, bool] = {}
 def _warn_once(kind: str, message: str) -> None:
     """Emit a :class:`MockHeavyImportsWarning` at most once per session.
 
-    XS-46: see :class:`MockHeavyImportsWarning` for the rationale.
+    see :class:`MockHeavyImportsWarning` for the rationale.
     """
     if _mock_heavy_imports_warned.get(kind):
         return
@@ -115,15 +167,15 @@ def _warn_once(kind: str, message: str) -> None:
 
 
 def pytest_configure(config):
-    """TEST-003: register the real_pynput and real_pil markers.
+    """register the real_pynput and real_pil markers.
 
-    TASK-013: also register the ``slow`` marker used by
+    also register the ``slow`` marker used by
     ``tests/test_manual_slow.py`` to wrap the manual diagnostic
     scripts in ``tests/manual/`` as proper pytest tests. Slow tests
     are deselected by default (see ``pytest_collection_modifyitems``)
     and only run when ``--slow`` is passed.
 
-    XS-45: also register the ``real_torch`` marker for tests that
+    also register the ``real_torch`` marker for tests that
     genuinely need real ``torch.backends.mps`` semantics (mirrors the
     existing ``real_pynput`` / ``real_pil`` pattern).
     """
@@ -146,7 +198,7 @@ def pytest_configure(config):
 
 
 def pytest_addoption(parser):
-    """TASK-013: add ``--slow`` flag to opt in to slow tests.
+    """add ``--slow`` flag to opt in to slow tests.
 
     Slow tests (marked with ``@pytest.mark.slow``) are skipped by
     default to keep the regular pytest suite fast. Pass ``--slow`` to
@@ -161,7 +213,7 @@ def pytest_addoption(parser):
 
 
 def pytest_collection_modifyitems(config, items):
-    """TASK-013: skip slow tests unless ``--slow`` was passed.
+    """skip slow tests unless ``--slow`` was passed.
 
     We use ``skip`` (not ``deselect``) so the tests still appear in
     the report as skipped, making it obvious that they exist and
@@ -201,7 +253,7 @@ def winfunctype_alias(monkeypatch):
     alias is a no-op because ``hasattr(ctypes, "WINFUNCTYPE")`` is
     True).
 
-    FIX-18: previously this alias was installed at conftest.py
+    previously this alias was installed at conftest.py
     module-load time via ``ctypes.WINFUNCTYPE = ctypes.CFUNCTYPE``.
     That permanently mutated the global ``ctypes`` module for the
     whole pytest session, which (a) leaked the alias into any
@@ -226,7 +278,7 @@ def winfunctype_alias(monkeypatch):
 def mock_heavy_imports(monkeypatch, request):
     """Mock all hardware/GUI dependencies so tests run headless.
 
-    TEST-003: tests marked with @pytest.mark.real_pynput will NOT
+    tests marked with @pytest.mark.real_pynput will NOT
     have pynput mocked, so they can test the real keyboard listener.
     """
     mock_sd = MagicMock()
@@ -461,8 +513,8 @@ def _reset_log_rate_limit():
 
     The reset is autouse so the same leak can't bite future tests that
     exercise ``log_rate_limited``.  Mirrors the ``keyboard_ownership``
-    reset inside ``mock_heavy_imports`` (CR-017) and the
-    ``clear_binary_path_cache`` autouse pattern (XV-112).
+    reset inside ``mock_heavy_imports`` (the fix) and the
+    ``clear_binary_path_cache`` autouse pattern (the fix).
     """
     from voice_typer.server import log_rate_limit
 
@@ -531,7 +583,7 @@ def clear_binary_path_cache():
     ``voice_typer.server.native_hotkeys.binary_path.get_native_binary_path``
     before every test.
 
-    XV-112 memoises ``get_native_binary_path()`` with
+    memoises ``get_native_binary_path()`` with
     ``functools.lru_cache(maxsize=1)`` so production startup doesn't
     re-probe the 6-step lookup chain 3× (factory probe + backend init +
     availability check = ~18 ``Path.is_file()`` stats). Without this

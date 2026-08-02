@@ -228,8 +228,10 @@ EXPECTED_MAIN_RS_COMMANDS = [
     "bubble_dismiss",
     # system-level window_ commands.
     "open_logs",
-    # dedicated host-log-dir opener.
-    "open_host_logs",
+    # `open_host_logs` REMOVED — dead in production:
+    # the renderer's "View Logs" button calls `openLogs` →
+    # `open_logs` (opens config root), NOT `open_host_logs`.
+    # ZERO `invoke('open_host_logs')` call sites existed.
     "open_model_import_dialog",
     "export_templates",
     "export_config",

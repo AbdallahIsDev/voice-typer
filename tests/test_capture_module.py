@@ -1,4 +1,4 @@
-"""S3-CR-17 / Phase 4.5 — focused unit tests for
+"""Phase 4.5 — focused unit tests for
 ``voice_typer.server.recording.capture.AudioCallbackDispatcher``.
 
 These tests exercise the public API of the new collaborator with a
@@ -55,7 +55,6 @@ class _FakeRecorder:
             self._ring_buffer = collections.deque(maxlen=ring_maxlen)
         self._preroll_buffer: collections.deque = collections.deque(maxlen=preroll_maxlen)
         self._dropped_ring_chunks: int = 0
-        self._skipped_frames: int = 0
         self._worker_stop_event = threading.Event()
         self._worker_wake_event = threading.Event()
         self._process_audio_chunk_calls: list[tuple] = []
@@ -163,7 +162,6 @@ class TestDispatchCallbackBodyRecordingPath:
         indata = np.zeros(4, dtype=np.float32)
         dispatcher.dispatch_callback_body(fake, indata, 4, "tinfo", "status")
         assert fake._dropped_ring_chunks == 0
-        assert fake._skipped_frames == 0
 
     def test_increments_dropped_counters_when_ring_buffer_full(self):
         # maxlen=2 — pre-fill the ring buffer to capacity, then call.
@@ -176,9 +174,8 @@ class TestDispatchCallbackBodyRecordingPath:
         result = dispatcher.dispatch_callback_body(fake, indata, 4, "tinfo", "status")
         # Body returns a payload (proceed-with-append signal).
         assert result is not None
-        # Counters bumped once for the one overflow detection.
+        # Counter bumped once for the one overflow detection.
         assert fake._dropped_ring_chunks == 1
-        assert fake._skipped_frames == 1
 
     def test_no_counter_increment_when_maxlen_is_none(self):
         fake = _FakeRecorder(recording=True, ring_maxlen=None)
@@ -189,7 +186,6 @@ class TestDispatchCallbackBodyRecordingPath:
         indata = np.zeros(4, dtype=np.float32)
         dispatcher.dispatch_callback_body(fake, indata, 4, "tinfo", "status")
         assert fake._dropped_ring_chunks == 0
-        assert fake._skipped_frames == 0
 
     def test_payload_shape_is_compatible_with_ring_buffer_append_and_unpack(self):
         """Smoke test simulating the primary agent's Option C delegate:
@@ -241,7 +237,7 @@ def _strip_docstring(src: str) -> str:
 
 
 class TestDispatchCallbackBodySourceContract:
-    """RT-SAFE-001: the helper must not introduce heavy-pipeline ops that
+    """the helper must not introduce heavy-pipeline ops that
     would leak into ``Recorder._audio_callback_dispatch`` if the primary
     agent inlines them. The body should only do RT-safe work."""
 
@@ -256,7 +252,7 @@ class TestDispatchCallbackBodySourceContract:
             "_vad_update",
         ):
             assert forbidden not in src, (
-                f"RT-SAFE-001: dispatch_callback_body must NOT call {forbidden!r} — "
+                f"dispatch_callback_body must NOT call {forbidden!r} — "
                 "that runs on the worker thread, not the RT callback"
             )
 
@@ -272,7 +268,7 @@ class TestDispatchCallbackBodySourceContract:
         assert "_ring_buffer.append" not in src, (
             "Option C contract: _ring_buffer.append must stay on "
             "Recorder._audio_callback_dispatch (the literal is pinned "
-            "by the RT-SAFE-001 source-inspection test)"
+            "by the source-inspection test)"
         )
 
     def test_dispatch_callback_body_source_does_not_set_worker_wake_event(self):
@@ -283,7 +279,7 @@ class TestDispatchCallbackBodySourceContract:
         assert "_worker_wake_event.set" not in src, (
             "Option C contract: _worker_wake_event.set() must stay on "
             "Recorder._audio_callback_dispatch (the literal is pinned "
-            "by the RT-SAFE-001 source-inspection test)"
+            "by the source-inspection test)"
         )
 
 

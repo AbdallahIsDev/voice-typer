@@ -1,6 +1,6 @@
-"""Regression test for NEW-UX-004: model delete is intentionally confirm-only.
+"""Regression test for model delete is intentionally confirm-only.
 
-The d-review NEW-UX-004 flagged that model delete uses a confirm dialog only,
+The d-review flagged that model delete uses a confirm dialog only,
 with no undo toast (unlike History / Templates / Vocabulary which all use
 ``showUndoableToast`` for a 6-second undo window).
 
@@ -28,29 +28,36 @@ RATIONALE_DOC = REPO_ROOT / "docs" / "ux" / "model-delete-rationale.md"
 
 
 class TestModelDeleteRationale:
-    """NEW-UX-004: confirm-only delete is the documented, intentional choice."""
+    """confirm-only delete is the documented, intentional choice."""
 
     def test_models_tsx_exists(self) -> None:
         """Guard: the source file under test must exist."""
         assert MODELS_TSX.is_file(), f"Missing Models.tsx at {MODELS_TSX}"
 
     def test_rationale_comment_present_in_models_tsx(self) -> None:
-        """The rationale comment block must live above ``confirmDeleteModel``.
+        """The rationale comment block must live above the delete-confirm UI.
 
-        The marker ``NEW-UX-004 (rationale): model delete is intentionally
+        The marker ``(rationale): model delete is intentionally
         confirm-only`` is the unique anchor the test greps for. If a future
         refactor removes or rewords it, the test fails — forcing the author
         to either re-affirm the decision or implement undo and update this
         test.
+
+        The confirm-delete handler lives in ``hooks/models/useModelSelection.ts``
+        (``confirmDelete``), but the dialog itself is rendered in ``Models.tsx``
+        via ``<ConfirmDialog ... onConfirm={lifecycle.confirmDelete}>``. We
+        anchor the comment to the ``<ConfirmDialog`` JSX element (the
+        delete-confirm UI) rather than the handler, since the rationale is
+        about the UX surface the user sees.
         """
         src = MODELS_TSX.read_text(encoding="utf-8")
 
         # Anchor marker — must be present verbatim.
-        assert "NEW-UX-004 (rationale): model delete is intentionally confirm-only" in src, (
-            "Models.tsx is missing the NEW-UX-004 rationale comment above "
-            "confirmDeleteModel. If you removed it on purpose, either "
-            "re-add it (confirm-only is the decided UX) or implement undo "
-            "and update tests/test_model_delete_ux.py."
+        assert "(rationale): model delete is intentionally confirm-only" in src, (
+            "Models.tsx is missing the rationale comment above "
+            "the ConfirmDialog for model delete. If you removed it on "
+            "purpose, either re-add it (confirm-only is the decided UX) or "
+            "implement undo and update tests/test_model_delete_ux.py."
         )
 
         # The comment must reference the doc so readers can find the writeup.
@@ -59,14 +66,14 @@ class TestModelDeleteRationale:
             "docs/ux/model-delete-rationale.md so the decision is discoverable."
         )
 
-        # The comment must live ABOVE confirmDeleteModel (not after it) —
+        # The comment must live ABOVE the ConfirmDialog JSX (not after it) —
         # otherwise it documents nothing useful. We check the marker appears
-        # before the function definition.
-        marker_idx = src.find("NEW-UX-004 (rationale): model delete is intentionally confirm-only")
-        fn_idx = src.find("const confirmDeleteModel")
-        assert marker_idx != -1 and fn_idx != -1, "Either the rationale marker or confirmDeleteModel is missing."
+        # before the dialog element.
+        marker_idx = src.find("(rationale): model delete is intentionally confirm-only")
+        fn_idx = src.find("<ConfirmDialog")
+        assert marker_idx != -1 and fn_idx != -1, "Either the rationale marker or the ConfirmDialog JSX is missing."
         assert marker_idx < fn_idx, (
-            "NEW-UX-004 rationale comment must appear BEFORE confirmDeleteModel in Models.tsx (currently it does not)."
+            "rationale comment must appear BEFORE the ConfirmDialog JSX in Models.tsx (currently it does not)."
         )
 
     def test_no_undo_toast_wired_for_model_delete(self) -> None:
@@ -118,14 +125,13 @@ class TestModelDeleteRationale:
     def test_rationale_doc_exists(self) -> None:
         """The decision writeup must exist at the documented path."""
         assert RATIONALE_DOC.is_file(), (
-            f"Missing rationale doc at {RATIONALE_DOC}. The NEW-UX-004 decision must be documented there."
+            f"Missing rationale doc at {RATIONALE_DOC}. The decision must be documented there."
         )
 
     def test_rationale_doc_mentions_decision(self) -> None:
         """The doc must actually describe the decision (not be a stub)."""
         text = RATIONALE_DOC.read_text(encoding="utf-8")
-        # Must reference the task ID and the confirm-only decision.
-        assert "NEW-UX-004" in text, "Rationale doc must reference the NEW-UX-004 task ID."
+        # Must reference the confirm-only decision.
         assert "confirm-only" in text.lower(), "Rationale doc must state the confirm-only decision."
         # Must explain WHY undo is bad — both bad options.
         assert "soft-delete" in text.lower() or "soft delete" in text.lower(), (
@@ -143,8 +149,8 @@ class TestModelDeleteRationale:
         future change makes it soft-delete, the rationale (and this test)
         must be revisited.
         """
-        service_py = REPO_ROOT / "voice_typer" / "server" / "service.py"
-        assert service_py.is_file(), "voice_typer/server/service.py missing"
+        service_py = REPO_ROOT / "voice_typer" / "server" / "service" / "model.py"
+        assert service_py.is_file(), "voice_typer/server/service/model.py missing"
         src = service_py.read_text(encoding="utf-8")
 
         # Locate the delete_model method body.

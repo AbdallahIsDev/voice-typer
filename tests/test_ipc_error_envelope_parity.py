@@ -1,6 +1,6 @@
-"""IPC-5: TCP / WS error-envelope parity tests.
+"""TCP / WS error-envelope parity tests.
 
-Pre-IPC-5, the TCP path (``ipc_server._handle_tcp_connection``) and
+Previously, the TCP path (``ipc_server._handle_tcp_connection``) and
 the WS path (``sidecar_ws._make_dispatch``) emitted DIFFERENT error
 envelopes for the same logical errors:
 
@@ -19,7 +19,7 @@ envelopes for the same logical errors:
   represented the same logical fault (an uncaught handler
   exception).
 
-Post-IPC-5, both paths emit the SAME envelope for each error class:
+After the refactor, both paths emit the SAME envelope for each error class:
 
 * Rate limit → ``{"type":"error","data":{"code":"rate_limited",
   "message":"rate limit exceeded; backing off"}}``
@@ -93,7 +93,7 @@ def _read_response_line(sock: socket.socket, timeout: float = 2.0) -> dict:
 
 def _drain(sock: socket.socket, timeout: float = 0.3) -> list[dict]:
     """Best-effort drain of any pending lines on ``sock`` (e.g. the
-    initial ``state_changed`` event from ERR-017).
+    initial ``state_changed`` event from the fix).
     """
     sock.settimeout(timeout)
     lines: list[dict] = []
@@ -237,22 +237,19 @@ def authenticated_client(live_server):
 
 
 class TestTcpErrorEnvelopes:
-    """IPC-5: TCP path now emits the same envelope shape as the WS path."""
+    """TCP path now emits the same envelope shape as the WS path."""
 
     def test_tcp_invalid_json_returns_invalid_payload_code(self, authenticated_client):
         """Invalid JSON on the TCP socket must return
         ``{"type":"error","data":{"code":"client.invalid_payload",
-        "legacy_code":"invalid_payload","message":
-        "invalid JSON"}}`` — matching the WS path.
+        "message":"invalid JSON"}}`` — matching the WS path.
         """
         client, _ = authenticated_client
         _send_raw(client, "{not valid json")
         resp = _read_response_line(client, timeout=2.0)
         assert resp["type"] == "error"
-        # namespaced form is canonical; legacy_code alias is
-        # preserved for one release cycle.
+        # namespaced form is canonical.
         assert resp["data"]["code"] == "client.invalid_payload"
-        assert resp["data"]["legacy_code"] == "invalid_payload"
         assert resp["data"]["message"] == "invalid JSON"
 
     def test_tcp_dispatch_exception_returns_internal_error_code(self, authenticated_client, monkeypatch):
@@ -294,10 +291,8 @@ class TestTcpErrorEnvelopes:
         _send_line(client, {"id": 1, "type": "get_status"})
         resp = _read_response_line(client, timeout=2.0)
         assert resp["type"] == "error"
-        # namespaced form is canonical; legacy_code alias is
-        # preserved for one release cycle.
+        # namespaced form is canonical.
         assert resp["data"]["code"] == "client.rate_limited"
-        assert resp["data"]["legacy_code"] == "rate_limited"
         assert resp["data"]["message"] == "rate limit exceeded; backing off"
 
 
@@ -305,7 +300,7 @@ class TestTcpErrorEnvelopes:
 
 
 class TestWsErrorEnvelopes:
-    """IPC-5: WS path baseline — confirms the envelopes the TCP path
+    """WS path baseline — confirms the envelopes the TCP path
     now matches.
 
     These tests are the WS-side mirror of ``TestTcpErrorEnvelopes``.
@@ -324,7 +319,6 @@ class TestWsErrorEnvelopes:
             "data": {
                 # namespaced form is canonical.
                 "code": "client.invalid_payload",
-                "legacy_code": "invalid_payload",
                 "message": "invalid JSON",
             },
         }
@@ -385,10 +379,8 @@ class TestWsErrorEnvelopes:
             result = asyncio.run(dispatch({"type": "get_status", "data": {}}, MagicMock()))
 
         assert result["type"] == "error"
-        # namespaced form is canonical; legacy_code alias is
-        # preserved for one release cycle.
+        # namespaced form is canonical.
         assert result["data"]["code"] == "client.rate_limited"
-        assert result["data"]["legacy_code"] == "rate_limited"
         assert result["data"]["message"] == "rate limit exceeded; backing off"
 
 
@@ -396,7 +388,7 @@ class TestWsErrorEnvelopes:
 
 
 class TestTcpWsEnvelopeParity:
-    """IPC-5: for each error class, the TCP and WS paths must emit
+    """for each error class, the TCP and WS paths must emit
     byte-for-byte identical envelopes (modulo the optional ``id`` field
     that the TCP path adds for request/response correlation).
     """
@@ -405,10 +397,8 @@ class TestTcpWsEnvelopeParity:
         "invalid_json": {
             "type": "error",
             "data": {
-                # namespaced form is canonical; legacy_code alias
-                # is preserved for one release cycle.
+                # namespaced form is canonical.
                 "code": "client.invalid_payload",
-                "legacy_code": "invalid_payload",
                 "message": "invalid JSON",
             },
         },
@@ -416,7 +406,6 @@ class TestTcpWsEnvelopeParity:
             "type": "error",
             "data": {
                 "code": "client.rate_limited",
-                "legacy_code": "rate_limited",
                 "message": "rate limit exceeded; backing off",
             },
         },
@@ -425,8 +414,9 @@ class TestTcpWsEnvelopeParity:
         # ``rate_limited`` and ``invalid_payload`` are now also
         # emitted in the namespaced form (``client.rate_limited`` /
         # ``client.invalid_payload``) on the dispatch path; the parity
-        # test asserts the namespaced form. A backward-compat
-        # ``legacy_code`` alias is preserved for one release cycle (see
+        # test asserts the namespaced form. The previous per-envelope
+        # ``legacy_code`` alias was removed once the renderer migrated
+        # fully to the namespaced ``code`` form (see
         # ``voice_typer/server/ipc/validation.py``).
         "internal_error": {
             "type": "error",

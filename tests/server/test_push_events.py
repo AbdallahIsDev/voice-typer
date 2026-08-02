@@ -3,11 +3,11 @@
 Classes:
 - TestPushEvents                     — basic push + tray set_state hook
 - TestPushEventNow                   — _push_event_now dispatch
-- TestPushEventRegistryMultiInstance — NEW-IPC-013 multi-server registry
-- TestConsoleModePushVisibility      — NEW-IPC-008 INFO-level visibility
-- TestGetInstancePushFnTracking      — NEW-IPC-013 per-instance push_fn
+- TestPushEventRegistryMultiInstance — multi-server registry
+- TestConsoleModePushVisibility      — INFO-level visibility
+- TestGetInstancePushFnTracking      — per-instance push_fn
 
-Split out from the original monolithic tests/test_server.py (DT-37, Phase 4.5).
+Split out from the original monolithic tests/test_server.py (the fix, Phase 4.5).
 """
 
 import logging
@@ -49,12 +49,58 @@ class TestPushEvents:
         assert len(mock_app.tray.set_state_calls) == 1
         assert mock_app.tray.set_state_calls[0][0] == AppState.RECORDING
 
-        # And a push event should have been sent
+        # And a push event should have been sent. The ``message``
+        # argument is forwarded in the payload so the renderer can
+        # surface the same diagnostic the tray tooltip shows (the fix-1).
         server._send.assert_called_once()
         push_msg = server._send.call_args[0][0]
         assert push_msg == {
             "type": "status_change",
-            "data": {"status": "recording"},
+            "data": {"status": "recording", "message": "Recording..."},
+        }
+
+    def test_tray_set_state_forwards_empty_message(self, server, mock_app):
+        """Regression: the default empty-string message must still
+        appear in the payload (the fix-1). The renderer can branch on
+        ``data.message`` without a separate presence check.
+        """
+        from voice_typer.server.tray import AppState
+
+        server._send = MagicMock()
+        server._hook_tray_set_state()
+
+        # No explicit message — relies on the ``message=""`` default.
+        mock_app.tray.set_state(AppState.IDLE)
+
+        server._send.assert_called_once()
+        push_msg = server._send.call_args[0][0]
+        assert push_msg == {
+            "type": "status_change",
+            "data": {"status": "idle", "message": ""},
+        }
+
+    def test_tray_set_state_forwards_error_message(self, server, mock_app):
+        """Regression: a multi-line error message set via ``set_state``
+        must reach the renderer verbatim so the host can surface the
+        underlying failure (the fix-1, Critical sub-item).
+        """
+        from voice_typer.server.tray import AppState
+
+        server._send = MagicMock()
+        server._hook_tray_set_state()
+
+        mock_app.tray.set_state(
+            AppState.ERROR, "Transcription failed: model crashed"
+        )
+
+        server._send.assert_called_once()
+        push_msg = server._send.call_args[0][0]
+        assert push_msg == {
+            "type": "status_change",
+            "data": {
+                "status": "error",
+                "message": "Transcription failed: model crashed",
+            },
         }
 
 
@@ -64,7 +110,7 @@ class TestPushEvents:
 class TestPushEventNow:
     """_push_event_now sends events to the active IPC server instance.
 
-    NEW-IPC-013: the global ``_push_event`` was replaced by a registry
+    the global ``_push_event`` was replaced by a registry
     (``_push_event_registry`` + ``_push_event_registry_lock``).  Tests
     that previously manipulated ``ipc_mod._push_event`` directly now
     use the registry helpers (``_set_push_event`` / ``_clear_push_event``)
@@ -112,7 +158,7 @@ class TestPushEventNow:
     def test_exception_in_push_returns_false(self, server, monkeypatch, clean_registry):
         """If the push function raises, _push_event_now should return False.
 
-        NEW-IPC-013: a broken fn registered via _set_push_event is now
+        a broken fn registered via _set_push_event is now
         tried, but the exception is swallowed and the result is False
         because no other registered fn delivered the event.
         """
@@ -130,9 +176,9 @@ class TestPushEventNow:
 
 
 # === , ,  ===
-"""Regression tests for NEW-IPC-013, NEW-IPC-006, NEW-IPC-008.
+"""Regression tests for the fix, the fix, the fix.
 
-NEW-IPC-013: Two IPCServer instances in the same process used to stomp
+Two IPCServer instances in the same process used to stomp
 each other via the module-level ``_push_event`` global.  The second
 start() would overwrite the first server's push callable, and the
 first server's stop() would clear the global entirely — leaving the
@@ -140,12 +186,12 @@ second server unable to push events.  Fix: replace the global with a
 thread-safe registry (set) of push callables; ``_push_event_now`` fans
 out to ALL registered servers.
 
-NEW-IPC-006: 5 commands returned ``{type: "ack"}`` with no ``data``
+5 commands returned ``{type: "ack"}`` with no ``data``
 field, 2 returned ``{type: "ack", data: {...}}``.  Fix: every
 response now carries an explicit ``data`` field (empty dict for acks
 with no payload).
 
-NEW-IPC-008: Push events were silently dropped at DEBUG level when no
+Push events were silently dropped at DEBUG level when no
 client was connected, making the ``voice-typer`` console script
 useless for diagnosis.  Fix: surface non-waveform push events at INFO
 level so the user can actually see state changes / errors.
@@ -153,7 +199,7 @@ level so the user can actually see state changes / errors.
 
 
 class TestPushEventRegistryMultiInstance:
-    """NEW-IPC-013: multiple IPCServer instances in the same process."""
+    """multiple IPCServer instances in the same process."""
 
     def test_two_servers_can_register_simultaneously(self, clean_registry):
         """Both servers' push callables must coexist in the registry."""
@@ -251,7 +297,7 @@ class TestPushEventRegistryMultiInstance:
 
 
 class TestConsoleModePushVisibility:
-    """NEW-IPC-008: push events must be visible at INFO level when no
+    """push events must be visible at INFO level when no
     client is connected (console mode)."""
 
     def test_non_waveform_push_logged_at_info(self, server_with_mock_app_for_push_events, caplog):
@@ -293,7 +339,7 @@ class TestConsoleModePushVisibility:
 
 
 class TestGetInstancePushFnTracking:
-    """NEW-IPC-013: each IPCServer tracks its own push callable so
+    """each IPCServer tracks its own push callable so
     stop() can unregister just that one without affecting others."""
 
     def test_start_registers_instance_push_fn(self, server_with_mock_app_for_push_events):

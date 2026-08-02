@@ -1,4 +1,4 @@
-"""TY-24 (2026-07-25): regression tests for ``IPCServer._send``
+"""(2026-07-25): regression tests for ``IPCServer._send``
 shutdown-allowlist + cached shutting-down optimizations.
 
 Previously ``_send`` re-allocated a 5-element ``_shutdown_allowlist``
@@ -56,7 +56,7 @@ def test_shutdown_allowlist_is_module_level_frozenset() -> None:
     3. The semantic intent ("a set of allowed types") is clearer.
     """
     assert isinstance(_SHUTDOWN_ALLOWLIST, frozenset), (
-        f"TY-24: _SHUTDOWN_ALLOWLIST must be a frozenset, got {type(_SHUTDOWN_ALLOWLIST).__name__}"
+        f"_SHUTDOWN_ALLOWLIST must be a frozenset, got {type(_SHUTDOWN_ALLOWLIST).__name__}"
     )
     # The constant must be accessible at module level (not just as a
     # local variable inside _send). This is verified implicitly by the
@@ -84,7 +84,7 @@ def test_shutdown_allowlist_has_correct_membership() -> None:
         }
     )
     assert expected == _SHUTDOWN_ALLOWLIST, (
-        f"TY-24: _SHUTDOWN_ALLOWLIST drift. Expected {sorted(expected)}, got {sorted(_SHUTDOWN_ALLOWLIST)}."
+        f"_SHUTDOWN_ALLOWLIST drift. Expected {sorted(expected)}, got {sorted(_SHUTDOWN_ALLOWLIST)}."
     )
 
 
@@ -113,7 +113,7 @@ def test_cached_shutting_down_initialized_in_init() -> None:
 
     server = IPCServer(_FakeApp())
     assert server._cached_shutting_down is False, (
-        "TY-24: _cached_shutting_down must be initialized to False in "
+        "_cached_shutting_down must be initialized to False in "
         "__init__ (a fresh server has never been told to shut down)."
     )
 
@@ -128,7 +128,7 @@ def test_cached_shutting_down_refreshed_in_start() -> None:
     """
     src = inspect.getsource(IPCServer.start)
     assert "_cached_shutting_down = False" in src, (
-        "TY-24: start() must set _cached_shutting_down = False (the canonical 'we're not shutting down' transition)."
+        "start() must set _cached_shutting_down = False (the canonical 'we're not shutting down' transition)."
     )
 
 
@@ -142,7 +142,7 @@ def test_cached_shutting_down_refreshed_in_stop() -> None:
     """
     src = inspect.getsource(IPCServer.stop)
     assert "_cached_shutting_down = True" in src, (
-        "TY-24: stop() must set _cached_shutting_down = True (the canonical 'we're shutting down' transition)."
+        "stop() must set _cached_shutting_down = True (the canonical 'we're shutting down' transition)."
     )
 
 
@@ -177,6 +177,7 @@ def test_cached_shutting_down_actually_changes_on_lifecycle() -> None:
     server._tcp_client = None
     server._tcp_server_socket = None
     server._tcp_worker_pool = None
+    server._tcp_dispatch_pool = None
     server._heartbeat_stop_event = threading.Event()
     server._push_fn = None
     server._stdin_thread = None
@@ -187,7 +188,7 @@ def test_cached_shutting_down_actually_changes_on_lifecycle() -> None:
     # stop() should flip the cache to True.
     server.stop()
     assert server._cached_shutting_down is True, (
-        f"TY-24: stop() must set _cached_shutting_down = True (got {server._cached_shutting_down!r})."
+        f"stop() must set _cached_shutting_down = True (got {server._cached_shutting_down!r})."
     )
 
 
@@ -207,7 +208,7 @@ def test_send_uses_cached_shutting_down_not_getattr_self_app() -> None:
     """
     src = inspect.getsource(IPCServer._send)
     assert "_cached_shutting_down" in src, (
-        "TY-24: _send must reference _cached_shutting_down (the cached field) instead of doing getattr(self.app, ...)."
+        "_send must reference _cached_shutting_down (the cached field) instead of doing getattr(self.app, ...)."
     )
     # The previous per-call cross-object getattr must be GONE from the
     # shutdown-suppress gate. (It may still appear in comments
@@ -221,7 +222,7 @@ def test_send_uses_cached_shutting_down_not_getattr_self_app() -> None:
     executable_lines = [line for line in src.splitlines() if line.strip() and not line.strip().startswith("#")]
     executable_src = "\n".join(executable_lines)
     assert 'getattr(self.app, "_shutting_down"' not in executable_src, (
-        "TY-24: _send still has the per-call "
+        "_send still has the per-call "
         '``getattr(self.app, "_shutting_down", False) is True`` pattern '
         "in executable code. Replace with the cached "
         "``getattr(self, '_cached_shutting_down', False) is True``."
@@ -235,7 +236,7 @@ def test_send_uses_module_level_allowlist_not_inline_tuple() -> None:
     """
     src = inspect.getsource(IPCServer._send)
     assert "_SHUTDOWN_ALLOWLIST" in src, (
-        "TY-24: _send must reference the module-level _SHUTDOWN_ALLOWLIST constant (not re-allocate the tuple inline)."
+        "_send must reference the module-level _SHUTDOWN_ALLOWLIST constant (not re-allocate the tuple inline)."
     )
     # The inline tuple allocation pattern must NOT appear in executable
     # code (it's fine in comments explaining the change).
@@ -251,24 +252,32 @@ def test_send_uses_module_level_allowlist_not_inline_tuple() -> None:
     # The new code is ``_shutdown_allowlist = _SHUTDOWN_ALLOWLIST`` —
     # that's a single token after ``=``.
     assert "_shutdown_allowlist = (" not in executable_src, (
-        "TY-24: _send still has the inline tuple allocation pattern "
+        "_send still has the inline tuple allocation pattern "
         "``_shutdown_allowlist = (...)`` in executable code. Replace "
         "with ``_shutdown_allowlist = _SHUTDOWN_ALLOWLIST``."
     )
 
 
-def test_send_settimeout_dance_documented() -> None:
-    """TY-24 explicit scope note: the per-write ``settimeout`` dance is
-    correctness-related (NEW-CONC-003) and was left unchanged — but a
-    PERF NOTE comment must be added documenting the syscall overhead so
-    the next pass has the context.
+def test_send_uses_select_not_settimeout() -> None:
+    """The per-write ``settimeout`` dance has been replaced with a
+    single ``select.select`` call via ``_await_socket_writable``. This
+    test pins the new approach: ``_send`` must call
+    ``_await_socket_writable`` and must NOT capture ``_prev_timeout``
+    or use a ``finally:`` block to restore it (the socket's timeout
+    attribute is never mutated, so there's nothing to restore).
     """
     src = inspect.getsource(IPCServer._send)
-    assert "PERF NOTE" in src, (
-        "TY-24: _send must contain a 'PERF NOTE' comment documenting "
-        "the per-write settimeout dance overhead (the dance itself was "
-        "left unchanged because it's correctness-related per "
-        "NEW-CONC-003)."
+    assert "_await_socket_writable" in src, (
+        "_send must call _await_socket_writable to gate writes on "
+        "socket write-readiness (replaces the per-write settimeout dance)."
+    )
+    assert "_prev_timeout" not in src, (
+        "_send must NOT capture _prev_timeout — the select-based approach "
+        "doesn't mutate the socket timeout, so there's nothing to restore."
+    )
+    assert "finally:" not in src, (
+        "_send must NOT have a finally block — without the settimeout "
+        "dance there's no timeout state to restore."
     )
 
 
@@ -319,7 +328,7 @@ def test_send_suppresses_non_allowlisted_push_when_shutting_down() -> None:
         # The suppression path closes the tcp_client and sets
         # ``_tcp_client = None``. Verify both happened.
         assert server._tcp_client is None, (
-            "TY-24 regression: when _cached_shutting_down=True and the "
+            "regression: when _cached_shutting_down=True and the "
             "event type is NOT in _SHUTDOWN_ALLOWLIST, _send must close "
             "the tcp_client and set _tcp_client=None (suppression path)."
         )
@@ -355,13 +364,13 @@ def test_send_delivers_allowlisted_push_when_shutting_down() -> None:
 
         reader.join(timeout=2.0)
         assert received, (
-            "TY-24 regression: when _cached_shutting_down=True but the "
+            "regression: when _cached_shutting_down=True but the "
             "event type IS in _SHUTDOWN_ALLOWLIST (relaunch_app), _send "
             "MUST still write the event to the TCP client. No bytes "
             "were received."
         )
         assert b"relaunch_app" in received[0], (
-            f"TY-24: expected 'relaunch_app' in the written bytes; got {received[0]!r}."
+            f"expected 'relaunch_app' in the written bytes; got {received[0]!r}."
         )
     finally:
         srv.close()
@@ -395,7 +404,7 @@ def test_send_delivers_non_allowlisted_push_when_not_shutting_down() -> None:
 
         reader.join(timeout=2.0)
         assert received, (
-            "TY-24 regression: when _cached_shutting_down=False, _send "
+            "regression: when _cached_shutting_down=False, _send "
             "must deliver ALL push events (even non-allowlisted ones "
             "like bubble_level). No bytes were received."
         )
@@ -434,7 +443,7 @@ def test_send_works_when_cached_shutting_down_not_set() -> None:
     # The event should have been buffered in _pending_tcp (since
     # tcp_client is None, _send appends instead of writing).
     assert len(server._pending_tcp) == 2, (
-        f"TY-24: _send should have appended the new event to "
+        f"_send should have appended the new event to "
         f"_pending_tcp when tcp_client is None. Got "
         f"{len(server._pending_tcp)} entries."
     )

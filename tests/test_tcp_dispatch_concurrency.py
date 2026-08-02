@@ -8,9 +8,10 @@ the read loop from reading subsequent commands from the same Electron
 client — every pending request waited in the kernel socket buffer
 until the slow handler returned.
 
-The fix offloads ``_dispatch`` to the existing ``_tcp_worker_pool``
-(declared at ``transport_tcp.py`` startup, previously only used for
-connection handling) via ``pool.submit(self._tcp_dispatch_and_respond,
+The fix offloads ``_dispatch`` to the dedicated
+``_tcp_dispatch_pool`` (declared at ``transport_tcp.py`` startup,
+separate from ``_tcp_worker_pool`` which is reserved for connection
+handshakes + read-loops) via ``pool.submit(self._tcp_dispatch_and_respond,
 msg, client)``. The read loop continues reading immediately. The
 Electron client already correlates responses to requests out-of-order
 via the ``id`` field (``sendToPython`` → ``pendingRequests.get(id)``),
@@ -24,7 +25,7 @@ callable so the read loop can discard the Future.
 
 Test strategy
 -------------
-1. Replace ``server._tcp_worker_pool`` with a real
+1. Replace ``server._tcp_dispatch_pool`` with a real
    ``ThreadPoolExecutor`` (so dispatch actually runs concurrently) and
    ``server._dispatch`` with a test double that records start/end
    timestamps and sleeps for "slow" commands.
@@ -34,7 +35,7 @@ Test strategy
 3. Send two commands back-to-back: a slow one (dispatch sleeps 1s)
    then a fast one (instant). Assert the fast dispatch STARTS before
    the slow dispatch FINISHES — proving the read loop did not block.
-4. Verify the XE-2-1 heartbeat fast-path still bypasses ``_dispatch``
+4. Verify the the fix-1 heartbeat fast-path still bypasses ``_dispatch``
    (heartbeats are handled inline and are not delayed by an in-flight
    slow dispatch).
 """
@@ -60,7 +61,7 @@ def _make_server_with_pool() -> IPCServer:
     """Build an ``IPCServer`` with a real ``ThreadPoolExecutor`` as the
     dispatch pool.
 
-    The pool stands in for the production ``_tcp_worker_pool`` (which
+    The pool stands in for the production ``_tcp_dispatch_pool`` (which
     is normally created by ``start_tcp()``). Using a real pool — rather
     than a ``MagicMock`` — lets us verify that ``submit`` actually runs
     the dispatch concurrently, which is the whole point of the SU-19
@@ -71,9 +72,9 @@ def _make_server_with_pool() -> IPCServer:
     service = make_fake_service()
     server = IPCServer(app, service=service)
     server._running = True
-    server._tcp_worker_pool = ThreadPoolExecutor(
+    server._tcp_dispatch_pool = ThreadPoolExecutor(
         max_workers=4,
-        thread_name_prefix="tcp-worker-test",
+        thread_name_prefix="tcp-dispatch-test",
     )
     return server
 
@@ -81,7 +82,7 @@ def _make_server_with_pool() -> IPCServer:
 def _drain_socket(sock: socket.socket, timeout: float = 0.4) -> bytes:
     """Best-effort drain of any pending data on ``sock``.
 
-    Used to swallow the post-auth ``state_changed`` event (ERR-017)
+    Used to swallow the post-auth ``state_changed`` event (the fix)
     so subsequent reads return only the responses we care about.
     """
     sock.settimeout(timeout)
@@ -128,7 +129,7 @@ def _read_lines(sock: socket.socket, timeout: float = 2.0, max_lines: int = 10) 
 
 
 class TestTCPDispatchConcurrency:
-    """SU-19: ``_dispatch`` must be offloaded to ``_tcp_worker_pool`` so
+    """SU-19: ``_dispatch`` must be offloaded to ``_tcp_dispatch_pool`` so
     the read loop continues reading while a slow handler runs."""
 
     def test_slow_dispatch_does_not_block_read_loop(self) -> None:
@@ -244,8 +245,8 @@ class TestTCPDispatchConcurrency:
                     f"thread {e['thread']!r} (same as the read loop) — it was "
                     f"NOT offloaded to the worker pool."
                 )
-                assert "tcp-worker" in e["thread"], (
-                    f"SU-19: dispatch ran on thread {e['thread']!r}, expected a 'tcp-worker' pool thread."
+                assert "tcp-dispatch" in e["thread"], (
+                    f"SU-19: dispatch ran on thread {e['thread']!r}, expected a 'tcp-dispatch' pool thread."
                 )
 
             # Drain any responses so the socket buffer doesn't fill.
@@ -255,10 +256,10 @@ class TestTCPDispatchConcurrency:
                 client_sock.close()
             handler_thread.join(timeout=5.0)
             assert not handler_thread.is_alive(), "SU-19: TCP handler thread did not exit after client close."
-            server._tcp_worker_pool.shutdown(wait=False, cancel_futures=True)  # type: ignore[union-attr]
+            server._tcp_dispatch_pool.shutdown(wait=False, cancel_futures=True)  # type: ignore[union-attr]
 
     def test_heartbeat_fast_path_bypasses_dispatch(self) -> None:
-        """XE-2-1: the heartbeat fast-path must still bypass ``_dispatch``.
+        """the fix-1: the heartbeat fast-path must still bypass ``_dispatch``.
 
         Sends a slow command (dispatch sleeps 1s), then a heartbeat
         while the slow dispatch is in-flight. The heartbeat_ack must
@@ -316,14 +317,14 @@ class TestTCPDispatchConcurrency:
             # until after the slow dispatch finished (1s+), and the
             # heartbeat_ack would either time out or arrive after the
             # slow response.
-            assert len(responses) >= 1, f"XE-2-1: expected at least one response (heartbeat_ack), got {responses!r}"
+            assert len(responses) >= 1, f"the fix-1: expected at least one response (heartbeat_ack), got {responses!r}"
             first = responses[0]
             assert first.get("type") == "heartbeat_ack", (
-                f"XE-2-1 REGRESSION: the first response was {first!r}, expected "
+                f"the fix-1 REGRESSION: the first response was {first!r}, expected "
                 f"heartbeat_ack. The heartbeat was not handled inline (it was "
                 f"either queued behind the slow dispatch or delayed by it)."
             )
-            assert first.get("id") == 2, f"XE-2-1: heartbeat_ack id mismatch: {first!r}"
+            assert first.get("id") == 2, f"the fix-1: heartbeat_ack id mismatch: {first!r}"
 
             # The heartbeat must NOT have gone through ``_dispatch``.
             # ``_dispatch`` should have been called exactly once (for
@@ -331,7 +332,7 @@ class TestTCPDispatchConcurrency:
             with dispatch_call_lock:
                 n = dispatch_call_count["n"]
             assert n == 1, (
-                f"XE-2-1: ``_dispatch`` was called {n} times, expected exactly "
+                f"the fix-1: ``_dispatch`` was called {n} times, expected exactly "
                 f"1 (for slow_command only). The heartbeat must bypass "
                 f"``_dispatch`` via the inline fast-path."
             )
@@ -339,14 +340,14 @@ class TestTCPDispatchConcurrency:
             with suppress(OSError):
                 client_sock.close()
             handler_thread.join(timeout=5.0)
-            assert not handler_thread.is_alive(), "XE-2-1: TCP handler thread did not exit after client close."
-            server._tcp_worker_pool.shutdown(wait=False, cancel_futures=True)  # type: ignore[union-attr]
+            assert not handler_thread.is_alive(), "the fix-1: TCP handler thread did not exit after client close."
+            server._tcp_dispatch_pool.shutdown(wait=False, cancel_futures=True)  # type: ignore[union-attr]
 
     def test_dispatch_exception_still_sends_error_response(self) -> None:
         """SU-19: the error-handling path must still work when dispatch
         is offloaded to the worker pool.
 
-        The ERR-018 / B-6 / EC-FIX-2 error envelope
+        The B-6 / EC-error envelope
         (``{"type":"error","data":{"code":"server.internal_error",
         "message":"internal error"}, "id": <id>}``) must be sent from
         within ``_tcp_dispatch_and_respond`` when ``_dispatch`` raises.
@@ -388,7 +389,7 @@ class TestTCPDispatchConcurrency:
                 client_sock.close()
             handler_thread.join(timeout=5.0)
             assert not handler_thread.is_alive()
-            server._tcp_worker_pool.shutdown(wait=False, cancel_futures=True)  # type: ignore[union-attr]
+            server._tcp_dispatch_pool.shutdown(wait=False, cancel_futures=True)  # type: ignore[union-attr]
 
 
 if __name__ == "__main__":

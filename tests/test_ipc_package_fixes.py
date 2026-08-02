@@ -1,4 +1,4 @@
-"""DE-33 / DE-34 / DE-35 / DE-36 regression tests for the ``ipc/`` package.
+"""regression tests for the ``ipc/`` package.
 
 Each test class covers ONE finding from the comprehensive review
 (``review.md`` lines 695–775). The file is self-contained
@@ -9,22 +9,22 @@ import cycle.
 
 Findings covered:
 
-* **DE-33** — ``ipc/history_bounds._sanitize_config_for_ipc``: pattern-
+* **the fix** — ``ipc/history_bounds._sanitize_config_for_ipc``: pattern-
   based secret-field denylist + non-None-value redaction. The static
   ``_SECRET_CONFIG_FIELDS`` frozenset is retained for backward compat
   with ``crash_recovery.py``, but the sanitizer now ALSO consults
   :data:`_SECRET_FIELD_PATTERNS` so a future secret field (e.g.
   ``azure_api_key``, ``oauth_token``, ``client_secret``) is masked
   even if no one remembers to add it to the frozenset.
-* **DE-34** — ``ipc/rate_limiter.COMMAND_COSTS``: the map now lists
+* **the fix** — ``ipc/rate_limiter.COMMAND_COSTS``: the map now lists
   every command in the dispatcher's ``_COMMAND_REGISTRY`` so the
   contract test can fail-loud if a future command is registered
   without a cost entry.
-* **DE-35** — ``ipc/history_bounds._bound_history_offset``: offset is
+* **the fix** — ``ipc/history_bounds._bound_history_offset``: offset is
   now capped at :data:`_HISTORY_OFFSET_MAX` (10_000_000) in addition
   to the ``max(0, v)`` floor. Previously Python big-ints could pass
   the clamp and reach SQLite.
-* **DE-36** — ``ipc/validation._validate_dict_payload``: migrated to
+* **the fix** — ``ipc/validation._validate_dict_payload``: migrated to
   emit namespaced codes (``client.invalid_payload`` /
   ``client.invalid_field`` / ``client.missing_field``) as the primary
   ``code`` field; the legacy bare form is preserved in a sibling
@@ -89,7 +89,7 @@ class _ConfigLike:
 
 
 class TestIsSecretFieldName:
-    """DE-33: ``_is_secret_field_name`` matches the documented patterns."""
+    """``_is_secret_field_name`` matches the documented patterns."""
 
     @pytest.mark.parametrize(
         "name",
@@ -171,7 +171,7 @@ class TestIsSecretFieldName:
 
 
 class TestSanitizePatternDenylist:
-    """DE-33: unlisted secret fields are redacted via the pattern denylist."""
+    """unlisted secret fields are redacted via the pattern denylist."""
 
     @pytest.mark.parametrize(
         "field_name, value",
@@ -190,7 +190,7 @@ class TestSanitizePatternDenylist:
     )
     def test_unlisted_secret_field_is_redacted(self, field_name, value):
         """A secret-bearing field NOT in ``_SECRET_CONFIG_FIELDS`` must
-        still be redacted by the pattern-based denylist (DE-33 defense-
+        still be redacted by the pattern-based denylist (defense-
         in-depth). The renderer must never see the real value."""
         cfg = _ConfigLike(**{field_name: value})
         out = _sanitize_config_for_ipc(cfg)
@@ -239,9 +239,9 @@ class TestSanitizePatternDenylist:
 
 
 class TestSanitizeFalsyValues:
-    """DE-33: redaction now masks any non-None value, regardless of truthiness.
+    """redaction now masks any non-None value, regardless of truthiness.
 
-    Pre-DE-33 the redaction logic was ``out[k] = _REDACTED_SENTINEL if v else v``
+    Previously the redaction logic was ``out[k] = _REDACTED_SENTINEL if v else v``
     — a secret stored as ``0``, ``False``, or ``""`` would NOT be
     redacted (falsy values were preserved verbatim). This was fine for
     the empty-string "no key set" case but unsafe for ``0`` / ``False``
@@ -262,12 +262,12 @@ class TestSanitizeFalsyValues:
         assert out["azure_api_key"] == _REDACTED_SENTINEL
 
     def test_falsy_empty_string_is_redacted(self):
-        """A secret stored as ``""`` is redacted. Pre-DE-33 the empty
+        """A secret stored as ``""`` is redacted. Previously the empty
         string was preserved so the renderer could distinguish "no key
         set" from "key set but hidden" — but ``None`` is the canonical
         sentinel for "not configured" in the Config dataclass (most
         secret fields default to ``""``, not ``None``, so the empty-
-        string "not configured" semantic was already ambiguous). DE-33
+        string "not configured" semantic was already ambiguous). This
         unifies the contract: ``None`` → not configured; any other
         value (including ``""``) → redacted."""
         cfg = _ConfigLike(azure_api_key="")
@@ -283,14 +283,14 @@ class TestSanitizeFalsyValues:
         assert out["cloud_api_key"] is None
 
     def test_truthy_string_is_redacted(self):
-        """The pre-DE-33 happy path: a truthy string secret is redacted."""
+        """The previously happy path: a truthy string secret is redacted."""
         cfg = _ConfigLike(cloud_api_key="sk-real-key-12345")
         out = _sanitize_config_for_ipc(cfg)
         assert out["cloud_api_key"] == _REDACTED_SENTINEL
 
     def test_real_key_value_does_not_leak(self):
         """Grep the full sanitized dict: no real key value should
-        appear anywhere in the serialized output (SEC-003 regression
+        appear anywhere in the serialized output (regression
         guard, now with the falsy-value fix)."""
         real_value = "sk-unique-marker-12345"
         cfg = _ConfigLike(
@@ -304,7 +304,7 @@ class TestSanitizeFalsyValues:
 
 
 class TestSanitizePreservesNonSecretFields:
-    """DE-33 regression guard: the sanitizer must not redact non-secret
+    """regression guard: the sanitizer must not redact non-secret
     fields. Catches a potential over-redaction bug if the pattern
     denylist is too broad."""
 
@@ -327,7 +327,7 @@ class TestSanitizePreservesNonSecretFields:
 
 
 class TestSanitizeBackwardCompatWithExistingFields:
-    """DE-33: the 5 fields in ``_SECRET_CONFIG_FIELDS`` are still
+    """the 5 fields in ``_SECRET_CONFIG_FIELDS`` are still
     redacted (backward compat — ``crash_recovery.py`` imports the
     frozenset for its own redaction path)."""
 
@@ -339,7 +339,7 @@ class TestSanitizeBackwardCompatWithExistingFields:
 
 
 class TestSanitizeContractWithRealConfig:
-    """DE-33 (d): contract test — every field on the real ``Config``
+    """(d): contract test — every field on the real ``Config``
     dataclass that matches a secret-name pattern is in
     ``_SECRET_CONFIG_FIELDS`` (i.e. the explicit allowlist covers
     every secret the maintainers have added so far).
@@ -416,10 +416,10 @@ class TestSanitizeContractWithRealConfig:
 
 
 class TestCommandCostsContract:
-    """DE-34: every command in ``_COMMAND_REGISTRY`` has an explicit
+    """every command in ``_COMMAND_REGISTRY`` has an explicit
     ``COMMAND_COSTS`` entry.
 
-    Pre-DE-34 the map listed only 5 commands; every other dispatched
+    Previously the map listed only 5 commands; every other dispatched
     command fell through to ``DEFAULT_COST = 1``, including expensive
     operations like ``delete_model``, ``run_prewarm``,
     ``test_llm_connection``, ``export_diagnostics``, ``clear_history``,
@@ -451,7 +451,7 @@ class TestCommandCostsContract:
         that aren't in ``_COMMAND_REGISTRY`` — that would indicate a
         typo or a stale entry pointing at a removed command.
 
-        ZR-45 (2026-07-25): some commands were moved from the Python
+        (2026-07-25): some commands were moved from the Python
         ``_COMMAND_REGISTRY`` to the Tauri Rust host (``delete_all_personal_data``,
         ``export_diagnostics``, ``export_gdpr_bundle``, ``test_llm_connection``,
         ``get_vocabulary_suggestions``). Their entries are kept in
@@ -473,7 +473,7 @@ class TestCommandCostsContract:
         stale = (listed - registered) - zr_45_moved_to_rust
         assert not stale, (
             f"COMMAND_COSTS contains entries for commands NOT in "
-            f"_COMMAND_REGISTRY (and not in the ZR-45 moved-to-Rust "
+            f"_COMMAND_REGISTRY (and not in the moved-to-Rust "
             f"whitelist): {sorted(stale)}. These are stale entries "
             f"pointing at removed/renamed commands — remove them from "
             f"COMMAND_COSTS."
@@ -493,7 +493,7 @@ class TestCommandCostsContract:
 
 
 class TestCommandCostsPreserved:
-    """DE-34: the 5 pre-existing entries are preserved (regression guard
+    """the 5 pre-existing entries are preserved (regression guard
     for the audit that expanded the map)."""
 
     def test_download_model_cost_50(self):
@@ -513,7 +513,7 @@ class TestCommandCostsPreserved:
 
 
 class TestCommandCostsNewlyListed:
-    """DE-34: spot-check a few of the newly-listed expensive commands
+    """spot-check a few of the newly-listed expensive commands
     that previously fell through to ``DEFAULT_COST = 1``.
 
     The exact cost values are heuristic (calibrated against the 200/s
@@ -553,14 +553,14 @@ class TestCommandCostsNewlyListed:
     def test_expensive_command_has_elevated_cost(self, cmd, min_cost):
         assert COMMAND_COSTS.get(cmd, DEFAULT_COST) >= min_cost, (
             f"COMMAND_COSTS[{cmd!r}] = {COMMAND_COSTS.get(cmd)} < "
-            f"{min_cost}. Pre-DE-34 this command fell through to "
+            f"{min_cost}. Previously this command fell through to "
             f"DEFAULT_COST=1, allowing 200/s of an expensive operation. "
-            f"The DE-34 fix elevated it; do not regress."
+            f"The fix elevated it; do not regress."
         )
 
 
 class TestRateLimiterUsesElevatedCost:
-    """DE-34 behavioural guard: the limiter actually applies the
+    """behavioural guard: the limiter actually applies the
     elevated cost — a cost-10 command consumes 10 of the 200/s burst
     budget, not 1."""
 
@@ -569,11 +569,10 @@ class TestRateLimiterUsesElevatedCost:
         limiter accepts at most 20 calls in any 1-second window
         (20 * 10 = 200 = burst cap). The 21st call is rejected.
 
-        Pre-DE-34 ``clear_history`` had cost=1 (DEFAULT_COST fallthrough),
-        so the limiter accepted 200 calls/s — exactly the bug DE-34
-        fixes.
+        Previously ``clear_history`` had cost=1 (DEFAULT_COST fallthrough),
+        so the limiter accepted 200 calls/s — exactly the bug this fix addresses.
 
-        XZ-R3-02: ``delete_model`` was bumped from cost 10 to 50, so this
+        ``delete_model`` was bumped from cost 10 to 50, so this
         test now uses ``clear_history`` (still cost 10) to verify the
         cost-10 behavioural guard.
         """
@@ -601,7 +600,7 @@ class TestRateLimiterUsesElevatedCost:
         the cost map is applied incorrectly (e.g. every command gets
         cost=10).
 
-        XZ-R3-01: ``heartbeat`` was removed from this test because it
+        ``heartbeat`` was removed from this test because it
         now bypasses the rate limiter entirely (so it would always
         accept all calls, not just 200). Use ``get_status`` (also
         cost 1) for the cost-1 behavioural guard instead.
@@ -615,7 +614,7 @@ class TestRateLimiterUsesElevatedCost:
         assert accepted == 200, f"Expected 200 acceptances (cost=1), got {accepted}."
 
     def test_heartbeat_bypasses_rate_limiter_under_burst_attack(self):
-        """XZ-R3-01 (High): a heartbeat must ALWAYS be accepted, even
+        """(High): a heartbeat must ALWAYS be accepted, even
         when the burst budget is fully consumed by attack traffic on
         other commands. Pre-fix, a compromised renderer sustaining
         ≥200 msg/s of cheap commands would starve the heartbeat,
@@ -639,17 +638,17 @@ class TestRateLimiterUsesElevatedCost:
 
 
 class TestHistoryOffsetMaxConstant:
-    """DE-35: the ``_HISTORY_OFFSET_MAX`` constant exists and is set
+    """the ``_HISTORY_OFFSET_MAX`` constant exists and is set
     to 10_000_000 (the value named in the fix section)."""
 
     def test_offset_max_is_10_million(self):
         assert _HISTORY_OFFSET_MAX == 10_000_000, (
-            f"Expected _HISTORY_OFFSET_MAX == 10_000_000 (per DE-35 fix section), got {_HISTORY_OFFSET_MAX}."
+            f"Expected _HISTORY_OFFSET_MAX == 10_000_000 (per the fix section), got {_HISTORY_OFFSET_MAX}."
         )
 
 
 class TestBoundHistoryOffsetLowerBound:
-    """DE-35: the existing ``max(0, v)`` floor is preserved."""
+    """the existing ``max(0, v)`` floor is preserved."""
 
     def test_zero_unchanged(self):
         assert _bound_history_offset(0) == 0
@@ -673,7 +672,7 @@ class TestBoundHistoryOffsetLowerBound:
 
 
 class TestBoundHistoryOffsetUpperBound:
-    """DE-35: the new upper cap at ``_HISTORY_OFFSET_MAX``."""
+    """the new upper cap at ``_HISTORY_OFFSET_MAX``."""
 
     def test_within_bounds_unchanged(self):
         assert _bound_history_offset(100) == 100
@@ -691,7 +690,7 @@ class TestBoundHistoryOffsetUpperBound:
     def test_python_bigint_clamped_to_max(self):
         """Python big-ints are unbounded — without the cap, a 5000-digit
         int would pass the ``max(0, v)`` clamp and reach SQLite's OFFSET
-        clause, forcing a wasteful row-skip scan. DE-35 caps it.
+        clause, forcing a wasteful row-skip scan. caps it.
 
         (Python 3.11+ defaults to a 4300-digit limit on int↔str
         conversion; we use 4000 digits to stay under the default but
@@ -720,7 +719,7 @@ class TestBoundHistoryOffsetUpperBound:
 
 
 class TestBoundHistoryLimitUnaffected:
-    """DE-35 regression guard: the existing ``_bound_history_limit``
+    """regression guard: the existing ``_bound_history_limit``
     behavior (lower bound 1, upper bound 500) is unchanged by the
     offset cap addition."""
 
@@ -745,7 +744,7 @@ class TestBoundHistoryLimitUnaffected:
 
 
 class TestNamespacedInvalidPayload:
-    """DE-36: non-dict payload emits ``code=client.invalid_payload``."""
+    """non-dict payload emits ``code=client.invalid_payload``."""
 
     def test_non_dict_payload_returns_namespaced_code(self):
         validated, error = _validate_dict_payload("not-a-dict", {})
@@ -753,15 +752,16 @@ class TestNamespacedInvalidPayload:
         assert error is not None
         assert error["type"] == "error"
         assert error["data"]["code"] == "client.invalid_payload", (
-            f"Expected 'client.invalid_payload' (namespaced form per DE-36 / G4-M-22), got {error['data']['code']!r}."
+            f"Expected 'client.invalid_payload' (namespaced form per the fix), got {error['data']['code']!r}."
         )
 
-    def test_non_dict_payload_also_emits_legacy_code(self):
-        """DE-36: the legacy bare form is preserved in ``legacy_code``
-        for one release cycle so the renderer (and existing tests)
-        can migrate without a hard cutover."""
+    def test_non_dict_payload_does_not_emit_legacy_code(self):
+        """The per-envelope ``legacy_code`` field was removed once the
+        renderer migrated fully to the namespaced ``code`` form. The
+        envelope MUST NOT carry a ``legacy_code`` key (it would be
+        dead bytes on the wire)."""
         _, error = _validate_dict_payload([], {})
-        assert error["data"]["legacy_code"] == "invalid_payload"
+        assert "legacy_code" not in error["data"]
 
     @pytest.mark.parametrize(
         "bad_payload",
@@ -770,7 +770,7 @@ class TestNamespacedInvalidPayload:
     def test_various_non_dict_payloads(self, bad_payload):
         _, error = _validate_dict_payload(bad_payload, {})
         assert error["data"]["code"] == "client.invalid_payload"
-        assert error["data"]["legacy_code"] == "invalid_payload"
+        assert "legacy_code" not in error["data"]
 
     def test_max_payload_bytes_violation_returns_namespaced_code(self):
         """The ``max_payload_bytes`` rule (DoS guard) emits the
@@ -782,11 +782,11 @@ class TestNamespacedInvalidPayload:
         # ``data`` serializes to ~30 bytes — well above the 10-byte cap.
         _, error = _validate_dict_payload({"x": "this-is-way-too-long"}, schema)
         assert error["data"]["code"] == "client.invalid_payload"
-        assert error["data"]["legacy_code"] == "invalid_payload"
+        assert "legacy_code" not in error["data"]
 
 
 class TestNamespacedInvalidField:
-    """DE-36: wrong-type field emits ``code=client.invalid_field``."""
+    """wrong-type field emits ``code=client.invalid_field``."""
 
     def test_wrong_type_returns_namespaced_code(self):
         validated, error = _validate_dict_payload(
@@ -797,7 +797,7 @@ class TestNamespacedInvalidField:
         assert error["data"]["code"] == "client.invalid_field", (
             f"Expected 'client.invalid_field', got {error['data']['code']!r}."
         )
-        assert error["data"]["legacy_code"] == "invalid_field"
+        assert "legacy_code" not in error["data"]
         assert error["data"]["field"] == "model"
 
     def test_wrong_type_with_tuple_type_annotation(self):
@@ -810,7 +810,7 @@ class TestNamespacedInvalidField:
         )
         assert validated is None
         assert error["data"]["code"] == "client.invalid_field"
-        assert error["data"]["legacy_code"] == "invalid_field"
+        assert "legacy_code" not in error["data"]
         assert error["data"]["field"] == "mic_id"
         # The message should list both allowed types.
         assert "str" in error["data"]["message"]
@@ -824,12 +824,12 @@ class TestNamespacedInvalidField:
         }
         _, error = _validate_dict_payload({"name": "way-too-long-string"}, schema)
         assert error["data"]["code"] == "client.invalid_field"
-        assert error["data"]["legacy_code"] == "invalid_field"
+        assert "legacy_code" not in error["data"]
         assert error["data"]["field"] == "name"
 
 
 class TestNamespacedMissingField:
-    """DE-36: missing required field emits ``code=client.missing_field``."""
+    """missing required field emits ``code=client.missing_field``."""
 
     def test_missing_required_returns_namespaced_code(self):
         validated, error = _validate_dict_payload(
@@ -840,12 +840,12 @@ class TestNamespacedMissingField:
         assert error["data"]["code"] == "client.missing_field", (
             f"Expected 'client.missing_field', got {error['data']['code']!r}."
         )
-        assert error["data"]["legacy_code"] == "missing_field"
+        assert "legacy_code" not in error["data"]
         assert error["data"]["field"] == "model"
 
 
 class TestValidationHappyPathUnaffected:
-    """DE-36 regression guard: the happy path (valid payload) still
+    """regression guard: the happy path (valid payload) still
     returns ``(validated_dict, None)`` with no error envelope."""
 
     def test_valid_payload_returns_validated_dict(self):
@@ -886,7 +886,7 @@ class TestValidationHappyPathUnaffected:
 
 
 class TestNamespacedCodesRegistered:
-    """DE-36: the namespaced codes emitted by ``_validate_dict_payload``
+    """the namespaced codes emitted by ``_validate_dict_payload``
     are all registered in ``ERROR_CODES`` (the contract test in
     ``tests/test_error_codes_registry.py`` is the canonical guard,
     but this is a self-contained sanity check)."""

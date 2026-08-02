@@ -1,6 +1,6 @@
 """Tests for ``_recorder_split.start_recording``.
 
-S3-CR-17 / Phase 4.5 — pin the extraction contract for the body of
+Phase 4.5 — pin the extraction contract for the body of
 ``Recorder.start`` that was moved (verbatim, with ``self.X`` rewritten
 to ``recorder.X``) into a free function in
 ``voice_typer/server/recording/_recorder_split.py``. The
@@ -150,7 +150,7 @@ class TestStartRecordingHappyPath:
 
         A future refactor that swaps the order of these calls (e.g.
         starts the audio worker before ``_recording_event.set()``)
-        would silently re-introduce the RT-SAFE-001 race the comment
+        would silently re-introduce the race the comment
         block above the audio worker spawn guards against.
         """
         recorder = _build_mock_recorder()
@@ -289,7 +289,7 @@ class TestDeviceEnumerationAtFunctionScope:
         # ``recorder`` is captured by the nested ``_persist_mic``
         # closure so it appears in ``co_cellvars``.
         assert "recorder" in code.co_cellvars, (
-            "REC-5 / CRITICAL contract: _persist_mic must capture "
+            "CRITICAL contract: _persist_mic must capture "
             "`recorder` via closure (so the fallback persistence runs "
             "against the right object)."
         )
@@ -399,7 +399,7 @@ class TestMicrophoneFallbackPersistence:
     returned by ``_resolve_device``, the fallback must be persisted
     on a background daemon thread (``_spawn_device_thread``) so the
     recording-start critical path isn't blocked by the 50-500 ms
-    blocking config-write (PERF-NEW-007)."""
+    blocking config-write (the fix)."""
 
     def test_persist_thread_spawned_when_selected_device_differs(self):
         """When ``selected_device != device`` (and is an int), the
@@ -464,7 +464,7 @@ class TestMicrophoneFallbackPersistence:
         with caplog.at_level("DEBUG", logger="voice_typer.server.recording"):
             target()
         assert any("Could not persist microphone fallback" in rec.message for rec in caplog.records), (
-            "PERF-NEW-007: when config.save() returns False, the "
+            "when config.save() returns False, the "
             "persistence closure must log a debug message so the "
             "best-effort failure is observable."
         )
@@ -567,18 +567,27 @@ class TestResamplerWarmUp:
         recorder.warm_up_resampler.assert_not_called()
 
 
-# ── AudioProcessor retune ─────────────────────────────────────────
+# ── AudioProcessor retune (call removed) ────────────────────
 
 
 class TestAudioProcessorRetune:
-    """When an AudioProcessor is attached and its ``_sample_rate``
-    differs from the device's effective sample rate,
-    ``start_recording`` must retune the chain — either via
-    ``set_sample_rate`` when available, else via
-    ``rebuild_from_config`` as a fallback. XV-31 mitigation.
+    """(CALL REMOVAL): ``start_recording`` no longer calls
+    ``retune_audio_processor``. The AudioProcessor chain stays at its
+    construction rate (typically WHISPER_SAMPLE_RATE = 16 kHz) and the
+    per-chunk resample inside ``AudioProcessor.process_chunk`` (invoked
+    from ``audio_pipeline.process_audio_chunk`` with
+    ``input_sample_rate=recorder._effective_sr``) handles the 48 kHz →
+    16 kHz downsample on the worker thread.
+
+    These tests pin the after the refactor contract: ``set_sample_rate`` and
+    ``rebuild_from_config`` MUST NOT be called from ``start_recording``,
+    regardless of the device's effective sample rate. Filter-chain
+    correctness at 16 kHz is preserved by ``process_chunk``'s internal
+    resample (verified via the audio-pipeline regression suite), not by
+    an up-front retune.
     """
 
-    def test_set_sample_rate_called_when_available(self, caplog):
+    def test_set_sample_rate_not_called_when_available(self, caplog):
         audio_processor = MagicMock(name="AudioProcessor")
         audio_processor._sample_rate = 16000  # chain rate
         recorder = _build_mock_recorder(
@@ -591,10 +600,12 @@ class TestAudioProcessorRetune:
 
         start_recording(recorder)
 
-        audio_processor.set_sample_rate.assert_called_once_with(48000)
+        # retune was removed — the chain stays at 16 kHz and
+        # process_chunk resamples 48 kHz → 16 kHz on the worker thread.
+        audio_processor.set_sample_rate.assert_not_called()
         audio_processor.rebuild_from_config.assert_not_called()
 
-    def test_rebuild_from_config_called_when_set_sample_rate_unavailable(self, caplog):
+    def test_rebuild_from_config_not_called_when_set_sample_rate_unavailable(self, caplog):
         audio_processor = MagicMock(name="AudioProcessor")
         audio_processor._sample_rate = 16000
         recorder = _build_mock_recorder(
@@ -603,13 +614,14 @@ class TestAudioProcessorRetune:
             audio_processor=audio_processor,
             open_success=True,
         )
-        # No ``set_sample_rate`` attribute on the mock (delete it so
-        # ``getattr(..., None)`` returns None and the else branch fires).
+        # No ``set_sample_rate`` attribute on the mock — previously the
+        # retune helper would have fallen through to
+        # ``rebuild_from_config``. After the refactor neither path runs.
         del audio_processor.set_sample_rate
 
         start_recording(recorder)
 
-        audio_processor.rebuild_from_config.assert_called_once_with(recorder.config)
+        audio_processor.rebuild_from_config.assert_not_called()
 
     def test_no_retune_when_processor_sr_matches(self, caplog):
         audio_processor = MagicMock(name="AudioProcessor")
@@ -634,14 +646,18 @@ class TestAudioProcessorRetune:
             open_success=True,
         )
 
-        # Must not raise — the function skips the retune block entirely
-        # when ``_audio_processor is None``.
+        # Must not raise — with no audio processor, no retune is needed
+        # (no filter chain to tune). The 48 kHz audio is stored raw and
+        # resampled by stop()/snapshot() on the way out.
         start_recording(recorder)
 
     def test_set_sample_rate_failure_does_not_break_start(self, caplog):
-        """A buggy ``AudioProcessor.set_sample_rate`` must not crash
-        ``start_recording`` — the per-chunk resample will still run on
-        the RT thread, but recording must start.
+        """with the retune call removed, a buggy
+        ``AudioProcessor.set_sample_rate`` is never invoked from
+        ``start_recording``, so it can't break the start critical path.
+        The per-chunk resample in ``process_chunk`` will run instead
+        (and any failure there is caught by the audio worker's
+        per-chunk try/except).
         """
         audio_processor = MagicMock(name="AudioProcessor")
         audio_processor._sample_rate = 16000
@@ -653,11 +669,15 @@ class TestAudioProcessorRetune:
             open_success=True,
         )
 
+        # Must not raise and must NOT log a set_sample_rate failure
+        # (the buggy method is never called).
         with caplog.at_level("WARNING", logger="voice_typer.server.recording"):
             start_recording(recorder)
-        assert any("set_sample_rate" in rec.message and "failed" in rec.message for rec in caplog.records), (
-            "set_sample_rate failure must be logged at WARNING level."
-        )
+        audio_processor.set_sample_rate.assert_not_called()
+        assert not any(
+            "set_sample_rate" in rec.message and "failed" in rec.message
+            for rec in caplog.records
+        ), "set_sample_rate must not be invoked (and thus not fail) after the refactor."
 
     def test_rebuild_from_config_failure_does_not_break_start(self, caplog):
         audio_processor = MagicMock(name="AudioProcessor")
@@ -671,17 +691,24 @@ class TestAudioProcessorRetune:
             open_success=True,
         )
 
+        # rebuild_from_config is never called from start_recording.
         with caplog.at_level("WARNING", logger="voice_typer.server.recording"):
             start_recording(recorder)
-        assert any("rebuild_from_config" in rec.message and "failed" in rec.message for rec in caplog.records), (
-            "rebuild_from_config failure must be logged at WARNING level."
-        )
+        audio_processor.rebuild_from_config.assert_not_called()
+        assert not any(
+            "rebuild_from_config" in rec.message and "failed" in rec.message
+            for rec in caplog.records
+        ), "rebuild_from_config must not be invoked (and thus not fail) after the refactor."
 
     def test_no_retune_when_processor_sr_is_none(self, caplog):
         """Defensive: when ``_audio_processor._sample_rate`` is None
         (e.g. an AudioProcessor test double that didn't set the
-        attribute), skip the retune block rather than crashing on
-        ``int(None)``."""
+        attribute), ``start_recording`` skips the retune block rather
+        than crashing on ``int(None)``. After the refactor the entire retune
+        block is gone, so this is trivially satisfied — but the test
+        pins the contract so a future regression (re-adding the call)
+        doesn't reintroduce the ``int(None)`` crash.
+        """
         audio_processor = MagicMock(name="AudioProcessor")
         audio_processor._sample_rate = None
         recorder = _build_mock_recorder(
@@ -691,8 +718,7 @@ class TestAudioProcessorRetune:
             open_success=True,
         )
 
-        # Must not raise — the ``_proc_sr is not None`` guard skips
-        # the retune block.
+        # Must not raise — the retune call is gone entirely (the fix).
         start_recording(recorder)
 
         audio_processor.set_sample_rate.assert_not_called()
@@ -706,7 +732,7 @@ class TestRecordingEventContract:
     """``_recording_event.set()`` must be called BEFORE the audio
     worker / event worker / device health checker threads are
     spawned — so the callback will actually push to the ring buffer
-    once the workers start draining it (RT-SAFE-001).
+    once the workers start draining it (the fix).
     """
 
     def test_recording_event_set_before_workers_started(self):
@@ -826,12 +852,27 @@ class TestSourceRewritingContract:
         assert "self._recording_event" not in body
 
     def test_audio_processor_access_via_recorder(self):
-        """``_audio_processor`` access must be via
-        ``recorder._audio_processor``.
+        """(CALL REMOVAL): ``_audio_processor`` is no longer
+        accessed from ``start_recording`` at all — the retune call that
+        used to read it has been removed (the per-chunk resample in
+        ``AudioProcessor.process_chunk`` handles the native-rate →
+        16 kHz downsample on the worker thread instead).
+
+        Previously this test asserted ``recorder._audio_processor``
+        appeared in the source (the retune call). After the refactor the
+        access is gone, so the contract is now: ``_audio_processor``
+        is NOT accessed from ``start_recording`` at all (neither via
+        ``recorder.`` nor ``self.``). If a future change re-adds an
+        ``_audio_processor`` access, it MUST use ``recorder.`` (not
+        ``self.``) — the second assertion pins that.
         """
         src = inspect.getsource(start_recording)
         body = src.replace(start_recording.__doc__ or "", "")
-        assert "recorder._audio_processor" in body
+        # After the refactor: no _audio_processor access at all from start_recording.
+        assert "recorder._audio_processor" not in body, (
+            "start_recording should NOT access recorder._audio_processor "
+            "— the retune call was removed (per-chunk resample handles it)."
+        )
         assert "self._audio_processor" not in body
 
     def test_resolver_methods_called_via_recorder(self):
