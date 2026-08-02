@@ -16,6 +16,7 @@ use crate::util::{SERVER_STARTED_POLL_INTERVAL_MS, SERVER_STARTED_TIMEOUT_MS};
 // respawn path so the loop can short-circuit mid-handshake if the
 // user quits the app).
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
@@ -98,6 +99,84 @@ async fn spawn_sidecar_and_get_port_inner(
     }
     let (port, child, rx) = spawn_sidecar_release(app, token, shutting_down).await?;
     Ok((port, child, Some(rx)))
+}
+
+/// Cold-start sidecar initialization: spawn the sidecar, install the
+/// child handle + exit receiver into shared state, and kick off the
+/// initial WebSocket reconnect. On spawn failure or initial WS
+/// connect failure, fall back to the supervisor's respawn path.
+///
+/// Extracted from `main.rs`'s `.setup` closure so the host
+/// entrypoint stays wiring-only (C-ARCH-1). The orchestration here
+/// is implementation logic — not wiring — and was previously
+/// inlined as a 44-LOC `tauri::async_runtime::spawn(async move {
+/// ... })` block in main.rs that did `state.child` mutation, exit-rx
+/// installation, and respawn-fallback dispatch.
+///
+/// # Sequence
+///
+/// 1. Generate the per-launch bearer token via `util::generate_token`.
+/// 2. Spawn the sidecar via `spawn_sidecar_and_get_port` (which
+///    dispatches to dev-mode or release-mode spawn based on the
+///    `VOICE_TYPER_SIDECAR_DEV` env var).
+/// 3. Re-check `state.shutting_down` AFTER spawn returns — if the
+///    user quit the app while we were waiting for `server_started`
+///    (up to 30s on a cold start), the `RunEvent::Exit` handler
+///    already set the flag but found no child to kill. Kill the
+///    freshly-spawned sidecar here so it doesn't outlive the host,
+///    then bail before installing it into state.
+/// 4. Install the child handle + exit receiver into shared state.
+/// 5. Kick off `reconnect_ws` to perform the WS auth handshake. On
+///    failure, fall back to the supervisor's `respawn` (which will
+///    retry with backoff per `SUPERVISOR_BACKOFF_MS`).
+///
+/// The caller (`main.rs::setup`) wraps this in
+/// `tauri::async_runtime::spawn(async move { ... })` so it runs in
+/// the background — the `.setup` closure must return `Ok(())`
+/// quickly so the Tauri event loop starts.
+pub(crate) async fn initialize_sidecar(
+    app_handle: &tauri::AppHandle,
+    state: Arc<crate::state::SidecarState>,
+) {
+    let token = crate::util::generate_token();
+
+    match spawn_sidecar_and_get_port(app_handle, &token).await {
+        Ok((port, child, exit_rx)) => {
+            //re-check shutting_down AFTER spawn
+            // returns — if the user quit the app while we
+            // were waiting for server_started (up to 30s on
+            // a cold start), the `RunEvent::Exit` handler
+            // already set the flag but found no child to
+            // kill. Kill the freshly-spawned sidecar here
+            // so it doesn't outlive the host, then bail
+            // before installing it into state.
+            if state.shutting_down.load(Ordering::SeqCst) {
+                log::info!(
+                    "[SETUP] shutting_down set during sidecar spawn — \
+                     killing freshly-spawned sidecar"
+                );
+                if let Err(e) = child.kill_tree().await {
+                    log::warn!(
+                        "[SETUP] kill_tree on freshly-spawned sidecar failed (best-effort): {}",
+                        e
+                    );
+                }
+                return;
+            }
+            *crate::state::lock(&state.child) = Some(child);
+            //store the sidecar's event receiver so
+            // shutdown_sidecar can poll for graceful exit.
+            *state.child_exit_rx.lock().await = exit_rx;
+            if let Err(e) = crate::sidecar::ws::reconnect_ws(app_handle, &state, port, &token).await {
+                log::error!("[SETUP] initial WS connect failed: {}", e);
+                let _ = crate::sidecar::supervisor::respawn(app_handle, &state).await;
+            }
+        }
+        Err(e) => {
+            log::error!("[SETUP] sidecar spawn failed: {}", e);
+            let _ = crate::sidecar::supervisor::respawn(app_handle, &state).await;
+        }
+    }
 }
 
 /// ADR-0020 §14: returns true when `VOICE_TYPER_SIDECAR_DEV=1` is set.

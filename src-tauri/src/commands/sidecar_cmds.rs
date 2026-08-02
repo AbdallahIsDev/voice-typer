@@ -515,35 +515,53 @@ async fn dispatch_frame(
     // oversized payloads at the dispatch entry point. The check runs
     // BEFORE the pending-map insert so an oversized payload never
     // consumes a pending slot.
+    //
+    // SINGLE-SERIALIZE OPTIMIZATION: the data Value is serialized
+    // ONCE here into ``data_str``. The same ``data_str`` is then
+    // reused for both the size check AND the manual frame
+    // construction below — previously the size check called
+    // ``serde_json::to_string(data_val).map(|s| s.len())`` (bytes
+    // discarded) and ``frame.to_string()`` re-serialized the cloned
+    // data Value, plus the data Value was CLONED into the frame.
+    // For a 256 KiB ``set_config`` payload, that was ~512 KiB of
+    // wasted serialization CPU + ~256 KiB of wasted heap allocation
+    // + a deep Value clone per dispatch.
     const DISPATCH_DATA_MAX_BYTES: usize = 256 * 1024;
-    if let Some(data_val) = data.as_ref() {
-        let data_len = serde_json::to_string(data_val)
-            .map(|s| s.len())
-            .unwrap_or(usize::MAX);
-        if data_len > DISPATCH_DATA_MAX_BYTES {
-            log::warn!(
-                "[dispatch] id={} cmd={} rejected: data payload {} bytes > {} byte cap",
-                id,
-                cmd,
-                data_len,
-                DISPATCH_DATA_MAX_BYTES
-            );
-            let err = json!({
-                "type": "error",
-                "data": {
-                    "code": "data_too_large",
-                    "message": "dispatch data payload exceeds size cap"
-                }
-            });
-            return Err(err.to_string());
-        }
+    let data_str: String = match data.as_ref() {
+        Some(data_val) => serde_json::to_string(data_val).unwrap_or_else(|_| "null".to_string()),
+        None => "{}".to_string(),
+    };
+    if data_str.len() > DISPATCH_DATA_MAX_BYTES {
+        log::warn!(
+            "[dispatch] id={} cmd={} rejected: data payload {} bytes > {} byte cap",
+            id,
+            cmd,
+            data_str.len(),
+            DISPATCH_DATA_MAX_BYTES
+        );
+        let err = json!({
+            "type": "error",
+            "data": {
+                "code": "data_too_large",
+                "message": "dispatch data payload exceeds size cap"
+            }
+        });
+        return Err(err.to_string());
     }
 
-    let frame = json!({
-        "type": cmd,
-        "data": data.unwrap_or(json!({})),
-        "id": id,
-    });
+    // Build the WS frame manually using the pre-serialized
+    // ``data_str``. ``serde_json::to_string(cmd)`` serializes the
+    // ``&str`` as a JSON string (with quotes), which is the correct
+    // shape for the ``"type"`` field. ``id`` is a ``u64`` and
+    // formats directly as a JSON number. The resulting ``frame_str``
+    // is byte-for-byte identical to what ``frame.to_string()`` would
+    // have produced, but the data Value is serialized exactly once
+    // (in the size check above) instead of twice.
+    let cmd_json = serde_json::to_string(cmd).unwrap_or_else(|_| "\"\"".to_string());
+    let frame_str = format!(
+        r#"{{"type":{},"data":{},"id":{}}}"#,
+        cmd_json, data_str, id
+    );
 
     //confirm `ws_tx` is Some BEFORE inserting into the pending
     // map so the early-return Err path doesn't leak a stale entry.
@@ -610,7 +628,7 @@ async fn dispatch_frame(
     // the pending entry too — the writer task has exited so the WS
     // reader's drain loop is the only other remover and it may not have
     // run yet (race window).
-    if let Err(e) = ws_tx.try_send(Message::Text(frame.to_string().into())) {
+    if let Err(e) = ws_tx.try_send(Message::Text(frame_str.into())) {
         let mut pending = state.pending.lock().await;
         pending.remove(&id);
         let err_msg = match &e {
@@ -1079,31 +1097,142 @@ mod tests {
         // the COUNT so a local `cargo test` catches a drift before the
         // Python test even runs.
         //
-        // 60 shared commands (TS has 62 = 60 shared + heartbeat +
+        // 61 shared commands (TS has 63 = 61 shared + heartbeat +
         // relaunch_ack). `heartbeat` and `relaunch_ack` are
         // intentionally ABSENT from this Rust literal — see the
-        // doc comment on the cmds literal below. `test_cloud_connection`
+        // doc comment on the cmds literal below. `add_trusted_endpoint`
         // was the most recent entry added; `tray_click` is also
         // intentionally absent — see `dispatch_inner`.
         assert_eq!(
             allowed_commands().len(),
-            60,
-            "must match TS allowlist minus heartbeat/relaunch_ack"
+            61,
+            "must match TS allowlist (63 entries) minus heartbeat/relaunch_ack (61 entries)"
         );
     }
 
     #[test]
     fn test_allowed_commands_set_contains_no_duplicates() {
         let set = allowed_commands();
-        // 60 entries — must match the cmds literal below (single
+        // 61 entries — must match the cmds literal below (single
         // source of truth). A duplicate in the literal would make
-        // set.len() < 60.
+        // set.len() < 61.
         assert_eq!(
             set.len(),
-            60,
-            "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (60). \
+            61,
+            "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (61). \
              Check the constructor log for the duplicate name.",
             set.len()
+        );
+    }
+
+    #[test]
+    fn test_allowed_commands_exact_snapshot() {
+        //Stricter parity test: pin the EXACT 61-entry set (sorted)
+        // so any drift between the Rust literal and the TS allowlist is
+        // caught at `cargo test` time, BEFORE the cross-layer Python
+        // parity test in
+        // `tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`
+        // runs. The count-only test above catches add/remove drift but
+        // MISSES a rename (e.g. `onboarding_reset` → `reset_onboarding`)
+        // that keeps the count at 61. This snapshot test catches both
+        // renames and any silent reordering that would mask a missing
+        // entry.
+        //
+        // The expected list is the alphabetically-sorted union of:
+        //   - the TS `ALLOWED_COMMANDS` literal in
+        //     `voice_typer/client/src/main/allowed-commands.ts` (63 entries)
+        //   - minus the two Rust-only-excluded commands:
+        //     `heartbeat` (sent by the Rust WS-reader task) and
+        //     `relaunch_ack` (sent by the Rust `relaunch_app` event
+        //     handler). Both bypass the `dispatch` allowlist via
+        //     `dispatch_inner` — see the doc comment on the `cmds`
+        //     literal above for the security rationale.
+        //
+        // MAINTENANCE: when adding/removing a command from the Rust
+        // literal, ALSO update this snapshot and the TS allowlist in
+        // the same PR. The Python parity test will catch a missed TS
+        // update, but this test catches a missed Rust snapshot update
+        // faster (no Python venv required).
+        let mut actual: Vec<&str> = allowed_commands().iter().copied().collect();
+        actual.sort();
+        let expected: &[&str] = &[
+            "add_trusted_endpoint",
+            "cancel_model_download",
+            "clear_history",
+            "delete_history",
+            "delete_model",
+            "download_model",
+            "force_cancel_transcription",
+            "get_config",
+            "get_defaults",
+            "get_favorites",
+            "get_history",
+            "get_history_count",
+            "get_microphones",
+            "get_model_catalog",
+            "get_model_status",
+            "get_prewarm_status",
+            "get_status",
+            "get_templates",
+            "get_today_stats",
+            "get_transcription_text",
+            "get_vocabulary",
+            "get_volume_backend_status",
+            "import_model",
+            "level_monitor_start",
+            "level_monitor_stop",
+            "microphone_test_cancel",
+            "microphone_test_get_level",
+            "microphone_test_start",
+            "microphone_test_stop",
+            "onboarding_apply",
+            "onboarding_check_permissions",
+            "onboarding_get_hotkey_presets",
+            "onboarding_get_microphones",
+            "onboarding_get_model_options",
+            "onboarding_is_first_run",
+            "onboarding_next_step",
+            "onboarding_prev_step",
+            "onboarding_reset",
+            "onboarding_set_hotkey",
+            "onboarding_set_microphone",
+            "onboarding_set_model",
+            "onboarding_skip",
+            "onboarding_start",
+            "open_prewarm_log",
+            "pause_model_download",
+            "quit_app",
+            "repaste_last",
+            "restart_app",
+            "restore_history",
+            "resume_model_download",
+            "run_prewarm",
+            "save_templates",
+            "save_vocabulary",
+            "search_history",
+            "set_config",
+            "set_esc_cancel_paused",
+            "set_tray_locale",
+            "test_cloud_connection",
+            "toggle_dictation",
+            "toggle_favorite",
+            "undo_last",
+        ];
+        assert_eq!(
+            actual.len(),
+            expected.len(),
+            "snapshot length mismatch — actual Rust set has {} entries, snapshot expected {}. \
+             If you added/removed a command, update BOTH this snapshot AND the cmds literal AND \
+             the TS allowlist in voice_typer/client/src/main/allowed-commands.ts.",
+            actual.len(),
+            expected.len()
+        );
+        assert_eq!(
+            actual, expected,
+            "ALLOWED_COMMANDS snapshot drift — the Rust literal no longer matches the pinned \
+             61-entry snapshot. Diff the actual vs expected Vec above. If the change is \
+             intentional, update this snapshot in lockstep with the cmds literal AND the TS \
+             allowlist (see MAINTENANCE note above)."
         );
     }
 

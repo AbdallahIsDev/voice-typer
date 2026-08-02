@@ -1,8 +1,8 @@
 //! Per-OS "open path in file manager" dispatch ().
 //!
 //! Previously this code lived in ``commands/system_cmds.rs`` alongside
-//! Tauri command facades (``open_logs``, ``open_host_logs``,
-//! ``open_model_import_dialog``, …). That mixed two concerns:
+//! Tauri command facades (``open_logs``, ``open_model_import_dialog``,
+//! …). That mixed two concerns:
 //!
 //! - The ``commands::`` layer is the Tauri ``#[tauri::command]`` facade —
 //!   argument deserialization, ``require_main_window`` guards, response

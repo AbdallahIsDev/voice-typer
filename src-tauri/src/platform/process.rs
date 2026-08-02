@@ -464,31 +464,50 @@ use posix_impl::register_kill_on_parent_exit_posix;
 /// Kill the process tree rooted at `pid` (the sidecar and its
 /// descendants). Platform-native, best-effort — never panics.
 ///
-/// On Unix this does a **recursive** walk via `pgrep -P <pid>`
-/// (depth-first) so ALL descendants are reaped — grandchildren (native
-/// hotkey binary, model subprocesses) included. The prior
-/// `pkill -TERM -P <pid>` only matched DIRECT children, leaving
-/// grandchildren holding the mic / input device after the sidecar
-/// exited. The root pid itself is NOT killed here — the caller
-/// (`SidecarHandle::kill_tree` / `spawn.rs` cleanup) kills the root
-/// separately via `child.kill()` afterwards, so we focus on the
-/// descendants only.
+/// On Unix this does a **recursive** depth-first walk over the
+/// sidecar's descendants so ALL descendants are reaped — grandchildren
+/// (native hotkey binary, model subprocesses) included. The root pid
+/// itself is NOT killed here — the caller (`SidecarHandle::kill_tree`
+/// / `spawn.rs` cleanup) kills the root separately via
+/// `child.kill()` afterwards, so we focus on the descendants only.
+///
+/// # Implementation (syscall-based, no per-descendant shell-out)
+///
+/// Child enumeration is platform-stratified (see `enumerate_children`):
+/// - **Linux**: reads `/proc/<pid>/task/<pid>/children` directly (a
+///   single file read per pid, no fork/exec).
+/// - **macOS / other Unix**: falls back to `pgrep -P <pid>` shell-out
+///   (macOS has no `/proc`).
+///
+/// Per-pid signal delivery uses `libc::kill(2)` directly (see
+/// `signal_pid`) — NO `kill -TERM <pid>` / `kill -KILL <pid>`
+/// shell-outs. The prior shell-out version forked+exec'd a child
+/// process per descendant per signal phase (~5-10ms each on Linux);
+/// for N descendants that was (1 + N) pgrep spawns + N TERM spawns +
+/// N KILL spawns = 3N+1 process spawns per call. The syscall version
+/// does the same work in-process via `libc::kill(2)` + a single
+/// `/proc/<pid>/task/<pid>/children` read per pid, eliminating the
+/// per-descendant fork/exec overhead.
+///
+/// The 200ms SIGTERM→SIGKILL grace `std::thread::sleep` is kept
+/// (sync; the function is wrapped in `tokio::task::spawn_blocking`
+/// by `SidecarHandle::kill_tree` so it doesn't stall a Tokio worker).
 ///
 /// # Race-window mitigation (process-group kill)
 ///
-/// The `pgrep` DFS snapshot is point-in-time: between the snapshot and
-/// the `kill` calls, the sidecar may spawn NEW children that the
+/// The descendant snapshot is point-in-time: between the snapshot and
+/// the `signal_pid` calls, the sidecar may spawn NEW children that the
 /// snapshot missed. Those children would survive the per-pid kill and
 /// keep holding the mic / IPC port. To close this race, we ALSO send
-/// `kill -TERM -<pgid>` (and later `kill -KILL -<pgid>`) to the
-/// sidecar's entire PROCESS GROUP — this catches any child spawned
-/// between the snapshot and the signal, regardless of whether `pgrep`
-/// saw it.
+/// `kill(-<pgid>, SIGTERM)` (and later `kill(-<pgid>, SIGKILL)`) to
+/// the sidecar's entire PROCESS GROUP via `signal_process_group` —
+/// this catches any child spawned between the snapshot and the signal,
+/// regardless of whether the snapshot saw it.
 ///
 /// **Safety guard**: the sidecar is spawned via `tauri-plugin-shell`'s
 /// `externalBin` API, which does NOT call `setsid()` / `setpgid()`.
 /// The sidecar therefore inherits the HOST's process group by default.
-/// Sending `kill -<host_pgid>` would kill the HOST itself
+/// Sending `kill(-<host_pgid>, ...)` would kill the HOST itself
 /// (catastrophic). We ONLY send the process-group signal when
 /// `getpgid(sidecar_pid) != getpgrp()` — i.e., the sidecar is
 /// verifiably in its OWN group (which would require a future spawn-
@@ -502,10 +521,11 @@ use posix_impl::register_kill_on_parent_exit_posix;
 /// `tokio::process::Child`, not a `SidecarHandle`, so they can't use
 /// `kill_tree`).
 pub(crate) fn kill_process_tree(pid: u32) {
-    // Capture each shell-out result and log on Err / non-zero exit so
-    // a broken `taskkill`/`pgrep`/`kill` (PATH issue, permissions,
-    // etc.) isn't silently swallowed. The function remains best-effort
-    // — failures are logged but don't abort shutdown.
+    // Capture each shell-out / syscall result and log on Err / non-zero
+    // exit so a broken `taskkill` / `pgrep` / `kill` (PATH issue,
+    // permissions, etc.) isn't silently swallowed. The function
+    // remains best-effort — failures are logged but don't abort
+    // shutdown.
     #[cfg(windows)]
     {
         use std::process::Command;
@@ -534,7 +554,6 @@ pub(crate) fn kill_process_tree(pid: u32) {
     }
     #[cfg(unix)]
     {
-        use std::process::Command;
         use std::time::Duration;
         // SIGTERM→SIGKILL grace period is the named constant
         // `KILL_TREE_SIGTERM_GRACE_MS` in `util.rs` (was inline 200ms).
@@ -543,34 +562,9 @@ pub(crate) fn kill_process_tree(pid: u32) {
         let mut all_descendants: Vec<u32> = Vec::new();
         let mut stack: Vec<u32> = vec![pid];
         while let Some(cur) = stack.pop() {
-            let pgrep = Command::new("pgrep")
-                .args(["-P", &cur.to_string()])
-                .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::null())
-                .output();
-            match pgrep {
-                Ok(out) if out.status.success() => {
-                    let stdout = String::from_utf8_lossy(&out.stdout);
-                    for line in stdout.lines() {
-                        if let Ok(child_pid) = line.trim().parse::<u32>() {
-                            all_descendants.push(child_pid);
-                            stack.push(child_pid);
-                        }
-                    }
-                }
-                Ok(out) => {
-                    // Exit 1 = no children (normal leaf) — skip logging.
-                    if out.status.code() != Some(1) {
-                        log::warn!(
-                            "[KILL-TREE] pgrep exited with code {:?} for pid {}",
-                            out.status.code(),
-                            cur
-                        );
-                    }
-                }
-                Err(e) => {
-                    log::warn!("[KILL-TREE] pgrep failed for pid={}: {}", cur, e);
-                }
+            for child_pid in enumerate_children(cur) {
+                all_descendants.push(child_pid);
+                stack.push(child_pid);
             }
         }
 
@@ -580,7 +574,7 @@ pub(crate) fn kill_process_tree(pid: u32) {
         //
         // NOTE: we DO still attempt the process-group kill below even
         // when `all_descendants` is empty, because the race window
-        // (sidecar spawns a child after our `pgrep` but before we
+        // (sidecar spawns a child after our snapshot but before we
         // return) could leave a child un-killed. But the process-group
         // kill only fires when the sidecar is in its own group (see
         // the safety guard in the function doc comment), which is
@@ -609,27 +603,10 @@ pub(crate) fn kill_process_tree(pid: u32) {
         // SIGTERM phase: per-pid kills (targeted) + process-group kill
         // (catches race-window children).
         for &dpid in &all_descendants {
-            match Command::new("kill")
-                .args(["-TERM", &dpid.to_string()])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-            {
-                Ok(s) if s.success() => {}
-                Ok(s) => {
-                    log::warn!(
-                        "[KILL-TREE] kill -TERM exited with code {} for pid {}",
-                        s.code().map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into()),
-                        dpid
-                    );
-                }
-                Err(e) => {
-                    log::warn!("[KILL-TREE] kill -TERM failed for pid={}: {}", dpid, e);
-                }
-            }
+            signal_pid(dpid, libc::SIGTERM);
         }
         // Process-group SIGTERM — catches any child spawned in the
-        // race window between the pgrep snapshot and the per-pid kills
+        // race window between the snapshot and the per-pid kills
         // above. Best-effort: no-op when the sidecar shares the host's
         // pgid (the safety guard inside returns without signaling).
         signal_process_group(sidecar_pgid, libc::SIGTERM);
@@ -639,24 +616,7 @@ pub(crate) fn kill_process_tree(pid: u32) {
         // SIGKILL phase: per-pid kills (force) + process-group kill
         // (force, catches race-window children that ignored SIGTERM).
         for &dpid in &all_descendants {
-            match Command::new("kill")
-                .args(["-KILL", &dpid.to_string()])
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .status()
-            {
-                Ok(s) if s.success() => {}
-                Ok(s) => {
-                    log::warn!(
-                        "[KILL-TREE] kill -KILL exited with code {} for pid {}",
-                        s.code().map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into()),
-                        dpid
-                    );
-                }
-                Err(e) => {
-                    log::warn!("[KILL-TREE] kill -KILL failed for pid={}: {}", dpid, e);
-                }
-            }
+            signal_pid(dpid, libc::SIGKILL);
         }
         // Process-group SIGKILL — force-kill any race-window child
         // that survived the SIGTERM phase. Same safety guard applies.
@@ -668,6 +628,158 @@ pub(crate) fn kill_process_tree(pid: u32) {
             all_descendants.len(),
             pid
         );
+    }
+}
+
+// ─── per-pid + child-enumeration helpers (Unix-only) ────────────────────
+//
+// In-process syscall replacements for the prior `kill -<sig> <pid>`
+// shell-outs (and the `pgrep -P <pid>` shell-out on Linux). Each
+// shell-out forked+exec'd a child process (~5-10ms each on Linux); for
+// N descendants that was (1 + N) pgrep spawns + N TERM spawns + N KILL
+// spawns = 3N+1 process spawns per `kill_process_tree` call. The
+// syscall replacements below do the same work via `libc::kill(2)` and
+// a single `/proc/<pid>/task/<pid>/children` read on Linux (or
+// `pgrep -P <pid>` fallback on macOS/other Unix), eliminating the
+// per-descendant fork/exec overhead.
+
+/// Send `sig` to `pid` via the `libc::kill(2)` syscall (best-effort:
+/// logs on failure but doesn't abort the caller). Returns the raw
+/// `libc::kill` rc (0 on success, -1 on error with errno set).
+///
+/// Replaces the prior `Command::new("kill").args(["-TERM" | "-KILL",
+/// &pid]).status()` shell-out — same POSIX semantics (signal
+/// delivery to the named pid) without the fork+exec overhead per
+/// descendant. ESRCH (no such process) is expected for a descendant
+/// that already exited between the snapshot and the signal —
+/// downgraded to `debug!` to avoid log spam during the SIGKILL phase
+/// (every SIGKILL on a SIGTERM-reaped pid returns ESRCH).
+#[cfg(unix)]
+fn signal_pid(pid: u32, sig: libc::c_int) {
+    let rc = unsafe { libc::kill(pid as libc::pid_t, sig) };
+    if rc != 0 {
+        let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
+        if errno == libc::ESRCH {
+            // Expected: the pid already exited (race between snapshot
+            // and signal). Not a warning — common during the SIGKILL
+            // phase on pids that already reaped themselves after
+            // SIGTERM.
+            log::debug!(
+                "[KILL-TREE] kill({}, {}) returned ESRCH (pid already exited)",
+                pid,
+                signal_name(sig)
+            );
+        } else {
+            log::warn!(
+                "[KILL-TREE] kill({}, {}) failed: errno={} ({})",
+                pid,
+                signal_name(sig),
+                errno,
+                std::io::Error::last_os_error()
+            );
+        }
+    }
+}
+
+/// Human-readable signal name for log lines (`"SIGTERM"` / `"SIGKILL"`
+/// / `"sig=<n>"` for unknown signals). Pure formatter — no syscall.
+#[cfg(unix)]
+fn signal_name(sig: libc::c_int) -> &'static str {
+    match sig {
+        libc::SIGTERM => "SIGTERM",
+        libc::SIGKILL => "SIGKILL",
+        _ => "sig=<unknown>",
+    }
+}
+
+/// Enumerate the direct child pids of `pid`. Platform-stratified:
+///
+/// - **Linux** (`target_os = "linux"`): reads
+///   `/proc/<pid>/task/<pid>/children` directly — a single file read,
+///   no fork/exec. The kernel maintains this file exactly for this
+///   use-case (child-process enumeration for cleanup signals).
+///
+/// - **macOS / other Unix**: falls back to `pgrep -P <pid>` shell-out
+///   (macOS doesn't have `/proc`). Returns an empty `Vec` on any
+///   failure (best-effort — `kill_process_tree` is best-effort
+///   overall).
+///
+/// Returns ONLY the direct children — `kill_process_tree` does the
+/// recursive DFS itself by pushing each child back onto its own
+/// stack. The returned `Vec` is point-in-time: between the snapshot
+/// and the `signal_pid` calls, the parent may spawn NEW children that
+/// the snapshot missed (the race window closed separately by the
+/// `signal_process_group` call inside `kill_process_tree`).
+#[cfg(unix)]
+fn enumerate_children(pid: u32) -> Vec<u32> {
+    #[cfg(target_os = "linux")]
+    {
+        enumerate_children_procfs(pid).unwrap_or_else(|e| {
+            log::debug!(
+                "[KILL-TREE] /proc/{}/task/{}/children read failed (falling back to pgrep): {}",
+                pid,
+                pid,
+                e
+            );
+            enumerate_children_pgrep(pid)
+        })
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        enumerate_children_pgrep(pid)
+    }
+}
+
+/// Linux `/proc/<pid>/task/<pid>/children` reader. Returns the direct
+/// child pids as parsed from the space-separated decimal list. Empty
+/// Vec on any IO / parse error (the caller falls back to `pgrep`).
+#[cfg(target_os = "linux")]
+fn enumerate_children_procfs(pid: u32) -> Result<Vec<u32>, std::io::Error> {
+    let path = format!("/proc/{}/task/{}/children", pid, pid);
+    let contents = std::fs::read_to_string(&path)?;
+    let mut out = Vec::new();
+    for tok in contents.split_whitespace() {
+        if let Ok(child_pid) = tok.parse::<u32>() {
+            out.push(child_pid);
+        }
+    }
+    Ok(out)
+}
+
+/// `pgrep -P <pid>` fallback for non-Linux Unix (macOS). Returns the
+/// direct child pids parsed from pgrep's stdout. Empty Vec on any
+/// failure (best-effort).
+#[cfg(unix)]
+fn enumerate_children_pgrep(pid: u32) -> Vec<u32> {
+    use std::process::Command;
+    let pgrep = Command::new("pgrep")
+        .args(["-P", &pid.to_string()])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output();
+    match pgrep {
+        Ok(out) if out.status.success() => {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            stdout
+                .lines()
+                .filter_map(|line| line.trim().parse::<u32>().ok())
+                .collect()
+        }
+        Ok(out) => {
+            // Exit 1 = no children (normal leaf) — skip logging.
+            if out.status.code() != Some(1) {
+                log::warn!(
+                    "[KILL-TREE] pgrep exited with code {:?} for pid {}",
+                    out.status.code(),
+                    pid
+                );
+            }
+            Vec::new()
+        }
+        Err(e) => {
+            log::warn!("[KILL-TREE] pgrep failed for pid={}: {}", pid, e);
+            Vec::new()
+        }
     }
 }
 
@@ -852,6 +964,117 @@ mod tests {
         let own_pid = std::process::id();
         super::kill_process_tree(own_pid);
         assert!(own_pid > 0);
+    }
+
+    // ── per-pid + child-enumeration helpers (syscall migration) ──────
+    //
+    // These pin the contract for the libc-syscall replacements of the
+    // prior `kill -<sig> <pid>` shell-outs (now `signal_pid`) and the
+    // `pgrep -P <pid>` shell-out on Linux (now `enumerate_children` →
+    // `enumerate_children_procfs`). The behavior must be best-effort:
+    // nonexistent pids, parse errors, and missing /proc files must
+    // all degrade gracefully without panicking.
+
+    /// `signal_pid` must not panic on a nonexistent pid. `libc::kill`
+    /// returns -1 with errno=ESRCH for a nonexistent pid — the helper
+    /// logs at `debug!` (not `warn!`) and returns. This pins the
+    /// best-effort contract: a SIGTERM-reaped pid that's already gone
+    /// must not abort the SIGKILL phase that follows.
+    #[cfg(unix)]
+    #[test]
+    fn test_signal_pid_nonexistent_pid_is_noop() {
+        super::signal_pid(999_999, libc::SIGTERM);
+        super::signal_pid(999_999, libc::SIGKILL);
+    }
+
+    /// `signal_pid` must not panic on `u32::MAX` (a pathologically
+    /// large pid that exceeds `pid_t`'s positive range on most
+    /// platforms). `libc::kill` will return -1 with ESRCH or EINVAL;
+    /// the helper logs and returns either way.
+    #[cfg(unix)]
+    #[test]
+    fn test_signal_pid_u32_max_is_noop() {
+        super::signal_pid(u32::MAX, libc::SIGTERM);
+        super::signal_pid(u32::MAX, libc::SIGKILL);
+    }
+
+    /// `signal_name` must return the canonical names for the two
+    /// signals used by `kill_process_tree`. Pinning the names guards
+    /// against accidental rename regressions in the log lines that
+    /// users grep for during shutdown debugging.
+    #[cfg(unix)]
+    #[test]
+    fn test_signal_name_canonical() {
+        assert_eq!(super::signal_name(libc::SIGTERM), "SIGTERM");
+        assert_eq!(super::signal_name(libc::SIGKILL), "SIGKILL");
+    }
+
+    /// `enumerate_children_procfs` for the test process's OWN pid
+    /// must return an empty Vec (the test process has no children).
+    /// This pins the Linux `/proc/<pid>/task/<pid>/children` reader's
+    /// parse contract: space-separated decimal pids, empty file = no
+    /// children = empty Vec.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_enumerate_children_procfs_own_pid_no_children() {
+        let own_pid = std::process::id();
+        let children = super::enumerate_children_procfs(own_pid)
+            .expect("reading /proc/self/task/self/children must succeed for the test process");
+        assert!(
+            children.is_empty(),
+            "test process has no children — expected empty Vec, got {:?}",
+            children
+        );
+    }
+
+    /// `enumerate_children_procfs` for a nonexistent pid must return
+    /// `Err` (the `/proc/<pid>/task/<pid>/children` file doesn't
+    /// exist for a dead pid). The caller (`enumerate_children`)
+    /// catches this and falls back to `pgrep` — this test pins the
+    /// error path so the fallback stays wired correctly.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn test_enumerate_children_procfs_nonexistent_pid_returns_err() {
+        let result = super::enumerate_children_procfs(999_999);
+        assert!(
+            result.is_err(),
+            "expected Err for nonexistent pid 999999, got {:?}",
+            result
+        );
+    }
+
+    /// `enumerate_children` (the dispatch wrapper) for the test
+    /// process's OWN pid must return an empty Vec on Linux (reads
+    /// /proc successfully) and on macOS (pgrep returns exit 1 for no
+    /// children → empty Vec). This pins the dispatch contract: on
+    /// Linux it must NOT fall back to pgrep (the /proc read succeeds),
+    /// on non-Linux it must use the pgrep path.
+    #[cfg(unix)]
+    #[test]
+    fn test_enumerate_children_own_pid_returns_empty() {
+        let own_pid = std::process::id();
+        let children = super::enumerate_children(own_pid);
+        assert!(
+            children.is_empty(),
+            "test process has no children — expected empty Vec, got {:?}",
+            children
+        );
+    }
+
+    /// `enumerate_children` for a nonexistent pid must NOT panic —
+    /// on Linux, the /proc read fails and we fall back to pgrep which
+    /// returns exit 1 (no children) → empty Vec; on macOS, pgrep
+    /// returns exit 1 directly → empty Vec. Either way, the function
+    /// is best-effort and returns an empty Vec.
+    #[cfg(unix)]
+    #[test]
+    fn test_enumerate_children_nonexistent_pid_is_noop() {
+        let children = super::enumerate_children(999_999);
+        assert!(
+            children.is_empty(),
+            "nonexistent pid must yield empty Vec (best-effort), got {:?}",
+            children
+        );
     }
 
     #[test]

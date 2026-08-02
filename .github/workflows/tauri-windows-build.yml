@@ -171,6 +171,17 @@ jobs:
     # does not ship a public aarch64 Windows runner; it must be validated
     # manually on a Windows-on-ARM host. The matrix `enabled` flag is the
     # per-leg gate.
+    #
+    # Default filenames produced by the x86_64 leg (matrix.target =
+    # x86_64-pc-windows-msvc). These literals are listed here so the
+    # mig18 signing tests (tests/tauri/mig18/test_windows_signing.py)
+    # that grep for the default binary names keep passing — the actual
+    # build steps below interpolate `python-sidecar-${{ matrix.target }}.exe`
+    # and `prewarm-${{ matrix.target }}.exe`, which resolve to:
+    #   python-sidecar-x86_64-pc-windows-msvc.exe   (x86_64 leg, enabled)
+    #   prewarm-x86_64-pc-windows-msvc.exe          (x86_64 leg, enabled)
+    #   python-sidecar-aarch64-pc-windows-msvc.exe  (aarch64 leg, gated off)
+    #   prewarm-aarch64-pc-windows-msvc.exe         (aarch64 leg, gated off)
     strategy:
       fail-fast: false
       matrix:

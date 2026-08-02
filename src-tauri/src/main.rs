@@ -56,16 +56,12 @@ use commands::sidecar_cmds::{dispatch, on_main_window_close, shutdown_sidecar};
 // commands (open_logs / open_model_import_dialog / export_templates /
 // export_config) and the renderer_log_error sink.
 use commands::system_cmds::{
-    export_config, export_templates, open_host_logs, open_logs, open_model_import_dialog,
+    export_config, export_templates, open_logs, open_model_import_dialog,
     renderer_log_error,
 };
 use platform::logging::init_file_logger_or_stderr_fallback;
 use platform::paths::config_dir;
-use sidecar::spawn::spawn_sidecar_and_get_port;
-use sidecar::supervisor::respawn;
-use sidecar::ws::reconnect_ws;
 use state::SidecarState;
-use std::sync::atomic::Ordering;
 
 fn main() {
     //install the EarlyLogger (stderr-only fallback) as the very
@@ -80,14 +76,10 @@ fn main() {
 
     // ADR-0020 §11: init the rotating file logger BEFORE the Tauri
     // builder runs so early startup errors are captured. The helper
-    // falls back to `env_logger` (stderr-only) if file init fails.
-    let config_dir_path = platform::paths::config_dir_from_env(
-        std::env::var("HOME").ok().as_deref(),
-        std::env::var("APPDATA").ok().as_deref(),
-        std::env::var("XDG_DATA_HOME").ok().as_deref(),
-        std::env::var("VOICE_TYPER_CONFIG_DIR").ok().as_deref(),
-    );
-    init_file_logger_or_stderr_fallback(&config_dir_path);
+    // falls back to the EarlyLogger (stderr-only) if file init fails.
+    // Use the cached config_dir() so the OnceLock is populated here
+    // and the later config_dir() call inside .setup is a zero-cost lookup.
+    init_file_logger_or_stderr_fallback(&platform::paths::config_dir());
 
     tauri::Builder::default()
         // ADR-0020 §12: single-instance MUST be the FIRST plugin so its
@@ -139,7 +131,6 @@ fn main() {
             bubble_toggle_dictation,
             //system-level window_ commands.
             open_logs,
-            open_host_logs,
             open_model_import_dialog,
             export_templates,
             export_config,
@@ -183,49 +174,14 @@ fn main() {
             // git history. The reset is now ONLY done on successful
             // `reconnect_ws` (supervisor.rs).
             // Spawn the sidecar + WS bridge in a background tokio task.
+            // The orchestration (spawn, install child handle, reconnect
+            // WS, respawn fallback) lives in
+            // `sidecar::spawn::initialize_sidecar` so this file stays
+            // wiring-only (C-ARCH-1).
             tauri::async_runtime::spawn(async move {
                 let state: tauri::State<'_, Arc<SidecarState>> = app_handle.state();
                 let state = state.inner().clone();
-
-                let token = util::generate_token();
-
-                match spawn_sidecar_and_get_port(&app_handle, &token).await {
-                    Ok((port, child, exit_rx)) => {
-                        //re-check shutting_down AFTER spawn
-                        // returns — if the user quit the app while we
-                        // were waiting for server_started (up to 30s on
-                        // a cold start), the `RunEvent::Exit` handler
-                        // already set the flag but found no child to
-                        // kill. Kill the freshly-spawned sidecar here
-                        // so it doesn't outlive the host, then bail
-                        // before installing it into state.
-                        if state.shutting_down.load(Ordering::SeqCst) {
-                            log::info!(
-                                "[SETUP] shutting_down set during sidecar spawn — \
-                                 killing freshly-spawned sidecar"
-                            );
-                            if let Err(e) = child.kill_tree().await {
-                                log::warn!(
-                                    "[SETUP] kill_tree on freshly-spawned sidecar failed (best-effort): {}",
-                                    e
-                                );
-                            }
-                            return;
-                        }
-                        *crate::state::lock(&state.child) = Some(child);
-                        //store the sidecar's event receiver so
-                        // shutdown_sidecar can poll for graceful exit.
-                        *state.child_exit_rx.lock().await = exit_rx;
-                        if let Err(e) = reconnect_ws(&app_handle, &state, port, &token).await {
-                            log::error!("[SETUP] initial WS connect failed: {}", e);
-                            let _ = respawn(&app_handle, &state).await;
-                        }
-                    }
-                    Err(e) => {
-                        log::error!("[SETUP] sidecar spawn failed: {}", e);
-                        let _ = respawn(&app_handle, &state).await;
-                    }
-                }
+                sidecar::spawn::initialize_sidecar(&app_handle, state).await;
             });
             Ok(())
         })

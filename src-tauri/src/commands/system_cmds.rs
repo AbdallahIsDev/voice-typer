@@ -226,45 +226,6 @@ pub async fn open_logs(
     }
 }
 
-//open the Rust host log directory (`<config_dir>/logs/`) in
-/// the OS file manager. Distinct from `open_logs` which opens the
-/// parent `<config_dir>/` root.
-///
-/// The actual Rust host log files (`voice-typer.log`, `.log.1`, ...)
-/// live in `<config_dir>/logs/` per `platform::logging::init_file_logger`
-/// (which does `config_dir.join("logs")`). The previous `open_logs`
-/// command opened `<config_dir>/` — operators clicking "View Logs"
-/// landed in the config root and had to navigate into `logs/` manually.
-/// This command opens `logs/` directly.
-///
-//`window` is auto-injected by Tauri at runtime.
-/// `require_main_window(&window)?` runs FIRST so a compromised bubble
-/// renderer cannot trigger OS file-manager opens.
-#[tauri::command]
-pub async fn open_host_logs(
-    _app: tauri::AppHandle,
-    window: tauri::Window,
-) -> Result<Value, String> {
-    require_main_window(&window)?;
-    let log_dir = config_dir().join("logs");
-    //capture mkdir failure (see `open_logs` above for the full
-    // rationale — silently discarding the error led to a triple failure
-    // mode where the UI showed "logs opened" while the OS file manager
-    // popped a "path not found" dialog).
-    if let Err(e) = std::fs::create_dir_all(&log_dir) {
-        return Ok(json!({
-            "success": false,
-            "error": format!("create_dir_all({}) failed: {}", log_dir.display(), e)
-        }));
-    }
-
-    let open_result = open_path_in_file_manager(&log_dir);
-    match open_result {
-        Ok(()) => Ok(json!({"success": true})),
-        Err(e) => Ok(json!({"success": false, "error": e})),
-    }
-}
-
 //sink for renderer-side error logs. The React UI's
 /// `__tauriLog.error(...)` invokes this command so uncaught UI errors
 /// land in the host-side rotating log file (`<config_dir>/logs/voice-typer-rust.log`

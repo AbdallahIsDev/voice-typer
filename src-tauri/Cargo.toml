@@ -50,9 +50,10 @@ tauri-plugin-single-instance = "2"
 # bridge invokes these commands (no JS-side dialog API call).
 tauri-plugin-dialog = "2"
 
-# ADR-0020 §6.2: enigo for cross-platform keystroke injection
-# (short-text paste path). Used by the paste_text event handler.
-enigo = "0.2"
+# ADR-0020 §6.2: enigo was previously used for cross-platform keystroke
+# injection (paste_text event handler). The paste_text command was deleted
+# as dead production code — the Python sidecar owns the paste path end-to-end.
+# The enigo dep was removed; grep -r 'use enigo' src/ returns 0 matches.
 
 # ADR-0020 §1 + §10: WebSocket client + tokio runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "io-util", "process"] }

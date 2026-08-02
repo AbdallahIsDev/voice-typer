@@ -24,7 +24,35 @@ pub(crate) const SUPERVISOR_BACKOFF_MS: &[u64] = &[500, 1000, 2000, 4000, 8000];
 /// ADR-0020 §10: cooperative shutdown hard timeout. The sidecar must
 /// ack `{"type":"shutdown"}` and exit within this window; if it
 /// doesn't, the host force-kills the process tree.
+///
+/// Used by the renderer-invoked `shutdown_sidecar` Tauri command (the
+/// UI-active path). There a tight budget is appropriate because the UI
+/// is still alive and a long block freezes it. The exit-path teardown
+/// (`shutdown_sidecar_for_exit` → `on_host_exit`) uses the longer
+/// [`EXIT_SHUTDOWN_ACK_TIMEOUT_MS`] instead — see its doc comment.
 pub(crate) const SHUTDOWN_ACK_TIMEOUT_MS: u64 = 2000;
+
+/// Cooperative shutdown timeout for the EXIT path only
+/// (`RunEvent::Exit` / `ExitRequested` → `on_host_exit` →
+/// `shutdown_sidecar_for_exit`). This is the LAST-RESORT teardown
+/// path — the host is going away, the UI is already gone, and the
+/// sidecar's audited worst-case cooperative cleanup (history_db.flush,
+/// crash_recovery.flush, native hotkey binary teardown, WAL
+/// checkpoint) can legitimately take ~30s on a cold disk.
+///
+/// The prior 2s budget (the same `SHUTDOWN_ACK_TIMEOUT_MS` used by the
+/// UI-active command) force-killed the sidecar mid-cleanup, which
+/// interrupted `history_db.flush()` (WAL not checkpointed → potential
+/// corruption), `crash_recovery.flush()` (partial snapshot), and the
+/// native hotkey binary teardown (left the binary running with the
+/// mic/input device held). 30s gives the sidecar the full cleanup
+/// window before the host's force-kill backstop fires.
+///
+/// The renderer-invoked `shutdown_sidecar` command keeps the tighter
+/// 2s budget — there a long block would freeze the UI. The two paths
+/// are intentionally separate constants so the exit path can be
+/// lengthened without regressing the UI-freeze protection.
+pub(crate) const EXIT_SHUTDOWN_ACK_TIMEOUT_MS: u64 = 30_000;
 
 /// ADR-0020 §1: time to wait for the `server_started` JSON on the
 /// sidecar's stdout before giving up.
@@ -556,13 +584,40 @@ mod tests {
         // deadline via `tokio::time::timeout`.
         assert_eq!(
             SHUTDOWN_ACK_TIMEOUT_MS, 2000,
-            "SHUTDOWN_ACK_TIMEOUT_MS must be 2000 (2s graceful window)"
+            "SHUTDOWN_ACK_TIMEOUT_MS must be 2000 (2s graceful window — UI-active path only)"
         );
         // The poll interval is only used by the dev-mode fallback path
         // (the ShellPlugin path now uses tokio::time::timeout + rx.recv).
         assert_eq!(
             SHUTDOWN_POLL_INTERVAL_MS, 100,
             "SHUTDOWN_POLL_INTERVAL_MS must be 100ms (dev-mode fallback step)"
+        );
+    }
+
+    /// The exit-path cooperative timeout must be 30s. This is the
+    /// budget for `shutdown_sidecar_for_exit` (the `RunEvent::Exit`
+    /// last-resort teardown), NOT the UI-active `shutdown_sidecar`
+    /// command (which keeps the 2s `SHUTDOWN_ACK_TIMEOUT_MS`). The
+    /// 30s budget gives the sidecar time to run its full audited
+    /// cleanup (history_db.flush, crash_recovery.flush, native
+    /// hotkey binary teardown, WAL checkpoint) before the host's
+    /// force-kill backstop fires — preventing WAL corruption + native
+    /// binary orphan that the prior 2s budget caused.
+    #[test]
+    fn test_exit_shutdown_ack_timeout_constant() {
+        assert_eq!(
+            EXIT_SHUTDOWN_ACK_TIMEOUT_MS, 30_000,
+            "EXIT_SHUTDOWN_ACK_TIMEOUT_MS must be 30000 (30s exit-path cooperative window)"
+        );
+        // Invariant: the exit-path budget must be STRICTLY GREATER
+        // than the UI-active budget. If they ever become equal, the
+        // exit path regresses the UI-freeze protection OR the UI path
+        // undercuts the sidecar's full cleanup window. Either is a bug.
+        assert!(
+            EXIT_SHUTDOWN_ACK_TIMEOUT_MS > SHUTDOWN_ACK_TIMEOUT_MS,
+            "EXIT_SHUTDOWN_ACK_TIMEOUT_MS ({}) must be > SHUTDOWN_ACK_TIMEOUT_MS ({}) — the exit path needs a longer budget than the UI-active path",
+            EXIT_SHUTDOWN_ACK_TIMEOUT_MS,
+            SHUTDOWN_ACK_TIMEOUT_MS
         );
     }
 

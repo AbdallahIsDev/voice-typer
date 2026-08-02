@@ -22,7 +22,8 @@
 //! item) focuses the main window.
 
 use serde::Deserialize;
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 use tauri::menu::{
     CheckMenuItemBuilder, IsMenuItem, MenuBuilder, MenuItemBuilder, PredefinedMenuItem,
     SubmenuBuilder,
@@ -88,6 +89,31 @@ struct TrayStatePayload {
 const TRAY_TOOLTIP: &str = crate::branding::APP_NAME;
 const TRAY_ID: &str = "voice-typer-tray";
 
+//Process-wide cache of decoded tray icons, keyed by the logical
+// name (`"idle"` / `"recording"` / `"transcribing"` / `"error"`).
+//
+// Without this cache, every `tray_state` event re-read the PNG from
+// disk (`resource_dir/tray/<name>.png`) AND re-decoded it via
+// `Image::from_path` (which allocates an RGBA buffer + runs the PNG
+// decoder). For a typical session the icon flips between `idle` ↔
+// `recording` ↔ `transcribing` dozens of times — each flip paid the
+// disk-read + decode cost. The cache holds the decoded `Image<'static>`
+// (an `Arc`-backed `Cow<[u8]>` internally, so `.clone()` is a single
+// atomic increment) and serves subsequent lookups from memory.
+//
+// `OnceLock<Mutex<HashMap<...>>>` is used instead of a plain
+// `OnceLock<HashMap<...>>` because `OnceLock::get_or_init` returns an
+// immutable `&T` — we need interior mutability to insert cache-miss
+// entries after init. `Mutex` (not `RwLock`) is fine here because the
+// cache is read+written under a single short critical section (no I/O
+// under the lock — disk read + decode happen BEFORE the lock is taken
+// on a cache miss, and the lock is only held for the `HashMap::get` /
+// `HashMap::insert`). Tray-state events are low-frequency (a handful
+// per session), so even if two threads raced a cache miss on the same
+// icon name, both would decode + one `insert` would win — the loser's
+// decoded `Image` is dropped (cheap, just an `Arc` decrement).
+static TRAY_ICON_CACHE: OnceLock<Mutex<HashMap<String, Image<'static>>>> = OnceLock::new();
+
 //map a logical icon name (`"idle"`, `"recording"`,
 /// `"transcribing"`, `"error"`) emitted by the Python sidecar to a
 /// bundled Tauri image resource. Returns `None` if the name is unknown
@@ -101,6 +127,11 @@ const TRAY_ID: &str = "voice-typer-tray";
 /// If the icon file is missing on disk (e.g. a fresh dev checkout that
 /// hasn't run the icon-generation script), the call returns `None` —
 /// the tray icon is left unchanged so the app still runs.
+///
+/// On a cache miss, the PNG is read + decoded OUTSIDE the cache lock
+/// (so a slow disk read doesn't block other threads' cache hits), then
+/// inserted under a brief lock. On a cache hit, the cached
+/// `Image<'static>` is cloned (cheap — `Arc`-backed `Cow<[u8]>`).
 fn load_tray_icon(app: &AppHandle, name: &str) -> Option<Image<'static>> {
     // Whitelist the logical names — never load an arbitrary path from
     // the sidecar (defense against a compromised sidecar trying to read
@@ -112,11 +143,30 @@ fn load_tray_icon(app: &AppHandle, name: &str) -> Option<Image<'static>> {
             return None;
         }
     };
+
+    // Fast path: cache hit. The cache is initialized on first use and
+    // populated lazily as each icon name is requested for the first
+    // time. `Mutex::lock` is a fast user-space lock (no syscall on the
+    // uncontended path); the critical section is a single `HashMap::get`.
+    let cache = TRAY_ICON_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    if let Ok(guard) = cache.lock() {
+        if let Some(img) = guard.get(allowed) {
+            return Some(img.clone());
+        }
+    } else {
+        // Poisoned lock — fall through to the disk-read path so the
+        // tray still updates. The cache is best-effort, not a correctness
+        // requirement.
+        log::warn!("[TRAY] icon cache lock poisoned — bypassing cache for {:?}", allowed);
+    }
+
+    // Slow path: read + decode from disk. Done OUTSIDE the cache lock
+    // so a slow disk doesn't block other threads' cache hits.
     let resource_dir = app.path().resource_dir().ok()?;
     let path = resource_dir.join("tray").join(format!("{}.png", allowed));
     let bytes = std::fs::read(&path).ok()?;
-    match Image::from_path(&path) {
-        Ok(img) => Some(img),
+    let img = match Image::from_path(&path) {
+        Ok(img) => img,
         Err(e) => {
             log::warn!(
                 "[TRAY] failed to decode tray icon {:?} ({} bytes from {}): {}",
@@ -125,9 +175,19 @@ fn load_tray_icon(app: &AppHandle, name: &str) -> Option<Image<'static>> {
                 path.display(),
                 e
             );
-            None
+            return None;
         }
+    };
+
+    // Insert into the cache. If another thread raced us and inserted
+    // first, our insert is a no-op overwrite with an equivalent value
+    // (same logical name → same file → same decoded bytes). The
+    // `Mutex` guard is held only for the `HashMap::insert`, not the
+    // disk read above.
+    if let Ok(mut guard) = cache.lock() {
+        guard.insert(allowed.to_string(), img.clone());
     }
+    Some(img)
 }
 
 /// Build the list of `IsMenuItem` boxed items for `items`. Each entry is
@@ -331,14 +391,18 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         //`rebuild_tray_menu` is fully synchronous (no `.await`
         // points), so wrapping it in `tauri::async_runtime::spawn(async
         // move { ... })` paid Tokio task-scheduler overhead for no async
-        // benefit. Switched to `std::thread::spawn` so the work runs on
-        // a dedicated OS thread without round-tripping through the
-        // async runtime. The tray-menu rebuild is a low-frequency event
-        // (fires only when the Python sidecar publishes `tray_menu`),
-        // so the per-event thread-creation cost (~50µs) is negligible
-        // and the listener closure (which runs on the Tauri event-loop
-        // thread) returns immediately.
-        std::thread::spawn(move || {
+        // benefit. The previous `std::thread::spawn` paid a per-event
+        // OS-thread-creation cost (~50µs) — fine at low frequency, but
+        // it allocated a fresh thread for every `tray_menu` publish.
+        // `tauri::async_runtime::spawn_blocking` is the cached
+        // equivalent: it dispatches the closure onto the Tokio blocking
+        // thread pool, which is lazily grown and reused across calls.
+        // The listener closure (which runs on the Tauri event-loop
+        // thread) returns immediately; the blocking pool absorbs the
+        // work without per-event thread allocation. The returned
+        // `JoinHandle` is intentionally dropped (fire-and-forget) — the
+        // body logs its own errors and returns `()`.
+        let _ = tauri::async_runtime::spawn_blocking(move || {
             if let Err(e) = rebuild_tray_menu(&app_inner, &payload.items) {
                 log::error!("[TRAY] failed to rebuild menu: {}", e);
             }
@@ -371,17 +435,22 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
         let app_inner = app_clone_state.clone();
         //the body below is fully synchronous (no `.await`s —
         // `tray_by_id`, `load_tray_icon`, `tray.set_icon`, and
-        // `tray.set_tooltip` are all blocking Tauri APIs). Wrapping the
-        // body in `tauri::async_runtime::spawn(async move { ... })` paid
-        // Tokio task-scheduler overhead for no async benefit. Switched
-        // to `std::thread::spawn` so the work runs on a dedicated OS
-        // thread. The `tray_state` event is low-frequency (fires only
-        // when the Python sidecar publishes icon/tooltip updates, which
-        // happens a handful of times per session), so the per-event
-        // thread-creation cost (~50µs) is negligible and the listener
-        // closure (which runs on the Tauri event-loop thread) returns
-        // immediately.
-        std::thread::spawn(move || {
+        // `tray.set_tooltip` are all blocking Tauri APIs). The previous
+        // `std::thread::spawn` allocated a fresh OS thread per event
+        // (~50µs per allocation). With the `TRAY_ICON_CACHE` in place,
+        // the icon-load path is a HashMap lookup + `Arc` clone on a
+        // cache hit — the body is now ~µs-scale CPU work, but the OS
+        // tray APIs (`set_icon` / `set_tooltip`) can still block on
+        // sync IPC to the OS tray subsystem on some platforms, so we
+        // keep the work OFF the event-loop thread.
+        // `tauri::async_runtime::spawn_blocking` dispatches the closure
+        // onto the cached Tokio blocking thread pool (lazily grown,
+        // reused across calls), avoiding the per-event thread-creation
+        // cost while still keeping the event-loop thread free. The
+        // returned `JoinHandle` is intentionally dropped
+        // (fire-and-forget) — the body logs its own errors and
+        // returns `()`.
+        let _ = tauri::async_runtime::spawn_blocking(move || {
             if let Some(tray) = app_inner.tray_by_id(TRAY_ID) {
                 if let Some(icon_name) = &payload.icon {
                     if let Some(img) = load_tray_icon(&app_inner, icon_name) {

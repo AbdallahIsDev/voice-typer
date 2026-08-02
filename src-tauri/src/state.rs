@@ -368,9 +368,16 @@ impl Default for SidecarState {
 /// 1. Set `shutting_down` (idempotency guard).
 /// 2. Send the `{"type":"shutdown"}` WS frame (best-effort — skipped
 ///    if the WS is already torn down).
-/// 3. Wait up to `SHUTDOWN_ACK_TIMEOUT_MS` (2s) for the sidecar to
-///    exit gracefully (polling the `CommandEvent` receiver if present;
-///    bounded sleep for dev-mode).
+/// 3. Wait up to `EXIT_SHUTDOWN_ACK_TIMEOUT_MS` (30s) for the sidecar
+///    to exit gracefully (polling the `CommandEvent` receiver if
+///    present; bounded sleep for dev-mode). The exit path uses the
+///    longer 30s budget (vs the renderer-invoked `shutdown_sidecar`
+///    command's 2s `SHUTDOWN_ACK_TIMEOUT_MS`) because the host is
+///    already going away and the sidecar's audited worst-case
+///    cooperative cleanup (history_db.flush, crash_recovery.flush,
+///    native hotkey binary teardown, WAL checkpoint) can legitimately
+///    take ~30s on a cold disk. Force-killing mid-cleanup risks WAL
+///    corruption + native-binary orphan.
 /// 4. Force-kill the process tree via `SidecarHandle::kill_tree` so
 ///    grandchildren (native hotkey binary, model subprocesses) are
 ///    reaped too.
@@ -381,7 +388,7 @@ impl Default for SidecarState {
 pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
     use std::sync::atomic::Ordering;
     use std::time::Duration;
-    use crate::util::SHUTDOWN_ACK_TIMEOUT_MS;
+    use crate::util::EXIT_SHUTDOWN_ACK_TIMEOUT_MS;
 
     // Idempotency guard.
     if state.shutting_down.swap(true, Ordering::SeqCst) {
@@ -413,12 +420,30 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
         log::info!("[EXIT-SHUTDOWN] no ws_tx — skipping cooperative shutdown frame");
     }
 
-    // Wait up to SHUTDOWN_ACK_TIMEOUT_MS for graceful exit.
+    // Wait up to EXIT_SHUTDOWN_ACK_TIMEOUT_MS (30s) for graceful exit.
+    // The exit path uses a longer budget than the renderer-invoked
+    // `shutdown_sidecar` command (2s) because the host is going away
+    // and the sidecar's cleanup (WAL checkpoint, native hotkey binary
+    // teardown) can legitimately take ~30s on a cold disk.
     //mirror the `shutdown_sidecar` Tauri command's logging.
-    let deadline = Duration::from_millis(SHUTDOWN_ACK_TIMEOUT_MS);
+    let deadline = Duration::from_millis(EXIT_SHUTDOWN_ACK_TIMEOUT_MS);
     let mut graceful = false;
-    let mut rx_guard = state.child_exit_rx.lock().await;
-    if let Some(rx) = rx_guard.as_mut() {
+    // Take the receiver OUT of the shared slot under a brief lock, then
+    // DROP the lock guard before awaiting `rx.recv()`. Holding the
+    // `AsyncMutex` guard across the up-to-30s `tokio::time::timeout`
+    // await blocked any other code path that needed `child_exit_rx`
+    // (e.g. a concurrent `Exit` + `ExitRequested` callback pair, or a
+    // late renderer `shutdown_sidecar` command) for the entire grace
+    // window — even though the idempotency guard already short-circuits
+    // duplicate teardowns, the lock itself was still contended. This
+    // path is the app's terminal exit, so leaving the slot `None` after
+    // `take()` is fine (no later code needs the receiver back; the
+    // process is going away).
+    let rx_opt = {
+        let mut rx_guard = state.child_exit_rx.lock().await;
+        rx_guard.take()
+    };
+    if let Some(mut rx) = rx_opt {
         match tokio::time::timeout(deadline, rx.recv()).await {
             Ok(Some(CommandEvent::Terminated(payload))) => {
                 log::info!(
@@ -440,18 +465,17 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
             Err(_) => {
                 log::warn!(
                     "[EXIT-SHUTDOWN] sidecar did not exit within {}ms — force-killing",
-                    SHUTDOWN_ACK_TIMEOUT_MS
+                    EXIT_SHUTDOWN_ACK_TIMEOUT_MS
                 );
             }
         }
     } else {
         log::info!(
             "[EXIT-SHUTDOWN] dev-mode sidecar — sleeping {}ms before force-kill",
-            SHUTDOWN_ACK_TIMEOUT_MS
+            EXIT_SHUTDOWN_ACK_TIMEOUT_MS
         );
         tokio::time::sleep(deadline).await;
     }
-    drop(rx_guard);
 
     // Force-kill backstop. Gate on `!graceful` — if the sidecar exited
     // cooperatively, the grandchildren (native hotkey binary, model
@@ -487,14 +511,20 @@ pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
 /// force-kills the sidecar mid-flush, which can corrupt `history.db`
 /// and leak the native hotkey binary child.
 ///
-/// This local constant is used ONLY by `on_host_exit` (the
-/// `RunEvent::Exit` last-resort teardown). The renderer-invoked
-/// `shutdown_sidecar` command keeps the tighter 2s budget
-/// (`SHUTDOWN_ACK_TIMEOUT_MS`) — there a tight budget is appropriate
-/// because the UI is still alive and a long block freezes it. The
-/// `RunEvent::Exit` path is when the host is going away — it should
-/// err on the side of giving the sidecar more time.
-const HOST_SHUTDOWN_GRACE_MS: u64 = 5000;
+/// This local constant is the HARD ceiling on the exit-path teardown.
+/// It MUST be >= `EXIT_SHUTDOWN_ACK_TIMEOUT_MS` (30s) so that the
+/// cooperative shutdown wait inside `shutdown_sidecar_for_exit` is
+/// never cut short by the outer `tokio::time::timeout` in
+/// `on_host_exit`. The 5s headroom (30s + 5s) covers the
+/// force-kill + zombie-reap phase that runs after the cooperative
+/// wait expires.
+///
+/// The renderer-invoked `shutdown_sidecar` command keeps the tighter
+/// 2s budget (`SHUTDOWN_ACK_TIMEOUT_MS`) — there a tight budget is
+/// appropriate because the UI is still alive and a long block freezes
+/// it. The `RunEvent::Exit` path is when the host is going away — it
+/// should err on the side of giving the sidecar more time.
+const HOST_SHUTDOWN_GRACE_MS: u64 = 35_000;
 
 /// `relaunch_app` Tauri event listener body, extracted from
 /// `main.rs`'s inline closure so the host entrypoint stays wiring-only
@@ -547,13 +577,13 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
 ///
 /// Spawns the sidecar teardown on a dedicated std thread (NOT a tokio
 /// task) so the Tauri event loop returns immediately — `block_on` can
-/// block for up to 3s on dev-mode shutdowns (the dev-mode sidecar has
-/// no `CommandEvent` stream, so `shutdown_sidecar_for_exit` always
-/// sleeps the full `SHUTDOWN_ACK_TIMEOUT_MS`=2s). The user would
-/// otherwise see a non-responsive window / lingering Dock icon during
-/// the sleep. The process tears down naturally once the spawned thread
-/// completes (Tauri keeps the runtime alive until all spawned tasks /
-/// threads resolve on exit paths).
+/// block for up to ~35s on dev-mode shutdowns (the dev-mode sidecar
+/// has no `CommandEvent` stream, so `shutdown_sidecar_for_exit`
+/// always sleeps the full `EXIT_SHUTDOWN_ACK_TIMEOUT_MS`=30s). The
+/// user would otherwise see a non-responsive window / lingering Dock
+/// icon during the sleep. The process tears down naturally once the
+/// spawned thread completes (Tauri keeps the runtime alive until all
+/// spawned tasks / threads resolve on exit paths).
 ///
 /// The teardown is wrapped in `tokio::time::timeout(HOST_SHUTDOWN_GRACE_MS + 1000)`
 /// so the run loop never hangs on a misbehaving sidecar.
@@ -661,21 +691,41 @@ mod tests {
         assert_eq!(pending.lock().await.len(), 0);
     }
 
-    //`shutdown_sidecar_for_exit` must be idempotent.
+    //`shutdown_sidecar_for_exit` must be idempotent. The first call
+    /// sets `shutting_down` IMMEDIATELY (before the 30s dev-mode sleep)
+    /// so a concurrent second call short-circuits via the idempotency
+    /// guard. We verify the contract structurally without waiting the
+    /// full 30s sleep — spawn the first call, poll `shutting_down` until
+    /// it flips true, then verify the second call returns immediately.
     #[tokio::test]
     async fn test_shutdown_sidecar_for_exit_is_idempotent() {
         let state = Arc::new(SidecarState::new());
         let state_clone = state.clone();
-        tokio::time::timeout(
-            Duration::from_millis(2500),
-            shutdown_sidecar_for_exit(&state_clone),
-        )
-        .await
-        .expect("first shutdown_sidecar_for_exit should complete within 2.5s");
+        // Spawn the first call but don't await — it would block for the
+        // full EXIT_SHUTDOWN_ACK_TIMEOUT_MS (30s) on the dev-mode None
+        // child_exit_rx path.
+        let first_handle = tokio::spawn(async move {
+            shutdown_sidecar_for_exit(&state_clone).await;
+        });
+        // Poll `shutting_down` until it flips true (set by the first
+        // call's idempotency guard, BEFORE the 30s sleep). 1s is
+        // generous — the guard runs in the first few microseconds of
+        // the call.
+        let mut guard_set = false;
+        for _ in 0..100 {
+            if state.shutting_down.load(std::sync::atomic::Ordering::SeqCst) {
+                guard_set = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         assert!(
-            state.shutting_down.load(std::sync::atomic::Ordering::SeqCst),
-            "shutting_down must be set after first call"
+            guard_set,
+            "shutting_down must be set within 1s of the first call (idempotency guard runs before the 30s sleep)"
         );
+        // Second call must short-circuit immediately because
+        // `shutting_down` is already set. 100ms is generous for a
+        // no-op return.
         let state_clone2 = state.clone();
         let second = tokio::time::timeout(
             Duration::from_millis(100),
@@ -686,6 +736,10 @@ mod tests {
             second.is_ok(),
             "second shutdown_sidecar_for_exit must short-circuit immediately (idempotency)"
         );
+        // Abort the first call to clean up — don't wait for the 30s
+        // sleep. The spawned task is still in the dev-mode sleep; abort
+        // drops it without panicking.
+        first_handle.abort();
     }
 
     // ── SidecarHandle::Drop ────────────────────────────────────────
