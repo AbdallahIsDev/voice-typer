@@ -280,10 +280,20 @@ def build_models_menu_items(
     ):
         if not downloaded:
             continue
+        # Native checkmark: pystray's MenuItem ``checked`` parameter
+        # renders the platform-standard checkmark on the active model
+        # (Win32: MF_CHECKED; macOS: NSControlStateValueOn; GTK:
+        # RadioMenuItem active). Previously we manually prefixed the
+        # label with "• " (and non-active with "  "), which bypassed
+        # the native checkmark and broke screen-reader semantics.
+        # ``checked`` accepts a bool (static at build time) — the menu
+        # is rebuilt on every right-click via invalidate_menu_cache,
+        # so the value is fresh at display time.
         items.append(
             menu_item_class(
-                f"{'• ' if is_active else '  '}{name}",
+                name,
                 wrap_fn(change_fn),
+                checked=is_active,
             )
         )
 

@@ -268,7 +268,6 @@ class HistoryHandlersMixin(HandlerBase):
                 resp["type"] = "error"
                 resp["data"] = {
                     "code": ErrorCodes.PAYLOAD_TOO_LARGE,
-                    "legacy_code": "payload_too_large",
                     "field": "record.text",
                     "message": "'record.text' exceeds 8192-char cap",
                 }

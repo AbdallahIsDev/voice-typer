@@ -481,7 +481,16 @@ class IPCServer(
         # malicious client that opens a connection and sends nothing
         # can no longer stall the accept loop and block the next
         # legitimate client from being accepted.
+        #
+        # A SEPARATE ``_tcp_dispatch_pool`` (lazily created in
+        # ``start_tcp``) handles dispatch submissions so a long-lived
+        # connection read-loop can never starve short-lived dispatches.
+        # Pre-split both work types shared this single pool: with N
+        # concurrent authenticated connections each holding a worker on
+        # its blocking read-loop, dispatch submissions queued behind
+        # them indefinitely (full starvation at the connection cap).
         self._tcp_worker_pool: ThreadPoolExecutor | None = None
+        self._tcp_dispatch_pool: ThreadPoolExecutor | None = None
         # this server's push callable, registered in the
         # module-level _push_event_registry on start() and unregistered
         # on stop().  Tracked on the instance so stop() can remove just
@@ -851,13 +860,25 @@ class IPCServer(
             with contextlib.suppress(OSError):
                 server_sock.close()
             self._tcp_server_socket = None
-        # SEC-8: shut down the TCP worker pool so queued (not-yet-
-        # started) connection handoffs are dropped and in-flight
-        # workers' teardown is no longer tracked. The accept loop
-        # also shuts the pool down when it exits naturally; this is
-        # the belt-and-suspenders path for callers that close the
-        # listening socket directly (e.g. test fixtures) without
-        # waiting for the accept thread to observe the close.
+        # SEC-8: shut down the TCP worker pools so queued (not-yet-
+        # started) connection handoffs AND dispatch submissions are
+        # dropped and in-flight workers' teardown is no longer tracked.
+        # The accept loop also shuts the pools down when it exits
+        # naturally; this is the belt-and-suspenders path for callers
+        # that close the listening socket directly (e.g. test fixtures)
+        # without waiting for the accept thread to observe the close.
+        # The dispatch pool is torn down first so its in-flight
+        # dispatches can finish writing responses before the connection
+        # handlers' sockets are torn down.
+        dispatch_pool = self._tcp_dispatch_pool
+        if dispatch_pool is not None:
+            dispatch_pool.shutdown(wait=False, cancel_futures=True)
+            self._tcp_dispatch_pool = None
+            dispatch_join = threading.Thread(target=dispatch_pool.shutdown, kwargs={"wait": True}, daemon=True)
+            dispatch_join.start()
+            dispatch_join.join(timeout=5.0)
+            if dispatch_join.is_alive():
+                log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s — proceeding anyway")
         pool = self._tcp_worker_pool
         if pool is not None:
             pool.shutdown(wait=False, cancel_futures=True)
@@ -872,7 +893,7 @@ class IPCServer(
             join_thread.start()
             join_thread.join(timeout=5.0)
             if join_thread.is_alive():
-                log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s — proceeding anyway")
+                log.warning("[SHUTDOWN] tcp_worker_pool did not drain in 5s — proceeding anyway")
         # signal the heartbeat watchdog to exit.  The thread
         # sleeps on ``_heartbeat_stop_event.wait(timeout=INTERVAL)``;
         # setting the event wakes it immediately so it doesn't linger
@@ -1110,10 +1131,19 @@ class IPCServer(
 
         def wrapped(state, message=""):
             original(state, message)
+            # The ``message`` argument carries the human-readable
+            # context that the tray itself already shows in its
+            # tooltip (e.g. ``"Transcription failed: …"``). Forwarding
+            # it in the push payload lets the renderer surface the
+            # same diagnostic instead of seeing only the bare state
+            # value. The field is always present so consumers can
+            # branch on ``data.message`` without a separate
+            # ``hasOwnProperty`` check; the empty-string default
+            # mirrors the ``set_state`` signature.
             self.push(
                 {
                     "type": "status_change",
-                    "data": {"status": state.value},
+                    "data": {"status": state.value, "message": message},
                 }
             )
 
@@ -1127,7 +1157,6 @@ class IPCServer(
         *,
         message: str,
         code: str | None = None,
-        legacy_code: str | None = None,
         _out: typing.IO[str] | None = None,
     ) -> None:
         """Build + send an error envelope on the legacy stdin/stdout path.
@@ -1144,14 +1173,11 @@ class IPCServer(
         ``code`` is optional so the helper can express the bare
         ``{"message": "invalid JSON"}`` envelope ( backward-compat
         with ``tests/test_server.py``'s ``test_handles_invalid_json``,
-        which asserts the no-``code`` shape). ``legacy_code`` carries
-        the one-release alias for the invalid-payload site.
+        which asserts the no-``code`` shape).
         """
         data: dict[str, object] = {"message": message}
         if code is not None:
             data["code"] = code
-        if legacy_code is not None:
-            data["legacy_code"] = legacy_code
         self._send({"type": "error", "data": data}, _out=_out)
 
     def _run(
@@ -1198,12 +1224,10 @@ class IPCServer(
                         # route through the shared
                         # ``_send_stdin_error_envelope`` helper so the
                         # envelope shape is defined in one place.
-                        # Namespaced form (canonical) + legacy alias
-                        # (one-release compat).
+                        # Namespaced form (canonical).
                         self._send_stdin_error_envelope(
                             message="message must be a JSON object",
                             code="client.invalid_payload",
-                            legacy_code="invalid_payload",
                             _out=stdout,
                         )
                         continue
@@ -1570,10 +1594,6 @@ class IPCServer(
         # switch on a single canonical prefix (``server.*``).
         resp["data"] = {
             "code": "server.unknown_command",
-            # legacy_code preserves the bare form for back-compat
-            # with older Electron builds that substring-match the code
-            # field instead of switching on the namespaced prefix.
-            "legacy_code": "unknown_command",
             "message": f"Unknown command: {cmd}",
             "command": cmd,
         }

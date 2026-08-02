@@ -405,19 +405,22 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
     # ``.copy()`` is cheap — 512 float32 = 2 KB).
     filtered_chunk_for_test: np.ndarray | None = None
     if len(flat) > 0:
-        # Apply noise filters to the level bar audio if a processor is
-        # active, so the bar reflects what the user hears after
-        # filtering, not the raw mic input. ``_level_processor`` is
-        # only mutated by ``update_level_processor``, which acquires
-        # ``_monitor_lock`` for both the snapshot read of
-        # ``_monitor_sample_rate`` and the assignment of
-        # ``_level_processor`` itself. Reading the reference here
-        # without the lock is still safe under CPython's GIL (a bare
-        # attribute read is atomic), but the worker may observe a
-        # stale reference for one chunk — acceptable, since the next
-        # iteration picks up the new processor.
+        # Lightweight level-bar mode. When ``_level_bar_filtered``
+        # is False (default) AND ``_test_mode`` is False, SKIP the
+        # filter chain — compute RMS/peak on RAW audio only. The filter
+        # chain (which may include RNNoise, 5-50 ms per chunk on CPU)
+        # is wasted work for the cosmetic level bar (the user just
+        # wants to see "is the mic picking up sound?"), and running it
+        # at 31-94 Hz pegs a core for a non-functional visualization.
+        #
+        # The filter chain STILL runs when ``_test_mode`` is True (the
+        # test's "after" WAV needs the filtered audio) OR when the user
+        # has explicitly opted in via ``_level_bar_filtered = True``.
         processor = _state._level_processor
-        if processor is not None:
+        run_filter_chain = processor is not None and (
+            test_mode or _state._level_bar_filtered
+        )
+        if run_filter_chain:
             filtered = processor.process_chunk(indata.reshape(-1, 1))
             # ``process_chunk`` may return ``None`` to pass-through
             # (e.g. when the filter chain is disabled at runtime).
@@ -437,8 +440,9 @@ def _process_level_chunk(indata: np.ndarray, status: Any) -> None:
             if test_mode and filtered is not None:
                 filtered_chunk_for_test = flat_filtered.copy()
         else:
-            # No live processor: use the raw flat block for both RMS
-            # and peak (no extra allocation needed).
+            # No live processor, OR cosmetic-bar-only mode: use the raw
+            # flat block for both RMS and peak (no extra allocation
+            # needed, no filter chain cost).
             flat_filtered = flat
             rms = float(np.sqrt(np.dot(flat, flat) / flat.size)) if flat.size > 0 else 0.0
         # Allocation-free peak: max(abs(x)) is computed as max(max(x), -min(x))

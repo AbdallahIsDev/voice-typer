@@ -82,21 +82,13 @@ from typing import TypedDict
 # ``unknown_command``, ``unknown_tray_item``, ``auth_failed``,
 # ``rate_limited``, ``invalid_payload``, ``invalid_field``,
 # ``missing_field``, ``model_switch_failed``, ``payload_too_large``)
-# are still emitted by some paths for backward compat — new code MUST
-# use the namespaced form. The renderer must accept both forms (treat
-# the legacy form as an alias). The contract test in
-# ``tests/test_error_codes_registry.py`` is the regression guard.
-#
-# (2026-10): the validation helper was migrated to emit the
-# namespaced form (client.invalid_payload / client.invalid_field /
-# client.missing_field) as the primary code field. The legacy bare
-# form is preserved in a sibling legacy_code field on the same error
-# envelope for one release cycle so the renderer (and any tests still
-# asserting the old form) can switch to the namespaced form without a
-# hard cutover. The three literals listed above are STILL emitted (as
-# legacy_code values), so the contract test's LEGACY_ALIASES registry
-# remains accurate. Drop the legacy_code field once the renderer
-# migrates.
+# are still registered in :class:`LegacyErrorCodes` (and the
+# :data:`LEGACY_ERROR_CODES` frozenset) so the contract test can audit
+# which bare-form codes the wire may still carry (e.g. from the Rust
+# host's pre-dispatch rejection paths). The previous per-envelope
+# ``legacy_code`` field was REMOVED once the renderer migrated fully
+# to the namespaced ``code`` form (``rg "legacy_code"
+# voice_typer/client/src/`` returns zero hits).
 class ErrorCodes:
     """Namespaced IPC error code constants (single source of truth).
 
@@ -334,13 +326,12 @@ Schema = dict[str, FieldRule]
 #
 # ``ErrorData`` is ``total=False`` because emitters selectively
 # include only the keys relevant to the specific error code (e.g.
-# ``legacy_code`` is only present during the one-release-cycle
-# migration window; ``field`` is only present for ``invalid_field`` /
-# ``missing_field``; ``command`` is only present for
-# ``unknown_command``).
+# ``field`` is only present for ``invalid_field`` / ``missing_field``;
+# ``command`` is only present for ``unknown_command``). The previous
+# ``legacy_code`` key was removed once the renderer migrated to the
+# namespaced ``code`` form.
 class ErrorData(TypedDict, total=False):
     code: str
-    legacy_code: str
     message: str
     field: str
     command: str
@@ -463,18 +454,15 @@ def _validate_dict_payload(
             "type": "error",
             "data": {
                 # emit the namespaced ``client.invalid_payload``
-                # as the primary ``code`` (per ). The legacy
-                # bare ``invalid_payload`` is preserved in
-                # ``legacy_code`` for one release cycle so the renderer
-                # (and any tests still asserting the old form) can
-                # switch to the namespaced form without a hard cutover.
-                # Drop ``legacy_code`` once the renderer migrates.
-                # reference the constants on ErrorCodes
-                # LegacyErrorCodes (single source of truth) instead of
-                # bare string literals, so a typo surfaces at import
-                # time and the contract test stays in sync with emitters.
+                # as the primary ``code``. The renderer has migrated
+                # fully to the namespaced form (``rg "legacy_code"
+                # voice_typer/client/src/`` returns zero hits), so
+                # the per-envelope ``legacy_code`` alias was removed.
+                # reference the constant on ``ErrorCodes``
+                # (single source of truth) instead of a bare string
+                # literal, so a typo surfaces at import time and the
+                # contract test stays in sync with emitters.
                 "code": ErrorCodes.INVALID_PAYLOAD,
-                "legacy_code": LegacyErrorCodes.INVALID_PAYLOAD,
                 "message": "data must be an object",
             },
         }
@@ -509,11 +497,9 @@ def _validate_dict_payload(
             return None, {
                 "type": "error",
                 "data": {
-                    # namespaced form (primary) + legacy
-                    # alias (one-release-cycle compat).
-                    # use ErrorCodes / LegacyErrorCodes constants.
+                    # namespaced form (canonical).
+                    # use ErrorCodes constant.
                     "code": ErrorCodes.INVALID_PAYLOAD,
-                    "legacy_code": LegacyErrorCodes.INVALID_PAYLOAD,
                     "message": (f"payload too large ({payload_size} bytes; max {effective_max_bytes})"),
                 },
             }
@@ -554,11 +540,9 @@ def _validate_dict_payload(
                     # ErrorEnvelope contract — see validation.py
                     "type": "error",
                     "data": {
-                        # namespaced form (primary) + legacy
-                        # alias (one-release-cycle compat).
-                        # use ErrorCodes / LegacyErrorCodes constants.
+                        # namespaced form (canonical).
+                        # use ErrorCodes constant.
                         "code": ErrorCodes.INVALID_FIELD,
-                        "legacy_code": LegacyErrorCodes.INVALID_FIELD,
                         "field": field_name,
                         "message": f"'{field_name}' must be of type {expected_name}, got {type(value).__name__}",
                     },
@@ -595,11 +579,9 @@ def _validate_dict_payload(
                     # ErrorEnvelope contract — see validation.py
                     "type": "error",
                     "data": {
-                        # namespaced form (primary) + legacy
-                        # alias (one-release-cycle compat).
-                        # use ErrorCodes / LegacyErrorCodes constants.
+                        # namespaced form (canonical).
+                        # use ErrorCodes constant.
                         "code": ErrorCodes.INVALID_FIELD,
-                        "legacy_code": LegacyErrorCodes.INVALID_FIELD,
                         "field": field_name,
                         "message": (
                             f"'{field_name}' must be of type {expected_name}, "
@@ -617,11 +599,9 @@ def _validate_dict_payload(
                     # ErrorEnvelope contract — see validation.py
                     "type": "error",
                     "data": {
-                        # namespaced form (primary) + legacy
-                        # alias (one-release-cycle compat).
-                        # use ErrorCodes / LegacyErrorCodes constants.
+                        # namespaced form (canonical).
+                        # use ErrorCodes constant.
                         "code": ErrorCodes.INVALID_FIELD,
-                        "legacy_code": LegacyErrorCodes.INVALID_FIELD,
                         "field": field_name,
                         "message": (f"'{field_name}' value too long ({len(value)} > {max_value_len})"),
                     },
@@ -639,11 +619,9 @@ def _validate_dict_payload(
                 # ErrorEnvelope contract — see validation.py
                 "type": "error",
                 "data": {
-                    # namespaced form (primary) + legacy alias
-                    # (one-release-cycle compat).
-                    # use ErrorCodes / LegacyErrorCodes constants.
+                    # namespaced form (canonical).
+                    # use ErrorCodes constant.
                     "code": ErrorCodes.MISSING_FIELD,
-                    "legacy_code": LegacyErrorCodes.MISSING_FIELD,
                     "field": field_name,
                     "message": f"Missing required field '{field_name}'",
                 },
@@ -695,13 +673,8 @@ def _error_response(resp: dict, message: str, *, code: str = ErrorCodes.HANDLER_
         dict
             The same ``resp`` dict, mutated to be an error envelope.
     """
-    # derive the legacy alias from the namespaced ``code``.
-    # ``client.foo`` / ``server.foo`` → ``foo``; legacy-form codes are
-    # returned unchanged so the helper is idempotent on inputs that
-    # already lack a namespace prefix.
-    legacy_code = code.split(".", 1)[1] if code.startswith("client.") or code.startswith("server.") else code
     resp["type"] = "error"
-    resp["data"] = {"code": code, "legacy_code": legacy_code, "message": message}
+    resp["data"] = {"code": code, "message": message}
     return resp
 
 

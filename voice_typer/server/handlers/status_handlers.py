@@ -56,7 +56,6 @@ class StatusHandlersMixin(HandlerBase):
                     resp["type"] = "error"
                     resp["data"] = {
                         "code": ErrorCodes.INVALID_PAYLOAD,
-                        "legacy_code": "invalid_payload",
                         "message": "data must be an object",
                     }
                     return resp

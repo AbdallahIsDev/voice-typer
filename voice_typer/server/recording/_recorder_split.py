@@ -51,10 +51,19 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-# ``retune_audio_processor`` consolidates the retune block that
-# was duplicated between ``start_recording`` (below) and
-# ``DisconnectHandler.restart_stream``.
-from .disconnect_handler import retune_audio_processor
+# ``_AUDIO_BLOCKSIZE`` is used in ``start_recording`` to scale
+# the SPSC ring buffer capacity to ~2s of headroom at the device's
+# effective sample rate. Imported from ``_audio_constants`` (single
+# source of truth, no circular import).
+from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
+
+# The ``retune_audio_processor`` helper used to be imported here
+# and called from ``start_recording``. The call was REMOVED —
+# the per-chunk resample in ``AudioProcessor.process_chunk`` handles
+# 48 kHz → 16 kHz on the worker thread, keeping the filter chain at
+# WHISPER_SAMPLE_RATE (16 kHz). The helper definition still lives in
+# ``disconnect_handler.py`` (other call site also removed; the function
+# is kept for the direct unit tests in ``test_device_manager.py``).
 from .exceptions import ResampleError
 
 if TYPE_CHECKING:
@@ -621,6 +630,45 @@ def start_recording(recorder: Recorder) -> None:
     # ── dynamic buffer sizing (deferred until effective_sr known) ──
     recorder._resize_buffers_for_sample_rate(effective_sr, max_rec)
 
+    # Scale the SPSC ring buffer to ~2s of headroom at the
+    # device's effective sample rate. ``_resize_buffers_for_sample_rate``
+    # (in ``session_state.py``) already resizes for ~1.0s with a floor
+    # of 16 chunks — sufficient for VAD inference spikes (Silero ~1-5ms
+    # per chunk on CPU) but tight when the audio worker briefly falls
+    # behind on RNNoise (~50ms/chunk * 16 Hz = 800ms/sec of CPU). At
+    # 48 kHz / 512-sample blocks, the 1.0s sizing gives only 93 chunks;
+    # a 1s worker stall would evict ~93 chunks ~ 1s of speech.
+    #
+    # Override to 2.0s headroom (floor 64 chunks so a 16 kHz device
+    # still gets ~2s — 64 * 512 / 16000 = 2.048s). The per-chunk
+    # resample cost (after the retune removal) runs on the worker
+    # thread, not the RT callback, so the larger capacity absorbs the
+    # extra per-chunk latency without dropping audio.
+    #
+    # SEC-audit-008: zero each chunk's numpy array BEFORE reassignment
+    # so the previous session's audio data doesn't linger in process
+    # memory after the deque reference is dropped (mirrors the
+    # preroll-buffer / disconnect-handler pattern). Ring buffer items
+    # are 5-tuples ``(chunk_copy, frames, time_info, status, perf_ts)``
+    # — the numpy array is the first element. Defensive against
+    # direct-array items too.
+    #
+    # ``start_audio_worker_body`` (capture.py:380-384) re-zeros and
+    # clears the deque immediately after this, so the reassignment here
+    # is the capacity-change vehicle (the clear is redundant but the
+    # zeroing is not — once we drop the reference, the underlying
+    # float32 arrays survive until GC).
+    _uu36_sizing_sr = effective_sr if effective_sr > 0 else recorder.config.sample_rate
+    if _uu36_sizing_sr > 0:
+        _uu36_new_ring_capacity = max(
+            64, int(_uu36_sizing_sr / _AUDIO_BLOCKSIZE * 2.0)
+        )
+        for _payload in recorder._ring_buffer:
+            _arr = _payload[0] if isinstance(_payload, tuple) else _payload
+            if isinstance(_arr, np.ndarray):
+                _arr.fill(0)
+        recorder._ring_buffer = collections.deque(maxlen=_uu36_new_ring_capacity)
+
     if selected_device != device and isinstance(selected_device, int):
         log.info(
             "[RECORDING] Selected microphone [%s] failed; using device [%s]",
@@ -662,37 +710,34 @@ def start_recording(recorder: Recorder) -> None:
         # Warm up synchronously to avoid racing with stop()
         recorder.warm_up_resampler()
 
-    # High: when the device's effective sample rate differs
-    # from the audio processor's chain construction rate, rebuild
-    # the chain at the new rate so (a) filter coefficients are
-    # tuned to the actual native rate ( mitigation — an 80 Hz
-    # high-pass built at 16 kHz actually cuts at 240 Hz when fed 48
-    # kHz audio, removing male speech fundamentals), and (b) the
-    # per-chunk ``process_chunk`` call avoids the RT-thread
-    # ``resample_poly`` branch (5-50ms × 16 Hz = 80-800ms/sec of
-    # RT-thread CPU) because ``input_sample_rate == _sample_rate``
-    # short-circuits at audio_processor.py:283. The
-    # ``_rebuild_audio_processor(force_sr=...)`` API was added by
-    # but was never called from the
-    # recorder — every chunk paid the resample cost after a
-    # hot-plug or on first start with a non-16 kHz device.
+    # The ``retune_audio_processor(...)`` call that
+    # used to live here (rebuilding the AudioProcessor's chain at the
+    # device's native sample rate) has been removed. The chain stays at
+    # its construction rate (typically WHISPER_SAMPLE_RATE = 16 kHz) and
+    # the per-chunk resample in ``AudioProcessor.process_chunk`` (called
+    # from ``audio_pipeline.process_audio_chunk`` with
+    # ``input_sample_rate=recorder._effective_sr``) handles the
+    # 48 kHz → 16 kHz downsample on the worker thread.
     #
-    # the retune block was consolidated into
-    # ``retune_audio_processor`` (shared with
-    # ``DisconnectHandler.restart_stream``) so the 3-level fallback
-    # chain (set_sample_rate → rebuild_from_config → log-and-continue)
-    # lives in one place. The helper is a no-op when
-    # ``_sample_rate == effective_sr`` or when ``_audio_processor`` is None.
-    retune_audio_processor(
-        recorder._audio_processor,
-        effective_sr,
-        recorder.config,
-        context="on start",
-    )
+    # The retune call was a latency optimization (avoiding the per-chunk
+    # resample) but it ran on the start() critical path and could fail
+    # silently (e.g. ``set_sample_rate`` raising on a hot-plug) leaving
+    # the chain mistuned. The per-chunk resample is robust by design —
+    # it always resamples to the chain rate regardless of the device's
+    # native rate, so filter coefficients stay correctly tuned.
+    #
+    # Filter-chain correctness at 16 kHz is preserved:
+    #   - With processor: ``process_chunk`` resamples to ``_sample_rate``
+    #     (16 kHz) → filters built at 16 kHz are fed 16 kHz audio ✓
+    #   - Without processor: filters are not applied (no chain) ✓
+    #
+    # ``_buffer_sr`` is still set correctly by ``process_audio_chunk``
+    # (audio_pipeline.py:297-304) to the processor's ``_sample_rate``
+    # (16 kHz) or to ``_effective_sr`` (no-processor path), so
+    # ``stop()``/``snapshot()`` resample decisions are unaffected.
 
     # refresh the per-chunk VAD property cache now that
-    # ``_effective_sr`` (and the AudioProcessor's ``_sample_rate``,
-    # if the above retuned it) are finalized. The cache lets the
+    # ``_effective_sr`` is finalized. The cache lets the
     # 16 Hz audio worker hot path read scalars instead of
     # dispatching 3 property lookups per chunk × 16 Hz = 48/sec.
     recorder._refresh_vad_caches()

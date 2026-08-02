@@ -120,7 +120,31 @@ log = logging.getLogger("voice_typer.server.credential_store")
 # one-thread-per-call is the right tradeoff here.
 _KEYRING_TIMEOUT_SECONDS = 5.0
 
+# When the backend times out twice in a row, we assume it is wedged
+# (D-Bus daemon hung, Keychain waiting on an unlock prompt the user
+# walked away from, etc.) and short-circuit every subsequent call for
+# this many seconds. Spawning fresh daemon threads against a wedged
+# backend leaks orphans (Python can't kill threads) and wastes the
+# caller's 5s timeout budget on every call. The cooldown gives the
+# backend a chance to recover without us hammering it.
+_KEYRING_WEDGE_COOLDOWN_S = 60.0
+
+# Orphaned keyring-io threads are normally bounded by the IPC handler
+# thread pool size (a handful of concurrent ``set_config`` calls). If
+# the count exceeds this threshold we log a WARNING so operators can
+# diagnose a permanently-stuck backend (e.g. Keychain daemon died and
+# every call leaves a 30s-lived orphan before D-Bus itself times out).
+_KEYRING_ORPHAN_WARN_THRESHOLD = 20
+
 _T = TypeVar("_T")
+
+# Module-level state for the orphan/wedge tracking. All accesses are
+# guarded by ``_keyring_state_lock`` so concurrent IPC handler threads
+# can safely mutate. The lock is held briefly (no I/O under it).
+_keyring_state_lock = threading.Lock()
+_orphaned_thread_count: int = 0  # daemon threads still running whose caller already gave up
+_consecutive_timeouts: int = 0   # reset to 0 on any non-timeout completion
+_wedged_until: float = 0.0       # monotonic timestamp; while > now, short-circuit calls
 
 
 def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
@@ -133,14 +157,69 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
     The caller is expected to handle both ``TimeoutError`` and the
     backend's own exceptions by falling through to the plaintext / skip
     path.
+
+    Orphan / wedge tracking
+    -----------------------
+    When the backend hangs, the worker thread is abandoned (Python
+    can't kill threads). Each abandoned thread is counted in
+    :data:`_orphaned_thread_count`; the counter is decremented when
+    the orphan eventually finishes (D-Bus timeout / Keychain unlock).
+    If the orphan count exceeds
+    :data:`_KEYRING_ORPHAN_WARN_THRESHOLD`, a WARNING is logged so
+    operators can diagnose a permanently-stuck backend.
+
+    On the 2nd *consecutive* timeout, :data:`_wedged_until` is set to
+    ``now + :data:`_KEYRING_WEDGE_COOLDOWN_S```. While the cooldown is
+    active, every call short-circuits with a ``TimeoutError`` without
+    spawning another worker thread (no new orphan, no 5s wait). When
+    the cooldown expires, the next call is attempted fresh — if it
+    succeeds (or raises a non-timeout exception), the consecutive-timeout
+    counter resets; if it times out again, the cooldown re-engages.
     """
-    container: dict[str, Any] = {"result": None, "exc": None}
+    global _orphaned_thread_count, _consecutive_timeouts, _wedged_until
+
+    # ── Wedge short-circuit ────────────────────────────────────────────
+    # If we're in cooldown, fail fast. No new thread, no 5s wait.
+    # When the cooldown has just expired, reset the consecutive-timeout
+    # counter so the backend gets a fresh chance (otherwise the very
+    # first timeout after cooldown would immediately re-wedge).
+    with _keyring_state_lock:
+        now = time.monotonic()
+        if 0.0 < _wedged_until <= now:
+            _wedged_until = 0.0
+            _consecutive_timeouts = 0
+        if _wedged_until > now:
+            remaining = _wedged_until - now
+            raise TimeoutError(
+                f"keyring backend is wedged (cooldown {remaining:.1f}s remaining); "
+                f"short-circuiting call to {getattr(func, '__name__', repr(func))}"
+            )
+
+    state: dict[str, Any] = {
+        "result": None,
+        "exc": None,
+        "completed": False,  # set under lock in the runner's finally
+        "orphaned": False,   # set under lock by the caller on timeout
+    }
 
     def _runner() -> None:
+        global _orphaned_thread_count
         try:
-            container["result"] = func(*args, **kwargs)
+            state["result"] = func(*args, **kwargs)
         except BaseException as exc:  # noqa: BLE001 — re-raised on the caller
-            container["exc"] = exc
+            state["exc"] = exc
+        finally:
+            # Atomically mark completion AND decrement the orphan
+            # counter if the caller already counted us. The lock
+            # closes the race where the caller's ``t.is_alive()``
+            # returns True but the thread finishes before the caller
+            # acquires the lock — in that case the caller sees
+            # ``completed=True`` and does NOT increment, so we must
+            # NOT decrement here either.
+            with _keyring_state_lock:
+                state["completed"] = True
+                if state["orphaned"]:
+                    _orphaned_thread_count -= 1
 
     t = threading.Thread(
         target=_runner,
@@ -149,18 +228,57 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
     )
     t.start()
     t.join(timeout=_KEYRING_TIMEOUT_SECONDS)
+
     if t.is_alive():
-        # Thread is still running — the backend hung. Don't try to
-        # kill it (Python can't); just abandon and let the caller fall
-        # through to the plaintext fallback. The thread will eventually
-        # finish (D-Bus timeout / Keychain unlock) and its result will
-        # be discarded.
-        raise TimeoutError(
-            f"keyring call {getattr(func, '__name__', repr(func))} did not complete within {_KEYRING_TIMEOUT_SECONDS}s"
-        )
-    if container["exc"] is not None:
-        raise container["exc"]
-    return container["result"]
+        # Backend hung. Atomically mark this thread as orphaned and
+        # bump the counters / wedge state. The orphan thread will
+        # decrement ``_orphaned_thread_count`` when it eventually
+        # finishes (its ``finally`` checks ``state["orphaned"]``).
+        with _keyring_state_lock:
+            if state["completed"]:
+                # Race: the thread finished between ``t.is_alive()``
+                # and the lock acquisition. Its ``finally`` already
+                # ran with ``orphaned=False`` (so it didn't
+                # decrement). Don't increment either — fall through
+                # to the normal result-handling path below.
+                pass
+            else:
+                state["orphaned"] = True
+                _orphaned_thread_count += 1
+                orphan_count = _orphaned_thread_count
+                _consecutive_timeouts += 1
+                consecutive = _consecutive_timeouts
+                if consecutive >= 2:
+                    _wedged_until = time.monotonic() + _KEYRING_WEDGE_COOLDOWN_S
+                    log.warning(
+                        "[CREDENTIAL] keyring backend wedged after %d consecutive "
+                        "timeouts — short-circuiting all calls for %.0fs",
+                        consecutive,
+                        _KEYRING_WEDGE_COOLDOWN_S,
+                    )
+                if orphan_count > _KEYRING_ORPHAN_WARN_THRESHOLD:
+                    log.warning(
+                        "[CREDENTIAL] %d orphaned keyring-io threads still running "
+                        "(threshold %d) — backend may be permanently stuck",
+                        orphan_count,
+                        _KEYRING_ORPHAN_WARN_THRESHOLD,
+                    )
+                raise TimeoutError(
+                    f"keyring call {getattr(func, '__name__', repr(func))} did not "
+                    f"complete within {_KEYRING_TIMEOUT_SECONDS}s "
+                    f"(orphaned threads: {orphan_count}, consecutive timeouts: {consecutive})"
+                )
+
+    # Call completed (success or exception) — reset the consecutive
+    # timeout counter so a single success after a wedged state gives
+    # the backend a clean slate.
+    with _keyring_state_lock:
+        if _consecutive_timeouts != 0:
+            _consecutive_timeouts = 0
+
+    if state["exc"] is not None:
+        raise state["exc"]
+    return state["result"]
 
 
 # ── Constants ────────────────────────────────────────────────────────────

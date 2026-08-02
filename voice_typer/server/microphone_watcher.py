@@ -62,8 +62,9 @@ class MicrophoneDeviceWatcher:
         watcher thread.
     poll_interval:
         Seconds between ``/dev/snd`` directory polls on Linux.
-        Defaults to 1.0s. Exposed as a parameter so tests can pass a
-        smaller value for fast, deterministic verification.
+        Defaults to 5.0s (bumped from 1.0s to cut constant 1 Hz idle
+        wakeups for app lifetime). Exposed as a parameter so tests can
+        pass a smaller value for fast, deterministic verification.
 
      — active-mic-lost detection
     -----------------------------------
@@ -91,7 +92,7 @@ class MicrophoneDeviceWatcher:
     def __init__(
         self,
         on_change: Callable[[], None],
-        poll_interval: float = 1.0,
+        poll_interval: float = 5.0,
     ) -> None:
         self._on_change = on_change
         self._poll_interval = poll_interval
@@ -871,6 +872,22 @@ class MicrophoneDeviceWatcher:
         except Exception:
             log.warning(
                 "[MIC-WATCHER] Invalidation callback raised",
+                exc_info=True,
+            )
+
+        # Invalidate the platform-layer microphone-list TTL cache so
+        # the next ``list_microphones()`` call re-queries PortAudio
+        # immediately rather than waiting for the 5 s TTL to expire.
+        # Best-effort: a circular-import or test-isolated environment
+        # that hasn't imported server_platform yet must not crash the
+        # watcher thread.
+        try:
+            from voice_typer.server.server_platform import invalidate_microphone_list_cache
+
+            invalidate_microphone_list_cache()
+        except Exception:
+            log.debug(
+                "[MIC-WATCHER] platform microphone-list cache invalidation skipped",
                 exc_info=True,
             )
         # even if _on_change raised, the device list may have

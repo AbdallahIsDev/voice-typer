@@ -353,6 +353,29 @@ def _vectored_handler_impl(exception_pointers) -> int:
             # retry.
             _ch._crash_written = True
 
+        # Best-effort flush of the in-memory log ring buffer
+        # (MemoryHandler attached to the ``voice_typer`` root logger).
+        # This appends the most-recent ~200 log records to
+        # ``<config_dir>/voice-typer-crash-buffer.log`` so a support
+        # engineer can see the log trail that led up to the crash
+        # without reading the rotating file log off disk during the
+        # VEH callback (which is unsafe during heap corruption).
+        #
+        # Wrapped in try/except — the VEH callback must NOT raise. For
+        # STATUS_HEAP_CORRUPTION the heap is corrupted and this call
+        # may silently fail (the buffer is lost). For access
+        # violations / stack overruns (the common case) the flush
+        # works reliably. See ``_memory_buffer`` module docstring for
+        # the full limitations.
+        try:
+            from voice_typer.server.crash_handler._memory_buffer import (
+                flush_memory_handler,
+            )
+
+            flush_memory_handler()
+        except Exception:
+            pass
+
         return EXCEPTION_CONTINUE_SEARCH
     finally:
         _ch._crash_write_lock.release()

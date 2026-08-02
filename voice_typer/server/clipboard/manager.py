@@ -833,9 +833,6 @@ class ClipboardManager:
                 with _pending_restores_lock, contextlib.suppress(ValueError):
                     _pending_restores.remove(_pending_entry)  # already removed by another path
 
-        # PLAT-STUCK: release any stuck modifier keys before pasting
-        self._release_stuck_modifiers()
-
         # pynput is optional. If both _Key and _Controller are
         # unavailable AND we're not on Windows (where _send_ctrl_v_win32
         # uses SendInput directly without pynput), there's no way to
@@ -968,6 +965,15 @@ class ClipboardManager:
                     "[CLIPBOARD] is_remote_session probe failed; using default paste delay",
                     exc_info=True,
                 )
+
+        # PLAT-STUCK: release any stuck modifier keys before pasting.
+        # Gated to run AFTER the rate-limit / paste_enabled / pynput-
+        # availability early-return paths so a rate-limited or disabled
+        # paste cycle does NOT pay the 4 pynput ``.release()`` round-trips
+        # (Ctrl / Shift / Alt / Cmd). The release is idempotent and
+        # harmless when no modifier is stuck, so running it on every
+        # paste-eligible cycle is safe.
+        self._release_stuck_modifiers()
 
         if not self._is_safe_paste_target():
             _cb.log.info("[CLIPBOARD] Paste blocked — security-sensitive window in foreground")

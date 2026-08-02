@@ -679,10 +679,6 @@ class Recorder(VadShimMixin):
         # current capacity arrives (rare — blocksize is 512 samples).
         self._mono_scratch_local = threading.local()
 
-        # PERF-011: frame-skip under CPU load
-        self._previous_chunk_pending: bool = False
-        self._skipped_frames: int = 0
-
         # HOTKEY-CRASH: generation counter incremented in stop() so stale
         # device-disconnect handlers (launched from the audio callback) can
         # detect they're operating on an already-stopped stream and bail out
@@ -1251,10 +1247,28 @@ class Recorder(VadShimMixin):
             return
 
         self._device_disconnect_retries += 1
-        if self._device_disconnect_retries > self._max_disconnect_retries:
+        # BT HFP/HSP mode-switch retry policy: Bluetooth headsets take
+        # 1-3s to switch from A2DP (audio output) to HFP/HSP (two-way
+        # call) mode when any app opens the mic input. The default
+        # 3-retry budget fires within ~100ms (each retry is a separate
+        # disconnect-detection cycle at ~32ms cadence), terminating
+        # the recording before the BT stack finishes the mode switch.
+        # Query the current device info and use a BT-aware retry budget
+        # (6 retries for BT vs 3 for non-BT) and an inter-retry sleep
+        # (0.75s for BT vs 0s for non-BT) so the total BT retry window
+        # (~4.5s) covers the mode-switch latency. The helpers live on
+        # ``DeviceManager`` (``_build_device_info_for_retry_policy`` /
+        # ``_get_max_retries_for_device`` / ``_get_retry_sleep_for_device``)
+        # and return the conservative defaults (3 / 0.0s) when the
+        # device query fails — preserving the pre-fix behavior on
+        # query errors.
+        _device_info = self._devices._build_device_info_for_retry_policy()
+        _effective_max_retries = self._devices._get_max_retries_for_device(_device_info)
+        _retry_sleep = self._devices._get_retry_sleep_for_device(_device_info)
+        if self._device_disconnect_retries > _effective_max_retries:
             log.error(
                 "[RECORDING] Max disconnect retries (%d) reached. Stopping recording.",
-                self._max_disconnect_retries,
+                _effective_max_retries,
             )
             # High: fire a dedicated ``on_device_lost`` callback
             # (not ``on_silence_auto_stop``) so the UI shows "Microphone
@@ -1285,8 +1299,21 @@ class Recorder(VadShimMixin):
         log.warning(
             "[RECORDING] Device disconnect detected (attempt %d/%d). Attempting restart with default device.",
             self._device_disconnect_retries,
-            self._max_disconnect_retries,
+            _effective_max_retries,
         )
+
+        # BT inter-retry sleep: space successive retries so the BT stack
+        # has time to re-establish the HFP/HSP link between attempts.
+        # Skipped on the first attempt (no prior failure to recover from)
+        # and on non-BT devices (``_retry_sleep == 0.0`` → immediate
+        # retry, preserving the pre-fix behavior). The sleep is bounded
+        # by ``_bt_retry_sleep_seconds`` (default 0.75s) so the total
+        # retry window for a BT device is ~4.5s (6 retries × 0.75s) —
+        # within the 3-5s target for covering the HFP mode-switch
+        # latency. The bouncer checks above already verified the
+        # recording is still active, so sleeping here is safe.
+        if _retry_sleep > 0.0 and self._device_disconnect_retries > 1:
+            time.sleep(_retry_sleep)
 
         # (IMPROVE-mode run, 2026-07-21): Stop current stream via
         # ``_teardown_stream()`` instead of raw ``stop()/close()``.
@@ -1299,7 +1326,16 @@ class Recorder(VadShimMixin):
         # ``_teardown_stream`` acquires+releases
         # ``_stream_lifecycle_lock`` internally; the restart block below
         # re-acquires it for the new-stream creation+assignment.
-        self._teardown_stream()
+        #
+        # Pass ``force=True`` so the teardown uses ``stream.abort()``
+        # instead of ``stream.stop()``. The device is KNOWN to be gone
+        # (that's why we're in this handler), so ``stop()`` would block
+        # indefinitely waiting for pending buffers that will never
+        # drain. ``abort()`` returns immediately (PortAudio discards the
+        # buffers), unblocking the recovery critical path. The CLEAN
+        # path (stop from hotkey) keeps the default ``force=False`` for
+        # graceful drain.
+        self._teardown_stream(force=True)
 
         # hold the stream-lifecycle lock across the restart so a
         # concurrent ``stop()`` / ``discard()`` cannot mutate
@@ -1974,7 +2010,7 @@ class Recorder(VadShimMixin):
 
         _recorder_split.start_recording(self)
 
-    def _teardown_stream(self) -> None:
+    def _teardown_stream(self, *, force: bool = False) -> None:
         """Stop + close the PortAudio stream, draining any in-flight callback.
 
         Phase 4.5 — body (the stop + callback-drain poll +
@@ -2005,7 +2041,7 @@ class Recorder(VadShimMixin):
             # torn down before releasing.
             return
         try:
-            self._stream_lifecycle.teardown_stream_body(self)
+            self._stream_lifecycle.teardown_stream_body(self, force=force)
         finally:
             self._stream_lifecycle_lock.release()
 

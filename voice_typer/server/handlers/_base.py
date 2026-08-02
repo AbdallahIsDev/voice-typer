@@ -79,48 +79,6 @@ from voice_typer.server.recording.exceptions import (
     ResampleUnavailableError,
 )
 
-
-def _legacy_code_from(code: str) -> str:
-    """Derive a legacy (non-namespaced) error code from a
-    namespaced one by stripping the leading ``client.`` / ``server.``
-    prefix. Used by ``_respond_with_error`` to stamp a ``legacy_code``
-    alias on every envelope so the renderer (which may still branch on
-    the legacy form during the namespacing migration window) can read
-    either field.
-
-    Codes that already lack a namespace prefix are returned unchanged
-    so the helper is idempotent on legacy-form inputs.
-    """
-    if code.startswith("client.") or code.startswith("server."):
-        return code.split(".", 1)[1]
-    return code
-
-
-# Explicit namespaced → legacy alias map for codes that have
-# a ``LegacyErrorCodes`` counterpart. Entries here take precedence over
-# the prefix-stripping fallback in ``_legacy_code_from`` so the
-# ``legacy_code`` field matches the canonical ``LegacyErrorCodes``
-# constant (single source of truth) rather than a mechanically-derived
-# string. Codes without an entry fall through to the prefix-strip
-# derivation (which produces the same value for every entry currently
-# in ``LegacyErrorCodes`` — kept explicit anyway so a future rename
-# in ``LegacyErrorCodes`` propagates automatically).
-_LEGACY_CODE_MAP: dict[str, str] = {
-    ErrorCodes.INTERNAL_ERROR: LegacyErrorCodes.INTERNAL_ERROR,
-    ErrorCodes.HANDLER_ERROR: LegacyErrorCodes.HANDLER_ERROR,
-    ErrorCodes.UNKNOWN_COMMAND: LegacyErrorCodes.UNKNOWN_COMMAND,
-    ErrorCodes.UNKNOWN_TRAY_ITEM: LegacyErrorCodes.UNKNOWN_TRAY_ITEM,
-    ErrorCodes.SHUTTING_DOWN: LegacyErrorCodes.SHUTTING_DOWN,
-    ErrorCodes.AUTH_FAILED: LegacyErrorCodes.AUTH_FAILED,
-    ErrorCodes.RATE_LIMITED: LegacyErrorCodes.RATE_LIMITED,
-    ErrorCodes.INVALID_PAYLOAD: LegacyErrorCodes.INVALID_PAYLOAD,
-    ErrorCodes.INVALID_FIELD: LegacyErrorCodes.INVALID_FIELD,
-    ErrorCodes.MISSING_FIELD: LegacyErrorCodes.MISSING_FIELD,
-    ErrorCodes.MODEL_SWITCH_FAILED: LegacyErrorCodes.MODEL_SWITCH_FAILED,
-    ErrorCodes.PAYLOAD_TOO_LARGE: LegacyErrorCodes.PAYLOAD_TOO_LARGE,
-    ErrorCodes.NOT_INITIALIZED: LegacyErrorCodes.NOT_INITIALIZED,
-}
-
 # The ``ErrorEnvelope`` TypedDict contract is kept in
 # :mod:`voice_typer.server.ipc.validation` (useful as documentation),
 # but the cast + return-type annotations were REMOVED here because
@@ -130,6 +88,15 @@ _LEGACY_CODE_MAP: dict[str, str] = {
 # comments so the contract remains documented without being enforced
 # at the type level. The runtime contract is verified by
 # ``tests/test_error_codes_registry.py``.
+#
+# Note: the per-envelope ``legacy_code`` field and its helpers
+# (``_legacy_code_from`` + ``_LEGACY_CODE_MAP``) were removed once the
+# renderer migrated fully to the namespaced ``code`` form. The
+# :class:`LegacyErrorCodes` constants are still re-exported from this
+# module for handlers (e.g. ``config_handlers`` and
+# ``cloud_test_handlers``) that emit the bare form directly as the
+# primary ``code`` field on legacy code paths that have not yet been
+# namespaced.
 
 
 def _scrub_traceback(exc: BaseException) -> tuple[str, str]:
@@ -390,9 +357,6 @@ class HandlerBase(HandlerMixinBase):
             data = exc.to_dict()
             data["code"] = ErrorCodes.CONSENT_REQUIRED
             data["message"] = str(exc) or "consent required"
-            # Stamp the legacy alias (``consent_required``)
-            # alongside the namespaced ``client.consent_required`` form.
-            data["legacy_code"] = _legacy_code_from(ErrorCodes.CONSENT_REQUIRED)
             resp["data"] = data
             return resp
         if isinstance(exc, ResampleUnavailableError):
@@ -448,17 +412,12 @@ class HandlerBase(HandlerMixinBase):
             # MUST use the namespaced form.
             code = ErrorCodes.INTERNAL_ERROR
             message = "internal error"
-        # Stamp the matching ``LegacyErrorCodes`` alias when
-        # one exists (e.g. ``internal_error`` for
-        # ``server.internal_error``). For codes that have no
-        # ``LegacyErrorCodes`` counterpart (the cloud / recording codes
-        # pre-date the namespacing migration), derive the legacy form
-        # by stripping the ``client.``/``server.`` prefix so the
-        # envelope shape is uniform across all branches.
-        legacy = _LEGACY_CODE_MAP.get(code) or _legacy_code_from(code)
+        # Stamp the envelope with the namespaced ``code`` and the
+        # generic server-side message. The previous per-envelope
+        # ``legacy_code`` alias was removed once the renderer migrated
+        # fully to the namespaced ``code`` form.
         resp["data"] = {
             "code": code,
-            "legacy_code": legacy,
             "message": message,
         }
         return resp

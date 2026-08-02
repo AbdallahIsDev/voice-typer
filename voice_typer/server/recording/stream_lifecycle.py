@@ -160,6 +160,13 @@ class StreamLifecycle:
                     # may still deliver a different size on some drivers,
                     # but vad.py now pads/truncates to handle that.
                     blocksize=_AUDIO_BLOCKSIZE,
+                    # Request the host API's "low" latency hint.
+                    # On ALSA/CoreAudio/WASAPI this selects the smallest
+                    # viable buffer (10-20 ms end-to-end callback latency).
+                    # PortAudio silently falls back to the default if the
+                    # requested latency is unavailable (PA clamps
+                    # suggestedLatency to [0, defaultLowInputLatency]).
+                    latency="low",
                     # AUDIO-HOT: finished_callback detects unexpected stream termination
                     finished_callback=recorder._stream_finished_callback,
                 )
@@ -280,6 +287,10 @@ class StreamLifecycle:
                     callback=callback,
                     # VAD-001: request 512-sample blocks for Silero VAD
                     blocksize=_AUDIO_BLOCKSIZE,
+                    # Request the host API's "low" latency hint
+                    # (mirrors the primary open_stream_for_candidates call;
+                    # PortAudio silently falls back if unavailable).
+                    latency="low",
                     # AUDIO-HOT: finished_callback detects unexpected stream termination
                     finished_callback=recorder._stream_finished_callback,
                 )
@@ -359,7 +370,7 @@ class StreamLifecycle:
         recorder._current_callback = callback
         return callback
 
-    def teardown_stream_body(self, recorder: Any) -> None:
+    def teardown_stream_body(self, recorder: Any, *, force: bool = False) -> None:
         """Body of :meth:`Recorder._teardown_stream` (inside the
                 ``_stream_lifecycle_lock`` block — the lock acquisition stays on
                 ``Recorder`` for source-inspection contracts).
@@ -375,7 +386,8 @@ class StreamLifecycle:
 
                 Behavior:
                   1. If ``recorder._stream`` is None, return immediately (idempotent).
-                  2. Call ``stream.stop()`` to halt PortAudio's callback dispatch.
+                  2. Call ``stream.stop()`` (CLEAN) or ``stream.abort()`` (force)
+                     to halt PortAudio's callback dispatch.
                   3. Poll ``_is_in_audio_callback`` for up to 300ms (5ms interval)
                      until the in-flight callback (if any) returns.
                   4. Call ``stream.close()`` to free PortAudio resources.
@@ -383,6 +395,21 @@ class StreamLifecycle:
 
                 Idempotent: safe to call when the stream is already None (e.g.
                 when ``discard()`` is invoked twice, or after ``stop()``).
+
+        ``force=True`` selects the disconnect-recovery path. When
+                the device is KNOWN to be gone (called from
+                ``Recorder._handle_device_disconnect``), ``stream.stop()``
+                blocks indefinitely waiting for pending buffers that will
+                never drain. ``stream.abort()`` returns immediately
+                (PortAudio discards the buffers). Both ``abort()`` and
+                ``close()`` are best-effort on the force path — failures
+                are suppressed so the disconnect-recovery critical path
+                can't be blocked by a stuck PortAudio stream, and
+                ``_stream`` is always cleared so the next ``start()``
+                opens a fresh stream. The CLEAN path (``force=False``,
+                the default — used by ``stop()`` / ``discard()`` /
+                ``__del__``) keeps ``stream.stop()`` + ``stream.close()``
+                with exception propagation for graceful drain.
 
         the caller (``Recorder._teardown_stream``) wraps this body
                 in ``recorder._stream_lifecycle_lock`` (acquired with non-blocking
@@ -396,6 +423,36 @@ class StreamLifecycle:
         """
         if not recorder._stream:
             return
+        if force:
+            # Known-dead-device path (disconnect handler).
+            # ``abort()`` returns immediately without waiting for
+            # pending buffers to drain — unlike ``stop()`` which blocks
+            # indefinitely on a dead device. Both ``abort()`` and
+            # ``close()`` are best-effort here: the device is already
+            # gone, so failures are suppressed to keep the recovery
+            # critical path moving, and ``_stream`` is always cleared
+            # so the next ``start()`` opens a fresh stream.
+            with contextlib.suppress(Exception):
+                recorder._stream.abort()
+            # The drain poll is moot after ``abort()`` (PortAudio
+            # guarantees no further callback dispatch), but kept as a
+            # safety net for any in-flight callback that started before
+            # ``abort()`` took effect.
+            _deadline = time.perf_counter() + _TEARDOWN_CALLBACK_DRAIN_BUDGET_S
+            while recorder._is_in_audio_callback.is_set():
+                remaining = _deadline - time.perf_counter()
+                if remaining <= 0:
+                    break
+                time.sleep(min(_TEARDOWN_CALLBACK_POLL_INTERVAL_S, remaining))
+            with contextlib.suppress(Exception):
+                recorder._stream.close()
+            recorder._stream = None
+            return
+        # CLEAN path (stop from hotkey / discard / __del__) — graceful
+        # drain via ``stop()`` so pending buffers complete before
+        # ``close()``. Exceptions from ``stop()`` / ``close()`` propagate
+        # to the caller (``Recorder._teardown_stream`` → its ``finally``
+        # releases the lock).
         recorder._stream.stop()
         # wait briefly for any in-flight audio
         # callback to complete before closing the stream. This prevents

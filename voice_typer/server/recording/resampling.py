@@ -100,16 +100,28 @@ def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
       discard so the result has exactly ``n_in * up // down[+1]``
       samples (matching scipy's output length).
 
-    The cache hit path is a dict lookup + tuple unpack — sub-
-    microsecond. The cache miss path runs ``firwin`` once per
-    distinct (up, down) ratio seen over the lifetime of the process;
-    subsequent calls at the same ratio reuse the cached context.
+    The cache hit path is a lock-free ``dict.get`` — GIL-atomic in
+    CPython, so the read is safe without holding
+    ``_resample_fir_cache_lock``. The lock is only acquired on a
+    cache miss (to design the filter and publish the result without
+    two threads racing to design the same ratio). This keeps the
+    hot path (post-warmup) entirely lock-free, matching the access
+    pattern of the per-chunk VAD resample at ~16 Hz.
+
+    The taps are pre-cast to ``np.float32`` at design time so that
+    ``scipy.signal.upfirdn`` returns ``float32`` directly when fed a
+    ``float32`` input. This lets callers use ``np.asarray(out,
+    dtype=np.float32)`` (a no-op when the dtype already matches)
+    instead of ``out.astype(np.float32)`` (which always allocates a
+    new array even when the input is already ``float32``).
     """
     key = (up, down)
-    with _resample_fir_cache_lock:
-        cached = _resample_fir_cache.get(key)
-        if cached is not None:
-            return cached
+    # Lock-free fast path: ``dict.get`` is a single C-level opcode
+    # protected by the GIL, so concurrent reads are safe. The lock is
+    # only taken on a cache miss (below).
+    cached = _resample_fir_cache.get(key)
+    if cached is not None:
+        return cached
     # Cache miss — design the filter. This is the same algorithm
     # scipy uses internally; we reproduce it here so the cached
     # version produces output bit-identical (within float32
@@ -134,13 +146,18 @@ def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
     # stop-band attenuation and pass-band ripple, so the output
     # diverges from ``resample_poly``.
     h = firwin(2 * half_len + 1, f_c, window=("kaiser", 5.0))
-    h = h * up  # scale by up to compensate for zero-stuffing
+    # Pre-cast to float32 at design time: ``firwin`` returns float64.
+    # Casting here (once per distinct ratio) lets ``upfirdn`` return
+    # float32 directly when the input audio is float32, avoiding a
+    # per-chunk ``.astype(np.float32)`` allocation at the call site.
+    h = (h * up).astype(np.float32)  # scale by up + cast in one pass
     n_pre_pad = down - (half_len % down)
     n_pre_remove = (half_len + n_pre_pad) // down
     # Pre-pad the filter on the left (the right-pad ``n_post_pad``
     # depends on the input length and is applied at call time).
+    # Both operands are float32 → concatenate preserves float32.
     h_padded = np.concatenate(
-        (np.zeros(n_pre_pad, dtype=h.dtype), h),
+        (np.zeros(n_pre_pad, dtype=np.float32), h),
     )
     ctx = (h_padded, n_pre_remove, n_pre_pad)
     with _resample_fir_cache_lock:
@@ -314,14 +331,23 @@ def resample_audio(
             from scipy.signal import upfirdn
 
             taps = _get_resample_fir_taps(up, down)
-            audio = upfirdn(taps, audio, up=up, down=down).astype(np.float32)
+            # ``_get_resample_fir_taps`` pre-casts taps to float32, so
+            # ``upfirdn`` returns float32 directly when ``audio`` is
+            # float32. ``np.asarray(..., dtype=np.float32)`` is a no-op
+            # (returns the same array) when the dtype already matches —
+            # avoiding the per-call ``.astype(np.float32)`` allocation.
+            audio = np.asarray(
+                upfirdn(taps, audio, up=up, down=down), dtype=np.float32
+            )
         except Exception:
             # Fall back to ``resample_poly`` if ``upfirdn`` fails for
             # any reason (e.g. scipy version doesn't ship ``upfirdn``,
             # or the cached-taps path produces a shape mismatch on an
             # edge case). This preserves the original behaviour and
             # guarantees the resample still succeeds.
-            audio = resample_poly(audio, up, down).astype(np.float32)
+            audio = np.asarray(
+                resample_poly(audio, up, down), dtype=np.float32
+            )
         if log_resample:
             log.info(
                 "[RECORDING] Resampled %d Hz -> %d Hz (%d -> %d samples)",

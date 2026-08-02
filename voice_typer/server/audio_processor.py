@@ -270,7 +270,7 @@ class AudioProcessor:
         """Wire a quality detector callback."""
         self._quality_callback = cb
 
-    # ── Real-time processing (called from PortAudio callback) ───────
+    # ── Real-time processing (called from the audio worker thread) ───
 
     def process_chunk(self, chunk: np.ndarray, input_sample_rate: int | None = None) -> np.ndarray | None:
         """Apply the filter chain to a single audio chunk.

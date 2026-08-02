@@ -147,6 +147,11 @@ COMMAND_COSTS: dict[str, int] = {
     "delete_all_personal_data": 20,
     "export_diagnostics": 10,
     "export_gdpr_bundle": 20,
+    # Commands added to _COMMAND_REGISTRY after the cost map was last audited.
+    # add_trusted_endpoint: small write (appends to a trusted-endpoints list).
+    # test_cloud_connection: opens a subprocess to probe connectivity.
+    "add_trusted_endpoint": 2,
+    "test_cloud_connection": 10,
 }
 DEFAULT_COST = 1
 

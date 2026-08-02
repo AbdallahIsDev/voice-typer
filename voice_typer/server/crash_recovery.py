@@ -282,7 +282,18 @@ class CrashRecovery:
         # shutdown. When ``None`` (e.g. in unit tests), behavior is
         # unchanged.
         self._thread_registry = thread_registry
-        self._load()
+        # ``_load()`` is deferred out of ``__init__`` (which runs
+        # on the main thread during ``VoiceTyperApp.__init__``) and into
+        # ``check_on_startup()`` (which runs on the startup daemon thread
+        # via ``StartupSequence.run``) + the read accessors (``get_all``,
+        # ``get_unpasted``, ``count``, ``entries_metadata_snapshot``) as
+        # a lazy-load fallback. This moves the synchronous disk read
+        # off the main thread so it doesn't block the UI/tray critical
+        # path. The ``_loaded`` guard (double-checked locking under
+        # ``_lock`` in ``_load``) ensures the disk read happens at most
+        # once per instance — all subsequent ``_load()`` calls are a
+        # cheap boolean check + immediate return.
+        self._loaded = False
         self._start_save_thread()
         # Atexit flushing is now handled by the SINGLE module-level
         # ``_atexit_flush_all`` handler (registered once at import time
@@ -301,6 +312,25 @@ class CrashRecovery:
 
     def _load(self) -> None:
         """Load recovery entries from disk.
+
+        ``_load()`` is now called lazily from
+        :meth:`check_on_startup` (which runs on the startup daemon
+        thread) and from the read accessors (``get_all``, ``get_unpasted``,
+        ``count``, ``entries_metadata_snapshot``) rather than eagerly
+        from ``__init__``. This defers the synchronous disk read off
+        the main thread so it doesn't block the UI/tray critical path
+        during ``VoiceTyperApp.__init__``. In production,
+        ``check_on_startup()`` (on the startup thread) is the primary
+        load site; the read-accessor calls are a backward-compat
+        fallback for callers that read before startup completes.
+
+        The ``_loaded`` guard (double-checked locking under ``_lock``)
+        ensures the disk read happens at most once per instance —
+        subsequent calls are a cheap boolean check + immediate return.
+        ``_loaded`` is set to ``True`` even on failure (corrupt file,
+        symlink, OSError) so a transient disk issue doesn't cause a
+        retry storm on every subsequent read; the ``_entries`` deque
+        is reset to empty on failure, matching the prior behavior.
 
         M-64: previously this used :meth:`pathlib.Path.read_text`,
         which silently follows symlinks — inconsistent with the
@@ -324,32 +354,63 @@ class CrashRecovery:
         failure (e.g. cross-device, permissions) is logged and
         swallowed so ``_load`` still resets ``_entries`` cleanly.
         """
-        if not self._path.exists():
-            self._entries = collections.deque(maxlen=MAX_RECOVERY_ENTRIES)
+        # Fast-path guard (no lock). If already loaded, return
+        # immediately. The boolean read is atomic on CPython; a
+        # concurrent caller may also see False and proceed to the
+        # locked re-check below (double-checked locking pattern).
+        if self._loaded:
             return
-        try:
-            from voice_typer.server.config import _secure_read_text
+        with self._lock:
+            # Re-check under the lock so only one thread does the
+            # actual disk read. ``_lock`` also guards ``_entries``
+            # against concurrent ``add()`` / ``mark_pasted()`` so the
+            # deque assignment below is race-free.
+            if self._loaded:
+                return
+            # If ``_entries`` already has data (from ``add()``
+            # or a direct mutation in tests), do NOT load from disk —
+            # the in-memory data is more current and loading would
+            # clobber it. Mark as loaded so future calls skip the
+            # check entirely. In production, ``check_on_startup()``
+            # runs before any ``add()``, so this branch is only hit
+            # in tests or edge cases where mutations happen before
+            # the first read.
+            if len(self._entries) > 0:
+                self._loaded = True
+                return
+            if not self._path.exists():
+                self._entries = collections.deque(maxlen=MAX_RECOVERY_ENTRIES)
+                self._loaded = True
+                return
+            try:
+                from voice_typer.server.config import _secure_read_text
 
-            raw = _secure_read_text(self._path)
-            data = json.loads(raw)
-            if isinstance(data, list):
-                self._entries = collections.deque(data, maxlen=MAX_RECOVERY_ENTRIES)
-            elif isinstance(data, dict) and "entries" in data:
-                self._entries = collections.deque(data["entries"], maxlen=MAX_RECOVERY_ENTRIES)
-            else:
-                # Shape is wrong but JSON parsed — treat as
-                # corrupt and quarantine so the next save isn't
-                # merged with stale data.
+                raw = _secure_read_text(self._path)
+                data = json.loads(raw)
+                if isinstance(data, list):
+                    self._entries = collections.deque(data, maxlen=MAX_RECOVERY_ENTRIES)
+                elif isinstance(data, dict) and "entries" in data:
+                    self._entries = collections.deque(data["entries"], maxlen=MAX_RECOVERY_ENTRIES)
+                else:
+                    # Shape is wrong but JSON parsed — treat as
+                    # corrupt and quarantine so the next save isn't
+                    # merged with stale data.
+                    self._quarantine_corrupt()
+                    self._entries = collections.deque(maxlen=MAX_RECOVERY_ENTRIES)
+                self._loaded = True
+                log.debug("[RECOVERY] Loaded %d entries", len(self._entries))
+            except Exception as exc:
+                log.warning("[RECOVERY] Failed to load: %s", exc)
+                # Quarantine the corrupt file so the next save creates a
+                # fresh one.  Best-effort — failures are logged and
+                # swallowed so _load always resets _entries cleanly.
                 self._quarantine_corrupt()
                 self._entries = collections.deque(maxlen=MAX_RECOVERY_ENTRIES)
-            log.debug("[RECOVERY] Loaded %d entries", len(self._entries))
-        except Exception as exc:
-            log.warning("[RECOVERY] Failed to load: %s", exc)
-            # Quarantine the corrupt file so the next save creates a
-            # fresh one.  Best-effort — failures are logged and
-            # swallowed so _load always resets _entries cleanly.
-            self._quarantine_corrupt()
-            self._entries = collections.deque(maxlen=MAX_RECOVERY_ENTRIES)
+                # Mark as loaded even on failure so a transient disk
+                # issue doesn't cause a retry on every subsequent
+                # read. _entries is reset to empty, matching
+                # the prior failure behavior.
+                self._loaded = True
 
     def _quarantine_corrupt(self) -> None:
         """Rename the recovery file to ``<path>.corrupt.<ts>``.
@@ -885,7 +946,15 @@ class CrashRecovery:
 
         Returns:
             List of entry dicts with 'text', 'timestamp', and 'pasted' keys.
+
+        Lazily loads entries from disk on first access if
+        ``check_on_startup()`` hasn't run yet. The ``_loaded`` guard
+        makes this a no-op after the first load. In production,
+        ``check_on_startup()`` (startup thread) is the primary load
+        site; this lazy-load fallback preserves backward compat for
+        callers that read before startup completes.
         """
+        self._load()
         with self._lock:
             return [e for e in self._entries if not e.get("pasted", False)]
 
@@ -894,7 +963,12 @@ class CrashRecovery:
 
         Returns:
             List of all entry dicts (copies, safe to modify).
+
+        Lazily loads entries from disk on first access if
+        ``check_on_startup()`` hasn't run yet. The ``_loaded`` guard
+        makes this a no-op after the first load.
         """
+        self._load()
         with self._lock:
             return list(self._entries)
 
@@ -907,7 +981,20 @@ class CrashRecovery:
 
         Returns:
             List of unpasted entry dicts, or None if no unpasted entries.
+
+        This method (called from ``StartupSequence.run`` on the
+        startup daemon thread) is the PRIMARY load site for recovery
+        entries. ``_load()`` was moved here from ``__init__`` so the
+        synchronous disk read happens on the background thread rather
+        than blocking the main thread during ``VoiceTyperApp.__init__``.
+        The ``_loaded`` guard in ``_load()`` makes this a no-op if the
+        entries were already loaded (e.g. by an earlier read-accessor
+        lazy-load call).
         """
+        # Load recovery entries from disk. Deferred from
+        # __init__ so the disk read happens on this (daemon) thread
+        # rather than the main thread. Idempotent via _loaded guard.
+        self._load()
         # Detect interrupted dictations: if the .dictation-in-flight sentinel
         # exists, the previous process crashed mid-dictation. Emit a
         # dictation_lost event so the renderer can notify the user.
@@ -1018,7 +1105,13 @@ class CrashRecovery:
 
     @property
     def count(self) -> int:
-        """Number of recovery entries."""
+        """Number of recovery entries.
+
+        Lazily loads entries from disk on first access if
+        ``check_on_startup()`` hasn't run yet. The ``_loaded`` guard
+        makes this a no-op after the first load.
+        """
+        self._load()
         with self._lock:
             return len(self._entries)
 
@@ -1120,7 +1213,12 @@ class CrashRecovery:
         :meth:`create_diagnostic_bundle` so callers that only need
         the metadata (e.g. tests, future telemetry) don't have to
         build a full zip just to inspect entry counts.
+
+        Lazily loads entries from disk on first access if
+        ``check_on_startup()`` hasn't run yet. The ``_loaded`` guard
+        makes this a no-op after the first load.
         """
+        self._load()
         with self._lock:
             return [
                 {

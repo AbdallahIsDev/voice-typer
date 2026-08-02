@@ -229,13 +229,6 @@ class SessionState:
         # AUDIO-HOT: reset disconnect state
         recorder._device_disconnected = False
         recorder._device_disconnect_retries = 0
-        # PERF-011: reset frame-skip state. : the
-        # _previous_chunk_pending flag is no longer used (replaced by
-        # ring buffer overflow detection), but we keep resetting it for
-        # diagnostic cleanliness. _skipped_frames is now incremented by
-        # the callback when the ring buffer overflows.
-        recorder._previous_chunk_pending = False
-        recorder._skipped_frames = 0
         # reset ring buffer drop counter for the new session
         recorder._dropped_ring_chunks = 0
         # AUDIO-HOT: reset periodic device check counter

@@ -136,6 +136,56 @@ def notify(tray, model_name: str, title: str, message: str) -> None:
         log.debug("[SERVICE] tray notify failed for model '%s'", model_name, exc_info=True)
 
 
+def _emit_download_stalled(
+    event_bus,
+    *,
+    model_name: str,
+    target_bytes: int,
+    downloaded_bytes: int,
+    reason: str,
+    elapsed_s: float,
+) -> None:
+    """Publish a ``download_stalled`` event.
+
+    Emitted exactly once when :func:`poll_download_progress` decides the
+    download has stalled (no byte-progress for ``max_stall_s``) or
+    exceeded its overall ``max_duration_s`` cap.  The renderer can show
+    a "Download stalled — retry?" toast, and the IPC executor thread is
+    freed (the function raises ``TimeoutError`` immediately after
+    calling this).
+
+    The event shape mirrors :func:`push_progress` so the renderer's
+    existing ``download_*`` event handler can route it with minimal
+    plumbing:
+
+    ``{"type": "download_stalled", "data": {model, reason, elapsed_s,
+    downloaded_bytes, total_bytes}}``
+    """
+    try:
+        event_bus.publish(
+            {
+                "type": "download_stalled",
+                "data": {
+                    "model": model_name,
+                    "reason": reason,
+                    "elapsed_s": float(elapsed_s),
+                    "downloaded_bytes": int(downloaded_bytes),
+                    "total_bytes": int(target_bytes),
+                },
+            }
+        )
+    except Exception:
+        # The event bus is best-effort — a failure here (e.g. no IPC
+        # client connected) must not prevent the TimeoutError raise
+        # that follows.  Log at DEBUG so a transient bus failure
+        # doesn't hide the stall reason.
+        log.debug(
+            "[SERVICE] failed to publish download_stalled event for '%s'",
+            model_name,
+            exc_info=True,
+        )
+
+
 def poll_download_progress(
     *,
     thread,
@@ -147,6 +197,8 @@ def poll_download_progress(
     download_id: str,
     event_bus,
     is_cancelled_fn,
+    max_duration_s: float = 1800.0,
+    max_stall_s: float = 60.0,
 ) -> tuple[str, int]:
     """Poll the HF cache directory size while the download thread runs.
 
@@ -176,6 +228,22 @@ def poll_download_progress(
             is_cancelled_fn: callable taking ``download_id`` and returning
                 ``True`` if the download has been cancelled.  Bound to
                 :meth:`ModelMixin._is_download_cancelled` by the caller.
+            max_duration_s: overall wall-clock cap (seconds).  If
+                the loop has been running for longer than this (excluding
+                paused intervals — pause is a user action, not a stall),
+                a ``download_stalled`` event is emitted and
+                :class:`TimeoutError` is raised so the caller's
+                ``finally:`` block can clean up.  Default 1800 (30 min)
+                per the review's spec — long enough for a 2.5 GB Parakeet
+                download on a slow link, short enough that a truly hung
+                thread doesn't block an IPC executor forever.
+            max_stall_s: no-progress cap (seconds).  If
+                ``total_bytes_seen`` has not changed for this many
+                seconds (again excluding paused intervals), the download
+                is treated as stalled.  Default 60 — HuggingFace
+                ``snapshot_download`` writes ≥1 chunk/s even on a slow
+                link, so 60s of true zero progress indicates a hung
+                socket / stuck resolver.
 
         Returns:
             A ``(outcome, last_total_bytes_seen)`` tuple where ``outcome``
@@ -185,9 +253,17 @@ def poll_download_progress(
             continue), and ``last_total_bytes_seen`` is the last byte
             count observed (for the caller's completion log message).
 
+        Raises:
+            TimeoutError: if ``max_duration_s`` or ``max_stall_s`` is
+                exceeded.  The caller's ``finally:`` block (in
+                ``_download_whisper_family``) unregisters the download
+                and clears the pause flag; the outer ``download_model``
+                ``except Exception`` handler converts the error to a
+                user-facing ``{"success": False, ...}`` dict.
+
         The caller is responsible for unregistering the download and
         clearing the pause flag (so the same cleanup runs on every exit
-        path: success, failure, cancellation).
+        path: success, failure, cancellation, stall-timeout).
     """
     # PERF-21: scope the filesystem walk to the
     # in-progress model's HF cache subdir, NOT the entire HF hub cache
@@ -205,6 +281,16 @@ def poll_download_progress(
     # track timing for speed / ETA.
     last_progress_time = time.monotonic()
     last_total_bytes_seen = 0
+    # Track loop start for the max-duration guard, and the last
+    # time ``total_bytes_seen`` actually changed for stall detection.
+    # Both exclude paused intervals (pause is a user action, not a
+    # stall) — see the ``currently_paused`` skip below.
+    loop_start_time = time.monotonic()
+    last_byte_change_time = time.monotonic()
+    # Track accumulated paused time so the max-duration guard
+    # measures actual download time, not wall-clock time.
+    accumulated_paused_s = 0.0
+    pause_started_at: float | None = None
 
     while thread.is_alive():
         # SERVICE-1: check for cancellation via the
@@ -240,6 +326,9 @@ def poll_download_progress(
                     total_bytes=target_bytes,
                     paused=True,
                 )
+                # Start the pause timer so the max-duration
+                # guard excludes user-initiated pause intervals.
+                pause_started_at = time.monotonic()
             else:
                 push_progress(
                     event_bus,
@@ -250,16 +339,88 @@ def poll_download_progress(
                     total_bytes=target_bytes,
                     resumed=True,
                 )
+                # Stop the pause timer and accumulate.
+                if pause_started_at is not None:
+                    accumulated_paused_s += time.monotonic() - pause_started_at
+                    pause_started_at = None
+                # Reset the stall timer on resume so the
+                # ``max_stall_s`` guard gives the download a fresh
+                # no-progress window after each pause.  Without this,
+                # a long pause would immediately trip the stall guard
+                # on the first post-resume iteration (the elapsed
+                # since ``last_byte_change_time`` would include the
+                # entire pause).
+                last_byte_change_time = time.monotonic()
             last_paused_state = currently_paused
         if currently_paused:
             # Wait for resume (or cancel), then loop.
             wait_while_paused(timeout_s=1.0)
             continue
+        # Max-duration + stall guards.  Skipped while paused
+        # (a user-initiated pause is not a stall).  If either guard
+        # trips, emit a ``download_stalled`` event and raise
+        # ``TimeoutError`` so the caller's ``finally:`` block cleans
+        # up and the outer ``download_model`` except handler converts
+        # the error to a user-facing ``{"success": False, ...}`` dict.
+        #
+        # Pre-fix the loop had NO overall timeout — a hung HF download
+        # thread blocked the IPC executor forever, doing a full rglob +
+        # per-file stat every 1s.
+        now_for_guard = time.monotonic()
+        effective_elapsed = (now_for_guard - loop_start_time) - accumulated_paused_s
+        if effective_elapsed > max_duration_s:
+            _emit_download_stalled(
+                event_bus,
+                model_name=model_name,
+                target_bytes=target_bytes,
+                downloaded_bytes=last_total_bytes_seen,
+                reason="max_duration_exceeded",
+                elapsed_s=effective_elapsed,
+            )
+            log.warning(
+                "[SERVICE] Download of '%s' exceeded max duration %.0fs "
+                "(elapsed %.1fs, bytes=%d) — aborting",
+                model_name,
+                max_duration_s,
+                effective_elapsed,
+                last_total_bytes_seen,
+            )
+            raise TimeoutError(
+                f"Download of {model_name} exceeded max duration "
+                f"{max_duration_s}s (elapsed {effective_elapsed:.1f}s, "
+                f"bytes={last_total_bytes_seen})"
+            )
+        stall_elapsed = now_for_guard - last_byte_change_time
+        if stall_elapsed > max_stall_s:
+            _emit_download_stalled(
+                event_bus,
+                model_name=model_name,
+                target_bytes=target_bytes,
+                downloaded_bytes=last_total_bytes_seen,
+                reason="no_progress_stall",
+                elapsed_s=stall_elapsed,
+            )
+            log.warning(
+                "[SERVICE] Download of '%s' stalled — no progress for "
+                "%.0fs (bytes=%d) — aborting",
+                model_name,
+                max_stall_s,
+                last_total_bytes_seen,
+            )
+            raise TimeoutError(
+                f"Download of {model_name} stalled — no progress for "
+                f"{max_stall_s}s (last bytes seen: {last_total_bytes_seen})"
+            )
         thread.join(timeout=1.0)
         try:
             model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"
             if model_dir.exists():
                 total_bytes_seen = sum(f.stat().st_size for f in model_dir.rglob("*") if f.is_file())
+                # Update ``last_byte_change_time`` ONLY when
+                # bytes actually changed, so the stall guard measures
+                # true zero-progress intervals (not loop iterations).
+                if total_bytes_seen != last_total_bytes_seen:
+                    last_byte_change_time = time.monotonic()
                 total_mb_seen = total_bytes_seen // (1024 * 1024)
                 pct = min(95, int(10 + (total_mb_seen / target_mb) * 85))
                 # Log progress at whole-number percentage thresholds
@@ -313,4 +474,5 @@ __all__ = [
     "push_progress",
     "notify",
     "poll_download_progress",
+    "_emit_download_stalled",
 ]

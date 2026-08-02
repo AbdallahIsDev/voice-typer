@@ -20,6 +20,7 @@ The mixin accesses instance state (``self._lock``, ``self._tcp_client``,
 import contextlib
 import json
 import logging
+import select
 from collections import deque
 from typing import TextIO
 
@@ -181,6 +182,78 @@ class _PendingBuffer(deque):
             super().__delitem__(key)
 
 
+def _await_socket_writable(conn) -> None:
+    """Block until *conn* is writable or the write timeout elapses.
+
+    Replaces the per-write ``gettimeout`` / ``settimeout`` /
+    restore-timeout dance (3 socket syscalls per ``_send`` call:
+    1 ``gettimeout`` + 2 ``settimeout``). ``select.select`` is a single
+    syscall that doesn't mutate the socket's timeout attribute, so the
+    dispatch-loop ``readline`` keeps the auth deadline set in
+    ``_handle_tcp_connection`` and the connection can still be reaped
+    on cleanup (a blocking socket would never time out, so the reader
+    thread would never exit and ``_TCPLineIO.close()`` would deadlock
+    against the in-progress ``recv``).
+
+    The timeout is enforced per-write: each call waits up to
+    ``_TCP_WRITE_TIMEOUT_SECONDS`` for write-readiness, then the
+    subsequent ``sendall`` completes quickly (the kernel send buffer
+    has space). This preserves the per-write timeout semantics of
+    the old ``settimeout(write_timeout)`` dance.
+
+    Cross-check: some sandboxed Linux environments (certain container
+    runtimes, network-shim proxies) have a broken writable-fd
+    ``select`` syscall — ``select.select`` returns empty even when
+    the socket is writable. To avoid spurious timeouts on those
+    platforms, when ``select.select`` reports NOT writable we
+    cross-check with ``select.poll`` (a separate syscall unaffected
+    by the same sandbox bugs). Only if BOTH report not-writable do
+    we raise ``socket.timeout``.
+
+    Fallback: if ``select.select`` raises (closed fd, exotic socket
+    type that doesn't support ``fileno()``, etc.), we treat the
+    socket as writable and let the subsequent ``sendall`` raise the
+    real error (broken pipe / EBADF) — the dead-client path runs
+    either way. All stdlib socket types (including
+    ``ssl.SSLSocket``) expose ``fileno()`` and work with
+    ``select.select``; the fallback only triggers for genuinely
+    broken or non-socket objects.
+
+    Raises:
+        socket.timeout: if the socket is still not writable after
+            ``_TCP_WRITE_TIMEOUT_SECONDS`` seconds (both
+            ``select.select`` and ``select.poll`` reported
+            not-writable). The caller's ``except (TimeoutError,
+            OSError)`` block catches this — ``socket.timeout`` is an
+            alias for ``TimeoutError`` in Python 3.10+ and is also a
+            subclass of ``OSError``.
+    """
+    try:
+        _r, w, _x = select.select([], [conn], [], _TCP_WRITE_TIMEOUT_SECONDS)
+    except (OSError, ValueError, TypeError, AttributeError):
+        # ``select.select`` raises on closed/invalid fds or exotic
+        # socket types — treat as writable so the subsequent
+        # ``sendall`` raises the real error (broken pipe / EBADF).
+        return
+    if w:
+        return
+    # Cross-check with ``select.poll`` — some sandboxed Linux envs
+    # have a broken writable-fd ``select`` syscall. ``poll`` is a
+    # separate syscall and is unaffected by the same sandbox bugs.
+    try:
+        poller = select.poll()
+        poller.register(conn, select.POLLOUT)
+        events = poller.poll(int(_TCP_WRITE_TIMEOUT_SECONDS * 1000))
+    except (OSError, ValueError, TypeError, AttributeError):
+        events = []
+    if events:
+        return
+    raise TimeoutError(
+        f"TCP write timed out after {_TCP_WRITE_TIMEOUT_SECONDS}s "
+        f"(select.select + select.poll both reported socket not writable)"
+    )
+
+
 class OutputMixin:
     """Output / push methods for :class:`IPCServer`.
 
@@ -270,6 +343,16 @@ class OutputMixin:
             return
 
         if tcp_client is not None:
+            # Pre-encode the line ONCE — the same ``line_bytes`` is
+            # reused for both the size-cap check (below) AND the actual
+            # ``tcp_client.write(line_bytes)`` call (further down).
+            # Pre-fix the size check encoded via
+            # ``len(line.encode("utf-8"))`` (discarding the bytes) and
+            # ``_TCPLineIO.write`` re-encoded the str on the write
+            # path — 2× UTF-8 encode work per outbound frame. The
+            # ``write`` method accepts ``bytes`` directly and skips the
+            # re-encode when given pre-encoded input.
+            line_bytes = (line + "\n").encode("utf-8")
             # cap the outbound TCP frame size before acquiring the
             # write lock. A buggy handler returning an enormous dict (e.g.
             # an unbounded history query, a diagnostics export with a full
@@ -283,7 +366,7 @@ class OutputMixin:
             # ``continue``) so the undrained ``pending`` snapshot is
             # re-merged below — same path as the post-write re-merge when
             # the client write fails.
-            if len(line.encode("utf-8")) > _TCP_MAX_OUTBOUND_BYTES:
+            if len(line_bytes) > _TCP_MAX_OUTBOUND_BYTES:
                 log.error(
                     "[IPC] outbound TCP frame exceeds %d bytes — dropping",
                     _TCP_MAX_OUTBOUND_BYTES,
@@ -399,38 +482,29 @@ class OutputMixin:
                             _dropped = len(self._pending_tcp) - _pending_cap_shutdown
                             del self._pending_tcp[:_dropped]
                 return
-            # set a write timeout so a stalled renderer
-            # can't block the worker thread indefinitely.  2 seconds is
-            # generous for a localhost TCP write — under normal load the
-            # kernel buffer accepts the data immediately.  If we hit the
-            # timeout, the write raises ``socket.timeout`` and we drop
-            # the connection (the accept loop will catch the next
-            # reconnect).  We restore the PREVIOUS timeout afterwards
-            # rather than forcing blocking mode: the auth read set a
-            # deadline () and we must not clobber it to
-            # ``None`` (blocking), or the dispatch-loop ``readline`` would
-            # block forever and the connection could never be reaped/
+            # Write-readiness gate: ``_await_socket_writable`` blocks
+            # for at most ``_TCP_WRITE_TIMEOUT_SECONDS`` (2s) waiting
+            # for the kernel send buffer to have space, then raises
+            # ``socket.timeout`` if the socket is still not writable.
+            # This enforces the same per-write timeout as the previous
+            # ``settimeout`` dance but without mutating socket state —
+            # the dispatch-loop ``readline`` on the same socket keeps
+            # the auth deadline set in ``_handle_tcp_connection`` and
+            # the connection can still be reaped on cleanup (a blocking
+            # socket would never time out, so the reader thread would
+            # never exit and ``_TCPLineIO.close()`` would deadlock
+            # against the in-progress ``recv``).
             #
-            # PERF NOTE: the per-write ``gettimeout`` / ``settimeout``
-            # dance below is 4 syscalls per write × 15-50 writes/sec =
-            # 60-200 syscalls/sec on the waveform-bubble push path. This
-            # is correctness-related ( — a stalled renderer
-            # must NOT block the worker thread indefinitely) and was
-            # intentionally LEFT UNCHANGED in the  perf pass. The
-            # alternative (set ``_TCP_WRITE_TIMEOUT_SECONDS`` once in
-            # ``_handle_tcp_connection`` after auth) would clobber the
-            # auth-read deadline set by , breaking the
-            # connection-reaping contract. A future pass could use
-            # ``select.select([conn], [], [], _TCP_WRITE_TIMEOUT_SECONDS)``
-            # before each write to achieve the same timeout semantics
-            # without the per-write ``settimeout`` syscalls — but that
-            # refactor is deferred (it requires careful audit of the
-            # ``gettimeout``/``settimeout`` interactions with the auth
-            # read path and is out of scope for ).
-            # closed on cleanup (SEC-018 auth-timeout/close path).
+            # The previous per-write ``gettimeout`` / ``settimeout`` /
+            # restore-timeout dance was 3 socket syscalls per ``_send``
+            # call (1 ``gettimeout`` + 2 ``settimeout``); at 15-50 Hz
+            # waveform-bubble push rate that was 45-150 syscalls/sec
+            # just for timeout bookkeeping. ``select.select`` is a
+            # single syscall per ``sendall`` and doesn't touch the
+            # socket's timeout attribute, eliminating the dance.
             #
-            # Write-serialization: the entire settimeout → write →
-            # flush → drain → restore-timeout block runs under
+            # Write-serialization: the entire await-writable → write →
+            # flush → drain → await-writable → flush block runs under
             # ``self._tcp_write_lock``. ``socket.sendall`` releases
             # the GIL between ``send()`` syscalls (when the kernel
             # send buffer is full), so two concurrent ``sendall``
@@ -441,28 +515,9 @@ class OutputMixin:
             # serializes ONLY writers — a slow client blocks other
             # writers, but not other dispatchers' snapshots or the
             # read path. The 2s write timeout bounds the stall.
-            # Holding the lock across settimeout/restore also
-            # prevents a race where two threads clobber each other's
-            # timeout (one restores ``None`` while another is
-            # mid-write, blocking the writer forever).
-            #
-            # PERF NOTE (no behavior change): this per-write
-            # ``gettimeout`` → ``settimeout`` → write → ``settimeout``
-            # dance is 4 syscalls per push event (2 ``getsockopt`` /
-            # ``setsockopt`` calls + 2 socket writes). At 15-50 Hz
-            # waveform-bubble push rate, that's 60-200 syscalls/sec
-            # just for timeout bookkeeping. The dance is
-            # CORRECTNESS-related (): we cannot leave the
-            # socket in write-timeout mode because the dispatch-loop
-            # ``readline`` on the same socket expects the auth deadline
-            # set in  A proper fix would either (a) use two
-            # sockets (one read, one write) with independent timeouts,
-            # or (b) switch to non-blocking I/O with
-            # ``select.select([conn], [], [], _TCP_WRITE_TIMEOUT_SECONDS)``
-            # before each write — both are larger refactors that are
-            # out of scope. Leaving the behavior unchanged and
-            # documenting the overhead here so the next pass has the
-            # context.
+            # Without the settimeout/restore dance there is no
+            # timeout-state to race on, so the lock purely serializes
+            # the ``sendall`` calls.
             # track entries that were snapshotted but NOT
             # written to the client (either because they exceeded the
             # drain cap or because the drain failed mid-way). They are
@@ -474,14 +529,9 @@ class OutputMixin:
             # failed (dead client).
             _undrained: list[str] = []
             with self._tcp_write_lock:
-                _prev_timeout = tcp_client.conn.gettimeout()
-                with contextlib.suppress(OSError, AttributeError):
-                    tcp_client.conn.settimeout(_TCP_WRITE_TIMEOUT_SECONDS)
-                # settimeout can fail if the socket is already closed;
-                # that's fine — the write below will also fail and we'll
-                # drop the connection cleanly.
                 try:
-                    tcp_client.write(line + "\n")
+                    tcp_client.write(line_bytes)
+                    _await_socket_writable(tcp_client.conn)
                     tcp_client.flush()
                     # PERF- / SEC-008: drain at most the most recent
                     # K pending entries, not the whole list.  When the
@@ -546,6 +596,7 @@ class OutputMixin:
                             # the whole ``recent`` slice by setting the
                             # failure index to 0.
                             try:
+                                _await_socket_writable(tcp_client.conn)
                                 tcp_client.flush()
                             except Exception:
                                 log.debug("[IPC] client write failed during pending drain flush")
@@ -596,17 +647,6 @@ class OutputMixin:
                             with contextlib.suppress(Exception):
                                 self._tcp_client.close()
                             self._tcp_client = None
-                finally:
-                    # Restore the previous timeout (NOT blocking ``None``) so
-                    # the dispatch-loop ``readline`` keeps its auth deadline
-                    # and the worker can exit/be reaped on cleanup.  Setting
-                    # ``None`` here was the root cause of the
-                    # auth-timeout/close deadlock (): a blocking socket
-                    # could never time out, so the reader thread never exited
-                    # and ``_TCPLineIO.close()`` deadlocked against the
-                    # in-progress ``recv``.
-                    with contextlib.suppress(OSError, AttributeError):
-                        tcp_client.conn.settimeout(_prev_timeout)
             # re-merge any undrained pending entries back into
             # ``_pending_tcp`` so they survive for the next reconnect's
             # drain. FIFO order is preserved: snapshot events (oldest)

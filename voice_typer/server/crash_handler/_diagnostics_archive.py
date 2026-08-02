@@ -246,6 +246,19 @@ def set_crash_handler_config_dir(config_dir: Path) -> None:
             )
 
             _refresh_cached_asr_backend()
+        # Install the in-memory log ring buffer (MemoryHandler) so the
+        # VEH callback can flush the most-recent ~200 log records to
+        # ``<config_dir>/voice-typer-crash-buffer.log`` after writing
+        # the crash-diagnostics body. Best-effort — a failure here
+        # leaves the buffer uninstalled (the VEH callback's
+        # ``flush_memory_handler`` call is a no-op when the buffer is
+        # missing).
+        with contextlib.suppress(Exception):
+            from voice_typer.server.crash_handler._memory_buffer import (
+                install_memory_buffer,
+            )
+
+            install_memory_buffer(resolved)
     except Exception as exc:
         log.debug("[CRASH] Failed to cache config dir: %s", exc)
         _ch._crash_file_path = ""

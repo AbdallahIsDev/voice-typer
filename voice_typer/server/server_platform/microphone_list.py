@@ -33,6 +33,9 @@ file.
 from __future__ import annotations
 
 import logging
+import sys
+import threading
+import time
 from typing import Any
 
 # Patch-path bridge: route lookups of ``list_microphones`` through the
@@ -51,6 +54,43 @@ from .remote_session import _is_non_mic_device
 log = logging.getLogger(__name__)
 
 
+# ─── module-level TTL cache for list_microphones() ─────────────────────
+# ``list_microphones()`` invokes three PortAudio round-trips
+# (``sd.query_devices(kind="input")``, ``sd.query_hostapis()``,
+# ``sd.query_devices()``) — 50-200 ms latency per call on Windows/macOS.
+# The production caller ``find_microphone_by_name`` /
+# ``find_microphone_by_id`` (called by ``device_manager`` during
+# device-restart-after-disconnect) re-enumerate all devices on every
+# call, so a single recovery sequence can fetch the same PortAudio data
+# 2-3 times. The cache holds the result for ``_LIST_MICS_CACHE_TTL_S``
+# seconds; the OS device-change watcher invalidates it immediately via
+# :func:`invalidate_microphone_list_cache` (called from
+# ``MicrophoneDeviceWatcher._invoke_callback``).
+#
+# The cache tuple is ``(timestamp, mics_list, sd_module_identity)``. The
+# ``sd_module_identity`` field is used to detect tests that swap
+# ``sys.modules["sounddevice"]`` for a MagicMock — when the identity
+# changes, the cache is treated as stale so a test that patches
+# sounddevice to raise sees a fresh call (not cached data from a prior
+# test that used the real sounddevice).
+_LIST_MICS_CACHE_TTL_S: float = 5.0
+_LIST_MICS_CACHE_LOCK = threading.Lock()
+_LIST_MICS_CACHE: tuple[float, list[dict], Any] | None = None
+
+
+def invalidate_microphone_list_cache() -> None:
+    """Clear the module-level TTL cache used by :func:`list_microphones`.
+
+    Called by :class:`MicrophoneDeviceWatcher` when the OS reports a
+    device plug/unplug event so the next ``list_microphones()`` call
+    re-queries PortAudio immediately rather than waiting for the 5 s
+    TTL to expire. Safe to call from any thread.
+    """
+    global _LIST_MICS_CACHE
+    with _LIST_MICS_CACHE_LOCK:
+        _LIST_MICS_CACHE = None
+
+
 def _sd_dev_as_dict(dev: Any) -> dict[str, Any] | None:
     """Coerce a sounddevice device entry to a ``dict``.
 
@@ -67,7 +107,7 @@ def _sd_dev_as_dict(dev: Any) -> dict[str, Any] | None:
     return None
 
 
-def list_microphones() -> list[dict]:
+def _list_microphones_uncached() -> list[dict]:
     """Return available input devices with stable identifiers.
 
     Each dict:
@@ -81,6 +121,9 @@ def list_microphones() -> list[dict]:
             "is_bluetooth": bool,  # AUDIO-BT: True if Bluetooth/HFP device
         }
     Returns empty list on failure.
+
+    This is the underlying PortAudio query; :func:`list_microphones`
+    wraps it with a 5 s TTL cache.
     """
     try:
         import sounddevice as sd
@@ -143,6 +186,48 @@ def list_microphones() -> list[dict]:
     except Exception:
         log.debug("Could not enumerate microphones", exc_info=True)
         return []
+
+
+def list_microphones() -> list[dict]:
+    """Return available input devices with stable identifiers.
+
+    Wraps :func:`_list_microphones_uncached` with a 5 s module-level TTL
+    cache so repeated calls within a single device-restart sequence
+    (e.g. ``find_microphone_by_name`` → ``find_microphone_by_id``)
+    don't re-query PortAudio 2-3 times in 50-200 ms each. The cache is
+    invalidated immediately by
+    :func:`invalidate_microphone_list_cache` (called from
+    ``MicrophoneDeviceWatcher._invoke_callback`` on OS device-change
+    events) so hot-plug propagation latency is unaffected.
+
+    Returns a fresh shallow-copied list on every call — callers may
+    mutate the outer list without corrupting the cache. Inner dicts
+    are shared with the cache (callers must not mutate them in place;
+    the production callers only read).
+    """
+    global _LIST_MICS_CACHE
+    now = time.monotonic()
+    sd_mod = sys.modules.get("sounddevice")
+    with _LIST_MICS_CACHE_LOCK:
+        cache = _LIST_MICS_CACHE
+        if cache is not None:
+            cache_ts, cache_mics, cache_sd = cache
+            # Identity check on the sounddevice module detects test
+            # patches that swap ``sys.modules["sounddevice"]`` for a
+            # MagicMock — when the identity differs, the cache is
+            # treated as stale so the patched module is actually used.
+            if (now - cache_ts) < _LIST_MICS_CACHE_TTL_S and cache_sd is sd_mod:
+                return list(cache_mics)  # defensive shallow copy
+
+    result = _list_microphones_uncached()
+
+    # Populate the cache. Re-read sd_mod under the lock in case a
+    # concurrent thread changed sys.modules["sounddevice"] between the
+    # cache-miss check above and now.
+    with _LIST_MICS_CACHE_LOCK:
+        sd_mod = sys.modules.get("sounddevice")
+        _LIST_MICS_CACHE = (now, list(result), sd_mod)
+    return result
 
 
 def find_microphone_by_name(partial_name: str) -> dict | None:

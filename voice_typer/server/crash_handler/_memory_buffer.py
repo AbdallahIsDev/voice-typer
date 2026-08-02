@@ -1,0 +1,275 @@
+"""In-memory log ring buffer attached to the ``voice_typer`` root logger.
+
+The VEH callback (:func:`voice_typer.server.crash_handler._veh_callback.
+_vectored_handler_impl`) writes only minimal crash metadata (timestamp,
+exception code, address, pid, tid, friendly name) plus the pre-computed
+static header. The actual log records that led up to the crash are NOT
+included — the rotating file log is on disk and would require reading
+back during the VEH callback, which is unsafe during heap corruption.
+
+This module wires a :class:`logging.handlers.MemoryHandler` (capacity
+200 records) to the ``voice_typer`` root logger at ``INFO`` level. The
+handler's target is a dedicated
+:class:`logging.handlers.RotatingFileHandler` writing to
+``<config_dir>/voice-typer-crash-buffer.log``. The MemoryHandler holds
+the most-recent 200 records in a bounded ring buffer; it does NOT
+emit them to the target on every record (the target is only used when
+the buffer is flushed explicitly).
+
+When the VEH callback fires (after writing the crash-diagnostics body),
+it calls :func:`flush_memory_handler` — a best-effort flush that pushes
+the buffered records into ``voice-typer-crash-buffer.log``. The flush
+is wrapped in ``try/except`` so a failure inside the crashing process
+does not propagate back into the VEH callback.
+
+Limitations (documented):
+- For ``STATUS_HEAP_CORRUPTION`` (0xC0000374) the heap is corrupted and
+  ANY Python call may fail or deadlock. The flush attempt is still made
+  (best-effort) but may silently fail — the buffer is lost in that case.
+  This is acceptable because (a) the VEH callback already may fail to
+  write its own diagnostics for heap-corruption crashes, and (b) for the
+  common case (access violation, stack overrun) the flush works
+  reliably.
+
+- The MemoryHandler buffer lives in process memory and is lost on
+  ``os._exit`` / SIGKILL. The fast-cleanup path
+  (:meth:`ShutdownController._do_fast_cleanup`) calls ``os._exit(0)``
+  before the VEH callback fires for Windows logoff/shutdown, so the
+  buffer is lost in that path too. This is documented and accepted —
+  the fast path runs ONLY on Windows logoff/shutdown where the OS is
+  force-killing us within ~5s; the rotating file log already covers
+  that case (it was flushed on every record by
+  :class:`_SecureRotatingFileHandler`).
+
+Architecture: this module is intentionally minimal — it owns the
+MemoryHandler + target RotatingFileHandler lifecycle. The mutable
+state (``_memory_handler``, ``_crash_buffer_handler``) lives on the
+``crash_handler`` facade module so test mutations propagate, mirroring
+the pattern used by the other crash_handler submodules. Functions here
+access state via ``_ch.<name>``.
+"""
+
+from __future__ import annotations
+
+import logging
+import logging.handlers
+import os
+from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    pass
+
+log = logging.getLogger(__name__)
+
+# capacity of the in-memory ring buffer. ``logging.handlers.MemoryHandler``
+# flushes to its target when the buffer reaches this size, but we set
+# ``target=None`` initially (the target is only attached once the config
+# dir is known so the file path can be resolved). With ``target=None``,
+# an overflow flush is a no-op (``MemoryHandler.shouldFlush`` returns
+# True, but ``MemoryHandler.flush`` exits early when ``self.target is
+# None``). The buffer therefore retains the most-recent 200 records
+# until the VEH callback explicitly calls ``flush_memory_handler``.
+#
+# 200 records is roughly 30-60s of normal voice-typer log traffic at
+# the default INFO verbosity (a mix of bubble-level pushes filtered out
+# of the file handler, hotkey registrations, lifecycle events). Enough
+# to capture the lead-up to a crash without bloating process memory.
+_MEMORY_HANDLER_CAPACITY: int = 200
+
+
+def install_memory_buffer(config_dir: Path) -> None:
+    """Attach the MemoryHandler ring buffer to the ``voice_typer`` logger.
+
+    Idempotent: calling it twice with the same config_dir replaces the
+    existing target (so a config-dir migration correctly re-points the
+    RotatingFileHandler at the new location). Calling it twice with a
+    different config_dir re-opens the target file at the new path.
+
+    The MemoryHandler itself is attached to the ``voice_typer`` root
+    logger ONCE; subsequent calls only update the target's file path.
+    This avoids accumulating duplicate MemoryHandlers on the logger
+    across repeated ``set_crash_handler_config_dir`` calls (e.g. in
+    tests).
+
+    Parameters
+    ----------
+    config_dir:
+        The voice-typer config directory. The crash-buffer log file
+        lives at ``<config_dir>/voice-typer-crash-buffer.log`` —
+        co-located with ``voice-typer.log`` so the support engineer
+        triaging a crash sees both files in the same directory.
+    """
+    from voice_typer.server import crash_handler as _ch
+
+    try:
+        resolved = Path(config_dir).resolve()
+    except Exception:
+        log.debug("[CRASH-BUF] failed to resolve config_dir", exc_info=True)
+        return
+
+    # Build (or rebuild) the target RotatingFileHandler. The target is
+    # replaced on every call so a config-dir migration re-points the
+    # file at the new location. The previous target (if any) is closed
+    # to release its file handle.
+    try:
+        resolved.mkdir(parents=True, exist_ok=True)
+        buffer_path = resolved / "voice-typer-crash-buffer.log"
+        # Reuse _SecureRotatingFileHandler from the log module so the
+        # crash-buffer file gets the same 0o600 perms + inter-process
+        # lock guarantees as the main rotating log. Falls back to a
+        # stock RotatingFileHandler if the secure handler can't be
+        # imported (e.g. during early bootstrap before the log package
+        # is wired up).
+        target_handler: logging.Handler | None = None
+        try:
+            from voice_typer.server.log import _SecureRotatingFileHandler
+
+            target_handler = _SecureRotatingFileHandler(
+                buffer_path,
+                maxBytes=1 * 1024 * 1024,  # 1 MiB — small buffer file
+                backupCount=1,
+                encoding="utf-8",
+                errors="backslashreplace",
+            )
+        except Exception:
+            target_handler = logging.handlers.RotatingFileHandler(
+                buffer_path,
+                maxBytes=1 * 1024 * 1024,
+                backupCount=1,
+                encoding="utf-8",
+                errors="backslashreplace",
+            )
+        # Tighten perms on POSIX so the crash buffer (which contains
+        # the same PII-redacted log records as voice-typer.log) is not
+        # world-readable.
+        if os.name == "posix":
+            with __import__("contextlib").suppress(OSError):
+                os.chmod(buffer_path, 0o600)
+        # Use the same formatter as the main log file so the records
+        # are readable. Fall back to a basic formatter if the log
+        # module's _FileFormatter is unavailable.
+        try:
+            from voice_typer.server.log import _FileFormatter
+
+            target_handler.setFormatter(_FileFormatter())
+        except Exception:
+            target_handler.setFormatter(
+                logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+            )
+        target_handler.setLevel(logging.DEBUG)
+        # Close the previous target (if any) to release its file handle.
+        previous_target = getattr(_ch, "_crash_buffer_handler", None)
+        if previous_target is not None:
+            with __import__("contextlib").suppress(Exception):
+                previous_target.close()
+        _ch._crash_buffer_handler = target_handler
+    except Exception:
+        log.debug("[CRASH-BUF] failed to build target RotatingFileHandler", exc_info=True)
+        return
+
+    # Attach the MemoryHandler to the voice_typer root logger ONCE.
+    # Subsequent calls only update the target on the existing handler
+    # (avoids duplicate MemoryHandlers across repeated installs).
+    existing = getattr(_ch, "_memory_handler", None)
+    if existing is None:
+        try:
+            memory_handler = logging.handlers.MemoryHandler(
+                capacity=_MEMORY_HANDLER_CAPACITY,
+                target=None,  # set below
+            )
+            # MemoryHandler defaults to flushing on every record once
+            # the target is set; we explicitly want buffer-only
+            # behaviour (flush only on explicit flush() call from the
+            # VEH callback). Setting flushLevel to a level never
+            # reached (CRITICAL + 1) disables the auto-flush-on-level
+            # path. The explicit ``flush()`` call from the VEH callback
+            # still works.
+            memory_handler.flushLevel = logging.CRITICAL + 1
+            memory_handler.setLevel(logging.INFO)
+            memory_handler.target = target_handler
+            # Attach the PII redaction filter so the crash-buffer file
+            # gets the same PII scrubbing as the main log file.
+            try:
+                from voice_typer.server.security import PIIRedactionFilter
+
+                memory_handler.addFilter(PIIRedactionFilter())
+            except Exception:
+                pass
+            voice_typer_root = logging.getLogger("voice_typer")
+            # Avoid duplicate MemoryHandler attachments across repeated
+            # install_memory_buffer calls (the dedup check looks for
+            # our specific MemoryHandler instance type via the
+            # ``_crash_buffer_handler`` attribute marker).
+            voice_typer_root.addHandler(memory_handler)
+            _ch._memory_handler = memory_handler
+        except Exception:
+            log.debug("[CRASH-BUF] failed to attach MemoryHandler", exc_info=True)
+    else:
+        # Update the existing MemoryHandler's target so a config-dir
+        # migration re-points the file.
+        existing.target = target_handler
+
+
+def flush_memory_handler() -> None:
+    """Best-effort flush of the in-memory log buffer to the crash file.
+
+    Called from the VEH callback after the crash-diagnostics body is
+    written. Wraps everything in ``try/except`` so a failure inside the
+    crashing process does not propagate back into the VEH callback
+    (which must return ``EXCEPTION_CONTINUE_SEARCH`` to the OS).
+
+    For ``STATUS_HEAP_CORRUPTION`` the heap is corrupted and this call
+    may silently fail — that's an accepted limitation (see module
+    docstring). For access violations / stack overruns (the common
+    case), the flush works reliably and the most-recent 200 log records
+    are appended to ``voice-typer-crash-buffer.log``.
+    """
+    try:
+        from voice_typer.server import crash_handler as _ch
+
+        memory_handler = getattr(_ch, "_memory_handler", None)
+        if memory_handler is None:
+            return
+        # ``MemoryHandler.flush`` pushes the buffered records to the
+        # target (the RotatingFileHandler) and clears the buffer. If
+        # the target is None (e.g. set_crash_handler_config_dir was
+        # never called), flush is a no-op.
+        memory_handler.flush()
+    except Exception:
+        # Swallow everything — the VEH callback must not raise. The
+        # crash-diagnostics body has already been written; losing the
+        # log-buffer tail is acceptable.
+        pass
+
+
+def uninstall_memory_buffer() -> None:
+    """Remove the MemoryHandler from the voice_typer logger.
+
+    Used by tests that need to reset the logger state between runs.
+    Also closes the target RotatingFileHandler so the file handle is
+    released (Windows won't let a second test rename / delete the
+    file while the handle is open).
+    """
+    try:
+        from voice_typer.server import crash_handler as _ch
+
+        memory_handler = getattr(_ch, "_memory_handler", None)
+        if memory_handler is not None:
+            with __import__("contextlib").suppress(Exception):
+                logging.getLogger("voice_typer").removeHandler(memory_handler)
+            target = getattr(memory_handler, "target", None)
+            if target is not None:
+                with __import__("contextlib").suppress(Exception):
+                    target.close()
+            _ch._memory_handler = None
+        _ch._crash_buffer_handler = None
+    except Exception:
+        pass
+
+
+__all__ = [
+    "flush_memory_handler",
+    "install_memory_buffer",
+    "uninstall_memory_buffer",
+]

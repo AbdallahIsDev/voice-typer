@@ -24,6 +24,19 @@ log = logging.getLogger(__name__)
 # no user-visible staleness (cache is invalidated on download/delete).
 _MODEL_STATUS_CACHE_TTL_S = 5.0
 
+# TTL (seconds) for the deps-probe cache (``_check_qwen_deps`` /
+# ``_check_parakeet_deps``).  Package install state does NOT change while
+# Voice Typer is running, but ``importlib.util.find_spec`` walks
+# ``sys.path`` (one filesystem stat per path entry) on every call — at
+# 5s status-TTL that's 2 × sys.path walk every 5s, forever.  We decouple
+# the deps-probe TTL from the on-disk-status TTL: 300s (5 min) is short
+# enough to pick up a ``pip install`` run in another terminal within a
+# reasonable window, but long enough to cut the find_spec rate by ~60×.
+# The cache is per-instance and per-module-name, so a ``pip install torch``
+# followed by a ``Config.reload()`` (which constructs a new service
+# instance) is observed immediately.
+_DEPS_PROBE_CACHE_TTL_S = 300.0
+
 # user-facing messages for each ``download_parakeet_weights``
 # reason code. The service layer unpacks the ``(success, reason, exc_info)``
 # 3-tuple and maps the short reason code to a human-readable message so
@@ -110,6 +123,13 @@ class ModelMixin(ServiceMixinBase):
         self._model_status_cache: dict[str, object] | None = None
         self._model_status_cache_ts: float = 0.0
         self._model_status_cache_lock = threading.Lock()
+        # Per-module deps-probe cache.  Keyed by module name
+        # (``"qwen_asr"`` / ``"torch"``) → ``(result, timestamp)``.
+        # ``find_spec`` walks ``sys.path`` on every call; caching the
+        # result for ``_DEPS_PROBE_CACHE_TTL_S`` (300s) decouples the
+        # probe rate from the 5s status cache TTL.
+        self._deps_probe_cache: dict[str, tuple[bool, float]] = {}
+        self._deps_probe_cache_lock = threading.Lock()
 
     # ── Download cancellation helpers ( / SERVICE-1) ──────────
 
@@ -417,14 +437,28 @@ class ModelMixin(ServiceMixinBase):
         case the module IS available, so we fall back to a
         ``sys.modules`` membership check rather than reporting
         ``deps_ok=False``.
+
+        The result is cached for ``_DEPS_PROBE_CACHE_TTL_S``
+        (300s), decoupled from the 5s on-disk-status TTL. Package
+        install state does not change while Voice Typer is running,
+        so the find_spec + sys.path walk is amortised to once per
+        5 min instead of once per 5 s.
         """
         import importlib.util
         import sys
 
+        now = time.monotonic()
+        with self._deps_probe_cache_lock:
+            cached = self._deps_probe_cache.get("qwen_asr")
+            if cached is not None and (now - cached[1]) < _DEPS_PROBE_CACHE_TTL_S:
+                return cached[0]
         try:
-            return importlib.util.find_spec("qwen_asr") is not None
+            result = importlib.util.find_spec("qwen_asr") is not None
         except ValueError:
-            return "qwen_asr" in sys.modules
+            result = "qwen_asr" in sys.modules
+        with self._deps_probe_cache_lock:
+            self._deps_probe_cache["qwen_asr"] = (result, now)
+        return result
 
     def _check_parakeet_deps(self) -> bool:
         """Check if the Parakeet engine's key runtime dependency is importable.
@@ -447,14 +481,28 @@ class ModelMixin(ServiceMixinBase):
         in ``sys.modules`` but its ``__spec__`` is ``None`` (observed with
         some torch wheel layouts in test envs). In that case torch IS
         importable, so fall back to a ``sys.modules`` membership check.
+
+        The result is cached for ``_DEPS_PROBE_CACHE_TTL_S``
+        (300s), decoupled from the 5s on-disk-status TTL. Package
+        install state does not change while Voice Typer is running,
+        so the find_spec + sys.path walk is amortised to once per
+        5 min instead of once per 5 s.
         """
         import importlib.util
         import sys
 
+        now = time.monotonic()
+        with self._deps_probe_cache_lock:
+            cached = self._deps_probe_cache.get("torch")
+            if cached is not None and (now - cached[1]) < _DEPS_PROBE_CACHE_TTL_S:
+                return cached[0]
         try:
-            return importlib.util.find_spec("torch") is not None
+            result = importlib.util.find_spec("torch") is not None
         except ValueError:
-            return "torch" in sys.modules
+            result = "torch" in sys.modules
+        with self._deps_probe_cache_lock:
+            self._deps_probe_cache["torch"] = (result, now)
+        return result
 
     # ── Model import ──────────────────────────────────────────────────────
 
@@ -794,17 +842,6 @@ class ModelMixin(ServiceMixinBase):
         so the IPC layer sees the exact same runtime shape as before.
         All 10 distinct return shapes are preserved verbatim.
         """
-        # pyrefly unbound-name — initialize download_id BEFORE the
-        # outer ``try:`` block so the ``except Exception`` handler below
-        # can safely reference it even if the very first statement inside
-        # the try (the ``from voice_typer.server.model_registry import
-        # get_model_metadata`` import) raises ImportError before any
-        # branch method has had a chance to set it via
-        # ``self._register_download``.  The  / SERVICE-1 comment
-        # below still applies — this initialization is the safety net
-        # for the outer handler.
-        download_id: str | None = None
-
         try:
             # consult the model registry so we support
             # turbo + distilled variants without hard-coding name-to-repo
@@ -829,12 +866,13 @@ class ModelMixin(ServiceMixinBase):
             return dict(outcome)  # Convert TypedDict to regular dict for IPC
         except Exception as exc:
             log.error("download_model failed for %s: %s", model_name, exc)
-            # clear cancel event on failure too.
-            #  SERVICE-1: unregister the per-download Event
-            # from the dict (no-op if download_id is None, e.g. the
-            # failure happened before _register_download was called).
-            if download_id is not None:
-                self._unregister_download(download_id)
+            # The per-download Event cleanup is handled by the
+            # ``finally:`` block in each ``_download_*`` branch method
+            # (e.g. ``_download_whisper_family``). The outer
+            # ``download_id`` here is always ``None`` — Python does
+            # not propagate assignments from nested method scopes —
+            # so a previous ``if download_id is not None`` guard was
+            # dead code and has been removed.
             # clear the pause flag on failure too.
             try:
                 from voice_typer.server.asr_setup import clear_download_pause_state
@@ -1029,27 +1067,39 @@ class ModelMixin(ServiceMixinBase):
                 # machine was extracted to
                 # :func:`poll_download_progress` in
                 # :mod:`voice_typer.server.service._download_helpers`.
-                poll_outcome, last_total_bytes_seen = poll_download_progress(
-                    thread=t,
-                    target_bytes=target_bytes,
-                    target_mb=target_mb,
-                    model_name=model_name,
-                    repo_id=repo_id,
-                    cache_dir=cache_dir,
-                    download_id=download_id,
-                    event_bus=event_bus,
-                    is_cancelled_fn=self._is_download_cancelled,
-                )
+                #
+                # Wrap the poll + cleanup in a try/finally so the
+                # per-download Event is ALWAYS unregistered, even if
+                # ``poll_download_progress`` raises a non-ImportError
+                # exception (e.g. OSError, RuntimeError). Pre-fix the
+                # cleanup at the former line 1049 was skipped on
+                # raise, leaking the Event in
+                # ``_download_cancel_events`` forever.
+                try:
+                    poll_outcome, last_total_bytes_seen = poll_download_progress(
+                        thread=t,
+                        target_bytes=target_bytes,
+                        target_mb=target_mb,
+                        model_name=model_name,
+                        repo_id=repo_id,
+                        cache_dir=cache_dir,
+                        download_id=download_id,
+                        event_bus=event_bus,
+                        is_cancelled_fn=self._is_download_cancelled,
+                    )
+                finally:
+                    #  SERVICE-1: remove our per-download Event
+                    # from the dict so a sibling download_model
+                    # call's cancel signal can't reach us after
+                    # we've already exited the polling loop. Also
+                    # clear the pause flag so a subsequent download
+                    # starts unpaused. Both are idempotent — the
+                    # post-try/except cleanup below and the outer
+                    # ``download_model`` except handler may call
+                    # them again, which is a harmless no-op.
+                    self._unregister_download(download_id)
+                    clear_download_pause_state()
                 # if cancelled, return early.
-                #  SERVICE-1: remove our per-download
-                # Event from the dict so a sibling
-                # download_model call's cancel signal can't
-                # reach us after we've already exited the
-                # polling loop.
-                self._unregister_download(download_id)
-                # also clear the pause flag so
-                # a subsequent download starts unpaused.
-                clear_download_pause_state()
                 if poll_outcome == "cancelled":
                     return {
                         "success": False,
@@ -1094,11 +1144,15 @@ class ModelMixin(ServiceMixinBase):
                 "[SERVICE] failed to invalidate tray model cache",
                 exc_info=True,
             )
-        # clear cancel event on successful completion.
-        #  SERVICE-1: unregister the per-download Event
-        # from the dict (no-op if download_id is None, e.g. the
-        # model was already cached and we never entered the
-        # polling-loop branch).
+        # Defense-in-depth cleanup. The ``finally:`` block inside the
+        # cache-miss branch already unregisters the per-download Event
+        # and clears the pause flag (and is the authoritative cleanup
+        # path on exceptions). These calls are retained for the
+        # cache-hit path (where ``download_id`` is ``None`` and the
+        # ``finally`` never ran) and as belt-and-braces on the success
+        # path — both ``_unregister_download`` and
+        # ``clear_download_pause_state`` are idempotent no-ops if
+        # already done.
         if download_id is not None:
             self._unregister_download(download_id)
         # clear the pause flag so subsequent

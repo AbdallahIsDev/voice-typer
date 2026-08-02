@@ -237,9 +237,23 @@ class RecordingController:
         active mic_id (set in :meth:`_start_impl` via
         ``set_active_mic_id``) is still present. If not,
         ``on_active_mic_lost`` fires.
+
+        Returns the int ``index`` (not the str ``id``)
+        so the membership check ``active_mic_id not in current_ids``
+        compares int-to-int. Pre-fix this returned ``m.get("id")``
+        (a str like ``"5"``), but ``_start_impl`` passes
+        ``set_active_mic_id(resolved)`` where ``resolved`` is the int
+        returned by ``recorder._resolve_device()`` (or
+        ``recorder._effective_device``). The int-vs-str mismatch meant
+        the membership check ALWAYS failed on the first device-change
+        event after recording started, so ``on_active_mic_lost`` fired
+        spuriously and stopped the recording even though the mic was
+        still present. Returning ``m.get("index")`` (an int) makes the
+        comparison int-to-int and matches the format
+        ``set_active_mic_id`` is called with.
         """
         try:
-            return [m.get("id") for m in self._app.list_microphones() if m.get("id") is not None]
+            return [m.get("index") for m in self._app.list_microphones() if m.get("index") is not None]
         except Exception:
             log.debug("[DICTATION] _list_active_mic_ids failed", exc_info=True)
             return []
@@ -312,6 +326,34 @@ class RecordingController:
             with contextlib.suppress(KeyError):
                 self._cancelled_cycle_ids.pop(cycle_id)
 
+    def _publish_microphone_disconnected_event(self) -> None:
+        """Emit the dedicated ``microphone_disconnected`` IPC event.
+
+        Extracted from :meth:`on_device_lost` so the
+        fast-path (:meth:`on_active_mic_lost`) and the slow-path
+        (:meth:`on_device_lost`) both surface the same IPC banner to
+        the renderer. Pre-fix, only the slow path (max-retries-reached)
+        published the event; the fast path (OS-event-driven
+        active-mic-lost, sub-second USB/BT unplug detection) skipped
+        it, so the renderer showed no banner for the most common
+        unplug scenario.
+
+        Mirrors the ``on_microphone_permission_revoked`` pattern
+        (best-effort publish with a logged suppress). The event_bus
+        module is a leaf dependency, but if the import or publish
+        raises (e.g. during shutdown teardown) the caller still
+        proceeds to schedule the stop.
+        """
+        try:
+            from voice_typer.server import event_bus
+
+            event_bus.publish({"type": "microphone_disconnected"})
+        except Exception:
+            log.debug(
+                "[DICTATION] failed to publish microphone_disconnected event",
+                exc_info=True,
+            )
+
     def on_device_lost(self) -> None:
         """handle the terminal 'max disconnect retries reached'
         case with a dedicated 'Microphone disconnected' notification.
@@ -331,15 +373,7 @@ class RecordingController:
             )
         # Emit a dedicated IPC event so the renderer can show a banner
         # (distinct from the silence / max-duration auto-stop toast).
-        try:
-            from voice_typer.server import event_bus
-
-            event_bus.publish({"type": "microphone_disconnected"})
-        except Exception:
-            log.debug(
-                "[DICTATION] failed to publish microphone_disconnected event",
-                exc_info=True,
-            )
+        self._publish_microphone_disconnected_event()
         # Stop the recording off this thread (mirror the
         # on_silence_auto_stop pattern).
         self._app._schedule_timer(0, self._app._stop_dictation)
@@ -354,6 +388,12 @@ class RecordingController:
         of USB/BT unplug mid-recording — faster than the 1-2s
         zero-fill-chunk retry path in ``_handle_device_disconnect``.
 
+        Now publishes the same
+        ``microphone_disconnected`` IPC event as :meth:`on_device_lost`
+        (via the shared ``_publish_microphone_disconnected_event``
+        helper) so the renderer surfaces a banner for the fast-path
+        unplug case too. Pre-fix, only the slow-path published.
+
         Scheduled stop (mirrors ``on_silence_auto_stop``) so we don't
         deadlock on ``Recorder._lock`` if the watcher thread holds it.
         """
@@ -363,6 +403,9 @@ class RecordingController:
                 APP_NAME,
                 "Microphone was unplugged. Recording stopped.",
             )
+        # Mirror the slow-path (on_device_lost): emit the dedicated IPC
+        # event so the renderer can show a banner.
+        self._publish_microphone_disconnected_event()
         self._app._schedule_timer(0, self._app._stop_dictation)
 
     # ── Streaming session accessors ────────────────────────────────────

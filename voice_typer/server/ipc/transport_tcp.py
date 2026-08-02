@@ -81,16 +81,38 @@ class TCPTransportMixin:
           the probe and the listen.
         """
         self._tcp_mode = True
-        # lazily create the worker pool that handles accepted
-        # TCP connections off the accept-loop thread. A small pool is
-        # sufficient — production has a single Electron client, and the
-        # auth handshake's 5s timeout ensures slow/malicious clients
-        # don't hold a worker indefinitely. Reusing the pool across
-        # start_tcp() calls is fine; it's only torn down by stop().
+        # lazily create the worker pools. Two pools are used so that
+        # long-lived blocking connection read-loops cannot starve
+        # short-lived dispatch submissions:
+        #
+        # - ``_tcp_worker_pool`` (max_workers=8) accepts connections
+        #   off the accept-loop thread and runs each connection's auth
+        #   handshake + dispatch read-loop. A worker is held for the
+        #   ENTIRE connection lifetime (the read-loop blocks on
+        #   ``readline`` until the client disconnects). 8 workers
+        #   headroom-accounts for reconnect storms and multi-window
+        #   Electron (production has 1 client).
+        # - ``_tcp_dispatch_pool`` (max_workers=4) runs
+        #   ``_tcp_dispatch_and_respond`` submissions off the read
+        #   loop so a slow handler (e.g. ``download_model``, up to
+        #   120s) does not head-of-line block subsequent commands on
+        #   the same connection.
+        #
+        # Pre-split both work types shared ``_tcp_worker_pool`` with
+        # ``max_workers=4``: with 4 concurrent authenticated
+        # connections, all 4 workers were stuck on read-loops and
+        # dispatch submissions queued indefinitely (full starvation).
+        # Reusing the pools across start_tcp() calls is fine; they're
+        # only torn down by stop().
         if self._tcp_worker_pool is None:
             self._tcp_worker_pool = ThreadPoolExecutor(
-                max_workers=4,
+                max_workers=8,
                 thread_name_prefix="tcp-worker",
+            )
+        if self._tcp_dispatch_pool is None:
+            self._tcp_dispatch_pool = ThreadPoolExecutor(
+                max_workers=4,
+                thread_name_prefix="tcp-dispatch",
             )
         t = threading.Thread(
             target=self._accept_tcp,
@@ -230,11 +252,23 @@ class TCPTransportMixin:
                 break
             # Loop back to accept the next connection
 
-        # shut down the worker pool now that no new connections
+        # shut down the worker pools now that no new connections
         # will arrive. cancel_futures=True drops queued (not-yet-started)
         # submissions; in-flight workers are responsible for their own
         # teardown (the auth timeout + dispatch loop's OSError handling
         # ensure they exit promptly when their socket is closed).
+        # The dispatch pool is shut down first so its in-flight
+        # dispatches can finish writing their responses before the
+        # connection handlers' sockets are torn down.
+        dispatch_pool = self._tcp_dispatch_pool
+        if dispatch_pool is not None:
+            dispatch_pool.shutdown(wait=False, cancel_futures=True)
+            self._tcp_dispatch_pool = None
+            dispatch_join = threading.Thread(target=dispatch_pool.shutdown, kwargs={"wait": True}, daemon=True)
+            dispatch_join.start()
+            dispatch_join.join(timeout=5.0)
+            if dispatch_join.is_alive():
+                log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s — proceeding anyway")
         pool = self._tcp_worker_pool
         if pool is not None:
             pool.shutdown(wait=False, cancel_futures=True)
@@ -249,7 +283,7 @@ class TCPTransportMixin:
             join_thread.start()
             join_thread.join(timeout=5.0)
             if join_thread.is_alive():
-                log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s — proceeding anyway")
+                log.warning("[SHUTDOWN] tcp_worker_pool did not drain in 5s — proceeding anyway")
 
         with contextlib.suppress(OSError):
             server.close()
@@ -576,12 +610,10 @@ class TCPTransportMixin:
                         {
                             "type": "error",
                             "data": {
-                                # Namespaced form (canonical) +
-                                # legacy alias (one-release compat) —
-                                # see ``voice_typer/server/ipc/validation.py``
+                                # Namespaced form (canonical) — see
+                                # ``voice_typer/server/ipc/validation.py``
                                 # for the migration contract.
                                 "code": "client.invalid_payload",
-                                "legacy_code": "invalid_payload",
                                 "message": "invalid JSON",
                             },
                         },
@@ -641,10 +673,8 @@ class TCPTransportMixin:
                     rate_err: dict[str, object] = {
                         "type": "error",
                         "data": {
-                            # Namespaced form (canonical) + legacy
-                            # alias (one-release compat).
+                            # Namespaced form (canonical).
                             "code": "client.rate_limited",
-                            "legacy_code": "rate_limited",
                             "message": "rate limit exceeded; backing off",
                         },
                     }
@@ -680,7 +710,7 @@ class TCPTransportMixin:
                 # heartbeats bypass this entirely (handled inline
                 # above) so the heartbeat-ack is never delayed by an
                 # in-flight long dispatch.
-                self._tcp_worker_pool.submit(self._tcp_dispatch_and_respond, msg, client)
+                self._tcp_dispatch_pool.submit(self._tcp_dispatch_and_respond, msg, client)
         except OSError:
             # Routine socket close / EOF: the client disconnected.
             log.debug("[TCP] client connection closed")
@@ -713,7 +743,7 @@ class TCPTransportMixin:
     def _tcp_dispatch_and_respond(self, msg, client) -> None:
         """Run ``_dispatch`` on the worker pool and send the response.
 
-        This method is submitted to ``_tcp_worker_pool`` by
+        This method is submitted to ``_tcp_dispatch_pool`` by
         the TCP read loop (see ``_handle_tcp_connection``) so a
         long-running handler (e.g. ``download_model``, up to 120s) does
         NOT block the read loop from reading subsequent commands from

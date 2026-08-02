@@ -34,19 +34,33 @@ def teardown_history_db(controller) -> None:
     killed by the OS and any unprocessed INSERTs are silently lost.
     Flushing here ensures the writer drains its queue and commits
     all pending writes before the process terminates.
+
+    Inner timeouts (flush + close) MUST be strictly less than
+    the outer wrapper budget. Previously the inner timeouts were
+    ``flush=10.0`` + ``close=5.0`` = 15s, exactly equal to the outer
+    ``_run_with_timeout`` budget (15s) that ``_do_cleanup`` allocates
+    for the ``teardown_history_db`` sequenced phase item. Zero slack
+    meant a slow-but-not-stuck flush that took 9.9s left only 0.1s for
+    close. The fix tightens the inner timeouts to ``flush=8.0`` +
+    ``close=4.0`` = 12s, leaving 3s of slack under the 15s outer
+    budget. The inner timeouts are enforced via the existing
+    ``_run_with_timeout`` thread-join wrapper (HistoryDB.flush/close
+    do not accept a ``timeout`` parameter themselves).
     """
     app = controller._app
     try:
         if app.history_db is not None:
+            # 8.0 + 4.0 = 12.0s inner budget, strictly less
+            # than the 15.0s outer wrapper budget. See docstring.
             _run_with_timeout(
                 "history_db.flush",
                 app.history_db.flush,
-                timeout=10.0,
+                timeout=8.0,
             )
             _run_with_timeout(
                 "history_db.close",
                 app.history_db.close,
-                timeout=5.0,
+                timeout=4.0,
             )
     except Exception as e:
         log.warning("[SHUTDOWN] history DB flush/close failed: %s", e)

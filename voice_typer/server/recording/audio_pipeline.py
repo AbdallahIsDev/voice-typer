@@ -52,8 +52,14 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+try:
+    from scipy import signal as _sp_signal
+except Exception:  # scipy not installed or broken (e.g. numpy/scipy version mismatch)
+    _sp_signal = None  # type: ignore[assignment]
+
 from voice_typer.server import recording as _recording_pkg
 from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES, WHISPER_SAMPLE_RATE
+from voice_typer.server.recording import resampling as _resampling_mod
 from voice_typer.server.vad import compute_vad_prob
 from voice_typer.server.vad_processor import VadState
 
@@ -443,8 +449,18 @@ class AudioPipeline:
                 after this method returns.
         """
         recorder = self._recorder
-        # auto-calibrate VAD thresholds from ambient noise
-        recorder._vad_auto_calibrate(chunk_rms, chunk_duration)
+        # auto-calibrate VAD thresholds from ambient noise.
+        # Use the RAW (pre-filter) chunk RMS threaded in from
+        # ``process_audio_chunk`` via ``self._pending_raw_chunk_rms``.
+        # The raw RMS reflects the true ambient noise floor; the
+        # filtered ``chunk_rms`` is attenuated by the gate / noise
+        # suppressor / highpass and would bias thresholds low.
+        # Direct callers of ``run_vad_state_machine`` that did not
+        # set the transient attribute fall back to ``chunk_rms``.
+        _raw_chunk_rms = getattr(self, "_pending_raw_chunk_rms", None)
+        if _raw_chunk_rms is None:
+            _raw_chunk_rms = chunk_rms
+        recorder._vad_auto_calibrate(_raw_chunk_rms, chunk_duration)
 
         # compute Silero VAD probability if enabled.
         # this previously ran in the audio callback
@@ -468,8 +484,9 @@ class AudioPipeline:
                 # High: use ``_buffer_sr`` (the post-process_chunk rate
                 # set above) instead of ``_effective_sr`` (the device's
                 # native rate). When a processor is active,
-                # ``_buffer_sr == 16000`` and the VAD branch is skipped
-                # entirely — no double-resample. Pre-fix used
+                # ``_buffer_sr == proc._sample_rate`` (typically 16000)
+                # and the VAD branch is skipped entirely — no
+                # double-resample. Pre-fix used
                 # ``_effective_sr`` (e.g. 48000) which caused
                 # ``resample_poly(filtered, 1, 3)`` to decimate the
                 # already-16 kHz audio 3:1 → ~170 samples presented to
@@ -497,23 +514,30 @@ class AudioPipeline:
                         # ~16 redundant filter designs/sec on the worker
                         # thread. ``upfirdn`` with the cached taps is
                         # bit-identical (same filter design) and costs a
-                        # dict lookup + C call. Inline imports resolve
-                        # through the module attributes at call time so
-                        # the path is patchable in tests.
+                        # dict lookup + C call. Module-top aliases
+                        # (``_sp_signal`` / ``_resampling_mod``) resolve
+                        # through the source module's ``__dict__`` at
+                        # call time, so the path is patchable in tests
+                        # (``patch("scipy.signal.upfirdn", ...)`` /
+                        # ``patch("...resampling._get_resample_fir_taps", ...)``).
                         try:
-                            from scipy.signal import upfirdn
-
-                            from voice_typer.server.recording.resampling import (
-                                _get_resample_fir_taps,
+                            taps = _resampling_mod._get_resample_fir_taps(_up, _down)
+                            # ``_get_resample_fir_taps`` pre-casts taps
+                            # to float32 at design time, so ``upfirdn``
+                            # returns float32 directly when the input is
+                            # float32. ``np.asarray(..., dtype=np.float32)``
+                            # is a no-op (returns the same array) when
+                            # the dtype already matches — avoiding the
+                            # per-chunk ``.astype(np.float32)`` allocation.
+                            vad_audio = np.asarray(
+                                _sp_signal.upfirdn(
+                                    taps,
+                                    filtered.ravel(),
+                                    up=_up,
+                                    down=_down,
+                                ),
+                                dtype=np.float32,
                             )
-
-                            taps = _get_resample_fir_taps(_up, _down)
-                            vad_audio = upfirdn(
-                                taps,
-                                filtered.ravel(),
-                                up=_up,
-                                down=_down,
-                            ).astype(np.float32)
                         except Exception:
                             # Fall back to ``resample_poly`` if
                             # ``upfirdn`` / the cached-taps path fails
@@ -521,11 +545,14 @@ class AudioPipeline:
                             # or an edge-case shape mismatch) — same
                             # fallback as ``resample_audio``.
                             resample_poly = _recording_pkg._get_resample_poly()
-                            vad_audio = resample_poly(
-                                filtered.ravel(),
-                                _up,
-                                _down,
-                            ).astype(np.float32)
+                            vad_audio = np.asarray(
+                                resample_poly(
+                                    filtered.ravel(),
+                                    _up,
+                                    _down,
+                                ),
+                                dtype=np.float32,
+                            )
                         vad_sr = WHISPER_SAMPLE_RATE
                     except Exception:
                         # scipy unavailable or resample failed — fall
@@ -683,6 +710,27 @@ class AudioPipeline:
         # callback already logged a warning and dropped the chunk. By
         # the time we reach here, the chunk is in the ring buffer and
         # we must process it.
+
+        # Compute the RAW (pre-filter) chunk RMS from ``indata`` for
+        # VAD auto-calibration. Auto-calibrate tracks the ambient
+        # noise floor to set speech/silence thresholds; feeding it the
+        # post-filter RMS (which the gate / noise suppressor / highpass
+        # have attenuated) biased the noise floor low → thresholds too
+        # close to silence → speech detected as silence → premature
+        # auto-stop. The raw RMS is threaded through to
+        # ``run_vad_state_machine`` via a transient instance attribute
+        # (set here, read there) because the Recorder delegator
+        # (``_run_vad_state_machine``) has a fixed positional signature
+        # owned by ``recorder.py`` and cannot be extended with a new
+        # parameter from this module. Both methods run on the same
+        # worker thread, so the handoff is single-threaded.
+        if indata.size:
+            _raw_flat = indata.reshape(-1)
+            self._pending_raw_chunk_rms = float(
+                np.sqrt(np.dot(_raw_flat, _raw_flat) / _raw_flat.size)
+            )
+        else:
+            self._pending_raw_chunk_rms = 0.0
 
         # AUDIO-CH + AUDIO-PROC: mono conversion + real-time noise filtering.
         filtered = recorder._apply_filter_chain(indata)

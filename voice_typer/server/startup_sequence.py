@@ -72,6 +72,65 @@ _ONBOARDING_FAIL_COUNTER_FILENAME = ".onboarding_fail_count"
 # user again" cadence.
 _ONBOARDING_FAIL_COUNTER_TTL_SECONDS: float = 7 * 24 * 60 * 60.0
 
+# Stale backup file retention: files older than this are swept at startup.
+# 30 days matches the log-rotation sweep and crash-diagnostics sweep cadence.
+_BACKUP_RETENTION_MAX_AGE_SECONDS: float = 30 * 24 * 60 * 60.0
+
+# Glob patterns for corrupt-quarantine and pre-migration backup files that
+# accumulate indefinitely without an automatic sweep. The GDPR purge function
+# (service/privacy.py) only cleans these on explicit user action; this sweep
+# runs at every startup to bound disk usage. Files newer than the retention
+# period are preserved for forensic value.
+_BACKUP_FILE_GLOBS: tuple[str, ...] = (
+    "history.db.pre-migration-v*.bak",
+    "history.db.corrupt-*",
+    "config.json.corrupt-*",
+    "config.json.pre-migration-v*.bak",
+    "config.json.v*.bak",
+    "config.json.bak.failed-migration-*",
+    "voice-typer-recovery.json.corrupt.*",
+)
+
+
+def _sweep_stale_backup_files(config_dir: Path) -> None:
+    """Delete stale corrupt-quarantine and pre-migration backup files.
+
+    Mirrors the pattern of ``_sweep_stale_log_rotations`` (log/__init__.py)
+    and ``_sweep_stale_diagnostics`` (crash_handler/_diagnostics_archive.py).
+    Files newer than ``_BACKUP_RETENTION_MAX_AGE_SECONDS`` are preserved for
+    forensic value. Per-file errors are swallowed so one bad file never
+    aborts the sweep.
+    """
+    if config_dir is None:
+        return
+    config_path = Path(config_dir)
+    if not config_path.is_dir():
+        return
+    now = time.time()
+    for pattern in _BACKUP_FILE_GLOBS:
+        try:
+            for file_path in config_path.glob(pattern):
+                try:
+                    if not file_path.is_file():
+                        continue
+                    age = now - file_path.stat().st_mtime
+                    if age > _BACKUP_RETENTION_MAX_AGE_SECONDS:
+                        file_path.unlink()
+                        log.info(
+                            "[STARTUP] swept stale backup file (age=%.0f days): %s",
+                            age / 86400.0,
+                            file_path.name,
+                        )
+                except OSError as exc:
+                    log.debug(
+                        "[STARTUP] could not sweep backup file %s: %s",
+                        file_path.name,
+                        exc,
+                    )
+        except OSError as exc:
+            log.debug("[STARTUP] glob error for pattern %s: %s", pattern, exc)
+
+
 
 def _onboarding_fail_counter_path() -> Path:
     """Return the absolute path to the onboarding fail-counter file."""
@@ -181,6 +240,11 @@ class StartupSequence:
         # another silent SEH exception.  We read them here, log them to
         # voice-typer.log, show a notification, and delete them.
         try:
+            # Sweep stale corrupt-quarantine and pre-migration backup files
+            # (30-day retention). Mirrors the log-rotation and crash-diagnostics
+            # sweeps. Best-effort — never aborts startup on a sweep error.
+            with contextlib.suppress(Exception):
+                _sweep_stale_backup_files(_config_dir())
             crash_summary = _crash_handler.report_pending_crash(_config_dir())
             if crash_summary:
                 # Log at WARNING so it appears prominently in voice-typer.log

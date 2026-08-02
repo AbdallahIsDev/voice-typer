@@ -104,36 +104,20 @@ else:
     _ft = None
     _st = None
 
-# Pre-allocated crash-message buffer (: moved here from
-# ``_constants`` so all mutable runtime state lives on the facade).
-# Mutated in place by ``_vectored_handler_impl`` via bytearray slice
-# assignment — no heap allocation in the VEH callback. The reference
-# itself is never reassigned. Allocated lazily AFTER the ``_constants``
-# re-export below (which provides ``_CRASH_MSG_BUF_SIZE``); see the
-# ``_crash_msg_buf = bytearray(_CRASH_MSG_BUF_SIZE)`` assignment that
-# follows the import block.
-#
-# (Placeholder — the real allocation happens after the ``_constants``
-# import, since ``_CRASH_MSG_BUF_SIZE`` is defined there.)
+# Pre-allocated crash-message buffer. Mutated in place by
+# ``_vectored_handler_impl`` via bytearray slice assignment (no heap
+# allocation in the VEH callback). Real allocation happens after the
+# ``_constants`` import below provides ``_CRASH_MSG_BUF_SIZE``.
 _crash_msg_buf: bytearray = bytearray(0)
 
 # rate-limit lock for the VEH callback's compare-and-set on
-# ``_crash_written``. Held briefly (from the flag check through the
-# kernel32 write) so two concurrent VEH callbacks (e.g. cascading
-# access violations on two threads) cannot BOTH pass the check and
-# write duplicate crash records. Non-blocking acquire: a concurrent
-# caller returns early rather than blocking the OS exception
-# dispatcher.
-#
-# Residual gap (documented): the VEH callback is NOT async-signal-
-# safe in Python (it allocates ctypes wrappers, calls kernel32
-# functions, etc.). During STATUS_HEAP_CORRUPTION the heap is
-# corrupted and the lock acquisition itself may fail or deadlock.
-# This is acceptable because (a) the alternative (no lock) is worse
-# (duplicate records, possible file corruption from concurrent
-# writes), and (b) for access violations / stack overruns (the
-# common case) the lock works reliably. See ``_veh_callback`` for
-# the usage site.
+# ``_crash_written``. Non-blocking acquire: a concurrent caller returns
+# early rather than blocking the OS exception dispatcher.
+# Residual gap: the VEH callback is NOT async-signal-safe in Python
+# (allocates ctypes wrappers, calls kernel32). During
+# STATUS_HEAP_CORRUPTION the lock may fail — acceptable because the
+# alternative (no lock) is worse (duplicate records, possible file
+# corruption from concurrent writes). See ``_veh_callback`` for usage.
 _crash_write_lock: threading.Lock = threading.Lock()
 
 # Pre-computed file path (Python str, built at install time)
@@ -178,6 +162,14 @@ _original_threading_excepthook = None
 # short-circuits on ``sys.platform != "win32"`` and never dereferences
 # it. Set at module-load time by ``_veh_callback`` (on Windows).
 _vectored_handler = None
+
+# In-memory log ring buffer (MemoryHandler) + its target
+# RotatingFileHandler. Both None until ``install_memory_buffer`` is
+# called from ``set_crash_handler_config_dir``. The VEH callback
+# flushes the buffer to ``<config_dir>/voice-typer-crash-buffer.log``
+# after writing the crash-diagnostics body. See ``_memory_buffer``.
+_memory_handler = None
+_crash_buffer_handler = None
 
 # cached active ASR backend name. Populated at install time by
 # ``_refresh_cached_asr_backend`` (a single ``Config.load()`` disk
@@ -254,11 +246,9 @@ from voice_typer.server.crash_handler._constants import (  # noqa: F401,E402
 )
 
 # allocate the mutable crash-message buffer HERE (after the
-# ``_constants`` import provides ``_CRASH_MSG_BUF_SIZE``) so it lives
-# on the facade alongside the other mutable runtime state. The
-# placeholder assignment in the state block above is overwritten with
-# the correct size now. ``_veh_callback`` accesses it via
-# ``_ch._crash_msg_buf``.
+# ``_constants`` import provides ``_CRASH_MSG_BUF_SIZE``). The
+# placeholder above is overwritten with the correct size now.
+# ``_veh_callback`` accesses it via ``_ch._crash_msg_buf``.
 _crash_msg_buf = bytearray(_CRASH_MSG_BUF_SIZE)
 from voice_typer.server.crash_handler._diagnostics_archive import (  # noqa: F401,E402
     _archive_crash_file,
@@ -267,6 +257,11 @@ from voice_typer.server.crash_handler._diagnostics_archive import (  # noqa: F40
     _sweep_stale_diagnostics,
     report_pending_crash,
     set_crash_handler_config_dir,
+)
+from voice_typer.server.crash_handler._memory_buffer import (  # noqa: F401,E402
+    flush_memory_handler,
+    install_memory_buffer,
+    uninstall_memory_buffer,
 )
 from voice_typer.server.crash_handler._python_excepthook import (  # noqa: F401,E402
     _crash_excepthook,

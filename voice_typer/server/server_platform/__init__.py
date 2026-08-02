@@ -215,6 +215,7 @@ from .microphone_list import (  # noqa: E402
     _sd_dev_as_dict,
     find_microphone_by_id,
     find_microphone_by_name,
+    invalidate_microphone_list_cache,
     list_microphones,
 )
 from .platform_flags import is_linux, is_macos, is_windows  # noqa: E402
@@ -260,6 +261,7 @@ __all__ = [
     "list_microphones",
     "find_microphone_by_name",
     "find_microphone_by_id",
+    "invalidate_microphone_list_cache",
     "_sd_dev_as_dict",
     # volume_factory
     "get_volume_backend",

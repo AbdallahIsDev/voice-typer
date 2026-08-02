@@ -233,6 +233,7 @@ def build_tray_menu_model(
     undo_last: Callable[[], None] | None = None,
     force_cancel_transcription: Callable[[], None] | None = None,
     is_transcribing: Callable[[], bool] = lambda: False,
+    is_recording: Callable[[], bool] = lambda: False,
     restart_app: Callable[[], None],
     quit_app: Callable[[], None],
     build_models_submenu: Callable[[], list] = lambda: [],
@@ -302,12 +303,20 @@ def build_tray_menu_model(
     # Open App (default/bold action depends on left_click_action).
     items.append(_item("open_app", localize("open_app"), callback=open_app))
 
-    # Toggle Dictation (with hotkey hint in the label).
+    # Toggle/Stop Dictation — the label switches to "Stop Dictation"
+    # while the app is actively recording so the user can see at a
+    # glance that the next click will stop, not start. The item id
+    # stays ``toggle_dictation`` so the host's click dispatcher is
+    # unchanged (the action is the same; only the label differs).
+    # ``is_recording`` is a callable so the host can re-query state
+    # on every menu rebuild without the caller having to thread the
+    # state through to this function.
     hotkey_label = display_hotkey(hotkey)
+    dictation_key = "stop_dictation" if is_recording() else "toggle_dictation"
     items.append(
         _item(
             "toggle_dictation",
-            f"{localize('toggle_dictation')} ({hotkey_label})",
+            f"{localize(dictation_key)} ({hotkey_label})",
             callback=toggle_dictation,
         )
     )
@@ -538,10 +547,21 @@ def build_menu_for_tray(tray) -> tuple:
                 default=open_app_default,
             )
         )
-        # Toggle Dictation (with hotkey hint in the label).
+        # Toggle/Stop Dictation — the label switches to "Stop Dictation"
+        # while the app is actively recording so the user can see at a
+        # glance that the next click will stop, not start. The action
+        # (controller.toggle_dictation) is unchanged; only the label
+        # differs. ``tray._state`` is the canonical AppState enum from
+        # tray_types; compared by identity to AppState.RECORDING.
+        # Imported here once at the top of this block so the later
+        # ``tray._state == AppState.TRANSCRIBING`` check below reuses
+        # the same binding without a second local import.
+        from voice_typer.server.tray_types import AppState
+
+        dictation_key = "stop_dictation" if tray._state == AppState.RECORDING else "toggle_dictation"
         items.append(
             pystray.MenuItem(
-                f"{_('toggle_dictation')} ({hotkey_label})",
+                f"{_(dictation_key)} ({hotkey_label})",
                 wrap_callback(tray._controller.toggle_dictation),
                 default=dictation_default,
             )
@@ -562,10 +582,10 @@ def build_menu_for_tray(tray) -> tuple:
         # canonical label across tray + renderer); the legacy
         # ``force_cancel_stuck_transcription`` key was removed from
         # ``tray_i18n.py``.
-        # STATE-IMPORT: tray._state is the canonical AppState enum from
-        # tray_types; compared by identity to AppState.TRANSCRIBING.
-        from voice_typer.server.tray_types import AppState
-
+        # STATE-IMPORT: tray._state is the canonical AppState enum
+        # from tray_types; compared by identity to AppState.TRANSCRIBING.
+        # The import was hoisted to the Toggle/Stop Dictation block
+        # above so this block reuses the same binding.
         if tray._state == AppState.TRANSCRIBING:
             items.append(
                 pystray.MenuItem(
@@ -622,9 +642,11 @@ def build_microphones_submenu(tray) -> list:
 
     Renders one MenuItem per cached microphone (``tray._microphones``),
     marking the active device (matching ``tray._config.microphone``)
-    with a ``• `` prefix. A trailing ``More microphones...`` item
-    opens the Settings page (where the user can pick a device or
-    refresh the list).
+    with a native checkmark via pystray's ``checked=True`` parameter
+    (Win32 MF_CHECKED / macOS NSControlStateValueOn / GTK radio
+    active). A trailing ``More microphones...`` item opens the
+    Settings page (where the user can pick a device or refresh the
+    list).
 
     Returns an empty list only if ``tray._microphones`` is empty AND
     the ``More microphones...`` shortcut is somehow suppressed — in
@@ -636,13 +658,22 @@ def build_microphones_submenu(tray) -> list:
     for mic in tray._microphones:
         mic_id = str(mic.get("id", ""))
         mic_name = str(mic.get("name", mic_id)) or mic_id
-        prefix = "• " if mic_id == active_mic_id else ""
+        # Native checkmark via ``checked=bool``: previously the
+        # active mic was prefixed with "• " (and non-active with ""),
+        # which bypassed the platform checkmark, broke screen-reader
+        # semantics, and misaligned with the Models submenu (which
+        # also uses ``checked=``). pystray.MenuItem's ``checked``
+        # parameter renders the platform-standard checkmark. The menu
+        # is rebuilt on every right-click via invalidate_menu_cache,
+        # so the bool is fresh at display time.
+        is_active = mic_id == active_mic_id
         # Default-arg capture so each iteration's mic_id is bound
         # at lambda creation time (not lazily at call time).
         items.append(
             pystray.MenuItem(
-                f"{prefix}{mic_name}",
+                mic_name,
                 wrap_callback(lambda _id=mic_id: tray._controller.change_microphone(_id)),
+                checked=is_active,
             )
         )
     if tray._microphones:
@@ -783,6 +814,15 @@ def maybe_publish_tray_menu(tray) -> bool:
         is_transcribing=lambda: (
             getattr(tray._state, "name", "") == "TRANSCRIBING" or getattr(tray._state, "value", "") == "TRANSCRIBING"
         ),
+        # ``is_recording`` mirrors ``is_transcribing``: a callable so
+        # the host can re-query state on every menu rebuild. The label
+        # switches to "Stop Dictation" when the app is actively
+        # recording. ``tray._state`` is an AppState enum; we accept
+        # either the enum name or value for robustness against test
+        # mocks that use a plain string instead of the enum.
+        is_recording=lambda: (
+            getattr(tray._state, "name", "") == "RECORDING" or getattr(tray._state, "value", "") == "RECORDING"
+        ),
         restart_app=controller.restart_app,
         quit_app=tray._confirm_quit_while_recording,
         build_models_submenu=tray._build_models_submenu,
@@ -809,6 +849,12 @@ def maybe_publish_tray_menu(tray) -> bool:
         on_open_settings=lambda: tray._open_page("/settings"),
         on_open_history=lambda: tray._open_page("/history"),
         on_open_help=lambda: tray._open_page("/about"),
+        # Pass the i18n ``_`` function so the Tauri host receives
+        # LOCALIZED labels (e.g. "Salir", "Beenden") instead of the
+        # raw i18n keys (e.g. "quit", "restart"). Previously the
+        # default ``localize=lambda k: k`` left the menu showing raw
+        # keys to non-English users.
+        localize=_,
     )
     tray._tray_id_map = _id_map
     return publish_tray_menu(model)

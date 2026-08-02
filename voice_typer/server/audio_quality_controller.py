@@ -34,13 +34,18 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 if TYPE_CHECKING:
-    # Imported only for the type annotation on ``__init__``. The runtime
-    # import is avoided to prevent a circular import (app.py imports
-    # this module at the top of its ``__init__`` body).
-    pass
+    # Imported only for the type annotation on
+    # ``_finalize_audio_quality_report`` (``audio: np.ndarray``). With
+    # ``from __future__ import annotations`` in effect, the annotation
+    # is a string and is NOT evaluated at runtime, so ``np`` is not
+    # needed at module import time. Keeping the import under
+    # ``TYPE_CHECKING`` avoids eager-loading numpy when this module is
+    # imported by code paths that never call
+    # ``_finalize_audio_quality_report`` and avoids a potential
+    # circular import (app.py imports this module at the top of its
+    # ``__init__`` body).
+    import numpy as np
 
 log = logging.getLogger(__name__)
 

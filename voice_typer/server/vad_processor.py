@@ -303,14 +303,59 @@ class VadProcessor:
                     # speech actually ends.
                     self._consecutive_speech_frames = 0
                     self._consecutive_silence_frames = self._hangover_frames
+                elif self._state == VadState.SILENCE:
+                    # SILENCE grey-zone PROMOTE.
+                    # Pre-fix this branch only decayed both counters by 1,
+                    # which meant a user speaking softly (audio hovering in
+                    # the grey zone between speech and silence thresholds)
+                    # was NEVER promoted to SPEECH — the recorder stayed in
+                    # SILENCE, the silence timer kept advancing, and the
+                    # recording auto-stopped even though the user was
+                    # actively speaking. Mirror the SPEECH->SILENCE
+                    # force-transition pattern: seed ``speech_frames`` to
+                    # ``_speech_frames - 1`` so the NEXT grey frame (handled
+                    # by the ``elif`` below) tips the state machine into
+                    # SPEECH. Clear ``silence_frames`` so the SILENCE->SPEECH
+                    # transition check is unambiguous.
+                    #
+                    # Note: UNKNOWN state is intentionally NOT seeded here.
+                    # The UNKNOWN->SPEECH transition check below requires
+                    # ``is_loud AND speech_frames >= _speech_frames``; grey
+                    # frames have ``is_loud == False``, so seeding
+                    # ``speech_frames`` would never trigger a transition on
+                    # grey frames in UNKNOWN. UNKNOWN keeps the original
+                    # decay behavior (bounded grey-zone hold for stale
+                    # history), which the AUDIO-5 regression tests in
+                    # ``test_vad_processor.py::TestGreyZoneDecay`` pin.
+                    self._consecutive_silence_frames = 0
+                    self._consecutive_speech_frames = self._speech_frames - 1
                 else:
-                    # Non-speech states: decay both counters by 1 so stale
+                    # UNKNOWN state: decay both counters by 1 so stale
                     # history can't pin the machine. Bounds the hold to ~1s.
+                    # (Preserved from AUDIO-5; see note above.)
                     if self._consecutive_speech_frames > 0:
                         self._consecutive_speech_frames -= 1
                     if self._consecutive_silence_frames > 0:
                         self._consecutive_silence_frames -= 1
                 self._consecutive_grey_frames = 0  # reset so decay is periodic
+            elif (
+                self._state == VadState.SILENCE
+                and self._consecutive_speech_frames > 0
+                and self._consecutive_speech_frames < self._speech_frames
+            ):
+                # Promote mode — the limit-hit branch above
+                # seeded ``speech_frames`` to ``_speech_frames - 1``. Each
+                # subsequent grey frame increments it by 1 so the NEXT grey
+                # frame tips the state machine into SPEECH (the state-
+                # transition check below fires when ``speech_frames >=
+                # _speech_frames``). Without this increment, the seed would
+                # sit at ``_speech_frames - 1`` forever and the transition
+                # would never fire — reproducing the original "stuck in
+                # SILENCE" bug. The ``> 0`` guard ensures we only increment
+                # AFTER the seed (not on every grey frame in SILENCE); the
+                # ``< _speech_frames`` guard caps the count so we don't
+                # overshoot once the transition has fired.
+                self._consecutive_speech_frames += 1
 
         # State transitions with hysteresis
         old_state = self._state

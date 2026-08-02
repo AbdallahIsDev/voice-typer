@@ -61,6 +61,7 @@ from pathlib import Path
 # ``monkeypatch.setattr("voice_typer.server.server_platform.X", ...)``
 # keep affecting production code defined here.
 from voice_typer.server import server_platform as _pkg
+from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
 
@@ -169,7 +170,7 @@ def _autostart_command() -> str:
     # The launcher lives next to this module (voice_typer/server/).
     launcher = Path(__file__).resolve().parent.parent / "autostart_launcher.py"
     # Build the argument list, then quote each arg per the desktop spec.
-    if sys.platform == "win32":
+    if is_windows():
         pythonw = Path(sys.executable).parent / "pythonw.exe"
         python_bin = str(pythonw) if pythonw.exists() else sys.executable
         args = [python_bin, str(launcher), "--hidden", "--delay", delay_str]
@@ -200,7 +201,7 @@ def _autostart_command() -> str:
         # We're inside a virtualenv — try to find the system Python
         import shutil
 
-        base_python = "python3" if sys.platform != "win32" else "python.exe"
+        base_python = "python.exe" if is_windows() else "python3"
         system_python = shutil.which(base_python)
         if system_python and _system_python_can_import_launcher(system_python):
             log.info(

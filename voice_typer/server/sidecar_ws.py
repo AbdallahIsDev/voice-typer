@@ -562,12 +562,10 @@ def _make_dispatch(server: IPCServer):
             return {
                 "type": "error",
                 "data": {
-                    # Namespaced form (canonical) + legacy alias
-                    # (one-release compat) — see
+                    # Namespaced form (canonical) — see
                     # ``voice_typer/server/ipc/validation.py`` for the
                     # migration contract.
                     "code": "client.invalid_payload",
-                    "legacy_code": "invalid_payload",
                     "message": "missing 'type'",
                 },
             }
@@ -625,9 +623,8 @@ def _make_dispatch(server: IPCServer):
             return {
                 "type": "error",
                 "data": {
-                    # Namespaced form (canonical) + legacy alias.
+                    # Namespaced form (canonical).
                     "code": "client.rate_limited",
-                    "legacy_code": "rate_limited",
                     "message": "rate limit exceeded; backing off",
                 },
             }
@@ -1175,10 +1172,8 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
                     {
                         "type": "error",
                         "data": {
-                            # Namespaced form (canonical) +
-                            # legacy alias.
+                            # Namespaced form (canonical).
                             "code": "client.invalid_payload",
-                            "legacy_code": "invalid_payload",
                             "message": "invalid JSON",
                         },
                     }
@@ -1192,10 +1187,8 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
                     {
                         "type": "error",
                         "data": {
-                            # Namespaced form (canonical) +
-                            # legacy alias.
+                            # Namespaced form (canonical).
                             "code": "client.invalid_payload",
-                            "legacy_code": "invalid_payload",
                             "message": "frame must be an object",
                         },
                     }

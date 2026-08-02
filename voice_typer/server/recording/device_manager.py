@@ -168,6 +168,16 @@ class DeviceManager:
         # one-shot flag so the name-mismatch warning fires at
         # most once per DeviceManager instance.
         self._device_name_mismatch_warned: bool = False
+        # Lazy host-API index → name cache. Populated on first
+        # ``_host_api_name`` call (or via ``_refresh_device_list`` when
+        # the cached device dicts already include ``hostapi``). Each
+        # ``sd.query_hostapis(idx)`` RPC costs 50-200ms on Windows MME;
+        # the index → name mapping is stable for the process lifetime
+        # (host APIs don't appear/disappear at runtime), so a one-shot
+        # cache eliminates the RPC on every ``_resolve_effective_sample_rate``
+        # call (1-3 candidates on the ``start()`` critical path) and
+        # every ``_same_physical_microphone_candidates`` fallback lookup.
+        self._host_api_cache: dict[int, str] = {}
         try:
             from voice_typer.server.microphone_watcher import (
                 MicrophoneDeviceWatcher,
@@ -241,6 +251,25 @@ class DeviceManager:
                         "index": i,
                         "name": dev.get("name", ""),
                         "max_input_channels": dev.get("max_input_channels", 0),
+                        # Cache the native sample rate and host-API index
+                        # so ``_resolve_effective_sample_rate`` and
+                        # ``_same_physical_microphone_candidates`` can read
+                        # from the cache instead of issuing fresh
+                        # ``sd.query_devices(device)`` /
+                        # ``sd.query_hostapis(idx)`` RPCs on every
+                        # ``start()`` candidate (50-200ms/RPC on Windows
+                        # MME; 1-3 candidates × 2 RPCs each = 100-1200ms
+                        # of avoidable latency on the hotkey-press →
+                        # recording-begins critical path). The TTL is 30s
+                        # (or 5s after a watcher-start failure), so a
+                        # BT HFP mode-switch (which changes
+                        # ``default_samplerate`` from 48k → 8k/16k) is
+                        # reflected on the next cache refresh — the
+                        # live-query fallback in ``_cached_device_info``
+                        # covers the rare case where a fresher read is
+                        # needed mid-TTL.
+                        "default_samplerate": dev.get("default_samplerate", 0),
+                        "hostapi": dev.get("hostapi", 0),
                     }
                 )
             self._device_list_cache = devices
@@ -445,7 +474,7 @@ class DeviceManager:
                 current_device = self._resolve_device()
                 if current_device is not None:
                     try:
-                        sd.query_devices(current_device)
+                        dev_info = sd.query_devices(current_device)
                     except Exception:
                         # HOTKEY-CRASH: double-check recording is still active.
                         # The collaborator's ``_recording_event`` is the
@@ -472,8 +501,81 @@ class DeviceManager:
                                 kwargs={"_captured_generation": _captured_gen},
                                 single_flight=True,
                             )
+                    else:
+                        # Sample-rate drift detection. After
+                        # ``sd.query_devices`` succeeds, compare the
+                        # device's current ``default_samplerate`` against
+                        # the recorder's ``_effective_sr`` (the rate the
+                        # open InputStream is actually running at). A
+                        # drift happens when the OS reconfigures the
+                        # device's native rate behind our back — most
+                        # commonly a Bluetooth HFP headset that drops
+                        # from 48 kHz wideband to 16 kHz narrowband when
+                        # the phone-call profile takes over, or a USB
+                        # device that gets re-enumerated at a different
+                        # default after a driver update. The open stream
+                        # keeps running at the old ``_effective_sr``, but
+                        # PortAudio silently resamples — which on macOS
+                        # CoreAudio produces audible artifacts and on
+                        # Windows MME produces zero-filled chunks.
+                        # Detecting the drift here and routing through
+                        # ``_handle_device_disconnect`` tears down +
+                        # re-opens the stream so the new ``_effective_sr``
+                        # matches the device's current native rate.
+                        if self._detect_sample_rate_drift(dev_info):
+                            if not self.recorder._recording_event.is_set():
+                                return
+                            log.warning(
+                                "[RECORDING] Sample-rate drift detected on current "
+                                "device -- disconnect recovery will pick up the new rate"
+                            )
+                            self._device_disconnected = True
+                            _captured_gen = self.recorder._stop_generation
+                            with contextlib.suppress(Exception):
+                                self.recorder._spawn_device_thread(
+                                    name="device-samplerate-drift",
+                                    target=self.recorder._handle_device_disconnect,
+                                    kwargs={"_captured_generation": _captured_gen},
+                                    single_flight=True,
+                                )
             except Exception:
                 log.debug("[RECORDING] Device health checker error", exc_info=True)
+
+    def _detect_sample_rate_drift(self, dev_info: Any) -> bool:
+        """Return True if the device's ``default_samplerate`` differs from
+        the recorder's current ``_effective_sr``.
+
+        Best-effort: any unexpected shape (non-dict ``dev_info``,
+        missing ``default_samplerate`` key, non-numeric value, missing
+        ``_effective_sr`` on the recorder) returns False so the health
+        checker never false-positives into a disconnect-recovery loop.
+        The actual tear-down + re-open is the caller's responsibility
+        (it routes through ``_handle_device_disconnect`` so the restart
+        path picks up the new native rate).
+        """
+        if not isinstance(dev_info, dict):
+            return False
+        try:
+            current_native = dev_info.get("default_samplerate")
+            if current_native is None:
+                return False
+            current_native = float(current_native)
+        except (TypeError, ValueError):
+            return False
+        effective_sr = getattr(self.recorder, "_effective_sr", None)
+        if effective_sr is None:
+            return False
+        try:
+            effective_sr = float(effective_sr)
+        except (TypeError, ValueError):
+            return False
+        # Tolerance: 1 Hz. ``default_samplerate`` is a float from
+        # PortAudio (e.g. 44100.0); ``_effective_sr`` is an int from
+        # our config. A direct ``==`` between int 48000 and float
+        # 48000.0 is True in Python, but the small epsilon protects
+        # against a 44099-vs-44100 rounding artifact some host APIs
+        # report without flagging a real drift.
+        return abs(current_native - effective_sr) > 1.0
 
     def _check_microphone_permission_revoked(self) -> bool:
         """probe the OS-level microphone permission state.
@@ -708,10 +810,63 @@ class DeviceManager:
         return 0.0
 
     def _host_api_name(self, host_api_index: int) -> str:
+        """Return the host-API name for the given index, with a one-shot cache.
+
+        Each ``sd.query_hostapis(idx)`` RPC costs 50-200ms on Windows
+        MME. The index → name mapping is stable for the process
+        lifetime (host APIs don't appear/disappear at runtime), so the
+        first call for each index pays the RPC and subsequent calls
+        hit the cache. Returns ``""`` on query failure (preserves the
+        pre-fix best-effort semantics).
+        """
+        cached = self._host_api_cache.get(host_api_index)
+        if cached is not None:
+            return cached
         try:
-            return sd.query_hostapis(host_api_index)["name"]
+            name = str(sd.query_hostapis(host_api_index)["name"])
         except Exception:
             return ""
+        self._host_api_cache[host_api_index] = name
+        return name
+
+    def _cached_device_info(self, device: int | None) -> dict | None:
+        """Look up the cached device info dict for ``device``.
+
+        Returns the cached entry from ``_device_list_cache`` when the
+        index is present (fast path — no PortAudio RPC). Falls back to
+        a live ``sd.query_devices(device)`` query on cache miss (e.g.
+        the cache is stale, the device was just hot-plugged, or the
+        TTL expired between the ``_refresh_device_list`` call and this
+        lookup). Returns ``None`` if both the cache lookup and the
+        live query fail — callers must handle ``None`` gracefully
+        (same as the pre-fix ``sd.query_devices`` exception path).
+
+        For ``device=None`` (system default input), the cache cannot
+        resolve which physical device is the OS default, so we fall
+        through to the live ``sd.query_devices(kind="input")`` query
+        (preserves the pre-fix behavior for the OS-default path).
+        """
+        if device is None:
+            try:
+                return sd.query_devices(kind="input")
+            except Exception:
+                return None
+        cache = self._device_list_cache
+        if cache is not None:
+            for entry in cache:
+                try:
+                    if int(entry.get("index", -1)) == device:
+                        return entry
+                except (TypeError, ValueError):
+                    continue
+        # Cache miss — fall back to a live query. This preserves
+        # correctness when the cache is stale (the device was just
+        # hot-plugged and the TTL hasn't expired yet) or when the
+        # cache was never populated.
+        try:
+            return sd.query_devices(device)
+        except Exception:
+            return None
 
     def _device_index(self, fallback_index: int, device_info: dict) -> int:
         try:
@@ -725,14 +880,18 @@ class DeviceManager:
         if not isinstance(device, int):
             return candidates
 
-        try:
-            selected = sd.query_devices(device)
-            selected_name = selected.get("name", "").strip().lower()
-            all_devices = list(sd.query_devices())
-        except Exception as e:
-            log.debug("[RECORDING] Could not build microphone fallback list: %s", e)
+        # Use the cached device info + cached device list instead of
+        # two fresh ``sd.query_devices()`` RPCs (50-200ms each on
+        # Windows MME). ``_cached_device_info`` falls back to a live
+        # query on cache miss; ``_refresh_device_list`` returns the
+        # cached list (refreshing if stale). The pre-fix exception
+        # path is preserved: if both lookups fail, we return the
+        # original ``candidates`` list (just the selected device).
+        selected = self._cached_device_info(device)
+        if selected is None:
             return candidates
-
+        selected_name = selected.get("name", "").strip().lower()
+        all_devices = self._refresh_device_list()
         if not selected_name:
             return candidates
 
@@ -825,27 +984,40 @@ class DeviceManager:
         target_sr = self.recorder.config.sample_rate  # 16000 for Whisper
         dev_info_extra = None
         try:
-            # device=None means system default; query_devices(None) returns
-            # a list of ALL devices, so we must use kind='input' instead.
-            dev_info = sd.query_devices(kind="input") if device is None else sd.query_devices(device)
-            native_rate = int(dev_info["default_samplerate"])
-            host_api_name = ""
-            try:
-                host_api_idx = dev_info.get("hostapi", 0)
-                host_api_name = sd.query_hostapis(host_api_idx)["name"]
-            except (KeyError, TypeError, OSError):
-                # PortAudio version skew, missing hostapi key, or
-                # query_hostapis raised. Host API name is best-effort —
-                # previously a broad ``except Exception: pass``.
-                pass
+            # Use the cached device info (fast path — no PortAudio RPC)
+            # with a live-query fallback on cache miss. The cache is
+            # populated by ``_refresh_device_list`` (TTL 30s, or 5s
+            # after a watcher-start failure) and now includes
+            # ``default_samplerate`` + ``hostapi``, so the common case
+            # (start() within 30s of the last refresh) hits the cache
+            # and skips the 50-200ms ``sd.query_devices(device)`` RPC.
+            # ``_host_api_name`` has its own one-shot cache (host-API
+            # names are stable for the process lifetime), so the
+            # ``sd.query_hostapis(idx)`` RPC is also skipped on cache
+            # hit. Pre-fix, each ``_resolve_effective_sample_rate``
+            # call issued 2 RPCs (query_devices + query_hostapis);
+            # with 1-3 candidates on the ``start()`` critical path,
+            # that was 100-1200ms of avoidable latency on Windows MME.
+            dev_info = self._cached_device_info(device)
+            if dev_info is None:
+                # Both cache and live query failed — raise to trigger
+                # the outer except branch (logs a warning, returns the
+                # target rate so PortAudio does internal resampling).
+                raise RuntimeError(
+                    f"Could not query device info for device {device} "
+                    "(cache miss + live query failed)"
+                )
+            native_rate = int(dev_info.get("default_samplerate", 0))
+            host_api_idx = dev_info.get("hostapi", 0)
+            host_api_name = self._host_api_name(host_api_idx)
             dev_info_extra = {
-                "name": dev_info["name"],
+                "name": dev_info.get("name", ""),
                 "host_api_name": host_api_name,
                 "native_rate": native_rate,
             }
             log.debug(
                 "[RECORDING] Device query: name=%s, host_api=%s, native_rate=%d, target_rate=%d",
-                dev_info["name"],
+                dev_info.get("name", ""),
                 host_api_name,
                 native_rate,
                 target_sr,

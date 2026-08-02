@@ -33,17 +33,82 @@ thread. Before the pystray event loop is live (``tray._icon`` is None),
 notifications are appended to ``tray._pending_notifications`` under
 ``tray._queue_lock`` and flushed by ``TrayIcon.run``. The flush path
 calls :func:`do_notify` directly.
+
+Dedup: :func:`notify` consults a small in-memory cache keyed by
+``(title, message)`` with a 5-second TTL — within the TTL window a
+second identical (title, message) pair is dropped silently. This
+prevents notification storms when a state-change event fires many
+times in quick succession (e.g. mic-unplug retries, model-load
+restart loops). :func:`notify_safety` BYPASSES the cache — safety-
+critical messages (crash recovery failure, model load error) must
+always surface even if the same message was just shown.
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from voice_typer.server.tray import TrayIcon
 
 log = logging.getLogger("voice_typer.server.tray_notifications")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Notification dedup cache.
+#
+# ``notify()`` can fire many times per second when the underlying state
+# machine is in a tight retry loop (mic-unplug auto-switch, model-load
+# restart, parakeet CPU-fallback re-application). Each call hits the
+# platform notification daemon — on Windows this is a Win32 toast that
+# queues visually; on macOS it's a UNUserNotificationCenter banner that
+# stacks; on Linux it's a dbus ``org.freedesktop.Notifications`` call
+# that some desktops (GNOME Shell) rate-limit by silently dropping.
+#
+# Dedup window: 5 seconds. Long enough to absorb a retry burst, short
+# enough that a legitimately-recurring notification (e.g. "transcription
+# saved" every 10 s during heavy dictation) still surfaces each time.
+#
+# The cache is module-level (not on TrayIcon) so all TrayIcon instances
+# in the same process share it — there's only ever one tray icon, so
+# sharing is the right default. The TTL is enforced lazily on lookup:
+# an expired entry is treated as a miss and overwritten with the new
+# timestamp. The cache is unbounded in theory but in practice holds at
+# most a few dozen entries (one per distinct (title, message) pair the
+# app emits), so no LRU eviction is needed.
+# -----------------------------------------------------------------------------
+_NOTIFY_DEDUP_TTL_SECONDS: float = 5.0
+_notify_dedup_cache: dict[tuple[str, str], float] = {}
+
+
+def _notify_dedup_seen(title: str, message: str) -> bool:
+    """Return True if (title, message) was shown within the TTL window.
+
+    Records the current monotonic timestamp on a miss so the next call
+    within the TTL returns True. On a hit, leaves the timestamp
+    unchanged (the original emit time, not the last lookup time, drives
+    expiry — so a repeated storm of identical notifications stops
+    surfacing for the full 5 s after the FIRST one, not after the LAST).
+    """
+    key = (title, message)
+    now = time.monotonic()
+    seen_at = _notify_dedup_cache.get(key)
+    if seen_at is not None and (now - seen_at) < _NOTIFY_DEDUP_TTL_SECONDS:
+        return True
+    _notify_dedup_cache[key] = now
+    return False
+
+
+def clear_notify_dedup_cache() -> None:
+    """Clear the notification dedup cache.
+
+    Primarily for tests so each test starts with an empty cache.
+    Production code should not call this — the TTL is the correct
+    invalidation mechanism.
+    """
+    _notify_dedup_cache.clear()
 
 
 def notify(tray: TrayIcon, title: str, message: str) -> None:
@@ -59,8 +124,23 @@ def notify(tray: TrayIcon, title: str, message: str) -> None:
     (removed) Notification re-display was
         previously stored and accessible via the tray menu; that menu item
         has been removed since the OS manages notification lifetime.
+
+    (dedup) A second identical (title, message) pair within a 5-second
+        window is dropped silently to prevent notification storms from
+        state-machine retry loops (mic-unplug, model-load restart, etc.).
+        :func:`notify_safety` bypasses this cache for safety-critical
+        messages.
     """
     if not tray._notifications_enabled:
+        return
+    if _notify_dedup_seen(title, message):
+        log.debug(
+            "[TRAY] Suppressing duplicate notification (title=%r, message=%r) "
+            "within %ss TTL window",
+            title,
+            message,
+            _NOTIFY_DEDUP_TTL_SECONDS,
+        )
         return
     if tray._icon:
         do_notify(tray, title, message)
@@ -78,6 +158,13 @@ def notify_safety(tray: TrayIcon, title: str, message: str) -> None:
 
     RACE-022: guard ``_pending_notifications`` append with
     ``_queue_lock`` to prevent race with the flush in ``run()``.
+
+    (dedup) This path BYPASSES the dedup cache by design — a
+        safety-critical message must always surface even if the same
+        message was just shown. The assumption is that safety-critical
+        events are rare (crash recovery failure, model load error) and
+        the cost of a duplicate toast is far lower than the cost of a
+        missed one.
     """
     if tray._icon:
         do_notify(tray, title, message)

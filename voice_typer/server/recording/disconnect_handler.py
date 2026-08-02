@@ -277,6 +277,11 @@ class DisconnectHandler:
                 device=_restart_device,  # configured-by-name or None
                 callback=recorder._current_callback,
                 blocksize=_AUDIO_BLOCKSIZE,
+                # Request the host API's "low" latency hint
+                # (mirrors the primary open_stream_for_candidates call in
+                # stream_lifecycle.py; PortAudio silently falls back if
+                # unavailable).
+                latency="low",
                 # AUDIO-HOT: finished_callback detects unexpected stream termination
                 finished_callback=recorder._stream_finished_callback,
             )
@@ -418,22 +423,18 @@ class DisconnectHandler:
                 "default" if _restart_device is None else f"index {_restart_device}",
                 candidate_sr,
             )
-            # retune the AudioProcessor's chain to the new device's
-            # native rate so filter coefficients are tuned correctly
-            # ( mitigation) and the per-chunk ``process_chunk`` call
-            # avoids the RT-thread resample branch. Shares the
-            # ``retune_audio_processor`` helper with ``Recorder.start()``
-            # (in ``_recorder_split.py``) so fixes to the 3-level fallback
-            # chain (set_sample_rate -> rebuild_from_config -> log-and-
-            # continue) land in one place.
-            retune_audio_processor(
-                recorder._audio_processor,
-                candidate_sr,
-                recorder.config,
-                context="on hot-plug restart",
-            )
-            # refresh the VAD cache because ``_effective_sr`` (and
-            # possibly the processor's ``_sample_rate``) just changed.
+            # The ``retune_audio_processor(...)``
+            # call that used to live here has been removed. The chain
+            # stays at its construction rate (typically
+            # WHISPER_SAMPLE_RATE = 16 kHz) and the per-chunk resample
+            # in ``AudioProcessor.process_chunk`` (invoked from
+            # ``audio_pipeline.process_audio_chunk`` with
+            # ``input_sample_rate=recorder._effective_sr``) handles the
+            # native-rate → 16 kHz downsample on the worker thread.
+            # Filter-chain correctness is preserved (filters built at
+            # 16 kHz are fed 16 kHz audio post-resample); only the
+            # redundant upfront retune is gone.
+            # refresh the VAD cache because ``_effective_sr`` just changed.
             # The (up, down) resample ratio is recomputed from the new
             # ``_effective_sr`` (used as fallback until the first chunk
             # sets ``_buffer_sr``).

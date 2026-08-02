@@ -665,18 +665,11 @@ class VocabularyManager:
         5. names (word-level)
         6. products (word-level)
         """
-        import re as _re
-
-        # snapshot self._data under the lock so concurrent
-        # add_entry / remove_entry / add_phrase / remove_phrase / import_json
-        # calls (which acquire self._lock) cannot mutate the dict/list
-        # mid-iteration. Previously the read path bypassed the lock,
-        # causing intermittent `RuntimeError: dictionary changed size
-        # during iteration` that was silently swallowed by
-        # dictation_pipeline._apply_vocabulary's try/except — degrading
-        # transcription quality with no diagnostic.
-        with self._lock:
-            data_snapshot = {cat: (list(v) if isinstance(v, list) else dict(v)) for cat, v in self._data.items()}
+        # Pre-compiled regexes shared with text_cleanup — avoids the
+        # 200 re-cache lookups per dictation (50 words × 4 categories)
+        # that the inline ``re.sub``/``re.match`` calls previously
+        # incurred.
+        from voice_typer.server.text_cleanup import _RE_MISSPELL_WRAP, _RE_TOKEN_KEY
 
         # Phrase-level corrections first (longer matches first)
         # use cached compiled patterns instead of recompiling per
@@ -693,20 +686,42 @@ class VocabularyManager:
                 # string with no backref processing.
                 text = pattern.sub(lambda _m, _g=good: _g, text)
 
-        # Word-level corrections
-        for cat in ("misspellings", "technical_terms", "names", "products"):
-            entries = data_snapshot.get(cat, {})
-            if not isinstance(entries, dict):
+        # Word-level corrections — single tokenization pass shared
+        # across all 4 dict-based categories (previously the loop
+        # re-tokenized + re-joined 4 times per dictation). Categories
+        # are applied in order so a misspelling corrected to a term
+        # that's then in technical_terms is further corrected (matches
+        # the original sequential semantics).
+        #
+        # Snapshot only the dict REFERENCES under the lock — not the
+        # dict contents. Per-token lookups (``dict.get(key)``) are
+        # GIL-atomic and safe to call on the live ``self._data`` dicts
+        # without copying each entry. Pre-fix the snapshot allocated
+        # 6 new containers with up to 5000 reference-copies each per
+        # dictation cycle (~30K ref-copies); post-fix only the 4 dict
+        # references are captured (no entry copies).
+        with self._lock:
+            word_cats = [
+                self._data.get(cat)
+                for cat in ("misspellings", "technical_terms", "names", "products")
+            ]
+
+        tokens = text.split(" ")
+        for entries in word_cats:
+            # Skip non-dicts and empty categories — avoids the per-token
+            # ``key in entries`` lookup cost when the category has no
+            # entries (common for the bundled defaults where names and
+            # products are typically empty until the user adds entries).
+            if not isinstance(entries, dict) or not entries:
                 continue
-            tokens = text.split(" ")
-            output = []
-            for token in tokens:
-                key = _re.sub(r"^\W+|\W+$", "", token).lower()
-                if key in entries:
-                    correction = entries[key]
-                    match = _re.match(r"^(\W*)(\w+)(\W*)$", token)
-                    token = f"{match.group(1)}{correction}{match.group(3)}" if match else correction
-                output.append(token)
-            text = " ".join(output)
+            for i, token in enumerate(tokens):
+                key = _RE_TOKEN_KEY.sub("", token).lower()
+                correction = entries.get(key)
+                if correction is not None:
+                    match = _RE_MISSPELL_WRAP.match(token)
+                    tokens[i] = (
+                        f"{match.group(1)}{correction}{match.group(3)}" if match else correction
+                    )
+        text = " ".join(tokens)
 
         return text

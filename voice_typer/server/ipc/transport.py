@@ -105,11 +105,17 @@ class _TCPLineIO:
         # its batched writes.
         self._write_buffer: list[bytes] = []
 
-    def write(self, text: str) -> None:
+    def write(self, text: str | bytes) -> None:
         # append to the in-memory buffer; ``flush()`` does the
         # actual ``sendall``. Encoding happens here (once per write) so
         # the flush path can use ``b"".join`` without re-encoding.
-        self._write_buffer.append(text.encode("utf-8"))
+        # Callers that have ALREADY encoded the text (e.g. to check
+        # the byte length against a size cap before writing) may pass
+        # ``bytes`` directly to skip the re-encode — see the
+        # ``line_bytes`` pre-encode path in ``sender._send``.
+        if isinstance(text, str):
+            text = text.encode("utf-8")
+        self._write_buffer.append(text)
 
     def flush(self) -> None:
         # drain the write buffer in a single ``sendall``. If the
@@ -183,7 +189,12 @@ class _TCPLineIO:
         empty string to signal EOF — the caller closes the connection.
         """
         _max_line_bytes = 1 * 1024 * 1024  # 1 MB
-        _max_line_chars = _max_line_bytes  # conservative (UTF-8 worst case)
+        # UTF-8 worst case is 4 bytes/char (e.g. emoji). ``readline(n)``
+        # in text mode caps CHARS, not bytes — a client sending 1M
+        # emoji chars forces a 4MB buffer. Cap chars at bytes//4 so
+        # the effective byte ceiling stays at ~1MB regardless of the
+        # payload's char width.
+        _max_line_chars = _max_line_bytes // 4
         line = self._reader.readline(_max_line_chars + 1)
         if len(line) > _max_line_chars:
             log.warning(

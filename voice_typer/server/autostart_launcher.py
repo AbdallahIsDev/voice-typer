@@ -93,6 +93,7 @@ from voice_typer.server._electron_build import (
     _spawn_flags,
 )
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.platform_utils import is_macos, is_windows
 
 log = logging.getLogger(__name__)
 
@@ -371,7 +372,7 @@ def _tauri_binary() -> str | None:
         return env_path
 
     candidates: list[Path] = []
-    if sys.platform == "win32":
+    if is_windows():
         # Check LOCALAPPDATA first because the NSIS installer defaults
         # to ``installMode=currentUser`` which installs to
         # ``%LOCALAPPDATA%\Programs\Voice Typer\``. The admin-install
@@ -381,7 +382,7 @@ def _tauri_binary() -> str | None:
             candidates.append(Path(local_appdata) / "Programs" / APP_NAME / "voice-typer-tauri.exe")
         program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
         candidates.append(Path(program_files) / APP_NAME / "voice-typer-tauri.exe")
-    elif sys.platform == "darwin":
+    elif is_macos():
         candidates.append(Path("/Applications") / f"{APP_NAME}.app" / "Contents" / "MacOS" / "voice-typer-tauri")
         candidates.append(Path.home() / "Applications" / f"{APP_NAME}.app" / "Contents" / "MacOS" / "voice-typer-tauri")
     else:  # Linux / other POSIX
@@ -392,12 +393,11 @@ def _tauri_binary() -> str | None:
     for cand in candidates:
         if not cand.is_file():
             continue
-        if sys.platform != "win32" and not os.access(cand, os.X_OK):
+        if not is_windows() and not os.access(cand, os.X_OK):
             continue
         log.debug("[AUTOSTART] _tauri_binary: resolved Tauri binary at install path: %s", cand)
         return str(cand)
     log.debug("[AUTOSTART] _tauri_binary: no Tauri binary found at any install path (dev/CI mode)")
-    return None
     return None
 
 

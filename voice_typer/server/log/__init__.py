@@ -53,6 +53,17 @@ import time
 import uuid
 from pathlib import Path
 
+# WN-7: centralized log-rotation constants.  Mirrors the Rust-side
+# ``ROTATE_MAX_BYTES`` / ``ROTATE_MAX_FILES`` in ``src-tauri/src/util.rs``.
+# All Python logging handlers that create ``RotatingFileHandler`` instances
+# (the main voice-typer.log, the prewarm.log, and the Electron-build log)
+# MUST import these instead of inlining ``5 * 1024 * 1024`` / ``5`` so a
+# future bump to the rotation policy edits ONE file.  See
+# ``voice_typer/server/_log_constants.py`` for the rationale.
+from voice_typer.server._log_constants import (  # noqa: F401
+    ROTATE_MAX_BYTES,
+    ROTATE_MAX_FILES,
+)
 from voice_typer.server.log.correlation import (  # noqa: F401
     _correlation_id,
     _correlation_id_ctx,
@@ -535,8 +546,13 @@ def setup_logging(
         handler = _SecureRotatingFileHandler(
             log_file,
             # ADR-0020 §11: 5 MiB per file, keep 5 backups (was 1 MiB × 2).
-            maxBytes=5 * 1024 * 1024,
-            backupCount=5,
+            # WN-7: the rotation policy is centralized in
+            # ``voice_typer.server._log_constants`` so the main log,
+            # prewarm log, and (eventually) the Electron-build log all
+            # share a single source of truth — a future bump to 10 MiB
+            # or 7 backups edits ONE file instead of three.
+            maxBytes=ROTATE_MAX_BYTES,
+            backupCount=ROTATE_MAX_FILES,
             encoding="utf-8",
             errors="backslashreplace",
         )
@@ -862,16 +878,39 @@ class _SecureRotatingFileHandler(logging.handlers.RotatingFileHandler):
                 # ``PermissionError`` (an ``OSError`` subclass) if it cannot
                 # acquire the byte-range lock. The previous ``contextlib.suppress``
                 # silently swallowed that, returning ``fd`` as if the lock was
-                # held — two processes racing rotation could both pass. Keep the
-                # fail-open stance (return fd anyway so logging still works)
-                # but make the failure visible via a warning log.
+                # held — two processes racing rotation could both pass. We now
+                # retry once with ``LK_NBLCK`` (non-blocking) — if the holder
+                # released the byte during the ~10s block, we grab it
+                # instantly; if not, we fail CLOSED (close fd, return None)
+                # so the caller's ``_rotation_needed()`` short-circuit kicks
+                # in and no rotation is attempted without the inter-process
+                # lock. Fail-closed prevents two concurrent rotations from
+                # clobbering each other's rename / re-open, which previously
+                # could truncate voice-typer.log.
                 try:
                     msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
                 except OSError:
-                    log.warning(
-                        "[LOG-SETUP] Windows rotation lock acquire timed out "
-                        "— proceeding WITHOUT lock; rotation race possible"
-                    )
+                    # LK_LOCK timed out — try a single non-blocking acquire.
+                    # If the holder released in the meantime, we succeed
+                    # silently (lock is now held, no warning needed).
+                    try:
+                        msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                    except OSError:
+                        # Both LK_LOCK (10s blocking) and LK_NBLCK (instant)
+                        # failed — the byte range is contended. Fail CLOSED:
+                        # close the fd so it is not leaked, return None so
+                        # ``doRollover`` skips rotation (no rotation without
+                        # the inter-process lock). Log at WARNING (not DEBUG)
+                        # so the operator can see the persistent contention.
+                        log.warning(
+                            "[LOG-SETUP] Windows rotation lock acquire failed "
+                            "(LK_LOCK timed out, LK_NBLCK retry also failed) — "
+                            "fail-closed: rotation skipped to avoid concurrent "
+                            "rotation race"
+                        )
+                        with contextlib.suppress(OSError):
+                            os.close(fd)
+                        return None
                 return fd
         except Exception as exc:
             # log only the exception class name. ``str(exc)``
@@ -949,9 +988,28 @@ class _SecureRotatingFileHandler(logging.handlers.RotatingFileHandler):
             # already ensures 0o600 at creation; this chmod guarantees
             # it post-hoc and runs in the same critical section that
             # holds the inter-process rotation lock.
+            #
+            # Logged (not silently suppressed) so an operator can see
+            # when the post-rotation chmod fails — e.g. on NFS with
+            # root-squash, on a read-only filesystem, or under a
+            # SELinux policy that denies chmod. A silent suppress
+            # would leave the freshly-rotated log file world-readable
+            # (0o644) indefinitely with no signal that the privacy
+            # guarantee had degraded. The WARNING is the only
+            # operator-visible surface for this failure mode. Log
+            # only the exception class name (not ``str(exc)``, which
+            # can include the log file path → home-directory leak).
             if os.name == "posix":
-                with contextlib.suppress(OSError):
+                try:
                     os.chmod(self.baseFilename, 0o600)
+                except OSError as exc:
+                    log.warning(
+                        "[LOG-SETUP] post-rotation chmod to 0o600 failed "
+                        "(%s) — log file may be world-readable; investigate "
+                        "filesystem perms (NFS root-squash, read-only mount, "
+                        "SELinux policy)",
+                        type(exc).__name__,
+                    )
         finally:
             self._release_rotation_lock(lock_fd)
             os.umask(saved_umask)

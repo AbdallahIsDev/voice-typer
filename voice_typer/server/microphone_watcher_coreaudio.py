@@ -52,12 +52,17 @@ from collections.abc import Callable
 from types import SimpleNamespace
 from typing import Any
 
+from voice_typer.server.platform_utils import is_macos
+
 log = logging.getLogger(__name__)
 
 # Platform flag captured at import time so the lazy-import helper can
 # short-circuit on non-macOS without inspecting sys.platform every
 # call. Stored as a module-level attribute so tests can patch it.
-_IS_MACOS = sys.platform == "darwin"
+# Uses the centralized ``is_macos()`` helper rather than an inline
+# ``sys.platform == "darwin"`` check, so the platform-detection logic
+# has a single source of truth in ``platform_utils``.
+_IS_MACOS = is_macos()
 
 # Sentinel value for "noErr" — the OSStatus success code returned by
 # CoreAudio functions. Defined as a constant rather than importing

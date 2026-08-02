@@ -9,6 +9,7 @@ import os  # noqa: F401 (stdlib re-export for test monkeypatch)
 import sys
 import threading
 import time  # noqa: F401 (stdlib re-export for test monkeypatch)
+import weakref
 from typing import TYPE_CHECKING, Any
 
 # CRASH-HANDLER: Windows VEH + Python excepthook for silent crash diagnostics
@@ -41,13 +42,23 @@ from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server._security_attributes import (  # noqa: F401
     _create_restrictive_security_attributes,
 )
-from voice_typer.server.audio_processor import AudioProcessor
+
+# ``AudioProcessor`` / ``DuckCrashRecovery`` / ``VolumeDucker`` /
+# ``WaveformBubble`` were eagerly imported at module top but are only
+# used inside lazy @property getters (or the ``_LazyAudioProcessorProxy``
+# below). Moving the imports INTO the getters defers the transitive
+# import cost (audio_filters -> scipy.signal.butter; volume_ducker ->
+# pyobjc / ctypes on macOS; waveform -> numpy) to first attribute
+# access — paid only when the user actually dictates / ducks volume /
+# sees the bubble, not on every cold start. ``ClipboardManager`` /
+# ``AudioQualityAnalyzer`` / ``CrashRecovery`` / ``HistoryDB`` stay at
+# module top because they're either cheap to import or re-exported for
+# test monkeypatch.
 from voice_typer.server.audio_quality import AudioQualityAnalyzer
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.clipboard import ClipboardManager
 from voice_typer.server.config import Config, _config_dir
 from voice_typer.server.crash_recovery import CrashRecovery
-from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 from voice_typer.server.history_db import HistoryDB
 
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests.  # ruff: noqa: F401
@@ -98,8 +109,6 @@ from voice_typer.server.thread_registry import ThreadRegistry
 # the canonical patch target is the ``transcription`` module, not
 # ``app``.
 from voice_typer.server.tray import AppState, TrayIcon
-from voice_typer.server.volume_ducker import VolumeDucker
-from voice_typer.server.waveform import WaveformBubble
 
 np = lazy_module("numpy")
 
@@ -132,6 +141,96 @@ log = logging.getLogger(__name__)
 # that could enable DLL injection.  # ruff: noqa: F401
 from voice_typer.server.env_validation import _validate_env_vars  # noqa: F401, E402
 from voice_typer.server.logging_setup import _setup_logging  # noqa: F401, E402
+
+
+class _LazyAudioProcessorProxy:
+    """Transparent lazy proxy for ``AudioProcessor``.
+
+    ``VoiceTyperApp.__init__`` used to construct ``AudioProcessor``
+    eagerly, which calls ``build_chain(config, sample_rate)``. That in
+    turn imports the full ``audio_filters`` package (highpass ->
+    ``scipy.signal.butter``, noise_suppressor -> RNNoise, etc.) on
+    every cold start — even when the user never dictates.
+
+    This proxy defers the real construction (and the transitive
+    ``audio_filters`` import chain) to first attribute access. The
+    proxy is what's passed to ``Recorder(audio_processor=...)`` —
+    ``Recorder`` stores it as ``self._audio_processor``, and the
+    audio-pipeline path (``recording/audio_pipeline.py``) checks
+    ``recorder._audio_processor is not None`` before calling
+    ``process_chunk``. The proxy is never ``None``, so the check
+    passes; the real construction happens inside ``_resolve()`` on
+    the first ``process_chunk`` / ``set_sample_rate`` /
+    ``rebuild_from_config`` call.
+
+    The proxy ALSO wires ``set_quality_callback(app._on_audio_quality_chunk)``
+    immediately after construction — this wiring used to live at
+    ``app.py:217`` (``self._audio_processor.set_quality_callback(
+    self._on_audio_quality_chunk)``) but was moved here so the proxy
+    doesn't have to be resolved eagerly just to install a callback.
+
+    Tests that inject mocks via ``app._audio_processor = MagicMock()``
+    use the ``_audio_processor`` setter, which bypasses the proxy
+    entirely (the mock is stored directly in ``_audio_processor_backing``
+    and the proxy is never created).
+    """
+
+    __slots__ = ("_app_ref", "_real", "_wired")
+
+    def __init__(self, app: Any) -> None:
+        # Bypass our own __setattr__ (which would delegate to the wrapped
+        # AudioProcessor) when storing state on the proxy itself.
+        object.__setattr__(self, "_app_ref", weakref.ref(app))
+        object.__setattr__(self, "_real", None)
+        object.__setattr__(self, "_wired", False)
+
+    def _resolve(self):
+        real = object.__getattribute__(self, "_real")
+        if real is None:
+            app = object.__getattribute__(self, "_app_ref")()
+            if app is None:
+                # The owning VoiceTyperApp was garbage-collected —
+                # should never happen in normal operation because the
+                # Recorder (which holds the proxy) is owned by the app.
+                # Defensive: raise AttributeError so the caller sees a
+                # clear failure rather than a None dereference.
+                raise AttributeError(
+                    "_LazyAudioProcessorProxy: owning VoiceTyperApp was garbage-collected"
+                )
+            # Deferred import — AudioProcessor pulls in the
+            # ``audio_filters`` package (scipy.signal.butter, RNNoise).
+            from voice_typer.server.audio_processor import AudioProcessor
+
+            real = AudioProcessor(
+                app.config,
+                sample_rate=app.config.sample_rate,
+            )
+            object.__setattr__(self, "_real", real)
+        # Wire the quality callback ONCE, immediately after construction
+        # (whether just-constructed or pre-existing). The ``_wired`` flag
+        # guards against re-wiring on every access (which would replace
+        # the callback if a later caller manually called
+        # ``set_quality_callback`` with a different cb).
+        wired = object.__getattribute__(self, "_wired")
+        if not wired:
+            app = object.__getattribute__(self, "_app_ref")()
+            if app is not None:
+                try:
+                    real.set_quality_callback(app._on_audio_quality_chunk)
+                except Exception:
+                    log.warning(
+                        "[INIT] lazy AudioProcessor.set_quality_callback failed",
+                        exc_info=True,
+                    )
+            object.__setattr__(self, "_wired", True)
+        return real
+
+    def __getattr__(self, name: str) -> Any:
+        # __getattr__ is only called when the attribute is not found via
+        # normal lookup (i.e. for anything that isn't _app_ref / _real /
+        # _wired / a class attribute). Every wrapped-processor attribute
+        # goes through here.
+        return getattr(self._resolve(), name)
 
 
 class VoiceTyperApp:
@@ -200,10 +299,23 @@ class VoiceTyperApp:
         # ADR 0007: Audio processor wraps a FilterChain built from config.
         # Rebuilt on every config change via _rebuild_audio_processor()
         # so Settings UI changes take effect immediately in dictation.
-        self._audio_processor = AudioProcessor(
-            self.config,
-            sample_rate=self.config.sample_rate,
-        )
+        #
+        # ``AudioProcessor`` construction is deferred to
+        # first attribute access via the ``_audio_processor`` @property
+        # below. The eager construction that used to live here pulled in
+        # the full ``audio_filters`` package + ``scipy.signal.butter``
+        # (via ``build_chain``) on every cold start, even when the user
+        # never dictates. The lazy property returns a
+        # ``_LazyAudioProcessorProxy`` that transparently constructs the
+        # real ``AudioProcessor`` on first ``process_chunk`` /
+        # ``set_sample_rate`` / ``rebuild_from_config`` call (i.e. on
+        # the first recording or the first config-driven rebuild). The
+        # proxy also wires ``set_quality_callback`` after construction
+        # (moved here from line 217 below) so the per-chunk quality
+        # callback is hooked up before the first chunk is processed.
+        # Tests that inject mocks via ``app._audio_processor =
+        # MagicMock()`` use the setter, which bypasses the proxy.
+        self._audio_processor_backing: Any = None
 
         # AudioQualityAnalyzer: wired to the AudioProcessor's
         # per-chunk quality callback so it accumulates clipping /
@@ -214,7 +326,11 @@ class VoiceTyperApp:
         # config.audio_quality_warnings).
         self._audio_quality = AudioQualityAnalyzer()
         self._audio_quality.reset()
-        self._audio_processor.set_quality_callback(self._on_audio_quality_chunk)
+        # ``set_quality_callback`` wiring moved into the
+        # ``_LazyAudioProcessorProxy._resolve`` method so it fires on
+        # first attribute access (after the real AudioProcessor is
+        # constructed). Calling it here would trigger the proxy to
+        # resolve immediately, defeating the lazy construction.
 
         self.recorder = Recorder(
             self.config,
@@ -503,7 +619,24 @@ class VoiceTyperApp:
         self._cycle_id: str = ""  # human-readable cycle id for log correlation
 
         # ─── P1/P2 New Feature Components ────────────────────────────
-        self.history_db = HistoryDB()
+        # ``HistoryDB()`` construction is deferred to first
+        # access via the ``history_db`` @property below. The eager
+        # construction that used to live here blocked ``__init__`` for up
+        # to ``_WRITER_READY_TIMEOUT`` (30s) waiting for the writer
+        # thread's schema-init to complete — paid on every cold start,
+        # even when the user never dictates and the DB is never touched
+        # outside the shutdown teardown path. The lazy property
+        # transparently constructs on the first ``app.history_db.*``
+        # call (e.g. the first ``add_transcription`` from the dictation
+        # pipeline, or the first history IPC handler). Tests that inject
+        # mocks via ``app.history_db = MagicMock()`` use the setter,
+        # which bypasses lazy construction. The shutdown teardown path
+        # (``shutdown/teardowns/history_db.py``) checks
+        # ``app.history_db is not None`` — the lazy getter returns
+        # ``None`` (without constructing) when ``_shutting_down`` is set
+        # so a never-dictated session doesn't pay the 30s writer-ready
+        # wait on quit.
+        self._history_db_backing: Any = None
         self._crash_recovery = CrashRecovery(
             thread_registry=self._thread_registry,
         )
@@ -658,6 +791,12 @@ class VoiceTyperApp:
     def _waveform_bubble(self):
         backing = self._waveform_bubble_backing
         if backing is None:
+            # Deferred import — ``voice_typer.server.waveform``
+            # transitively imports numpy, which is ~250-335ms on cold
+            # start. Deferred to first access (which only happens when
+            # the bubble is actually shown).
+            from voice_typer.server.waveform import WaveformBubble
+
             backing = WaveformBubble()
             self._waveform_bubble_backing = backing
         return backing
@@ -734,6 +873,12 @@ class VoiceTyperApp:
         backing = self._duck_crash_recovery_backing
         if backing is None:
             try:
+                # Deferred import — duck_crash_recovery pulls in
+                # platform-specific volume backends (pyobjc on macOS,
+                # ctypes-coreaudio on Windows). Deferred to first access
+                # (which only happens when volume ducking is enabled).
+                from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
+
                 backing = DuckCrashRecovery(config_dir=_config_dir())
             except Exception:
                 log.warning("[INIT] DuckCrashRecovery lazy-init failed", exc_info=True)
@@ -750,6 +895,12 @@ class VoiceTyperApp:
         backing = self._volume_ducker_backing
         if backing is None:
             try:
+                # Deferred import — ``volume_ducker`` pulls in
+                # platform-specific volume backends (pyobjc on macOS,
+                # ctypes on Windows). Deferred to first access (which
+                # only happens when volume ducking is enabled).
+                from voice_typer.server.volume_ducker import VolumeDucker
+
                 backing = VolumeDucker(
                     crash_recovery=self._duck_crash_recovery,
                     on_crash_restore=self._on_volume_crash_restore,
@@ -763,6 +914,69 @@ class VoiceTyperApp:
     @_volume_ducker.setter
     def _volume_ducker(self, value) -> None:
         self._volume_ducker_backing = value
+
+    # ─── lazy AudioProcessor property ───────────────────────────
+    #
+    # ``AudioProcessor`` construction is deferred to first attribute
+    # access via a ``_LazyAudioProcessorProxy``. The proxy transparently
+    # constructs the real ``AudioProcessor`` on the first
+    # ``process_chunk`` / ``set_sample_rate`` / ``rebuild_from_config``
+    # call (i.e. on the first recording or the first config-driven
+    # rebuild). The proxy also wires ``set_quality_callback`` after
+    # construction (moved here from ``__init__`` line 217).
+    #
+    # Tests that inject mocks via ``app._audio_processor = MagicMock()``
+    # use the setter, which bypasses the proxy entirely.
+
+    @property
+    def _audio_processor(self):
+        backing = self._audio_processor_backing
+        if backing is None:
+            backing = _LazyAudioProcessorProxy(self)
+            self._audio_processor_backing = backing
+        return backing
+
+    @_audio_processor.setter
+    def _audio_processor(self, value) -> None:
+        self._audio_processor_backing = value
+
+    # ─── lazy HistoryDB property ────────────────────────────────
+    #
+    # ``HistoryDB()`` construction is deferred to first access. The
+    # eager construction that used to live in ``__init__`` blocked for
+    # up to ``_WRITER_READY_TIMEOUT`` (30s) waiting for the writer
+    # thread's schema-init to complete. The lazy property mirrors the
+    # existing pattern (clipboard, undo, audio_quality) — construction
+    # failure is logged at WARNING with ``exc_info=True`` and the
+    # backing is left as ``None`` to retry on next access.
+    #
+    # The ``_shutting_down_event`` guard prevents the shutdown teardown
+    # path (``shutdown/teardowns/history_db.py``) from triggering lazy
+    # construction via its ``if app.history_db is not None:`` check — a
+    # never-dictated session would otherwise pay the 30s writer-ready
+    # wait on quit just to immediately close the DB it never used.
+
+    @property
+    def history_db(self):
+        backing = self._history_db_backing
+        if backing is None:
+            # Don't lazy-construct during shutdown — the teardown path
+            # checks ``app.history_db is not None`` to decide whether
+            # to flush/close, and we don't want to construct a
+            # HistoryDB during shutdown just to immediately close it.
+            if self._shutting_down_event.is_set():
+                return None
+            try:
+                backing = HistoryDB()
+            except Exception:
+                log.warning("[INIT] HistoryDB lazy-init failed", exc_info=True)
+                return None
+            self._history_db_backing = backing
+        return backing
+
+    @history_db.setter
+    def history_db(self, value) -> None:
+        self._history_db_backing = value
 
     # ─── Volume Ducking ────────────────────────────────────────────────
 

@@ -115,7 +115,7 @@ def teardown_sounddevice(controller) -> None:
                 "leaked callback on backends like WASAPI); force-"
                 "aborting active streams to release resources"
             )
-            abort_sounddevice_streams(sd)
+            abort_sounddevice_streams(controller, sd)
             return
 
         # ``sd.wait()`` blocks until every active stream has
@@ -137,7 +137,7 @@ def teardown_sounddevice(controller) -> None:
                 "on backends like WASAPI); force-aborting active "
                 "streams to release the audio device"
             )
-            abort_sounddevice_streams(sd)
+            abort_sounddevice_streams(controller, sd)
     except Exception:
         log.debug("[CLEANUP] sd.stop()/wait() failed", exc_info=True)
 

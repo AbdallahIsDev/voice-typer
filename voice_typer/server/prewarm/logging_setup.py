@@ -90,26 +90,54 @@ def _setup_logging(*, debug: bool = False) -> None:
                 os.chmod(log_dir, 0o700)
 
         prewarm_log = log_dir / "prewarm.log"
-        # fix: align prewarm.log handler with the main voice-typer.log
-        # handler's filtering and rotation policy. Previously this handler
-        # used a plain Formatter (no session_id for cross-process correlation),
-        # 1 MB × 2 rotation (vs main's 5 MB × 5 per ADR-0020 §11), and was
-        # missing PIIRedactionFilter (defence-in-depth gap — any config field,
-        # HF token, or transcription-adjacent value logged by prewarm code
-        # would land unredacted in prewarm.log), _SessionFilter (no
-        # cross-process correlation), and _BubbleLevelExclusionFilter (could
-        # fill with bubble_level noise).
+        # The dedicated ``prewarm_handler`` is kept as a backwards-compat
+        # sink because the ``open_prewarm_log`` IPC handler (in
+        # ``status_handlers.py``) opens ``prewarm.log`` directly in the
+        # user's text editor — removing this handler would leave the UI
+        # button opening a placeholder file instead of real prewarm logs.
+        # The authoritative prewarm log is now
+        # ``voice-typer-prewarm.log`` (written by ``_setup_logging_shared``
+        # above with the full ``ROTATE_MAX_BYTES`` × ``ROTATE_MAX_FILES``
+        # rotation); ``prewarm.log`` is a filtered subset (only
+        # ``voice_typer.server.prewarm`` records) kept for the UI
+        # button's "open prewarm log" convenience.
+        #
+        # Use the shared ``_SecureRotatingFileHandler`` subclass (NOT
+        # the stock ``logging.handlers.RotatingFileHandler``) so
+        # ``prewarm.log`` inherits the same post-rotation ``chmod 0o600``
+        # guarantee (FR-2) and inter-process rotation lock
+        # (``fcntl.flock`` / ``msvcrt.locking``) as the main
+        # ``voice-typer.log``. Pre-fix, the stock handler created the
+        # active ``prewarm.log`` at 0o644 (world-readable) after every
+        # rotation — leaking dictated-text-adjacent prewarm traces to
+        # co-located users on multi-user POSIX systems.
+        #
+        # The rotation policy is reduced from
+        # ``ROTATE_MAX_BYTES`` × ``ROTATE_MAX_FILES`` (5 MiB × 5 = 25 MiB
+        # total, aligned with the main handler) to 1 MiB × 1 (2 MiB
+        # total) because ``prewarm.log`` is now a reduced backwards-compat
+        # sink — the authoritative prewarm log
+        # (``voice-typer-prewarm.log``) keeps the full rotation. The
+        # filter chain (PIIRedactionFilter, _SessionFilter,
+        # _BubbleLevelExclusionFilter, namespace filter, _FileFormatter)
+        # is preserved verbatim so existing filter-attachment tests
+        # still pass — only the rotation policy changes.
         from voice_typer.server.log import (
             _BubbleLevelExclusionFilter,
             _FileFormatter,
+            _SecureRotatingFileHandler,
             _SessionFilter,
         )
         from voice_typer.server.security import PIIRedactionFilter
 
-        prewarm_handler = logging.handlers.RotatingFileHandler(
+        prewarm_handler = _SecureRotatingFileHandler(
             prewarm_log,
-            maxBytes=5 * 1024 * 1024,  # 5 MB — align with main handler (was 1 MB)
-            backupCount=5,  # was 2 — align with ADR-0020 §11 spec
+            # 1 MiB × 1 = 2 MiB total cap — reduced because the
+            # authoritative prewarm log is ``voice-typer-prewarm.log``
+            # (which keeps the full 5 MiB × 5 rotation). ``prewarm.log``
+            # is a filtered subset for the UI "open prewarm log" button.
+            maxBytes=1 * 1024 * 1024,
+            backupCount=1,
             encoding="utf-8",
             errors="backslashreplace",
         )

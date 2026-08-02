@@ -303,6 +303,20 @@ class DictationPipeline:
     without aborting the entire pipeline.
     """
 
+    # Pipeline-side cap on how long the dictation thread will wait for
+    # the LLM polish round-trip. The underlying ``LLMPolisher._call_api``
+    # uses a 10s socket timeout (``DEFAULT_TIMEOUT_S`` in
+    # ``llm_polish.py``); this pipeline-side cap is intentionally
+    # shorter (4s) so a stalled LLM endpoint does not block the
+    # pipeline thread for the full 10s. On timeout the original
+    # (unpolished) text is returned to the user; the polish thread
+    # keeps running in the background (Python cannot cancel a blocking
+    # ``urlopen`` call) and self-terminates when the inner 10s socket
+    # timeout fires or the LLM responds. Exposed as a class attribute
+    # so tests can monkeypatch it to a small value (e.g. 0.1s) to
+    # exercise the timeout path without waiting 4s in real time.
+    _LLM_POLISH_PIPELINE_TIMEOUT_S: float = 4.0
+
     def __init__(self, app: Any):
         self._app = app
         self._cycle_id = ""
@@ -1418,6 +1432,83 @@ class DictationPipeline:
                     )
         return text
 
+    def _call_polish_with_timeout(self, polisher: Any, text: str) -> str:
+        """Run ``polisher.polish(text)`` in a side-thread with a hard timeout.
+
+        The dictation pipeline thread is the single bottleneck for the
+        user's paste latency: while ``_apply_llm_polish`` is running,
+        the pipeline cannot process new dictation triggers
+        (start/stop/cancel from the hotkey path) and the user's text
+        is not yet on the clipboard. Pre-fix, the synchronous
+        ``polisher.polish(text)`` call blocked the pipeline for the
+        full LLM round-trip (typically 1-5s, up to the 10s socket
+        timeout in ``LLMPolisher._call_api`` on a stalled
+        connection).
+
+        This wrapper submits the polish call to a short-lived
+        ``ThreadPoolExecutor`` and awaits the result with
+        :data:`_LLM_POLISH_PIPELINE_TIMEOUT_S` (4s by default —
+        intentionally shorter than the underlying 10s socket timeout
+        so a stalled LLM endpoint does not occupy the pipeline thread
+        for the full 10s). On timeout the original (unpolished) text
+        is returned to the user; the polish thread keeps running in
+        the background (Python cannot cancel a blocking
+        ``urlopen`` call) and self-terminates when the inner 10s
+        socket timeout fires or the LLM responds. The leaked thread
+        is a daemon, so it cannot block process shutdown.
+
+        On exception (network error, LLM API error, redact_pii
+        failure inside ``_call_api``) the exception propagates to the
+        caller (``_apply_llm_polish``'s ``except Exception`` block)
+        so the existing notification / event-bus-publish path runs
+        unchanged.
+
+        Parameters
+        ----------
+        polisher : LLMPolisher
+            The polisher instance (real or mock). Must expose
+            ``polish(text: str) -> str``.
+        text : str
+            The text to polish.
+
+        Returns
+        -------
+        str
+            The polished text on success, or the original text on
+            timeout.
+        """
+        import concurrent.futures
+
+        timeout_s = self._LLM_POLISH_PIPELINE_TIMEOUT_S
+        # Spawn a single-use executor with a daemon worker thread so
+        # an in-flight polish call cannot block process shutdown. The
+        # executor is shut down with ``wait=False`` in the finally
+        # block — the worker thread exits on its own when ``polish``
+        # returns (or the inner socket timeout fires), at which point
+        # the executor is GC-eligible. A fresh executor per call
+        # keeps the implementation simple (no lifecycle management on
+        # the pipeline) and is cheap (one thread, no queueing).
+        executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=1, thread_name_prefix="llm-polish"
+        )
+        future = executor.submit(polisher.polish, text)
+        try:
+            return future.result(timeout=timeout_s)
+        except concurrent.futures.TimeoutError:
+            log.warning(
+                "[LLM_POLISH] Polish timed out after %.1fs — returning unpolished text "
+                "(the polish thread continues in the background and will exit when the "
+                "inner 10s socket timeout fires or the LLM responds). (cycle=%s)",
+                timeout_s,
+                self._cycle_id,
+            )
+            return text
+        finally:
+            # Do NOT block on shutdown — the polish thread may still
+            # be running (timeout path). The daemon worker thread
+            # will exit on its own when ``polish`` returns.
+            executor.shutdown(wait=False)
+
     def _apply_llm_polish(self, text: str) -> str:
         """Step 7: Apply LLM polishing (if consented).
 
@@ -1497,7 +1588,9 @@ class DictationPipeline:
                         preset=self._app.config.llm_preset,
                         enabled=True,
                     )
-                text = self._app._llm_polisher.polish(text)
+                text = self._call_polish_with_timeout(
+                    self._app._llm_polisher, text
+                )
             except Exception as exc:
                 # redact the exception message before
                 # logging. LLM API errors can echo the request URL +

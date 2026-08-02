@@ -250,10 +250,46 @@ def update_level_processor(config_dict: dict) -> None:
     construction itself runs OUTSIDE the lock so a slow ``__init__``
     (RNNoise model load) doesn't block ``get_level()`` / worker drain.
 
+    The ``config_dict`` is stashed on ``_state._level_processor_config``
+    so ``start_monitoring``'s "different device — restart" branch can
+    rebuild the chain at the new native sample rate after a hot-swap.
+    Pre-fix, the restart path only updated ``_monitor_sample_rate`` and
+    left the old processor (built against the previous device's rate)
+    in place — IIR ``zi`` arrays + RNNoise ``_carry`` were tuned to the
+    wrong rate.
+
+    ``config_dict["level_bar_filtered"]`` (default False) opts IN to
+    running the filter chain for the cosmetic level bar. When False
+    (default), the filter chain is SKIPPED for the cosmetic bar (RMS
+    is computed on raw audio) — the filter chain still runs when a
+    test recording is active (the "after" WAV needs the filtered
+    audio). This avoids pegging a core at 31-94 Hz with RNNoise for a
+    non-functional visualization.
+
     Args:
         config_dict: dict with noise_filter_enabled, noise_filter_highpass,
-            noise_filter_gate, noise_filter_rnnoise keys, etc.
+            noise_filter_gate, noise_filter_rnnoise keys, etc. May also
+            contain ``level_bar_filtered`` (bool, default False).
     """
+    # Stash the config_dict BEFORE the early-return disable path so the
+    # restart branch can distinguish "user explicitly disabled filters"
+    # (stash = config_dict with enabled=False → rebuild yields None
+    # processor) from "no update_level_processor call ever happened"
+    # (stash = None → skip rebuild). A defensive copy so a later
+    # caller-side mutation of the dict doesn't race the restart path's
+    # read.
+    try:
+        _state._level_processor_config = dict(config_dict)
+    except Exception:
+        _state._level_processor_config = None
+
+    # Stash the ``level_bar_filtered`` flag on _state so the worker can
+    # read it without re-parsing the config dict. Default False — the
+    # cosmetic bar uses raw audio only.
+    level_bar_filtered = bool(config_dict.get("level_bar_filtered", False))
+    with _state._monitor_lock:
+        _state._level_bar_filtered = level_bar_filtered
+
     if not config_dict.get("noise_filter_enabled", True):
         with _state._monitor_lock:
             _state._level_processor = None
@@ -334,6 +370,19 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             _state._monitor_level = 0.0
             _state._monitor_peak = 0.0
             _state._monitor_mic_id = None
+            # Reset the OLD processor's filter state before closing the
+            # stream so IIR ``zi`` arrays + RNNoise ``_carry`` don't
+            # bleed residuals into the next ``process_chunk`` call after
+            # the new stream opens at a different native rate. The
+            # ``stop_monitoring`` path already does this; the restart
+            # branch was missing it. Guarded: a failing ``reset()`` must
+            # NOT block the restart — the new ``update_level_processor``
+            # call below replaces the processor entirely, so a
+            # partially-reset old processor is discarded anyway.
+            old_processor = _state._level_processor
+            if old_processor is not None:
+                with contextlib.suppress(Exception):
+                    old_processor.reset()
             # Close old stream outside the lock to avoid blocking
         else:
             old_stream = None
@@ -352,6 +401,12 @@ def start_monitoring(mic_id: str | None = None) -> dict:
             log.debug("[LEVEL-MON] Close old stream: %s", exc)
 
     # Open new stream
+    # Pre-declare the post-lock locals so a defensive ``return`` from
+    # inside the ``with`` block (or a future refactor that adds an
+    # early-exit branch) never trips UnboundLocalError at the
+    # ``if config_snapshot is not None`` check below.
+    config_snapshot: dict | None = None
+    result: dict | None = None
     with _state._monitor_lock:
         device = None
         if mic_id is not None:
@@ -489,17 +544,47 @@ def start_monitoring(mic_id: str | None = None) -> dict:
                 mic_id or "default",
                 native_rate,
             )
-            return {
+            result = {
                 "success": True,
                 "message": "Monitoring active",
                 "sample_rate": native_rate,
             }
+            # Snapshot the stashed config INSIDE the lock so the
+            # post-lock ``update_level_processor`` call rebuilds the
+            # chain against the NEW ``_monitor_sample_rate`` we just
+            # wrote. Pre-fix, the restart path left the old processor
+            # (built against the previous device's rate) in place after
+            # a hot-swap, so the IIR ``zi`` arrays + RNNoise ``_carry``
+            # were tuned to the wrong rate. ``None`` ⇒ no
+            # ``update_level_processor`` call ever happened (the user
+            # hasn't toggled any noise filter); skip the rebuild in
+            # that case so we don't fabricate a default config the
+            # user never asked for.
+            config_snapshot = _state._level_processor_config
         except Exception as exc:
             log.warning("[LEVEL-MON] Failed to start monitoring: %s", exc)
             _state._monitor_stream = None
             _state._monitor_active = False
             _state._monitor_mic_id = None
             return {"success": False, "message": str(exc), "sample_rate": native_rate}
+
+    # Rebuild the level processor at the new native rate. Must happen
+    # OUTSIDE ``_monitor_lock`` because ``update_level_processor``
+    # acquires the same lock (and constructs the AudioProcessor — which
+    # may load the RNNoise model — outside it). Best-effort: a rebuild
+    # failure must NOT turn a successful stream-open into a failed
+    # ``start_monitoring`` return value, so the result dict is
+    # preserved regardless.
+    if config_snapshot is not None:
+        try:
+            update_level_processor(config_snapshot)
+        except Exception:
+            log.debug(
+                "[LEVEL-MON] post-restart update_level_processor failed",
+                exc_info=True,
+            )
+
+    return result
 
 
 def stop_monitoring() -> dict:

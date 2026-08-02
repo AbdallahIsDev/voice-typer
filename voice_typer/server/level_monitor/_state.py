@@ -100,6 +100,30 @@ class _State:
         # rejects ``.process_chunk()`` / ``.cancel()`` calls below.  Use
         # ``Any`` to match the runtime ``AudioProcessor`` type.
         self._level_processor: Any | None = None  # AudioProcessor instance
+        # Stash of the config_dict last passed to ``update_level_processor``.
+        # ``start_monitoring``'s "different device — restart" branch reads
+        # this so it can rebuild the chain at the NEW native sample rate
+        # (the old processor was constructed against the old rate; without a
+        # rebuild, the IIR filter ``zi`` arrays + RNNoise ``_carry`` would
+        # be tuned to the wrong rate and produce audible artifacts /
+        # incorrect level readings on the new device). ``None`` means no
+        # processor was ever configured (the user hasn't toggled any noise
+        # filter); the restart path skips the rebuild in that case.
+        self._level_processor_config: dict | None = None
+        # Lightweight level-bar mode. When False (default), the cosmetic
+        # level bar computes RMS/peak on RAW audio only — the filter chain
+        # (which may include RNNoise, 5-50 ms per chunk on CPU) is SKIPPED
+        # for the cosmetic bar to avoid pegging a core at 31-94 Hz for a
+        # non-functional visualization. The filter chain STILL runs when
+        # ``_test_mode`` is True (the test's "after" WAV needs the filtered
+        # audio).
+        #
+        # Set to True (via ``update_level_processor``'s
+        # ``level_bar_filtered`` config key, or directly by tests that pin
+        # the filtered-bar contract) to opt IN to running the filter chain
+        # for the cosmetic bar — useful for users who want the bar to
+        # reflect what they actually hear after filtering.
+        self._level_bar_filtered: bool = False
 
         # ──  (c-review PERF-03): SPSC ring buffer + worker ──
         # The PortAudio callback (single producer) pushes

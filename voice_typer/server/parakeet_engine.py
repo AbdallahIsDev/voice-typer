@@ -492,35 +492,22 @@ class ParakeetEngine:
                 # and pull ~2.5 GB over the network.  Require explicit
                 # ``huggingface_consent`` before any network call,
                 # mirroring ``transcription.py::_pre_download_model``
-                # (lines ~821-849) and
-                # ``service.py::_require_huggingface_consent``.  When
-                # ``self.config`` is ``None`` (degenerate / test path),
-                # treat consent as NOT given — safe default per GDPR
-                # Art. 6/13.  ``ConsentRequiredError`` is the typed
-                # exception the IPC layer ``isinstance``-checks to
-                # surface a consent dialog instead of a generic error
-                # toast.
-                cfg = self.config
-                consent = False if cfg is None else bool(getattr(cfg, "huggingface_consent", False))
-                if not consent:
-                    log.warning(
-                        "[PARAKEET] HuggingFace consent not given — refusing to download %s. "
-                        "The renderer should show a consent dialog.",
-                        _PARAKERT_MODEL_ID,
-                    )
-                    if progress_callback:
-                        progress_callback("HuggingFace consent required before downloading Parakeet model.")
-                    # import ConsentRequiredError from the
-                    # canonical ``asr_errors`` module (previously
-                    # imported from ``cloud_engines`` —  finding
-                    # #12: local engines should not depend on
-                    # the cloud-engines module just for a 5-line
-                    # exception class).
-                    from voice_typer.server.asr_errors import ConsentRequiredError
+                # and ``service/model.py::_require_huggingface_consent``.
+                # The canonical gate lives in
+                # ``asr_utils._require_huggingface_consent`` so the
+                # safe-default (no consent → refuse to contact
+                # HuggingFace), the log message, the progress-callback
+                # wording, and the typed ``ConsentRequiredError``
+                # surface stay in sync across all three call sites.
+                from voice_typer.server.asr_utils import _require_huggingface_consent
 
-                    raise ConsentRequiredError(
-                        f"HuggingFace consent not given — refusing to download {_PARAKERT_MODEL_ID}."
-                    )
+                _require_huggingface_consent(
+                    self.config,
+                    _PARAKERT_MODEL_ID,
+                    log_prefix="[PARAKEET]",
+                    progress_message="HuggingFace consent required before downloading Parakeet model.",
+                    progress_callback=progress_callback,
+                )
 
                 try:
                     from huggingface_hub import snapshot_download

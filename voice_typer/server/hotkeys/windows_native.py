@@ -373,7 +373,7 @@ class WindowsNativeHotkey(HotkeyBackend):
                     # while idle (no per-keystroke hook proc).
                     log.info(
                         "[HOTKEY] Starting hotkey detection via WM_HOTKEY message loop "
-                        "(prefer_message_loop=True, vk=0x%X, id=%d) — AB-35: skips LL hook",
+                        "(prefer_message_loop=True, vk=0x%X, id=%d) — skips LL hook",
                         self._vk,
                         self._hotkey_id,
                     )

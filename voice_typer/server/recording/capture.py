@@ -24,7 +24,7 @@ moved here:
 - ``self._recorder._recording_event`` — recording gate
 - ``self._recorder._process_audio_chunk`` — heavy per-chunk processing
 - ``self._recorder._preroll_buffer`` / ``_preroll_active`` / ``_effective_sr`` — preroll state
-- ``self._recorder._dropped_ring_chunks`` / ``_skipped_frames`` — counters
+- ``self._recorder._dropped_ring_chunks`` — ring-buffer overflow counter
 - ``self._recorder._ensure_mono`` — mono downmix staticmethod
 - ... and any other state referenced in the extracted bodies
 
@@ -192,14 +192,16 @@ class AudioCallbackDispatcher:
         # before dropping.
         ring_maxlen = recorder._ring_buffer.maxlen
         if ring_maxlen is not None and len(recorder._ring_buffer) >= ring_maxlen:
-            # increment counters only (atomic under GIL). The
+            # increment counter only (atomic under GIL). The
             # log.warning() was removed from this PortAudio RT callback
             # — logging I/O here can take ms and risks an overrun against
-            # the 32ms deadline. The counters are surfaced later by the
+            # the 32ms deadline. The counter is surfaced later by the
             # worker thread / diagnostics paths (e.g. _finalize_audio_quality_report
             # and the  backpressure warning in _process_audio_chunk).
+            # The former ``_skipped_frames`` counter was removed — it
+            # was incremented here but never read anywhere in the
+            # codebase (dead code on the 16 Hz hot path).
             recorder._dropped_ring_chunks += 1
-            recorder._skipped_frames += 1  # preserve old counter for diagnostics
 
         # Push (copy, frames, time_info, status, perf_timestamp) to the
         # ring buffer. The timestamp is captured here (not in the worker)

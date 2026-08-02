@@ -296,3 +296,88 @@ def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:
         # the download itself will fail with a clear error if space
         # runs out during the transfer.
         log.debug("[PROD-005] Disk space check skipped: %s", exc)
+
+
+def _require_huggingface_consent(
+    config,
+    model_identifier: str,
+    *,
+    log_prefix: str = "[MODEL]",
+    progress_message: str | None = None,
+    progress_callback=None,
+) -> None:
+    """Raise :class:`ConsentRequiredError` if HuggingFace consent is not given.
+
+    Single source of truth for the consent gate that previously drifted
+    across three sites (``transcription._pre_download_model``,
+    ``parakeet_engine.load``, ``service/model._require_huggingface_consent``).
+    Each site had its own copy of the ``cfg = self.config; consent = False
+    if cfg is None else getattr(cfg, 'huggingface_consent', False)`` block
+    plus its own log-format string and progress-callback wording — making
+    it easy for the consent gate to silently diverge (e.g. one site logs
+    at WARNING, another at INFO; one surfaces a progress message, another
+    doesn't). Centralizing the gate here ensures every download path
+    applies the SAME GDPR Art. 6/13 safe-default (no consent → refuse to
+    contact HuggingFace) and surfaces the SAME typed exception
+    (``ConsentRequiredError``) so the IPC layer's ``isinstance``-check
+    continues to map it to the consent-dialog command.
+
+    Parameters
+    ----------
+    config : object or None
+        The engine's config reference. ``None`` is treated as
+        "consent not given" — safe default per GDPR Art. 6/13. This
+        covers the degenerate / test-stub / benchmark paths where the
+        engine is constructed without a Config.
+    model_identifier : str
+        Human-readable label for the model being downloaded
+        (e.g. ``"small.en"`` for Whisper, ``"nvidia/parakeet-tdt-0.6b-v3"``
+        for Parakeet). Used in the log warning, the progress message,
+        AND the raised exception message so the user / operator can
+        identify which download was blocked.
+    log_prefix : str, optional
+        Tag for the log message so each calling module's logs are
+        identifiable (e.g. ``"[MODEL]"``, ``"[PARAKEET]"``). Defaults to
+        ``"[MODEL]"``.
+    progress_message : str, optional
+        Custom progress-callback message. When ``None``, a default of
+        ``"HuggingFace consent required before downloading <identifier>."``
+        is used.
+    progress_callback : callable, optional
+        Optional ``progress_callback(str)`` to surface the consent
+        requirement to the UI (e.g. the Models page progress bar).
+
+    Raises
+    ------
+    ConsentRequiredError
+        When ``config`` is ``None`` or
+        ``config.huggingface_consent`` is not truthy.
+    """
+    cfg = config
+    consent = False if cfg is None else bool(getattr(cfg, "huggingface_consent", False))
+    if consent:
+        return
+    log.warning(
+        "%s HuggingFace consent not given — refusing to download %s. "
+        "The renderer should show a consent dialog.",
+        log_prefix,
+        model_identifier,
+    )
+    if progress_callback is not None:
+        if progress_message is None:
+            progress_message = (
+                f"HuggingFace consent required before downloading {model_identifier}."
+            )
+        try:
+            progress_callback(progress_message)
+        except Exception:
+            log.debug(
+                "%s progress_callback raised while reporting consent requirement",
+                log_prefix,
+                exc_info=True,
+            )
+    from voice_typer.server.asr_errors import ConsentRequiredError
+
+    raise ConsentRequiredError(
+        f"HuggingFace consent not given — refusing to download {model_identifier}."
+    )
