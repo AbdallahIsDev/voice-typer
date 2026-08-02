@@ -210,7 +210,10 @@ describe("ER-28: closeAudioContext nulls the shared AudioContext", () => {
 		}
 		// regular function (not arrow) so `new Ctor()` works — Vitest
 		// forwards construct calls to the mock implementation.
-		mockCtor = vi.fn(() => new MockAudioContext());
+		// biome-ignore lint/complexity/useArrowFunction: arrow functions cannot be used as constructors — `new Ctor()` requires a regular function or class
+		mockCtor = vi.fn(function () {
+			return new MockAudioContext();
+		});
 		window.AudioContext = mockCtor as unknown as typeof AudioContext;
 	});
 

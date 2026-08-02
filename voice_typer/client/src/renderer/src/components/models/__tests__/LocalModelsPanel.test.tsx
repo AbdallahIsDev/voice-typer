@@ -320,10 +320,10 @@ describe("LocalModelsPanel — BG-23 (Open models folder button)", () => {
 		render(<LocalModelsPanel {...baseProps} modelsFolderSupported={true} />);
 		expect(
 			screen.getByRole("button", {
-				name: /Open the folder containing downloaded models/i,
+				name: /Reveal models folder in file manager/i,
 			}),
 		).toBeInTheDocument();
-		expect(screen.getByText("Open models folder")).toBeInTheDocument();
+		expect(screen.getByText("Open Models Folder")).toBeInTheDocument();
 		expect(screen.queryByText("Import Model")).toBeNull();
 	});
 
@@ -331,10 +331,10 @@ describe("LocalModelsPanel — BG-23 (Open models folder button)", () => {
 		render(<LocalModelsPanel {...baseProps} modelsFolderSupported={false} />);
 		expect(
 			screen.queryByRole("button", {
-				name: /Open the folder containing downloaded models/i,
+				name: /Reveal models folder in file manager/i,
 			}),
 		).toBeNull();
-		expect(screen.queryByText("Open models folder")).toBeNull();
+		expect(screen.queryByText("Open Models Folder")).toBeNull();
 	});
 
 	it("clicking 'Open models folder' invokes onOpenModelsFolder", () => {
@@ -348,7 +348,7 @@ describe("LocalModelsPanel — BG-23 (Open models folder button)", () => {
 		);
 		screen
 			.getByRole("button", {
-				name: /Open the folder containing downloaded models/i,
+				name: /Reveal models folder in file manager/i,
 			})
 			.click();
 		expect(onOpenModelsFolder).toHaveBeenCalledTimes(1);

@@ -230,8 +230,11 @@ describe("S2-CR-39: Onboarding mic auto-select prefers default-flagged device", 
 		expect(src).toContain("mics.microphones.find(");
 		// Sanity: the prior buggy fallback (`microphones[0].id` as the
 		// unconditional pick) is gone — the `[0]` reference is now only
-		// inside the `?? mics.microphones[0]` nullish-coalescing.
-		expect(src).toContain("?? mics.microphones[0]");
+		// used as the nullish-coalesced fallback (via the `fallback`
+		// local, `(defaultMic ?? fallback)?.id ?? prev` — the
+		// `?? ` chain, never a bare `[0]` pick).
+		expect(src).toContain("const fallback = mics.microphones[0]");
+		expect(src).toContain("defaultMic ?? fallback");
 	});
 
 	it("MicrophoneOption type declares optional default + is_bluetooth fields", async () => {

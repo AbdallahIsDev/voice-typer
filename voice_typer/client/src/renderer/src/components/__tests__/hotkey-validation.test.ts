@@ -3,8 +3,10 @@
  *
  * These tests pin the contract documented in hotkey-validation.ts:
  * - isReserved detects OS-reserved shortcuts per-platform.
- * - validateHotkey accepts modifier-only triggers (Ctrl/Alt alone is a
- *   valid dictation key via modifier-only release detection; bare Shift/Cmd/Win/Super are rejected as typing-interfering — see rule 11).
+ * - validateHotkey accepts modifier-only triggers (Ctrl/Alt/Shift alone is
+ *   a valid dictation key via modifier-only release detection; bare
+ *   Cmd/Win/Super are rejected via the universal reserved table — system
+ *   gestures).
  * - validateHotkey rejects combos that end with a modifier
  *   ("Shift+Ctrl" → reject the WHOLE combo, not return a partial
  *   "<shift>" fragment). This is the unit-test side of the
@@ -133,11 +135,9 @@ describe("validateHotkey — reserved shortcut rejection", () => {
 });
 
 describe("validateHotkey — modifier-only (single-key triggers)", () => {
-	it("rejects Shift alone (bare typing-interfering modifier — rule 11)", () => {
+	it("accepts Shift alone (modifier-only release is a valid single-key trigger)", () => {
 		const result = validateHotkey("<shift>", "win32");
-		expect(result.valid).toBe(false);
-		expect(result.reason).toBeTruthy();
-		expect(result).not.toHaveProperty("partial");
+		expect(result.valid).toBe(true);
 	});
 
 	it("rejects Cmd alone on macOS (bare typing-interfering modifier — rule 11)", () => {
@@ -248,8 +248,6 @@ describe("validateHotkey — partial-assign contract", () => {
 			// are excluded on win32 because they're in
 			// UNIVERSAL_RESERVED_SHORTCUTS (system gestures).
 			if (mod === "win" || mod === "super" || mod === "cmd") continue;
-			// Rule 11 rejects bare <shift> as a typing-interfering modifier.
-			if (mod === "shift") continue;
 			const result = validateHotkey(`<${mod}>`, "win32");
 			expect(result.valid).toBe(true);
 			expect(result).not.toHaveProperty("partial");

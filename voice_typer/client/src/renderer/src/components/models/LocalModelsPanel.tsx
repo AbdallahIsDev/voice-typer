@@ -148,7 +148,7 @@ export function LocalModelsPanel({
 							<p className="mt-1 text-xs leading-relaxed text-(--text-muted)">
 								{t("models.disk.lowSpaceBody")}{" "}
 								{t("models.disk.freeSpace", {
-									size: formatBytes(diskInfo.free_bytes),
+									space: formatBytes(diskInfo.free_bytes),
 								})}
 							</p>
 						</div>

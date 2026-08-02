@@ -26,6 +26,59 @@ afterEach(() => {
 	}
 });
 
+// ── localStorage / sessionStorage ─────────────────────────────────────
+// Node >=26 ships an experimental built-in webstorage `localStorage`
+// global that is a getter returning `undefined` unless the process is
+// started with `--localstorage-file`. Vitest's jsdom environment only
+// copies jsdom's own Storage onto `globalThis` when the key is NOT
+// already present on the Node global (see `getWindowKeys` in vitest),
+// so on Node 26+ `localStorage` resolves to the useless built-in stub
+// and any test touching it crashes with "Cannot read properties of
+// undefined". Provide an in-memory Storage fallback so the suite runs
+// identically on Node 24 (CI) and Node 26+ (local dev).
+if (
+	typeof globalThis.localStorage === "undefined" ||
+	typeof globalThis.sessionStorage === "undefined"
+) {
+	const createMemoryStorage = (): Storage => {
+		const store = new Map<string, string>();
+		return {
+			get length() {
+				return store.size;
+			},
+			clear() {
+				store.clear();
+			},
+			getItem(key: string) {
+				return store.get(key) ?? null;
+			},
+			key(index: number) {
+				return [...store.keys()][index] ?? null;
+			},
+			removeItem(key: string) {
+				store.delete(key);
+			},
+			setItem(key: string, value: string) {
+				store.set(key, String(value));
+			},
+		} as Storage;
+	};
+	if (typeof globalThis.localStorage === "undefined") {
+		Object.defineProperty(globalThis, "localStorage", {
+			value: createMemoryStorage(),
+			configurable: true,
+			writable: true,
+		});
+	}
+	if (typeof globalThis.sessionStorage === "undefined") {
+		Object.defineProperty(globalThis, "sessionStorage", {
+			value: createMemoryStorage(),
+			configurable: true,
+			writable: true,
+		});
+	}
+}
+
 // SEGMENTED-CTRL-FIX: polyfill ResizeObserver for jsdom (used by
 // SegmentedControl to position the animated indicator).
 // jsdom doesn't implement ResizeObserver, so we provide a minimal stub.

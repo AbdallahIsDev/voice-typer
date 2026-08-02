@@ -353,7 +353,22 @@ describe("tauri-bridge commands (MIG-1.1 + MIG-1.2)", () => {
 	});
 
 	it("bubble.hideComplete invokes 'bubble_hide_complete' with no args", async () => {
+		// SEC-026: `hideComplete` is bubble-window-only (it's on
+		// `BubbleWindowExtras`, not `MainRendererBubbleMutators`), so
+		// the default `makeTauriStub` (window label "main") would NOT
+		// install it. Override `getCurrentWindow` to return
+		// `label: "bubble"` so the bridge installs the full
+		// `BubbleWindowBubble` (including `hideComplete`) — same
+		// pattern as the bubble.dismiss test below.
 		const stub = makeTauriStub();
+		stub.window.getCurrentWindow = vi.fn(() => ({
+			label: "bubble",
+			minimize: vi.fn(() => Promise.resolve()),
+			toggleMaximize: vi.fn(() => Promise.resolve()),
+			close: vi.fn(() => Promise.resolve()),
+			isMaximized: vi.fn(() => Promise.resolve(false)),
+			onResized: vi.fn(() => Promise.resolve(() => {})),
+		}));
 		(window as unknown as WindowBridgeState).__TAURI__ = stub;
 
 		await import("@/lib/tauri-bridge");
