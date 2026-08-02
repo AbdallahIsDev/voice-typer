@@ -15,7 +15,6 @@
 
     "shell:allow-spawn",
     "shell:allow-kill",
-    "shell:allow-kill-children",
 
     "notification:allow-notify",
     "notification:allow-is-permission-granted",
