@@ -433,3 +433,212 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 		expect(toastSuccess).toHaveBeenCalledWith("Vocabulary cleared");
 	});
 });
+
+describe("Vocabulary page — paginated Show more (incremental reveal)", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		showSnack.mockReset();
+		toastSuccess.mockClear();
+		toastError.mockClear();
+		localStorage.clear();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("each Show more click reveals another batch (not all at once)", async () => {
+		// 450 entries — exceeds two DISPLAY_CAP batches (200 + 200 = 400)
+		// but not three (600). With the old setShowAll(true) path a
+		// single click would mount all 450 rows at once. With the
+		// paginated path the first click reveals rows 201..400, the
+		// second reveals rows 401..450, and only then does the
+		// Show more button disappear.
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
+			if (type === "get_vocabulary")
+				return Promise.resolve(buildSeed(450) as VocabularyData);
+			if (type === "save_vocabulary") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		// Default sort is "newest" (reversed) → word449 renders first.
+		await waitFor(() => {
+			expect(screen.getByText("word449")).toBeTruthy();
+		});
+
+		// Initial cap = 200 → word449..word250 visible. word249 hidden.
+		expect(screen.queryByText("word249")).toBeNull();
+		expect(screen.queryByText("word0")).toBeNull();
+
+		// First click: displayCount 200 → 400. word449..word50 visible.
+		// word49 still hidden.
+		fireEvent.click(screen.getByText("Show more"));
+		await waitFor(() => {
+			expect(screen.getByText("word50")).toBeTruthy();
+		});
+		expect(screen.queryByText("word49")).toBeNull();
+
+		// Show more is STILL rendered (450 > 400).
+		expect(screen.getByText("Show more")).toBeTruthy();
+
+		// Second click: displayCount 400 → 600. All 450 visible.
+		fireEvent.click(screen.getByText("Show more"));
+		await waitFor(() => {
+			expect(screen.getByText("word0")).toBeTruthy();
+		});
+		expect(screen.getByText("word49")).toBeTruthy();
+
+		// Show more is gone (450 ≤ 600).
+		expect(screen.queryByText("Show more")).toBeNull();
+	});
+});
+
+describe("Vocabulary page — duplicate detection on save", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		showSnack.mockReset();
+		toastSuccess.mockClear();
+		toastError.mockClear();
+		localStorage.clear();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("refuses to save a new entry whose (original, category) pair already exists", async () => {
+		// Seed with one entry: "recieve" → "receive" in misspellings.
+		// detectCategory("recieve") resolves to misspellings (lowercase
+		// non-tech), so adding a new entry with trigger "recieve" and
+		// category "auto" must be detected as a duplicate.
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
+			if (type === "get_vocabulary")
+				return Promise.resolve({
+					misspellings: { recieve: "receive" },
+				} as VocabularyData);
+			if (type === "save_vocabulary") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		// Count save_vocabulary calls before the duplicate save.
+		const saveCallsBefore = mockCall.mock.calls.filter(
+			(args: unknown[]) => args[0] === "save_vocabulary",
+		).length;
+
+		// Open the Add dialog.
+		fireEvent.click(screen.getByText("Add Word"));
+
+		// Wait for the dialog's trigger input to mount.
+		const triggerInput = await screen.findByPlaceholderText(
+			"treat three, mynameis",
+		);
+		const replacementInput = screen.getByPlaceholderText(
+			"treat this, My Name Is",
+		);
+
+		// Type a duplicate trigger + a different correction.
+		fireEvent.change(triggerInput, { target: { value: "recieve" } });
+		fireEvent.change(replacementInput, { target: { value: "different" } });
+
+		// Click Save.
+		fireEvent.click(screen.getByText("Save"));
+
+		// The warning toast fires with the localised duplicate message.
+		// (The useSnackbar mock routes warning → toastSuccess.)
+		await waitFor(() => {
+			expect(toastSuccess).toHaveBeenCalledWith(
+				"An entry with the same trigger already exists in this category",
+			);
+		});
+
+		// No save_vocabulary IPC call was made — the duplicate path
+		// returns before persisting.
+		const saveCallsAfter = mockCall.mock.calls.filter(
+			(args: unknown[]) => args[0] === "save_vocabulary",
+		).length;
+		expect(saveCallsAfter).toBe(saveCallsBefore);
+
+		// The list still shows exactly one "recieve" row — the
+		// duplicate was NOT appended.
+		expect(screen.getAllByText("recieve").length).toBe(1);
+	});
+
+	it("allows saving a duplicate trigger in a DIFFERENT category", async () => {
+		// Same trigger "recieve" but a different category is NOT a
+		// duplicate — the pair (original, category) is unique.
+		// Seed: "recieve" → "receive" in misspellings. Add the same
+		// trigger with category=names → should save successfully.
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
+			if (type === "get_vocabulary")
+				return Promise.resolve({
+					misspellings: { recieve: "receive" },
+				} as VocabularyData);
+			if (type === "save_vocabulary") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
+		renderWithProviders(<VocabularyPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("recieve")).toBeTruthy();
+		});
+
+		const saveCallsBefore = mockCall.mock.calls.filter(
+			(args: unknown[]) => args[0] === "save_vocabulary",
+		).length;
+
+		fireEvent.click(screen.getByText("Add Word"));
+
+		const triggerInput = await screen.findByPlaceholderText(
+			"treat three, mynameis",
+		);
+		const replacementInput = screen.getByPlaceholderText(
+			"treat this, My Name Is",
+		);
+
+		fireEvent.change(triggerInput, { target: { value: "recieve" } });
+		fireEvent.change(replacementInput, { target: { value: "different" } });
+
+		// Pick the "names" category via the Select. Radix Select
+		// opens on trigger click; the item is found by its label
+		// text (resolved from t("vocabulary.category.names")).
+		fireEvent.click(screen.getByRole("combobox"));
+		const namesItem = await screen.findByText("Names");
+		fireEvent.click(namesItem);
+
+		fireEvent.click(screen.getByText("Save"));
+
+		// The save succeeds — save_vocabulary is called once.
+		await waitFor(() => {
+			const saveCallsAfter = mockCall.mock.calls.filter(
+				(args: unknown[]) => args[0] === "save_vocabulary",
+			).length;
+			expect(saveCallsAfter).toBe(saveCallsBefore + 1);
+		});
+	});
+});

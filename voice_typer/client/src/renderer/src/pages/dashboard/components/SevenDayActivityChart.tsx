@@ -13,7 +13,7 @@
 
 import { Activity03Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { t } from "@/i18n/i18n";
+import { t, tChoice } from "@/i18n/i18n";
 
 import { barHeight } from "../lib/format";
 import type { DashboardData } from "../lib/streaks";
@@ -76,17 +76,9 @@ export function SevenDayActivityChart({ data }: SevenDayActivityChartProps) {
 								{day.count}
 							</span>
 							<div
-								title={
-									day.count === 1
-										? t("analytics.dayCountTooltipSingular", {
-												label: day.label,
-												count: String(day.count),
-											})
-										: t("analytics.dayCountTooltipPlural", {
-												label: day.label,
-												count: String(day.count),
-											})
-								}
+								title={tChoice("analytics.dayCountTooltip", day.count, {
+									label: day.label,
+								})}
 								className="w-full max-w-10 rounded-sm bg-accent/80 transition-all duration-300"
 								style={{ height: `${barHeight(day.count, maxCount)}px` }}
 							/>

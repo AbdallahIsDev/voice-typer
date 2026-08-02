@@ -8,6 +8,7 @@
 
 import { Delete01Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { memo } from "react";
 
 import { InfoTooltip } from "@/components/feedback/InfoTooltip";
 import { Button } from "@/components/ui/button";
@@ -21,13 +22,24 @@ interface TemplateListRowProps {
 	onDelete: (row: TemplateRow) => void;
 }
 
-export function TemplateListRow({
+// Wrapped in ``React.memo`` so the row only re-renders when its
+// own props change (row reference, or one of the stable useCallback
+// handlers).  Mirrors the ``ActivityListRow`` pattern
+// (components/dashboard/ActivityList.tsx:74) — the parent (Templates.tsx)
+// passes stable ``useCallback`` handlers so a search-box keystroke skips
+// every row's render function.
+//
+// The previous inline ``handleEdit = () => onEdit(row)`` /
+// ``handleDelete = () => onDelete(row)`` wrappers have been removed in
+// favour of calling ``onEdit(row)`` / ``onDelete(row)`` directly in the
+// button ``onClick`` (per the ActivityListRow pattern — the closure is
+// per-button-per-render, same cost, but clearer and avoids the extra
+// allocation per row).
+export const TemplateListRow = memo(function TemplateListRow({
 	row,
 	onEdit,
 	onDelete,
 }: TemplateListRowProps) {
-	const handleEdit = () => onEdit(row);
-	const handleDelete = () => onDelete(row);
 	// Colored match-mode badge: "exact" → neutral/blue,
 	// "contains" → amber.  Uses the same color tokens
 	// as the History favorites toggle so the palette
@@ -37,7 +49,7 @@ export function TemplateListRow({
 		? t("templates.matchModeContainsLabel")
 		: t("templates.matchModeExactLabel");
 	return (
-		<div key={row.id} className="flex items-center gap-3 px-3.5 py-2.5">
+		<li key={row.id} className="flex items-center gap-3 px-3.5 py-2.5">
 			<div className="min-w-0 flex-1">
 				<p className="text-sm font-semibold text-(--text-primary)">
 					{row.trigger}
@@ -74,7 +86,7 @@ export function TemplateListRow({
 				<Button
 					variant="ghost"
 					size="icon-xs"
-					onClick={handleEdit}
+					onClick={() => onEdit(row)}
 					className="text-(--text-muted) hover:text-(--text-secondary)"
 					title={t("templates.editTemplate")}
 					aria-label={t("templates.editAria", { name: row.trigger })}
@@ -88,7 +100,7 @@ export function TemplateListRow({
 				<Button
 					variant="ghost"
 					size="icon-xs"
-					onClick={handleDelete}
+					onClick={() => onDelete(row)}
 					className="text-(--text-muted) hover:text-destructive"
 					title={t("templates.deleteTemplate")}
 					aria-label={t("templates.deleteAria", { name: row.trigger })}
@@ -100,6 +112,6 @@ export function TemplateListRow({
 					/>
 				</Button>
 			</div>
-		</div>
+		</li>
 	);
-}
+});

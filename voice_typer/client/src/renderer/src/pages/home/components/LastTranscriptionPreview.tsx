@@ -23,13 +23,11 @@ export function LastTranscriptionPreview({
 	onRepaste,
 }: LastTranscriptionPreviewProps) {
 	return (
-		<div
-			className="w-130 max-w-full rounded-[10px] bg-(--bg-subtle) px-4 py-3"
-			// QV-96: the preview container itself carries aria-live="polite"
-			// so the card remains accessible even when rendered outside
-			// Home's <output> wrapper.
-			aria-live="polite"
-		>
+		// The ancestor `<output aria-live="polite">` wrapper in Home.tsx
+		// is the single live region for this card. Carrying a second
+		// `aria-live="polite"` here would cause screen readers to
+		// announce the same text twice, so it is intentionally omitted.
+		<div className="w-130 max-w-full rounded-[10px] bg-(--bg-subtle) px-4 py-3">
 			<p className="line-clamp-2 overflow-hidden text-ellipsis text-[13px] text-(--text-muted)">
 				{text}
 			</p>

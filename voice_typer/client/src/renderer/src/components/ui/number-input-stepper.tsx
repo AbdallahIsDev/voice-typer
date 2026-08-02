@@ -255,36 +255,54 @@ function NumberInputStepper({
 					"group-hover:opacity-100 group-hover:pointer-events-auto",
 					//reveal steppers whenever the input OR a stepper
 					// has focus, so keyboard users can see the control they're
-					// about to activate (the steppers are tabIndex={0} below).
+					// about to activate (the steppers are tabIndex={0} when not at
+					// boundary, tabIndex={-1} when at boundary).
 					"group-focus-within:opacity-100 group-focus-within:pointer-events-auto",
 				)}
 			>
 				<button
 					type="button"
-					tabIndex={0}
-					disabled={isAtMax}
-					onClick={handleStepUp}
+					// At-boundary steppers use ``aria-disabled`` instead of the native
+					// ``disabled`` attribute so they stay perceptible to screen
+					// readers (which would otherwise skip disabled buttons entirely)
+					// and remain activatable for the visual focus ring. ``tabIndex={-1}``
+					// removes them from the tab order so keyboard users aren't trapped
+					// on a no-op control. The onClick guard below preserves the
+					// "doesn't activate at boundary" behaviour previously enforced by
+					// the native disabled attribute.
+					tabIndex={isAtMax ? -1 : 0}
+					aria-disabled={isAtMax ? "true" : undefined}
+					onClick={() => {
+						if (isAtMax) return;
+						handleStepUp();
+					}}
 					aria-label={t("a11y.increase")}
 					className={cn(
 						"flex h-1/2 items-center justify-center text-(--text-muted) transition-colors",
 						"hover:text-(--text-primary)",
 						"focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring",
-						"disabled:opacity-50 disabled:cursor-not-allowed",
+						// Mirror the previous disabled visual treatment via
+						// aria-disabled (Tailwind 4 ships the ``aria-disabled:``
+						// variant out of the box).
+						"aria-disabled:opacity-50 aria-disabled:cursor-not-allowed",
 					)}
 				>
 					<ArrowUpIcon />
 				</button>
 				<button
 					type="button"
-					tabIndex={0}
-					disabled={isAtMin}
-					onClick={handleStepDown}
+					tabIndex={isAtMin ? -1 : 0}
+					aria-disabled={isAtMin ? "true" : undefined}
+					onClick={() => {
+						if (isAtMin) return;
+						handleStepDown();
+					}}
 					aria-label={t("a11y.decrease")}
 					className={cn(
 						"flex h-1/2 items-center justify-center text-(--text-muted) transition-colors",
 						"hover:text-(--text-primary)",
 						"focus-visible:outline-hidden focus-visible:ring-3 focus-visible:ring-ring",
-						"disabled:opacity-50 disabled:cursor-not-allowed",
+						"aria-disabled:opacity-50 aria-disabled:cursor-not-allowed",
 					)}
 				>
 					<ArrowDownIcon />

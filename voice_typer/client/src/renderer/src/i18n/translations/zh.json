@@ -432,6 +432,7 @@
 		"checkForUpdates": "检查更新",
 		"downloadVersion": "下载 v{version}",
 		"viewChangelog": "查看更新日志",
+		"offlineUpdatesMessage": "Voice Typer 是一款离线应用。要检查更新，请在浏览器中访问 GitHub 发布页面。",
 		"startStopDictation": "开始 / 停止听写",
 		"startStopDictationValue": "F2（或您配置的快捷键）",
 		"cancelRecording": "取消录音",

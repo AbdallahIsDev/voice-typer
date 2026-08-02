@@ -66,9 +66,11 @@ import type { WindowBridge } from "@/types/ipc";
  * build, so a full-screen skeleton would flash too briefly to register.
  */
 function RouteSuspenseFallback() {
+	const t = useT();
 	return (
 		<output
 			aria-live="polite"
+			aria-label={t("a11y.loading")}
 			className="flex h-full w-full items-center justify-center p-8"
 		>
 			<span className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-(--text-muted) border-t-transparent" />
@@ -365,11 +367,42 @@ export default function App() {
 	const [connectingProgress, setConnectingProgress] = useState<number | null>(
 		null,
 	);
+	// `connectingProgress` is ONLY consumed by
+	// `<ConnectionStatusScreen>`, which App renders exclusively when
+	// `connectionStatus !== "connected"`. Updating `connectingProgress`
+	// while connected is therefore wasted work — it triggers an App
+	// re-render for a state value nobody reads. We mirror
+	// `connectionStatus` into a ref and short-circuit the handler when
+	// connected. (We can't conditionally call `usePythonEvent` — that
+	// would violate the rules of hooks — so the dispatcher-level
+	// subscriber stays registered, but the actual `setConnectingProgress`
+	// call is gated. The dispatcher fan-out for an unmatched type is a
+	// single Map lookup + early return, so the residual cost is
+	// negligible.)
+	const connectionStatusRef = useRef(connectionStatus);
+	connectionStatusRef.current = connectionStatus;
 	usePythonEvent("download_progress", (data): (() => void) | undefined => {
+		// Skip the state update while connected —
+		// ConnectionStatusScreen isn't rendered, so the value would
+		// never be read and the re-render would be wasted.
+		if (connectionStatusRef.current === "connected") return undefined;
 		const progress = (data as Record<string, unknown> | undefined)?.progress;
 		if (typeof progress === "number") setConnectingProgress(progress);
 		return undefined;
 	});
+
+	// Clear the connecting progress value whenever we leave the
+	// "connecting" state. Without this, a stale progress percentage
+	// (e.g. 73%) would persist across a brief disconnect/reconnect
+	// flap and mislead the user into thinking the download was still
+	// ongoing after the backend had already reconnected. The next
+	// "connecting" phase re-seeds the value via the download_progress
+	// handler above.
+	useEffect(() => {
+		if (connectionStatus !== "connecting") {
+			setConnectingProgress(null);
+		}
+	}, [connectionStatus]);
 
 	// Stable callbacks so React.memo on <TitleBar>/<HelpOverlay> can
 	// short-circuit when their other props haven't changed.
@@ -504,8 +537,12 @@ export default function App() {
 							// visual confirmation, leading to confusion about whether the
 							// shortcut had any effect. The ring uses the same `--ring` token
 							// as every other focusable element so it visually matches the
-							// rest of the app's focus indicators.
-							className="flex-1 overflow-y-auto rounded-s-xl border-border border border-s-0 border-b-0 bg-(--bg) focus:outline-none focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:ring-offset-2"
+							// rest of the app's focus indicators. We use `focus:` (not
+							// `focus-visible:`) because the focus move is programmatic —
+							// `focus-visible` only fires for keyboard-initiated focus, so a
+							// mouse-click nav followed by the programmatic focus() call
+							// would NOT show the ring under `focus-visible:`.
+							className="flex-1 overflow-y-auto rounded-s-xl border-border border border-s-0 border-b-0 bg-(--bg) focus:outline-none focus:ring-2 focus:ring-ring/30 focus:ring-offset-2"
 							style={{ scrollbarGutter: "stable" }}
 						>
 							{connectionStatus === "connected" ? (
@@ -534,14 +571,14 @@ export default function App() {
 				/>
 
 				{/* Split the screen-reader live region
-                                    into TWO regions — one for recording state, one for
-                                    connection status. Previously a single aria-atomic region
-                                    concatenated both streams, so any change in either
-                                    re-announced the ENTIRE combined text — meaning a brief
-                                    `connectionStatus` flicker caused "Recording started." to
-                                    be re-announced even though recording state hadn't
-                                    changed. Two regions isolate the two streams so each only
-                                    re-announces when ITS OWN content changes. */}
+				    into TWO regions — one for recording state, one for
+				    connection status. Previously a single aria-atomic region
+				    concatenated both streams, so any change in either
+				    re-announced the ENTIRE combined text — meaning a brief
+				    `connectionStatus` flicker caused "Recording started." to
+				    be re-announced even though recording state hadn't
+				    changed. Two regions isolate the two streams so each only
+				    re-announces when ITS OWN content changes. */}
 				<div aria-live="polite" aria-atomic="true" className="sr-only">
 					{recordingState === "recording" ? t("a11y.recordingStarted") : ""}
 					{recordingState === "transcribing" ? t("a11y.transcribingAudio") : ""}
@@ -550,15 +587,24 @@ export default function App() {
 					{recordingState === "loading" ? t("a11y.loadingModel") : ""}
 					{recordingState === "cancelling" ? t("a11y.cancelling") : ""}
 				</div>
-				{/* Announce connection-state transitions so
-                                    screen-reader users get the same feedback that sighted
-                                    users get from the connecting/disconnected/restarting UI
-                                    swap. Reuses existing i18n keys (`app.lostConnection`,
-                                    `app.restartingBackend`, `about.connected`) so no new
-                                    translation keys are required. */}
-				<div aria-live="polite" aria-atomic="true" className="sr-only">
+				{/* Assertive region for connection ERRORS (disconnected,
+				    restarting) — these interrupt the user since they indicate
+				    a problem requiring attention. Split from the recovery
+				    region below so the recovery announcement stays polite
+				    (non-interrupting) and doesn't yank the user out of what
+				    they were doing. Reuses existing i18n keys
+				    (`app.lostConnection`, `app.restartingBackend`) so no new
+				    translation keys are required. */}
+				<div aria-live="assertive" aria-atomic="true" className="sr-only">
 					{connectionStatus === "disconnected" ? t("app.lostConnection") : ""}
 					{connectionStatus === "restarting" ? t("app.restartingBackend") : ""}
+				</div>
+				{/* Polite region for connection RECOVERY (re-connected after
+				    an outage) — non-interrupting so the user hears it but
+				    isn't pulled out of what they were doing. Reuses existing
+				    i18n key (`about.connected`) so no new translation keys
+				    are required. */}
+				<div aria-live="polite" aria-atomic="true" className="sr-only">
 					{connectionStatus === "connected" &&
 					prevConnectionRef.current !== "connected" &&
 					prevConnectionRef.current !== "connecting"

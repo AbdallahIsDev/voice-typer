@@ -432,6 +432,7 @@
 		"checkForUpdates": "Проверить обновления",
 		"downloadVersion": "Скачать v{version}",
 		"viewChangelog": "Просмотреть журнал изменений",
+		"offlineUpdatesMessage": "Voice Typer — автономное приложение. Чтобы проверить наличие обновлений, откройте страницу релизов GitHub в вашем браузере.",
 		"startStopDictation": "Начать / Остановить диктовку",
 		"startStopDictationValue": "F2 (или ваша настроенная горячая клавиша)",
 		"cancelRecording": "Отменить запись",

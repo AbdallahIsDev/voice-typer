@@ -371,10 +371,12 @@ describe("About page — updates / help / feedback sections (RW-1 port)", () => 
 			}
 		});
 
-		// Stub global.fetch — the updates section auto-checks
-		// LATEST_RELEASE_API on mount and again when the
-		// "Check for Updates" button is clicked. Capture the
-		// URL so we can assert the right endpoint is hit.
+		// Stub global.fetch — C-DATA-1 regression guard. The Updates
+		// section previously fired a fetch to api.github.com on mount
+		// and again when the (now-removed) "Check for Updates" button
+		// was clicked. The manual button has been removed entirely;
+		// this stub captures ANY fetch call so the C-DATA-1 test below
+		// can assert the spy is never invoked.
 		(globalThis as unknown as { fetch: unknown }).fetch = vi.fn(() =>
 			Promise.resolve({
 				ok: true,
@@ -383,63 +385,53 @@ describe("About page — updates / help / feedback sections (RW-1 port)", () => 
 		) as unknown as typeof fetch;
 	});
 
-	/** The updates / diagnostics sections moved from the About page to the
-	 *  Settings page's Privacy tab (Settings.tsx renders
-	 *  PrewarmAndUpdates + TroubleshootingSettingsSection there). Mount
-	 *  Settings and switch to the Privacy tab. */
-	async function renderSettingsPrivacy() {
-		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
-		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
-		});
-		fireEvent.click(screen.getByText("Privacy"));
-		// Give the Privacy-tab sections a beat to mount.
-		await waitFor(() => {
-			expect(screen.getByText(/Check for Updates/i)).toBeTruthy();
-		});
-	}
-
 	afterEach(() => {
 		cleanup();
 		vi.restoreAllMocks();
 	});
 
-	it("renders a 'Check for Updates' button that fetches the GitHub releases API", async () => {
-		// Python invariant (test_about_page_has_updates_section):
-		//   "Check for Updates" in src OR en.json
-		//   "LATEST_RELEASE_API" in src
-		//   "api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest" in src
+	it("does NOT render a 'Check for Updates' button and does NOT fetch the GitHub releases API (C-DATA-1)", async () => {
+		// C-DATA-1 (offline guarantee): the previous "Check for Updates"
+		// button fired a renderer `fetch()` to
+		// `https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest`
+		// on click — a network call in the production code path, which
+		// the offline guarantee forbids. The button + handler +
+		// latestVersion state have all been removed; the Updates section
+		// now shows the installed version plus a static offline message.
 		//
-		// Behavioral: the "Check for Updates" button is rendered
-		// as visible text, and clicking it triggers a fetch()
-		// to the canonical GitHub releases API URL.
-		renderSettingsPrivacy();
-		await waitFor(() => {
-			expect(
-				screen.getByRole("button", { name: /check for updates/i }),
-			).toBeTruthy();
-		});
+		// Behavioral: mount PrewarmAndUpdates directly (avoiding the
+		// full Settings page mount to keep the test focused + avoid
+		// cross-test cleanup interactions). The "Check for Updates"
+		// button must NOT be in the DOM, and no fetch may fire across
+		// the component's entire lifecycle.
+		const fetchSpy = vi.fn();
+		(globalThis as unknown as { fetch: unknown }).fetch = fetchSpy;
 
-		// Production deliberately REMOVED the auto-firing check on mount
-		// (PrewarmAndUpdates.tsx — the offline-first guarantee: the only
-		// network call is the explicit manual click). Assert no fetch
-		// happened yet, then click and assert the URL is hit.
-		const fetchMock = (
-			globalThis as unknown as { fetch: ReturnType<typeof vi.fn> }
-		).fetch;
-		expect(fetchMock).not.toHaveBeenCalled();
-
-		// Click the manual "Check for Updates" button → a fetch fires
-		// against the canonical LATEST_RELEASE_API URL.
-		fireEvent.click(screen.getByRole("button", { name: /check for updates/i }));
-		await waitFor(() => {
-			expect(fetchMock).toHaveBeenCalled();
-		});
-		const manualUrl = String(fetchMock.mock.calls[0]?.[0] ?? "");
-		expect(manualUrl).toContain(
-			"api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest",
+		const { default: PrewarmAndUpdates } = await import(
+			"@/components/settings/PrewarmAndUpdates"
 		);
+		renderWithProviders(<PrewarmAndUpdates />);
+
+		// Wait for the mount-time IPC call (get_prewarm_status) to
+		// settle so the test isn't racing the effect cleanup.
+		await waitFor(() => {
+			expect(mockCall).toHaveBeenCalledWith("get_prewarm_status");
+		});
+		// Flush any pending microtasks.
+		await new Promise((r) => setTimeout(r, 0));
+
+		// The "Check for Updates" button must NOT be in the DOM.
+		expect(
+			screen.queryByRole("button", { name: /check for updates/i }),
+		).toBeNull();
+
+		// The offline message MUST be rendered.
+		expect(
+			screen.getByText(/Voice Typer is an offline application/i),
+		).toBeTruthy();
+
+		// No fetch should have fired — C-DATA-1 absolute guarantee.
+		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
 	it("renders help links to README and CHANGELOG", async () => {

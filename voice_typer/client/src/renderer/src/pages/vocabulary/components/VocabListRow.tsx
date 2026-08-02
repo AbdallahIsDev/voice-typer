@@ -7,6 +7,7 @@
 
 import { Delete01Icon, PencilEdit02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { memo } from "react";
 
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
@@ -23,7 +24,15 @@ interface VocabListRowProps {
 	onDelete: (entry: VocabRow) => void;
 }
 
-export function VocabListRow({
+// Wrapped in ``React.memo`` so the row only re-renders when its
+// own props change (entry reference, categoryLabels reference, or one
+// of the stable useCallback handlers).  Mirrors the ``ActivityListRow``
+// pattern (components/dashboard/ActivityList.tsx:74) — the parent
+// (Vocabulary.tsx) passes a memoised ``categoryLabels`` object and
+// stable ``useCallback`` handlers so a search-box keystroke (which
+// re-renders the page but doesn't change any row's props) skips every
+// row's render function.
+export const VocabListRow = memo(function VocabListRow({
 	entry,
 	categoryLabels,
 	onEdit,
@@ -109,4 +118,4 @@ export function VocabListRow({
 			</div>
 		</div>
 	);
-}
+});

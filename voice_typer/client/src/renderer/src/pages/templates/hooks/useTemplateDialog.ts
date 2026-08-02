@@ -103,6 +103,22 @@ export function useTemplateDialog({
 					"success",
 				);
 			} else {
+				//Duplicate-trigger guard: a template is uniquely
+				// identified by (trigger, match_mode). Adding a
+				// second row with the same pair would create an
+				// ambiguous match at substitution time (the first
+				// match wins silently, so the user would think
+				// their second template "doesn't work"). Reject
+				// before save so the existing template is left
+				// untouched and the user is told why.
+				const dup = items.some(
+					(it) =>
+						it.trigger === next.trigger && it.match_mode === next.match_mode,
+				);
+				if (dup) {
+					showSnack(t("templates.duplicateTrigger"), "warning");
+					return;
+				}
 				items.push(next);
 				showSnack(
 					t("templates.addedTemplate", { name: trigger.trim() }),

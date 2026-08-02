@@ -1,15 +1,21 @@
 /**
- * Tests for PrewarmAndUpdates — restored Cache Status + Updates surfaces.
+ * Tests for PrewarmAndUpdates — Cache Status + offline Updates surfaces.
  *
- *  / SET-5 slimmed About.tsx and dropped the Cache Status and Updates
- * sections from the UI (the "relocated to Settings → Troubleshooting" claim
- * was inaccurate). This component restores them into Settings. These tests
- * verify the functionality is actually present and wired:
+ * History: an earlier revision hosted an in-app "Check for Updates"
+ * button that fired a renderer `fetch()` to the GitHub releases API.
+ * C-DATA-1 (the offline guarantee) forbids ANY network call in the
+ * production code path — including an explicit user click — so the
+ * button + handler + latestVersion state were removed. The Updates
+ * section now shows the installed version + a static offline message
+ * + a user-clicked external link to the GitHub releases page.
  *
+ * These tests verify the post-removal contract:
  *   - Cache Status + Updates sections render (headings + action buttons)
  *   - prewarm cache status is fetched on mount and the badge renders
- *   - "Check for Updates" compares the installed vs latest version via
- *     compareSemver and surfaces the appropriate snackbar message
+ *   - NO `fetch()` is ever called from this component (mount, click,
+ *     unmount, or otherwise) — the offline guarantee is absolute
+ *   - the "Check for Updates" button is NOT rendered (removed)
+ *   - the offline message + "View Changelog" link ARE rendered
  */
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -45,7 +51,6 @@ vi.mock("@hugeicons/react", () => ({
 vi.mock("@hugeicons/core-free-icons", () => {
 	const make = (name: string) => ({ name });
 	return {
-		Download01Icon: make("Download01Icon"),
 		RefreshIcon: make("RefreshIcon"),
 	};
 });
@@ -67,14 +72,10 @@ beforeEach(() => {
 	mockShowSnack.mockReset();
 	// Default: backend responds with a hot cache.
 	mockCall.mockResolvedValue(PREWARM_HOT);
-	// Stub fetch so the mount-time / manual update checks don't hit network.
-	vi.stubGlobal(
-		"fetch",
-		vi.fn().mockResolvedValue({
-			ok: true,
-			json: async () => ({ tag_name: "v1.0.0" }),
-		}),
-	);
+	// Stub fetch with a spy so ANY fetch call (mount, click, unmount)
+	// is recorded — C-DATA-1 forbids network calls in the production
+	// code path, so the spy must remain uncalled across every test.
+	vi.stubGlobal("fetch", vi.fn());
 });
 
 afterEach(() => {
@@ -89,18 +90,19 @@ describe("PrewarmAndUpdates", () => {
 		expect(screen.getByText("Updates")).toBeTruthy();
 	});
 
-	//regression: the previous implementation fired a
-	// `fetch("https://api.github.com/...")` call inside a mount-time
-	// `useEffect`, which leaked the user's public IP, request timestamp,
-	// and Electron User-Agent to GitHub on EVERY Settings page open.
-	// That broke the "offline guarantee" the project advertises.
-	//
-	// The fix removed the auto-firing useEffect entirely; the only
-	// network call to api.github.com now happens inside the explicit
-	// `handleManualCheck` handler attached to the "Check for Updates"
-	// button. This test asserts that contract so a future regression
-	// (e.g. someone re-adding a mount-time fetch) fails loudly.
-	it("does NOT fire any fetch on mount (CR-11 / S3-CR-11 privacy regression)", async () => {
+	// C-DATA-1 regression guard: NO network call may leave this
+	// component. The previous implementation fired
+	// `fetch("https://api.github.com/...")` inside a mount-time
+	// `useEffect` (auto-fire), leaking the user's public IP, request
+	// timestamp, and Electron User-Agent to GitHub on EVERY Settings
+	// page open. A subsequent fix removed the auto-fire but kept the
+	// manual "Check for Updates" button (which still issued a fetch on
+	// click). C-DATA-1 now forbids both: the manual button has been
+	// removed entirely. This test asserts the stronger contract — no
+	// fetch fires on mount, on unmount, or at any other time — so a
+	// future regression (re-adding the auto-fire OR the manual button)
+	// fails loudly.
+	it("does NOT fire any fetch on mount (C-DATA-1 offline guarantee)", async () => {
 		const fetchSpy = vi.fn();
 		vi.stubGlobal("fetch", fetchSpy);
 
@@ -119,11 +121,32 @@ describe("PrewarmAndUpdates", () => {
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
-	it("renders the prewarm action buttons", () => {
+	it("renders the prewarm action buttons + the offline Updates notice", () => {
 		render(<PrewarmAndUpdates />);
+		// Prewarm action buttons — still present.
 		expect(screen.getByText("Run Prewarm Now")).toBeTruthy();
 		expect(screen.getByText("View prewarm log")).toBeTruthy();
-		expect(screen.getByText("Check for Updates")).toBeTruthy();
+		// "View Changelog" link button — still present (anchor, no fetch).
+		expect(screen.getByText("View Changelog")).toBeTruthy();
+		// Offline notice — the new static message replacing the
+		// "Check for Updates" button. The English text is hardcoded
+		// in the en.json locale; the test renders with the default
+		// English locale, so the message substring is stable.
+		expect(
+			screen.getByText(/Voice Typer is an offline application/i),
+		).toBeTruthy();
+	});
+
+	// C-DATA-1 regression guard: the "Check for Updates" button has
+	// been REMOVED. If a future contributor re-adds it (even as a
+	// disabled placeholder), this test fails loudly so the regression
+	// is caught before merge.
+	it("does NOT render the removed 'Check for Updates' button", () => {
+		render(<PrewarmAndUpdates />);
+		expect(screen.queryByText("Check for Updates")).toBeNull();
+		expect(
+			screen.queryByRole("button", { name: /check for updates/i }),
+		).toBeNull();
 	});
 
 	it("fetches prewarm status on mount and shows the cache badge", async () => {
@@ -135,24 +158,32 @@ describe("PrewarmAndUpdates", () => {
 		expect(await screen.findByText("Hot")).toBeTruthy();
 	});
 
-	it("surfaces a newer version via the manual update check", async () => {
-		// Latest release is newer than the installed (package.json) version.
-		vi.stubGlobal(
-			"fetch",
-			vi.fn().mockResolvedValue({
-				ok: true,
-				json: async () => ({ tag_name: "v99.0.0" }),
-			}),
-		);
-		render(<PrewarmAndUpdates />);
-		screen.getByText("Check for Updates").click();
+	// C-DATA-1 absolute guarantee: NO fetch is ever called from this
+	// component — not on mount, not on unmount, not on any user
+	// interaction. The previous "surfaces a newer version via the
+	// manual update check" test asserted the OPPOSITE contract (that
+	// clicking "Check for Updates" fires a fetch and surfaces a
+	// snackbar); that test has been removed and replaced with this
+	// stronger assertion.
+	it("does NOT fire any fetch across the component's entire lifecycle (C-DATA-1)", async () => {
+		const fetchSpy = vi.fn();
+		vi.stubGlobal("fetch", fetchSpy);
+
+		const { unmount } = render(<PrewarmAndUpdates />);
+
+		// Wait for the mount-time IPC call to settle.
 		await waitFor(() => {
-			expect(mockShowSnack).toHaveBeenCalled();
+			expect(mockCall).toHaveBeenCalledWith("get_prewarm_status");
 		});
-		const calledWithNewVersion = mockShowSnack.mock.calls.some(([msg]) =>
-			String(msg).includes("New version available"),
-		);
-		expect(calledWithNewVersion).toBe(true);
+		// Flush microtasks.
+		await new Promise((r) => setTimeout(r, 0));
+
+		// Unmount (exercises the cleanup path — a future regression
+		// could try to fire a fetch in a cleanup effect).
+		unmount();
+		await new Promise((r) => setTimeout(r, 0));
+
+		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
 	it("opens the prewarm log via the open_prewarm_log IPC", async () => {

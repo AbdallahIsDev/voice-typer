@@ -102,6 +102,21 @@ export function useVocabularyDialog({
 						: e,
 				);
 			} else {
+				// Duplicate-detection — refuse to append a new entry
+				// whose (original, category) pair already exists in the
+				// list. Without this, the user could silently accumulate
+				// duplicate triggers (one per category) which the backend
+				// would happily accept but the UI would render as
+				// visually-identical rows. Edits are exempt (the user is
+				// modifying an existing entry, not adding a duplicate).
+				const isDuplicate = entries.some(
+					(it) =>
+						it.original === trimmedTrigger && it.category === resolvedCategory,
+				);
+				if (isDuplicate) {
+					showSnack(t("vocabulary.duplicateOriginal"), "warning");
+					return;
+				}
 				// New entry — generate a fresh UUID.
 				updated = [
 					...entries,

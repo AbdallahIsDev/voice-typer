@@ -68,6 +68,10 @@ export function getCategoryLabels(): Record<
 // Auto-detect heuristics (conservative — when in doubt, fall through to
 // misspellings so existing entries don't silently shift category):
 //   1. Multi-word phrases → phrase_corrections
+//   1b. Script-detection fallback for non-Latin scripts:
+//        - CJK (Han) → phrase_corrections (case-based rules don't apply)
+//        - Arabic → names (proper-noun heavy in user vocabularies)
+//        - Cyrillic / Latin → fall through to case-based rules
 //   2. Mixed-case single tokens → products (e.g. WiFi, macOS, iPhone)
 //   3. All-uppercase single tokens (≥2 chars) → names (e.g. NASA)
 //   4. First-letter-capitalised single tokens → names (e.g. John)
@@ -85,6 +89,16 @@ const TECH_WORDS: ReadonlySet<string> = new Set([
 // the default for genuinely-unknown CamelCase words.
 const PRODUCT_EXAMPLES: ReadonlySet<string> = new Set(["ipad", "iphone"]);
 
+// Unicode script ranges used by the locale-aware fallback (rule 1b).
+// CJK Unified Ideographs cover the vast majority of Chinese / Japanese
+// Kanji; Arabic covers the core block; Cyrillic is intentionally NOT
+// special-cased here (it has upper/lower case, so the case-based rules
+// below apply directly — but those rules currently strip non-A-Z-a-z,
+// so Cyrillic falls through to the misspellings default, which is the
+// conservative behaviour we want for an unknown Cyrillic trigger).
+const CJK_RANGE = /[\u4e00-\u9fff]/;
+const ARABIC_RANGE = /[\u0600-\u06ff]/;
+
 export type DetectCategoryResult =
 	| "misspellings"
 	| "phrase_corrections"
@@ -98,6 +112,15 @@ export function detectCategory(trigger: string): DetectCategoryResult {
 
 	// Rule 1: multi-word phrases.
 	if (trimmed.includes(" ")) return "phrase_corrections";
+
+	// Rule 1b: script-detection fallback for non-Latin scripts.
+	// The case-based rules below only meaningfully classify Latin
+	// and Cyrillic inputs (they have case). CJK and Arabic don't —
+	// without this fallback, every CJK / Arabic trigger was being
+	// bucketed as ``misspellings`` (the empty-letters default),
+	// which is almost never correct for those scripts.
+	if (CJK_RANGE.test(trimmed)) return "phrase_corrections";
+	if (ARABIC_RANGE.test(trimmed)) return "names";
 
 	const letters = trimmed.replace(/[^A-Za-z]/g, "");
 	if (!letters) return "misspellings"; // e.g. "123"

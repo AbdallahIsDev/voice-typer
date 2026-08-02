@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Slider } from "@/components/ui/slider";
 import { cn } from "@/lib/utils";
 
@@ -17,12 +17,18 @@ interface RangeSliderProps {
 	disabled?: boolean;
 	/**
 	 * When true, the slider's `onChange` callback is deferred to the
-	 * next "commit" event (`pointerup` / `mouseup` / `keyup` / `touchend`).
+	 * next "commit" event (`pointerup` / `blur`).
 	 * During a drag the thumb moves (via a local display state) but the
 	 * real `onChange` is only invoked when the user releases the pointer
-	 * (or lifts the key after an arrow-key step).  Use this for settings
-	 * where each `onChange` triggers an immediate IPC write — prevents
-	 * a flood of `set_config` calls during a drag.
+	 * (or Tabs away from the slider after an arrow-key step).  Use this
+	 * for settings where each `onChange` triggers an immediate IPC
+	 * write — prevents a flood of `set_config` calls during a drag.
+	 *
+	 * Commit handlers currently bound: `onPointerUp` (covers
+	 * mouse/touch/pen release) and `onBlur` (covers keyboard-only
+	 * arrow-key steps which never produce a `pointerup`). A
+	 * `useEffect` cleanup also commits on unmount if the slider is
+	 * torn down mid-drag (e.g. parent navigates away).
 	 *
 	 * Task ID 5: added for the text-size slider (each `onChange` would
 	 * otherwise fire a separate `updateConfig({ text_size })` IPC call
@@ -63,14 +69,36 @@ export function RangeSlider({
 		}
 	}, [value]);
 
-	const commit = () => {
+	const commit = useCallback(() => {
 		if (!dirtyRef.current) return;
 		dirtyRef.current = false;
 		isDraggingRef.current = false;
 		if (displayValue !== value) {
 			onChange(displayValue);
 		}
-	};
+	}, [displayValue, value, onChange]);
+
+	// if the component unmounts while a deferred drag is in
+	// progress (dirtyRef === true), commit the pending value so the
+	// parent's `onChange` actually fires. Without this, navigating
+	// away mid-drag silently drops the user's last value.
+	//
+	// We use a ref-to-latest-commit pattern (commitRef) so the
+	// unmount cleanup can read the freshest `displayValue` / `value`
+	// without re-binding the effect on every render. Re-binding on
+	// every render would fire the cleanup on each state change
+	// (e.g. mid-drag) and prematurely reset `dirtyRef` / `isDraggingRef`.
+	// With the ref pattern, the cleanup is registered once and only
+	// runs when the component truly unmounts.
+	const commitRef = useRef(commit);
+	commitRef.current = commit;
+	useEffect(() => {
+		return () => {
+			if (dirtyRef.current) {
+				commitRef.current();
+			}
+		};
+	}, []);
 
 	const renderedValue = deferApply ? displayValue : value;
 
@@ -106,6 +134,16 @@ export function RangeSlider({
 				max={max}
 				step={step}
 				aria-label={ariaLabel}
+				// explicit aria-valuenow / aria-valuemin /
+				// aria-valuemax so screen readers always announce the
+				// numeric range. Radix Slider usually derives these
+				// from its own props, but the shadcn wrapper doesn't
+				// forward them — pass them explicitly so the slider
+				// has a complete ARIA contract regardless of how the
+				// underlying primitive evolves.
+				aria-valuenow={renderedValue}
+				aria-valuemin={min}
+				aria-valuemax={max}
 				// aria-valuetext gives screen-reader users the same
 				// "value + unit" readout that sighted users see next to the
 				// thumb. Without it, SR users only hear the raw number with

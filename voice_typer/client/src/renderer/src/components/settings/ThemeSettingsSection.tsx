@@ -47,6 +47,7 @@ import { computeRowContrast, HEX_STRICT_RE } from "@/lib/theme-contrast";
 import { cn } from "@/lib/utils";
 import {
 	CUSTOM_COLOR_KEYS,
+	type CustomThemeData,
 	DEFAULT_CUSTOM_DARK,
 	DEFAULT_CUSTOM_LIGHT,
 	DEFAULT_THEME_PRESET,
@@ -94,6 +95,138 @@ interface ThemeSettingsSectionProps extends SettingsSectionSharedProps {
 	themePresetProp?: VoiceTyperConfig["theme_preset"];
 }
 
+// ── Preset-dropdown sub-components ────────────────────────────────────
+//
+// Extracted from inline IIFEs that defeated ``React.memo`` on the
+// SelectTrigger / SelectContent subtrees — each IIFE produced a fresh
+// closure on every parent render, forcing reconciliation even when
+// neither ``effectivePreset`` nor ``customDraft`` had changed.
+//
+// Hoisting the closures to module-level named components lets React
+// short-circuit reconciliation when their props are referentially
+// stable. ``isDark`` is now read once in the parent and threaded down
+// as a prop (instead of being re-read from the DOM on every render
+// inside the IIFE).
+
+type TFunction = ReturnType<typeof useT>;
+
+interface ThemeSwatchProps {
+	/** Background colour of the rounded "A" square. */
+	bg: string;
+	/** Foreground colour of the "A" letter inside the square. */
+	fg: string;
+	/** Visible label rendered next to the swatch. */
+	label: string;
+	/** Optional className applied to the visible label <span>. */
+	labelClassName?: string;
+	/** Gap between swatch and label (defaults to ``gap-2``). */
+	gap?: string;
+}
+
+/**
+ * Rounded-rectangle "A" swatch + localised label, used in the preset
+ * dropdown trigger and inside each preset SelectItem. Pure / memo'd so
+ * the parent's re-renders don't force the swatch to re-render when the
+ * resolved colours and label haven't changed.
+ */
+const ThemeSwatch = memo(function ThemeSwatch({
+	bg,
+	fg,
+	label,
+	labelClassName,
+	gap = "gap-2",
+}: ThemeSwatchProps) {
+	return (
+		<span className={`flex items-center ${gap}`}>
+			<span
+				className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
+				style={{ backgroundColor: bg, color: fg }}
+			>
+				A
+			</span>
+			<span className={labelClassName}>{label}</span>
+		</span>
+	);
+});
+
+interface ThemePresetTriggerPreviewProps {
+	/** Currently-effective preset id (may be ``"custom"``). */
+	presetId: string;
+	/** Resolved dark-mode flag from the parent (read once per render). */
+	isDark: boolean;
+	/** In-memory custom-theme draft (used when presetId === "custom"). */
+	customDraft: CustomThemeData | null;
+	/** Translation function from the parent's ``useT()`` subscription. */
+	t: TFunction;
+}
+
+/**
+ * Renders the swatch + localised preset name shown inside the
+ * ``SelectTrigger``. Was previously an IIFE that re-read
+ * ``document.documentElement.classList`` on every render and produced a
+ * fresh closure that defeated ``React.memo`` on the trigger subtree.
+ */
+const ThemePresetTriggerPreview = memo(function ThemePresetTriggerPreview({
+	presetId,
+	isDark,
+	customDraft,
+	t,
+}: ThemePresetTriggerPreviewProps) {
+	const current =
+		THEMES.find((th) => th.id === presetId) ??
+		THEMES[0] ??
+		DEFAULT_THEME_PRESET;
+	const { bg, fg } = getThemePreviewColors(presetId, isDark, customDraft);
+	const nameKey = _getThemeNameKey(current);
+	const displayName = nameKey ? t(nameKey) : current.name;
+	return <ThemeSwatch bg={bg} fg={fg} label={displayName} />;
+});
+
+interface CustomDisabledSelectItemProps {
+	/** Resolved dark-mode flag from the parent (read once per render). */
+	isDark: boolean;
+	/** In-memory custom-theme draft (used to render the live swatch). */
+	customDraft: CustomThemeData | null;
+	/** Translation function from the parent's ``useT()`` subscription. */
+	t: TFunction;
+}
+
+/**
+ * The disabled "Custom (use toggle below)" SelectItem rendered at the
+ * top of the dropdown so the trigger's selected value (when the saved
+ * preset is ``"custom"``) always has a matching option (Radix Select
+ * otherwise warns about a missing value).
+ *
+ * Was previously an IIFE that re-read
+ * ``document.documentElement.classList`` on every render.
+ */
+const CustomDisabledSelectItem = memo(function CustomDisabledSelectItem({
+	isDark,
+	customDraft,
+	t,
+}: CustomDisabledSelectItemProps) {
+	const customThemeDef = THEMES.find((th) => th.id === "custom");
+	if (!customThemeDef) return null;
+	const { bg, fg } = getThemePreviewColors("custom", isDark, customDraft);
+	const customLabel = t("settings.appearance.customDropdownLabel");
+	return (
+		<SelectItem
+			key="custom-disabled"
+			value="custom"
+			disabled
+			className="opacity-60"
+		>
+			<ThemeSwatch
+				bg={bg}
+				fg={fg}
+				label={customLabel}
+				labelClassName="text-sm font-medium"
+				gap="gap-2.5"
+			/>
+		</SelectItem>
+	);
+});
+
 export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	config,
 	updateConfig,
@@ -135,6 +268,12 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 	const t = useT();
 
 	if (!config) return <SettingsSkeleton rows={3} />;
+
+	// Read the resolved dark-mode flag ONCE per render and thread it
+	// down to the preset-dropdown sub-components. Previously each
+	// dropdown item IIFE re-read ``document.documentElement.classList``
+	// on every render (3+ DOM reads per render for the same value).
+	const isDark = document.documentElement.classList.contains("dark");
 
 	// IMPL-C: resolve i18n keys once per render so the isVisible predicate
 	// and the rendered output share the same translated strings.
@@ -211,40 +350,12 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							className="w-44"
 							aria-label={t("settings.appearance.themePresetAria")}
 						>
-							{(() => {
-								const currentId = effectivePreset;
-								const current =
-									THEMES.find((t) => t.id === currentId) ??
-									THEMES[0] ??
-									DEFAULT_THEME_PRESET;
-								// Part C1/C2: rounded-rectangle "E" preview.  For the
-								// custom theme, use the actual custom colours from the
-								// in-memory draft instead of the static placeholder swatch.
-								const isDark =
-									document.documentElement.classList.contains("dark");
-								const { bg, fg } = getThemePreviewColors(
-									currentId,
-									isDark,
-									customDraft,
-								);
-								// I18N-NAMEKEY: prefer the localised theme name (via
-								// ``t(theme.nameKey)``) when the preset declares a
-								// ``nameKey`` field.  Falls back to the preset's
-								// hardcoded English ``name`` when the field is absent.
-								const nameKey = _getThemeNameKey(current);
-								const displayName = nameKey ? t(nameKey) : current.name;
-								return (
-									<span className="flex items-center gap-2">
-										<span
-											className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
-											style={{ backgroundColor: bg, color: fg }}
-										>
-											A
-										</span>
-										<span>{displayName}</span>
-									</span>
-								);
-							})()}
+							<ThemePresetTriggerPreview
+								presetId={effectivePreset}
+								isDark={isDark}
+								customDraft={customDraft}
+								t={t}
+							/>
 						</SelectTrigger>
 						<SelectContent
 							position="popper"
@@ -253,54 +364,22 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 							onMouseLeave={revertToSavedPreset}
 						>
 							{/* render a DISABLED "Custom (use toggle below)" SelectItem
-									when the saved preset is 'custom'.  Without this, the
-									dropdown's trigger showed a blank value when the preset
-									was 'custom' (the SelectItem list filtered 'custom' out),
-									making it look like the dropdown was broken.  The disabled
-									item is non-selectable — users toggle the custom theme via
-									the switch below the dropdown.  Always rendered so the
-									trigger's selected value always has a matching SelectItem
-									(Radix Select otherwise warns about a missing value). */}
-							{(() => {
-								const customThemeDef = THEMES.find((t) => t.id === "custom");
-								if (!customThemeDef) return null;
-								const isDark =
-									document.documentElement.classList.contains("dark");
-								const { bg, fg } = getThemePreviewColors(
-									"custom",
-									isDark,
-									customDraft,
-								);
-								const customLabel = t(
-									"settings.appearance.customDropdownLabel",
-								);
-								return (
-									<SelectItem
-										key="custom-disabled"
-										value="custom"
-										disabled
-										className="opacity-60"
-									>
-										<span className="flex items-center gap-2.5">
-											<span
-												className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
-												style={{
-													backgroundColor: bg,
-													color: fg,
-												}}
-											>
-												A
-											</span>
-											<span className="text-sm font-medium">{customLabel}</span>
-										</span>
-									</SelectItem>
-								);
-							})()}
+                                                                        when the saved preset is 'custom'.  Without this, the
+                                                                        dropdown's trigger showed a blank value when the preset
+                                                                        was 'custom' (the SelectItem list filtered 'custom' out),
+                                                                        making it look like the dropdown was broken.  The disabled
+                                                                        item is non-selectable — users toggle the custom theme via
+                                                                        the switch below the dropdown.  Always rendered so the
+                                                                        trigger's selected value always has a matching SelectItem
+                                                                        (Radix Select otherwise warns about a missing value). */}
+							<CustomDisabledSelectItem
+								isDark={isDark}
+								customDraft={customDraft}
+								t={t}
+							/>
 							{/* Built-in presets (excluding 'custom' — handled by the
-									disabled item above). */}
-							{THEMES.filter((t) => t.id !== "custom").map((theme) => {
-								const isDark =
-									document.documentElement.classList.contains("dark");
+                                                                        disabled item above). */}
+							{THEMES.filter((th) => th.id !== "custom").map((theme) => {
 								const { bg, fg } = getThemePreviewColors(
 									theme.id,
 									isDark,
@@ -314,15 +393,13 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 										value={theme.id}
 										onMouseEnter={handleThemeHover(theme.id)}
 									>
-										<span className="flex items-center gap-2.5">
-											<span
-												className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-xs font-semibold"
-												style={{ backgroundColor: bg, color: fg }}
-											>
-												A
-											</span>
-											<span className="text-sm font-medium">{displayName}</span>
-										</span>
+										<ThemeSwatch
+											bg={bg}
+											fg={fg}
+											label={displayName}
+											labelClassName="text-sm font-medium"
+											gap="gap-2.5"
+										/>
 									</SelectItem>
 								);
 							})}
@@ -333,9 +410,9 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 
 			{/* ── Custom Theme toggle ────────────────────────────── */}
 			{/* A switch that enables/disables the custom color editor.
-					When ON, theme_preset is forced to 'custom' and the color
-					picker appears.  When OFF, the preset reverts to the
-					previously-selected preset. */}
+                                        When ON, theme_preset is forced to 'custom' and the color
+                                        picker appears.  When OFF, the preset reverts to the
+                                        previously-selected preset. */}
 			{isVisible(customThemeLabel, customThemeInfoSearch, sectionTitle) && (
 				<SettingRow
 					label={customThemeLabel}
@@ -430,9 +507,9 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 										</p>
 									</div>
 									{/* contrast warning icon — shown when the row's
-											relevant colour pair falls below the WCAG AA 4.5:1
-											threshold.  Tooltip shows the actual ratio and the AA
-											requirement. */}
+                                                                                        relevant colour pair falls below the WCAG AA 4.5:1
+                                                                                        threshold.  Tooltip shows the actual ratio and the AA
+                                                                                        requirement. */}
 									{showContrastWarning && ratioRounded !== null && (
 										<TooltipProvider delayDuration={200}>
 											<Tooltip>
@@ -523,12 +600,12 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 					</div>
 
 					{/* Reset to defaults.
-							Part C5: the previously-broken "#888" 3-digit hex in
-							DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
-							so the validator accepts the payload — no more "Failed to
-							save settings" toast.
-							Part C6: button is disabled while the draft already matches
-							the defaults (re-enables the moment the user edits a color). */}
+                                                        Part C5: the previously-broken "#888" 3-digit hex in
+                                                        DEFAULT_CUSTOM_DARK["--text-muted"] is now "#888888" (6-digit)
+                                                        so the validator accepts the payload — no more "Failed to
+                                                        save settings" toast.
+                                                        Part C6: button is disabled while the draft already matches
+                                                        the defaults (re-enables the moment the user edits a color). */}
 					<button
 						type="button"
 						disabled={customDraftIsDefault}

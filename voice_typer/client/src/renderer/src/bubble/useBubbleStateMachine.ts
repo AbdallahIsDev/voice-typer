@@ -24,7 +24,7 @@
  *     forward-compatible without a type-system change to
  *     `BubbleWindowExtras.onSetState` (owned by another sub-agent).
  *
- * Subscribes to `api.onShow`, `api.onHide`, and `api.onSetState`.
+ * Subscribes to the bridge's `show` / `hide` / `setState` events.
  */
 import {
 	type Dispatch,
@@ -34,6 +34,7 @@ import {
 	useState,
 } from "react";
 import type { AnimState, BubbleMode } from "./constants";
+import { useBubbleBridge } from "./useBubbleBridge";
 
 export interface BubbleStateMachine {
 	mode: BubbleMode;
@@ -75,6 +76,7 @@ function parseSetStatePayload(arg: unknown): {
 }
 
 export function useBubbleStateMachine(): BubbleStateMachine {
+	const bridge = useBubbleBridge();
 	const [mode, setMode] = useState<BubbleMode>("recording");
 	const [animState, setAnimState] = useState<AnimState>("enter");
 	const [exitTick, setExitTick] = useState(0);
@@ -89,12 +91,9 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 	modeRef.current = mode;
 
 	useEffect(() => {
-		const api = window.bubble as
-			| import("@/types/ipc").BubbleWindowBubble
-			| undefined;
-		if (!api) return;
+		if (!bridge) return;
 
-		const offShow = api.onShow(() => {
+		const offShow = bridge.on("show", () => {
 			setExitTick(0); // Cancel any pending exit
 			setAnimState("enter");
 			// Don't override transcribing/fading mode if a state change
@@ -107,7 +106,7 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 			});
 		});
 
-		const offHide = api.onHide(() => {
+		const offHide = bridge.on("hide", () => {
 			// Two-stage transition when leaving transcribing state:
 			// first fade the transcribing content out smoothly, then
 			// trigger the bubble exit animation.
@@ -119,7 +118,7 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 			offShow();
 			offHide();
 		};
-	}, []);
+	}, [bridge]);
 
 	// Listen for state changes from the Python backend. When recording
 	// stops, Python sends "transcribing" so the bubble hides the
@@ -128,12 +127,9 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 	// "error" surfaces a red ⚠ Error label (with an optional reason
 	// string when the backend + main process forward one).
 	useEffect(() => {
-		const api = window.bubble as
-			| import("@/types/ipc").BubbleWindowBubble
-			| undefined;
-		if (!api?.onSetState) return;
+		if (!bridge) return;
 
-		const off = api.onSetState((stateArg) => {
+		const off = bridge.on("setState", (stateArg) => {
 			const { state, message } = parseSetStatePayload(stateArg);
 
 			// Recording interrupts the fading→exit transition (e.g.
@@ -183,7 +179,7 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 			}
 		});
 		return off;
-	}, []);
+	}, [bridge]);
 
 	return {
 		mode,

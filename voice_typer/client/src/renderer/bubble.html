@@ -64,9 +64,14 @@
       CSP — cspEmissionPlugin (electron.vite.config.ts) rewrites it at serve
       time to add 'unsafe-eval' + 'unsafe-inline' for Vite HMR.  The bubble
       renders waveform data only; no remote resources are ever needed.
+
+      C-DATA-1: connect-src is 'self' only — the bubble has no update-check
+      surface, so granting `https://api.github.com` would be dead attack
+      surface AND a latent C-DATA-1 violation. The previous grant was
+      removed for strict offline compliance.
     -->
   <meta http-equiv="Content-Security-Policy"
-    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self' data:; connect-src 'self' https://api.github.com; frame-ancestors 'none'; form-action 'none'; base-uri 'self';" />
+    content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'none'; base-uri 'self';" />
 
   <script type="module">
     import { APP_NAME } from "./src/branding.ts";

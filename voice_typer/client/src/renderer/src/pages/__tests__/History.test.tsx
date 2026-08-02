@@ -540,3 +540,35 @@ describe("BG-53: Clear All under active filter is unambiguous", () => {
 		});
 	});
 });
+
+// Regression coverage for the load-error EmptyState variant.
+// The History page distinguishes "backend failed to load" from "history is
+// genuinely empty": when loadError is set AND records is empty, it renders an
+// EmptyState with variant="error" so the failure is visually distinct from a
+// genuine empty list (destructive ring + Alert02Icon + role="alert"). This
+// matches the Vocabulary/Templates/Microphone load-failure pattern. Removing
+// variant="error" would make a backend failure look identical to "no
+// transcriptions yet", sending the user down the wrong recovery path.
+describe("History load-error EmptyState uses the error variant", () => {
+	it('renders role="alert" with destructive styling when the backend load fails', async () => {
+		// Every IPC call rejects — useHistoryCache.load() catches,
+		// sets loadError, and leaves records as []. The page then
+		// renders the load-error EmptyState (variant="error").
+		mockCall.mockRejectedValue(new Error("backend unreachable"));
+
+		const { default: HistoryPage } = await import("@/pages/History");
+		render(<HistoryPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText(t("history.loadFailedTitle"))).toBeTruthy();
+		});
+
+		// The error variant of EmptyState wraps the card in a div with
+		// role="alert" (the info variant uses role="status"). This is
+		// the assertion that fails if variant="error" is removed.
+		const alertRegion = screen.getByRole("alert");
+		expect(alertRegion).toBeTruthy();
+		// The destructive ring + soft wash should be applied.
+		expect(alertRegion.className).toContain("destructive");
+	});
+});

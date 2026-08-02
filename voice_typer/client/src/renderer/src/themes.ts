@@ -330,13 +330,13 @@ export function deriveCustomVars(
 		   white in both modes. For mid-tone primaries (green/amber/teal),
 		   white fails WCAG AA 4.5:1. Pick whichever of white/black has
 		   better contrast with the user-chosen primary. */
-		"--primary-foreground": _pickContrastForeground(primary),
+		"--primary-foreground": pickContrastForeground(primary),
 		"--secondary": isDark ? lighten(bg, 0.05) : darken(subtle, 0.03),
 		"--secondary-foreground": fg,
 		"--muted": isDark ? lighten(bg, 0.05) : darken(subtle, 0.02),
 		"--muted-foreground": muted,
 		"--accent": primary,
-		"--accent-foreground": _pickContrastForeground(primary),
+		"--accent-foreground": pickContrastForeground(primary),
 		"--accent-soft": `${primary}1a`,
 		"--accent-muted": `${primary}66`,
 		"--border": border,
@@ -345,7 +345,7 @@ export function deriveCustomVars(
 		"--sidebar": isDark ? subtle : lighten(subtle, 0.03),
 		"--sidebar-foreground": fg,
 		"--sidebar-primary": primary,
-		"--sidebar-primary-foreground": _pickContrastForeground(primary),
+		"--sidebar-primary-foreground": pickContrastForeground(primary),
 		"--sidebar-accent": isDark ? lighten(subtle, 0.05) : darken(subtle, 0.03),
 		"--sidebar-accent-foreground": fg,
 		"--sidebar-border": border,
@@ -374,7 +374,7 @@ export function deriveCustomVars(
  * When the input is unparseable (``contrastRatio`` treats it as black),
  * white wins and is returned. The function never throws.
  */
-function _pickContrastForeground(bgHex: string): string {
+export function pickContrastForeground(bgHex: string): string {
 	const whiteRatio = contrastRatio("#ffffff", bgHex);
 	const blackRatio = contrastRatio("#000000", bgHex);
 	return whiteRatio >= blackRatio ? "#ffffff" : "#000000";

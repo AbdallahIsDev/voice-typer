@@ -22,10 +22,27 @@
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { deriveCustomVars, THEME_VARIABLES, THEMES } from "@/themes";
+import { loadThemePreset } from "@/themes/index";
 
 const STATUS_TOKENS = ["--success", "--warning", "--info"] as const;
+
+// lazy themes: the 10 non-default/non-custom presets are now
+// loaded ON DEMAND via loadThemePreset — their light / dark
+// maps start EMPTY and are populated in place by the dynamic
+// import(). The beforeAll below loads every lazy preset BEFORE
+// any assertion reads preset.light / preset.dark, so the
+// status-token assertions see the full var maps. The it callbacks
+// below read preset.light[token] / preset.dark[token] at
+// runtime (after beforeAll), so they reflect the populated maps.
+beforeAll(async () => {
+	await Promise.all(
+		THEMES.filter((t) => t.id !== "default" && t.id !== "custom").map((t) =>
+			loadThemePreset(t.id),
+		),
+	);
+});
 
 describe("every theme preset defines --success / --warning / --info", () => {
 	it("THEME_VARIABLES includes the three status tokens", () => {

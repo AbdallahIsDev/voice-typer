@@ -33,7 +33,10 @@ export default function ConfirmDialog({
 	open,
 	title = t("common.confirm"),
 	message,
-	confirmLabel = t("common.delete"),
+	// Generic default so non-delete callers (skip onboarding, discard
+	// draft, etc.) don't get a misleading "Delete" button. Delete
+	// callers pass `confirmLabel={t("common.delete")}` explicitly.
+	confirmLabel = t("common.confirm"),
 	cancelLabel = t("common.cancel"),
 	variant = "destructive",
 	onConfirm,

@@ -15,6 +15,7 @@
 import {
 	type Dispatch,
 	type MutableRefObject,
+	type RefObject,
 	type SetStateAction,
 	useCallback,
 	useRef,
@@ -38,6 +39,14 @@ interface UseMicrophoneTestOptions {
 	selectMicrophoneRef: MutableRefObject<
 		(micId: string | null) => Promise<void>
 	>;
+	/**
+	 * consumer-attached ref to the meter wrapper element. The
+	 * level monitor's rAF loop imperatively writes the latest level to
+	 * the ``LevelBar``'s fill div inside this wrapper, bypassing React's
+	 * re-render cycle. ``Microphone.tsx`` creates this ref and attaches
+	 * it to a ``<div>`` wrapping ``<ActiveMicrophoneCard>``.
+	 */
+	meterRef: RefObject<HTMLElement | null>;
 }
 
 export interface UseMicrophoneTestResult {
@@ -51,6 +60,10 @@ export interface UseMicrophoneTestResult {
 	testQuality: TestResultQuality | null;
 	level: number;
 	peak: number;
+	/** Live level ref (mutated at ≤30 Hz by ``mic_level`` events). */
+	levelRef: MutableRefObject<number>;
+	/** Live peak ref (mutated at ≤30 Hz by ``mic_level`` events). */
+	peakRef: MutableRefObject<number>;
 	micMonitoring: boolean;
 	testDurationSec: number;
 	showAdvanced: boolean;
@@ -76,6 +89,7 @@ export function useMicrophoneTest({
 	setConfig,
 	updateConfig,
 	selectMicrophoneRef,
+	meterRef,
 }: UseMicrophoneTestOptions): UseMicrophoneTestResult {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
@@ -98,10 +112,14 @@ export function useMicrophoneTest({
 	// session can receive the level monitor's stable ``useState``
 	// setters. The level monitor reads ``playingRef`` (playback) and
 	// ``testRunningRef`` (composition-owned, synced by the session).
+	// The level monitor also receives ``meterRef`` so its rAF
+	// loop can imperatively update the ``LevelBar``'s fill div without
+	// triggering parent re-renders at 30 Hz.
 	const levelMonitor = useMicrophoneLevelMonitor({
 		config,
 		playingRef: playback.playingRef,
 		testRunningRef,
+		meterRef,
 	});
 
 	// Test-session state machine — receives the level monitor's
@@ -145,6 +163,11 @@ export function useMicrophoneTest({
 	return {
 		level: levelMonitor.level,
 		peak: levelMonitor.peak,
+		// Expose live refs so consumers that need the latest
+		// value (e.g. for text labels rendered outside the rAF-written
+		// DOM) can read ``.current`` without waiting for a re-render.
+		levelRef: levelMonitor.levelRef,
+		peakRef: levelMonitor.peakRef,
 		micMonitoring: levelMonitor.micMonitoring,
 		testRunning: session.testRunning,
 		testCountdown: session.testCountdown,

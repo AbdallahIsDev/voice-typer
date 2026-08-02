@@ -75,6 +75,14 @@ const STATCARDS_SRC = fs.readFileSync(
 	),
 	"utf8",
 );
+// Dashboard data-fetch hook source. The hook now fires an
+// additional `get_status` IPC call in its Promise.all to fetch the
+// on-disk `config_dir` for the footer; the assertions below verify the
+// hook owns that fetch + exposes `configDir` on its result.
+const HOOK_SRC = fs.readFileSync(
+	path.resolve(__dirname, "..", "dashboard", "hooks", "useDashboardData.ts"),
+	"utf8",
+);
 const FORMAT_SRC = fs.readFileSync(
 	path.resolve(__dirname, "..", "..", "lib", "format.ts"),
 	"utf8",
@@ -363,5 +371,114 @@ describe("DJ-93: Dashboard share-image container style hoisted to module-level c
 		// block (would indicate a second copy that should also be hoisted).
 		expect(beforeConst).not.toMatch(/position:\s*"absolute"/);
 		expect(afterConst).not.toMatch(/position:\s*"absolute"/);
+	});
+});
+
+//
+
+describe("Dashboard noDataDescription interpolates {hotkey} from config", () => {
+	it('Dashboard.tsx calls t("analytics.noDataDescription", { hotkey: ... })', () => {
+		// The empty-state CTA copy is "Press {hotkey} on the Home page to
+		// dictate — your stats will appear here." The previous call omitted
+		// the params object, so the literal "{hotkey}" token leaked into
+		// the rendered UI. The fix passes the resolved hotkey (falling back
+		// to "F2" when configRaw is null or the field is missing).
+		expect(DASHBOARD_SRC).toMatch(
+			/noDataDescription",\s*\{[\s\S]*?hotkey:\s*configRaw\?\.hotkey\s*\|\|\s*"F2"[\s\S]*?\}/,
+		);
+		// The bare no-arg call is gone (would re-introduce the literal
+		// {hotkey} token in the rendered string).
+		expect(DASHBOARD_SRC).not.toMatch(/t\("analytics\.noDataDescription"\)\s/);
+	});
+});
+
+//
+
+describe("Dashboard dataPath uses {path} interpolation fed by get_status config_dir", () => {
+	it('Dashboard.tsx calls t("analytics.dataPath", { path: configDir || ... })', () => {
+		// The previous implementation rendered the hardcoded English string
+		// "Data stored in: ~/.voice-typer/" regardless of platform. The fix
+		// interpolates the actual on-disk path (fetched via the get_status
+		// IPC) so Windows / VOICE_TYPER_CONFIG_DIR users see the right path.
+		expect(DASHBOARD_SRC).toMatch(
+			/dataPath",\s*\{[\s\S]*?path:\s*configDir\s*\|\|\s*"~\/\.voice-typer\/"[\s\S]*?\}/,
+		);
+		// The bare no-arg call is gone.
+		expect(DASHBOARD_SRC).not.toMatch(/t\("analytics\.dataPath"\)\s/);
+	});
+
+	it("Dashboard.tsx destructures configDir from useDashboardData", () => {
+		// The hook now exposes `configDir` alongside `configRaw`; the page
+		// must consume it for the dataPath interpolation above to resolve.
+		expect(DASHBOARD_SRC).toMatch(/configDir,/);
+	});
+
+	it("useDashboardData.ts fetches get_status in the Promise.all (C-DATA-1 local IPC)", () => {
+		// The hook now fires `get_status` alongside `get_config` /
+		// `get_today_stats` / `get_history` / `get_history_count`. The call
+		// is a local IPC probe (C-DATA-1, offline) — no network. A `.catch`
+		// fallback keeps the Promise.all alive if the backend doesn't expose
+		// `get_status` or the field is missing (older sidecar).
+		expect(HOOK_SRC).toMatch(
+			/call<.*config_dir\?:\s*string.*>.*\("get_status"/,
+		);
+		expect(HOOK_SRC).toMatch(/get_status.*\.catch\(\(\)\s*=>\s*null\)/);
+	});
+
+	it("useDashboardData.ts exposes configDir on its result + populates it from status.config_dir", () => {
+		// The hook must (1) declare `configDir: string` on its result
+		// interface so consumers can destructure it, (2) seed state from
+		// `status?.config_dir ?? ""` after the Promise.all resolves, and
+		// (3) include `configDir` in the returned object literal.
+		expect(HOOK_SRC).toMatch(/configDir:\s*string;/);
+		expect(HOOK_SRC).toMatch(/status\?\.config_dir/);
+		expect(HOOK_SRC).toMatch(/configDir,/);
+	});
+});
+
+//
+
+describe("SevenDayActivityChart migrates binary plural to tChoice", () => {
+	it("SevenDayActivityChart.tsx imports tChoice from @/i18n/i18n", () => {
+		// The chart previously imported only `t` and branched on
+		// `day.count === 1` between two hardcoded keys
+		// (dayCountTooltipSingular / dayCountTooltipPlural). The fix
+		// delegates to `tChoice` so CLDR plural categories (one/other/few/
+		// many) are resolved by Intl.PluralRules for the active locale.
+		expect(SEVEN_DAY_SRC).toMatch(
+			/import\s*\{\s*t,\s*tChoice\s*\}\s*from\s*"@\/i18n\/i18n"/,
+		);
+	});
+
+	it('SevenDayActivityChart.tsx uses tChoice("analytics.dayCountTooltip", day.count, { label })', () => {
+		// The single tChoice call replaces the previous ternary. The
+		// `count` argument drives plural-category selection; `label` is
+		// forwarded as an interpolation param so each day's tooltip shows
+		// its weekday label.
+		expect(SEVEN_DAY_SRC).toMatch(
+			/tChoice\(\s*"analytics\.dayCountTooltip",\s*day\.count,\s*\{\s*label:\s*day\.label,?\s*\}\s*\)/,
+		);
+	});
+
+	it("SevenDayActivityChart.tsx no longer references the binary plural keys", () => {
+		// The legacy `dayCountTooltipSingular` / `dayCountTooltipPlural`
+		// keys are dead after the migration. Asserting their absence in the
+		// chart source pins the migration so a future revert fails this test.
+		expect(SEVEN_DAY_SRC).not.toMatch(/dayCountTooltipSingular/);
+		expect(SEVEN_DAY_SRC).not.toMatch(/dayCountTooltipPlural/);
+		// The manual `day.count === 1` ternary is gone too (replaced by
+		// Intl.PluralRules inside tChoice).
+		expect(SEVEN_DAY_SRC).not.toMatch(/day\.count\s*===\s*1\s*\?/);
+	});
+
+	it("en.json defines dayCountTooltip_one / dayCountTooltip_other (CLDR plural keys)", () => {
+		// The tChoice lookup chain falls back through `{key}_{category}`
+		// → `{key}_other` → bare `{key}`. The CLDR-style keys already
+		// exist in en.json — pin them so a future JSON cleanup doesn't
+		// accidentally drop them and silently fall back to the bare key.
+		expect(EN_JSON.analytics.dayCountTooltip_one).toBeDefined();
+		expect(EN_JSON.analytics.dayCountTooltip_other).toBeDefined();
+		// The legacy binary-plural keys can stay (other agents may still
+		// reference them) — we only assert the new CLDR keys are present.
 	});
 });

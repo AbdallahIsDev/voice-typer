@@ -11,7 +11,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import type { IconSvgElement } from "@hugeicons/react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Fragment, useRef } from "react";
+import { Fragment, memo, useRef } from "react";
 import { APP_NAME } from "@/branding";
 import { formatHotkey } from "@/components/hotkey/hotkey-utils";
 import { Logo } from "@/components/layout/Logo";
@@ -120,7 +120,7 @@ interface SidebarProps {
 	collapsed?: boolean;
 }
 
-export function Sidebar({
+function SidebarInner({
 	currentPage,
 	onNavigate,
 	themeMode,
@@ -392,3 +392,15 @@ export function Sidebar({
 		</aside>
 	);
 }
+
+//wrap in React.memo so stable callbacks from App.tsx can
+// short-circuit re-renders when no props have changed. All props
+// (`currentPage`, `onNavigate`, `themeMode`, `onThemeChange`,
+// `collapsed`) are primitives or stable `useCallback` refs from
+// App.tsx — `navigate` (useNavigation) and `handleThemeChange`
+// (useTheme) are both `useCallback`-wrapped — so the default
+// shallow-equal comparator (matching the TitleBar.tsx:324 pattern)
+// skips re-renders on unrelated App state changes (e.g. sidebar
+// collapse toggles that don't affect Sidebar's own props, or
+// recordingState transitions).
+export const Sidebar = memo(SidebarInner);

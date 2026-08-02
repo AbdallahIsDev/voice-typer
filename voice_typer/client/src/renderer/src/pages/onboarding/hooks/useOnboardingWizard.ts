@@ -77,18 +77,49 @@ export function useOnboardingWizard(
 				const started = await call<StepInfo>("onboarding_start");
 				if (cancelled) return;
 				setStep(started);
-				try {
-					const cfg = await call<VoiceTyperConfig>("get_config");
-					if (cancelled) return;
-					if (cfg) {
-						const cfgHotkey = cfg.hotkey ?? HOTKEY_DEFAULT;
-						if (cfgHotkey) setSelectedHotkey(cfgHotkey);
-						const cfgModel = cfg.model_size ?? "small.en";
-						if (cfgModel) setSelectedModel(cfgModel);
-						setSelectedMic(cfg.microphone ?? "");
+				//Detect a resumed wizard. The backend's
+				// ``OnboardingController.__init__`` restores
+				// ``selected_microphone`` / ``selected_hotkey`` /
+				// ``selected_model`` from the
+				// ``.onboarding_progress`` marker
+				// (onboarding.py:_load_progress), but the renderer
+				// never sees those values — ``onboarding_start``
+				// only returns step info. The previous code then
+				// called ``get_config`` and overwrote the React
+				// selections with whatever was in ``config.json``.
+				// On a resume, that file still holds the pre-wizard
+				// defaults (``onboarding_apply`` was never called),
+				// so the override clobbered the controller's
+				// restored values with empty/default strings.
+				//
+				// Heuristic: a ``step > 0`` (past Welcome) means
+				// the controller resumed from a progress marker.
+				// Skip the get_config override so the renderer's
+				// defaults (which match the backend defaults via
+				// HOTKEY_DEFAULT / "small.en" / "") are shown
+				// instead of the disk config's pre-wizard defaults.
+				// The controller's in-memory restored selections
+				// are preserved on steps the user has already
+				// passed (handleNext only pushes the selection for
+				// the *current* step_name). Fully surfacing resumed
+				// selections in the renderer would require a
+				// backend change to return them from
+				// ``onboarding_start`` (out of scope for this fix).
+				const isResume = started.step > 0;
+				if (!isResume) {
+					try {
+						const cfg = await call<VoiceTyperConfig>("get_config");
+						if (cancelled) return;
+						if (cfg) {
+							const cfgHotkey = cfg.hotkey ?? HOTKEY_DEFAULT;
+							if (cfgHotkey) setSelectedHotkey(cfgHotkey);
+							const cfgModel = cfg.model_size ?? "small.en";
+							if (cfgModel) setSelectedModel(cfgModel);
+							setSelectedMic(cfg.microphone ?? "");
+						}
+					} catch (e) {
+						console.warn("[useOnboardingWizard] get_config probe failed:", e);
 					}
-				} catch (e) {
-					console.warn("[useOnboardingWizard] get_config probe failed:", e);
 				}
 				const mics = await call<{
 					microphones: MicrophoneOption[];

@@ -432,6 +432,7 @@
 		"checkForUpdates": "अपडेट के लिए जांचें",
 		"downloadVersion": "v{version} डाउनलोड करें",
 		"viewChangelog": "बदलाव लॉग देखें",
+		"offlineUpdatesMessage": "Voice Typer एक ऑफ़लाइन एप्लिकेशन है। अपडेट की जाँच करने के लिए, अपने ब्राउज़र में GitHub रिलीज़ पेज पर जाएँ।",
 		"startStopDictation": "डिक्टेशन शुरू / रोकें",
 		"startStopDictationValue": "F2 (या आपका कॉन्फ़िगर किया गया हॉटकी)",
 		"cancelRecording": "रिकॉर्डिंग रद्द करें",

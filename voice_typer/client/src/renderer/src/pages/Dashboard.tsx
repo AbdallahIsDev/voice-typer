@@ -17,6 +17,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import type { CSSProperties } from "react";
+import { useMemo } from "react";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { DashboardStatCard } from "@/components/dashboard/DashboardStatCard";
@@ -63,12 +64,36 @@ export default function DashboardPage() {
 	const {
 		data,
 		configRaw,
+		configDir,
 		refreshing,
 		handleManualRefresh,
 		agoLabel,
 		fetchError,
 	} = useDashboardData({ call });
 	const { imageRef, shareAsImage } = useStatsShare();
+
+	// Memoise the ShareStats object so its identity is stable
+	// across unrelated re-renders (e.g. refreshing flag toggles,
+	// agoLabel changes). Without this, every Dashboard re-render
+	// produced a fresh `computeShareStats(...)` return value,
+	// defeating the React.memo wrapper on StatsShareImage.
+	// Declared BEFORE the `if (!data)` early return so the hook
+	// order is stable across renders (rules-of-hooks).
+	const shareStats = useMemo(
+		() =>
+			data && configRaw
+				? computeShareStats(
+						{
+							count: data.todayCount,
+							chars: data.todayChars,
+							word_count: data.todayWordCount,
+							duration: data.todayDuration,
+						},
+						configRaw.asr_backend,
+					)
+				: null,
+		[data, configRaw],
+	);
 
 	// Fix #19: skeleton shown only on FIRST load (when `!data`); subsequent
 	// refreshes keep prior data visible (refreshing flag drives the
@@ -137,7 +162,9 @@ export default function DashboardPage() {
 				<EmptyState
 					icon={Mic02Icon}
 					title={t("analytics.noDataTitle")}
-					description={t("analytics.noDataDescription")}
+					description={t("analytics.noDataDescription", {
+						hotkey: configRaw?.hotkey || "F2",
+					})}
 					actionLabel={t("analytics.startDictation")}
 					actionIcon={SpeechToTextIcon}
 					onAction={() => navigate("home")}
@@ -200,26 +227,16 @@ export default function DashboardPage() {
 					</div>
 
 					<p className="text-xs text-(--text-muted) text-center pb-4">
-						{t("analytics.dataPath")}
+						{t("analytics.dataPath", {
+							path: configDir || "~/.voice-typer/",
+						})}
 					</p>
 				</div>
 			)}
 
 			{/* Hidden share-image capture target (no clipPath — EXPORT-FIX). */}
 			<div ref={imageRef} aria-hidden style={SHARE_IMAGE_CAPTURE_STYLE}>
-				{data && configRaw && (
-					<StatsShareImage
-						stats={computeShareStats(
-							{
-								count: data.todayCount,
-								chars: data.todayChars,
-								word_count: data.todayWordCount,
-								duration: data.todayDuration,
-							},
-							configRaw.asr_backend,
-						)}
-					/>
-				)}
+				{shareStats && <StatsShareImage stats={shareStats} />}
 			</div>
 		</div>
 	);

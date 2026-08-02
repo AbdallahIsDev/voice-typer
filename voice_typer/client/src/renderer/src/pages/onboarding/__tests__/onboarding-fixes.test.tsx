@@ -806,3 +806,141 @@ describe("ModelStep aria-label interpolates the model name", () => {
 		expect(placeholderText.textContent).not.toContain("{name}");
 	});
 });
+// ── Resume selections preserved (skip get_config override) ────────
+
+describe("useOnboardingWizard: resume does not clobber selections with disk config", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockShowSnack.mockReset();
+	});
+	afterEach(() => cleanup());
+
+	it("on a fresh start (step=0), get_config IS called to seed selections", async () => {
+		// Sanity guard: the resume-skip logic must NOT suppress the
+		// get_config probe on a genuine fresh start. The renderer needs
+		// the disk config so a user who already configured the app via
+		// Settings (then re-ran onboarding) sees their saved hotkey/model.
+		mockCall.mockImplementation((type: string) => {
+			switch (type) {
+				case "onboarding_start":
+					return Promise.resolve({
+						step: 0,
+						total_steps: 6,
+						step_name: "Welcome",
+					});
+				case "get_config":
+					return Promise.resolve({
+						hotkey: "<f5>",
+						model_size: "medium.en",
+						microphone: "saved-mic-id",
+					});
+				case "onboarding_get_microphones":
+					return Promise.resolve({
+						microphones: [
+							{ id: "saved-mic-id", name: "Saved Mic", default: true },
+						],
+					});
+				case "onboarding_get_hotkey_presets":
+					return Promise.resolve({ presets: ["<caps_lock>", "<f5>"] });
+				case "onboarding_get_model_options":
+					return Promise.resolve({ models: [] });
+				default:
+					return Promise.resolve({});
+			}
+		});
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		// Wait for the Welcome step to render.
+		await waitFor(() => {
+			expect(
+				screen.getAllByText("Welcome to Voice Typer").length,
+			).toBeGreaterThan(0);
+		});
+
+		// get_config must have been called on a fresh start.
+		const getConfigCalls = mockCall.mock.calls.filter(
+			(c: unknown[]) => c[0] === "get_config",
+		).length;
+		expect(getConfigCalls).toBeGreaterThanOrEqual(1);
+	});
+
+	it("on a resume (step>0), get_config is NOT called for selection override", async () => {
+		// Regression guard for the resume-clobber bug: previously the
+		// init() effect unconditionally called get_config and overwrote
+		// the React selections with the disk config's pre-wizard
+		// defaults (since onboarding_apply was never called). On a
+		// resume, that silently threw away the controller's in-memory
+		// restored selections. Now init() detects step>0 and skips the
+		// get_config override entirely.
+		mockCall.mockImplementation((type: string) => {
+			switch (type) {
+				case "onboarding_start":
+					// Resume at the Hotkey step (step index 3) — the
+					// user picked a mic + advanced through Permissions
+					// before closing the app.
+					return Promise.resolve({
+						step: 3,
+						total_steps: 6,
+						step_name: "Hotkey",
+					});
+				case "get_config":
+					// If called, returns values that DIFFER from the
+					// renderer defaults — so the test fails if init()
+					// forgets to skip the override.
+					return Promise.resolve({
+						hotkey: "<f11>",
+						model_size: "medium.en",
+						microphone: "should-not-appear",
+					});
+				case "onboarding_get_microphones":
+					return Promise.resolve({
+						microphones: [
+							{ id: "saved-mic-id", name: "Saved Mic", default: true },
+						],
+					});
+				case "onboarding_get_hotkey_presets":
+					return Promise.resolve({ presets: ["<caps_lock>", "<f11>"] });
+				case "onboarding_get_model_options":
+					return Promise.resolve({ models: [] });
+				case "onboarding_check_permissions":
+					return Promise.resolve({
+						platform: "linux",
+						state: "granted",
+						needed: false,
+						instructions: null,
+					});
+				default:
+					return Promise.resolve({});
+			}
+		});
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		// Wait for the Hotkey step to render.
+		await waitFor(() => {
+			expect(screen.getAllByText("Choose Your Hotkey").length).toBeGreaterThan(
+				0,
+			);
+		});
+
+		// The init effect's get_config probe must NOT have been called
+		// (the consent probe on Onboarding.tsx only fires on the Done
+		// step, which we are not on). This is the core regression guard.
+		const getConfigCalls = mockCall.mock.calls.filter(
+			(c: unknown[]) => c[0] === "get_config",
+		).length;
+		expect(getConfigCalls).toBe(0);
+
+		// The renderer's default hotkey (HOTKEY_DEFAULT = <caps_lock>)
+		// must be shown — NOT the disk config's "<f11>". The mocked
+		// Select renders the trigger value as the SelectValue's
+		// placeholder, so we assert the trigger does not contain
+		// "<f11>" (the disk config value).
+		const selectRoot = document.querySelector('[data-testid="select-root"]');
+		expect(selectRoot).not.toBeNull();
+		const selectValue = selectRoot?.getAttribute("data-value") ?? "";
+		expect(selectValue).toBe("<caps_lock>");
+		expect(selectValue).not.toBe("<f11>");
+	});
+});

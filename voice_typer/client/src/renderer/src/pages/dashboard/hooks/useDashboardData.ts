@@ -41,6 +41,8 @@ export interface UseDashboardDataArgs {
 export interface UseDashboardDataResult {
 	data: DashboardData | null;
 	configRaw: VoiceTyperConfig | null;
+	/** Backend config directory (from get_status) for the data-path display. */
+	configDir: string;
 	refreshing: boolean;
 	refreshData: () => Promise<void>;
 	handleManualRefresh: () => Promise<void>;
@@ -69,6 +71,7 @@ export function useDashboardData({
 	const [data, setData] = useState<DashboardData | null>(cachedDataRef.current);
 	// R7-F18: removed dead `const [, setLoading] = useState(true)`.
 	const [configRaw, setConfigRaw] = useState<VoiceTyperConfig | null>(null);
+	const [configDir, setConfigDir] = useState<string>("");
 	// F4 (b-review Finding 11): "Last updated" indicator state. The
 	// per-instance `cachedDataRef` survives re-renders within the same
 	// mount, so we mark the timestamp after each successful refreshData()
@@ -80,7 +83,7 @@ export function useDashboardData({
 	/** Fetch all dashboard data from the Python backend. */
 	const refreshData = useCallback(async () => {
 		try {
-			const [cfg, todayStats, history, totalCount] = await Promise.all([
+			const [cfg, todayStats, history, totalCount, status] = await Promise.all([
 				call<VoiceTyperConfig>("get_config"),
 				call<TodayStats>("get_today_stats").catch(() => ({
 					count: 0,
@@ -100,6 +103,9 @@ export function useDashboardData({
 				call<{ count: number }>("get_history_count").catch(() => ({
 					count: 0,
 				})),
+				// Fetch the backend config directory (for the data-path display).
+				// Returns null on failure — the caller falls back to the default path.
+				call<{ config_dir?: string } | null>("get_status").catch(() => null),
 			]);
 
 			const recs = history ?? [];
@@ -142,6 +148,7 @@ export function useDashboardData({
 			cachedDataRef.current = newData;
 			setData(newData);
 			setConfigRaw(cfg ?? null);
+			if (status?.config_dir) setConfigDir(status.config_dir);
 			setFetchError(null);
 		} catch (err) {
 			// Fix #9: surface refresh failures to the user instead of
@@ -251,6 +258,7 @@ export function useDashboardData({
 	return {
 		data,
 		configRaw,
+		configDir,
 		refreshing,
 		refreshData,
 		handleManualRefresh,

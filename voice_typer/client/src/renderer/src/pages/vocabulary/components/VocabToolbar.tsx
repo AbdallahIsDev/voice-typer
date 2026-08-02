@@ -45,7 +45,7 @@ export function VocabToolbar({
 			<input
 				ref={importInputRef}
 				type="file"
-				accept="application/json,.json"
+				accept="application/json,.json,.csv,text/csv"
 				className="sr-only"
 				onChange={(e) => {
 					const file = e.target.files?.[0];

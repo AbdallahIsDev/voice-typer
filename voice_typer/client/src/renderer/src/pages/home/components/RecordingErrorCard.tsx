@@ -18,13 +18,32 @@ export interface RecordingErrorCardProps {
 	onRetry: () => void;
 	retrying: boolean;
 	retryLabel?: string;
+	/**
+	 * Optional secondary "Open Microphone settings" CTA. When
+	 * provided, a ghost button is rendered so the user can jump
+	 * straight to the Microphone page if the error was caused by a
+	 * missing/invalid device — Retry alone is not enough for those
+	 * cases.
+	 */
+	onOpenMicSettings?: () => void;
+	micSettingsLabel?: string;
 }
+
+// Hard-coded English fallback so the secondary CTA is usable even
+// though no `home.openMicSettings` i18n key exists yet. Callers (Home.tsx)
+// can override via the `micSettingsLabel` prop once a translation key
+// is added. Mirrors the precedent set by `AudioSettingsSection.tsx`
+// which uses the hard-coded string "Go to Microphone" for the same
+// navigation target.
+const DEFAULT_MIC_SETTINGS_LABEL = "Open Microphone settings";
 
 export function RecordingErrorCard({
 	message,
 	onRetry,
 	retrying,
 	retryLabel = t("home.retry"),
+	onOpenMicSettings,
+	micSettingsLabel = DEFAULT_MIC_SETTINGS_LABEL,
 }: RecordingErrorCardProps) {
 	return (
 		<div
@@ -44,6 +63,17 @@ export function RecordingErrorCard({
 				<p className="mt-0.5 line-clamp-3 overflow-hidden text-ellipsis text-[12px] text-(--text-muted)">
 					{message}
 				</p>
+				{onOpenMicSettings && (
+					<Button
+						variant="ghost"
+						size="sm"
+						onClick={onOpenMicSettings}
+						className="mt-2 gap-1.5 px-0 text-[12px] text-(--text-muted) underline-offset-2 hover:text-(--text-primary) hover:underline"
+						aria-label={micSettingsLabel}
+					>
+						{micSettingsLabel}
+					</Button>
+				)}
 			</div>
 			<Button
 				variant="outline"

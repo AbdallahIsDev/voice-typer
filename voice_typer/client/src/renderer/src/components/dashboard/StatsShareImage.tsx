@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { getLocale, isRtlLocale, type Locale, t } from "@/i18n/i18n";
 import type { ShareStats } from "@/types/stats";
 
@@ -37,7 +38,7 @@ const WAVE_BARS = WAVE_BAR_HEIGHTS.map((h, idx) => ({
 	x: idx * (600 / 48) + 1.5,
 }));
 
-export function StatsShareImage({ stats }: StatsShareImageProps) {
+function StatsShareImageInner({ stats }: StatsShareImageProps) {
 	const locale: Locale = getLocale();
 	const isRtl = isRtlLocale(locale);
 	return (
@@ -265,3 +266,14 @@ export function StatsShareImage({ stats }: StatsShareImageProps) {
 		</div>
 	);
 }
+
+//wrap in React.memo so the off-screen share-image capture target
+// doesn't re-render on every parent re-render. The component is
+// captured as a PNG only when the user clicks "Share Stats", so
+// re-rendering it on every recordingState / config change is wasted
+// work. The `stats` prop is memoised at the call sites (Home.tsx,
+// Dashboard.tsx) via `useMemo` keyed on the underlying stats data,
+// so its identity is stable across unrelated re-renders — the
+// default shallow-equal comparator (matching the TitleBar.tsx:324
+// pattern) skips re-renders until the actual stats change.
+export const StatsShareImage = memo(StatsShareImageInner);

@@ -18,6 +18,7 @@ import {
 	type CustomThemeData,
 	DEFAULT_CUSTOM_DARK,
 	DEFAULT_CUSTOM_LIGHT,
+	pickContrastForeground,
 } from "@/themes";
 
 // Re-export so consumers can import all contrast-related helpers from a
@@ -49,11 +50,6 @@ export const HEX_STRICT_RE = /^#[0-9a-fA-F]{6}$/;
  * (``contrastRatio`` treats it as black), white wins and is returned.
  * The function never throws.
  */
-function _pickContrastForeground(bgHex: string): string {
-	const whiteRatio = contrastRatio("#ffffff", bgHex);
-	const blackRatio = contrastRatio("#000000", bgHex);
-	return whiteRatio >= blackRatio ? "#ffffff" : "#000000";
-}
 
 /**
  * Return the {fg, bg} colour pair used to evaluate
@@ -106,14 +102,20 @@ export function getContrastPair(
 			// underlying ``contrastRatio`` only parses #rrggbb).
 			const primaryHex = cssColorToHex(get("--primary"));
 			return {
-				fg: _pickContrastForeground(primaryHex),
+				fg: pickContrastForeground(primaryHex),
 				bg: primaryHex,
 			};
 		}
 		case "--bg-subtle":
-			return { fg: get("--foreground"), bg: get("--bg-subtle") };
+			return {
+				fg: pickContrastForeground(cssColorToHex(get("--bg-subtle"))),
+				bg: cssColorToHex(get("--bg-subtle")),
+			};
 		case "--text-muted":
-			return { fg: get("--text-muted"), bg: get("--background") };
+			return {
+				fg: pickContrastForeground(cssColorToHex(get("--background"))),
+				bg: cssColorToHex(get("--background")),
+			};
 		case "--border":
 			return null;
 		default:

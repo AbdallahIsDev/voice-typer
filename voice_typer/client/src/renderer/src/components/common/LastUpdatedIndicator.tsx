@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
+import { cn } from "@/lib/utils";
 
 /**
  * LastUpdatedIndicator — small "Last updated Xs ago [refresh]" widget
@@ -40,10 +41,10 @@ export function LastUpdatedIndicator({
 }: LastUpdatedIndicatorProps) {
 	return (
 		<div
-			className={
-				"flex items-center gap-1.5 text-xs text-(--text-muted) " +
-				(className ?? "")
-			}
+			className={cn(
+				"flex items-center gap-1.5 text-xs text-(--text-muted)",
+				className,
+			)}
 			data-testid="last-updated-indicator"
 		>
 			<span>{t("common.lastUpdatedWithValue", { value: agoLabel })}</span>

@@ -42,6 +42,11 @@ export {
 // helpers — pure functions
 export { getBubbleAriaLabel, rmsToNorm, tf } from "./helpers";
 export { useAudioLevels } from "./useAudioLevels";
+export type { BubbleBridge, BubbleBridgeOff } from "./useBubbleBridge";
+// bridge — centralises all window.bubble IPC subscriptions into one
+// listener per event channel; consumers register handlers via
+// `bridge.on(event, handler)`.
+export { BubbleBridgeProvider, useBubbleBridge } from "./useBubbleBridge";
 export { useBubbleLifecycle } from "./useBubbleLifecycle";
 export type { BubbleStateMachine } from "./useBubbleStateMachine";
 export { useBubbleStateMachine } from "./useBubbleStateMachine";

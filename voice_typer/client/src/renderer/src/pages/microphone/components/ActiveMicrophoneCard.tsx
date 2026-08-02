@@ -40,6 +40,11 @@ import type { TestResultQuality } from "../lib/types";
 export interface ActiveMicrophoneCardProps {
 	activeMicName: string;
 	isSystemDefault: boolean;
+	/** Whether the Start Test button should be enabled. False when the
+	 *  backend reports zero available microphones — issuing
+	 *  ``microphone_test_start`` with no mic (even the system default)
+	 *  fails and spams error snacks. */
+	canTest: boolean;
 	testRunning: boolean;
 	testCountdown: number;
 	testElapsed: number;
@@ -76,6 +81,7 @@ export interface ActiveMicrophoneCardProps {
 export function ActiveMicrophoneCard({
 	activeMicName,
 	isSystemDefault,
+	canTest,
 	testRunning,
 	testCountdown,
 	testElapsed,
@@ -162,7 +168,7 @@ export function ActiveMicrophoneCard({
 						variant="default"
 						size="sm"
 						className="gap-2"
-						disabled={playing}
+						disabled={playing || !canTest}
 						onClick={onStartTest}
 					>
 						<HugeiconsIcon
@@ -194,10 +200,23 @@ export function ActiveMicrophoneCard({
 				    announced to avoid screen-reader spam; the post-test
 				    duration (a single, stable value) IS announced via
 				    aria-live="polite" so users with AT know when a test
-				    completes and how long it ran. */}
+				    completes and how long it ran.
+
+				    aria-hidden={true} is UNCONDITIONAL here — the
+				    sibling ``LevelBar`` exposes the live value to
+				    assistive tech via its ``role="progressbar"`` +
+				    ``aria-valuenow`` attributes (the bar element is the
+				    accessible source of truth for the level). Letting
+				    this textual "Level: NN%" readout be announced too
+				    would duplicate the value AND spam AT at up to 30 Hz
+				    (the ``mic_level`` push rate). The previous
+				    ``aria-hidden={testRunning ? undefined : true}``
+				    was inverted: it leaked the level text to AT
+				    whenever a test was running — exactly when it
+				    updates fastest. */}
 				<span
 					className="text-xs text-(--text-muted) ml-auto"
-					aria-hidden={testRunning ? undefined : true}
+					aria-hidden={true}
 				>
 					{testRunning
 						? t("microphone.level", {
@@ -207,7 +226,7 @@ export function ActiveMicrophoneCard({
 							? t("microphone.level", {
 									percent: String(Math.round(level * 100)),
 								})
-							: t("microphone.monitoring")}
+							: t("microphone.monitoringOff")}
 				</span>
 				{!testRunning && testDurationMs > 0 && (
 					<span

@@ -172,7 +172,7 @@ const ActivityListRow = memo(function ActivityListRow({
 	);
 });
 
-export default function ActivityList({
+function ActivityListInner({
 	items,
 	lineClamp = 2,
 	title = t("home.recentActivity"),
@@ -279,3 +279,15 @@ export default function ActivityList({
 		</div>
 	);
 }
+
+//wrap in React.memo so the list doesn't re-render on every parent
+// re-render when its props haven't changed. The non-primitive props
+// (`items`, `onDelete`, `onToggleFavorite`, `onViewAll`) are stable
+// references from the parent (Home.tsx now wraps `onViewAll` in
+// `useCallback`; `items` is the `recent` array whose identity is
+// preserved by `useAppStore` selectors; `onDelete` /
+// `onToggleFavorite` are not passed by Home so they're `undefined`,
+// which memo treats as equal). The default shallow-equal comparator
+// (matching the TitleBar.tsx:324 pattern) skips re-renders until the
+// actual list contents or callbacks change.
+export default memo(ActivityListInner);

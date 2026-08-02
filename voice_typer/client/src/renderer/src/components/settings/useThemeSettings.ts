@@ -73,6 +73,13 @@ export function _getThemeNameKey(theme: unknown): string | null {
  * Read the 6 core theme colors for BOTH light and dark modes of the
  * currently-selected built-in preset.
  *
+ * Resolution is table-driven: each preset category ('default', 'custom',
+ * built-in, unknown-with-DOM, unknown-without-DOM) owns a single
+ * ``ThemeColorSource`` entry in ``THEME_COLOR_SOURCES``. Adding a new
+ * category (e.g. a future "high-contrast" preset family) means adding
+ * one entry to the table and one case to ``pickColorSource`` — no more
+ * editing a 5-branch switch-on-string inline.
+ *
  * For ``'default'`` we return the hardcoded ``DEFAULT_CUSTOM_LIGHT`` /
  * ``DEFAULT_CUSTOM_DARK`` maps directly — these are byte-identical to
  * what the stylesheet defines, so reading them via ``getComputedStyle``
@@ -89,101 +96,187 @@ export function _getThemeNameKey(theme: unknown): string | null {
  * and is gated behind a feature-detect so it doesn't run in jsdom
  * tests that lack ``getComputedStyle``.
  */
-function getCurrentThemeColors(
-	currentPresetId: string,
-	customDraft: CustomThemeData | null = null,
-): {
+type ThemeColorResult = {
 	light: Record<string, string>;
 	dark: Record<string, string>;
-} {
-	const cached = _themeColorCache.get(currentPresetId);
-	if (cached) return cached;
+};
 
-	const keys = CUSTOM_COLOR_KEYS.map((k) => k.var);
+type ThemeColorSourceContext = {
+	presetId: string;
+	customDraft: CustomThemeData | null;
+	keys: readonly string[];
+};
 
+/**
+ * A single resolution strategy. Returns the resolved colours, or
+ * ``null`` to signal "not applicable — fall through to the next
+ * strategy in the chain".
+ */
+type ThemeColorSource = {
+	getColors: (ctx: ThemeColorSourceContext) => ThemeColorResult | null;
+};
+
+const DEFAULT_COLOR_RESULT: ThemeColorResult = {
+	light: { ...DEFAULT_CUSTOM_LIGHT },
+	dark: { ...DEFAULT_CUSTOM_DARK },
+};
+
+/**
+ * Strategy table for ``getCurrentThemeColors``. Order matters: the
+ * resolver walks this list (after picking the primary strategy) and
+ * uses the first non-``null`` result. ``dom`` and ``fallback`` are
+ * intentionally last — they're the catch-all paths for unknown preset
+ * ids.
+ */
+const THEME_COLOR_SOURCES: Record<string, ThemeColorSource> = {
 	// 'default' preset — return the hardcoded DEFAULT_CUSTOM_* values
 	// (these match the stylesheet defaults exactly, so reading them via
 	// getComputedStyle was a layout-thrash for nothing).
-	if (currentPresetId === "default" || currentPresetId === "") {
-		const result = {
+	default: {
+		getColors: () => ({
 			light: { ...DEFAULT_CUSTOM_LIGHT },
 			dark: { ...DEFAULT_CUSTOM_DARK },
-		};
-		_themeColorCache.set(currentPresetId || "default", result);
-		return result;
-	}
+		}),
+	},
 
 	// 'custom' preset — derive from the in-memory customDraft (no DOM
 	// read).  When no draft is available yet (the very first render
 	// before ``setCustomDraft`` has run), fall back to the
 	// DEFAULT_CUSTOM_* values so the editor still has sensible starting
 	// colours.
-	if (currentPresetId === "custom") {
-		const lightCore = customDraft?.light ?? { ...DEFAULT_CUSTOM_LIGHT };
-		const darkCore = customDraft?.dark ?? { ...DEFAULT_CUSTOM_DARK };
-		const light: Record<string, string> = {};
-		const dark: Record<string, string> = {};
-		for (const key of keys) {
-			light[key] = lightCore[key] ?? DEFAULT_CUSTOM_LIGHT[key] ?? "#000000";
-			dark[key] = darkCore[key] ?? DEFAULT_CUSTOM_DARK[key] ?? "#000000";
-		}
-		const result = { light, dark };
-		_themeColorCache.set("custom", result);
-		return result;
-	}
+	custom: {
+		getColors: ({ customDraft, keys }: ThemeColorSourceContext) => {
+			const lightCore = customDraft?.light ?? { ...DEFAULT_CUSTOM_LIGHT };
+			const darkCore = customDraft?.dark ?? { ...DEFAULT_CUSTOM_DARK };
+			const light: Record<string, string> = {};
+			const dark: Record<string, string> = {};
+			for (const key of keys) {
+				light[key] = lightCore[key] ?? DEFAULT_CUSTOM_LIGHT[key] ?? "#000000";
+				dark[key] = darkCore[key] ?? DEFAULT_CUSTOM_DARK[key] ?? "#000000";
+			}
+			return { light, dark };
+		},
+	},
 
 	// Built-in preset with defined vars — read from THEMES array directly
-	// (in-memory, no DOM access).
-	const theme = THEMES.find((t) => t.id === currentPresetId);
-	if (theme) {
-		const light: Record<string, string> = {};
-		const dark: Record<string, string> = {};
-		for (const key of keys) {
-			light[key] = cssColorToHex(theme.light[key] ?? "");
-			dark[key] = cssColorToHex(theme.dark[key] ?? "");
-		}
-		const result = { light, dark };
-		_themeColorCache.set(currentPresetId, result);
-		return result;
-	}
+	// (in-memory, no DOM access). Returns null when the preset id isn't
+	// a built-in theme so the resolver falls through to dom/fallback.
+	builtin: {
+		getColors: ({ presetId, keys }: ThemeColorSourceContext) => {
+			const theme = THEMES.find((t) => t.id === presetId);
+			if (!theme) return null;
+			const light: Record<string, string> = {};
+			const dark: Record<string, string> = {};
+			for (const key of keys) {
+				light[key] = cssColorToHex(theme.light[key] ?? "");
+				dark[key] = cssColorToHex(theme.dark[key] ?? "");
+			}
+			return { light, dark };
+		},
+	},
 
 	// Last-resort fallback: read from the DOM.  This path is only
 	// reached for unknown preset ids (which shouldn't happen in
 	// practice — the THEMES array covers every valid id).  Kept for
-	// defensive compatibility with the pre-fix behaviour.
-	if (
-		typeof document !== "undefined" &&
-		typeof getComputedStyle === "function"
-	) {
-		const root = document.documentElement;
-		const hadDark = root.classList.contains("dark");
+	// defensive compatibility with the pre-fix behaviour. Returns
+	// null when DOM APIs aren't available so the resolver falls
+	// through to the final hardcoded fallback.
+	dom: {
+		getColors: ({ keys }: ThemeColorSourceContext) => {
+			if (
+				typeof document === "undefined" ||
+				typeof getComputedStyle !== "function"
+			) {
+				return null;
+			}
+			const root = document.documentElement;
+			const hadDark = root.classList.contains("dark");
 
-		root.classList.remove("dark");
-		const lightStyle = getComputedStyle(root);
-		const light: Record<string, string> = {};
-		for (const key of keys) {
-			light[key] = cssColorToHex(lightStyle.getPropertyValue(key).trim());
-		}
+			root.classList.remove("dark");
+			const lightStyle = getComputedStyle(root);
+			const light: Record<string, string> = {};
+			for (const key of keys) {
+				light[key] = cssColorToHex(lightStyle.getPropertyValue(key).trim());
+			}
 
-		root.classList.add("dark");
-		const darkStyle = getComputedStyle(root);
-		const dark: Record<string, string> = {};
-		for (const key of keys) {
-			dark[key] = cssColorToHex(darkStyle.getPropertyValue(key).trim());
-		}
+			root.classList.add("dark");
+			const darkStyle = getComputedStyle(root);
+			const dark: Record<string, string> = {};
+			for (const key of keys) {
+				dark[key] = cssColorToHex(darkStyle.getPropertyValue(key).trim());
+			}
 
-		root.classList.toggle("dark", hadDark);
-		const result = { light, dark };
-		_themeColorCache.set(currentPresetId, result);
-		return result;
-	}
+			root.classList.toggle("dark", hadDark);
+			return { light, dark };
+		},
+	},
 
 	// No DOM available (SSR / restricted test env) — fall back to the
 	// hardcoded defaults so the caller always gets a valid object.
-	return {
-		light: { ...DEFAULT_CUSTOM_LIGHT },
-		dark: { ...DEFAULT_CUSTOM_DARK },
+	fallback: {
+		getColors: () => ({
+			light: { ...DEFAULT_CUSTOM_LIGHT },
+			dark: { ...DEFAULT_CUSTOM_DARK },
+		}),
+	},
+};
+
+/**
+ * Pick the primary resolution strategy for a preset id. Returns the
+ * key into ``THEME_COLOR_SOURCES``. ``builtin`` returns null inside
+ * ``getColors`` when the id isn't a built-in theme, which triggers the
+ * fall-through to ``dom`` and ``fallback``.
+ */
+function pickColorSource(presetId: string): keyof typeof THEME_COLOR_SOURCES {
+	if (presetId === "default" || presetId === "") return "default";
+	if (presetId === "custom") return "custom";
+	return "builtin";
+}
+
+/**
+ * Resolution chain after the primary strategy. ``builtin`` may return
+ * null (unknown preset id); we then try ``dom`` (may also return null
+ * in non-DOM environments), then ``fallback`` (always returns).
+ */
+const COLOR_SOURCE_FALLTHROUGH: ReadonlyArray<
+	keyof typeof THEME_COLOR_SOURCES
+> = ["dom", "fallback"];
+
+function getCurrentThemeColors(
+	currentPresetId: string,
+	customDraft: CustomThemeData | null = null,
+): ThemeColorResult {
+	const cached = _themeColorCache.get(currentPresetId);
+	if (cached) return cached;
+
+	const keys = CUSTOM_COLOR_KEYS.map((k) => k.var);
+	const ctx: ThemeColorSourceContext = {
+		presetId: currentPresetId,
+		customDraft,
+		keys,
 	};
+
+	const primary = pickColorSource(currentPresetId);
+	const primarySource = THEME_COLOR_SOURCES[primary];
+	let result: ThemeColorResult | null =
+		primarySource !== undefined ? primarySource.getColors(ctx) : null;
+
+	if (result === null) {
+		for (const fallbackKey of COLOR_SOURCE_FALLTHROUGH) {
+			const source = THEME_COLOR_SOURCES[fallbackKey];
+			if (source === undefined) continue;
+			result = source.getColors(ctx);
+			if (result !== null) break;
+		}
+	}
+
+	// The fall-through chain ends with 'fallback', which is guaranteed
+	// non-null. Defensive guard keeps TS happy without a non-null
+	// assertion.
+	if (result === null) result = DEFAULT_COLOR_RESULT;
+
+	_themeColorCache.set(currentPresetId || "default", result);
+	return result;
 }
 
 /**

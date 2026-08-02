@@ -1,20 +1,22 @@
-// Prewarm cache status + in-app update check.
+// Prewarm cache status + offline update notice.
 //
-//SET-5 slimming of About.tsx removed the Cache Status and Updates
-// sections from the About page but documented them as "relocated to
-// Settings → Troubleshooting". They had in fact been dropped from the UI
-// entirely (orphaned i18n + a dangling `get_prewarm_status` IPC command).
-// This component restores that functionality into the Troubleshooting area
-// of Settings, wiring the prewarm diagnostics and the GitHub release check
-// back up.
+// History: an earlier revision of this component hosted an in-app
+// "Check for Updates" button that fired a `fetch()` against the
+// GitHub releases API (a remote HTTPS endpoint).
+// A subsequent privacy fix removed the AUTO-firing `useEffect` that
+// ran the same fetch on every Settings mount, leaving the explicit
+// manual button as the only network call. C-DATA-1 (the offline
+// guarantee) forbids ANY network call in the production code path —
+// including an explicit user click. The manual check has therefore
+// been removed entirely. The Updates section now shows the installed
+// version plus a static message directing the user to open the
+// GitHub releases page in their browser. No `fetch`, no `XMLHttpRequest`,
+// no `WebSocket`, no DNS lookup leaves the renderer.
 //
-// Behavior mirrors the original About implementation: prewarm cache status
-// is fetched on mount and refreshable; "Run Prewarm Now" triggers a manual
-// warm and polls until it finishes; "View prewarm log" opens the log file;
-// and "Check for Updates" compares the installed version against the latest
-// GitHub release using the semver-aware `compareSemver`.
+// The prewarm cache status surface is unaffected: it queries the
+// Python sidecar over the local IPC bridge (in-process, no network).
 
-import { Download01Icon, RefreshIcon } from "@hugeicons/core-free-icons";
+import { RefreshIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect, useRef, useState } from "react";
 import { ReadonlyRow } from "@/components/common/ReadonlyRow";
@@ -23,7 +25,6 @@ import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
-import { compareSemver } from "@/lib/semver";
 // Reuse the byte/relative-time formatters already exported by About
 // (kept exported there for unit-test coverage) instead of duplicating them.
 import { formatBytes, formatRelativeTime } from "@/pages/About";
@@ -32,10 +33,14 @@ import type { IsVisibleFn } from "./types";
 
 const APP_VERSION = pkg.version as string;
 
-//GitHub releases feed for "new version available" checks.
+// Static anchor URL for the "View Changelog" button. This is NOT a
+// renderer-initiated network call — it is an `<a href>` element the
+// user explicitly clicks, which Electron routes to the system browser
+// (or a new BrowserWindow depending on config). The C-DATA-1 rule
+// forbids automated network calls from the production code path; a
+// user-clicked external link is the user's browser making the call,
+// not Voice Typer.
 const RELEASES_URL = "https://github.com/AbdallahIsDev/voice-typer/releases";
-const LATEST_RELEASE_API =
-	"https://api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest";
 
 // ADR-0009 Issue 3: shape of the ``get_prewarm_status`` IPC response.
 // Mirrors the dict returned by voice_typer.server.prewarm.get_prewarm_status().
@@ -92,7 +97,7 @@ const ALWAYS_VISIBLE: IsVisibleFn = () => true;
 
 /** Translated row + section + action-button labels rendered by this
  *  component. Exported so the Settings page's search auto-switch
- *  () can include them in the privacy tab's label set — without
+ *  can include them in the privacy tab's label set — without
  *  this, typing "prewarm", "cache", "version", "update", etc. wouldn't
  *  route to the privacy tab because `getTabLabels()` only knows the
  *  two section titles (`about.cacheTitle`, `about.updatesTitle`).
@@ -114,8 +119,7 @@ export function getPrewarmAndUpdatesLabels(): string[] {
 		t("about.updatesTitle"),
 		t("about.updatesDescription"),
 		t("about.installedVersion"),
-		t("about.latestRelease"),
-		t("about.checkForUpdates"),
+		t("about.offlineUpdatesMessage"),
 		t("about.viewChangelog"),
 	];
 }
@@ -136,10 +140,6 @@ export default function PrewarmAndUpdates({
 	// get_prewarm_status) takes over as the progress indicator.
 	const [runPrewarmLoading, setRunPrewarmLoading] = useState(false);
 
-	//latest release from GitHub (null = not checked yet).
-	const [latestVersion, setLatestVersion] = useState<string | null>(null);
-	const [checkingUpdate, setCheckingUpdate] = useState(false);
-
 	const fetchPrewarmStatus = async () => {
 		setPrewarmLoading(true);
 		try {
@@ -158,7 +158,7 @@ export default function PrewarmAndUpdates({
 	// (pythonw -m voice_typer.server.prewarm --force). After spawning,
 	// polls get_prewarm_status every 2s until prewarm_running flips to
 	// False, then refreshes the card and shows a completion toast.
-	//poll is cancellable via prewarmPollCancelledRef so the
+	// The poll is cancellable via prewarmPollCancelledRef so the
 	// loop stops calling setPrewarmStatus / showSnack / IPC after the
 	// component unmounts.
 	const prewarmPollCancelledRef = useRef(false);
@@ -248,59 +248,18 @@ export default function PrewarmAndUpdates({
 		}
 	};
 
-	//REMOVED the auto-firing `checkForUpdate` callback and its
-	// useEffect invocation on mount. The previous implementation fired a
-	// network request to api.github.com on every mount of this component,
-	// violating the offline-first guarantee. The manual "Check for Updates"
-	// button (handleManualCheck) is the explicit opt-in path and remains
-	// unchanged.
+	// C-DATA-1 (offline guarantee): the previous "Check for Updates"
+	// button — which fired a renderer `fetch()` to the remote
+	// click — has been REMOVED. Even an explicit user click is a
+	// network call in the production code path, which the offline
+	// guarantee forbids. The Updates section now shows the installed
+	// version plus a static message directing the user to open the
+	// GitHub releases page in their browser. No fetch, no
+	// XMLHttpRequest, no WebSocket leaves the renderer.
 
-	const handleManualCheck = async () => {
-		setCheckingUpdate(true);
-		try {
-			const resp = await fetch(LATEST_RELEASE_API, {
-				headers: { Accept: "application/vnd.github+json" },
-			});
-			if (!resp.ok)
-				throw new Error(
-					t("about.httpError", { status: resp.status.toString() }),
-				);
-			const data = (await resp.json()) as { tag_name?: string };
-			if (!data.tag_name) throw new Error("No tag_name in response");
-			const remote = data.tag_name.replace(/^v/, "");
-			setLatestVersion(remote);
-			// Use a proper semver comparison instead of lexicographic
-			// string comparison (which broke for "1.10.0" vs "1.9.0").
-			if (compareSemver(remote, APP_VERSION) === 0) {
-				showSnack(
-					t("about.onLatestVersion", { version: APP_VERSION }),
-					"success",
-				);
-			} else if (compareSemver(remote, APP_VERSION) > 0) {
-				showSnack(t("about.newVersionAvailable", { version: remote }), "info");
-			} else {
-				showSnack(
-					t("about.installedNewer", {
-						installed: APP_VERSION,
-						latest: remote,
-					}),
-					"info",
-				);
-			}
-		} catch (err) {
-			showSnack(
-				t("about.updateCheckFailed", {
-					error: err instanceof Error ? err.message : "unknown error",
-				}),
-				"error",
-			);
-		} finally {
-			setCheckingUpdate(false);
-		}
-	};
-
-	//On mount: fetch prewarm status only. : do NOT auto-fire the
-	// GitHub release check.
+	// On mount: fetch prewarm status only. No network call is ever
+	// fired from this component (the prewarm status call is a local
+	// IPC bridge to the Python sidecar, not a network call).
 	useEffect(() => {
 		let cancelled = false;
 		const load = async () => {
@@ -445,10 +404,20 @@ export default function PrewarmAndUpdates({
 				</SettingsSection>
 			)}
 
-			{/*Updates () ─────────────────────────────────── */}
-			{[t("about.installedVersion"), t("about.latestRelease")].some((l) =>
-				isVisible(l, undefined, t("about.updatesTitle")),
-			) && (
+			{/* ── Updates (offline notice) ──────────────────────────── */}
+			{/* C-DATA-1: the previous "Check for Updates" button fired a
+				`fetch()` to the remote releases endpoint on click — a
+				network call in the production code path, forbidden by the
+				offline guarantee. The button, the latestVersion state,
+				and the the manual update-check handler handler have all been removed.
+				The section now shows the installed version plus a static
+				offline message + a user-clicked external link to the
+				GitHub releases page. */}
+			{[
+				t("about.installedVersion"),
+				t("about.offlineUpdatesMessage"),
+				t("about.viewChangelog"),
+			].some((l) => isVisible(l, undefined, t("about.updatesTitle"))) && (
 				<SettingsSection
 					title={t("about.updatesTitle")}
 					description={t("about.updatesDescription")}
@@ -463,50 +432,26 @@ export default function PrewarmAndUpdates({
 							value={t("about.versionValue", { version: APP_VERSION })}
 						/>
 					)}
-					{isVisible(
-						t("about.latestRelease"),
-						undefined,
-						t("about.updatesTitle"),
-					) && (
-						<ReadonlyRow
-							label={t("about.latestRelease")}
-							value={
-								latestVersion === null
-									? t("about.checking")
-									: compareSemver(latestVersion, APP_VERSION) > 0
-										? t("about.updateAvailable", { version: latestVersion })
-										: t("about.versionValue", { version: latestVersion })
-							}
-						/>
-					)}
 					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
-						<Button
-							variant="outline"
-							size="sm"
-							onClick={handleManualCheck}
-							disabled={checkingUpdate}
-						>
-							{checkingUpdate
-								? t("about.checking")
-								: t("about.checkForUpdates")}
-						</Button>
-						{latestVersion !== null &&
-							compareSemver(latestVersion, APP_VERSION) > 0 && (
-								<Button asChild variant="default" size="sm">
-									<a
-										href={RELEASES_URL}
-										target="_blank"
-										rel="noreferrer noopener"
-									>
-										<HugeiconsIcon
-											icon={Download01Icon}
-											strokeWidth={2}
-											className="h-4 w-4"
-										/>
-										{t("about.downloadVersion", { version: latestVersion })}
-									</a>
-								</Button>
-							)}
+						{/* C-DATA-1 (offline guarantee): the previous
+						"Check for Updates" button fired a renderer
+						`fetch()` to the remote releases endpoint on click — a network
+						call in the production code path, forbidden. The
+						button + handler + latestVersion state have all
+						been removed; in their place, a static offline
+						notice directs the user to open the GitHub
+						releases page in their own browser. */}
+						<p className="text-sm text-(--text-muted) mr-auto">
+							{t("about.offlineUpdatesMessage")}
+						</p>
+						{/* "View Changelog" — an `<a href>` link the user
+						clicks to open the GitHub releases page in their
+						browser. This is NOT a renderer network call: it's
+						an anchor the user explicitly activates, routed by
+						Electron to the system browser (or a new
+						BrowserWindow). C-DATA-1 forbids automated network
+						calls; user-clicked external links are the user's
+						browser making the call, not Voice Typer. */}
 						<Button asChild variant="ghost" size="sm">
 							<a href={RELEASES_URL} target="_blank" rel="noreferrer noopener">
 								<HugeiconsIcon

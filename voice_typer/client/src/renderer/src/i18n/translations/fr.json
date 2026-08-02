@@ -1325,6 +1325,7 @@
 		"checkForUpdates": "Vérifier les mises à jour",
 		"downloadVersion": "Télécharger v{version}",
 		"viewChangelog": "Voir le journal des modifications",
+		"offlineUpdatesMessage": "Voice Typer est une application hors ligne. Pour vérifier les mises à jour, visitez la page des versions GitHub dans votre navigateur.",
 		"startStopDictation": "Démarrer / Arrêter la dictée",
 		"startStopDictationValue": "F2 (ou votre raccourci configuré)",
 		"cancelRecording": "Annuler l'enregistrement",

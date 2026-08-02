@@ -11,7 +11,7 @@
 // all rendering lives in the components. Behaviour is preserved
 // byte-for-byte — this is a pure structural refactor.
 import { AlertCircleIcon, BookOpen02Icon } from "@hugeicons/core-free-icons";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
@@ -20,7 +20,7 @@ import { Spinner } from "@/components/feedback/Spinner";
 import { useLastUpdated } from "@/hooks/useLastUpdated";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
-import { t } from "@/i18n/i18n";
+import { getLocaleSnapshot, t, useT } from "@/i18n/i18n";
 
 import { VocabDialog } from "./vocabulary/components/VocabDialog";
 import { VocabListRow } from "./vocabulary/components/VocabListRow";
@@ -30,6 +30,7 @@ import { useVocabulary } from "./vocabulary/hooks/useVocabulary";
 import { useVocabularyDialog } from "./vocabulary/hooks/useVocabularyDialog";
 import { useVocabularyImportExport } from "./vocabulary/hooks/useVocabularyImportExport";
 import { getCategoryLabels } from "./vocabulary/lib/categories";
+import type { VocabRow } from "./vocabulary/lib/transform";
 
 export default function VocabularyPage() {
 	const { call } = usePython();
@@ -40,7 +41,7 @@ export default function VocabularyPage() {
 	// until the user clicks "Show more". Keeps very large vocabularies
 	// (thousands of entries) from mounting thousands of DOM rows.
 	const DISPLAY_CAP = 200;
-	const [showAll, setShowAll] = useState(false);
+	const [displayCount, setDisplayCount] = useState(DISPLAY_CAP);
 
 	//: "Clear All" is gated by a confirmation dialog — granting it
 	// wipes every category (an irreversible privacy-adjacent action).
@@ -117,9 +118,37 @@ export default function VocabularyPage() {
 			setEntries,
 		});
 
-	//resolve category labels at render time so locale switches
-	// re-resolve the t() keys against the new locale.
-	const categoryLabels = getCategoryLabels();
+	// Subscribe to locale changes via useT() (a useSyncExternalStore
+	// wrapper) so this component re-renders when the locale switches.
+	// getLocaleSnapshot() returns a locale#revision string that changes
+	// on every locale change (including the post-dynamic-import
+	// notification) — using it as the sole useMemo dependency means
+	// getCategoryLabels() is re-resolved ONLY on locale switch, not on
+	// every keystroke. Previously getCategoryLabels() was called on every
+	// render, creating a fresh object that broke VocabListRow's memo.
+	// (The snapshot value is not read inside the factory — getCategoryLabels()
+	// resolves t() keys against the current locale at call time — so the
+	// dependency is an intentional invalidation key, same pattern as
+	// AudioFilterChain.tsx.)
+	useT();
+	const localeRevision = getLocaleSnapshot();
+	// biome-ignore lint/correctness/useExhaustiveDependencies: localeRevision is the intentional invalidation key — getCategoryLabels() reads the current locale via t() at call time
+	const categoryLabels = useMemo(() => getCategoryLabels(), [localeRevision]);
+
+	// openEditDialog from useVocabularyDialog is a plain function
+	// (recreated every render). Wrap it in a stable useCallback via the
+	// "latest ref" pattern so the memo'd VocabListRow sees a
+	// referentially-stable onEdit prop and skips re-rendering on
+	// unrelated state changes (e.g. search keystrokes). Mirrors the
+	// ActivityListRow stable-callback pattern
+	// (components/dashboard/ActivityList.tsx:74).
+	const openEditDialogRef = useRef(openEditDialog);
+	useEffect(() => {
+		openEditDialogRef.current = openEditDialog;
+	});
+	const handleEdit = useCallback((entry: VocabRow) => {
+		openEditDialogRef.current(entry);
+	}, []);
 
 	if (loading) {
 		return (
@@ -208,22 +237,20 @@ export default function VocabularyPage() {
 					) : (
 						<>
 							<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
-								{filteredSorted
-									.slice(0, showAll ? undefined : DISPLAY_CAP)
-									.map((entry) => (
-										<VocabListRow
-											key={entry._id}
-											entry={entry}
-											categoryLabels={categoryLabels}
-											onEdit={openEditDialog}
-											onDelete={instantDeleteEntry}
-										/>
-									))}
+								{filteredSorted.slice(0, displayCount).map((entry) => (
+									<VocabListRow
+										key={entry._id}
+										entry={entry}
+										categoryLabels={categoryLabels}
+										onEdit={handleEdit}
+										onDelete={instantDeleteEntry}
+									/>
+								))}
 							</div>
-							{filteredSorted.length > DISPLAY_CAP && !showAll && (
+							{filteredSorted.length > displayCount && (
 								<button
 									type="button"
-									onClick={() => setShowAll(true)}
+									onClick={() => setDisplayCount((c) => c + DISPLAY_CAP)}
 									className="mx-auto mt-3 block text-xs font-medium text-accent hover:underline cursor-pointer"
 								>
 									{t("vocabulary.showMore")}

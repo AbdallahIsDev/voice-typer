@@ -40,7 +40,7 @@
 // preserved — ``console.error`` serializes ``errorInfo`` to a string
 // and loses the structured component-tree trace).
 
-import { Component, type ErrorInfo, type ReactNode } from "react";
+import { Component, createRef, type ErrorInfo, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 
@@ -75,6 +75,17 @@ export class ErrorBoundary extends Component<
 	ErrorBoundaryProps,
 	ErrorBoundaryState
 > {
+	// Ref to the primary recovery button ("Reset settings") in the
+	// fallback UI. We programmatically focus it when the boundary
+	// triggers so keyboard / SR users land on the recommended
+	// recovery affordance instead of being stranded at the top of
+	// a long alert region. ``componentDidUpdate`` performs the focus
+	// when ``hasError`` transitions from false → true (focusing in
+	// ``componentDidCatch`` directly would be too early — the
+	// fallback render hasn't committed yet so the button ref is
+	// still null).
+	resetButtonRef = createRef<HTMLButtonElement>();
+
 	constructor(props: ErrorBoundaryProps) {
 		super(props);
 		this.state = {
@@ -140,6 +151,57 @@ export class ErrorBoundary extends Component<
 		// can include the React component stack in
 		// the pasted bug-report blob.
 		this.setState({ errorInfo });
+	}
+
+	componentDidMount(): void {
+		// If the boundary triggered during the initial render (a child
+		// threw on first mount), the fallback UI has just committed and
+		// we need to move focus to the Reset button here —
+		// ``componentDidUpdate`` is NOT called for the initial mount,
+		// so without this branch the focus-management logic in
+		// ``focusResetButton`` would never fire for the "crashed on
+		// first paint" case (which is the most common ErrorBoundary
+		// scenario in practice).
+		this.focusResetButton();
+	}
+
+	componentDidUpdate(
+		_prevProps: ErrorBoundaryProps,
+		prevState: ErrorBoundaryState,
+	): void {
+		// When the boundary just triggered (hasError false → true),
+		// move focus to the primary recovery button. Without this,
+		// keyboard / SR users are stranded at the top of the alert
+		// region and must Tab through the whole description + <pre>
+		// before reaching any actionable control. Focusing the
+		// recommended "Reset settings" button mirrors the ARIA
+		// Authoring Practices guidance for error dialogs: surface
+		// the primary recovery affordance first.
+		if (!prevState.hasError && this.state.hasError) {
+			this.focusResetButton();
+		}
+	}
+
+	/**
+	 * Move focus to the primary recovery button (Reset settings) in the
+	 * fallback UI. We query the DOM directly via a stable aria attribute
+	 * instead of relying on a React ref forwarded through the <Button>
+	 * wrapper (Button spreads ``{...props}`` to its underlying
+	 * ``<button>`` host element, but React's special handling of ``ref``
+	 * makes ref-forwarding through function components unreliable
+	 * without an explicit forwardRef / ref-as-prop destructure — which
+	 * Button doesn't do). ``querySelector`` is safe here because the
+	 * fallback UI has just committed, so the button is in the DOM by
+	 * the time componentDidMount / componentDidUpdate fires.
+	 */
+	private focusResetButton(): void {
+		if (!this.state.hasError) return;
+		const btn = document.querySelector<HTMLButtonElement>(
+			'button[aria-describedby="error-boundary-reset-hint"]',
+		);
+		if (btn && typeof btn.focus === "function") {
+			btn.focus();
+		}
 	}
 
 	handleReset = (): void => {
@@ -341,10 +403,10 @@ export class ErrorBoundary extends Component<
 						</p>
 					</div>
 					{/* user-friendly summary placed ABOVE the technical <pre>
-					    so non-developer users see the recommended recovery path
-					    before the raw error message. The raw stack trace below is
-					    preserved for bug-report copy-paste but is no longer the
-					    first thing the user reads. */}
+                                            so non-developer users see the recommended recovery path
+                                            before the raw error message. The raw stack trace below is
+                                            preserved for bug-report copy-paste but is no longer the
+                                            first thing the user reads. */}
 					<p className="max-w-2xl text-sm text-(--text-muted)">
 						{t("errorBoundary.configCrashHint")}
 					</p>
@@ -352,19 +414,19 @@ export class ErrorBoundary extends Component<
 						{errorMessage}
 					</pre>
 					{/* sr-only hint wired to the Reset settings button via
-					    aria-describedby so screen-reader / keyboard users hear
-					    the rationale when the button receives focus. The `title`
-					    attribute alone is not reliably announced by all SRs. */}
+                                            aria-describedby so screen-reader / keyboard users hear
+                                            the rationale when the button receives focus. The `title`
+                                            attribute alone is not reliably announced by all SRs. */}
 					<p id="error-boundary-reset-hint" className="sr-only">
 						{t("errorBoundary.resetSettingsHint")}
 					</p>
 					<div className="flex flex-wrap items-center justify-center gap-2">
 						{/* "Reset settings" is rendered FIRST and visually
-						    highlighted as the recommended recovery action — most
-						    render crashes stem from a bad config value, so this
-						    affordance has the highest expected payoff. The
-						    destructive tint + soft background visually separate
-						    it from the secondary Try Again / Reload App actions. */}
+                                                    highlighted as the recommended recovery action — most
+                                                    render crashes stem from a bad config value, so this
+                                                    affordance has the highest expected payoff. The
+                                                    destructive tint + soft background visually separate
+                                                    it from the secondary Try Again / Reload App actions. */}
 						<Button
 							type="button"
 							variant="destructive"
@@ -372,6 +434,12 @@ export class ErrorBoundary extends Component<
 							disabled={this.state.resetting}
 							title={t("errorBoundary.resetSettingsHint")}
 							aria-describedby="error-boundary-reset-hint"
+							// Attach the focus-target ref so
+							// ``componentDidUpdate`` can move focus
+							// here when the boundary triggers. This
+							// is the recommended recovery action so
+							// it gets the initial focus.
+							ref={this.resetButtonRef}
 						>
 							{this.state.resetting
 								? t("errorBoundary.resetting")

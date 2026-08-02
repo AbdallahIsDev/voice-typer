@@ -28,14 +28,16 @@ export function loadTemplatesFromLocalStorage(): Template[] {
 		const raw = localStorage.getItem(STORAGE_KEY) ?? "[]";
 		const parsed = JSON.parse(raw);
 		if (!Array.isArray(parsed)) return [];
-		// SEC-027: sanitize each template field on load. localStorage is a
-		// stored-XSS vector IF any future code path renders a template value
-		// via dangerouslySetInnerHTML. We strip angle brackets and null
-		// bytes from trigger + output so even a malicious payload injected
-		// into localStorage (by another process, a browser extension, or a
-		// prior compromised session) cannot contain HTML markup. Plain text
-		// templates are unaffected. The variables list still scans the
-		// sanitized output for {today}/{now}/{clipboard}/{username}.
+		// Sanitize each template field on load. The sanitiser is now
+		// NUL-only (see ./sanitize.ts): templates are plain text and
+		// React escapes text content automatically, so stripping
+		// angle brackets / quotes was destroying user data (e.g. a
+		// saved "<3" re-rendered as "3" on next load, diverging from
+		// what the backend stored). NUL is still stripped because
+		// browsers truncate attribute strings at NUL — if a value
+		// ever flows into an attribute (aria-label, title, etc.) an
+		// injected NUL could let the trailing portion execute as a
+		// separate attribute. Plain-text rendering is unaffected.
 		return parsed.map((t: Partial<Template>) => ({
 			trigger: sanitizeTemplateField(t.trigger),
 			output: sanitizeTemplateField(t.output),

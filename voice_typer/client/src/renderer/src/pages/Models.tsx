@@ -128,6 +128,7 @@ export default function ModelsPage() {
 						title={t("models.import.title")}
 						className="gap-2 text-(--text-muted) hover:text-(--text-primary)"
 						aria-label={t("models.import.title")}
+						aria-busy={lifecycle.isImporting}
 					>
 						<HugeiconsIcon
 							icon={Folder02Icon}
@@ -203,16 +204,37 @@ export default function ModelsPage() {
 								onSaveApiKey={lifecycle.saveApiKey}
 								onTestConnection={lifecycle.testConnection}
 								onConsentChange={lifecycle.setCloudConsent}
+								onClearTestResult={lifecycle.clearTestResult}
 							/>
 						</div>
 					)}
 				</div>
 			</div>
 
-			{/*delete-model confirmation dialog. The delete
-			    button stores the target in `deleteModelTarget`;
-			    this dialog surfaces the confirmation and invokes
-			    the `delete_model` IPC. */}
+			{/*
+			 * Model delete is intentionally confirm-only — NO undo
+			 * toast is wired here, unlike History / Templates / Vocabulary which all use
+			 * `showUndoableToast` for a 6-second undo window.
+			 *
+			 * This is a deliberate decision, not an oversight:
+			 *   • Soft-delete (move model dir to trash for 6s)
+			 *     would hold 1.5–3 GB on disk for the whole undo
+			 *     window — defeating the user's intent to free space.
+			 *   • Re-download-as-undo would silently re-fetch a
+			 *     multi-GB file the user just deleted, hitting
+			 *     their network quota without consent.
+			 *
+			 * Full writeup: docs/ux/model-delete-rationale.md
+			 * Backend assumption: `VoiceTyperService.delete_model`
+			 * is a hard `shutil.rmtree` (see
+			 * `voice_typer/server/service.py`), which is what makes
+			 * both undo options bad.
+			 *
+			 * delete-model confirmation dialog. The delete button
+			 * stores the target in `deleteModelTarget`; this dialog
+			 * surfaces the confirmation and invokes the `delete_model`
+			 * IPC.
+			 */}
 			<ConfirmDialog
 				open={!!lifecycle.deleteModelTarget}
 				title={t("models.deleteDialog.title")}

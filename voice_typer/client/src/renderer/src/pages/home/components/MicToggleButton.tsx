@@ -17,6 +17,15 @@ export interface MicToggleButtonProps {
 	disabled: boolean;
 	onClick: () => void;
 	label: string;
+	/**
+	 * Why the button is currently disabled. When `disabled` is true
+	 * and `disabledReason` is provided, it replaces `label` as the
+	 * `aria-label` and `title` so screen readers / hover tooltips
+	 * explain why the action is unavailable (e.g. "Transcribing…
+	 * please wait") instead of repeating the now-unusable action
+	 * label. When `disabled` is false this prop is ignored.
+	 */
+	disabledReason?: string;
 }
 
 export function MicToggleButton({
@@ -25,7 +34,14 @@ export function MicToggleButton({
 	disabled,
 	onClick,
 	label,
+	disabledReason,
 }: MicToggleButtonProps) {
+	// When disabled with a reason, surface the reason as the accessible
+	// name + tooltip so users understand why the mic can't be toggled
+	// right now (the inline `<p>` in Home.tsx mirrors the same text
+	// visually, but the button itself must remain self-describing for
+	// screen-reader users who focus it directly).
+	const effectiveLabel = disabled && disabledReason ? disabledReason : label;
 	return (
 		<div className="relative">
 			{isRecording && (
@@ -35,9 +51,9 @@ export function MicToggleButton({
 				type="button"
 				onClick={onClick}
 				disabled={disabled}
-				aria-label={label}
+				aria-label={effectiveLabel}
 				aria-pressed={isRecording}
-				title={label}
+				title={effectiveLabel}
 				className={cn(
 					"press-scale relative z-10 flex h-21 w-21 items-center justify-center rounded-full",
 					"transition-all duration-200 ease-out",

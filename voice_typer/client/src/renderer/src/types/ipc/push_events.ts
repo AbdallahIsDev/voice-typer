@@ -469,14 +469,18 @@ export interface MicLevelEvent {
 	data: { level: number; peak: number; active: boolean };
 }
 
-// NOTE: `usePythonEvent`'s `type` param (declared in
-//`hooks/usePython.ts`, owned by ) should be narrowed to
-// `PythonPushEvent["type"]` so a typo like `usePythonEvent("past_failed", ...)`
-// fails at compile time instead of silently never firing. Currently the
-// `type` param is `string`, which lets any typo through and was the root
-// cause of the unsafe `as unknown as PythonPushEvent` casts noted in
-//[]. This file cannot perform that narrowing itself (the hook lives
-// in another sub-agent's file scope); it only exposes the union.
+// NOTE: `usePythonEvent`'s `type` param IS narrowed to
+// `PythonPushEvent["type"]` via a two-overload signature in
+// `hooks/usePython.ts`. The first overload
+// (`<K extends PythonPushEvent["type"]>(type: K, ...)`) catches typos
+// like `usePythonEvent("past_failed", ...)` at compile time (the literal
+// `"past_failed"` is not in the union). The second overload accepts any
+// `string` for forward-compat with backend-added events not yet in the
+// union; a dev-time `KNOWN_EVENT_TYPES` warning (locked in by
+// `hooks/__tests__/usePython-known-event-types-parity.test.ts`) surfaces
+// unknown literals in development so contributors don't silently fall
+// through to overload 2 with a typo. This union is the single source of
+// truth for the compile-time narrowing.
 export type PythonPushEvent =
 	| StatusChangeEvent
 	| ErrorEvent

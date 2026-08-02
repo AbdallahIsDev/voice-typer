@@ -11,13 +11,14 @@
 // all rendering lives in the components. Behaviour is preserved
 // byte-for-byte — this is a pure structural refactor.
 import { AlertCircleIcon, File02Icon } from "@hugeicons/core-free-icons";
+import { useCallback, useEffect, useRef } from "react";
 
 import PageHeading from "@/components/common/PageHeading";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
-import { t } from "@/i18n/i18n";
+import { t, tChoice } from "@/i18n/i18n";
 
 import { TemplateDialog } from "./templates/components/TemplateDialog";
 import { TemplateListRow } from "./templates/components/TemplateListRow";
@@ -26,6 +27,7 @@ import { TemplateToolbar } from "./templates/components/TemplateToolbar";
 import { useTemplateDialog } from "./templates/hooks/useTemplateDialog";
 import { useTemplateImportExport } from "./templates/hooks/useTemplateImportExport";
 import { useTemplates } from "./templates/hooks/useTemplates";
+import type { TemplateRow } from "./templates/lib/types";
 
 export default function TemplatesPage() {
 	const { call } = usePython();
@@ -62,6 +64,21 @@ export default function TemplatesPage() {
 
 	const { importInputRef, doExport, handleImportFile, handleImportClick } =
 		useTemplateImportExport({ call, loadRows, templatesRef });
+
+	// ``openEditDialog`` from ``useTemplateDialog`` is a plain
+	// function (recreated every render).  Wrap it in a stable
+	// ``useCallback`` via the "latest ref" pattern so the memo'd
+	// ``TemplateListRow`` sees a referentially-stable ``onEdit`` prop and
+	// skips re-rendering on unrelated state changes (e.g. search
+	// keystrokes).  Mirrors the ``ActivityListRow`` stable-callback
+	// pattern (components/dashboard/ActivityList.tsx:74).
+	const openEditDialogRef = useRef(openEditDialog);
+	useEffect(() => {
+		openEditDialogRef.current = openEditDialog;
+	});
+	const handleEdit = useCallback((row: TemplateRow) => {
+		openEditDialogRef.current(row);
+	}, []);
 
 	if (loading) {
 		return (
@@ -150,28 +167,23 @@ export default function TemplatesPage() {
 							description={t("templates.noResultsDescription")}
 						/>
 					) : (
-						<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
+						<ul className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
 							{filteredSortedTemplates.map((row) => (
 								<TemplateListRow
 									key={row.id}
 									row={row}
-									onEdit={openEditDialog}
+									onEdit={handleEdit}
 									onDelete={instantDeleteTemplate}
 								/>
 							))}
-						</div>
+						</ul>
 					)}
 				</div>
 
 				{/* Count footer */}
 				{templates.length > 0 && (
 					<p className="mt-3 text-xs text-(--text-muted) text-center">
-						{t(
-							templates.length === 1
-								? "templates.countSingular"
-								: "templates.countPlural",
-							{ count: String(templates.length) },
-						)}
+						{tChoice("templates.count", templates.length)}
 					</p>
 				)}
 			</div>

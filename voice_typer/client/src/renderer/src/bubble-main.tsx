@@ -7,15 +7,37 @@ import "./index.css";
 
 // ADR-0020 §6.3 (Phase 3 UI port): install the Tauri bridge BEFORE the
 // bubble React app mounts so `window.bubble` is available. In Electron
-// mode the bubble preload (`src/preload/bubble.ts`) already installed
+// mode the bubble preload (`src/preload/index.ts`) already installed
 // it; this is a no-op. Must come before the `window.bubble?.signalReady`
 // call below.
 //
-// The side-effect lives in `./lib/tauri-bridge/install` (the sibling
-// `install.ts` module) — `index.ts` only exports the named symbols and
-// does NOT auto-invoke `installTauriBridge()` at module load. Importing
-// `install` explicitly here is what triggers the bridge setup.
-import "./lib/tauri-bridge/install";
+// the side-effect lives in `./lib/tauri-bridge/install` (the sibling
+// `install.ts` module). Previously this was a STATIC top-level import
+// (`import "./lib/tauri-bridge/install"`) which pulled the entire Tauri
+// core API surface (~1.4 MB) into the bubble renderer bundle even under
+// Electron, where the preload script (`src/preload/index.ts:19-22`)
+// already installs `window.bubble` via `contextBridge.exposeInMainWorld`.
+//
+// The dynamic `import()` below is gated on `window.__TAURI__?.core?.invoke`
+// (the same check `isTauri()` in `lib/tauri-bridge/detect.ts` uses). Under
+// Electron the gate is false, so Vite emits `install.ts` (and its
+// `@tauri-apps/api` dependency graph) as a SEPARATE async chunk that is
+// never fetched. Under Tauri the gate is true, the chunk is fetched, and
+// `installTauriBridge()` runs before the bubble React tree mounts
+// (top-level await guarantees ordering — the `ReactDOM.createRoot().render()`
+// call below does not execute until the await resolves).
+//
+// The preload script is the source of truth for the Electron `bubble`
+// namespace (`preload/index.ts:19-22`). This dynamic import does NOT touch
+// it — `installTauriBridge()` is a no-op when `isTauri()` returns false
+// (Electron path).
+if (
+	typeof window !== "undefined" &&
+	(window as unknown as { __TAURI__?: { core?: { invoke?: unknown } } })
+		.__TAURI__?.core?.invoke
+) {
+	await import("./lib/tauri-bridge/install");
+}
 
 // Install the global `error` and `unhandledrejection` listeners BEFORE
 // `ReactDOM.createRoot().render(...)` so async errors that escape

@@ -147,6 +147,32 @@ describe("Slider — dev-mode a11y warn", () => {
 		expect(thumbs[0]).toHaveAttribute("aria-valuetext", "3 decibels");
 		expect(thumbs[1]).toHaveAttribute("aria-valuetext", "7 decibels");
 	});
+
+	it("forwards the root aria-label to each thumb when thumbLabels is absent", () => {
+		// Without this fallback, the focusable thumb elements are nameless
+		// to SRs even though the dev set ``aria-label`` on the slider root:
+		// Radix Slider's root aria-label does not propagate to the thumb.
+		render(<Slider aria-label="Volume" defaultValue={[50]} />);
+		const thumbs = document.querySelectorAll('[data-slot="slider-thumb"]');
+		expect(thumbs).toHaveLength(1);
+		expect(thumbs[0]).toHaveAttribute("aria-label", "Volume");
+	});
+
+	it("thumbLabels still takes precedence over a root aria-label", () => {
+		// Multi-thumb sliders need distinct per-thumb names ("Minimum" /
+		// "Maximum"); the root aria-label must NOT clobber them.
+		render(
+			<Slider
+				defaultValue={[20, 80]}
+				aria-label="range"
+				thumbLabels={["Minimum", "Maximum"]}
+			/>,
+		);
+		const thumbs = document.querySelectorAll('[data-slot="slider-thumb"]');
+		expect(thumbs).toHaveLength(2);
+		expect(thumbs[0]).toHaveAttribute("aria-label", "Minimum");
+		expect(thumbs[1]).toHaveAttribute("aria-label", "Maximum");
+	});
 });
 
 describe("SelectTrigger — dev-mode a11y warn", () => {

@@ -30,6 +30,7 @@ import {
 	MIN_HEIGHT,
 } from "./constants";
 import { rmsToNorm } from "./helpers";
+import { useBubbleBridge } from "./useBubbleBridge";
 
 // Mid-height (in px) used for the reduced-motion fallback render.
 // Picked as the midpoint between MIN_HEIGHT (5) and MAX_HEIGHT (22) so
@@ -50,6 +51,7 @@ export function useAudioLevels(
 	dotRefs: RefObject<(HTMLSpanElement | null)[]>,
 	isVisible: boolean,
 ) {
+	const bridge = useBubbleBridge();
 	const rawLevelRef = useRef(0);
 	const frameRef = useRef<number | null>(null);
 	const visibleRef = useRef(isVisible);
@@ -150,42 +152,17 @@ export function useAudioLevels(
 	// state-machine's public surface and would require coordinated
 	// test updates across both hooks.
 	//
-	// Known issue (duplicate IPC subscriptions across the bubble
-	// package): `api.onShow` / `api.onHide` / `api.onSetState` /
-	// `api.onConfig` are each subscribed by MORE THAN ONE hook +
-	// component. As of this revision:
-	//   - `api.onShow`     → useBubbleStateMachine, useBubbleLifecycle,
-	//                        useAudioLevels (this hook)  [3 subs]
-	//   - `api.onHide`     → useBubbleStateMachine, useBubbleLifecycle
-	//                                                                    [2 subs]
-	//   - `api.onSetState` → useBubbleStateMachine, useAudioLevels
-	//                                                                    [2 subs]
-	//   - `api.onConfig`   → useThemeSync, Bubble.tsx              [2 subs]
-	//   - `api.onLevel`    → useAudioLevels (this hook)             [1 sub]
-	//   - `api.onDraggable`→ Bubble.tsx                              [1 sub]
-	//                                                          — total 11 subs
-	// Each subscription is a separate Electron IPC listener registered
-	// on the BrowserWindow's `webContents` (via the preload bridge);
-	// every event the main process emits is marshalled to N listeners
-	// even when only one of them cares about that particular event.
-	// A proper architectural fix would centralise the subscriptions in
-	// a single owner (e.g. a `useBubbleEvents` hook that exposes
-	// event-emitter-shaped refs to its consumers) and have
-	// `useBubbleStateMachine` / `useBubbleLifecycle` / `useAudioLevels`
-	// / `useThemeSync` / `Bubble.tsx` consume the events via the
-	// shared emitter rather than each subscribing individually.
-	// That refactor touches every consumer's public surface and is
-	// tracked separately; this hook limits its duplication to the
-	// minimum it needs (onShow + onSetState for recording-mode
-	// tracking + wake re-arm — both are required because
-	// `useBubbleStateMachine`'s `onShow`/`onSetState` callbacks fire
-	// `setMode` React state updates, which are async + batched, so
-	// the rAF gate (`recordingRef.current`) would lag by a render
-	// tick if it depended on the React state. The closure `mode`
-	// here is updated synchronously inside the IPC callback so the
-	// rAF gate flips on the same frame the IPC event arrives.)
+	// IPC subscriptions: this hook registers handlers on the shared
+	// `useBubbleBridge` emitter (one of N consumers) instead of
+	// calling `api.onShow` / `api.onSetState` / `api.onLevel`
+	// directly. The bridge owns the single per-event IPC listener;
+	// the dynamic `onLevel` gating is delegated to
+	// `bridge.setLevelActive(boolean)` so the bridge can drop the
+	// underlying IPC listener when no consumer is interested in
+	// audio-peak events (currently only this hook subscribes to
+	// `level`).
 	//
-	// Mitigation applied here: the `api.onLevel` subscription is
+	// Mitigation applied here: the `onLevel` IPC subscription is
 	// DYNAMICALLY gated on `mode === "recording"`. Audio-peak IPC
 	// events fire at ~50-60 Hz from the Python backend while the
 	// recorder is running; when the bubble is in `transcribing` /
@@ -194,18 +171,9 @@ export function useAudioLevels(
 	// while in recording mode saves the IPC marshalling cost during
 	// the ~90% of the bubble's lifetime it spends NOT recording.
 	useEffect(() => {
-		const api = window.bubble as
-			| import("@/types/ipc").BubbleWindowBubble
-			| undefined;
-		if (!api) return;
+		if (!bridge) return;
 
 		let mode: BubbleMode = "recording";
-		// Active `onLevel` unsubscribe handle. `null` when not
-		// currently subscribed (i.e. when `mode !== "recording"`).
-		// The dynamic subscribe/unsubscribe happens in `sync()`
-		// below; the rAF loop is NOT torn down on unsubscribe —
-		// only the IPC listener is removed.
-		let levelOff: (() => void) | null = null;
 
 		const onLevel = (data: { rms: number; peak: number }) => {
 			const norm = rmsToNorm(data.rms);
@@ -216,23 +184,18 @@ export function useAudioLevels(
 				rawLevelRef.current = cur * 0.82 + norm * 0.18;
 			}
 		};
+		// Register the level handler ONCE on the bridge. The
+		// bridge exposes `setLevelActive(boolean)` to toggle the
+		// underlying `api.onLevel` IPC subscription; the handler
+		// itself stays registered for the lifetime of this effect
+		// so a re-subscribe (after a temporary unsubscribe) doesn't
+		// miss the handler registration window.
+		const offLevel = bridge.on("level", onLevel);
 		const subscribeLevel = () => {
-			if (levelOff !== null) return;
-			const off = api.onLevel?.(onLevel);
-			levelOff = typeof off === "function" ? off : null;
+			bridge.setLevelActive(true);
 		};
 		const unsubscribeLevel = () => {
-			if (levelOff === null) return;
-			try {
-				levelOff();
-			} catch {
-				// The preload bridge's unsubscribe is
-				// defensive but warn-only — swallow any
-				// late-dispatch race so a stale call
-				// during cleanup doesn't crash the
-				// visualizer.
-			}
-			levelOff = null;
+			bridge.setLevelActive(false);
 		};
 
 		const sync = () => {
@@ -268,7 +231,7 @@ export function useAudioLevels(
 			// per-frame DOM mutation). The loop must stay alive so the
 			// visibility / recording gates and the media-query `change`
 			// event can still be reacted to without a remount — stopping
-			// the loop entirely was the AB-39 regression. The CSS-side
+			// the loop entirely was a previous regression. The CSS-side
 			// `@media (prefers-reduced-motion: reduce)` block in
 			// `index.css` disables the wider animation policy; this JS
 			// gate ensures the bars are motionless (the CSS block can't
@@ -277,13 +240,17 @@ export function useAudioLevels(
 			if (!visibleRef.current || !recordingRef.current) return;
 
 			if (prefersReducedMotion()) {
-				// `prefers-reduced-motion`: render bars ONCE per frame at a
-				// fixed mid-height and SKIP the level-driven animation. The
-				// rAF loop keeps spinning (AB-39 regression guard) so the
-				// visibility / recording gates and the media-query `change`
-				// event can still be reacted to without a remount.
+				// `prefers-reduced-motion`: render bars ONCE at a fixed
+				// mid-height and STOP the rAF loop. The loop re-arms via
+				// `wake()` when a gate flips: the visibility-watching
+				// effect calls `wakeRef.current?.()` on `isVisible -> true`,
+				// and `bridge.on("show")` / `bridge.on("setState")` call
+				// `wake()` on recording-mode transitions. `wake()` itself
+				// calls `renderReducedMotion()` before scheduling, so a
+				// re-arm produces exactly one frame (which then stops again)
+				// -- the bars stay at the static mid-height without a
+				// 60 fps spin.
 				renderReducedMotion();
-				frameRef.current = requestAnimationFrame(animate);
 				return;
 			}
 
@@ -324,9 +291,12 @@ export function useAudioLevels(
 		const wake = () => {
 			if (prefersReducedMotion()) {
 				renderReducedMotion();
-				// Keep the loop alive (AB-39 regression): fall through and
-				// schedule the next frame so the gates / change event are
-				// still observable.
+				// Fall through and schedule ONE frame so the gates /
+				// change event are observable. `animate()` will call
+				// `renderReducedMotion()` once more (a no-op since the
+				// styles are already set) and then return WITHOUT
+				// scheduling the next frame -- the loop dies after one
+				// frame, which is the intended reduced-motion behavior.
 			}
 			if (frameRef.current !== null) return;
 			if (!visibleRef.current || !recordingRef.current) return;
@@ -334,12 +304,30 @@ export function useAudioLevels(
 		};
 		wakeRef.current = wake;
 
-		const offShow = api.onShow?.(() => {
+		// Re-arm the loop when the user toggles `prefers-reduced-motion`
+		// at runtime. Without this listener, toggling reduced-motion ON
+		// when the loop is already dead (after the initial
+		// `renderReducedMotion()` call returned without scheduling the
+		// next frame) would NOT re-render the bars -- a visual
+		// downgrade. `wake()` calls `renderReducedMotion()` + schedules
+		// ONE frame (which then stops again), so the toggle is handled
+		// without spinning the loop at 60 fps.
+		const reducedMotionMql =
+			typeof window !== "undefined" && typeof window.matchMedia === "function"
+				? window.matchMedia("(prefers-reduced-motion: reduce)")
+				: null;
+		const handleReducedMotionChange = () => {
+			wake();
+		};
+		reducedMotionMql?.addEventListener("change", handleReducedMotionChange);
+
+		const offShow = bridge.on("show", () => {
 			mode = mode === "transcribing" ? "transcribing" : "recording";
 			sync();
 			wake();
 		});
-		const offSetState = api.onSetState?.((state) => {
+		const offSetState = bridge.on("setState", (stateArg) => {
+			const state = typeof stateArg === "string" ? stateArg : String(stateArg);
 			if (mode === "fading") return;
 			if (
 				state === "transcribing" ||
@@ -363,16 +351,21 @@ export function useAudioLevels(
 		wake();
 
 		return () => {
-			offShow?.();
-			offSetState?.();
+			offShow();
+			offSetState();
+			offLevel();
 			unsubscribeLevel();
+			reducedMotionMql?.removeEventListener(
+				"change",
+				handleReducedMotionChange,
+			);
 			wakeRef.current = null;
 			if (frameRef.current !== null) {
 				cancelAnimationFrame(frameRef.current);
 				frameRef.current = null;
 			}
 		};
-	}, [dotRefs, refreshBarColor]);
+	}, [bridge, dotRefs, refreshBarColor]);
 
 	// Visibility-watching effect — cancel on hide, re-arm on show.
 	useEffect(() => {

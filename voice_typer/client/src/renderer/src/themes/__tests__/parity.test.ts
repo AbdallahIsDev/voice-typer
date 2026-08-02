@@ -24,9 +24,10 @@
  * computed ``custom`` presets) so any future preset is automatically
  * covered.
  */
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 
 import { THEME_VARIABLES, THEMES } from "@/themes";
+import { loadThemePreset } from "@/themes/index";
 
 // derive fixtures from the canonical THEMES array so every
 // non-default, non-custom preset is covered. The `default` preset is a
@@ -36,6 +37,18 @@ import { THEME_VARIABLES, THEMES } from "@/themes";
 const PRESETS_UNDER_TEST = THEMES.filter(
 	(t) => t.id !== "default" && t.id !== "custom",
 ).map((preset) => ({ name: preset.id, preset }));
+
+// lazy themes: the 10 non-default/non-custom presets are now
+// loaded ON DEMAND via loadThemePreset — their light / dark
+// maps start EMPTY and are populated in place by the dynamic
+// import(). The beforeAll below loads every lazy preset BEFORE
+// any assertion reads preset.light / preset.dark, so the
+// parity assertions see the full var maps (not the empty initial
+// state). This is the async update the source TODO in
+// themes/index.ts called for.
+beforeAll(async () => {
+	await Promise.all(PRESETS_UNDER_TEST.map((p) => loadThemePreset(p.name)));
+});
 
 describe("theme preset light/dark var coverage parity", () => {
 	// sanity guard — if a future preset is added to THEMES but
@@ -64,10 +77,14 @@ describe("theme preset light/dark var coverage parity", () => {
 
 	for (const { name, preset } of PRESETS_UNDER_TEST) {
 		describe(`${name} preset`, () => {
-			const lightKeys = new Set(Object.keys(preset.light));
-			const darkKeys = new Set(Object.keys(preset.dark));
-
+			// lightKeys / darkKeys are computed INSIDE each
+			// it callback (not at describe-definition time) so they
+			// reflect the populated var maps AFTER the top-level
+			// beforeAll has loaded the lazy preset. At describe-definition
+			// time the lazy preset's light / dark are still empty.
 			it("light and dark define the same set of CSS variables", () => {
+				const lightKeys = new Set(Object.keys(preset.light));
+				const darkKeys = new Set(Object.keys(preset.dark));
 				expect(lightKeys.size).toBe(darkKeys.size);
 				for (const key of lightKeys) {
 					expect(
@@ -84,6 +101,8 @@ describe("theme preset light/dark var coverage parity", () => {
 			});
 
 			it("covers the full THEME_VARIABLES superset in both light and dark", () => {
+				const lightKeys = new Set(Object.keys(preset.light));
+				const darkKeys = new Set(Object.keys(preset.dark));
 				for (const v of THEME_VARIABLES) {
 					expect(lightKeys.has(v), `light missing superset var ${v}`).toBe(
 						true,
@@ -93,6 +112,8 @@ describe("theme preset light/dark var coverage parity", () => {
 			});
 
 			it("does not define any var outside the THEME_VARIABLES superset", () => {
+				const lightKeys = new Set(Object.keys(preset.light));
+				const darkKeys = new Set(Object.keys(preset.dark));
 				for (const key of lightKeys) {
 					expect(
 						THEME_VARIABLES.includes(key),
@@ -111,6 +132,8 @@ describe("theme preset light/dark var coverage parity", () => {
 			// so destructive button text is readable without relying on the
 			// stylesheet default.
 			it("defines --destructive-foreground in both light and dark)", () => {
+				const lightKeys = new Set(Object.keys(preset.light));
+				const darkKeys = new Set(Object.keys(preset.dark));
 				expect(lightKeys.has("--destructive-foreground")).toBe(true);
 				expect(darkKeys.has("--destructive-foreground")).toBe(true);
 			});

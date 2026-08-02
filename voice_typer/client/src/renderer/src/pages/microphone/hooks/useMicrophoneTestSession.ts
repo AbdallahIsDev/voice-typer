@@ -271,12 +271,18 @@ export function useMicrophoneTestSession({
 			}, 500);
 			testTimerRef.current = checkInterval;
 
-			// Elapsed timer for the 00:03 / 00:10 display
+			// Elapsed timer for the 00:03 / 00:10 display.
+			// Bumped from 200ms (5 Hz) to 1000ms (1 Hz) -- the display
+			// is seconds-resolution, so 5 Hz was 5x over-sampled (5
+			// setTestElapsed calls per second, 4 of which produced the
+			// same integer value and were no-op React bail-outs but
+			// still cost the setState + reconciliation path). 1 Hz
+			// matches the display granularity exactly.
 			if (elapsedTimerRef.current) clearInterval(elapsedTimerRef.current);
 			const elapsedInterval = setInterval(() => {
 				const elapsed = Date.now() - startTime;
 				setTestElapsed(Math.floor(elapsed / 1000));
-			}, 200);
+			}, 1000);
 			elapsedTimerRef.current = elapsedInterval;
 		} catch (err) {
 			console.error("Failed to start microphone test:", err);
@@ -332,12 +338,16 @@ export function useMicrophoneTestSession({
 				setLevel(0);
 				setPeak(0);
 				setMicMonitoring(false);
-				call("level_monitor_start", { mic_id: micId }).catch((err) =>
-					console.warn(
-						"[IPC] microphone command failed: level_monitor_start:",
-						err,
-					),
-				);
+				// NOTE: no explicit ``level_monitor_start`` here — the
+				// level-monitor effect in ``useMicrophoneLevelMonitor``
+				// re-runs ``level_monitor_start`` whenever
+				// ``config.microphone`` changes (its dep array includes
+				// ``config?.microphone``). Calling it again here was a
+				// double-start: the effect's cleanup sends
+				// ``level_monitor_stop`` for the OLD mic, then re-sends
+				// ``level_monitor_start`` for the NEW mic — so the explicit
+				// call here produced TWO ``level_monitor_start`` IPCs per
+				// mic switch.
 				const label =
 					micId === null
 						? t("microphone.systemDefault")

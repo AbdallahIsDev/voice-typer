@@ -91,7 +91,7 @@ export function HotkeyStep({
 					)}
 					{permissionsTest?.kind === "failure" && (
 						<p className="text-xs text-destructive">
-							{t("onboarding.permissionsTestFailure")}
+							{t("onboarding.hotkeyTestFailure")}
 						</p>
 					)}
 				</div>

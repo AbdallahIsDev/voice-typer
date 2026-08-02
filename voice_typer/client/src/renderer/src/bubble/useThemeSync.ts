@@ -47,6 +47,7 @@ import { useCallback, useEffect, useRef } from "react";
 import { type Locale, SUPPORTED_LOCALES } from "@/i18n/locale";
 import { isRtlLocale } from "@/i18n/rtl";
 import { applyThemeVars, CUSTOM_THEME_ID } from "@/themes";
+import { useBubbleBridge } from "./useBubbleBridge";
 
 // Type guard for the `locale` field of the `bubble:config` payload.
 // The payload is typed as `Record<string, unknown>`, so a runtime
@@ -59,6 +60,7 @@ function isLocaleValue(v: unknown): v is Locale {
 }
 
 export function useThemeSync() {
+	const bridge = useBubbleBridge();
 	const themeModeRef = useRef<"light" | "dark" | "system" | null>(null);
 	const themePresetRef = useRef<string | null>(null);
 	const customThemeRef = useRef<{
@@ -116,12 +118,9 @@ export function useThemeSync() {
 	// pushing `locale`. The defensive `isLocaleValue` check below
 	// ensures we don't set `dir` from an unknown payload value.
 	useEffect(() => {
-		const api = window.bubble as
-			| import("@/types/ipc").BubbleWindowBubble
-			| undefined;
-		if (!api?.onConfig) return;
+		if (!bridge) return;
 
-		const off = api.onConfig((cfg) => {
+		const off = bridge.on("config", (cfg) => {
 			const mode = cfg.theme_mode;
 			if (mode === "light" || mode === "dark" || mode === "system") {
 				themeModeRef.current = mode;
@@ -158,5 +157,5 @@ export function useThemeSync() {
 			applyTheme();
 		});
 		return off;
-	}, [applyTheme]);
+	}, [applyTheme, bridge]);
 }

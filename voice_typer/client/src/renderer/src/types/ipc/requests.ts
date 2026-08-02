@@ -150,6 +150,164 @@ export interface SaveVocabularyRequest {
 	data: Record<string, unknown>;
 }
 
+// ── Additional renderer-called commands ────────────────────────────
+//
+// Widened coverage for commands invoked from the renderer but not yet
+// modelled above. Each interface uses a permissive ``data?`` shape so
+// the typed ``PythonCall`` overload (see ``hooks/usePython.ts``) can
+// catch command-name typos at compile time without pinning a wire
+// shape that may drift. Tighten individual interfaces to bare
+// (no-data) or stricter ``data:`` shapes as the wire contracts are
+// verified against the Python ``_COMMAND_REGISTRY`` (out of lane for
+// this slice — the server-side enum lives in another sub-agent's
+// scope; see review.md (Python-side plan) for the Python-side plan).
+//
+// Commands surveyed via ``rg 'call<...>\("..."'`` across
+// ``src/renderer/src``. The parity test in
+// ``types/__tests__/ipc-requests-coverage.test.ts`` pins the count so
+// future contributors adding a new ``call('foo')`` site get a
+// compile-time nudge to add the matching interface here.
+
+export interface CancelModelDownloadRequest {
+	type: "cancel_model_download";
+	data?: Record<string, unknown>;
+}
+
+export interface ForceCancelTranscriptionRequest {
+	type: "force_cancel_transcription";
+	data?: Record<string, unknown>;
+}
+
+export interface GetDiskInfoRequest {
+	type: "get_disk_info";
+	data?: Record<string, unknown>;
+}
+
+export interface GetModelCatalogRequest {
+	type: "get_model_catalog";
+	data?: Record<string, unknown>;
+}
+
+export interface GetModelStatusRequest {
+	type: "get_model_status";
+	data?: Record<string, unknown>;
+}
+
+export interface GetPrewarmStatusRequest {
+	type: "get_prewarm_status";
+	data?: Record<string, unknown>;
+}
+
+export interface GetTemplatesRequest {
+	type: "get_templates";
+	data?: Record<string, unknown>;
+}
+
+export interface MicrophoneTestCancelRequest {
+	type: "microphone_test_cancel";
+	data?: Record<string, unknown>;
+}
+
+export interface MicrophoneTestStopRequest {
+	type: "microphone_test_stop";
+	data?: Record<string, unknown>;
+}
+
+export interface ModelsFolderSupportedRequest {
+	type: "models_folder_supported";
+	data?: Record<string, unknown>;
+}
+
+export interface OnboardingApplyRequest {
+	type: "onboarding_apply";
+	data?: Record<string, unknown>;
+}
+
+export interface OnboardingGetMicrophonesRequest {
+	type: "onboarding_get_microphones";
+	data?: Record<string, unknown>;
+}
+
+export interface OnboardingIsFirstRunRequest {
+	type: "onboarding_is_first_run";
+	data?: Record<string, unknown>;
+}
+
+export interface OnboardingNextStepRequest {
+	type: "onboarding_next_step";
+	data?: Record<string, unknown>;
+}
+
+export interface OnboardingPrevStepRequest {
+	type: "onboarding_prev_step";
+	data?: Record<string, unknown>;
+}
+
+export interface OnboardingSetHotkeyRequest {
+	type: "onboarding_set_hotkey";
+	data?: Record<string, unknown>;
+}
+
+export interface OnboardingSetMicrophoneRequest {
+	type: "onboarding_set_microphone";
+	data?: Record<string, unknown>;
+}
+
+export interface OnboardingSetModelRequest {
+	type: "onboarding_set_model";
+	data?: Record<string, unknown>;
+}
+
+export interface OnboardingSkipRequest {
+	type: "onboarding_skip";
+	data?: Record<string, unknown>;
+}
+
+export interface OnboardingStartRequest {
+	type: "onboarding_start";
+	data?: Record<string, unknown>;
+}
+
+export interface OpenModelsFolderRequest {
+	type: "open_models_folder";
+	data?: Record<string, unknown>;
+}
+
+export interface PauseModelDownloadRequest {
+	type: "pause_model_download";
+	data?: Record<string, unknown>;
+}
+
+export interface RepasteLastRequest {
+	type: "repaste_last";
+	data?: Record<string, unknown>;
+}
+
+export interface RestoreHistoryRequest {
+	type: "restore_history";
+	data?: Record<string, unknown>;
+}
+
+export interface ResumeModelDownloadRequest {
+	type: "resume_model_download";
+	data?: Record<string, unknown>;
+}
+
+export interface RunPrewarmRequest {
+	type: "run_prewarm";
+	data?: Record<string, unknown>;
+}
+
+export interface SaveTemplatesRequest {
+	type: "save_templates";
+	data?: Record<string, unknown>;
+}
+
+export interface UndoLastRequest {
+	type: "undo_last";
+	data?: Record<string, unknown>;
+}
+
 export type PythonRequest =
 	| GetConfigRequest
 	| GetMicrophonesRequest
@@ -176,7 +334,38 @@ export type PythonRequest =
 	| MicrophoneTestGetLevelRequest
 	| SetTrayLocaleRequest
 	| OnboardingResetRequest
-	| OnboardingCheckPermissionsRequest;
+	| OnboardingCheckPermissionsRequest
+	// Additional renderer-called commands (permissive ``data?`` shape).
+	// See the individual interface declarations above for the survey
+	// methodology and the rationale for the permissive shape.
+	| CancelModelDownloadRequest
+	| ForceCancelTranscriptionRequest
+	| GetDiskInfoRequest
+	| GetModelCatalogRequest
+	| GetModelStatusRequest
+	| GetPrewarmStatusRequest
+	| GetTemplatesRequest
+	| MicrophoneTestCancelRequest
+	| MicrophoneTestStopRequest
+	| ModelsFolderSupportedRequest
+	| OnboardingApplyRequest
+	| OnboardingGetMicrophonesRequest
+	| OnboardingIsFirstRunRequest
+	| OnboardingNextStepRequest
+	| OnboardingPrevStepRequest
+	| OnboardingSetHotkeyRequest
+	| OnboardingSetMicrophoneRequest
+	| OnboardingSetModelRequest
+	| OnboardingSkipRequest
+	| OnboardingStartRequest
+	| OpenModelsFolderRequest
+	| PauseModelDownloadRequest
+	| RepasteLastRequest
+	| RestoreHistoryRequest
+	| ResumeModelDownloadRequest
+	| RunPrewarmRequest
+	| SaveTemplatesRequest
+	| UndoLastRequest;
 
 // ── Response data shapes ────────────────────────────────────────────────────────────────
 //

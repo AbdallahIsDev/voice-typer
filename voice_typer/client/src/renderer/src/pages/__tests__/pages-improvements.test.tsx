@@ -406,12 +406,18 @@ describe("CR-37: Vocabulary categoryLabels re-resolve on locale switch", () => {
 		);
 		expect(src).toContain("function getCategoryLabels()");
 		expect(src).not.toContain("const CATEGORY_LABELS");
-		// And the consumers call the function at render time:
+		// And the consumers call the function at render time. The
+		// labels are memoised on the locale-revision snapshot so they
+		// re-resolve ONLY on locale switch (not on every keystroke),
+		// while still re-resolving via the function rather than a
+		// frozen module-level const.
 		const vocabSrc = fs.readFileSync(
 			"src/renderer/src/pages/Vocabulary.tsx",
 			"utf8",
 		);
-		expect(vocabSrc).toContain("const categoryLabels = getCategoryLabels();");
+		expect(vocabSrc).toContain(
+			"const categoryLabels = useMemo(() => getCategoryLabels(), [localeRevision]);",
+		);
 	});
 });
 

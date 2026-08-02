@@ -95,8 +95,53 @@ export function useLastUpdated(): {
 	const [refreshing, setRefreshing] = useState(false);
 
 	useEffect(() => {
-		const id = setInterval(() => setNow(Date.now()), 5000);
-		return () => clearInterval(id);
+		// gate the 5s `setNow` interval on
+		// `document.visibilityState === "visible"`. The prior
+		// implementation unconditionally ran the interval, which
+		// re-rendered every mounted page that consumes `useLastUpdated`
+		// (Home, History, Models, Microphone, Dashboard) even when the
+		// tab was hidden — pure waste (no one is looking at the "Xs ago"
+		// label when the tab is in the background). Browsers throttle
+		// hidden-tab intervals to ~1 Hz but don't pause them, so the
+		// interval still fires; we CLEAR it on hide and RE-ARM on show
+		// via a `visibilitychange` listener so no ticks fire at all
+		// while hidden. On re-show, the first tick re-syncs `now` (at
+		// most 5s lag, which is acceptable for a relative-time label
+		// that granularity-rounds to "Xs ago" / "Xm ago" / "Xh ago").
+		let id: ReturnType<typeof setInterval> | null = null;
+		const arm = () => {
+			if (id !== null) return;
+			id = setInterval(() => setNow(Date.now()), 5000);
+		};
+		const disarm = () => {
+			if (id === null) return;
+			clearInterval(id);
+			id = null;
+		};
+		const handleVisibility = () => {
+			if (typeof document === "undefined") return;
+			if (document.visibilityState === "visible") {
+				arm();
+			} else {
+				disarm();
+			}
+		};
+		// Initial arm — only if the tab is visible at mount.
+		if (
+			typeof document === "undefined" ||
+			document.visibilityState === "visible"
+		) {
+			arm();
+		}
+		if (typeof document !== "undefined") {
+			document.addEventListener("visibilitychange", handleVisibility);
+		}
+		return () => {
+			if (typeof document !== "undefined") {
+				document.removeEventListener("visibilitychange", handleVisibility);
+			}
+			disarm();
+		};
 	}, []);
 
 	const markUpdated = useCallback(() => {

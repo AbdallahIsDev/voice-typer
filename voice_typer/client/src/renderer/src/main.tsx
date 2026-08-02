@@ -11,11 +11,40 @@ import "./index.css";
 // mode this is a no-op (the preload already installed the namespaces).
 // Must come before any code that reads `window.python`.
 //
-// The side-effect lives in `./lib/tauri-bridge/install` (the sibling
-// `install.ts` module) — `index.ts` only exports the named symbols and
-// does NOT auto-invoke `installTauriBridge()` at module load. Importing
-// `install` explicitly here is what triggers the bridge setup.
-import "./lib/tauri-bridge/install";
+// the side-effect lives in `./lib/tauri-bridge/install` (the sibling
+// `install.ts` module). Previously this was a STATIC top-level import
+// (`import "./lib/tauri-bridge/install"`) which pulled the entire Tauri
+// core API surface (~1.4 MB) into the renderer bundle even under
+// Electron, where the preload script (`src/preload/index.ts:19-117`)
+// already installs `window.python` / `window.bubble` / `window.window_`
+// via `contextBridge.exposeInMainWorld`.
+//
+// The dynamic `import()` below is gated on `window.__TAURI__?.core?.invoke`
+// (the same check `isTauri()` in `lib/tauri-bridge/detect.ts` uses). Under
+// Electron the gate is false, so Vite emits `install.ts` (and its
+// `@tauri-apps/api` dependency graph) as a SEPARATE async chunk that is
+// never fetched. Under Tauri the gate is true, the chunk is fetched, and
+// `installTauriBridge()` runs before React mounts (top-level await
+// guarantees ordering — `ReactDOM.createRoot().render()` below does not
+// execute until the await resolves).
+//
+// The preload script is the source of truth for the Electron namespaces:
+// it exposes `python` (`preload/index.ts:25`), `bubble` (`:19`), and
+// `window_` (`:52`) via `contextBridge.exposeInMainWorld`. This dynamic
+// import does NOT touch those — `installTauriBridge()` is a no-op when
+// `isTauri()` returns false (Electron path).
+//
+// Top-level await is supported by Vite in ESM modules; the `<script
+// type="module">` tag in `index.html` defers subsequent module scripts
+// until this one resolves, so `main.tsx`'s `ReactDOM.createRoot().render()`
+// does not run until the bridge is installed.
+if (
+	typeof window !== "undefined" &&
+	(window as unknown as { __TAURI__?: { core?: { invoke?: unknown } } })
+		.__TAURI__?.core?.invoke
+) {
+	await import("./lib/tauri-bridge/install");
+}
 
 //(combined): install the global `error`
 // and `unhandledrejection` listeners BEFORE `ReactDOM.createRoot().render()`
@@ -35,13 +64,6 @@ import "./lib/tauri-bridge/install";
 // generic localized toast via `sonner.toast.error` (the toast is a no-op
 // if the `<Toaster />` hasn't mounted yet — see lib/globalErrorHandler.ts
 // for the defensive guard).
-//
-// Placement note: ESM static imports are hoisted, so `./lib/tauri-bridge/install`
-// above executes BEFORE this call. We accept that limitation: the primary
-// failure surface is React render + async effects, both of which happen
-// AFTER this install call. Module-eval failures in tauri-bridge.ts are
-// unlikely (it has internal try/catch) and would be visible via a blank
-// renderer anyway.
 installGlobalErrorHandlers();
 
 //(fix): explicit null check instead of `!` non-null assertion.

@@ -432,6 +432,7 @@
 		"checkForUpdates": "التحقق من التحديثات",
 		"downloadVersion": "تنزيل v{version}",
 		"viewChangelog": "عرض سجل التغييرات",
+		"offlineUpdatesMessage": "Voice Typer هو تطبيق يعمل دون اتصال بالإنترنت. للتحقق من وجود تحديثات، تفضل بزيارة صفحة إصدارات GitHub في متصفحك.",
 		"startStopDictation": "بدء / إيقاف الإملاء",
 		"startStopDictationValue": "F2 (أو مفتاح الاختصار المهيأ)",
 		"cancelRecording": "إلغاء التسجيل",

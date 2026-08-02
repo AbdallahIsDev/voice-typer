@@ -35,6 +35,14 @@ export default function MicrophonePage() {
 	const selectMicrophoneRef = useRef<(micId: string | null) => Promise<void>>(
 		async () => {},
 	);
+	// meter wrapper ref. The level monitor's rAF loop imperatively
+	// writes the latest level to the ``LevelBar``'s fill div inside this
+	// wrapper, bypassing React's re-render cycle (mirrors the bubble's
+	// ``useAudioLevels`` ref+rAF pattern). Attached to a ``<div>`` wrapping
+	// ``<ActiveMicrophoneCard>`` so ``querySelector('[role="progressbar"]
+	// > div')`` can reach the ``LevelBar``'s fill element without modifying
+	// ``ActiveMicrophoneCard``.
+	const meterRef = useRef<HTMLDivElement | null>(null);
 
 	const {
 		microphones,
@@ -82,6 +90,7 @@ export default function MicrophonePage() {
 		setConfig,
 		updateConfig,
 		selectMicrophoneRef,
+		meterRef,
 	});
 
 	// ── Derived state ─────────────────────────────────────────────
@@ -164,42 +173,53 @@ export default function MicrophonePage() {
 			<div className="space-y-6">
 				<MicrophonePermissionBanner micPermission={micPermission} />
 
-				<ActiveMicrophoneCard
-					activeMicName={activeMicName}
-					isSystemDefault={isSystemDefault}
-					testRunning={testRunning}
-					testCountdown={testCountdown}
-					testElapsed={testElapsed}
-					testDurationSec={testDurationSec}
-					testDurationMs={testDurationMs}
-					level={level}
-					peak={peak}
-					micMonitoring={micMonitoring}
-					testAudioBase64={testAudioBase64}
-					rawAudioBase64={rawAudioBase64}
-					testQuality={testQuality}
-					playing={playingEnhanced || playingOriginal}
-					playingOriginal={playingOriginal}
-					filtersSinceLastTest={filtersSinceLastTest}
-					filtersChangedSinceTest={filtersChangedSinceTest}
-					hasFiltersEnabled={hasFiltersEnabled}
-					showAdvanced={showAdvanced}
-					config={config}
-					onStartTest={startTest}
-					onStopTest={stopTest}
-					onPlayEnhanced={() =>
-						testAudioBase64 && playAudio(testAudioBase64, true)
-					}
-					onPlayOriginal={() =>
-						rawAudioBase64 ? playAudio(rawAudioBase64, false) : undefined
-					}
-					onStopPlayback={stopPlayback}
-					onRetest={startTest}
-					onSetTestDurationSec={setTestDurationSec}
-					onToggleAdvanced={() => setShowAdvanced((v) => !v)}
-					onPresetChange={handlePresetChange}
-					onConfigChange={handleConfigChange}
-				/>
+				{/* ``meterRef`` wrapper. The level monitor's rAF
+					loop queries inside this div for the ``LevelBar``'s fill
+					node (``[role="progressbar"] > div``) and imperatively
+					writes the latest level/colour at ≤60 Hz — bypassing
+					React's re-render cycle so a 30 Hz ``mic_level`` push
+					no longer re-renders the entire Microphone page subtree.
+					The wrapper itself is a no-op layout element (no extra
+					className) so the visual structure is unchanged. */}
+				<div ref={meterRef}>
+					<ActiveMicrophoneCard
+						activeMicName={activeMicName}
+						isSystemDefault={isSystemDefault}
+						canTest={microphones.length > 0}
+						testRunning={testRunning}
+						testCountdown={testCountdown}
+						testElapsed={testElapsed}
+						testDurationSec={testDurationSec}
+						testDurationMs={testDurationMs}
+						level={level}
+						peak={peak}
+						micMonitoring={micMonitoring}
+						testAudioBase64={testAudioBase64}
+						rawAudioBase64={rawAudioBase64}
+						testQuality={testQuality}
+						playing={playingEnhanced || playingOriginal}
+						playingOriginal={playingOriginal}
+						filtersSinceLastTest={filtersSinceLastTest}
+						filtersChangedSinceTest={filtersChangedSinceTest}
+						hasFiltersEnabled={hasFiltersEnabled}
+						showAdvanced={showAdvanced}
+						config={config}
+						onStartTest={startTest}
+						onStopTest={stopTest}
+						onPlayEnhanced={() =>
+							testAudioBase64 && playAudio(testAudioBase64, true)
+						}
+						onPlayOriginal={() =>
+							rawAudioBase64 ? playAudio(rawAudioBase64, false) : undefined
+						}
+						onStopPlayback={stopPlayback}
+						onRetest={startTest}
+						onSetTestDurationSec={setTestDurationSec}
+						onToggleAdvanced={() => setShowAdvanced((v) => !v)}
+						onPresetChange={handlePresetChange}
+						onConfigChange={handleConfigChange}
+					/>
+				</div>
 
 				<AvailableMicrophonesList
 					microphones={microphones}

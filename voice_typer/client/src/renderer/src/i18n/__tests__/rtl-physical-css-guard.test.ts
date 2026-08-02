@@ -66,16 +66,18 @@ const CURRENTLY_VIOLATING: ReadonlySet<string> = new Set<string>([
 	// to `text-start` requires touching ErrorBoundary.tsx (owned by
 	//another agent — out of 's file scope).
 	"components/feedback/ErrorBoundary.tsx",
-	// `text-right` on a `<span>` rendering credits values. Migrating to
-	// `text-end` requires touching About.tsx (owned by another agent —
-	//out of 's file scope).
-	"pages/About.tsx",
+	// `pages/About.tsx` was previously in this set for `text-right` on a
+	// credits `<span>`. The violation was refactored into
+	// `components/common/ReadonlyRow.tsx` and migrated to `text-end`
+	// (logical property that auto-flips in RTL). Removed from the set so
+	// a future regression in either About.tsx or ReadonlyRow.tsx is
+	// caught immediately by the stale-entry check below.
 ]);
 
 /**
  * Hard upper bound on {@link CURRENTLY_VIOLATING}'s size.
  *
- * The set is at 2 entries today; the bound is set to 5 to leave room
+ * The set is at 1 entry today; the bound is set to 5 to leave room
  * for short-term additions during the migration (e.g. a new file is
  * found to violate the rule and is added to the allowlist pending
  * migration by its owning agent). Once the migration is complete,
@@ -128,19 +130,61 @@ function stripComments(src: string): string {
 	return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
 }
 
-/** Extract every `className="..."` / `className='...'` value from the source. */
+/**
+ * Extract every string literal that may carry Tailwind class names.
+ *
+ * Originally this only matched `className="..."` / `className='...'`
+ * literals, which silently missed dynamic forms like
+ * `className={cn("...")}`, `clsx("...")`, ternaries
+ * (`cond ? "a b" : "c d"`), and template literals. That gap
+ * let physical-side utilities hide inside `cn()` / `clsx()` calls and
+ * ternary branches without triggering the guard. To close it, we now
+ * extract EVERY double-quoted, single-quoted, and backtick-delimited
+ * string literal from the (comment-stripped) source and rely on the
+ * physical-CSS regexes in {@link findViolations} to filter out
+ * non-className strings — those simply don't match the patterns.
+ *
+ * Template literals: `${...}` interpolations are stripped (replaced
+ * with a single space) so the static portions between them still
+ * anchor the whitespace boundary that {@link PHYSICAL_INLINE_CLASSNAME}
+ * and {@link PHYSICAL_TEXT_ALIGN} expect at the start of each Tailwind
+ * utility. We don't evaluate the interpolations; in practice, Tailwind
+ * utilities live in the static portions.
+ *
+ * Edge cases NOT handled (intentionally):
+ *   - String concatenation across multiple literals, e.g.
+ *     `"px-3 " + (cond ? "pl-2" : "pr-2")`. Each literal is extracted
+ *     separately (`"px-3 "`, `"pl-2"`, `"pr-2"`). Both `pl-2` and
+ *     `pr-2` are flagged — correct behavior. `"px-3 "` matches
+ *     neither physical pattern, so no false positive.
+ *   - Strings constructed via `String.raw` or other dynamic APIs —
+ *     vanishingly rare in className contexts; would need an AST parse.
+ *   - Nested template-literal interpolations (e.g. `${`${cond}`}`) —
+ *     the simple `${...}` strip uses `[^}]*` and won't recurse into
+ *     nested braces; this is a known limitation that doesn't bite any
+ *     current source file.
+ */
 function extractClassNames(src: string): string[] {
 	const out: string[] = [];
-	// Double-quoted className values.
-	for (const m of src.matchAll(/className="([^"]+)"/g)) {
+	// Double-quoted string literals (handles `\"` escapes via `\\.`).
+	for (const m of src.matchAll(/"([^"\\]*(?:\\.[^"\\]*)*)"/g)) {
 		// `m[1]` is `string | undefined` under `noUncheckedIndexedAccess`;
 		// the regex's capture group guarantees a hit, but guard keeps
 		// the typed push happy without a non-null assertion.
 		if (m[1] !== undefined) out.push(m[1]);
 	}
-	// Single-quoted className values.
-	for (const m of src.matchAll(/className='([^']+)'/g)) {
+	// Single-quoted string literals (handles `\'` escapes).
+	for (const m of src.matchAll(/'([^'\\]*(?:\\.[^'\\]*)*)'/g)) {
 		if (m[1] !== undefined) out.push(m[1]);
+	}
+	// Template-literal strings. The capture is the raw inner text
+	// (handles escaped backticks and `\\` escapes); `${...}` interpolations
+	// are then stripped to a single space so the surrounding static text
+	// still anchors correctly on the physical-CSS regexes.
+	for (const m of src.matchAll(/`([^`\\]*(?:\\.[^`\\]*)*)`/g)) {
+		if (m[1] !== undefined) {
+			out.push(m[1].replace(/\$\{[^}]*\}/g, " "));
+		}
 	}
 	return out;
 }

@@ -65,6 +65,14 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 	// correctly (its ``level > 0.7`` band matches our red threshold).
 	const tier = getVolumeTier(level, level);
 	const clipping = tier === "loud";
+	// aria-valuetext gives SR users a qualitative reading (e.g.
+	// "70 percent, loud") instead of just the raw number from
+	// aria-valuenow. The tier word comes from the centralised
+	// ``getVolumeTier`` classifier so the announcement always
+	// matches the on-screen colour band. Without this, SR users
+	// would hear "70" with no signal that the level is clipping.
+	const pct = Math.round(level * 100);
+	const ariaValueText = `${pct} percent, ${tier}`;
 	return (
 		<div className="flex items-center gap-1">
 			<div
@@ -84,7 +92,8 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 				}
 				aria-valuemin={0}
 				aria-valuemax={100}
-				aria-valuenow={Math.round(level * 100)}
+				aria-valuenow={pct}
+				aria-valuetext={ariaValueText}
 			>
 				<div
 					className={cn(

@@ -74,7 +74,16 @@ function Slider({
 					// biome-ignore lint/suspicious/noArrayIndexKey: slider thumbs have a fixed count (one per value in props.value / props.defaultValue) and never reorder; the array index is the canonical stable key for radix-ui SliderThumb rendering.
 					key={`thumb-${i}`}
 					data-slot="slider-thumb"
-					aria-label={thumbLabels?.[i]}
+					// Per-thumb aria-label. ``thumbLabels`` takes precedence
+					// (multi-thumb sliders need distinct names like "Minimum" /
+					// "Maximum"). When ``thumbLabels`` is absent, fall back to
+					// the root ``aria-label`` so a single-thumb slider that
+					// only sets ``aria-label`` still exposes an accessible name
+					// on the focusable thumb. Radix Slider's root aria-label
+					// does not propagate to the thumb element, so without this
+					// fallback the thumb would be nameless to SRs even though
+					// the dev thinks they've labelled it.
+					aria-label={thumbLabels?.[i] ?? props["aria-label"]}
 					aria-valuetext={
 						getThumbAriaValueText
 							? getThumbAriaValueText(

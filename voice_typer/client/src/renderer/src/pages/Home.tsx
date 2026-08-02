@@ -25,7 +25,7 @@
 
 import { Share08Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import ActivityList from "@/components/dashboard/ActivityList";
@@ -442,6 +442,29 @@ export default function Home() {
 		}
 	}, [call]);
 
+	// Stable callback for ActivityList's `onViewAll` so the
+	// memo'd ActivityList (default export, React.memo) doesn't
+	// re-render on every parent re-render. Previously the inline
+	// `onViewAll={() => navigate("history")}` allocated a fresh
+	// closure per render, defeating ActivityList's memo.
+	const handleViewAllHistory = useCallback(() => {
+		navigate("history");
+	}, [navigate]);
+
+	// Memoise the ShareStats object so its identity is stable
+	// across unrelated re-renders (e.g. recordingState transitions,
+	// hotkey changes). Without this, every Home re-render produced
+	// a fresh `computeShareStats(...)` return value, defeating the
+	// React.memo wrapper on StatsShareImage. Keyed on `stats` and
+	// `cfg?.asr_backend` — the only inputs `computeShareStats` reads.
+	// (Renamed from `shareStats` to avoid colliding with the
+	// `shareStats` click-handler callback declared above.)
+	const asrBackend = cfg?.asr_backend;
+	const shareImageStats = useMemo(
+		() => (stats && asrBackend ? computeShareStats(stats, asrBackend) : null),
+		[stats, asrBackend],
+	);
+
 	const key = statusKeyFor(recordingState, !!lastError);
 	// noUncheckedIndexedAccess: `STATUS_COLORS[key]` is `string | undefined`.
 	// `statusKeyFor` always returns a known key, but the index access still
@@ -450,6 +473,31 @@ export default function Home() {
 	// to the `RecordingStatusPill` `statusColor` prop.
 	const statusColor = STATUS_COLORS[key] ?? "#787878";
 	const statusLabel = statusLabelFor(key) ?? t("home.ready");
+
+	// Inline status text shown between the mic button and the hotkey
+	// hint. The mic button is disabled during `transcribing` and
+	// `loading`, so without an inline hint the user has no visual
+	// explanation for why the button is unresponsive. The hint also
+	// doubles as the `disabledReason` passed to MicToggleButton so
+	// screen readers announce the same explanation on focus.
+	//
+	// - `transcribing` → "Transcribing… please wait"
+	// - `loading` + no download percentage yet → "Downloading model…"
+	//   (once `downloadPct` arrives, the progressbar below takes over
+	//   and the inline hint is suppressed to avoid duplication).
+	let inlineStatus: string | null = null;
+	if (recordingState === "transcribing") {
+		inlineStatus = t("home.transcribingHint");
+	} else if (recordingState === "loading" && downloadPct === null) {
+		inlineStatus = t("home.downloadingModel");
+	}
+	const micDisabled =
+		toggling ||
+		recordingState === "loading" ||
+		recordingState === "transcribing";
+	// `toggling` already shows the spinner overlay inside the button,
+	// so only `loading` / `transcribing` need a textual reason.
+	const micDisabledReason = micDisabled && !toggling ? inlineStatus : undefined;
 
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center gap-5 px-6 py-4">
@@ -482,6 +530,7 @@ export default function Home() {
 					message={lastError}
 					onRetry={handleToggle}
 					retrying={toggling}
+					onOpenMicSettings={() => navigate("microphone")}
 				/>
 			)}
 
@@ -515,14 +564,25 @@ export default function Home() {
 			<MicToggleButton
 				isRecording={isRecording}
 				toggling={toggling}
-				disabled={
-					toggling ||
-					recordingState === "loading" ||
-					recordingState === "transcribing"
-				}
+				disabled={micDisabled}
 				onClick={handleToggle}
 				label={isRecording ? t("home.stopDictation") : t("home.startDictation")}
+				disabledReason={micDisabledReason ?? undefined}
 			/>
+
+			{inlineStatus && (
+				<p
+					// role="status" so screen readers treat this as a
+					// live region (announced on change) without forcing
+					// the duplicate `aria-live` that would compete with
+					// App.tsx's sr-only live region.
+					role="status"
+					aria-live="polite"
+					className="text-[13px] text-(--text-muted) animate-fade-in"
+				>
+					{inlineStatus}
+				</p>
+			)}
 
 			<p className="flex items-center gap-2 text-[13px] text-(--text-muted)">
 				<span>{t("home.press")}</span>
@@ -607,9 +667,7 @@ export default function Home() {
 					clipPath: "inset(50% 50% 50% 50%)",
 				}}
 			>
-				{stats && cfg && (
-					<StatsShareImage stats={computeShareStats(stats, cfg.asr_backend)} />
-				)}
+				{shareImageStats && <StatsShareImage stats={shareImageStats} />}
 			</div>
 
 			{initialLoading && recent.length === 0 ? (
@@ -625,7 +683,7 @@ export default function Home() {
 					lineClamp={2}
 					title={t("home.recentActivity")}
 					showViewAll
-					onViewAll={() => navigate("history")}
+					onViewAll={handleViewAllHistory}
 				/>
 			)}
 		</div>

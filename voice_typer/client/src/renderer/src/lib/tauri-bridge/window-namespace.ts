@@ -186,8 +186,9 @@ export function createWindowNamespace(tauri: TauriGlobal): WindowBridge {
 		},
 
 		//`openElectronLogs` removed from the WindowBridge interface
-		// (dead code — the Rust host's `open_host_logs` command is
-		// accessed directly via `invoke` when needed).
+		// (dead code — the Rust host's `open_host_logs` command was
+		// deleted as dead code; the "View Logs" UX uses `open_logs`
+		// which opens the config root).
 
 		//(Tauri parity,  / ): forward a
 		// renderer-caught error (e.g. React's `componentDidCatch` in

@@ -35,6 +35,7 @@ import {
 import { cn } from "@/lib/utils";
 import type { BubbleWindowBubble } from "@/types/ipc";
 import {
+	BubbleBridgeProvider,
 	BubbleDismissButton,
 	BubbleMicButton,
 	type BubbleMode,
@@ -42,6 +43,7 @@ import {
 	BubbleStopButton,
 	FADEOUT_DURATION_MS,
 	getBubbleAriaLabel,
+	useBubbleBridge,
 	useBubbleLifecycle,
 	useBubbleStateMachine,
 } from "./bubble-components";
@@ -96,6 +98,22 @@ function getBubbleApi(): BubbleWindowBubble | undefined {
 // handler.
 
 export function Bubble() {
+	// Wrap the inner tree in `<BubbleBridgeProvider>` so every
+	// descendant hook (`useBubbleLifecycle`, `useBubbleStateMachine`,
+	// `useAudioLevels`, `useThemeSync`, and the `onConfig` /
+	// `onDraggable` effects below) can obtain the shared bridge via
+	// `useBubbleBridge()` and register handlers via `bridge.on(...)`.
+	// The bridge owns the single per-event `window.bubble` IPC
+	// subscription; consumers fan out via the bridge's in-process
+	// handler Set.
+	return (
+		<BubbleBridgeProvider>
+			<BubbleInner />
+		</BubbleBridgeProvider>
+	);
+}
+
+function BubbleInner() {
 	const dotRefs = useRef<(HTMLSpanElement | null)[]>([]);
 	const pillRef = useRef<HTMLDivElement>(null);
 	const fadeOutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -135,13 +153,19 @@ export function Bubble() {
 	void _isVisible;
 	void _setExitTick;
 
+	// The bridge centralises all `window.bubble` IPC subscriptions
+	// (onShow / onHide / onSetState / onConfig / onDraggable / onLevel)
+	// into one listener per channel; consumers register handlers via
+	// `bridge.on(event, handler)`. Pre-refactor each hook + this
+	// component called `api.onX(...)` individually — 11 separate IPC
+	// listeners across the bubble package.
+	const bridge = useBubbleBridge();
+
 	// Sync `draggable` from the main process (Settings page toggle).
 	useEffect(() => {
-		const api = getBubbleApi();
-		if (!api) return;
-		const off = api.onDraggable((d: boolean) => setDraggable(d));
-		return off;
-	}, []);
+		if (!bridge) return;
+		return bridge.on("draggable", (d: boolean) => setDraggable(d));
+	}, [bridge]);
 
 	// Receive bubble-relevant config from the (sandboxed) backend. The
 	// bubble renderer has no `get_config`, so the Python backend pushes
@@ -153,10 +177,9 @@ export function Bubble() {
 	// fields of the same payload are handled inside `useBubbleLifecycle`
 	// → `useThemeSync`.)
 	useEffect(() => {
-		const api = getBubbleApi();
-		if (!api?.onConfig) return;
+		if (!bridge) return;
 
-		const off = api.onConfig((cfg) => {
+		const off = bridge.on("config", (cfg) => {
 			const behavior = cfg.bubble_behavior;
 			const clickToToggle = cfg.bubble_click_to_toggle;
 			const micButton = cfg.bubble_mic_button;
@@ -178,7 +201,7 @@ export function Bubble() {
 			}
 		});
 		return off;
-	}, []);
+	}, [bridge]);
 
 	// Mic button click → toggle dictation. The bubble is a sandboxed
 	// renderer (SEC-026) with no `python.call`, so it routes through

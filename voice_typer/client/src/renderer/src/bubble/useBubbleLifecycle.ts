@@ -7,13 +7,14 @@
  * sandboxed bubble renderer inherits the main app's theme_mode /
  * theme_preset / custom_theme / locale), the 60 fps audio-level rAF
  * loop (paused when the bubble is hidden), and visibility tracking
- * (subscribes to `api.onShow` / `api.onHide`).
+ * (subscribes to the bridge's `show` / `hide` events).
  *
  * Returns the current visibility flag — callers use it to gate any
  * side-effects that should be idle while the BrowserWindow is hidden.
  */
 import { type RefObject, useEffect, useState } from "react";
 import { useAudioLevels } from "./useAudioLevels";
+import { useBubbleBridge } from "./useBubbleBridge";
 import { useThemeSync } from "./useThemeSync";
 
 export function useBubbleLifecycle(
@@ -24,18 +25,16 @@ export function useBubbleLifecycle(
 	useThemeSync();
 	useAudioLevels(dotRefs, isVisible);
 
+	const bridge = useBubbleBridge();
 	useEffect(() => {
-		const api = window.bubble as
-			| import("@/types/ipc").BubbleWindowBubble
-			| undefined;
-		if (!api) return;
-		const offShow = api.onShow(() => setIsVisible(true));
-		const offHide = api.onHide(() => setIsVisible(false));
+		if (!bridge) return;
+		const offShow = bridge.on("show", () => setIsVisible(true));
+		const offHide = bridge.on("hide", () => setIsVisible(false));
 		return () => {
 			offShow();
 			offHide();
 		};
-	}, []);
+	}, [bridge]);
 
 	return isVisible;
 }

@@ -83,17 +83,13 @@ export function Modal({
 }
 
 /**
- * ModalFooter — standard button row at the bottom of the modal.
- * Exported for convenience so call sites don't need to import DialogFooter.
+ * ModalFooter — thin re-export of {@link DialogFooter} so call sites that
+ * already import `Modal` don't need a second import from
+ * `@/components/ui/dialog`. Production code that needs more control
+ * should import `DialogFooter` directly.
+ *
+ * Previously this was a zero-value shim that just forwarded props to
+ * `DialogFooter`; the re-export below preserves the public API while
+ * removing the duplicated wrapper code.
  */
-export function ModalFooter({
-	className,
-	children,
-	...props
-}: React.ComponentProps<"div">) {
-	return (
-		<DialogFooter className={className} {...props}>
-			{children}
-		</DialogFooter>
-	);
-}
+export { DialogFooter as ModalFooter };

@@ -249,7 +249,7 @@ function DropdownMenuSubTrigger({
 			<HugeiconsIcon
 				icon={ArrowRight01Icon}
 				strokeWidth={2}
-				className="ms-auto"
+				className="ms-auto nav-directional-icon"
 			/>
 		</DropdownMenuPrimitive.SubTrigger>
 	);

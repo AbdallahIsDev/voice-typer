@@ -24,9 +24,10 @@
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
+const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
 	mockPythonEvent: vi.fn(),
+	mockNavigate: vi.fn(),
 }));
 
 vi.mock("@/hooks/usePython", () => ({
@@ -35,7 +36,7 @@ vi.mock("@/hooks/usePython", () => ({
 }));
 
 vi.mock("@/hooks/useNavigation", () => ({
-	useNavigation: () => ({ navigate: vi.fn() }),
+	useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
 vi.mock("@hugeicons/react", () => ({
@@ -136,10 +137,11 @@ describe("QV-9: lastText is rendered inside an <output aria-live='polite'> regio
 		expect(liveRegion?.getAttribute("aria-live")).toBe("polite");
 		// The Home page wraps the preview in an <output> element (the
 		// semantic HTML5 live region). Walk up to confirm an <output>
-		// ancestor exists with aria-live="polite" — the closest
-		// aria-live ancestor may be the inner LastTranscriptionPreview
-		//container (also aria-live="polite" per ), but the outer
-		// <output> must still be present.
+		// ancestor exists with aria-live="polite" — the
+		// LastTranscriptionPreview container itself no longer carries
+		// aria-live (the ancestor <output> is the single live region
+		// so the same text isn't announced twice by screen readers),
+		// so the closest aria-live ancestor should be the <output>.
 		let node: Element | null = textEl.parentElement;
 		let outputAncestor: Element | null = null;
 		while (node) {
@@ -156,10 +158,10 @@ describe("QV-9: lastText is rendered inside an <output aria-live='polite'> regio
 	});
 });
 
-//LastTranscriptionPreview container exposes aria-live ──
+//LastTranscriptionPreview container relies on the ancestor <output> ──
 
-describe("QV-96: LastTranscriptionPreview container exposes aria-live='polite'", () => {
-	it("renders the outer container with aria-live='polite'", async () => {
+describe("QV-96: LastTranscriptionPreview container does NOT carry its own aria-live (ancestor <output> provides it)", () => {
+	it("renders the outer container with no aria-live attribute", async () => {
 		const { LastTranscriptionPreview } = await import(
 			"@/pages/home/components/LastTranscriptionPreview"
 		);
@@ -170,10 +172,13 @@ describe("QV-96: LastTranscriptionPreview container exposes aria-live='polite'",
 				onRepaste={() => {}}
 			/>,
 		);
-		// The outermost element must carry aria-live="polite".
+		// The outermost element must NOT carry aria-live — the
+		// ancestor `<output aria-live="polite">` wrapper in Home.tsx
+		// is the single live region. A second aria-live here would
+		// cause screen readers to announce the same text twice.
 		const outer = container.firstElementChild;
 		expect(outer).not.toBeNull();
-		expect(outer?.getAttribute("aria-live")).toBe("polite");
+		expect(outer?.hasAttribute("aria-live")).toBe(false);
 	});
 });
 
@@ -358,6 +363,9 @@ describe("QV-25: owned files contain no task-ID / session-prefix comments", () =
 		"NEW-TS-006",
 		"F11-FIX",
 		"R7-F13",
+		"GG-12",
+		"GG-13",
+		"GG-14",
 	];
 
 	it.each(
@@ -368,5 +376,235 @@ describe("QV-25: owned files contain no task-ID / session-prefix comments", () =
 		for (const token of FORBIDDEN_TOKENS) {
 			expect(src).not.toContain(token);
 		}
+	});
+});
+
+// ── inline transcribing / downloading-model status hint ──
+//
+// The mic button is disabled during `transcribing` and `loading`. Without
+// an inline textual hint the user has no visible explanation for why the
+// button is unresponsive. Home.tsx renders an inline `<p role="status">`
+// between the mic button and the hotkey hint, and passes the same text
+// as `disabledReason` to MicToggleButton so the accessible name on the
+// disabled button explains why it can't be clicked.
+
+describe("Home renders an inline status hint while transcribing or loading", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockPythonEvent.mockReset();
+		mockNavigate.mockReset();
+		localStorage.clear();
+		vi.resetModules();
+		mockCall.mockImplementation(() => new Promise(() => {}));
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("renders t('home.transcribingHint') when recordingState is 'transcribing'", async () => {
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({ recordingState: "transcribing" });
+
+		await renderHome();
+
+		// en.json value for home.transcribingHint.
+		const hint = screen.getByText("Transcribing… please wait");
+		expect(hint).toBeTruthy();
+		expect(hint.tagName.toLowerCase()).toBe("p");
+		expect(hint.getAttribute("role")).toBe("status");
+	});
+
+	it("renders t('home.downloadingModel') when recordingState is 'loading' and no downloadPct has arrived yet", async () => {
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({ recordingState: "loading" });
+
+		await renderHome();
+
+		// en.json value for home.downloadingModel. The inline hint
+		// is suppressed once `downloadPct` arrives (the progressbar
+		// takes over) — verified in a separate test below.
+		const hint = screen.getByText("Downloading model…");
+		expect(hint).toBeTruthy();
+		expect(hint.getAttribute("role")).toBe("status");
+	});
+
+	it("does NOT render the inline hint when recordingState is 'idle'", async () => {
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({ recordingState: "idle" });
+
+		await renderHome();
+
+		expect(screen.queryByText("Transcribing… please wait")).toBeNull();
+		expect(screen.queryByText("Downloading model…")).toBeNull();
+	});
+});
+
+// ── MicToggleButton disabledReason surfaces as aria-label / title ──
+
+describe("MicToggleButton surfaces disabledReason as the accessible name when disabled", () => {
+	it("uses disabledReason for aria-label and title when disabled", async () => {
+		const { MicToggleButton } = await import(
+			"@/pages/home/components/MicToggleButton"
+		);
+		render(
+			<MicToggleButton
+				isRecording={false}
+				toggling={false}
+				disabled={true}
+				onClick={() => {}}
+				label="Start dictation"
+				disabledReason="Transcribing… please wait"
+			/>,
+		);
+		// The accessible name must explain why the button is disabled,
+		// not just repeat the (now-unusable) action label.
+		const btn = screen.getByRole("button", {
+			name: "Transcribing… please wait",
+		});
+		expect(btn.getAttribute("title")).toBe("Transcribing… please wait");
+		expect(btn.getAttribute("aria-pressed")).toBe("false");
+	});
+
+	it("falls back to `label` when disabled but no disabledReason is provided", async () => {
+		const { MicToggleButton } = await import(
+			"@/pages/home/components/MicToggleButton"
+		);
+		render(
+			<MicToggleButton
+				isRecording={false}
+				toggling={false}
+				disabled={true}
+				onClick={() => {}}
+				label="Start dictation"
+			/>,
+		);
+		const btn = screen.getByRole("button", { name: "Start dictation" });
+		expect(btn.getAttribute("title")).toBe("Start dictation");
+	});
+
+	it("uses `label` (not disabledReason) when not disabled", async () => {
+		const { MicToggleButton } = await import(
+			"@/pages/home/components/MicToggleButton"
+		);
+		render(
+			<MicToggleButton
+				isRecording={false}
+				toggling={false}
+				disabled={false}
+				onClick={() => {}}
+				label="Start dictation"
+				disabledReason="Transcribing… please wait"
+			/>,
+		);
+		// When the button is actionable the accessible name must
+		// describe the action, not the dormant disabled reason.
+		const btn = screen.getByRole("button", { name: "Start dictation" });
+		expect(btn.getAttribute("title")).toBe("Start dictation");
+	});
+});
+
+// ── RecordingErrorCard secondary "Open Microphone settings" CTA ──
+
+describe("RecordingErrorCard renders a secondary 'Open Microphone settings' ghost button", () => {
+	it("does NOT render the secondary button when onOpenMicSettings is not provided", async () => {
+		const { RecordingErrorCard } = await import(
+			"@/pages/home/components/RecordingErrorCard"
+		);
+		render(
+			<RecordingErrorCard message="boom" onRetry={() => {}} retrying={false} />,
+		);
+		expect(
+			screen.queryByRole("button", { name: /Open Microphone settings/i }),
+		).toBeNull();
+	});
+
+	it("renders the secondary ghost button when onOpenMicSettings is provided", async () => {
+		const { RecordingErrorCard } = await import(
+			"@/pages/home/components/RecordingErrorCard"
+		);
+		render(
+			<RecordingErrorCard
+				message="boom"
+				onRetry={() => {}}
+				retrying={false}
+				onOpenMicSettings={() => {}}
+			/>,
+		);
+		expect(
+			screen.getByRole("button", { name: /Open Microphone settings/i }),
+		).toBeTruthy();
+	});
+
+	it("calls onOpenMicSettings when the secondary button is clicked", async () => {
+		const { RecordingErrorCard } = await import(
+			"@/pages/home/components/RecordingErrorCard"
+		);
+		const onOpenMicSettings = vi.fn();
+		render(
+			<RecordingErrorCard
+				message="boom"
+				onRetry={() => {}}
+				retrying={false}
+				onOpenMicSettings={onOpenMicSettings}
+			/>,
+		);
+		const btn = screen.getByRole("button", {
+			name: /Open Microphone settings/i,
+		});
+		btn.click();
+		expect(onOpenMicSettings).toHaveBeenCalledTimes(1);
+	});
+
+	it("honours a custom micSettingsLabel override", async () => {
+		const { RecordingErrorCard } = await import(
+			"@/pages/home/components/RecordingErrorCard"
+		);
+		render(
+			<RecordingErrorCard
+				message="boom"
+				onRetry={() => {}}
+				retrying={false}
+				onOpenMicSettings={() => {}}
+				micSettingsLabel="Open Mic Settings"
+			/>,
+		);
+		expect(
+			screen.getByRole("button", { name: "Open Mic Settings" }),
+		).toBeTruthy();
+	});
+});
+
+// ── Home wires onOpenMicSettings to navigate('microphone') ──
+
+describe("Home wires RecordingErrorCard's onOpenMicSettings to navigate('microphone')", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockPythonEvent.mockReset();
+		mockNavigate.mockReset();
+		localStorage.clear();
+		vi.resetModules();
+		mockCall.mockImplementation(() => new Promise(() => {}));
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("calls navigate('microphone') when the 'Open Microphone settings' CTA is clicked", async () => {
+		const { useAppStore } = await import("@/stores/appStore");
+		useAppStore.setState({
+			recordingState: "error",
+			lastError: "Device unavailable",
+		});
+
+		await renderHome();
+
+		const cta = screen.getByRole("button", {
+			name: /Open Microphone settings/i,
+		});
+		cta.click();
+		expect(mockNavigate).toHaveBeenCalledWith("microphone");
+		expect(mockNavigate).toHaveBeenCalledTimes(1);
 	});
 });
