@@ -74,11 +74,15 @@ dependencies = [
     # The `>=0.5` floor matches the first release with the `Stream` callback
     # signature we depend on.
     "sounddevice>=0.5,<1.0",
-    # BUILD-N03: tighten numpy to <2.0. numpy 2.x changed the default
-    # integer type on Windows and broke ABI compat with several of our
-    # pinned deps (faster-whisper, sounddevice). Pin to 1.26+ which has
-    # all the bugfixes we need without the 2.x breakage.
-    "numpy>=1.26,<2.0",
+    # BUILD-N03 (2026-08-03): numpy 2.x is required — Python 3.13 has no
+    # numpy 1.x wheels (1.26.4 is the last 1.x and only supports <=3.12),
+    # so the old <2.0 cap forced uv to source-build numpy 1.26.4 on the
+    # 3.13 CI legs, and that build segfaults at import on Windows
+    # ("Windows fatal exception: access violation" in numpy.core.getlimits
+    # during the mock_heavy_imports fixture's app.py import). numpy 2.x is
+    # verified API-compatible with this codebase (no removed 1.x aliases
+    # in use) and installs official wheels on every supported Python.
+    "numpy>=2.0",
     # CR-DEP-3: scipy.signal is used by audio_filters/ for the resampler
     # + biquad filters. The <2.0 cap is the standard major-version guard —
     # scipy 2.x is not yet on any announced roadmap but the project's
