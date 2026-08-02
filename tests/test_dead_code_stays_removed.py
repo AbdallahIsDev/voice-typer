@@ -771,32 +771,48 @@ class TestIpcDeadCodeStaysRemoved:
         )
 
 
-class TestExtendUrlAllowlistIsDead:
-    """YJ-62: ``extend_url_allowlist`` is a dead-code function in
-    ``voice_typer/server/_secrets.py``. The function is intentionally
-    retained (the G4-M-55 audit-logging logic + caller-detection logic
-    is non-trivial and covered by tests), but has ZERO production
-    callers — the XZ-SEC-05 IPC wiring proposal that would have invoked
-    it has not landed. The source carries a DEAD-CODE module-level
-    notice + docstring marker so future readers don't mistake it for
-    live code.
+class TestExtendUrlAllowlistIsWired:
+    """XZ-SEC-05: ``extend_url_allowlist`` in
+    ``voice_typer/server/_secrets.py`` is LIVE production code.
 
-    These tests enforce the dead-code claim: if any production file
-    (under ``voice_typer/`` excluding ``_secrets.py`` itself) starts
-    calling ``extend_url_allowlist``, the test fails and forces the
-    caller to either remove the call or wire the XZ-SEC-05 IPC properly.
+    The XZ-SEC-05 wiring landed 2026-08-02: the env-var bootstrap
+    (``_load_env_allowlist_extensions``) was joined by ``Config.load``
+    re-applying the persisted ``trusted_extra_hosts`` list, and by the
+    ``add_trusted_endpoint`` / ``set_config`` IPC handlers in
+    ``handlers/config_handlers.py``. The former DEAD-CODE marker was
+    removed from ``_secrets.py``.
+
+    These tests enforce the live-claim: the set of production call
+    sites MUST stay exactly the three expected families, and the
+    DEAD-CODE marker MUST NOT come back.
     """
 
-    def test_no_production_caller_of_extend_url_allowlist(self) -> None:
+    # Expected call sites of ``extend_url_allowlist`` in production code
+    # (relative to the repo root). Any addition or removal here means the
+    # XZ-SEC-05 wiring drifted and must be reviewed.
+    _EXPECTED_CALLERS: frozenset[str] = frozenset(
+        {
+            # Config.load re-applies persisted trusted_extra_hosts.
+            "voice_typer/server/config/__init__.py",
+            # ConfigHandlersMixin: set_config trusted_extra_hosts re-apply
+            # + the add_trusted_endpoint IPC handler.
+            "voice_typer/server/handlers/config_handlers.py",
+        }
+    )
+
+    def test_production_callers_of_extend_url_allowlist_are_expected(self) -> None:
         """AST-walk every ``.py`` file under ``voice_typer/`` (excluding
-        ``_secrets.py`` itself) and assert no Call node targets
-        ``extend_url_allowlist``."""
+        ``_secrets.py`` itself) and assert every Call node targeting
+        ``extend_url_allowlist`` lives in one of the expected modules.
+        A new caller (e.g. a UI affordance wiring the command directly)
+        must be reviewed and added to ``_EXPECTED_CALLERS`` here.
+        """
         import ast
         from pathlib import Path
 
         repo_root = Path(__file__).resolve().parent.parent
         voice_typer_dir = repo_root / "voice_typer"
-        offenders: list[str] = []
+        offender_files: set[str] = set()
 
         for py_file in voice_typer_dir.rglob("*.py"):
             # Skip the function's own definition file.
@@ -815,31 +831,29 @@ class TestExtendUrlAllowlistIsDead:
                         and func.id == "extend_url_allowlist"
                         or (isinstance(func, ast.Attribute) and func.attr == "extend_url_allowlist")
                     ):
-                        offenders.append(f"{py_file.relative_to(repo_root)}:{node.lineno}")
+                        offender_files.add(str(py_file.relative_to(repo_root)))
 
-        assert not offenders, (
-            "YJ-62 regression: `extend_url_allowlist` has production "
-            f"callers in: {offenders!r}. The function is documented as "
-            "DEAD-CODE pending XZ-SEC-05 IPC wiring. Either remove the "
-            "call (the function does nothing production-relevant), or "
-            "wire the XZ-SEC-05 `add_trusted_endpoint` IPC command + "
-            "`trusted_extra_hosts` config field, then update this test "
-            "and the DEAD-CODE marker in `_secrets.py`."
+        unexpected = offender_files - self._EXPECTED_CALLERS
+        missing = self._EXPECTED_CALLERS - offender_files
+        assert not unexpected and not missing, (
+            "XZ-SEC-05 regression: `extend_url_allowlist` production "
+            f"callers drifted. Unexpected callers: {sorted(unexpected)!r}; "
+            f"expected callers missing: {sorted(missing)!r}. Expected set: "
+            f"{sorted(self._EXPECTED_CALLERS)!r}. Review the wiring and "
+            "update _EXPECTED_CALLERS deliberately (never silently)."
         )
 
-    def test_dead_code_marker_present_in_secrets_module(self) -> None:
-        """The DEAD-CODE notice must remain at the module level above
-        ``extend_url_allowlist`` so future readers know the function
-        is intentionally retained despite having zero callers."""
+    def test_dead_code_marker_removed_from_secrets_module(self) -> None:
+        """The DEAD-CODE marker must be GONE from ``_secrets.py`` — the
+        function is live (XZ-SEC-05 wired), so the marker would now be
+        actively misleading.
+        """
         from voice_typer.server import _secrets
 
         src = inspect.getsource(_secrets)
-        # The DEAD-CODE marker can be either a module-level comment or
-        # inside the function's docstring. Both forms are accepted; the
-        # regression is removing the marker entirely.
-        assert "DEAD-CODE" in src, (
-            "YJ-62 regression: the DEAD-CODE marker for "
-            "`extend_url_allowlist` was removed from `_secrets.py`. "
-            "Either re-add it (the function is still dead) or wire the "
-            "XZ-SEC-05 caller that makes the function live."
+        assert "DEAD-CODE" not in src, (
+            "XZ-SEC-05 regression: the DEAD-CODE marker for "
+            "`extend_url_allowlist` is back in `_secrets.py`, but the "
+            "function is live (Config.load + add_trusted_endpoint IPC + "
+            "env-var bootstrap). Remove the marker again."
         )

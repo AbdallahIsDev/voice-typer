@@ -70,8 +70,8 @@ function MockBrowserWindow(): {
 		setSkipTaskbar: vi.fn(),
 		restore: vi.fn(),
 		reload: vi.fn(),
-		loadURL: vi.fn(),
-		loadFile: vi.fn(),
+		loadURL: vi.fn(() => Promise.resolve()),
+		loadFile: vi.fn(() => Promise.resolve()),
 	};
 }
 

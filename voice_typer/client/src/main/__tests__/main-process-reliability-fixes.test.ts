@@ -61,15 +61,19 @@ describe("GT-11: index.ts registers SIGTERM/SIGINT handlers with 3s backstop", (
 		expect(idx).toBeGreaterThan(-1);
 	});
 
-	it("arms a 3s hard backstop setTimeout after app.quit()", () => {
+	it("arms a hard backstop setTimeout after app.quit() (kill + escalate + margin)", () => {
 		const src = readSrc("../index.ts");
-		// The backstop must be a 3000ms setTimeout that calls
-		// process.exit(0), and it must be .unref()'d so it doesn't
-		// keep the event loop alive on a clean exit path.
+		// The backstop must be a setTimeout that calls process.exit(0),
+		// delayed by KILL_TIMER_MS + ESCALATE_TIMER_MS + 500 so it can
+		// never race ahead of the SIGKILL escalation in stop-python.ts
+		// (pre-fix the hardcoded 3000ms backstop fired at the same
+		// moment as killTimer and could exit Electron before the 6s
+		// escalateTimer orphaned Python), and it must be .unref()'d so
+		// it doesn't keep the event loop alive on a clean exit path.
 		const handlerIdx = src.indexOf("signalQuitHandler");
 		const block = src.slice(handlerIdx, handlerIdx + 600);
 		expect(block).toMatch(
-			/setTimeout\(\(\)\s*=>\s*process\.exit\(0\)\s*,\s*3000\)/,
+			/setTimeout\s*\(\s*\(\)\s*=>\s*process\.exit\(0\)\s*,\s*KILL_TIMER_MS\s*\+\s*ESCALATE_TIMER_MS\s*\+\s*500\s*,?\s*\)/,
 		);
 		expect(block).toMatch(/\.unref\(\)/);
 	});

@@ -19,11 +19,20 @@ function DropdownMenuPortal({
 }
 
 function DropdownMenuTrigger({
+	disabled,
 	...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Trigger>) {
 	return (
 		<DropdownMenuPrimitive.Trigger
 			data-slot="dropdown-menu-trigger"
+			// Forward `disabled` to the Radix primitive (not just the
+			// child button): Radix checks its own `disabled` prop in
+			// onPointerDown/onKeyDown and skips opening when set —
+			// with `asChild`, a disabled child button alone does NOT
+			// stop the trigger's synthetic pointer handler in jsdom
+			// (real browsers block pointer events on disabled buttons;
+			// jsdom/user-event still dispatches them).
+			disabled={disabled}
 			{...props}
 		/>
 	);
@@ -33,6 +42,7 @@ function DropdownMenuContent({
 	className,
 	align = "start",
 	sideOffset = 4,
+	loop = true,
 	...props
 }: React.ComponentProps<typeof DropdownMenuPrimitive.Content>) {
 	return (
@@ -41,6 +51,11 @@ function DropdownMenuContent({
 				data-slot="dropdown-menu-content"
 				sideOffset={sideOffset}
 				align={align}
+				// WAI-ARIA menu pattern: arrow-key navigation wraps
+				// cyclically (ArrowDown on the last item returns to the
+				// first). Radix's default is no-wrap; menus conventionally
+				// loop, and the a11y keyboard-nav tests pin it.
+				loop={loop}
 				className={cn(
 					"z-50 max-h-(--radix-dropdown-menu-content-available-height) w-(--radix-dropdown-menu-trigger-width) min-w-48 origin-(--radix-dropdown-menu-content-transform-origin) overflow-x-hidden overflow-y-auto rounded-3xl bg-popover p-1.5 text-popover-foreground shadow-lg ring-1 ring-foreground/5 duration-100 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:overflow-hidden dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
 					className,

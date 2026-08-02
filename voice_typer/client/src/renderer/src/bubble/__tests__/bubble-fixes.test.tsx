@@ -196,13 +196,15 @@ describe("bubble: prefers-reduced-motion", () => {
 
 		// The visualizer bars are the 7 spans inside .gap-0.75. They
 		// should all be at the fixed mid-height (13.5px) with opacity
-		// 0.6 — the reduced-motion fallback render.
+		// 0.5 — the reduced-motion fallback render (matches the
+		// reduced-motion gating contract: static mid-height bars at
+		// opacity 0.5, see useAudioLevels-reduced-motion.test.tsx).
 		const bars = document.querySelectorAll(".gap-0\\.75 > span");
 		expect(bars.length).toBe(7);
 		for (const bar of Array.from(bars)) {
 			const el = bar as HTMLElement;
 			expect(el.style.height).toBe("13.5px");
-			expect(el.style.opacity).toBe("0.6");
+			expect(el.style.opacity).toBe("0.5");
 		}
 	});
 });

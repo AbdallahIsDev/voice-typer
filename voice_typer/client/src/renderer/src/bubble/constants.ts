@@ -83,4 +83,4 @@ export const FADEOUT_DURATION_MS = 150;
  * flips to margin-right automatically.
  */
 export const BUBBLE_BUTTON_CLASS =
-	"no-drag ms-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground dark:hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0";
+	"no-drag ms-1 inline-flex h-6 w-6 items-center justify-center rounded-full text-(--text-muted) transition-colors hover:bg-(--surface-hover) hover:text-(--text-primary) focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-0";

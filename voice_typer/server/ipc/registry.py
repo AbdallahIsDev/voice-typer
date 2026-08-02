@@ -249,6 +249,25 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "get_model_catalog": "_handle_get_model_catalog",
     "delete_model": "_handle_delete_model",
     "set_tray_locale": "_handle_set_tray_locale",
+    # Cloud-provider "Test Connection" probe (S3-CR-3). The renderer's
+    # ``useCloudProviders.testConnection`` action dispatches this command
+    # instead of issuing a cross-origin fetch directly (which would leak
+    # the API key through browser dev-tools observability and violate
+    # C-DATA-1's "renderer production code path stays network-free"
+    # promise). The handler lives in
+    # ``handlers/cloud_test_handlers.py`` (CloudTestHandlersMixin) and
+    # performs the network call, gated by an explicit user click on the
+    # Cloud tab's "Test Connection" button. Listed in
+    # ``KNOWN_UNDOCUMENTED_COMMANDS`` (tests/tauri/mig19/
+    # test_phase4_validation.py) pending a formal ADR-0020 §16 addendum.
+    "test_cloud_connection": "_handle_test_cloud_connection",
+    # XZ-SEC-05: add a hostname to the runtime URL allowlist + persist
+    # to config.json under `trusted_extra_hosts` (self-hosted LLM/ASR
+    # endpoint remediation). Handler lives in ConfigHandlersMixin
+    # (handlers/config_handlers.py). Listed in KNOWN_UNDOCUMENTED_COMMANDS
+    # (tests/tauri/mig19/test_phase4_validation.py) pending a formal
+    # ADR-0020 §16 addendum, mirroring test_cloud_connection.
+    "add_trusted_endpoint": "_handle_add_trusted_endpoint",
     # ESC-: pause/resume the global ESC cancel hotkey so the
     # frontend (HotkeyPicker in hotkey capture mode) can temporarily
     # disable it, preventing the backend from processing Escape while

@@ -26,6 +26,11 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mock state hoisted before vi.mock factories run ─────────────────
@@ -92,6 +97,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 	const make = (name: string) => ({ name });
 	return {
 		Cancel01Icon: make("Cancel01Icon"),
+		Search01Icon: make("Search01Icon"),
 		InformationCircleIcon: make("InformationCircleIcon"),
 		Moon02Icon: make("Moon02Icon"),
 		RefreshIcon: make("RefreshIcon"),
@@ -185,7 +191,7 @@ describe("App help overlay — RW-0 rewrite of test_app_has_question_mark_keydow
 
 	it("opens the help overlay when '?' is pressed", async () => {
 		const { default: App } = await import("@/App");
-		render(<App />);
+		renderWithProviders(<App />);
 
 		await waitFor(() => {
 			expect(screen.getByTestId("home-page")).toBeTruthy();
@@ -199,7 +205,9 @@ describe("App help overlay — RW-0 rewrite of test_app_has_question_mark_keydow
 		// The help overlay Modal opens and renders the
 		// "Keyboard Shortcuts" heading (i18n key help.title).
 		await waitFor(() => {
-			expect(screen.getByText("Keyboard Shortcuts")).toBeTruthy();
+			expect(
+				screen.getAllByText("Keyboard Shortcuts").length,
+			).toBeGreaterThanOrEqual(1);
 		});
 	});
 
@@ -208,7 +216,7 @@ describe("App help overlay — RW-0 rewrite of test_app_has_question_mark_keydow
 		// keyboard shortcuts like Ctrl+Shift+? (DevTools) don't pop
 		// the help overlay.
 		const { default: App } = await import("@/App");
-		render(<App />);
+		renderWithProviders(<App />);
 
 		await waitFor(() => {
 			expect(screen.getByTestId("home-page")).toBeTruthy();
@@ -221,7 +229,7 @@ describe("App help overlay — RW-0 rewrite of test_app_has_question_mark_keydow
 
 	it("does NOT open the help overlay when focus is in an input", async () => {
 		const { default: App } = await import("@/App");
-		render(<App />);
+		renderWithProviders(<App />);
 
 		await waitFor(() => {
 			expect(screen.getByTestId("home-page")).toBeTruthy();
@@ -256,7 +264,7 @@ describe("App help overlay — RW-0 rewrite of test_help_overlay_closes_on_escap
 
 	it("closes the help overlay when Escape is pressed", async () => {
 		const { default: App } = await import("@/App");
-		render(<App />);
+		renderWithProviders(<App />);
 
 		await waitFor(() => {
 			expect(screen.getByTestId("home-page")).toBeTruthy();
@@ -265,7 +273,9 @@ describe("App help overlay — RW-0 rewrite of test_help_overlay_closes_on_escap
 		// Open the overlay first.
 		dispatchKey("?");
 		await waitFor(() => {
-			expect(screen.getByText("Keyboard Shortcuts")).toBeTruthy();
+			expect(
+				screen.getAllByText("Keyboard Shortcuts").length,
+			).toBeGreaterThanOrEqual(1);
 		});
 
 		// Press Escape — App.tsx's handler closes the overlay

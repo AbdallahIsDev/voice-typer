@@ -18,7 +18,20 @@
  *      ``window.location.reload()`` (the reload was removed entirely).
  *   3. The round-trip ar -> en also re-renders in-place.
  */
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const renderWithProviders = (ui: React.ReactElement) => {
+	const wrapped = (node: React.ReactElement) => (
+		<TooltipProvider delayDuration={200}>{node}</TooltipProvider>
+	);
+	const utils = render(wrapped(ui));
+	return {
+		...utils,
+		rerender: (node: React.ReactElement) => utils.rerender(wrapped(node)),
+	};
+};
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Stub the hugeicons runtime so we don't pull in the real SVG renderer
@@ -245,7 +258,7 @@ describe("GeneralSettingsSection — B-REVIEW-3 locale re-rendering", () => {
 	});
 
 	it("renders English labels when locale is 'en'", () => {
-		render(
+		renderWithProviders(
 			<GeneralSettingsSection
 				config={makeConfig()}
 				updateConfig={vi.fn()}
@@ -259,8 +272,8 @@ describe("GeneralSettingsSection — B-REVIEW-3 locale re-rendering", () => {
 		expect(screen.getByText("Notifications")).toBeTruthy();
 	});
 
-	it("re-renders Arabic labels after setLocale('ar') WITHOUT window.location.reload()", () => {
-		const { rerender } = render(
+	it("re-renders Arabic labels after setLocale('ar') WITHOUT window.location.reload()", async () => {
+		const { rerender } = renderWithProviders(
 			<GeneralSettingsSection
 				config={makeConfig()}
 				updateConfig={vi.fn()}
@@ -289,11 +302,17 @@ describe("GeneralSettingsSection — B-REVIEW-3 locale re-rendering", () => {
 			/>,
 		);
 
-		// The English label must be GONE (replaced by Arabic).
-		expect(screen.queryByText("Launch at Login")).toBeNull();
-		// The Arabic translation of "Launch at Login" is
-		// "التشغيل عند تسجيل الدخول" (verified in ar.json).
-		expect(screen.getByText("التشغيل عند تسجيل الدخول")).toBeTruthy();
+		// The Arabic translation table loads via an async dynamic import
+		// (ensureLocaleLoaded), so the label swap lands on the second
+		// subscriber notification. Wait for it — the load completes in a
+		// microtask chain, well within waitFor's budget.
+		await waitFor(() => {
+			// The English label must be GONE (replaced by Arabic).
+			expect(screen.queryByText("Launch at Login")).toBeNull();
+			// The Arabic translation of "Launch at Login" is
+			// "التشغيل عند تسجيل الدخول" (verified in ar.json).
+			expect(screen.getByText("التشغيل عند تسجيل الدخول")).toBeTruthy();
+		});
 
 		// CRITICAL: the locale switch must NOT have triggered a
 		// full page reload — the whole point of B-REVIEW-3 is
@@ -301,13 +320,13 @@ describe("GeneralSettingsSection — B-REVIEW-3 locale re-rendering", () => {
 		expect(window.location.reload).not.toHaveBeenCalled();
 	});
 
-	it("re-renders English labels when switching ar -> en (round-trip)", () => {
+	it("re-renders English labels when switching ar -> en (round-trip)", async () => {
 		// Start in Arabic.
 		act(() => {
 			setLocale("ar" as Locale);
 		});
 
-		const { rerender } = render(
+		const { rerender } = renderWithProviders(
 			<GeneralSettingsSection
 				config={makeConfig()}
 				updateConfig={vi.fn()}
@@ -316,7 +335,11 @@ describe("GeneralSettingsSection — B-REVIEW-3 locale re-rendering", () => {
 			/>,
 		);
 
-		expect(screen.getByText("التشغيل عند تسجيل الدخول")).toBeTruthy();
+		// The Arabic table loads async — wait for the label to appear
+		// before asserting the round-trip back to English.
+		await waitFor(() => {
+			expect(screen.getByText("التشغيل عند تسجيل الدخول")).toBeTruthy();
+		});
 
 		// Switch back to English.
 		act(() => {

@@ -65,9 +65,72 @@ export function getCategoryLabels(): Record<
 	};
 }
 
-/** Auto-detect category: phrases (spaces) go to phrase_corrections, single words to misspellings. */
-export function detectCategory(
-	trigger: string,
-): "misspellings" | "phrase_corrections" {
-	return trigger.includes(" ") ? "phrase_corrections" : "misspellings";
+// Auto-detect heuristics (conservative — when in doubt, fall through to
+// misspellings so existing entries don't silently shift category):
+//   1. Multi-word phrases → phrase_corrections
+//   2. Mixed-case single tokens → products (e.g. WiFi, macOS, iPhone)
+//   3. All-uppercase single tokens (≥2 chars) → names (e.g. NASA)
+//   4. First-letter-capitalised single tokens → names (e.g. John)
+//   5. Lowercase single tokens in the tech-word list → technical_terms
+//   6. Default → misspellings
+const TECH_WORDS: ReadonlySet<string> = new Set([
+	"kubernetes",
+	"docker",
+	"react",
+	"postgresql",
+]);
+
+// A few CamelCase trademarks read as first-letter-capitalised names by
+// rule 4 but are product names. Kept small + explicit so rule 4 stays
+// the default for genuinely-unknown CamelCase words.
+const PRODUCT_EXAMPLES: ReadonlySet<string> = new Set(["ipad", "iphone"]);
+
+export type DetectCategoryResult =
+	| "misspellings"
+	| "phrase_corrections"
+	| "technical_terms"
+	| "names"
+	| "products";
+
+/** Auto-detect a vocabulary category for a trigger string. */
+export function detectCategory(trigger: string): DetectCategoryResult {
+	const trimmed = trigger.trim();
+
+	// Rule 1: multi-word phrases.
+	if (trimmed.includes(" ")) return "phrase_corrections";
+
+	const letters = trimmed.replace(/[^A-Za-z]/g, "");
+	if (!letters) return "misspellings"; // e.g. "123"
+
+	const hasUpper = /[A-Z]/.test(letters);
+	const hasLower = /[a-z]/.test(letters);
+	const upperCount = (letters.match(/[A-Z]/g) ?? []).length;
+
+	if (hasUpper && hasLower) {
+		// Rule 3: all-caps names handled below (no lowercase there).
+		// Mixed case:
+		//   - an uppercase letter at index ≥1 (internal caps) → product
+		//     (WiFi, macOS, iPhone)
+		//   - exactly one uppercase at index 0 → rule 4 (names) unless a
+		//     known product example (iPad / iPhone)
+		const firstCharUpper = /^[A-Z]/.test(letters);
+		const internalCaps = /[A-Z]/.test(letters.slice(1));
+		if (internalCaps || upperCount > 1) return "products";
+		if (firstCharUpper) {
+			if (PRODUCT_EXAMPLES.has(letters.toLowerCase())) return "products";
+			return "names"; // John / Jon / Mary
+		}
+		// e.g. "macOS" already caught by internalCaps; anything else
+		// unusual with mixed case defaults to products.
+		return "products";
+	}
+
+	if (hasUpper) {
+		// All-uppercase (no lowercase).
+		return letters.length >= 2 ? "names" : "misspellings"; // NASA vs "A"
+	}
+
+	// All lowercase.
+	if (TECH_WORDS.has(letters)) return "technical_terms";
+	return "misspellings";
 }

@@ -90,6 +90,18 @@ vi.mock("next-themes", () => ({
 }));
 
 import { makeConfig } from "@/__tests__/helpers/fixtures";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+/**
+ * Settings-page render helper. The page's render graph uses Radix
+ * `Tooltip` (via SettingRow and other ui primitives); the real App shell
+ * wraps the page in a `TooltipProvider` (App.tsx), so tests mounting
+ * `<SettingsPage />` directly must provide one too — otherwise every
+ * Tooltip render throws "Tooltip must be used within TooltipProvider"
+ * and the page mounts empty.
+ */
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
 /** Minimal valid config — same shape as Settings.test.tsx's baseConfig.
  *
@@ -124,7 +136,7 @@ describe("UX-18: Settings search empty state", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		render(<SettingsPage />);
+		renderWithProviders(<SettingsPage />);
 
 		// Wait for the page to load (the tab labels are always visible).
 		await waitFor(() => {
@@ -159,7 +171,7 @@ describe("UX-18: Settings search empty state", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		render(<SettingsPage />);
+		renderWithProviders(<SettingsPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("Appearance")).toBeTruthy();
@@ -196,7 +208,7 @@ describe("UX-18: Settings search empty state", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		render(<SettingsPage />);
+		renderWithProviders(<SettingsPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("Appearance")).toBeTruthy();
@@ -214,7 +226,7 @@ describe("UX-18: Settings search empty state", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		render(<SettingsPage />);
+		renderWithProviders(<SettingsPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("Appearance")).toBeTruthy();

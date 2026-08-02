@@ -255,7 +255,7 @@ export function useAudioLevels(
 				const el = dots[i];
 				if (!el) continue;
 				el.style.height = `${REDUCED_MOTION_HEIGHT}px`;
-				el.style.opacity = "0.6";
+				el.style.opacity = "0.5";
 			}
 		};
 
@@ -264,18 +264,28 @@ export function useAudioLevels(
 			frameRef.current = null;
 
 			// `prefers-reduced-motion`: render bars ONCE at a fixed
-			// mid-height and skip further rAF scheduling. The CSS-side
+			// mid-height, then keep the rAF loop SPINNING (but doing no
+			// per-frame DOM mutation). The loop must stay alive so the
+			// visibility / recording gates and the media-query `change`
+			// event can still be reacted to without a remount — stopping
+			// the loop entirely was the AB-39 regression. The CSS-side
 			// `@media (prefers-reduced-motion: reduce)` block in
 			// `index.css` disables the wider animation policy; this JS
-			// gate ensures the rAF loop itself stops spinning (the CSS
-			// block can't reach into JS-driven direct-DOM writes).
-			if (prefersReducedMotion()) {
-				renderReducedMotion();
-				return;
-			}
-
+			// gate ensures the bars are motionless (the CSS block can't
+			// reach into JS-driven direct-DOM writes).
 			// If either gate is closed, do NOT schedule the next frame.
 			if (!visibleRef.current || !recordingRef.current) return;
+
+			if (prefersReducedMotion()) {
+				// `prefers-reduced-motion`: render bars ONCE per frame at a
+				// fixed mid-height and SKIP the level-driven animation. The
+				// rAF loop keeps spinning (AB-39 regression guard) so the
+				// visibility / recording gates and the media-query `change`
+				// event can still be reacted to without a remount.
+				renderReducedMotion();
+				frameRef.current = requestAnimationFrame(animate);
+				return;
+			}
 
 			const dots = dotRefs.current;
 			if (!dots) {
@@ -314,7 +324,9 @@ export function useAudioLevels(
 		const wake = () => {
 			if (prefersReducedMotion()) {
 				renderReducedMotion();
-				return;
+				// Keep the loop alive (AB-39 regression): fall through and
+				// schedule the next frame so the gates / change event are
+				// still observable.
 			}
 			if (frameRef.current !== null) return;
 			if (!visibleRef.current || !recordingRef.current) return;

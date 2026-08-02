@@ -517,10 +517,14 @@ class TestRegistryExtraction:
         assert registry._COMMAND_REGISTRY["shutdown"] == "_handle_shutdown"
         assert registry._COMMAND_REGISTRY["tray_click"] == "_handle_tray_click"
         assert registry._COMMAND_REGISTRY["heartbeat"] == "_handle_heartbeat"
-        # The  reconciliation comment documents 64 commands.
-        assert len(registry._COMMAND_REGISTRY) == 64, (
-            f"UE-32: registry._COMMAND_REGISTRY must contain 64 entries "
-            f"(IPC-1 reconciliation); got {len(registry._COMMAND_REGISTRY)}. "
+        # IPC-1 reconciliation documented 64 commands; S3-CR-3
+        # (test_cloud_connection) + XZ-SEC-05 (add_trusted_endpoint)
+        # brought it to 65. The count is deliberately pinned here and in
+        # SECURITY.md — update all sources of truth together.
+        assert len(registry._COMMAND_REGISTRY) == 65, (
+            f"UE-32: registry._COMMAND_REGISTRY must contain 65 entries "
+            f"(64 IPC-1 baseline + test_cloud_connection + "
+            f"add_trusted_endpoint); got {len(registry._COMMAND_REGISTRY)}. "
             f"If the count drifted, update this test together with the "
             f"registry + the TS/Rust allowlists."
         )

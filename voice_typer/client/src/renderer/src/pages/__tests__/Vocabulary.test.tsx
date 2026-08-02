@@ -36,6 +36,19 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const renderWithProviders = (ui: React.ReactElement) => {
+	const wrapped = (node: React.ReactElement) => (
+		<TooltipProvider delayDuration={200}>{node}</TooltipProvider>
+	);
+	const utils = render(wrapped(ui));
+	return {
+		...utils,
+		rerender: (node: React.ReactElement) => utils.rerender(wrapped(node)),
+	};
+};
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hoist the mock call handler so it's available inside vi.mock factories.
@@ -74,6 +87,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 	const make = (name: string) => ({ name });
 	return {
 		Add01Icon: make("Add01Icon"),
+		RefreshIcon: make("RefreshIcon"),
 		ArrowDown01Icon: make("ArrowDown01Icon"),
 		ArrowUp01Icon: make("ArrowUp01Icon"),
 		BookOpen02Icon: make("BookOpen02Icon"),
@@ -131,7 +145,11 @@ function saveCallCount(): number {
 describe("Vocabulary page — D2-FIX undo duplicates", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
-		mockCall.mockImplementation((type: string) => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
 			if (type === "get_vocabulary") return Promise.resolve(seedData);
 			if (type === "save_vocabulary") return Promise.resolve({ success: true });
 			return Promise.resolve({});
@@ -151,7 +169,7 @@ describe("Vocabulary page — D2-FIX undo duplicates", () => {
 
 	it("Undo restores exactly ONE copy of the deleted entry (not two)", async () => {
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 
 		// Wait for the 3 seeded entries to render.  Each entry's
 		// `original` field is displayed in red (text-destructive).
@@ -256,14 +274,18 @@ describe("Vocabulary page — D2-FIX undo duplicates", () => {
 		// edit.  After the fix, the undo reads the LATEST list
 		// (which has neither recieve nor teh, just "i am going to")
 		// and inserts ONLY "recieve" back — "teh" stays deleted.
-		mockCall.mockImplementation((type: string) => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
 			if (type === "get_vocabulary") return Promise.resolve(seedData);
 			if (type === "save_vocabulary") return Promise.resolve({ success: true });
 			return Promise.resolve({});
 		});
 
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		const { rerender } = render(<VocabularyPage />);
+		const { rerender } = renderWithProviders(<VocabularyPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("recieve")).toBeTruthy();

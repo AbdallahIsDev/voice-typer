@@ -185,7 +185,8 @@
 			"qualityPoor": "Poor"
 		},
 		"loadFailedDescription": "We couldn't load your microphone data from the backend. Check the logs and try again.",
-		"selected": "Selected microphone"
+		"selected": "Selected microphone",
+		"useAria": "Use microphone — {name}"
 	},
 	"vocabulary": {
 		"title": "Custom Vocabulary",
@@ -268,7 +269,9 @@
 		"entryCount_two": "{count} entries",
 		"entryCount_few": "{count} entries",
 		"entryCount_many": "{count} entries",
-		"entryCount_other": "{count} entries"
+		"entryCount_other": "{count} entries",
+		"clearAllToast": "Vocabulary cleared",
+		"clearAllFailed": "Failed to clear vocabulary"
 	},
 	"templates": {
 		"title": "Templates",
@@ -336,7 +339,8 @@
 		"count_two": "{count} templates",
 		"count_few": "{count} templates",
 		"count_many": "{count} templates",
-		"count_other": "{count} templates"
+		"count_other": "{count} templates",
+		"unknownVariableWarning": "Unknown variable {vars} — supported: {today}, {now}, {clipboard}, {username}"
 	},
 	"analytics": {
 		"title": "Analytics",
@@ -1048,7 +1052,7 @@
 		"customFilterChainTitle": "Custom filter chain",
 		"customFilterChainSummary": "Show high-pass, noise suppression, noise gate, equalizer, compressor, limiter, and notch filter controls",
 		"apiKeyConfiguredPlaceholder": "•••••••• (configured)",
-		"apiKeyPlaceholder": "Paste your API key here",
+		"apiKeyPlaceholder": "Enter your API key",
 		"huggingFaceDownloads": "Hugging Face downloads",
 		"voiceBiometricProcessing": "Voice biometric processing",
 		"voiceBiometricProcessingAria": "Voice biometric processing status",

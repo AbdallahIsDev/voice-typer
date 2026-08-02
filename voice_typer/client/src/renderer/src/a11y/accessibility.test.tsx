@@ -30,6 +30,11 @@
 import fs from "node:fs";
 import path from "node:path";
 import { act, cleanup, render, screen } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 //Mocks shared by the behavioral Switch test () ────────────
@@ -525,7 +530,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { GeneralSettingsSection } = await import(
 				"@/components/settings/GeneralSettingsSection"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<GeneralSettingsSection {...makeSectionProps()} />,
 			);
 			const combos = container.querySelectorAll('[role="combobox"]');
@@ -541,7 +546,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { ModelSettingsSection } = await import(
 				"@/components/settings/ModelSettingsSection"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<ModelSettingsSection {...makeSectionProps()} />,
 			);
 			const combos = container.querySelectorAll('[role="combobox"]');
@@ -558,7 +563,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { AudioSettingsSection } = await import(
 				"@/components/settings/AudioSettingsSection"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<AudioSettingsSection {...makeSectionProps()} />,
 			);
 			const combos = container.querySelectorAll('[role="combobox"]');
@@ -572,7 +577,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { RecordingSettingsSection } = await import(
 				"@/components/settings/RecordingSettingsSection"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<RecordingSettingsSection {...makeSectionProps()} />,
 			);
 			const combos = container.querySelectorAll('[role="combobox"]');
@@ -586,7 +591,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { ThemeSettingsSection } = await import(
 				"@/components/settings/ThemeSettingsSection"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<ThemeSettingsSection {...makeSectionProps()} />,
 			);
 			const combos = container.querySelectorAll('[role="combobox"]');
@@ -615,7 +620,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 	// exists at all.
 	it("BG-R19 #7: App renders at least one aria-live region (behavioral)", async () => {
 		const { default: App } = await import("@/App");
-		render(<App />);
+		renderWithProviders(<App />);
 
 		// Wait for App to mount the home-page stub.  We don't need
 		// to wait for any specific text — just one render cycle.
@@ -695,7 +700,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const Home = (
 				await vi.importActual<typeof import("@/pages/Home")>("@/pages/Home")
 			).default;
-			render(<Home />);
+			renderWithProviders(<Home />);
 
 			// Sanity-check: Home registered a transcription_final
 			// handler during render.
@@ -749,7 +754,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { GeneralSettingsSection } = await import(
 				"@/components/settings/GeneralSettingsSection"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<GeneralSettingsSection {...makeSectionProps()} />,
 			);
 			const switches = screen.getAllByRole("switch");
@@ -763,7 +768,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { ModelSettingsSection } = await import(
 				"@/components/settings/ModelSettingsSection"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<ModelSettingsSection {...makeSectionProps()} />,
 			);
 			const switches = screen.getAllByRole("switch");
@@ -777,7 +782,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { AudioSettingsSection } = await import(
 				"@/components/settings/AudioSettingsSection"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<AudioSettingsSection {...makeSectionProps()} />,
 			);
 			// AudioSettingsSection may delegate the per-filter rows to
@@ -794,7 +799,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { RecordingSettingsSection } = await import(
 				"@/components/settings/RecordingSettingsSection"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<RecordingSettingsSection {...makeSectionProps()} />,
 			);
 			const switches = screen.getAllByRole("switch");
@@ -808,7 +813,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { AiEnhancementSettingsSection } = await import(
 				"@/components/settings/AiEnhancementSettingsSection"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<AiEnhancementSettingsSection {...makeSectionProps()} />,
 			);
 			const switches = screen.getAllByRole("switch");
@@ -822,7 +827,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { ThemeSettingsSection } = await import(
 				"@/components/settings/ThemeSettingsSection"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<ThemeSettingsSection {...makeSectionProps()} />,
 			);
 			// ThemeSettingsSection renders Switch only when theme_preset
@@ -838,7 +843,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { PrivacySettingsSection } = await import(
 				"@/components/settings/PrivacySettingsSection"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<PrivacySettingsSection {...makeSectionProps()} />,
 			);
 			const switches = screen.getAllByRole("switch");
@@ -852,7 +857,7 @@ describe("NEW-UX-012: Accessibility ARIA patterns", () => {
 			const { AudioFilterChain } = await import(
 				"@/components/audio/AudioFilterChain"
 			);
-			const { container } = render(
+			const { container } = renderWithProviders(
 				<AudioFilterChain config={makeStubConfig()} onConfigChange={vi.fn()} />,
 			);
 			const switches = screen.getAllByRole("switch");
@@ -1123,7 +1128,7 @@ describe("BG-R19 #10: Modal focus-management a11y invariants", () => {
 
 	it("Modal renders role=dialog when open", async () => {
 		const { Modal } = await import("@/components/common/Modal");
-		render(
+		renderWithProviders(
 			<Modal open onClose={() => {}} title="Delete confirmation">
 				<p>Are you sure?</p>
 			</Modal>,
@@ -1134,7 +1139,7 @@ describe("BG-R19 #10: Modal focus-management a11y invariants", () => {
 
 	it("Modal exposes the title as its accessible name (aria-labelledby)", async () => {
 		const { Modal } = await import("@/components/common/Modal");
-		render(
+		renderWithProviders(
 			<Modal open onClose={() => {}} title="Delete confirmation">
 				<p>Are you sure?</p>
 			</Modal>,
@@ -1150,7 +1155,7 @@ describe("BG-R19 #10: Modal focus-management a11y invariants", () => {
 
 	it("Modal exposes the description as aria-describedby when provided", async () => {
 		const { Modal } = await import("@/components/common/Modal");
-		render(
+		renderWithProviders(
 			<Modal
 				open
 				onClose={() => {}}
@@ -1168,7 +1173,7 @@ describe("BG-R19 #10: Modal focus-management a11y invariants", () => {
 	it("Modal fires onClose when the Escape key is pressed", async () => {
 		const { Modal } = await import("@/components/common/Modal");
 		const onClose = vi.fn();
-		render(
+		renderWithProviders(
 			<Modal open onClose={onClose} title="Delete confirmation">
 				<p>Are you sure?</p>
 			</Modal>,

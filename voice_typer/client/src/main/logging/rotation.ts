@@ -300,6 +300,17 @@ export function rotateIfNeeded(
 		_clearCachedFileSize(filePath);
 		// Reset the per-path "perms verified" flag on rotation.
 		_permsVerified.delete(filePath);
+		// XE-20-6: the rotated backup may contain PII (transcribed text,
+		// API keys in URLs) and inherits the original file's mode. If that
+		// was 0o644 (pre-hardening leftover, umask), the backup would be
+		// world-readable. Tighten to 0o600. Best-effort: a chmod failure
+		// must not break rotation.
+		try {
+			fs.chmodSync(backup, 0o600);
+		} catch (e) {
+			console.warn(`[logging] chmod 0o600 failed for ${backup}:`, e);
+			recordLoggingFailure(backup, "chmod 0o600", e);
+		}
 	} catch (e) {
 		console.warn("[logging] rotateIfNeeded failed:", e);
 		recordLoggingFailure(filePath, "rotateIfNeeded", e);

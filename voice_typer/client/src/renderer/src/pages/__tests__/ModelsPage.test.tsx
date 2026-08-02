@@ -27,6 +27,11 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 // ── Module-level mocks (hoisted by vitest) ────────────────────────────
@@ -201,7 +206,7 @@ describe("ModelsPage — Import Model flow", () => {
 			return Promise.resolve(getConfigResult ?? MOCK_CONFIG);
 		});
 
-		render(<ModelsPage />);
+		renderWithProviders(<ModelsPage />);
 
 		// Wait for the loading spinner to disappear and the page heading
 		// to appear.  ModelsPage shows a Spinner until config loads.
@@ -539,7 +544,7 @@ describe("ModelsPage — MDL-3: cancel produces no duplicate snackbar", () => {
 			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
 			return Promise.resolve(MOCK_CONFIG);
 		});
-		render(<ModelsPage />);
+		renderWithProviders(<ModelsPage />);
 		await waitFor(() => {
 			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
 		});
@@ -638,7 +643,7 @@ describe("ModelsPage — MDL-5: cloud provider API key inputs have unique HTML i
 			if (type === "get_model_catalog") return Promise.resolve({ models: [] });
 			return Promise.resolve(MOCK_CONFIG);
 		});
-		render(<ModelsPage />);
+		renderWithProviders(<ModelsPage />);
 		await waitFor(() => {
 			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
 		});
@@ -696,7 +701,7 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 			}
 			return Promise.resolve(MOCK_CONFIG);
 		});
-		render(<ModelsPage />);
+		renderWithProviders(<ModelsPage />);
 		await waitFor(() => {
 			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
 		});
@@ -733,7 +738,7 @@ describe("ModelsPage — MDL-9: download does not auto-activate in the renderer"
 			}
 			return Promise.resolve(MOCK_CONFIG);
 		});
-		render(<ModelsPage />);
+		renderWithProviders(<ModelsPage />);
 		await waitFor(() => {
 			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
 		});
@@ -794,7 +799,7 @@ describe("ModelsPage — MDL-16: Select buttons disabled during download", () =>
 			}
 			return Promise.resolve(MOCK_CONFIG);
 		});
-		render(<ModelsPage />);
+		renderWithProviders(<ModelsPage />);
 		await waitFor(() => {
 			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
 		});

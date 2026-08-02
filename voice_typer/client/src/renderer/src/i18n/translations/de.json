@@ -178,7 +178,8 @@
 		},
 		"stopPlaybackFirst": "Stoppen Sie die Audiowiedergabe, bevor Sie einen neuen Test starten",
 		"loadFailedDescription": "Wir konnten Ihre Mikrofon-Daten nicht vom Backend laden. Prüfen Sie die Protokolle und versuchen Sie es erneut.",
-		"selected": "Ausgewähltes Mikrofon"
+		"selected": "Ausgewähltes Mikrofon",
+		"useAria": "Mikrofon verwenden — {name}"
 	},
 	"vocabulary": {
 		"title": "Benutzerwortschatz",
@@ -261,7 +262,9 @@
 		"entryCount_two": "{count} Einträge",
 		"entryCount_few": "{count} Einträge",
 		"entryCount_many": "{count} Einträge",
-		"entryCount_other": "{count} Einträge"
+		"entryCount_other": "{count} Einträge",
+		"clearAllToast": "Wortschatz gelöscht",
+		"clearAllFailed": "Wortschatz konnte nicht gelöscht werden"
 	},
 	"templates": {
 		"title": "Vorlagen",
@@ -329,7 +332,8 @@
 		"count_two": "{count} Vorlagen",
 		"count_few": "{count} Vorlagen",
 		"count_many": "{count} Vorlagen",
-		"count_other": "{count} Vorlagen"
+		"count_other": "{count} Vorlagen",
+		"unknownVariableWarning": "Unbekannte Variable {vars} — unterstützt: {today}, {now}, {clipboard}, {username}"
 	},
 	"analytics": {
 		"title": "Analysen",

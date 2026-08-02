@@ -42,7 +42,7 @@ plus the base repo's pre-existing comprehensive review.
 
 ### T-1 — Full vitest + pytest suites: fix ALL pre-existing test failures
 - **Severity**: High
-- **Status**: ❌ Pending
+- **Status**: ⚠️ Partial — progress this session: `tests/test_llm_polish_http_fixes.py` 13/13 green (production feature-completion: MAX_INPUT_CHARS / DEFAULT_TIMEOUT_S / flat max_tokens); S3-CR-2 registry wiring + phase-4 gate green; Button-children regression in components/ui/button.tsx fixed (vitest 270→194 failed); Settings.test.tsx + Settings-empty-state.test.tsx green (TooltipProvider wrapper); DJ-47 prewarm memoization landed (7/7). Still NOT green: pytest ≈570 unique failures/errors across 130 files + vitest 194 failed/18 errors across 59 files on the Linux sandbox.
 - **Description**: MANDATORY TASK for the cloud agent — run the FULL renderer/main client suite with `cd voice_typer/client && npx vitest run 2>&1` AND the FULL Python backend suite with `pytest` (from repo root) and fix EVERY pre-existing failure in BOTH suites until both are green (0 failed, 0 errors). Do NOT cherry-pick a subset, do NOT skip failures as "out of scope", do NOT silence failures with `it.skip` / `describe.skip` / `test.fails` / `todo` / `pytest.mark.skip` / `pytest.mark.xfail` unless the test asserts genuinely broken production behavior that is itself fixed in the same run. Every failing test file and test case must be triaged and fixed (test assertion stale vs. production code regressed). Cross-reference related findings (S1-CR-33 — ~154 failing vitest tests across 35 client files; S3-CR-3 — ~65 pre-existing pytest failures (test_tray.py 30, test_app.py 10, test_clipboard_win32_coverage.py 3, test_config.py 4, test_history_db.py 2, test_electron_ipc_and_build.py 1, i18n parity 13, etc.); S3-CR-21 — 164 inspect.getsource source-string tests; EC-26 — 27 silent platform guards; XS-38 — window-open-logs.test.ts electron mock; XS-3B cluster — DownloadProgressBar aria-valuenow, LiveQualityFeedback i18n sentinel, Sidebar Tailwind class, tauri-bridge-detection Tauri mock, App-ux-fixes data-testid) and resolve them as part of this task.
 - **Known baseline (2026-07 run, Windows host, before any fixes)**: vitest `242 failed / 1787 passed / 62 failed files`; pytest renamed-file subset `119 failed / 1113 passed / 23 errors`. The 242 vitest failures include ~1 rename-induced failure (fixed: `tcp-close-handler-scope.test.ts` FR-30 assertion) plus pre-existing Windows-platform failures (path separators, chmod EACCES) and stale-assertion clusters. pytest failures are mostly pre-existing merge debt: tests referencing unimplemented symbols (`MAX_INPUT_CHARS`, `_warm_up_model`, `_invalidate_length_bucket_cache`), missing i18n plural keys, and drift in parity/allowlist tables.
 - **Recommended fix**: 1) Run `cd voice_typer/client && npx vitest run 2>&1` and capture the full failure list. 2) Run `python -m pytest -o addopts= -q 2>&1` (or `pytest` per CI config) from the repo root and capture the full Python failure list. 3) Group failures by root cause (stale assertion, missing mock, component regression, i18n sentinel mismatch, Tailwind 4 syntax change, missing production symbol, parity-table drift). 4) Fix each — update the test when the production behavior is correct, fix the production code when the test exposes a real regression, implement the missing symbol when a test references a genuine contract. 5) Re-run BOTH suites until `npx vitest run 2>&1` exits 0 AND pytest exits 0 with all test files passing. 6) Report the before/after counts and the per-failure disposition for both suites in SUMMARY.md.
@@ -53,7 +53,7 @@ plus the base repo's pre-existing comprehensive review.
 
 ### ARCH-9 — `app.py` test-seam re-exports (173 monkeypatch sites)
 - **Severity**: Low
-- **Status**: ❌ Not Fixed — too large for 10-min sub-agent ceiling (multi-hour/day refactor) — app.py re-exports ~27 symbols from sibling modules; 199 monkeypatch.setattr sites span all test files. Migrating each call site touches 65+ files at high risk of breaking tests (~1 day refactor)
+- **Status**: ⚠️ Partial — TranscriptionEngine re-export migrated + removed (5 monkeypatch sites in tests/app/test_config_wiring.py + tests/app/test_lifecycle.py now patch `voice_typer.server.transcription.TranscriptionEngine`; `test_transcription_engine_reexport.py` passes). Remaining: ~195 `voice_typer.server.app.X` monkeypatch sites across ~40 test files for ~20 re-exported symbols (top: is_autostart_enabled 37, list_microphones 34, enable_autostart 32, disable_autostart 31, _config_dir 14, is_windows 11). Full migration additionally requires routing app.py's INTERNAL calls through the canonical modules (server_platform / platform_utils / config_internals.paths) at call time, otherwise patching the canonical path won't intercept app-internal use. Multi-hour refactor; deferred.
 - **Description**: `app.py` re-exports 20 symbols from sibling modules so tests can monkeypatch `voice_typer.server.app.X`. 173 monkeypatch sites depend on these re-exports.
 - **Recommended fix**: Migrate monkeypatch sites to canonical paths (`voice_typer.server.server_platform.is_autostart_enabled` instead of `voice_typer.server.app.is_autostart_enabled`), then delete re-export blocks. Mechanical refactor touching many files.
 - **Effort**: 🔴 **HIGH** — 72+ import sites across 65+ files, ~20 re-exported symbols. Every monkeypatch site must be migrated one-by-one. High risk of breaking tests. Cannot do in one shot confidently. ~1 day.
@@ -222,15 +222,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Impact:** Extractions that MOVE methods off original class break `inspect.getsource(Recorder._process_audio_chunk)` tests. Even adding/removing comments can break module-level source-text tests.
 - **Proposed fix:** For each extraction (CR-17, S3-CR-18, S3-CR-19), keep public method on original class as 1-line delegate. For module-level tests, preserve pinned literal strings in module-level comments (replicate `recording/__init__.py:229-258` "static-source check echo" pattern). Long-term: migrate source-pinning tests to behavioral tests.
 - **Confidence:** High (R1, R14)
-
-### S5-CR-28 — `config.py` 2,698 LOC mixes 5 module-level concerns + 132-field Config dataclass
-**Status:** ⚠️ Partial (verified on Linux sandbox — 170/170 targeted tests pass; `_backup_before_migration` and `_validate_non_numeric_fields` extractions still pending)
-**This Run Fix:** Path-safety helpers extracted to new voice_typer/server/config_path_safety.py flat module (75 LOC); config.py imports from it (re-export preserves public API).
-**Remaining extraction feasibility:**
-1. **`_backup_before_migration`** (~70 LOC, line 1760) — Can extract cleanly to `config_internals/migrations.py`. Calls only module-level functions; no Config class coupling.
-2. **`_validate_non_numeric_fields`** (~120+ LOC, line 2304) — Tightly coupled to Config internals: calls `cls._derive_field_type_registry()`, `cls._warn_and_coerce()`, `cls._warn_and_reset()`. Extraction requires either (a) passing those as parameters, or (b) a larger refactor of validator dependency chain.
-- **Severity**: Medium · **Category**: Spaghetti / monolith detection · **Location**: `voice_typer/server/config.py:1-1819`
-- **Proposed fix**: Extract `secure_file_io.py`, `path_safety.py`, `systemroot_validation.py`, `_backup_before_migration` → `config_internals/migrations.py`; absorb `_validate_non_numeric_fields` into existing `config_validators.py`. `config.py` thin ≤600 LOC.
 
 ### S5-CR-56 — macOS sidecar/prewarm binaries ship unsigned (Nuitka `--macos-signed-app-name` doesn't codesign)
 **Status:** ❌ Not Fixed — out of scope (file cited in finding is owned by another agent or outside this agent's file list)
@@ -626,17 +617,6 @@ presumably runs with all deps installed.
 - `src-tauri/src/sidecar/spawn.rs`**Fix:** Wrap each `kill_process_tree(pid)` call in `tauri::async_runtime::spawn_blocking(move || kill_process_tree(pid)).await`.
 **Severity:** 🔴 High
 
-### [XV-138] — `migrate_electron_userdata` runs synchronously on setup thread (5-30s on first launch)
-**Resolution (wont_fix):** Out of scope (Rust migrate.rs; no cargo validation)
-**Status:** ❌ Not Fixed (out of scope; see SUMMARY.md)
-**Description:** `migrate_electron_userdata` runs synchronously on setup thread (5-30s on first launch). Category: Performance (startup).
-**Root Cause:** verified — migration runs inline on setup thread before sidecar spawn.
-**Progress:** None yet.
-**Related Files:**
-- `src-tauri/src/migrate.rs`
-- `src-tauri/src/main.rs`**Fix:** Move migration into `tauri::async_runtime::spawn` block at main.rs:320 BEFORE `spawn_sidecar_and_get_port`; or wrap fs ops in `spawn_blocking`.
-**Severity:** 🔴 High
-
 ### [XV-144] — `paste.rs` constructs fresh `Enigo` per paste (~1-5ms XOpenDisplay/CGEventSource per call)
 **Resolution (wont_fix):** Out of scope (Rust paste.rs Enigo; no cargo validation)
 **Status:** ❌ Not Fixed (out of scope; see SUMMARY.md)
@@ -647,16 +627,6 @@ presumably runs with all deps installed.
 - `src-tauri/src/commands/paste.rs`
 **Fix:** Cache `Enigo` in `SidecarState` behind `Mutex<Enigo>`; or `thread_local!` with `RefCell<Option<Enigo>>`.
 **Severity:** 🟡 Medium
-
-### [XV-147] — `export.rs::json_to_csv` per-cell allocations (~220K for 10K-row export)
-**Resolution (wont_fix):** Out of scope (Rust export.rs json_to_csv; no cargo validation)
-**Status:** ❌ Not Fixed (out of scope; see SUMMARY.md)
-**Description:** `export.rs::json_to_csv` per-cell allocations (~220K for 10K-row export). Category: Performance / Memory.
-**Root Cause:** verified — functional `map → collect → join` pattern eagerly allocates per element.
-**Progress:** None yet.
-**Related Files:**
-- `src-tauri/src/commands/export.rs`**Fix:** Write directly into pre-allocated `String` via `write!`; change `csv_escape` to `csv_escape_into(&mut String, &str)`.
-**Severity:** 🟢 Low
 
 ### [XV-149] — `tcp-connect.ts` UTF-8 decode across chunk boundaries corrupts non-ASCII text
 **Resolution (wont_fix):** Out of scope (TS tcp-connect.ts UTF-8; deferred)
@@ -987,7 +957,7 @@ presumably runs with all deps installed.
 ### XA-15 — Test infrastructure: dead helpers (590 lines), 3 duplicated baseConfig fixtures, mock boilerplate in 21-34 test files, orphan debug test
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
-**Description:** (XA-15-1) Medium: `__tests__/helpers/` directory (3 files, 590 lines) is dead code — zero test files import from it. (XA-15-2) Medium: `makeConfig()` fixture exists but 3 test files roll their own ~120-line `baseConfig` (Settings.test.tsx, Settings-empty-state.test.tsx, debug-test.test.tsx). (XA-15-3) Medium: Mocks duplicated across 21-34 test files instead of using `helpers/mocks.tsx` factories. (XA-15-4) Medium: Per-test setup boilerplate (`localStorage.clear()` + `cleanup()` + `mockReset()`) duplicated across 16+ test files. (XA-15-5) Medium: Orphan debug test file `debug-test.test.tsx` (242 lines) with `expect(true).toBe(true)` tautology + 4 `console.log` calls. (XA-15-6) Medium: Duplicate RTL test files (`rtl.test.ts` and `rtl.test.tsx`) with 4/5 identical test cases. (XA-15-7) Medium: CONTRIBUTING.md §7.2 doesn't mention the shared test helpers. (XA-15-8) Medium: Flaky timing patterns — 9+ test files use bare `setTimeout` waits instead of `vi.waitFor`/`findBy*`/`vi.useFakeTimers`. (XA-15-9) Medium: Mega-test-file `ux-components-behavior.test.tsx` (1752 lines) mixes 7+ component concerns. (XA-15-10) Low: `#ui` path alias declared in 6 config files but ZERO usages in code. (XA-15-11) Low: `#utils` alias duplicated identically across 6 config files. (XA-15-12) Low: `biome.json` `overrides` block has no `include` field (no-op indirection). (XA-15-13) Low: `__tests__/` directory has no README; `rw0-rewrite/`/`rw1-rewrite/` jargon undocumented. (XA-15-14) Low: Coverage threshold inconsistency: vitest 70% vs Python 65% vs docs 65%. (XA-15-15) Low: `tsconfig.web.json` has redundant `*.json` include pattern. (XA-15-16) Low: `test-setup.ts` mixes polyfills with one mock stub (`window.bubble`).
+**Description:** (XA-15-1) Medium: `__tests__/helpers/` directory (3 files, 590 lines) is dead code — zero test files import from it. (XA-15-2) ✅ RESOLVED — Settings.test.tsx + Settings-empty-state.test.tsx now use `makeConfig` (refactored this session; both files green 9/9 after adding the missing TooltipProvider + fixing the `Button` children regression in components/ui/button.tsx). (XA-15-3) Medium: Mocks duplicated across 21-34 test files instead of using `helpers/mocks.tsx` factories. (XA-15-4) Medium: Per-test setup boilerplate (`localStorage.clear()` + `cleanup()` + `mockReset()`) duplicated across 16+ test files. (XA-15-5) Medium: Orphan debug test file `debug-test.test.tsx` (242 lines) with `expect(true).toBe(true)` tautology + 4 `console.log` calls. (XA-15-6) Medium: Duplicate RTL test files (`rtl.test.ts` and `rtl.test.tsx`) with 4/5 identical test cases. (XA-15-7) Medium: CONTRIBUTING.md §7.2 doesn't mention the shared test helpers. (XA-15-8) Medium: Flaky timing patterns — 9+ test files use bare `setTimeout` waits instead of `vi.waitFor`/`findBy*`/`vi.useFakeTimers`. (XA-15-9) Medium: Mega-test-file `ux-components-behavior.test.tsx` (1752 lines) mixes 7+ component concerns. (XA-15-10) Low: `#ui` path alias declared in 6 config files but ZERO usages in code. (XA-15-11) Low: `#utils` alias duplicated identically across 6 config files. (XA-15-12) Low: `biome.json` `overrides` block has no `include` field (no-op indirection). (XA-15-13) Low: `__tests__/` directory has no README; `rw0-rewrite/`/`rw1-rewrite/` jargon undocumented. (XA-15-14) Low: Coverage threshold inconsistency: vitest 70% vs Python 65% vs docs 65%. (XA-15-15) Low: `tsconfig.web.json` has redundant `*.json` include pattern. (XA-15-16) Low: `test-setup.ts` mixes polyfills with one mock stub (`window.bubble`).
 **Root Cause:** PVT-076 created central abstractions but migration of existing tests was never completed; RW-0/RW-1 rewrite rounds batched many component tests into one file.
 **Related Files:**
 - `voice_typer/client/src/renderer/src/__tests__/helpers/{mocks,renderApp,fixtures}.tsx/.ts`
@@ -1002,15 +972,14 @@ presumably runs with all deps installed.
 1. **(XA-15-5)** Delete `debug-test.test.tsx`.
 2. **(XA-15-6)** Delete `rtl.test.ts` (keep `rtl.test.tsx`).
 3. **(XA-15-4)** Add to `test-setup.ts`: `afterEach(() => { cleanup(); if (typeof localStorage !== "undefined") localStorage.clear(); });`
-4. **(XA-15-2)** Replace each `baseConfig` with `import { makeConfig } from "@/__tests__/helpers/fixtures"; const baseConfig = makeConfig({...});`.
-5. **(XA-15-12)** Either inline `suspicious: { noConsole: "off" }` into main `linter.rules` block OR add `include: ["src/main/**"]`.
-6. **(XA-15-10)** Remove `#ui` alias from all 6 config files.
-7. **(XA-15-15)** Remove redundant `"src/renderer/src/**/*.json"` line from `tsconfig.web.json:26-30`.
-8. **(XA-15-14)** Update `CONTRIBUTING.md` §7.2 to say "≥ 70% (vitest) / 65% (pytest)".
-9. **(XA-15-13)** Add `__tests__/README.md` explaining layout (co-locate next to source; `rw0-rewrite/`/`rw1-rewrite/` are FROZEN historical migration rounds; `helpers/` is shared test infrastructure).
-10. **(XA-15-7)** Add §7.2.1 "Shared test helpers" subsection to CONTRIBUTING.md.
-11. **(XA-15-8)** Replace `await new Promise((r) => setTimeout(r, N))` with `waitFor`/`findBy*`/`vi.useFakeTimers`.
-12. **(XA-15-1)** Migrate `App.test.tsx`, `App-ux-fixes.test.tsx`, `App-a11y.test.tsx`, etc. to use `renderApp` + `makeConfig` + `makeToastMock` + `makeHugeiconsReactMock`. (Larger refactor — partial in this run.)
+4. **(XA-15-12)** Either inline `suspicious: { noConsole: "off" }` into main `linter.rules` block OR add `include: ["src/main/**"]`.
+5. **(XA-15-10)** Remove `#ui` alias from all 6 config files.
+6. **(XA-15-15)** Remove redundant `"src/renderer/src/**/*.json"` line from `tsconfig.web.json:26-30`.
+7. **(XA-15-14)** Update `CONTRIBUTING.md` §7.2 to say "≥ 70% (vitest) / 65% (pytest)".
+8. **(XA-15-13)** Add `__tests__/README.md` explaining layout (co-locate next to source; `rw0-rewrite/`/`rw1-rewrite/` are FROZEN historical migration rounds; `helpers/` is shared test infrastructure).
+9. **(XA-15-7)** Add §7.2.1 "Shared test helpers" subsection to CONTRIBUTING.md.
+10. **(XA-15-8)** Replace `await new Promise((r) => setTimeout(r, N))` with `waitFor`/`findBy*`/`vi.useFakeTimers`.
+11. **(XA-15-1)** Migrate `App.test.tsx`, `App-ux-fixes.test.tsx`, `App-a11y.test.tsx`, etc. to use `renderApp` + `makeConfig` + `makeToastMock` + `makeHugeiconsReactMock`. (Larger refactor — partial in this run.)
 
 ---
 
@@ -1128,18 +1097,6 @@ presumably runs with all deps installed.
 **Related Files:**
 - `voice_typer/server/service.py` (`_GDPR_PERSONAL_FILES`, `_GDPR_PERSONAL_GLOBS`, `delete_all_personal_data`, `export_gdpr_bundle`)**Fix:** Add `"config.json.bak"`, `".restart_token"`, `"config.json.lock"` to `_GDPR_PERSONAL_FILES`. Add glob patterns for `"history.db.corrupt-*"`, `"voice-typer-diagnostics-*.zip"`, `"gdpr-export-*.zip"` to `_GDPR_PERSONAL_GLOBS`. Add regression test creating each artifact + asserting all gone after `delete_all_personal_data()`.
 **Severity:** 🔴 High
-
-### XZ-SEC-05 — `extend_url_allowlist` is dead code; users can't configure self-hosted endpoints (Medium)
-**Status:** ❌ Not Fixed
-**Description:** `_secrets.py:288-353` defines `extend_url_allowlist` with elaborate audit logging (G4-M-55), but grep finds ZERO production callers — only tests and docstrings. Users running self-hosted LLM/ASR endpoints on non-loopback hosts get `ValueError` from `assert_url_allowed` with no in-app remediation path.
-**Root Cause:** Function wired into tests/ADRs but never into production.
-**Related Files:**
-- `voice_typer/server/_secrets.py`
-- `voice_typer/server/cloud_engines.py` (assert_url_allowed callers)
-- `voice_typer/server/llm_polish.py` (assert_url_allowed callers)
-- `voice_typer/server/config.py` (Config field for trusted hosts)
-- `voice_typer/client/src/renderer/src/components/models/CloudProvidersPanel.tsx` (UI affordance — optional)**Fix:** Wire `extend_url_allowlist` from a new IPC command `add_trusted_endpoint`. Persist user extensions to `config.json` under `trusted_extra_hosts: list[str]`. Re-apply on `Config.load`. Add end-to-end test that a user-configured `https://my-vllm.lan` URL passes `assert_url_allowed` after the host is added.
-**Severity:** 🟡 Medium
 
 ### XZ-IPC-002 — TCP accept-timeout DoS (Medium)
 **Status:** ❌ Not Fixed
@@ -7003,15 +6960,14 @@ The following findings were identified but not fixed this run due to scope/time 
 **Fix:** Run one-off manual `workflow_dispatch` with `if: true` before release. Cannot fully fix without macOS host.
 **Severity:** 🟡 Medium
 
-### TX-40 — S2-CR-66 Windows hardcodes x86_64 (no Windows-on-ARM build)
-**Status:** ❌ Not Fixed
-**Description:** `tauri-windows-build.yml:105-106` hardcodes `x86_64-pc-windows-msvc`. No aarch64 matrix. Windows-on-ARM users have no release path.
-**User Impact:** Windows-on-ARM users cannot use Voice Typer.
-**Root Cause:** No aarch64 Windows build.
-**Progress:** None yet.
+### TX-40 — Windows-on-ARM build gated (aarch64 leg disabled, no public runner)
+**Status:** ⚠️ Partial — S2-CR-66 parameterization LANDED (this session): `tauri-windows-build.yml` now accepts a `target` workflow_dispatch + workflow_call input (default `x86_64-pc-windows-msvc`), derives `RUST_TARGET` / `PYBS_TRIPLE` / `RUST_ARCH` from it, and the Nuitka + `cargo tauri build --target $env:RUST_TARGET` steps follow it. All 11 tests in `tests/tauri/mig19/test_windows_build_target_parameterization.py` pass. Remaining: the aarch64 matrix leg is still `enabled: false` because GitHub has no public `windows-11-arm` runner — must be validated on a real Windows-on-ARM host.
+**User Impact:** Windows-on-ARM users have no release path until the aarch64 leg is enabled.
+**Root Cause:** No aarch64 Windows build/runner.
+**Progress:** Parameterization done; VALIDATE-ON-WINDOWS-HOST remains (aarch64 leg `enabled: false`).
 **Related Files:**
 - `.github/workflows/tauri-windows-build.yml`
-**Fix:** Add aarch64 to matrix. Cannot fully validate without Windows-on-ARM host.
+**Fix:** Flip `matrix.enabled` for aarch64 to true once a `windows-11-arm` runner is available + create `src-tauri/tauri.windows-aarch64.conf.json`. Cannot fully validate without Windows-on-ARM host.
 **Severity:** 🟡 Medium
 
 ### TX-41 — Pre-commit/CI ruff version skew

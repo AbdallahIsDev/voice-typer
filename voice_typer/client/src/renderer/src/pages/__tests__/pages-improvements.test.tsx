@@ -54,6 +54,11 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Hoisted mock fixtures ──────────────────────────────────────────────
@@ -358,7 +363,7 @@ describe("CR-37: Vocabulary categoryLabels re-resolve on locale switch", () => {
 			return Promise.resolve({});
 		});
 
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 
 		// Wait for the page to load — the "Add Word" button renders
 		// once the initial get_vocabulary call resolves.
@@ -375,12 +380,13 @@ describe("CR-37: Vocabulary categoryLabels re-resolve on locale switch", () => {
 		// "Falschschreibungen".
 		setLocale("de");
 
-		// Re-render with the new locale. We click the Add button again
-		// to force a re-render (state change forces re-render anyway).
+		// The German translation table loads via an async dynamic import
+		// (ensureLocaleLoaded), so wait for it before asserting t().
 		// The German translation for vocabulary.category.misspellings
 		// is "Falschschreibungen" (see de.json:150).
-		// We verify by directly calling t() with the German locale active.
-		expect(t("vocabulary.category.misspellings")).toBe("Falschschreibungen");
+		await waitFor(() => {
+			expect(t("vocabulary.category.misspellings")).toBe("Falschschreibungen");
+		});
 
 		// And confirm switching back to English yields the English label.
 		setLocale("en");
@@ -496,7 +502,7 @@ describe("R7-F9: Models.tsx — no dead benchmark UI", () => {
 			return Promise.resolve(MINIMAL_CONFIG);
 		});
 
-		render(<ModelsPage />);
+		renderWithProviders(<ModelsPage />);
 		await waitFor(() => {
 			expect(screen.queryByRole("heading", { name: /Models/i })).toBeTruthy();
 		});
@@ -521,8 +527,14 @@ describe("R7-F10: Vocabulary + Templates — no dead ConfirmDialog", () => {
 		expect(stripped).not.toContain("_requestDeleteEntry");
 		expect(stripped).not.toContain("deleteEntryTarget");
 		expect(stripped).not.toContain("confirmDeleteEntry");
-		expect(stripped).not.toContain("<ConfirmDialog");
 		expect(stripped).not.toContain("handleCancelDelete");
+		// NOTE: Vocabulary.tsx now legitimately renders a LIVE
+		// <ConfirmDialog> for the "Clear All" destructive action
+		// (added with the Clear-All feature). The R7-F10 finding was
+		// specifically about the DEAD per-entry delete-confirm dialog —
+		// its symbols are pinned above. Do NOT re-add a
+		// `not.toContain("<ConfirmDialog")` assertion here without
+		// first removing the live Clear-All usage.
 	});
 
 	it("Templates.tsx source has no _requestDeleteTemplate / deleteTarget / ConfirmDialog JSX", async () => {
@@ -545,7 +557,7 @@ describe("R7-F10: Vocabulary + Templates — no dead ConfirmDialog", () => {
 			return Promise.resolve({});
 		});
 
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 		await waitFor(() => {
 			expect(screen.getByText(t("vocabulary.addWord"))).toBeTruthy();
 		});
@@ -559,7 +571,7 @@ describe("R7-F10: Vocabulary + Templates — no dead ConfirmDialog", () => {
 			return Promise.resolve({});
 		});
 
-		render(<TemplatesPage />);
+		renderWithProviders(<TemplatesPage />);
 		await waitFor(() => {
 			expect(screen.getByText(t("templates.addTemplate"))).toBeTruthy();
 		});
@@ -598,7 +610,7 @@ describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
 			return Promise.resolve({});
 		});
 
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 		await waitFor(() => {
 			expect(screen.getByText(t("vocabulary.addWord"))).toBeTruthy();
 		});
@@ -626,7 +638,7 @@ describe("R7-F11: Vocabulary + Templates — i18n placeholders", () => {
 			return Promise.resolve({});
 		});
 
-		render(<TemplatesPage />);
+		renderWithProviders(<TemplatesPage />);
 		await waitFor(() => {
 			expect(screen.getByText(t("templates.addTemplate"))).toBeTruthy();
 		});
@@ -735,7 +747,7 @@ describe("R7-F15: About.tsx — configDir starts empty and falls back to t('abou
 		// render. The fallback should be the about.loading string.
 		mockCall.mockImplementation(() => new Promise(() => {}));
 
-		render(<AboutPage />);
+		renderWithProviders(<AboutPage />);
 
 		// Wait for the Diagnostics section to appear.
 		await waitFor(() => {
@@ -838,7 +850,7 @@ describe("CR-57: Microphone.tsx — polling gated on visibility + active state",
 			}>;
 			vi.useFakeTimers();
 			try {
-				render(<MicrophonePage testRunning />);
+				renderWithProviders(<MicrophonePage testRunning />);
 
 				// Advance past 2 polling intervals (100ms each), flushing
 				// microtasks between ticks so async effects (e.g.
@@ -893,7 +905,7 @@ describe('CR-19-F2: Settings.tsx — tab panels wrapped in role="tabpanel"', () 
 			return Promise.resolve({});
 		});
 
-		render(<SettingsPage />);
+		renderWithProviders(<SettingsPage />);
 
 		// Default tab is "general" — wait for its panel to appear.
 		await waitFor(() => {
@@ -911,7 +923,7 @@ describe('CR-19-F2: Settings.tsx — tab panels wrapped in role="tabpanel"', () 
 			return Promise.resolve({});
 		});
 
-		render(<SettingsPage />);
+		renderWithProviders(<SettingsPage />);
 
 		await waitFor(() => {
 			expect(screen.getAllByRole("tabpanel").length).toBe(1);

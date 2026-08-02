@@ -390,7 +390,16 @@ export function deleteElectronPersonalDataLogs(): {
 					name === "electron-main.log" ||
 					name.startsWith("electron-main.log.") ||
 					name === "electron-renderer-errors.log" ||
-					name.startsWith("electron-renderer-errors.log."),
+					name.startsWith("electron-renderer-errors.log.") ||
+					// XE-20-3: electron-runtime.log (printfLogger's
+					// mainRuntimeLogger — every WARN/ERROR) and
+					// electron-lifecycle.log (appendLifecycleLine) were
+					// previously omitted, leaving up to ~12 MiB of
+					// PII-bearing log data after a GDPR erasure.
+					name === "electron-runtime.log" ||
+					name.startsWith("electron-runtime.log.") ||
+					name === "electron-lifecycle.log" ||
+					name.startsWith("electron-lifecycle.log."),
 			)
 			.map((name) => path.join(userData, name)),
 	];

@@ -178,7 +178,8 @@
 		},
 		"stopPlaybackFirst": "नया परीक्षण शुरू करने से पहले ऑडियो प्लेबैक रोकें",
 		"loadFailedDescription": "हम आपका माइक्रोफ़ोन डेटा बैकएंड से लोड नहीं कर सके। लॉग जांचें और पुनः प्रयास करें।",
-		"selected": "चयनित माइक्रोफ़ोन"
+		"selected": "चयनित माइक्रोफ़ोन",
+		"useAria": "माइक्रोफ़ोन का उपयोग करें — {name}"
 	},
 	"vocabulary": {
 		"title": "कस्टम शब्दावली",
@@ -261,7 +262,9 @@
 		"entryCount_two": "{count} प्रविष्टियाँ",
 		"entryCount_few": "{count} प्रविष्टियाँ",
 		"entryCount_many": "{count} प्रविष्टियाँ",
-		"entryCount_other": "{count} प्रविष्टियाँ"
+		"entryCount_other": "{count} प्रविष्टियाँ",
+		"clearAllToast": "शब्दावली साफ़ हो गई",
+		"clearAllFailed": "शब्दावली साफ़ नहीं हो सकी"
 	},
 	"templates": {
 		"title": "टेम्पलेट",
@@ -329,7 +332,8 @@
 		"count_two": "{count} टेम्पलेट",
 		"count_few": "{count} टेम्पलेट",
 		"count_many": "{count} टेम्पलेट",
-		"count_other": "{count} टेम्पलेट"
+		"count_other": "{count} टेम्पलेट",
+		"unknownVariableWarning": "अज्ञात चर {vars} — समर्थित: {today}, {now}, {clipboard}, {username}"
 	},
 	"analytics": {
 		"title": "एनालिटिक्स",

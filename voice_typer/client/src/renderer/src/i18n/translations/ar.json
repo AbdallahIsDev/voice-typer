@@ -178,7 +178,8 @@
 		},
 		"stopPlaybackFirst": "أوقف تشغيل الصوت قبل بدء اختبار جديد",
 		"loadFailedDescription": "تعذر تحميل بيانات الميكروفون من الخادم الخلفي. تحقق من اتصالك وحاول مرة أخرى.",
-		"selected": "الميكروفون المحدد"
+		"selected": "الميكروفون المحدد",
+		"useAria": "استخدام الميكروفون — {name}"
 	},
 	"vocabulary": {
 		"title": "المفردات المخصصة",
@@ -261,7 +262,9 @@
 		"clearAllMessage": "هل أنت متأكد أنك تريد مسح جميع مدخلات المفردات؟ لا يمكن التراجع عن هذا الإجراء.",
 		"clearAllConfirm": "مسح الكل",
 		"vocabularyCleared": "تم مسح المفردات",
-		"clearFailed": "فشل مسح المفردات"
+		"clearFailed": "فشل مسح المفردات",
+		"clearAllToast": "تم مسح المفردات",
+		"clearAllFailed": "تعذر مسح المفردات"
 	},
 	"templates": {
 		"title": "القوالب",
@@ -329,7 +332,8 @@
 		"exportFailed": "فشل التصدير",
 		"importInvalidShape": "الملف لا يحتوي على مصفوفة قوالب",
 		"duplicateTrigger": "يوجد بالفعل قالب بنفس المُشغِّل ووضع التطابق",
-		"loadFailedDescription": "فشل تحميل القوالب من الخادم الخلفي. تحقق من اتصالك وحاول مرة أخرى."
+		"loadFailedDescription": "فشل تحميل القوالب من الخادم الخلفي. تحقق من اتصالك وحاول مرة أخرى.",
+		"unknownVariableWarning": "متغير غير معروف {vars} — المدعومة: {today}, {now}, {clipboard}, {username}"
 	},
 	"analytics": {
 		"title": "تحليلات",

@@ -1,5 +1,6 @@
 import { ArrowDown01Icon, FilterIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { useMemo } from "react";
 import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
 import {
 	Select,
@@ -91,6 +92,13 @@ export function AudioPresetSelector({
 
 	const handlePresetChange = (v: string) => onPresetChange(v as AudioPreset);
 
+	// BG-94: `getPresetOptions()` calls `t(...)` for every label +
+	// description (7 i18n lookups) and was invoked inline 3× per
+	// render. Memoize so it runs once per mount — the option list is
+	// static (the translations don't change during the component's
+	// lifetime; locale switches remount the tree).
+	const presetOptions = useMemo(() => getPresetOptions(), []);
+
 	const panelId = "audio-preset-panel";
 
 	return (
@@ -111,7 +119,7 @@ export function AudioPresetSelector({
 					{t("settings.audioEnhancement.title")}
 				</span>
 				<span className="flex items-center gap-1.5 text-xs font-medium tracking-wide text-(--text-muted)">
-					{getPresetOptions().find((o) => o.value === preset)?.label ??
+					{presetOptions.find((o) => o.value === preset)?.label ??
 						(preset === "custom"
 							? t("settings.audioEnhancement.presetCustom")
 							: preset.replace("_", " "))}
@@ -147,7 +155,7 @@ export function AudioPresetSelector({
 								<SelectValue />
 							</SelectTrigger>
 							<SelectContent>
-								{getPresetOptions().map((option) => (
+								{presetOptions.map((option) => (
 									<SelectItem key={option.value} value={option.value}>
 										{option.label}
 									</SelectItem>
@@ -155,8 +163,7 @@ export function AudioPresetSelector({
 							</SelectContent>
 						</Select>
 						<p className="text-xs text-(--text-muted)">
-							{getPresetOptions().find((o) => o.value === preset)
-								?.description ?? ""}
+							{presetOptions.find((o) => o.value === preset)?.description ?? ""}
 						</p>
 					</div>
 

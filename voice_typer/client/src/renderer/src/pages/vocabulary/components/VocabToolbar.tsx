@@ -22,6 +22,9 @@ interface VocabToolbarProps {
 	onAdd: () => void;
 	exportDisabled: boolean;
 	addDisabled: boolean;
+	/** Clear-All affordance (gated by a ConfirmDialog in the page). */
+	onClearAll: () => void;
+	clearAllDisabled: boolean;
 }
 
 export function VocabToolbar({
@@ -32,6 +35,8 @@ export function VocabToolbar({
 	onAdd,
 	exportDisabled,
 	addDisabled,
+	onClearAll,
+	clearAllDisabled,
 }: VocabToolbarProps) {
 	return (
 		<div className="flex items-center gap-2">
@@ -73,6 +78,20 @@ export function VocabToolbar({
 			>
 				<HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="h-4 w-4" />
 				{t("vocabulary.addWord")}
+			</Button>
+			<Button
+				variant="outline"
+				size="sm"
+				onClick={onClearAll}
+				disabled={clearAllDisabled}
+				// Destructive-tinted affordance for the destructive
+				// "clear every entry" action (mirrors the
+				// Troubleshooting section's destructive styling).
+				className="gap-2 text-(--text-muted) hover:text-destructive hover:border-destructive/40"
+				aria-label={t("vocabulary.clearAllAria")}
+				title={t("vocabulary.clearAllAria")}
+			>
+				{t("vocabulary.clearAll")}
 			</Button>
 		</div>
 	);

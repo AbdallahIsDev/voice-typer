@@ -21,6 +21,11 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockCall, showSnack } = vi.hoisted(() => ({
@@ -33,7 +38,15 @@ vi.mock("@/hooks/usePython", () => ({
 }));
 
 vi.mock("@/hooks/useSnackbar", () => ({
-	useSnackbar: () => ({ showSnack }),
+	// The real useSnackbar delegates to sonner (toast.success / toast.error
+	// by type). Route the mock through the same sonner spies so tests can
+	// assert the toast module received the call.
+	useSnackbar: () => ({
+		showSnack: (message: string, type?: string) => {
+			if (type === "error") toastError(message);
+			else toastSuccess(message);
+		},
+	}),
 	showUndoableToast: vi.fn(),
 }));
 
@@ -122,7 +135,11 @@ describe("Vocabulary page — display cap + Show more", () => {
 	});
 
 	it("renders the LastUpdatedIndicator after a successful load", async () => {
-		mockCall.mockImplementation((type: string) => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
 			if (type === "get_vocabulary")
 				return Promise.resolve(buildSeed(3) as VocabularyData);
 			if (type === "save_vocabulary") return Promise.resolve({ success: true });
@@ -130,7 +147,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 		});
 
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("word0")).toBeTruthy();
@@ -141,7 +158,11 @@ describe("Vocabulary page — display cap + Show more", () => {
 	});
 
 	it("caps the visible list at 200 rows and shows a Show more button", async () => {
-		mockCall.mockImplementation((type: string) => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
 			if (type === "get_vocabulary")
 				return Promise.resolve(buildSeed(250) as VocabularyData);
 			if (type === "save_vocabulary") return Promise.resolve({ success: true });
@@ -149,7 +170,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 		});
 
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 
 		// Wait for the first entry to render. The default sort is
 		// "newest" which reverses the array, so word249 renders first.
@@ -176,7 +197,11 @@ describe("Vocabulary page — display cap + Show more", () => {
 	});
 
 	it("does NOT render Show more when the list is under the cap", async () => {
-		mockCall.mockImplementation((type: string) => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
 			if (type === "get_vocabulary")
 				return Promise.resolve(buildSeed(50) as VocabularyData);
 			if (type === "save_vocabulary") return Promise.resolve({ success: true });
@@ -184,7 +209,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 		});
 
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("word0")).toBeTruthy();
@@ -194,7 +219,11 @@ describe("Vocabulary page — display cap + Show more", () => {
 	});
 
 	it("keeps the total entry count visible during search", async () => {
-		mockCall.mockImplementation((type: string) => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
 			if (type === "get_vocabulary")
 				return Promise.resolve(buildSeed(5) as VocabularyData);
 			if (type === "save_vocabulary") return Promise.resolve({ success: true });
@@ -202,7 +231,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 		});
 
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("word0")).toBeTruthy();
@@ -226,7 +255,11 @@ describe("Vocabulary page — display cap + Show more", () => {
 	});
 
 	it("renders the noResults EmptyState with a description", async () => {
-		mockCall.mockImplementation((type: string) => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
 			if (type === "get_vocabulary")
 				return Promise.resolve(buildSeed(5) as VocabularyData);
 			if (type === "save_vocabulary") return Promise.resolve({ success: true });
@@ -234,7 +267,7 @@ describe("Vocabulary page — display cap + Show more", () => {
 		});
 
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("word0")).toBeTruthy();
@@ -271,7 +304,11 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 	});
 
 	it("renders the Clear All button (disabled when empty, enabled when entries exist)", async () => {
-		mockCall.mockImplementation((type: string) => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
 			if (type === "get_vocabulary")
 				return Promise.resolve(buildSeed(3) as VocabularyData);
 			if (type === "save_vocabulary") return Promise.resolve({ success: true });
@@ -279,7 +316,7 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 		});
 
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("word0")).toBeTruthy();
@@ -294,7 +331,11 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 	});
 
 	it("opens a ConfirmDialog when Clear All is clicked (no alertdialog before click)", async () => {
-		mockCall.mockImplementation((type: string) => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
 			if (type === "get_vocabulary")
 				return Promise.resolve(buildSeed(3) as VocabularyData);
 			if (type === "save_vocabulary") return Promise.resolve({ success: true });
@@ -302,7 +343,7 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 		});
 
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("word0")).toBeTruthy();
@@ -327,7 +368,11 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 	});
 
 	it("clears all entries + persists empty VocabularyData when the user confirms", async () => {
-		mockCall.mockImplementation((type: string) => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
 			if (type === "get_vocabulary")
 				return Promise.resolve(buildSeed(3) as VocabularyData);
 			if (type === "save_vocabulary") return Promise.resolve({ success: true });
@@ -335,7 +380,7 @@ describe("Vocabulary page — Clear All + ConfirmDialog", () => {
 		});
 
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("word0")).toBeTruthy();

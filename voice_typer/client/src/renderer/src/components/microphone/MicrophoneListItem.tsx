@@ -48,6 +48,11 @@ export function MicrophoneListItem({
 				size="sm"
 				className="shrink-0 text-(--text-muted)"
 				onClick={handleSelect}
+				// BG-45: per-mic accessible name so screen-reader users
+				// don't hear N identical "Use" buttons with no context
+				// (the row's mic name is announced separately, but the
+				// action button still needs its own name).
+				aria-label={t("microphone.useAria", { name: mic.name })}
 			>
 				{t("microphone.use")}
 			</Button>

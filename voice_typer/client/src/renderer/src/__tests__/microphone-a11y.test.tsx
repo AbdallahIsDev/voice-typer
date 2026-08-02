@@ -17,7 +17,7 @@
  *      can assert that `getPresetOptions()` runs exactly once per
  *     mount instead of three times.
  */
-import { cleanup, render } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -295,8 +295,13 @@ describe("BG-72: AvailableMicrophonesList renders a real list with ul/li + roles
 			/>,
 		);
 
-		const ul = document.querySelector('ul[role="list"]');
+		// Computed-role assertion: a native <ul> exposes the "list"
+		// role in the accessibility tree even without an explicit
+		// role="list" attribute (the ARIA-in-HTML mapping). Querying by
+		// role verifies the actual AT exposure, not the markup detail.
+		const ul = screen.getByRole("list");
 		expect(ul).toBeTruthy();
+		expect(ul.tagName.toLowerCase()).toBe("ul");
 	});
 
 	it("renders one <li role=listitem> per row (system default + each mic)", () => {
@@ -310,8 +315,9 @@ describe("BG-72: AvailableMicrophonesList renders a real list with ul/li + roles
 			/>,
 		);
 
-		// 1 system-default row + 2 mic rows = 3 list items.
-		const items = document.querySelectorAll('li[role="listitem"]');
+		// 1 system-default row + 2 mic rows = 3 list items. Native <li>
+		// elements expose the "listitem" role implicitly.
+		const items = screen.getAllByRole("listitem");
 		expect(items.length).toBe(3);
 	});
 
@@ -327,12 +333,12 @@ describe("BG-72: AvailableMicrophonesList renders a real list with ul/li + roles
 		);
 
 		// 1 system-default row + 1 "no other mics" notice row = 2 items.
-		const items = document.querySelectorAll('li[role="listitem"]');
+		const items = screen.getAllByRole("listitem");
 		expect(items.length).toBe(2);
 
-		// The "No other microphones available" text lives inside an
-		// <li role=listitem>, not a bare <div>.
-		const notice = Array.from(items).find((li) =>
+		// The "No other microphones available" text lives inside a real
+		// <li> (which exposes the listitem role), not a bare <div>.
+		const notice = items.find((li) =>
 			li.textContent?.includes("No other microphones available"),
 		);
 		expect(notice).toBeTruthy();
@@ -350,7 +356,7 @@ describe("BG-72: AvailableMicrophonesList renders a real list with ul/li + roles
 			/>,
 		);
 
-		const ul = document.querySelector('ul[role="list"]');
+		const ul = screen.getByRole("list");
 		expect(ul).toBeTruthy();
 		const directDivChildren = Array.from(ul?.children ?? []).filter(
 			(child) => child.tagName.toLowerCase() === "div",

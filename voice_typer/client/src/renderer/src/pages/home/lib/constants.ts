@@ -34,7 +34,7 @@ export const FORCE_CANCEL_DELAY_MS = 5_000;
  * milliseconds of idle so the previous transcription isn't exposed on a
  * shared/locked screen.
  */
-export const LAST_TEXT_AUTO_CLEAR_MS = 5_000;
+export const LAST_TEXT_AUTO_CLEAR_MS = 30_000;
 
 /**
  *  (): aligned with `voice_typer/server/tray_icon.py:277-284`

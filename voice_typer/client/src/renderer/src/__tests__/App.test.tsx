@@ -224,13 +224,11 @@ vi.mock("@/pages/Onboarding", () => ({
 // the route guard's behaviour without re-mocking the entire Settings render
 // graph (icons, theme pickers, search field, etc.).
 vi.mock("@/pages/Settings", () => ({
-	default: function MockSettingsPage({
-		onNavigate,
-	}: {
-		themeMode?: string;
-		onThemeChange?: (mode: string) => void;
-		onNavigate?: (page: string) => void;
-	}) {
+	default: function MockSettingsPage() {
+		// The real SettingsPage navigates via the useNavigation hook
+		// internally (App no longer passes an onNavigate prop), so the
+		// stub mirrors that: read `navigate` from the real hook.
+		const { navigate } = useNavigation();
 		return (
 			<div data-testid="settings-page">
 				Settings page
@@ -242,7 +240,7 @@ vi.mock("@/pages/Settings", () => ({
 						store.useAppStore
 							?.getState()
 							.mergeConfig({ onboarding_completed: false });
-						onNavigate?.("onboarding");
+						navigate("onboarding");
 					}}
 				>
 					Re-run setup wizard
@@ -252,6 +250,7 @@ vi.mock("@/pages/Settings", () => ({
 	},
 }));
 
+import { useNavigation } from "@/hooks/useNavigation";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 

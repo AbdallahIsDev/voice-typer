@@ -14,13 +14,13 @@
 //
 // The `export default function Home` signature is unchanged so App.tsx
 // routing and existing tests (Home.test.tsx, pages-improvements.test.tsx
-// R7-F13) continue to work. Pure structural refactor — no behaviour
+// ) continue to work. Pure structural refactor — no behaviour
 // changes.
 //
-// R7-F13 contract: `debouncedRefreshFromEvent` is declared via
+// contract: `debouncedRefreshFromEvent` is declared via
 // `useCallback` and passed to BOTH the `transcription_final` and
 // `history_changed` `usePythonEvent` subscriptions (single callback
-// identity). The R7-F13 test greps Home.tsx source for this pattern, so
+// identity). The regression test greps Home.tsx source for this pattern, so
 // it stays here in the composition root rather than moving into a hook.
 
 import { Share08Icon } from "@hugeicons/core-free-icons";
@@ -69,8 +69,8 @@ import {
 } from "./home/lib/status";
 
 export default function Home() {
-	//(BACKLOG-004): subscribe to the store directly instead
-	// of receiving recordingState / lastError as props from App.tsx.
+	// Subscribe to the store directly instead of receiving
+	// recordingState / lastError as props from App.tsx.
 	const recordingState = useAppStore((s) => s.recordingState);
 	const lastError = useAppStore((s) => s.lastError);
 	//obtain `navigate` directly from the navigation hook
@@ -81,6 +81,21 @@ export default function Home() {
 
 	const [hotkey, setHotkey] = useState("F2");
 	const [lastText, setLastText] = useState("");
+	// QV-49(a): live MM:SS recording timer — elapsed seconds while
+	// recording, reset to 0 when a new recording starts.
+	const [elapsedSec, setElapsedSec] = useState(0);
+	const isRecording = recordingState === "recording";
+	useEffect(() => {
+		if (!isRecording) {
+			setElapsedSec(0);
+			return;
+		}
+		setElapsedSec(0);
+		const id = window.setInterval(() => {
+			setElapsedSec((s) => s + 1);
+		}, 1000);
+		return () => window.clearInterval(id);
+	}, [isRecording]);
 	const [downloadPct, setDownloadPct] = useState<number | null>(null);
 	const [transcribeStartedAt, setTranscribeStartedAt] = useState<number | null>(
 		null,
@@ -138,9 +153,9 @@ export default function Home() {
 	const staleRef = useRef(false);
 
 	// Shared refresh routine — used by both `transcription_final` and
-	// `history_changed` handlers (F11-FIX + R7-F13 consolidation).
+	// `history_changed` handlers (refresh consolidation).
 	//
-	// R7-F13: declared via `useCallback` and passed to BOTH usePythonEvent
+	// declared via `useCallback` and passed to BOTH usePythonEvent
 	// subscriptions below so they share a single callback identity (the
 	// test greps Home.tsx for this declaration).
 	const debouncedRefreshFromEvent = useCallback(():
@@ -427,7 +442,6 @@ export default function Home() {
 		}
 	}, [call]);
 
-	const isRecording = recordingState === "recording";
 	const key = statusKeyFor(recordingState, !!lastError);
 	// noUncheckedIndexedAccess: `STATUS_COLORS[key]` is `string | undefined`.
 	// `statusKeyFor` always returns a known key, but the index access still
@@ -439,11 +453,29 @@ export default function Home() {
 
 	return (
 		<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center gap-5 px-6 py-4">
-			<RecordingStatusPill
-				statusColor={statusColor}
-				statusLabel={statusLabel}
-				isRecording={isRecording}
-			/>
+			<div className="flex items-center gap-3">
+				<RecordingStatusPill
+					statusColor={statusColor}
+					statusLabel={statusLabel}
+					isRecording={isRecording}
+				/>
+				{isRecording && (
+					<span
+						className="font-mono text-sm tabular-nums text-(--text-muted)"
+						// QV-49(a): accessible live timer while recording. role="timer"
+						// gives the span a role that supports aria-label (plain
+						// spans don't accept aria-label) and is the semantically
+						// correct ARIA role for a live count-up timer.
+						role="timer"
+						aria-label={t("home.timerAria", {
+							duration: `${String(Math.floor(elapsedSec / 60)).padStart(2, "0")}:${String(elapsedSec % 60).padStart(2, "0")}`,
+						})}
+					>
+						{String(Math.floor(elapsedSec / 60)).padStart(2, "0")}:
+						{String(elapsedSec % 60).padStart(2, "0")}
+					</span>
+				)}
+			</div>
 
 			{recordingState === "error" && lastError && (
 				<RecordingErrorCard
@@ -501,13 +533,19 @@ export default function Home() {
 			</p>
 
 			{lastText && (
-				<div aria-live="polite">
+				<output
+					aria-live="polite"
+					// QV-9: the transcription preview text is wrapped in the
+					// semantic HTML5 live region element (<output>) so screen
+					// readers announce freshly arrived transcriptions.
+					className="block"
+				>
 					<LastTranscriptionPreview
 						text={lastText}
 						onUndo={handleUndo}
 						onRepaste={handleRepaste}
 					/>
-				</div>
+				</output>
 			)}
 
 			{stats && (

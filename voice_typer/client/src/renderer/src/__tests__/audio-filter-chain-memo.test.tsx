@@ -25,10 +25,23 @@
  *      count jumps back up).
  */
 import { act, cleanup, render } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const renderWithProviders = (ui: React.ReactElement) => {
+	const wrapped = (node: React.ReactElement) => (
+		<TooltipProvider delayDuration={200}>{node}</TooltipProvider>
+	);
+	const utils = render(wrapped(ui));
+	return {
+		...utils,
+		rerender: (node: React.ReactElement) => utils.rerender(wrapped(node)),
+	};
+};
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
-import { setLocale, t } from "@/i18n/i18n";
+import { setLocale } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 
 // Stub the icons used by SettingRow / Radix Select / Switch so the
@@ -46,8 +59,10 @@ vi.mock("@hugeicons/core-free-icons", () => {
 	return new Proxy(
 		{
 			ArrowDown01Icon: make("ArrowDown01Icon"),
+			ArrowUp01Icon: make("ArrowUp01Icon"),
 			FilterIcon: make("FilterIcon"),
 			UnfoldMoreIcon: make("UnfoldMoreIcon"),
+			Tick02Icon: make("Tick02Icon"),
 		},
 		{
 			get(target, prop: string) {
@@ -93,11 +108,15 @@ function makeStubConfig(): VoiceTyperConfig {
 describe("TY-37: AudioFilterChain labels are memoised", () => {
 	let tSpy: ReturnType<typeof vi.spyOn>;
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		// Spy on the imported `t` function. The `AudioFilterChain`
 		// imports `t` from `@/i18n/i18n` as a named export, so the
 		// spy intercepts every call.
-		tSpy = vi.spyOn({ t }, "t");
+		// Spy on the REAL module export so every `t(...)` call the
+		// component makes is recorded (spying on a bare `{ t }` object
+		// never intercepts the imported binding — the count stays 0).
+		const i18nModule = await import("@/i18n/i18n");
+		tSpy = vi.spyOn(i18nModule, "t");
 		// Reset to a known locale so the test is deterministic.
 		act(() => {
 			setLocale("en");
@@ -113,7 +132,7 @@ describe("TY-37: AudioFilterChain labels are memoised", () => {
 		const config = makeStubConfig();
 		const onConfigChange = vi.fn();
 
-		const { rerender } = render(
+		const { rerender } = renderWithProviders(
 			<AudioFilterChain config={config} onConfigChange={onConfigChange} />,
 		);
 
@@ -147,7 +166,7 @@ describe("TY-37: AudioFilterChain labels are memoised", () => {
 		const config = makeStubConfig();
 		const onConfigChange = vi.fn();
 
-		const { rerender } = render(
+		const { rerender } = renderWithProviders(
 			<AudioFilterChain config={config} onConfigChange={onConfigChange} />,
 		);
 
@@ -189,7 +208,7 @@ describe("TY-37: AudioFilterChain labels are memoised", () => {
 		const config = makeStubConfig();
 		const onConfigChange = vi.fn();
 
-		const { rerender } = render(
+		const { rerender } = renderWithProviders(
 			<AudioFilterChain config={config} onConfigChange={onConfigChange} />,
 		);
 

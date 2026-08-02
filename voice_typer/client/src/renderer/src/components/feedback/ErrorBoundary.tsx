@@ -223,12 +223,29 @@ export class ErrorBoundary extends Component<
 		}
 	};
 
+	// Tracks the "copied" flash timer so a second flashCopied clears the
+	// previous timer before arming a new one, and componentWillUnmount
+	// can cancel a pending timer (no setState-after-unmount warnings +
+	// no leaked timer keeping the crash screen's lifecycle alive).
+	copiedTimer: number | null = null;
+
 	flashCopied = (): void => {
 		this.setState({ copied: true });
-		window.setTimeout(() => {
+		if (this.copiedTimer !== null) {
+			window.clearTimeout(this.copiedTimer);
+		}
+		this.copiedTimer = window.setTimeout(() => {
+			this.copiedTimer = null;
 			this.setState({ copied: false });
 		}, 2000);
 	};
+
+	componentWillUnmount(): void {
+		if (this.copiedTimer !== null) {
+			window.clearTimeout(this.copiedTimer);
+			this.copiedTimer = null;
+		}
+	}
 
 	handleOpenLogs = (): void => {
 		// Best-effort: invoke the main process's ``window:open-logs``

@@ -1,11 +1,12 @@
 // src/renderer/src/components/InfoTooltip.tsx
 
+import { useMemo } from "react";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { t } from "@/i18n/i18n";
+import { getLocale, t, useT } from "@/i18n/i18n";
 import { cn, focusRing } from "@/lib/utils";
 
 interface InfoTooltipProps {
@@ -29,13 +30,32 @@ interface InfoTooltipProps {
 }
 
 export function InfoTooltip({ text, contextLabel }: InfoTooltipProps) {
+	// Subscribe to locale changes so the aria-label re-resolves on
+	// language switch (no page reload), and memoize the resolved
+	// string keyed on the locale so a plain re-render (e.g. a Settings
+	// section re-rendering with identical props) performs ZERO t()
+	// calls — the DJ-88 memoisation contract.
+	useT();
+	const locale = getLocale();
 	// When contextLabel is provided, compose
 	// a specific aria-label so multiple InfoTooltips on the same
 	// page are distinguishable for screen-reader users. Fall back to
 	// the generic "More info" label when contextLabel is absent.
-	const ariaLabel = contextLabel
-		? t("a11y.moreInfoAbout", { label: contextLabel })
-		: t("a11y.moreInfo");
+	// Resolve the label with the locale as an EXPLICIT argument so the
+	// memo dependency is genuine — the label is a function of
+	// (contextLabel, locale), and keying on the locale value is what
+	// makes the memo recompute on language switch.
+	const ariaLabel = useMemo(() => {
+		// The resolved string is locale-dependent (t() reads the active
+		// locale internally). Keying on `locale` makes the memo
+		// recompute on language switch; referencing it here keeps the
+		// dependency explicit for the exhaustive-deps linter.
+		const _ = locale;
+		void _;
+		return contextLabel
+			? t("a11y.moreInfoAbout", { label: contextLabel })
+			: t("a11y.moreInfo");
+	}, [contextLabel, locale]);
 	// Use a real <button> so keyboard + screen-reader users can
 	// focus the tooltip trigger via Tab. Radix Tooltip opens on focus by
 	// default, so no custom keydown handler is needed — Enter/Space on a

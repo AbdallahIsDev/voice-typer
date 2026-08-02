@@ -20,6 +20,7 @@ import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
 
 import type { TemplateRow } from "../lib/types";
+import { VARIABLES } from "../lib/types";
 
 interface TemplateDialogProps {
 	open: boolean;
@@ -46,6 +47,23 @@ export function TemplateDialog({
 	onClose,
 	onSave,
 }: TemplateDialogProps) {
+	// ZU-30: the Save button is disabled until BOTH fields have
+	// non-whitespace content — mirrors the sibling VocabDialog pattern
+	// so the user sees the disabled affordance up-front instead of
+	// clicking an enabled button and getting a transient warning toast.
+	const canSave = trigger.trim() !== "" && expansion.trim() !== "";
+
+	// ZU-30: surface unknown template-variable tokens (e.g. {date}).
+	// The substitution layer (templates/lib/transform.ts) silently drops
+	// unknown tokens — this warning tells the user why {date} would be
+	// emitted verbatim. Only the 4 supported tokens are treated as known.
+	const unknownVars = Array.from(
+		new Set(
+			(expansion.match(/\{[^}]+\}/g) ?? []).filter(
+				(token) => !(VARIABLES as readonly string[]).includes(token),
+			),
+		),
+	);
 	return (
 		<Modal
 			open={open}
@@ -103,6 +121,16 @@ export function TemplateDialog({
 						<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{clipboard}`}</code>
 						<code className="mx-1 rounded bg-(--bg-subtle) px-1">{`{username}`}</code>
 					</p>
+					{unknownVars.length > 0 && (
+						<p
+							role="alert"
+							className="mt-1.5 text-xs font-medium text-amber-500"
+						>
+							{t("templates.unknownVariableWarning", {
+								vars: unknownVars.join(", "),
+							})}
+						</p>
+					)}
 				</div>
 
 				<div>
@@ -130,7 +158,7 @@ export function TemplateDialog({
 				<Button variant="ghost" onClick={onClose}>
 					{t("common.cancel")}
 				</Button>
-				<Button variant="default" onClick={onSave}>
+				<Button variant="default" onClick={onSave} disabled={!canSave}>
 					{t("common.save")}
 				</Button>
 			</ModalFooter>

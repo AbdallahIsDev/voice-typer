@@ -75,10 +75,16 @@ name: Tauri Windows Build (Phase 0-W / Phase 1-W)
 on:
   workflow_call:
     inputs:
+      # S2-CR-66: target-triple parameterization. `target` is consumed by
+      # the top-level env block (RUST_TARGET / PYBS_TRIPLE / RUST_ARCH)
+      # so a workflow_call from tauri-build.yml can pass a non-x86_64
+      # triple through. Default = x86_64-pc-windows-msvc (Phase 0-W
+      # primary target); the empty-string pre-fix default is equivalent
+      # thanks to the `|| 'x86_64-pc-windows-msvc'` fallback in env.
       target:
-        description: "Rust target triple (empty = host triple)"
+        description: "Rust target triple (default x86_64-pc-windows-msvc)"
         required: false
-        default: ""
+        default: "x86_64-pc-windows-msvc"
         type: string
       sign:
         description: "Code-sign + notarize the bundle (requires secrets)"
@@ -102,6 +108,16 @@ on:
         type: string
   workflow_dispatch:
     inputs:
+      # S2-CR-66: user-facing surface for choosing the target triple from
+      # the Actions UI. A maintainer dispatches with
+      # `target: aarch64-pc-windows-msvc` to produce Windows-on-ARM
+      # binaries (see the TX-40 GATE STATUS block above — the aarch64
+      # leg also needs a windows-11-arm runner).
+      target:
+        description: "Rust target triple (x86_64-pc-windows-msvc default; use aarch64-pc-windows-msvc for Windows-on-ARM)"
+        required: false
+        default: "x86_64-pc-windows-msvc"
+        type: string
       pybs_date:
         description: "python-build-standalone release date (YYYYMMDD)"
         required: false
@@ -143,18 +159,18 @@ permissions:
   contents: read
 
 env:
-  # S5-CR-74: PYBS pin now sourced from BOTH the workflow_call `inputs`
-  # context (used when tauri-build.yml passes pybs_date / pybs_version
-  # through) AND the workflow_dispatch `github.event.inputs` context (used
-  # when this workflow is dispatched directly from the Actions UI). The
-  # `inputs` context is populated for both trigger types on Actions runners
-  # since 2024, but we keep the github.event.inputs fallback for older
-  # self-hosted runner versions.
-  # TX-40: PYBS_TRIPLE + RUST_TARGET used to live here as x86_64-pc-windows-msvc
-  # constants. They are now derived per-matrix-leg in the job-level `env:` block
-  # below (the `matrix` context is only available inside jobs, not at the
-  # workflow top level). PYBS_DATE / PYBS_VERSION stay here because they read
-  # from `inputs` / `github.event.inputs`, which ARE available workflow-wide.
+  # S2-CR-66: target-triple parameterization. RUST_TARGET / PYBS_TRIPLE /
+  # RUST_ARCH are sourced from the `target` workflow input (populated by
+  # BOTH workflow_call — tauri-build.yml passes it through — and
+  # workflow_dispatch from the Actions UI) so a maintainer can dispatch
+  # with `target: aarch64-pc-windows-msvc` to produce Windows-on-ARM
+  # binaries. The `|| 'x86_64-pc-windows-msvc'` fallback preserves the
+  # pre-fix x86_64-only behavior for every existing dispatch.
+  # PYBS_DATE / PYBS_VERSION (S5-CR-74) read from `inputs` /
+  # `github.event.inputs`, which ARE available workflow-wide.
+  RUST_TARGET: ${{ inputs.target || github.event.inputs.target || 'x86_64-pc-windows-msvc' }}
+  PYBS_TRIPLE: ${{ inputs.target || github.event.inputs.target || 'x86_64-pc-windows-msvc' }}
+  RUST_ARCH: ${{ contains(inputs.target || github.event.inputs.target || 'x86_64-pc-windows-msvc', 'aarch64') && 'aarch64' || 'x86_64' }}
   PYBS_DATE: ${{ inputs.pybs_date || github.event.inputs.pybs_date || '20241219' }}
   PYBS_VERSION: ${{ inputs.pybs_version || github.event.inputs.pybs_version || '3.12.8' }}
 
@@ -228,14 +244,18 @@ jobs:
       id-token: write   # required for actions/attest-build-provenance
       attestations: write
     env:
-      # TX-40: target triple sourced from the matrix (x86_64 OR aarch64).
-      # Was a workflow-level `env:` constant before; moved to job-level
-      # because the `matrix` context is only available inside jobs (not
-      # at the workflow top level). PYBS_TRIPLE drives the python-build-
-      # standalone download URL; RUST_TARGET drives the rust-toolchain
-      # install + `cargo tauri build --target` flag.
-      PYBS_TRIPLE: ${{ matrix.target }}
-      RUST_TARGET: ${{ matrix.target }}
+      # S2-CR-66: target triple is sourced from the `target` workflow
+      # input (via the workflow-level RUST_TARGET / PYBS_TRIPLE env vars
+      # defined above), with the per-matrix-leg `matrix.target` as the
+      # fallback for the x86_64 / gated-aarch64 matrix entries. The
+      # workflow-level env vars cannot reference `matrix` (not available
+      # outside jobs), so we shadow them here with an input||matrix
+      # expression. PYBS_TRIPLE drives the python-build-standalone
+      # download URL; RUST_TARGET drives the rust-toolchain install +
+      # `cargo tauri build --target` flag. RUST_ARCH (arch-specific Tauri
+      # config selection) is inherited unchanged from the workflow level.
+      PYBS_TRIPLE: ${{ inputs.target || matrix.target }}
+      RUST_TARGET: ${{ inputs.target || matrix.target }}
       # CRIT-7: the `secrets` context is NOT available in step `if:`
       # conditions (GitHub Actions does not populate it there, so the
       # condition never matches and signing is silently skipped). Map the
@@ -422,18 +442,19 @@ jobs:
               $($dataDirFlag) `
               --windows-console-mode=disable `
               --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/onefile-tmp" `
-              # TX-40: output filename carries the matrix target triple
-              # so a future aarch64 leg produces a distinctly-named binary
+              # TX-40 / S2-CR-66: output filename carries the target triple
+              # so an aarch64 build produces a distinctly-named binary
               # (python-sidecar-aarch64-pc-windows-msvc.exe) instead of
-              # silently overwriting the x86_64 build.
-              --output-filename=python-sidecar-${{ matrix.target }}.exe `
+              # silently overwriting the x86_64 build. Default for the
+              # Phase 0-W primary target: python-sidecar-x86_64-pc-windows-msvc.exe.
+              --output-filename=python-sidecar-$env:RUST_TARGET.exe `
               --output-dir=src-tauri\bin `
               voice_typer\server\ipc_server.py
           # Verify the binary exists + emits server_started
-          if (-not (Test-Path "src-tauri\bin\python-sidecar-${{ matrix.target }}.exe")) {
+          if (-not (Test-Path "src-tauri\bin\python-sidecar-$env:RUST_TARGET.exe")) {
             Write-Error "Sidecar binary not built"; exit 1
           }
-          $size = (Get-Item "src-tauri\bin\python-sidecar-${{ matrix.target }}.exe").Length / 1MB
+          $size = (Get-Item "src-tauri\bin\python-sidecar-$env:RUST_TARGET.exe").Length / 1MB
           Write-Host "Sidecar binary size: $([math]::Round($size,1)) MB"
 
       - name: Build the prewarm binary with Nuitka (ADR-0020 §5)
@@ -477,10 +498,13 @@ jobs:
               --include-package=websockets `
               --windows-console-mode=disable `
               --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/prewarm-onefile-tmp" `
-              --output-filename=prewarm-${{ matrix.target }}.exe `
+              # TX-40 / S2-CR-66: prewarm binary name carries the target
+              # triple. Default for the Phase 0-W primary target:
+              # prewarm-x86_64-pc-windows-msvc.exe.
+              --output-filename=prewarm-$env:RUST_TARGET.exe `
               --output-dir=src-tauri\resources `
               voice_typer\server\prewarm\__main__.py
-          if (-not (Test-Path "src-tauri\resources\prewarm-${{ matrix.target }}.exe")) {
+          if (-not (Test-Path "src-tauri\resources\prewarm-$env:RUST_TARGET.exe")) {
             Write-Error "Prewarm binary not built"; exit 1
           }
 
@@ -521,11 +545,11 @@ jobs:
           [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:WIN_CSC_LINK))
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1 -ExpandProperty FullName
           Write-Host "Using signtool: $signtool"
-          # TX-40: signing targets use matrix.target so the aarch64 leg
-          # (when enabled) signs its own binaries, not the x86_64 ones.
+          # TX-40 / S2-CR-66: signing targets use $env:RUST_TARGET so an
+          # aarch64 dispatch signs its own binaries, not the x86_64 ones.
           foreach ($exe in @(
-                "src-tauri\bin\python-sidecar-${{ matrix.target }}.exe",
-                "src-tauri\resources\prewarm-${{ matrix.target }}.exe",
+                "src-tauri\bin\python-sidecar-$env:RUST_TARGET.exe",
+                "src-tauri\resources\prewarm-$env:RUST_TARGET.exe",
                 "src-tauri\resources\native\windows-key-listener.exe"
           )) {
             if (-not (Test-Path $exe)) {
@@ -567,15 +591,21 @@ jobs:
         shell: pwsh
         run: |
           cd src-tauri
-          # XS-28: apply the per-arch tauri config (matrix.tauri_config —
-          # tauri.windows-x86_64.conf.json for x86_64 today; when the aarch64
-          # leg is enabled it will use tauri.windows-aarch64.conf.json). The
-          # base tauri.conf.json `bundle.resources` array lists every
-          # platform's native binaries (a documented superset for the
-          # mig15/mig16 source-inspection tests) and would hard-fail at the
-          # tauri-build resource-copy step on a Windows host (macOS/Linux-
-          # only files don't exist here).
-          cargo tauri build --target ${{ matrix.target }} --config ${{ matrix.tauri_config }}
+          # XS-28 + S2-CR-66: apply the arch-specific tauri config
+          # (tauri.windows-x86_64.conf.json for x86_64; a dispatched
+          # target=aarch64-pc-windows-msvc selects
+          # tauri.windows-aarch64.conf.json when it exists). The base
+          # tauri.conf.json `bundle.resources` array lists every platform's
+          # native binaries (a documented superset for the mig15/mig16
+          # source-inspection tests) and would hard-fail at the tauri-build
+          # resource-copy step on a Windows host (macOS/Linux-only files
+          # don't exist here), so the arch-specific config must win.
+          $archConfig = if (Test-Path "tauri.windows-$env:RUST_ARCH.conf.json") {
+            "tauri.windows-$env:RUST_ARCH.conf.json"
+          } else {
+            "tauri.conf.json"
+          }
+          cargo tauri build --target $env:RUST_TARGET --config $archConfig
 
       - name: Locate + verify installer artifacts
         id: artifacts
@@ -606,10 +636,11 @@ jobs:
           # (per-target: target\<triple>\release\resources\ for cross builds).
           # We check both because tauri's resource-copy step uses different
           # paths for cross-target vs host-target builds.
-          # TX-40: per-target resource dir uses matrix.target (cargo tauri
-          # build --target <triple> emits under target/<triple>/release/).
+          # TX-40 / S2-CR-66: per-target resource dir uses $env:RUST_TARGET
+          # (cargo tauri build --target <triple> emits under
+          # target/<triple>/release/).
           $resourceDirs = @(
-            "src-tauri\target\${{ matrix.target }}\release\resources",
+            "src-tauri\target\$env:RUST_TARGET\release\resources",
             "src-tauri\target\release\resources"
           )
           # Forbidden substrings — any resource whose name contains one of
@@ -694,7 +725,7 @@ jobs:
       - name: Smoke test sidecar binary (--version)
         shell: pwsh
         run: |
-          $sidecar = "src-tauri\bin\python-sidecar-${{ matrix.target }}.exe"
+          $sidecar = "src-tauri\bin\python-sidecar-$env:RUST_TARGET.exe"
           if (-not (Test-Path $sidecar)) {
             Write-Error "Sidecar binary not found at $sidecar — cannot smoke test."; exit 1
           }
@@ -729,16 +760,16 @@ jobs:
         uses: actions/upload-artifact@v5
         with:
           name: VoiceTyper-Tauri-Sidecar-Binaries
-          # TX-40: paths use matrix.target so the aarch64 leg (when enabled)
-          # uploads its own aarch64 binaries. NOTE: artifact NAME stays
-          # arch-suffix-free to preserve tauri-build.yml's download-artifact
-          # step (`name: VoiceTyper-Tauri-Sidecar-Binaries`) — when the
-          # aarch64 leg is enabled, suffix this name with `-${{ matrix.arch }}`
-          # and update tauri-build.yml accordingly (see TX-40 GATE STATUS
-          # block at the top of this file).
+          # TX-40 / S2-CR-66: paths use $env:RUST_TARGET so an aarch64
+          # dispatch uploads its own aarch64 binaries. NOTE: artifact NAME
+          # stays arch-suffix-free to preserve tauri-build.yml's
+          # download-artifact step (`name: VoiceTyper-Tauri-Sidecar-Binaries`)
+          # — when the aarch64 matrix leg is enabled, suffix this name with
+          # `-${{ matrix.arch }}` and update tauri-build.yml accordingly
+          # (see TX-40 GATE STATUS block at the top of this file).
           path: |
-            src-tauri/bin/python-sidecar-${{ matrix.target }}.exe
-            src-tauri/resources/prewarm-${{ matrix.target }}.exe
+            src-tauri/bin/python-sidecar-$env:RUST_TARGET.exe
+            src-tauri/resources/prewarm-$env:RUST_TARGET.exe
             src-tauri/resources/native/windows-key-listener.exe
           if-no-files-found: error
 
@@ -746,13 +777,13 @@ jobs:
         shell: pwsh
         run: |
           $checksums = @()
-          # TX-40: checksum paths use matrix.target so both legs emit
-          # distinct SHA256SUMS lines for their respective sidecar + prewarm.
+          # TX-40 / S2-CR-66: checksum paths use $env:RUST_TARGET so the
+          # checksums line up with the actually-built binaries.
           foreach ($p in @(
                 "${{ steps.artifacts.outputs.nsis_path }}",
                 "${{ steps.artifacts.outputs.msi_path }}",
-                "src-tauri/bin/python-sidecar-${{ matrix.target }}.exe",
-                "src-tauri/resources/prewarm-${{ matrix.target }}.exe",
+                "src-tauri/bin/python-sidecar-$env:RUST_TARGET.exe",
+                "src-tauri/resources/prewarm-$env:RUST_TARGET.exe",
                 "src-tauri/resources/native/windows-key-listener.exe"
           )) {
             if (Test-Path $p) {

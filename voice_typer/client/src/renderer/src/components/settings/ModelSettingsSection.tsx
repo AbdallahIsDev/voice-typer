@@ -152,73 +152,103 @@ export const ModelSettingsSection = memo(function ModelSettingsSection({
 					title={postProcessingTitle}
 					description={t("settings.postProcessingDescription")}
 				>
-					<SettingRow
-						label={t("settings.transcriptionLanguage")}
-						info={t("settings.transcriptionLanguageDescription")}
-					>
-						<Select
-							value={config.language || "auto"}
-							onValueChange={handleLanguageChange}
+					{isVisible(
+						t("settings.transcriptionLanguage"),
+						t("settings.transcriptionLanguageDescription"),
+						postProcessingTitle,
+					) && (
+						<SettingRow
+							label={t("settings.transcriptionLanguage")}
+							info={t("settings.transcriptionLanguageDescription")}
 						>
-							<SelectTrigger
-								className="w-44"
-								aria-label={t("settings.transcriptionLanguage")}
+							<Select
+								value={config.language || "auto"}
+								onValueChange={handleLanguageChange}
 							>
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{LANGUAGE_OPTIONS.map((lang) => (
-									<SelectItem key={lang.value} value={lang.value}>
-										<span>{t(lang.labelKey)}</span>
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-					</SettingRow>
+								<SelectTrigger
+									className="w-44"
+									aria-label={t("settings.transcriptionLanguage")}
+								>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{LANGUAGE_OPTIONS.map((lang) => (
+										<SelectItem key={lang.value} value={lang.value}>
+											<span>{t(lang.labelKey)}</span>
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</SettingRow>
+					)}
 
-					<SettingRow
-						label={t("settings.autoPunctuation")}
-						info={t("settings.autoPunctuationInfo")}
-					>
-						<Switch
-							checked={config.auto_punctuation ?? false}
-							onCheckedChange={handleAutoPunctuationChange}
-							aria-label={t("settings.autoPunctuation")}
-						/>
-					</SettingRow>
+					{isVisible(
+						t("settings.autoPunctuation"),
+						t("settings.autoPunctuationInfo"),
+						postProcessingTitle,
+					) && (
+						<SettingRow
+							label={t("settings.autoPunctuation")}
+							info={t("settings.autoPunctuationInfo")}
+						>
+							<Switch
+								checked={config.auto_punctuation ?? false}
+								onCheckedChange={handleAutoPunctuationChange}
+								aria-label={t("settings.autoPunctuation")}
+							/>
+						</SettingRow>
+					)}
 
-					<SettingRow
-						label={t("settings.textCleanupLabel")}
-						info={t("settings.textCleanupInfo")}
-					>
-						<Switch
-							checked={config.text_cleanup_enabled}
-							onCheckedChange={handleTextCleanupChange}
-							aria-label={t("settings.textCleanupLabel")}
-						/>
-					</SettingRow>
+					{isVisible(
+						t("settings.textCleanupLabel"),
+						t("settings.textCleanupInfo"),
+						postProcessingTitle,
+					) && (
+						<SettingRow
+							label={t("settings.textCleanupLabel")}
+							info={t("settings.textCleanupInfo")}
+						>
+							<Switch
+								checked={config.text_cleanup_enabled}
+								onCheckedChange={handleTextCleanupChange}
+								aria-label={t("settings.textCleanupLabel")}
+							/>
+						</SettingRow>
+					)}
 
-					<SettingRow
-						label={t("settings.textSnippets")}
-						info={t("settings.textSnippetsInfo")}
-					>
-						<Switch
-							checked={config.templates_enabled ?? true}
-							onCheckedChange={handleTextSnippetsChange}
-							aria-label={t("settings.textSnippets")}
-						/>
-					</SettingRow>
+					{isVisible(
+						t("settings.textSnippets"),
+						t("settings.textSnippetsInfo"),
+						postProcessingTitle,
+					) && (
+						<SettingRow
+							label={t("settings.textSnippets")}
+							info={t("settings.textSnippetsInfo")}
+						>
+							<Switch
+								checked={config.templates_enabled ?? true}
+								onCheckedChange={handleTextSnippetsChange}
+								aria-label={t("settings.textSnippets")}
+							/>
+						</SettingRow>
+					)}
 
-					<SettingRow
-						label={t("settings.vocabulary")}
-						info={t("settings.vocabularyInfo")}
-					>
-						<Switch
-							checked={config.vocabulary_enabled ?? true}
-							onCheckedChange={handleVocabularyChange}
-							aria-label={t("settings.vocabulary")}
-						/>
-					</SettingRow>
+					{isVisible(
+						t("settings.vocabulary"),
+						t("settings.vocabularyInfo"),
+						postProcessingTitle,
+					) && (
+						<SettingRow
+							label={t("settings.vocabulary")}
+							info={t("settings.vocabularyInfo")}
+						>
+							<Switch
+								checked={config.vocabulary_enabled ?? true}
+								onCheckedChange={handleVocabularyChange}
+								aria-label={t("settings.vocabulary")}
+							/>
+						</SettingRow>
+					)}
 				</SettingsSection>
 			)}
 

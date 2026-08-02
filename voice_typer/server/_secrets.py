@@ -568,33 +568,23 @@ _user_extensions: set[str] = set()
 _ENV_TRUSTED_HOSTS_VAR = "VOICE_TYPER_TRUSTED_HOSTS"
 
 
-# DEAD-CODE (XZ-SEC-05, 2026-07-26): ``extend_url_allowlist`` had
-# ZERO production call sites when first audited. It now has ONE
-# production caller — the env-var bootstrap ``_load_env_allowlist_extensions``
-# (defined below), which runs at module-load time and feeds user-supplied
-# hosts from ``VOICE_TYPER_TRUSTED_HOSTS`` into the allowlist.
+# XZ-SEC-05 (2026-07-26 → 2026-08-02): ``extend_url_allowlist`` was
+# originally audited with ZERO production call sites and carried a
+# dead-code notice. The XZ-SEC-05 wiring has since landed, giving it
+# three production caller families:
 #
-# The full XZ-SEC-05 wiring (``add_trusted_endpoint`` IPC command +
-# ``trusted_extra_hosts`` config field + UI affordance) has NOT landed;
-# the env-var path is a partial fix that stays within this module.
-# Tests that walk ``voice_typer/`` for callers of ``extend_url_allowlist``
-# exclude ``_secrets.py`` itself, so the in-module bootstrap does not
-# trip ``test_no_production_caller_of_extend_url_allowlist``.
+#   1. ``_load_env_allowlist_extensions`` (in this module) — process
+#      startup bootstrap from the ``VOICE_TYPER_TRUSTED_HOSTS`` env var.
+#   2. ``Config.load`` (``voice_typer/server/config/__init__.py``) —
+#      re-applies the persisted ``trusted_extra_hosts`` list on launch.
+#   3. ``ConfigHandlersMixin`` (``voice_typer/server/handlers/
+#      config_handlers.py``) — the ``add_trusted_endpoint`` IPC command
+#      (runtime extension + persistence) and the ``set_config``
+#      ``trusted_extra_hosts`` path.
 #
-# The function is RETAINED (not deleted) because:
-#
-# (1) The XZ-SEC-05 audit-logging + caller-detection logic is non-
-#     trivial and would have to be re-implemented when the full
-#     IPC+config wiring lands. Deleting it would lose that work and
-#     the test coverage that pins its behavior.
-# (2) The tests still exercise the function and serve as a regression
-#     gate for the eventual production wiring.
-# (3) The env-var bootstrap is now a legitimate production caller.
-#
-# Future readers: when the full XZ-SEC-05 IPC+config wiring lands,
-# remove this DEAD-CODE marker (the function will then have an
-# out-of-module production caller and ``test_dead_code_marker_present_in_secrets_module``
-# must be updated alongside).
+# All three paths normalize through the same audit-logging +
+# caller-detection logic below, so every runtime expansion of the
+# trusted-host set remains traceable in logs.
 def extend_url_allowlist(
     hosts: Iterable[str],
     *,
@@ -602,33 +592,32 @@ def extend_url_allowlist(
 ) -> None:
     """Add hostnames to the runtime URL allowlist.
 
-    DEAD-CODE ( / ): no production callers as of
-    2026-07-26. Retained pending the  wiring (new
-        ``add_trusted_endpoint`` IPC command + ``trusted_extra_hosts``
-        config field). See module-level DEAD-CODE notice above for
-        rationale.
+    XZ-SEC-05 production paths: env-var bootstrap
+    (``_load_env_allowlist_extensions``), ``Config.load`` re-apply of
+    ``trusted_extra_hosts``, and the ``add_trusted_endpoint`` /
+    ``set_config`` IPC handlers (see the module-level comment above).
 
-        Hostnames are normalized to lowercase and stripped of port.
-        Duplicate additions are idempotent.
+    Hostnames are normalized to lowercase and stripped of port.
+    Duplicate additions are idempotent.
 
-        Parameters
-        ----------
-        hosts : Iterable[str]
-            Hostnames (with or without port) to add to the allowlist.
-        caller : str, optional
-            Identifier of the caller adding the hosts (e.g. ``"env_validation"``,
-            ``"cloud_engines"``, ``"config.load"``). When ``None`` (default),
-            the caller is auto-detected via :func:`inspect.stack` — the
-            caller's module name + function name + line number. Used in the
-            WARNING-level audit log so operators can trace every allowlist
-            extension back to its origin.
+    Parameters
+    ----------
+    hosts : Iterable[str]
+        Hostnames (with or without port) to add to the allowlist.
+    caller : str, optional
+        Identifier of the caller adding the hosts (e.g. ``"env_validation"``,
+        ``"cloud_engines"``, ``"config.load"``). When ``None`` (default),
+        the caller is auto-detected via :func:`inspect.stack` — the
+        caller's module name + function name + line number. Used in the
+        WARNING-level audit log so operators can trace every allowlist
+        extension back to its origin.
 
-    every call emits a ``WARNING``-level audit log of the
-        form ``[URL-Allowlist] extended by <caller> with hosts: <hosts>``.
-        This surfaces every runtime expansion of the trusted-host set in
-        normal logs, so a malicious or buggy config file that adds an
-        attacker-controlled host is visible without greping for the
-        specific ``extend_url_allowlist`` call site.
+    Every call emits a ``WARNING``-level audit log of the form
+    ``[URL-Allowlist] extended by <caller> with hosts: <hosts>``. This
+    surfaces every runtime expansion of the trusted-host set in normal
+    logs, so a malicious or buggy config file that adds an
+    attacker-controlled host is visible without grepping for the
+    specific ``extend_url_allowlist`` call site.
     """
     # capture the caller for audit logging. Auto-detect via
     # inspect.stack() when the caller didn't pass an explicit identifier.
