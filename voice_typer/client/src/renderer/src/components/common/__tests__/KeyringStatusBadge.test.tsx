@@ -172,7 +172,7 @@ describe("KeyringStatusBadge — BG-R11 (branching + cursor-default)", () => {
 
 	it("BG-R11: trigger button does NOT carry cursor-help (misleading affordance)", () => {
 		const { rerender } = render(
-			<KeyringStatusBadge status={availableStatus} />,
+			withProvider(<KeyringStatusBadge status={availableStatus} />),
 		);
 		const btn = screen.getByRole("button");
 		expect(btn.className).not.toContain("cursor-help");

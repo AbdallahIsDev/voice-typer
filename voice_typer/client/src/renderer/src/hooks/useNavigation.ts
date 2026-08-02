@@ -1,4 +1,32 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+/**
+ * Navigation hook + shared store.
+ *
+ * SHARED-STATE FIX: navigation state lives in a module-level Zustand
+ * store, NOT per-instance `useState`. Previously each `useNavigation()`
+ * call site (App.tsx, Home, Settings, History, Dashboard,
+ * AudioSettingsSection) created its own independent `currentPage` +
+ * history — so a page that navigated itself (e.g. the Settings
+ * "Re-run setup wizard" button, Home's "View all" / "Open mic
+ * settings" links, Dashboard's "Start dictation") updated ONLY its own
+ * local state and App.tsx's router never re-rendered. Every such
+ * in-page navigation was a dead button in production.
+ *
+ * With a single shared store, `navigate()` from any component updates
+ * the same `currentPage` App.tsx reads, so in-page navigation works and
+ * App's route guard / document.title / focus effects react to it.
+ *
+ * Persistence is preserved: the store is initialised from localStorage
+ * once at module load and every transition is written back, so the user
+ * returns to where they left off after closing/reopening the app.
+ *
+ * `_resetNavigationForTest` is the test seam (same pattern as
+ * `_resetSoundManagerForTests` / `_resetFileSizeCacheForTest`): it
+ * re-reads localStorage into the store so a test can seed a persisted
+ * page and then reset the shared state deterministically.
+ */
+
+import { useEffect } from "react";
+import { create } from "zustand";
 import { isKnownPage } from "@/router/routes";
 import type { Page } from "@/types/ipc";
 
@@ -75,59 +103,47 @@ function loadNavState(): NavState {
 	return defaultNavState();
 }
 
-/**
- * Navigation hook: manages current page, browser-style history stack
- * (back/forward), and persists state to localStorage so the user
- * returns to where they left off after closing/reopening the app.
- *
- * Also wires up mouse forward/back buttons (X1/X2) to act like a
- * browser's back/forward navigation.
- */
-export function useNavigation() {
-	// Previously `loadNavState()` was called on every render,
-	// parsing localStorage + JSON.parse each time even though only the
-	// first call's result is used (passed to useState/useRef initializers
-	// which ignore subsequent values). Wrapped in a useState initializer
-	// so React calls it exactly once and caches the result.
-	const [initialNav] = useState(loadNavState);
-	const [currentPage, setCurrentPage] = useState<Page>(initialNav.page);
-	const navHistory = useRef<Page[]>(initialNav.history);
-	const navIndex = useRef(initialNav.index);
+function saveNavState(state: NavState): void {
+	try {
+		localStorage.setItem(STORAGE_KEY_NAV, JSON.stringify(state));
+	} catch (e) {
+		// localStorage may be unavailable (SSR, sandboxed
+		// renderer) or quota may be exceeded. Non-fatal — the
+		// in-memory nav state is still authoritative for the
+		// current session; we just lose cross-session persistence.
+		console.warn("[useNavigation] saveNavState failed:", e);
+	}
+}
 
-	const saveNavState = useCallback(
-		(page: Page, history: Page[], index: number) => {
-			try {
-				localStorage.setItem(
-					STORAGE_KEY_NAV,
-					JSON.stringify({ page, history, index }),
-				);
-			} catch (e) {
-				// localStorage may be unavailable (SSR, sandboxed
-				// renderer) or quota may be exceeded. Non-fatal — the
-				// in-memory nav state is still authoritative for the
-				// current session; we just lose cross-session persistence.
-				console.warn("[useNavigation] saveNavState failed:", e);
-			}
-		},
-		[],
-	);
+interface NavStore extends NavState {
+	navigate: (page: Page) => void;
+	replace: (page: Page) => void;
+	goBack: () => void;
+	goForward: () => void;
+}
 
-	const navigate = useCallback(
-		(page: Page) => {
+const useNavStore = create<NavStore>()((set, get) => {
+	/** Apply a new nav state + persist it to localStorage. */
+	const apply = (next: NavState): void => {
+		set(next);
+		saveNavState(next);
+	};
+
+	return {
+		...loadNavState(),
+		navigate: (page) => {
+			const { page: current, history, index } = get();
 			// No-op when navigating to the page we're already
-			// on. Previously this still pushed a duplicate entry onto the
-			// history stack and re-saved localStorage, polluting the
-			// back/forward chain (Ctrl+Click on a sidebar entry the user
-			// was already on would add a no-op step they had to back
-			// through). The early return preserves the existing history
-			// and index exactly.
-			if (page === currentPage) return;
+			// on. Previously this still pushed a duplicate entry onto
+			// the history stack and re-saved localStorage, polluting
+			// the back/forward chain (Ctrl+Click on a sidebar entry
+			// the user was already on would add a no-op step they had
+			// to back through). The early return preserves the
+			// existing history and index exactly.
+			if (page === current) return;
 
-			let nextHistory = [
-				...navHistory.current.slice(0, navIndex.current + 1),
-				page,
-			];
-			let nextIndex = navIndex.current + 1;
+			let nextHistory = [...history.slice(0, index + 1), page];
+			let nextIndex = index + 1;
 
 			// Cap the history so a long-lived session
 			// doesn't accumulate hundreds of entries (each one is
@@ -140,60 +156,79 @@ export function useNavigation() {
 				nextIndex = Math.max(0, nextIndex - overflow);
 			}
 
-			navHistory.current = nextHistory;
-			navIndex.current = nextIndex;
-			setCurrentPage(page);
-			saveNavState(page, navHistory.current, navIndex.current);
+			apply({ page, history: nextHistory, index: nextIndex });
 		},
-		[currentPage, saveNavState],
-	);
-
-	/**
-	 * Replace the current history entry with `page` without
-	 * pushing a new entry onto the stack. Mirrors `history.replaceState`
-	 * in the browser API. Use this for route guards that should NOT
-	 * appear in the back/forward history (e.g. the onboarding-completed
-	 * guard bouncing a user from `onboarding` → `home` shouldn't leave
-	 * a "home" entry sitting on top of the original "onboarding" entry,
-	 * otherwise the user could press Back and land back in the wizard
-	 * they just finished).
-	 *
-	 * If `page === currentPage`, this is a no-op (same rationale as
-	 * `navigate`).
-	 */
-	const replace = useCallback(
-		(page: Page) => {
-			if (page === currentPage) return;
-			navHistory.current[navIndex.current] = page;
-			setCurrentPage(page);
-			saveNavState(page, navHistory.current, navIndex.current);
+		/**
+		 * Replace the current history entry with `page` without
+		 * pushing a new entry onto the stack. Mirrors
+		 * `history.replaceState` in the browser API. Use this for
+		 * route guards that should NOT appear in the back/forward
+		 * history (e.g. the onboarding-completed guard bouncing a
+		 * user from `onboarding` → `home` shouldn't leave a "home"
+		 * entry sitting on top of the original "onboarding" entry,
+		 * otherwise the user could press Back and land back in the
+		 * wizard they just finished).
+		 *
+		 * If `page === currentPage`, this is a no-op (same rationale
+		 * as `navigate`).
+		 */
+		replace: (page) => {
+			const { page: current, history, index } = get();
+			if (page === current) return;
+			const nextHistory = [...history];
+			nextHistory[index] = page;
+			apply({ page, history: nextHistory, index });
 		},
-		[currentPage, saveNavState],
-	);
-
-	const goBack = useCallback(() => {
-		if (navIndex.current > 0) {
-			navIndex.current--;
-			const page = navHistory.current[navIndex.current];
-			// noUncheckedIndexedAccess: `page` is `Page | undefined`.
+		goBack: () => {
+			const { history, index } = get();
+			if (index <= 0) return;
+			const target = history[index - 1];
+			// noUncheckedIndexedAccess: `target` is `Page | undefined`.
 			// The index is bounded by the guard above and the history
 			// is append-only, but TS still widens the read; explicit
 			// guard keeps the setter / save-call signatures happy.
-			if (page === undefined) return;
-			setCurrentPage(page);
-			saveNavState(page, navHistory.current, navIndex.current);
-		}
-	}, [saveNavState]);
+			if (target === undefined) return;
+			apply({ page: target, history, index: index - 1 });
+		},
+		goForward: () => {
+			const { history, index } = get();
+			if (index >= history.length - 1) return;
+			const target = history[index + 1];
+			if (target === undefined) return;
+			apply({ page: target, history, index: index + 1 });
+		},
+	};
+});
 
-	const goForward = useCallback(() => {
-		if (navIndex.current < navHistory.current.length - 1) {
-			navIndex.current++;
-			const page = navHistory.current[navIndex.current];
-			if (page === undefined) return;
-			setCurrentPage(page);
-			saveNavState(page, navHistory.current, navIndex.current);
-		}
-	}, [saveNavState]);
+/**
+ * Test seam — re-read localStorage into the shared store.
+ *
+ * The store is a module-level singleton, so state survives across tests
+ * in the same file unless reset. Tests that seed `vt_nav_state` and
+ * then mount a component must call this AFTER seeding so the store
+ * picks up the persisted page. @internal
+ */
+export function _resetNavigationForTest(): void {
+	useNavStore.setState(loadNavState());
+}
+
+/**
+ * Navigation hook: subscribes to the shared navigation store (current
+ * page + browser-style history stack), persists state to localStorage,
+ * and wires mouse forward/back buttons (X1/X2) + Alt+Arrow to act like
+ * a browser's back/forward navigation.
+ *
+ * Every call site shares the SAME store, so a `navigate()` call from
+ * any page re-renders App.tsx's router (see the module docstring).
+ */
+export function useNavigation() {
+	const currentPage = useNavStore((s) => s.page);
+	const history = useNavStore((s) => s.history);
+	const index = useNavStore((s) => s.index);
+	const navigate = useNavStore((s) => s.navigate);
+	const replace = useNavStore((s) => s.replace);
+	const goBack = useNavStore((s) => s.goBack);
+	const goForward = useNavStore((s) => s.goForward);
 
 	// Mouse forward/back buttons (X1/X2) navigate like a browser
 	useEffect(() => {
@@ -254,7 +289,7 @@ export function useNavigation() {
 		replace,
 		goBack,
 		goForward,
-		canGoBack: navIndex.current > 0,
-		canGoForward: navIndex.current < navHistory.current.length - 1,
+		canGoBack: index > 0,
+		canGoForward: index < history.length - 1,
 	};
 }

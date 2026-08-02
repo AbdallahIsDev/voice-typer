@@ -219,11 +219,11 @@ function ProviderCard({
 					<span
 						//aria-live=polite so SR
 						// users hear the test-connection outcome as it arrives
-						// (no manual focus required). role=status is implicit
-						// on <span> when combined with aria-live — but the
-						// <span> isn't a semantic live-region element per se,
-						// so we downgrade to a <p> which has implicit
-						// role=status naturally.
+						// (no manual focus required). role=status is NOT
+						// implicit on a plain <span> even with aria-live — the
+						// explicit role=status is what makes this a proper live
+						// region with the correct SR semantics.
+						role="status"
 						aria-live="polite"
 						className={cn(
 							"text-xs",

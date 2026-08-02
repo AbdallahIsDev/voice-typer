@@ -210,7 +210,13 @@ describe("TY-3: useAudioLevels rAF loop is gated on mode === recording", () => {
 		// smoothing loop should leave them at or near MIN_HEIGHT — but
 		// the key assertion is that the bars exist and have a non-zero
 		// height (i.e. the rAF loop DID run).
-		const bars = document.querySelectorAll(".bg-zinc-900.dark\\:bg-white");
+		//
+		// Selector: the bars are the 7 `<span>` children of the
+		// `gap-0.75` wrapper div in BubbleVisualizer (same stable
+		// selector Bubble.test.tsx uses). The bar color class moved to
+		// the CSS-variable token `bg-(--text-primary)`, so the old
+		// `.bg-zinc-900.dark\:bg-white` selector no longer matches.
+		const bars = document.querySelectorAll(".gap-0\\.75 > span");
 		expect(bars.length).toBe(7);
 		for (const bar of bars) {
 			const h = parseFloat((bar as HTMLElement).style.height || "0");

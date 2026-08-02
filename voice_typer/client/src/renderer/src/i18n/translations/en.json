@@ -26,6 +26,7 @@
 		"firstLaunchHint": "First launch can take 30–60 seconds while we download the speech model (~466 MB for small.en). Subsequent launches are much faster. You can close this window — dictation will work from the system tray once ready.",
 		"lostConnection": "Lost connection to Python backend",
 		"retryConnection": "Retry Connection",
+		"forceRetry": "Force Retry",
 		"restartingBackend": "Restarting Voice Typer backend…",
 		"restartingHint": "This usually takes a few seconds. Dictation will resume from the system tray once ready.",
 		"goHome": "Go to Home",

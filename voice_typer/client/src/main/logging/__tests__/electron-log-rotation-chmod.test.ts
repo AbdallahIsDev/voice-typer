@@ -103,22 +103,28 @@ describe("XE-20-5: appendLogLine chmod once per session (not per-write)", () => 
 		expect(chmodCalls.length).toBe(1);
 	});
 
-	it("tightens a pre-existing 0o644 file to 0o600 on the first append", async () => {
-		//Simulate a file created by an older build (pre-) with
-		// looser perms.
-		fs.writeFileSync(logPath, "old content\n", { mode: 0o644 });
-		fs.chmodSync(logPath, 0o644);
-		expect(fs.statSync(logPath).mode & 0o777).toBe(0o644);
+	// POSIX-only: Windows emulates POSIX mode bits as 0o666 for a
+	// writable file regardless of chmod, so the on-disk mode
+	// assertion can only observe 0o600 on Linux/macOS.
+	it.skipIf(process.platform === "win32")(
+		"tightens a pre-existing 0o644 file to 0o600 on the first append",
+		async () => {
+			//Simulate a file created by an older build (pre-) with
+			// looser perms.
+			fs.writeFileSync(logPath, "old content\n", { mode: 0o644 });
+			fs.chmodSync(logPath, 0o644);
+			expect(fs.statSync(logPath).mode & 0o777).toBe(0o644);
 
-		vi.resetModules();
-		const mod = await import("../../logging");
-		mod._resetFileSizeCacheForTest();
-		const { appendLogLine } = mod;
+			vi.resetModules();
+			const mod = await import("../../logging");
+			mod._resetFileSizeCacheForTest();
+			const { appendLogLine } = mod;
 
-		appendLogLine(logPath, "new line\n", 1024 * 1024);
+			appendLogLine(logPath, "new line\n", 1024 * 1024);
 
-		expect(fs.statSync(logPath).mode & 0o777).toBe(0o600);
-	});
+			expect(fs.statSync(logPath).mode & 0o777).toBe(0o600);
+		},
+	);
 });
 
 describe("XE-20-6: rotateIfNeeded chmods the .1 backup after rename", () => {
@@ -143,28 +149,31 @@ describe("XE-20-6: rotateIfNeeded chmods the .1 backup after rename", () => {
 		}
 	});
 
-	it("chmods the .1 backup to 0o600 after rotation (POSIX)", async () => {
-		vi.resetModules();
-		const mod = await import("../../logging");
-		mod._resetFileSizeCacheForTest();
-		const { rotateIfNeeded } = mod;
+	it.skipIf(process.platform === "win32")(
+		"chmods the .1 backup to 0o600 after rotation (POSIX)",
+		async () => {
+			vi.resetModules();
+			const mod = await import("../../logging");
+			mod._resetFileSizeCacheForTest();
+			const { rotateIfNeeded } = mod;
 
-		// Create a log file at 0o644 (simulating a pre-hardening
-		// leftover) that exceeds the max-size threshold.
-		const bigContent = "x".repeat(100);
-		fs.writeFileSync(logPath, bigContent, { mode: 0o644 });
-		fs.chmodSync(logPath, 0o644);
-		expect(fs.statSync(logPath).mode & 0o777).toBe(0o644);
+			// Create a log file at 0o644 (simulating a pre-hardening
+			// leftover) that exceeds the max-size threshold.
+			const bigContent = "x".repeat(100);
+			fs.writeFileSync(logPath, bigContent, { mode: 0o644 });
+			fs.chmodSync(logPath, 0o644);
+			expect(fs.statSync(logPath).mode & 0o777).toBe(0o644);
 
-		// Trigger rotation with a very small max-size.
-		rotateIfNeeded(logPath, 10);
+			// Trigger rotation with a very small max-size.
+			rotateIfNeeded(logPath, 10);
 
-		// After rotation, the .1 backup must exist and be 0o600.
-		const backup = `${logPath}.1`;
-		expect(fs.existsSync(backup)).toBe(true);
-		const mode = fs.statSync(backup).mode & 0o777;
-		expect(mode).toBe(0o600);
-	});
+			// After rotation, the .1 backup must exist and be 0o600.
+			const backup = `${logPath}.1`;
+			expect(fs.existsSync(backup)).toBe(true);
+			const mode = fs.statSync(backup).mode & 0o777;
+			expect(mode).toBe(0o600);
+		},
+	);
 
 	it("does NOT throw when the backup chmod fails (best-effort)", async () => {
 		vi.resetModules();

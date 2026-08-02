@@ -127,15 +127,23 @@ describe("FR-9: appendLogLine creates log files with mode 0o600", () => {
 		return fs.statSync(filePath).mode & 0o777;
 	}
 
-	it("creates a new log file with mode 0o600 (owner-only)", async () => {
-		const { appendLogLine } = await import("../logging");
-		_resetFileSizeCacheForTest();
-		appendLogLine(logPath, "first line\n", 1024 * 1024);
+	// POSIX-only: `fs.statSync(...).mode & 0o777` reflects the real
+	// on-disk mode bits on Linux/macOS. On Windows, Node emulates
+	// perms as 0o666 for a writable file regardless of chmod, so the
+	// on-disk mode assertion can never see 0o600 — the Windows
+	// chmod tests (spy-based) still run above.
+	it.skipIf(process.platform === "win32")(
+		"creates a new log file with mode 0o600 (owner-only)",
+		async () => {
+			const { appendLogLine } = await import("../logging");
+			_resetFileSizeCacheForTest();
+			appendLogLine(logPath, "first line\n", 1024 * 1024);
 
-		expect(fs.existsSync(logPath)).toBe(true);
-		//the file must be owner-only (0o600) — NOT 0o644.
-		expect(fileMode(logPath)).toBe(0o600);
-	});
+			expect(fs.existsSync(logPath)).toBe(true);
+			//the file must be owner-only (0o600) — NOT 0o644.
+			expect(fileMode(logPath)).toBe(0o600);
+		},
+	);
 
 	it("passes mode:0o600 in the fs.appendFileSync options", async () => {
 		const { appendLogLine } = await import("../logging");
@@ -166,22 +174,25 @@ describe("FR-9: appendLogLine creates log files with mode 0o600", () => {
 		expect(chmodCalls[0][1]).toBe(0o600);
 	});
 
-	it("tightens a pre-existing 0o644 file to 0o600 on the next append", async () => {
-		//Simulate a file created by an older build (pre-) with
-		// looser perms.
-		fs.writeFileSync(logPath, "old content\n", { mode: 0o644 });
-		// Verify the pre-existing file is 0o644 (sanity check the
-		// test fixture — the umask may interfere; explicitly chmod).
-		fs.chmodSync(logPath, 0o644);
-		expect(fileMode(logPath)).toBe(0o644);
+	it.skipIf(process.platform === "win32")(
+		"tightens a pre-existing 0o644 file to 0o600 on the next append",
+		async () => {
+			//Simulate a file created by an older build (pre-) with
+			// looser perms.
+			fs.writeFileSync(logPath, "old content\n", { mode: 0o644 });
+			// Verify the pre-existing file is 0o644 (sanity check the
+			// test fixture — the umask may interfere; explicitly chmod).
+			fs.chmodSync(logPath, 0o644);
+			expect(fileMode(logPath)).toBe(0o644);
 
-		const { appendLogLine } = await import("../logging");
-		_resetFileSizeCacheForTest();
-		appendLogLine(logPath, "new line\n", 1024 * 1024);
+			const { appendLogLine } = await import("../logging");
+			_resetFileSizeCacheForTest();
+			appendLogLine(logPath, "new line\n", 1024 * 1024);
 
-		//after the append, the file must be tightened to 0o600.
-		expect(fileMode(logPath)).toBe(0o600);
-	});
+			//after the append, the file must be tightened to 0o600.
+			expect(fileMode(logPath)).toBe(0o600);
+		},
+	);
 
 	it("does NOT break when the chmod call fails (best-effort swallow)", async () => {
 		// Make chmodSync throw — the helper must NOT re-throw.

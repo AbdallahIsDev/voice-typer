@@ -82,10 +82,14 @@ const AXE_OPTIONS: axe.RunOptions = {
 	},
 };
 
-// IDs of axe rules that are KNOWN to fail on ConnectionStatusScreen
-// today (see the file-level docstring). The per-state `it` tests
-// filter these out so they can assert no NEW violations slip in.
-const KNOWN_VIOLATIONS = new Set(["aria-dialog-name"]);
+// The `aria-dialog-name` violation documented in the file-level
+// docstring has been RESOLVED — the ZU-36 fix replaced the wrapper's
+// `role="alertdialog"` with `role="alert"`, so axe's
+// aria-dialog-name rule (which only applies to dialog/alertdialog
+// roles) no longer fires. No known violations remain, so the
+// per-state `it` tests assert a completely clean scan and the
+// formerly-`it.fails` test is now a plain `it`.
+const KNOWN_VIOLATIONS = new Set<string>();
 
 /** Axe helper — full (unfiltered) results for the `it.fails` test. */
 async function runAxe(
@@ -184,7 +188,7 @@ describe("F-17: axe-core WCAG scan — ConnectionStatusScreen (all three states)
 	//   2. Flip this test from `it.fails` to `it`.
 	//   3. Delete the per-state tests' filter (they become plain
 	//      `expectNoAxeViolations` calls).
-	it.fails("documents the known aria-dialog-name violation (out-of-scope component bug)", async () => {
+	it("aria-dialog-name is resolved: role='alert' wrapper yields a clean axe scan (ZU-36)", async () => {
 		const { container } = render(
 			<ConnectionStatusScreen
 				status="connecting"
@@ -194,7 +198,8 @@ describe("F-17: axe-core WCAG scan — ConnectionStatusScreen (all three states)
 			/>,
 		);
 		const violations = await runAxe(container);
-		// Expect at least one violation (the known aria-dialog-name).
-		expect(violations.length).toBe(0);
+		// The ZU-36 fix replaced role="alertdialog" with role="alert",
+		// so the formerly-documented aria-dialog-name violation is gone.
+		expect(violations).toEqual([]);
 	});
 });

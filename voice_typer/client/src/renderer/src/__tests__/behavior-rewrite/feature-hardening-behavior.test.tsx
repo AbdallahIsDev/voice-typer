@@ -588,7 +588,20 @@ describe("Microphone — RW-1 rewrite of test_microphone_uses_shared_snackbar_ho
 				typeof arg === "string"
 					? arg
 					: ((arg as { type?: string })?.type ?? "");
-			if (type === "get_microphones") return Promise.resolve([]);
+			if (type === "get_microphones")
+				// Return one device so the page's `canTest` gate
+				// (microphones.length > 0) is true and the "Start Test"
+				// button is ENABLED. With an empty list the button is
+				// disabled, so fireEvent.click is a no-op and the error
+				// snack path never runs.
+				return Promise.resolve([
+					{
+						index: 0,
+						id: "0",
+						name: "Mock Microphone",
+						default: true,
+					},
+				]);
 			if (type === "get_config") return Promise.resolve(baseConfig);
 			if (type === "set_config") return Promise.resolve({ success: true });
 			if (type === "microphone_test_start")

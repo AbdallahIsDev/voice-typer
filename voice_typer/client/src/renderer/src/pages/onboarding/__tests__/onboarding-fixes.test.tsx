@@ -808,7 +808,7 @@ describe("ModelStep aria-label interpolates the model name", () => {
 });
 // ── Resume selections preserved (skip get_config override) ────────
 
-describe("useOnboardingWizard: resume does not clobber selections with disk config", () => {
+describe("useOnboardingWizard: selections are seeded from the saved config on every start", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();
@@ -865,14 +865,17 @@ describe("useOnboardingWizard: resume does not clobber selections with disk conf
 		expect(getConfigCalls).toBeGreaterThanOrEqual(1);
 	});
 
-	it("on a resume (step>0), get_config is NOT called for selection override", async () => {
-		// Regression guard for the resume-clobber bug: previously the
-		// init() effect unconditionally called get_config and overwrote
-		// the React selections with the disk config's pre-wizard
-		// defaults (since onboarding_apply was never called). On a
-		// resume, that silently threw away the controller's in-memory
-		// restored selections. Now init() detects step>0 and skips the
-		// get_config override entirely.
+	it("on a resume (step>0), get_config IS called and its saved selections are shown", async () => {
+		// The init() effect seeds the React selections from the saved
+		// config on EVERY start — first-run AND resume. An earlier
+		// version skipped get_config when step>0 (the "resume
+		// heuristic") so a re-opened wizard showed the renderer
+		// defaults instead of the user's saved hotkey/model/mic, and
+		// advancing then pushed those defaults back to the backend
+		// (clobbering restored selections). The saved config is the
+		// best available source of the user's intent; on a true
+		// first-run resume config.json holds pre-wizard defaults, so
+		// the override is a no-op there.
 		mockCall.mockImplementation((type: string) => {
 			switch (type) {
 				case "onboarding_start":
@@ -924,23 +927,23 @@ describe("useOnboardingWizard: resume does not clobber selections with disk conf
 			);
 		});
 
-		// The init effect's get_config probe must NOT have been called
-		// (the consent probe on Onboarding.tsx only fires on the Done
-		// step, which we are not on). This is the core regression guard.
+		// The init effect's get_config probe MUST have been called (the
+		// consent probe on Onboarding.tsx only fires on the Done step,
+		// which we are not on — so the only get_config caller is the
+		// selection-seeding probe). This is the core regression guard.
 		const getConfigCalls = mockCall.mock.calls.filter(
 			(c: unknown[]) => c[0] === "get_config",
 		).length;
-		expect(getConfigCalls).toBe(0);
+		expect(getConfigCalls).toBeGreaterThanOrEqual(1);
 
-		// The renderer's default hotkey (HOTKEY_DEFAULT = <caps_lock>)
-		// must be shown — NOT the disk config's "<f11>". The mocked
-		// Select renders the trigger value as the SelectValue's
-		// placeholder, so we assert the trigger does not contain
-		// "<f11>" (the disk config value).
+		// The saved config's hotkey ("<f11>") must be shown — NOT the
+		// renderer default <caps_lock>. The mocked Select renders the
+		// trigger value as the SelectValue's placeholder, so we assert
+		// the trigger carries the saved config value.
 		const selectRoot = document.querySelector('[data-testid="select-root"]');
 		expect(selectRoot).not.toBeNull();
 		const selectValue = selectRoot?.getAttribute("data-value") ?? "";
-		expect(selectValue).toBe("<caps_lock>");
-		expect(selectValue).not.toBe("<f11>");
+		expect(selectValue).toBe("<f11>");
+		expect(selectValue).not.toBe("<caps_lock>");
 	});
 });

@@ -250,7 +250,7 @@ vi.mock("@/pages/Settings", () => ({
 	},
 }));
 
-import { useNavigation } from "@/hooks/useNavigation";
+import { _resetNavigationForTest, useNavigation } from "@/hooks/useNavigation";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
 
@@ -271,6 +271,10 @@ describe("App route guard — D1-FIX wizard re-run bounce", () => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
+		// Shared store: reset the module-level nav state so a previous
+		// test's navigation can't leak into this one (App is imported
+		// dynamically without resetModules in this file).
+		_resetNavigationForTest();
 		// Reset the appStore to a known state: completed onboarding.
 		useAppStore.setState({
 			connectionStatus: "connected",

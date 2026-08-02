@@ -178,9 +178,12 @@ describe("TitleBar — XA-1 (focus-ring parity + sidebar-toggle hover)", () => {
 			const cls = btn.className;
 			// Design-system Button uses ring-3; TitleBar previously used
 			// ring-2 (thinner). Migrate to ring-3 via the shared focusRing
-			// constant.
+			// constant. The ring uses the full-opacity ring-ring token —
+			// not ring-ring/30 (see focus-ring-contrast.test.tsx: the 30%
+			// alpha ring failed WCAG 2.4.7 focus-visible contrast and was
+			// replaced repo-wide with the full-opacity token).
 			expect(cls).toContain("focus-visible:ring-3");
-			expect(cls).toContain("focus-visible:ring-ring/30");
+			expect(cls).toContain("focus-visible:ring-ring");
 			expect(cls).not.toContain("focus-visible:ring-2");
 		}
 	});

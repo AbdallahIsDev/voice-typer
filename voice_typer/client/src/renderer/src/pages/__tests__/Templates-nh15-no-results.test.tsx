@@ -13,6 +13,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const { mockCall } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
@@ -73,6 +74,12 @@ vi.mock("next-themes", () => ({
 	useTheme: () => ({ theme: "light" as const }),
 }));
 
+/** TemplateListRow renders an InfoTooltip (Radix Tooltip) which throws
+ *  without a TooltipProvider ancestor — the real App shell provides
+ *  one, so tests mounting the page directly must too. */
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 describe("Templates page — NH-15 search-no-results uses dedicated i18n keys", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
@@ -107,7 +114,7 @@ describe("Templates page — NH-15 search-no-results uses dedicated i18n keys", 
 	it("renders templates.noResults title when search returns no matches", async () => {
 		const user = userEvent.setup();
 		const { default: TemplatesPage } = await import("@/pages/Templates");
-		render(<TemplatesPage />);
+		renderWithProviders(<TemplatesPage />);
 
 		// Wait for at least one template row to render.
 		await waitFor(() => {

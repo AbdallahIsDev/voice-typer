@@ -26,6 +26,8 @@
  * caching, `process.on/off` spies, and `vi.mock("electron")` behave
  * the same way they do in the existing `bootstrap.test.ts`.
  */
+import path from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ────────────────────────────────────────────────────────────────────
@@ -130,9 +132,15 @@ describe("ER-63: getRuntimeLogPath is memoized", () => {
 		expect(a).toBe(b);
 		expect(b).toBe(c);
 		// Sanity: the returned path is a real string ending in
-		// `electron-runtime.log` (the file-tee target).
+		// `electron-runtime.log` (the file-tee target). Built with
+		// path.join so the expectation matches the platform's
+		// separator (the mocked `app.getPath` returns a POSIX-style
+		// dir, but path.join on Windows emits backslashes).
 		expect(a).toBe(
-			"/tmp/vt-bootstrap-error-handler-fixes-userdata/electron-runtime.log",
+			path.join(
+				"/tmp/vt-bootstrap-error-handler-fixes-userdata",
+				"electron-runtime.log",
+			),
 		);
 	});
 

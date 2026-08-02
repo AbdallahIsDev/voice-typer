@@ -37,11 +37,6 @@ export default defineConfig({
 		// Main-process tests that use `// @vitest-environment node` are
 		// also thread-safe (fs operations are synchronous).
 		pool: "threads",
-		// NOTE: `isolate: false` was tested but caused 22 additional test
-		// failures from shared module state leaking between test files (e.g.
-		// localStorage mocks, Zustand store state). Keeping isolation ON
-		// for correctness — the pool:threads change alone provides the
-		// bulk of the speedup (~3x).
 		environment: "jsdom",
 		setupFiles: ["./src/renderer/src/test-setup.ts"],
 		// Generous timeouts: many tests wait on async IPC round-trips

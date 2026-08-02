@@ -31,6 +31,7 @@ import {
 	waitFor,
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const { mockCall, mockShowSnack } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
@@ -104,6 +105,12 @@ const seedTemplates = {
 	],
 };
 
+/** TemplateListRow renders an InfoTooltip (Radix Tooltip) which throws
+ *  without a TooltipProvider ancestor — the real App shell provides
+ *  one, so tests mounting the page directly must too. */
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 describe("Templates page — NH-28 instant-delete optimisation", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
@@ -134,7 +141,7 @@ describe("Templates page — NH-28 instant-delete optimisation", () => {
 		});
 
 		const { default: TemplatesPage } = await import("@/pages/Templates");
-		render(<TemplatesPage />);
+		renderWithProviders(<TemplatesPage />);
 
 		// Wait for both seeded templates to render.
 		await waitFor(() => {
@@ -193,7 +200,7 @@ describe("Templates page — NH-28 instant-delete optimisation", () => {
 		});
 
 		const { default: TemplatesPage } = await import("@/pages/Templates");
-		render(<TemplatesPage />);
+		renderWithProviders(<TemplatesPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("hello")).toBeTruthy();

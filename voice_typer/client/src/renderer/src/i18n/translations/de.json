@@ -26,6 +26,7 @@
 		"firstLaunchHint": "Der erste Start kann 30–60 Sekunden dauern, während das Spracherkennungsmodell (~466 MB für small.en) heruntergeladen wird. Nachfolgende Starts sind deutlich schneller. Sie können dieses Fenster schließen — die Diktierfunktion wird aus dem System-Tray heraus funktionieren, sobald sie bereit ist.",
 		"lostConnection": "Verbindung zum Python-Backend verloren",
 		"retryConnection": "Verbindung wiederherstellen",
+		"forceRetry": "Erneut erzwingen",
 		"restartingBackend": "Voice Typer-Backend wird neu gestartet…",
 		"restartingHint": "Dies dauert in der Regel einige Sekunden. Das Diktat wird aus dem System-Tray fortgesetzt, sobald es bereit ist.",
 		"goHome": "Zur Startseite",

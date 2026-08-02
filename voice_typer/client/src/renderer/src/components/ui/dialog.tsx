@@ -2,6 +2,7 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import type * as React from "react";
+import { useRef } from "react";
 import { cn } from "#utils";
 import { t } from "@/i18n/i18n";
 
@@ -47,10 +48,21 @@ function DialogContent({
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
 	size?: "default" | "sm";
 }) {
+	const contentRef = useRef<HTMLDivElement>(null);
+	// Radix Dialog's default onOpenAutoFocus scans for the FIRST
+	// focusable descendant — because DialogContent renders the
+	// visible X close button as its first child, every modal opened
+	// with keyboard focus landing on the X button. SR users heard
+	// "Close button" first instead of the dialog title. Suppress the
+	// default scan and explicitly focus the title element (which is
+	// programmatically focusable via tabIndex=-1). Note: this default
+	// is declared BEFORE the props spread so a caller-provided
+	// onOpenAutoFocus override wins.
 	return (
 		<DialogPortal>
 			<DialogOverlay />
 			<DialogPrimitive.Content
+				ref={contentRef}
 				data-slot="dialog-content"
 				data-size={size}
 				aria-modal={true}
@@ -58,6 +70,22 @@ function DialogContent({
 					"group/dialog-content fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-6 rounded-4xl bg-popover p-6 text-popover-foreground shadow-xl ring-1 ring-foreground/5 duration-100 outline-hidden data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-md dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95",
 					className,
 				)}
+				onOpenAutoFocus={(e) => {
+					// Only suppress Radix's default first-focusable scan when
+					// we have a title to focus instead. Dialogs without a
+					// DialogTitle (edge cases / custom compositions) must
+					// fall through to Radix's default focus behaviour so
+					// keyboard users always land somewhere inside the dialog
+					// (preventDefault with no focus target would strand them
+					// on the inert background).
+					const title = contentRef.current?.querySelector<HTMLElement>(
+						'[data-slot="dialog-title"]',
+					);
+					if (title) {
+						e.preventDefault();
+						title.focus();
+					}
+				}}
 				{...props}
 			>
 				{/*visible close (X) button in the top-end corner of every
@@ -116,6 +144,11 @@ function DialogTitle({
 	return (
 		<DialogPrimitive.Title
 			data-slot="dialog-title"
+			//tabIndex={-1} makes the heading programmatically
+			// focusable (so DialogContent's onOpenAutoFocus can focus
+			// it on open) without inserting it into the keyboard tab
+			// order.
+			tabIndex={-1}
 			className={cn("font-heading text-lg font-medium", className)}
 			{...props}
 		/>

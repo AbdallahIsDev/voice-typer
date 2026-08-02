@@ -19,7 +19,7 @@ import { cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useConnection } from "@/hooks/useConnection";
-import { useNavigation } from "@/hooks/useNavigation";
+import { _resetNavigationForTest, useNavigation } from "@/hooks/useNavigation";
 
 // Hoist the mock call/event handlers so they're available inside the
 // vi.mock factory (which is hoisted to the top of the file by vitest
@@ -108,6 +108,9 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 				index: 1,
 			}),
 		);
+		// Shared store: re-read the freshly-seeded localStorage into
+		// the module-level nav store before mounting the harness.
+		_resetNavigationForTest();
 
 		// Step 2: mock the IPC handlers useConnection + Onboarding will call.
 		// get_config returns a config with onboarding_completed=false.
@@ -159,6 +162,9 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 				index: 1,
 			}),
 		);
+		// Shared store: re-read the freshly-seeded localStorage into
+		// the module-level nav store before mounting the harness.
+		_resetNavigationForTest();
 
 		mockCall.mockImplementation((type: string) => {
 			switch (type) {
@@ -202,6 +208,9 @@ describe("useConnection — F1: first-run auto-route ignores persisted page", ()
 				index: 0,
 			}),
 		);
+		// Shared store: re-read the freshly-seeded localStorage into
+		// the module-level nav store before mounting the harness.
+		_resetNavigationForTest();
 
 		mockCall.mockImplementation((type: string) => {
 			switch (type) {

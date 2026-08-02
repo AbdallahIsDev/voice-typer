@@ -140,10 +140,22 @@ describe("XS-78: single_instance.ts", () => {
 			writeElectronPidFile();
 			//readStaleElectronPid now also verifies the
 			// PID belongs to Voice Typer via /proc/<pid>/cmdline
-			// (Linux), ps (macOS), or wmic (Windows). The vitest
+			// (Linux), ps (macOS), or tasklist (Windows). The vitest
 			// runner process does NOT contain "electron" in its
 			// cmdline, so we mock fs.readFileSync for the /proc
 			// path to simulate a real Voice Typer process.
+			//
+			// The /proc read mock only intercepts the LINUX probe;
+			// on win32/darwin the real ps/tasklist probe would report
+			// the vitest runner ("node.exe", not "electron") and the
+			// test would fail. Stub process.platform to "linux" so the
+			// probe path (and thus the mock) is deterministic on every
+			// host OS.
+			const originalPlatform = process.platform;
+			Object.defineProperty(process, "platform", {
+				value: "linux",
+				configurable: true,
+			});
 			const realReadFileSync = fs.readFileSync;
 			const spy = vi
 				.spyOn(fs, "readFileSync")
@@ -157,6 +169,10 @@ describe("XS-78: single_instance.ts", () => {
 				expect(readStaleElectronPid()).toBeNull();
 			} finally {
 				spy.mockRestore();
+				Object.defineProperty(process, "platform", {
+					value: originalPlatform,
+					configurable: true,
+				});
 			}
 		});
 

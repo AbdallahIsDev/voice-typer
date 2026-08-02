@@ -26,6 +26,7 @@
 		"firstLaunchHint": "首次启动可能需要 30–60 秒，因为我们正在下载语音模型（small.en 约 466 MB）。后续启动会快得多。您可以关闭此窗口 — 准备就绪后即可从系统托盘进行听写。",
 		"lostConnection": "与 Python 后端的连接已断开",
 		"retryConnection": "重试连接",
+		"forceRetry": "强制重试",
 		"restartingBackend": "正在重启 Voice Typer 后端…",
 		"restartingHint": "通常需要几秒钟。准备就绪后，听写将从系统托盘恢复。",
 		"goHome": "返回首页",

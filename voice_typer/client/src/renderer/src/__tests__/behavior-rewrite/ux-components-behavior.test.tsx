@@ -863,11 +863,19 @@ let useNavigationHarness: () => {
 	canGoBack: boolean;
 	canGoForward: boolean;
 };
+// This file mocks `@/hooks/useNavigation` (above) for other suites,
+// so the test seam must be pulled from the REAL module via
+// vi.importActual in beforeAll — a static import would resolve to the
+// mock and yield undefined.
+let resetNavigationForTestHook: () => void = () => {};
+
 beforeAll(async () => {
 	const mod = (await vi.importActual("@/hooks/useNavigation")) as {
 		useNavigation: typeof useNavigationHarness;
+		_resetNavigationForTest?: () => void;
 	};
 	useNavigationHarness = mod.useNavigation;
+	resetNavigationForTestHook = mod._resetNavigationForTest ?? (() => {});
 });
 
 // Top-level beforeAll import (vitest doesn't expose beforeAll by
@@ -877,6 +885,9 @@ import { beforeAll } from "vitest";
 describe("useNavigation — RW-1 rewrite of localStorage persistence tests", () => {
 	beforeEach(() => {
 		localStorage.clear();
+		// Shared store: reset the module-level nav state so the
+		// previous test's navigation can't leak into this one.
+		resetNavigationForTestHook();
 	});
 
 	afterEach(() => {
@@ -976,6 +987,9 @@ describe("useNavigation — RW-1 rewrite of localStorage persistence tests", () 
 				index: 1,
 			}),
 		);
+		// Shared store: re-read the freshly-seeded localStorage into
+		// the module-level nav store before mounting the harness.
+		resetNavigationForTestHook();
 
 		const onReady = vi.fn();
 		render(<NavigationHarness onReady={onReady} />);

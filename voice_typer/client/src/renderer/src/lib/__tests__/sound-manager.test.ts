@@ -89,19 +89,24 @@ describe("SoundManager", () => {
 			await import("@/lib/sound-manager");
 		_resetSoundManagerForTests();
 
-		// Stub localStorage.setItem to throw
-		const originalSetItem = Storage.prototype.setItem;
-		Storage.prototype.setItem = vi.fn(() => {
-			throw new DOMException("quota exceeded");
-		});
+		// Stub localStorage.setItem to throw. NOTE: must spy on the
+		// localStorage INSTANCE method, not Storage.prototype — in this
+		// vitest/jsdom env Object.getPrototypeOf(localStorage) !==
+		// Storage.prototype, so a prototype-level mock never intercepts
+		// the call the module actually makes.
+		const setItemSpy = vi
+			.spyOn(localStorage, "setItem")
+			.mockImplementation(() => {
+				throw new DOMException("quota exceeded");
+			});
 
 		try {
 			// Should not throw — the in-memory flag should still update
 			setSoundFeedbackEnabled(false);
 			// Verify localStorage was attempted (and swallowed)
-			expect(Storage.prototype.setItem).toHaveBeenCalled();
+			expect(setItemSpy).toHaveBeenCalled();
 		} finally {
-			Storage.prototype.setItem = originalSetItem;
+			setItemSpy.mockRestore();
 		}
 	});
 
@@ -171,10 +176,13 @@ describe("SoundManager", () => {
 		_resetSoundManagerForTests();
 
 		// Stub localStorage.getItem to throw (e.g. private browsing mode).
-		const originalGetItem = Storage.prototype.getItem;
-		Storage.prototype.getItem = vi.fn(() => {
-			throw new DOMException("SecurityError");
-		});
+		// Spy on the instance method (see note above — a
+		// Storage.prototype mock never intercepts in this env).
+		const getItemSpy = vi
+			.spyOn(localStorage, "getItem")
+			.mockImplementation(() => {
+				throw new DOMException("SecurityError");
+			});
 		const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
 		try {
@@ -190,9 +198,9 @@ describe("SoundManager", () => {
 			expect(debugSpy).toHaveBeenCalled();
 			const debugMsg = debugSpy.mock.calls[0]?.[0] ?? "";
 			expect(String(debugMsg)).toContain("[sound-manager]");
-			expect(Storage.prototype.getItem).toHaveBeenCalled();
+			expect(getItemSpy).toHaveBeenCalled();
 		} finally {
-			Storage.prototype.getItem = originalGetItem;
+			getItemSpy.mockRestore();
 			debugSpy.mockRestore();
 		}
 	});
@@ -260,20 +268,21 @@ describe("SoundManager — ZU-34 visual feedback flag (deaf mirror)", () => {
 			await import("@/lib/sound-manager");
 		_resetSoundManagerForTests();
 
-		const originalSetItem = Storage.prototype.setItem;
-		Storage.prototype.setItem = vi.fn(() => {
-			throw new DOMException("quota exceeded");
-		});
+		const setItemSpy = vi
+			.spyOn(localStorage, "setItem")
+			.mockImplementation(() => {
+				throw new DOMException("quota exceeded");
+			});
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
 		try {
 			// Must NOT throw — the in-memory flag still updates.
 			expect(() => setVisualFeedbackEnabled(true)).not.toThrow();
-			expect(Storage.prototype.setItem).toHaveBeenCalled();
+			expect(setItemSpy).toHaveBeenCalled();
 			// The warning surfaces the localStorage failure to operators.
 			expect(warnSpy).toHaveBeenCalled();
 		} finally {
-			Storage.prototype.setItem = originalSetItem;
+			setItemSpy.mockRestore();
 			warnSpy.mockRestore();
 		}
 	});
@@ -283,10 +292,11 @@ describe("SoundManager — ZU-34 visual feedback flag (deaf mirror)", () => {
 			await import("@/lib/sound-manager");
 		_resetSoundManagerForTests();
 
-		const originalGetItem = Storage.prototype.getItem;
-		Storage.prototype.getItem = vi.fn(() => {
-			throw new DOMException("SecurityError");
-		});
+		const getItemSpy = vi
+			.spyOn(localStorage, "getItem")
+			.mockImplementation(() => {
+				throw new DOMException("SecurityError");
+			});
 		const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
 		try {
@@ -297,7 +307,7 @@ describe("SoundManager — ZU-34 visual feedback flag (deaf mirror)", () => {
 			const debugMsg = debugSpy.mock.calls[0]?.[0] ?? "";
 			expect(String(debugMsg)).toContain("[sound-manager]");
 		} finally {
-			Storage.prototype.getItem = originalGetItem;
+			getItemSpy.mockRestore();
 			debugSpy.mockRestore();
 		}
 	});

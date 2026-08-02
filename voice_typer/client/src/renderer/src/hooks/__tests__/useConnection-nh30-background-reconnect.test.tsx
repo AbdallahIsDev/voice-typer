@@ -36,7 +36,7 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useConnection } from "@/hooks/useConnection";
-import { useNavigation } from "@/hooks/useNavigation";
+import { _resetNavigationForTest, useNavigation } from "@/hooks/useNavigation";
 import { useAppStore } from "@/stores/appStore";
 
 const { mockCall, mockPythonEvent } = vi.hoisted(() => ({
@@ -103,6 +103,9 @@ describe("useConnection — NH-30 background reconnect poll", () => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
 		localStorage.clear();
+		// Shared store: reset the module-level nav state so a previous
+		// test's navigation can't leak into this one.
+		_resetNavigationForTest();
 		vi.resetModules();
 		// Reset the Zustand store state between tests so the
 		// "disconnected" status from a previous test doesn't leak.

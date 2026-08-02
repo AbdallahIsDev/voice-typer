@@ -32,7 +32,7 @@ import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useConnection } from "@/hooks/useConnection";
-import { useNavigation } from "@/hooks/useNavigation";
+import { _resetNavigationForTest, useNavigation } from "@/hooks/useNavigation";
 
 // Hoist the mock call/event handlers so they're available inside the
 // vi.mock factory (which is hoisted to the top of the file by vitest
@@ -131,6 +131,9 @@ describe("ZU-17: useConnection error handler — typed respawn_exhausted code + 
 		// `connection.respawnFailed` key was the one passed in.
 		mockT.mockImplementation((key: string) => key);
 		localStorage.clear();
+		// Shared store: reset the module-level nav state so a previous
+		// test's navigation can't leak into this one.
+		_resetNavigationForTest();
 		vi.resetModules();
 	});
 	afterEach(() => {

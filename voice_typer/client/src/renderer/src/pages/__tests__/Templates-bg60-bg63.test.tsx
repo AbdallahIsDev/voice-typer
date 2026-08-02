@@ -17,6 +17,7 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 const { mockCall } = vi.hoisted(() => ({
 	mockCall: vi.fn(),
@@ -77,6 +78,12 @@ vi.mock("next-themes", () => ({
 	useTheme: () => ({ theme: "light" as const }),
 }));
 
+/** TemplateListRow renders an InfoTooltip (Radix Tooltip) which throws
+ *  without a TooltipProvider ancestor — the real App shell provides
+ *  one, so tests mounting the page directly must too. */
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 describe("Templates page — BG-60 load-error variant", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
@@ -96,7 +103,7 @@ describe("Templates page — BG-60 load-error variant", () => {
 
 	it('renders the load-error EmptyState with role="alert" (error variant)', async () => {
 		const { default: TemplatesPage } = await import("@/pages/Templates");
-		render(<TemplatesPage />);
+		renderWithProviders(<TemplatesPage />);
 
 		// Wait for the load-error EmptyState to appear.
 		await waitFor(() => {
@@ -114,7 +121,7 @@ describe("Templates page — BG-60 load-error variant", () => {
 
 	it("renders the load-error EmptyState with the localised description (BG-62)", async () => {
 		const { default: TemplatesPage } = await import("@/pages/Templates");
-		render(<TemplatesPage />);
+		renderWithProviders(<TemplatesPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("Failed to load templates")).toBeTruthy();
@@ -188,7 +195,7 @@ describe("Templates page — BG-63 export format forwarding", () => {
 	it("forwards the chosen format ('json' | 'csv') to the IPC bridge", async () => {
 		const user = userEvent.setup();
 		const { default: TemplatesPage } = await import("@/pages/Templates");
-		render(<TemplatesPage />);
+		renderWithProviders(<TemplatesPage />);
 
 		// Wait for the seeded template to render.
 		await waitFor(() => {

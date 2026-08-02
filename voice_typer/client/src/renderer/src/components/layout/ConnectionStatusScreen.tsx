@@ -22,9 +22,11 @@
  */
 
 import { AlertCircleIcon, RefreshIcon } from "@hugeicons/core-free-icons";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { useEffect } from "react";
 import { EmptyState } from "@/components/feedback/EmptyState";
 import { Spinner } from "@/components/feedback/Spinner";
+import { Button } from "@/components/ui/button";
 import { useT } from "@/i18n/i18n";
 
 interface ConnectionStatusScreenProps {
@@ -99,10 +101,13 @@ export function ConnectionStatusScreen({
 				icon={AlertCircleIcon}
 				title={title}
 				description={description}
-				actionLabel={
-					isDisconnected || isRestarting ? t("app.retryConnection") : undefined
-				}
-				onAction={isDisconnected || isRestarting ? onRetry : undefined}
+				// The primary EmptyState action is scoped to the
+				// disconnected state only. During restarting the backend
+				// is auto-recovering, so the sole manual affordance is the
+				// dedicated "Force Retry" button below — showing both
+				// would render two same-handler retry buttons.
+				actionLabel={isDisconnected ? t("app.retryConnection") : undefined}
+				onAction={isDisconnected ? onRetry : undefined}
 				actionIcon={RefreshIcon}
 			>
 				{(isConnecting || isRestarting) && (
@@ -144,6 +149,30 @@ export function ConnectionStatusScreen({
 									/>
 								</div>
 							</div>
+						)}
+						{/*secondary "Force retry" affordance for the restarting
+						 * state. The backend auto-recovers on its own, but a
+						 * stuck 60s safety timer can leave the screen frozen;
+						 * this button short-circuits the wait and immediately
+						 * retries the connection. Exposed via a stable testid
+						 * so integration tests can find it without relying on
+						 * localized label text. */}
+						{isRestarting && (
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								data-testid="connection-status-force-retry"
+								onClick={onRetry}
+								className="mt-2 gap-2"
+							>
+								<HugeiconsIcon
+									icon={RefreshIcon}
+									strokeWidth={2}
+									className="h-4 w-4"
+								/>
+								{t("app.forceRetry")}
+							</Button>
 						)}
 					</div>
 				)}
