@@ -484,6 +484,11 @@ exclude = ["voice_typer.client*"]
 # built wheel and installer.
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# PERF-007: prevent pytest from crawling into irrelevant directories
+# during test collection. Without this, pytest walks .venv/, build/,
+# voice_typer/client/node_modules/ etc. checking every .py file for
+# test functions — on a 544-file suite the extra stat() calls add up.
+norecursedirs = [".venv", "dist", "build", "node_modules", "voice_typer/client", ".git", ".mypy_cache", ".pytest_cache", ".ruff_cache", "voice_typer.egg-info"]
 # CQ-018: -v --tb=short for readable CI output; previously -q was too terse
 # for diagnosing failures in long test suites.
 # TEST-011: --cov=voice_typer --cov-fail-under=65 for coverage threshold.
@@ -539,7 +544,14 @@ testpaths = ["tests"]
 # addopts — CI's `pytest tests/ --cov-fail-under=65` step relies on
 # the addopts `--cov=voice_typer` to scope the report; removing it
 # would silently drop CI coverage enforcement.
-addopts = "-v --tb=short --strict-markers --strict-config --timeout=60 --timeout-method=thread --cov=voice_typer"
+# PERF-007: --import-mode=importlib avoids the legacy "prepend" mode
+# which copies test files to a temp dir and adjusts sys.path for every
+# single file — on a 544-file suite this adds ~1-2s of pure I/O overhead
+# at collection time. importlib mode uses importlib.import_module() instead,
+# which is both faster and avoids subtle __file__ / __name__ mismatches.
+# Safe for this project because no test relies on the "prepend" path
+# rewriting behaviour (all imports use the voice_typer namespace package).
+addopts = "-v --tb=short --strict-markers --strict-config --timeout=60 --timeout-method=thread --import-mode=importlib --cov=voice_typer"
 # ADR-0020 round-2 fix: async tests (tests/tauri/*, tests/test_cloud_engines.py)
 # use `async def test_*` without explicit @pytest.mark.asyncio markers.
 # `asyncio_mode = "auto"` makes pytest-asyncio treat every async test as

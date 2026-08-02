@@ -39,6 +39,24 @@ Applies to: All agents, all modes.
 
 ---
 
+## Category: Localization & i18n
+
+```
+C-I18N-1
+Rule: Do NOT add any user-facing text (UI labels, buttons, tooltips, dialogs, notifications, tray menu, errors) without adding it to ALL locale files. User-visible strings MUST go through the i18n layer (`useT()` / `t()` in the renderer, `mainT()` in the main process) and the new key MUST be added to every locale under `voice_typer/client/src/renderer/src/i18n/translations/`: `en.json`, `ar.json`, `de.json`, `es.json`, `fr.json`, `hi.json`, `ru.json`, `zh.json`. Adding the key to `en.json` only, or to a subset of locales, is a violation — every locale must contain the key (see `SUPPORTED_LOCALES` in `i18n/locale.ts`).
+Rationale: The app is multilingual (8 locales). A key missing from a locale file means users of that language fall back to English (or see raw keys) — a silent downgrade that is invisible when only English is tested.
+Applies to: All agents, all modes.
+```
+
+```
+C-I18N-2
+Rule: Do NOT copy the English source text verbatim into a non-English locale file. Every non-English locale value MUST be genuinely translated into that language (e.g. `ar.json` values must be Arabic, `fr.json` values must be French — not English text pasted under the key). If the agent cannot translate reliably, it MUST translate via a translation tool/LLM or record the entry as pending in `worklog.md` (with the key name) so a later session completes it — never ship untranslated English inside a non-English locale.
+Rationale: Hardcoded English inside e.g. `ar.json` defeats the multilingual promise: Arabic users see English strings. This is the #1 observed i18n downgrade — the key exists in every locale file, so missing-key tooling won't catch it, only the translation itself is wrong.
+Applies to: All agents, all modes.
+```
+
+---
+
 ## Category: IPC & Command Surface
 
 
@@ -80,8 +98,8 @@ Applies to: All agents, all modes. Especially relevant to IMPROVE mode targeting
 
 ```
 C-DATA-1
-Rule: Do NOT add any network call (HTTP, WebSocket, DNS, etc.) to the production code path. Voice Typer is an OFFLINE application — see ADR-0001 and the privacy docs. Even "anonymous telemetry" is forbidden. If a task requires network access for a feature, document the recommendation in `worklog.md` and SKIP the implementation.
-Rationale: The offline guarantee is a core product promise. Any network call breaks it.
+Rule: Do NOT add network calls to the production code path UNLESS they fall into an explicitly allowed category: (1) cloud transcription / LLM providers the USER has configured and consented to (openai / groq / deepgram / custom `cloud_api_url` — see `cloud_engines.py` / `llm_polish.py`); (2) auto-update — "Check for Updates" / silent update check against the GitHub API (see `docs/auto-update-feature.md`); (3) model downloads (see ADR-0005, `docs/adr/0009-audio-filter-chain-architecture.md`). Anything NOT user-configured and user-initiated — telemetry, analytics, tracking, phone-home, or any other unsolicited egress — remains forbidden.
+Rationale: The original wording ("no network call ever") predates cloud ASR/LLM engines and the auto-update feature, so agents applied it as a blanket offline ban and downgraded legitimate user-initiated features (e.g. "Check for Updates" CSP, cloud provider calls). The product promise is "no unsolicited phone-home", NOT "no network access ever". Agents that previously skipped, removed, or reworked network functionality citing the old wording MUST re-audit that work (search `worklog.md` / `review.md` for C-DATA-1 skips) and restore or improve anything that was downgraded.
 Applies to: All agents, all modes.
 ```
 
@@ -89,7 +107,33 @@ Applies to: All agents, all modes.
 
 ## Category: Testing & Baselines
 
+```
+C-TEST-1
+Rule: Do NOT revert the Vitest `pool: "threads"` setting in `voice_typer/client/vitest.config.ts`. The fork pool (default) creates a new child process per test file (~200ms overhead × 237 files = ~47s wasted). Threads share memory and eliminate this overhead, cutting Vitest suite time by ~2.5x (measured: 66s → 25s).
+Rationale: On 2026-08-02, `isolate: false` was also tested alongside `pool: "threads"` but was reverted — it caused 22 additional test failures from Zustand store / localStorage mock state leaking between test files. The `pool: "threads"` change alone is safe and provides the bulk of the speedup. Do NOT remove or change `pool` back to the default ("forks").
+Applies to: All agents, all modes. Especially relevant to IMPROVE mode targeting Group 6 (Testing & CI).
+```
 
+```
+C-TEST-2
+Rule: Do NOT remove `--import-mode=importlib` from `[tool.pytest.ini_options].addopts` in `pyproject.toml`. The default `prepend` import mode copies every test file to a temp directory and adjusts `sys.path` per file, adding ~1-2s of I/O overhead at collection time on a 544-file suite. `importlib` mode uses `importlib.import_module()` directly — faster and avoids subtle `__file__` / `__name__` mismatches.
+Rationale: Added as part of PERF-007 test suite optimization on 2026-08-02. Verified safe — all existing tests pass with `importlib` mode. The `norecursedirs` entry in the same section prevents pytest from crawling `.venv/`, `node_modules/`, `.git/`, etc. during collection.
+Applies to: All agents, all modes. Especially relevant to IMPROVE mode targeting Group 6 (Testing & CI).
+```
+
+```
+C-TEST-3
+Rule: Do NOT remove `pytest-xdist` (`-n auto --dist=loadgroup`) from local `make test` and CI pytest invocations. `pytest-xdist` parallelizes test execution across all available CPU cores, providing ~2-3x speedup on multi-core machines. The package is already declared in `[project.optional-dependencies].test` and CI's `build.yml` installs it explicitly.
+Rationale: Added as part of PERF-007 on 2026-08-02. The Makefile's `test` target now uses `-n auto --dist=loadgroup` (previously single-threaded). CI already used `-n auto` but the local `make test` did not — contributors running `make test` were not getting the parallelism benefit.
+Applies to: All agents, all modes. Especially relevant to IMPROVE mode targeting Group 6 (Testing & CI).
+```
+
+```
+C-TEST-4
+Rule: Do NOT add `--cov` or `--coverage` flags to local test runs (Makefile `test-client`, individual `pytest` invocations). Coverage instrumentation adds 15-25% overhead. Use `--no-coverage` for local dev; CI (`build.yml`) and pre-push hooks are the correct places for coverage enforcement.
+Rationale: Added as part of PERF-007 on 2026-08-02. The Makefile `test-client` target now passes `--no-coverage` to Vitest. The Makefile `test` target does not pass `--cov` (it relies on `addopts` which includes `--cov`, but local devs can override with `--no-cov`). CI explicitly passes `--cov` and `--cov-fail-under=65` in its own step.
+Applies to: All agents, all modes. Especially relevant to IMPROVE mode targeting Group 6 (Testing & CI).
+```
 ---
 
 ## Category: Code Style & Naming

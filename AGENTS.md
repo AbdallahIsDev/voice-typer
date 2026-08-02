@@ -141,7 +141,9 @@ instead):
   (heartbeat vs. shutdown ordering).
 - `PERF-*` — performance-sensitive path where a "trivial" change
   could regress hot-loop or memory. Examples: `PERF-005`
-  (relaunch_ack fast-path), `PERF-006` (audio ring buffer zero-copy).
+  (relaunch_ack fast-path), `PERF-006` (audio ring buffer zero-copy),
+  `PERF-007` (test suite speed: vitest pool/isolate, pytest
+  import-mode/xdist/cov).
 
 When you add a new tag, update this list AND link the tag to the
 relevant `CONTRIBUTING.md` section (or, for tags not covered by

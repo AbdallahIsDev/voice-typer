@@ -34,11 +34,11 @@ setup: ## Install all dependencies (Python + Node)
 	uv venv && uv pip install -e ".[test,dev]"
 	cd voice_typer/client && npm ci
 
-test: ## Run Python tests
-	python -m pytest tests/ -q --timeout=60
+test: ## Run Python tests (parallel with xdist)
+	python -m pytest tests/ -n auto --dist=loadgroup -q --timeout=60
 
-test-client: ## Run client tests
-	cd voice_typer/client && npm test
+test-client: ## Run client tests (no coverage for speed)
+	cd voice_typer/client && npx vitest run --no-coverage
 
 lint: ## Run linters (ruff + biome, with auto-fix)
 	ruff check voice_typer/ tests/ --fix
