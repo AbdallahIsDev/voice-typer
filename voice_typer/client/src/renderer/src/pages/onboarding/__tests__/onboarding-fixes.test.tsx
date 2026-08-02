@@ -498,11 +498,10 @@ describe("Welcome step renders a language picker", () => {
 
 		render(<OnboardingPage onComplete={() => {}} />);
 
-		await waitFor(() => {
-			expect(
-				screen.getAllByText("Welcome to Voice Typer").length,
-			).toBeGreaterThan(0);
-		});
+		// The title is locale-translated (setLocale + the async strings
+		// chunk load can race this assertion), so gate on the language
+		// picker instead — it only renders on the Welcome step.
+		await screen.findByTestId("onboarding-language-picker");
 
 		// The language picker should be present.
 		const picker = screen.getByTestId("onboarding-language-picker");
@@ -527,11 +526,10 @@ describe("Welcome step renders a language picker", () => {
 
 		render(<OnboardingPage onComplete={() => {}} />);
 
-		await waitFor(() => {
-			expect(
-				screen.getAllByText("Welcome to Voice Typer").length,
-			).toBeGreaterThan(0);
-		});
+		// The title is locale-translated (setLocale + the async strings
+		// chunk load can race this assertion), so gate on the language
+		// picker instead — it only renders on the Welcome step.
+		await screen.findByTestId("onboarding-language-picker");
 
 		const picker = screen.getByTestId("onboarding-language-picker");
 		const selectRoot = picker.querySelector('[data-testid="select-root"]');
@@ -851,12 +849,9 @@ describe("useOnboardingWizard: selections are seeded from the saved config on ev
 
 		render(<OnboardingPage onComplete={() => {}} />);
 
-		// Wait for the Welcome step to render.
-		await waitFor(() => {
-			expect(
-				screen.getAllByText("Welcome to Voice Typer").length,
-			).toBeGreaterThan(0);
-		});
+		// Wait for the Welcome step to render (locale-independent gate —
+		// the title is translated, so use the language picker instead).
+		await screen.findByTestId("onboarding-language-picker");
 
 		// get_config must have been called on a fresh start.
 		const getConfigCalls = mockCall.mock.calls.filter(

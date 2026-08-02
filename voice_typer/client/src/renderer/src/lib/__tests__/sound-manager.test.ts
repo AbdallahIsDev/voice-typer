@@ -11,6 +11,33 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock AudioContext — jsdom doesn't implement Web Audio API.
+/**
+ * Build a controlled in-memory Storage stub and install it as the
+ * global `localStorage` via `vi.stubGlobal`.
+ *
+ * Spying on the jsdom `localStorage` INSTANCE does not reliably
+ * intercept the module's calls in the CI (Node 24) jsdom environment
+ * ("expected setItem to be called" fails there even though the same
+ * spy works under Node 26's fallback storage). Since sound-manager.ts
+ * reads/writes the bare `localStorage` global at call time, replacing
+ * `globalThis.localStorage` entirely is environment-independent.
+ */
+const stubGlobalLocalStorage = (overrides: {
+	setItem?: (key: string, value: string) => void;
+	getItem?: (key: string) => string | null;
+}): void => {
+	vi.stubGlobal("localStorage", {
+		get length() {
+			return 0;
+		},
+		clear: vi.fn(),
+		getItem: overrides.getItem ?? vi.fn(() => null),
+		key: vi.fn(() => null),
+		removeItem: vi.fn(),
+		setItem: overrides.setItem ?? vi.fn(),
+	});
+};
+
 class MockAudioContext {
 	state: "suspended" | "running" | "closed" = "suspended";
 	currentTime = 0;
@@ -89,16 +116,14 @@ describe("SoundManager", () => {
 			await import("@/lib/sound-manager");
 		_resetSoundManagerForTests();
 
-		// Stub localStorage.setItem to throw. NOTE: must spy on the
-		// localStorage INSTANCE method, not Storage.prototype — in this
-		// vitest/jsdom env Object.getPrototypeOf(localStorage) !==
-		// Storage.prototype, so a prototype-level mock never intercepts
-		// the call the module actually makes.
-		const setItemSpy = vi
-			.spyOn(localStorage, "setItem")
-			.mockImplementation(() => {
-				throw new DOMException("quota exceeded");
-			});
+		// Stub the global localStorage so setItem throws (e.g. private
+		// browsing mode). We own the storage object entirely (see
+		// stubGlobalLocalStorage) so the throw is guaranteed regardless
+		// of the jsdom environment.
+		const setItemSpy = vi.fn(() => {
+			throw new DOMException("quota exceeded");
+		});
+		stubGlobalLocalStorage({ setItem: setItemSpy });
 
 		try {
 			// Should not throw — the in-memory flag should still update
@@ -106,7 +131,7 @@ describe("SoundManager", () => {
 			// Verify localStorage was attempted (and swallowed)
 			expect(setItemSpy).toHaveBeenCalled();
 		} finally {
-			setItemSpy.mockRestore();
+			vi.unstubAllGlobals();
 		}
 	});
 
@@ -176,13 +201,12 @@ describe("SoundManager", () => {
 		_resetSoundManagerForTests();
 
 		// Stub localStorage.getItem to throw (e.g. private browsing mode).
-		// Spy on the instance method (see note above — a
-		// Storage.prototype mock never intercepts in this env).
-		const getItemSpy = vi
-			.spyOn(localStorage, "getItem")
-			.mockImplementation(() => {
-				throw new DOMException("SecurityError");
-			});
+		// We own the storage object entirely (see stubGlobalLocalStorage)
+		// so the throw is guaranteed regardless of the jsdom environment.
+		const getItemSpy = vi.fn(() => {
+			throw new DOMException("SecurityError");
+		});
+		stubGlobalLocalStorage({ getItem: getItemSpy });
 		const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
 		try {
@@ -200,7 +224,7 @@ describe("SoundManager", () => {
 			expect(String(debugMsg)).toContain("[sound-manager]");
 			expect(getItemSpy).toHaveBeenCalled();
 		} finally {
-			getItemSpy.mockRestore();
+			vi.unstubAllGlobals();
 			debugSpy.mockRestore();
 		}
 	});
@@ -268,11 +292,10 @@ describe("SoundManager — ZU-34 visual feedback flag (deaf mirror)", () => {
 			await import("@/lib/sound-manager");
 		_resetSoundManagerForTests();
 
-		const setItemSpy = vi
-			.spyOn(localStorage, "setItem")
-			.mockImplementation(() => {
-				throw new DOMException("quota exceeded");
-			});
+		const setItemSpy = vi.fn(() => {
+			throw new DOMException("quota exceeded");
+		});
+		stubGlobalLocalStorage({ setItem: setItemSpy });
 		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
 		try {
@@ -282,7 +305,7 @@ describe("SoundManager — ZU-34 visual feedback flag (deaf mirror)", () => {
 			// The warning surfaces the localStorage failure to operators.
 			expect(warnSpy).toHaveBeenCalled();
 		} finally {
-			setItemSpy.mockRestore();
+			vi.unstubAllGlobals();
 			warnSpy.mockRestore();
 		}
 	});
@@ -292,11 +315,10 @@ describe("SoundManager — ZU-34 visual feedback flag (deaf mirror)", () => {
 			await import("@/lib/sound-manager");
 		_resetSoundManagerForTests();
 
-		const getItemSpy = vi
-			.spyOn(localStorage, "getItem")
-			.mockImplementation(() => {
-				throw new DOMException("SecurityError");
-			});
+		const getItemSpy = vi.fn(() => {
+			throw new DOMException("SecurityError");
+		});
+		stubGlobalLocalStorage({ getItem: getItemSpy });
 		const debugSpy = vi.spyOn(console, "debug").mockImplementation(() => {});
 
 		try {
@@ -307,7 +329,7 @@ describe("SoundManager — ZU-34 visual feedback flag (deaf mirror)", () => {
 			const debugMsg = debugSpy.mock.calls[0]?.[0] ?? "";
 			expect(String(debugMsg)).toContain("[sound-manager]");
 		} finally {
-			getItemSpy.mockRestore();
+			vi.unstubAllGlobals();
 			debugSpy.mockRestore();
 		}
 	});
