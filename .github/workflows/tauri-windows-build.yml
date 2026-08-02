@@ -394,6 +394,14 @@ jobs:
           # These are conditionally imported at runtime via sys.platform
           # guards; exclude the non-Windows ones to save ~15 min of C
           # compilation. Also removed deprecated --enable-plugin=numpy.
+          # TX-40: output filename carries the matrix target triple so a
+          # future aarch64 leg produces a distinctly-named binary
+          # (python-sidecar-aarch64-pc-windows-msvc.exe) instead of
+          # silently overwriting the x86_64 build. NOTE: keep this comment
+          # OUTSIDE the backtick-continuation chain below — a comment line
+          # between two backticked args ends the logical line in PowerShell,
+          # and the next `--flag=value` arg then parses as a fresh statement
+          # ("Missing expression after unary operator '--'").
           & $PYBS\python.exe -m nuitka `
               --standalone --onefile `
               --assume-yes-for-downloads `
@@ -434,10 +442,6 @@ jobs:
               $($dataDirFlag) `
               --windows-console-mode=disable `
               --onefile-tempdir-spec="{CACHE_DIR}/voice-typer/onefile-tmp" `
-              # TX-40: output filename carries the matrix target triple
-              # so a future aarch64 leg produces a distinctly-named binary
-              # (python-sidecar-aarch64-pc-windows-msvc.exe) instead of
-              # silently overwriting the x86_64 build.
               --output-filename=python-sidecar-${{ matrix.target }}.exe `
               --output-dir=src-tauri\bin `
               voice_typer\server\ipc_server.py

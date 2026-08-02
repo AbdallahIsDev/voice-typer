@@ -2,6 +2,9 @@ node_modules/
 out/
 dist/
 *.tsbuildinfo
+# istanbul/vitest HTML coverage report (emitted by `npm run test:coverage`
+# into ./coverage — build artifact, never commit).
+coverage/
 src/renderer/public/
 resources/
 storybook-static/
