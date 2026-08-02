@@ -103,7 +103,13 @@ jobs:
   smoke-cargo-check:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
-    timeout-minutes: 15
+    # TX-22: 15m was too tight once cargo test was added. The first run on a
+    # cold cache (no prior successful run ever saved the actions/cache blob)
+    # compiles the full Tauri dep tree for BOTH `cargo check --all-targets`
+    # and the `cargo test` build — that alone can exceed 15 minutes. Bumped
+    # to 60m so cold-cache runs (and slow ubuntu-22.04 runners) complete;
+    # warm-cache runs still finish in ~2-3 min as the step comments state.
+    timeout-minutes: 60
     permissions:
       contents: read
     env:
