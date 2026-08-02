@@ -1,16 +1,10 @@
 /**
- * : per-page CSP emitted at build time.
+ * Per-page CSP emitted at build time.
  *
- * Prior to , both index.html and bubble.html shipped a CSP meta tag with
- * `script-src 'self' 'unsafe-eval' 'unsafe-inline'` baked in — even in the
- * production build. The strict policy was applied only via the HTTP-header
- * route in main/index.ts (onHeadersReceived), which left the meta tag itself
- * loose. If the HTTP-header route ever failed to fire (e.g. an Electron
- * upgrade changed file:// header handling, or someone opened the HTML file
- * outside Electron), the loose meta tag would silently take over.
- *
- * This Vite plugin rewrites the CSP meta tag in `transformIndexHtml` so it
- * matches the current mode:
+ * Both index.html and bubble.html ship a CSP meta tag. The strict policy
+ * is also applied via the HTTP-header route in main/index.ts
+ * (onHeadersReceived); this Vite plugin rewrites the meta tag in
+ * `transformIndexHtml` so it matches the current mode:
  *
  * - Dev (command === 'serve'): emit CSP_DEV with `unsafe-eval` and
  *   `unsafe-inline` for script-src (Vite HMR + React Refresh preamble +
@@ -20,13 +14,15 @@
  *   `'self'`-only script-src. The production bundle has no inline scripts
  *   and no eval, so the strict policy is sufficient.
  *
- *  / R6-F5 (fix): the CSP `connect-src` is now split per window so the
- * bubble.html policy does NOT include `https://api.github.com`. The main
- * window's policy keeps it (the Settings page's "Check for Updates" button
- * still fetches the GitHub releases API on an EXPLICIT user click — see
- *  fix in `PrewarmAndUpdates.tsx` which removed the auto-mount
- * `useEffect`). The bubble has NO update-check surface, so granting it
- * `connect-src https://api.github.com` would be dead attack surface.
+ * C-DATA-1 (offline guarantee): `connect-src` is `'self'` ONLY in both
+ * dev and prod. The previous `https://api.github.com` grant (originally
+ * added so the Settings page's "Check for Updates" button could fetch
+ * the GitHub releases API) was a C-DATA-1 violation — even an explicit
+ * user click is a network call in the production code path, which the
+ * offline guarantee forbids. The "Check for Updates" feature was
+ * removed from `PrewarmAndUpdates.tsx` and replaced with a static
+ * message directing users to open the GitHub releases page in their
+ * browser. No renderer code path may issue any network request.
  *
  * Belt-and-suspenders: the onHeadersReceived HTTP-header CSP in
  * `main/bootstrap.ts::setupCsp()` still overrides the meta tag in Electron
@@ -43,26 +39,19 @@
 import type { Plugin } from "vite";
 
 /**
- * Build the production `connect-src` directive for a given window.
- *
- * `api.github.com` is included ONLY for the main window — the bubble has
- * no update-check surface ( / R6-F5).
+ * Production `connect-src` directive. `'self'` only — no external
+ * origins. C-DATA-1 (offline guarantee): no network call may leave
+ * the renderer in any code path.
  */
-function buildConnectSrc(opts: { allowGitHub: boolean }): string {
-	const parts = ["'self'"];
-	if (opts.allowGitHub) parts.push("https://api.github.com");
-	return `connect-src ${parts.join(" ")}`;
-}
+const CONNECT_SRC = "connect-src 'self'";
 
 /**
- * Production CSP for the MAIN window (index.html). Includes
- * `https://api.github.com` in `connect-src` so the Settings page's
- * explicit "Check for Updates" button can fetch the GitHub releases
- * API.  removed the auto-mount `useEffect` that previously
- * fired the check on every Settings open, so this URL is now reached
- * ONLY on a deliberate user click.
+ * Production CSP for the MAIN window (index.html). Strict `'self'`-only
+ * `connect-src` — C-DATA-1 forbids any network call from the renderer,
+ * including the previous "Check for Updates" fetch to api.github.com
+ * (the feature was removed; see `PrewarmAndUpdates.tsx`).
  *
- * : `object-src 'none'` is included to block <object>, <embed>,
+ * `object-src 'none'` is included to block <object>, <embed>,
  * and <applet> elements entirely. The renderer has no legitimate use
  * for these elements (all media is via <audio>/<video> with `media-src`
  * gating), so blocking them is a strict hardening with no functional
@@ -76,7 +65,7 @@ export const CSP_PROD_MAIN = [
 	"img-src 'self' data:",
 	"font-src 'self' data:",
 	"media-src 'self' data:",
-	buildConnectSrc({ allowGitHub: true }),
+	CONNECT_SRC,
 	"object-src 'none'",
 	"frame-ancestors 'none'",
 	"form-action 'none'",
@@ -84,14 +73,15 @@ export const CSP_PROD_MAIN = [
 ].join("; ");
 
 /**
- * Production CSP for the BUBBLE window (bubble.html). Does NOT include
- * `https://api.github.com` in `connect-src` — the bubble has no
- * update-check surface ( / R6-F5). A compromised bubble renderer
- * must not be able to phone home to GitHub or exfiltrate data via a
- * CSP-permitted `connect-src`.
+ * Production CSP for the BUBBLE window (bubble.html). Identical
+ * `connect-src 'self'` policy — the bubble has no update-check surface
+ * (and the main window's update-check surface has been removed too, so
+ * both windows now share the same strict offline-only policy). A
+ * compromised bubble renderer must not be able to phone home or
+ * exfiltrate data via a CSP-permitted `connect-src`.
  *
- * : `object-src 'none'` mirrors CSP_PROD_MAIN — the bubble has
- * no legitimate use for <object>/<embed>/<applet> elements either.
+ * `object-src 'none'` mirrors CSP_PROD_MAIN — the bubble has no
+ * legitimate use for <object>/<embed>/<applet> elements either.
  */
 export const CSP_PROD_BUBBLE = [
 	"default-src 'self'",
@@ -100,7 +90,7 @@ export const CSP_PROD_BUBBLE = [
 	"img-src 'self' data:",
 	"font-src 'self' data:",
 	"media-src 'self' data:",
-	buildConnectSrc({ allowGitHub: false }),
+	CONNECT_SRC,
 	"object-src 'none'",
 	"frame-ancestors 'none'",
 	"form-action 'none'",
@@ -119,8 +109,9 @@ export const CSP_PROD = CSP_PROD_MAIN;
  * Dev CSP. Allows `unsafe-eval` and `unsafe-inline` for script-src (Vite HMR
  * + React Refresh + eval sourcemaps). Adds ws://localhost:* and
  * http://localhost:* to connect-src for the HMR websocket + dev server
- * fetches. `api.github.com` is retained in dev so the explicit "Check for
- * Updates" button works against the live API during development.
+ * fetches. `connect-src` is otherwise `'self'` only — C-DATA-1 forbids
+ * api.github.com (the previous "Check for Updates" fetch was removed
+ * from the renderer; dev mode no longer needs the grant either).
  */
 export const CSP_DEV = [
 	"default-src 'self'",
@@ -129,7 +120,7 @@ export const CSP_DEV = [
 	"img-src 'self' data:",
 	"font-src 'self' data:",
 	"media-src 'self' data:",
-	"connect-src 'self' https://api.github.com ws://localhost:* http://localhost:*",
+	"connect-src 'self' ws://localhost:* http://localhost:*",
 	"frame-ancestors 'none'",
 	"form-action 'none'",
 	"base-uri 'self'",
@@ -145,9 +136,11 @@ export function cspMetaTag(csp: string): string {
 /**
  * Pick the production CSP for a given HTML file path.
  *
- * Exported for unit tests (R6-F5) so we can assert that bubble.html
- * maps to `CSP_PROD_BUBBLE` (no `api.github.com`) and index.html
- * maps to `CSP_PROD_MAIN` (with `api.github.com`).
+ * Exported for unit tests so we can assert that bubble.html maps to
+ * `CSP_PROD_BUBBLE` and index.html maps to `CSP_PROD_MAIN`. Both
+ * policies now share the same strict `'self'`-only `connect-src`
+ * (C-DATA-1); the function still routes by basename so future
+ * per-window divergence remains possible without touching call sites.
  */
 export function pickProdCsp(filePath: string): string {
 	// Match on the basename so this works regardless of the absolute
@@ -161,7 +154,7 @@ export function pickProdCsp(filePath: string): string {
 /**
  * Vite plugin that rewrites the CSP meta tag in index.html / bubble.html
  * based on the current mode (dev vs prod) and which file is being
- * transformed ( / R6-F5 per-window split).
+ * transformed.
  */
 export function cspEmissionPlugin(): Plugin {
 	let isProduction = false;
@@ -183,9 +176,9 @@ export function cspEmissionPlugin(): Plugin {
 			// provides).
 			order: "pre",
 			handler(html: string, ctx?: { path?: string; filename?: string }) {
-				//R6-F5: pick the per-window prod policy. In dev we
-				// always use CSP_DEV (the dev server needs the HMR websocket
-				// regardless of which window is loading).
+				// Pick the per-window prod policy. In dev we always use
+				// CSP_DEV (the dev server needs the HMR websocket regardless
+				// of which window is loading).
 				const filePath = ctx?.path ?? ctx?.filename ?? "";
 				const csp = isProduction ? pickProdCsp(filePath) : CSP_DEV;
 				const metaTag = cspMetaTag(csp);

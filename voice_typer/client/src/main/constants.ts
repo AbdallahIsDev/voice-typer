@@ -62,12 +62,23 @@ export const HEARTBEAT_INTERVAL_MS = 15000;
 // for the SIGTERM vs production-exit backstop") discoverable and lets a
 // future tuning change touch one site instead of N.
 
-// SIGTERM/SIGINT backstop: if `app.quit()` (called from the signal
-// handler) doesn't actually exit the process within 3s, force-exit so a
-// wedged `before-quit` listener can't trap us on SIGTERM. Longer than
-// the production-exit backstop below because signal handlers also wait
-// on the Python shutdown IPC handshake.
-export const SIGTERM_EXIT_BACKSTOP_MS = 3000;
+// SIGTERM/SIGINT backstop in `index.ts::signalQuitHandler`: if
+// `app.quit()` (called from the signal handler) doesn't actually exit
+// the process within this delay, force-exit so a wedged `before-quit`
+// listener can't trap us on SIGTERM.
+//
+// Sized in `index.ts` as `KILL_TIMER_MS + ESCALATE_TIMER_MS + 500` so
+// the SIGTERM→SIGKILL escalation in `stop-python.ts` has a guaranteed
+// window to fire BEFORE Electron exits:
+//   - t=KILL_TIMER_MS                     : killTimer sends SIGTERM
+//   - t=KILL_TIMER_MS+ESCALATE_TIMER_MS   : escalateTimer sends SIGKILL
+// The +500ms is a safety margin so the backstop can't race ahead of the
+// escalateTimer if the Node timer wheel is briefly delayed under load.
+// Computed inline in `index.ts` (rather than re-exported from here) to
+// avoid a circular import: `constants.ts` → `python/stop-python.ts` →
+// `python/send-to-python.ts` → `constants.ts`. Longer than the
+// production-exit backstop below because signal handlers also wait on
+// the Python shutdown IPC handshake.
 
 // Production-exit backstop in `bootstrap.ts::productionExit()`: if
 // `app.quit()` doesn't exit within 2s (e.g. a `before-quit` handler

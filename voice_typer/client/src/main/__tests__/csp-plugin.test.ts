@@ -2,10 +2,15 @@
 /**
  *  / R6-F5 unit tests for `csp-plugin.ts`.
  *
- * Verifies that the production CSP is split per window so the bubble
- * window's policy does NOT grant `connect-src https://api.github.com`,
- * while the main window's policy still does (the explicit "Check for
- * Updates" button needs it after  removed the auto-mount fetch).
+ * Verifies that the production CSP is split per window (main vs bubble)
+ * and that NEITHER policy grants `connect-src https://api.github.com`.
+ *
+ * C-DATA-1 (offline guarantee): the previous main-window grant for
+ * `https://api.github.com` was a latent violation — it allowed the
+ * Settings page's "Check for Updates" button to fire a renderer
+ * `fetch()` against the GitHub releases API. That feature was removed
+ * (see `PrewarmAndUpdates.tsx`); both windows now ship a strict
+ * `'self'`-only `connect-src`.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -20,10 +25,9 @@ import {
 
 describe("CR-11 / R6-F5: per-window CSP split", () => {
 	describe("CSP_PROD_MAIN", () => {
-		it("includes https://api.github.com in connect-src", () => {
-			expect(CSP_PROD_MAIN).toContain(
-				"connect-src 'self' https://api.github.com",
-			);
+		it("does NOT include https://api.github.com in connect-src (C-DATA-1 offline guarantee)", () => {
+			expect(CSP_PROD_MAIN).not.toContain("api.github.com");
+			expect(CSP_PROD_MAIN).toContain("connect-src 'self'");
 		});
 
 		it("does NOT allow unsafe-eval or unsafe-inline in script-src (production hardening)", () => {
@@ -45,7 +49,7 @@ describe("CR-11 / R6-F5: per-window CSP split", () => {
 	});
 
 	describe("CSP_PROD_BUBBLE", () => {
-		it("does NOT include https://api.github.com in connect-src", () => {
+		it("does NOT include https://api.github.com in connect-src (C-DATA-1 offline guarantee)", () => {
 			expect(CSP_PROD_BUBBLE).not.toContain("api.github.com");
 			expect(CSP_PROD_BUBBLE).toContain("connect-src 'self'");
 		});
@@ -85,6 +89,10 @@ describe("CR-11 / R6-F5: per-window CSP split", () => {
 		it("includes ws://localhost:* and http://localhost:* in connect-src (HMR websocket)", () => {
 			expect(CSP_DEV).toContain("ws://localhost:*");
 			expect(CSP_DEV).toContain("http://localhost:*");
+		});
+
+		it("does NOT include https://api.github.com in connect-src (C-DATA-1 offline guarantee)", () => {
+			expect(CSP_DEV).not.toContain("api.github.com");
 		});
 	});
 

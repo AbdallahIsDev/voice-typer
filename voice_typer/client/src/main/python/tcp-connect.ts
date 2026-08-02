@@ -54,7 +54,7 @@ let _tcpStartupTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
  * the app should have exited.
  *
  * The `.unref()` part of the  plan is INTENTIONALLY SKIPPED:
- * `tests/__tests__/xv-fa19-fixes.test.ts` asserts
+ * `tests/__tests__/main-process-fixes.test.ts` asserts
  * `_tcpStartupTimeoutTimer is NOT unref'd` ( rationale: the
  * timer must keep Electron alive so the "Python backend failed to
  * start" dialog actually renders before exit). The explicit
@@ -228,18 +228,23 @@ export function tcpConnect(port: number): void {
 			// SEC-023: cap tcpBuffer at 4 MB to prevent unbounded memory
 			// growth from malformed frames (e.g. a chunk with no newline
 			// that never gets split). Drop the connection on overflow.
-			state.tcpBuffer += chunk.toString();
+			state.tcpBuffer = state.tcpBuffer
+				? Buffer.concat([state.tcpBuffer as Buffer, chunk])
+				: chunk;
 			if (state.tcpBuffer.length > TCP_FRAME_MAX_BYTES) {
 				log.error(
 					`[TCP] tcpBuffer exceeded 4 MB without a newline - dropping connection (possible malformed frame)`,
 				);
-				state.tcpBuffer = "";
+				state.tcpBuffer = Buffer.alloc(0);
 				client.destroy();
 				return;
 			}
-			const lines = state.tcpBuffer.split("\n");
-			state.tcpBuffer = lines.pop() ?? "";
-			for (const line of lines) {
+			let newlineIdx: number;
+			// biome-ignore lint/suspicious/noAssignInExpressions: classic buffer-scan idiom — assign + test in one expression
+			while ((newlineIdx = state.tcpBuffer.indexOf(0x0a)) !== -1) {
+				const lineBuf = state.tcpBuffer.subarray(0, newlineIdx);
+				state.tcpBuffer = state.tcpBuffer.subarray(newlineIdx + 1);
+				const line = lineBuf.toString("utf8");
 				if (!line.trim()) continue;
 				try {
 					//JSON.parse returns
@@ -329,7 +334,7 @@ export function tcpConnect(port: number): void {
 			// buffer/socket/auth) ensures only the owning socket's teardown
 			// releases these resources.
 			if (state.tcpSocket === client) {
-				state.tcpBuffer = "";
+				state.tcpBuffer = Buffer.alloc(0);
 				state.tcpSocket = null;
 				state._tcpAuthed = false;
 				//stop the heartbeat interval — the socket is

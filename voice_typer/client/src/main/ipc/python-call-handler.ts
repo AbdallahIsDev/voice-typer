@@ -27,29 +27,17 @@
  * `{ _error: string, _code: PythonCallErrorCode }` shape) is documented.
  */
 import { ipcMain } from "electron";
+// Import the canonical PythonCallErrorCode union from the
+// shared module instead of re-declaring it locally. Re-exported so
+// existing imports from ../ipc/python-call-handler continue to resolve.
+import type { PythonCallErrorCode } from "../../shared/python-call-error-code";
 import { logger } from "../logging";
 import { sendToPython } from "../python";
 import { PythonIpcError } from "../python/errors";
 import { state } from "../state";
 import { PythonChannels } from "./channels";
 
-/**
- * Structured error codes for the `python-call` envelope.
- *
- * The renderer's `usePython().call(...)` wrapper inspects `_code` to
- * decide whether to retry (timeout), surface a "backend offline" toast
- * (not-connected), or escalate to a full app-restart prompt
- * (backend-exited). The codes are stable across versions — never rename
- * an existing code (only add new ones).
- *
- * Renderer-narrowing export: exported so the renderer (`usePython.ts`)
- * can narrow the `_code` field against this union.
- */
-export type PythonCallErrorCode =
-	| "backend_not_connected"
-	| "backend_exited_early"
-	| "command_failed"
-	| "command_timeout";
+export type { PythonCallErrorCode };
 
 /**
  * Per-code English fallback messages for `_error` (log/dev-facing).

@@ -201,6 +201,7 @@ describe("loadurl-logging: main-window.ts loadURL Promise rejection is caught + 
 	): Record<string, unknown> {
 		return {
 			on: vi.fn(),
+			once: vi.fn(),
 			webContents: {
 				on: vi.fn(),
 				send: vi.fn(),

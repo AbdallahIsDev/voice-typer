@@ -88,7 +88,7 @@ export interface MainState {
 	/** Monotonic message-id counter for sendToPython(). */
 	nextId: number;
 	/** Incomplete TCP line accumulator (Python sends newline-delimited JSON). */
-	tcpBuffer: string;
+	tcpBuffer: Buffer;
 	/** True once the first TCP connect succeeded (gates `pythonExitedEarly` handling). */
 	pythonReady: boolean;
 	/** True if Python exited before the first connect — surfaces a clear error to the user. */
@@ -130,7 +130,7 @@ export const state: MainState = {
 	bubbleWindow: null,
 	pendingRequests: new Map<number, PendingRequest>(),
 	nextId: 1,
-	tcpBuffer: "",
+	tcpBuffer: Buffer.alloc(0),
 	pythonReady: false,
 	pythonExitedEarly: false,
 	heartbeatInterval: null,

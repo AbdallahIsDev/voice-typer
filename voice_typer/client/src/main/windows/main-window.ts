@@ -17,32 +17,51 @@ import { app, BrowserWindow, dialog, Menu, nativeTheme, shell } from "electron";
 import { RENDER_RELOAD_BACKOFF_MS, START_HIDDEN } from "../constants";
 import { WindowChannels } from "../ipc/channels";
 import {
-	appendLogLine,
 	cleanConsoleMsg,
 	log,
 	RENDERER_CLR,
 	RESET,
 	redactPii,
-	rendererErrorsLogPath,
 } from "../logging";
+// `_removeRendererFromBackpressure` clears the per-renderer rate-limit
+// Map entry when the window is destroyed, preventing the
+// `_rendererCallTimestamps` Map from leaking one entry per destroyed
+// BrowserWindow (each `webContents.id` is a fresh integer).
+import { _removeRendererFromBackpressure } from "../python/send-to-python";
 import { state } from "../state";
+// The three concerns below were previously inlined in this file. They
+// are now in sibling modules so the window-creation logic in
+// `createMainWindow()` reads as a flat sequence of "register listener →
+// create window → attach handlers" without interleaved definitions of
+// the crash-storm tracker / theme listener / renderer-error sink.
+// Re-exported below for backward compat with existing import sites
+// (notably `tcp-connect.ts`, `handle-message.ts`, `windows/index.ts`,
+// and the test files `crash-storm-recovery.test.ts` /
+// `main-window-native-theme.test.ts`).
+import {
+	_resetRenderCrashTrackingForTest as _resetRenderCrashTrackingForTestImpl,
+	recordBubbleRenderCrash as recordBubbleRenderCrashImpl,
+	recordMainWindowRenderCrash,
+} from "./crash-storm";
+import { appendRendererError } from "./renderer-error-persistence";
+import {
+	_nativeThemeListenerRegistered as _nativeThemeListenerRegisteredImpl,
+	_resetNativeThemeListenerForTest as _resetNativeThemeListenerForTestImpl,
+	registerNativeThemeListener as registerNativeThemeListenerImpl,
+} from "./theme-listener";
 
-/**
- * Renderer-error persistence: persist a renderer-error line to
- * `electron-renderer-errors.log`. Best-effort: any I/O error is
- * swallowed — logging must never break the renderer console
- * forwarding path.
- */
-function appendRendererError(line: string): void {
-	try {
-		appendLogLine(rendererErrorsLogPath(), line);
-	} catch (e) {
-		// Best-effort: a logging failure must not cascade into a runtime
-		// failure of the calling code. The console.warn keeps the failure
-		// visible without breaking the renderer console forwarding path.
-		console.warn("[main-window] appendRendererError failed:", e);
-	}
-}
+// Backward-compat re-exports. External consumers (and tests) import
+// these names from `./main-window`; the implementations now live in the
+// sibling modules above. Re-exporting here means no caller needs to
+// change its import path.
+export const registerNativeThemeListener = registerNativeThemeListenerImpl;
+export const _resetNativeThemeListenerForTest =
+	_resetNativeThemeListenerForTestImpl;
+export const _nativeThemeListenerRegistered =
+	_nativeThemeListenerRegisteredImpl;
+export const recordBubbleRenderCrash = recordBubbleRenderCrashImpl;
+export const _resetRenderCrashTrackingForTest =
+	_resetRenderCrashTrackingForTestImpl;
 
 /**
  * Show + focus the dashboard window, creating it if needed.
@@ -102,106 +121,22 @@ export function broadcastToMainWindow(channel: string, msg: unknown): void {
 
 /**
  * R6-F3: the `nativeTheme.on("updated", ...)` listener is registered ONCE
- * at module load (see `registerNativeThemeListener()` below) instead of
- * being re-registered inside `createMainWindow()` on every window
- * recreation. Previously each call to `createMainWindow()` added a NEW
- * listener to `nativeTheme` without ever removing the previous one —
- * so after N window recreations (dev-mode `relaunchApp()` + tray
- * "Restart"), there were N listeners all firing on every theme change,
- * each holding a stale reference to a destroyed BrowserWindow.
+ * at module load (see `registerNativeThemeListener()` in
+ * `./theme-listener.ts`) instead of being re-registered inside
+ * `createMainWindow()` on every window recreation. Previously each call
+ * to `createMainWindow()` added a NEW listener to `nativeTheme` without
+ * ever removing the previous one — so after N window recreations
+ * (dev-mode `relaunchApp()` + tray "Restart"), there were N listeners
+ * all firing on every theme change, each holding a stale reference to a
+ * destroyed BrowserWindow.
  *
- * The single module-level handler reads `state.mainWindow` live (so it
- * always operates on the current window) and is removed once via
- * `nativeTheme.off(...)` when the window is destroyed (in case the
- * module is hot-reloaded in dev — in production the listener lives
- * for the process lifetime, which is correct since `state.mainWindow`
- * is the canonical window reference).
+ * The single module-level handler (in `./theme-listener.ts`) reads
+ * `state.mainWindow` live (so it always operates on the current window)
+ * and is removed once via `nativeTheme.off(...)` when the window is
+ * destroyed (in case the module is hot-reloaded in dev — in production
+ * the listener lives for the process lifetime, which is correct since
+ * `state.mainWindow` is the canonical window reference).
  */
-let _nativeThemeHandler: (() => void) | null = null;
-
-/**
- * Register the global `nativeTheme.on("updated", ...)` listener exactly
- * once. Idempotent — safe to call multiple times. Exported for tests
- * (R6-F3) so we can assert it's only registered once across multiple
- * `createMainWindow()` calls.
- */
-export function registerNativeThemeListener(): void {
-	if (_nativeThemeHandler) return;
-	_nativeThemeHandler = () => {
-		if (state.mainWindow && !state.mainWindow.isDestroyed()) {
-			const name = nativeTheme.shouldUseDarkColors
-				? "icon-dark.png"
-				: "icon.png";
-			state.mainWindow.setIcon(path.join(__dirname, `../../resources/${name}`));
-		}
-	};
-	nativeTheme.on("updated", _nativeThemeHandler);
-}
-
-/**
- * Test-only: remove the global `nativeTheme.on("updated", ...)` listener
- * and reset internal state so a test can verify registration happens
- * exactly once across `createMainWindow()` calls.
- */
-export function _resetNativeThemeListenerForTest(): void {
-	if (_nativeThemeHandler) {
-		try {
-			nativeTheme.off("updated", _nativeThemeHandler);
-		} catch (e) {
-			/* best-effort: test-only cleanup; listener may already be gone */
-			console.warn(
-				"[main-window] _resetNativeThemeListenerForTest off() failed:",
-				e,
-			);
-		}
-		_nativeThemeHandler = null;
-	}
-}
-
-/**
- * Test-only: return whether the module-level `nativeTheme.on("updated")`
- * listener is currently registered. Used by R6-F3 unit tests.
- */
-export function _nativeThemeListenerRegistered(): boolean {
-	return _nativeThemeHandler !== null;
-}
-
-// Render-process-gone crash-storm tracking. Sliding 60s window;
-// if >5 crashes land in that window, stop reloading and show a dialog.
-const RENDER_CRASH_WINDOW_MS = 60_000;
-const RENDER_CRASH_THRESHOLD = 5;
-const _mainWindowCrashTimestamps: number[] = [];
-const _bubbleWindowCrashTimestamps: number[] = [];
-
-function recordRenderCrash(timestamps: number[], label: string): boolean {
-	const now = Date.now();
-	timestamps.push(now);
-	while (timestamps.length > 0) {
-		const first = timestamps[0];
-		if (first !== undefined && now - first > RENDER_CRASH_WINDOW_MS) {
-			timestamps.shift();
-		} else {
-			break;
-		}
-	}
-	if (timestamps.length > RENDER_CRASH_THRESHOLD) {
-		log.error(
-			`[MAIN] ${label} render-process-gone storm: ${timestamps.length} crashes in ${RENDER_CRASH_WINDOW_MS / 1000}s - stopping reload`,
-		);
-		return true;
-	}
-	return false;
-}
-
-export function _resetRenderCrashTrackingForTest(): void {
-	_mainWindowCrashTimestamps.length = 0;
-	_bubbleWindowCrashTimestamps.length = 0;
-}
-
-/** Render-process-gone: bubble-window-side wrapper (imported by bubble-window.ts). */
-export function recordBubbleRenderCrash(): boolean {
-	return recordRenderCrash(_bubbleWindowCrashTimestamps, "Bubble");
-}
 
 export function createMainWindow(forceShow = false): void {
 	if (state.mainWindow) return;
@@ -253,7 +188,13 @@ export function createMainWindow(forceShow = false): void {
 		),
 		frame: false,
 		hasShadow: false,
-		show: shouldShow,
+		// Always create hidden and gate the first `.show()` on the
+		// `ready-to-show` event. Previously `show: shouldShow` flashed a
+		// blank white BrowserWindow for the 200-800ms between BrowserWindow
+		// construction and the renderer's first paint. With `show: false` +
+		// the `ready-to-show` listener below, the window appears only once
+		// the renderer has actually painted.
+		show: false,
 		// Set the window background color to match the app theme so the
 		// rounded corners (border-radius on the wrapper div) don't reveal
 		// a white flash when the window is hidden on close.  The renderer
@@ -319,6 +260,16 @@ export function createMainWindow(forceShow = false): void {
 
 	Menu.setApplicationMenu(null);
 
+	// Gate the first `.show()` on the `ready-to-show` event so the window
+	// appears only once the renderer has painted. Pairs with `show: false`
+	// in the BrowserWindow ctor above. `shouldShow` preserves the
+	// START_HIDDEN autostart path.
+	state.mainWindow.once("ready-to-show", () => {
+		if (shouldShow && state.mainWindow && !state.mainWindow.isDestroyed()) {
+			state.mainWindow.show();
+		}
+	});
+
 	// Close-to-tray: the X button hides the window instead of quitting the
 	// app.  The process (tray icon, Python backend, bubble) stays alive.
 	// Full quit only happens via the tray "Quit" menu item → stopPython().
@@ -352,8 +303,24 @@ export function createMainWindow(forceShow = false): void {
 	// `nativeTheme.on("updated")` handler) then trips over a dead
 	// reference. Nulling here keeps the state invariant honest:
 	// `state.mainWindow` is non-null iff a live window exists.
+	// Capture the destroyed window's `webContents.id` BEFORE nulling
+	// `state.mainWindow` so we can clean up the per-renderer rate-limit
+	// entry in `send-to-python.ts`'s `_rendererCallTimestamps` Map.
+	// Without this, each destroyed BrowserWindow leaks one Map entry
+	// (keyed by its now-defunct `webContents.id`) forever.
 	state.mainWindow.on("closed", () => {
+		const deadWebContentsId = state.mainWindow?.webContents?.id;
 		state.mainWindow = null;
+		if (typeof deadWebContentsId === "number") {
+			try {
+				_removeRendererFromBackpressure(deadWebContentsId);
+			} catch (e) {
+				log.warn(
+					"[main-window] _removeRendererFromBackpressure failed on closed:",
+					e,
+				);
+			}
+		}
 	});
 
 	// CONSOLE-FIX: Electron 30+ deprecated the multi-argument
@@ -441,7 +408,7 @@ export function createMainWindow(forceShow = false): void {
 	state.mainWindow.webContents.on("render-process-gone", (_e, details) => {
 		log.error("[MAIN] render-process-gone", details);
 		// Crash-storm detection: sliding-window crash storm detection.
-		const inStorm = recordRenderCrash(_mainWindowCrashTimestamps, "Main");
+		const inStorm = recordMainWindowRenderCrash();
 		if (inStorm) {
 			try {
 				dialog.showErrorBox(

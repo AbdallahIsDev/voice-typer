@@ -673,13 +673,17 @@ describe("XV-149: StringDecoder prevents U+FFFD on chunk-split UTF-8", () => {
 		expect(oldApproach).not.toBe("\u{1F600}");
 	});
 
-	it("tcp-connect.ts source uses chunk.toString() (NOT StringDecoder)", () => {
+	it("tcp-connect.ts keeps tcpBuffer binary and decodes complete lines only", () => {
 		const src = readSrc("../python/tcp-connect.ts");
-		// The actual source uses chunk.toString() to append to
-		// tcpBuffer. The XV-149 fix (StringDecoder) was NOT applied.
-		expect(src).not.toMatch(
-			/import\s+\{\s*StringDecoder\s*\}\s+from\s+["']node:string_decoder["']/,
-		);
-		expect(src).toMatch(/state\.tcpBuffer\s*\+=\s*chunk\.toString\(\)/);
+		// The old buggy pattern decoded each partial chunk via
+		// chunk.toString(), surfacing U+FFFD on UTF-8 char splits.
+		// The merged fix keeps tcpBuffer as a Buffer (Buffer.concat),
+		// scans for the newline byte, and decodes each complete line
+		// once via subarray + toString("utf8") — pin both halves here
+		// so a future refactor cannot silently regress.
+		expect(src).not.toMatch(/state\.tcpBuffer\s*\+=\s*chunk\.toString\(\)/);
+		expect(src).toMatch(/Buffer\.concat\(\[state\.tcpBuffer/);
+		expect(src).toMatch(/state\.tcpBuffer\.indexOf\(0x0a\)/);
+		expect(src).toMatch(/\.toString\("utf8"\)/);
 	});
 });

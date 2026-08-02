@@ -13,6 +13,7 @@
  *     registers `app.on("second-instance", …)` to show + focus the
  *     dashboard window.
  */
+import { execSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -102,7 +103,8 @@ export function clearElectronPidFile(): void {
  * On Linux, reads ``/proc/<pid>/cmdline`` and checks for an Electron /
  * Voice Typer marker (``electron`` or ``voice-typer``). On macOS, runs
  * ``ps -p <pid> -o comm=`` and applies the same check. On Windows,
- * runs ``wmic process where processid=<pid> get commandline`` and
+ * runs ``tasklist /FI "PID eq <pid>" /FO CSV /NH`` (replaces the
+ * deprecated ``wmic`` command) and
  * applies the same check.
  *
  * Returns ``true`` if the PID exists AND the process command line
@@ -120,16 +122,11 @@ export function isPidVoiceTyper(pid: number): boolean {
 				.readFileSync(`/proc/${pid}/cmdline`, "utf-8")
 				.replace(/\0/g, " ");
 		} else if (process.platform === "darwin") {
-			const { execSync } =
-				require("node:child_process") as typeof import("node:child_process");
 			cmdline = execSync(`ps -p ${pid} -o comm=`, { encoding: "utf-8" });
 		} else if (process.platform === "win32") {
-			const { execSync } =
-				require("node:child_process") as typeof import("node:child_process");
-			cmdline = execSync(
-				`wmic process where processid=${pid} get commandline /value`,
-				{ encoding: "utf-8" },
-			);
+			cmdline = execSync(`tasklist /FI "PID eq ${pid}" /FO CSV /NH`, {
+				encoding: "utf-8",
+			});
 		} else {
 			return true;
 		}
@@ -141,10 +138,10 @@ export function isPidVoiceTyper(pid: number): boolean {
 		);
 	} catch (e) {
 		// Any read/spawn failure (file missing, permission denied,
-		// ps/wmic not on PATH) returns false so the caller falls back
+		// ps/tasklist not on PATH) returns false so the caller falls back
 		// to the conservative "PID is alive" path. Previously this was
 		// a silent catch — a flaky /proc mount or a stripped-down
-		// Windows image that lacked wmic would silently mis-classify
+		// Windows image that lacked tasklist would silently mis-classify
 		// every stale-PID check. Log the failure so operators can
 		// diagnose the root cause from the runtime log.
 		log.warn("[single_instance] isPidVoiceTyper failed:", e);

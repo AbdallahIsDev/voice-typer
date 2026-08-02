@@ -78,6 +78,47 @@ export default defineConfig(({ command }) => ({
 					index: resolve(__dirname, "src/renderer/index.html"),
 					bubble: resolve(__dirname, "src/renderer/bubble.html"),
 				},
+				// split large vendor deps into separate chunks so the
+				// initial renderer bundle (entry + app code) is smaller and
+				// downloads/parse in parallel with vendor chunks. Without
+				// manualChunks, Rollup emits a single ~2 MB index.js
+				// containing react + react-dom + radix-ui + @hugeicons/react
+				// + all app code — the browser can't start parsing app code
+				// until the entire monolith downloads.
+				//
+				// The function-form manualChunks routes each module id into
+				// a named chunk. Each matched module (and its dep graph) is
+				// extracted into the named chunk. The entry chunk imports
+				// these vendor chunks synchronously, so they're still loaded
+				// on the INITIAL page load (not lazy) — the win is parallel
+				// fetch + smaller per-chunk parse cost, not deferred loading.
+				//
+				// react / react-dom go in vendor-react (kept eager —
+				// the entry needs them to render). radix-ui (the umbrella
+				// package re-exporting all Radix primitives) goes in
+				// vendor-radix. @hugeicons/react (the icon runtime) goes
+				// in vendor-icons.
+				//
+				// NOTE: keep in sync with electron.vite.renderer.ts (the
+				// CI-only renderer build config). electron.vite.main.ts
+				// has no renderer section so it doesn't need this.
+				output: {
+					manualChunks: (moduleId: string) => {
+						if (
+							moduleId.includes("node_modules/react-dom/") ||
+							moduleId.includes("node_modules/react/")
+						) {
+							return "vendor-react";
+						}
+						if (moduleId.includes("node_modules/radix-ui/")) {
+							return "vendor-radix";
+						}
+						if (moduleId.includes("node_modules/@hugeicons/react/")) {
+							return "vendor-icons";
+						}
+						return undefined;
+					},
+				},
 			},
 		},
 		plugins: [react(), tailwind(), cspEmissionPlugin()],

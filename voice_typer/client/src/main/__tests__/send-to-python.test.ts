@@ -14,7 +14,7 @@
  *     `RATE_LIMIT_MAX_CALLS` in `RATE_LIMIT_WINDOW_MS` is rejected.
  *
  * The actual 120s timeout + socket-write paths require a fake socket
- * + fake timers; the existing `xv-fa19-fixes.test.ts` covers the
+ * + fake timers; the existing `main-process-fixes.test.ts` covers the
  * timer-not-unref'd source contract. This file complements it with
  * the early-reject behavior (the most security-relevant paths).
  */

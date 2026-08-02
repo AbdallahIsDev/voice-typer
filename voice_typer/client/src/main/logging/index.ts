@@ -113,14 +113,8 @@ export {
 // and tests) and `rendererErrorsLogPath` (consumed by
 // `ipc/window-handlers.ts`) are public.
 //
-// `deleteElectronPersonalDataLogs` is the GDPR Art. 17 helper
-// for Electron-side log files (the Python `delete_all_personal_data`
-// cannot reach `app.getPath("userData")`). Re-exported here so a future
-// `deleteAllPersonalData` IPC handler can import it from the logging
-// barrel without reaching into the implementation module.
 export {
 	_resetMainLogPathForTest,
-	deleteElectronPersonalDataLogs,
 	logger,
 	rendererErrorsLogPath,
 } from "./structuredLogger";

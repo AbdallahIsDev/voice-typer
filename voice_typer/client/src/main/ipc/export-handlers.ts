@@ -247,7 +247,7 @@ export function registerExportHandlers(): void {
 				format,
 			}: { data: Record<string, unknown>[]; format: "json" | "csv" },
 		) => {
-			// GT-A3-9: wrap the ENTIRE handler body (including
+			// Wrap the ENTIRE handler body (including
 			// `dialog.showSaveDialog`) in try/catch.
 			try {
 				// R6-F9: validate format against the allowlist BEFORE using it
@@ -287,11 +287,9 @@ export function registerExportHandlers(): void {
 							.map((v) => csvEscape(v))
 							.join(","),
 					);
-					atomicWriteFileSync(
-						filePath,
-						[header, ...csvRows].join("\n"),
-						"utf-8",
-					);
+					// Avoid spread-then-join (memory spike + V8 arg-count risk at 100k rows).
+					const body = csvRows.join("\n");
+					atomicWriteFileSync(filePath, `${header}\n${body}`, "utf-8");
 				} else {
 					atomicWriteFileSync(filePath, JSON.stringify(rows, null, 2), "utf-8");
 				}
@@ -312,7 +310,7 @@ export function registerExportHandlers(): void {
 				format,
 			}: { data: Record<string, unknown>; format: "json" | "csv" },
 		) => {
-			// GT-A3-9: wrap the ENTIRE handler body in try/catch.
+			// Wrap the ENTIRE handler body in try/catch.
 			try {
 				// R6-F9: validate format against the allowlist BEFORE using it
 				// in the dialog filter or the file path (same rationale as
@@ -376,7 +374,7 @@ export function registerExportHandlers(): void {
 	ipcMain.handle(
 		ExportChannels.templates,
 		async (_event, { data }: { data: unknown }) => {
-			// GT-A3-9: wrap the ENTIRE handler body in try/catch.
+			// Wrap the ENTIRE handler body in try/catch.
 			try {
 				// PVT-14: cap the entry count so a compromised renderer
 				// can't pin the CPU + disk on a fabricated 10M-entry
@@ -423,7 +421,7 @@ export function registerExportHandlers(): void {
 	ipcMain.handle(
 		ExportChannels.config,
 		async (_event, { data }: { data: unknown }) => {
-			// GT-A3-9: wrap the ENTIRE handler body in try/catch.
+			// Wrap the ENTIRE handler body in try/catch.
 			try {
 				// PVT-14: cap the serialized byte size so a compromised
 				// renderer can't pin the CPU + disk on a fabricated

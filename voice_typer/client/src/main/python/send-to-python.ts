@@ -195,6 +195,24 @@ export function _resetIpcBackpressure(): void {
 }
 
 /**
+ * Remove the per-renderer rate-limit entry for a single
+ * `webContents.id`. Called from `main-window.ts`'s `closed` handler
+ * (BEFORE `state.mainWindow` is nulled) so the
+ * `_rendererCallTimestamps` Map doesn't leak one entry per destroyed
+ * BrowserWindow.
+ *
+ * Safe to call with an id that has no entry (no-op — `Map.delete` on
+ * a missing key returns `false` and doesn't throw).
+ *
+ * Underscore-prefixed to signal "internal" — matches the existing
+ * `_resetIpcBackpressure` convention. Exported because the call site
+ * lives in `windows/main-window.ts`.
+ */
+export function _removeRendererFromBackpressure(webContentsId: number): void {
+	_rendererCallTimestamps.delete(webContentsId);
+}
+
+/**
  * Commands whose handlers are documented to block for the
  * full duration of a long operation (model download / import, large
  * vocabulary save). These keep the legacy 120s timeout so legitimate

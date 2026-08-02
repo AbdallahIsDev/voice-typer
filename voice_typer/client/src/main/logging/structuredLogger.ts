@@ -23,10 +23,9 @@
  *   - `formatLine` — local helper that renders a file-friendly line
  *     (ISO-8601 timestamp + level tag + JSON-stringified args).
  *
- * Imports: `fs`, `path`, Electron's `app`, and `appendLogLine` from
+ * Imports: `path`, Electron's `app`, and `appendLogLine` from
  * `./rotation`.
  */
-import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
 
@@ -336,89 +335,6 @@ export function rendererErrorsLogPath(): string {
 		}
 	}
 	return _rendererErrorsLogPath;
-}
-
-/**
- * GDPR Art. 17 erasure for the Electron main-process log files.
- *
- * The Python `service.delete_all_personal_data()` walks
- * `_GDPR_PERSONAL_FILES` / `_GDPR_PERSONAL_GLOBS` against the Python
- * backend's `_config_dir()` root only — it cannot reach Electron's
- * `app.getPath("userData")` (a DIFFERENT directory on disk). Per
- * the design contract, the Electron loggers have no PII redaction, so
- * dictated-text fragments may be present in these files.
- *
- * This helper unlinks every Electron-side log file the app writes:
- *
- *   * `<userData>/electron-main.log` (+ rotated `.1`..`.5` produced by
- *     `rotateIfNeeded` in `./rotation.ts`).
- *   * `<userData>/electron-renderer-errors.log` (no rotation — single
- *     file, overwritten by `appendLogLine` until the 5 MiB cap is
- *     reached, then truncated — but still unlinked here for symmetry).
- *
- * Returns an object the caller can merge into the Python
- * `delete_all_personal_data` response shape (erased / failed lists).
- *
- * Best-effort: per-file `OSError` (file locked by another process on
- * Windows, EBUSY on a rare mount point) is surfaced in `failed` rather
- * than aborting — matching the Python side's `for name in
- * _GDPR_PERSONAL_FILES: try path.unlink() except ...` discipline.
- *
- * NOT WIRED to an IPC handler yet — see `docs/privacy/gdpr-delete.md`
- * "Electron logs gap (known limitation)". The intended wiring
- * is a `deleteAllPersonalData` IPC handler that calls this helper AND
- * proxies to the Python `delete_all_personal_data` command, then
- * merges both responses for the renderer.
- */
-export function deleteElectronPersonalDataLogs(): {
-	erased: string[];
-	failed: Record<string, string>;
-} {
-	const erased: string[] = [];
-	const failed: Record<string, string> = {};
-	const userData = app.getPath("userData");
-	// Glob both the active log file and rotated backups. The rotation
-	// module writes `electron-main.log.1`..`electron-main.log.5` (5 MiB
-	// cap × 5 backups). `electron-renderer-errors.log` has no rotation
-	// (single file), but the glob `electron-renderer-errors.log*` also
-	// matches the bare name so a single loop covers both.
-	const candidates = [
-		...fs
-			.readdirSync(userData)
-			.filter(
-				(name) =>
-					name === "electron-main.log" ||
-					name.startsWith("electron-main.log.") ||
-					name === "electron-renderer-errors.log" ||
-					name.startsWith("electron-renderer-errors.log.") ||
-					// XE-20-3: electron-runtime.log (printfLogger's
-					// mainRuntimeLogger — every WARN/ERROR) and
-					// electron-lifecycle.log (appendLifecycleLine) were
-					// previously omitted, leaving up to ~12 MiB of
-					// PII-bearing log data after a GDPR erasure.
-					name === "electron-runtime.log" ||
-					name.startsWith("electron-runtime.log.") ||
-					name === "electron-lifecycle.log" ||
-					name.startsWith("electron-lifecycle.log."),
-			)
-			.map((name) => path.join(userData, name)),
-	];
-	for (const p of candidates) {
-		try {
-			fs.unlinkSync(p);
-			erased.push(p);
-		} catch (err) {
-			// ENOENT is a no-op (file already gone — fresh install, or
-			// a previous GDPR delete). Other errors surface in `failed`
-			// so the renderer can tell the user to delete the file
-			// manually (matches the Python side's "no silent swallows"
-			// rule).
-			if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
-				failed[p] = `${(err as Error).name}: ${(err as Error).message}`;
-			}
-		}
-	}
-	return { erased, failed };
 }
 
 /**

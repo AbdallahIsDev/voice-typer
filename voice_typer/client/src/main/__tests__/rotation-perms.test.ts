@@ -43,8 +43,8 @@ import type { MainState } from "../state";
 
 // Mock electron's `app` so structuredLogger / printfLogger module
 // imports don't blow up at module-load time. `appendLogLine` itself
-// does not touch `app`, but the barrel re-exports `logger` /
-// `deleteElectronPersonalDataLogs` which import `app` at module-load.
+// does not touch `app`, but the barrel re-exports `logger` which
+// imports `app` at module-load.
 vi.mock("electron", () => ({
 	app: {
 		getPath: () => "/tmp/vt-fr9-test-userdata",
@@ -65,7 +65,7 @@ function makeMockState(): MainState {
 		bubbleWindow: null,
 		pendingRequests: new Map(),
 		nextId: 1,
-		tcpBuffer: "",
+		tcpBuffer: Buffer.alloc(0),
 		pythonReady: false,
 		pythonExitedEarly: false,
 		heartbeatInterval: null,

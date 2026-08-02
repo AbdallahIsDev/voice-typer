@@ -46,7 +46,7 @@ function makeMockState(): MainState {
 		bubbleWindow: null,
 		pendingRequests: new Map(),
 		nextId: 1,
-		tcpBuffer: "",
+		tcpBuffer: Buffer.alloc(0),
 		pythonReady: false,
 		pythonExitedEarly: false,
 		heartbeatInterval: null,

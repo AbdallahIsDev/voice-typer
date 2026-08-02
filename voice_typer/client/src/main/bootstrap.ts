@@ -38,6 +38,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { app, crashReporter, dialog, session } from "electron";
+import { PROCESS_EXIT_BACKSTOP_MS } from "./constants";
 import { mainT } from "./i18n";
 import { DEFAULT_CRASH_LOG_MAX_BYTES, log, rotateIfNeeded } from "./logging";
 import { stopPython } from "./python";
@@ -478,13 +479,13 @@ function _productionExit(code: number): void {
 	} catch (e) {
 		log.error("[VT] app.quit() failed during production exit:", e);
 	}
-	// 2s backstop: if `app.quit()` doesn't actually exit the process
-	// within 2s (e.g. a `before-quit` handler called
-	// `event.preventDefault()` or the Python shutdown ack hangs),
-	// force-exit so the user isn't left with a zombie.
+	// Production-exit backstop: if `app.quit()` doesn't actually exit the
+	// process within `PROCESS_EXIT_BACKSTOP_MS` (e.g. a `before-quit`
+	// handler called `event.preventDefault()` or the Python shutdown ack
+	// hangs), force-exit so the user isn't left with a zombie.
 	setTimeout(() => {
 		process.exit(code);
-	}, 2000).unref();
+	}, PROCESS_EXIT_BACKSTOP_MS).unref();
 }
 
 //stores the dispose handle from the last `setupErrorHandlers` call so a
@@ -508,6 +509,21 @@ export function setupErrorHandlers(): void {
 	}).dispose;
 }
 
+// Idempotency guard for the `app.on("child-process-gone", ...)` handler.
+// Without this, a second `bootstrapRuntime()` call (tests via
+// `vi.resetModules()`, or a future defensive double-call site) would
+// stack a fresh listener, double-logging every GPU / utility-process
+// crash.
+let _childProcessGoneHandlerRegistered = false;
+
+export function _resetChildProcessGoneHandlerForTest(): void {
+	_childProcessGoneHandlerRegistered = false;
+}
+
+export function _childProcessGoneHandlerRegisteredForTest(): boolean {
+	return _childProcessGoneHandlerRegistered;
+}
+
 /**
  * Run all the one-shot runtime setup steps. Called once from
  * `app.whenReady()` in `index.ts`.
@@ -523,12 +539,20 @@ export function bootstrapRuntime(): void {
 	} catch (e) {
 		log.warn("[bootstrap] crashReporter.start failed (non-fatal):", e);
 	}
-	//surface child/GPU process crashes.
-	try {
-		app.on("child-process-gone", (_e: unknown, details: unknown) => {
-			log.error("child-process-gone", details);
-		});
-	} catch (e) {
-		log.warn("[bootstrap] child-process-gone handler failed:", e);
+	//surface child/GPU process crashes. Idempotency guard —
+	// `bootstrapRuntime()` may be invoked more than once (tests via
+	// `vi.resetModules()`, or a future defensive double-call site).
+	// Without the guard, each call would stack a fresh
+	// `app.on("child-process-gone", ...)` listener, double-logging
+	// every GPU / utility-process crash.
+	if (!_childProcessGoneHandlerRegistered) {
+		_childProcessGoneHandlerRegistered = true;
+		try {
+			app.on("child-process-gone", (_e: unknown, details: unknown) => {
+				log.error("child-process-gone", details);
+			});
+		} catch (e) {
+			log.warn("[bootstrap] child-process-gone handler failed:", e);
+		}
 	}
 }

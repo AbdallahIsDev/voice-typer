@@ -36,6 +36,7 @@ function MockBrowserWindow(): {
 		reload: ReturnType<typeof vi.fn>;
 	};
 	on: ReturnType<typeof vi.fn>;
+	once: ReturnType<typeof vi.fn>;
 	setIcon: ReturnType<typeof vi.fn>;
 	isDestroyed: () => boolean;
 	isVisible: () => boolean;
@@ -60,6 +61,7 @@ function MockBrowserWindow(): {
 			reload: vi.fn(),
 		},
 		on: vi.fn(),
+		once: vi.fn(),
 		setIcon: vi.fn(),
 		isDestroyed: () => false,
 		isVisible: () => true,

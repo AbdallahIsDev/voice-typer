@@ -26,6 +26,31 @@ export default defineConfig(({ command }) => ({
 					index: resolve(__dirname, "src/renderer/index.html"),
 					bubble: resolve(__dirname, "src/renderer/bubble.html"),
 				},
+				// keep in sync with electron.vite.config.ts —
+				// split react/react-dom, radix-ui, and @hugeicons/react
+				// into separate vendor chunks for parallel fetch + smaller
+				// per-chunk parse cost. See electron.vite.config.ts for
+				// the full rationale. This CI-only config MUST mirror the
+				// renderer section of electron.vite.config.ts so the CI
+				// client-build job produces byte-identical chunk layout
+				// to the local electron-vite build.
+				output: {
+					manualChunks: (moduleId: string) => {
+						if (
+							moduleId.includes("node_modules/react-dom/") ||
+							moduleId.includes("node_modules/react/")
+						) {
+							return "vendor-react";
+						}
+						if (moduleId.includes("node_modules/radix-ui/")) {
+							return "vendor-radix";
+						}
+						if (moduleId.includes("node_modules/@hugeicons/react/")) {
+							return "vendor-icons";
+						}
+						return undefined;
+					},
+				},
 			},
 		},
 		plugins: [react(), tailwind(), cspEmissionPlugin()],

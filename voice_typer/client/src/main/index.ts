@@ -43,6 +43,10 @@ import { registerIpcHandlers } from "./ipc";
 // persistence) instead of being lost in packaged builds where
 // `console.warn` has no terminal attached.
 import { BUBBLE_CLR, log, RESET, ts } from "./logging";
+// powerMonitor suspend/resume/on-battery handlers. Registered
+// after `app.whenReady()` (see call site below) — `powerMonitor` is
+// not usable before the app is ready.
+import { registerPowerMonitorHandlers } from "./power";
 import { startPython, stopPython } from "./python";
 import { ESCALATE_TIMER_MS, KILL_TIMER_MS } from "./python/stop-python";
 import {
@@ -113,6 +117,11 @@ let bubbleTestCleanup: (() => void) | null = null;
 app.whenReady().then(() => {
 	//SEC-029 nonce,  userData, SEC-012 CSP, SEC-021 error handlers.
 	bootstrapRuntime();
+	// register powerMonitor suspend/resume/on-battery
+	// listeners. Must run after `app.whenReady()` — powerMonitor
+	// is not usable before the app is ready. Idempotent: safe to
+	// call more than once (tests, future double-call sites).
+	registerPowerMonitorHandlers();
 
 	//pre-create the dashboard BrowserWindow IMMEDIATELY after
 	// bootstrapRuntime, BEFORE startPython(). Previously the window

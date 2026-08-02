@@ -242,7 +242,7 @@ export function relaunchApp(): void {
 		//reset the TCP line buffer so stale partial
 		// frames from the previous backend don't bleed into the
 		// next connection.
-		state.tcpBuffer = "";
+		state.tcpBuffer = Buffer.alloc(0);
 		state._tcpAuthed = false;
 		state.pythonReady = false;
 		state.pythonExitedEarly = false;
@@ -379,7 +379,7 @@ export function relaunchApp(): void {
 	// here for symmetry with the dev branch and with stop-python.ts).
 	_resetIpcBackpressure();
 	//reset the TCP line buffer (see dev branch above).
-	state.tcpBuffer = "";
+	state.tcpBuffer = Buffer.alloc(0);
 	state._tcpAuthed = false;
 	// R6-F6: clear the pending TCP retry timer so a stale
 	// `tryConnect()` doesn't fire during the brief exit window.

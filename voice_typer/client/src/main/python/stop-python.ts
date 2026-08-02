@@ -10,7 +10,7 @@
  * it here avoids the race where the 5s tick fires between
  * sendToPython("quit_app") and the socket actually closing.
  *
- *  (): idempotency guard. `stopPython()` is invoked from up
+ * Idempotency guard. `stopPython()` is invoked from up
  * to 4 distinct sites during a single circuit-breaker trip:
  *   1. `bootstrap.ts::onUncaught` / `onRejection` inline defensive call,
  *   2. `bootstrap.ts::_productionExit` (called by `exit(1)` from #1),
@@ -50,7 +50,7 @@
  *    Python sidecar; ``/T`` walks the toolhelp snapshot and reaps the
  *    whole tree. (The killTimer delay was kept at 3s — not extended
  *    to the 5-10s range the finding suggested — because
- *    ``xv-fa19-fixes.test.ts`` pins the 3s contract via
+ *    ``main-process-fixes.test.ts`` pins the 3s contract via
  *    ``vi.advanceTimersByTime(3000)``; extending it would require
  *    updating that test file, which is outside this task's owned
  *    files. The total grace — 3s killTimer + 3s escalate = 6s — is
@@ -76,7 +76,7 @@ import { _resetIpcBackpressure, sendToPython } from "./send-to-python";
 // premature "Python backend failed to start" dialog + `app.quit()`.
 import { clearTcpStartupTimeout } from "./tcp-connect";
 
-//(): idempotency state. `isStopping` is true while a stop
+// Idempotency state. `isStopping` is true while a stop
 // is in flight (between the top-of-function guard and either the
 // killTimer callback or the `.once('exit')` callback). `isStopped`
 // becomes true once shutdown is complete (Python exited or was
@@ -88,11 +88,11 @@ import { clearTcpStartupTimeout } from "./tcp-connect";
 // re-stoppable without requiring `start-python.ts` to know about the
 // flags.
 //
-//`_resetStopPythonFlagsForRestart()` is exported below.
+// `_resetStopPythonFlagsForRestart()` is exported below.
 let isStopping = false;
 let isStopped = false;
 
-//(): track the armed killTimer so we can clear any
+// Track the armed killTimer so we can clear any
 // previously-armed timer before setting a new one. The top-of-function
 // `isStopping` guard already prevents a second call from reaching the
 // `setTimeout` line, but this clear-before-set is defense-in-depth for
@@ -107,7 +107,7 @@ let armedKillTimer: ReturnType<typeof setTimeout> | null = null;
 //
 // ``KILL_TIMER_MS`` is the grace period after ``quit_app`` is sent
 // before SIGTERM / ``taskkill /T`` is sent. Kept at 3s for backward
-// compat with ``xv-fa19-fixes.test.ts`` (which pins the 3s contract);
+// compat with ``main-process-fixes.test.ts`` (which pins the 3s contract);
 // extending to 5-10s as the finding suggested would require updating
 // that test file (not in this task's owned files).
 //
@@ -157,7 +157,7 @@ function _treeKillWindows(pid: number, force: boolean): void {
 }
 
 export function stopPython() {
-	//(): idempotency guard. If a stop is already in
+	// Idempotency guard. If a stop is already in
 	// flight (`isStopping`) OR has already completed (`isStopped`),
 	// return immediately. This prevents the breaker-trip cascade
 	// (bootstrap onUncaught → _productionExit → index before-quit →
@@ -222,10 +222,10 @@ export function stopPython() {
 	//exited. (The  plan also called for `.unref()`-ing the
 	// timer in tcp-connect.ts, but that part is intentionally
 	// skipped — see tcp-connect.ts:33-61 for the full rationale
-	// and the xv-fa19-fixes.test.ts guard. The explicit clear
+	// and the main-process-fixes.test.ts guard. The explicit clear
 	// here is the belt-and-suspenders guarantee.)
 	clearTcpStartupTimeout();
-	//(): the top-of-function `isStopping` guard above
+	// The top-of-function `isStopping` guard above
 	// is what guarantees `quit_app` is sent at most once per stop
 	// cycle — a second call never reaches this line. The
 	// `.catch(() => {})` swallows the rejection that fires when
@@ -233,7 +233,7 @@ export function stopPython() {
 	// during the breaker-trip cascade).
 	sendToPython({ type: "quit_app" }).catch(() => {});
 
-	//(): guard against duplicate killTimer creation.
+	// Guard against duplicate killTimer creation.
 	// Clear any previously-armed timer before setting a new one.
 	// (Defense-in-depth — the `isStopping` guard at the top is the
 	// primary protection; this backstop covers a future code path
@@ -335,7 +335,7 @@ export function stopPython() {
 		// gone — previously this only flipped `isStopped`, causing
 		// will-quit to register a stale `.once("exit")` listener.
 		state.pythonProcess = null;
-		//(): Python exited gracefully — shutdown
+		// Python exited gracefully — shutdown
 		// is complete. Flip the flags so subsequent stopPython()
 		// calls are no-ops.
 		isStopping = false;
