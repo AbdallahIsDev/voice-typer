@@ -205,6 +205,7 @@ describe("loadurl-logging: main-window.ts loadURL Promise rejection is caught + 
 				on: vi.fn(),
 				send: vi.fn(),
 				toggleDevTools: vi.fn(),
+				setWindowOpenHandler: vi.fn(),
 			},
 			loadURL: vi.fn(loadURLImpl),
 			loadFile: vi.fn(loadFileImpl),

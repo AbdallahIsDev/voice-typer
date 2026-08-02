@@ -18,6 +18,11 @@
  *     Settings page's existing test suite (which passes after ).
  */
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@hugeicons/react", () => ({
@@ -230,7 +235,7 @@ describe("BG-16: PrivacySettingsSection Agree-to-All ConfirmDialog uses i18n key
 
 	it("opens the ConfirmDialog with the translated title + message when Agree to All is clicked", () => {
 		const config = makeConfig();
-		render(
+		renderWithProviders(
 			<PrivacySettingsSection
 				config={config}
 				updateConfig={() => {}}
@@ -268,11 +273,11 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 	});
 
 	it("ModelSettingsSection hides non-matching rows but keeps matching ones (Post-Processing)", () => {
-		// Filter for "auto" — should match "Auto-Punctuation" but not
+		// Filter for "auto" — should match "Auto Punctuation" but not
 		// "Transcription Language", "Text Cleanup", "Text Snippets",
 		// or "Vocabulary".
 		const isVisible = filterByLabel("auto");
-		render(
+		renderWithProviders(
 			<ModelSettingsSection
 				config={makeConfig()}
 				updateConfig={() => {}}
@@ -281,8 +286,8 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 			/>,
 		);
 
-		// "Auto-Punctuation" should be visible (matches "auto").
-		expect(screen.getByText("Auto-Punctuation")).toBeTruthy();
+		// "Auto Punctuation" should be visible (matches "auto").
+		expect(screen.getByText("Auto Punctuation")).toBeTruthy();
 		// "Text Cleanup" should NOT be visible (doesn't match "auto").
 		expect(screen.queryByText("Text Cleanup")).toBeNull();
 		// "Text Snippets" should NOT be visible.
@@ -294,7 +299,7 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 	it("ModelSettingsSection hides the entire section when no row matches", () => {
 		// Filter for a nonsense query that matches no row.
 		const isVisible = filterByLabel("zzzqqqxxxyyy999");
-		const { container } = render(
+		const { container } = renderWithProviders(
 			<ModelSettingsSection
 				config={makeConfig()}
 				updateConfig={() => {}}
@@ -303,7 +308,7 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 			/>,
 		);
 		// No Post-Processing / LLM Polishing content should be rendered.
-		expect(screen.queryByText("Auto-Punctuation")).toBeNull();
+		expect(screen.queryByText("Auto Punctuation")).toBeNull();
 		expect(screen.queryByText("API Key")).toBeNull();
 		// The container should be effectively empty (no SettingsSection
 		// blocks rendered).
@@ -315,7 +320,7 @@ describe("BG-55: per-row search filtering in Settings sections", () => {
 		// (label = "HuggingFace model downloads") but not the other
 		// consent rows.
 		const isVisible = filterByLabel("huggingface");
-		render(
+		renderWithProviders(
 			<PrivacySettingsSection
 				config={makeConfig()}
 				updateConfig={() => {}}
@@ -344,7 +349,7 @@ describe("BG-98: ModelSettingsSection uses i18n key for redacted API key placeho
 		// Enable LLM polish so the API Key row renders, and set the key
 		// to the backend's redaction sentinel so the placeholder branch
 		// is taken.
-		render(
+		renderWithProviders(
 			<ModelSettingsSection
 				config={makeConfig({
 					llm_polish: true,
@@ -368,7 +373,7 @@ describe("BG-98: ModelSettingsSection uses i18n key for redacted API key placeho
 	});
 
 	it("renders the regular placeholder from t('settings.apiKeyPlaceholder') when llm_api_key is empty", () => {
-		render(
+		renderWithProviders(
 			<ModelSettingsSection
 				config={makeConfig({
 					llm_polish: true,

@@ -67,6 +67,18 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+/**
+ * Page-level render helper. Pages like Settings mount Radix Tooltip
+ * (via SettingRow / ui primitives); the real App shell wraps everything
+ * in a TooltipProvider (App.tsx), so tests mounting pages directly must
+ * provide one too — otherwise every Tooltip render throws "Tooltip must
+ * be used within TooltipProvider" and the page mounts empty.
+ */
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ─── Hoisted mock state ────────────────────────────────────────────────
@@ -117,12 +129,14 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		// Icons used by About.tsx + Settings.tsx (and transitive children).
 		Alert02Icon: make("Alert02Icon"),
 		ArrowDown01Icon: make("ArrowDown01Icon"),
+		ArrowTurnBackwardIcon: make("ArrowTurnBackwardIcon"),
 		ArrowUp01Icon: make("ArrowUp01Icon"),
 		Book02Icon: make("Book02Icon"),
 		Bug02Icon: make("Bug02Icon"),
 		Cancel01Icon: make("Cancel01Icon"),
 		CheckmarkCircle01Icon: make("CheckmarkCircle01Icon"),
 		Delete01Icon: make("Delete01Icon"),
+		Delete02Icon: make("Delete02Icon"),
 		Download01Icon: make("Download01Icon"),
 		File02Icon: make("File02Icon"),
 		Folder02Icon: make("Folder02Icon"),
@@ -357,7 +371,7 @@ describe("About page — updates / help / feedback sections (RW-1 port)", () => 
 			}
 		});
 
-		// Stub global.fetch — the About page auto-checks
+		// Stub global.fetch — the updates section auto-checks
 		// LATEST_RELEASE_API on mount and again when the
 		// "Check for Updates" button is clicked. Capture the
 		// URL so we can assert the right endpoint is hit.
@@ -368,6 +382,23 @@ describe("About page — updates / help / feedback sections (RW-1 port)", () => 
 			}),
 		) as unknown as typeof fetch;
 	});
+
+	/** The updates / diagnostics sections moved from the About page to the
+	 *  Settings page's Privacy tab (Settings.tsx renders
+	 *  PrewarmAndUpdates + TroubleshootingSettingsSection there). Mount
+	 *  Settings and switch to the Privacy tab. */
+	async function renderSettingsPrivacy() {
+		const { default: SettingsPage } = await import("@/pages/Settings");
+		renderWithProviders(<SettingsPage />);
+		await waitFor(() => {
+			expect(screen.getByText("Appearance")).toBeTruthy();
+		});
+		fireEvent.click(screen.getByText("Privacy"));
+		// Give the Privacy-tab sections a beat to mount.
+		await waitFor(() => {
+			expect(screen.getByText(/Check for Updates/i)).toBeTruthy();
+		});
+	}
 
 	afterEach(() => {
 		cleanup();
@@ -383,39 +414,24 @@ describe("About page — updates / help / feedback sections (RW-1 port)", () => 
 		// Behavioral: the "Check for Updates" button is rendered
 		// as visible text, and clicking it triggers a fetch()
 		// to the canonical GitHub releases API URL.
-		render(<AboutPage />);
-
-		// Wait for the About page heading to appear (initial
-		// mount + IPC fetches).
+		renderSettingsPrivacy();
 		await waitFor(() => {
 			expect(
 				screen.getByRole("button", { name: /check for updates/i }),
 			).toBeTruthy();
 		});
 
-		// The auto-check on mount already called fetch once with
-		// the LATEST_RELEASE_API URL. Assert the URL was hit.
+		// Production deliberately REMOVED the auto-firing check on mount
+		// (PrewarmAndUpdates.tsx — the offline-first guarantee: the only
+		// network call is the explicit manual click). Assert no fetch
+		// happened yet, then click and assert the URL is hit.
 		const fetchMock = (
 			globalThis as unknown as { fetch: ReturnType<typeof vi.fn> }
 		).fetch;
-		expect(fetchMock).toHaveBeenCalled();
-		const calledUrls = fetchMock.mock.calls.map(
-			(args: unknown[]) => args[0] as RequestInfo | URL,
-		);
-		const calledUrlStrings = calledUrls.map((u) =>
-			typeof u === "string" ? u : u.toString(),
-		);
-		expect(
-			calledUrlStrings.some((u) =>
-				u.includes(
-					"api.github.com/repos/AbdallahIsDev/voice-typer/releases/latest",
-				),
-			),
-		).toBe(true);
+		expect(fetchMock).not.toHaveBeenCalled();
 
-		// Click the manual "Check for Updates" button → another
-		// fetch fires against the same URL.
-		fetchMock.mockClear();
+		// Click the manual "Check for Updates" button → a fetch fires
+		// against the canonical LATEST_RELEASE_API URL.
 		fireEvent.click(screen.getByRole("button", { name: /check for updates/i }));
 		await waitFor(() => {
 			expect(fetchMock).toHaveBeenCalled();
@@ -434,7 +450,7 @@ describe("About page — updates / help / feedback sections (RW-1 port)", () => 
 		// Behavioral: anchor links to README.md and CHANGELOG.md
 		// are rendered as <a href="...README.md"> and
 		// <a href="...CHANGELOG.md">.
-		render(<AboutPage />);
+		renderWithProviders(<AboutPage />);
 
 		// Wait for any section to mount.
 		await waitFor(() => {
@@ -455,7 +471,7 @@ describe("About page — updates / help / feedback sections (RW-1 port)", () => 
 		//
 		// Behavioral: an anchor with visible text matching
 		// /Report a (Bug|Issue)/ points at the GitHub issues URL.
-		render(<AboutPage />);
+		renderWithProviders(<AboutPage />);
 
 		await waitFor(() => {
 			expect(
@@ -503,7 +519,7 @@ describe("Settings page — Troubleshooting section (RW-1 port)", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		render(<SettingsPage />);
+		renderWithProviders(<SettingsPage />);
 
 		// Wait for the page to load — the General tab label is
 		// always visible once config loads.
@@ -568,7 +584,7 @@ describe("Settings page — Troubleshooting section (RW-1 port)", () => {
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		render(<SettingsPage />);
+		renderWithProviders(<SettingsPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("Appearance")).toBeTruthy();
@@ -643,7 +659,7 @@ describe("About & Settings — voice biometric consent disclosure (RW-1 port)", 
 			}),
 		) as unknown as typeof fetch;
 
-		render(<AboutPage />);
+		renderWithProviders(<AboutPage />);
 
 		await waitFor(() => {
 			expect(screen.getAllByText(/voice biometrics/i).length).toBeGreaterThan(
@@ -678,7 +694,7 @@ describe("About & Settings — voice biometric consent disclosure (RW-1 port)", 
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		render(<SettingsPage />);
+		renderWithProviders(<SettingsPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("Appearance")).toBeTruthy();
@@ -724,7 +740,7 @@ describe("About & Settings — voice biometric consent disclosure (RW-1 port)", 
 		});
 
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		render(<SettingsPage />);
+		renderWithProviders(<SettingsPage />);
 
 		await waitFor(() => {
 			expect(screen.getByText("Appearance")).toBeTruthy();
@@ -856,7 +872,7 @@ describe("Models page — cloud consent toggles (RW-1 port)", () => {
 			return Promise.resolve(makeConfig(config));
 		});
 
-		render(<ModelsPage />);
+		renderWithProviders(<ModelsPage />);
 
 		await waitFor(() => {
 			expect(

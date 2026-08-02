@@ -364,6 +364,7 @@ export function HotkeyPicker({
 				// narrow widths).
 				<div
 					className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400"
+					role="status"
 					aria-live="polite"
 					data-testid="sr-conflict-warning"
 				>

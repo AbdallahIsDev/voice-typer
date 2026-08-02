@@ -114,10 +114,18 @@ class TestNarrowedExceptionHandlers:
 
     def test_recorder_rec1_join_catches_runtime_error(self):
         """``pre_thread.join()`` on an un-started thread raises
-        ``RuntimeError`` — the REC-1 wrapper catches it."""
+        ``RuntimeError`` — the REC-1 wrapper catches it, narrowed to
+        RuntimeError only. Both XS-36-approved forms are accepted:
+        ``except RuntimeError:`` or ``contextlib.suppress(RuntimeError)``
+        (the latter is what the file's docstring endorses for this
+        site)."""
         import inspect
 
         from voice_typer.server.recording.recorder import Recorder
 
         src = inspect.getsource(Recorder._start_audio_worker)
-        assert "except RuntimeError:" in src, "REC-1 wrapper should catch RuntimeError from pre_thread.join()"
+        assert "except RuntimeError:" in src or "contextlib.suppress(RuntimeError)" in src, (
+            "REC-1 wrapper should catch RuntimeError from pre_thread.join() — "
+            "use a RuntimeError-narrowed handler (except RuntimeError: or "
+            "contextlib.suppress(RuntimeError)), not a broad except Exception"
+        )

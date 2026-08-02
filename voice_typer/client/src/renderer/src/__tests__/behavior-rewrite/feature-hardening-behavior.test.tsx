@@ -30,6 +30,18 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+/**
+ * Page-level render helper. Pages like Settings mount Radix Tooltip
+ * (via SettingRow / ui primitives); the real App shell wraps everything
+ * in a TooltipProvider (App.tsx), so tests mounting pages directly must
+ * provide one too — otherwise every Tooltip render throws "Tooltip must
+ * be used within TooltipProvider" and the page mounts empty.
+ */
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mock state hoisted before vi.mock factories run ─────────────────
@@ -145,6 +157,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		CheckmarkCircle02Icon: make("CheckmarkCircle02Icon"),
 		Copy01Icon: make("Copy01Icon"),
 		Delete01Icon: make("Delete01Icon"),
+		Delete02Icon: make("Delete02Icon"),
 		Download01Icon: make("Download01Icon"),
 		File02Icon: make("File02Icon"),
 		FilterIcon: make("FilterIcon"),
@@ -506,7 +519,11 @@ describe("Settings — RW-1 rewrite of test_settings_uses_shared_hook", () => {
 		).window_ = {
 			openLogs: vi.fn(() => Promise.resolve({ success: true })),
 		};
-		mockCall.mockImplementation((type: string) => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
 			if (type === "get_config") return Promise.resolve(baseConfig);
 			if (type === "set_config") return Promise.resolve({ success: true });
 			return Promise.resolve({});
@@ -528,7 +545,7 @@ describe("Settings — RW-1 rewrite of test_settings_uses_shared_hook", () => {
 
 	it("calls showSnack via the shared useSnackbar hook when 'Open Log Folder' succeeds (delegates to sonner.toast.success, not inline state)", async () => {
 		const { default: SettingsPage } = await import("@/pages/Settings");
-		render(<SettingsPage />);
+		renderWithProviders(<SettingsPage />);
 
 		// Wait for the Settings page to load (the tab labels render once
 		// get_config returns).
@@ -566,7 +583,11 @@ describe("Microphone — RW-1 rewrite of test_microphone_uses_shared_snackbar_ho
 	beforeEach(() => {
 		mockCall.mockReset();
 		installPythonBridgeMock();
-		mockCall.mockImplementation((type: string) => {
+		mockCall.mockImplementation((arg: unknown) => {
+			const type =
+				typeof arg === "string"
+					? arg
+					: ((arg as { type?: string })?.type ?? "");
 			if (type === "get_microphones") return Promise.resolve([]);
 			if (type === "get_config") return Promise.resolve(baseConfig);
 			if (type === "set_config") return Promise.resolve({ success: true });

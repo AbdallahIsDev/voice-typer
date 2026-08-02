@@ -24,6 +24,7 @@ Pytest fixtures provided:
                                        server tests are self-contained)
 """
 
+import dataclasses
 import sys
 import threading
 from unittest.mock import MagicMock
@@ -59,15 +60,37 @@ from voice_typer.server.tray import AppState  # noqa: E402
 # ── Mock helper classes ─────────────────────────────────────────────────
 
 
+@dataclasses.dataclass
 class MockConfig:
-    """Minimal config mock with __dict__ and save()."""
+    """Minimal config mock with __dict__ and save().
 
-    def __init__(self):
-        self.hotkey = "<f2>"
-        self.model_size = "small.en"
-        self.device = "cuda"
-        self.language = "en"
-        self._saved = False
+    A real ``@dataclass`` (not a plain class) because the IPC
+    ``get_config`` path sanitizes via ``dataclasses.asdict()``
+    (config_sanitizer.sanitize_config_for_ipc) — a plain-class double
+    raises ``TypeError: asdict() should be called on dataclass
+    instances``. Extra attributes the production Config has (API keys,
+    paths, ...) resolve to None via ``__getattr__``.
+    """
+
+    hotkey: str = "<f2>"
+    model_size: str = "small.en"
+    device: str = "cuda"
+    language: str = "en"
+    # Secret/credential + path fields the sanitizer redacts — declared
+    # as real fields so ``dataclasses.asdict`` includes them (the
+    # redaction tests assert the redacted sentinel appears in the
+    # get_config payload).
+    cloud_api_key: str | None = None
+    cloud_api_url: str | None = None
+    cloud_model: str | None = None
+    openai_api_key: str | None = None
+    groq_api_key: str | None = None
+    deepgram_api_key: str | None = None
+    llm_api_key: str | None = None
+    qwen_model_path: str | None = None
+    parakeet_model_path: str | None = None
+    corrections_path: str | None = None
+    _saved: bool = False
 
     def save(self):
         self._saved = True

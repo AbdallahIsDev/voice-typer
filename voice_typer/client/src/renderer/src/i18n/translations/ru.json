@@ -178,7 +178,8 @@
 		},
 		"stopPlaybackFirst": "Остановите воспроизведение аудио перед началом нового теста",
 		"loadFailedDescription": "Не удалось загрузить список микрофонов. Проверьте подключение и попробуйте снова.",
-		"selected": "Выбран"
+		"selected": "Выбран",
+		"useAria": "Использовать микрофон — {name}"
 	},
 	"vocabulary": {
 		"title": "Пользовательский словарь",
@@ -261,7 +262,9 @@
 		"loadFailedDescription": "Не удалось загрузить словарь из бэкенда. Проверьте подключение и попробуйте снова.",
 		"showMore": "Показать ещё",
 		"showingCap": "Показано {shown} из {total}",
-		"vocabularyCleared": "Словарь очищен"
+		"vocabularyCleared": "Словарь очищен",
+		"clearAllToast": "Словарь очищен",
+		"clearAllFailed": "Не удалось очистить словарь"
 	},
 	"templates": {
 		"title": "Шаблоны",
@@ -329,7 +332,8 @@
 		"importInvalidShape": "Файл не содержит массив шаблонов",
 		"loadFailedDescription": "Не удалось загрузить шаблоны из бэкенда. Проверьте подключение и попробуйте снова.",
 		"showMore": "Показать ещё",
-		"showingCap": "Показано {shown} из {total}"
+		"showingCap": "Показано {shown} из {total}",
+		"unknownVariableWarning": "Неизвестная переменная {vars} — поддерживаются: {today}, {now}, {clipboard}, {username}"
 	},
 	"analytics": {
 		"title": "Аналитика",

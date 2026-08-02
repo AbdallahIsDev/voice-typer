@@ -41,6 +41,7 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -431,7 +432,82 @@ def _read_process_cmdline_windows_wmi(pid: int) -> str | None:
         return None
 
 
+# ─── DJ-47: TTL-memoized PID-is-prewarm check ─────────────────────────────
+#
+# ``_process_is_prewarm`` is called from ``is_prewarm_running()`` (model
+# load path) and ``get_prewarm_status()`` (the About-page UI polls the
+# status IPC handler at ~1 Hz). Each call re-walks the target process's
+# PEB (Windows) or re-reads ``/proc/{pid}/cmdline`` (Linux) to verify the
+# live PID is actually prewarm — ~1-5 ms per call that adds up to a
+# constant CPU drain on the IPC handler under polling.
+#
+# Memoize results for ``_PREWARM_PID_CHECK_TTL_S`` (5 s) keyed on
+# ``(pid, pid_file_fingerprint)`` where the fingerprint is the PID file's
+# ``(mtime_ns, ino, size)``. The PID file is the source of truth: once a
+# PID is verified (or not) as prewarm, trust the answer for 5 s. If the
+# PID file is rewritten (a new prewarm run starts with a new PID), the
+# mtime+inode change flips the key and forces a re-check immediately.
+# A missing PID file fingerprints as ``None`` (also part of the key), so
+# a PID file appearing mid-poll likewise forces a re-check.
+_PREWARM_PID_CHECK_TTL_S: float = 5.0
+
+# Cache: ``(pid, pid_file_fingerprint) -> (monotonic_deadline, result)``.
+# Bounded in practice — keys are live PIDs (a handful at most); the TTL
+# also bounds the entry lifetime so stale entries never accumulate.
+_prewarm_pid_check_cache: dict[tuple[int, tuple[int, int, int] | None], tuple[float, bool]] = {}
+_prewarm_pid_check_lock = threading.Lock()
+
+
+def _pid_file_fingerprint() -> tuple[int, int, int] | None:
+    """Return the prewarm PID file's ``(mtime_ns, ino, size)``, or None.
+
+    ``None`` means "no PID file" (no prewarm run in flight) and is part
+    of the DJ-47 cache key so the cache distinguishes "file absent" from
+    "file present at fingerprint X".
+    """
+    try:
+        pid_file = _pkg._pid_file_path()
+        if not pid_file.exists():
+            return None
+        st = pid_file.stat()
+        return (st.st_mtime_ns, st.st_ino, st.st_size)
+    except OSError:
+        return None
+
+
+def _invalidate_prewarm_pid_check_cache() -> None:
+    """Clear the DJ-47 ``_process_is_prewarm`` memoization cache."""
+    with _prewarm_pid_check_lock:
+        _prewarm_pid_check_cache.clear()
+
+
 def _process_is_prewarm(pid: int) -> bool:
+    """Memoized wrapper around :func:`_process_is_prewarm_uncached`.
+
+    DJ-47: caches the platform check for ``_PREWARM_PID_CHECK_TTL_S``
+    seconds keyed on ``(pid, pid_file_fingerprint)`` (see the module
+    block above). ``pid <= 0`` short-circuits to ``False`` without
+    touching the cache (an obviously-invalid PID isn't worth caching).
+
+    The uncached check is looked up at call time so tests can patch
+    ``process_tracker._process_is_prewarm_uncached`` and observe whether
+    the wrapper re-invokes the platform check or serves a cached result.
+    """
+    if pid <= 0:
+        return False
+    key = (pid, _pid_file_fingerprint())
+    now = time.monotonic()
+    with _prewarm_pid_check_lock:
+        cached = _prewarm_pid_check_cache.get(key)
+        if cached is not None and now - cached[0] < _PREWARM_PID_CHECK_TTL_S:
+            return cached[1]
+    result = _process_is_prewarm_uncached(pid)
+    with _prewarm_pid_check_lock:
+        _prewarm_pid_check_cache[key] = (time.monotonic(), result)
+    return result
+
+
+def _process_is_prewarm_uncached(pid: int) -> bool:
     """Best-effort check that ``pid`` is actually a prewarm process.
 
     ADR-0009 Issue 4 (review fix H4) + Tasks 1+2: after prewarm exits

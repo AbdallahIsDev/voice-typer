@@ -61,18 +61,26 @@ class TestWindowsManifestAsInvoker:
     that state.
     """
 
-    def test_manifest_file_exists(self):
-        manifest = Path(__file__).resolve().parent.parent.parent / "scripts" / "build" / "voice-typer.manifest"
-        assert manifest.exists(), "PLAT-037: voice-typer.manifest must exist in scripts/build/."
+    def test_manifest_source_is_embedded_in_spec(self):
+        # TX-36: the standalone scripts/build/voice-typer.manifest file
+        # was REMOVED — its XML drifted from the .spec's copy. The .spec
+        # now inlines the manifest XML as the single source of truth and
+        # writes it to a temp file for PyInstaller. Verify the inlined
+        # source is present in the .spec (the build-time manifest source).
+        spec = Path(__file__).resolve().parent.parent.parent / "scripts" / "build" / "voice-typer.spec"
+        content = spec.read_text()
+        assert "requestedExecutionLevel level=\"asInvoker\"" in content, (
+            "PLAT-037: the .spec's inlined manifest must declare requestedExecutionLevel asInvoker."
+        )
 
     def test_manifest_declares_as_invoker(self):
-        # KEEP — pins  (manifest declares asInvoker).
+        # KEEP — pins the asInvoker declaration.
         # A behavioral test would need to inspect the embedded manifest
-        # in a built .exe (heavy Windows-only); the file-content check
+        # in a built .exe (heavy Windows-only); the content check
         # catches removal of the asInvoker declaration directly.
 
-        manifest = Path(__file__).resolve().parent.parent.parent / "scripts" / "build" / "voice-typer.manifest"
-        content = manifest.read_text()
+        spec = Path(__file__).resolve().parent.parent.parent / "scripts" / "build" / "voice-typer.spec"
+        content = spec.read_text()
         assert 'requestedExecutionLevel level="asInvoker"' in content, (
             "PLAT-037: manifest must declare requestedExecutionLevel asInvoker."
         )

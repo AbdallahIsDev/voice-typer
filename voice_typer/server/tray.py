@@ -375,6 +375,12 @@ class TrayIcon:
         """
         if not self._bg_work_fn:
             return
+        # daemon=True is acceptable because the background work
+        # (microphone polling, prewarm status refresh, etc.) has no
+        # critical cleanup: a force-kill leaves no locks or partial
+        # files, and the OS reclaims the thread on process exit. The
+        # main thread's pystray event loop + `stop()` handle orderly
+        # shutdown independently.
         self._bg_thread = threading.Thread(target=self._bg_work_fn, daemon=True)
         self._bg_thread.start()
 

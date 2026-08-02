@@ -380,6 +380,14 @@ KNOWN_UNDOCUMENTED_COMMANDS: frozenset[str] = frozenset(
         # only the ADR documentation + ``_validate_dict_payload``
         # schema + dispatch-errors test (option (b) above).
         "test_cloud_connection",
+        # XZ-SEC-05: ``add_trusted_endpoint`` — adds a hostname to the
+        # runtime URL allowlist + persists it to config.json under
+        # ``trusted_extra_hosts`` (self-hosted LLM/ASR endpoint
+        # remediation). Python handler: ``ConfigHandlersMixin`` in
+        # ``handlers/config_handlers.py``. Added without a formal
+        # ADR-0020 §16 addendum; tracked as a known gap pending the next
+        # ADR refresh (mirrors test_cloud_connection).
+        "add_trusted_endpoint",
     }
 )
 

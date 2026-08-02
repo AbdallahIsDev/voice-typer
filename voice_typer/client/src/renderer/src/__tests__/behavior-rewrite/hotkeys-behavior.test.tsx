@@ -46,6 +46,18 @@
  * all platforms.
  */
 import { cleanup, render } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+/**
+ * Page-level render helper. Pages like Settings mount Radix Tooltip
+ * (via SettingRow / ui primitives); the real App shell wraps everything
+ * in a TooltipProvider (App.tsx), so tests mounting pages directly must
+ * provide one too — otherwise every Tooltip render throws "Tooltip must
+ * be used within TooltipProvider" and the page mounts empty.
+ */
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 import {
 	afterEach,
 	beforeAll,
@@ -293,11 +305,11 @@ describe("RW-1: validateHotkey is exported and callable (rewrite of test_validat
 	});
 });
 
-// ── test_dictation_key_uses_hotkey_picker_combo_mode ───────────────────────
+// ── test_dictation_key_uses_hotkey_picker_single_mode ──────────────────────
 
-describe('RW-1: dictation key HotkeyPicker uses mode="combo" with DICTATION_KEY_PRESETS (rewrite of test_dictation_key_uses_hotkey_picker_combo_mode)', () => {
-	it('renders the dictation-key HotkeyPicker with mode="combo"', () => {
-		render(
+describe('RW-1: dictation key HotkeyPicker uses mode="single" with raw single-key presets (rewrite of test_dictation_key_uses_hotkey_picker_combo_mode)', () => {
+	it('renders the dictation-key HotkeyPicker with mode="single"', () => {
+		renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({ hotkey: "<caps_lock>" })}
 				updateConfig={() => {}}
@@ -312,13 +324,17 @@ describe('RW-1: dictation key HotkeyPicker uses mode="combo" with DICTATION_KEY_
 			(p) => p.value === "<caps_lock>",
 		);
 		expect(dictationPicker).toBeTruthy();
-		// Original Python invariant: `'mode="combo"' in recording`.
-		// Behavioural: the rendered HotkeyPicker instance has mode="combo".
-		expect(dictationPicker?.mode).toBe("combo");
+		// Production deliberately moved the dictation picker to
+		// mode="single" (see RecordingSettingsSection.tsx): the old
+		// combo mode reintroduced the `<shift>` hazard (Shift is held
+		// for capitalization — dictation would fire on every uppercase
+		// letter) and violated the single-key-only promise of the
+		// dropdown. The repaste picker remains combo mode.
+		expect(dictationPicker?.mode).toBe("single");
 	});
 
-	it("passes DICTATION_KEY_PRESETS as the dictation picker's presets prop", () => {
-		render(
+	it("passes the single-key presets as the dictation picker's presets prop", () => {
+		renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({ hotkey: "<caps_lock>" })}
 				updateConfig={() => {}}
@@ -338,21 +354,27 @@ describe('RW-1: dictation key HotkeyPicker uses mode="combo" with DICTATION_KEY_
 		expect(dictationPicker?.presets).toBeDefined();
 		expect(dictationPicker?.presets?.length).toBeGreaterThan(0);
 		const presetValues = (dictationPicker?.presets ?? []).map((p) => p.value);
-		// The safe single-key presets from DICTATION_KEY_PRESETS, derived
-		// from ``getSingleKeyPresets()`` (platform-aware). On Windows the
-		// list is ``<caps_lock>``, ``<alt>``, ``<ctrl>`` (no ``<shift>``
-		// — it would fire on every capital letter). On macOS an extra
-		// ``<fn>`` entry is appended. Assert the Windows baseline set.
-		expect(presetValues).toContain("<caps_lock>");
-		expect(presetValues).toContain("<ctrl>");
-		expect(presetValues).toContain("<alt>");
+		// Single mode strips angle brackets before matching, so the
+		// preset values are the RAW key names: ``caps_lock``, ``alt``,
+		// ``ctrl`` (no ``shift`` — it would fire on every capital
+		// letter). On macOS an extra ``fn`` entry is appended. Assert
+		// the Windows baseline set (raw form, no <...> wrappers).
+		expect(presetValues).toContain("caps_lock");
+		expect(presetValues).toContain("ctrl");
+		expect(presetValues).toContain("alt");
+		// No value should be angle-bracket wrapped (single mode passes
+		// raw key names; the picker re-adds brackets on selection).
+		for (const v of presetValues) {
+			expect(v).not.toMatch(/^</);
+		}
 	});
 
-	it('also renders the repaste-key HotkeyPicker with mode="combo"', () => {
-		// Defense-in-depth: both pickers are combo-mode (the Python
-		// test asserted `mode="combo"` was present in source; both
-		// pickers contribute that string, so both must be combo).
-		render(
+	it('renders the repaste-key HotkeyPicker with mode="combo" (unchanged)', () => {
+		// The repaste picker stays combo-mode (multi-key combos like
+		// Ctrl+Shift+V are valid for repaste). Assert exactly one
+		// combo-mode instance (repaste) alongside the single-mode
+		// dictation picker.
+		renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({
 					hotkey: "<caps_lock>",
@@ -364,7 +386,9 @@ describe('RW-1: dictation key HotkeyPicker uses mode="combo" with DICTATION_KEY_
 			/>,
 		);
 		const allCombos = hotkeyPickerInstances.filter((p) => p.mode === "combo");
-		expect(allCombos.length).toBeGreaterThanOrEqual(2);
+		expect(allCombos.length).toBeGreaterThanOrEqual(1);
+		const singles = hotkeyPickerInstances.filter((p) => p.mode === "single");
+		expect(singles.length).toBeGreaterThanOrEqual(1);
 	});
 });
 
@@ -372,7 +396,7 @@ describe('RW-1: dictation key HotkeyPicker uses mode="combo" with DICTATION_KEY_
 
 describe("RW-1: old F2–F12 dropdown is removed (rewrite of test_old_f2_f12_dropdown_removed)", () => {
 	it("does NOT offer F2–F12 as dictation-key preset values", () => {
-		render(
+		renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({ hotkey: "<caps_lock>" })}
 				updateConfig={() => {}}
@@ -403,7 +427,7 @@ describe("RW-1: old F2–F12 dropdown is removed (rewrite of test_old_f2_f12_dro
 		// The old dropdown was a <Select> (shadcn) with F2..F12 options.
 		// Even if a future refactor re-introduces a <select> for some
 		// other setting, none of its <option> children should be F2-F12.
-		const { container } = render(
+		const { container } = renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({ hotkey: "<caps_lock>" })}
 				updateConfig={() => {}}
@@ -423,7 +447,7 @@ describe("RW-1: old F2–F12 dropdown is removed (rewrite of test_old_f2_f12_dro
 		// "F3", etc. as labels.  A regression that re-introduces
 		// F-key labels (even with non-F-key values) would also be
 		// caught here.
-		render(
+		renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({ hotkey: "<caps_lock>" })}
 				updateConfig={() => {}}
@@ -453,7 +477,7 @@ describe("RW-1: repaste hotkey is NOT editable via a free-text <input> (rewrite 
 		// <input> element in the rendered DOM has its `value` (or
 		// `defaultValue`) attribute/property equal to the
 		// repaste_hotkey string.
-		const { container } = render(
+		const { container } = renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({
 					repaste_hotkey: "<ctrl>+<alt>+v",
@@ -483,7 +507,7 @@ describe("RW-1: repaste hotkey is NOT editable via a free-text <input> (rewrite 
 		// `repaste_hotkey`, and its onChange propagates as
 		// `{ repaste_hotkey: <new> }`.
 		const updateConfig = vi.fn();
-		render(
+		renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({
 					repaste_hotkey: "<ctrl>+<alt>+v",
@@ -540,7 +564,7 @@ describe("RW-1: RecordingSettingsSection HotkeyPicker wiring (defense-in-depth)"
 		// swapped <Input> for <textarea> would slip past.  Behavioural
 		// guard: no <textarea> has its value/defaultValue equal to
 		// the repaste_hotkey either.
-		const { container } = render(
+		const { container } = renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({
 					repaste_hotkey: "<ctrl>+<alt>+v",
@@ -559,7 +583,7 @@ describe("RW-1: RecordingSettingsSection HotkeyPicker wiring (defense-in-depth)"
 
 	it("routes dictation-key edits through HotkeyPicker.onChange → updateConfig({ hotkey })", () => {
 		const updateConfig = vi.fn();
-		render(
+		renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({ hotkey: "<caps_lock>" })}
 				updateConfig={updateConfig}

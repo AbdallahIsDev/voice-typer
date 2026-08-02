@@ -728,6 +728,15 @@ class Config:
     # backend-managed state, not a renderer-writable setting.
     disabled_backends: list[str] = field(default_factory=list)
 
+    # XZ-SEC-05: user-configured URL-allowlist extensions for self-hosted
+    # LLM/ASR endpoints on non-loopback hosts (e.g. ``my-vllm.lan``).
+    # Hostnames are normalized (lowercase, port stripped) and fed into
+    # ``_secrets.extend_url_allowlist`` on every ``Config.load()`` and on
+    # ``set_config`` (see ``Config.load`` + the ``config_handlers``
+    # mixin). Hosts remain subject to the SSRF IP-literal blocklist and
+    # the DNS-rebinding check in ``_secrets.assert_url_allowed``.
+    trusted_extra_hosts: list[str] = field(default_factory=list)
+
     # Text cleanup
     text_cleanup_enabled: bool = True  # Set False for raw (uncorrected) output
 
@@ -1948,6 +1957,24 @@ class Config:
                         instance.last_load_warnings.append(
                             "post-migration save failed — migrations will re-run on next launch"
                         )
+
+            # XZ-SEC-05: re-apply user-configured trusted hosts to the
+            # runtime URL allowlist. The persisted ``trusted_extra_hosts``
+            # list is the config.json-driven path for self-hosted
+            # LLM/ASR endpoints (the env-var bootstrap in ``_secrets.py``
+            # covers the process-startup path). Best-effort: an allowlist
+            # failure must not break config load.
+            try:
+                trusted_hosts = instance.trusted_extra_hosts
+                if trusted_hosts:
+                    from voice_typer.server._secrets import extend_url_allowlist
+
+                    extend_url_allowlist(trusted_hosts, caller="config.load")
+            except Exception as _allowlist_exc:
+                log.warning(
+                    "[CONFIG] XZ-SEC-05: could not re-apply trusted_extra_hosts to URL allowlist: %s",
+                    type(_allowlist_exc).__name__,
+                )
 
             return instance
         except (OSError, json.JSONDecodeError, TypeError, ValueError) as e:

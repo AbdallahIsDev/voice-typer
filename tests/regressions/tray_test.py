@@ -113,7 +113,10 @@ class TestTrayIconHasAccessibleName:
 
         src = inspect.getsource(TrayIcon.start)
         assert "title=" in src
-        assert "PLAT-010" in src
+        # Assert the rationale PHRASE — the PLAT-010 ticket token is
+        # stripped by C-STYLE-1 cleanup, but the "title is both tooltip
+        # AND a11y name" comment must never be removed.
+        assert "a11y name" in src
 
 
 class TestDesktopEnvironmentSpecificTray:

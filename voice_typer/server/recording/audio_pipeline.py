@@ -488,9 +488,44 @@ class AudioPipeline:
                 _up_down = recorder._cached_vad_resample_up_down
                 if _up_down is not None:
                     try:
-                        resample_poly = _recording_pkg._get_resample_poly()
                         _up, _down = _up_down
-                        vad_audio = resample_poly(filtered.ravel(), _up, _down).astype(np.float32)
+                        # ER-67: use the cached FIR-tap path (same as
+                        # ``resample_audio``) instead of calling
+                        # ``resample_poly`` directly. ``resample_poly``
+                        # re-designs its FIR filter (``firwin``) on
+                        # every call — at the ~16 Hz VAD cadence that is
+                        # ~16 redundant filter designs/sec on the worker
+                        # thread. ``upfirdn`` with the cached taps is
+                        # bit-identical (same filter design) and costs a
+                        # dict lookup + C call. Inline imports resolve
+                        # through the module attributes at call time so
+                        # the path is patchable in tests.
+                        try:
+                            from scipy.signal import upfirdn
+
+                            from voice_typer.server.recording.resampling import (
+                                _get_resample_fir_taps,
+                            )
+
+                            taps = _get_resample_fir_taps(_up, _down)
+                            vad_audio = upfirdn(
+                                taps,
+                                filtered.ravel(),
+                                up=_up,
+                                down=_down,
+                            ).astype(np.float32)
+                        except Exception:
+                            # Fall back to ``resample_poly`` if
+                            # ``upfirdn`` / the cached-taps path fails
+                            # (e.g. scipy version without ``upfirdn``,
+                            # or an edge-case shape mismatch) — same
+                            # fallback as ``resample_audio``.
+                            resample_poly = _recording_pkg._get_resample_poly()
+                            vad_audio = resample_poly(
+                                filtered.ravel(),
+                                _up,
+                                _down,
+                            ).astype(np.float32)
                         vad_sr = WHISPER_SAMPLE_RATE
                     except Exception:
                         # scipy unavailable or resample failed — fall

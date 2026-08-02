@@ -39,13 +39,20 @@ describe("ER-20: t() caches interpolation RegExp by key", () => {
 		// The cache should ensure it's built ONCE for the ``name``
 		// key no matter how many ``t()`` calls interpolate it.
 		const realRegExp = RegExp;
-		const ctorSpy = vi.fn(((pattern: string, flags?: string) => {
+		// NOTE: a regular (non-arrow) function so `new ctorSpy(...)`
+		// works — Vitest forwards the construct call to the mock
+		// implementation, and arrow functions are not constructible.
+		const ctorSpy = vi.fn(function (
+			this: unknown,
+			pattern: string,
+			flags?: string,
+		) {
 			return new (
 				realRegExp as unknown as {
 					new (p: string, f?: string): RegExp;
 				}
 			)(pattern, flags);
-		}) as unknown as { new (pattern: string, flags?: string): RegExp });
+		} as unknown as { new (pattern: string, flags?: string): RegExp });
 		// Replace the global RegExp with our spy for the duration
 		// of the test. ``i18n.ts`` calls ``new RegExp(`\\{${k}\\}`, "g")``
 		// inside ``interpRegex()`` — that's the call we want to
@@ -201,6 +208,8 @@ describe("ER-28: closeAudioContext nulls the shared AudioContext", () => {
 				return Promise.resolve();
 			}
 		}
+		// regular function (not arrow) so `new Ctor()` works — Vitest
+		// forwards construct calls to the mock implementation.
 		mockCtor = vi.fn(() => new MockAudioContext());
 		window.AudioContext = mockCtor as unknown as typeof AudioContext;
 	});
@@ -347,7 +356,7 @@ describe("ER-61: useConnection probes only after 5-minute event gap", () => {
 		return { captured };
 	}
 
-	it("does NOT probe within 5 minutes of a backend push event", async () => {
+	it("does NOT probe within the 60s push-grace window (probe resumes after)", async () => {
 		const { captured } = await renderHook();
 
 		// Flush the initial connection probe + microtasks.
@@ -359,27 +368,30 @@ describe("ER-61: useConnection probes only after 5-minute event gap", () => {
 		).length;
 
 		// Simulate a backend push event (status_change) — this
-		//refreshes the ``lastEventTs`` tracked by
+		// refreshes the ``lastEventTs`` tracked by the hook.
 		act(() => {
 			for (const cb of captured) cb({ status: "idle" });
 		});
 
-		// Advance 4 minutes (under the 5-min quiet window) and
-		// tick the interval — the probe should be SKIPPED.
+		// Advance 45s — inside the 60s grace (HEALTH_CHECK_EVENT_GRACE_MS).
+		// The 15s interval tick fires, but the probe must be SKIPPED.
 		await act(async () => {
-			await vi.advanceTimersByTimeAsync(4 * 60 * 1000);
+			await vi.advanceTimersByTimeAsync(45 * 1000);
 		});
-		// Advance another minute to reach the 5-min interval
-		// tick. The lastEventTs was refreshed above, so the
-		// quiet window hasn't elapsed — probe still skipped.
+
+		const callsWithinGrace = mockCall.mock.calls.filter(
+			([type]) => type === "get_status",
+		).length;
+		expect(callsWithinGrace).toBe(initialCallCount);
+
+		// Advance past the 60s grace — the next 15s tick probes again.
 		await act(async () => {
 			await vi.advanceTimersByTimeAsync(60 * 1000);
 		});
-
-		const callsAfter5Min = mockCall.mock.calls.filter(
+		const callsAfterGrace = mockCall.mock.calls.filter(
 			([type]) => type === "get_status",
 		).length;
-		expect(callsAfter5Min).toBe(initialCallCount);
+		expect(callsAfterGrace).toBeGreaterThan(initialCallCount);
 	});
 
 	it("probes get_status after 5 minutes with no backend push events", async () => {

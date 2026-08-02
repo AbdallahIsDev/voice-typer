@@ -236,49 +236,32 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 		appendSpy.mockRestore();
 	});
 
-	it("appendLifecycleLine (structuredLogger.ts) records a failure when its try block throws", async () => {
-		// Import `appendLifecycleLine` from `../structuredLogger`. The
-		// structuredLogger module imports `recordLoggingFailure` from
-		// `../rotation` and calls it in the catch block of
-		// `appendLifecycleLine`. This test proves the cross-module
-		// wiring.
+	it("appendLifecycleLine (structuredLogger.ts) records a write failure in the health ring", async () => {
+		// Cross-module wiring: `appendLifecycleLine` (structuredLogger)
+		// delegates to `appendLogLine` (rotation), whose failure path
+		// records to the shared health ring via `recordLoggingFailure`
+		// — readable back through `getLoggingHealth` (rotation).
 		//
-		// To force the try block to throw, we mock `appendLogLine` (the
-		// last call in `appendLifecycleLine`'s try block). When
-		// `appendLogLine` throws, the catch block fires and records the
-		// failure to the ring buffer (operation: "appendLifecycleLine").
-		//
-		// `appendLogLine` is imported into `structuredLogger.ts` from
-		// `./rotation` — mocking the rotation module's `appendLogLine`
-		// export via `vi.mock("../rotation", ...)` would normally also
-		// replace `getLoggingHealth`, breaking the test. Instead, we
-		// spy on the real `fs.appendFileSync` (which `appendLogLine`
-		// calls internally) — the failure propagates up through
-		// `appendLogLine`'s own catch (recording an "appendLogLine"
-		// entry), then `appendLifecycleLine`'s call to `appendLogLine`
-		// returns normally (it swallowed the error). To force
-		// `appendLifecycleLine`'s OWN catch to fire, we instead mock
-		// `lifecycleLogPath`'s `app.getPath` to throw.
-
-		// Re-mock `electron` so `app.getPath` throws — this forces
-		// `lifecycleLogPath()` to throw inside `appendLifecycleLine`'s
-		// try block, hitting its OWN catch (which records
-		// "appendLifecycleLine", not "appendLogLine").
-		vi.doMock("electron", () => ({
-			app: {
-				getPath: () => {
-					throw new Error("userData path unavailable");
-				},
-				isPackaged: false,
-			},
-		}));
+		// NOTE: `lifecycleLogPath()` deliberately swallows `app.getPath`
+		// errors and falls back to cwd (logging must keep working), so
+		// `appendLifecycleLine`'s own catch is a pure safety net. The
+		// observable failure contract is the WRITE failure inside
+		// `appendLogLine` — force it by making `fs.appendFileSync`
+		// throw for the lifecycle-log path.
 		vi.resetModules();
-		// Re-import the rotation module so `_resetLoggingHealthForTest`
-		// and `getLoggingHealth` resolve to the fresh module instance
-		// that `structuredLogger.ts` will import after `vi.resetModules`.
 		const rotationMod = await import("../rotation");
 		rotationMod._resetLoggingHealthForTest();
 		const structuredMod = await import("../structuredLogger");
+		const lifecyclePath = structuredMod.lifecycleLogPath();
+
+		const appendSpy = vi
+			.spyOn(fs, "appendFileSync")
+			.mockImplementation((p: fs.PathOrFileDescriptor) => {
+				if (String(p) === lifecyclePath) {
+					throw new Error("disk full (simulated)");
+				}
+				throw new Error("unexpected path");
+			});
 
 		// Suppress the console.warn that the catch block emits (dev
 		// noise).
@@ -287,16 +270,14 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 			structuredMod.appendLifecycleLine("info", "test msg", []);
 		} finally {
 			warnSpy.mockRestore();
+			appendSpy.mockRestore();
 		}
 
 		const health = rotationMod.getLoggingHealth();
 		expect(health.length).toBe(1);
-		expect(health[0]?.operation).toBe("appendLifecycleLine");
-		// The `filePath` is empty because `lifecycleLogPath()` threw
-		// before `p` was assigned — the catch block records with an
-		// empty path (documented in the structuredLogger.ts comment).
-		expect(health[0]?.filePath).toBe("");
-		expect(health[0]?.error).toContain("userData path unavailable");
+		expect(health[0]?.operation).toBe("appendLogLine");
+		expect(health[0]?.filePath).toBe(lifecyclePath);
+		expect(health[0]?.error).toContain("disk full (simulated)");
 	});
 
 	it("multiple distinct failures accumulate in the ring buffer in insertion order", async () => {

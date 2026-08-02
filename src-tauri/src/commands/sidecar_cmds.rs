@@ -304,6 +304,9 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // `test_cloud_connection` — renderer "Test Connection" button
             // on the Cloud Providers page; mirrors the TS allowlist.
             "test_cloud_connection",
+            // `add_trusted_endpoint` — XZ-SEC-05 URL-allowlist extension
+            // (self-hosted LLM/ASR endpoints); mirrors the TS allowlist.
+            "add_trusted_endpoint",
         ];
         let mut set = HashSet::with_capacity(cmds.len());
         for c in cmds {

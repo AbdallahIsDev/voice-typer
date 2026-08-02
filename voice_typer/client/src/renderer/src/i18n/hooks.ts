@@ -19,7 +19,6 @@
 // evaluating.
 
 import { useSyncExternalStore } from "react";
-import type { Locale } from "./locale";
 import { getLocale } from "./store";
 import { t, tChoice } from "./translate";
 
@@ -44,9 +43,25 @@ export function subscribeLocale(cb: () => void): () => void {
 	};
 }
 
-/** Snapshot of the current locale — used as `getSnapshot` for `useSyncExternalStore`. */
-export function getLocaleSnapshot(): Locale {
-	return getLocale();
+// Monotonic revision counter bumped on EVERY subscriber notification.
+//
+// `useSyncExternalStore` only re-renders when the snapshot VALUE changes.
+// `setLocale` notifies BEFORE the dynamic-imported translation table for
+// the new locale is registered (t() falls back to English), and
+// `ensureLocaleLoaded` notifies again AFTER the table is ready. If the
+// snapshot were just the locale string, the second notification would
+// see an unchanged snapshot ("ar" == "ar") and `useSyncExternalStore`
+// would skip the re-render — leaving every `useT()` component stuck on
+// the English fallback until a manual re-render (the B-REVIEW-3
+// regression: switching to Arabic without a page reload never showed
+// Arabic labels). Including the revision makes both notifications
+// observable.
+let _localeRevision = 0;
+
+/** Snapshot of the current locale + revision — used as `getSnapshot`
+ *  for `useSyncExternalStore`. */
+export function getLocaleSnapshot(): string {
+	return `${getLocale()}#${_localeRevision}`;
 }
 
 /**
@@ -61,6 +76,7 @@ export function getLocaleSnapshot(): Locale {
  * rest of the UI.
  */
 export function notifyLocaleSubscribers(): void {
+	_localeRevision++;
 	for (const cb of _localeSubscribers) {
 		try {
 			cb();

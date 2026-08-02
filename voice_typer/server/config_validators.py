@@ -1242,6 +1242,42 @@ _VALIDATOR_PUSH_TO_TALK_HOTKEY = _validate_hotkey
 _VALIDATOR_CLOUD_MODEL = _make_str_validator(max_len=256)
 
 
+def _validate_trusted_extra_hosts(value: object) -> str | None:
+    """Validate the ``trusted_extra_hosts`` config field (XZ-SEC-05).
+
+    Accepts a list of hostname strings (with or without a port — the
+    port is stripped at allowlist-application time). Each entry must be
+    a non-empty bare hostname: letters/digits/hyphens/dots only, no
+    scheme (``https://``), no path, no spaces. Mirrors the normalization
+    in ``_secrets.extend_url_allowlist`` (lowercase, port stripped)
+    without resolving DNS (the SSRF IP-literal blocklist in
+    ``_secrets._is_private_ip`` still applies at assert time).
+    """
+    if not isinstance(value, list):
+        return "trusted_extra_hosts must be a list of hostnames"
+    seen = set()
+    for entry in value:
+        if not isinstance(entry, str):
+            return "trusted_extra_hosts entries must be strings"
+        host = entry.split(":")[0].strip().lower()
+        if not host:
+            return f"trusted_extra_hosts entry {entry!r} is empty after normalization"
+        if "://" in host or "/" in host or " " in host:
+            return (
+                f"trusted_extra_hosts entry {entry!r} must be a bare hostname "
+                f"(no scheme, path, or spaces) — e.g. 'my-vllm.lan'"
+            )
+        if not all(c.isalnum() or c in "-._" for c in host):
+            return f"trusted_extra_hosts entry {entry!r} contains invalid characters"
+        if host in seen:
+            return f"trusted_extra_hosts contains duplicate entry {entry!r}"
+        seen.add(host)
+    return None
+
+
+_VALIDATOR_TRUSTED_HOSTS = _validate_trusted_extra_hosts
+
+
 # typed as ``dict[str, FieldSpec]`` (previously a bare ``dict``)
 # so static checkers can verify that every entry is a (type, validator)
 # pair. ``FieldSpec`` is the tuple alias defined above.
@@ -1295,6 +1331,12 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     # the renderer config schema so the Settings UI can reach them.
     "clipboard_save_restore": (bool, _bool_validator),
     "clipboard_restore_delay_ms": (int, _make_int_validator(lo=0, hi=2000)),
+    # XZ-SEC-05: user-configured URL-allowlist extensions for self-hosted
+    # LLM/ASR endpoints. Renderer-writable via set_config so the Settings
+    # UI (when the affordance lands) can persist trusted hosts; the
+    # value is re-applied to the runtime allowlist on Config.load() and
+    # on every set_config that carries the key.
+    "trusted_extra_hosts": (list, _VALIDATOR_TRUSTED_HOSTS),
     # idle-unload timer for the active ASR backend. 0 (default)
     # disables the feature; users with abundant VRAM can leave it at 0;
     # users who dictate intermittently and want the VRAM + GPU idle

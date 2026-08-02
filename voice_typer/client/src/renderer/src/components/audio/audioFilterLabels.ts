@@ -55,6 +55,11 @@ export function buildAudioFilterLabels(t: TFunction): AudioFilterLabels {
 			descriptor.labelKey,
 			descriptor.infoSearchKey,
 			descriptor.sectionTitleKey,
+			descriptor.infoKey,
+			descriptor.ariaKey,
+			...(descriptor.options ?? [])
+				.map((opt) => opt.labelKey)
+				.filter((k): k is string => typeof k === "string"),
 		]) {
 			if (seen.has(key)) continue;
 			seen.add(key);

@@ -32,7 +32,6 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
-import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { AudioFilterLabels } from "./audioFilterLabels";
 import {
@@ -105,8 +104,11 @@ export function FilterRow({
 	if (!parentToggleActive(config, descriptor.parentToggle)) return null;
 
 	const label = labels[descriptor.labelKey] ?? descriptor.labelKey;
-	const info = t(descriptor.infoKey);
-	const aria = t(descriptor.ariaKey);
+	// DJ-88: resolve info/aria strings from the memoized labels bundle
+	// (built once per locale by buildAudioFilterLabels) instead of
+	// calling t() at render time — zero t() calls on re-render.
+	const info = labels[descriptor.infoKey] ?? descriptor.infoKey;
+	const aria = labels[descriptor.ariaKey] ?? descriptor.ariaKey;
 	const value = readRowValue(config, descriptor);
 
 	// `descriptor.configKey` is `keyof VoiceTyperConfig` (widened) —
@@ -157,7 +159,9 @@ export function FilterRow({
 						<SelectContent>
 							{(descriptor.options ?? []).map((opt) => (
 								<SelectItem key={opt.value} value={opt.value}>
-									{opt.labelKey ? t(opt.labelKey) : opt.label}
+									{opt.labelKey
+										? (labels[opt.labelKey] ?? opt.labelKey)
+										: opt.label}
 								</SelectItem>
 							))}
 						</SelectContent>

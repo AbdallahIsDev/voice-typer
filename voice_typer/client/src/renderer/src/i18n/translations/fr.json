@@ -1071,7 +1071,8 @@
 		},
 		"stopPlaybackFirst": "Arrêtez la lecture audio avant de lancer un nouveau test",
 		"loadFailedDescription": "Impossible de charger les données de votre microphone depuis le backend. Vérifiez les journaux et réessayez.",
-		"selected": "Microphone sélectionné"
+		"selected": "Microphone sélectionné",
+		"useAria": "Utiliser le micro — {name}"
 	},
 	"vocabulary": {
 		"title": "Vocabulaire personnalisé",
@@ -1154,7 +1155,9 @@
 		"entryCount_two": "{count} entrées",
 		"entryCount_few": "{count} entrées",
 		"entryCount_many": "{count} entrées",
-		"entryCount_other": "{count} entrées"
+		"entryCount_other": "{count} entrées",
+		"clearAllToast": "Vocabulaire effacé",
+		"clearAllFailed": "Échec de l'effacement du vocabulaire"
 	},
 	"templates": {
 		"title": "Modèles",
@@ -1222,7 +1225,8 @@
 		"count_two": "{count} modèles",
 		"count_few": "{count} modèles",
 		"count_many": "{count} modèles",
-		"count_other": "{count} modèles"
+		"count_other": "{count} modèles",
+		"unknownVariableWarning": "Variable inconnue {vars} — prises en charge : {today}, {now}, {clipboard}, {username}"
 	},
 	"analytics": {
 		"title": "Analytique",

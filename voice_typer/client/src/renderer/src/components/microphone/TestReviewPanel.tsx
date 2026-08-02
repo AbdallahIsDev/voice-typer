@@ -113,7 +113,15 @@ export function TestReviewPanel({
 			{/* Quality score */}
 			{quality && (
 				<>
-					<div className="flex items-center justify-between">
+					<div
+						className="flex items-center justify-between"
+						// BG-71: the quality summary is the primary live
+						// result of a mic test — announce updates to AT
+						// as one atomic polite region so screen-reader
+						// users hear the full verdict, not fragments.
+						aria-live="polite"
+						aria-atomic="true"
+					>
 						<span className="text-xs font-medium text-(--text-muted)">
 							{t("microphoneTest.estimatedQuality")}
 						</span>
@@ -201,14 +209,22 @@ export function TestReviewPanel({
 					{/* Detected issues */}
 					{quality.detected_issues.length > 0 && (
 						<div className="text-xs text-(--text-muted) space-y-0.5">
-							<span className="font-medium text-amber-500">
+							<span
+								className="font-medium text-amber-500"
+								// BG-71: detected issues are a status
+								// update — role=status announces them
+								// without stealing focus.
+								role="status"
+							>
 								{t("microphoneTest.detectedIssues")}
 							</span>
 							{quality.detected_issues.map((issue) => {
 								const translated = translateDetectedIssue(issue);
 								return (
 									<div key={issue} className="flex items-center gap-1">
-										<span className="text-amber-500">•</span>
+										<span className="text-amber-500" aria-hidden="true">
+											•
+										</span>
 										<span>{translated}</span>
 									</div>
 								);

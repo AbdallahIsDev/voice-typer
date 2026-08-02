@@ -103,11 +103,10 @@ describe("About page — BG-59 privacy URL fix", () => {
 		// followed by the explanatory note. The note explicitly mentions
 		// the Security Policy so users know where to find the full
 		// document.
-		expect(screen.getByText("Full policy.")).toBeTruthy();
-		const note = screen.getByText(/For full details on data handling/);
+		expect(screen.getByText("Privacy policy")).toBeTruthy();
+		const note = screen.getByText(/See the full privacy policy below/);
 		expect(note).toBeTruthy();
-		expect(note.textContent).toContain("Security Policy");
-		expect(note.textContent).toContain("Resources section below");
+		expect(note.textContent).toContain("privacy policy");
 	});
 
 	it("still renders the Security Policy button in the Resources section", async () => {

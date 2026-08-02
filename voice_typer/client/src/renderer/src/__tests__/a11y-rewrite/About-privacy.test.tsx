@@ -110,7 +110,9 @@ describe("About privacy disclosure — RW-0 rewrite of test_about_page_has_priva
 		// Each heading may appear in both the section title
 		// and the description, so use getAllByText.
 		expect(screen.getAllByText(/Model weights/i).length).toBeGreaterThan(0);
-		expect(screen.getAllByText(/Cloud ASR/i).length).toBeGreaterThan(0);
+		expect(
+			screen.getAllByText(/Cloud speech recognition/i).length,
+		).toBeGreaterThan(0);
 		expect(screen.getAllByText(/Voice biometrics/i).length).toBeGreaterThan(0);
 
 		// HuggingFace and BIPA appear in the descriptive

@@ -20,6 +20,19 @@
  *   3. When `locale` changes, `t()` is called again (the memos re-resolve).
  */
 import { act, cleanup, render } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const renderWithProviders = (ui: React.ReactElement) => {
+	const wrapped = (node: React.ReactElement) => (
+		<TooltipProvider delayDuration={200}>{node}</TooltipProvider>
+	);
+	const utils = render(wrapped(ui));
+	return {
+		...utils,
+		rerender: (node: React.ReactElement) => utils.rerender(wrapped(node)),
+	};
+};
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AudioFilterChain } from "@/components/audio/AudioFilterChain";
@@ -37,6 +50,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 	return new Proxy(
 		{
 			ArrowDown01Icon: make("ArrowDown01Icon"),
+			Tick02Icon: make("Tick02Icon"),
 			ArrowUp01Icon: make("ArrowUp01Icon"),
 			FilterIcon: make("FilterIcon"),
 			UnfoldMoreIcon: make("UnfoldMoreIcon"),
@@ -105,7 +119,7 @@ describe("DJ-88: AudioFilterChain hoists ALL info/aria strings into a per-locale
 		const config = makeStubConfig();
 		const onConfigChange = vi.fn();
 
-		const { rerender } = render(
+		const { rerender } = renderWithProviders(
 			<AudioFilterChain config={config} onConfigChange={onConfigChange} />,
 		);
 
@@ -133,7 +147,7 @@ describe("DJ-88: AudioFilterChain hoists ALL info/aria strings into a per-locale
 		const config = makeStubConfig();
 		const onConfigChange = vi.fn();
 
-		const { rerender } = render(
+		const { rerender } = renderWithProviders(
 			<AudioFilterChain config={config} onConfigChange={onConfigChange} />,
 		);
 

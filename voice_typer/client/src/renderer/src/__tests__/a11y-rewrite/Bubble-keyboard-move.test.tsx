@@ -280,15 +280,15 @@ describe("BG-30: Bubble keyboard-move deliberately not implemented (focusable: f
 		"src",
 		"main",
 		"windows",
-		"bubble-window.ts",
+		"bubble",
+		"lifecycle.ts",
 	);
 
-	it("bubble-window.ts still sets `focusable: false` (keyboard-move deliberately not implemented — BG-30)", () => {
-		// The path above resolves to
-		//   voice_typer/client/src/main/windows/bubble-window.ts
-		// (five ".." segments climb from
-		// __tests__/a11y-rewrite/ back to voice_typer/client/,
-		// then descend into src/main/windows/).
+	it("bubble window lifecycle still sets `focusable: false` (keyboard-move deliberately not implemented — BG-30)", () => {
+		// The bubble BrowserWindow creation moved from
+		// src/main/windows/bubble-window.ts into the split lifecycle
+		// module src/main/windows/bubble/lifecycle.ts (the
+		// `focusable: false` option lives there).
 		const src = fs.readFileSync(bubbleWindowPath, "utf-8");
 
 		// Look for the literal `focusable: false` BrowserWindow
@@ -386,15 +386,21 @@ describe("Item 7: Bubble renders sr-only 'Transcription complete.' announcement 
 		render(<Bubble />);
 
 		// Drive the Bubble into idle mode via the onSetState
-		// callback captured at mount.  The Bubble subscribes to
-		// `window.bubble.onSetState` and updates its internal
-		// `mode` state accordingly (via the useBubbleStateMachine
-		// hook in bubble-components.tsx).
-		const onSetStateCb = mockBubble.onSetState.mock.calls[0]?.[0] as
-			| ((state: string) => void)
-			| undefined;
-		expect(onSetStateCb).toBeTruthy();
-		act(() => onSetStateCb?.("idle"));
+		// callbacks captured at mount.  The Bubble subscribes to
+		// `window.bubble.onSetState` from BOTH useBubbleLifecycle
+		// (audio-level handling) and useBubbleStateMachine (mode
+		// transitions) — the state-machine subscriber is NOT
+		// necessarily calls[0], so invoke every registered callback
+		// with the idle payload. The lifecycle callback treats an
+		// "idle" state string as a no-op, so calling all of them is
+		// harmless and robust against subscription-order changes.
+		const onSetStateCbs = mockBubble.onSetState.mock.calls.map(
+			(call) => call[0] as (state: string) => void,
+		);
+		expect(onSetStateCbs.length).toBeGreaterThan(0);
+		act(() => {
+			for (const cb of onSetStateCbs) cb?.("idle");
+		});
 
 		// The sr-only span lives inside the Bubble's
 		// `<output aria-live="polite">` wrapper, so its text

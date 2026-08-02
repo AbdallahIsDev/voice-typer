@@ -27,7 +27,7 @@ export default function ExportFormatMenu({
 }: ExportFormatMenuProps) {
 	return (
 		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
+			<DropdownMenuTrigger asChild disabled={disabled}>
 				<Button
 					variant="outline"
 					size="sm"

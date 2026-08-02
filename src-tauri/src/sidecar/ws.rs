@@ -1200,11 +1200,12 @@ fn spawn_reader_task(
                                 // the emit is a no-op on the (currently
                                 // unreachable) None path instead of a panic.
                                 if let Some(p) = last_bubble_payload.take() {
-                                    // ADR-0020 §6.3: emit BOTH the specific event
-                                    // (for direct listeners like the bubble window)
-                                    // AND the generic `python-event` (for the
-                                    // usePython hook's onEvent catch-all, matching
-                                    // the Electron path's ipcRenderer.on("python-event")).
+                                    // ADR-0020 "Sidecar→UI Event Table" (channel 2):
+                                    // emit BOTH the specific event (for direct
+                                    // listeners like the bubble window) AND the
+                                    // generic `python-event` (for the usePython
+                                    // hook's onEvent catch-all, matching the
+                                    // Electron path's ipcRenderer.on("python-event")).
                                     let _ = app_for_reader.emit("bubble_level", p.clone());
                                     let _ = app_for_reader.emit("python-event", json!({"type": "bubble_level", "data": p}));
                                 }
@@ -1220,9 +1221,10 @@ fn spawn_reader_task(
                         // events under snake_case names that the renderer
                         // expects as `bubble:*` kebab-case).
                         let emit_name = translate_event_name(event_type);
-                        // ADR-0020 §6.3: emit BOTH the specific event (for
-                        // direct listeners) AND the generic `python-event`
-                        // (for the usePython hook's onEvent catch-all).
+                        // ADR-0020 "Sidecar→UI Event Table" (channel 2):
+                        // emit BOTH the specific event (for direct listeners)
+                        // AND the generic `python-event` (for the usePython
+                        // hook's onEvent catch-all).
                         let _ = app_for_reader.emit(emit_name, payload.clone());
                         let _ = app_for_reader.emit("python-event", json!({"type": emit_name, "data": payload}));
 

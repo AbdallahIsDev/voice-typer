@@ -112,11 +112,14 @@ function TitleBarButton({
 	// (rounded-4xl, outline-hidden, border-transparent) is overridden
 	// via className to match the title-bar's edge-to-edge framing —
 	// no rounded corners, no visible border, fixed 8x11.5 sizing.
-	// ``asChild`` lets <Button> forward its ref/event handlers to the
-	// underlying element without nesting a <button> inside <button>.
+	// NOTE: deliberately NOT `asChild` — the children are bare SVG icon
+	// components, and `Slot.Root` would merge the click handler +
+	// aria-label onto the <svg> itself, replacing the <button> element
+	// entirely (breaking keyboard activation, screen-reader semantics,
+	// and `getByRole("button")`). A real <button> wrapping the icon is
+	// required.
 	return (
 		<Button
-			asChild
 			type="button"
 			variant={isClose ? "destructive" : "ghost"}
 			size="icon-sm"

@@ -262,8 +262,6 @@ describe("reduced-motion gating (prefers-reduced-motion)", () => {
 		// `change` event the same way the browser would.
 		act(() => {
 			reducedMotionMql.matches = true;
-			// jsdom doesn't define MediaQueryListEvent — construct a
-			// plain object and cast so the change listener receives it.
 			const fakeEvent = {
 				media: "(prefers-reduced-motion: reduce)",
 				matches: true,

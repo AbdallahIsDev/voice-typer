@@ -54,11 +54,13 @@ export function AvailableMicrophonesList({
 			<p className="text-xs font-semibold capitalize tracking-wide text-(--text-muted) mb-2 px-1">
 				{t("microphone.otherMicrophones")}
 			</p>
-			{/*native <ul>/<li> list semantics (with explicit role
-			    attributes for screen readers that don't convey <ul> as
-			    a list — notably Safari + VoiceOver). Tailwind's divide-y
-			    and the rounded/border classes apply identically to
-			    <ul>/<li> as they did to the previous <div>/<div>. */}
+			{/*native <ul>/<li> list semantics — the implicit ARIA roles
+			    (list / listitem) come from the elements themselves, so no
+			    explicit role attributes are needed (biome's
+			    noRedundantRoles rule + the ARIA-in-HTML spec agree).
+			    Tailwind's divide-y and the rounded/border classes apply
+			    identically to <ul>/<li> as they did to the previous
+			    <div>/<div>. */}
 			<ul className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
 				{/*(Fix 1): "Use System Default" button — the only
 				    way (other than refreshing and hoping) to revert

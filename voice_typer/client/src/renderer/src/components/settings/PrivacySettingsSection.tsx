@@ -262,72 +262,110 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 						</div>
 
 						{/* HuggingFace consent */}
-						<SettingRow
-							label={huggingFaceLabel}
-							info={t("settings.privacy.huggingFaceDownloadsInfo")}
-						>
-							<Switch
-								checked={config.huggingface_consent ?? false}
-								onCheckedChange={handleHuggingFaceConsentChange}
-								aria-label={t("settings.privacy.huggingFaceDownloadsAria")}
-							/>
-						</SettingRow>
+						{isVisible(
+							huggingFaceLabel,
+							t("settings.privacy.huggingFaceDownloadsInfo"),
+							privacyTitle,
+						) && (
+							<SettingRow
+								label={huggingFaceLabel}
+								info={t("settings.privacy.huggingFaceDownloadsInfo")}
+							>
+								<Switch
+									checked={config.huggingface_consent ?? false}
+									onCheckedChange={handleHuggingFaceConsentChange}
+									aria-label={t("settings.privacy.huggingFaceDownloadsAria")}
+								/>
+							</SettingRow>
+						)}
 
 						{/* Voice biometric consent */}
-						<SettingRow
-							label={voiceBiometricLabel}
-							info={t("settings.privacy.voiceBiometricProcessingInfo")}
-						>
-							<Switch
-								checked={config.voice_biometric_consent ?? false}
-								onCheckedChange={handleVoiceBiometricChange}
-								aria-label={t("settings.privacy.voiceBiometricProcessingAria")}
-							/>
-						</SettingRow>
+						{isVisible(
+							voiceBiometricLabel,
+							t("settings.privacy.voiceBiometricProcessingInfo"),
+							privacyTitle,
+						) && (
+							<SettingRow
+								label={voiceBiometricLabel}
+								info={t("settings.privacy.voiceBiometricProcessingInfo")}
+							>
+								<Switch
+									checked={config.voice_biometric_consent ?? false}
+									onCheckedChange={handleVoiceBiometricChange}
+									aria-label={t(
+										"settings.privacy.voiceBiometricProcessingAria",
+									)}
+								/>
+							</SettingRow>
+						)}
 
 						{/* Per-provider cloud ASR consent — mirrors Models page toggles */}
-						<SettingRow
-							label={openaiCloudAsrLabel}
-							info={t("settings.privacy.openaiCloudAsrInfo")}
-						>
-							<Switch
-								checked={config.cloud_openai_consent ?? false}
-								onCheckedChange={handleOpenAiConsentChange}
-								aria-label={t("settings.privacy.openaiCloudAsrAria")}
-							/>
-						</SettingRow>
-						<SettingRow
-							label={groqCloudAsrLabel}
-							info={t("settings.privacy.groqCloudAsrInfo")}
-						>
-							<Switch
-								checked={config.cloud_groq_consent ?? false}
-								onCheckedChange={handleGroqConsentChange}
-								aria-label={t("settings.privacy.groqCloudAsrAria")}
-							/>
-						</SettingRow>
-						<SettingRow
-							label={deepgramCloudAsrLabel}
-							info={t("settings.privacy.deepgramCloudAsrInfo")}
-						>
-							<Switch
-								checked={config.cloud_deepgram_consent ?? false}
-								onCheckedChange={handleDeepgramConsentChange}
-								aria-label={t("settings.privacy.deepgramCloudAsrAria")}
-							/>
-						</SettingRow>
+						{isVisible(
+							openaiCloudAsrLabel,
+							t("settings.privacy.openaiCloudAsrInfo"),
+							privacyTitle,
+						) && (
+							<SettingRow
+								label={openaiCloudAsrLabel}
+								info={t("settings.privacy.openaiCloudAsrInfo")}
+							>
+								<Switch
+									checked={config.cloud_openai_consent ?? false}
+									onCheckedChange={handleOpenAiConsentChange}
+									aria-label={t("settings.privacy.openaiCloudAsrAria")}
+								/>
+							</SettingRow>
+						)}
+						{isVisible(
+							groqCloudAsrLabel,
+							t("settings.privacy.groqCloudAsrInfo"),
+							privacyTitle,
+						) && (
+							<SettingRow
+								label={groqCloudAsrLabel}
+								info={t("settings.privacy.groqCloudAsrInfo")}
+							>
+								<Switch
+									checked={config.cloud_groq_consent ?? false}
+									onCheckedChange={handleGroqConsentChange}
+									aria-label={t("settings.privacy.groqCloudAsrAria")}
+								/>
+							</SettingRow>
+						)}
+						{isVisible(
+							deepgramCloudAsrLabel,
+							t("settings.privacy.deepgramCloudAsrInfo"),
+							privacyTitle,
+						) && (
+							<SettingRow
+								label={deepgramCloudAsrLabel}
+								info={t("settings.privacy.deepgramCloudAsrInfo")}
+							>
+								<Switch
+									checked={config.cloud_deepgram_consent ?? false}
+									onCheckedChange={handleDeepgramConsentChange}
+									aria-label={t("settings.privacy.deepgramCloudAsrAria")}
+								/>
+							</SettingRow>
+						)}
 
 						{/* LLM polish consent (existing field, surfaced here for completeness) */}
-						<SettingRow
-							label={llmTextPolishingLabel}
-							info={t("settings.privacy.llmTextPolishingInfo")}
-						>
-							<Switch
-								checked={config.llm_polish_consent ?? false}
-								onCheckedChange={handleLlmPolishConsentChange}
-								aria-label={t("settings.privacy.llmTextPolishingAria")}
-							/>
-						</SettingRow>
+						{isVisible(
+							llmTextPolishingLabel,
+							t("settings.privacy.llmTextPolishingInfo"),
+							privacyTitle,
+						) && (
+							<SettingRow
+								label={llmTextPolishingLabel}
+								info={t("settings.privacy.llmTextPolishingInfo")}
+							>
+								<Switch
+									checked={config.llm_polish_consent ?? false}
+									onCheckedChange={handleLlmPolishConsentChange}
+									aria-label={t("settings.privacy.llmTextPolishingAria")}
+								/>
+							</SettingRow>
+						)}
 
 						{/*GDPR right-to-export (Art. 15/20).
 					Previously only history + vocabulary were exportable.

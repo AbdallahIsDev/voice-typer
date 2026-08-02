@@ -208,4 +208,7 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// backend (handlers/cloud_test_handlers.py) so the API key never leaves
 	// the Python process and the renderer stays network-free (C-DATA-1).
 	"test_cloud_connection",
+	// XZ-SEC-05: add a trusted hostname to the URL allowlist (self-hosted
+	// LLM/ASR endpoints). Python handler: ConfigHandlersMixin._handle_add_trusted_endpoint.
+	"add_trusted_endpoint",
 ]);

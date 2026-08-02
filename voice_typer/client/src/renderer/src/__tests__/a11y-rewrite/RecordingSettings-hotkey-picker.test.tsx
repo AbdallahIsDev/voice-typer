@@ -36,6 +36,11 @@
  * with a pointer back to this file.  They are NOT deleted.
  */
 import { cleanup, render, screen } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Capture every HotkeyPicker instance's props so we can assert on the
@@ -230,7 +235,7 @@ describe("RecordingSettings HotkeyPicker — RW-0 rewrite of test_settings_impor
 	});
 
 	it("renders the HotkeyPicker component (import succeeds and the JSX element appears in the tree)", () => {
-		render(
+		renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig()}
 				updateConfig={() => {}}
@@ -260,7 +265,7 @@ describe("RecordingSettings repaste HotkeyPicker — RW-0 rewrite of test_repast
 	});
 
 	it("renders HotkeyPicker for both the dictation key and the repaste key", () => {
-		render(
+		renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig()}
 				updateConfig={() => {}}
@@ -277,7 +282,7 @@ describe("RecordingSettings repaste HotkeyPicker — RW-0 rewrite of test_repast
 	});
 
 	it('renders the repaste HotkeyPicker with mode="combo"', () => {
-		render(
+		renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({
 					repaste_hotkey: "<ctrl>+<shift>+v",
@@ -311,7 +316,7 @@ describe("RecordingSettings repaste HotkeyPicker — RW-0 rewrite of test_repast
 		// mode="combo" while the dropdown was filtered to single keys —
 		// the capture silently accepted multi-key combos with no UI
 		// hint, breaking the dropdown's promise.
-		render(
+		renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({ hotkey: "<caps_lock>" })}
 				updateConfig={() => {}}
@@ -329,7 +334,7 @@ describe("RecordingSettings repaste HotkeyPicker — RW-0 rewrite of test_repast
 
 	it("propagates repaste HotkeyPicker onChange to updateConfig({ repaste_hotkey })", () => {
 		const updateConfig = vi.fn();
-		render(
+		renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({
 					repaste_hotkey: "<ctrl>+<alt>+v",
@@ -351,7 +356,7 @@ describe("RecordingSettings repaste HotkeyPicker — RW-0 rewrite of test_repast
 	});
 
 	it("does NOT render a free-text <input> bound to config.repaste_hotkey", () => {
-		const { container } = render(
+		const { container } = renderWithProviders(
 			<RecordingSettingsSection
 				config={makeConfig({
 					repaste_hotkey: "<ctrl>+<alt>+v",

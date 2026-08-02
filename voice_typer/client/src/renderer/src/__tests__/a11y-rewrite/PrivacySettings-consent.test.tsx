@@ -22,7 +22,18 @@
  * The corresponding Python test is skipped via `@pytest.mark.skip`
  * with a pointer back to this file.  It is NOT deleted.
  */
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@hugeicons/react", () => ({
@@ -33,6 +44,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 	const make = (name: string) => ({ name });
 	return {
 		CheckmarkCircle01Icon: make("CheckmarkCircle01Icon"),
+		Search01Icon: make("Search01Icon"),
 		InformationCircleIcon: make("InformationCircleIcon"),
 	};
 });
@@ -192,7 +204,7 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 
 	it("renders a Switch for every consolidated consent flag", () => {
 		const config = makeConfig();
-		render(
+		renderWithProviders(
 			<PrivacySettingsSection
 				config={config}
 				updateConfig={() => {}}
@@ -221,7 +233,7 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 	it("calls updateConfig with huggingface_consent=true when its Switch is toggled on", () => {
 		const updateConfig = vi.fn();
 		const config = makeConfig({ huggingface_consent: false });
-		render(
+		renderWithProviders(
 			<PrivacySettingsSection
 				config={config}
 				updateConfig={updateConfig}
@@ -245,7 +257,7 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 	it("calls updateConfig with voice_biometric_consent=true when its Switch is toggled on", () => {
 		const updateConfig = vi.fn();
 		const config = makeConfig({ voice_biometric_consent: false });
-		render(
+		renderWithProviders(
 			<PrivacySettingsSection
 				config={config}
 				updateConfig={updateConfig}
@@ -273,7 +285,7 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 			cloud_groq_consent: false,
 			cloud_deepgram_consent: false,
 		});
-		render(
+		renderWithProviders(
 			<PrivacySettingsSection
 				config={config}
 				updateConfig={updateConfig}
@@ -285,7 +297,7 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 		// Toggle each cloud ASR Switch by aria-label.
 		fireEvent.click(
 			screen.getByRole("switch", {
-				name: /openai cloud asr consent/i,
+				name: /openai cloud speech recognition consent/i,
 			}),
 		);
 		expect(updateConfig).toHaveBeenLastCalledWith({
@@ -294,7 +306,7 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 
 		fireEvent.click(
 			screen.getByRole("switch", {
-				name: /groq cloud asr consent/i,
+				name: /groq cloud speech recognition consent/i,
 			}),
 		);
 		expect(updateConfig).toHaveBeenLastCalledWith({
@@ -303,7 +315,7 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 
 		fireEvent.click(
 			screen.getByRole("switch", {
-				name: /deepgram cloud asr consent/i,
+				name: /deepgram cloud speech recognition consent/i,
 			}),
 		);
 		expect(updateConfig).toHaveBeenLastCalledWith({
@@ -314,7 +326,7 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 	it("calls updateConfig with llm_polish_consent=true when its Switch is toggled", () => {
 		const updateConfig = vi.fn();
 		const config = makeConfig({ llm_polish_consent: false });
-		render(
+		renderWithProviders(
 			<PrivacySettingsSection
 				config={config}
 				updateConfig={updateConfig}
@@ -334,7 +346,7 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 		});
 	});
 
-	it("Agree-to-All button sets all six consent flags in one updateConfig call", () => {
+	it("Agree-to-All button sets all six consent flags in one updateConfig call", async () => {
 		const updateConfig = vi.fn();
 		const config = makeConfig({
 			huggingface_consent: false,
@@ -344,7 +356,7 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 			cloud_deepgram_consent: false,
 			llm_polish_consent: false,
 		});
-		render(
+		renderWithProviders(
 			<PrivacySettingsSection
 				config={config}
 				updateConfig={updateConfig}
@@ -353,15 +365,27 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 			/>,
 		);
 
-		// Toggle the "Agree to All" button — it sets all
-		// six consent flags to true in a single updateConfig
-		// call.  This is the consolidated consent affordance
-		// the Python test name refers to.
+		// Click the "Agree to All" button — PRIV-AGREE-ALL now requires
+		// an explicit confirmation step (ConfirmDialog): the first click
+		// opens the dialog, and updateConfig only fires after the user
+		// confirms. This is the consolidated consent affordance the
+		// Python test name refers to.
 		const agreeAllBtn = screen
 			.queryAllByRole("button")
 			.find((b) => /agree to all/i.test(b.textContent ?? ""));
 		expect(agreeAllBtn).toBeTruthy();
 		fireEvent.click(agreeAllBtn as HTMLElement);
+
+		// The confirmation dialog is open — click its confirm button
+		// (same "Agree to All" label) to actually grant the consents.
+		await waitFor(() => {
+			expect(screen.getByRole("alertdialog")).toBeTruthy();
+		});
+		const confirmBtn = screen
+			.getAllByRole("button")
+			.find((b) => /agree to all/i.test(b.textContent ?? ""));
+		expect(confirmBtn).toBeTruthy();
+		fireEvent.click(confirmBtn as HTMLElement);
 
 		expect(updateConfig).toHaveBeenCalledWith(
 			expect.objectContaining({

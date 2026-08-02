@@ -34,7 +34,7 @@ process can connect to the IPC port without this token.
 ### Command Allowlist (SEC-019)
 
 The Electron main process enforces an allowlist of IPC commands. The renderer
-cannot invoke arbitrary commands — only the **62** commands listed in
+cannot invoke arbitrary commands — only the **63** commands listed in
 `ALLOWED_COMMANDS` (a `Set` defined at
 `voice_typer/client/src/main/allowed-commands.ts`) are forwarded to the Python backend.
 The authoritative count is enforced by CI (see
@@ -44,12 +44,12 @@ are added or removed. The Tauri Rust host enforces a mirror allowlist
 entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 
 > The Python-side `_COMMAND_REGISTRY` in
-> `voice_typer/server/ipc_server.py` registers **64** handlers. Two of
+> `voice_typer/server/ipc_server.py` registers **65** handlers. Two of
 > those are intentionally absent from the renderer allowlist:
 > `tray_click` (a Rust-only command routed via `dispatch_inner` — the
 > tray handler invokes it directly, bypassing the allowlist gate) and
 > `shutdown` (cooperative shutdown is sent via `shutdown_sidecar`
-> directly, NOT via the generic dispatch path). The remaining **62**
+> directly, NOT via the generic dispatch path). The remaining **63**
 > handlers are renderer-callable. The +2 host-only delta is asserted by
 > the `_HOST_ONLY_COMMANDS` frozenset in
 > `tests/test_security_doc_command_count.py`. (S4-CR-18 reconciliation

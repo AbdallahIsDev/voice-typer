@@ -181,8 +181,11 @@ class TestDaemonThreadRationaleDocumented:
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         src = inspect.getsource(WindowsNativeHotkey.start)
-        assert "RACE-008" in src, (
-            "RACE-008: WindowsNativeHotkey.start must have a RACE-008 rationale comment on the daemon thread."
+        # Assert the rationale PHRASE (not the ticket token): the token
+        # is stripped by C-STYLE-1 cleanup, but the rationale comment
+        # must never be removed from the daemon-thread spawn site.
+        assert "daemon=True is acceptable" in src, (
+            "WindowsNativeHotkey.start must keep a daemon=True rationale comment on the daemon thread."
         )
 
     def test_hotkeys_ipc_thread_has_rationale(self):
@@ -194,8 +197,11 @@ class TestDaemonThreadRationaleDocumented:
         # The rationale comment is in _start_socket_server which is
         # called from start(). Check the whole class source.
         class_src = inspect.getsource(WaylandHotkey)
-        assert "RACE-008" in class_src, (
-            "RACE-008: WaylandHotkey must have a RACE-008 rationale on the socket-accept daemon thread."
+        # Assert the rationale PHRASE — the RACE-008 ticket token is
+        # stripped by C-STYLE-1 cleanup, but the daemon=True rationale
+        # comment on the socket-accept thread must never be removed.
+        assert "daemon=True is acceptable" in class_src, (
+            "WaylandHotkey must keep a daemon=True rationale comment on the socket-accept daemon thread."
         )
 
     def test_tray_bg_thread_has_rationale(self):
@@ -203,19 +209,33 @@ class TestDaemonThreadRationaleDocumented:
         # background-thread daemon. Same rationale as the win32 variant.
         from voice_typer.server.tray import TrayIcon
 
-        src = inspect.getsource(TrayIcon.start)
-        assert "RACE-008" in src, (
-            "RACE-008: TrayIcon.start must have a RACE-008 rationale on each daemon thread spawn site."
+        # The background daemon thread is spawned in the shared
+        # `_launch_bg_work` helper (start() delegates to it from 4
+        # call sites). Inspect THAT method — it owns the spawn site.
+        src = inspect.getsource(TrayIcon._launch_bg_work)
+        # Assert the rationale PHRASE — the RACE-008 ticket token is
+        # stripped by C-STYLE-1 cleanup, but the daemon=True rationale
+        # comment must never be removed from the background-thread site.
+        assert "daemon=True is acceptable" in src, (
+            "TrayIcon._launch_bg_work must keep a daemon=True rationale comment on the daemon thread spawn site."
         )
 
     def test_service_download_thread_has_rationale(self):
         # KEEP — pins RACE-008 rationale comment on the service.py
         # model-download daemon thread. Same rationale as the win32 variant.
-        from voice_typer.server import service
+        # The model-download daemon thread lives in the split
+        # service/model.py (the service package is composed from domain
+        # modules via multiple inheritance).
+        from voice_typer.server.service import model as service_model
 
         # The download thread is inside a method — search the whole module.
-        src = inspect.getsource(service)
-        assert "RACE-008" in src, "RACE-008: service.py must have a RACE-008 rationale on the download daemon thread."
+        src = inspect.getsource(service_model)
+        # Assert the rationale PHRASE — the RACE-008 ticket token is
+        # stripped by C-STYLE-1 cleanup, but the daemon=True rationale
+        # comment on the download thread must never be removed.
+        assert "daemon=True is acceptable" in src, (
+            "service/model.py must keep a daemon=True rationale comment on the download daemon thread."
+        )
 
 
 class TestSystemdUserUnitForMainApp:

@@ -59,6 +59,11 @@ describe("G4-CR-10: installGlobalErrorHandlers registers both listeners", () => 
 		// no-op install).
 		_resetGlobalErrorHandlerStateForTests();
 		installedListeners = [];
+		// Capture the REAL addEventListener BEFORE spying — the mock
+		// implementation must forward to it, not to `window.
+		// addEventListener` (which is the spy itself after spyOn →
+		// infinite recursion / RangeError: Maximum call stack size).
+		const originalAddEventListener = window.addEventListener.bind(window);
 		addEventListenerSpy = vi
 			.spyOn(window, "addEventListener")
 			.mockImplementation(
@@ -74,7 +79,7 @@ describe("G4-CR-10: installGlobalErrorHandlers registers both listeners", () => 
 					// real ``ErrorEvent``s and need the real
 					// listener to fire).
 					installedListeners.push({ type, cb });
-					return window.addEventListener.call(window, type, cb, options);
+					return originalAddEventListener(type, cb, options);
 				},
 			) as unknown as typeof addEventListenerSpy;
 	});
@@ -158,6 +163,11 @@ describe("G4-CR-10: installed listener logs to console.error", () => {
 	beforeEach(() => {
 		_resetGlobalErrorHandlerStateForTests();
 		installedListeners = [];
+		// Capture the REAL addEventListener BEFORE spying — the mock
+		// implementation must forward to it, not to `window.
+		// addEventListener` (which is the spy itself after spyOn →
+		// infinite recursion / RangeError: Maximum call stack size).
+		const originalAddEventListener = window.addEventListener.bind(window);
 		// Spy on ``window.addEventListener`` ONLY to record the
 		// listeners for cleanup — forward to the real method so the
 		// dispatched ``ErrorEvent`` / ``PromiseRejectionEvent`` below
@@ -171,7 +181,7 @@ describe("G4-CR-10: installed listener logs to console.error", () => {
 					options?: boolean | AddEventListenerOptions,
 				) => {
 					installedListeners.push({ type, cb });
-					return window.addEventListener.call(window, type, cb, options);
+					return originalAddEventListener(type, cb, options);
 				},
 			) as unknown as typeof addEventListenerSpy;
 		consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});

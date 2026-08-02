@@ -147,6 +147,19 @@ import {
 	screen,
 	waitFor,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { TooltipProvider } from "@/components/ui/tooltip";
+
+/**
+ * Page-level render helper. Pages like Settings mount Radix Tooltip
+ * (via SettingRow / ui primitives); the real App shell wraps everything
+ * in a TooltipProvider (App.tsx), so tests mounting pages directly must
+ * provide one too — otherwise every Tooltip render throws "Tooltip must
+ * be used within TooltipProvider" and the page mounts empty.
+ */
+const renderWithProviders = (ui: React.ReactElement) =>
+	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PythonRequest, WindowBridge } from "@/types/ipc";
 
@@ -430,7 +443,7 @@ describe("RW-1: PrivacySettingsSection export buttons (rewrite of test_settings_
 	});
 
 	it("renders the Export all data (GDPR) label, Export Templates, and Export Config buttons", () => {
-		render(
+		renderWithProviders(
 			<PrivacySettingsSection
 				config={makeConfig()}
 				updateConfig={() => {}}
@@ -464,7 +477,7 @@ describe("RW-1: PrivacySettingsSection export buttons (rewrite of test_settings_
 		};
 		mockCall.mockResolvedValue({ templates: [] });
 
-		render(
+		renderWithProviders(
 			<PrivacySettingsSection
 				config={makeConfig()}
 				updateConfig={() => {}}
@@ -494,7 +507,7 @@ describe("RW-1: PrivacySettingsSection export buttons (rewrite of test_settings_
 		};
 		mockCall.mockResolvedValue({ config: {} });
 
-		render(
+		renderWithProviders(
 			<PrivacySettingsSection
 				config={makeConfig()}
 				updateConfig={() => {}}
@@ -582,7 +595,7 @@ describe("RW-1: History export null-safe path handling (rewrite of test_history_
 		};
 
 		const { default: HistoryPage } = await import("@/pages/History");
-		render(<HistoryPage />);
+		renderWithProviders(<HistoryPage />);
 
 		// Wait for the record to load so the Export button is enabled.
 		await waitFor(() => {
@@ -591,7 +604,8 @@ describe("RW-1: History export null-safe path handling (rewrite of test_history_
 
 		// Open the export format menu and click "Export as JSON".
 		const exportBtn = screen.getByRole("button", { name: /^Export$/i });
-		fireEvent.click(exportBtn);
+		const user = userEvent.setup();
+		await user.click(exportBtn);
 		const jsonItem = await screen.findByRole("menuitem", {
 			name: /Export as JSON/i,
 		});
@@ -645,7 +659,7 @@ describe("RW-1: Vocabulary export null-safe path handling (rewrite of test_vocab
 		};
 
 		const { default: VocabularyPage } = await import("@/pages/Vocabulary");
-		render(<VocabularyPage />);
+		renderWithProviders(<VocabularyPage />);
 
 		// Wait for the seeded entry to render so the Export button is enabled.
 		await waitFor(() => {
@@ -653,7 +667,8 @@ describe("RW-1: Vocabulary export null-safe path handling (rewrite of test_vocab
 		});
 
 		const exportBtn = screen.getByRole("button", { name: /^Export$/i });
-		fireEvent.click(exportBtn);
+		const user = userEvent.setup();
+		await user.click(exportBtn);
 		const jsonItem = await screen.findByRole("menuitem", {
 			name: /Export as JSON/i,
 		});
@@ -957,10 +972,20 @@ function readElectronBuilderYml(): string {
 }
 
 describe("RW-1: electron-builder.yml has signing + publish (rewrite of TestElectronBuilderConfigHasSigningAndPublish)", () => {
-	it("declares a GitHub publish provider", () => {
+	it("does NOT declare a live GitHub publish provider (dead config removed)", () => {
+		// S1-CR-148 / S5-CR-51 deliberately removed the `publish: github`
+		// block from electron-builder.yml: it was dead config — no
+		// `electron-updater` integration exists on the Electron path and
+		// the Tauri path uses `tauri-plugin-updater` instead. The removal
+		// is documented in the config header. Assert BOTH halves: no live
+		// provider stanza (a regression that silently re-adds it without
+		// wiring electron-updater would be caught) AND the removal
+		// rationale comment is still present (so maintainers don't
+		// "helpfully" re-add it).
 		const yml = readElectronBuilderYml();
-		expect(yml).toContain("publish:");
-		expect(yml).toContain("provider: github");
+		expect(yml).not.toMatch(/^publish:\s*$/m);
+		expect(yml).not.toContain("provider: github");
+		expect(yml).toContain("dead config");
 	});
 
 	it("declares signAndEditExecutable + notarize", () => {

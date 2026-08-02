@@ -347,6 +347,21 @@ class ConfigHandlersMixin(HandlerBase):
                 # refused to load.
                 to_persist = {k: v for k, v in validated.items() if k not in failed_keys}
                 self.service.apply_config(to_persist)
+                # XZ-SEC-05: a set_config that carries
+                # ``trusted_extra_hosts`` must re-apply the allowlist
+                # immediately (not just on next launch via Config.load).
+                # Best-effort: an allowlist failure must not fail the
+                # whole set_config.
+                if "trusted_extra_hosts" in to_persist:
+                    try:
+                        from voice_typer.server._secrets import extend_url_allowlist
+
+                        extend_url_allowlist(
+                            to_persist["trusted_extra_hosts"],
+                            caller="set_config.trusted_extra_hosts",
+                        )
+                    except Exception:
+                        log.debug("[IPC] set_config trusted_extra_hosts allowlist re-apply failed", exc_info=True)
                 # build the ``applied`` echo list from
                 # ``to_persist`` (not ``validated``) so the
                 # partial-success envelope doesn't claim a failed key
@@ -456,3 +471,73 @@ class ConfigHandlersMixin(HandlerBase):
             # ``ack`` response, not an error path.
             self._respond_with_error(resp, exc, "set_config")
         return resp
+
+    def _handle_add_trusted_endpoint(self, data: dict | None, resp: dict) -> dict | None:
+        """Handle the ``add_trusted_endpoint`` IPC command (XZ-SEC-05).
+
+        Adds a hostname to the runtime URL allowlist AND persists it to
+        ``config.json`` under ``trusted_extra_hosts`` so the extension
+        survives a restart (``Config.load()`` re-applies the persisted
+        list). This is the in-app remediation path for users running
+        self-hosted LLM/ASR endpoints on non-loopback hosts — without
+        it, ``assert_url_allowed`` raises ``ValueError`` for every
+        request to e.g. ``https://my-vllm.lan/v1``.
+
+        The host is normalized (lowercase, port stripped) and remains
+        subject to the SSRF IP-literal blocklist + DNS-rebinding check
+        in ``_secrets.assert_url_allowed`` — a user cannot bypass SSRF
+        defense by adding a private IP here.
+
+        Payload: ``{"host": "<hostname[:port]>"}``.
+        """
+        try:
+            if not isinstance(data, dict) or not isinstance(data.get("host"), str):
+                log.warning("[IPC] add_trusted_endpoint rejected: data.host must be a string")
+                return _error_response(
+                    resp,
+                    "add_trusted_endpoint requires data.host: string",
+                    code="invalid_payload",
+                )
+            raw_host = data["host"].strip()
+            # Reject scheme/path/whitespace on the RAW value first —
+            # ``https://my-vllm.lan`` must be rejected (the ":"-split
+            # below would otherwise reduce it to a bare "https").
+            if not raw_host or "://" in raw_host or "/" in raw_host or " " in raw_host:
+                log.warning("[IPC] add_trusted_endpoint rejected: invalid host %r", raw_host)
+                return _error_response(
+                    resp,
+                    f"invalid host {raw_host!r} — expected a bare hostname like 'my-vllm.lan'",
+                    code="invalid_field",
+                )
+            host = raw_host.split(":")[0].strip().lower()
+            if not host:
+                log.warning("[IPC] add_trusted_endpoint rejected: invalid host %r", raw_host)
+                return _error_response(
+                    resp,
+                    f"invalid host {raw_host!r} — expected a bare hostname like 'my-vllm.lan'",
+                    code="invalid_field",
+                )
+            if not all(c.isalnum() or c in "-._" for c in host):
+                return _error_response(
+                    resp,
+                    f"invalid host {raw_host!r} — contains invalid characters",
+                    code="invalid_field",
+                )
+
+            from voice_typer.server._secrets import extend_url_allowlist
+
+            # Apply to the runtime allowlist first, then persist.
+            extend_url_allowlist([host], caller="add_trusted_endpoint")
+
+            # Persist to config.json under trusted_extra_hosts (idempotent).
+            current = list(getattr(self.app.config, "trusted_extra_hosts", []) or [])
+            if host not in current:
+                current.append(host)
+                self.service.apply_config({"trusted_extra_hosts": current})
+
+            resp["type"] = "ack"
+            resp["data"] = {"host": host}
+            return resp
+        except Exception as exc:
+            self._respond_with_error(resp, exc, "add_trusted_endpoint")
+            return resp

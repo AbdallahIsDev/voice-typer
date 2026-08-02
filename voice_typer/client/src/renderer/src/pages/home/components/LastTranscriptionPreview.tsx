@@ -23,7 +23,13 @@ export function LastTranscriptionPreview({
 	onRepaste,
 }: LastTranscriptionPreviewProps) {
 	return (
-		<div className="w-130 max-w-full rounded-[10px] bg-(--bg-subtle) px-4 py-3">
+		<div
+			className="w-130 max-w-full rounded-[10px] bg-(--bg-subtle) px-4 py-3"
+			// QV-96: the preview container itself carries aria-live="polite"
+			// so the card remains accessible even when rendered outside
+			// Home's <output> wrapper.
+			aria-live="polite"
+		>
 			<p className="line-clamp-2 overflow-hidden text-ellipsis text-[13px] text-(--text-muted)">
 				{text}
 			</p>

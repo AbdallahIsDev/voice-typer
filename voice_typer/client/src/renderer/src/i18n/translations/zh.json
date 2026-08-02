@@ -178,7 +178,8 @@
 		},
 		"stopPlaybackFirst": "开始新测试前请先停止音频播放",
 		"loadFailedDescription": "无法加载麦克风列表。请检查连接后重试。",
-		"selected": "已选择"
+		"selected": "已选择",
+		"useAria": "使用麦克风 — {name}"
 	},
 	"vocabulary": {
 		"title": "自定义词汇",
@@ -261,7 +262,9 @@
 		"loadFailedDescription": "无法从后端加载词汇。请检查连接后重试。",
 		"showMore": "显示更多",
 		"showingCap": "显示 {shown} / {total}",
-		"vocabularyCleared": "词汇已清除"
+		"vocabularyCleared": "词汇已清除",
+		"clearAllToast": "词汇已清除",
+		"clearAllFailed": "清除词汇失败"
 	},
 	"templates": {
 		"title": "模板",
@@ -329,7 +332,8 @@
 		"importInvalidShape": "文件不包含模板数组",
 		"loadFailedDescription": "无法从后端加载模板。请检查连接后重试。",
 		"showMore": "显示更多",
-		"showingCap": "显示 {shown} / {total}"
+		"showingCap": "显示 {shown} / {total}",
+		"unknownVariableWarning": "未知变量 {vars} — 支持: {today}, {now}, {clipboard}, {username}"
 	},
 	"analytics": {
 		"title": "分析",
