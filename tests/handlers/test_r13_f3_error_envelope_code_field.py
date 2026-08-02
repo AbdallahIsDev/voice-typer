@@ -18,7 +18,6 @@ class TestErrorResponseHelper:
         assert result["type"] == "error"
         assert result["data"] == {
             "code": "server.handler_error",
-            "legacy_code": "handler_error",
             "message": "disk full",
         }
         assert result["id"] == 42
@@ -46,7 +45,6 @@ class TestErrorResponseHelper:
         assert resp["type"] == "error"
         assert resp["data"] == {
             "code": "server.handler_error",
-            "legacy_code": "handler_error",
             "message": "handler raised",
         }
 
@@ -92,7 +90,6 @@ class TestErrorCodesRegistry:
         assert result["type"] == "error"
         assert result["data"] == {
             "code": "server.internal_error",
-            "legacy_code": "internal_error",
             "message": "internal error",
         }
         assert "simulated handler crash" not in str(result["data"])

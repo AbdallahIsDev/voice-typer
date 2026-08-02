@@ -37,6 +37,10 @@ async def test_sidecar_round_trip_auth_dispatch_response(monkeypatch):
     server.app.quit = MagicMock()
     # push is called by start() — make it a no-op.
     server.push = MagicMock()
+    # ``dispatch`` increments / decrements the in-flight counter (and
+    # compares it to ints), so the mock must carry a real int, not a
+    # MagicMock (which would fail the ``<= 0`` comparison).
+    server._ws_inflight_count = 0
     # force the lazy-create branch in
     # ``_make_dispatch`` to run (creates a real ThreadPoolExecutor so
     # ``loop.run_in_executor`` doesn't fail the ``wrap_future``
@@ -145,6 +149,10 @@ async def test_sidecar_handles_malformed_frame_without_crashing(monkeypatch):
     server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
     server.app = MagicMock()
     server.push = MagicMock()
+    # ``dispatch`` increments / decrements the in-flight counter (and
+    # compares it to ints), so the mock must carry a real int, not a
+    # MagicMock (which would fail the ``<= 0`` comparison).
+    server._ws_inflight_count = 0
     # force the lazy-create branch in
     # ``_make_dispatch`` to run.
     server._ws_dispatch_pool = None
@@ -170,10 +178,9 @@ async def test_sidecar_handles_malformed_frame_without_crashing(monkeypatch):
             err = json.loads(raw)
             assert err["type"] == "error"
             # The dispatch loop emits the namespaced form (``client.*``);
-            # the ``legacy_code`` alias carries the bare form for one
-            # release cycle so older clients can still branch on it.
+            # the bare-form ``legacy_code`` alias was removed once the
+            # renderer migrated to the namespaced form.
             assert err["data"]["code"] == "client.invalid_payload"
-            assert err["data"].get("legacy_code") == "invalid_payload"
 
             # The connection must still be open — send a real command.
             await client.send(json.dumps({"type": "get_status", "data": {}, "id": 1}))

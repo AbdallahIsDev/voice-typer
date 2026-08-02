@@ -189,9 +189,10 @@ class TestSendStdinErrorEnvelope:
         assert "legacy_code" not in sent_msg["data"]
         assert sent_msg["data"]["message"] == "invalid JSON"
 
-    def test_helper_includes_legacy_code_when_provided(self) -> None:
-        """The invalid-payload site includes both ``code`` AND
-        ``legacy_code`` for one-release compat."""
+    def test_helper_emits_namespaced_code_and_message(self) -> None:
+        """The invalid-payload site includes the namespaced ``code``
+        and ``message`` (the bare ``legacy_code`` alias was removed once
+        the renderer migrated to the namespaced form)."""
         from unittest.mock import MagicMock
 
         app = MagicMock()
@@ -200,12 +201,10 @@ class TestSendStdinErrorEnvelope:
         srv._send_stdin_error_envelope(
             message="message must be a JSON object",
             code="client.invalid_payload",
-            legacy_code="invalid_payload",
             _out=io.StringIO(),
         )
         sent_msg = srv._send.call_args.args[0]
         assert sent_msg["data"]["code"] == "client.invalid_payload"
-        assert sent_msg["data"]["legacy_code"] == "invalid_payload"
         assert sent_msg["data"]["message"] == "message must be a JSON object"
 
     def test_run_invalid_json_envelope_shape_unchanged(self, server) -> None:
@@ -219,8 +218,8 @@ class TestSendStdinErrorEnvelope:
         assert msg == {"type": "error", "data": {"message": "invalid JSON"}}
 
     def test_run_invalid_payload_envelope_shape(self, server) -> None:
-        """End-to-end: ``_run`` emits the namespaced + legacy-alias
-        envelope for non-dict JSON (e.g. a bare number)."""
+        """End-to-end: ``_run`` emits the namespaced envelope for
+        non-dict JSON (e.g. a bare number)."""
         stdin = io.StringIO("42\n")
         stdout = io.StringIO()
         server._running = True
@@ -228,7 +227,6 @@ class TestSendStdinErrorEnvelope:
         msg = json.loads(stdout.getvalue().strip())
         assert msg["type"] == "error"
         assert msg["data"]["code"] == "client.invalid_payload"
-        assert msg["data"]["legacy_code"] == "invalid_payload"
         assert msg["data"]["message"] == "message must be a JSON object"
 
     def test_run_calls_helper_not_inline_send(self) -> None:
