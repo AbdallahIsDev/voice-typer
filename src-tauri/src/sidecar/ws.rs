@@ -2236,7 +2236,7 @@ mod tests {
         // reject the new connection's in-flight dispatch with a
         // spurious `sidecar_disconnected` error.
         let pending_id = 99u64;
-        let (pending_tx, pending_rx) = oneshot::channel::<Value>();
+        let (pending_tx, mut pending_rx) = oneshot::channel::<Value>();
         {
             let mut pending = state.pending.lock().await;
             pending.insert(pending_id, pending_tx);
@@ -2277,12 +2277,15 @@ mod tests {
             "pending map must NOT be drained by an old-generation cleanup"
         );
         // The pending oneshot sender must still be live (i.e. the
-        // receiver hasn't been fulfilled with a disconnect error).
-        // `oneshot::Receiver::is_closed()` returns true if the sender
-        // was dropped OR already sent. A drain would have sent a
-        // `sidecar_disconnected` error, closing the channel.
+        // receiver hasn't been fulfilled with a disconnect error). A
+        // drain would have sent a `sidecar_disconnected` value, so a
+        // successful `try_recv()` (or `Err(Closed)`) would prove the
+        // channel was closed — `Err(Empty)` means it's still open.
         assert!(
-            !pending_rx.is_closed(),
+            matches!(
+                pending_rx.try_recv(),
+                Err(tokio::sync::oneshot::error::TryRecvError::Empty)
+            ),
             "pending dispatch oneshot must NOT be closed — old-generation cleanup must not drain it"
         );
     }
@@ -2302,7 +2305,7 @@ mod tests {
         let _ws_rx_guard = _ws_rx;
 
         let pending_id = 7u64;
-        let (pending_tx, pending_rx) = oneshot::channel::<Value>();
+        let (pending_tx, mut pending_rx) = oneshot::channel::<Value>();
         state.pending.lock().await.insert(pending_id, pending_tx);
         assert_eq!(
             state.pending.lock().await.len(),
@@ -2330,8 +2333,10 @@ mod tests {
             0,
             "pending map must be empty after matching-generation cleanup"
         );
+        // The drain sent a `sidecar_disconnected` value through the
+        // oneshot sender, so `try_recv()` must return `Ok(..)`.
         assert!(
-            pending_rx.is_closed(),
+            pending_rx.try_recv().is_ok(),
             "pending dispatch oneshot must be closed (drain sent disconnect error)"
         );
     }

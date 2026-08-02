@@ -265,7 +265,7 @@ fn migrate_inner(new_dir: &Path) {
     let mut old_dir: Option<PathBuf> = None;
     for candidate in &candidates {
         log::info!("[MIGRATE] probing electron userdata at: {:?}", candidate);
-        if candidate.as_path() == new_dir.as_path() {
+        if candidate.as_os_str() == new_dir.as_os_str() {
             log::info!(
                 "[MIGRATE]   skipping {:?} (same as Tauri config_dir target — self-copy no-op)",
                 candidate
