@@ -551,11 +551,11 @@ def test_electron_builder_yml_not_scheduled_for_deletion(
 # ─── 5. Windows cutover gate requires Phase 0-W to pass first ────────────────
 
 
-def test_tauri_windows_workflow_has_if_true_after_cutover(
+def test_tauri_windows_workflow_has_active_job_after_cutover(
     tauri_windows_workflow_text: str,
 ):
-    """The Tauri Windows workflow MUST have a per-leg ``if: matrix.enabled``
-    guard (post-cutover + post-matrix-refactor state).
+    """The Tauri Windows workflow's job must be active (runnable) after the
+    matrix-refactor gate cleanup.
 
     GAP-2 in the module docstring. ``tauri-windows-build.yml`` was
     originally disabled (``if: false`` on the job) so it did NOT run
@@ -566,24 +566,31 @@ def test_tauri_windows_workflow_has_if_true_after_cutover(
     RT-FIX-9 (2026-07-24): the cutover was flipped — the workflow ran
     on every push / PR with ``if: true``.
 
-    The matrix refactor (which spans x86_64 enabled + aarch64 gated off)
-    replaced the single ``if: true`` with ``if: matrix.enabled``. This
-    is functionally equivalent for the x86_64 leg (which has
-    ``enabled: true`` and therefore runs on every dispatch), while also
-    gating the aarch64 leg off until a Windows-on-ARM runner is
-    available. The cutover gate therefore now lives in the matrix's
-    per-leg ``enabled`` field, not in a top-level ``if:`` literal.
+    The matrix refactor parameterized the job over ``matrix.target``
+    (x86_64 active + aarch64 scaffold). An early revision gated the
+    per-leg build with a job-level ``if: matrix.enabled``, but the
+    ``matrix`` context is NOT available in ``jobs.<id>.if`` — GitHub
+    Actions rejects the workflow file at validation time (a 0s
+    "workflow file issue" run on every push, with no jobs). The invalid
+    gate was therefore removed entirely: the active matrix contains
+    exactly one leg (x86_64), so every matrix job should run. The
+    aarch64 leg is preserved as a commented matrix template for when
+    GitHub ships a ``windows-11-arm`` runner.
     """
-    # The workflow's job-level `if:` must be `matrix.enabled` (the
-    # per-leg gate that runs the x86_64 leg and skips the aarch64 leg
-    # until a Windows-on-ARM runner is available).
-    assert "if: matrix.enabled" in tauri_windows_workflow_text, (
-        "tauri-windows-build.yml must have `if: matrix.enabled` on the job "
-        "(post-cutover + post-matrix-refactor state). The x86_64 leg has "
-        "`enabled: true` and runs on every dispatch; the aarch64 leg has "
-        "`enabled: false` and is gated off until a Windows-on-ARM runner "
-        "is available. If the matrix refactor was rolled back to a single "
-        "x86_64-only build, update this test to assert `if: true` again."
+    # The invalid per-leg gate must be gone (matrix is unavailable in
+    # job-level `if:` — this is a hard GitHub Actions validation rule).
+    assert "if: matrix.enabled" not in tauri_windows_workflow_text, (
+        "tauri-windows-build.yml must NOT contain `if: matrix.enabled` — "
+        "the `matrix` context is unavailable in jobs.<id>.if and GitHub "
+        "rejects the workflow file at validation time (0s 'workflow file "
+        "issue' on every push)."
+    )
+    # The active x86_64 matrix leg must exist (the build path runs).
+    assert "arch: x86_64" in tauri_windows_workflow_text, (
+        "tauri-windows-build.yml must have an active x86_64 matrix leg."
+    )
+    assert "windows-2022" in tauri_windows_workflow_text, (
+        "tauri-windows-build.yml must run the x86_64 leg on windows-2022."
     )
     # The header comment must reference Phase 0-W.
     assert "Phase 0-W" in tauri_windows_workflow_text, (
@@ -595,7 +602,7 @@ def test_tauri_windows_workflow_has_if_true_after_cutover(
 # alias the legacy pre-cutover test name to the new
 # post-cutover assertion so any external test-selection scripts that
 # reference the old name still resolve.
-test_tauri_windows_workflow_has_phase0w_if_false_guard = test_tauri_windows_workflow_has_if_true_after_cutover
+test_tauri_windows_workflow_has_phase0w_if_false_guard = test_tauri_windows_workflow_has_active_job_after_cutover
 
 
 def test_tauri_windows_workflow_references_validation_runbook(
