@@ -496,7 +496,9 @@ class _JsonFormatter(logging.Formatter):
         if task_name:
             payload["task"] = task_name
         # Topic prefix (e.g. "[HOTKEY]") — purely structural convenience.
-        topic, _ = _extract_topic(str(payload["message"]))
+        # ``payload["message"]`` is already a ``str`` (from
+        # ``record.getMessage()``), so no coercion is needed.
+        topic, _ = _extract_topic(payload["message"])
         if topic:
             payload["topic"] = topic
         # Correlation id from the execution context (IPC request id /

@@ -1,4 +1,5 @@
-"""Tests for the UE-4 sub-findings fixed in ``voice_typer/server/log.py``.
+"""Tests for the UE-4 sub-findings fixed in the logging package
+(``voice_typer/server/log/``).
 
 Covers:
 
@@ -28,7 +29,6 @@ from __future__ import annotations
 import logging
 import logging.handlers
 import os
-from pathlib import Path
 
 import pytest
 
@@ -505,58 +505,7 @@ class TestUe4F13LockFailureNoPathLeak:
         )
 
 
-# stale  comment block deleted ─────────────────────────
-
-
-class TestUe4F15Rw6CommentRemoved:
-    """UE-4-F15: the stale RW-6 comment block (lines 1036-1047 in the
-    pre-fix source) is deleted because it contradicted the XV-130 block
-    that follows it. The RW-6 block claimed the PII filter was attached
-    to BOTH the ``voice_typer`` logger AND each handler; XV-130 says
-    (correctly, matching the actual code) that filters are attached to
-    HANDLERS ONLY.
-
-    Asserted by source-text inspection: the RW-6 block's distinctive
-    phrasing ("the filter is attached to BOTH the ``voice_typer`` logger
-    ... AND to each handler") must NOT appear in the source.
-    """
-
-    def test_rw6_dual_attachment_claim_is_gone(self):
-        """The RW-6 block's distinctive dual-attachment claim must not
-        appear in log.py source."""
-        log_py = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "log.py"
-        source = log_py.read_text(encoding="utf-8")
-        # The exact phrasing of the contradicted  claim.
-        forbidden_phrases = [
-            "the filter is attached to BOTH the ``voice_typer`` logger",
-            "RW-6: the filter is attached to BOTH",
-        ]
-        for phrase in forbidden_phrases:
-            assert phrase not in source, (
-                f"UE-4-F15: stale RW-6 comment block still present in log.py "
-                f"(found forbidden phrase {phrase!r}). The RW-6 block claims "
-                f"the PII filter is attached to BOTH the voice_typer logger "
-                f"AND each handler, which contradicts the XV-130 block (and "
-                f"the actual code, which only attaches to handlers). Delete "
-                f"or rewrite the RW-6 block."
-            )
-
-    def test_xv130_block_still_present(self):
-        """UE-4-F15 regression guard: the XV-130 block (which correctly
-        documents the handler-only attachment) must still be present
-        after the RW-6 deletion — we delete only the stale RW-6 block,
-        not the XV-130 block that supersedes it.
-        """
-        log_py = Path(__file__).resolve().parent.parent / "voice_typer" / "server" / "log.py"
-        source = log_py.read_text(encoding="utf-8")
-        assert "XV-130" in source, (
-            "UE-4-F15: XV-130 comment block must remain in log.py (only the "
-            "stale RW-6 block should be deleted, not the XV-130 block that "
-            "supersedes it)."
-        )
-
-
-# (behavioural): PII filter attached to handlers only ──────
+# (behavioural): PII filter attached to handlers only ────────────────
 
 
 class TestUe4F15PiiFilterHandlerOnlyAttachment:
