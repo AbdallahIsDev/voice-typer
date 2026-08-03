@@ -407,10 +407,20 @@ class TestStdinListenerGatedInTcpMode:
         """Legacy stdin/stdout IPC mode (no TCP) must still spawn the
         stdin listener so the documented ``voice-typer`` CLI keeps
         working.
+
+        UE-13 (High): the unauthenticated stdin listener is gated
+        behind ``VOICE_TYPER_ALLOW_STDIN_IPC=1`` (``--allow-stdin`` on
+        the CLI) — so the legacy stdin/stdout path is exercised via the
+        documented explicit opt-in, exactly like
+        ``test_ipc_server_lifecycle_fixes.py::test_stdin_thread_spawned_when_env_var_set``.
         """
         app = _MockApp(tmp_path=tmp_path, monkeypatch=monkeypatch)
         server = IPCServer(app)
         app._ipc_server = server
+        # UE-13: without this env var, ``start()`` refuses to spawn the
+        # stdin listener (closing the unauthenticated stdin auth-bypass
+        # hole). Set the documented gate so the legacy mode is exercised.
+        monkeypatch.setenv("VOICE_TYPER_ALLOW_STDIN_IPC", "1")
         server.start()
         try:
             assert server._stdin_thread is not None, "stdin listener must be spawned in legacy stdin mode"

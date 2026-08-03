@@ -81,6 +81,16 @@ class _TCPLineIO:
 
     def __init__(self, conn: socket.socket) -> None:
         self.conn = conn
+        # DJ-80: enable TCP_NODELAY on the wrapped socket so small push
+        # events (bubble_level at 15-50 Hz, heartbeat_ack) are not
+        # delayed by Nagle's algorithm (up to ~40 ms of coalescing on
+        # loopback). Defense-in-depth: ``transport_tcp`` also sets it on
+        # accepted sockets, but ``_TCPLineIO`` is constructed directly in
+        # tests and via the WS-bridge path. The suppress() wrapper keeps
+        # non-TCP sockets (socketpair on some platforms, test mocks)
+        # from crashing the constructor.
+        with contextlib.suppress(OSError, AttributeError):
+            conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
         # use the default chunk buffer size (io.DEFAULT_BUFFER_SIZE,
         # typically 8 KiB) rather than ``buffering=1``. ``buffering=1`` means
         # "line buffered" in text mode — meaningful only for writes (flush
