@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from collections import Counter
 from pathlib import Path
@@ -60,8 +61,30 @@ from typing import Any
 
 # ── Paths (relative to project root) ──────────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-BASELINE_PATH = PROJECT_ROOT / "ruff-baseline.json"
-CURRENT_PATH = PROJECT_ROOT / "ruff-current.json"
+
+
+def _env_path(name: str, default: Path) -> Path:
+    """Resolve a path from an env var, falling back to a default.
+
+    RUFF_BASELINE_PATH / RUFF_CURRENT_PATH let tests redirect all reads
+    and writes to a temp file instead of the repo's real
+    ``ruff-baseline.json``, so an interrupted test run (timeout, kill,
+    power loss) can never leave a fake baseline on disk.
+    """
+    raw = os.environ.get(name)
+    return Path(raw) if raw else default
+
+
+def _display_path(path: Path) -> str:
+    """Render a path relative to the project root when possible."""
+    try:
+        return str(path.relative_to(PROJECT_ROOT))
+    except ValueError:
+        return str(path)
+
+
+BASELINE_PATH = _env_path("RUFF_BASELINE_PATH", PROJECT_ROOT / "ruff-baseline.json")
+CURRENT_PATH = _env_path("RUFF_CURRENT_PATH", PROJECT_ROOT / "ruff-current.json")
 
 # Required schema fields on the baseline file. The baseline MAY carry
 # extra underscore-prefixed metadata (e.g. ``_comment``, ``_schema_version``)
@@ -215,7 +238,7 @@ def compare(current_violations: list[dict[str, Any]]) -> int:
 
     print("Ruff ratchet comparison")
     print("=======================")
-    print(f"  Baseline file: {BASELINE_PATH.relative_to(PROJECT_ROOT)}")
+    print(f"  Baseline file: {_display_path(BASELINE_PATH)}")
     print(f"  Total: baseline={base_total}  current={curr_total}  status={total_status}")
     if curr_total < base_total:
         print("  -> Total IMPROVED. Consider regenerating the baseline to lock in the gain:")
@@ -346,7 +369,7 @@ def regenerate(current_violations: list[dict[str, Any]], *, force: bool = False)
         json.dumps(new_baseline, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(f"Regenerated {BASELINE_PATH.relative_to(PROJECT_ROOT)}")
+    print(f"Regenerated {_display_path(BASELINE_PATH)}")
     print(f"  total_count = {new_total}")
     print(f"  by_rule     = {json.dumps(new_by_rule_sorted, sort_keys=True)}")
     if new_total == 0:

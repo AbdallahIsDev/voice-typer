@@ -66,6 +66,17 @@ def _run_script(args: list[str], stdin: str | None = None) -> subprocess.Complet
     )
 
 
+def _baseline_path() -> Path:
+    """Path the script will actually read/write (honors RUFF_BASELINE_PATH).
+
+    Tests that exercise compare/regenerate logic point the script at a
+    tmp_path baseline via ``RUFF_BASELINE_PATH`` and must read results
+    back from the same location, never from the repo's real file.
+    """
+    override = os.environ.get("RUFF_BASELINE_PATH")
+    return Path(override) if override else BASELINE_PATH
+
+
 def _has_ruff() -> bool:
     """True if `ruff` is importable as a module (mirrors CI's `python -m ruff`)."""
     try:
@@ -186,8 +197,8 @@ class TestCompareLogic:
     """Verify scripts/ruff_ratchet_check.py compare behavior with synthetic inputs."""
 
     @pytest.fixture(autouse=True)
-    def _synthetic_baseline(self) -> Iterator[None]:
-        """Write a synthetic non-empty baseline before each test, restore after.
+    def _synthetic_baseline(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        """Seed a known baseline into tmp_path; never touch the real repo file.
 
         ZR-40: the repo's actual ``ruff-baseline.json`` was reset to
         ``total_count: 0`` after parallel-agent cleanup, which broke
@@ -197,9 +208,14 @@ class TestCompareLogic:
         against a baseline of 0 and reports REGRESSION instead of PASS).
         The fix is to seed a known baseline (``B007: 3, UP007: 1``,
         total 4) before each compare test so the test outcome is
-        independent of the actual repo baseline content. The
-        restore-after ensures the real baseline file is untouched on
-        disk.
+        independent of the actual repo baseline content.
+
+        Hardening: the synthetic baseline is written to a ``tmp_path``
+        file and the script is redirected there via the
+        ``RUFF_BASELINE_PATH`` env override. The repo's real
+        ``ruff-baseline.json`` is never written, so an interrupted test
+        run (timeout, kill, power loss) can no longer leave a fake
+        baseline on disk.
 
         The two-rule baseline (B007 + UP007) is needed by
         ``test_per_rule_regression_with_same_total_fails`` which
@@ -207,21 +223,21 @@ class TestCompareLogic:
         total constant — that's the only way to trigger the
         per-rule-regression-with-same-total code path.
         """
-        original = BASELINE_PATH.read_text(encoding="utf-8")
-        synthetic = json.dumps(
-            {
-                "_comment": "synthetic baseline for TestCompareLogic — restored after test",
-                "_target": "voice_typer/ tests/ scripts/ conftest.py",
-                "_schema_version": 1,
-                "total_count": 4,
-                "by_rule": {"B007": 3, "UP007": 1},
-            }
+        baseline_file = tmp_path / "ruff-baseline.json"
+        baseline_file.write_text(
+            json.dumps(
+                {
+                    "_comment": "synthetic baseline for TestCompareLogic — tmp_path",
+                    "_target": "voice_typer/ tests/ scripts/ conftest.py",
+                    "_schema_version": 1,
+                    "total_count": 4,
+                    "by_rule": {"B007": 3, "UP007": 1},
+                }
+            ),
+            encoding="utf-8",
         )
-        BASELINE_PATH.write_text(synthetic, encoding="utf-8")
-        try:
-            yield
-        finally:
-            BASELINE_PATH.write_text(original, encoding="utf-8")
+        monkeypatch.setenv("RUFF_BASELINE_PATH", str(baseline_file))
+        yield
 
     def test_equal_counts_passes(self) -> None:
         # Use a rule with count > 1 from the current baseline to avoid brittleness.
@@ -229,7 +245,7 @@ class TestCompareLogic:
         # after parallel agents cleaned up naming violations. Now we pick a
         # representative rule dynamically from the baseline so the test stays
         # valid as the baseline evolves.
-        _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        _baseline = json.loads(_baseline_path().read_text(encoding="utf-8"))
         _rule, _count = _pick_representative_rule(_baseline)
         stdin = json.dumps([{"code": _rule}] * _count)
         result = _run_script(["--stdin"], stdin=stdin)
@@ -241,7 +257,7 @@ class TestCompareLogic:
 
     def test_total_grew_fails(self) -> None:
         # Use the same representative rule + 1 to exceed per-rule count
-        _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        _baseline = json.loads(_baseline_path().read_text(encoding="utf-8"))
         _rule, _count = _pick_representative_rule(_baseline)
         stdin = json.dumps([{"code": _rule}] * (_count + 1))
         result = _run_script(["--stdin"], stdin=stdin)
@@ -267,7 +283,7 @@ class TestCompareLogic:
         # previously this test relied on the actual repo
         # baseline having a B007 entry; the synthetic baseline
         # fixture now provides B007: 3 + UP007: 1 = 4 total.
-        _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        _baseline = json.loads(_baseline_path().read_text(encoding="utf-8"))
         _b007 = _baseline["by_rule"].get("B007", 3)
         _up007 = _baseline["by_rule"].get("UP007", 1)
         # Input: (_b007 + 1) B007 + max(0, _up007 - 1) UP007
@@ -284,7 +300,7 @@ class TestCompareLogic:
         # Use the representative rule - 1 to show shrinkage.
         # previously hardcoded N806 with fallback 27; switched to
         # dynamic rule selection so the test survives baseline regeneration.
-        _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        _baseline = json.loads(_baseline_path().read_text(encoding="utf-8"))
         _rule, _count = _pick_representative_rule(_baseline)
         stdin = json.dumps([{"code": _rule}] * max(0, _count - 1))
         result = _run_script(["--stdin"], stdin=stdin)
@@ -338,32 +354,35 @@ class TestRegenerateLogic:
     """
 
     @pytest.fixture(autouse=True)
-    def _restore_baseline(self) -> Iterator[None]:
-        """Seed a synthetic baseline before each test, restore the original after."""
-        original = BASELINE_PATH.read_text(encoding="utf-8")
-        # seed a known starting point so tests are deterministic.
-        # Use 3 UP007 violations as the synthetic baseline — the
-        # regenerate tests below use 2 / 3 / etc. UP007 inputs and
-        # rely on the refuse-to-grow guard comparing against this
-        # known count.
-        synthetic = json.dumps(
-            {
-                "_comment": "synthetic baseline for TestRegenerateLogic — restored after test",
-                "_target": "voice_typer/ tests/ scripts/ conftest.py",
-                "_schema_version": 1,
-                "total_count": 3,
-                "by_rule": {"UP007": 3},
-            }
+    def _restore_baseline(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+        """Seed a known baseline into tmp_path; never touch the real repo file.
+
+        ZR-40: the regenerate tests seed a synthetic non-empty baseline
+        so they are deterministic and independent of the repo baseline
+        state. The synthetic file now lives in ``tmp_path`` and the
+        script is redirected there via ``RUFF_BASELINE_PATH`` — the
+        repo's real ``ruff-baseline.json`` is never written, so an
+        interrupted test run cannot leave a fake baseline on disk.
+        """
+        baseline_file = tmp_path / "ruff-baseline.json"
+        baseline_file.write_text(
+            json.dumps(
+                {
+                    "_comment": "synthetic baseline for TestRegenerateLogic — tmp_path",
+                    "_target": "voice_typer/ tests/ scripts/ conftest.py",
+                    "_schema_version": 1,
+                    "total_count": 3,
+                    "by_rule": {"UP007": 3},
+                }
+            ),
+            encoding="utf-8",
         )
-        BASELINE_PATH.write_text(synthetic, encoding="utf-8")
-        try:
-            yield
-        finally:
-            BASELINE_PATH.write_text(original, encoding="utf-8")
+        monkeypatch.setenv("RUFF_BASELINE_PATH", str(baseline_file))
+        yield
 
     def test_regenerate_refuses_to_grow(self) -> None:
         # More violations than current baseline total — should refuse.
-        _baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        _baseline = json.loads(_baseline_path().read_text(encoding="utf-8"))
         _old_total = _baseline["total_count"]
         stdin = json.dumps([{"code": "UP007"}] * (_old_total + 5))
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
@@ -372,7 +391,7 @@ class TestRegenerateLogic:
         )
         assert "REFUSED" in result.stdout
         # Baseline file should be unchanged.
-        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        baseline = json.loads(_baseline_path().read_text(encoding="utf-8"))
         assert baseline["total_count"] == _old_total
 
     def test_regenerate_same_count_succeeds(self) -> None:
@@ -380,7 +399,7 @@ class TestRegenerateLogic:
         stdin = json.dumps([{"code": "UP007"}] * 3)
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 0
-        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        baseline = json.loads(_baseline_path().read_text(encoding="utf-8"))
         assert baseline["total_count"] == 3
         assert baseline["by_rule"] == {"UP007": 3}
 
@@ -389,7 +408,7 @@ class TestRegenerateLogic:
         stdin = json.dumps([{"code": "UP007"}, {"code": "UP007"}])
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 0
-        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        baseline = json.loads(_baseline_path().read_text(encoding="utf-8"))
         assert baseline["total_count"] == 2
         assert baseline["by_rule"] == {"UP007": 2}
 
@@ -397,7 +416,7 @@ class TestRegenerateLogic:
         stdin = json.dumps([])
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 0
-        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        baseline = json.loads(_baseline_path().read_text(encoding="utf-8"))
         assert baseline["total_count"] == 0
         assert baseline["by_rule"] == {}
 
@@ -406,7 +425,7 @@ class TestRegenerateLogic:
         stdin = json.dumps([{"code": "UP007"}, {"code": "UP007"}])
         result = _run_script(["--regenerate", "--stdin"], stdin=stdin)
         assert result.returncode == 0
-        baseline = json.loads(BASELINE_PATH.read_text(encoding="utf-8"))
+        baseline = json.loads(_baseline_path().read_text(encoding="utf-8"))
         assert "_schema_version" in baseline
         assert "_target" in baseline
 
