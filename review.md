@@ -1090,39 +1090,6 @@ Brainstorm yourself and use the best practices to solve this problem.
 
 ---
 
-### [XS-36] — 27 broad except Exception: pass sites swallow real bugs
-**Status:** ❌ Not Fixed
-**Description:** Ruff `SIM105` rule reports 16 violations in `voice_typer/` + 15 in `tests/` = 31 total (ruff baseline tracks this). Multiline grep found 62 total `except: pass` occurrences in `voice_typer/`, of which 27 are broad `except Exception: pass` (the dangerous form that swallows bugs). Sites include: `crash_handler.py:538`, `tray_models.py:133`, `dictation_pipeline.py:467,578`, `ipc_server.py:933`, `platform_launch.py:93,107`, `recording/device_manager.py:424`, `recording/recorder.py:1164,1417,1456,1519` (4 sites), `hotkeys/wayland.py:401`, `hotkeys/native_adapter.py:195`, `hotkeys/win32_vk.py:280`, `clipboard/windows.py:83,113,132` (3 sites), `clipboard/manager.py:448,568,756` (3 sites), `prewarm/completion_events.py:111,121`, `prewarm/cache_probe.py:155,401`, `prewarm/paths.py:94,104`, `service.py:670,1611,2094` (3 sites), `clipboard_target_safety.py:386,409,748,761`, `streaming.py:655`, `crash_recovery.py:732`, `task_scheduler.py:160`, `startup_tasks.py:263`. Plus 3 broad `except Exception: continue`.
-**Root Cause:** Silent error swallowing — prior cleanup converted some but 27 broad sites remain.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/crash_handler.py`
-- `voice_typer/server/tray_models.py`
-- `voice_typer/server/dictation_pipeline.py`
-- `voice_typer/server/ipc_server.py`
-- `voice_typer/server/platform_launch.py`
-- `voice_typer/server/recording/device_manager.py`
-- `voice_typer/server/recording/recorder.py`
-- `voice_typer/server/hotkeys/wayland.py`
-- `voice_typer/server/hotkeys/native_adapter.py`
-- `voice_typer/server/hotkeys/win32_vk.py`
-- `voice_typer/server/clipboard/windows.py`
-- `voice_typer/server/clipboard/manager.py`
-- `voice_typer/server/prewarm/completion_events.py`
-- `voice_typer/server/prewarm/cache_probe.py`
-- `voice_typer/server/prewarm/paths.py`
-- `voice_typer/server/service.py`
-- `voice_typer/server/clipboard_target_safety.py`
-- `voice_typer/server/streaming.py`
-- `voice_typer/server/crash_recovery.py`
-- `voice_typer/server/task_scheduler.py`
-- `voice_typer/server/startup_tasks.py`
-**Fix:** Convert each broad `except Exception: pass` to either `contextlib.suppress(SpecificException)` (if the swallow is intentional and the exception type is known) or `except SpecificException: log.debug('...', exc_info=True)` (if the error should be surfaced for debugging). After the batch, regenerate `ruff-baseline.json` to lock in the SIM105 reduction. NOTE: `clipboard/__init__.py:289-294` is INTENTIONAL (signal handler must never raise) — leave as-is.
-**Severity:** 🔴 High
-**Category:** Existing warnings and errors
-
----
-
 ### [XS-42] — Cross-test helper duplication — 26 test files copy-paste factory functions
 **Status:** ❌ Not Fixed
 **Description:** Six categories of copy-pasted factory functions across 26 test files: `_make_ipc_server` (4 copies), `_make_fake_server` (6 copies, 5 byte-for-byte identical), `_make_recorder` (5 copies with subtle drift), `_make_app` (3 copies, first two byte-for-byte identical to `tests/app/conftest.py::app`), `_make_sine`/`make_sine` (3 copies), `_make_cm`+`_make_snapshot` (2 each), `_make_model_cache_dir` (2), `temp_config`/`tmp_config_dir` (3). When `VoiceTyperApp.__init__` changes, 3+ test files need updating. When `IPCServer.__init__` changes, 4 test files using `__new__(IPCServer)` bypass may silently break.
@@ -1195,18 +1162,6 @@ Brainstorm yourself and use the best practices to solve this problem.
 
 ---
 
-### [AC-61] — `parakeet_engine.py:873, 875-885` docstring claims "per-transcription fallback, not permanent" but `.to(device="cpu")` makes it permanent until next `load()`
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/parakeet_engine.py:873` CPU fallback does `self._model.to(device="cpu", dtype=self._torch.float32)`. Lines 875-885 docstring claims "self.device is NOT mutated here — it stays 'cuda' so the next load() re-attempts CUDA (per-transcription fallback, not permanent)." But `self._model.device` is now `cpu` after `.to(device="cpu")`. The next `transcribe()` call (line 669) does `inputs.to(device=self._model.device, ...)` — `self._model.device` is CPU. So the next transcription ALSO runs on CPU. The "per-transcription" claim is false — fallback is permanent until the next `load()`.
-**Root Cause:** Verified. `self.device` (engine config field) is not mutated, but `self._model.device` (actual torch tensor device) IS mutated.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/parakeet_engine.py:873, 875-885, 669`
-**Fix:** Either (a) update the docstring to accurately describe "permanent until next `load()`", OR (b) implement the documented "per-transcription" behavior by snapshotting the model to a CPU copy and restoring `self._model.to(device="cuda")` after each fallback transcription.
-**Severity:** 🟡 Medium
-
----
-
 ### [AC-66] — `app.py:268-271` VoiceTyperApp private state (`_microphones`, `_busy_event`, `_lock`) accessed by 6 external modules (backdoor API surface)
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/app.py:268-271` declares `self._microphones: list[dict] = []`, `self._busy_event = threading.Event()`, `self._lock = threading.Lock()`. External modules reach into these "private" attributes: `service/microphone_test.py:26, 53, 62`, `dictation_pipeline.py:362, 369, 783, 1234`, `recording_controller.py:160, 165, 407, 435, 470, 628, 799, 847` (busy_event), `model_manager.py:760`, `startup_tasks.py:233, 235`. 6 modules reach into VoiceTyperApp internals, blocking safe rename/move. `_busy_event` semantics ("SET = not busy") are inverted from the natural reading and only documented at the declaration site.
@@ -1245,42 +1200,6 @@ Brainstorm yourself and use the best practices to solve this problem.
 - `voice_typer/server/dictation_pipeline.py:119-401`
 **Fix:** Extract `_run_pipeline_body(text)`, `_handle_cancelled_cycle(text)`, `_finalize_cycle()` (split into `_zero_audio`, `_reset_watchdog_and_cancelled_set`, `_teardown_session_and_thread`, `_reset_correlation_id`), and a `StageTimer` context manager to replace the 9 `_stage_t0`/`_xxx_ms` pairs. Target: `run` ≤ 60 lines.
 **Severity:** 🔴 High
-
----
-
-### [AC-76] — `transcription.py:941-976` and `:994-1020` near-identical 30-line GPU fallback methods (`_transcribe_with_fallback_unlocked` vs `_transcribe_words_with_fallback_unlocked`)
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/transcription.py:941-976` `_transcribe_with_fallback_unlocked` and `:994-1020` `_transcribe_words_with_fallback_unlocked` share an identical 8-line "tear down GPU model, reload on CPU" sequence. The only differences are: (a) the inner call, (b) the log message, (c) an extra `release_gpu_memory()` call in the words variant (which XV-72 already flagged as a no-op-while-locked).
-**Root Cause:** Verified. Copy-paste when `transcribe_words` was added.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/transcription.py:941-976, 994-1020`
-**Fix:** Unify into `_with_gpu_fallback(self, audio, inner_call, *args, **kwargs)`. Public callers pass `self._transcribe_unlocked` or `self._transcribe_words_unlocked`.
-**Severity:** 🟡 Medium
-
----
-
-### [AC-77] — `transcription.py:780-815, 927-939, 978-992` 3× duplicated 12-line lock+gc wrapper
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/transcription.py:780-815` `transcribe`, `:927-939` `transcribe_with_fallback`, `:978-992` `transcribe_words` all share the same pattern: `with self._lock: ...; if getattr(self, "_pending_gc_collect", False): ...`. The `_pending_gc_collect` flag is read with `getattr(self, "_pending_gc_collect", False)` defensively against a code path that doesn't set it, but the defensiveness is duplicated.
-**Root Cause:** Verified. RACE-023 introduced the deferred-gc pattern by editing all three call sites identically.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/transcription.py:780-815, 927-939, 978-992`
-**Fix:** Extract `@contextlib.contextmanager def _with_lock_and_deferred_gc(self)` context manager. Public methods become 3 lines each.
-**Severity:** 🟢 Low
-
----
-
-### [AC-79] — `transcription.py:57, 95-101` module-level mutable globals for NVIDIA DLL path config (test isolation fragility)
-**Status:** ❌ Not Fixed
-**Description:** `voice_typer/server/transcription.py:57, 95-101` declares `_nvidia_dll_path_handles: list[object] = []`, `_nvidia_dll_paths_configured = False`, `_nvidia_config_lock = threading.Lock()`. The state survives across tests, so test isolation requires manually resetting `_nvidia_dll_paths_configured = False` and `_nvidia_dll_path_handles = []` in fixtures. The `global` statement at line 116 is a code smell.
-**Root Cause:** Verified. Windows-DLL-path configuration was written as module-level functions with module-level state, rather than as a class instance.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/transcription.py:57, 95-101, 116`
-**Fix:** Wrap in a `NvidiaDllPathManager` singleton class. Expose a module-level singleton `_nvidia_dll_paths = NvidiaDllPathManager()`. Tests can construct a fresh instance.
-**Severity:** 🟡 Medium
 
 ---
 
