@@ -567,9 +567,20 @@ class TranscriptionEngine:
                         import gc
 
                         gc.collect()
-                        # release PyTorch's cached CUDA blocks
-                        # so the next backend (or CPU reload) can use them.
-                        release_gpu_memory()
+                        # XV-72: drop the redundant release_gpu_memory()
+                        # call here. ``del self._model`` plus ``gc.collect()``
+                        # already trigger PyTorch's __del__ hook which
+                        # releases the parameter tensors' CUDA blocks. The
+                        # follow-up ``self._reload_under_lock()`` below
+                        # sets ``_pending_gc_collect = True`` via the
+                        # standard RACE-023 path so the next caller
+                        # (outside the lock) calls release_gpu_memory()
+                        # with proper happens-before semantics. Calling
+                        # release_gpu_memory() inside this lock was a no-op
+                        # for VRAM release + cost ~10-100ms of sync work
+                        # (torch.cuda.empty_cache() blocks the calling
+                        # thread while it iterates the allocator) holding
+                        # the IPC dispatch lock for no benefit.
                     except Exception:
                         log.debug("[MODEL] GPU memory release failed", exc_info=True)
                     self._model = None
