@@ -360,6 +360,7 @@ Brainstorm yourself and use the best practices to solve this problem.
 ### [EC-29] — WindowsNativeHotkey (1473 lines) god class; two parallel hotkey ABCs
 **Resolution (wont_fix):** WindowsNativeHotkey — too large for 10-min budget; deferred
 **Status:** ❌ Not Fixed
+**2026-08-03 note:** `voice_typer/server/hotkeys/win32_register.py` (1117 LOC) drafted as an extraction but NOT imported by anything (orphan) — no wiring, finding remains open.
 **Severity:** 🟡 Medium
 **Category:** Backend architecture
 **Description:** `hotkeys/windows_native.py` (1473 lines) packs 8 concerns: RegisterHotKey, WH_KEYBOARD_LL hook, WM_HOTKEY message loop, GetAsyncKeyState polling, modifier-only polling (300 lines), Caps Lock suppression, IME detection, AltGr detection. Two parallel ABCs (`HotkeyBackend` + `SubprocessHotkeyBackend`) are bridged by a 501-line `_NativeBackendAdapter`.
@@ -1061,7 +1062,7 @@ Brainstorm yourself and use the best practices to solve this problem.
 **Severity:** 🟡 Medium
 
 ### XZ-R11-04 — No encryption at rest for dictated text (Medium)
-**Status:** ❌ Not Fixed
+**Status:** ⚠️ Partial — threat model + mitigation design documented (docs/adr/XZ-R11-04-at-rest-encryption.md, 609 lines, added 2026-08-03); encryption NOT implemented — `history_db.py` still stores plaintext.
 **Description:** `history_db.py` stores dictated `text` in plaintext. File perms 0o600 / dir 0o700, `secure_delete=ON`, GDPR delete unlinks after checkpoint. But while running (or after unclean shutdown before checkpoint), text recoverable by same-user/root.
 **Related Files:** `voice_typer/server/history_db.py`**Fix:** Consider optional SQLCipher integration gated behind user setting. OR application-layer encryption of `text` column with key from OS keystore. At minimum document threat model in `docs/privacy/`. VALIDATE ON WINDOWS/MACOS HOST (file-perm mitigations are POSIX-only).
 **Severity:** 🟡 Medium
@@ -1253,6 +1254,7 @@ Brainstorm yourself and use the best practices to solve this problem.
 
 ### [AC-130] — `ipc_server.py` 2546-line spaghetti — 8 distinct concerns + 14 instance attributes + 135-line `_COMMAND_REGISTRY` + 1946-line class body
 **Status:** ❌ Not Fixed
+**2026-08-03 note:** `voice_typer/server/ipc/entrypoint.py` (417 LOC) drafted as a split target but unwired (no importers) — finding remains open.
 **Description:** `voice_typer/server/ipc_server.py` 2546 LOC (3.18× the 800-line threshold). 8 distinct concerns: (1) lifecycle, (2) TCP transport, (3) stdin transport, (4) heartbeat watchdog, (5) dispatcher, (6) output, (7) command routing table, (8) CLI entry. 15 mixin base classes + 1946-line class body + 14 instance attributes in `__init__` + 135-line `_COMMAND_REGISTRY` class-level data table + 6 transport/lifecycle/dispatcher methods.
 **Root Cause:** Verified. ARCH-10 documents the mixin pattern was chosen to break the circular import. The 14 handler mixins solved the import problem but the IPC server class itself was never decomposed.
 **Progress:** None yet.
@@ -1302,6 +1304,7 @@ Brainstorm yourself and use the best practices to solve this problem.
 
 ### [AC-134] — `dictation_pipeline.py` 1291-line + `transcription.py` 1190-line spaghetti
 **Status:** ❌ Not Fixed
+**2026-08-03 note:** `transcription_load.py` / `transcription_result.py` / `transcription_download.py` (934 LOC total) drafted as split targets but unwired (no importers) — finding remains open.
 **Description:** `voice_typer/server/dictation_pipeline.py` 1291 LOC and `transcription.py` 1190 LOC both exceed the 800-line threshold. `dictation_pipeline.py` mixes 7 distinct responsibilities. `transcription.py` mixes 9 distinct responsibilities.
 **Root Cause:** Verified. EC-28 previously concluded `dictation_pipeline.py` is "cohesive" — the MANDATORY instruction for this review overrides that assessment.
 **Progress:** None yet.
@@ -1315,6 +1318,7 @@ Brainstorm yourself and use the best practices to solve this problem.
 
 ### [AC-135] — `history_db.py` 1975-line spaghetti — 7 distinct concerns (schema, migrations, FTS5 search, retention, writer thread, query builders, lifecycle, diagnostics)
 **Status:** ❌ Not Fixed
+**2026-08-03 note:** `history_db_internals/recovery.py` + `search.py` (993 LOC total) drafted but unwired (no importers) — finding remains open.
 **Description:** `voice_typer/server/history_db.py` 1975 LOC. 7+ distinct concerns. EC-28 previously classified as "large-but-cohesive (NOT monolith)" — the MANDATORY instruction for this review overrides that assessment.
 **Root Cause:** Verified.
 **Progress:** None yet.
@@ -1358,6 +1362,7 @@ Brainstorm yourself and use the best practices to solve this problem.
 
 ### [AC-138] — Rust host `sidecar/ws.rs` 997 + `sidecar/supervisor.rs` 952 + `commands/sidecar_cmds.rs` 926 + `commands/bubble.rs` 706 + `platform/logging.rs` 617 + `migrate.rs` 546 all exceed or approach threshold
 **Status:** ❌ Not Fixed
+**2026-08-03 note:** 5 Rust module drafts (platform/log_file.rs, log_rotation.rs; sidecar/supervisor_health.rs, ws_dispatch.rs, ws_reconnect.rs) NOT declared in `platform/mod.rs` / `sidecar/mod.rs` — not compiled, dead — finding remains open.
 **Description:** `ws.rs` 997 LOC (exceeds threshold), `supervisor.rs` 952 LOC (exceeds), `sidecar_cmds.rs` 926 LOC (exceeds), `bubble.rs` 706 LOC (approaches), `logging.rs` 617 LOC (approaches), `migrate.rs` 546 LOC (approaches). Each has a concrete split plan in the per-agent reports.
 **Root Cause:** Verified.
 **Progress:** None yet.
@@ -2099,7 +2104,7 @@ Phase 4 (fix) will address all Critical and High severity findings, plus a curat
 ---
 
 ### [WR-14] — Stale ruff baseline + empty pyrefly baseline + real bugs hidden
-**Status:** ⚠️ Partial (verified on Linux sandbox; ruff-baseline.json regenerated; tests/test_ruff_ratchet.py::TestCompareLogic updated to use _pick_representative_rule helper; tests/test_dead_code_stays_removed.py).
+**Status:** ⚠️ Partial (verified on Linux sandbox; ruff-baseline.json regenerated; tests/test_ruff_ratchet.py::TestCompareLogic updated to use _pick_representative_rule helper; tests/test_dead_code_stays_removed.py). **REGRESSION 2026-08-03 (working tree):** `ruff-baseline.json` was overwritten by a synthetic test artifact — `{"_comment": "synthetic baseline for TestCompareLogic — restored after test", "total_count": 4, "by_rule": {"B007": 3, "UP007": 1}}` — written by `tests/test_ruff_ratchet.py:213`. The regenerated V5 baseline (`total_count` 0, F-rules 0) is gone from the working tree; 4 real violations (3 B007 + 1 UP007) are now silently allowed and the ratchet Step-1 invariant is no longer enforced. Fix: restore the real baseline (`git checkout HEAD -- ruff-baseline.json`) and make the test restore it properly.
 **Description:** `ruff-baseline.json` has 180 entries across 23 rules, but a fresh `ruff check voice_typer/ tests/ scripts/ conftest.py` returns only 21 violations (3 E501 + 18 SIM105) — **159 of 180 baseline entries are stale** (phantom violations that no longer exist). The ratchet (`scripts/ruff_ratchet_check.py compare`) only fails if counts GROW above baseline, so contributors could re-introduce up to 27 N806 violations, 22 E731 violations, 19 F841 violations, etc. silently. Worse, the baseline tracks F-rules (F401=3, F821=1, F841=19) which `docs/ruff-ratchet.md §"Step 1"` says must HARD-FAIL with zero tolerance — but the ratchet script doesn't special-case F-rules. `tests/test_ruff_ratchet.py:320-351` runs ruff against `voice_typer/server/` only (3 violations) but compares against the 180-violation baseline that targets `voice_typer/ tests/ scripts/ conftest.py` — the test scope and baseline scope are disjoint, so the test always passes with "improved by 177". `pyrefly-baseline.json` has an empty `errors: []` array — the file is vestigial; the actual ratchet is implemented by CI comparing pyrefly output to the git base ref. The metadata comment claims "actual error count is 116" but the actual count is 155. Sample of 5 real bugs hidden by the empty pyrefly baseline:
 - `voice_typer/server/clipboard/__init__.py:189,191,200,201` — 4 `bad-dunder-all` errors: `_have_wl_clipboard_cache`, `_have_wl_clipboard_cache`, `reset_have_wl_clipboard_cache`, `reset_have_wtype_cache` listed in `__all__` but NOT defined (verified via grep — only `_have_wl_clipboard` and `_have_wtype` without `_cache` suffix exist in `linux.py`).
 - `voice_typer/server/service/model.py:1079` — `unbound-name`: `download_id` is referenced on a path where it has not been assigned.
@@ -2200,7 +2205,7 @@ The class holds `self._app: Any` and reaches back through it for every dependenc
 ---
 
 ### ZR-17 — `shutdown_controller._do_cleanup` is ~1000 lines with implicit ordering contract (no test, no doc)
-**Status:** ❌ Not Fixed
+**Status:** ⚠️ Partial — `ShutdownStep`/`ShutdownPlan` dataclasses + `run_plan` driver extracted to `voice_typer/server/shutdown/plan.py` (206 LOC, added 2026-08-03); `tests/test_shutdown_plan_zr17.py` passes 14/14 against it. `shutdown_controller.py` itself was NOT migrated to use it (unwired orphan) — inline `_do_cleanup` + ordering-pinning test still missing.
 **Description:** `voice_typer/server/shutdown_controller.py:271-1281` (`_do_cleanup` is ~1000 lines) performs teardown in this order, each step wrapped in its own try/except:
 1. `_quit_lock` check + `_cleanup_done = True` (332-335)
 2. `ipc_server.stop(timeout=5s)` (344-353)
@@ -2600,6 +2605,7 @@ Already partially split: imports `_build_electron`, `_electron_binary`, `_electr
 
 ### ZR-86 — `src-tauri/src/sidecar/ws.rs` (1142 lines) — 4 task functions could be split into `ws/` submodule (BORDERLINE)
 **Status:** ❌ Not Fixed (Spaghetti / monolith detection — borderline)
+**2026-08-03 note:** `ws_dispatch.rs` / `ws_reconnect.rs` drafts exist but are undeclared in `mod.rs` (dead) — finding remains open.
 **Description:** `src-tauri/src/sidecar/ws.rs` (1142 LOC total: 923 production + 218 tests). Production is structured as 8 free functions plus the `ALLOWED_EVENT_TYPES` const:
 - `cleanup_and_trigger_respawn` (120) ~40 LOC
 - `trigger_respawn_off_thread` (162) ~28 LOC
