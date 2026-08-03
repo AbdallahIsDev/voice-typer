@@ -4,6 +4,17 @@
 **Document Type:** Architecture Specification for Implementation
 **Date:** 2026-07-08
 
+> **Path-note (H-25):** the prewarm module has since been split from a
+> single `voice_typer/server/prewarm.py` file into the
+> `voice_typer/server/prewarm/` package. The entry point is now
+> `voice_typer/server/prewarm/__main__.py` (equivalent to
+> `python -m voice_typer.server.prewarm`); the `run()` function lives in
+> `prewarm/pipeline.py`; `_already_warmed` / `_mark_warmed` live in
+> `prewarm/paths.py`. The prose and code-block comments below retain the
+> historical `prewarm.py` references for traceability against the
+> original implementation analysis — read each `prewarm.py::symbol` as
+> `prewarm/<module>.py::symbol` per the package split.
+
 ---
 
 ## Current Architecture Analysis

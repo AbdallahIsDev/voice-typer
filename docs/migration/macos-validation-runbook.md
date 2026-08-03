@@ -141,7 +141,7 @@ kill $SIDECAR_PID
 
 **VALIDATE ON MACOS HOST**
 
-Per ADR-0020 §5, the prewarm helper (`voice_typer/server/prewarm.py`) is frozen the same Nuitka way as the sidecar, into `prewarm-<triple>` — but it is a `bundle.resource` (NOT `externalBin`) because it is launched by the macOS LaunchAgent, NOT spawned by Tauri as a managed child.
+Per ADR-0020 §5, the prewarm helper (entry point `voice_typer/server/prewarm/__main__.py` inside the `voice_typer/server/prewarm/` package) is frozen the same Nuitka way as the sidecar, into `prewarm-<triple>` — but it is a `bundle.resource` (NOT `externalBin`) because it is launched by the macOS LaunchAgent, NOT spawned by Tauri as a managed child.
 
 ```bash
 # Apple Silicon prewarm build — run on a macos-14 (Apple Silicon) host.
@@ -769,7 +769,12 @@ This step is REQUIRED for distribution (a `.dmg` with an unsigned `.app` will be
 
 ### 7.2 Sign the sidecar + prewarm + native listener
 
-The build scripts (`build_sidecar_macos.sh`, `build_prewarm_macos.sh`, `build_native_listener_macos.sh`) automatically sign with Developer ID when `MAC_SIGNING_IDENTITY` is set. Verify:
+The build scripts (`build_sidecar_macos.sh`, `build_prewarm_macos.sh`, `build_native_listener_macos.sh`) sign the produced binary as follows (S5-CR-56):
+
+- If `MAC_SIGNING_IDENTITY` is set (CI release builds), `build_sidecar_macos.sh` and `build_prewarm_macos.sh` pass `--macos-sign-identity="$MAC_SIGNING_IDENTITY"` to Nuitka so the binary is signed at build time with the Developer ID Application cert.
+- If `MAC_SIGNING_IDENTITY` is empty (local dev builds), the scripts fall back to ad-hoc `codesign --force --sign -` on the output binary, mirroring `build_native_listener_macos.sh`. Ad-hoc signing lets the parent `.app` re-sign `--deep` during the Tauri bundle step.
+
+Verify:
 
 ```bash
 codesign -dv --verbose=4 src-tauri/bin/python-sidecar-aarch64-apple-darwin

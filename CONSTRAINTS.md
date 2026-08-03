@@ -145,6 +145,13 @@ Rule: Do NOT add `--cov` or `--coverage` flags to local test runs (Makefile `tes
 Rationale: Added as part of PERF-007 on 2026-08-02. The Makefile `test-client` target now passes `--no-coverage` to Vitest. The Makefile `test` target does not pass `--cov` (it relies on `addopts` which includes `--cov`, but local devs can override with `--no-cov`). CI explicitly passes `--cov` and `--cov-fail-under=65` in its own step.
 Applies to: All agents, all modes. Especially relevant to IMPROVE mode targeting Group 6 (Testing & CI).
 ```
+
+```
+C-TEST-5
+Rule: Do NOT put test code inside production source files. Tests MUST live in separate test files/folders, for every language: Python → `tests/`; Rust → a sibling `tests.rs` module wired via `#[cfg(test)] mod tests;` (or `src-tauri/tests/` integration tests); frontend → `*.test.ts` / `*.spec.ts` files (or the renderer `__tests__/` convention). No inline `#[cfg(test)] mod tests` blocks in `.rs` source files, no test assertions inside Python modules, no test cases inside production TS/TSX. When splitting a module, new tests for it go in the module's separate test file — never appended inline to the production file.
+Rationale: Inline tests bloat production files and mix concerns — `src-tauri/src/platform/logging.rs` carried 89 `#[test]` fns inside a 3183-line production file, and split sessions silently lost or mis-wired inline test blocks. The repo's own conventions already separate tests everywhere else (Python `tests/`, bubble `tests.rs`, renderer `__tests__/`); inline Rust tests were the remaining inconsistency.
+Applies to: All agents, all modes, all sub-agents.
+```
 ---
 
 ## Category: Code Style & Naming

@@ -449,7 +449,7 @@ resolves it via `resolve_prewarm_exe()` (see ADR-0020 §5).
     --onefile-tempdir-spec="%LOCALAPPDATA%\voice-typer\prewarm-onefile-tmp" `
     --output-filename=prewarm-x86_64-pc-windows-msvc.exe `
     --output-dir=src-tauri\resources `
-    voice_typer\server\prewarm.py
+    voice_typer\server\prewarm\__main__.py
 
 **VALIDATE ON WINDOWS HOST** Test-Path .\src-tauri\resources\prewarm-x86_64-pc-windows-msvc.exe
 # Expected: True
@@ -956,7 +956,7 @@ Expected (in `sidecar.log`):
 - Sidecar exits but `windows-key-listener.exe` lingers → the sidecar
   didn't kill its native-listener child on shutdown. The
   `kill_children` backstop should handle this; if not, the
-  `native_hotkeys.py` exit handler needs fixing.
+  `native_hotkeys/` package exit handler needs fixing.
 
 ### §6.7 Prewarm `LogonTrigger`
 
@@ -1844,7 +1844,7 @@ binaries; the human validator runs §6 against them.
 | §0.3 MSVC Build Tools | §4.2 | `scripts/build/compile_native.ps1` |
 | §0.7 python-build-standalone | §4.2 | `.github/workflows/tauri-windows-build.yml` |
 | §1 Sidecar Nuitka build | §4.2 | `voice_typer/server/ipc_server.py` |
-| §2 Prewarm Nuitka build | §5 | `voice_typer/server/prewarm.py`, `prewarm_resolver.py` |
+| §2 Prewarm Nuitka build | §5 | `voice_typer/server/prewarm/` package (entry point `__main__.py`), `prewarm_resolver.py` |
 | §3 Native listener build | §6.4 | `scripts/build/compile_native.ps1`, `voice_typer/server/native/windows-key-listener.c` |
 | §4 Tauri build | §7 | `src-tauri/tauri.conf.json`, `src-tauri/src/main.rs` |
 | §5 Install + smoke | §Phase 0-W | (installer) |
@@ -1855,7 +1855,7 @@ binaries; the human validator runs §6 against them.
 | §6.5 Toast | §6.1 | `tauri-plugin-notification` |
 | §6.6 Cooperative shutdown | §10 | `src-tauri/src/main.rs:705` (`shutdown_sidecar`) |
 | §6.7 Prewarm LogonTrigger | §5 | `voice_typer/server/task_scheduler.py` |
-| §6.8 Native listener | §6.4 | `voice_typer/server/native_hotkeys.py` |
+| §6.8 Native listener | §6.4 | `voice_typer/server/native_hotkeys/` package |
 | §6.9 Single-instance | §12 | `src-tauri/src/main.rs:744` (plugin init) |
 | §7 Code signing | §13.1 | `docs/migration/signing-guide.md` |
 | §8 Rollback | Reversibility | (Electron build) |
