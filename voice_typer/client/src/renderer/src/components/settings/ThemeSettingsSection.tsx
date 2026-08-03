@@ -516,7 +516,7 @@ export const ThemeSettingsSection = memo(function ThemeSettingsSection({
 												<TooltipTrigger asChild>
 													<button
 														type="button"
-														className="shrink-0 text-amber-500 dark:text-amber-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 rounded-full"
+														className="shrink-0 text-warning focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring rounded-full"
 														aria-label={t(
 															"settings.appearance.contrastWarning",
 															{ ratio: String(ratioRounded) },

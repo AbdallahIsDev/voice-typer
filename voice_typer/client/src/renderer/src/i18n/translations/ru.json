@@ -1536,7 +1536,8 @@
 		"errorLabel": "⚠ Ошибка",
 		"retryAria": "Повторить транскрипцию",
 		"stopRecordingAria": "Остановить запись",
-		"dismissAria": "Закрыть пузырёк"
+		"dismissAria": "Закрыть пузырёк",
+		"transcriptPreviewAria": "Предпросмотр транскрипции в реальном времени"
 	},
 	"errorBoundary": {
 		"title": "Что-то пошло не так",

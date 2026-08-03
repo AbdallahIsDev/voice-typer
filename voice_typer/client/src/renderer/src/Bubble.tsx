@@ -147,6 +147,7 @@ function BubbleInner() {
 		exitTick,
 		setExitTick: _setExitTick,
 		errorMessage,
+		transcript,
 	} = useBubbleStateMachine();
 	// `_isVisible` is consumed inside useBubbleLifecycle (gates the rAF
 	// loop). We acknowledge it here so eslint doesn't flag it as unused.
@@ -349,6 +350,7 @@ function BubbleInner() {
 				<BubbleModeContent
 					mode={mode}
 					errorMessage={errorMessage}
+					transcript={transcript}
 					dotRefs={dotRefs}
 				/>
 

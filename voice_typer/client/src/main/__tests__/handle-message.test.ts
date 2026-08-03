@@ -181,6 +181,26 @@ describe("XS-78: handle-message.ts", () => {
 			expect(getLastKnownBubbleMode()).toBe("listening");
 		});
 
+		it("bubble_set_state forwards the full object payload when it carries message/transcript", () => {
+			handleMessage({
+				type: "bubble_set_state",
+				data: {
+					state: "transcribing",
+					message: undefined,
+					transcript: "hello world",
+				},
+			});
+			expect(mocks.bubbleWebContentsSend).toHaveBeenCalledWith(
+				"bubble:set-state",
+				{
+					state: "transcribing",
+					message: undefined,
+					transcript: "hello world",
+				},
+			);
+			expect(getLastKnownBubbleMode()).toBe("transcribing");
+		});
+
 		it("bubble_level → bubbleWindow.webContents.send('bubble:level', data)", () => {
 			const data = { rms: 0.5, peak: 0.9 };
 			handleMessage({ type: "bubble_level", data });

@@ -60,9 +60,9 @@ interface PrewarmStatus {
 function CacheStatusBadge({ label }: { label: PrewarmStatus["cache_label"] }) {
 	const colorClass =
 		label === "hot"
-			? "bg-emerald-500"
+			? "bg-success"
 			: label === "partial"
-				? "bg-amber-500"
+				? "bg-warning"
 				: label === "cold"
 					? "bg-destructive"
 					: "bg-muted-foreground/40";
@@ -307,7 +307,7 @@ export default function PrewarmAndUpdates({
 							value={
 								prewarmStatus?.prewarm_running ? (
 									<span className="inline-flex items-center gap-1.5 text-(--text-primary)">
-										<span className="size-1.5 animate-pulse rounded-full bg-sky-500" />
+										<span className="size-1.5 animate-pulse rounded-full bg-info" />
 										{t("about.cacheRunning")}
 									</span>
 								) : prewarmStatus ? (

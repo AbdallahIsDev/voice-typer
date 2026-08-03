@@ -1314,7 +1314,8 @@
 		"micButtonStartAria": "Start dictation",
 		"retryAria": "Retry transcription",
 		"stopRecordingAria": "Stop recording",
-		"dismissAria": "Dismiss bubble"
+		"dismissAria": "Dismiss bubble",
+		"transcriptPreviewAria": "Live transcript preview"
 	},
 	"help": {
 		"title": "Keyboard Shortcuts",

@@ -1423,7 +1423,8 @@
 		"errorLabel": "⚠ Erreur",
 		"retryAria": "Réessayer la transcription",
 		"stopRecordingAria": "Arrêter l'enregistrement",
-		"dismissAria": "Fermer la bulle"
+		"dismissAria": "Fermer la bulle",
+		"transcriptPreviewAria": "Aperçu de la transcription en direct"
 	},
 	"errorBoundary": {
 		"title": "Une erreur s'est produite",

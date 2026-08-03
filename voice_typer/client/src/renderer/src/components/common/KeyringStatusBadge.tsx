@@ -21,6 +21,7 @@ import {
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { t } from "@/i18n/i18n";
+import { cn, focusRing } from "@/lib/utils";
 import type { KeyringStatus } from "@/types/config";
 
 interface KeyringStatusBadgeProps {
@@ -44,8 +45,14 @@ export function KeyringStatusBadge({
 	// previous span) so keyboard + screen-reader users can focus the badge
 	// via Tab. Radix Tooltip opens on focus by default, exposing the
 	// status text without a mouse interaction.
-	const buttonBaseClass =
-		"inline-flex items-center appearance-none border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-default";
+	const buttonBaseClass = cn(
+		"inline-flex items-center appearance-none border-0 bg-transparent p-0 cursor-default",
+		// Use the shared focusRing (ring-3 / ring-ring, no alpha) so the
+		// badge's focus indicator matches the design-system Button instead
+		// of the thinner ring-2 / ring-ring/50 that previously broke WCAG
+		// 1.4.11 composite-contrast in some themes.
+		focusRing,
+	);
 
 	if (available) {
 		const tooltipText = backend

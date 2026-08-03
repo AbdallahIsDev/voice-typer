@@ -27,6 +27,9 @@
  *   5. Re-creating the bubble window re-registers a handler (and the
  *      previously tracked one is detached via `screen.off`).
  */
+
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Spies for the `screen` mock. Hoisted so the mock factory can close over
@@ -96,6 +99,12 @@ vi.mock("electron", () => ({
 vi.mock("../../../constants", () => ({
 	BUBBLE_WIDTH: 74,
 	BUBBLE_HEIGHT: 27,
+	// lifecycle.ts uses the shared `RENDER_RELOAD_BACKOFF_MS`
+	// constant instead of the literal `2000`. The mock returns the
+	// real value so the render-process-gone reload setTimeout uses a
+	// realistic delay (and so the test can assert the constant is
+	// imported, not the literal).
+	RENDER_RELOAD_BACKOFF_MS: 2000,
 }));
 
 vi.mock("../../../ipc/channels", () => ({
@@ -261,5 +270,79 @@ describe("bubble lifecycle.ts: display-removed tracked-handle pattern", () => {
 		expect(() => detachDisplayRemovedHandler()).not.toThrow();
 		// screen.off must NOT be called when there is nothing to detach.
 		expect(screenSpies.off).not.toHaveBeenCalled();
+	});
+});
+
+// regression tests for the bubble lifecycle closed
+// handler and the render-process-gone reload backoff constant.
+describe("bubble lifecycle.ts: regressions", () => {
+	beforeEach(() => {
+		vi.clearAllMocks();
+		mockState.bubbleWindow = null;
+		mockState._bubblePageReady = false;
+		detachDisplayRemovedHandler();
+	});
+
+	afterEach(() => {
+		detachDisplayRemovedHandler();
+	});
+
+	it("win 'closed' handler does NOT reset state._bubblePageReady (dead write removed)", () => {
+		// Mark the field true BEFORE close so the test would fail if
+		// the closed handler still wrote `false` to it.
+		mockState._bubblePageReady = true;
+
+		createBubbleWindow();
+
+		// Find the registered "closed" handler on the win mock.
+		const closedCalls = winSpies.on.mock.calls.filter(
+			(c: unknown[]) => c[0] === "closed",
+		);
+		expect(closedCalls.length).toBe(1);
+		const closedHandler = closedCalls[0]?.[1] as (() => void) | undefined;
+		if (closedHandler === undefined) {
+			throw new Error("expected a registered closed handler");
+		}
+
+		// Invoke the closed handler (simulates the BrowserWindow
+		// emitting "closed" on teardown).
+		closedHandler();
+
+		// The closed handler must NOT have touched the dead
+		// `_bubblePageReady` field — the matching read was never
+		// implemented in `showBubbleWindow()` and the write in the
+		// `bubble:ready` IPC handler was already removed. The
+		// field stays at whatever value the test set (true).
+		expect(mockState._bubblePageReady).toBe(true);
+	});
+
+	it("FZ-64: render-process-gone reload uses RENDER_RELOAD_BACKOFF_MS constant, not literal 2000", () => {
+		// Source-text assertion: lifecycle.ts must import
+		// `RENDER_RELOAD_BACKOFF_MS` from `../../constants` and use
+		// it as the reload setTimeout delay (FZ-64 — magic-number
+		// cleanup). The literal `2000` must NOT appear in the
+		// render-process-gone reload setTimeout call.
+		const src = fs.readFileSync(
+			path.join(__dirname, "..", "lifecycle.ts"),
+			"utf8",
+		);
+
+		// The constant must be imported.
+		expect(src).toMatch(/RENDER_RELOAD_BACKOFF_MS[^A-Za-z_]/);
+		// The render-process-gone reload setTimeout must use the
+		// constant, not a literal `2000`.
+		const reloadBlock = src.slice(src.indexOf("render-process-gone"));
+		// Find the setTimeout inside the render-process-gone handler.
+		const setTimeoutIdx = reloadBlock.indexOf("setTimeout");
+		expect(setTimeoutIdx).toBeGreaterThan(-1);
+		const setTimeoutSlice = reloadBlock.slice(
+			setTimeoutIdx,
+			setTimeoutIdx + 400,
+		);
+		expect(setTimeoutSlice).toContain("RENDER_RELOAD_BACKOFF_MS");
+		// The literal `2000` must NOT appear inside the setTimeout
+		// call. (Allowing `2000` elsewhere in the file is fine —
+		// we only forbid it inside this specific setTimeout.)
+		expect(setTimeoutSlice).not.toMatch(/,\s*2000\s*\)/);
 	});
 });

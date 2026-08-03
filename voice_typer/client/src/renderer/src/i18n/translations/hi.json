@@ -1536,7 +1536,8 @@
 		"errorLabel": "⚠ त्रुटि",
 		"retryAria": "ट्रांसक्रिप्शन पुनः प्रयास करें",
 		"stopRecordingAria": "रिकॉर्डिंग रोकें",
-		"dismissAria": "बुलबुला हटाएं"
+		"dismissAria": "बुलबुला हटाएं",
+		"transcriptPreviewAria": "लाइव ट्रांसक्रिप्ट पूर्वावलोकन"
 	},
 	"errorBoundary": {
 		"title": "कुछ गलत हो गया",

@@ -19,8 +19,9 @@
  *
  * : the "Test Connection" button shows a spinner + is disabled
  * while a test is in flight (`testResult?.status === "pending"`).
- * The result span exposes `role="status"` + `aria-live="polite"` so
- * SR users hear the outcome. Stale results are cleared via
+ * The result is rendered in an `<output>` element (semantic for
+ * role="status") with `aria-live="polite"` so SR users hear the
+ * outcome. Stale results are cleared via
  * `onClearTestResult` whenever the API-key Input changes.
  */
 import {
@@ -216,14 +217,12 @@ function ProviderCard({
 					{t("models.cloud.testConnection")}
 				</Button>
 				{testResult && (
-					<span
+					<output
 						//aria-live=polite so SR
 						// users hear the test-connection outcome as it arrives
-						// (no manual focus required). role=status is NOT
-						// implicit on a plain <span> even with aria-live — the
-						// explicit role=status is what makes this a proper live
-						// region with the correct SR semantics.
-						role="status"
+						// (no manual focus required). <output> is the semantic
+						// element for role=status — it's a proper live region
+						// with the correct SR semantics.
 						aria-live="polite"
 						className={cn(
 							"text-xs",
@@ -239,7 +238,7 @@ function ProviderCard({
 						)}
 					>
 						{testResult.message}
-					</span>
+					</output>
 				)}
 			</div>
 			{showConsent && (
@@ -257,11 +256,11 @@ function ProviderCard({
 							<p className="mt-2 text-xs text-(--text-muted)">
 								{t("models.cloud.statusLabel")}{" "}
 								{consentGranted ? (
-									<span className="font-medium text-emerald-500">
+									<span className="font-medium text-success">
 										{t("models.cloud.consentGrantedStatus")}
 									</span>
 								) : (
-									<span className="font-medium text-amber-500">
+									<span className="font-medium text-warning">
 										{t("models.cloud.consentNotGrantedStatus")}
 									</span>
 								)}

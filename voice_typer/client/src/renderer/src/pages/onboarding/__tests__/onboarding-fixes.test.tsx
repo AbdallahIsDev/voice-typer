@@ -482,6 +482,103 @@ describe("Done step Get Started does not block on onboarding_apply", () => {
 		});
 		expect(onCompleteCallCount).toBe(1);
 	});
+
+	it("shows the setupCompleteSnack success toast when Get Started is clicked", async () => {
+		// Verifies that handleApply surfaces a success toast
+		// (onboarding.setupCompleteSnack) before calling onComplete.
+		// The inline `<output>` spinner disappears as soon as
+		// onComplete navigates to Home, so the toast is the only
+		// persistent feedback that setup actually completed. The
+		// i18n key exists in all 8 locales; this test pins the
+		// wiring so a future regression that drops the snack call
+		// is caught.
+		mockCall.mockImplementation((type: string) => {
+			switch (type) {
+				case "onboarding_start":
+					return Promise.resolve({
+						step: 5,
+						total_steps: 6,
+						step_name: "Done",
+					});
+				case "get_config":
+					return Promise.resolve({
+						hotkey: "<caps_lock>",
+						model_size: "small.en",
+						microphone: "",
+						voice_biometric_consent: true,
+					});
+				case "onboarding_get_microphones":
+					return Promise.resolve({
+						microphones: [{ id: "mic-1", name: "Built-in Mic" }],
+					});
+				case "onboarding_get_hotkey_presets":
+					return Promise.resolve({ presets: ["<caps_lock>"] });
+				case "onboarding_get_model_options":
+					return Promise.resolve({
+						models: [
+							{
+								name: "small.en",
+								size: "~466MB",
+								speed: "Fast",
+								description: "Small",
+							},
+						],
+					});
+				case "onboarding_check_permissions":
+					return Promise.resolve({
+						platform: "linux",
+						state: "granted",
+						needed: false,
+						instructions: null,
+					});
+				case "onboarding_apply":
+					return Promise.resolve({});
+				default:
+					return Promise.resolve({});
+			}
+		});
+
+		render(<OnboardingPage onComplete={() => {}} />);
+
+		await waitFor(() => {
+			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
+		});
+
+		// The Done step's consent probe (useEffect on
+		// step_name === DONE_STEP_NAME) fires async and reads
+		// voice_biometric_consent from get_config. The Get Started
+		// button is DISABLED (isConsentBlocked) until the probe
+		// resolves and `consentAccepted` flips to true. React 19
+		// does NOT fire onClick on a disabled button, so we must
+		// wait for the consent checkbox to be checked before
+		// clicking — otherwise the click is a no-op and handleApply
+		// never runs.
+		await waitFor(() => {
+			const checkbox = screen.getByTestId(
+				"onboarding-consent-checkbox",
+			) as HTMLInputElement;
+			expect(checkbox.checked).toBe(true);
+		});
+
+		// Sanity: no snack has been shown yet.
+		expect(mockShowSnack).not.toHaveBeenCalled();
+
+		// Click "Get Started" — this calls handleApply, which fires
+		// the success toast.
+		fireEvent.click(screen.getByRole("button", { name: "Get started" }));
+
+		// The success toast must be shown with the setupCompleteSnack
+		// i18n key (resolved to its English value) and the "success"
+		// severity. The exact call order is: showSnack(snackText,
+		// "success") THEN onComplete(). We only assert the snack
+		// was called with the correct text + severity.
+		await waitFor(() => {
+			expect(mockShowSnack).toHaveBeenCalledWith(
+				expect.stringContaining("Setup complete"),
+				"success",
+			);
+		});
+	});
 });
 
 // ── Welcome step language picker ───────────────────────────────────

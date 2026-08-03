@@ -128,10 +128,10 @@ export function TestReviewPanel({
 						<span
 							className={`text-sm font-bold tabular-nums ${
 								quality.estimated_transcription_quality >= 80
-									? "text-green-500"
+									? "text-success"
 									: quality.estimated_transcription_quality >= 50
-										? "text-amber-500"
-										: "text-red-500"
+										? "text-warning"
+										: "text-destructive"
 							}`}
 						>
 							{quality.estimated_transcription_quality}%
@@ -148,8 +148,8 @@ export function TestReviewPanel({
 								<span
 									className={`w-1.5 h-1.5 rounded-full ${
 										quality.volume_level === "good"
-											? "bg-green-500"
-											: "bg-amber-500"
+											? "bg-success"
+											: "bg-warning"
 									}`}
 								/>
 								<span>
@@ -169,10 +169,10 @@ export function TestReviewPanel({
 								<span
 									className={`w-1.5 h-1.5 rounded-full ${
 										quality.noise_level === "low"
-											? "bg-green-500"
+											? "bg-success"
 											: quality.noise_level === "moderate"
-												? "bg-amber-500"
-												: "bg-red-500"
+												? "bg-warning"
+												: "bg-destructive"
 									}`}
 								/>
 								<span>
@@ -209,15 +209,14 @@ export function TestReviewPanel({
 					{/* Detected issues */}
 					{quality.detected_issues.length > 0 && (
 						<div className="text-xs text-(--text-muted) space-y-0.5">
-							<span
-								className="font-medium text-amber-500"
+							<output
+								className="font-medium text-warning"
 								// BG-71: detected issues are a status
-								// update — role=status announces them
-								// without stealing focus.
-								role="status"
+								// update — <output> (role=status)
+								// announces them without stealing focus.
 							>
 								{t("microphoneTest.detectedIssues")}
-							</span>
+							</output>
 							{quality.detected_issues.map((issue) => {
 								const translated = translateDetectedIssue(issue);
 								return (

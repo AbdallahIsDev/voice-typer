@@ -134,12 +134,12 @@ export function LocalModelsPanel({
 			{/* low-disk warning banner. Only shown when the backend
                             exposes `get_disk_info` AND free space is below the threshold. */}
 			{showLowDiskWarning && diskInfo && (
-				<div className="rounded-lg border border-amber-400/40 bg-amber-400/5 p-4">
+				<div className="rounded-lg border border-warning/40 bg-warning/5 p-4">
 					<div className="flex items-start gap-3">
 						<HugeiconsIcon
 							icon={Alert02Icon}
 							strokeWidth={2}
-							className="mt-0.5 h-5 w-5 shrink-0 text-amber-500"
+							className="mt-0.5 h-5 w-5 shrink-0 text-warning"
 						/>
 						<div className="flex-1">
 							<h3 className="text-sm font-semibold text-(--text-primary)">
@@ -158,12 +158,12 @@ export function LocalModelsPanel({
 
 			{/* HuggingFace consent banner */}
 			{showConsentBanner && (
-				<div className="rounded-lg border border-amber-400/40 bg-amber-400/5 p-4">
+				<div className="rounded-lg border border-warning/40 bg-warning/5 p-4">
 					<div className="flex items-start gap-3">
 						<HugeiconsIcon
 							icon={Alert02Icon}
 							strokeWidth={2}
-							className="mt-0.5 h-5 w-5 shrink-0 text-amber-500"
+							className="mt-0.5 h-5 w-5 shrink-0 text-warning"
 						/>
 						<div className="flex-1">
 							{/* promoted from <h3> to <h2> so the

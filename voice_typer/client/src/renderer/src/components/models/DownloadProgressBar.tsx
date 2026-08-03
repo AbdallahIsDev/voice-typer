@@ -125,7 +125,7 @@ export function DownloadProgressBar({
 	const fillClass = hasError
 		? "bg-destructive"
 		: isPaused
-			? "bg-amber-500"
+			? "bg-warning"
 			: "bg-accent";
 
 	//when in the error state, the status <p> becomes an

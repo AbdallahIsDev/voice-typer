@@ -22,7 +22,11 @@
  */
 import path from "node:path";
 import { BrowserWindow, dialog, screen } from "electron";
-import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../../constants";
+import {
+	BUBBLE_HEIGHT,
+	BUBBLE_WIDTH,
+	RENDER_RELOAD_BACKOFF_MS,
+} from "../../constants";
 import { BubbleChannels } from "../../ipc/channels";
 //converted from defensive `require("../../logging")` to a static
 // ESM import — the previous try/catch + console.* fallback was added
@@ -226,19 +230,22 @@ export function createBubbleWindow(): BrowserWindow {
 			}
 			return;
 		}
-		//SEC-024: reload the bubble window. : 2s backoff.
+		//reload the bubble window.  backoff duration
+		// is the shared `RENDER_RELOAD_BACKOFF_MS` constant (also
+		// used by `main-window.ts`) so a future tuning change
+		// touches one site instead of N.
 		setTimeout(() => {
 			try {
 				if (!win.isDestroyed()) {
 					log.warn(
-						`${BUBBLE_CLR}[BUBBLE]${RESET} reloading after render-process-gone (2s backoff)`,
+						`${BUBBLE_CLR}[BUBBLE]${RESET} reloading after render-process-gone (${RENDER_RELOAD_BACKOFF_MS}ms backoff)`,
 					);
 					win.reload();
 				}
 			} catch (e) {
 				log.error("[BUBBLE] failed to reload after render-process-gone:", e);
 			}
-		}, 2000);
+		}, RENDER_RELOAD_BACKOFF_MS);
 	});
 	win.webContents.on("preload-error", (_e, file, err) => {
 		//failure — log.error.
@@ -271,7 +278,15 @@ export function createBubbleWindow(): BrowserWindow {
 		//routine lifecycle event — log.info.
 		log.info(`${BUBBLE_CLR}[BUBBLE]${RESET} closed`);
 		if (state.bubbleWindow === win) state.bubbleWindow = null;
-		state._bubblePageReady = false;
+		// the previous `state._bubblePageReady = false`
+		// write here was dead — the matching read was never
+		// implemented in `showBubbleWindow()`, and the write in
+		// the `bubble:ready` IPC handler was already removed
+		// (see `bubble-handlers.ts`). The field declaration in
+		// `state.ts` remains for now (owned by another agent);
+		// removing the write here is the lockstep half owned by
+		// this module. Once `state.ts` drops the declaration,
+		// `MainState` will no longer carry the field at all.
 		// Clean up the tracked `display-removed` listener (by reference) so
 		// the bubble never leaks listeners after teardown.
 		detachDisplayRemovedHandler();

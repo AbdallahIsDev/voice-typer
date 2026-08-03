@@ -1536,7 +1536,8 @@
 		"errorLabel": "⚠ Fehler",
 		"retryAria": "Transkription wiederholen",
 		"stopRecordingAria": "Aufnahme beenden",
-		"dismissAria": "Blase schließen"
+		"dismissAria": "Blase schließen",
+		"transcriptPreviewAria": "Live-Transkript-Vorschau"
 	},
 	"errorBoundary": {
 		"title": "Etwas ist schiefgegangen",

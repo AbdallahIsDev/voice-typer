@@ -350,21 +350,21 @@ export function HotkeyPicker({
 				</p>
 			)}
 			{showSrWarning && (
-				// SR-conflict warning banner. Rendered as a ``role="status"``
-				// polite live region (NOT ``role="alert"``) because this is
-				// an advisory warning, not a blocking error — the user can
-				// still proceed. ``aria-live="polite"`` ensures screen
-				// readers announce the warning after the user's current
-				// interaction, without interrupting in-progress speech.
+				// SR-conflict warning banner. Rendered as an ``<output>``
+				// element (semantic for role="status") — a polite live
+				// region (NOT ``role="alert"``) because this is an advisory
+				// warning, not a blocking error — the user can still
+				// proceed. ``aria-live="polite"`` ensures screen readers
+				// announce the warning after the user's current interaction,
+				// without interrupting in-progress speech.
 				//
 				// Styling: amber/yellow tone (rather than the red used for
 				// hard errors) to signal "caution, but not blocked". Uses
 				// inline-flex so the warning icon aligns with the text
 				// baseline on the first line (the message can wrap on
 				// narrow widths).
-				<div
-					className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400"
-					role="status"
+				<output
+					className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning"
 					aria-live="polite"
 					data-testid="sr-conflict-warning"
 				>
@@ -375,7 +375,7 @@ export function HotkeyPicker({
 						aria-hidden="true"
 					/>
 					<span>{_resolveSrConflictWarning()}</span>
-				</div>
+				</output>
 			)}
 		</div>
 	);

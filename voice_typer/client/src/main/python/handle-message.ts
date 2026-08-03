@@ -75,15 +75,24 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 		// Cache the bubble mode at the source — BEFORE the
 		// `webContents.send`. The dismiss handler reads this
 		// cached mode to decide whether to send
-		// `toggle_dictation` before hiding (so a dismiss click
-		// while recording stops the audio pipeline instead of
-		// orphaning it). The previous design monkey-patched
-		// `webContents.send` inside the `bubble:ready` handler
-		// to intercept outgoing `bubble:set-state` sends; that
-		// patch accumulated on every bubble reload. Updating at
-		// the source eliminates the patch entirely.
+		// `toggle_dictation` before stopping the pipeline. The
+		// previous design monkey-patched `webContents.send`
+		// inside the `bubble:ready` handler to intercept outgoing
+		// `bubble:set-state` sends; that patch accumulated on
+		// every bubble reload. Updating at the source eliminates
+		// the patch entirely.
 		setLastKnownBubbleMode(state_);
-		state.bubbleWindow?.webContents.send(BubbleChannels.setState, state_);
+		// Forward the FULL payload when the backend additionally
+		// carries `message` (error reason) or `transcript`
+		// (live partial text, XA-6-2) — falling back to the bare
+		// state string for legacy state-only payloads so existing
+		// renderers + tests keep receiving the minimal shape. The
+		// renderer's `parseSetStatePayload` accepts both.
+		const hasOptionalFields =
+			rawData !== undefined &&
+			("message" in rawData || "transcript" in rawData);
+		const payload: unknown = hasOptionalFields ? rawData : state_;
+		state.bubbleWindow?.webContents.send(BubbleChannels.setState, payload);
 	},
 	bubble_level: (msg) => {
 		state.bubbleWindow?.webContents.send(BubbleChannels.level, msg.data);

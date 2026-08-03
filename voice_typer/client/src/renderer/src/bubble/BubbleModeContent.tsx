@@ -34,9 +34,43 @@ const TRANSCRIBING_DOT_INDICES: readonly number[] = Array.from(
 	(_, i) => i,
 );
 
+/**
+ * Maximum number of characters of the live partial transcript to
+ * render in the bubble pill. The pill is intentionally compact (max
+ * width 400px per `MAX_BUBBLE_W` in `bubble-handlers.ts`); a longer
+ * preview would force the pill to grow past the clamp and clip. 60
+ * characters is ~10-12 words — enough for the user to confirm the
+ * transcription is on the right track without the pill becoming a
+ * second text field.
+ */
+const TRANSCRIPT_PREVIEW_MAX_CHARS = 60;
+
+/**
+ * Truncate a partial-transcript string for display in the bubble pill.
+ * Returns the input unchanged if it fits within the preview budget;
+ * otherwise returns a `…`-suffixed prefix. The truncation is character-
+ * based (not grapheme-based) for simplicity — emoji composed of
+ * multiple code points may be split, but the worst case is a stray
+ * replacement character at the ellipsis position, not a crash.
+ */
+function truncateTranscript(text: string): string {
+	if (text.length <= TRANSCRIPT_PREVIEW_MAX_CHARS) return text;
+	// Reserve 1 character for the ellipsis.
+	return `${text.slice(0, TRANSCRIPT_PREVIEW_MAX_CHARS - 1)}…`;
+}
+
 export interface BubbleModeContentProps {
 	mode: BubbleMode;
 	errorMessage?: string | null;
+	/**
+	 * Optional live partial-transcription text (XA-6-2). When the
+	 * `bubble:set-state` payload carries a `transcript` field and
+	 * `mode` is `transcribing` or `fading`, the text is rendered
+	 * (truncated to `TRANSCRIPT_PREVIEW_MAX_CHARS`) inside the pill
+	 * so the user sees the live transcription taking shape — matching
+	 * the UX of macOS Dictation / Google Voice Typing.
+	 */
+	transcript?: string | null;
 	dotRefs: RefObject<(HTMLSpanElement | null)[]>;
 }
 
@@ -45,6 +79,14 @@ export interface BubbleModeContentProps {
  * branch falls through to `<BubbleVisualizer>` (the 7-bar spectrum);
  * every other branch renders a small status label.
  *
+ * In `transcribing` and `fading` modes, when the backend pushes a
+ * partial-transcript string (XA-6-2), the text is rendered alongside
+ * the status label so the user sees the live transcription taking
+ * shape. When no transcript has been pushed yet (or the legacy
+ * string-only `bubble:set-state` payload is in use), only the status
+ * label + animated dots render — matching the pre-fix behaviour byte-
+ * for-byte so existing tests stay green.
+ *
  * Kept as a plain function component (no `useMemo` / `useCallback`)
  * because the JSX is cheap and the parent already gates re-renders
  * via the state-machine hook.
@@ -52,13 +94,38 @@ export interface BubbleModeContentProps {
 export function BubbleModeContent({
 	mode,
 	errorMessage,
+	transcript,
 	dotRefs,
 }: BubbleModeContentProps) {
 	switch (mode) {
-		case "transcribing":
+		case "transcribing": {
+			const preview =
+				typeof transcript === "string" && transcript.length > 0
+					? truncateTranscript(transcript)
+					: null;
 			return (
 				<div className="flex items-center gap-1.5 text-xs font-medium text-(--text-secondary)">
 					<span>{t("bubble.transcribingLabel")}</span>
+					{preview && (
+						<output
+							// `<output>` is the semantic element for
+							// role="status" (implicit). It supports
+							// `aria-label` and is a polite live region so
+							// screen-reader users hear each partial update;
+							// the parent `<output aria-live="polite">`
+							// re-announces the whole pill content on mode
+							// change, so this inner region is the one that
+							// fires on every partial-transcript tick without
+							// re-announcing the "Transcribing" label.
+							aria-label={tf(
+								"bubble.transcriptPreviewAria",
+								"Live transcript preview",
+							)}
+							className="max-w-45 truncate text-(--text-muted)"
+						>
+							{preview}
+						</output>
+					)}
 					{TRANSCRIBING_DOT_INDICES.map((i) => (
 						<span
 							key={i}
@@ -71,7 +138,12 @@ export function BubbleModeContent({
 					))}
 				</div>
 			);
-		case "fading":
+		}
+		case "fading": {
+			const preview =
+				typeof transcript === "string" && transcript.length > 0
+					? truncateTranscript(transcript)
+					: null;
 			return (
 				<div
 					className="flex items-center gap-1.5 text-xs font-medium text-(--text-secondary)"
@@ -82,8 +154,20 @@ export function BubbleModeContent({
 					}}
 				>
 					<span>{t("bubble.transcribingLabel")}</span>
+					{preview && (
+						<output
+							aria-label={tf(
+								"bubble.transcriptPreviewAria",
+								"Live transcript preview",
+							)}
+							className="max-w-45 truncate text-(--text-muted)"
+						>
+							{preview}
+						</output>
+					)}
 				</div>
 			);
+		}
 		case "idle":
 			return (
 				<>

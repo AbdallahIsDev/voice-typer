@@ -1536,7 +1536,8 @@
 		"errorLabel": "⚠ Error",
 		"retryAria": "Reintentar transcripción",
 		"stopRecordingAria": "Detener grabación",
-		"dismissAria": "Descartar burbuja"
+		"dismissAria": "Descartar burbuja",
+		"transcriptPreviewAria": "Vista previa de transcripción en vivo"
 	},
 	"errorBoundary": {
 		"title": "Algo salió mal",

@@ -9,7 +9,7 @@ import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
-import { DONE_STEP_NAME, HOTKEY_DEFAULT } from "../lib/constants";
+import { HOTKEY_DEFAULT } from "../lib/constants";
 import type { MicrophoneOption, ModelOption, StepInfo } from "../lib/types";
 
 export interface UseOnboardingWizardResult {
@@ -169,9 +169,15 @@ export function useOnboardingWizard(
 				await call("onboarding_set_hotkey", { hotkey: selectedHotkey });
 			} else if (step?.step_name === "Model") {
 				await call("onboarding_set_model", { model: selectedModel });
-			} else if (step?.step_name === DONE_STEP_NAME) {
-				await call("onboarding_apply");
 			}
+			// Note: the Done step does NOT call onboarding_apply via
+			// handleNext — the Done-step Continue button is wired to
+			// `handleApply` (see Onboarding.tsx's
+			// `onClick={isDoneStep ? handleApply : handleNext}`), so a
+			// DONE_STEP_NAME branch here would be unreachable dead code.
+			// Earlier versions kept a defensive `else if (step_name ===
+			// DONE_STEP_NAME) await call("onboarding_apply")` branch
+			// that could never fire; removed for clarity.
 			const newStep = await call<StepInfo>("onboarding_next_step");
 			setStep(newStep);
 		} catch (err) {
@@ -196,6 +202,14 @@ export function useOnboardingWizard(
 			void call("onboarding_apply").catch((err) => {
 				console.error("Failed to apply onboarding (async):", err);
 			});
+			// Surface a success toast so the user gets explicit
+			// feedback that setup completed (the inline
+			// `<output>` spinner disappears as soon as
+			// `onComplete()` navigates away). The
+			// `setupCompleteSnack` key is localised across all 8
+			// locales; the toast persists briefly after navigation
+			// so the user sees it on the Home page.
+			showSnack(t("onboarding.setupCompleteSnack"), "success");
 			if (onComplete) onComplete();
 		} catch (err) {
 			console.error("Failed to apply onboarding (sync):", err);

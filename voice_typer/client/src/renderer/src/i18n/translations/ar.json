@@ -1536,7 +1536,8 @@
 		"errorLabel": "⚠ خطأ",
 		"retryAria": "إعادة محاولة النسخ",
 		"stopRecordingAria": "إيقاف التسجيل",
-		"dismissAria": "إخفاء الفقاعة"
+		"dismissAria": "إخفاء الفقاعة",
+		"transcriptPreviewAria": "معاينة النص المباشر"
 	},
 	"errorBoundary": {
 		"title": "حدث خطأ ما",

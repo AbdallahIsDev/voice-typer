@@ -110,7 +110,7 @@ const ActivityListRow = memo(function ActivityListRow({
 						variant="ghost"
 						size="icon-xs"
 						onClick={() => onToggleFavorite(item.id)}
-						className="shrink-0 text-(--text-muted) hover:text-amber-400"
+						className="shrink-0 text-(--text-muted) hover:text-warning"
 						title={
 							item.favorite
 								? t("activityList.removeFromFavorites")
@@ -125,7 +125,7 @@ const ActivityListRow = memo(function ActivityListRow({
 						<HugeiconsIcon
 							icon={StarIcon}
 							strokeWidth={2.5}
-							className={`h-4 w-4 ${item.favorite ? "text-amber-400" : ""}`}
+							className={`h-4 w-4 ${item.favorite ? "text-warning" : ""}`}
 						/>
 					</Button>
 				)}
@@ -156,7 +156,7 @@ const ActivityListRow = memo(function ActivityListRow({
 						variant="ghost"
 						size="icon-xs"
 						onClick={() => onDelete(item.id)}
-						className="shrink-0 text-(--text-muted) hover:text-red-400"
+						className="shrink-0 text-(--text-muted) hover:text-destructive"
 						title={t("common.delete")}
 						aria-label={t("history.deleteEntry")}
 					>

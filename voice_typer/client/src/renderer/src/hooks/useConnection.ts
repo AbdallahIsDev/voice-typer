@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
+import { useShallow } from "zustand/react/shallow";
 import { usePythonEvent } from "@/hooks/usePython";
 import { useT } from "@/i18n/i18n";
 import { useAppStore } from "@/stores/appStore";
@@ -80,10 +81,28 @@ export function useConnection({
 }: UseConnectionArgs) {
 	// ── Store-backed state ────────────────────────────────────────
 	const t = useT();
-	const setConnectionStatus = useAppStore((s) => s.setConnectionStatus);
-	const setRecordingState = useAppStore((s) => s.setRecordingState);
-	const setLastError = useAppStore((s) => s.setLastError);
-	const setConfig = useAppStore((s) => s.setConfig);
+	// Consolidated selectors: previously this hook made 7 separate
+	// `useAppStore` calls (4 actions + 3 values). Zustand runs every
+	// registered selector on every `set()` call, so each additional
+	// selector adds a small per-state-change cost. `useShallow`
+	// collapses the 4 stable action references into a single
+	// subscription (the shallow-equal return object only changes when
+	// one of the actions changes identity — which never happens for
+	// zustand store actions — so this hook does NOT re-render on
+	// unrelated state changes). The 3 value selectors stay as
+	// individual `useAppStore` calls so each one only re-renders when
+	// its specific slice changes (e.g. `recordingState` changing from
+	// "idle" to "recording" does NOT re-render this hook's subscribers
+	// for `connectionStatus`).
+	const { setConnectionStatus, setRecordingState, setLastError, setConfig } =
+		useAppStore(
+			useShallow((s) => ({
+				setConnectionStatus: s.setConnectionStatus,
+				setRecordingState: s.setRecordingState,
+				setLastError: s.setLastError,
+				setConfig: s.setConfig,
+			})),
+		);
 	const connectionStatus = useAppStore((s) => s.connectionStatus);
 	const recordingState = useAppStore((s) => s.recordingState);
 	const lastError = useAppStore((s) => s.lastError);

@@ -99,9 +99,19 @@ export default function App() {
 	} = useNavigation();
 
 	// ── Route guard: protect onboarding from completed users ─────
-	const config = useAppStore((s) => s.config);
+	// Field-level selectors (vs subscribing to the whole `config` object)
+	// so a settings change to ANY other config field (theme_mode, hotkey,
+	// audio preset, etc.) doesn't re-render <App /> and re-fire this
+	// effect. `mergeConfig` always allocates a new top-level config
+	// object reference, so a single-field selector is the only way to
+	// avoid re-render storms on every keystroke in Settings.
+	const onboardingCompleted = useAppStore(
+		(s) => s.config?.onboarding_completed === true,
+	);
+	const hotkeyFromConfig = useAppStore((s) => s.config?.hotkey);
+	const repasteHotkeyFromConfig = useAppStore((s) => s.config?.repaste_hotkey);
 	useEffect(() => {
-		if (currentPage === "onboarding" && config?.onboarding_completed === true) {
+		if (currentPage === "onboarding" && onboardingCompleted) {
 			// Use `replace` instead of `navigate` so the
 			// "onboarding" entry is swapped for "home" in the history
 			// stack. With `navigate`, the stack would become
@@ -109,7 +119,7 @@ export default function App() {
 			// the user to the wizard they just completed — confusing.
 			replace("home");
 		}
-	}, [currentPage, config, replace]);
+	}, [currentPage, onboardingCompleted, replace]);
 
 	// a11y / WCAG 2.4.2 Page Titled: keep `document.title` in sync
 	// with the active route so screen-reader users (who announce the window
@@ -431,8 +441,10 @@ export default function App() {
 		}
 	}, [navigate, call, reloadThemeFromConfig]);
 
-	const dictationLabel = formatHotkey(config?.hotkey ?? HOTKEY_DEFAULT);
-	const repasteLabel = formatHotkey(config?.repaste_hotkey ?? "<ctrl>+<alt>+v");
+	const dictationLabel = formatHotkey(hotkeyFromConfig ?? HOTKEY_DEFAULT);
+	const repasteLabel = formatHotkey(
+		repasteHotkeyFromConfig ?? "<ctrl>+<alt>+v",
+	);
 
 	const renderPage = () => {
 		// Route table: see router/routes.ts for the single source of page names.

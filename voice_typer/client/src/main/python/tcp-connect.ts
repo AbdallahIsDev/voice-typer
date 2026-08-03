@@ -232,9 +232,29 @@ export function tcpConnect(port: number): void {
 				? Buffer.concat([state.tcpBuffer as Buffer, chunk])
 				: chunk;
 			if (state.tcpBuffer.length > TCP_FRAME_MAX_BYTES) {
+				const capMiB = TCP_FRAME_MAX_BYTES / (1024 * 1024);
 				log.error(
-					`[TCP] tcpBuffer exceeded 4 MB without a newline - dropping connection (possible malformed frame)`,
+					`[TCP] tcpBuffer exceeded ${capMiB} MiB without a newline - dropping connection (possible malformed frame or oversized Python reply)`,
 				);
+				// surface a structured "reply too large"
+				// error to the renderer BEFORE destroying the socket.
+				// Without this, the close handler would reject
+				// pending requests with the generic "Python socket
+				// closed" message — the renderer would log a
+				// confusing socket-closed error and the user would
+				// never learn the real cause (a too-large Python
+				// reply, e.g. get_history / export_diagnostics on a
+				// power-user dataset). Pre-rejecting here means the
+				// close handler's `state.pendingRequests` loop finds
+				// an empty map (we delete each entry as we reject it)
+				// and skips its own rejection.
+				const overflowErr = new Error(
+					`Python reply exceeded ${capMiB} MiB limit (possible malformed frame or oversized reply)`,
+				);
+				for (const [id, entry] of state.pendingRequests) {
+					state.pendingRequests.delete(id);
+					entry.reject(overflowErr);
+				}
 				state.tcpBuffer = Buffer.alloc(0);
 				client.destroy();
 				return;
@@ -346,7 +366,7 @@ export function tcpConnect(port: number): void {
 					clearInterval(state.heartbeatInterval);
 					state.heartbeatInterval = null;
 				}
-				// SEC-022: reject all outstanding pendingRequests so the UI
+				// reject all outstanding pendingRequests so the UI
 				// doesn't hang forever. Without this, every `await
 				// window.electronAPI.python(...)` would leak when the socket
 				// died - the renderer's loading spinners would never resolve.
@@ -406,7 +426,7 @@ export function tcpConnect(port: number): void {
 				// torch import.  This shaves 2-4 seconds off the
 				// typical cold-start reconnection window.
 				const delay = Math.min(250 * 2 ** (state._tcpRetryCount - 1), 2000);
-				// R6-F6: store the retry timer on shared state so
+				// store the retry timer on shared state so
 				// `stopPython()` and `relaunchApp()` can clearTimeout
 				// it before bumping `_tcpRetryGeneration`. Previously
 				// the timer was a fire-and-forget local — even after

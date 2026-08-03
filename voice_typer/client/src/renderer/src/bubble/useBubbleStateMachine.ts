@@ -23,6 +23,18 @@
  *     runtime check below handles both shapes so this hook is
  *     forward-compatible without a type-system change to
  *     `BubbleWindowExtras.onSetState` (owned by another sub-agent).
+ *   - `transcript` is an optional short partial-transcription string
+ *     surfaced from the same `bubble:set-state` payload when in
+ *     transcribing mode. The main-process handler at
+ *     `main/python/handle-message.ts` forwards the full payload
+ *     (state + optional `message` + optional `transcript`) whenever the
+ *     backend emits those fields, and the bare state string otherwise —
+ *     the parsing is forward-compatible with both shapes, so once the
+ *     backend pushes `{ state: "transcribing", transcript: "..." }`,
+ *     the renderer will display the live partial text in the bubble
+ *     pill (XA-6-2). No IPC surface change is required on the renderer
+ *     side — the existing `bubble:set-state` channel already supports
+ *     the richer payload shape.
  *
  * Subscribes to the bridge's `show` / `hide` / `setState` events.
  */
@@ -45,34 +57,51 @@ export interface BubbleStateMachine {
 	setExitTick: Dispatch<SetStateAction<number>>;
 	/** Short reason string for the current error mode, or `null`. */
 	errorMessage: string | null;
+	/**
+	 * Short partial-transcription string for the current transcribing
+	 * (or fading) mode, or `null` when no transcript has been pushed
+	 * yet. Cleared on transition to a non-transcribing mode.
+	 */
+	transcript: string | null;
 }
 
 /**
  * Normalise the `bubble:set-state` payload into a state string + an
- * optional message. The IPC type is `(state: string) => void`, but the
- * runtime payload MAY be a richer object once the backend + main
- * process are extended to forward error reasons. Defensive duck-typing
- * keeps this hook forward-compatible without requiring a type-system
- * change to `BubbleWindowExtras.onSetState`.
+ * optional message + an optional partial transcript. The IPC type is
+ * `(state: string) => void`, but the runtime payload MAY be a richer
+ * object once the backend + main process are extended to forward error
+ * reasons (`message`) or live partial transcription text (`transcript`,
+ * XA-6-2). Defensive duck-typing keeps this hook forward-compatible
+ * without requiring a type-system change to
+ * `BubbleWindowExtras.onSetState`.
  */
 function parseSetStatePayload(arg: unknown): {
 	state: string;
 	message: string | null;
+	transcript: string | null;
 } {
 	if (typeof arg === "string") {
-		return { state: arg, message: null };
+		return { state: arg, message: null, transcript: null };
 	}
 	if (arg && typeof arg === "object" && "state" in arg) {
-		const obj = arg as { state: unknown; message?: unknown };
+		const obj = arg as {
+			state: unknown;
+			message?: unknown;
+			transcript?: unknown;
+		};
 		const stateStr =
 			typeof obj.state === "string" ? obj.state : String(obj.state);
 		const message =
 			typeof obj.message === "string" && obj.message.length > 0
 				? obj.message
 				: null;
-		return { state: stateStr, message };
+		const transcript =
+			typeof obj.transcript === "string" && obj.transcript.length > 0
+				? obj.transcript
+				: null;
+		return { state: stateStr, message, transcript };
 	}
-	return { state: String(arg), message: null };
+	return { state: String(arg), message: null, transcript: null };
 }
 
 export function useBubbleStateMachine(): BubbleStateMachine {
@@ -81,6 +110,12 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 	const [animState, setAnimState] = useState<AnimState>("enter");
 	const [exitTick, setExitTick] = useState(0);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
+	// Live partial-transcription text (XA-6-2). Populated from the
+	// `transcript` field of the `bubble:set-state` payload when in
+	// transcribing mode; preserved across the transcribing → fading
+	// transition so the partial text fades out smoothly with the pill.
+	// Cleared on transition to any other mode.
+	const [transcript, setTranscript] = useState<string | null>(null);
 
 	// Latest-mode ref so the `onSetState` callback can read the current
 	// mode synchronously without re-subscribing on every mode change
@@ -130,7 +165,11 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 		if (!bridge) return;
 
 		const off = bridge.on("setState", (stateArg) => {
-			const { state, message } = parseSetStatePayload(stateArg);
+			const {
+				state,
+				message,
+				transcript: newTranscript,
+			} = parseSetStatePayload(stateArg);
 
 			// Recording interrupts the fading→exit transition (e.g.
 			// user starts a new dictation while the previous
@@ -148,6 +187,7 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 				setAnimState("enter");
 				setMode("recording");
 				setErrorMessage(null);
+				setTranscript(null);
 				return;
 			}
 
@@ -177,6 +217,22 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 			} else if (state !== "fading") {
 				setErrorMessage(null);
 			}
+
+			// Surface / clear the live partial-transcript text
+			// (XA-6-2). Update `transcript` whenever the new payload
+			// carries one (including an empty string → null mapping
+			// so the pill can clear mid-flow). Preserve the previous
+			// value across the fading transition so the partial text
+			// fades out smoothly with the pill instead of vanishing
+			// a frame before the exit animation kicks in.
+			if (state === "transcribing") {
+				setTranscript(newTranscript);
+			} else if (state === "fading") {
+				// No-op: preserve the existing transcript so the
+				// fade-out renders the last partial text.
+			} else {
+				setTranscript(null);
+			}
 		});
 		return off;
 	}, [bridge]);
@@ -189,5 +245,6 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 		exitTick,
 		setExitTick,
 		errorMessage,
+		transcript,
 	};
 }

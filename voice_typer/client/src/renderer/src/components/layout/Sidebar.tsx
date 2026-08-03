@@ -18,7 +18,7 @@ import { Logo } from "@/components/layout/Logo";
 import { ThemeSwitch } from "@/components/layout/ThemeSwitch";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
-import { cn } from "@/lib/utils";
+import { cn, focusRing } from "@/lib/utils";
 import type { VoiceTyperConfig } from "@/types/config";
 import type { Page } from "@/types/ipc";
 
@@ -226,7 +226,9 @@ function SidebarInner({
 						className={cn(
 							"flex items-center justify-center p-0",
 							"bg-transparent border-0 outline-none",
-							"focus-visible:ring-2 focus-visible:ring-ring",
+							// Use the shared focusRing (ring-3 / ring-ring) so the logo button
+							// focus indicator matches the design-system Button (not ring-2).
+							focusRing,
 							"cursor-pointer",
 						)}
 					>

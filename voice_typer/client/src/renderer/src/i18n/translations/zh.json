@@ -1536,7 +1536,8 @@
 		"errorLabel": "⚠ 错误",
 		"retryAria": "重试转写",
 		"stopRecordingAria": "停止录音",
-		"dismissAria": "关闭气泡"
+		"dismissAria": "关闭气泡",
+		"transcriptPreviewAria": "实时转录预览"
 	},
 	"errorBoundary": {
 		"title": "出错了",

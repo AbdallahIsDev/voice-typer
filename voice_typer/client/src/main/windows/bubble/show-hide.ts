@@ -48,6 +48,34 @@ import {
 	isPositionOnAnyDisplay,
 } from "./positioning";
 
+/**
+ * Run a best-effort window operation inside a try/catch and route the
+ * failure through the structured `log` with a consistent `[BUBBLE]` tag +
+ * caller-supplied label. The bubble is re-created on `render-process-gone`,
+ * so `state.bubbleWindow` can flip to a destroyed window between an
+ * `isDestroyed()` check and the next Electron API call — every win-op
+ * call site is best-effort and must not throw to the caller.
+ *
+ * replaces the per-call-site `try { … } catch (e) { log.warn(...) }`
+ * boilerplate that previously grew to 7+ near-identical blocks inside
+ * `showBubbleWindow`. The default log level is `warn` (the dominant case
+ * for best-effort retries); callers that need `error` (e.g. `show()` itself
+ * — if showing the window fails, the bubble never appears) pass
+ * `{ level: "error" }`.
+ */
+function _tryWinOp(
+	label: string,
+	fn: () => void,
+	options: { level?: "warn" | "error" } = {},
+): void {
+	try {
+		fn();
+	} catch (e) {
+		const level = options.level ?? "warn";
+		log[level](`${BUBBLE_CLR}[BUBBLE]${RESET} ${label} failed:`, e);
+	}
+}
+
 export function showBubbleWindow(): void {
 	if (!state.bubbleWindow || state.bubbleWindow.isDestroyed()) {
 		createBubbleWindow();
@@ -72,14 +100,9 @@ export function showBubbleWindow(): void {
 		// in bubble-handlers.ts stays installed; only this slot is
 		//cleared. : log on failure so a stuck callback is
 		// debuggable instead of silently swallowed.
-		try {
+		_tryWinOp("clearCurrentHideAnimationCallback()", () => {
 			clearCurrentHideAnimationCallback();
-		} catch (err) {
-			log.warn(
-				`${BUBBLE_CLR}[BUBBLE]${RESET} clearCurrentHideAnimationCallback() failed:`,
-				err,
-			);
-		}
+		});
 	}
 
 	//restore the user's last drag position if we have one;
@@ -105,51 +128,34 @@ export function showBubbleWindow(): void {
 		height: BUBBLE_HEIGHT,
 	});
 
-	try {
+	_tryWinOp("showBubbleWindow setAlwaysOnTop", () => {
 		win.setAlwaysOnTop(true, "screen-saver");
-	} catch (e) {
-		// best-effort — window may be destroyed mid-call.
-		log.warn(
-			`${BUBBLE_CLR}[BUBBLE]${RESET} showBubbleWindow setAlwaysOnTop failed:`,
-			e,
-		);
-	}
+	});
 	// SEC-025: conditionally enable visibleOnFullScreen based on
 	// foreground fullscreen state.
-	try {
+	_tryWinOp("showBubbleWindow setVisibleOnAllWorkspaces", () => {
 		if (!isForegroundFullscreen()) {
 			win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 		}
-	} catch (e) {
-		// best-effort — window may be destroyed mid-call.
-		log.warn(
-			`${BUBBLE_CLR}[BUBBLE]${RESET} showBubbleWindow setVisibleOnAllWorkspaces failed:`,
-			e,
-		);
-	}
+	});
 
-	try {
-		if (!win.isVisible()) {
-			win.show();
-		}
-		// Signal the renderer to reset its closing state and play enter animation
-		win.webContents.send(BubbleChannels.show);
-		// Sync the current draggable state on every show (handles initial state
-		// and ensures the bubble renderer is always in sync with the backend)
-		win.webContents.send(BubbleChannels.draggable, state.bubbleDraggable);
-	} catch (e) {
-		//failure — log.error.
-		log.error(`${BUBBLE_CLR}[BUBBLE]${RESET} show() failed:`, e);
-	}
-	try {
+	_tryWinOp(
+		"show()",
+		() => {
+			if (!win.isVisible()) {
+				win.show();
+			}
+			// Signal the renderer to reset its closing state and play enter animation
+			win.webContents.send(BubbleChannels.show);
+			// Sync the current draggable state on every show (handles initial state
+			// and ensures the bubble renderer is always in sync with the backend)
+			win.webContents.send(BubbleChannels.draggable, state.bubbleDraggable);
+		},
+		{ level: "error" },
+	);
+	_tryWinOp("showBubbleWindow moveTop", () => {
 		win.moveTop();
-	} catch (e) {
-		// best-effort — window may be destroyed mid-call.
-		log.warn(
-			`${BUBBLE_CLR}[BUBBLE]${RESET} showBubbleWindow moveTop failed:`,
-			e,
-		);
-	}
+	});
 	//dropped the second redundant setAlwaysOnTop call that
 	// previously re-affirmed the always-on-top flag immediately after
 	// moveTop(). The first call above (before show()) already set the
@@ -165,33 +171,15 @@ export function showBubbleWindow(): void {
 			log.warn(
 				`${BUBBLE_CLR}[BUBBLE]${RESET} not visible after show() -- retrying`,
 			);
-			try {
+			_tryWinOp("setImmediate retry show()", () => {
 				win.show();
-			} catch (e) {
-				// best-effort — window may be destroyed mid-call.
-				log.warn(
-					`${BUBBLE_CLR}[BUBBLE]${RESET} setImmediate retry show() failed:`,
-					e,
-				);
-			}
-			try {
+			});
+			_tryWinOp("setImmediate retry moveTop", () => {
 				win.moveTop();
-			} catch (e) {
-				// best-effort — window may be destroyed mid-call.
-				log.warn(
-					`${BUBBLE_CLR}[BUBBLE]${RESET} setImmediate retry moveTop failed:`,
-					e,
-				);
-			}
-			try {
+			});
+			_tryWinOp("setImmediate retry setAlwaysOnTop", () => {
 				win.setAlwaysOnTop(true, "screen-saver");
-			} catch (e) {
-				// best-effort — window may be destroyed mid-call.
-				log.warn(
-					`${BUBBLE_CLR}[BUBBLE]${RESET} setImmediate retry setAlwaysOnTop failed:`,
-					e,
-				);
-			}
+			});
 		}
 	});
 }
