@@ -298,6 +298,72 @@ class TestNameBasedDeviceResolution:
             f"Expected NO DJ-69 warning when saved index is gone, got: {warning_messages}"
         )
 
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            RuntimeError("device gone"),
+            OSError("PortAudio: Invalid device index"),
+            KeyError("hostapi"),
+            AttributeError("'NoneType' object has no attribute 'get'"),
+            ValueError("invalid device number"),
+            Exception("any other PortAudio error"),
+        ],
+        ids=[
+            "runtime_error",
+            "oserror_portaudio",
+            "keyerror_hostapi",
+            "attributeerror_partial_init",
+            "valueerror_invalid_index",
+            "generic_exception",
+        ],
+    )
+    def test_compound_form_no_warn_when_query_raises_any_exception(self, monkeypatch, caplog, exc):
+        """The DJ-69 diagnostic probe's ``except`` clause must catch any
+        Exception raised by ``sd.query_devices(saved_index)`` — not just
+        ``(KeyError, TypeError, AttributeError)``.
+
+        ``sounddevice.query_devices(invalid_index)`` raises
+        ``sounddevice.PortAudioError`` (a subclass of ``Exception``,
+        not ``OSError`` or ``RuntimeError``) in production. A previous
+        narrowing to ``(KeyError, TypeError, AttributeError)`` let
+        ``PortAudioError`` / ``RuntimeError`` / ``OSError`` propagate
+        and crash the device-resolution path on a hot-swapped-out
+        saved index. The fix broadens the clause to ``Exception``
+        because the warning is purely diagnostic — no caller of
+        ``_resolve_device`` is prepared to handle a raised exception
+        from this probe.
+        """
+        dm = _make_device_manager()
+        dm.recorder.config.microphone = "5|Gone Mic|CoreAudio"
+
+        import voice_typer.server.recording.device_manager as dm_mod
+        import voice_typer.server.server_platform as server_platform_mod
+
+        monkeypatch.setattr(server_platform_mod, "find_microphone_by_name", lambda name: None)
+
+        def raising_query(*a, **k):
+            raise exc
+
+        monkeypatch.setattr(dm_mod.sd, "query_devices", raising_query)
+
+        with caplog.at_level(
+            logging.WARNING,
+            logger="voice_typer.server.recording",
+        ):
+            # Must NOT raise — the diagnostic probe's except clause
+            # swallows the exception and falls through to the
+            # ``return saved_index`` fallback.
+            result = dm._resolve_device()
+
+        assert result == 5, (
+            f"_resolve_device must fall back to the saved index (5) when "
+            f"sd.query_devices raises {type(exc).__name__}; got {result!r}"
+        )
+        warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+        assert not any("DJ-69" in m and "now points to" in m for m in warning_messages), (
+            f"Expected NO DJ-69 warning when query raises {type(exc).__name__}; got: {warning_messages}"
+        )
+
 
 # BT-aware retry policy ──────────────────────────────────────
 

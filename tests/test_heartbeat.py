@@ -394,7 +394,7 @@ class TestHeartbeatThreadLifecycle:
 
         # Patch the interval to 50ms so we don't wait 5s per tick.
         with (
-            patch("voice_typer.server.ipc_server._HEARTBEAT_INTERVAL_SECONDS", 0.05),
+            patch("voice_typer.server.ipc.lifecycle._HEARTBEAT_INTERVAL_SECONDS", 0.05),
             patch.object(s, "_check_heartbeat_timeout", spy),
         ):
             s.start()
@@ -429,7 +429,7 @@ class TestHeartbeatThreadLifecycle:
             return True  # simulate timeout fired
 
         with (
-            patch("voice_typer.server.ipc_server._HEARTBEAT_INTERVAL_SECONDS", 0.05),
+            patch("voice_typer.server.ipc.lifecycle._HEARTBEAT_INTERVAL_SECONDS", 0.05),
             patch.object(s, "_check_heartbeat_timeout", always_fires),
         ):
             s.start()

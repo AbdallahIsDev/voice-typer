@@ -13,6 +13,7 @@ in isolation. This file covers all major code paths:
 from __future__ import annotations
 
 import logging
+import os
 import sys
 
 from voice_typer.server.dictation_pipeline import DictationPipeline
@@ -42,6 +43,41 @@ def _fake_disk_usage(free_bytes: int) -> object:
     ``.free`` (in bytes).  Mimics ``shutil._ntuple_diskusage`` namedtuple
     which has ``.total``, ``.used``, ``.free``."""
     return type("_FakeDiskUsage", (), {"free": free_bytes})()
+
+
+def _fake_statvfs(free_bytes: int) -> object:
+    """Return a fake ``os.statvfs`` result reporting the given free bytes.
+
+    ``resource_probe.check_resources`` uses ``os.statvfs`` on POSIX and
+    falls back to ``shutil.disk_usage`` on Windows. Tests that exercise
+    the disk-free branches must mock BOTH code paths so the test is
+    green on both platforms (the sandbox is Linux, CI runs both).
+    ``os.statvfs_result`` exposes ``f_bavail`` (free blocks for unpriv.
+    users) and ``f_frsize`` (fundamental block size); the implementation
+    computes ``free = f_bavail * f_frsize``.
+    """
+    # Use a 1-byte block size so f_bavail == free_bytes (keeps the math
+    # trivial and the test independent of any platform block size).
+    return type(
+        "_FakeStatVfs",
+        (),
+        {"f_bavail": free_bytes, "f_frsize": 1},
+    )()
+
+
+def _patch_disk_free(monkeypatch, free_bytes: int) -> None:
+    """Patch BOTH POSIX (``os.statvfs``) and Windows (``shutil.disk_usage``)
+    disk-free probes to report the given ``free_bytes``.
+
+    ``resource_probe.check_resources`` calls ``os.statvfs`` when
+    ``hasattr(os, "statvfs")`` is true (POSIX) and falls back to
+    ``shutil.disk_usage`` only on Windows. Patching both ensures the
+    test exercises the intended branch regardless of platform — a
+    shutil-only mock is a no-op on Linux/CI-POSIX runners.
+    """
+    monkeypatch.setattr("shutil.disk_usage", lambda path: _fake_disk_usage(free_bytes))
+    if hasattr(os, "statvfs"):
+        monkeypatch.setattr(os, "statvfs", lambda path: _fake_statvfs(free_bytes))
 
 
 # ── RAM check ────────────────────────────────────────────────────────────
@@ -113,7 +149,12 @@ class TestCheckResourcesDisk:
     def test_logs_disk_info_when_sufficient(self, caplog, monkeypatch):
         """When disk has > 1 GB free, an INFO line shows the free space
         and no warning is emitted."""
-        monkeypatch.setattr("shutil.disk_usage", lambda path: _fake_disk_usage(50 * 1024**3))  # 50 GB free
+        # Patch BOTH POSIX (os.statvfs) and Windows (shutil.disk_usage)
+        # probes — resource_probe.check_resources dispatches on
+        # hasattr(os, "statvfs"), so a shutil-only mock is a no-op on
+        # Linux/CI-POSIX runners (regression that surfaced after the
+        # _check_resources body was extracted to resource_probe.py).
+        _patch_disk_free(monkeypatch, 50 * 1024**3)  # 50 GB free
 
         pipeline = _make_pipeline()
         with caplog.at_level(logging.INFO, logger="voice_typer.server.dictation_pipeline"):
@@ -130,7 +171,9 @@ class TestCheckResourcesDisk:
     def test_warns_when_disk_below_1_gb(self, caplog, monkeypatch):
         """When any monitored drive has < 1 GB free, a WARNING about heap
         corruption risk is logged."""
-        monkeypatch.setattr("shutil.disk_usage", lambda path: _fake_disk_usage(500 * 1024**2))  # 500 MB free
+        # Patch BOTH POSIX (os.statvfs) and Windows (shutil.disk_usage)
+        # probes — see test_logs_disk_info_when_sufficient for rationale.
+        _patch_disk_free(monkeypatch, 500 * 1024**2)  # 500 MB free
 
         pipeline = _make_pipeline()
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.dictation_pipeline"):
@@ -142,13 +185,18 @@ class TestCheckResourcesDisk:
         assert warnings, "Should log WARNING when a monitored drive has < 1 GB free"
 
     def test_handles_disk_usage_failure_gracefully(self, caplog, monkeypatch):
-        """When shutil.disk_usage raises (e.g. a broken path), the
-        check skips that drive and continues without crashing."""
+        """When shutil.disk_usage / os.statvfs raises (e.g. a broken path),
+        the check skips that drive and continues without crashing."""
 
         def _failing_disk_usage(path):
             raise PermissionError(f"Cannot access {path}")
 
+        def _failing_statvfs(path):
+            raise PermissionError(f"Cannot statvfs {path}")
+
         monkeypatch.setattr("shutil.disk_usage", _failing_disk_usage)
+        if hasattr(os, "statvfs"):
+            monkeypatch.setattr(os, "statvfs", _failing_statvfs)
 
         pipeline = _make_pipeline()
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):

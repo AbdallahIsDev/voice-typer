@@ -21,7 +21,6 @@ RW-8: Audio callback blocks on IPC push + module imports.
 
 from __future__ import annotations
 
-import inspect
 import threading
 import time
 from pathlib import Path
@@ -538,93 +537,270 @@ class TestAllEventsPublished:
         )
 
 
-# hoisted imports (source inspection) ─────────────────────
+# hoisted imports (behavioral) ───────────────────────────
 
 
 class TestHoistedImports:
     """RW-8: event_bus and compute_vad_prob are hoisted to module top,
-    removing the per-chunk inline import from _process_audio_chunk."""
+    removing the per-chunk inline import from _process_audio_chunk.
 
-    @staticmethod
-    def _module_top_source():
-        from voice_typer.server import recording
-
-        src = inspect.getsource(recording)
-        lines = src.splitlines()
-        first_def_idx = None
-        for i, line in enumerate(lines):
-            if line.startswith("class ") or line.startswith("def "):
-                first_def_idx = i
-                break
-        assert first_def_idx is not None, "module has no top-level class/def"
-        return "\n".join(lines[:first_def_idx])
+    Behavioral equivalents of the original source-string tests:
+    instead of grepping the source for the ``import`` statements, we
+    verify at runtime that (1) the names are accessible as module-level
+    attributes (which they would be only if imported at module top),
+    (2) calling ``_process_audio_chunk`` does NOT trigger a fresh
+    ``__import__`` of either module (which it would if the imports
+    were inline), (3) ``_process_audio_chunk`` does NOT call
+    ``event_bus.publish`` directly (events route through
+    ``self._event_queue``), and (4) ``_event_worker_loop`` IS the
+    single consumer that calls ``event_bus.publish``.
+    """
 
     def test_event_bus_imported_at_module_top(self):
-        module_top_src = self._module_top_source()
-        assert "from voice_typer.server import event_bus" in module_top_src, (
-            "RW-8: event_bus must be imported at module top, not inline"
+        """Behavioral: ``event_bus`` is accessible as a module-level
+        attribute on the recording package. If it were only imported
+        inline inside ``_process_audio_chunk``, the module-level
+        reference would not exist (and the audio pipeline could not
+        see it without re-importing)."""
+        import voice_typer.server.recording as recording
+        from voice_typer.server import event_bus
+
+        assert recording.event_bus is event_bus, (
+            "RW-8: event_bus must be imported at module top of the recording "
+            "package (accessible as a module-level attribute, not inline)."
         )
 
     def test_compute_vad_prob_imported_at_module_top(self):
-        module_top_src = self._module_top_source()
-        assert "from voice_typer.server.vad import compute_vad_prob" in module_top_src, (
-            "RW-8: compute_vad_prob must be imported at module top, not inline"
+        """Behavioral: ``compute_vad_prob`` is accessible as a module-level
+        attribute on the recording package (and on the audio pipeline
+        module that actually calls it)."""
+        import voice_typer.server.recording as recording
+        from voice_typer.server.vad import compute_vad_prob
+
+        assert recording.compute_vad_prob is compute_vad_prob, (
+            "RW-8: compute_vad_prob must be imported at module top of the "
+            "recording package (accessible as a module-level attribute, not "
+            "inline in _process_audio_chunk)."
         )
 
-    def test_no_inline_event_bus_import_in_process_audio_chunk(self):
-        from voice_typer.server.recording import Recorder
+    def test_no_inline_event_bus_import_in_process_audio_chunk(self, monkeypatch):
+        """Behavioral: pushing an audio chunk through the worker must NOT
+        trigger a fresh ``__import__`` of ``voice_typer.server.event_bus``.
+        If the import were inline in ``_process_audio_chunk`` (the audio
+        hot path), every chunk would re-enter the import system — defeating
+        the RW-8 hot-path optimization. We spy on ``builtins.__import__``
+        during one chunk's processing and assert no event_bus import fires.
 
-        src = inspect.getsource(Recorder._process_audio_chunk)
-        assert "from voice_typer.server import event_bus" not in src, (
-            "RW-8: event_bus must not be imported inline in _process_audio_chunk (hoist to module top)"
-        )
-
-    def test_no_inline_vad_import_in_process_audio_chunk(self):
-        from voice_typer.server.recording import Recorder
-
-        src = inspect.getsource(Recorder._process_audio_chunk)
-        assert "from voice_typer.server.vad import compute_vad_prob" not in src, (
-            "RW-8: compute_vad_prob must not be imported inline in _process_audio_chunk (hoist to module top)"
-        )
-
-    def test_event_bus_publish_not_called_in_process_audio_chunk(self):
-        """RW-8: _process_audio_chunk must NOT call event_bus.publish
-        directly — it must enqueue via self._event_queue.put instead.
-
-        ZR-60: the ``self._event_queue.put_nowait`` call site was
-        extracted from ``_process_audio_chunk`` into
-        ``_detect_and_emit_clipping`` (which the orchestrator
-        delegates to). The regression guard now inspects BOTH the
-        orchestrator and the clipping helper — the original intent
-        (no direct ``event_bus.publish`` from the audio worker, only
-        ``self._event_queue.put*``) is preserved as long as the
-        clipping helper uses ``put_nowait``.
+        The init-time imports (``VadProcessor.__init__``, etc.) happen
+        during ``Recorder()`` / ``start()`` — we clear the spy log AFTER
+        init and BEFORE pushing the chunk so only hot-path imports are
+        counted.
         """
+        import builtins
+
+        import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
-        src = inspect.getsource(Recorder._process_audio_chunk)
-        assert "event_bus.publish" not in src, (
-            "RW-8: _process_audio_chunk must not call event_bus.publish "
-            "directly — route through self._event_queue.put instead"
-        )
-        # the put_nowait call site lives in the clipping helper
-        # (extracted from _process_audio_chunk).
-        clipping_src = inspect.getsource(Recorder._detect_and_emit_clipping)
-        assert "event_bus.publish" not in clipping_src, (
-            "RW-8: _detect_and_emit_clipping must not call event_bus.publish "
-            "directly — route through self._event_queue.put instead"
-        )
-        assert "self._event_queue.put" in clipping_src, (
-            "RW-8: _detect_and_emit_clipping must enqueue events via self._event_queue.put"
-        )
+        _patch_ok_stream(monkeypatch, recording_mod)
+
+        real_import = builtins.__import__
+        event_bus_imports: list[str] = []
+
+        def tracking_import(name, *args, **kwargs):
+            if name == "voice_typer.server.event_bus" or name.endswith(".event_bus"):
+                event_bus_imports.append(name)
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", tracking_import)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r.start()
+        try:
+            # Clear after init so only hot-path imports are counted.
+            event_bus_imports.clear()
+
+            # Push a clipping chunk through the audio worker.
+            clipping = np.ones((512, 1), dtype=np.float32)
+            r._last_clip_log_time = 0.0  # bypass the 1 Hz throttle
+            r._current_callback(clipping, 512, None, 0)
+            deadline = time.perf_counter() + 2.0
+            while time.perf_counter() < deadline:
+                if len(r._ring_buffer) == 0:
+                    break
+                time.sleep(0.005)
+
+            assert event_bus_imports == [], (
+                "RW-8: _process_audio_chunk triggered an inline import of "
+                f"event_bus ({event_bus_imports}). event_bus must be imported "
+                "at module top so the audio hot path doesn't pay per-chunk "
+                "import overhead."
+            )
+        finally:
+            r.stop()
+
+    def test_no_inline_vad_import_in_process_audio_chunk(self, monkeypatch):
+        """Behavioral: pushing an audio chunk through the worker must NOT
+        trigger a fresh ``__import__`` of ``voice_typer.server.vad`` (or
+        any submodule of it). If ``compute_vad_prob`` were imported inline
+        in ``_process_audio_chunk``, every chunk would re-enter the import
+        system. We spy on ``builtins.__import__`` during one chunk's
+        processing and assert no vad import fires.
+
+        The init-time vad imports (``VadProcessor.__init__`` /
+        ``VadProcessor.reset``) happen during ``Recorder()`` / ``start()``
+        — we clear the spy log AFTER init and BEFORE pushing the chunk so
+        only hot-path imports are counted.
+        """
+        import builtins
+
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        _patch_ok_stream(monkeypatch, recording_mod)
+
+        real_import = builtins.__import__
+        vad_imports: list[str] = []
+
+        def tracking_import(name, *args, **kwargs):
+            if name == "voice_typer.server.vad" or name.endswith(".vad"):
+                vad_imports.append(name)
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", tracking_import)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r.start()
+        try:
+            # Clear after init so only hot-path imports are counted.
+            vad_imports.clear()
+
+            # Push a clipping chunk — exercises the full pipeline
+            # (filter chain, RMS/peak, clipping detection, VAD state
+            # machine) which would trigger a vad import if it were inline.
+            clipping = np.ones((512, 1), dtype=np.float32)
+            r._last_clip_log_time = 0.0  # bypass the 1 Hz throttle
+            r._current_callback(clipping, 512, None, 0)
+            deadline = time.perf_counter() + 2.0
+            while time.perf_counter() < deadline:
+                if len(r._ring_buffer) == 0:
+                    break
+                time.sleep(0.005)
+
+            assert vad_imports == [], (
+                "RW-8: _process_audio_chunk triggered an inline import of "
+                f"vad ({vad_imports}). compute_vad_prob must be imported at "
+                "module top so the audio hot path doesn't pay per-chunk "
+                "import overhead."
+            )
+        finally:
+            r.stop()
+
+    def test_event_bus_publish_not_called_in_process_audio_chunk(self, monkeypatch):
+        """Behavioral: ``_process_audio_chunk`` must NOT call
+        ``event_bus.publish`` directly. Instead, it routes events through
+        ``self._event_queue.put_nowait`` (drained by the event worker
+        thread). Verified by spying on ``event_bus.publish`` and recording
+        the calling thread — no publish call may come from the
+        ``audio-worker`` thread. Publishes from the ``event-worker``
+        thread are expected (that's where the publish was moved to).
+
+        The original source-string test also checked the clipping helper
+        ``_detect_and_emit_clipping`` — the behavioral test exercises
+        that helper implicitly (a clipping chunk triggers it).
+        """
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server import event_bus
+        from voice_typer.server.recording import Recorder
+
+        _patch_ok_stream(monkeypatch, recording_mod)
+
+        # Spy on event_bus.publish, recording the calling thread name.
+        # The audio worker thread ("audio-worker") must NEVER call publish
+        # — it routes via _event_queue.put_nowait. The event worker thread
+        # ("event-worker") is the legitimate caller.
+        publish_calls: list = []
+        publish_lock = threading.Lock()
+
+        def spy_publish(event):
+            with publish_lock:
+                publish_calls.append((threading.current_thread().name, event))
+
+        monkeypatch.setattr(event_bus, "publish", spy_publish)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+        r.start()
+        try:
+            # Push a clipping chunk (peak >= 0.99) to trigger the
+            # audio_clip IPC event enqueue path inside
+            # _detect_and_emit_clipping.
+            clipping = np.ones((512, 1), dtype=np.float32)
+            r._last_clip_log_time = 0.0  # bypass the 1 Hz throttle
+            r._current_callback(clipping, 512, None, 0)
+
+            # Wait for the audio worker to drain the ring buffer —
+            # this guarantees _process_audio_chunk has finished.
+            deadline = time.perf_counter() + 2.0
+            while time.perf_counter() < deadline:
+                if len(r._ring_buffer) == 0:
+                    break
+                time.sleep(0.005)
+
+            # event_bus.publish must NOT have been called from the
+            # audio-worker thread. Any call from "audio-worker" means
+            # _process_audio_chunk called publish directly (the RW-8
+            # regression). Publishes from "event-worker" are expected.
+            with publish_lock:
+                audio_worker_publishes = [c for c in publish_calls if c[0] == "audio-worker"]
+            assert audio_worker_publishes == [], (
+                "RW-8: _process_audio_chunk called event_bus.publish "
+                f"directly on the audio-worker thread ({len(audio_worker_publishes)} "
+                f"calls: {audio_worker_publishes}). It must route via "
+                "self._event_queue.put instead, so a slow IPC subscriber "
+                "cannot stall the audio worker thread."
+            )
+        finally:
+            r.stop()
 
     def test_event_worker_loop_calls_event_bus_publish(self):
-        """RW-8: the event worker thread (not _process_audio_chunk) is
-        where event_bus.publish is called."""
+        """Behavioral: ``_event_worker_loop`` is the single consumer of
+        ``_event_queue`` and calls ``event_bus.publish`` for each queued
+        event. Verified by enqueuing an event directly, setting the stop
+        event (so the loop drains and returns), and running one iteration
+        of the loop — the event must be published."""
+        from voice_typer.server import event_bus
         from voice_typer.server.recording import Recorder
 
-        src = inspect.getsource(Recorder._event_worker_loop)
-        assert "event_bus.publish" in src, (
-            "RW-8: _event_worker_loop must call event_bus.publish (the "
-            "publish was moved off the audio worker onto this thread)"
-        )
+        published: list = []
+        original_publish = event_bus.publish
+
+        def spy_publish(event):
+            published.append(event)
+
+        event_bus.publish = spy_publish
+        try:
+            config = MagicMock(sample_rate=16000, microphone=None)
+            r = Recorder(config)
+
+            # Enqueue a test event directly on the queue (bypasses the
+            # audio worker entirely — tests the event worker publish
+            # path in isolation).
+            test_event = {"type": "test_event", "data": {"i": 1}}
+            r._event_queue.put(test_event)
+
+            # Setting _event_stop_event makes _event_worker_loop drain
+            # the queue via get_nowait and return on Empty — so the
+            # loop runs to completion (publishes our event, then exits).
+            r._event_stop_event.set()
+            r._event_worker_loop()
+
+            assert test_event in published, (
+                "RW-8: _event_worker_loop must call event_bus.publish for "
+                "each queued event. The publish call lives here (not in "
+                "_process_audio_chunk) so a slow IPC subscriber cannot "
+                "stall the audio worker thread."
+            )
+        finally:
+            event_bus.publish = original_publish

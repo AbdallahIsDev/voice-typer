@@ -5,11 +5,12 @@ Background
 ``PIIRedactionFilter`` in ``voice_typer/server/security.py`` redacts
 structured PII patterns (email / phone / SSN / CC) but does NOT redact
 free-form transcription text. The convention — enforced at
-``dictation_pipeline.py:1452-1474`` — is that the transcription text
-itself is NEVER interpolated directly into a ``log.<level>(...)`` call;
-only a non-reversible SHA-256 prefix (12 chars) and the text length
-are logged, so an operator can correlate cycle IDs across log lines
-without ever seeing the user's dictated content.
+``dictation_pipeline/storage_step.py:_store_result`` — is that the
+transcription text itself is NEVER interpolated directly into a
+``log.<level>(...)`` call; only a non-reversible SHA-256 prefix (12
+chars) and the text length are logged, so an operator can correlate
+cycle IDs across log lines without ever seeing the user's dictated
+content.
 
 Risk
 ----
@@ -20,14 +21,24 @@ which is included in diagnostics exports.
 
 This test
 ---------
-Greps the ``dictation_pipeline.py`` source for ``log.<level>(...)``
-calls that interpolate any of the known transcription-text variable
-names (``text``, ``transcript``, ``partial``, ``final_text``,
-``result``) as a FORMAT ARGUMENT (i.e. ``%s`` substitution). The
-length / hash / redacted-proxy forms (``len(text)``,
-``text_hash``, ``redact_pii(text)``, ``text[:N]`` inside an
-``event_bus.publish`` payload) are allowed — only the bare-variable
-interpolation is rejected.
+Greps every ``.py`` file in the ``dictation_pipeline`` *package*
+(``__init__.py``, ``helpers.py``, ``orchestrator.py``,
+``transcribe_step.py``, ``text_steps.py``, ``enhancement_steps.py``,
+``storage_step.py``, ``paste_step.py``, ``resource_probe.py``) for
+``log.<level>(...)`` calls that interpolate any of the known
+transcription-text variable names (``text``, ``transcript``,
+``partial``, ``final_text``, ``result``) as a FORMAT ARGUMENT (i.e.
+``%s`` substitution). The length / hash / redacted-proxy forms
+(``len(text)``, ``text_hash``, ``redact_pii(text)``, ``text[:N]``
+inside an ``event_bus.publish`` payload) are allowed — only the
+bare-variable interpolation is rejected.
+
+Package split note: pre-split, the whole pipeline lived in a single
+``dictation_pipeline.py`` file and the test only needed to scan one
+file. Post-split (8-file package), the test walks every ``.py`` in the
+package directory so a regression introduced in any mixin module is
+still caught. The ``__init__.py`` is also scanned even though it's a
+thin facade — defensive parity with the pre-split scan.
 
 CONTRIBUTING.md should also document this convention — that's a
 cross-file follow-up owned by the docs agent.
@@ -113,20 +124,45 @@ def _collect_offending_log_calls(source: str, filename: str) -> list[str]:
 
 
 class TestNoRawTranscriptionTextInLogCalls:
-    """XZ-LOG-12: ``dictation_pipeline.py`` must NEVER interpolate raw
-    transcription text (``text`` / ``transcript`` / ``partial`` /
-    ``final_text`` / ``result``) as a format argument to a
-    ``log.<level>(...)`` call. The convention is enforced at the AST
+    """XZ-LOG-12: ``dictation_pipeline`` package modules must NEVER
+    interpolate raw transcription text (``text`` / ``transcript`` /
+    ``partial`` / ``final_text`` / ``result``) as a format argument to
+    a ``log.<level>(...)`` call. The convention is enforced at the AST
     level so a string-typing regression (e.g. ``log.info("got: %s",
     text)``) is caught at test time, not after a user's medical
     dictation lands in ``voice-typer.log``.
     """
 
     def test_no_raw_text_interpolation_in_dictation_pipeline(self) -> None:
-        source = inspect.getsource(dictation_pipeline)
-        offenders = _collect_offending_log_calls(source, dictation_pipeline.__file__)
+        # Walk every ``.py`` file in the ``dictation_pipeline`` package
+        # directory. Pre-split, the test only scanned the single
+        # ``dictation_pipeline.py`` monolith; post-split (8-file
+        # package), a regression in any mixin module (e.g.
+        # ``storage_step._store_result``) would otherwise slip through
+        # the test. ``inspect.getsource(dictation_pipeline)`` only
+        # returns ``__init__.py`` (the thin facade), so we glob the
+        # directory instead.
+        pkg_dir = Path(dictation_pipeline.__file__).parent
+        package_sources: list[tuple[str, str]] = []
+        for py_file in sorted(pkg_dir.glob("*.py")):
+            package_sources.append((py_file.read_text(encoding="utf-8"), str(py_file)))
+
+        # Sanity guard: the package must contain at least the
+        # ``__init__.py`` plus the 7 mixin/helper modules documented in
+        # the package docstring (8 modules total). If the glob returns
+        # fewer, the test silently passes — pin the count so a future
+        # module rename / deletion is caught here.
+        assert len(package_sources) >= 8, (
+            f"Expected at least 8 .py files in the dictation_pipeline package "
+            f"(__init__ + 7 mixins/helpers); got {len(package_sources)} at {pkg_dir}. "
+            f"The XZ-LOG-12 scan would silently pass if the glob is empty."
+        )
+
+        offenders: list[str] = []
+        for source, filename in package_sources:
+            offenders.extend(_collect_offending_log_calls(source, filename))
         assert not offenders, (
-            "XZ-LOG-12: dictation_pipeline.py contains log.<level>(...) calls "
+            "XZ-LOG-12: the dictation_pipeline package contains log.<level>(...) calls "
             "that interpolate a raw transcription-text variable as a format "
             "argument. This leaks the user's dictated content into "
             "voice-typer.log. Wrap the variable with `redact_pii(...)`, "

@@ -68,6 +68,49 @@ class TestRestartApp:
         result = ipc_server._handle_restart_app({}, {})
         assert result is None
 
+    def test_service_restart_failure_pushes_error_event(self, ipc_server, fake_service):
+        """If ``service.restart()`` raises, a follow-up ``error`` event is pushed.
+
+        The ack has already been sent, so the failure can't be reported
+        via the response envelope. Instead, the handler publishes an
+        ``error`` event with ``kind="restart_failed"`` so the renderer
+        can surface a toast. Without this push, the client would assume
+        the restart succeeded.
+        """
+        fake_service.restart.side_effect = RuntimeError("restart exploded")
+        ipc_server._send = lambda msg: None
+        captured: list[dict] = []
+        from voice_typer.server import event_bus
+
+        event_bus.subscribe(captured.append)
+        try:
+            ipc_server._handle_restart_app({}, {})
+        finally:
+            event_bus.unsubscribe(captured.append)
+
+        assert len(captured) == 1, "exactly one error event expected on restart failure"
+        evt = captured[0]
+        assert evt["type"] == "error"
+        assert evt["data"]["kind"] == "restart_failed"
+        assert "restart exploded" in evt["data"]["message"]
+
+    def test_service_restart_failure_publish_exception_is_swallowed(self, ipc_server, fake_service, monkeypatch):
+        """If ``event_bus.publish`` itself raises, the handler must not crash.
+
+        A broken event-bus subscriber must not take down the IPC dispatch
+        thread. The handler logs the publish failure at debug and returns.
+        """
+        fake_service.restart.side_effect = RuntimeError("restart exploded")
+        ipc_server._send = lambda msg: None
+
+        def _boom(_evt):
+            raise RuntimeError("event bus broken")
+
+        monkeypatch.setattr("voice_typer.server.event_bus.publish", _boom)
+        # Must not raise — the publish try/except must swallow.
+        result = ipc_server._handle_restart_app({}, {})
+        assert result is None
+
 
 class TestQuitApp:
     """``_handle_quit_app`` — same shape as ``restart_app``."""
@@ -88,6 +131,30 @@ class TestQuitApp:
         ipc_server._send = lambda msg: None
         result = ipc_server._handle_quit_app({}, {})
         assert result is None
+
+    def test_service_quit_failure_pushes_error_event(self, ipc_server, fake_service):
+        """If ``service.quit()`` raises, a follow-up ``error`` event is pushed.
+
+        Mirrors :meth:`TestRestartApp.test_service_restart_failure_pushes_error_event`:
+        the ack is already sent, so the failure is surfaced via a push
+        event with ``kind="quit_failed"`` instead of the response envelope.
+        """
+        fake_service.quit.side_effect = RuntimeError("quit failed")
+        ipc_server._send = lambda msg: None
+        captured: list[dict] = []
+        from voice_typer.server import event_bus
+
+        event_bus.subscribe(captured.append)
+        try:
+            ipc_server._handle_quit_app({}, {})
+        finally:
+            event_bus.unsubscribe(captured.append)
+
+        assert len(captured) == 1, "exactly one error event expected on quit failure"
+        evt = captured[0]
+        assert evt["type"] == "error"
+        assert evt["data"]["kind"] == "quit_failed"
+        assert "quit failed" in evt["data"]["message"]
 
 
 class TestCheckAccessibility:

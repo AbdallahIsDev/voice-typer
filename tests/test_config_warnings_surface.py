@@ -472,6 +472,34 @@ class TestWarningsSurfaceThroughSanitizer:
 # ──────────────────────────────────────────────────────────────────────────
 
 
+def _set_valid_optional_numeric_fields(cfg: Config) -> Config:
+    """Set the four ``Optional[int]`` / ``Optional[float]`` Config fields
+    that default to ``None`` to valid non-None values.
+
+    The config sanitization layer (``voice_typer/server/config/sanitization.py``)
+    runs per-field type validation on every ``Config.load()`` call. The
+    validator unwraps ``int | None`` / ``float | None`` annotations to
+    ``int`` / ``float`` BEFORE checking — so a default-constructed
+    ``Config()`` (where ``bubble_x=None`` etc.) produces four spurious
+    "had non-int value None, resetting to default None" warnings on every
+    reload. Those warnings pollute ``last_load_warnings`` and (via the
+    ``ConfigEditorLauncher`` reload-feedback path) fire a tray
+    notification even when the user-facing config is otherwise clean.
+
+    The three ``TestEditorReloadFeedback`` tests below need to control
+    exactly which warnings fire on reload so they can assert on the
+    notification's content. Setting these four fields to valid non-None
+    values before ``save()`` silences the spurious None-coercion
+    warnings, leaving only the warnings the test intentionally
+    introduces (e.g. an invalid ``asr_backend`` Literal value).
+    """
+    cfg.bubble_x = 0
+    cfg.bubble_y = 0
+    cfg.bubble_scale = 1.0
+    cfg.test_duration_seconds = 5
+    return cfg
+
+
 class _FakeTray:
     """Minimal tray double that records ``notify`` calls for
     assertion. Mirrors the ``TrayIcon.notify(title, message)``
@@ -531,6 +559,11 @@ class TestEditorReloadFeedback:
         # Save a valid config first so the launcher's ``config.save()``
         # call has something to write.
         cfg = Config()
+        # Set the four Optional[int]/Optional[float] fields (bubble_x,
+        # bubble_y, bubble_scale, test_duration_seconds) to valid
+        # non-None values so the reload doesn't produce spurious
+        # None-coercion warnings — see ``_set_valid_optional_numeric_fields``.
+        _set_valid_optional_numeric_fields(cfg)
         cfg.save()
         tray = _FakeTray()
         app = _FakeApp(cfg, tray)
@@ -568,6 +601,13 @@ class TestEditorReloadFeedback:
         # The launcher's ``save()`` call writes this bad value to
         # disk; the subsequent ``load()`` call flags + resets it.
         cfg = Config(asr_backend="invalid_backend")
+        # Set the four Optional[int]/Optional[float] fields to valid
+        # non-None values so the only reload warnings are the
+        # asr_backend validate_config + reset warnings (otherwise the
+        # None-coercion warnings for bubble_x/y/scale and
+        # test_duration_seconds would fire FIRST and the notification
+        # would mention 'bubble_x', not 'asr_backend').
+        _set_valid_optional_numeric_fields(cfg)
         tray = _FakeTray()
         app = _FakeApp(cfg, tray)
 
@@ -620,6 +660,15 @@ class TestEditorReloadFeedback:
         monkeypatch.setattr(config_editor, "_current_platform", lambda: "linux")
 
         cfg = Config(asr_backend=long_invalid_value)
+        # Set the four Optional[int]/Optional[float] fields to valid
+        # non-None values so the first reload warning is the long
+        # asr_backend validate_config warning (which embeds the
+        # 300-char value) — this lets the test actually exercise the
+        # >160-char truncation path. Without this fix the first
+        # warning would be the short bubble_x None-coercion warning
+        # and the assertion below would pass without ever exercising
+        # truncation.
+        _set_valid_optional_numeric_fields(cfg)
         tray = _FakeTray()
         app = _FakeApp(cfg, tray)
 

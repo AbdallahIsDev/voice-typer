@@ -119,35 +119,46 @@ def test_secure_clear_caches_zeros_no_resample_segments_in_source():
     )
 
 
-# ── 2. Source-inspection: Recorder._secure_clear_session_caches ───────
+# ── 2. Source-inspection: SessionState.reset_session_state ────────────
 
 
 def test_secure_clear_session_caches_zeros_no_resample_segments_in_source():
-    """``Recorder._secure_clear_session_caches`` (the helper called from
-    ``start()``) must contain the same loop.
+    """``SessionState.reset_session_state`` (the body of
+    ``Recorder._reset_session_state``, called from ``start()`` after
+    ``_secure_clear_session_caches``) must contain the same loop.
 
-    Mirrors ``tests/test_secure_clear_array.py:259-268`` which already
-    pins the resample-path arrays via source-string inspection of this
-    same helper.
+    ``Recorder._secure_clear_session_caches`` itself is intentionally a
+    SMALLER helper that zeros only the two cached arrays
+    (``_cached_resampled`` / ``_cached_no_resample_arr``) plus the
+    resample-path segment list (see its docstring in ``recorder.py``).
+    The no-resample-path segment list is zeroed by the *bulk*
+    ``secure_clear_caches`` (called from ``stop()``/``discard()``) and
+    by ``reset_session_state`` (called from ``start()``). The two paths
+    are symmetric: a session that ends cleanly via ``stop()``/``discard()``
+    has its no-resample segments zeroed by ``secure_clear_caches``; a
+    session that starts after an unclean prior session has them zeroed
+    by ``reset_session_state`` (the belt-and-suspenders guard). Mirrors
+    ``tests/test_secure_clear_array.py`` which pins the resample-path
+    arrays via source-string inspection of ``_secure_clear_session_caches``.
     """
-    from voice_typer.server.recording import Recorder
+    from voice_typer.server.recording.session_state import SessionState
 
-    src = inspect.getsource(Recorder._secure_clear_session_caches)
-    assert "for seg in self._cached_no_resample_segments:" in src, (
-        "Recorder._secure_clear_session_caches must iterate over "
+    src = inspect.getsource(SessionState.reset_session_state)
+    assert "for seg in recorder._cached_no_resample_segments:" in src, (
+        "SessionState.reset_session_state must iterate over "
         "_cached_no_resample_segments (mirrors the XE-6-1 loop for "
-        "_cached_resampled_segments)."
+        "_cached_resampled_segments, and the bulk secure_clear_caches)."
     )
     assert "_secure_clear_array(seg)" in src, (
-        "Recorder._secure_clear_session_caches must call "
+        "SessionState.reset_session_state must call "
         "_secure_clear_array on each segment in "
         "_cached_no_resample_segments."
     )
-    assert "self._cached_no_resample_segments = []" in src, (
-        "Recorder._secure_clear_session_caches must reset _cached_no_resample_segments to []."
+    assert "recorder._cached_no_resample_segments = []" in src, (
+        "SessionState.reset_session_state must reset _cached_no_resample_segments to []."
     )
-    assert "self._cached_no_resample_concat_dirty = False" in src, (
-        "Recorder._secure_clear_session_caches must reset _cached_no_resample_concat_dirty to False."
+    assert "recorder._cached_no_resample_concat_dirty = False" in src, (
+        "SessionState.reset_session_state must reset _cached_no_resample_concat_dirty to False."
     )
 
 

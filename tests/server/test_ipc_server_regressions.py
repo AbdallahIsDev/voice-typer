@@ -26,7 +26,7 @@ Covers:
 
 from __future__ import annotations
 
-import inspect
+import contextlib
 import io
 import json
 
@@ -40,35 +40,65 @@ class TestStandaloneStdinSuppression:
 
     The fix removes the ``if port is not None or ws_mode:`` guard around
     ``server._tcp_mode = True`` and sets the flag unconditionally. We
-    verify by inspecting ``main()``'s source — there must be no
-    conditional guard around the ``_tcp_mode = True`` assignment, and
-    the assignment must run BEFORE ``server.start()``.
+    verify behaviorally by running ``main()`` with mocked components and
+    confirming ``_tcp_mode`` is ``True`` at the moment ``server.start()``
+    is called — regardless of the launch mode (standalone / --port / --ws).
     """
 
-    def test_main_sets_tcp_mode_unconditionally(self) -> None:
-        from voice_typer.server import ipc_server
+    def test_main_sets_tcp_mode_unconditionally(self, monkeypatch) -> None:
+        """Behavioral: ``main()`` must set ``server._tcp_mode = True``
+        BEFORE ``server.start()`` is called, unconditionally (regardless
+        of whether ``--port`` or ``--ws`` was passed). Verified by
+        mocking the server's ``start()`` to capture ``_tcp_mode`` at
+        call time and asserting it's ``True``.
 
-        src = inspect.getsource(ipc_server.main)
-        # The unconditional assignment must be present.
-        assert "server._tcp_mode = True" in src, (
-            "XZ-IPC-001: main() must set server._tcp_mode = True unconditionally before server.start()."
-        )
-        # The old conditional guard must be GONE.
-        assert "if port is not None or ws_mode:" not in src, (
-            "XZ-IPC-001: the conditional `if port is not None or ws_mode:` "
-            "guard around _tcp_mode must be removed — standalone mode must "
-            "also suppress the stdin listener."
-        )
-        # The assignment must come BEFORE the actual ``server.start()``
-        # CALL (not the comment mention). We strip comments by removing
-        # lines starting with ``#`` so the substring search only sees
-        # real code.
-        code_only = "\n".join(ln for ln in src.split("\n") if not ln.lstrip().startswith("#"))
-        tcp_mode_idx = code_only.index("server._tcp_mode = True")
-        start_idx = code_only.index("server.start()")
-        assert tcp_mode_idx < start_idx, (
-            "XZ-IPC-001: _tcp_mode must be set BEFORE server.start() so "
-            "start() observes the flag and skips spawning the stdin thread."
+        Pre-fix, the standalone path (no ``--port`` / ``--ws``) fell
+        through with ``_tcp_mode = False``, spawning BOTH the stdin
+        listener AND the auto-picked TCP server — the stdin listener
+        accepted unauthenticated JSON on the user's terminal."""
+        from unittest.mock import MagicMock
+
+        import voice_typer.server.app as app_mod
+        import voice_typer.server.ipc_server as ipc_server_mod
+        import voice_typer.server.providers as providers_mod
+
+        # Mock parse_ipc_args to return standalone mode (no --port, no
+        # --ws). Pre-fix, this was the path that fell through with
+        # _tcp_mode = False.
+        monkeypatch.setattr(ipc_server_mod, "parse_ipc_args", lambda: (None, False))
+
+        # Mock the app + server construction.
+        mock_app = MagicMock()
+        mock_server = MagicMock()
+
+        # Capture _tcp_mode at the time start() is called, then raise
+        # SystemExit to break out of main() (after the _tcp_mode
+        # assignment + start() call, before the ws/port branches).
+        captured: dict = {}
+
+        def capture_start():
+            captured["tcp_mode"] = mock_server._tcp_mode
+            raise SystemExit(0)
+
+        mock_server.start.side_effect = capture_start
+
+        # Patch the components main() imports at call time.
+        monkeypatch.setattr(app_mod, "VoiceTyperApp", lambda: mock_app)
+        monkeypatch.setattr(app_mod, "_ensure_single_instance", lambda **kw: None)
+        monkeypatch.setattr(app_mod, "_setup_logging", lambda: None)
+        monkeypatch.setattr(providers_mod, "build_ipc_server", lambda app: mock_server)
+
+        # main() should raise SystemExit (from our capture_start).
+        with contextlib.suppress(SystemExit):
+            ipc_server_mod.main()
+
+        assert captured.get("tcp_mode") is True, (
+            "XZ-IPC-001: main() must set server._tcp_mode = True BEFORE "
+            f"server.start() is called (got {captured.get('tcp_mode')}). "
+            "The flag must be set unconditionally so start() skips "
+            "spawning the unauthenticated stdin listener thread — the "
+            "old `if port is not None or ws_mode:` guard around the "
+            "assignment must be gone (standalone mode must also set it)."
         )
 
     def test_start_skips_stdin_thread_when_tcp_mode_true(self) -> None:
@@ -229,17 +259,46 @@ class TestSendStdinErrorEnvelope:
         assert msg["data"]["code"] == "client.invalid_payload"
         assert msg["data"]["message"] == "message must be a JSON object"
 
-    def test_run_calls_helper_not_inline_send(self) -> None:
-        """Source-level: the three error sites in _run must call
-        ``_send_stdin_error_envelope`` (not inline ``self._send({"
-        type": "error", ...})``)."""
+    def test_run_calls_helper_not_inline_send(self, server, monkeypatch) -> None:
+        """Behavioral: ``_run`` must route all three error sites (invalid
+        payload / invalid JSON / internal_error) through
+        ``_send_stdin_error_envelope`` — not inline
+        ``self._send({"type": "error", ...})``. Verified by spying on
+        ``_send_stdin_error_envelope`` and triggering all three paths in
+        one ``_run`` call; the helper must be called for each path."""
 
-        src = inspect.getsource(IPCServer._run)
-        # The helper must be called three times in _run.
-        assert src.count("_send_stdin_error_envelope(") >= 3, (
-            "ZR-76: _run must call _send_stdin_error_envelope for all "
-            "three error sites (invalid payload / invalid JSON / "
-            "internal_error)."
+        helper_calls: list[dict] = []
+
+        def spy_helper(*args, **kwargs):
+            helper_calls.append(kwargs)
+            # Don't call the original — we only want to count/inspect calls.
+
+        monkeypatch.setattr(server, "_send_stdin_error_envelope", spy_helper)
+
+        # Mock _dispatch to raise on the third line (internal error path).
+        def raising_dispatch(msg):
+            raise RuntimeError("simulated internal error")
+
+        monkeypatch.setattr(server, "_dispatch", raising_dispatch)
+
+        server._running = True
+        # Three lines triggering the three error sites:
+        # 1. "42" → json.loads returns int → not isinstance(dict) → invalid payload
+        # 2. "not valid json" → json.loads raises JSONDecodeError → invalid JSON
+        # 3. '{"type":"x"}' → json.loads returns dict → _dispatch raises → internal error
+        stdin = io.StringIO('42\nnot valid json\n{"type":"x"}\n')
+        stdout = io.StringIO()
+        server._run(_stdin=stdin, _stdout=stdout)
+
+        messages = [c.get("message") for c in helper_calls]
+        assert "message must be a JSON object" in messages, (
+            f"ZR-76: _run must call _send_stdin_error_envelope for the invalid-payload site (got messages: {messages})."
+        )
+        assert "invalid JSON" in messages, (
+            f"ZR-76: _run must call _send_stdin_error_envelope for the invalid-JSON site (got messages: {messages})."
+        )
+        assert "internal error" in messages, (
+            f"ZR-76: _run must call _send_stdin_error_envelope for the internal-error site (got messages: {messages})."
         )
 
 
@@ -249,30 +308,76 @@ class TestSendStdinErrorEnvelope:
 class TestStaleLineRefs:
     """XZ-IPC-009: comments in ``ipc_server.py`` that referenced line
     numbers in OTHER files (or in this file before refactors) have been
-    replaced with function / label references."""
+    replaced with function / label references.
+
+    Behavioral equivalents: the original source-string tests checked that
+    stale line-number comments were gone. The behavioral tests verify the
+    actual behavior the comments described — the ``_send`` shutdown-suppress
+    gate (``_cached_shutting_down`` read) lives in ``ipc/sender.py``
+    (``OutputMixin._send``) and ``_dispatch`` consults the cached snapshot
+    rather than reading ``app._shutting_down`` directly.
+    """
 
     def test_no_stale_line_2166_reference(self) -> None:
-        """The specific stale reference 'line ~2166' (which pointed at
-        the ``_send`` shutdown-suppress gate that has since moved to
-        ``ipc/sender.py``) must be gone from the source."""
-        from voice_typer.server import ipc_server
+        """Behavioral: the ``_send`` shutdown-suppress gate (the
+        ``_cached_shutting_down`` read) must live in
+        ``voice_typer/server/ipc/sender.py`` (``OutputMixin._send``),
+        not in ``ipc_server.py``. The original source-string test
+        checked that the stale ``'line ~2166'`` comment (which pointed
+        at the gate's old location in ``ipc_server.py``) was gone; the
+        behavioral equivalent verifies the gate's actual runtime
+        location via ``OutputMixin.__module__``."""
+        from voice_typer.server.ipc.sender import OutputMixin
 
-        src = inspect.getsource(ipc_server)
-        assert "line ~2166" not in src, (
-            "XZ-IPC-009: the stale 'line ~2166' reference (the _send "
-            "shutdown-suppress gate has moved to ipc/sender.py) must be "
-            "replaced with a function/label reference."
+        # OutputMixin must be defined in sender.py (not ipc_server.py).
+        assert OutputMixin.__module__ == "voice_typer.server.ipc.sender", (
+            "XZ-IPC-009: OutputMixin (which owns the _send shutdown-"
+            f"suppress gate) must live in voice_typer.server.ipc.sender — "
+            f"got {OutputMixin.__module__}. The stale 'line ~2166' "
+            "reference pointed at the gate's old location in "
+            "ipc_server.py; the gate has since moved to sender.py."
+        )
+        # OutputMixin must have a _send method (the gate).
+        assert hasattr(OutputMixin, "_send"), (
+            "XZ-IPC-009: OutputMixin must define _send (the shutdown-"
+            "suppress gate that was previously referenced by a stale "
+            "line number)."
         )
 
-    def test_dispatch_comment_references_sender_module(self) -> None:
-        """The dispatch comment now references ``OutputMixin._send`` in
-        ``voice_typer/server/ipc/sender.py`` (a stable module/label
-        reference) instead of a line number."""
+    def test_dispatch_comment_references_sender_module(self, server, monkeypatch) -> None:
+        """Behavioral: ``_dispatch`` must consult
+        ``self._cached_shutting_down`` (the cached snapshot refreshed in
+        ``start()`` / ``stop()``) rather than reading
+        ``self.app._shutting_down`` directly. The cached snapshot is
+        maintained alongside the ``OutputMixin._send`` shutdown-suppress
+        gate in ``ipc/sender.py`` (the comment the original source-string
+        test was checking).
 
-        src = inspect.getsource(IPCServer._dispatch)
-        # The new comment must reference the sender module / OutputMixin.
-        assert "OutputMixin._send" in src or "ipc/sender.py" in src or "_cached_shutting_down" in src, (
-            "XZ-IPC-009: _dispatch comment must reference the "
-            "_cached_shutting_down read in OutputMixin._send in "
-            "ipc/sender.py — not a stale line number."
+        Verified by setting ``_cached_shutting_down=True`` (cached:
+        shutting down) and ``app._shutting_down=False`` (live: NOT
+        shutting down) — ``_dispatch`` must reject the request (return
+        ``server.shutting_down`` error) based on the cached snapshot,
+        not the live app attribute."""
+        # Cached snapshot says we're shutting down; live app attribute says
+        # we're not. _dispatch must consult the cached snapshot.
+        server._cached_shutting_down = True
+        server.app._shutting_down = False
+
+        result = server._dispatch({"type": "get_config", "data": {}})
+
+        assert result is not None, (
+            "XZ-IPC-009: _dispatch returned None when _cached_shutting_down "
+            "was True — it must return a shutting_down error envelope."
+        )
+        assert result.get("type") == "error", (
+            "XZ-IPC-009: _dispatch did not return an error when "
+            f"_cached_shutting_down=True (got: {result}). It must consult "
+            "the cached snapshot (not app._shutting_down directly)."
+        )
+        assert result.get("data", {}).get("code") == "server.shutting_down", (
+            "XZ-IPC-009: _dispatch must return a server.shutting_down "
+            f"error when _cached_shutting_down=True (got: {result}). The "
+            "shutdown-suppress gate (the _cached_shutting_down read) "
+            "lives in OutputMixin._send in ipc/sender.py — _dispatch "
+            "must consult the cached snapshot, not app._shutting_down."
         )

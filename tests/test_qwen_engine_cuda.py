@@ -356,9 +356,15 @@ class TestTranscribeWithFallbackCudaBranchReachable:
         mock_result.text = "recovered on cpu"
 
         mock_model = MagicMock(name="qwen_model")
+        # Three side_effects because ``load()`` calls ``_warm_up_model()``
+        # which invokes ``model.transcribe()`` once (warm-up call #1,
+        # return value ignored). The actual ``transcribe_with_fallback``
+        # flow then consumes #2 (CUDA error → triggers CPU fallback) and
+        # #3 (CPU retry returns the recovered text).
         mock_model.transcribe.side_effect = [
-            RuntimeError("CUDA out of memory"),
-            [mock_result],
+            None,  # warm-up call (success, return value ignored)
+            RuntimeError("CUDA out of memory"),  # first transcribe (CUDA error)
+            [mock_result],  # CPU retry transcribe (success)
         ]
         mock_qwen_module = MagicMock(name="qwen_asr")
         mock_qwen_module.Qwen3ASRModel.from_pretrained.return_value = mock_model

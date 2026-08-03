@@ -52,6 +52,21 @@ _SIGNAL_HANDLERS_PATH = os.path.join(
     "server",
     "signal_handlers.py",
 )
+# Phase 4.5 (OI-36) extracted the ``_teardown_electron`` body verbatim into
+# ``voice_typer/server/shutdown/teardowns/electron.py``. The
+# ``ShutdownController._teardown_electron`` method is now a thin delegate
+# that forwards to ``teardown_electron(controller)``. Source-inspection
+# tests for the Windows TerminateProcess fallback must read the body from
+# the extracted module (the delegate body contains only the forward call).
+_TEARDOWNS_ELECTRON_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "voice_typer",
+    "server",
+    "shutdown",
+    "teardowns",
+    "electron.py",
+)
 
 
 def _src(path: str) -> str:
@@ -344,12 +359,17 @@ class TestWindowsTerminateProcessFallback:  # noqa: N801
         """UE-1-F6 (source-inspection): the source must contain a
         ``sys.platform == "win32"`` branch inside the ``if _term_result
         is TIMEOUT:`` block that calls ``OpenProcess`` +
-        ``TerminateProcess`` + ``CloseHandle`` via ctypes."""
-        s = _src(_SHUTDOWN_CONTROLLER_PATH)
-        idx = s.find("def _teardown_electron(self) -> None:")
-        assert idx > -1, "_teardown_electron must be defined"
-        next_def = s.find("\n    def ", idx + 1)
-        body = s[idx:next_def]
+        ``TerminateProcess`` + ``CloseHandle`` via ctypes.
+
+        Phase 4.5 (OI-36) extracted the ``_teardown_electron`` body into
+        ``voice_typer/server/shutdown/teardowns/electron.py``. The
+        source-inspection reads the extracted module (the delegate on
+        ``ShutdownController`` is a thin forwarder)."""
+        s = _src(_TEARDOWNS_ELECTRON_PATH)
+        idx = s.find("def teardown_electron(controller) -> None:")
+        assert idx > -1, "teardown_electron must be defined in the extracted module"
+        next_def = s.find("\ndef ", idx + 1)
+        body = s[idx:] if next_def == -1 else s[idx:next_def]
         # The TIMEOUT branch must exist.
         assert "if _term_result is TIMEOUT:" in body, (
             "_teardown_electron must have an ``if _term_result is TIMEOUT:`` branch"
@@ -382,12 +402,17 @@ class TestWindowsTerminateProcessFallback:  # noqa: N801
         """UE-1-F6 (regression): the POSIX SIGKILL escalation must
         STILL be present (the Windows fallback is ADDED, not a
         replacement). Pre-fix the POSIX branch was the only escalation
-        path; my fix must not remove it."""
-        s = _src(_SHUTDOWN_CONTROLLER_PATH)
-        idx = s.find("def _teardown_electron(self) -> None:")
+        path; my fix must not remove it.
+
+        Phase 4.5 (OI-36): reads from the extracted
+        ``teardowns/electron.py`` module (see
+        ``test_windows_terminate_process_fallback_exists_in_source`` for
+        the rationale)."""
+        s = _src(_TEARDOWNS_ELECTRON_PATH)
+        idx = s.find("def teardown_electron(controller) -> None:")
         assert idx > -1
-        next_def = s.find("\n    def ", idx + 1)
-        body = s[idx:next_def]
+        next_def = s.find("\ndef ", idx + 1)
+        body = s[idx:] if next_def == -1 else s[idx:next_def]
         assert "SIGKILL" in body, (
             "UE-1-F6: POSIX SIGKILL escalation must be preserved in the "
             "``else:`` branch (Windows gets TerminateProcess, POSIX keeps "

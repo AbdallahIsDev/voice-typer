@@ -56,6 +56,14 @@ _SHUTDOWN_CONTROLLER_PATH = os.path.join(
     "server",
     "shutdown_controller.py",
 )
+_SHUTDOWN_LIFECYCLE_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "..",
+    "voice_typer",
+    "server",
+    "shutdown",
+    "lifecycle.py",
+)
 _RECORDING_CONTROLLER_PATH = os.path.join(
     os.path.dirname(__file__),
     "..",
@@ -67,6 +75,11 @@ _RECORDING_CONTROLLER_PATH = os.path.join(
 
 def _shutdown_src() -> str:
     with open(_SHUTDOWN_CONTROLLER_PATH, encoding="utf-8") as f:
+        return f.read()
+
+
+def _lifecycle_src() -> str:
+    with open(_SHUTDOWN_LIFECYCLE_PATH, encoding="utf-8") as f:
         return f.read()
 
 
@@ -95,15 +108,22 @@ class TestIn17WatchdogJoinsLeakedWorkers:
     def test_watchdog_calls_join_leaked_workers_before_os_exit(self) -> None:
         """Inside the ``_watchdog`` closure, ``join_leaked_workers`` must
         be called BEFORE ``os._exit(0)`` (the actual call, not a mention
-        in a comment)."""
-        s = _shutdown_src()
+        in a comment).
+
+        extraction: the ``_watchdog`` closure body now
+        lives in :mod:`voice_typer.server.shutdown.lifecycle` (the
+        ``_arm_shutdown_watchdog`` method on :class:`ShutdownController`
+        is a thin delegate). The source-inspection target therefore
+        moved from ``shutdown_controller.py`` to ``shutdown/lifecycle.py``.
+        """
+        s = _lifecycle_src()
         # Find the _watchdog closure body.
         watchdog_idx = s.find("def _watchdog() -> None:")
         assert watchdog_idx > -1, "IN-17: _watchdog closure must exist"
-        # Slice to the next def or the end of _arm_shutdown_watchdog
+        # Slice to the next def or the end of arm_shutdown_watchdog
         next_def = s.find("\n        def ", watchdog_idx + 1)
         if next_def == -1:
-            next_def = s.find("\n        t = threading.Thread(", watchdog_idx + 1)
+            next_def = s.find("\n    t = threading.Thread(", watchdog_idx + 1)
         body = s[watchdog_idx:next_def]
         assert "join_leaked_workers(" in body, "IN-17: _watchdog body must call join_leaked_workers()"
         # Find the ACTUAL os._exit(0) call (not a comment mention).
@@ -118,24 +138,32 @@ class TestIn17WatchdogJoinsLeakedWorkers:
         )
 
     def test_watchdog_uses_0_5s_timeout(self) -> None:
-        """The per-worker join timeout should be 0.5s (per the IN-17 spec)."""
-        s = _shutdown_src()
+        """The per-worker join timeout should be 0.5s (per the IN-17 spec).
+
+        extraction: the ``_watchdog`` closure body now
+        lives in :mod:`voice_typer.server.shutdown.lifecycle``.
+        """
+        s = _lifecycle_src()
         watchdog_idx = s.find("def _watchdog() -> None:")
         next_def = s.find("\n        def ", watchdog_idx + 1)
         if next_def == -1:
-            next_def = s.find("\n        t = threading.Thread(", watchdog_idx + 1)
+            next_def = s.find("\n    t = threading.Thread(", watchdog_idx + 1)
         body = s[watchdog_idx:next_def]
         assert "timeout=0.5" in body, "IN-17: join_leaked_workers must use timeout=0.5 (per spec)"
 
     def test_watchdog_never_propagates_join_errors(self) -> None:
         """If ``join_leaked_workers`` raises, the watchdog must still call
         ``os._exit(0)`` — the join is best-effort and must never block
-        process exit."""
-        s = _shutdown_src()
+        process exit.
+
+        extraction: the ``_watchdog`` closure body now
+        lives in :mod:`voice_typer.server.shutdown.lifecycle``.
+        """
+        s = _lifecycle_src()
         watchdog_idx = s.find("def _watchdog() -> None:")
         next_def = s.find("\n        def ", watchdog_idx + 1)
         if next_def == -1:
-            next_def = s.find("\n        t = threading.Thread(", watchdog_idx + 1)
+            next_def = s.find("\n    t = threading.Thread(", watchdog_idx + 1)
         body = s[watchdog_idx:next_def]
         # The join call must be inside a try/except.
         assert "try:" in body, "IN-17: join_leaked_workers call must be wrapped in try/except"
@@ -327,82 +355,90 @@ class TestIn18CancelledCycleIdsBounded:
 
 
 class TestIn19AsrTeardownSecondWave:
-    """IN-19: ``_teardown_asr_models`` must run in a SECOND
-    ``_run_parallel_with_timeout`` batch, AFTER the first batch (which
-    includes ``_teardown_recorder``) has completed."""
+    """IN-19: ``_teardown_asr_models`` must run AFTER
+    ``_teardown_recorder`` (which joins the transcription thread) has
+    completed, so the ASR model is never unloaded under a mid-inference
+    torch state and the history DB is never closed before the thread's
+    write fires.
 
-    def test_asr_teardown_not_in_first_parallel_batch(self) -> None:
-        """The first ``parallel_items`` list must NOT contain
-        ``("teardown_asr_models", ...)``."""
-        s = _shutdown_src()
-        # Find the first parallel_items list.
-        first_list_idx = s.find("parallel_items: list[tuple[str, object, float]] = [")
-        assert first_list_idx > -1, "could not find parallel_items list"
-        # Find the closing bracket
-        list_end = s.find("]", first_list_idx)
-        first_list_body = s[first_list_idx:list_end]
-        assert '("teardown_asr_models",' not in first_list_body, (
-            "IN-19: _teardown_asr_models must NOT be in the FIRST parallel_items "
-            "list (it must run in a SECOND wave after the first batch completes)"
-        )
+    extraction contract (as built): the original "second parallel wave"
+    design was folded into the sequenced-then-parallel ``ShutdownPlan``
+    structure - ``_teardown_recorder`` lives in the SEQUENCED phase
+    (which joins the transcription thread) and ``_teardown_asr_models``
+    lives in the PARALLEL batch, which only starts after the sequenced
+    phase has fully returned. The ordering guarantee IN-19 needs (thread
+    joined before ASR unload) therefore holds through the plan driver:
+    ``_run_plan(parallel_plan, ...)`` appears textually after
+    ``_run_plan(sequenced_plan, ...)`` and consumes its timed-out-step
+    set. These tests pin that structure."""
 
-    def test_asr_teardown_in_second_wave(self) -> None:
-        """A SECOND ``_run_parallel_with_timeout`` call must exist after
-        the first batch, containing only ``_teardown_asr_models``."""
-        s = _shutdown_src()
-        # Find the second wave: a new list with teardown_asr_models
-        asr_wave_idx = s.find('("teardown_asr_models", self._teardown_asr_models')
-        assert asr_wave_idx > -1, "IN-19: teardown_asr_models tuple not found"
-        # The first parallel_items list must come BEFORE this second wave.
-        first_list_idx = s.find("parallel_items: list[tuple[str, object, float]] = [")
-        assert first_list_idx < asr_wave_idx, (
-            "IN-19: the second-wave ASR teardown must come AFTER the first parallel_items list"
-        )
-        # Verify _run_parallel_with_timeout is called for the ASR wave.
-        # Find the second _run_parallel_with_timeout call after the first
-        # parallel_items list.
-        second_pool_call = s.find("_run_parallel_with_timeout(", asr_wave_idx - 200)
-        assert second_pool_call > -1 and second_pool_call > first_list_idx, (
-            "IN-19: a second _run_parallel_with_timeout call must exist for the ASR wave, after the first batch"
-        )
+    def test_asr_teardown_not_in_sequenced_plan(self) -> None:
+        """``_teardown_asr_models`` must NOT be in the SEQUENCED
+        ``ShutdownPlan`` (that phase is the bounded critical flush
+        path - the CUDA teardown is deliberately not serialized into
+        it).
 
-    def test_first_wave_still_contains_recorder_and_timers(self) -> None:
-        """Sanity: the first wave must still contain the recorder and
-        timers teardowns (we only moved ASR out, not these)."""
+        The sequenced plan is built with ``sequenced_items.append(...)``
+        calls up to the ``sequenced_plan = ShutdownPlan(...)``
+        constructor, so the "list body" region is bounded by that
+        constructor call, not by a literal closing ``]`` (the parallel
+        ``all_parallel_items`` literal appears LATER in the file and its
+        closing ``]`` is the first ``\\n        ]`` match — using that as
+        the bound would swallow the ASR tuple and false-positive)."""
         s = _shutdown_src()
-        # Find the first parallel_items list. The type annotation
-        # ``list[tuple[str, object, float]]`` itself contains ``]``, so
-        # we must find the list's closing ``]`` (the one AFTER the last
-        # tuple entry, on its own indented line).
-        first_list_idx = s.find("parallel_items: list[tuple[str, object, float]] = [")
-        assert first_list_idx > -1, "could not find parallel_items list"
-        # Find the closing ``]`` on its own line (indented to match).
-        # The list body has entries like ``("teardown_X", self._teardown_X, 10.0),``
-        # and ends with ``]`` on a new line.
-        list_end = s.find("\n        ]", first_list_idx)
-        assert list_end > -1, "could not find end of parallel_items list"
-        first_list_body = s[first_list_idx:list_end]
-        assert '("teardown_recorder",' in first_list_body, "IN-19: _teardown_recorder must remain in the first wave"
-        assert '("teardown_timers_and_recording",' in first_list_body, (
-            "IN-19: _teardown_timers_and_recording must remain in the first wave"
+        seq_idx = s.find("sequenced_items: list[tuple[str, object, float, str | None, bool]] = []")
+        assert seq_idx > -1, "IN-19: sequenced_items list not found"
+        seq_ctor = s.find("sequenced_plan = ShutdownPlan(", seq_idx)
+        assert seq_ctor > -1, "IN-19: sequenced_plan constructor not found"
+        sequenced_region = s[seq_idx:seq_ctor]
+        assert '("teardown_asr_models",' not in sequenced_region, (
+            "IN-19: _teardown_asr_models must NOT be in the sequenced_items "
+            "list (ASR teardown stays in the parallel batch, after the "
+            "sequenced phase joins the transcription thread)"
         )
 
-    def test_second_wave_runs_after_first_completes(self) -> None:
-        """The two waves must be SEQUENTIAL — the second wave's
-        ``_run_parallel_with_timeout`` call must appear AFTER the first
-        wave's call has RETURNED (i.e., the first wave's result loop
-        must complete before the second wave's list is constructed)."""
+    def test_asr_teardown_in_parallel_plan(self) -> None:
+        """``_teardown_asr_models`` must be in the parallel batch (the
+        first tuple of ``all_parallel_items``)."""
         s = _shutdown_src()
-        # Find the first wave's _run_parallel_with_timeout call.
-        first_call = s.find("_run_parallel_with_timeout(parallel_items)")
-        assert first_call > -1
-        # Find the second wave's _run_parallel_with_timeout call.
-        # Look for "asr_wave_items" usage.
-        second_call = s.find("_run_parallel_with_timeout(asr_wave_items)")
-        assert second_call > -1, "IN-19: second wave must call _run_parallel_with_timeout(asr_wave_items)"
-        assert second_call > first_call, (
-            "IN-19: second wave must be called AFTER the first wave's _run_parallel_with_timeout returns"
+        par_idx = s.find("all_parallel_items: list[tuple[str, object, float, str | None, bool]] = [")
+        assert par_idx > -1, "IN-19: all_parallel_items list not found"
+        par_end = s.find("\n        ]", par_idx)
+        assert par_end > -1, "IN-19: could not find end of all_parallel_items list"
+        parallel_body = s[par_idx:par_end]
+        assert '("teardown_asr_models", self._teardown_asr_models' in parallel_body, (
+            "IN-19: _teardown_asr_models must be INSIDE the all_parallel_items list"
         )
+
+    def test_sequenced_phase_contains_recorder_and_timers(self) -> None:
+        """The SEQUENCED phase must contain the recorder teardown (the
+        one that joins the transcription thread) and the timers
+        teardown - they run first, before the parallel ASR batch. The
+        region is bounded by the ``sequenced_plan = ShutdownPlan(...)``
+        constructor (see test_asr_teardown_not_in_sequenced_plan for
+        why the literal ``]`` bound would overreach)."""
+        s = _shutdown_src()
+        seq_idx = s.find("sequenced_items: list[tuple[str, object, float, str | None, bool]] = []")
+        assert seq_idx > -1, "IN-19: sequenced_items list not found"
+        seq_ctor = s.find("sequenced_plan = ShutdownPlan(", seq_idx)
+        assert seq_ctor > -1, "IN-19: sequenced_plan constructor not found"
+        sequenced_region = s[seq_idx:seq_ctor]
+        assert '("teardown_recorder",' in sequenced_region, "IN-19: _teardown_recorder must be in the sequenced phase"
+        assert '("teardown_timers_and_recording",' in sequenced_region, (
+            "IN-19: _teardown_timers_and_recording must be in the sequenced phase"
+        )
+
+    def test_parallel_plan_runs_after_sequenced_completes(self) -> None:
+        """The parallel plan's ``_run_plan`` call must appear AFTER the
+        sequenced plan's ``_run_plan`` call - the parallel batch (with
+        ASR teardown) can only start once the sequenced phase (recorder
+        thread join) has returned."""
+        s = _shutdown_src()
+        sequenced_call = s.find("_timed_out = self._run_plan(sequenced_plan, frozenset())")
+        assert sequenced_call > -1, "sequenced plan _run_plan call not found"
+        parallel_call = s.find("self._run_plan(parallel_plan, _timed_out)")
+        assert parallel_call > -1, "parallel plan _run_plan call not found"
+        assert parallel_call > sequenced_call, "IN-19: parallel plan must be run AFTER the sequenced plan returns"
 
 
 # ── IN-20: _toggle_lock released during ensure_active_engine_loaded ────

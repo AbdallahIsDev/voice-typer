@@ -290,6 +290,14 @@ class TestGetVocabularyHandler:
 
         app = MagicMock()
         app.config.config_dir = tmp_path
+        # ``get_vocabulary`` prefers the app's LIVE ``_vocabulary_manager``
+        # (``getattr(self._app, "_vocabulary_manager", None)``). On a
+        # ``MagicMock`` app that attribute auto-creates another MagicMock,
+        # which satisfies the duck-typed ``hasattr(vm, "get_all")`` check
+        # and yields empty data. Pin the cold-start path instead (the
+        # documented test-fixture route) so a REAL ``VocabularyManager``
+        # is constructed from the bundled defaults.
+        app._vocabulary_manager = None
         service = VoiceTyperService(app)
 
         result = service.get_vocabulary()
@@ -305,6 +313,11 @@ class TestGetVocabularyHandler:
 
         app = MagicMock()
         app.config = config_module.Config()
+        # Same as test_service_get_vocabulary_uses_get_all: force the
+        # cold-start path so ``IPCServer``'s real ``VoiceTyperService``
+        # builds a concrete ``VocabularyManager`` (bundled defaults)
+        # instead of feeding its own auto-created MagicMock manager.
+        app._vocabulary_manager = None
         server = IPCServer(app)
 
         result = server._dispatch({"id": 1, "type": "get_vocabulary"})
@@ -469,13 +482,28 @@ class TestTypeIgnoreBugsFixed:
 # introspects Python source via `inspect.getsource`; out of scope for
 # a TS-string vitest rewrite.
 class TestVadStderrRedirect:
-    """vad.py redirects both stdout and stderr."""
+    """vad.py loads the bundled model offline — no torch.hub, no noisy stderr."""
 
     def test_vad_redirects_both_streams(self):
         from voice_typer.server import vad
 
         src = inspect.getsource(vad)
-        assert "redirect_stderr" in src
+        # ERR-LINT-001 history: the ``redirect_stderr`` guard existed to
+        # suppress torch.hub.load's "Using cache found in..." message.
+        # 5816bd75 removed the hub fallback entirely (offline-only
+        # ``silero_vad.jit`` via ``torch.jit.load``), so the redirect is
+        # gone by design. The offline contract is now pinned instead:
+        # the bundled model must be loaded with torch.jit.load and the
+        # network hub path must NOT exist.
+        assert "torch.jit.load" in src, (
+            "vad.py must load the bundled silero_vad.jit via torch.jit.load "
+            "(offline-only, C-DATA-1) — no network fetch at first use"
+        )
+        assert "torch.hub.load" not in src, (
+            "vad.py must NOT call torch.hub.load — the network fallback was "
+            "removed (5816bd75); a future re-add must also restore the "
+            "stdout/stderr redirect guard (ERR-LINT-001)"
+        )
 
 
 # REQUIRES-PYTHON-RUNNER: imports `voice_typer.server.startup_sequence`

@@ -293,6 +293,14 @@ class TestWindowsOpenConfigFile:
             cmd = a[0] if a else kw.get("args")
             if isinstance(cmd, list | tuple) and cmd and "ldconfig" in str(cmd[0]):
                 return MagicMock()
+            # Filter out icacls (config file ACL hardening via
+            # config/__init__.py _restrict_config_file_acl) — it's a
+            # security step that runs during config save, not an editor
+            # invocation. Without this filter the assertion below
+            # (popen_calls == []) fails because icacls leaks into the
+            # recorder even though no Notepad/editor Popen was issued.
+            if isinstance(cmd, list | tuple) and cmd and "icacls" in str(cmd[0]):
+                return MagicMock()
             popen_calls.append((a, kw))
             return MagicMock()
 
@@ -340,6 +348,14 @@ class TestWindowsOpenConfigFile:
             # the SUT should issue here is the SystemRoot-validated Notepad
             # fallback (['C:\\Windows\\System32\\notepad.exe', config_file]).
             if isinstance(args, list | tuple) and args and "ldconfig" in str(args[0]):
+                return _FakeProc(args)
+            # Filter out icacls (config file ACL hardening via
+            # config/__init__.py _restrict_config_file_acl) — it's a
+            # security step that runs during config save, not an editor
+            # invocation. Without this filter the assertion below
+            # (len(popen_calls) == 1) fails because icacls leaks into
+            # the recorder alongside the Notepad fallback.
+            if isinstance(args, list | tuple) and args and "icacls" in str(args[0]):
                 return _FakeProc(args)
             popen_calls.append(args)
             return _FakeProc(args)

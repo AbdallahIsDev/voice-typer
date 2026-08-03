@@ -30,7 +30,7 @@ from __future__ import annotations
 import contextlib
 import inspect
 
-from voice_typer.server.recording import recorder
+from voice_typer.server.recording import _recorder_split, recorder
 
 
 class TestSecureClearArrayCallSite:
@@ -82,26 +82,35 @@ class TestSecureClearArrayCallSite:
     def test_secure_clear_array_background_uses_recording_pkg_prefix(self):
         """Sanity check: the OTHER secure-clear helper
         (``_secure_clear_array_background``, used in stop()/discard() at
-        lines 2575 and 2992) must ALSO use the ``_recording_pkg.`` prefix.
+        the buffer-reassignment sites in ``_recorder_split.py``) must ALSO
+        use the ``_recording_pkg.`` prefix.
 
-        This test pins the existing pattern so future refactors don't
-        accidentally introduce a bare-name call here either.
+        The ``stop()``/``discard()`` bodies were extracted to
+        :mod:`voice_typer.server.recording._recorder_split` (Phase 4.5
+        god-class decomposition), so the
+        ``_secure_clear_array_background`` call sites now live in
+        ``_recorder_split.py`` (not on ``recorder.Recorder`` directly).
+        This test pins the existing pattern there so future refactors
+        don't accidentally introduce a bare-name call.
         """
-        src = inspect.getsource(recorder.Recorder)
+        src = inspect.getsource(_recorder_split)
 
         bare_call_token = " _secure_clear_array_background("
         assert bare_call_token not in src, (
-            "Bare-name `_secure_clear_array_background(...)` call found — "
-            "should be `_recording_pkg._secure_clear_array_background(...)`."
+            "Bare-name `_secure_clear_array_background(...)` call found in "
+            "_recorder_split.py — should be "
+            "`_recording_pkg._secure_clear_array_background(...)`."
         )
         assert "\n_secure_clear_array_background(" not in src, (
             "Bare-name `_secure_clear_array_background(...)` call found at "
-            "start-of-line — should be `_recording_pkg._secure_clear_array_background(...)`."
+            "start-of-line in _recorder_split.py — should be "
+            "`_recording_pkg._secure_clear_array_background(...)`."
         )
 
-        # The correct form must appear (used in both stop() and discard()).
+        # The correct form must appear (used in both stop() and discard()
+        # buffer-reassignment sites inside _recorder_split).
         assert "_recording_pkg._secure_clear_array_background(" in src, (
-            "Expected `_recording_pkg._secure_clear_array_background(...)` call not found in recorder.py."
+            "Expected `_recording_pkg._secure_clear_array_background(...)` call not found in _recorder_split.py."
         )
 
     def test_recording_pkg_alias_is_defined_at_module_top(self):

@@ -20,7 +20,27 @@ from pathlib import Path
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CONFIG_PY = REPO_ROOT / "voice_typer" / "server" / "config.py"
+# ``voice_typer/server/config.py`` was split into a package
+# (``config/__init__.py`` + ``config/{coercion,loader,sanitization}.py``)
+# plus sibling modules (``config_applier.py``, ``config_editor.py``,
+# ``config_path_safety.py``, ``config_sanitizer.py``,
+# ``config_validators.py``) and the ``config_internals/`` package
+# (``__init__.py``, ``migrations.py``, ``paths.py``). The legacy
+# ``_legacy_config_dir`` function could have lived in any of these after
+# the split, so we scan them all rather than asserting on a single
+# (now-nonexistent) file.
+CONFIG_MODULE_PATHS = [
+    *(
+        p
+        for d in (
+            REPO_ROOT / "voice_typer" / "server" / "config",
+            REPO_ROOT / "voice_typer" / "server" / "config_internals",
+        )
+        for p in sorted(d.glob("*.py"))
+        if d.is_dir()
+    ),
+    *sorted((REPO_ROOT / "voice_typer" / "server").glob("config*.py")),
+]
 TEXT_CLEANUP_PY = REPO_ROOT / "voice_typer" / "server" / "text_cleanup.py"
 GDPR_EXPORT_DOC = REPO_ROOT / "docs" / "privacy" / "gdpr-export.md"
 GDPR_DELETE_DOC = REPO_ROOT / "docs" / "privacy" / "gdpr-delete.md"
@@ -30,12 +50,31 @@ class TestNewDead017LegacyConfigDirRemoved:
     """NEW-DEAD-017: ``_legacy_config_dir`` was dead and is now deleted."""
 
     def test_config_py_does_not_define_legacy_config_dir(self):
-        """The function definition must be gone from config.py source."""
-        source = CONFIG_PY.read_text(encoding="utf-8")
-        assert "def _legacy_config_dir" not in source, (
-            "config.py still defines _legacy_config_dir — NEW-DEAD-017 "
+        """The function definition must be gone from all config module sources.
+
+        ``config.py`` was previously a single file; it has since been
+        split into a package + sibling modules. We scan every config
+        module file for the deleted function definition so the test
+        catches a re-introduction regardless of which module it lands
+        in after a future refactor.
+        """
+        assert CONFIG_MODULE_PATHS, (
+            "Expected at least one config module file under "
+            "voice_typer/server/config/ and voice_typer/server/config*.py — "
+            "module layout may have changed again; update CONFIG_MODULE_PATHS."
+        )
+        offenders: list[str] = []
+        for path in CONFIG_MODULE_PATHS:
+            try:
+                source = path.read_text(encoding="utf-8")
+            except OSError:
+                continue
+            if "def _legacy_config_dir" in source:
+                offenders.append(str(path.relative_to(REPO_ROOT)))
+        assert not offenders, (
+            "Config module(s) still define _legacy_config_dir — NEW-DEAD-017 "
             "should have deleted it (no callers in the repo, no entry "
-            "points in pyproject.toml, no setup.py)."
+            f"points in pyproject.toml, no setup.py). Offenders: {offenders}"
         )
 
     def test_legacy_config_dir_not_importable(self):

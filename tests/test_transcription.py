@@ -208,6 +208,8 @@ class TestFallbackChain:
 
 class TestNvidiaDllPaths:
     def test_configure_nvidia_dll_paths_adds_wheel_bins(self, tmp_path, monkeypatch):
+        import site
+
         import voice_typer.server.transcription as mod
 
         cublas_bin = tmp_path / "nvidia" / "cublas" / "bin"
@@ -221,16 +223,20 @@ class TestNvidiaDllPaths:
 
         added = []
         monkeypatch.setattr(sys, "platform", "win32")
-        monkeypatch.setattr(mod.site, "getsitepackages", lambda: [str(tmp_path)])
-        monkeypatch.setattr(mod.site, "getusersitepackages", lambda: str(tmp_path / "user"))
+        # ``site`` / ``sys`` / ``os`` are stdlib singletons — patch them
+        # directly (not via ``mod.site`` etc.) because ``transcription.py``
+        # delegates DLL discovery to ``nvidia_dll_paths.py`` which imports
+        # them in its own namespace.
+        monkeypatch.setattr(site, "getsitepackages", lambda: [str(tmp_path)])
+        monkeypatch.setattr(site, "getusersitepackages", lambda: str(tmp_path / "user"))
         # Override sys.prefix so the _configure_nvidia_dll_paths()
         # sys.prefix fallback doesn't pick up the real venv's NVIDIA dirs.
-        monkeypatch.setattr(mod.sys, "prefix", str(tmp_path / "prefix"))
+        monkeypatch.setattr(sys, "prefix", str(tmp_path / "prefix"))
         # Override expanduser so the app_venv fallback doesn't pick up
         # the real ~/.voice-typer/venv/ nvidia packages.
-        monkeypatch.setattr(mod.os.path, "expanduser", lambda _: str(tmp_path / "home"))
+        monkeypatch.setattr(os.path, "expanduser", lambda _: str(tmp_path / "home"))
         # os.add_dll_directory is Windows-only; add a mock attribute for testing
-        monkeypatch.setattr(mod.os, "add_dll_directory", lambda path: added.append(path), raising=False)
+        monkeypatch.setattr(os, "add_dll_directory", lambda path: added.append(path), raising=False)
         monkeypatch.setenv("PATH", "C:\\Windows")
         mod._nvidia_dll_path_handles.clear()
         mod._nvidia_dll_paths_configured = False
@@ -504,26 +510,70 @@ class TestTranscribeWords:
         from voice_typer.server.transcription import TranscriptionEngine
 
         class TrackingLock:
+            """A lock that tracks depth + entry count.
+
+            Implements ``acquire`` / ``release`` / ``_is_owned`` so it
+            can be wrapped by ``threading.Condition`` (the counter
+            pattern's ``_inference_cond`` wraps ``_lock``).
+            """
+
             def __init__(self):
                 self.depth = 0
                 self.entries = 0
+                self._owner = None
 
             def __enter__(self):
-                self.depth += 1
-                self.entries += 1
+                self.acquire()
+                return self
 
             def __exit__(self, exc_type, exc, tb):
+                self.release()
+
+            def acquire(self, *args, **kwargs):
+                import threading as _t
+
+                self.depth += 1
+                self.entries += 1
+                self._owner = _t.get_ident()
+                return True
+
+            def release(self):
                 self.depth -= 1
+                if self.depth == 0:
+                    self._owner = None
+
+            def _is_owned(self):
+                import threading as _t
+
+                return self.depth > 0 and self._owner == _t.get_ident()
 
         engine = TranscriptionEngine(model_size="small.en", device="cpu")
         lock = TrackingLock()
         # pyrefly: ignore [bad-assignment]
         engine._lock = lock
+        # ``_inference_cond`` wraps ``_lock``; rebuild it so the
+        # TrackingLock is actually used by ``Condition.wait()`` /
+        # ``notify_all()``.
+        import threading as _threading
+
+        engine._inference_cond = _threading.Condition(lock)
+        engine._active_inference = 0
 
         mock_model = MagicMock()
 
         def transcribe(*args, **kwargs):
-            assert lock.depth == 1
+            # Counter pattern (IN-4): the lock is RELEASED during the
+            # multi-second GPU inference so ``is_loaded`` / ``unload``
+            # aren't blocked; ``_active_inference`` is incremented
+            # before release and decremented in the ``finally`` block.
+            assert lock.depth == 0, (
+                "IN-4: transcribe_with_fallback must release _lock during "
+                f"model.transcribe() (counter pattern). Got lock.depth={lock.depth}."
+            )
+            assert engine._active_inference == 1, (
+                "IN-4: _active_inference must be 1 during model.transcribe() "
+                f"(incremented under _lock before release). Got {engine._active_inference}."
+            )
             return ([MagicMock(text="locked")], MagicMock())
 
         mock_model.transcribe.side_effect = transcribe
@@ -647,6 +697,8 @@ class TestCudaDll001TorchLib:
 
     def test_torch_lib_path_is_searched(self, tmp_path, monkeypatch):
         """If only torch/lib contains the DLLs, configure must find them."""
+        import site
+
         import voice_typer.server.transcription as mod
 
         # Create torch/lib with the DLLs — but NO nvidia/*/bin dirs.
@@ -658,11 +710,15 @@ class TestCudaDll001TorchLib:
 
         added = []
         monkeypatch.setattr(sys, "platform", "win32")
-        monkeypatch.setattr(mod.site, "getsitepackages", lambda: [str(tmp_path)])
-        monkeypatch.setattr(mod.site, "getusersitepackages", lambda: str(tmp_path / "user"))
-        monkeypatch.setattr(mod.sys, "prefix", str(tmp_path / "prefix"))
-        monkeypatch.setattr(mod.os.path, "expanduser", lambda _: str(tmp_path / "home"))
-        monkeypatch.setattr(mod.os, "add_dll_directory", lambda path: added.append(path), raising=False)
+        # ``site`` / ``sys`` / ``os`` are stdlib singletons — patch them
+        # directly (not via ``mod.site`` etc.) because ``transcription.py``
+        # delegates DLL discovery to ``nvidia_dll_paths.py`` which imports
+        # them in its own namespace.
+        monkeypatch.setattr(site, "getsitepackages", lambda: [str(tmp_path)])
+        monkeypatch.setattr(site, "getusersitepackages", lambda: str(tmp_path / "user"))
+        monkeypatch.setattr(sys, "prefix", str(tmp_path / "prefix"))
+        monkeypatch.setattr(os.path, "expanduser", lambda _: str(tmp_path / "home"))
+        monkeypatch.setattr(os, "add_dll_directory", lambda path: added.append(path), raising=False)
         monkeypatch.setenv("PATH", "C:\\Windows")
         mod._nvidia_dll_path_handles.clear()
         mod._nvidia_dll_paths_configured = False

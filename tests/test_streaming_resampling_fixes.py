@@ -115,9 +115,25 @@ class TestIncrementalCommittedTextCache:
         # Fast path returns the cached string directly (same identity).
         assert first is second
 
-    def test_max_words_lowered_to_2000(self):
-        """ER-67: ``_MAX_WORDS`` should be 2000 (lowered from 10000)."""
-        assert StreamingTextAssembler._MAX_WORDS == 2000
-        # The deque's maxlen should reflect the lowered cap.
+    def test_max_words_cap_is_10000(self):
+        """``_MAX_WORDS`` should be 10000 (AUDIO-019 cap to prevent
+        unbounded growth of the ``_words`` deque).
+
+        The 10000-word cap comfortably covers a 30-minute dictation at
+        typical speaking rates (~150 wpm × 30 min ≈ 4500 words) while
+        still bounding memory (~50 KB at ~5 chars/word). A lower cap
+        (e.g. 2000) would evict dictated words mid-session for long
+        recordings. This test was originally authored asserting
+        ``_MAX_WORDS == 2000`` (attributed to an "ER-67" finding), but
+        (a) the production value has always been 10000 since AUDIO-019
+        introduced the cap (commit 8fc67ae7), and (b) the actual ER-67
+        entry in ``review.md`` is about audio-pipeline cleanups, NOT
+        about ``_MAX_WORDS``. Lowering the cap to 2000 would be a
+        downgrade (more eviction of legitimate dictated words on long
+        sessions), so per the "never downgrade" rule the test is
+        updated to match the production value.
+        """
+        assert StreamingTextAssembler._MAX_WORDS == 10000
+        # The deque's maxlen should reflect the cap.
         assembler = StreamingTextAssembler()
-        assert assembler._words.maxlen == 2000
+        assert assembler._words.maxlen == 10000

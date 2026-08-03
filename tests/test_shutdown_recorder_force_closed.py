@@ -203,16 +203,20 @@ class TestForceClosedPublishedEarly:
         # recorder.shutdown_mic_watcher' warning is emitted. This
         # warning fires inside the mic-watcher-skip branch, which is
         # the step immediately AFTER the recorder.stop() timeout
-        # branch.
+        # branch. After the teardowns/ extraction, the warning is
+        # emitted from the ``shutdown.teardowns.recorder`` module's
+        # own logger, not ``shutdown_controller``'s logger.
+        from voice_typer.server.shutdown.teardowns import recorder as _teardown_recorder_mod
+
         flag_at_warning: list = []
-        original_warning = _sc.log.warning
+        original_warning = _teardown_recorder_mod.log.warning
 
         def _capture_warning(msg, *args, **kwargs):
             if isinstance(msg, str) and "skipping recorder.shutdown_mic_watcher" in msg:
                 flag_at_warning.append(controller._recorder_force_closed)
             return original_warning(msg, *args, **kwargs)
 
-        monkeypatch.setattr(_sc.log, "warning", _capture_warning)
+        monkeypatch.setattr(_teardown_recorder_mod.log, "warning", _capture_warning)
 
         controller._teardown_recorder()
         blocked.set()

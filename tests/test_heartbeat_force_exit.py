@@ -241,7 +241,7 @@ def test_force_exit_calls_os_exit_with_code_1_after_grace_period(
             return_value=100.0 + _HEARTBEAT_TIMEOUT_SECONDS + 5.0,
         ),
         patch(
-            "voice_typer.server.ipc_server._HEARTBEAT_FORCE_EXIT_GRACE_SECONDS",
+            "voice_typer.server.ipc.lifecycle._HEARTBEAT_FORCE_EXIT_GRACE_SECONDS",
             fake_grace,
         ),
         patch.object(ipc_mod.os, "_exit", lambda code: exit_calls.append(code)),
@@ -299,7 +299,7 @@ def test_force_exit_thread_does_not_fire_if_quit_exits_process_first(
             return_value=100.0 + _HEARTBEAT_TIMEOUT_SECONDS + 5.0,
         ),
         patch(
-            "voice_typer.server.ipc_server._HEARTBEAT_FORCE_EXIT_GRACE_SECONDS",
+            "voice_typer.server.ipc.lifecycle._HEARTBEAT_FORCE_EXIT_GRACE_SECONDS",
             0.05,
         ),
         patch.object(ipc_mod.os, "_exit", lambda code: exit_calls.append(code)),
@@ -335,7 +335,7 @@ def test_force_exit_thread_logs_error_before_exiting(server: IPCServer) -> None:
             return_value=100.0 + _HEARTBEAT_TIMEOUT_SECONDS + 5.0,
         ),
         patch(
-            "voice_typer.server.ipc_server._HEARTBEAT_FORCE_EXIT_GRACE_SECONDS",
+            "voice_typer.server.ipc.lifecycle._HEARTBEAT_FORCE_EXIT_GRACE_SECONDS",
             0.05,
         ),
         patch.object(ipc_mod.os, "_exit", lambda code: None),

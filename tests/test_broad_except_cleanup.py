@@ -27,7 +27,10 @@ _OWNED_FILES = [
     "voice_typer/server/streaming.py",
     "voice_typer/server/task_scheduler.py",
     "voice_typer/server/crash_recovery.py",
-    "voice_typer/server/clipboard_target_safety.py",
+    "voice_typer/server/clipboard_target_safety/__init__.py",
+    "voice_typer/server/clipboard_target_safety/targets.py",
+    "voice_typer/server/clipboard_target_safety/injection.py",
+    "voice_typer/server/clipboard_target_safety/validation.py",
     "voice_typer/server/dictation_pipeline.py",
     "voice_typer/server/service.py",
 ]
@@ -39,7 +42,10 @@ def _find_broad_except_pass(filepath: str) -> list[tuple[int, str]]:
     p = pathlib.Path(filepath)
     if not p.exists():
         return []
-    src = p.read_text()
+    # UTF-8 explicitly: several owned files contain non-ASCII identifiers
+    # (e.g. § comments, non-breaking spaces) that crash getpreferredencoding()
+    # cp1252 on Windows. C-TEST-5-gen.
+    src = p.read_text(encoding="utf-8")
     try:
         tree = ast.parse(src)
     except SyntaxError:

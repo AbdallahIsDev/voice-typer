@@ -118,18 +118,72 @@ class TestCleanTranscribedTextUsesPrecompiledRegex:
     def test_pipeline_clean_text_step_runs_once_per_dictation(self):
         """PERF-004: the pipeline's ``_clean_text`` step must be called
         exactly once per ``run()`` invocation (not once per streaming
-        chunk).  We verify this by inspecting ``DictationPipeline.run``
-        source — ``_clean_text`` must appear exactly once in the body.
-        """
-        from voice_typer.server.dictation_pipeline import DictationPipeline
+        chunk).
 
-        run_src = inspect.getsource(DictationPipeline.run)
-        # Count occurrences of "self._clean_text(" (the call site).
-        call_count = run_src.count("self._clean_text(")
-        assert call_count == 1, (
-            f"DictationPipeline.run() must call self._clean_text() exactly "
-            f"once per dictation; found {call_count} call sites. "
-            "PERF-004 requires cleanup to run once per dictation, not per chunk."
+        Behavioral test (replaces an earlier ``inspect.getsource`` test
+        that pinned the call-site count in ``DictationPipeline.run``'s
+        source). The pipeline was refactored to a stage-based dispatch
+        (``DictationPipeline.run`` iterates ``self._stages`` and calls
+        ``stage.run(text, ctx)`` for each; ``CleanupStage.run`` delegates
+        to ``ctx.pipeline._clean_text(text)``). The source-level count
+        no longer reflects the runtime contract — the cleanup call now
+        lives in ``CleanupStage``, not in ``run``'s body — so a
+        source-string assertion would flag a false positive on the
+        legitimate stage refactor.
+
+        We verify the invariant behaviorally two ways:
+        (a) the default stages list contains exactly one stage named
+            ``clean`` and that stage is a ``CleanupStage`` whose
+            ``run`` dispatches to ``ctx.pipeline._clean_text``;
+        (b) invoking that stage's ``run`` calls ``_clean_text`` exactly
+            once on the supplied pipeline.
+        """
+        from voice_typer.server.dictation_stages import (
+            CleanupStage,
+            PipelineContext,
+            build_default_stages,
+        )
+
+        # (a) Structural check: default stages list contains exactly
+        # one 'clean' stage, and it's the CleanupStage.
+        stages = build_default_stages()
+        clean_stages = [s for s in stages if s.name == "clean"]
+        assert len(clean_stages) == 1, (
+            f"Default stages list must contain exactly one 'clean' stage "
+            f"(PERF-004: cleanup runs once per dictation); found {len(clean_stages)}. "
+            f"Stages: {[s.name for s in stages]}"
+        )
+        assert isinstance(clean_stages[0], CleanupStage), (
+            f"The 'clean' stage must be a CleanupStage instance; got {type(clean_stages[0]).__name__}."
+        )
+
+        # (b) Behavioral check: invoking the clean stage calls
+        # ``ctx.pipeline._clean_text`` exactly once.
+        call_log: list[str] = []
+
+        class _FakePipeline:
+            def _clean_text(self, text: str) -> str:
+                call_log.append(text)
+                return text
+
+        # ``CleanupStage.run`` only reads ``ctx.pipeline`` from the
+        # context (delegating to ``ctx.pipeline._clean_text(text)``),
+        # so a partial PipelineContext is sufficient.
+        ctx = PipelineContext(
+            cycle_id="perf-004-cycle",
+            audio=None,
+            app=None,
+            pipeline=_FakePipeline(),
+        )
+        clean_stages[0].run("hello world", ctx)
+
+        assert len(call_log) == 1, (
+            f"CleanupStage.run() must call pipeline._clean_text() exactly "
+            f"once per invocation (PERF-004: cleanup runs once per dictation, "
+            f"not per chunk); got {len(call_log)} call(s)."
+        )
+        assert call_log[0] == "hello world", (
+            f"CleanupStage must pass the text through to _clean_text unchanged; got {call_log[0]!r}."
         )
 
 
@@ -419,7 +473,16 @@ class TestAllLocalEnginesAcceptAudioStats:
         eng = QwenEngine.__new__(QwenEngine)
         import threading
 
-        eng._lock = threading.Lock()
+        # Match QwenEngine.__init__'s concurrency primitives so
+        # ``transcribe()`` (which increments ``_active_inference`` and
+        # notifies ``_inference_cond`` in its ``finally`` block) doesn't
+        # raise ``AttributeError``. Production uses ``RLock``; the
+        # ``Condition`` must wrap the same lock instance so
+        # ``_inference_cond.notify_all()`` releases waiters on the
+        # same underlying lock the ``with self._lock:`` block acquires.
+        eng._lock = threading.RLock()
+        eng._active_inference = 0
+        eng._inference_cond = threading.Condition(eng._lock)
         eng._inference_event = threading.Event()
         eng._model = MagicMock()
         mock_transcription = MagicMock()

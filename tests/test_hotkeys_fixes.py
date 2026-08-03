@@ -689,3 +689,70 @@ class TestModifierOnlyLLHook:
         assert "simple_key = self._on_release_callback is None" in source, (
             "IN-26: simple_key must be ``self._on_release_callback is None`` (without the modifier-only guard)."
         )
+
+
+# --------------------------------------------------------------------------- #
+# AB-52: factory.py docstring cadence claim
+# --------------------------------------------------------------------------- #
+
+
+class TestFactoryDocstringCadence:
+    """AB-52: ``hotkeys/factory.py``'s ``create_hotkey_backend`` docstring
+    used to claim ``GetAsyncKeyState`` polling runs at "1 kHz" — but the
+    actual polling loop in ``WindowsNativeHotkey._run_polling_loop`` calls
+    ``kernel32.Sleep(8)`` with ``timeBeginPeriod(8)``, which yields an
+    ~8 ms cadence ≈ 125 Hz (NOT 1 kHz — the docstring was 8× off).
+
+    The mismatch was purely a stale docstring (the runtime code has been
+    correct at 125 Hz since PERF-01/CPU-01). AB-52 in review.md marked
+    the finding "Won't Fix" because the runtime is correct, but the
+    docstring still misleads reviewers/operators who read "1 kHz" and
+    assume sub-millisecond polling latency.
+
+    This test pins the corrected wording so a future contributor cannot
+    silently regress the docstring back to "1 kHz".
+    """
+
+    def test_factory_docstring_does_not_claim_1khz(self):
+        """The ``create_hotkey_backend`` docstring must NOT claim the
+        Windows polling fallback runs at "1 kHz" — that was the stale
+        claim AB-52 flagged. Any form of "1kHz" / "1 kHz" / "1000Hz" /
+        "1000 Hz" is a regression.
+        """
+        from voice_typer.server.hotkeys.factory import create_hotkey_backend
+
+        doc = create_hotkey_backend.__doc__ or ""
+        # Strip whitespace and lowercase so "1 kHz", "1kHz", "1KHz" all
+        # collapse to "1khz" for a single substring check.
+        flat = doc.replace(" ", "").lower()
+        assert "1khz" not in flat, (
+            "AB-52 regression: factory.py create_hotkey_backend docstring "
+            "must not claim '1 kHz' polling — the actual cadence is ~125 Hz "
+            "(8 ms Sleep with timeBeginPeriod(8)). Found '1khz' substring in "
+            "docstring."
+        )
+        assert "1000hz" not in flat, (
+            "AB-52 regression: factory.py create_hotkey_backend docstring "
+            "must not claim '1000 Hz' polling — the actual cadence is ~125 Hz. "
+            "Found '1000hz' substring in docstring."
+        )
+
+    def test_factory_docstring_documents_125hz_cadence(self):
+        """The ``create_hotkey_backend`` docstring MUST document the
+        actual ~125 Hz / 8 ms polling cadence so reviewers see the
+        real number (and the rationale for not polling faster). Any
+        of these forms satisfies the pin: ``125 Hz``, ``125Hz``,
+        ``8 ms``, ``8ms``, or ``Sleep(8)``.
+        """
+        from voice_typer.server.hotkeys.factory import create_hotkey_backend
+
+        doc = create_hotkey_backend.__doc__ or ""
+        flat = doc.replace(" ", "").lower()
+        has_cadence_claim = "125hz" in flat or "8ms" in flat or "sleep(8)" in flat or "timebeginperiod(8)" in flat
+        assert has_cadence_claim, (
+            "AB-52: factory.py create_hotkey_backend docstring must document "
+            "the actual ~125 Hz / 8 ms polling cadence (any of: '125 Hz', "
+            "'8 ms', 'Sleep(8)', or 'timeBeginPeriod(8)'). Found docstring "
+            "without any of these markers — the stale '1 kHz' claim may have "
+            "been only partially updated."
+        )

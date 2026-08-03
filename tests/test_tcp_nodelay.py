@@ -17,9 +17,11 @@ Tests:
   - Source-code presence: ``transport_tcp.py`` and ``transport.py``
     MUST call ``conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)``
     on accepted sockets.
-  - Behavioral: a real ``socket.socketpair`` accepted by
-    ``_handle_tcp_connection`` has ``TCP_NODELAY`` enabled on the
-    server-side socket (verified via ``getsockopt``).
+  - Behavioral: a real connected TCP socket pair (created via bind+
+    listen+connect on 127.0.0.1, since ``socket.socketpair(AF_INET)``
+    is not supported on Linux) accepted by ``_handle_tcp_connection``
+    has ``TCP_NODELAY`` enabled on the server-side socket (verified
+    via ``getsockopt``).
   - ``_TCPLineIO.__init__`` sets ``TCP_NODELAY`` on the wrapped socket
     (defense-in-depth for the WS-bridge path and direct constructions).
 """
@@ -83,21 +85,51 @@ class TestTcpNoDelaySourcePresence:
 # ── Behavioral tests with real sockets ─────────────────────────────────
 
 
+def _make_tcp_socketpair() -> tuple[socket.socket, socket.socket]:
+    """Create a real connected TCP socket pair (server-side, client-side).
+
+    ``socket.socketpair(AF_INET, ...)`` is NOT supported on Linux: the
+    underlying ``socketpair(2)`` syscall only accepts ``AF_UNIX``. On
+    platforms where it appears to work (Windows fallback), the result is
+    still two loopback TCP sockets, so a real bind+listen+connect on
+    ``127.0.0.1`` produces the equivalent pair — and it works in
+    sandboxes where ``socketpair(AF_INET)`` returns
+    ``errno 95 (EOPNOTSUPP)``.
+
+    Returns ``(server_side, client_side)`` — ``server_side`` is the
+    accepted socket (the one a TCP server would hand to
+    ``_handle_tcp_connection``), ``client_side`` is the connecting
+    socket.
+    """
+    listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    listener.bind(("127.0.0.1", 0))
+    listener.listen(1)
+    addr = listener.getsockname()
+    client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client.connect(addr)
+    server, _ = listener.accept()
+    listener.close()
+    return server, client
+
+
 class TestTcpNoDelayBehavioral:
     """DJ-80: real sockets get TCP_NODELAY enabled."""
 
     def test_tcp_lineio_init_sets_nodelay_on_real_socket(self) -> None:
         """Constructing a ``_TCPLineIO`` from a real TCP socket enables
         ``TCP_NODELAY`` on that socket."""
-        # Create a real connected TCP socket pair (socketpair on Linux
-        # supports TCP socket options).
-        a, b = socket.socketpair(socket.AF_INET, socket.SOCK_STREAM)
+        # AF_INET socketpair is not portable (Linux's socketpair(2)
+        # only accepts AF_UNIX). Use a real bound TCP listener to get
+        # a connected TCP socket pair that supports IPPROTO_TCP /
+        # TCP_NODELAY options.
+        a, _b = _make_tcp_socketpair()
 
         try:
-            # Disable TCP_NODELAY on both ends first to ensure the default
-            # is OFF (some platforms default to ON for loopback).
+            # Disable TCP_NODELAY on the wrapped socket first to ensure
+            # the default is OFF (some platforms default to ON for
+            # loopback).
             a.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 0)
-            b.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 0)
             assert a.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) == 0
 
             # Construct a _TCPLineIO from socket ``a`` — the constructor
@@ -112,13 +144,13 @@ class TestTcpNoDelayBehavioral:
                 io.close()
         finally:
             a.close()
-            b.close()
+            _b.close()
 
     def test_transport_tcp_handle_connection_sets_nodelay(self) -> None:
         """``_handle_tcp_connection`` sets TCP_NODELAY on the accepted socket
-        before the auth handshake. Uses a real ``socket.socketpair`` and a
+        before the auth handshake. Uses a real bound TCP socket pair and a
         minimal mock server to exercise the early setsockopt path."""
-        a, b = socket.socketpair(socket.AF_INET, socket.SOCK_STREAM)
+        a, b = _make_tcp_socketpair()
         try:
             # Disable TCP_NODELAY to verify the handler re-enables it.
             b.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 0)
