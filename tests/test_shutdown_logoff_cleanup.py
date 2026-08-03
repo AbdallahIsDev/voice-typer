@@ -22,6 +22,7 @@ XZ-R17-11: null hotkey backend refs after parallel stop.
 
 from __future__ import annotations
 
+import os
 import threading
 from unittest.mock import MagicMock
 
@@ -149,11 +150,19 @@ class TestFastCleanup:  # noqa: N801
 
     def test_do_fast_cleanup_releases_mutex_handle(self, _stub_os_exit):
         """_do_fast_cleanup releases the mutex handle (POSIX path)."""
+        # POSIX-only: on Windows ``_do_fast_cleanup`` takes the
+        # ``ctypes.windll.kernel32.CloseHandle`` branch (the OS closes
+        # the handle; there is no ``release()``). ``is_windows()`` is
+        # the real module-level import in ``shutdown_controller.py``,
+        # so passing a MagicMock into the real ctypes function triggers
+        # unittest.mock's child-mock recursion (native stack overflow
+        # on Windows). Skip on non-POSIX rather than exercising the
+        # Windows branch with a mock.
+        if os.name != "posix":
+            pytest.skip("XZ-R17-06 POSIX-only test (Windows uses CloseHandle, not flock release)")
         controller, app = _make_controller_with_app()
         mutex = MagicMock()
         app._mutex_handle = mutex
-        # is_windows() is looked up dynamically from the app module;
-        # MagicMock returns falsy for is_windows() by default.
         controller._do_fast_cleanup()
         mutex.release.assert_called_once()
         assert app._mutex_handle is None

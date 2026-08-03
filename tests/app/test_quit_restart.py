@@ -474,9 +474,10 @@ class TestSingleInstanceEnforcement:
     """TEST-037: verify VoiceTyperApp is only instantiated once per
     process. The audit claimed ``VoiceTyperApp()`` was called twice in
     startup code; investigation shows it's called exactly once (in
-    ``ipc_server.main()``). This test enforces that invariant so a
-    future refactor doesn't accidentally introduce a double-instantiation
-    bug.
+    ``ipc/entrypoint.main()`` — ``main()`` was extracted from the
+    top-level ``ipc_server.py`` into the ``ipc`` package). This test
+    enforces that invariant so a future refactor doesn't accidentally
+    introduce a double-instantiation bug.
 
     The process-level single-instance guarantee is enforced by
     ``_ensure_single_instance`` (Windows mutex), not by a Python
@@ -492,33 +493,36 @@ class TestSingleInstanceEnforcement:
 
         pkg_dir = Path(server_pkg.__file__).parent
         call_sites = []
-        for py_file in pkg_dir.glob("*.py"):
+        # rglob (not glob): the call site lives in the ``ipc`` subpackage
+        # (``ipc/entrypoint.py``) since ``main()`` was extracted out of
+        # the top-level ``ipc_server.py``.
+        for py_file in pkg_dir.rglob("*.py"):
             try:
                 tree = ast.parse(py_file.read_text(encoding="utf-8"))
             except SyntaxError:
                 continue
             for node in ast.walk(tree):
                 if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "VoiceTyperApp":
-                    call_sites.append(f"{py_file.name}:{node.lineno}")
+                    call_sites.append(f"{py_file.relative_to(pkg_dir).as_posix()}:{node.lineno}")
         assert len(call_sites) == 1, (
             f"VoiceTyperApp() should be called from exactly one location "
-            f"(ipc_server.main); found {len(call_sites)} call sites: {call_sites}"
+            f"(ipc/entrypoint.main); found {len(call_sites)} call sites: {call_sites}"
         )
-        assert "ipc_server.py" in call_sites[0], (
-            f"VoiceTyperApp() should only be called from ipc_server.py; found call at {call_sites[0]}"
+        assert "ipc/entrypoint.py" in call_sites[0], (
+            f"VoiceTyperApp() should only be called from ipc/entrypoint.py; found call at {call_sites[0]}"
         )
 
     def test_ensure_single_instance_is_called_from_main(self):
-        """ipc_server.main() must call _ensure_single_instance before
+        """ipc/entrypoint.main() must call _ensure_single_instance before
         creating VoiceTyperApp, so a duplicate process exits before
         loading any heavy modules."""
-        import voice_typer.server.ipc_server as ipc
+        import voice_typer.server.ipc.entrypoint as entrypoint
 
-        source = Path(ipc.__file__).read_text(encoding="utf-8")
+        source = Path(entrypoint.__file__).read_text(encoding="utf-8")
         assert "_ensure_single_instance" in source, (
-            "ipc_server.py must call _ensure_single_instance to enforce the single-process invariant"
+            "ipc/entrypoint.py must call _ensure_single_instance to enforce the single-process invariant"
         )
-        assert "VoiceTyperApp()" in source, "ipc_server.py must instantiate VoiceTyperApp exactly once"
+        assert "VoiceTyperApp()" in source, "ipc/entrypoint.py must instantiate VoiceTyperApp exactly once"
         # _ensure_single_instance must appear BEFORE VoiceTyperApp()
         # in the source so the mutex is acquired before any heavy init.
         si_idx = source.index("_ensure_single_instance")

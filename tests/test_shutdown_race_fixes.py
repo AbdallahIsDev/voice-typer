@@ -217,8 +217,11 @@ class TestTranscriptionThreadJoinBeforeDbClose:
         With the sequenced-phase fix, ``_teardown_recorder`` runs
         FIRST (joins the thread — waits for the 100ms inference +
         write), THEN ``_teardown_history_db`` runs (calls close()).
-        The "write complete" timestamp must be < "close called"
-        timestamp.
+        The "write complete" timestamp must be <= "close called"
+        timestamp (the join returning within the same
+        ``time.monotonic()`` tick as the thread's write makes the two
+        values equal on coarse-resolution clocks — equality still
+        proves the write did not complete after close()).
 
         Pre-fix (parallel batch), both helpers started simultaneously.
         ``_teardown_history_db`` would call ``close()`` within ~1ms of
@@ -287,10 +290,16 @@ class TestTranscriptionThreadJoinBeforeDbClose:
         assert "close_called" in timestamps, (
             "F1 (OI-4): history_db.close() must have been called by _do_cleanup (it's in the sequenced phase)"
         )
-        # The KEY assertion: "write_complete" < "close_called". The
-        # thread's write completed BEFORE close() was called — the race
-        # is closed.
-        assert timestamps["write_complete"] < timestamps["close_called"], (
+        # The KEY assertion: "write_complete" <= "close_called". The
+        # thread's write completed no later than close() was called —
+        # the race is closed. ``<=`` (not ``<``): the two events can
+        # land on the SAME ``time.monotonic()`` tick on
+        # coarse-resolution clocks (Windows GetTickCount64) when the
+        # join returns within microseconds of the thread's write —
+        # equality still proves the write did NOT complete AFTER
+        # close(). The pre-fix parallel batch races by ~99ms (many
+        # ticks apart), so it still fails.
+        assert timestamps["write_complete"] <= timestamps["close_called"], (
             f"F1 (OI-4): transcription thread write_complete (at "
             f"{timestamps['write_complete']:.4f}) must be BEFORE "
             f"history_db.close() (at {timestamps['close_called']:.4f}) "
@@ -366,10 +375,16 @@ class TestTranscriptionThreadJoinBeforeDbClose:
         assert "unload_called" in timestamps, (
             "F1 (OI-4): registry.unload() must have been called by _teardown_asr_models (it's in the parallel batch)"
         )
-        # The KEY assertion: "write_complete" < "unload_called". The
-        # thread's write completed BEFORE the ASR model was unloaded —
-        # no race between the thread's inference and the unload.
-        assert timestamps["write_complete"] < timestamps["unload_called"], (
+        # The KEY assertion: "write_complete" <= "unload_called". The
+        # thread's write completed no later than the ASR model was
+        # unloaded — no race between the thread's inference and the
+        # unload. ``<=`` (not ``<``): both events can land on the SAME
+        # ``time.monotonic()`` tick on coarse-resolution clocks when
+        # the unload fires right after the sequenced phase joins the
+        # thread — equality still proves the write did NOT complete
+        # AFTER the unload (pre-fix, unload() fired while the thread
+        # was still mid-inference, many ticks earlier).
+        assert timestamps["write_complete"] <= timestamps["unload_called"], (
             f"F1 (OI-4): transcription thread write_complete (at "
             f"{timestamps['write_complete']:.4f}) must be BEFORE "
             f"registry.unload() (at {timestamps['unload_called']:.4f}) "

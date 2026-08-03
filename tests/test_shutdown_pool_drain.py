@@ -250,10 +250,17 @@ def _stub_shutdown_environment(tmp_path, monkeypatch):
     """
     monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
-    monkeypatch.setattr("voice_typer.server.app._clear_backend_pid_file", lambda: None)
-    monkeypatch.setattr("voice_typer.server.app._close_devnull_files", lambda: None)
-    monkeypatch.setattr("voice_typer.server.app._register_devnull_file", lambda f: None)
-    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
+    # Some of these helpers (``_close_devnull_files`` /
+    # ``_register_devnull_file`` / ``is_windows``) no longer exist on
+    # ``app.py`` — the devnull-stream helpers now live behind the
+    # ``shutdown.teardowns`` module, which looks them up dynamically and
+    # swallows absence. ``raising=False`` mirrors
+    # ``tests/test_shutdown_posix_release.py`` so the stubs don't error
+    # when a helper is missing from the app module.
+    monkeypatch.setattr("voice_typer.server.app._clear_backend_pid_file", lambda: None, raising=False)
+    monkeypatch.setattr("voice_typer.server.app._close_devnull_files", lambda: None, raising=False)
+    monkeypatch.setattr("voice_typer.server.app._register_devnull_file", lambda f: None, raising=False)
+    monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False, raising=False)
 
 
 class TestDoCleanupDrainsWsPoolViaProductionPath:

@@ -129,6 +129,23 @@ def fake_app(monkeypatch):
     # event_bus.shutdown is imported dynamically inside the helper.
     fake_event_bus = MagicMock()
     monkeypatch.setitem(sys.modules, "voice_typer.server.event_bus", fake_event_bus)
+    # ``from voice_typer.server import event_bus`` (inside the teardown
+    # helper) binds the PACKAGE attribute, not the ``sys.modules`` entry
+    # (importlib._handle_fromlist only imports the submodule when the
+    # parent package lacks the attribute). If an earlier test in the
+    # suite already imported the real module (e.g. the conftest autouse
+    # ``mock_heavy_imports`` fixture imports ``voice_typer.server.app``,
+    # whose import chain pulls in ``event_bus``), the package caches the
+    # REAL module as ``voice_typer.server.event_bus`` and the
+    # ``sys.modules`` injection above is silently ignored — the teardown
+    # would call the real ``shutdown()`` and this module's ordering
+    # assertions would never observe the fake. Patch the package
+    # attribute too (``raising=False``: the attribute may not exist yet
+    # when this test runs first) so the fake is bound deterministically;
+    # monkeypatch restores the original after each test.
+    import voice_typer.server as _server_pkg
+
+    monkeypatch.setattr(_server_pkg, "event_bus", fake_event_bus, raising=False)
 
     # level_monitor.stop_monitoring is imported dynamically inside the helper.
     fake_level_monitor = MagicMock()
