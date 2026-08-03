@@ -186,7 +186,7 @@ impl SidecarHandle {
     /// implementation (platform shell-out + recursive `pgrep -P` /
     /// `taskkill /T` walk) lives in `crate::platform::process`
     /// alongside the related `register_kill_on_parent_exit` helper.
-    pub(crate) async fn kill_tree(mut self) -> std::io::Result<()> {
+    pub(crate) async fn kill_tree(self) -> std::io::Result<()> {
         if let Some(pid) = self.pid() {
             //spawn_blocking so the blocking
             // `std::process::Command::status()` calls inside

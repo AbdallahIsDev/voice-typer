@@ -199,7 +199,7 @@ mod tests {
                 }
             };
             let reaper = std::thread::spawn(move || child.wait());
-            reaper.join().expect("reaper thread panicked");
+            let _ = reaper.join().expect("reaper thread panicked");
         }
         #[cfg(target_os = "windows")]
         {
@@ -214,7 +214,7 @@ mod tests {
                 }
             };
             let reaper = std::thread::spawn(move || child.wait());
-            reaper.join().expect("reaper thread panicked");
+            let _ = reaper.join().expect("reaper thread panicked");
         }
     }
 }

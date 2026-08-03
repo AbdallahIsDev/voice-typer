@@ -1039,7 +1039,7 @@ async fn wait_for_auth_ok(
         Err(_panic_payload) => {
             log::error!(
                 "[WS-AUTH] auth-read path panicked — running cleanup and \
-                 triggering supervisor respawn (XZ-R4-012)"
+                 triggering supervisor respawn"
             );
             cleanup_and_trigger_respawn(app, state).await;
             Err("WS auth path panicked (cleanup triggered)".to_string())

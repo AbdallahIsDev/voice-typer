@@ -1,4 +1,4 @@
-# Encryption-at-Rest Threat Model — Dictated Text (XZ-R11-04)
+# Encryption-at-Rest Threat Model — Dictated Text
 
 ## Status
 
@@ -6,7 +6,7 @@
 encryption / SQLCipher is **out of scope** for this finding and tracked
 as future work (see "Roadmap" below).
 
-This document satisfies the minimum-viable fix called out in XZ-R11-04:
+This document satisfies the minimum-viable fix:
 *"At minimum document threat model in `docs/privacy/`."*
 
 ## Scope
@@ -37,7 +37,7 @@ of plaintext-at-rest:
    - `history.db`, `history.db-wal`, `history.db-shm` → `0o600` (owner
      read/write only).
    - `<config_dir>/` → `0o700`.
-   - Re-chmod'd after lazy WAL/SHM creation in `check_wal_mode` (XZ-R11-08).
+   - Re-chmod'd after lazy WAL/SHM creation in `check_wal_mode`.
    - **POSIX-only.** On Windows, `chmod 0o600` is a no-op for non-admin
      processes; the file inherits the directory's default ACL (typically
      `Users: Full Control` for the current user, `Administrators: Full
@@ -51,15 +51,14 @@ of plaintext-at-rest:
    after a clean shutdown.
 4. **GDPR Art. 17 delete** (`service.delete_all_personal_data`): unlinks
    `history.db`, `history.db-wal`, `history.db-shm`, AND the corrupt-DB
-   snapshots `history.db.corrupt-*` (XZ-R11-02 / XZ-SEC-03, fixed by
-   SA-03 in commit `a41e8cd`). Also recursively removes
+   snapshots `history.db.corrupt-*` (fixed by commit `a41e8cd`). Also recursively removes
    `crash_diagnostics_archive/`, `voice-typer-diagnostics-*.zip`, etc.
 5. **`PRAGMA journal_mode=WAL`**: WAL mode keeps the main DB file
    consistent; the WAL/SHM sidecars are chmod'd 0o600 and unlinked on
    close.
 6. **Corrupt-DB recovery renames to `history.db.corrupt-<ts>`** rather
    than overwriting — the user can audit/shred the corrupt file. The
-   GDPR delete glob now includes `history.db.corrupt-*` (XZ-R11-02).
+   GDPR delete glob now includes `history.db.corrupt-*`.
 
 ## Residual risks (post-mitigation)
 
@@ -155,7 +154,7 @@ SQLCipher proves too heavy a dependency.
 ## Related files
 
 - `voice_typer/server/history_db.py` — writer connection helper
-  (`_open_write_conn`) now sets `PRAGMA foreign_keys=ON` (XZ-R11-11).
+  (`_open_write_conn`) now sets `PRAGMA foreign_keys=ON`.
 - `voice_typer/server/history_db_internals/schema.py` — `open_write_conn`
   + `check_wal_mode` (perms, `secure_delete=ON`, WAL mode, re-chmod).
 - `voice_typer/server/service/privacy.py` — GDPR delete + export;

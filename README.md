@@ -156,7 +156,7 @@ pip install --require-hashes -r requirements-lock.txt
 The lockfile is generated via `uv pip compile --generate-hashes` and
 enforces sha256 verification of every wheel and sdist. Its completeness
 against `pyproject.toml` is verified by
-`tests/test_requirements_lock_completeness.py`. (XZ-CC-9: the legacy
+`tests/test_requirements_lock_completeness.py`. (the legacy
 `requirements.txt` mirror file was removed because it drifted out of
 sync with `pyproject.toml` — `pyproject.toml` is now the single source
 of truth for Python dependencies.)

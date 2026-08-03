@@ -107,7 +107,7 @@ repos:
         language: system
         files: ^voice_typer/(server|client/src)/.*\.(py|ts|tsx|html)$
         pass_filenames: false
-      # XZ-14-11: The reserved-hotkey JSON is intentionally duplicated
+      # The reserved-hotkey JSON is intentionally duplicated
       # (byte-identical copy) between voice_typer/server/ and
       # voice_typer/client/src/renderer/src/data/ because the @server
       # Vite alias resolved outside the renderer root and crashed Vite's
