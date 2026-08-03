@@ -2,7 +2,7 @@
 """BRAND-001: Check that source files use centralized branding instead of hardcoded app name.
 
 This script is designed to run in CI and as a pre-commit hook.
-It checks all Python, TypeScript, TSX, and HTML source files for
+It checks all Python, TypeScript, TSX, HTML, JSON, and Rust source files for
 hardcoded occurrences of the application name (the value of APP_NAME
 defined in branding.py) and reports any that should be using the
 branding constant instead.
@@ -90,8 +90,11 @@ SCAN_DIRS = [
 ]
 
 # ── File extensions to check ─────────────────────────────────────────
-# include `.rs` so Rust source files are scanned.
-EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".html", ".rs"})
+# include `.rs` so Rust source files are scanned, and `.json` so
+# main-process locale files (i18n/locales/*.json) cannot smuggle in a
+# hardcoded app name (they must use the `{appName}` placeholder, which
+# `_withAppName` in main/i18n.ts substitutes with APP_NAME).
+EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".html", ".rs", ".json"})
 
 # ── Skip binary/exempt dirs ──────────────────────────────────────────
 SKIP_DIRS = frozenset(
@@ -104,6 +107,16 @@ SKIP_DIRS = frozenset(
         "out",
     }
 )
+
+# ── Renderer translations (intentionally localized brand) ────────────
+# The renderer's `i18n/translations/*.json` localize the product name
+# per-locale (e.g. hi.json carries a translated brand) — a deliberate
+# i18n design exercised by the setLocale-propagation tests. These files
+# are therefore exempt from the hardcoded-name scan, which would
+# otherwise flag the `"name": "Voice Typer"` fallback spellings. The
+# main-process locale files (`main/i18n/locales/*.json`) are NOT exempt:
+# they must use the `{appName}` placeholder.
+RENDERER_TRANSLATIONS_PREFIX = "voice_typer/client/src/renderer/src/i18n/translations"
 
 
 def _skip_dir(segments: list[str]) -> bool:
@@ -143,6 +156,9 @@ def check_file(filepath: Path) -> list[tuple[int, str]]:
     rel_str = _to_rel_str(filepath)
 
     if rel_str in BRANDING_FILES:
+        return []
+
+    if rel_str.startswith(RENDERER_TRANSLATIONS_PREFIX):
         return []
 
     ext = filepath.suffix.lower()
