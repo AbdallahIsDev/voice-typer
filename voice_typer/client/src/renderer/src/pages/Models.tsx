@@ -85,11 +85,11 @@ export default function ModelsPage() {
 	return (
 		<>
 			{/* Full-width sticky tab bar.
-				: use the shared tabPageHeaderClassName /
-				tabPageIndicatorClassName from pages/_tabBarStyles so
-				Settings and Models render visually identical sticky tab
-				bars. Previously Models had no wrapper bg/border and used
-				a different z-index from Settings. */}
+                                : use the shared tabPageHeaderClassName /
+                                tabPageIndicatorClassName from pages/_tabBarStyles so
+                                Settings and Models render visually identical sticky tab
+                                bars. Previously Models had no wrapper bg/border and used
+                                a different z-index from Settings. */}
 			<div className={tabPageHeaderClassName}>
 				<div className="mx-auto w-full max-w-2xl px-6 py-1.5">
 					<SegmentedControl
@@ -108,13 +108,13 @@ export default function ModelsPage() {
 			</div>
 
 			{/*
-				 fix #10: replaced `pt-[156px]` with `pt-32`.
-				The original magic padding was tuned to clear the sticky
-				bar (SegmentedControl + page heading + LastUpdatedIndicator
-				row) at a specific zoom level. `pt-32` (128px) clears the
-				sticky bar at default zoom; the scroll-mt-32 utility on
-				anchors would handle deep-link scrolling if we add any.
-			*/}
+                                 fix #10: replaced `pt-[156px]` with `pt-32`.
+                                The original magic padding was tuned to clear the sticky
+                                bar (SegmentedControl + page heading + LastUpdatedIndicator
+                                row) at a specific zoom level. `pt-32` (128px) clears the
+                                sticky bar at default zoom; the scroll-mt-32 utility on
+                                anchors would handle deep-link scrolling if we add any.
+                        */}
 			<div className="mx-auto flex min-h-full w-full max-w-2xl flex-col px-6 pt-32 pb-6">
 				<PageHeading
 					title={t("models.asrTitle")}
@@ -212,7 +212,7 @@ export default function ModelsPage() {
 			</div>
 
 			{/*
-			 * Model delete is intentionally confirm-only — NO undo
+			 * (rationale): model delete is intentionally confirm-only — NO undo
 			 * toast is wired here, unlike History / Templates / Vocabulary which all use
 			 * `showUndoableToast` for a 6-second undo window.
 			 *

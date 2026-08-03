@@ -91,15 +91,16 @@ class _TCPLineIO:
         # from crashing the constructor.
         with contextlib.suppress(OSError, AttributeError):
             conn.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-        # use the default chunk buffer size (io.DEFAULT_BUFFER_SIZE,
-        # typically 8 KiB) rather than ``buffering=1``. ``buffering=1`` means
-        # "line buffered" in text mode — meaningful only for writes (flush
-        # when a newline is seen); for reads CPython silently treats it as
-        # the default, but the intent is non-obvious and linters flag it as
-        # a potential small-recv-buffer smell. An explicit
-        # ``io.DEFAULT_BUFFER_SIZE`` removes the ambiguity and ensures the
-        # BufferedReader pulls the largest chunk the kernel will hand over
-        # per ``recv()`` call, minimising syscalls under load.
+        # XV-86: use the default chunk buffer size (io.DEFAULT_BUFFER_SIZE,
+        # typically 8 KiB) rather than ``buffering == 1`` (line buffering).
+        # ``buffering == 1`` means "line buffered" in text mode —
+        # meaningful only for writes (flush when a newline is seen); for
+        # reads CPython silently treats it as the default, but the intent
+        # is non-obvious and linters flag it as a potential small-recv-
+        # buffer smell. An explicit ``io.DEFAULT_BUFFER_SIZE`` removes
+        # the ambiguity and ensures the BufferedReader pulls the largest
+        # chunk the kernel will hand over per ``recv()`` call, minimising
+        # syscalls under load.
         self._reader = conn.makefile("r", encoding="utf-8", buffering=io.DEFAULT_BUFFER_SIZE)
         # user-space write buffer. ``write()`` appends to this
         # buffer (a list of bytes chunks — cheaper than BytesIO for
