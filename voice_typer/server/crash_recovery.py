@@ -1156,6 +1156,24 @@ class CrashRecovery:
         ``_enqueue_save`` (e.g. direct ``_entries.append`` in tests)
         still persists (regression-tested by
         ``test_del_saves_unpersisted_post_shutdown_mutations``).
+
+        Design decision: ``__del__`` is INTENTIONALLY
+        retained as the third safety-net tier alongside
+        ``shutdown()`` and atexit. The original fix proposal
+        ("Remove ``__del__`` entirely — atexit is documented safety
+        net") was rejected because: (a) atexit does NOT fire for
+        non-Python-initiated exits (SIGKILL, segfault, os._exit) —
+        ``__del__`` is the only path that catches the
+        ``shutdown()``-was-never-called case under those exits; (b)
+        the ``_final_save_done`` dedup (checked inside ``_save_sync``
+        under ``_save_lock``) makes the redundant-write cost zero
+        when atexit already fired — the only remaining cost is the
+        ``_lock`` acquisition + ``bool(self._entries)`` read, which
+        is negligible; (c) removing ``__del__`` would regress
+        ``test_del_saves_unpersisted_post_shutdown_mutations``
+        (post-shutdown direct ``_entries.append`` would no longer
+        persist on GC). The 3-tier contract is documented here and
+        in ``_atexit_flush_all`` / ``shutdown``.
         """
         try:
             # Signal the worker to stop, then do one final

@@ -205,19 +205,32 @@ class TestTCPLineIOCloseUsesShutdown:
             # Start a reader thread that blocks on readline (waiting
             # for data that will never arrive).
             read_results: list[str] = []
+            # Signal that the reader thread has STARTED and is
+            # about to enter the blocking ``readline()``. Replaces the
+            # fixed ``time.sleep(0.1)`` synchronization barrier with an
+            # Event-based wait — the test no longer has to guess how
+            # long "a moment to enter the blocking readline" takes on
+            # slow CI. The race window between ``reader_started.set()``
+            # and ``io.readline()`` is the same as before (the original
+            # sleep could also miss the readline entry), but the test
+            # now exits the wait as soon as the reader thread is
+            # scheduled, instead of always paying 0.1s.
+            reader_started = threading.Event()
 
             def reader():
                 # readline() will block until shutdown() interrupts it.
+                reader_started.set()
                 line = io.readline()
                 read_results.append(line)
 
             t = threading.Thread(target=reader, daemon=True)
             t.start()
-
-            # Give the reader a moment to enter the blocking readline.
-            import time
-
-            time.sleep(0.1)
+            # Bounded wait (1s) for the reader to start. If this
+            # expires, the test continues anyway — the close-path
+            # deadlock assertion below will still catch the regression
+            # (close would hang against an in-progress readline whether
+            # or not readline has been entered yet).
+            reader_started.wait(timeout=1.0)
 
             # Close MUST interrupt the blocked readline and return
             # promptly (within 2 seconds).  Without shutdown(), this

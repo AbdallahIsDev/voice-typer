@@ -386,16 +386,37 @@ class TestXzEh002ServiceErrorRedaction:
         # No ``"error"`` key was added by the redaction helper.
         assert "error" not in resp["data"]
 
-    def test_none_error_value_left_untouched(self, ipc_server, fake_service):
-        """If the service returns ``{"error": None}`` (falsy but
-        present), the redaction helper skips it (``isinstance(None, str)``
-        is False) and the dict is passed through. The handler's
-        conditional still treats ``"error" in result`` as failure
-        (``resp["type"] = "error"``), preserving the existing
-        ack-vs-error contract from the class docstring."""
+    def test_none_error_value_treated_as_success(self, ipc_server, fake_service):
+        """XZ-EH-015: if the service returns ``{"error": None}`` (key
+        present but value ``None``), the handler must treat it as a
+        SUCCESS (``ack``) - not misreport it as ``error``.
+
+        Previously the handler checked ``"error" in result`` (key
+        presence), which flipped the response type to ``error`` even
+        though the service clearly intended success. The fix checks
+        ``result.get("error") is not None`` so a ``None`` value is
+        treated as "no error". The full typed-exception migration was
+        deferred - cross-file work outside this finding's scope.
+        """
         fake_service.onboarding_apply.return_value = {"error": None}
         resp = ipc_server._handle_onboarding_apply({}, {})
-        # The contract: ``"error" in result`` → type is ``"error"``.
+        # XZ-EH-015: {"error": None} -> type is "ack" (was "error").
+        assert resp["type"] == "ack"
+        # The None value is preserved (not redacted to a string).
+        assert resp["data"]["error"] is None
+
+    def test_explicit_string_error_still_flips_to_error_type(self, ipc_server, fake_service):
+        """XZ-EH-015 sanity: a real string-valued ``error`` is still
+        reported as ``error`` (the fix only changes the None case)."""
+        fake_service.onboarding_apply.return_value = {"error": "config write failed"}
+        resp = ipc_server._handle_onboarding_apply({}, {})
         assert resp["type"] == "error"
-        # The ``None`` value is preserved (not redacted to a string).
+        assert resp["data"]["error"] == "config write failed"
+
+    def test_none_error_in_set_microphone_treated_as_success(self, ipc_server, fake_service):
+        """XZ-EH-015: the same {"error": None} -> ack fix applies to all
+        five set_*/skip/apply handlers. Pin the set_microphone path."""
+        fake_service.onboarding_set_microphone.return_value = {"error": None, "ok": True}
+        resp = ipc_server._handle_onboarding_set_microphone({"mic_id": "usb_1"}, {})
+        assert resp["type"] == "ack"
         assert resp["data"]["error"] is None

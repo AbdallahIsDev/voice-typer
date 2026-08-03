@@ -271,12 +271,13 @@ class TestPerPlatformGuard:
     inside the submodules so Linux imports remain cheap and error-free.
     """
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows-specific guard test — wintypes IS loaded on Windows",
+    )
     def test_import_does_not_load_wintypes(self):
         """On non-Windows, ``ctypes.wintypes`` must NOT be in
         ``sys.modules`` after importing crash_handler."""
-        if sys.platform == "win32":
-            pytest.skip("Windows-specific guard test — wintypes IS loaded on Windows")
-
         # Remove crash_handler and ctypes.wintypes from sys.modules so
         # we can re-import fresh and check what gets loaded.
         mods_to_remove = [
@@ -300,12 +301,13 @@ class TestPerPlatformGuard:
             "time inside _win32_structs.py / _veh_kernel32.py / _veh_callback.py."
         )
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows-specific guard test",
+    )
     def test_submodule_imports_are_cheap_on_linux(self):
         """Each submodule can be imported independently on Linux without
         triggering wintypes."""
-        if sys.platform == "win32":
-            pytest.skip("Windows-specific guard test")
-
         submodules = [
             "voice_typer.server.crash_handler._constants",
             "voice_typer.server.crash_handler._win32_structs",
@@ -515,9 +517,11 @@ class TestFunctionalSmoke:
         assert b"VOICE-TYPER CRASH DIAGNOSTICS HEADER" in header
         assert b"END HEADER" in header
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows-specific — _vectored_handler is set on Windows",
+    )
     def test_vectored_handler_is_none_on_linux(self):
-        if sys.platform == "win32":
-            pytest.skip("Windows-specific — _vectored_handler is set on Windows")
         from voice_typer.server import crash_handler
 
         assert crash_handler._vectored_handler is None, (
@@ -532,9 +536,11 @@ class TestFunctionalSmoke:
         result = crash_handler._vectored_handler_impl(None)
         assert result == crash_handler.EXCEPTION_CONTINUE_SEARCH
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="Windows-specific",
+    )
     def test_install_crash_handler_returns_false_on_linux(self):
-        if sys.platform == "win32":
-            pytest.skip("Windows-specific")
         from voice_typer.server import crash_handler
 
         assert crash_handler.install_crash_handler() is False

@@ -218,7 +218,17 @@ async def test_concurrent_publish_no_events_lost(monkeypatch) -> None:
 
     try:
         # Wait for the connection to authenticate + install _push_to_ws.
-        await asyncio.sleep(0.15)
+        # Poll ``event_bus._subscriber_count()`` (the subscriber
+        # is installed by ``_install_subscriber`` AFTER auth succeeds)
+        # with a bounded 1.5s deadline instead of a fixed
+        # ``await asyncio.sleep(0.15)``. Exits early on fast machines;
+        # tolerant of slow CI.
+        loop = asyncio.get_event_loop()
+        auth_deadline = loop.time() + 1.5
+        while loop.time() < auth_deadline:
+            if event_bus._subscriber_count() >= 1:
+                break
+            await asyncio.sleep(0.005)
 
         # Sanity: _push_to_ws IS subscribed (otherwise the test is moot).
         assert event_bus._subscriber_count() >= 1
@@ -248,10 +258,23 @@ async def test_concurrent_publish_no_events_lost(monkeypatch) -> None:
         dead = [t.name for t in threads if t.is_alive()]
         assert not dead, f"publish threads deadlocked: {dead}"
 
-        # Give the loop a moment to process the marshaled
-        # call_soon_threadsafe callbacks (they fire on the next
-        # loop tick, not synchronously).
-        await asyncio.sleep(0.2)
+        # Yield to the loop until all 200
+        # ``call_soon_threadsafe`` callbacks (one per published event)
+        # have been processed. Each ``await asyncio.sleep(0)`` yields
+        # once, processing all currently-ready callbacks in batch
+        # (CPython's loop processes ALL ready callbacks in a single
+        # iteration — no chunk cap). We poll the loop's internal
+        # ``_ready`` deque (stable since Python 3.7) and exit as soon
+        # as it's empty, with a 0.5s bounded deadline as a safety net.
+        # Replaces the fixed ``await asyncio.sleep(0.2)`` which always
+        # paid the full 200ms even when the loop settled in <1ms.
+        loop = asyncio.get_event_loop()
+        loop_settle_deadline = loop.time() + 0.5
+        while loop.time() < loop_settle_deadline:
+            await asyncio.sleep(0)
+            ready = getattr(loop, "_ready", None)
+            if ready is None or len(ready) == 0:
+                break
 
         # Unblock the writer — let it drain the queue.
         send_block.set()
@@ -322,7 +345,17 @@ async def test_concurrent_publish_writer_alive_under_overflow(monkeypatch) -> No
 
     try:
         # Wait for the connection to authenticate + install _push_to_ws.
-        await asyncio.sleep(0.15)
+        # Poll ``event_bus._subscriber_count()`` (the subscriber
+        # is installed by ``_install_subscriber`` AFTER auth succeeds)
+        # with a bounded 1.5s deadline instead of a fixed
+        # ``await asyncio.sleep(0.15)``. Exits early on fast machines;
+        # tolerant of slow CI.
+        loop = asyncio.get_event_loop()
+        auth_deadline = loop.time() + 1.5
+        while loop.time() < auth_deadline:
+            if event_bus._subscriber_count() >= 1:
+                break
+            await asyncio.sleep(0.005)
 
         N_THREADS = 8  # noqa: N806
         N_PER_THREAD = 500  # noqa: N806  4000 total >> 256 maxsize → heavy overflow
@@ -425,7 +458,17 @@ async def test_push_to_ws_swallows_runtime_error_on_closed_loop(monkeypatch) -> 
     conn_task = asyncio.create_task(sidecar_ws._handle_connection(ws, server, dispatch))
 
     try:
-        await asyncio.sleep(0.15)
+        # Poll ``event_bus._subscriber_count()`` (the subscriber
+        # is installed by ``_install_subscriber`` AFTER auth succeeds)
+        # with a bounded 1.5s deadline instead of a fixed
+        # ``await asyncio.sleep(0.15)``. Exits early on fast machines;
+        # tolerant of slow CI.
+        loop = asyncio.get_event_loop()
+        auth_deadline = loop.time() + 1.5
+        while loop.time() < auth_deadline:
+            if event_bus._subscriber_count() >= 1:
+                break
+            await asyncio.sleep(0.005)
 
         # Capture the loop reference _push_to_ws closed over. We
         # can't reach it directly, but we can replace

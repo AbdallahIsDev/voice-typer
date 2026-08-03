@@ -152,8 +152,20 @@ def test_stop_watchdog_thread_join_is_bounded():
         f"took {elapsed:.2f}s (a hung thread would block the caller "
         f"indefinitely without the timeout)."
     )
-    # The reference must still be nulled even though the join timed out.
-    assert ctrl._watchdog_thread is None
+    # The reference must NOT be nulled when the thread is still alive
+    # (zombie thread leak mitigation — keep the reference so
+    # _start_watchdog_thread's is_alive() guard reuses this thread
+    # instead of spawning a duplicate). The stop event is left SET so
+    # the zombie exits on its next iteration boundary.
+    assert ctrl._watchdog_thread is t, (
+        "_stop_watchdog_thread must NOT null the thread reference when the "
+        "thread is still alive (zombie leak mitigation — keep the reference "
+        "so _start_watchdog_thread's is_alive() guard prevents a duplicate "
+        "spawn)."
+    )
+    assert ctrl._watchdog_stop_event.is_set(), (
+        "stop event must be left SET when the thread is still alive so the zombie exits on its next iteration boundary."
+    )
     # Clean up: signal the hung thread to exit.
     stop_flag.set()
     t.join(timeout=1.0)

@@ -620,13 +620,7 @@ class DictationPipeline:
                 self._app._waveform_bubble.set_state("error")
 
                 def _bubble_error_to_idle() -> None:
-                    try:
-                        if self._app.config.bubble_behavior == "always_visible":
-                            self._app._waveform_bubble.set_state("idle")
-                        else:
-                            self._app._waveform_bubble.hide()
-                    except Exception:
-                        log.debug("[PIPELINE] bubble error->idle transition failed", exc_info=True)
+                    self._hide_or_idle_bubble("bubble error->idle transition")
 
                 self._app._schedule_timer(3.0, _bubble_error_to_idle)
             except Exception:
@@ -858,6 +852,30 @@ class DictationPipeline:
                 reset_correlation_id(_corr_token)
 
     # ── Pipeline steps ────────────────────────────────────────────
+
+    def _hide_or_idle_bubble(self, log_label: str = "bubble hide/set idle") -> None:
+        """Hide the waveform bubble or set it to idle (always_visible mode).
+
+        Centralizes the 4-site pattern of choosing between
+        ``set_state("idle")`` (when ``bubble_behavior == "always_visible"``)
+        and ``hide()`` (otherwise), wrapped in a best-effort try/except so
+        a bubble teardown failure doesn't mask the real transcription
+        result. The fallback log message is parameterised so each call
+        site can be traced in logs.
+
+        Called from:
+        - the error-recovery timer (error → idle transition)
+        - the empty-transcription handler
+        - the clipboard-failure path (paste failed, text saved to recovery)
+        - the success path (paste complete)
+        """
+        try:
+            if self._app.config.bubble_behavior == "always_visible":
+                self._app._waveform_bubble.set_state("idle")
+            else:
+                self._app._waveform_bubble.hide()
+        except Exception:
+            log.debug("[PIPELINE] %s failed", log_label, exc_info=True)
 
     def _check_resources_throttled(self) -> None:
         """Throttled wrapper around _check_resources.
@@ -1171,13 +1189,7 @@ class DictationPipeline:
         log.info("[TRANSCRIBE] No speech detected (cycle=%s)", self._cycle_id)
         # NEW-BUBBLE-TRANSCRIBING: Hide the bubble since there's nothing to
         # transcribe — no need to keep the overlay visible.
-        try:
-            if self._app.config.bubble_behavior == "always_visible":
-                self._app._waveform_bubble.set_state("idle")
-            else:
-                self._app._waveform_bubble.hide()
-        except Exception:
-            log.debug("[PIPELINE] bubble hide/set idle on empty failed", exc_info=True)
+        self._hide_or_idle_bubble("bubble hide/set idle on empty")
 
         # UX-SILENCE-GRACE: Suppress the notification for short recordings (< 15s).
         # A brief tap of the hotkey does not warrant a microphone warning.
@@ -1968,13 +1980,7 @@ class DictationPipeline:
                     log.exception("[CLIPBOARD] Failed to write transcription to crash recovery")
                 # NEW-BUBBLE-TRANSCRIBING: Hide the bubble since the
                 # transcription is done (even though paste failed).
-                try:
-                    if self._app.config.bubble_behavior == "always_visible":
-                        self._app._waveform_bubble.set_state("idle")
-                    else:
-                        self._app._waveform_bubble.hide()
-                except Exception:
-                    log.debug("[PIPELINE] bubble hide on clipboard fail failed", exc_info=True)
+                self._hide_or_idle_bubble("bubble hide on clipboard fail")
                 self._app.tray.set_state(AppState.IDLE, "Done -- clipboard unavailable")
                 notice = (
                     "Transcription complete, but the clipboard was unavailable.\n"
@@ -2056,13 +2062,7 @@ class DictationPipeline:
         # NEW-BUBBLE-TRANSCRIBING: Transcription + paste complete — hide the
         # bubble (or set it to idle for always_visible mode) so the overlay
         # doesn't persist on screen after the user has their result.
-        try:
-            if self._app.config.bubble_behavior == "always_visible":
-                self._app._waveform_bubble.set_state("idle")
-            else:
-                self._app._waveform_bubble.hide()
-        except Exception:
-            log.debug("[PIPELINE] bubble hide/set idle failed", exc_info=True)
+        self._hide_or_idle_bubble("bubble hide/set idle")
 
         self._app.tray.set_state(AppState.IDLE, status)
         self._app._schedule_timer(

@@ -192,7 +192,7 @@ class TestWaylandFallback:
         # a positional CLI argument) so it isn't visible in
         # /proc/<pid>/cmdline to other local users.
         assert "hello wayland" in kw.get("input", b"").decode("utf-8"), (
-            "XZ-CLIP-02: text must be piped via stdin=input=... (not as CLI arg)"
+            "text must be piped via stdin=input=... (not as CLI arg)"
         )
         pyperclip_mock.copy.assert_not_called()
 

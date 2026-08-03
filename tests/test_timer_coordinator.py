@@ -162,10 +162,15 @@ class TestCancelPendingTimers:
         coordinator._schedule_timer(0.05, fired.set)
         # Cancel before the 50ms delay elapses.
         coordinator._cancel_pending_timers()
-        # Give the timer plenty of time to "would have fired" if cancel
-        # hadn't worked.
-        time.sleep(0.15)
-        assert not fired.is_set(), "_cancel_pending_timers must cancel the underlying Timer so the callback never fires"
+        # Poll the fired flag with a bounded deadline (3x the
+        # scheduled delay) instead of a fixed ``time.sleep(0.15)``.
+        # ``fired.wait(timeout=...)`` returns True iff the event was set
+        # within the timeout — so ``not fired.wait(0.15)`` asserts the
+        # callback never fired. Exits early on failure (faster CI
+        # feedback); honors the 0.05s scheduled delay on success.
+        assert not fired.wait(timeout=0.15), (
+            "_cancel_pending_timers must cancel the underlying Timer so the callback never fires"
+        )
 
     def test_cancel_is_safe_when_no_timers_pending(self, coordinator):
         """``_cancel_pending_timers`` on an empty list must not raise."""
@@ -199,10 +204,13 @@ class TestGenerationGuard:
         coordinator._schedule_timer(0.05, fired.set)
         # Cancel immediately (well before 50ms).
         coordinator._cancel_pending_timers()
-        # Wait long enough that, without the generation guard, the
-        # callback would have fired.
-        time.sleep(0.15)
-        assert not fired.is_set(), "Generation guard failed: stale callback fired after cancel"
+        # Poll ``fired`` with a bounded deadline (3x the 0.05s
+        # scheduled delay) instead of a fixed ``time.sleep(0.15)``.
+        # ``fired.wait`` returns True iff the event was set within the
+        # timeout — so ``not fired.wait(0.15)`` asserts the stale
+        # callback never fired. Exits early on failure (faster CI
+        # feedback); honors the 0.05s scheduled delay on success.
+        assert not fired.wait(timeout=0.15), "Generation guard failed: stale callback fired after cancel"
 
     def test_new_callback_after_cancel_does_fire(self, coordinator):
         """A timer scheduled AFTER a cancel must fire normally.
@@ -225,7 +233,15 @@ class TestGenerationGuard:
         coordinator._cancel_pending_timers()  # gen 0 -> 1
         coordinator._schedule_timer(0.05, fired_b.set)  # captures gen 1
         coordinator._cancel_pending_timers()  # gen 1 -> 2
-        time.sleep(0.15)
+        # Poll both flags with a bounded deadline (3x the 0.05s
+        # scheduled delay) instead of a fixed ``time.sleep(0.15)``. We
+        # poll in a single loop so the test exits as soon as EITHER
+        # stale callback fires (faster CI feedback on regression).
+        deadline = time.monotonic() + 0.15
+        while time.monotonic() < deadline:
+            if fired_a.is_set() or fired_b.is_set():
+                break
+            time.sleep(0.005)
         assert not fired_a.is_set(), "Timer A (gen 0) must be suppressed"
         assert not fired_b.is_set(), "Timer B (gen 1) must be suppressed"
 
@@ -266,7 +282,14 @@ class TestThreadSafety:
         t2 = threading.Thread(target=canceller, name="canceller")
         t1.start()
         t2.start()
-        time.sleep(0.1)
+        # ``stop.wait(timeout=...)`` waits up to N seconds for
+        # the event to be set (nothing else sets it, so this is
+        # equivalent to "run the workers for N seconds") but uses the
+        # Event primitive instead of a bare ``time.sleep`` — the
+        # intent ("let the two threads race for ~0.1s") is preserved
+        # while honoring the project's Event-based synchronization
+        # convention.
+        stop.wait(timeout=0.1)
         stop.set()
         t1.join(timeout=2.0)
         t2.join(timeout=2.0)
@@ -307,7 +330,10 @@ class TestThreadSafety:
         threads.append(threading.Thread(target=canceller, name="canceller"))
         for t in threads:
             t.start()
-        time.sleep(0.1)
+        # ``stop.wait(timeout=0.1)`` replaces ``time.sleep(0.1)``.
+        # See ``test_concurrent_schedule_and_cancel_no_errors`` for
+        # rationale (Event-based wait instead of bare sleep).
+        stop.wait(timeout=0.1)
         stop.set()
         for t in threads:
             t.join(timeout=2.0)
@@ -366,11 +392,19 @@ class TestThreadSafety:
         cancel_thread = threading.Thread(target=coordinator._cancel_pending_timers, name="cancel")
         cancel_thread.start()
 
-        # Give the cancel thread time to acquire the lock and reach the
-        # slow clear() (which sets clear_started). Give the observer
-        # time to attempt the lock acquisition.
-        time.sleep(0.05)
-        assert clear_started.is_set(), "cancel did not enter the slow clear() — fixture setup wrong"
+        # Wait for the cancel thread to reach the slow clear()
+        # step via the ``clear_started`` Event (bounded 1s timeout)
+        # instead of a fixed ``time.sleep(0.05)``. Then poll
+        # ``got_lock_during_clear`` for a short window (50ms) so the
+        # observer has a chance to attempt (and block on) the lock —
+        # if the lock is NOT held (regression), the observer sets the
+        # flag and we exit early with a failure.
+        assert clear_started.wait(timeout=1.0), "cancel did not enter the slow clear() — fixture setup wrong"
+        observe_deadline = time.monotonic() + 0.05
+        while time.monotonic() < observe_deadline:
+            if got_lock_during_clear.is_set():
+                break
+            time.sleep(0.005)
         assert not got_lock_during_clear.is_set(), (
             "_cancel_pending_timers must hold _pending_timers_lock during the "
             "snapshot+clear+generation-increment critical section (an observer "

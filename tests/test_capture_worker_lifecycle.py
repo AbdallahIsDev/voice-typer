@@ -314,9 +314,21 @@ class TestStopAudioWorkerBody:
             f"expected a WARNING about worker not exiting in time; "
             f"got: {[(r.name, r.levelname, r.getMessage()) for r in caplog.records]}"
         )
-        # The thread reference was cleared regardless (the body nulls it
-        # unconditionally after the join attempt).
-        assert fake._worker_thread is None
+        # The thread reference is NOT cleared when the worker is still
+        # alive (zombie thread leak mitigation — the start path's
+        # is_alive() guard will reuse this thread instead of spawning a
+        # duplicate). The stop event is left SET so the zombie exits on
+        # its next iteration boundary.
+        assert fake._worker_thread is thread_ref, (
+            "stop_audio_worker_body must NOT null the thread reference when "
+            "the worker is still alive (zombie leak mitigation — keep the "
+            "reference so the start path's is_alive() guard prevents a "
+            "duplicate spawn)."
+        )
+        assert fake._worker_stop_event.is_set(), (
+            "stop event must be left SET when the worker is still alive so "
+            "the zombie exits on its next iteration boundary."
+        )
         # The thread is still alive (it will exit eventually as a daemon).
         # Wait for it to actually finish so we don't leak a thread.
         thread_ref.join(timeout=2.0)

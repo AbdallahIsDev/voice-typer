@@ -293,8 +293,23 @@ class TestAcceptLoopWorkerPool:
         # response (not the push).
         _drain(fast_sock, timeout=0.3)
         _send_line(fast_sock, {"id": 4242, "type": "get_status"})
-        resp = _read_line(fast_sock, timeout=3.0)
-        elapsed = time.monotonic() - start
+        try:
+            resp = _read_line(fast_sock, timeout=3.0)
+        except (TimeoutError, ConnectionError, OSError) as exc:
+            # A raw socket timeout here would surface as an unhandled
+            # test ERROR instead of a diagnostic assertion failure. The
+            # read timeout (3.0s) can fire before the threshold check
+            # below on a loaded/coverage-instrumented machine, so
+            # convert it into a clear, timetracked assertion instead.
+            elapsed = time.monotonic() - start
+            pytest.fail(
+                f"fast client did not receive a response within 3.0s of "
+                f"sending get_status ({elapsed:.2f}s elapsed) — "
+                f"the slow-auth client likely blocked the accept loop "
+                f"(SEC-8 regression): {exc!r}"
+            )
+        else:
+            elapsed = time.monotonic() - start
 
         # 3) The fast client must have received a status response with
         #    the matching id. This proves the accept loop accepted the

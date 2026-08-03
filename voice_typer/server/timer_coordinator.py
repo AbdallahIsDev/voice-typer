@@ -45,6 +45,35 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 
+class _ZeroDelayThread(threading.Thread):
+    """A daemon ``Thread`` that quacks like a ``Timer`` for ``delay == 0``.
+
+    XV-134: ``threading.Timer(0, func)`` still allocates the internal
+    ``threading.Event`` (used to signal "timer finished"), the
+    cancel-bookkeeping machinery, and the ``Timer`` sub-object itself —
+    all wasted when the callback runs immediately. A bare ``Thread`` is
+    cheaper and the generation guard inside ``guarded_func`` (RACE-013)
+    is preserved unchanged.
+
+    Provides a no-op ``cancel()`` so callers (and
+    ``_cancel_pending_timers`` if a future change re-adds zero-delay
+    timers to the pending list) can polymorphically call ``.cancel()``
+    without ``AttributeError``. A started thread can't actually be
+    cancelled — the no-op mirrors what ``Timer.cancel()`` would return
+    for an already-fired timer (``False``), without the bookkeeping.
+    """
+
+    def cancel(self) -> None:
+        """No-op: a started thread cannot be cancelled.
+
+        The generation guard inside ``guarded_func`` is the real
+        stale-callback suppression mechanism; ``cancel()`` here is
+        purely defensive so callers that polymorphically invoke
+        ``.cancel()`` on the returned object don't raise.
+        """
+        return None
+
+
 class TimerCoordinator:
     """Owns creation/tracking/cancellation of scheduled timers.
 
@@ -89,8 +118,26 @@ class TimerCoordinator:
 
     # ── Scheduling / Tracking ──────────────────────────────────────────
 
-    def _schedule_timer(self, delay: float, func) -> threading.Timer:
+    def _schedule_timer(self, delay: float, func) -> threading.Thread:
         """Create, track, and start a timer. Replaces fire-and-forget timers.
+
+        XV-134 fast path: for ``delay <= 0`` (6 callers in
+        ``recording_controller`` / ``model_manager`` pass ``0``),
+        short-circuit to a bare daemon ``_ZeroDelayThread`` instead of
+        ``threading.Timer(0, ...)``. ``Timer(0)`` still allocates the
+        internal ``threading.Event`` (signals "timer finished"), the
+        cancel-bookkeeping machinery, and the ``Timer`` sub-object —
+        all wasted when the callback runs immediately. A bare
+        ``Thread`` is cheaper. The ``guarded_func`` / generation-check
+        logic (RACE-013) is preserved unchanged — the generation
+        capture, the unlocked check, the locked re-check, the
+        ``_shutting_down_event`` consultation, and the eviction from
+        ``_pending_timers`` all run identically. We do NOT append the
+        zero-delay thread to ``_pending_timers`` because a started
+        thread cannot be cancelled — ``guarded_func``'s
+        ``if timer in self._pending_timers: remove(timer)`` becomes a
+        no-op (the thread was never in the list), so the list doesn't
+        accumulate stale shells (the original PERF-TMR concern).
 
         PERF-TMR: Each call creates a fresh threading.Timer. A timer pool
         was considered but rejected because:
@@ -169,16 +216,32 @@ class TimerCoordinator:
                     # slow callback doesn't block other threads. ``timer``
                     # is captured via closure on the enclosing
                     # ``_schedule_timer`` call (one ``guarded_func`` per
-                    # timer).
+                    # timer). For the XV-134 zero-delay fast path,
+                    # ``timer`` is NOT in ``_pending_timers`` so this
+                    # ``in`` check is False — no-op, no harm.
                     if timer in self._pending_timers:
                         self._pending_timers.remove(timer)
                 func()
 
-            timer = threading.Timer(delay, guarded_func)
-            # RACE-016: daemon=True is acceptable because timer callbacks
-            # are fire-and-forget UI updates; missing one on shutdown is harmless.
-            timer.daemon = True
-            self._pending_timers.append(timer)
+            # XV-134: zero/near-zero delay → bare daemon Thread instead
+            # of ``Timer(0, ...)``. ``Timer(0)`` still pays for the
+            # internal ``threading.Event`` and cancel-bookkeeping — all
+            # wasted when the callback runs immediately. We do NOT
+            # append to ``_pending_timers``: a started thread can't be
+            # cancelled, so tracking it there would only accumulate
+            # stale shells (the exact PERF-TMR pathology the eviction
+            # in ``guarded_func`` was added to prevent). The generation
+            # guard inside ``guarded_func`` (RACE-013) still suppresses
+            # stale callbacks if a cancel lands while the callback is
+            # mid-flight.
+            if delay <= 0:
+                timer = _ZeroDelayThread(target=guarded_func, daemon=True)
+            else:
+                timer = threading.Timer(delay, guarded_func)
+                # RACE-016: daemon=True is acceptable because timer callbacks
+                # are fire-and-forget UI updates; missing one on shutdown is harmless.
+                timer.daemon = True
+                self._pending_timers.append(timer)
         timer.start()
         return timer
 

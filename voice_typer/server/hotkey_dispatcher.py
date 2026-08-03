@@ -38,6 +38,44 @@ class HotkeyDispatcher:
       ``app._cancel_dictation`` / ``app.repaste_last`` as hotkey callbacks
     - Call ``app.tray.notify`` on registration failure
     - Call ``app.tray.set_hotkey`` after a hotkey restart
+
+    Architecture note — three backends, three native subprocesses
+    ----------------------------------------------------------------
+    ``register`` / ``register_esc`` / ``register_repaste`` each call
+    ``create_hotkey_backend(spec, role=...)`` once (see the three
+    call sites below). On platforms that select the native
+    ``SubprocessHotkeyBackend`` (macOS / Windows / Linux), every
+    backend spawns its OWN native listener process via
+    ``subprocess.Popen`` (see ``native_hotkeys/base.py``). That is
+    three long-lived OS processes, three reader threads, and three
+    IPC pipes for what is conceptually one global-hotkey concern.
+
+    Planned refactor (deferred — large + cross-cutting)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    Collapse the three backends into ONE shared native binary that
+    accepts a list of ``(role, hotkey_spec)`` pairs on the command
+    line (or via a startup handshake frame) and emits wire events
+    tagged with the originating role (e.g. ``EVENT role=esc KEY_UP
+    <esc>``). ``HotkeyDispatcher`` would then own a single backend
+    handle and dispatch each event to the matching callback
+    (dictation / ESC / repaste) by role. This cuts the kernel
+    overhead to one process / one reader thread / one pipe and lets
+    the three platform binaries share a single TOCTOU-verified
+    binary_path + a single watchdog.
+
+    Why deferred: the change touches the native binary wire
+    protocol (``_WIRE_HANDLERS`` in ``base.py``), the binary
+    argument surface (``cmd = [binary, hotkey_str]``), the factory
+    (``create_hotkey_backend``), all three platform backends, and
+    the per-role Wayland socket naming — plus the restart /
+    watchdog / TOCTOU-verify paths that currently run per-backend.
+    It is a focused but wide refactor that needs its own session
+    with the native binaries recompiled on all three platforms.
+
+    TODO (future session): introduce a multiplexed
+    ``SharedNativeHotkeyBackend`` that owns one process for all
+    three roles; keep the current per-role backends as a fallback
+    for platforms where the multiplexed binary is unavailable.
     """
 
     def __init__(self, app: Any) -> None:

@@ -90,18 +90,25 @@ class OnboardingHandlersMixin(HandlerBase):
         (``onboarding_set_microphone``, ``onboarding_set_hotkey``,
         ``onboarding_set_model``, ``onboarding_skip``, ``onboarding_apply``)
         delegate the ack-vs-error decision to whether the service's return
-        dict contains an ``"error"`` key::
+        dict contains a non-None ``"error"`` value::
 
-            resp["type"] = "ack" if "error" not in result else "error"
+            resp["type"] = "ack" if result.get("error") is None else "error"
+
+        the check was previously ``"error" not in result`` (key
+        presence), which misreported ``{"error": None}`` as ``error``. The
+        fix uses ``result.get("error") is not None`` so a ``None`` value
+        is correctly treated as "no error". The full typed-exception
+        migration (service methods raise ``OnboardingError`` instead of
+        returning ``{"error": ...}`` dicts) was deferred — it's cross-file
+        work that touches ``ServiceProtocol`` and every set_*/skip/apply
+        caller, outside this finding's scope.
 
         This is an implicit contract between the handler and the service
         layer. ``ServiceProtocol`` (in ``voice_typer/server/providers.py``)
         documents it: ``service.onboarding_set_*`` / ``service.onboarding_skip``
         / ``service.onboarding_apply`` return ``{"error": "<message>"}`` on
-        failure and ``{...}`` (no ``"error"`` key) on success. If the
-        service ever renames ``"error"`` to ``"code"`` or stops including
-        ``"error"`` on failure, the handler will silently report ``ack``
-        for failures. The contract is documented inline at each call site
+        failure and ``{...}`` (no ``"error"`` key, or ``{"error": None}``)
+        on success. The contract is documented inline at each call site
         below; a future refactor should switch the service to raising
         exceptions on failure (preferred) so the catch-all
         ``except Exception`` envelope covers the failure path uniformly.
@@ -267,13 +274,15 @@ class OnboardingHandlersMixin(HandlerBase):
             # redact the error string before forwarding to
             # the renderer so exception messages containing secrets
             # (API keys, file paths) are not exfiltrated.
-            if "error" in result:
+            # use result.get("error") is not None so
+            # {"error": None} is treated as success (ack), not misreported as error.
+            if result.get("error") is not None:
                 log.warning(
                     "[IPC] onboarding_set_microphone: service returned error: %s",
                     result.get("error"),
                 )
                 result = _redact_service_error(result)
-            resp["type"] = "ack" if "error" not in result else "error"
+            resp["type"] = "ack" if result.get("error") is None else "error"
             resp["data"] = result
         except Exception as exc:
             # generic WS-path envelope.
@@ -308,13 +317,15 @@ class OnboardingHandlersMixin(HandlerBase):
             # log the service-returned error at WARNING so the
             # failure leaves a server-side breadcrumb.
             # redact the error string before forwarding.
-            if "error" in result:
+            # use result.get("error") is not None so
+            # {"error": None} is treated as success (ack), not misreported as error.
+            if result.get("error") is not None:
                 log.warning(
                     "[IPC] onboarding_set_hotkey: service returned error: %s",
                     result.get("error"),
                 )
                 result = _redact_service_error(result)
-            resp["type"] = "ack" if "error" not in result else "error"
+            resp["type"] = "ack" if result.get("error") is None else "error"
             resp["data"] = result
         except Exception as exc:
             # generic WS-path envelope.
@@ -342,13 +353,15 @@ class OnboardingHandlersMixin(HandlerBase):
             # log the service-returned error at WARNING so the
             # failure leaves a server-side breadcrumb.
             # redact the error string before forwarding.
-            if "error" in result:
+            # use result.get("error") is not None so
+            # {"error": None} is treated as success (ack), not misreported as error.
+            if result.get("error") is not None:
                 log.warning(
                     "[IPC] onboarding_set_model: service returned error: %s",
                     result.get("error"),
                 )
                 result = _redact_service_error(result)
-            resp["type"] = "ack" if "error" not in result else "error"
+            resp["type"] = "ack" if result.get("error") is None else "error"
             resp["data"] = result
         except Exception as exc:
             # generic WS-path envelope.
@@ -367,13 +380,15 @@ class OnboardingHandlersMixin(HandlerBase):
             # log the service-returned error at WARNING so the
             # failure leaves a server-side breadcrumb.
             # redact the error string before forwarding.
-            if "error" in result:
+            # use result.get("error") is not None so
+            # {"error": None} is treated as success (ack), not misreported as error.
+            if result.get("error") is not None:
                 log.warning(
                     "[IPC] onboarding_skip: service returned error: %s",
                     result.get("error"),
                 )
                 result = _redact_service_error(result)
-            resp["type"] = "ack" if "error" not in result else "error"
+            resp["type"] = "ack" if result.get("error") is None else "error"
             resp["data"] = result
         except Exception as exc:
             # generic WS-path envelope.
@@ -405,7 +420,11 @@ class OnboardingHandlersMixin(HandlerBase):
             # message is logged at WARNING above (operator-only) and
             # at ERROR below; only the redacted form lands in
             # ``resp["data"]``.
-            if "error" in result:
+            # use result.get("error") is not None so
+            # {"error": None} is treated as success (ack), not misreported as
+            # error. The full typed-exception migration (service methods raise
+            # OnboardingError) was deferred - cross-file work outside scope.
+            if result.get("error") is not None:
                 log.warning(
                     "[IPC] onboarding_apply: service returned error: %s",
                     result.get("error"),
@@ -419,7 +438,7 @@ class OnboardingHandlersMixin(HandlerBase):
                     redacted_result.get("error"),
                 )
                 result = _redact_service_error(result)
-            resp["type"] = "ack" if "error" not in result else "error"
+            resp["type"] = "ack" if result.get("error") is None else "error"
             resp["data"] = result
         except Exception as exc:
             # generic WS-path envelope.

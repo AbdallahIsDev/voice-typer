@@ -82,8 +82,31 @@ def _generate_icon_ico() -> Path | None:
         log.debug("PIL not available — cannot generate icon")
         return None
 
-    icon_png = Path(__file__).resolve().parent.parent / "assets" / "logo-256.png"
-    if not icon_png.exists():
+    # The pre-rendered logo PNG lives at the project root
+    # (``logo-256.png``), NOT under ``voice_typer/server/assets/`` (that
+    # directory was REMOVED from the MANIFEST.in / packaging entries, so
+    # it is not shipped in installed or bundled builds — confirmed via
+    # the MANIFEST.in cleanup that removed the dead ``recursive-include
+    # voice_typer/server/assets *`` entry; the dir may still exist in a
+    # dev checkout but is not part of the package). Probe the
+    # project-root location first (dev / editable installs), then the
+    # packaged ``assets/`` location (forward-compat if the asset is later
+    # co-located with the server package). Without this fix the icon
+    # was ALWAYS skipped because the old single-candidate path never
+    # existed.
+    _server_dir = Path(__file__).resolve().parent.parent
+    icon_png = next(
+        (
+            p
+            for p in (
+                _server_dir.parent.parent / "logo-256.png",
+                _server_dir / "assets" / "logo-256.png",
+            )
+            if p.exists()
+        ),
+        None,
+    )
+    if icon_png is None:
         log.debug("Pre-rendered logo PNG not found — cannot generate icon")
         return None
 

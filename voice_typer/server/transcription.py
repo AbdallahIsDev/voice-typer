@@ -120,6 +120,7 @@ from voice_typer.server.nvidia_dll_paths import (  # noqa: E402, F401
     _configure_nvidia_dll_paths,
     _configure_nvidia_dll_paths_locked,
     _free_nvidia_dll_path_handles,
+    _NvidiaDllPathManager,
 )
 
 _nvidia_dll_paths_configured = False
@@ -130,6 +131,14 @@ _nvidia_dll_paths_configured = False
 # DLL directory additions and race-conditional PATH corruption.
 _nvidia_config_lock = threading.Lock()
 
+# Singleton manager that encapsulates operations on the three
+# module-level globals above. Constructed with no ``state_dict`` so it
+# late-binds to this module's globals — existing tests that rebind
+# ``transcription._nvidia_dll_path_handles`` (and similar) continue to
+# see their replacement values reflected through
+# ``_nvidia_dll_paths.handles`` / ``.configured`` / ``.lock``.
+_nvidia_dll_paths = _NvidiaDllPathManager()
+
 
 class TranscriptionEngine:
     """Wraps faster-whisper model loading and transcription."""
@@ -139,6 +148,10 @@ class TranscriptionEngine:
         model_size: str = "small.en",
         device: str = "auto",
         language: str = DEFAULT_LOCALE,
+        # Speed-biased default of 1 — ~2x faster than beam_size=3-5 at
+        # the cost of ~1-3% worse WER on common benchmarks (LibriSpeech,
+        # Common Voice). Override via ``config.whisper_beam_size``
+        # (preferred, Whisper-specific field) or this ``beam_size`` kwarg.
         beam_size: int = 1,
         best_of: int = 1,
         condition_on_previous_text: bool = False,
@@ -148,7 +161,21 @@ class TranscriptionEngine:
         self._configured_model_size = model_size
         self._loaded_model_size: str | None = None
         self.language = language
-        self.beam_size = beam_size
+        # ``config.whisper_beam_size`` (when set to a non-default value)
+        # takes precedence over the legacy ``beam_size`` kwarg. The
+        # "!= 1" check preserves backward compat for users who set the
+        # legacy ``beam_size`` field but not ``whisper_beam_size`` (which
+        # defaults to 1 in Config): the engine keeps using the legacy
+        # value instead of clobbering it with the new field's default.
+        # The effective beam_size flows to ``model.transcribe(...)`` via
+        # ``self.beam_size`` in ``_transcribe_unlocked`` /
+        # ``_transcribe_words_unlocked`` / ``_probe_cuda_runtime``.
+        effective_beam_size = beam_size
+        if config is not None:
+            cfg_whisper_beam_size = getattr(config, "whisper_beam_size", None)
+            if cfg_whisper_beam_size is not None and cfg_whisper_beam_size != 1:
+                effective_beam_size = cfg_whisper_beam_size
+        self.beam_size = effective_beam_size
         self.best_of = best_of
         self.condition_on_previous_text = condition_on_previous_text
         self._model = None
@@ -178,6 +205,14 @@ class TranscriptionEngine:
         # (ctranslate2 >= 4.x) so a mid-segment ``model.transcribe()``
         # call returns promptly instead of running to completion.
         self._abort_event = threading.Event()
+        # Deferred-gc flag set by ``_with_gpu_fallback`` when the GPU
+        # model is torn down; cleared by ``_run_deferred_gc`` /
+        # ``_with_lock_and_deferred_gc`` after the lock is released
+        # (RACE-023). Initialized here so attribute access never falls
+        # back to ``getattr(..., False)`` — explicit is better than
+        # implicit, and the test fixtures that bypass ``__init__`` set
+        # this explicitly too.
+        self._pending_gc_collect = False
         # store a reference to the app's Config dataclass
         # so the HuggingFace-consent check in _pre_download_model can
         # read ``huggingface_consent`` without crashing.  Previously
@@ -1060,6 +1095,107 @@ class TranscriptionEngine:
             )
         return result
 
+    def _run_deferred_gc(self) -> None:
+        """Run the deferred gc.collect() + release_gpu_memory() cleanup.
+
+        RACE-023: gc.collect() and ``release_gpu_memory()`` are deferred
+        to OUTSIDE the lock (the fallback path sets
+        ``_pending_gc_collect = True`` while still holding the lock;
+        the caller drops the lock and then calls us). This avoids
+        blocking ``is_loaded`` / ``transcribe`` for the 10-100ms that
+        gc.collect() + ``torch.cuda.empty_cache()`` can take.
+
+        Shared by ``_with_lock_and_deferred_gc`` (for ``transcribe_words``)
+        and ``transcribe_with_fallback`` (which uses the inference-counter
+        pattern and can't use the context manager directly).
+        """
+        if getattr(self, "_pending_gc_collect", False):
+            self._pending_gc_collect = False
+            try:
+                import gc
+
+                gc.collect()
+                release_gpu_memory()
+            except Exception:
+                log.debug("[MODEL] GPU memory release failed", exc_info=True)
+
+    @contextlib.contextmanager
+    def _with_lock_and_deferred_gc(self):
+        """Acquire ``self._lock`` for the body, then run deferred gc after.
+
+        Extracts the shared ``with self._lock: ...; if _pending_gc_collect: ...``
+        block that previously appeared in both ``transcribe_with_fallback``
+        and ``transcribe_words``. The lock is held for the duration of the
+        body; on exit (success OR exception), the lock is released and the
+        deferred gc cleanup fires if the body (or a fallback it triggered)
+        set ``_pending_gc_collect = True``.
+
+        Used by ``transcribe_words`` (which holds the lock for the whole
+        transcription). ``transcribe_with_fallback`` uses the
+        inference-counter pattern instead (it releases the lock during the
+        segment-decoding loop so ``unload()`` can drain via
+        ``_inference_cond``), so it calls ``_run_deferred_gc()`` directly
+        after its try/finally — same deferred-gc semantics, different lock
+        structure.
+        """
+        with self._lock:
+            yield
+        self._run_deferred_gc()
+
+    def _with_gpu_fallback(self, inner, audio, *args, **kwargs):
+        """Run ``inner(audio, *args, **kwargs)`` with GPU→CPU fallback.
+
+        Extracts the duplicate teardown sequence shared by
+        ``_transcribe_with_fallback_unlocked`` (batch path) and
+        ``_transcribe_words_with_fallback_unlocked`` (streaming path).
+
+        On a GPU runtime error (per ``_is_gpu_runtime_error``):
+          1. Drop the GPU model reference (``del self._model`` + set None).
+          2. Switch device/compute to CPU/int8.
+          3. Reload the model on CPU via ``_reload_under_lock()``.
+          4. Set ``_pending_gc_collect = True`` so the caller runs
+             ``gc.collect()`` + ``release_gpu_memory()`` AFTER releasing
+             the lock (RACE-023).
+          5. Retry ``inner(audio, *args, **kwargs)`` once on CPU.
+
+        The previous words-path teardown called ``release_gpu_memory()``
+        BEFORE ``del self._model`` — a no-op for VRAM release since the
+        ctranslate2 model still held the CUDA context. The unified helper
+        removes that misplaced call; VRAM release now happens in the
+        deferred-gc phase AFTER the model is actually dropped.
+
+        Non-GPU errors are re-raised unchanged. On a CPU device the
+        GPU-error classifier short-circuits at the top of
+        ``_is_gpu_runtime_error`` (returns False), so the fallback never
+        fires — the original exception propagates.
+        """
+        try:
+            return inner(audio, *args, **kwargs)
+        except Exception as first_err:
+            if not self._is_gpu_runtime_error(first_err):
+                raise
+
+            log.warning(
+                "GPU transcription failed (%s), falling back to CPU",
+                first_err,
+            )
+            # Tear down GPU model, reload on CPU.
+            # RACE-023: gc.collect() and release_gpu_memory() are
+            # deferred outside the lock via ``_pending_gc_collect``
+            # (the caller's ``_with_lock_and_deferred_gc`` or
+            # ``_run_deferred_gc`` call fires them after the lock is
+            # released). Calling ``release_gpu_memory()`` here would be
+            # a no-op — the ctranslate2 model still holds the CUDA
+            # context until ``del self._model`` runs below.
+            with contextlib.suppress(Exception):
+                del self._model
+            self._model = None
+            self._device = "cpu"
+            self._compute_type = "int8"
+            self._reload_under_lock()
+            self._pending_gc_collect = True
+            return inner(audio, *args, **kwargs)
+
     def transcribe_with_fallback(
         self,
         audio: np.ndarray,
@@ -1093,16 +1229,12 @@ class TranscriptionEngine:
                 self._active_inference -= 1
                 if self._active_inference == 0:
                     self._inference_cond.notify_all()
-        # RACE-023: perform deferred gc.collect() OUTSIDE the lock
-        if getattr(self, "_pending_gc_collect", False):
-            self._pending_gc_collect = False
-            try:
-                import gc
-
-                gc.collect()
-                release_gpu_memory()
-            except Exception:
-                log.debug("[MODEL] GPU memory release failed", exc_info=True)
+        # RACE-023: perform deferred gc.collect() OUTSIDE the lock.
+        # ``transcribe_with_fallback`` uses the inference-counter pattern
+        # (lock released during transcription) so it can't use
+        # ``_with_lock_and_deferred_gc`` directly — call the shared
+        # helper instead.
+        self._run_deferred_gc()
         return result
 
     def _transcribe_with_fallback_unlocked(
@@ -1110,81 +1242,20 @@ class TranscriptionEngine:
         audio: np.ndarray,
         audio_stats: tuple[float, float, float] | None = None,
     ) -> str:
-        try:
-            return self._transcribe_unlocked(audio, audio_stats=audio_stats)
-        except Exception as first_err:
-            if not self._is_gpu_runtime_error(first_err):
-                raise
-
-            log.warning(
-                "GPU transcription failed (%s), falling back to CPU",
-                first_err,
-            )
-            # Tear down GPU model, reload on CPU
-            # M9: Explicitly free GPU memory before reload
-            # also call torch.cuda.empty_cache() so the
-            # cached CUDA blocks are released back to the OS, not just
-            # held for reuse by a different (non-Whisper) backend.
-            # RACE-023: gc.collect() moved OUTSIDE the lock to avoid
-            # blocking is_loaded / transcribe for 10-100ms.
-            with contextlib.suppress(Exception):
-                del self._model
-            self._model = None
-            self._device = "cpu"
-            self._compute_type = "int8"
-            self._reload_under_lock()
-            # RACE-023: gc.collect() and release_gpu_memory() called
-            # OUTSIDE the lock (the lock is released when we return
-            # and the caller's `with self._lock:` block exits).
-            # We store a flag so the caller can do the cleanup.
-            self._pending_gc_collect = True
-            # pass through the pre-computed stats to the
-            # CPU retry as well.
-            return self._transcribe_unlocked(audio, audio_stats=audio_stats)
+        # pass through the pre-computed stats to the CPU retry as well.
+        return self._with_gpu_fallback(self._transcribe_unlocked, audio, audio_stats=audio_stats)
 
     def transcribe_words(self, audio: np.ndarray, offset_seconds: float = 0.0):
         """Transcribe audio array into word timings with a global offset."""
-        with self._lock:
-            result = self._transcribe_words_with_fallback_unlocked(audio, offset_seconds)
-        # RACE-023: perform deferred gc.collect() OUTSIDE the lock
-        if getattr(self, "_pending_gc_collect", False):
-            self._pending_gc_collect = False
-            try:
-                import gc
-
-                gc.collect()
-                release_gpu_memory()
-            except Exception:
-                log.debug("[MODEL] GPU memory release failed", exc_info=True)
-        return result
+        with self._with_lock_and_deferred_gc():
+            return self._transcribe_words_with_fallback_unlocked(audio, offset_seconds)
 
     def _transcribe_words_with_fallback_unlocked(
         self,
         audio: np.ndarray,
         offset_seconds: float,
     ):
-        try:
-            return self._transcribe_words_unlocked(audio, offset_seconds)
-        except Exception as first_err:
-            if not self._is_gpu_runtime_error(first_err):
-                raise
-
-            log.warning(
-                "GPU timestamped transcription failed (%s), falling back to CPU",
-                first_err,
-            )
-            # M9: Explicitly free GPU memory before reload
-            # also release CUDA cached blocks.
-            # RACE-023: gc.collect() deferred outside the lock.
-            release_gpu_memory()
-            with contextlib.suppress(Exception):
-                del self._model
-            self._model = None
-            self._device = "cpu"
-            self._compute_type = "int8"
-            self._reload_under_lock()
-            self._pending_gc_collect = True
-            return self._transcribe_words_unlocked(audio, offset_seconds)
+        return self._with_gpu_fallback(self._transcribe_words_unlocked, audio, offset_seconds)
 
     def _transcribe_words_unlocked(self, audio: np.ndarray, offset_seconds: float):
         if self._model is None:

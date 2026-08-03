@@ -29,6 +29,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from unittest.mock import patch
@@ -487,6 +488,10 @@ def test_integrity_cache_corrupt_json_is_replaced(tmp_path):
 # symlink rejection on _load_integrity_cache ──────────────────
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="FR-28 POSIX O_NOFOLLOW test — Windows uses reparse-point rejection",
+)
 def test_load_integrity_cache_rejects_symlink(tmp_path):
     """FR-28: a symlink planted at ``integrity_cache.json`` MUST NOT be
     followed. ``_load_integrity_cache`` must return the empty cache
@@ -508,11 +513,6 @@ def test_load_integrity_cache_rejects_symlink(tmp_path):
     POSIX-only — Windows reparse-point semantics are exercised by
     ``test_secure_file_io.py``.
     """
-    import sys
-
-    if sys.platform == "win32":
-        pytest.skip("FR-28 POSIX O_NOFOLLOW test — Windows uses reparse-point rejection")
-
     from voice_typer.server import security
 
     cache_path = security._integrity_cache_path()
@@ -597,16 +597,48 @@ def test_load_integrity_cache_normal_file_still_works(tmp_path):
         f"correctly after the switch to _secure_read_text. Got: {cache}"
     )
 
-    # Defense-in-depth: the loader should have tightened perms to 0o600.
-    # POSIX-only check (Windows ignores POSIX permission bits).
-    import sys
 
-    if sys.platform != "win32":
-        mode = cache_path.stat().st_mode & 0o777
-        assert mode == 0o600, (
-            "FR-28: _load_integrity_cache should chmod the cache file to "
-            f"0o600 after a successful read (defense-in-depth). Got 0o{mode:o}."
-        )
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="FR-28 POSIX permission check — Windows ignores POSIX permission bits",
+)
+def test_load_integrity_cache_tightens_perms_to_0o600_posix(tmp_path):
+    """FR-28 defense-in-depth: ``_load_integrity_cache`` must chmod the
+    cache file to ``0o600`` after a successful read.
+
+    POSIX-only — Windows ignores POSIX permission bits. On Windows this
+    test is SKIPPED (not silently passed) so a future regression in the
+    POSIX chmod path is still caught on Linux/macOS CI.
+    """
+    from voice_typer.server import security
+
+    cache_path = security._integrity_cache_path()
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
+
+    payload = {
+        "version": 1,
+        "repos": {
+            "test/repo": {
+                "config.json": {
+                    "mtime_ns": 999,
+                    "size": 42,
+                    "sha256": "b" * 64,
+                }
+            }
+        },
+    }
+    cache_path.write_text(json.dumps(payload), encoding="utf-8")
+    # Ensure perms are loose enough that the chmod-to-0o600 path is
+    # exercised (and doesn't fail). 0o644 is the typical default.
+    os.chmod(cache_path, 0o644)
+
+    security._load_integrity_cache()
+
+    mode = cache_path.stat().st_mode & 0o777
+    assert mode == 0o600, (
+        "FR-28: _load_integrity_cache should chmod the cache file to "
+        f"0o600 after a successful read (defense-in-depth). Got 0o{mode:o}."
+    )
 
 
 # _save_integrity_cache uses _secure_atomic_write ─────────────

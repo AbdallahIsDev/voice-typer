@@ -260,7 +260,7 @@ class TestSendCtrlVWin32:
     def test_invokes_send_input_with_mocked_win32_api(self):
         """_send_ctrl_v_win32 builds an INPUT batch and calls SendInput.
 
-        XZ-CLIP-12: production code now defines INPUT/KEYBDINPUT/
+        production code now defines INPUT/KEYBDINPUT/
         INPUT_union inline via ctypes.Structure (no longer imports
         from pynput._util.win32) and calls user32.SendInput directly
         via ctypes.windll.user32. Mock ctypes.windll.user32 so the

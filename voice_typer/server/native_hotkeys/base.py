@@ -604,6 +604,16 @@ class SubprocessHotkeyBackend(ABC):
                 log.error("[NATIVE-HOTKEY] %s", self._error_message)
                 return
 
+        # Each backend instance spawns its OWN native listener process
+        # here. ``HotkeyDispatcher`` creates three backends (dictation /
+        # ESC / repaste), so three of these processes run at once on
+        # native platforms — three reader threads, three IPC pipes, three
+        # TOCTOU-verify + watchdog cycles. See the architecture note in
+        # ``hotkey_dispatcher.HotkeyDispatcher`` for the planned
+        # multiplexed-binary refactor that collapses all three roles into
+        # a single process accepting multiple ``(role, spec)`` pairs.
+        # TODO (future session): support a multi-spec command line so one
+        # process can listen for several hotkeys and tag events by role.
         cmd = [str(self._binary_path), self.hotkey_str]
         try:
             self._process = subprocess.Popen(

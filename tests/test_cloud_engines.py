@@ -112,7 +112,7 @@ class TestCloudEngineProtocol:
         local_engine.transcribe.assert_called_once_with(audio, audio_stats=(0.01, 0.5, 50.0))
 
     def test_transcribe_with_fallback_publishes_cloud_fallback_used_event(self):
-        """XZ-R18-08: when cloud transcribe raises and the local engine
+        """when cloud transcribe raises and the local engine
         fallback runs, a ``cloud_fallback_used`` event is published to
         ``event_bus`` so the renderer can surface a user-visible toast.
 

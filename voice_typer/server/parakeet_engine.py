@@ -716,6 +716,13 @@ class ParakeetEngine:
                 )
                 if progress_callback:
                     progress_callback("Parakeet model ready")
+                # Prime CUDA kernels at load time so the first real
+                # dictation doesn't pay the 2-5 s JIT cost (cuDNN /
+                # cuBLAS / attention kernel compilation). No-op on CPU
+                # and best-effort (failures swallowed inside the helper).
+                # See ``_warm_up_model`` for the full contract.
+                if effective_device == "cuda":
+                    self._warm_up_model()
                 return True
 
             except ImportError as exc:
@@ -1204,11 +1211,40 @@ class ParakeetEngine:
                     # notification so the user knows why their
                     # dictation got slower, and publish a status
                     # event so the tray icon can show "(CPU
-                    # fallback)".  ``self.device`` is NOT mutated
-                    # here — it stays ``"cuda"`` so the next
-                    # ``load()`` re-attempts CUDA (per-transcription
-                    # fallback, not permanent).  The
-                    # ``_cpu_fallback_notified`` flag is reset to
+                    # fallback)".
+                    #
+                    # Device-state note: ``self.device`` is NOT
+                    # mutated here — it stays ``"cuda"`` so the next
+                    # ``load()`` re-attempts CUDA.  However,
+                    # ``self._model.device`` IS permanently mutated
+                    # to ``"cpu"`` by the ``.to(device="cpu")`` call
+                    # above (PyTorch's ``.to()`` moves the model
+                    # in place).  Subsequent ``transcribe()`` calls
+                    # within the same loaded session will therefore
+                    # run on CPU — they read ``self._model.device``
+                    # (now ``"cpu"``) at ``_transcribe_segment`` /
+                    # ``_transcribe_batch`` / ``_transcribe_segment_unlocked``,
+                    # not ``self.device``.
+                    #
+                    # Snapshot-and-restore (saving the original
+                    # device/dtype before the ``.to("cpu")`` call
+                    # and restoring them in a ``finally`` block)
+                    # would re-attempt CUDA on every subsequent
+                    # transcribe, but it is intentionally NOT done
+                    # here: if the CUDA error was non-transient
+                    # (e.g. driver crash, persistent OOM, hardware
+                    # fault), re-attempting CUDA on every transcribe
+                    # would re-trigger the same error and waste 1-5 s
+                    # of user time per call.  The current
+                    # "permanent-until-reload" behaviour is pinned by
+                    # ``test_fallback_retries_on_cpu_after_cuda_error``
+                    # (``mock_model.to.assert_called_once()``), which
+                    # would fail if a restore ``.to()`` call were
+                    # added.  A fresh ``load()`` (e.g. via the tray
+                    # "Reload model" action) re-attempts CUDA from
+                    # scratch.
+                    #
+                    # The ``_cpu_fallback_notified`` flag is reset to
                     # ``False`` at the top of ``load()`` so a
                     # fallback after the next reload re-notifies.
                     # Coordinate with agent 2-r for tray.py: the
@@ -1359,6 +1395,58 @@ class ParakeetEngine:
             )
             return ""
         return text
+
+    def _warm_up_model(self) -> None:
+        """Run a tiny dummy inference to prime CUDA kernels (JIT cost: 2-5 s).
+
+        The first ``model.generate()`` call after ``from_pretrained``
+        takes 2-5 s longer than subsequent ones because the GPU kernels
+        (cuDNN, cuBLAS, attention) must be JIT-compiled and memory
+        allocated for the model's specific shapes.  This warm-up runs a
+        0.5 s silence through the full ``processor()`` + ``generate()`` +
+        ``decode()`` pipeline at load time so the first real dictation
+        is fast.
+
+        Mirrors ``WhisperEngine._warm_up_model`` in
+        ``voice_typer/server/transcription.py`` (lines ~649-680), adapted
+        for Parakeet's ``processor()`` + ``model.generate()`` API (the
+        same call shape as ``_transcribe_segment``).
+
+        Non-fatal: any exception (CUDA OOM, processor error, etc.) is
+        logged at debug level and swallowed — the model is still
+        considered loaded, and only the first real transcription pays
+        the JIT cost.  ``load()`` returns True regardless.
+
+        No-op when:
+
+        - ``self._model`` or ``self._processor`` is None (defensive —
+          direct-call safety).
+        - ``self.device`` is not ``"cuda"`` (CPU JIT cost is negligible;
+          the gate matches ``load()``'s ``effective_device == "cuda"``
+          check so warm-up only fires when CUDA was actually used).
+        """
+        if self._model is None or self._processor is None:
+            return
+        if self.device != "cuda":
+            return
+        try:
+            warmup_audio = np.zeros(int(WHISPER_SAMPLE_RATE * 0.5), dtype=np.float32)
+            inputs = self._processor(
+                [warmup_audio],
+                sampling_rate=WHISPER_SAMPLE_RATE,
+                return_tensors="pt",
+            )
+            inputs.to(device=self._model.device, dtype=self._model.dtype)
+            with self._inference_mode_ctx():
+                output = self._model.generate(
+                    **inputs,
+                    return_dict_in_generate=True,
+                    stopping_criteria=[_AbortStoppingCriteria(self._abort_event)],
+                )
+            self._processor.decode(output.sequences, skip_special_tokens=True)
+            log.debug("[PARAKEET] warm-up generate() completed — first dictation will be fast")
+        except Exception as exc:
+            log.debug("[PARAKEET] warm-up generate() failed (non-fatal): %s", exc)
 
     def unload(self) -> None:
         """Free model memory.

@@ -894,7 +894,7 @@ class TestIsSafePasteTargetWindows:
     def test_returns_true_for_generic_dialog_class(self, fake_win32):
         """Class '#32770' (generic Win32 Dialog) → True.
 
-        XZ-CLIP-07: ``#32770`` is the generic Win32 Dialog class used by
+        ``#32770`` is the generic Win32 Dialog class used by
         Open/Save As/Properties dialogs too, not just UAC/consent. Blocking
         it prevented legitimate dictation into standard dialogs. Credential
         prompts are still caught by the UIA ``IsPassword`` check and the
@@ -975,7 +975,7 @@ class TestIsSafePasteTargetWindows:
         assert ClipboardManager._is_safe_paste_target() is True
 
     def test_returns_false_on_outer_runtime_exception(self, fake_win32):
-        """XZ-CLIP-03: unexpected RuntimeError → False (fail CLOSED).
+        """unexpected RuntimeError → False (fail CLOSED).
 
         Previously the outer ``except Exception`` returned ``True`` (fail
         open), which meant any unexpected error in the safety-check
@@ -990,7 +990,7 @@ class TestIsSafePasteTargetWindows:
         assert ClipboardManager._is_safe_paste_target() is False
 
     def test_returns_true_on_outer_import_error(self, fake_win32):
-        """XZ-CLIP-03: ImportError → True (fail open, broken infra)."""
+        """ImportError → True (fail open, broken infra)."""
         import builtins
 
         real_import = builtins.__import__
@@ -1570,7 +1570,7 @@ class TestPasteWindowsBranches:
         cm._keyboard.press.assert_any_call("v")
 
     def test_paste_aborts_on_macos_toctou_pid_change(self, fake_win32):
-        """XZ-CLIP-04: macOS paste aborts if frontmost app PID changes.
+        """macOS paste aborts if frontmost app PID changes.
 
         When the frontmost app PID captured right after the safety
         check differs from the PID captured right before the Cmd+V
@@ -1608,7 +1608,7 @@ class TestPasteWindowsBranches:
         assert not any("cmd_key" in str(c) for c in cm._keyboard.press.call_args_list)
 
     def test_paste_proceeds_when_macos_pid_unavailable(self, fake_win32):
-        """XZ-CLIP-04: macOS paste proceeds (fail-open) when PID unavailable."""
+        """macOS paste proceeds (fail-open) when PID unavailable."""
         cm = self._make_cm()
         with patch.object(clip_mod, "_Key") as mock_key, patch.object(clip_mod, "_Controller", MagicMock()):
             mock_key.cmd = "cmd_key"
@@ -1767,7 +1767,7 @@ class TestSendCtrlVWin32:
     def test_calls_sendinput_with_four_events(self, fake_win32):
         """Happy path: SendInput returns 4 → success, no fallback.
 
-        XZ-CLIP-12: production code now defines INPUT/KEYBDINPUT/
+        production code now defines INPUT/KEYBDINPUT/
         INPUT_union inline via ctypes.Structure (no longer imports
         from pynput._util.win32) and calls user32.SendInput directly
         via ctypes.windll.user32. The fake_win32 fixture patches

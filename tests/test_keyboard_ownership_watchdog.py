@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import socket
 import threading
+import time
 
 import pytest
 from voice_typer.server.ipc_server import IPCServer
@@ -183,12 +184,22 @@ def test_tcp_disconnect_finally_block_resets_ownership(monkeypatch) -> None:
     # the try/finally that calls _on_ipc_client_disconnect on EOF).
     client_sock.sendall((__import__("json").dumps({"type": "auth", "token": _test_token}) + "\n").encode("utf-8"))
 
-    # Give the handler a moment to process auth and enter the dispatch
-    # loop before we close the client (so the finally fires on EOF
-    # from the dispatch loop, not on EOF from the auth readline).
-    import time as _time
-
-    _time.sleep(0.15)
+    # Poll for the server-side auth completion signal
+    # (``server._tcp_client`` is assigned to ``auth_client`` inside
+    # ``self._lock`` AFTER the auth token check succeeds and BEFORE
+    # the dispatch loop starts — see ``_handle_tcp_connection`` in
+    # ``voice_typer/server/ipc/transport_tcp.py``). When this attribute
+    # is non-None, the handler has finished the auth handshake and is
+    # about to enter (or has just entered) the dispatch ``for line in
+    # client`` loop — exactly the precondition the original
+    # ``time.sleep(0.15)`` was trying to wait for. Replacing the fixed
+    # sleep with a bounded poll (1.5s deadline, 5ms granularity) makes
+    # the test exit early on fast machines and tolerant of slow CI.
+    _auth_deadline = time.monotonic() + 1.5
+    while time.monotonic() < _auth_deadline:
+        if getattr(server, "_tcp_client", None) is not None:
+            break
+        time.sleep(0.005)
 
     # Close the client side — server's readline() returns "" (EOF),
     # the for-loop exits, the finally block fires _on_ipc_client_disconnect.

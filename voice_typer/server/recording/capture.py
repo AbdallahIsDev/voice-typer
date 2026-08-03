@@ -496,10 +496,17 @@ class AudioCallbackDispatcher:
         # used). Safe to call when no entry exists.
         if recorder._thread_registry is not None:
             recorder._thread_registry.unregister(_AUDIO_WORKER_THREAD_NAME)
-        # Clear the stop event so the next start() can reuse the fields.
-        recorder._worker_stop_event.clear()
-        recorder._worker_wake_event.clear()
-        recorder._worker_thread = None
+        # Only clear the stop/wake events and null the thread reference if
+        # the worker actually exited. If still alive (stuck in VAD
+        # inference), leave the stop event SET so the zombie exits on its
+        # next iteration boundary, and keep the thread reference so the
+        # start path's is_alive() guard prevents spawning a duplicate
+        # (zombie thread leak mitigation — mirrors the pattern at
+        # ``device_manager.py``'s ``_stop_device_health_checker``).
+        if not recorder._worker_thread.is_alive():
+            recorder._worker_stop_event.clear()
+            recorder._worker_wake_event.clear()
+            recorder._worker_thread = None
 
     @staticmethod
     def _drain_event_queue(recorder: Any) -> None:
@@ -660,10 +667,11 @@ class AudioCallbackDispatcher:
         # daemon is stuck in a slow ``event_bus.publish`` and doesn't
         # exit within ``timeout``, we proceed anyway — the daemon is
         # harmless (the stop event is set; it will exit on its next
-        # iteration boundary) and the test contract
-        # (``_event_worker_thread is None`` after stop()) is preserved
-        # because we null the reference unconditionally after the join
-        # attempt.
+        # iteration boundary). The thread reference + stop event are
+        # only cleared if the worker actually exited, so a stuck worker
+        # doesn't get a duplicate spawned on the next start() (zombie
+        # thread leak mitigation — mirrors the pattern at
+        # ``device_manager.py``'s ``_stop_device_health_checker``).
         recorder._event_worker_thread.join(timeout=timeout)
         if recorder._event_worker_thread.is_alive():
             log.debug(
@@ -675,5 +683,14 @@ class AudioCallbackDispatcher:
             log.debug("[RECORDING] Event worker thread exited cleanly")
         if recorder._thread_registry is not None:
             recorder._thread_registry.unregister(_EVENT_WORKER_THREAD_NAME)
-        recorder._event_stop_event.clear()
-        recorder._event_worker_thread = None
+        # Only clear the stop event and null the thread reference if the
+        # event worker actually exited. If still alive (stuck in a slow
+        # ``event_bus.publish``), leave the stop event SET so the zombie
+        # exits on its next iteration boundary, and keep the thread
+        # reference so the start path's is_alive() guard prevents
+        # spawning a duplicate (zombie thread leak mitigation — mirrors
+        # the pattern at ``device_manager.py``'s
+        # ``_stop_device_health_checker``).
+        if not recorder._event_worker_thread.is_alive():
+            recorder._event_stop_event.clear()
+            recorder._event_worker_thread = None

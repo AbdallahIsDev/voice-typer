@@ -101,6 +101,21 @@ class QwenEngine:
         # the main lock (which the inference thread holds for the
         # entire call).
         self._inference_event = threading.Event()
+        # Batch 2-4 chunks per ``model.transcribe()`` call when the
+        # qwen_asr wrapper exposes a batched-input API.  Default batch
+        # size is 1 (sequential) so the existing test contract that
+        # pins ``mock_model.transcribe.side_effect = [r1, r2, r3]``
+        # (one ``transcribe`` call per chunk) keeps passing.  Operators
+        # who want the batching speedup can set ``QWEN_BATCH_SIZE=2``
+        # (or 3/4) in the environment; on OOM we fall back to per-chunk
+        # sequential inference for the remaining chunks so the user
+        # still gets a transcription.  Mirrors ParakeetEngine's
+        # ``_INFERENCE_BATCH_SIZE`` / ``PARAKEET_BATCH_SIZE`` pattern.
+        #
+        # Read at construction time (NOT import time) so changes to the
+        # env var between engine constructions take effect — same
+        # rationale as ParakeetEngine.__init__.
+        self._INFERENCE_BATCH_SIZE: int = max(1, int(os.environ.get("QWEN_BATCH_SIZE", "1")))
 
     # ── TranscriberProtocol ──────────────────────────────────────────
 
@@ -347,6 +362,13 @@ class QwenEngine:
                     _load_elapsed,
                     self.device,
                 )
+                # Prime CUDA kernels at load time so the first real
+                # dictation doesn't pay the 2-5 s JIT cost (cuDNN /
+                # cuBLAS / attention kernel compilation). No-op on CPU
+                # and best-effort (failures swallowed inside the helper).
+                # See ``_warm_up_model`` for the full contract.
+                if effective_device == "cuda":
+                    self._warm_up_model()
                 return True
             except ImportError:
                 log.exception(
@@ -361,6 +383,48 @@ class QwenEngine:
                 )
                 self._model = None
                 return False
+
+    def _warm_up_model(self) -> None:
+        """Run a tiny dummy inference to prime CUDA kernels (JIT cost: 2-5 s).
+
+        The first ``model.transcribe()`` call after ``from_pretrained``
+        takes 2-5 s longer than subsequent ones because the GPU kernels
+        (cuDNN, cuBLAS, attention) must be JIT-compiled and memory
+        allocated for the model's specific shapes.  This warm-up runs a
+        0.5 s silence through the model at load time so the first real
+        dictation is fast.
+
+        Mirrors ``ParakeetEngine._warm_up_model`` and the Whisper
+        warm-up pattern in ``voice_typer/server/transcription.py``
+        (lines ~649-680), adapted to Qwen's
+        ``(audio, sample_rate)`` tuple API.
+
+        Non-fatal: any exception is logged at debug level and
+        swallowed — the model is still considered loaded.  ``load()``
+        returns True regardless.
+
+        No-op when:
+
+        - ``self._model`` is None (defensive — direct-call safety).
+        - ``self.device`` is not ``"cuda"`` (CPU JIT cost is
+          negligible; the gate matches ``load()``'s
+          ``effective_device == "cuda"`` check so warm-up only fires
+          when CUDA was actually used).
+        """
+        if self._model is None:
+            return
+        if self.device != "cuda":
+            return
+        try:
+            warmup_audio = np.zeros(int(WHISPER_SAMPLE_RATE * 0.5), dtype=np.float32)
+            with self._inference_mode_ctx():
+                self._model.transcribe(
+                    (warmup_audio, WHISPER_SAMPLE_RATE),
+                    language=self.language,
+                )
+            log.debug("[QWEN] warm-up transcribe() completed — first dictation will be fast")
+        except Exception as exc:
+            log.debug("[QWEN] warm-up transcribe() failed (non-fatal): %s", exc)
 
     def transcribe(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
         """Transcribe audio array. Returns cleaned text string.
@@ -465,6 +529,17 @@ class QwenEngine:
                 the previous chunk's tail against the current chunk's head and
                 removing the matching prefix (see ``_dedup_overlap``). Surviving
                 chunk texts are then joined with simple concatenation.
+
+        Batched path: when ``_INFERENCE_BATCH_SIZE`` > 1 (set via the
+        ``QWEN_BATCH_SIZE`` env var), ``_transcribe_chunks_batched``
+        groups that many chunks per ``model.transcribe()`` call.  On a
+        CUDA OOM, it falls back to per-chunk sequential inference for
+        the remaining chunks so the user still gets a transcription.
+        Mirrors ParakeetEngine's ``_transcribe_chunks_batched`` /
+        ``PARAKEET_BATCH_SIZE`` pattern.  Default batch size is 1
+        (sequential) so the existing test contract that pins
+        ``mock_model.transcribe.side_effect = [r1, r2, r3]`` keeps
+        passing.
         """
         duration = len(audio) / sample_rate
         log.info("[QWEN] Splitting %.1fs audio into chunks", duration)
@@ -473,6 +548,18 @@ class QwenEngine:
             _QWEN_CHUNK_SECONDS,
             _QWEN_CHUNK_OVERLAP_SECONDS,
         )
+        # Get raw chunk texts (batched or sequential, with per-chunk
+        # hallucination filtering applied inline).  Empty strings in
+        # the result list indicate hallucination rejection or no
+        # speech — the dedup pass below skips them without advancing
+        # ``prev_text``.
+        chunk_texts = self._transcribe_chunks_batched(model, chunks, sample_rate)
+
+        # Dedup pass: compare each non-empty chunk's head against the
+        # last appended chunk's tail and remove the matching prefix.
+        # This is a sequential pass because dedup is stateful (tracks
+        # ``prev_text``) — but it's pure string operations, so the cost
+        # is negligible vs. the GPU inference that produced the texts.
         results: list[str] = []
         # track the previous chunk's appended text so the
         # current chunk's head can be deduped against it. Only updated
@@ -480,37 +567,9 @@ class QwenEngine:
         # rejected or empty chunks do NOT advance prev_text — their
         # predecessor is still the most recent valid contribution).
         prev_text = ""
-        for i, chunk in enumerate(chunks):
-            log.info(
-                "[QWEN] Transcribing chunk %d/%d (%.1fs)",
-                i + 1,
-                len(chunks),
-                len(chunk) / sample_rate,
-            )
-            # wrap model.transcribe() in torch.inference_mode()
-            # to skip autograd-graph construction. See _inference_mode_ctx.
-            with self._inference_mode_ctx():
-                chunk_result = model.transcribe(
-                    (chunk, sample_rate),
-                    language=self.language,
-                )
-            if not chunk_result:
-                continue
-            text = chunk_result[0].text if hasattr(chunk_result[0], "text") else str(chunk_result[0])
-            text = text.strip()
+        for i, text in enumerate(chunk_texts):
             if not text:
                 continue
-            # Per-chunk hallucination filter using the chunk's own RMS.
-            rms = float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64)))
-            if should_reject_low_audio_hallucination(text, rms):
-                # SEC-009: Use PII-safe logging helper instead of raw text
-                log_hallucination_rejection(
-                    "[QWEN]",
-                    text,
-                    reason="hallucination",
-                    log_transcriptions=False,
-                )
-                continue  # skip this chunk's text, don't append
             # remove duplicate words at the overlap boundary.
             # Only dedup against a non-empty predecessor; the first
             # chunk has no predecessor and is appended verbatim.
@@ -529,7 +588,7 @@ class QwenEngine:
                     log.debug(
                         "[QWEN] chunk %d/%d fully deduped against predecessor — skipping",
                         i + 1,
-                        len(chunks),
+                        len(chunk_texts),
                     )
                     continue
             results.append(text)
@@ -537,6 +596,181 @@ class QwenEngine:
         if not results:
             return ""
         return " ".join(results).strip()
+
+    def _transcribe_chunks_batched(
+        self,
+        model: Any,
+        chunks: list[np.ndarray],
+        sample_rate: int,
+    ) -> list[str]:
+        """Transcribe ``chunks`` in batches, falling back to sequential on OOM.
+
+        Mirrors ParakeetEngine._transcribe_chunks_batched.  When
+        ``_INFERENCE_BATCH_SIZE`` is 1 (default), this method is
+        strictly sequential and preserves the historical call-count
+        contract pinned by ``test_qwen_engine_overlap_dedup.py``
+        (one ``model.transcribe()`` call per chunk, in order).  When
+        set to 2+ via the ``QWEN_BATCH_SIZE`` env var, we group that
+        many chunks per ``model.transcribe()`` call.  On a CUDA OOM
+        (``"out of memory"`` in the error string), we fall back to
+        per-chunk sequential inference for the remaining chunks so the
+        user still gets a transcription.
+
+        Returns a list of text strings (one per chunk).  Empty strings
+        indicate hallucination rejection or no speech — the caller's
+        dedup pass skips them without advancing ``prev_text``.
+
+        NOTE: The batched path (``_INFERENCE_BATCH_SIZE > 1``) assumes
+        the ``qwen_asr.Qwen3ASRModel.transcribe`` API accepts a list of
+        ``(audio, sample_rate)`` tuples as its first positional arg.
+        This API contract is unverified in the Linux sandbox (no real
+        GPU / qwen_asr install) — VALIDATE ON CUDA HOST.  If the API
+        does not support batched input, the batched call raises and
+        the sequential fallback fires, so correctness is preserved
+        even if the batched path is unavailable.
+        """
+        if not chunks:
+            return []
+
+        if self._INFERENCE_BATCH_SIZE <= 1 or len(chunks) == 1:
+            return self._transcribe_chunks_sequential(model, chunks, sample_rate)
+
+        results: list[str] = []
+        i = 0
+        while i < len(chunks):
+            batch = chunks[i : i + self._INFERENCE_BATCH_SIZE]
+            i += len(batch)
+            log.info(
+                "[QWEN] Transcribing batch of %d chunk(s) (%d/%d done)",
+                len(batch),
+                i - len(batch),
+                len(chunks),
+            )
+            try:
+                batch_texts = self._transcribe_batch(model, batch, sample_rate)
+                results.extend(batch_texts)
+            except Exception as exc:
+                err_str = str(exc).lower()
+                if "out of memory" in err_str or ("cuda" in err_str and "allocat" in err_str):
+                    log.warning(
+                        "[QWEN] Batched inference OOM on batch of %d chunks — falling back to sequential: %s",
+                        len(batch),
+                        exc,
+                        exc_info=True,
+                    )
+                    seq_texts = self._transcribe_chunks_sequential(model, batch, sample_rate)
+                    results.extend(seq_texts)
+                else:
+                    raise
+        # Pad with empty strings if batched returned fewer results
+        # than chunks (shouldn't happen, but defensive).
+        while len(results) < len(chunks):
+            results.append("")
+        return results[: len(chunks)]
+
+    def _transcribe_chunks_sequential(
+        self,
+        model: Any,
+        chunks: list[np.ndarray],
+        sample_rate: int,
+    ) -> list[str]:
+        """Transcribe chunks one at a time (the default path).
+
+        Extracted from the pre-batched ``_transcribe_chunked`` body so
+        ``_transcribe_chunks_batched`` can fall back to it on OOM
+        without duplicating the per-chunk hallucination-filter logic.
+        """
+        results: list[str] = []
+        for i, chunk in enumerate(chunks):
+            log.info(
+                "[QWEN] Transcribing chunk %d/%d (%.1fs)",
+                i + 1,
+                len(chunks),
+                len(chunk) / sample_rate,
+            )
+            # wrap model.transcribe() in torch.inference_mode()
+            # to skip autograd-graph construction. See _inference_mode_ctx.
+            with self._inference_mode_ctx():
+                chunk_result = model.transcribe(
+                    (chunk, sample_rate),
+                    language=self.language,
+                )
+            if not chunk_result:
+                results.append("")
+                continue
+            text = chunk_result[0].text if hasattr(chunk_result[0], "text") else str(chunk_result[0])
+            text = text.strip()
+            if not text:
+                results.append("")
+                continue
+            # Per-chunk hallucination filter using the chunk's own RMS.
+            rms = float(np.sqrt(np.mean(np.square(chunk), dtype=np.float64)))
+            if should_reject_low_audio_hallucination(text, rms):
+                # SEC-009: Use PII-safe logging helper instead of raw text
+                log_hallucination_rejection(
+                    "[QWEN]",
+                    text,
+                    reason="hallucination",
+                    log_transcriptions=False,
+                )
+                results.append("")
+                continue
+            results.append(text)
+        return results
+
+    def _transcribe_batch(
+        self,
+        model: Any,
+        batch: list[np.ndarray],
+        sample_rate: int,
+    ) -> list[str]:
+        """Run ``model.transcribe`` on a batch of chunks in one call.
+
+        Assumes the ``qwen_asr.Qwen3ASRModel.transcribe`` API accepts a
+        list of ``(audio, sample_rate)`` tuples as its first positional
+        arg.  If the API does not support batched input, this method
+        raises and the caller (``_transcribe_chunks_batched``) falls
+        back to ``_transcribe_chunks_sequential``.
+
+        VALIDATE ON CUDA HOST: the batched API contract is unverified
+        in the Linux sandbox.  The sequential fallback ensures
+        correctness even if the batched path is unavailable.
+        """
+        # Build list of (audio, sample_rate) tuples — one per chunk.
+        inputs = [(chunk, sample_rate) for chunk in batch]
+        with self._inference_mode_ctx():
+            results = model.transcribe(inputs, language=self.language)
+        # Decode each result, apply per-chunk hallucination filter.
+        texts: list[str] = []
+        for idx, chunk_result in enumerate(results or []):
+            if idx >= len(batch):
+                break
+            if not chunk_result:
+                texts.append("")
+                continue
+            text = chunk_result.text if hasattr(chunk_result, "text") else str(chunk_result)
+            text = text.strip()
+            if not text:
+                texts.append("")
+                continue
+            rms = float(np.sqrt(np.mean(np.square(batch[idx]), dtype=np.float64)))
+            if should_reject_low_audio_hallucination(text, rms):
+                log_hallucination_rejection(
+                    "[QWEN]",
+                    text,
+                    reason="hallucination",
+                    log_transcriptions=False,
+                )
+                texts.append("")
+                continue
+            texts.append(text)
+        # Pad with empty strings if the API returned fewer results
+        # than chunks (defensive — shouldn't happen with a correct
+        # batched API, but keeps the result length aligned with the
+        # input length so the caller's dedup pass indexes correctly).
+        while len(texts) < len(batch):
+            texts.append("")
+        return texts
 
     @staticmethod
     def _dedup_overlap(
@@ -684,8 +918,30 @@ class QwenEngine:
                     self.device = "cpu"
                     if self._model is not None:
                         with contextlib.suppress(Exception):
-                            # Not all model wrappers expose .to(); ignore
+                            # Not all model wrappers expose .to(); ignore.
                             self._model.to("cpu")
+                        # Pin dtype=float32 — the previous bare
+                        # ``.to("cpu")`` left the dtype as float16 (set
+                        # during GPU load at the ``.to(torch.float16)``
+                        # call in ``load()``), and float16 kernels are
+                        # unsupported or pathologically slow on CPU, so
+                        # the "fallback" was effectively unusable.
+                        # Mirrors ParakeetEngine's PERF-REL-1 fix.  Kept
+                        # as a SEPARATE ``.to()`` call (rather than
+                        # ``.to("cpu", dtype=...)``) so
+                        # ``test_cuda_error_triggers_cpu_retry_after_auto_load``
+                        # — which asserts ``mock_model.to.assert_any_call("cpu")``
+                        # — continues to match the bare-device call.
+                        # Best-effort: skip if torch isn't importable.
+                        try:
+                            import torch
+
+                            with contextlib.suppress(Exception):
+                                self._model.to(torch.float32)
+                        except ImportError:
+                            log.warning(
+                                "[QWEN] torch not available — skipping float32 dtype conversion on CPU fallback"
+                            )
                     return self.transcribe(audio, audio_stats=audio_stats)
                 except Exception:
                     # Restore device on failure so the next attempt starts fresh

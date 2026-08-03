@@ -3,7 +3,7 @@
 Covers the findings from the comprehensive review that are fully contained
 within ``voice_typer/server/credential_store.py``:
 
-  - **XZ-SEC-04** (Medium): ``secrets_migrated`` flag was set
+  - **``secrets_migrated`` flag was set
     unconditionally, so a system where keyring later became available
     would silently keep plaintext API keys in ``config.json`` forever.
     Fixed: when keyring is unavailable AND there were real plaintext
@@ -12,17 +12,17 @@ within ``voice_typer/server/credential_store.py``:
     flag is recorded instead, so the next launch re-attempts migration
     automatically.
 
-  - **XZ-SEC-10** (Low): ``load_secret`` returned silently on the
+  - **``load_secret`` returned silently on the
     keyring-success path — a compromised process exfiltrating secrets
     via repeated ``load_secret`` calls left no trace in logs. Fixed:
     an INFO audit log is emitted on the keyring-success path matching
     the store-side format (provider + length only — never the value
     itself).
 
-  - **Already-fixed verifications** for XZ-SEC-02 / XZ-R10-04
+  - **Already-fixed verifications** for
     (``_write_plaintext_fallback`` acquires the config lock),
-    XZ-SEC-07 / XZ-CC-4 / XV-121 (``_redact_sensitive`` delegates to
-    ``_secrets.redact_api_keys``), and XZ-SEC-08
+    (``_redact_sensitive`` delegates to
+    ``_secrets.redact_api_keys``), and
     (``KEYRING_SERVICE_NAME`` is reverse-DNS) — these are smoke-tested
     here so a future regression to the pre-fix behavior is caught.
 
@@ -133,14 +133,14 @@ def mock_keyring_unavailable(monkeypatch):
 
 
 class TestSecretsMigratedGating:
-    """XZ-SEC-04: ``secrets_migrated`` must NOT be set when keyring was
+    """``secrets_migrated`` must NOT be set when keyring was
     unavailable AND real plaintext secrets were skipped — so the next
     launch re-attempts migration automatically once keyring becomes
     available.
     """
 
     def test_migrate_retried_after_keyring_becomes_available(self, monkeypatch, tmp_path):
-        """End-to-end regression for the XZ-SEC-04 bug.
+        """End-to-end regression for the bug.
 
         Scenario: a system where keyring is unavailable on first launch
         (so plaintext API keys are kept) but becomes available on a
@@ -234,7 +234,7 @@ class TestSecretsMigratedGating:
         """If ``secrets_migrated`` is already True (prior successful
         migration), the function must early-return 0 without re-running
         the per-provider loop. This is the idempotency gate used by
-        Config.load — XZ-SEC-04 doesn't change this behavior (it only
+        Config.load — doesn't change this behavior (it only
         changes WHEN the flag is set on the unavailable-keyring path).
         """
         config_file = tmp_path / "config.json"
@@ -259,7 +259,7 @@ class TestSecretsMigratedGating:
 
 
 class TestLoadSecretAuditLog:
-    """XZ-SEC-10: ``load_secret`` must emit an INFO audit log on the
+    """``load_secret`` must emit an INFO audit log on the
     keyring-success path so repeated secret reads (e.g. by a compromised
     process exfiltrating secrets) leave a trace in the log.
 
@@ -343,13 +343,13 @@ class TestLoadSecretAuditLog:
 
 
 class TestAlreadyFixedVerifications:
-    """Smoke tests verifying that fixes already applied for XZ-SEC-02,
-    XZ-SEC-07, and XZ-SEC-08 remain in place. A future regression that
+    """Smoke tests verifying that fixes already applied,
+    remain in place. A future regression that
     re-introduces the pre-fix behavior will trip one of these.
     """
 
     def test_xz_sec_02_write_plaintext_fallback_uses_config_lock(self):
-        """XZ-SEC-02 / XZ-R10-04: ``_write_plaintext_fallback`` must
+        """``_write_plaintext_fallback`` must
         acquire ``_acquire_config_lock()`` for the full read-modify-write.
 
         We verify by inspecting the function source — the
@@ -361,18 +361,18 @@ class TestAlreadyFixedVerifications:
 
         src = inspect.getsource(credential_store._write_plaintext_fallback)
         assert "_acquire_config_lock" in src, (
-            "XZ-SEC-02 regression: _write_plaintext_fallback no longer "
+            "regression: _write_plaintext_fallback no longer "
             "acquires _acquire_config_lock — concurrent Config.save() / "
             "delete_secret could clobber the field written here."
         )
         assert "with _acquire_config_lock()" in src, (
-            "XZ-SEC-02 regression: _acquire_config_lock must be used as a "
+            "regression: _acquire_config_lock must be used as a "
             "context manager ('with _acquire_config_lock():') wrapping the "
             "read-modify-write body."
         )
 
     def test_xz_sec_07_redact_sensitive_delegates_to_secrets(self):
-        """XZ-SEC-07 / XZ-CC-4 / XV-121: ``_redact_sensitive`` must
+        """``_redact_sensitive`` must
         delegate API-key redaction to ``_secrets.redact_api_keys`` (the
         canonical helper) rather than maintaining a divergent regex.
 
@@ -386,18 +386,18 @@ class TestAlreadyFixedVerifications:
         s = "token: abcd1234efgh5678ijkl9012"
         redacted = credential_store._redact_sensitive(s)
         assert "abcd1234efgh5678ijkl9012" not in redacted, (
-            "XZ-SEC-07 regression: 24-char bare token was NOT redacted — "
+            "regression: 24-char bare token was NOT redacted — "
             "_redact_sensitive may have reverted to its old 32+ char threshold "
             "instead of delegating to _secrets.redact_api_keys (20+ char)."
         )
         assert "[redacted]" in redacted
 
     def test_xz_sec_08_service_name_is_reverse_dns(self):
-        """XZ-SEC-08: ``KEYRING_SERVICE_NAME`` must be the reverse-DNS
+        """``KEYRING_SERVICE_NAME`` must be the reverse-DNS
         form ``app.voicetyper`` (not the bare ``voice-typer`` that
         another app could register and use to read Voice Typer secrets)."""
         assert credential_store.KEYRING_SERVICE_NAME == "app.voicetyper", (
-            "XZ-SEC-08 regression: KEYRING_SERVICE_NAME reverted to the "
+            "regression: KEYRING_SERVICE_NAME reverted to the "
             "bare 'voice-typer' form — another app registering the same "
             "service name could read Voice Typer secrets."
         )

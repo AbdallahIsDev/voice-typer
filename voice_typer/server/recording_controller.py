@@ -2030,4 +2030,18 @@ class RecordingController:
         if t is not None and t is not threading.current_thread():
             with contextlib.suppress(Exception):
                 t.join(timeout=1.0)
-        self._watchdog_thread = None
+            # Only null the reference if the thread actually exited. If
+            # still alive (stuck in a long operation), keep the reference
+            # so _start_watchdog_thread's is_alive() guard reuses it
+            # instead of spawning a duplicate (zombie thread leak
+            # mitigation — mirrors the pattern at device_manager.py's
+            # _stop_device_health_checker). The stop event is left SET
+            # so the zombie exits on its next iteration boundary.
+            if not t.is_alive():
+                self._watchdog_thread = None
+        else:
+            # Self-join case (watchdog thread calling _stop_watchdog_thread
+            # from inside its own loop) — can't join ourselves, and the
+            # thread will exit naturally after returning, so null the
+            # reference. Also covers the ``t is None`` case (no-op).
+            self._watchdog_thread = None

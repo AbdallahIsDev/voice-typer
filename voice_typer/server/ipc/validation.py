@@ -56,6 +56,7 @@ ad-hoc:
 # contracts declared below. Imported at module load (not under
 # ``TYPE_CHECKING``) so the TypedDicts are real runtime classes that
 # introspection tests can reference.
+import json
 from collections.abc import Callable as _Callable
 from typing import TypedDict
 
@@ -319,6 +320,56 @@ class FieldRule(TypedDict, total=False):
 Schema = dict[str, FieldRule]
 
 
+# ── Per-schema max_payload_bytes cache ────────────────────────────────
+#
+# The whole-payload size cap (``max_payload_bytes``) can be declared
+# per-field in a schema. When the top-level keyword argument is not
+# supplied, the helper scans every field rule and uses the MINIMUM
+# declared cap (most restrictive). That scan was previously O(n) per
+# call and ran on every IPC message — a wasted re-scan for schemas
+# that are typically module-level constants (stable across calls).
+#
+# The cache below memoizes the scan result keyed by ``id(schema)`` +
+# a lightweight fingerprint (field count + sorted field names). The
+# fingerprint guards against ``id`` reuse: if a schema dict is
+# garbage-collected and a different schema reuses its ``id``, the
+# fingerprint mismatch forces a recompute instead of returning a
+# stale cap. The cache is bounded by FIFO eviction so per-call inline
+# schemas (which get a fresh ``id`` each call) cannot grow it without
+# limit.
+_MAX_PAYLOAD_BYTES_CACHE_MAX = 1024
+_MAX_PAYLOAD_BYTES_CACHE: dict[int, tuple[tuple[str, ...], int | None]] = {}
+_MAX_PAYLOAD_BYTES_CACHE_SEEN: set[int] = set()
+
+
+def _schema_effective_max_payload_bytes(schema: Schema) -> int | None:
+    """Return the effective whole-payload byte cap declared in *schema*.
+
+    Scans the schema's field rules for ``max_payload_bytes`` and returns
+    the MINIMUM (most restrictive) declared value, or ``None`` if no
+    field declares a cap. Results are memoized per schema object so
+    repeated validation calls with the same schema dict skip the
+    ``schema.values()`` scan.
+    """
+    key = id(schema)
+    fingerprint = (len(schema), tuple(sorted(schema)))
+    if key in _MAX_PAYLOAD_BYTES_CACHE:
+        cached_fp, cached_val = _MAX_PAYLOAD_BYTES_CACHE[key]
+        if cached_fp == fingerprint:
+            return cached_val
+    field_maxes = [
+        rule.get("max_payload_bytes") for rule in schema.values() if rule.get("max_payload_bytes") is not None
+    ]
+    value = min(field_maxes) if field_maxes else None
+    _MAX_PAYLOAD_BYTES_CACHE[key] = (fingerprint, value)
+    _MAX_PAYLOAD_BYTES_CACHE_SEEN.add(key)
+    if len(_MAX_PAYLOAD_BYTES_CACHE) > _MAX_PAYLOAD_BYTES_CACHE_MAX:
+        oldest = next(iter(_MAX_PAYLOAD_BYTES_CACHE))
+        del _MAX_PAYLOAD_BYTES_CACHE[oldest]
+        _MAX_PAYLOAD_BYTES_CACHE_SEEN.discard(oldest)
+    return value
+
+
 # Typed contract for the IPC error envelope. The TS side has a
 # matching ``ErrorEvent`` interface (``ipc.ts:119-152``); these
 # TypedDicts are the Python-side mirror so the ad-hoc dict literals
@@ -479,19 +530,18 @@ def _validate_dict_payload(
     # backward-compatible (single-field schemas behave identically)
     # AND removes the fragility. The cap is checked ONCE before the
     # per-field loop, exactly as before.
-    import json as _json_mod
-
     effective_max_bytes = max_payload_bytes
     if effective_max_bytes is None:
-        # scan ALL fields and use the minimum (most
-        # restrictive) declared cap. Previously the helper broke after
-        # the first field that declared the rule, silently ignoring
-        # any subsequent field's value.
-        field_maxes = [r.get("max_payload_bytes") for r in schema.values() if r.get("max_payload_bytes") is not None]
-        if field_maxes:
-            effective_max_bytes = min(field_maxes)
+        # Scan all field rules for a per-field ``max_payload_bytes``
+        # cap and use the MINIMUM (most restrictive) declared value.
+        # Previously the helper broke after the first field that
+        # declared the rule, silently ignoring any subsequent field's
+        # value. The scan is now memoized per schema object (see
+        # ``_schema_effective_max_payload_bytes``) so repeated calls
+        # with the same schema skip the ``schema.values()`` walk.
+        effective_max_bytes = _schema_effective_max_payload_bytes(schema)
     if effective_max_bytes is not None:
-        payload_size = len(_json_mod.dumps(data))
+        payload_size = len(json.dumps(data))
         if payload_size > effective_max_bytes:
             # ErrorEnvelope contract — see validation.py
             return None, {

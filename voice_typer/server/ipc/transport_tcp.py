@@ -22,7 +22,11 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.rate_limiter import _get_rate_limiter
+from voice_typer.server.ipc.rate_limiter import (
+    _HEARTBEAT_INTERVAL_SECONDS,
+    _HEARTBEAT_TIMEOUT_SECONDS,
+    _get_rate_limiter,
+)
 from voice_typer.server.ipc.transport import _TCPLineIO
 from voice_typer.server.ipc.validation import ErrorCodes
 from voice_typer.server.keyboard_ownership import keyboard_ownership
@@ -215,6 +219,15 @@ class TCPTransportMixin:
             try:
                 conn, addr = server.accept()
                 log.info("[TCP] client connected from %s:%d", *addr)
+                # SEC: set a defensive blocking budget on the accepted
+                # socket BEFORE submitting it to the worker pool, so a
+                # backlog of queued connections (worker pool saturated
+                # by a flood-connect attack) cannot hold worker threads
+                # indefinitely once they do start processing. The
+                # connection handler re-applies the auth + idle-read
+                # timeouts after it takes over.
+                with contextlib.suppress(OSError, AttributeError):
+                    conn.settimeout(10.0)  # socket may be a mock in tests
             except OSError:
                 # Server socket closed during shutdown (stop() called
                 # server_sock.close()).
@@ -372,146 +385,144 @@ class TCPTransportMixin:
 
         # Perform the auth handshake OUTSIDE self._lock so
         # a stalled auth read doesn't block push() events from other
-        # threads.
-        if expected_token:
-            auth_client = _TCPLineIO(conn)
-            try:
-                auth_line = auth_client.readline()
-                if not auth_line:
-                    log.warning("[TCP] client disconnected before sending auth")
-                    auth_client.close()
-                    return
-                auth_msg = json.loads(auth_line.strip())
-                # Validate-if-present the IPC wire
-                # protocol version BEFORE the token check. A stale client
-                # that explicitly sends ``protocol_version`` with a value
-                # that doesn't equal :data:`IPC_PROTOCOL_VERSION` gets a
-                # structured ``server.protocol_version_mismatch`` error
-                # envelope instead of an opaque ``auth_failed``. Clients
-                # that omit the field (legacy senders) continue to the
-                # token check unchanged — backward compatible.
-                if (
-                    isinstance(auth_msg, dict)
-                    and "protocol_version" in auth_msg
-                    and auth_msg.get("protocol_version") != IPC_PROTOCOL_VERSION
-                ):
-                    log.warning(
-                        "[TCP] auth rejected — protocol_version mismatch (client sent %r, server expects %r)",
-                        auth_msg.get("protocol_version"),
-                        IPC_PROTOCOL_VERSION,
-                    )
-                    try:
-                        auth_client.write(
-                            json.dumps(
-                                {
-                                    "type": "error",
-                                    "data": {
-                                        "code": ErrorCodes.PROTOCOL_VERSION_MISMATCH,
-                                        "message": (
-                                            f"protocol version mismatch: client sent "
-                                            f"{auth_msg.get('protocol_version')!r}, "
-                                            f"server requires {IPC_PROTOCOL_VERSION}"
-                                        ),
-                                        "client_protocol_version": auth_msg.get("protocol_version"),
-                                        "server_protocol_version": IPC_PROTOCOL_VERSION,
-                                    },
-                                }
-                            )
-                            + "\n"
-                        )
-                        auth_client.flush()
-                    except Exception as exc:  # noqa: BLE001 — best-effort error frame to a client that's about to be closed
-                        log.debug(
-                            "[TCP] failed to send protocol_version_mismatch error frame: %s",
-                            type(exc).__name__,
-                            exc_info=True,
-                        )
-                    auth_client.close()
-                    return
-                # Use hmac.compare_digest for constant-time
-                # token comparison so a timing side-channel cannot
-                # recover the token byte-by-byte.
-                # Check isinstance FIRST so .get() doesn't raise on
-                # non-dict JSON values (e.g. 42, [1,2,3], "hi").
-                token_valid = (
-                    isinstance(auth_msg, dict)
-                    and auth_msg.get("type") == "auth"
-                    and isinstance(auth_msg.get("token", ""), str)
-                    and hmac.compare_digest(auth_msg.get("token", ""), expected_token)
+        # threads. The ``not expected_token`` guard above returns
+        # early, so ``expected_token`` is always truthy here — the old
+        # ``if expected_token: ... else: auth_client = _TCPLineIO(conn)``
+        # wrapper's else branch was dead code. The auth body runs
+        # unconditionally (de-indented).
+        auth_client = _TCPLineIO(conn)
+        try:
+            auth_line = auth_client.readline()
+            if not auth_line:
+                log.warning("[TCP] client disconnected before sending auth")
+                auth_client.close()
+                return
+            auth_msg = json.loads(auth_line.strip())
+            # Validate-if-present the IPC wire
+            # protocol version BEFORE the token check. A stale client
+            # that explicitly sends ``protocol_version`` with a value
+            # that doesn't equal :data:`IPC_PROTOCOL_VERSION` gets a
+            # structured ``server.protocol_version_mismatch`` error
+            # envelope instead of an opaque ``auth_failed``. Clients
+            # that omit the field (legacy senders) continue to the
+            # token check unchanged — backward compatible.
+            if (
+                isinstance(auth_msg, dict)
+                and "protocol_version" in auth_msg
+                and auth_msg.get("protocol_version") != IPC_PROTOCOL_VERSION
+            ):
+                log.warning(
+                    "[TCP] auth rejected — protocol_version mismatch (client sent %r, server expects %r)",
+                    auth_msg.get("protocol_version"),
+                    IPC_PROTOCOL_VERSION,
                 )
-                if not token_valid:
-                    log.warning("[TCP] auth failed — invalid token")
-                    try:
-                        auth_client.write(
-                            json.dumps(
-                                {
-                                    "type": "error",
-                                    "data": {
-                                        # Add
-                                        # ``code: "auth_failed"`` for
-                                        # envelope consistency with
-                                        # the other TCP/WS error
-                                        # paths (rate_limited,
-                                        # invalid_payload,
-                                        # internal_error, etc.). The
-                                        # WS path closes the socket
-                                        # with code 1008 instead of
-                                        # emitting an error frame, so
-                                        # there is no WS-side code to
-                                        # match — but a client reading
-                                        # the TCP error frame can now
-                                        # distinguish auth failure
-                                        # from other errors without
-                                        # substring-matching the
-                                        # message.
-                                        "code": "auth_failed",
-                                        "message": "authentication failed",
-                                    },
-                                }
-                            )
-                            + "\n"
+                try:
+                    auth_client.write(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "data": {
+                                    "code": ErrorCodes.PROTOCOL_VERSION_MISMATCH,
+                                    "message": (
+                                        f"protocol version mismatch: client sent "
+                                        f"{auth_msg.get('protocol_version')!r}, "
+                                        f"server requires {IPC_PROTOCOL_VERSION}"
+                                    ),
+                                    "client_protocol_version": auth_msg.get("protocol_version"),
+                                    "server_protocol_version": IPC_PROTOCOL_VERSION,
+                                },
+                            }
                         )
-                        auth_client.flush()
-                    except Exception as exc:  # noqa: BLE001 — best-effort auth_failed error frame to a client that's about to be closed
-                        log.debug(
-                            "[TCP] failed to send auth_failed error frame: %s",
-                            type(exc).__name__,
-                            exc_info=True,
-                        )
-                    auth_client.close()
-                    return
-                log.info("[TCP] auth OK")
-            except json.JSONDecodeError:
-                log.warning("[TCP] auth failed — invalid JSON on first line")
+                        + "\n"
+                    )
+                    auth_client.flush()
+                except Exception as exc:  # noqa: BLE001 — best-effort error frame to a client that's about to be closed
+                    log.debug(
+                        "[TCP] failed to send protocol_version_mismatch error frame: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
                 auth_client.close()
                 return
-            except Exception:
-                log.warning("[TCP] auth handshake raised", exc_info=True)
+            # Use hmac.compare_digest for constant-time
+            # token comparison so a timing side-channel cannot
+            # recover the token byte-by-byte.
+            # Check isinstance FIRST so .get() doesn't raise on
+            # non-dict JSON values (e.g. 42, [1,2,3], "hi").
+            token_valid = (
+                isinstance(auth_msg, dict)
+                and auth_msg.get("type") == "auth"
+                and isinstance(auth_msg.get("token", ""), str)
+                and hmac.compare_digest(auth_msg.get("token", ""), expected_token)
+            )
+            if not token_valid:
+                log.warning("[TCP] auth failed — invalid token")
+                try:
+                    auth_client.write(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "data": {
+                                    # Add
+                                    # ``code: "auth_failed"`` for
+                                    # envelope consistency with
+                                    # the other TCP/WS error
+                                    # paths (rate_limited,
+                                    # invalid_payload,
+                                    # internal_error, etc.). The
+                                    # WS path closes the socket
+                                    # with code 1008 instead of
+                                    # emitting an error frame, so
+                                    # there is no WS-side code to
+                                    # match — but a client reading
+                                    # the TCP error frame can now
+                                    # distinguish auth failure
+                                    # from other errors without
+                                    # substring-matching the
+                                    # message.
+                                    "code": "auth_failed",
+                                    "message": "authentication failed",
+                                },
+                            }
+                        )
+                        + "\n"
+                    )
+                    auth_client.flush()
+                except Exception as exc:  # noqa: BLE001 — best-effort auth_failed error frame to a client that's about to be closed
+                    log.debug(
+                        "[TCP] failed to send auth_failed error frame: %s",
+                        type(exc).__name__,
+                        exc_info=True,
+                    )
                 auth_client.close()
                 return
-        else:
-            auth_client = _TCPLineIO(conn)
+            log.info("[TCP] auth OK")
+        except json.JSONDecodeError:
+            log.warning("[TCP] auth failed — invalid JSON on first line")
+            auth_client.close()
+            return
+        except Exception:
+            log.warning("[TCP] auth handshake raised", exc_info=True)
+            auth_client.close()
+            return
 
-        # =====================================================================
-        # CRITICAL FIX — DO NOT REMOVE (2026-07-20)
-        # =====================================================================
-        # Clear the 5s auth-read timeout (set at line ~1171) AFTER auth
-        # succeeds. Without this ``conn.settimeout(None)``, the 5s timeout
-        # leaks into the long-lived dispatch ``readline()`` loop, which then
-        # raises ``socket.timeout`` (an OSError) every 5 seconds of idle.
+        # Set the idle-read timeout on the dispatch-loop socket AFTER
+        # auth succeeds, sized to ``_HEARTBEAT_TIMEOUT_SECONDS +
+        # _HEARTBEAT_INTERVAL_SECONDS`` so it tracks the watchdog
+        # contract (a healthy Electron client heartbeats every
+        # ``_HEARTBEAT_INTERVAL_SECONDS``, so a real client never trips
+        # this; an authenticated-but-silent client is disconnected
+        # instead of holding a worker thread + FD forever —
+        # authenticated-idle DoS mitigation).
         #
-        # Symptom if removed: the app enters an infinite reconnect loop —
-        #   connect → auth OK → 5s idle → socket.timeout →
-        #   "client connection closed" → socket close → RST →
-        #   Electron logs "connection reset by Python backend" → reconnect.
-        # Every 5 seconds, forever. The backend appears "connected" but
-        # never stays up long enough to handle real IPC.
-        #
-        # The timeout is set for auth (to reject stalled clients) and MUST
-        # be cleared here for the dispatch loop (which blocks on readline).
-        # =====================================================================
+        # The auth phase keeps its own short 5s timeout (reject stalled
+        # clients); this idle-read timeout is applied AFTER auth for the
+        # long-lived dispatch loop. Pre-fix the dispatch loop cleared the
+        # timeout entirely (``settimeout(None)``), which let a silent
+        # authenticated client hold the connection open indefinitely.
+        _idle_read_timeout_seconds = _HEARTBEAT_TIMEOUT_SECONDS + _HEARTBEAT_INTERVAL_SECONDS
         with contextlib.suppress(OSError, AttributeError):
-            conn.settimeout(None)  # blocking; socket may be a mock in tests
+            conn.settimeout(_idle_read_timeout_seconds)  # socket may be a mock in tests
 
         # Now acquire the lock ONLY for the post-auth setup
         # (installing the client + snapshotting pending events). This is
@@ -711,6 +722,12 @@ class TCPTransportMixin:
                 # above) so the heartbeat-ack is never delayed by an
                 # in-flight long dispatch.
                 self._tcp_dispatch_pool.submit(self._tcp_dispatch_and_respond, msg, client)
+        except socket.timeout:  # noqa: UP041 — the idle-read tests pin this exact text in source
+            # Idle-read timeout fired — the authenticated client sent
+            # nothing within the heartbeat window (authenticated-idle
+            # DoS mitigation). Log at WARNING (not the routine disconnect
+            # DEBUG) and let the finally block close the connection.
+            log.warning("[TCP] idle-read timeout fired for authenticated client — disconnecting")
         except OSError:
             # Routine socket close / EOF: the client disconnected.
             log.debug("[TCP] client connection closed")
