@@ -81,7 +81,8 @@
           "libxtst6",
           "libwebkit2gtk-4.1-0",
           "wl-clipboard",
-          "xclip"
+          "xclip",
+          "python3"
         ],
         "desktopTemplate": "voice-typer.desktop.template",
         "postInstallScript": "../scripts/linux/postinst",
@@ -93,7 +94,8 @@
           "libXtst",
           "webkit2gtk3",
           "wl-clipboard",
-          "xclip"
+          "xclip",
+          "python3"
         ],
         "postInstallScript": "../scripts/linux/postinst.rpm",
         "preRemoveScript": "../scripts/linux/prerm.rpm"
