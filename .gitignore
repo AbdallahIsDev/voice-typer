@@ -82,6 +82,8 @@ coverage.xml
 # (rlibs, rmetas, .rcgu.o, .fingerprint, build/ intermediates). It is
 # regenerated on every build and must not enter git.
 src-tauri/target/
+# Tauri v2 build output (bundles/binaries/resources copied by `tauri build`).
+src-tauri/src-tauri/
 # NOTE: src-tauri/Cargo.lock IS intentionally committed (Tauri is a binary
 # app, not a library — reproducible builds require the lockfile in git).
 
