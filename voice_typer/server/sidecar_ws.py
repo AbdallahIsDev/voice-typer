@@ -141,7 +141,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 # _http_safety.py, _secrets.py, and this module). Aliased to the
 # underscore-prefixed name so existing call sites (e.g. `serve(...,
 # _LOOPBACK_HOST, ...)`) keep working unchanged.
-from voice_typer.server._paths import LOOPBACK_HOST as _LOOPBACK_HOST
+from voice_typer.server._paths import IPC_TOKEN_ENV_VAR, LOOPBACK_HOST as _LOOPBACK_HOST
 
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 
@@ -387,7 +387,7 @@ async def _authenticate(websocket) -> bool:
     be applied to BOTH call sites.  A future extraction to a shared
     ``ipc/auth.py`` helper is tracked under
     """
-    expected_token = os.environ.get("VOICE_TYPER_IPC_TOKEN", "")
+    expected_token = os.environ.get(IPC_TOKEN_ENV_VAR, "")
     if not expected_token:
         log.error(
             "[SIDECAR-WS] VOICE_TYPER_IPC_TOKEN not set — refusing to "

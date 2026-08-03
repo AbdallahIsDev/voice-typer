@@ -69,6 +69,20 @@ APP_SLUG: str = "voice-typer"
 # side uses the same value by extracting it via regex.
 IPC_PORT: int = 9876
 
+# WN-12: canonical name of the env var that carries the per-launch
+# session token from the host (Electron / Tauri) to the Python sidecar.
+# Previously the bare literal ``"VOICE_TYPER_IPC_TOKEN"`` was duplicated
+# across 7+ files (electron_launcher, env_validation, ipc/entrypoint,
+# ipc/transport_tcp, sidecar_ws, …). A typo in any of those would
+# silently break IPC auth (the host sets X, the sidecar reads Y, every
+# connection is refused). Centralising the literal here means the
+# canonical name is defined in exactly one place; the parity test
+# ``tests/test_ipc_token_env_var_sync.py`` asserts every reference
+# matches this constant.  Internal identifier (not a user-facing
+# brand) — renaming requires a coordinated host (Electron / Tauri)
+# update + this constant change.
+IPC_TOKEN_ENV_VAR: str = "VOICE_TYPER_IPC_TOKEN"
+
 from voice_typer.server.config import _config_dir  # noqa: E402
 
 

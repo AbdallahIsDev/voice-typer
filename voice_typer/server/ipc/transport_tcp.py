@@ -22,6 +22,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 from voice_typer.server.handlers._log import log
+from voice_typer.server._paths import IPC_TOKEN_ENV_VAR
 from voice_typer.server.ipc.rate_limiter import (
     _HEARTBEAT_INTERVAL_SECONDS,
     _HEARTBEAT_TIMEOUT_SECONDS,
@@ -147,7 +148,7 @@ class TCPTransportMixin:
         the probe-then-bind race window).  See :meth:`start_tcp`.
         """
         # Read the expected token from the env var set by Electron.
-        expected_token = os.environ.get("VOICE_TYPER_IPC_TOKEN", "")
+        expected_token = os.environ.get(IPC_TOKEN_ENV_VAR, "")
         if not expected_token:
             # mirror the WS path (sidecar_ws._authenticate) — refuse
             # ALL connections when the token is unset. The host must always

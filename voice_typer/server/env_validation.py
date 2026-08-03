@@ -29,6 +29,10 @@ import logging
 import os
 import re
 
+# WN-12: import the canonical env-var name from the single source
+# of truth. See voice_typer/server/_paths.py:IPC_TOKEN_ENV_VAR.
+from voice_typer.server._paths import IPC_TOKEN_ENV_VAR  # noqa: E402
+
 log = logging.getLogger(__name__)
 
 
@@ -142,15 +146,15 @@ def _validate_env_vars() -> None:
             )
             os.environ.pop("VOICE_TYPER_CONFIG_DIR", None)
 
-    ipc_token = os.environ.get("VOICE_TYPER_IPC_TOKEN")
+    ipc_token = os.environ.get(IPC_TOKEN_ENV_VAR)
     if ipc_token is not None and not _token_pattern.match(ipc_token):
         log.warning(
             (
-                "[ENV] Invalid value for VOICE_TYPER_IPC_TOKEN=<redacted> -- "
+                f"[ENV] Invalid value for {IPC_TOKEN_ENV_VAR}=<redacted> -- "
                 "expected alphanumeric token. Resetting to empty."
             ),
         )
-        os.environ.pop("VOICE_TYPER_IPC_TOKEN", None)
+        os.environ.pop(IPC_TOKEN_ENV_VAR, None)
 
     # SEC-audit-011: Validate SystemRoot on Windows to prevent DLL injection
     from voice_typer.server.config import _validate_systemroot
@@ -347,7 +351,7 @@ def _validate_hf_endpoint(raw: str) -> None:
 # Sidecar env-var contract — set by Rust host in src-tauri/src/sidecar/spawn.rs:79-84
 _EXPECTED_SIDECAR_ENV = {
     "TAURI_SIDECAR": "1",
-    "VOICE_TYPER_IPC_TOKEN": "<non-empty>",
+    IPC_TOKEN_ENV_VAR: "<non-empty>",
     "VOICE_TYPER_NATIVE_DIR": "<non-empty path>",
     "VOICE_TYPER_PREWARM_EXE": "<non-empty path>",
 }

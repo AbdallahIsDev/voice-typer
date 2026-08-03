@@ -54,6 +54,14 @@ from voice_typer.server.platform_utils import is_windows
 log = logging.getLogger(__name__)
 
 
+# WN-12: import the canonical env-var name from the single source of
+# truth. See voice_typer/server/_paths.py:IPC_TOKEN_ENV_VAR for the
+# rationale. Bare literals elsewhere are now routed through this
+# constant so a typo in any single file can't silently break IPC
+# auth.
+from voice_typer.server._paths import IPC_TOKEN_ENV_VAR  # noqa: E402
+
+
 # env-var names that are ALWAYS stripped from the Electron
 # child's environment, regardless of pattern matching. These are the
 # well-known cloud-provider API keys / model download tokens that the
@@ -93,7 +101,7 @@ _SENSITIVE_ENV_MARKERS = (
 # needs; it is restored AFTER stripping in launch_electron_frontend.
 _PRESERVED_ENV_NAMES = frozenset(
     {
-        "VOICE_TYPER_IPC_TOKEN",
+        IPC_TOKEN_ENV_VAR,
         "VT_IPC_TOKEN",
         "VT_PYTHON_PORT",
     }
@@ -180,7 +188,7 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     # (which reads this env var) sees the same value we told Electron
     # to send. The IPC token is restored AFTER stripping so it is
     # guaranteed to be present in the child env.
-    env["VOICE_TYPER_IPC_TOKEN"] = token
+    env[IPC_TOKEN_ENV_VAR] = token
     # surface (without values) any sensitive env keys the
     # parent had, so a future leak in a downstream log is auditable.
     # Only KEY NAMES are logged — values are never printed.
