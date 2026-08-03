@@ -549,8 +549,12 @@ class TestAutostartCommandValidation:
         monkeypatch.setenv("VT_TAURI_BINARY", str(fake_tauri))
 
         cmd = server_platform._autostart_command()
-        # The command should be the Tauri binary path (quoted).
-        assert str(fake_tauri) in cmd
+        # The command should be the Tauri binary path (quoted). The path is
+        # escaped per the freedesktop Exec spec (_quote_exec_arg doubles
+        # backslashes), so on Windows compare against the escaped form — the
+        # raw str(Path) has single backslashes and would not match.
+        escaped = str(fake_tauri).replace("\\", "\\\\")
+        assert escaped in cmd
         # No --hidden or --delay args (Tauri binary takes no CLI args).
         assert "--hidden" not in cmd
 

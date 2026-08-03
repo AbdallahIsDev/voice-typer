@@ -516,10 +516,19 @@ class TestQuitContractDocumented:
 
     def test_quit_docstring_documents_threading_contract(self):
         """The ``quit()`` docstring must mention the main-thread /
-        non-main-thread asymmetry so the contract is explicit."""
+        non-main-thread asymmetry so the contract is explicit.
+
+        The controller's ``quit()`` is now a thin delegate whose
+        docstring points at the canonical contract docstring in
+        :func:`voice_typer.server.shutdown.lifecycle.quit` (the body
+        moved there during the shutdown-module split). The contract
+        terms are checked against the union of both docstrings so the
+        test tracks the actual home of the contract.
+        """
+        from voice_typer.server.shutdown.lifecycle import quit as lifecycle_quit
         from voice_typer.server.shutdown_controller import ShutdownController
 
-        doc = ShutdownController.quit.__doc__ or ""
+        doc = (ShutdownController.quit.__doc__ or "") + "\n" + (lifecycle_quit.__doc__ or "")
         assert doc, "AC-91: quit() must have a docstring documenting the threading contract"
         # The docstring must mention at least one of the key contract
         # terms: non-main thread, sys.exit, or the watchdog.

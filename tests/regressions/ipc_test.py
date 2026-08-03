@@ -170,9 +170,19 @@ class TestSendCatchesSocketTimeout:
         except Exception:
             pass  # drop path may raise other exceptions
 
-    def test_send_calls_settimeout_before_write(self):
-        """_send must call settimeout before writing to prevent indefinite blocking."""
+    def test_send_awaits_socket_writable_before_write(self):
+        """The send path must enforce a write timeout before writing.
 
+        NEW-IPC-016 refactor: the per-write ``settimeout`` dance (3
+        socket syscalls per call) was replaced by the select-based
+        ``_await_socket_writable`` write-readiness gate in
+        ``ipc/sender.py``, which enforces ``_TCP_WRITE_TIMEOUT_SECONDS``
+        without mutating the socket's timeout state.
+        """
+
+        from unittest.mock import patch
+
+        from voice_typer.server.ipc import sender as sender_mod
         from voice_typer.server.ipc_server import IPCServer
 
         # Create a proper IPCServer instance
@@ -185,11 +195,10 @@ class TestSendCatchesSocketTimeout:
         mock_tcp.write.return_value = None  # write succeeds
         server._tcp_client = mock_tcp
         server._tcp_mode = True
-
-        # _send should call settimeout on the underlying socket
-        # We need to access the conn attribute to set timeout
         mock_tcp.conn = MagicMock()
 
-        server._send({"type": "test"})
-        # settimeout must have been called on the connection
-        mock_tcp.conn.settimeout.assert_called()
+        with patch.object(sender_mod, "_await_socket_writable") as spy:
+            server._send({"type": "test"})
+        # the write-timeout gate must have been applied to the connection
+        spy.assert_called()
+        assert spy.call_args.args[0] is mock_tcp.conn

@@ -49,9 +49,14 @@ class TestModelIntegrityWarnsOnEmptyHashes:
       honoured.
     """
 
-    def test_security_logs_warning_when_files_empty(self, tmp_path, caplog):
+    def test_security_logs_warning_when_files_empty(self, tmp_path, caplog, monkeypatch):
         from voice_typer.server import security
         from voice_typer.server.security import verify_model_integrity
+
+        # Isolate the integrity cache to tmp_path — the default lives in
+        # the real config dir, and writing there from a test can block
+        # (cross-process lock contention when the app is running).
+        monkeypatch.setattr(security, "_integrity_cache_path_override", tmp_path / "integrity_cache.json")
 
         # Create a fake model directory with a model file (safetensors)
         # so the structural checks pass and we reach the empty-files branch.
@@ -75,7 +80,7 @@ class TestModelIntegrityWarnsOnEmptyHashes:
             "the integrity check is effectively disabled."
         )
 
-    def test_qwen_hard_fails_when_files_empty(self, tmp_path, caplog):
+    def test_qwen_hard_fails_when_files_empty(self, tmp_path, caplog, monkeypatch):
         """G4-H-33 / NF-R18-9: ``verify_model_integrity`` (the canonical
         verifier that replaced the deleted ``_verify_qwen_model_hashes``
         helper) must HARD-FAIL for a local qwen model when the manifest's
@@ -98,6 +103,9 @@ class TestModelIntegrityWarnsOnEmptyHashes:
         """
         from voice_typer.server import security
         from voice_typer.server.security import verify_model_integrity
+
+        # Isolate the integrity cache to tmp_path (see sibling test).
+        monkeypatch.setattr(security, "_integrity_cache_path_override", tmp_path / "integrity_cache.json")
 
         # Create a fake qwen model dir with config.json + a model file
         # (safetensors) so the structural checks pass and we reach the

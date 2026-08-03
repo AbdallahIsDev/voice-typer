@@ -38,6 +38,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# Captured at import time — BEFORE any test monkeypatches subprocess — so
+# pass-through helpers can invoke the REAL subprocess.run even after a test
+# replaces ``subprocess.run`` on the module. (A local
+# ``import subprocess as _subprocess`` inside a function makes
+# ``_subprocess`` a function-local name for the WHOLE function scope, so
+# referencing it before the import statement raises UnboundLocalError.)
+_ORIGINAL_RUN = subprocess.run
+
 # config.save() must happen inside _config_mutation_lock ─
 
 
@@ -189,6 +197,11 @@ class TestReloadAfterEditor:
         config_path = app.config.config_dir / "config.json"
 
         def _run_with_disk_write(args, **kwargs):
+            if not _is_editor_launch(args):
+                # Pass through non-editor subprocess calls (e.g. the
+                # icacls ACL enforcement) to the REAL subprocess.run,
+                # captured before the monkeypatch below replaced it.
+                return original_run(args, **kwargs)
             result = editor.run(args, **kwargs)
             config_path.write_text(json.dumps({"show_notifications": False}), encoding="utf-8")
             return result
@@ -199,6 +212,8 @@ class TestReloadAfterEditor:
             return result
 
         import subprocess as _subprocess
+
+        original_run = _subprocess.run
 
         if platform == "windows":
 
@@ -246,6 +261,21 @@ def _make_app(tmp_config_dir, monkeypatch):
     monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
     monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
+
+    # No-op the Windows-only icacls ACL enforcement in Config.save(). On a
+    # real Windows host, ``config.is_windows()`` reads the true platform
+    # (not the test-forced one), so EVERY save() fires real icacls
+    # subprocess calls. Those interfere with the editor-lock tests' fake
+    # subprocess interception: they consume fake-editor waits (blowing the
+    # timeout budget), pollute the no-bare-Popen assertion (icacls is
+    # spawned via subprocess.run, which internally constructs the patched
+    # Popen), and break TestWindowsRuntime's Popen patch (subprocess.run
+    # calls communicate() on the returned _FakeProc, which lacks it). The
+    # ACL tightening is incidental to the editor-lock behavior under test.
+    monkeypatch.setattr(
+        "voice_typer.server.config._enforce_windows_owner_only_acl",
+        lambda *a, **k: None,
+    )
 
     from voice_typer.server.app import VoiceTyperApp
 
@@ -336,7 +366,30 @@ def _install_fake_editor(monkeypatch, editor: _FakeEditor, platform: str) -> Non
 
         monkeypatch.setattr(_subprocess, "Popen", lambda a, **k: _FakeProc(a))
     else:
-        monkeypatch.setattr(_subprocess, "run", lambda a, **k: editor.run(a, **k))
+        original_run = _subprocess.run
+
+        def _fake_run(args, **kwargs):
+            if not _is_editor_launch(args):
+                # Pass through non-editor subprocess calls (icacls) to
+                # the real subprocess.run captured before patching.
+                return original_run(args, **kwargs)
+            return editor.run(args, **kwargs)
+
+        monkeypatch.setattr(_subprocess, "run", _fake_run)
+
+
+def _is_editor_launch(args) -> bool:
+    """True when *args* is the editor-launch subprocess command.
+
+    The macos/linux fake-editor interceptors patch ``subprocess.run`` to
+    simulate the editor staying open. On a real Windows host, the config
+    module's ``save()`` ALSO fires ``subprocess.run`` for the ``icacls``
+    ACL enforcement (its ``is_windows()`` reads the real platform, not
+    the test-forced one). Those non-editor calls must pass through to the
+    real subprocess — otherwise each one consumes the fake editor's 10s
+    wait and blows the test's timeout budget.
+    """
+    return bool(args) and str(args[0]).lower() in ("open", "xdg-open")
 
 
 def _run_open_config_in_thread(app):
@@ -410,7 +463,13 @@ class TestMacosRuntime:
 
         editor = _FakeEditor()
 
+        original_run = _ORIGINAL_RUN
+
         def _run(args, **kwargs):
+            if not _is_editor_launch(args):
+                # Pass through non-editor subprocess calls (icacls) to
+                # the real subprocess.run captured before patching.
+                return original_run(args, **kwargs)
             assert not _lock_owned(app), (
                 "_config_mutation_lock must NOT be held by the "
                 "current thread when subprocess.run is called on macOS — "
@@ -455,7 +514,13 @@ class TestLinuxRuntime:
 
         editor = _FakeEditor()
 
+        original_run = _ORIGINAL_RUN
+
         def _run(args, **kwargs):
+            if not _is_editor_launch(args):
+                # Pass through non-editor subprocess calls (icacls) to
+                # the real subprocess.run captured before patching.
+                return original_run(args, **kwargs)
             assert not _lock_owned(app), (
                 "_config_mutation_lock must NOT be held by the "
                 "current thread when subprocess.run is called on Linux — "
@@ -563,7 +628,13 @@ class TestReloadPicksUpDiskChanges:
 
         import subprocess as _subprocess
 
+        original_run = _subprocess.run
+
         def _run(args, **kwargs):
+            if not _is_editor_launch(args):
+                # Pass through non-editor subprocess calls (icacls) to
+                # the real subprocess.run captured before patching.
+                return original_run(args, **kwargs)
             result = editor.run(args, **kwargs)
             config_path = app.config.config_dir / "config.json"
             config_path.write_text(json.dumps({"show_notifications": False}), encoding="utf-8")

@@ -82,7 +82,10 @@ describe("HotkeyPicker — screen-reader conflict warning banner", () => {
 			// role="status" (polite live region) — NOT role="alert"
 			// (assertive), because the warning is advisory, not a
 			// blocking error.
-			expect(banner).toHaveAttribute("role", "status");
+			// <output> has the implicit ARIA role of status — assert the
+			// COMPUTED role (toHaveRole) rather than the literal role
+			// attribute (which <output> doesn't carry).
+			expect(banner).toHaveRole("status");
 			expect(banner).toHaveAttribute("aria-live", "polite");
 		});
 
@@ -132,7 +135,10 @@ describe("HotkeyPicker — screen-reader conflict warning banner", () => {
 			renderPicker({ value: "<caps_lock>" });
 			const banner = screen.getByTestId("sr-conflict-warning");
 			expect(banner).toBeInTheDocument();
-			expect(banner).toHaveAttribute("role", "status");
+			// <output> has the implicit ARIA role of status — assert the
+			// COMPUTED role (toHaveRole) rather than the literal role
+			// attribute (which <output> doesn't carry).
+			expect(banner).toHaveRole("status");
 		});
 
 		it("banner text mentions Narrator (one of the Windows SR products)", () => {

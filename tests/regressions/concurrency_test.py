@@ -171,7 +171,7 @@ class TestConfigEditHoldsMutationLock:
     released before the editor exits / before the reload).
     """
 
-    def test_open_config_file_holds_config_mutation_lock(self, tmp_path, monkeypatch):
+    def test_open_config_file_holds_config_mutation_lock(self, tmp_config_dir, monkeypatch):
         import threading
         import time as _time
         from unittest.mock import MagicMock

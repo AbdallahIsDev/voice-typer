@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -130,6 +131,10 @@ class TestSidecarCrashDetectionBehavioral:
     the subprocess level.
     """
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason="signal.pause() is POSIX-only — the sidecar subprocess script cannot run on Windows",
+    )
     def test_parent_detects_sigkilled_sidecar_within_bounded_time(self, tmp_path):
         """GT-40: When a sidecar subprocess is SIGKILLed, the parent's
         ``Popen.poll()`` must return the (negative) signal within a

@@ -611,20 +611,25 @@ def test_ws_reader_allowlist_includes_tray_state():
     so the Tauri tray icon stays frozen at the startup placeholder
     regardless of recording/transcribing/error state.
     """
-    # Parse the ALLOWED_EVENT_TYPES array out of ws.rs. We grep the
-    # source rather than calling Rust because the sandbox has no cargo
-    # (the constant lives in src-tauri/src/sidecar/ws.rs).
+    # Parse the ALLOWED_EVENT_TYPES array out of the Rust source. We
+    # grep the source rather than calling Rust because the sandbox has
+    # no cargo. The constant moved to ws/event_protocol.rs during the
+    # ws.rs module split (review.md FZ-24 / ZR-86); search both the new
+    # home and the legacy ws.rs for resilience.
     from pathlib import Path
 
-    ws_rs = Path(__file__).resolve().parents[2] / "src-tauri" / "src" / "sidecar" / "ws.rs"
-    assert ws_rs.exists(), f"ws.rs not found at {ws_rs}"
-    src = ws_rs.read_text(encoding="utf-8")
+    src = ""
+    for rel in ("src-tauri/src/sidecar/ws/event_protocol.rs", "src-tauri/src/sidecar/ws.rs"):
+        p = Path(__file__).resolve().parents[2] / rel
+        if p.exists():
+            src += p.read_text(encoding="utf-8") + "\n"
+    assert src, "neither ws/event_protocol.rs nor ws.rs found"
     # The array is a single const declaration; find its bounds and
     # verify ``"tray_state"`` (with quotes) appears inside.
     assert '"tray_state"' in src, (
-        'ws.rs must include "tray_state" in ALLOWED_EVENT_TYPES so the '
-        "Rust WS reader forwards the event to the tray_state listener "
-        "registered in tray.rs::create_tray"
+        'ws/event_protocol.rs ALLOWED_EVENT_TYPES must include "tray_state" '
+        "so the Rust WS reader forwards the event to the tray_state "
+        "listener registered in tray.rs::create_tray"
     )
     # Also verify tray_menu is still there (regression guard — we
     # edited the same line that lists tray_menu).

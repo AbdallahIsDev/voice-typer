@@ -243,12 +243,15 @@ describe("BG-71: TestReviewPanel quality block is announced to AT", () => {
 		);
 
 		// The "Detected Issues:" heading carries role="status" so SR
-		// users are alerted when issues appear after a test.
+		// users are alerted when issues appear after a test. It renders as
+		// an <output> element — the semantic status live-region element,
+		// whose implicit ARIA role is status. Assert the COMPUTED role via
+		// toHaveRole (the literal role attribute is absent on <output>).
 		const detectedIssuesHeading = Array.from(
-			document.querySelectorAll("span"),
+			document.querySelectorAll("output"),
 		).find((el) => el.textContent === "Detected Issues:");
 		expect(detectedIssuesHeading).toBeTruthy();
-		expect(detectedIssuesHeading?.getAttribute("role")).toBe("status");
+		expect(detectedIssuesHeading).toHaveRole("status");
 	});
 
 	it("hides the decorative bullet glyph from assistive tech", () => {

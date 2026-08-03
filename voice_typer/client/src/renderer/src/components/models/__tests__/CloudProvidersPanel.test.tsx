@@ -126,7 +126,11 @@ describe("CloudProvidersPanel — BG-74 (test-result span is a live region)", ()
 		const resultSpan = screen.getByText(
 			"Connection successful — API key is valid.",
 		);
-		expect(resultSpan).toHaveAttribute("role", "status");
+		// The result renders as an <output> element, whose IMPLICIT ARIA
+		// role is status (so SR users hear the outcome). Assert the
+		// computed role via toHaveRole rather than the literal role
+		// attribute, which <output> doesn't carry.
+		expect(resultSpan).toHaveRole("status");
 		expect(resultSpan).toHaveAttribute("aria-live", "polite");
 	});
 
