@@ -1,7 +1,7 @@
 # =============================================================================
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
-#   actions/download-artifact@v5 — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/upload-artifact@v5   — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/download-artifact@v8 — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/upload-artifact@v7   — Node 24 runtime (v4 = Node 20, deprecated)
 # See build.yml header for full rationale + breaking-change analysis.
 # -----------------------------------------------------------------------------
 # Voice Typer — Tauri build (top-level orchestrator workflow)
@@ -153,21 +153,21 @@ jobs:
     steps:
       - name: Download Windows installer
         if: needs.build-windows.result == 'success'
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: tauri-windows-installer
           path: aggregated/windows
 
       - name: Download macOS installer
         if: needs.build-macos.result == 'success'
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: tauri-macos-installer
           path: aggregated/macos
 
       - name: Download Linux installer
         if: needs.build-linux.result == 'success'
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: tauri-linux-installer
           path: aggregated/linux
@@ -191,7 +191,7 @@ jobs:
           fi
 
       - name: Upload aggregated artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-all-installers
           path: aggregated/
