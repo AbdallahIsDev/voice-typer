@@ -6,6 +6,17 @@
 # launched by the macOS LaunchAgent (~/Library/LaunchAgents/com.voicetyper.prewarm.plist)
 # via resolve_prewarm_exe(), NOT by Tauri as a managed child.
 #
+# Codesign (S5-CR-56): Nuitka's `--macos-signed-app-name` only sets the
+# bundle's signed name during bundle creation — it does NOT actually
+# invoke codesign on the output binary. This script explicitly signs the
+# output binary:
+#   - If $MAC_SIGNING_IDENTITY is set (CI release builds), passes
+#     `--macos-sign-identity="$MAC_SIGNING_IDENTITY"` to Nuitka so the
+#     binary is signed at build time with a Developer ID Application cert.
+#   - If $MAC_SIGNING_IDENTITY is empty (local dev builds), falls back to
+#     ad-hoc `codesign --force --sign -` on the output binary, mirroring
+#     `build_native_listener_macos.sh`.
+#
 # Output:
 #   src-tauri/resources/prewarm-x86_64-apple-darwin
 #   src-tauri/resources/prewarm-aarch64-apple-darwin
@@ -151,6 +162,12 @@ NUITKA_ARGS=(
     --output-dir="$RESOURCES_DIR"
     "$PROJECT_ROOT/voice_typer/server/prewarm/__main__.py"
 )
+if [[ -n "${MAC_SIGNING_IDENTITY:-}" ]]; then
+    # S5-CR-56: pass the Developer ID Application identity to Nuitka so it
+    # signs the binary at build time. `--macos-signed-app-name` only sets
+    # the bundle's signed name; it does not invoke codesign.
+    NUITKA_ARGS+=(--macos-sign-identity="$MAC_SIGNING_IDENTITY")
+fi
 if [[ -d "$CT2_LIBS_DIR" ]]; then
     NUITKA_ARGS+=(--include-data-dir="$CT2_LIBS_DIR=$CT2_LIBS_DIR")
 fi
@@ -163,4 +180,14 @@ fi
 chmod +x "$OUTPUT_PATH"
 SIZE_MB=$(du -m "$OUTPUT_PATH" | cut -f1)
 echo "[build_prewarm_macos] OK: $OUTPUT_PATH (${SIZE_MB} MB)"
+
+# S5-CR-56: ad-hoc codesign fallback when no Developer ID identity is set.
+# Mirrors `build_native_listener_macos.sh`. When MAC_SIGNING_IDENTITY is set,
+# Nuitka already signed the binary at build time via --macos-sign-identity
+# (see above) — skip the ad-hoc fallback in that case.
+if [[ -z "${MAC_SIGNING_IDENTITY:-}" ]] && command -v codesign >/dev/null; then
+    echo "[build_prewarm_macos] Ad-hoc codesign (parent .app will re-sign --deep)..."
+    codesign --force --sign - "$OUTPUT_PATH" || true
+fi
+
 echo "[build_prewarm_macos] NEXT: codesign + notarize (signing-guide.md §13.2)."

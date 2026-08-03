@@ -29,6 +29,18 @@
 #   - --macos-signed-app-name=com.voicetyper.sidecar
 #   - --macos-app-mode=background   (LSUIElement=true — no Dock icon)
 #
+# Codesign (S5-CR-56): Nuitka's `--macos-signed-app-name` only sets the
+# bundle's signed name during bundle creation — it does NOT actually
+# invoke codesign on the output binary. This script explicitly signs the
+# output binary:
+#   - If $MAC_SIGNING_IDENTITY is set (CI release builds), passes
+#     `--macos-sign-identity="$MAC_SIGNING_IDENTITY"` to Nuitka so the
+#     binary is signed at build time with a Developer ID Application cert.
+#   - If $MAC_SIGNING_IDENTITY is empty (local dev builds), falls back to
+#     ad-hoc `codesign --force --sign -` on the output binary, mirroring
+#     `build_native_listener_macos.sh`. Ad-hoc signing lets the parent
+#     `.app` re-sign --deep during the Tauri bundle step.
+#
 # CTranslate2 on macOS: the wheels ship libctranslate2.dylib + libiomp5.dylib
 # under $SITE/ctranslate2/lib/. Apple Silicon wheels are CPU-only (no CUDA).
 # Verify with `otool -L` that every @rpath dependency resolves in the build env.
@@ -140,6 +152,12 @@ NUITKA_ARGS=(
     --output-dir="$SIDECAR_DIR"
     "$PROJECT_ROOT/voice_typer/server/ipc_server.py"
 )
+if [[ -n "${MAC_SIGNING_IDENTITY:-}" ]]; then
+    # S5-CR-56: pass the Developer ID Application identity to Nuitka so it
+    # signs the binary at build time. `--macos-signed-app-name` only sets
+    # the bundle's signed name; it does not invoke codesign.
+    NUITKA_ARGS+=(--macos-sign-identity="$MAC_SIGNING_IDENTITY")
+fi
 if [[ -d "$CT2_LIBS_DIR" ]]; then
     NUITKA_ARGS+=(--include-data-dir="$CT2_LIBS_DIR=$CT2_LIBS_DIR")
 fi
@@ -153,6 +171,15 @@ fi
 chmod +x "$OUTPUT_PATH"
 SIZE_MB=$(du -m "$OUTPUT_PATH" | cut -f1)
 echo "[build_sidecar_macos] OK: $OUTPUT_PATH (${SIZE_MB} MB)"
+
+# S5-CR-56: ad-hoc codesign fallback when no Developer ID identity is set.
+# Mirrors `build_native_listener_macos.sh`. When MAC_SIGNING_IDENTITY is set,
+# Nuitka already signed the binary at build time via --macos-sign-identity
+# (see above) — skip the ad-hoc fallback in that case.
+if [[ -z "${MAC_SIGNING_IDENTITY:-}" ]] && command -v codesign >/dev/null; then
+    echo "[build_sidecar_macos] Ad-hoc codesign (parent .app will re-sign --deep)..."
+    codesign --force --sign - "$OUTPUT_PATH" || true
+fi
 
 # Verify the dylib dependencies resolve (ADR-0020 §4.3).
 if command -v otool >/dev/null; then
