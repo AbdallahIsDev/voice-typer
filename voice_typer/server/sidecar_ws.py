@@ -588,7 +588,7 @@ def _make_dispatch(server: IPCServer):
         # side-effect added to ``service.quit()`` silently wouldn't run
         # on Tauri). The special-case is now removed; ``shutdown``
         # flows through ``server._dispatch`` like every other command.
-        if msg_type != "shutdown" and getattr(server.app, "_shutting_down", False) is True:
+        if msg_type != "shutdown" and getattr(server.app, "_shutting_down", False):
             log.debug("[SIDECAR-WS] rejecting %s — server shutting down", msg_type)
             return {
                 "type": "error",

@@ -566,6 +566,23 @@ class VoiceTyperApp:
         # VoiceTyperApp have been removed — callers now use
         # `self.models.<field>` directly.)
         self._shutting_down = False  # True once quit() starts
+        # XZ-IPC-012: assert the shutdown gate is a real bool. The
+        # ``getattr(self.app, "_shutting_down", False) is True`` idiom
+        # used by the IPC dispatch path (see voice_typer/server/
+        # ipc_server.py and voice_typer/server/sidecar_ws.py)
+        # accommodates test MagicMock auto-vivification — a test
+        # that does ``mock_app._shutting_down = 1`` would otherwise
+        # bypass the shutdown gate (a truthy int IS truthy but is NOT
+        # ``True``). Catching the wrong-type assignment at __init__
+        # time gives a clear, immediate failure ("TypeError:
+        # _shutting_down must be bool, got int") instead of a silent
+        # shutdown-bypass bug that surfaces only when a test exercises
+        # the gate.
+        if not isinstance(self._shutting_down, bool):
+            raise TypeError(
+                f"VoiceTyperApp._shutting_down must be bool, "
+                f"got {type(self._shutting_down).__name__}"
+            )
         # threading.Event version of _shutting_down so executor
         # tasks can check it without reading the boolean (which provides
         # no memory-order guarantee across threads).
