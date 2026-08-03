@@ -27,6 +27,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
+import re
 import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -102,6 +103,27 @@ _MIGRATIONS = {
     2: _MIGRATION_V2,
     3: _MIGRATION_V3,
 }
+
+#: Matches ``ALTER TABLE <name> ADD COLUMN <col>`` so the migration runner
+#: can detect which columns a plain migration intends to add and skip the
+#: ALTER when the column is already present (partial-prior-state
+#: reconciliation). Compiled once at import time.
+_ADD_COLUMN_RE = re.compile(
+    r"\bALTER\s+TABLE\s+\w+\s+ADD\s+COLUMN\s+(\w+)",
+    re.IGNORECASE,
+)
+
+
+def _add_column_name(stmt: str) -> str | None:
+    """Return the column added by an ``ALTER TABLE ... ADD COLUMN`` statement.
+
+    Returns ``None`` for statements that are not ``ALTER TABLE ADD COLUMN``
+    so non-ALTER statements in a plain migration (e.g. ``INSERT`` or
+    ``CREATE``) are never filtered out by the migration runner's
+    partial-prior-state reconciliation.
+    """
+    match = _ADD_COLUMN_RE.search(stmt)
+    return match.group(1) if match else None
 
 
 def open_write_conn(db_path: Path) -> sqlite3.Connection:
@@ -375,13 +397,63 @@ def init_schema(
             continue
 
         try:
-            # Wrap plain migrations (no embedded BEGIN;) in an
-            # explicit transaction. Migrations that already carry
-            # their own BEGIN;…COMMIT; (e.g. _MIGRATION_V3) are
-            # passed through unchanged.
+            # Migrations split into two shapes:
+            #
+            # 1. Plain migrations (no embedded ``BEGIN;``) such as
+            #    _MIGRATION_V2 — a sequence of ``ALTER TABLE ADD
+            #    COLUMN`` statements. These need partial-prior-state
+            #    reconciliation: a previous run may have added SOME of
+            #    the columns but failed before the version was bumped
+            #    (disk full, process killed mid-migration). Re-running
+            #    the whole migration verbatim would hit "duplicate
+            #    column name" on the already-added columns and — under
+            #    the previous handler — bump the version unconditionally,
+            #    leaving the NOT-yet-added columns missing forever.
+            #
+            #    Fix: pre-compute the existing columns, filter out
+            #    ``ALTER TABLE ADD COLUMN`` statements whose column
+            #    already exists (the intent is satisfied), and run the
+            #    remaining statements in a single ``BEGIN;…COMMIT;``
+            #    transaction via ``executescript``. The version is only
+            #    bumped when ALL remaining statements succeed; a
+            #    non-duplicate error rolls back and leaves the version
+            #    un-bumped so the next launch retries the missing ALTERs.
+            #
+            # 2. Migrations carrying their own ``BEGIN;…COMMIT;`` (e.g.
+            #    _MIGRATION_V3 with triggers) — passed through unchanged.
+            #    V3 uses ``IF NOT EXISTS`` for all CREATE statements and
+            #    an idempotent backfill, so re-running on a
+            #    partial-prior state is already safe.
             needs_wrapper = "BEGIN;" not in migration_sql.upper()
-            wrapped_sql = "BEGIN;\n" + migration_sql + "\nCOMMIT;\n" if needs_wrapper else migration_sql
-            cursor.executescript(wrapped_sql)
+            if needs_wrapper:
+                cursor.execute("PRAGMA table_info(transcriptions)")
+                pre_existing_cols = {row[1] for row in cursor.fetchall()}
+                statements = [s.strip() for s in migration_sql.split(";") if s.strip()]
+                kept: list[str] = []
+                for stmt in statements:
+                    col = _add_column_name(stmt)
+                    if col is not None and col in pre_existing_cols:
+                        log.info(
+                            "[HISTORY_DB] Migration v%d: column %r "
+                            "already exists — skipping ALTER "
+                            "(partial-prior-state reconciliation)",
+                            version,
+                            col,
+                        )
+                        continue
+                    kept.append(stmt)
+                if kept:
+                    wrapped_sql = "BEGIN;\n" + ";\n".join(kept) + ";\nCOMMIT;\n"
+                    cursor.executescript(wrapped_sql)
+                else:
+                    log.info(
+                        "[HISTORY_DB] Migration v%d: all statements "
+                        "already applied — persisting version without "
+                        "re-running any statement",
+                        version,
+                    )
+            else:
+                cursor.executescript(migration_sql)
             # persist the version after each successful
             # migration iteration so the next launch doesn't
             # re-run it. ``INSERT OR REPLACE`` handles both the
@@ -396,31 +468,19 @@ def init_schema(
                 version,
             )
         except sqlite3.Error as e:
-            # rollback any partial migration. The
-            # version is NOT bumped — the next launch retries.
-            # Surface the error to ``__init__`` via ``_init_error``
-            # so the writer thread skips the main write loop.
+            # rollback any partial migration. The version is NOT
+            # bumped — the next launch retries. Surface the error to
+            # ``__init__`` via ``_init_error`` so the writer thread
+            # skips the main write loop.
             #
-            # compat: if the error is "duplicate column
-            # name" (columns already exist from a prior partial
-            # migration that didn't persist the version), treat
-            # the migration as effectively complete — the columns
-            # are there, the intent is satisfied. Bump the version
-            # so the next launch doesn't retry.
-            err_msg = str(e).lower()
-            if "duplicate column name" in err_msg:
-                log.info(
-                    "[HISTORY_DB] Migration v%d: columns already "
-                    "exist (duplicate column name) — treating as "
-                    "complete and persisting version",
-                    version,
-                )
-                cursor.execute(
-                    "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('version', ?)",
-                    (str(version),),
-                )
-                conn.commit()
-                continue
+            # The previous "duplicate column name" special case is no
+            # longer needed: plain migrations now pre-filter ALTER TABLE
+            # ADD COLUMN statements whose column already exists, so a
+            # partial-prior state is reconciled rather than aborting the
+            # whole migration. A "duplicate column name" error reaching
+            # here means a concurrent writer added the column between
+            # our PRAGMA and our ALTER (a race) — rolling back and
+            # retrying on the next launch is the correct response.
             with contextlib.suppress(sqlite3.Error):
                 conn.rollback()
             log.error(

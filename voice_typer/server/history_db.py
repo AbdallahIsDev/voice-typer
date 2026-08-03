@@ -51,6 +51,7 @@ checking the specific sentinel for each method. Hard failures
 
 import concurrent.futures
 import contextlib
+import functools
 import logging
 import os
 import queue
@@ -434,6 +435,78 @@ def _project_text_row(row: sqlite3.Row | tuple) -> dict:
     d["text_truncated"] = truncated
     d["text_full_length"] = full_length_int
     return d
+
+
+def _wrap_write(failure_value, fail_verb, writer_label):
+    """Decorator: encapsulate the dual-except ``raise_on_error`` boilerplate.
+
+    Applied to write methods (``delete`` / ``restore`` / ``clear_all`` /
+    ``toggle_favorite``) that call ``_submit_write`` and may raise
+    ``HistoryDBError`` when the writer thread is unavailable.
+
+    - ``HistoryDBError`` (writer unavailable): re-raise if
+      ``raise_on_error``, else log ``"Writer unavailable for
+      {writer_label}"`` and return ``failure_value``.
+    - Other ``Exception``: re-raise as ``HistoryDBError`` if
+      ``raise_on_error``, else log ``"Failed to {fail_verb}"`` and
+      return ``failure_value``.
+
+    ``failure_value`` may be a callable (factory) so mutable sentinels
+    (``[]`` / ``{}``) are freshly constructed on each failure return —
+    matching the per-call literal the inline code previously used.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            raise_on_error = kwargs.pop("raise_on_error", False)
+            try:
+                return func(self, *args, **kwargs)
+            except Exception as e:
+                if isinstance(e, HistoryDBError):
+                    if raise_on_error:
+                        raise
+                    log.error("[HISTORY] Writer unavailable for %s", writer_label)
+                    return failure_value() if callable(failure_value) else failure_value
+                log.error("[HISTORY] Failed to %s: %s", fail_verb, e)
+                if raise_on_error:
+                    raise HistoryDBError(str(e)) from e
+                return failure_value() if callable(failure_value) else failure_value
+
+        return wrapper
+
+    return decorator
+
+
+def _wrap_read(failure_value, fail_verb):
+    """Decorator: encapsulate the single-except ``raise_on_error`` boilerplate.
+
+    Applied to read methods (``get_recent`` / ``search`` / ``get_favorites`` /
+    ``get_today_stats``) that use ``_get_read_conn``.
+
+    - Any ``Exception``: re-raise as ``HistoryDBError`` if
+      ``raise_on_error``, else log ``"Failed to {fail_verb}"`` and
+      return ``failure_value``.
+
+    ``failure_value`` may be a callable (factory) so mutable sentinels
+    are freshly constructed on each failure return.
+    """
+
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            raise_on_error = kwargs.pop("raise_on_error", False)
+            try:
+                return func(self, *args, **kwargs)
+            except Exception as e:
+                log.error("[HISTORY] Failed to %s: %s", fail_verb, e)
+                if raise_on_error:
+                    raise HistoryDBError(str(e)) from e
+                return failure_value() if callable(failure_value) else failure_value
+
+        return wrapper
+
+    return decorator
 
 
 # module-level WeakSet tracking all live HistoryDB instances. Tests
@@ -1575,6 +1648,7 @@ class HistoryDB:
             log.error("[HISTORY] Failed to enqueue add_transcription: %s", e)
             return -1
 
+    @_wrap_write(False, "delete transcription", "delete")
     def delete(self, transcription_id: int, *, raise_on_error: bool = False) -> bool:
         """Delete a transcription by ID.
 
@@ -1620,83 +1694,73 @@ class HistoryDB:
         (the same state as before this fix — and bounded to "between
         launches" by the AP-17 startup rebuild sweep).
         """
-        try:
 
-            def _do_delete(conn: sqlite3.Connection) -> bool:
-                with contextlib.closing(conn.cursor()) as cursor:
-                    cursor.execute("DELETE FROM transcriptions WHERE id = ?", (transcription_id,))
+        def _do_delete(conn: sqlite3.Connection) -> bool:
+            with contextlib.closing(conn.cursor()) as cursor:
+                cursor.execute("DELETE FROM transcriptions WHERE id = ?", (transcription_id,))
+                conn.commit()
+                deleted = cursor.rowcount > 0
+                if not deleted:
+                    return False
+                # Purge the deleted row's dictated
+                # text from ``transcriptions_fts_data`` (the FTS5
+                # shadow segment table). The AFTER DELETE trigger
+                # at schema.py:90-92 only marks the rowid as
+                # deleted in the delete-bitmap — the segment data
+                # survives until background compaction (days/weeks
+                # later). ``'optimize'`` runs the FTS5 optimizer
+                # until the index is optimal, which both
+                # consolidates segments AND applies the
+                # delete-bitmap to the merged output so the deleted
+                # text is purged. ``'optimize'`` is preferred over
+                # ``'rebuild'`` here because:
+                #   - ``'rebuild'`` is O(N) (drops and rebuilds ALL
+                #     segments from the content table).
+                #   - ``'optimize'`` is typically 3-4x faster
+                #     (only does the merge work needed to
+                #     consolidate, not a full rebuild).
+                # The MATCH-query correctness is already preserved
+                # by the trigger; this call is purely for the
+                # forensic-recovery guarantee. The periodic
+                # retention tick (retention.py) still runs a full
+                # ``'rebuild'`` after bulk sweeps as a safety net.
+                # Tolerant: a transient FTS5 error must not break
+                # the row delete (which already committed).
+                try:
+                    cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('optimize')")
                     conn.commit()
-                    deleted = cursor.rowcount > 0
-                    if not deleted:
-                        return False
-                    # Purge the deleted row's dictated
-                    # text from ``transcriptions_fts_data`` (the FTS5
-                    # shadow segment table). The AFTER DELETE trigger
-                    # at schema.py:90-92 only marks the rowid as
-                    # deleted in the delete-bitmap — the segment data
-                    # survives until background compaction (days/weeks
-                    # later). ``'optimize'`` runs the FTS5 optimizer
-                    # until the index is optimal, which both
-                    # consolidates segments AND applies the
-                    # delete-bitmap to the merged output so the deleted
-                    # text is purged. ``'optimize'`` is preferred over
-                    # ``'rebuild'`` here because:
-                    #   - ``'rebuild'`` is O(N) (drops and rebuilds ALL
-                    #     segments from the content table).
-                    #   - ``'optimize'`` is typically 3-4x faster
-                    #     (only does the merge work needed to
-                    #     consolidate, not a full rebuild).
-                    # The MATCH-query correctness is already preserved
-                    # by the trigger; this call is purely for the
-                    # forensic-recovery guarantee. The periodic
-                    # retention tick (retention.py) still runs a full
-                    # ``'rebuild'`` after bulk sweeps as a safety net.
-                    # Tolerant: a transient FTS5 error must not break
-                    # the row delete (which already committed).
-                    try:
-                        cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('optimize')")
-                        conn.commit()
-                    except sqlite3.Error as optimize_exc:
-                        log.warning(
-                            "[HISTORY_DB] FTS5 'optimize' after delete(id=%d) "
-                            "FAILED: %s — dictated text may linger in "
-                            "transcriptions_fts_data until the next "
-                            "periodic retention sweep or the AP-17 "
-                            "startup rebuild.",
-                            transcription_id,
-                            optimize_exc,
-                        )
-                        # Best-effort: increment the per-instance
-                        # failure counter so observability surfaces
-                        # chronic FTS5 optimize failures (mirrors the
-                        # retention.py / clear_all pattern).
-                        with contextlib.suppress(Exception):
-                            self._fts5_rebuild_failures = getattr(self, "_fts5_rebuild_failures", 0) + 1
-                    return True
+                except sqlite3.Error as optimize_exc:
+                    log.warning(
+                        "[HISTORY_DB] FTS5 'optimize' after delete(id=%d) "
+                        "FAILED: %s — dictated text may linger in "
+                        "transcriptions_fts_data until the next "
+                        "periodic retention sweep or the AP-17 "
+                        "startup rebuild.",
+                        transcription_id,
+                        optimize_exc,
+                    )
+                    # Best-effort: increment the per-instance
+                    # failure counter so observability surfaces
+                    # chronic FTS5 optimize failures (mirrors the
+                    # retention.py / clear_all pattern).
+                    with contextlib.suppress(Exception):
+                        self._fts5_rebuild_failures = getattr(self, "_fts5_rebuild_failures", 0) + 1
+                return True
 
-            result = self._submit_write(_do_delete, wait=True)
-            if result is None:
-                # Writer shut down — treat as failure.
-                return False
-            if result:
-                # invalidate the count cache.
-                self._invalidate_history_count_cache()
-                # invalidate the today-stats cache (a delete
-                # changes today's count/chars/words/duration if the
-                # deleted row was from today).
-                self._invalidate_today_stats_cache()
-            return bool(result)
-        except HistoryDBError:
-            if raise_on_error:
-                raise
-            log.error("[HISTORY] Writer unavailable for delete")
+        result = self._submit_write(_do_delete, wait=True)
+        if result is None:
+            # Writer shut down — treat as failure.
             return False
-        except Exception as e:
-            log.error("[HISTORY] Failed to delete transcription: %s", e)
-            if raise_on_error:
-                raise HistoryDBError(str(e)) from e
-            return False
+        if result:
+            # invalidate the count cache.
+            self._invalidate_history_count_cache()
+            # invalidate the today-stats cache (a delete
+            # changes today's count/chars/words/duration if the
+            # deleted row was from today).
+            self._invalidate_today_stats_cache()
+        return bool(result)
 
+    @_wrap_write(-1, "restore transcription", "restore")
     def restore(
         self,
         record: dict,
@@ -1711,59 +1775,49 @@ class HistoryDB:
 
         Returns the new row id, or -1 on failure.
         """
-        try:
-            text = str(record.get("text", ""))
-            duration = float(record.get("duration", 0) or 0)
-            model = str(record.get("model", "") or "")
-            device = str(record.get("device", "") or "")
-            language = str(record.get("language", "") or "")
-            word_count = int(record.get("word_count", 0) or len(text.split()))
-            char_count = int(record.get("char_count", 0) or len(text))
-            favorite = 1 if record.get("favorite") else 0
+        text = str(record.get("text", ""))
+        duration = float(record.get("duration", 0) or 0)
+        model = str(record.get("model", "") or "")
+        device = str(record.get("device", "") or "")
+        language = str(record.get("language", "") or "")
+        word_count = int(record.get("word_count", 0) or len(text.split()))
+        char_count = int(record.get("char_count", 0) or len(text))
+        favorite = 1 if record.get("favorite") else 0
 
-            def _do_restore(conn: sqlite3.Connection) -> int:
-                with contextlib.closing(conn.cursor()) as cursor:
-                    cursor.execute(
-                        """
-                        INSERT INTO transcriptions
-                    (text, duration, model, device, word_count, char_count, language, favorite)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                        (text, duration, model, device, word_count, char_count, language, favorite),
-                    )
-                conn.commit()
-                new_id = cursor.lastrowid
-                if new_id is None:
-                    return -1
-                log.info(
-                    "[HISTORY] Restored transcription as id=%d (%d chars)",
-                    new_id,
-                    char_count,
+        def _do_restore(conn: sqlite3.Connection) -> int:
+            with contextlib.closing(conn.cursor()) as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO transcriptions
+                (text, duration, model, device, word_count, char_count, language, favorite)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+                    (text, duration, model, device, word_count, char_count, language, favorite),
                 )
-                return new_id
-
-            result = self._submit_write(_do_restore, wait=True)
-            if result is None:
+            conn.commit()
+            new_id = cursor.lastrowid
+            if new_id is None:
                 return -1
-            if result and result > 0:
-                # invalidate the count cache.
-                self._invalidate_history_count_cache()
-                # invalidate the today-stats cache (a restore
-                # adds a new row whose timestamp is ``now``, which
-                # affects today's count/chars/words/duration).
-                self._invalidate_today_stats_cache()
-            return int(result)
-        except HistoryDBError:
-            if raise_on_error:
-                raise
-            log.error("[HISTORY] Writer unavailable for restore")
-            return -1
-        except Exception as e:
-            log.error("[HISTORY] Failed to restore transcription: %s", e)
-            if raise_on_error:
-                raise HistoryDBError(str(e)) from e
-            return -1
+            log.info(
+                "[HISTORY] Restored transcription as id=%d (%d chars)",
+                new_id,
+                char_count,
+            )
+            return new_id
 
+        result = self._submit_write(_do_restore, wait=True)
+        if result is None:
+            return -1
+        if result and result > 0:
+            # invalidate the count cache.
+            self._invalidate_history_count_cache()
+            # invalidate the today-stats cache (a restore
+            # adds a new row whose timestamp is ``now``, which
+            # affects today's count/chars/words/duration).
+            self._invalidate_today_stats_cache()
+        return int(result)
+
+    @_wrap_write(False, "clear transcriptions", "clear_all")
     def clear_all(self, *, raise_on_error: bool = False) -> bool:
         """Clear all transcriptions.
 
@@ -1801,132 +1855,122 @@ class HistoryDB:
 
         see ``delete`` for ``raise_on_error`` semantics.
         """
-        try:
 
-            def _do_clear_all(conn: sqlite3.Connection) -> bool:
-                with contextlib.closing(conn.cursor()) as cursor:
-                    while True:
-                        cursor.execute(
-                            "DELETE FROM transcriptions WHERE id IN (  SELECT id FROM transcriptions LIMIT ?)",
-                            (_CLEAR_ALL_BATCH_SIZE,),
-                        )
-                        batch_deleted = cursor.rowcount
-                        if batch_deleted == 0:
-                            break
-                        conn.commit()  # release write lock between batches
-                # Final commit to close any open transaction started
-                # by the last DELETE (which matched 0 rows but still
-                # auto-opened a transaction in Python's sqlite3 module).
-                # VACUUM requires no open transaction.
-                conn.commit()
-                # VACUUM reclaims the freed pages so the DB
-                # file shrinks and deleted text is not recoverable
-                # from free pages. Runs inside the writer thread so
-                # it serializes with other writes. VACUUM requires
-                # exclusive access — readers will block briefly.
-                try:
-                    conn.execute("VACUUM")
-                    log.info("[HISTORY_DB] VACUUM completed after clear_all")
-                except sqlite3.Error as e:
-                    # VACUUM failure is non-fatal — the rows are
-                    # already deleted; only space reclamation failed.
-                    log.warning("[HISTORY_DB] VACUUM after clear_all failed: %s", e)
-                # rebuild FTS5 segments from the (now-empty)
-                # content table. The DELETE trigger
-                # ``transcriptions_ad_fts`` only marks rowids as
-                # deleted in the FTS5 delete-bitmap; the segment data
-                # in ``transcriptions_fts_data`` survives both the
-                # trigger delete and ``VACUUM``. Without this rebuild,
-                # dictated text remained recoverable from
-                # ``transcriptions_fts_data`` via forensic tools —
-                # defeating  / GDPR Art. 17. Wrapped in a
-                # tolerant try/except so an older DB (pre-V3
-                # migration, no FTS table yet) doesn't crash the
-                # clear path. The pattern matches the one in
-                # ``retention.apply_retention`` ( mirrors this
-                # in ``delete()``).
-                try:
-                    fts_cursor = conn.cursor()
-                    try:
-                        fts_cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
-                        conn.commit()
-                        log.info("[HISTORY_DB] FTS5 segments rebuilt after clear_all")
-                    finally:
-                        fts_cursor.close()
-                except sqlite3.Error as e:
-                    # escalate from WARNING to ERROR — the
-                    # GDPR Art. 17 /  privacy guarantee is
-                    # broken (deleted dictated text remains
-                    # recoverable from ``transcriptions_fts_data``
-                    # via forensic tools), not merely "suboptimal".
-                    log.error(
-                        "[HISTORY_DB] FTS5 'rebuild' after clear_all FAILED: %s "
-                        "(FTS5 shadow-table segment data may persist — deleted "
-                        "dictated text remains recoverable; manual re-index advised)",
-                        e,
+        def _do_clear_all(conn: sqlite3.Connection) -> bool:
+            with contextlib.closing(conn.cursor()) as cursor:
+                while True:
+                    cursor.execute(
+                        "DELETE FROM transcriptions WHERE id IN (  SELECT id FROM transcriptions LIMIT ?)",
+                        (_CLEAR_ALL_BATCH_SIZE,),
                     )
-                    # observable metric — increment the
-                    # per-instance failure counter so diagnostics
-                    # handlers can surface it to the user.
-                    try:
-                        self._fts5_rebuild_failures = self._fts5_rebuild_failures + 1
-                    except Exception:  # noqa: BLE001 — best-effort metric
-                        log.debug(
-                            "[HISTORY_DB] could not increment _fts5_rebuild_failures counter",
-                            exc_info=True,
-                        )
-                    # best-effort event_bus publication so
-                    # the renderer can show a toast. Wrapped broadly
-                    # because the event_bus import or the publish
-                    # call may fail (e.g. circular import during
-                    # early init); none of those should crash the
-                    # clear path which has already done the chunked
-                    # DELETEs + VACUUM.
-                    try:
-                        from voice_typer.server import event_bus
+                    batch_deleted = cursor.rowcount
+                    if batch_deleted == 0:
+                        break
+                    conn.commit()  # release write lock between batches
+            # Final commit to close any open transaction started
+            # by the last DELETE (which matched 0 rows but still
+            # auto-opened a transaction in Python's sqlite3 module).
+            # VACUUM requires no open transaction.
+            conn.commit()
+            # VACUUM reclaims the freed pages so the DB
+            # file shrinks and deleted text is not recoverable
+            # from free pages. Runs inside the writer thread so
+            # it serializes with other writes. VACUUM requires
+            # exclusive access — readers will block briefly.
+            try:
+                conn.execute("VACUUM")
+                log.info("[HISTORY_DB] VACUUM completed after clear_all")
+            except sqlite3.Error as e:
+                # VACUUM failure is non-fatal — the rows are
+                # already deleted; only space reclamation failed.
+                log.warning("[HISTORY_DB] VACUUM after clear_all failed: %s", e)
+            # rebuild FTS5 segments from the (now-empty)
+            # content table. The DELETE trigger
+            # ``transcriptions_ad_fts`` only marks rowids as
+            # deleted in the FTS5 delete-bitmap; the segment data
+            # in ``transcriptions_fts_data`` survives both the
+            # trigger delete and ``VACUUM``. Without this rebuild,
+            # dictated text remained recoverable from
+            # ``transcriptions_fts_data`` via forensic tools —
+            # defeating  / GDPR Art. 17. Wrapped in a
+            # tolerant try/except so an older DB (pre-V3
+            # migration, no FTS table yet) doesn't crash the
+            # clear path. The pattern matches the one in
+            # ``retention.apply_retention`` ( mirrors this
+            # in ``delete()``).
+            try:
+                fts_cursor = conn.cursor()
+                try:
+                    fts_cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
+                    conn.commit()
+                    log.info("[HISTORY_DB] FTS5 segments rebuilt after clear_all")
+                finally:
+                    fts_cursor.close()
+            except sqlite3.Error as e:
+                # escalate from WARNING to ERROR — the
+                # GDPR Art. 17 /  privacy guarantee is
+                # broken (deleted dictated text remains
+                # recoverable from ``transcriptions_fts_data``
+                # via forensic tools), not merely "suboptimal".
+                log.error(
+                    "[HISTORY_DB] FTS5 'rebuild' after clear_all FAILED: %s "
+                    "(FTS5 shadow-table segment data may persist — deleted "
+                    "dictated text remains recoverable; manual re-index advised)",
+                    e,
+                )
+                # observable metric — increment the
+                # per-instance failure counter so diagnostics
+                # handlers can surface it to the user.
+                try:
+                    self._fts5_rebuild_failures = self._fts5_rebuild_failures + 1
+                except Exception:  # noqa: BLE001 — best-effort metric
+                    log.debug(
+                        "[HISTORY_DB] could not increment _fts5_rebuild_failures counter",
+                        exc_info=True,
+                    )
+                # best-effort event_bus publication so
+                # the renderer can show a toast. Wrapped broadly
+                # because the event_bus import or the publish
+                # call may fail (e.g. circular import during
+                # early init); none of those should crash the
+                # clear path which has already done the chunked
+                # DELETEs + VACUUM.
+                try:
+                    from voice_typer.server import event_bus
 
-                        event_bus.publish(
-                            {
-                                "type": "history_fts5_rebuild_failed",
-                                "data": {
-                                    "db_path": str(self.db_path),
-                                    "deleted": 0,  # clear_all doesn't track count
-                                    "error": str(e),
-                                    "source": "clear_all",
-                                },
-                            }
-                        )
-                    except Exception as publish_exc:  # noqa: BLE001
-                        log.warning(
-                            "[HISTORY_DB] event_bus.publish(history_fts5_rebuild_failed) "
-                            "failed (best-effort, clear_all continues): %s",
-                            publish_exc,
-                        )
-                log.info("[HISTORY] Cleared all transcriptions")
-                return True
+                    event_bus.publish(
+                        {
+                            "type": "history_fts5_rebuild_failed",
+                            "data": {
+                                "db_path": str(self.db_path),
+                                "deleted": 0,  # clear_all doesn't track count
+                                "error": str(e),
+                                "source": "clear_all",
+                            },
+                        }
+                    )
+                except Exception as publish_exc:  # noqa: BLE001
+                    log.warning(
+                        "[HISTORY_DB] event_bus.publish(history_fts5_rebuild_failed) "
+                        "failed (best-effort, clear_all continues): %s",
+                        publish_exc,
+                    )
+            log.info("[HISTORY] Cleared all transcriptions")
+            return True
 
-            result = self._submit_write(_do_clear_all, wait=True)
-            if result is None:
-                return False
-            if result:
-                # invalidate the count cache.
-                self._invalidate_history_count_cache()
-                # invalidate the today-stats cache (clear_all
-                # deletes today's rows too — today's stats must drop to
-                # 0/0/0/0 on the next read).
-                self._invalidate_today_stats_cache()
-            return bool(result)
-        except HistoryDBError:
-            if raise_on_error:
-                raise
-            log.error("[HISTORY] Writer unavailable for clear_all")
+        result = self._submit_write(_do_clear_all, wait=True)
+        if result is None:
             return False
-        except Exception as e:
-            log.error("[HISTORY] Failed to clear transcriptions: %s", e)
-            if raise_on_error:
-                raise HistoryDBError(str(e)) from e
-            return False
+        if result:
+            # invalidate the count cache.
+            self._invalidate_history_count_cache()
+            # invalidate the today-stats cache (clear_all
+            # deletes today's rows too — today's stats must drop to
+            # 0/0/0/0 on the next read).
+            self._invalidate_today_stats_cache()
+        return bool(result)
 
+    @_wrap_write(False, "toggle favorite", "toggle_favorite")
     def toggle_favorite(
         self,
         transcription_id: int,
@@ -1937,31 +1981,20 @@ class HistoryDB:
 
         see ``delete`` for ``raise_on_error`` semantics.
         """
-        try:
 
-            def _do_toggle(conn: sqlite3.Connection) -> bool:
-                with contextlib.closing(conn.cursor()) as cursor:
-                    cursor.execute(
-                        "UPDATE transcriptions SET favorite = CASE WHEN favorite = 1 THEN 0 ELSE 1 END WHERE id = ?",
-                        (transcription_id,),
-                    )
-                    conn.commit()
-                    return cursor.rowcount > 0
+        def _do_toggle(conn: sqlite3.Connection) -> bool:
+            with contextlib.closing(conn.cursor()) as cursor:
+                cursor.execute(
+                    "UPDATE transcriptions SET favorite = CASE WHEN favorite = 1 THEN 0 ELSE 1 END WHERE id = ?",
+                    (transcription_id,),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
 
-            result = self._submit_write(_do_toggle, wait=True)
-            if result is None:
-                return False
-            return bool(result)
-        except HistoryDBError:
-            if raise_on_error:
-                raise
-            log.error("[HISTORY] Writer unavailable for toggle_favorite")
+        result = self._submit_write(_do_toggle, wait=True)
+        if result is None:
             return False
-        except Exception as e:
-            log.error("[HISTORY] Failed to toggle favorite: %s", e)
-            if raise_on_error:
-                raise HistoryDBError(str(e)) from e
-            return False
+        return bool(result)
 
     def apply_retention(
         self,
@@ -2059,6 +2092,7 @@ class HistoryDB:
     # Public read methods
     # ──────────────────────────────────────────────────────────────
 
+    @_wrap_read([], "get recent transcriptions")
     def get_recent(
         self,
         limit: int = 50,
@@ -2093,66 +2127,60 @@ class HistoryDB:
         pre-cursor contract).
         """
         limit = min(max(limit, 1), _MAX_LIST_LIMIT)
-        try:
-            conn = self._get_read_conn()
-            with contextlib.closing(conn.cursor()) as cursor:
-                use_cursor = before_timestamp is not None and before_id is not None
-                if use_cursor:
-                    cursor.execute(
-                        """
-                        SELECT
-                            id,
-                            SUBSTR(text, 1, ?) AS text,
-                            LENGTH(text) AS text_full_length,
-                            timestamp,
-                            duration,
-                            model,
-                            device,
-                            word_count,
-                            char_count,
-                            favorite,
-                            language
-                        FROM transcriptions
-                        WHERE timestamp < ? OR (timestamp = ? AND id < ?)
-                        ORDER BY timestamp DESC, id DESC
-                        LIMIT ?
-                    """,
-                        (
-                            _HISTORY_TEXT_PREVIEW_LENGTH,
-                            before_timestamp,
-                            before_timestamp,
-                            before_id,
-                            limit,
-                        ),
-                    )
-                else:
-                    cursor.execute(
-                        """
-                        SELECT
-                            id,
-                            SUBSTR(text, 1, ?) AS text,
-                            LENGTH(text) AS text_full_length,
-                            timestamp,
-                            duration,
-                            model,
-                            device,
-                            word_count,
-                            char_count,
-                            favorite,
-                            language
-                        FROM transcriptions
-                        ORDER BY timestamp DESC, id DESC
-                        LIMIT ? OFFSET ?
-                    """,
-                        (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
-                    )
-                rows = cursor.fetchall()
-            return [_project_text_row(row) for row in rows]
-        except Exception as e:
-            log.error("[HISTORY] Failed to get recent transcriptions: %s", e)
-            if raise_on_error:
-                raise HistoryDBError(str(e)) from e
-            return []
+        conn = self._get_read_conn()
+        with contextlib.closing(conn.cursor()) as cursor:
+            use_cursor = before_timestamp is not None and before_id is not None
+            if use_cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        SUBSTR(text, 1, ?) AS text,
+                        LENGTH(text) AS text_full_length,
+                        timestamp,
+                        duration,
+                        model,
+                        device,
+                        word_count,
+                        char_count,
+                        favorite,
+                        language
+                    FROM transcriptions
+                    WHERE timestamp < ? OR (timestamp = ? AND id < ?)
+                    ORDER BY timestamp DESC, id DESC
+                    LIMIT ?
+                """,
+                    (
+                        _HISTORY_TEXT_PREVIEW_LENGTH,
+                        before_timestamp,
+                        before_timestamp,
+                        before_id,
+                        limit,
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        SUBSTR(text, 1, ?) AS text,
+                        LENGTH(text) AS text_full_length,
+                        timestamp,
+                        duration,
+                        model,
+                        device,
+                        word_count,
+                        char_count,
+                        favorite,
+                        language
+                    FROM transcriptions
+                    ORDER BY timestamp DESC, id DESC
+                    LIMIT ? OFFSET ?
+                """,
+                    (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
+                )
+            rows = cursor.fetchall()
+        return [_project_text_row(row) for row in rows]
 
     def get_latest_text(self) -> str:
         """Return the most recent transcription text, or ``""`` if DB is empty.
@@ -2183,6 +2211,7 @@ class HistoryDB:
             log.error("[HISTORY] Failed to get latest transcription: %s", e)
             return ""
 
+    @_wrap_read([], "search transcriptions")
     def search(
         self,
         query: str,
@@ -2211,149 +2240,69 @@ class HistoryDB:
         not a prefix query).
         """
         limit = min(max(limit, 1), _MAX_LIST_LIMIT)
-        try:
-            conn = self._get_read_conn()
-            with contextlib.closing(conn.cursor()) as cursor:
-                capped = query[:_MAX_SEARCH_QUERY_CHARS]
-                use_cursor = before_timestamp is not None and before_id is not None
-                if capped and _is_fts_compatible_query(capped):
-                    fts_query = _sanitize_fts_query(capped)
-                    if use_cursor:
-                        cursor.execute(
-                            """
-                            SELECT
-                                t.id,
-                                SUBSTR(t.text, 1, ?) AS text,
-                                LENGTH(t.text) AS text_full_length,
-                                t.timestamp,
-                                t.duration,
-                                t.model,
-                                t.device,
-                                t.word_count,
-                                t.char_count,
-                                t.favorite,
-                                t.language
-                            FROM transcriptions t
-                            JOIN transcriptions_fts AS f ON f.rowid = t.id
-                            WHERE transcriptions_fts MATCH ?
-                              AND (t.timestamp < ? OR (t.timestamp = ? AND t.id < ?))
-                            ORDER BY t.timestamp DESC, t.id DESC
-                            LIMIT ?
-                        """,
-                            (
-                                _HISTORY_TEXT_PREVIEW_LENGTH,
-                                fts_query,
-                                before_timestamp,
-                                before_timestamp,
-                                before_id,
-                                limit,
-                            ),
-                        )
-                    else:
-                        cursor.execute(
-                            """
-                            SELECT
-                                t.id,
-                                SUBSTR(t.text, 1, ?) AS text,
-                                LENGTH(t.text) AS text_full_length,
-                                t.timestamp,
-                                t.duration,
-                                t.model,
-                                t.device,
-                                t.word_count,
-                                t.char_count,
-                                t.favorite,
-                                t.language
-                            FROM transcriptions t
-                            JOIN transcriptions_fts AS f ON f.rowid = t.id
-                            WHERE transcriptions_fts MATCH ?
-                            ORDER BY t.timestamp DESC, t.id DESC
-                            LIMIT ? OFFSET ?
-                        """,
-                            (_HISTORY_TEXT_PREVIEW_LENGTH, fts_query, limit, offset),
-                        )
+        conn = self._get_read_conn()
+        with contextlib.closing(conn.cursor()) as cursor:
+            capped = query[:_MAX_SEARCH_QUERY_CHARS]
+            use_cursor = before_timestamp is not None and before_id is not None
+            if capped and _is_fts_compatible_query(capped):
+                fts_query = _sanitize_fts_query(capped)
+                if use_cursor:
+                    cursor.execute(
+                        """
+                        SELECT
+                            t.id,
+                            SUBSTR(t.text, 1, ?) AS text,
+                            LENGTH(t.text) AS text_full_length,
+                            t.timestamp,
+                            t.duration,
+                            t.model,
+                            t.device,
+                            t.word_count,
+                            t.char_count,
+                            t.favorite,
+                            t.language
+                        FROM transcriptions t
+                        JOIN transcriptions_fts AS f ON f.rowid = t.id
+                        WHERE transcriptions_fts MATCH ?
+                          AND (t.timestamp < ? OR (t.timestamp = ? AND t.id < ?))
+                        ORDER BY t.timestamp DESC, t.id DESC
+                        LIMIT ?
+                    """,
+                        (
+                            _HISTORY_TEXT_PREVIEW_LENGTH,
+                            fts_query,
+                            before_timestamp,
+                            before_timestamp,
+                            before_id,
+                            limit,
+                        ),
+                    )
                 else:
-                    # LIKE fallback.
-                    pattern = _prepare_like_search_pattern(query)
-                    if use_cursor:
-                        cursor.execute(
-                            """
-                            SELECT
-                                id,
-                                SUBSTR(text, 1, ?) AS text,
-                                LENGTH(text) AS text_full_length,
-                                timestamp,
-                                duration,
-                                model,
-                                device,
-                                word_count,
-                                char_count,
-                                favorite,
-                                language
-                            FROM transcriptions
-                            WHERE text LIKE ? ESCAPE '\\'
-                              AND (timestamp < ? OR (timestamp = ? AND id < ?))
-                            ORDER BY timestamp DESC, id DESC
-                            LIMIT ?
-                        """,
-                            (
-                                _HISTORY_TEXT_PREVIEW_LENGTH,
-                                pattern,
-                                before_timestamp,
-                                before_timestamp,
-                                before_id,
-                                limit,
-                            ),
-                        )
-                    else:
-                        cursor.execute(
-                            """
-                            SELECT
-                                id,
-                                SUBSTR(text, 1, ?) AS text,
-                                LENGTH(text) AS text_full_length,
-                                timestamp,
-                                duration,
-                                model,
-                                device,
-                                word_count,
-                                char_count,
-                                favorite,
-                                language
-                            FROM transcriptions
-                            WHERE text LIKE ? ESCAPE '\\'
-                            ORDER BY timestamp DESC, id DESC
-                            LIMIT ? OFFSET ?
-                        """,
-                            (_HISTORY_TEXT_PREVIEW_LENGTH, pattern, limit, offset),
-                        )
-                rows = cursor.fetchall()
-            return [_project_text_row(row) for row in rows]
-        except Exception as e:
-            log.error("[HISTORY] Failed to search transcriptions: %s", e)
-            if raise_on_error:
-                raise HistoryDBError(str(e)) from e
-            return []
-
-    def get_favorites(
-        self,
-        limit: int = 50,
-        offset: int = 0,
-        *,
-        raise_on_error: bool = False,
-        before_timestamp: str | None = None,
-        before_id: int | None = None,
-    ) -> list[dict]:
-        """Get favorited transcriptions with offset-based pagination.
-
-        see ``get_recent`` for ``raise_on_error`` and cursor-pagination
-        (``before_timestamp`` / ``before_id``) semantics.
-        """
-        limit = min(max(limit, 1), _MAX_LIST_LIMIT)
-        try:
-            conn = self._get_read_conn()
-            with contextlib.closing(conn.cursor()) as cursor:
-                use_cursor = before_timestamp is not None and before_id is not None
+                    cursor.execute(
+                        """
+                        SELECT
+                            t.id,
+                            SUBSTR(t.text, 1, ?) AS text,
+                            LENGTH(t.text) AS text_full_length,
+                            t.timestamp,
+                            t.duration,
+                            t.model,
+                            t.device,
+                            t.word_count,
+                            t.char_count,
+                            t.favorite,
+                            t.language
+                        FROM transcriptions t
+                        JOIN transcriptions_fts AS f ON f.rowid = t.id
+                        WHERE transcriptions_fts MATCH ?
+                        ORDER BY t.timestamp DESC, t.id DESC
+                        LIMIT ? OFFSET ?
+                    """,
+                        (_HISTORY_TEXT_PREVIEW_LENGTH, fts_query, limit, offset),
+                    )
+            else:
+                # LIKE fallback.
+                pattern = _prepare_like_search_pattern(query)
                 if use_cursor:
                     cursor.execute(
                         """
@@ -2370,13 +2319,14 @@ class HistoryDB:
                             favorite,
                             language
                         FROM transcriptions
-                        WHERE favorite = 1
+                        WHERE text LIKE ? ESCAPE '\\'
                           AND (timestamp < ? OR (timestamp = ? AND id < ?))
                         ORDER BY timestamp DESC, id DESC
                         LIMIT ?
                     """,
                         (
                             _HISTORY_TEXT_PREVIEW_LENGTH,
+                            pattern,
                             before_timestamp,
                             before_timestamp,
                             before_id,
@@ -2399,20 +2349,89 @@ class HistoryDB:
                             favorite,
                             language
                         FROM transcriptions
-                        WHERE favorite = 1
+                        WHERE text LIKE ? ESCAPE '\\'
                         ORDER BY timestamp DESC, id DESC
                         LIMIT ? OFFSET ?
                     """,
-                        (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
+                        (_HISTORY_TEXT_PREVIEW_LENGTH, pattern, limit, offset),
                     )
-                rows = cursor.fetchall()
-            return [_project_text_row(row) for row in rows]
-        except Exception as e:
-            log.error("[HISTORY] Failed to get favorites: %s", e)
-            if raise_on_error:
-                raise HistoryDBError(str(e)) from e
-            return []
+            rows = cursor.fetchall()
+        return [_project_text_row(row) for row in rows]
 
+    @_wrap_read([], "get favorites")
+    def get_favorites(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        *,
+        raise_on_error: bool = False,
+        before_timestamp: str | None = None,
+        before_id: int | None = None,
+    ) -> list[dict]:
+        """Get favorited transcriptions with offset-based pagination.
+
+        see ``get_recent`` for ``raise_on_error`` and cursor-pagination
+        (``before_timestamp`` / ``before_id``) semantics.
+        """
+        limit = min(max(limit, 1), _MAX_LIST_LIMIT)
+        conn = self._get_read_conn()
+        with contextlib.closing(conn.cursor()) as cursor:
+            use_cursor = before_timestamp is not None and before_id is not None
+            if use_cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        SUBSTR(text, 1, ?) AS text,
+                        LENGTH(text) AS text_full_length,
+                        timestamp,
+                        duration,
+                        model,
+                        device,
+                        word_count,
+                        char_count,
+                        favorite,
+                        language
+                    FROM transcriptions
+                    WHERE favorite = 1
+                      AND (timestamp < ? OR (timestamp = ? AND id < ?))
+                    ORDER BY timestamp DESC, id DESC
+                    LIMIT ?
+                """,
+                    (
+                        _HISTORY_TEXT_PREVIEW_LENGTH,
+                        before_timestamp,
+                        before_timestamp,
+                        before_id,
+                        limit,
+                    ),
+                )
+            else:
+                cursor.execute(
+                    """
+                    SELECT
+                        id,
+                        SUBSTR(text, 1, ?) AS text,
+                        LENGTH(text) AS text_full_length,
+                        timestamp,
+                        duration,
+                        model,
+                        device,
+                        word_count,
+                        char_count,
+                        favorite,
+                        language
+                    FROM transcriptions
+                    WHERE favorite = 1
+                    ORDER BY timestamp DESC, id DESC
+                    LIMIT ? OFFSET ?
+                """,
+                    (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
+                )
+            rows = cursor.fetchall()
+        return [_project_text_row(row) for row in rows]
+
+    @_wrap_read(lambda: {"count": 0, "chars": 0, "word_count": 0, "duration": 0}, "get today stats")
     def get_today_stats(self, *, raise_on_error: bool = False) -> dict:
         """Get statistics for today's transcriptions.
 
@@ -2435,50 +2454,44 @@ class HistoryDB:
                 # returned dict without corrupting the cached value
                 # (see ``test_cache_returns_independent_dict_copy``).
                 return dict(self._today_stats_cache)
-        try:
-            conn = self._get_read_conn()
-            with contextlib.closing(conn.cursor()) as cursor:
-                # Sargable predicate. ``DATE(timestamp) = DATE('now')`` applies
-                # a function to every row's ``timestamp`` column, so SQLite
-                # cannot use ``idx_timestamp`` and falls back to a full table
-                # scan. The range form ``timestamp >= DATE('now') AND
-                # timestamp < DATE('now', '+1 day')`` lets the query planner
-                # use the index. ``timestamp`` is stored as an ISO-8601 string
-                # (``datetime.now().isoformat()``), so lexicographic comparison
-                # against the date-only ``DATE('now')`` boundary is correct:
-                # any ISO-8601 timestamp from today sorts after "YYYY-MM-DD"
-                # (today's midnight) and before "YYYY-MM-DD" of tomorrow.
-                cursor.execute("""
-                    SELECT
-                        COUNT(*) as count,
-                        SUM(char_count) as chars,
-                        SUM(word_count) as word_count,
-                        SUM(duration) as duration
-                    FROM transcriptions
-                    WHERE timestamp >= DATE('now')
-                      AND timestamp < DATE('now', '+1 day')
-                """)
-                row = cursor.fetchone()
-            result = {
-                "count": row[0] or 0,
-                "chars": row[1] or 0,
-                "word_count": row[2] or 0,
-                "duration": row[3] or 0,
-            }
-            # store the result in the cache (under the lock so a
-            # concurrent invalidator doesn't race the write). The cached
-            # value is the dict itself; callers receive a copy (above).
-            with self._today_stats_cache_lock:
-                self._today_stats_cache = result
-                self._today_stats_cache_ts = time.monotonic()
-            # Return a shallow copy on the cache-miss path too, so the
-            # caller's mutation can't reach the freshly-stored cache.
-            return dict(result)
-        except Exception as e:
-            log.error("[HISTORY] Failed to get today stats: %s", e)
-            if raise_on_error:
-                raise HistoryDBError(str(e)) from e
-            return {"count": 0, "chars": 0, "word_count": 0, "duration": 0}
+        conn = self._get_read_conn()
+        with contextlib.closing(conn.cursor()) as cursor:
+            # Sargable predicate. ``DATE(timestamp) = DATE('now')`` applies
+            # a function to every row's ``timestamp`` column, so SQLite
+            # cannot use ``idx_timestamp`` and falls back to a full table
+            # scan. The range form ``timestamp >= DATE('now') AND
+            # timestamp < DATE('now', '+1 day')`` lets the query planner
+            # use the index. ``timestamp`` is stored as an ISO-8601 string
+            # (``datetime.now().isoformat()``), so lexicographic comparison
+            # against the date-only ``DATE('now')`` boundary is correct:
+            # any ISO-8601 timestamp from today sorts after "YYYY-MM-DD"
+            # (today's midnight) and before "YYYY-MM-DD" of tomorrow.
+            cursor.execute("""
+                SELECT
+                    COUNT(*) as count,
+                    SUM(char_count) as chars,
+                    SUM(word_count) as word_count,
+                    SUM(duration) as duration
+                FROM transcriptions
+                WHERE timestamp >= DATE('now')
+                  AND timestamp < DATE('now', '+1 day')
+            """)
+            row = cursor.fetchone()
+        result = {
+            "count": row[0] or 0,
+            "chars": row[1] or 0,
+            "word_count": row[2] or 0,
+            "duration": row[3] or 0,
+        }
+        # store the result in the cache (under the lock so a
+        # concurrent invalidator doesn't race the write). The cached
+        # value is the dict itself; callers receive a copy (above).
+        with self._today_stats_cache_lock:
+            self._today_stats_cache = result
+            self._today_stats_cache_ts = time.monotonic()
+        # Return a shallow copy on the cache-miss path too, so the
+        # caller's mutation can't reach the freshly-stored cache.
+        return dict(result)
 
     def _invalidate_today_stats_cache(self) -> None:
         """drop the cached today-stats dict.
