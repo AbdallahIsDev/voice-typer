@@ -1,6 +1,6 @@
-"""Regression test for the XZ-CFG-04 fix.
+"""Regression test for the fix.
 
-XZ-CFG-04 (High): ``validate_config()`` in
+``validate_config()`` in
 ``voice_typer/server/config_validators.py`` was declared but NEVER
 called from any production code path. The docstring's "Agent 2-a is
 coordinated (via the worklog) to call it" comment was a stale
@@ -42,7 +42,7 @@ def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
 
 
 class TestValidateConfigCalledOnLoad:
-    """XZ-CFG-04: ``Config.load()`` must call ``validate_config`` on
+    """``Config.load()`` must call ``validate_config`` on
     the constructed instance and append any errors to
     ``instance.last_load_warnings``.
     """
@@ -87,10 +87,10 @@ class TestValidateConfigCalledOnLoad:
         instance = Config.load()
 
         assert call_count >= 1, (
-            "XZ-CFG-04: Config.load() must call validate_config() on the constructed instance. The call did not happen."
+            "Config.load() must call validate_config() on the constructed instance. The call did not happen."
         )
         assert captured_instance[0] is instance, (
-            "XZ-CFG-04: validate_config must be called with the constructed Config instance as its argument."
+            "validate_config must be called with the constructed Config instance as its argument."
         )
 
     def test_validate_config_errors_appended_to_last_load_warnings(
@@ -115,12 +115,11 @@ class TestValidateConfigCalledOnLoad:
         # ``"validate_config: language: <error>"``.
         validate_warnings = [w for w in instance.last_load_warnings if "validate_config:" in w]
         assert validate_warnings, (
-            "XZ-CFG-04: validate_config() should flag the invalid "
+            "validate_config() should flag the invalid "
             f"language value. last_load_warnings={instance.last_load_warnings!r}"
         )
         assert any("language" in w for w in validate_warnings), (
-            "XZ-CFG-04: at least one validate_config warning should "
-            f"mention the 'language' field. Got: {validate_warnings!r}"
+            f"at least one validate_config warning should mention the 'language' field. Got: {validate_warnings!r}"
         )
 
     def test_validate_config_no_warnings_for_valid_config(
@@ -140,12 +139,12 @@ class TestValidateConfigCalledOnLoad:
 
         validate_warnings = [w for w in instance.last_load_warnings if "validate_config:" in w]
         assert validate_warnings == [], (
-            f"XZ-CFG-04: a valid config should produce no validate_config warnings. Got: {validate_warnings!r}"
+            f"a valid config should produce no validate_config warnings. Got: {validate_warnings!r}"
         )
 
 
 class TestValidateConfigGracefullyHandlesErrors:
-    """XZ-CFG-04: if ``validate_config`` itself raises, ``Config.load()``
+    """if ``validate_config`` itself raises, ``Config.load()``
     must NOT propagate the exception — the config still loads (the
     validator is best-effort / advisory).
     """

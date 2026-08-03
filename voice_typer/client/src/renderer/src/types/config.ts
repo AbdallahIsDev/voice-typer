@@ -37,6 +37,13 @@ export interface VoiceTyperConfig {
 	// `pre_roll_buffer_seconds: float = 0.0` (no pre-roll) and it's
 	// in the IPC allowlist; absence on the wire is treated as 0.0.
 	pre_roll_buffer_seconds?: number;
+	//ER-42: auto-calibrate VAD thresholds from ambient noise
+	// (server-side recording setting — no renderer UI, mirroring the
+	// other `vad_*` fields which are intentionally absent from this
+	// interface). Declared `vad_auto_calibrate: bool = False` in the
+	// Python `Config` dataclass and IPC allowlist. OPTIONAL so older
+	// sidecars that predate the field don't break the type contract.
+	vad_auto_calibrate?: boolean;
 
 	// Transcription
 	model_size: ModelSize;

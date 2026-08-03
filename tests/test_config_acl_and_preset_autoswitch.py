@@ -1,6 +1,6 @@
 """Targeted tests for two review.md findings addressed in this wave:
 
-  - XZ-CFG-10 (Medium): ``apply_preset`` silently reverts user toggles.
+  - ``apply_preset`` silently reverts user toggles.
     When a user submits an IPC ``set_config`` for an individual
     ``noise_filter_*`` toggle while ``audio_preset`` is a named preset
     (auto / studio / noisy_room / off), the next ``Config.load()`` would
@@ -9,7 +9,7 @@
     switches ``audio_preset`` to ``"custom"`` (with an INFO log) so the
     user's individual toggle survives a restart.
 
-  - XZ-R10-08 (Medium): Windows config file ACLs not enforced.
+  - Windows config file ACLs not enforced.
     ``_secure_atomic_write``'s ``tempfile.mkstemp`` inherits the parent
     dir's DACL on Windows, so a shared ``%APPDATA%`` or
     ``VOICE_TYPER_CONFIG_DIR`` would leave ``config.json`` (with
@@ -29,7 +29,7 @@ from __future__ import annotations
 import contextlib
 from unittest.mock import MagicMock
 
-# ── XZ-CFG-10: apply_preset silently reverts user toggles ────────────
+# ── apply_preset silently reverts user toggles ────────────
 
 
 def _make_service_and_app(tmp_config_dir, monkeypatch):
@@ -74,7 +74,7 @@ def _make_service_and_app(tmp_config_dir, monkeypatch):
 
 
 class TestApplyPresetAutoSwitchToCustom:
-    """XZ-CFG-10: ``apply_config`` auto-switches ``audio_preset`` to
+    """``apply_config`` auto-switches ``audio_preset`` to
     ``"custom"`` when an individual filter toggle is set while the
     current preset is a named preset (not ``"custom"``)."""
 
@@ -88,7 +88,7 @@ class TestApplyPresetAutoSwitchToCustom:
         service.apply_config({"noise_filter_highpass": False})
 
         assert app.config.audio_preset == "custom", (
-            "XZ-CFG-10: setting an individual noise_filter_* toggle while "
+            "setting an individual noise_filter_* toggle while "
             "audio_preset is a named preset (e.g. 'auto') must auto-switch "
             "audio_preset to 'custom' — otherwise Config.load() will call "
             "apply_preset('auto', instance) on next restart and silently "
@@ -146,7 +146,7 @@ class TestApplyPresetAutoSwitchToCustom:
         service.apply_config({"noise_filter_enabled": False})
 
         assert app.config.audio_preset == "auto", (
-            "XZ-CFG-10: noise_filter_enabled is not in the preset's "
+            "noise_filter_enabled is not in the preset's "
             "overwrite set (see audio_presets.PRESETS), so changing it "
             "must NOT auto-switch audio_preset to custom."
         )
@@ -172,11 +172,11 @@ class TestApplyPresetAutoSwitchToCustom:
         assert app.config.noise_filter_eq is False
 
 
-# ── XZ-R10-08: Windows config file ACLs not enforced ─────────────────
+# ── Windows config file ACLs not enforced ─────────────────
 
 
 class TestEnforceWindowsOwnerOnlyAcl:
-    """XZ-R10-08: ``_enforce_windows_owner_only_acl`` restricts file/dir
+    """``_enforce_windows_owner_only_acl`` restricts file/dir
     ACL to the current user on Windows via ``icacls /inheritance:r
     /grant:r "%USERNAME%:F"``."""
 
@@ -314,7 +314,7 @@ class TestEnforceWindowsOwnerOnlyAcl:
         config_mod._enforce_windows_owner_only_acl(tmp_path / "test.txt")
 
     def test_save_invokes_acl_helper_on_windows(self, monkeypatch, tmp_config_dir):
-        """XZ-R10-08 integration: ``Config._save_unlocked`` (the body of
+        """integration: ``Config._save_unlocked`` (the body of
         ``save()`` after the cross-process lock is acquired) must call
         ``_enforce_windows_owner_only_acl`` on the config file, the
         config dir, and (if a backup is written) the .bak file — but

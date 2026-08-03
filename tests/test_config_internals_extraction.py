@@ -183,7 +183,7 @@ class TestBackupBeforeMigrationExtraction:
         assert backups == [], f"expected no backup for non-int loaded_version; found {[b.name for b in backups]}"
 
     def test_impl_filename_embeds_timestamp_pid_microseconds(self, tmp_path: Path) -> None:
-        """XZ-CFG-11 contract preserved by the extraction: the backup
+        """contract preserved by the extraction: the backup
         filename must embed a Unix timestamp + PID + microsecond
         fraction so two backup events never collide.
         """
@@ -212,7 +212,7 @@ class TestBackupBeforeMigrationExtraction:
         assert 0 <= us < 1_000_000
 
     def test_impl_retention_caps_at_three(self, tmp_path: Path) -> None:
-        """XZ-CFG-11 retention contract preserved by the extraction:
+        """retention contract preserved by the extraction:
         after the 4th pre-migration backup is created, the oldest is
         pruned so only 3 remain.
         """

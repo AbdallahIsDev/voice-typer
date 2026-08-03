@@ -1,7 +1,6 @@
-"""FR-1 regression test: Config.load() must not clobber the XZ-SEC-04
-keyring-migration deferral state.
+"""FR-1 regression test: Config.load() must not clobber the keyring-migration deferral state.
 
-The XZ-SEC-04 fix in ``credential_store.migrate_secrets_to_keyring``
+The fix in ``credential_store.migrate_secrets_to_keyring``
 defers setting ``secrets_migrated = True`` on disk when keyring is
 unavailable AND real plaintext was skipped. The next ``Config.load()``
 must observe the deferred state (secrets_migrated absent / False) so
@@ -52,7 +51,7 @@ def mock_keyring_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     """Mock keyring as unavailable (fail backend / D-Bus missing).
 
     This simulates the common headless-Linux-without-gnome-keyring case
-    where the XZ-SEC-04 deferral is supposed to kick in.
+    where the deferral is supposed to kick in.
     """
     fake_keyring = MagicMock()
     fake_keyring.get_keyring.return_value = MagicMock(name="fail")
@@ -99,7 +98,7 @@ def mock_keyring_available(monkeypatch: pytest.MonkeyPatch) -> dict:
 
 
 class TestSecretsMigrationDeferralPreserved:
-    """FR-1: ``Config.load()`` must NOT clobber the XZ-SEC-04 deferral."""
+    """FR-1: ``Config.load()`` must NOT clobber the deferral."""
 
     def test_deferral_preserved_when_keyring_unavailable(
         self,
@@ -128,7 +127,7 @@ class TestSecretsMigrationDeferralPreserved:
         # the in-memory flag must reflect the on-disk deferred
         # state (False), NOT the pre-fix unconditional True.
         assert cfg.secrets_migrated is False, (
-            "FR-1 regression: Config.load() clobbered the XZ-SEC-04 "
+            "FR-1 regression: Config.load() clobbered the "
             "deferral state. After migrate deferred (keyring unavailable "
             "+ real plaintext skipped), Config.secrets_migrated must be "
             "False so the next save() does NOT persist True to disk "
@@ -223,7 +222,7 @@ class TestSecretsMigrationDeferralPreserved:
         cfg1 = Config.load()
         assert cfg1.secrets_migrated is False, (
             "FR-1 phase 1: Config.secrets_migrated should be False "
-            "(deferred) but is True — the XZ-SEC-04 deferral was "
+            "(deferred) but is True — the deferral was "
             "clobbered by Config.load()."
         )
         assert cfg1.openai_api_key == "sk-migrate-me-after-keyring-installed"

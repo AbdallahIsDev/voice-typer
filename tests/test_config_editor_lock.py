@@ -34,7 +34,6 @@ from __future__ import annotations
 import json
 import subprocess
 import threading
-import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -359,13 +358,16 @@ def _run_open_config_in_thread(app):
     return thread, errors
 
 
-def _assert_concurrent_set_config_blocks(app, editor, timeout=5.0):
+def _assert_concurrent_set_config_succeeds(app, editor, timeout=5.0):
     """Mimic a concurrent IPC ``set_config`` call.
 
     Spawns a thread that tries to acquire ``app._config_mutation_lock``
     (exactly what ``service.apply_config`` does on the IPC set_config
-    path). Verifies the thread blocks while the editor is open, then
-    completes after the editor closes.
+    path). Verifies the thread ACQUIRES the lock immediately while the
+    editor is open — the lock was split so the editor wait no
+    longer holds it. (An earlier fix held the lock for the full
+    editor session; the split reverted that to keep the tray thread
+    + IPC handlers responsive.)
     """
     acquired = threading.Event()
 
@@ -376,36 +378,46 @@ def _assert_concurrent_set_config_blocks(app, editor, timeout=5.0):
     setter_thread = threading.Thread(target=_acquire_lock, daemon=True)
     setter_thread.start()
 
-    time.sleep(0.15)
-    assert not acquired.is_set(), (
-        "B-4: a concurrent set_config call (acquiring _config_mutation_lock) "
-        "must BLOCK while the config editor is open — but the lock was "
-        "acquired immediately, which means _open_config_file is not holding "
-        "the lock for the full editor session."
-    )
-
-    editor.close_event.set()
-
-    assert acquired.wait(timeout=timeout), (
-        "B-4: after the editor closes, the blocked set_config call must proceed and acquire _config_mutation_lock."
+    # The setter thread must acquire the lock almost immediately — the
+    # editor wait does NOT hold the lock.
+    assert acquired.wait(timeout=2.0), (
+        "A concurrent set_config call (acquiring "
+        "_config_mutation_lock) must succeed WHILE the config editor is "
+        "open — but the lock was not acquired within 2s, which means "
+        "_open_config_file is still holding the lock for the full "
+        "editor session (the pre-split behavior)."
     )
     setter_thread.join(timeout=2.0)
     assert not setter_thread.is_alive(), "setter thread should have exited"
 
+    editor.close_event.set()
+
 
 class TestMacosRuntime:
-    """Runtime test for the macOS ``open -W`` branch."""
+    """Runtime test for the macOS ``open -W`` branch.
 
-    def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
+    The lock is NOT held during the editor wait — only during the
+    brief save (Phase 1) and reload (Phase 3). An earlier fix held
+    the lock for the full editor session, which blocked the tray thread
+    + every IPC handler that touched the config for the entire editor
+    session. The split reverted that to keep the app responsive while the
+    user edits the file.
+    """
+
+    def test_lock_not_held_during_editor_session(self, tmp_config_dir, monkeypatch):
         app = _make_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, "macos")
 
         editor = _FakeEditor()
 
         def _run(args, **kwargs):
-            assert _lock_owned(app), (
-                "B-4: _config_mutation_lock must be acquired by the "
-                "current thread BEFORE subprocess.run is called on macOS."
+            assert not _lock_owned(app), (
+                "_config_mutation_lock must NOT be held by the "
+                "current thread when subprocess.run is called on macOS — "
+                "the lock is released after the save (Phase 1) and not "
+                "re-acquired until the reload (Phase 3). Holding the lock "
+                "during the editor wait blocks the tray thread + every "
+                "IPC handler that touches the config."
             )
             return editor.run(args, **kwargs)
 
@@ -417,7 +429,7 @@ class TestMacosRuntime:
 
         assert editor.opened.wait(timeout=5.0), "Editor should have been launched (subprocess.run called) within 5s."
 
-        _assert_concurrent_set_config_blocks(app, editor)
+        _assert_concurrent_set_config_succeeds(app, editor)
 
         thread.join(timeout=5.0)
         assert not thread.is_alive(), "_open_config_file should have returned after the editor closed."
@@ -426,24 +438,29 @@ class TestMacosRuntime:
         assert editor.call_args is not None
         assert editor.call_args[0] == "open", f"Expected 'open' command, got {editor.call_args[0]!r}"
         assert "-W" in editor.call_args, (
-            "B-4: macOS path must use 'open -W' so the spawn blocks until "
-            f"the editor exits. Args were: {editor.call_args!r}"
+            f"macOS path must use 'open -W' so the spawn blocks until the editor exits. Args were: {editor.call_args!r}"
         )
 
 
 class TestLinuxRuntime:
-    """Runtime test for the Linux ``xdg-open`` branch."""
+    """Runtime test for the Linux ``xdg-open`` branch.
 
-    def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
+    The lock is NOT held during the editor wait — see
+    ``TestMacosRuntime`` for the full rationale.
+    """
+
+    def test_lock_not_held_during_editor_session(self, tmp_config_dir, monkeypatch):
         app = _make_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, "linux")
 
         editor = _FakeEditor()
 
         def _run(args, **kwargs):
-            assert _lock_owned(app), (
-                "B-4: _config_mutation_lock must be acquired by the "
-                "current thread BEFORE subprocess.run is called on Linux."
+            assert not _lock_owned(app), (
+                "_config_mutation_lock must NOT be held by the "
+                "current thread when subprocess.run is called on Linux — "
+                "the lock is released after the save (Phase 1) and not "
+                "re-acquired until the reload (Phase 3)."
             )
             return editor.run(args, **kwargs)
 
@@ -455,7 +472,7 @@ class TestLinuxRuntime:
 
         assert editor.opened.wait(timeout=5.0), "Editor should have been launched (subprocess.run called) within 5s."
 
-        _assert_concurrent_set_config_blocks(app, editor)
+        _assert_concurrent_set_config_succeeds(app, editor)
 
         thread.join(timeout=5.0)
         assert not thread.is_alive(), "_open_config_file should have returned after the editor closed."
@@ -468,11 +485,13 @@ class TestLinuxRuntime:
 class TestWindowsRuntime:
     """Runtime test for the Windows notepad branch (parity check).
 
-    The Windows branch already held the lock pre-B-4. This test pins
-    that behavior so a future refactor doesn't regress it.
+    The lock is NOT held during the editor wait — see
+    ``TestMacosRuntime`` for the full rationale. The Windows branch had
+    held the lock previously; the split reverts that to keep the
+    tray thread + IPC handlers responsive.
     """
 
-    def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
+    def test_lock_not_held_during_editor_session(self, tmp_config_dir, monkeypatch):
         app = _make_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, "windows")
         monkeypatch.setattr(
@@ -495,8 +514,11 @@ class TestWindowsRuntime:
         import subprocess as _subprocess
 
         def _popen(args, **kwargs):
-            assert _lock_owned(app), (
-                "SEC-audit-011: _config_mutation_lock must be acquired BEFORE subprocess.Popen is called on Windows."
+            assert not _lock_owned(app), (
+                "_config_mutation_lock must NOT be held when "
+                "subprocess.Popen is called on Windows — the lock is "
+                "released after the save (Phase 1) and not re-acquired "
+                "until the reload (Phase 3)."
             )
             return _FakeProc(args)
 
@@ -506,7 +528,7 @@ class TestWindowsRuntime:
 
         assert editor.opened.wait(timeout=5.0), "Editor should have been launched (subprocess.Popen called) within 5s."
 
-        _assert_concurrent_set_config_blocks(app, editor)
+        _assert_concurrent_set_config_succeeds(app, editor)
 
         thread.join(timeout=5.0)
         assert not thread.is_alive(), "_open_config_file should have returned after the editor closed."
@@ -565,7 +587,7 @@ class TestReloadPicksUpDiskChanges:
 
 
 class TestEditorTimeouts:
-    """XZ-EH-018: every ``subprocess.Popen().wait()`` / ``subprocess.run()``
+    """every ``subprocess.Popen().wait()`` / ``subprocess.run()``
     in the editor-launch path must be bounded by a 30-minute timeout.
 
     Pre-fix, the notepad fallback (``_launch_windows_editor``) called
@@ -588,7 +610,6 @@ class TestEditorTimeouts:
     Tests call the platform launcher functions directly (not via
     ``app._open_config_file()``) so they don't depend on the
     ``is_windows``/``os`` attributes of ``voice_typer.server.app``
-    (which are out of scope for XZ-EH-018 and tracked separately).
     """
 
     def test_windows_notepad_fallback_passes_timeout_to_wait(self, monkeypatch):
@@ -625,10 +646,9 @@ class TestEditorTimeouts:
         config_editor._launch_windows_editor("/tmp/config.json")
 
         assert captured["timeout"] == 1800, (
-            "XZ-EH-018: notepad fallback must call proc.wait(timeout=1800) "
-            f"(30 minutes). Got timeout={captured['timeout']!r}."
+            f"notepad fallback must call proc.wait(timeout=1800) (30 minutes). Got timeout={captured['timeout']!r}."
         )
-        assert "kill_called" not in captured, "XZ-EH-018: kill() must NOT be called when wait() returns normally."
+        assert "kill_called" not in captured, "kill() must NOT be called when wait() returns normally."
 
     def test_windows_notepad_fallback_kills_and_raises_on_timeout(self, monkeypatch):
         """Notepad fallback kills the proc and raises TimeoutError on timeout."""
@@ -668,21 +688,16 @@ class TestEditorTimeouts:
             config_editor._launch_windows_editor("/tmp/config.json")
 
         assert killed == [True], (
-            "XZ-EH-018: notepad fallback must call proc.kill() when "
+            "notepad fallback must call proc.kill() when "
             "wait() times out, so the editor process doesn't keep "
             "running in the background."
         )
-        assert len(reaped) == 1, (
-            "XZ-EH-018: notepad fallback must reap the killed process via a second proc.wait() call."
-        )
+        assert len(reaped) == 1, "notepad fallback must reap the killed process via a second proc.wait() call."
         msg = str(exc_info.value)
-        assert "30-minute timeout" in msg, (
-            f"XZ-EH-018: TimeoutError message must mention '30-minute timeout'. Got: {msg!r}"
-        )
-        assert "config.json" in msg, f"XZ-EH-018: TimeoutError message must mention the config path. Got: {msg!r}"
+        assert "30-minute timeout" in msg, f"TimeoutError message must mention '30-minute timeout'. Got: {msg!r}"
+        assert "config.json" in msg, f"TimeoutError message must mention the config path. Got: {msg!r}"
         assert "temporary file" in msg, (
-            f"XZ-EH-018: TimeoutError message must include the recovery "
-            f"hint about saving to a temporary file. Got: {msg!r}"
+            f"TimeoutError message must include the recovery hint about saving to a temporary file. Got: {msg!r}"
         )
 
     def test_macos_launch_passes_timeout_to_subprocess_run(self, monkeypatch):
@@ -704,8 +719,7 @@ class TestEditorTimeouts:
         assert captured["args"][0] == "open", f"macOS path must invoke 'open'; got {captured['args'][0]!r}"
         assert "-W" in captured["args"], f"B-4: macOS path must use 'open -W'. Args: {captured['args']!r}"
         assert captured["timeout"] == 1800, (
-            "XZ-EH-018: macOS path must pass timeout=1800 (30 minutes) "
-            f"to subprocess.run. Got timeout={captured['timeout']!r}."
+            f"macOS path must pass timeout=1800 (30 minutes) to subprocess.run. Got timeout={captured['timeout']!r}."
         )
         assert captured["check"] is False, "B-4: macOS path must keep check=False (don't raise on non-zero exit)."
 
@@ -715,7 +729,7 @@ class TestEditorTimeouts:
 
         def _fake_run(args, **kwargs):
             assert kwargs.get("timeout") == 1800, (
-                f"XZ-EH-018: macOS path must call subprocess.run with timeout=1800. Got: {kwargs.get('timeout')!r}"
+                f"macOS path must call subprocess.run with timeout=1800. Got: {kwargs.get('timeout')!r}"
             )
             raise subprocess.TimeoutExpired(cmd=args, timeout=1800)
 
@@ -725,9 +739,7 @@ class TestEditorTimeouts:
             config_editor._launch_macos_editor("/tmp/config.json")
 
         msg = str(exc_info.value)
-        assert "30-minute timeout" in msg, (
-            f"XZ-EH-018: macOS TimeoutError must mention '30-minute timeout'. Got: {msg!r}"
-        )
+        assert "30-minute timeout" in msg, f"macOS TimeoutError must mention '30-minute timeout'. Got: {msg!r}"
 
     def test_linux_launch_passes_timeout_to_subprocess_run(self, monkeypatch):
         """Linux ``xdg-open`` is called with ``timeout=1800``."""
@@ -747,8 +759,7 @@ class TestEditorTimeouts:
 
         assert captured["args"][0] == "xdg-open", f"Linux path must invoke 'xdg-open'; got {captured['args'][0]!r}"
         assert captured["timeout"] == 1800, (
-            "XZ-EH-018: Linux path must pass timeout=1800 (30 minutes) "
-            f"to subprocess.run. Got timeout={captured['timeout']!r}."
+            f"Linux path must pass timeout=1800 (30 minutes) to subprocess.run. Got timeout={captured['timeout']!r}."
         )
         assert captured["check"] is False, "B-4: Linux path must keep check=False."
 
@@ -758,7 +769,7 @@ class TestEditorTimeouts:
 
         def _fake_run(args, **kwargs):
             assert kwargs.get("timeout") == 1800, (
-                f"XZ-EH-018: Linux path must call subprocess.run with timeout=1800. Got: {kwargs.get('timeout')!r}"
+                f"Linux path must call subprocess.run with timeout=1800. Got: {kwargs.get('timeout')!r}"
             )
             raise subprocess.TimeoutExpired(cmd=args, timeout=1800)
 
@@ -768,9 +779,7 @@ class TestEditorTimeouts:
             config_editor._launch_linux_editor("/tmp/config.json")
 
         msg = str(exc_info.value)
-        assert "30-minute timeout" in msg, (
-            f"XZ-EH-018: Linux TimeoutError must mention '30-minute timeout'. Got: {msg!r}"
-        )
+        assert "30-minute timeout" in msg, f"Linux TimeoutError must mention '30-minute timeout'. Got: {msg!r}"
 
     def test_launcher_swallows_non_timeout_exceptions(self, monkeypatch):
         """DR-19 contract preserved: non-timeout launch errors are still
@@ -813,7 +822,7 @@ class TestEditorTimeouts:
         )
 
     def test_launcher_propagates_timeout_to_tray_notification(self, monkeypatch):
-        """XZ-EH-018: when a launcher raises TimeoutError, the outer
+        """when a launcher raises TimeoutError, the outer
         except catches it and pushes a tray notification with a
         recovery hint (NOT the generic 'Config file:\\n...' message)."""
         from voice_typer.server import config_editor
@@ -847,17 +856,13 @@ class TestEditorTimeouts:
         launcher.launch("/tmp/config.json")
 
         assert len(notify_calls) == 1, (
-            "XZ-EH-018: a TimeoutError from the launcher must produce "
-            f"exactly one tray notification. Got: {notify_calls}"
+            f"a TimeoutError from the launcher must produce exactly one tray notification. Got: {notify_calls}"
         )
         title, body = notify_calls[0]
-        assert "timed out" in body.lower(), f"XZ-EH-018: tray notification body must mention 'timed out'. Got: {body!r}"
-        assert "30" in body, (
-            f"XZ-EH-018: tray notification body must mention the 30-minute timeout duration. Got: {body!r}"
-        )
+        assert "timed out" in body.lower(), f"tray notification body must mention 'timed out'. Got: {body!r}"
+        assert "30" in body, f"tray notification body must mention the 30-minute timeout duration. Got: {body!r}"
         assert "temporary file" in body.lower(), (
-            f"XZ-EH-018: tray notification body must include the recovery "
-            f"hint about saving to a temporary file. Got: {body!r}"
+            f"tray notification body must include the recovery hint about saving to a temporary file. Got: {body!r}"
         )
 
 

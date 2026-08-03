@@ -1513,6 +1513,10 @@ IPC_CONFIG_ALLOWLIST: dict[str, FieldSpec] = {
     "use_silero_vad": (bool, _bool_validator),
     "vad_speech_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
     "vad_silence_threshold": (float, _make_float_validator(lo=0.0, hi=1.0)),
+    # ER-42: auto-calibrate VAD thresholds from ambient noise. Must stay
+    # in the allowlist so set_config can enable the implemented (but
+    # previously unreachable) calibration path in vad_processor.py.
+    "vad_auto_calibrate": (bool, _bool_validator),
     # AUDIO-CH: recording channels (: lower bound raised from
     # 0 to 1 — 0 channels is nonsensical and would crash the recorder at
     # open-stream time with an obscure PyAudio / sounddevice error).

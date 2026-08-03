@@ -258,7 +258,7 @@ class TestPreMigrationBackupFailureLoggedAtWarning:
 
     def test_backup_failure_logged_at_warning(self, tmp_path, monkeypatch, caplog):
         """Simulate ``_secure_atomic_write`` failure on the pre-migration
-        backup path (XZ-R10-03: the backup now reads via
+        backup path (the backup now reads via
         ``_secure_read_text`` + writes via ``_secure_atomic_write``,
         NOT ``shutil.copy2``) and verify a WARNING is logged.
 
@@ -268,7 +268,7 @@ class TestPreMigrationBackupFailureLoggedAtWarning:
         migrator corrupts the config (see DE-3), so the failure must
         be logged at WARNING.
 
-        XZ-R10-03 update: the fix routes the backup READ through
+        update: the fix routes the backup READ through
         ``_secure_read_text`` and the WRITE through
         ``_secure_atomic_write``. We mock ``_secure_atomic_write`` to
         raise OSError ONLY when the target path is a pre-migration

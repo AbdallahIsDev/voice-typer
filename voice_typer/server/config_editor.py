@@ -295,16 +295,20 @@ class ConfigEditorLauncher:
     def launch(self, config_path: Any) -> None:
         """Open ``config_path`` in the user's default editor.
 
-        Holds ``app._config_mutation_lock`` for the full editor session
-        ( / SEC-audit-011 / B-4 / ) and reloads the config
-        from disk after the editor exits.
+        The mutation lock is held ONLY for the brief save (before the
+        editor opens) and the brief reload (after the editor closes) —
+        NOT for the full editor session. Holding the lock for the
+        entire editor session blocked the tray thread + every
+        concurrent IPC ``set_config`` call for as long as the user
+        kept the editor open (potentially the 30-minute timeout
+        window), making the app appear frozen.
 
-        the per-platform launch logic is delegated to a strategy
+        The per-platform launch logic is delegated to a strategy
         function from ``_PLATFORM_LAUNCHERS``. All three platform
-        branches now wrap the launch call in
-        ``contextlib.suppress(Exception)`` — the Windows branch
-        previously lacked this wrapper (inconsistent with macOS / Linux
-        which already had it).
+        branches wrap the launch call in a suppress-non-timeout
+        exception filter — the Windows branch historically lacked
+        this wrapper (inconsistent with macOS / Linux which already
+        had it).
 
         ``TimeoutError`` raised by the platform launcher
         (when the editor exceeds ``_EDITOR_SESSION_TIMEOUT_SECONDS``)
@@ -312,41 +316,76 @@ class ConfigEditorLauncher:
         outer ``except`` block so the user gets a tray notification
         explaining what happened. Other launch exceptions (e.g. the
         editor binary not found) are still silently swallowed to
-        preserve the  contract.
+        preserve the historical contract.
+
+        TOCTOU note (B-4 / SEC-audit-011 lineage): the original fix
+        held the lock for the full editor session to prevent a
+        concurrent ``set_config`` from clobbering the file mid-edit.
+        That cure was worse than the disease: the lock also blocked
+        every other IPC handler that touched the config (tray menu
+        state reads, microphone-list polls, etc.) for the entire
+        editor session. The split-lock approach below preserves the
+        save/reload atomicity (each is still under the lock) while
+        releasing the lock during the editor wait. A concurrent
+        ``set_config`` during the editor session now succeeds — its
+        save will land on disk, and the user's manual edits (if any)
+        will be made on top of the latest on-disk state. The editor's
+        save (when the user picks "File → Save") then wins, exactly
+        as it would if the user had two editors open on the same
+        file. The 30-minute bounded timeout on the editor wait is
+        preserved (see ``_EDITOR_SESSION_TIMEOUT_SECONDS``).
         """
 
         try:
+            # Phase 1: save under the lock so the on-disk file is
+            # consistent before the editor opens it. The lock is
+            # released immediately after the save returns — we do NOT
+            # hold it during the editor session.
             with self.app._config_mutation_lock:
                 if not self.app.config.save():
                     log.warning("[CONFIG] Failed to save config before opening editor")
-                launcher = _PLATFORM_LAUNCHERS.get(_current_platform())
-                if launcher is None:
-                    log.warning("[CONFIG] No editor launcher for platform")
-                    return
-                # ``TimeoutError`` must propagate so the outer
-                # except can notify the user. Other launch exceptions
-                # (e.g. editor binary not found) are still suppressed
-                # ( contract).
-                try:
-                    launcher(config_path)
-                except TimeoutError:
-                    raise
-                except Exception:
-                    # silently swallow non-timeout launch errors
-                    # so a transient launch failure doesn't surface as a
-                    # tray notification (the historical behavior on
-                    # macOS / Linux).
-                    pass
+
+            # Phase 2: launch the editor WITHOUT holding the lock.
+            # This is the XV-3 fix: the tray thread + every IPC
+            # handler that acquires ``_config_mutation_lock`` (tray
+            # menu state, microphone list, set_config, etc.) stays
+            # responsive while the user edits the file. The 30-minute
+            # bounded wait is preserved by the platform launcher (see
+            # ``_EDITOR_SESSION_TIMEOUT_SECONDS``).
+            launcher = _PLATFORM_LAUNCHERS.get(_current_platform())
+            if launcher is None:
+                log.warning("[CONFIG] No editor launcher for platform")
+                return
+            # ``TimeoutError`` must propagate so the outer except can
+            # notify the user. Other launch exceptions (e.g. editor
+            # binary not found) are still suppressed (historical
+            # contract on macOS / Linux).
+            try:
+                launcher(config_path)
+            except TimeoutError:
+                raise
+            except Exception:
+                # silently swallow non-timeout launch errors so a
+                # transient launch failure doesn't surface as a tray
+                # notification (the historical behavior on macOS /
+                # Linux).
+                pass
+
+            # Phase 3: reload under the lock so the in-memory Config
+            # swap is atomic w.r.t. concurrent IPC readers. The lock
+            # is held only for the duration of the load + re-wire,
+            # not for the editor wait that preceded it.
+            with self.app._config_mutation_lock:
                 try:
                     self.app.config = type(self.app.config).load()
                 except Exception as exc:
                     log.warning("[CONFIG] Failed to reload config after editor: %s", exc)
                 else:
-                    # re-wire the in-process mutation
-                    # lock on the freshly reloaded ``Config`` instance.
-                    # ``Config.load()`` returns a brand-new object whose
-                    # ``_mutation_lock`` instance attribute is unset
-                    # (falls back to the ``ClassVar`` default of
+                    # re-wire the in-process mutation lock on the
+                    # freshly reloaded ``Config`` instance.
+                    # ``Config.load()`` returns a brand-new object
+                    # whose ``_mutation_lock`` instance attribute is
+                    # unset (falls back to the ``ClassVar`` default of
                     # ``None`` — see config.py:1081), so without this
                     # re-wiring every subsequent ``config.save()`` would
                     # run unlocked until the next app restart, re-opening
@@ -366,13 +405,10 @@ class ConfigEditorLauncher:
                     # no UI banner. The sanitizer (config_sanitizer.py)
                     # now ships ``last_load_warnings`` to the renderer
                     # via the ``get_config`` IPC response, but that
-                    # only fires on the NEXT ``get_config`` poll — the
-                    # editor-reload path blocks the IPC thread, so the
-                    # renderer doesn't poll until this method returns.
+                    # only fires on the NEXT ``get_config`` poll.
                     # A tray notification here closes the immediate-
                     # feedback gap: the user sees "Config loaded with
-                    # N warning(s)" the moment the editor exits, while
-                    # the IPC thread is still inside this method.
+                    # N warning(s)" the moment the editor exits.
                     #
                     # ``getattr(..., [])`` is defensive against a
                     # Config-like test double that didn't set the
@@ -391,7 +427,7 @@ class ConfigEditorLauncher:
                         # renderer via the next ``get_config`` IPC
                         # response (see sanitize_config_for_ipc).
                         if len(first) > 160:
-                            first = first[:160] + "…"
+                            first = first[:160] + "..."
                         try:
                             self.app.tray.notify(
                                 APP_NAME,

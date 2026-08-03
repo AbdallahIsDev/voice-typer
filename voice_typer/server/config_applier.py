@@ -24,7 +24,8 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 from voice_typer.server.branding import APP_NAME
 
@@ -324,6 +325,509 @@ def apply_config_side_effects(updates: dict, service: Any) -> dict:
     }
 
 
+# ─── Registered side-effect handlers ─────────────────────────────────
+#
+# The ``ConfigApplier.apply_config_side_effects`` method used to be a
+# 215-line if-chain — one ``if "X" in updates:`` block per config
+# field that needed a runtime side-effect. Each block followed the
+# same pattern: try → run side-effect → except → log warning +
+# ``_notify_side_effect_failure``. The if-chain has been replaced
+# with a registered ``ConfigSideEffect`` protocol + handler list
+# (the docstring on ``apply_config_side_effects`` below documents the
+# motivation). Each handler is a small, focused class with an
+# ``applies(updates)`` predicate (the old ``if "X" in updates:``
+# check) and an ``apply(ctx)`` method (the old block body). Handlers
+# are stateless and share a single instance each; they are registered
+# in :attr:`ConfigApplier._side_effect_handlers` and iterated in
+# registration order. Order matters: the audio-preset handler
+# mutates Config (sets ``noise_filter_*`` toggles from the preset),
+# and the filter-chain handler reads that mutated Config via
+# ``to_filter_dict(config)`` — so audio_preset MUST run before
+# filter_chain. The original if-chain had this order implicitly; the
+# registered handler list makes it explicit.
+
+
+@dataclass
+class SideEffectContext:
+    """Context passed to each registered :class:`ConfigSideEffect` handler.
+
+    Bundles the inputs every handler needs (``app``, ``config``,
+    ``updates``, ``status``) so the dispatcher can iterate handlers
+    with a single context object rather than passing four arguments
+    to each ``apply()`` call. Handlers mutate ``status`` in place
+    (only the autostart + prewarm handlers do — they set
+    ``status["autostart_status"]`` / ``status["prewarm_status"]`` to
+    the result dict returned by ``startup_tasks.sync_*``).
+    """
+
+    app: Any
+    config: Any
+    updates: dict
+    status: dict[str, dict[str, Any] | None]
+
+
+class ConfigSideEffect(Protocol):
+    """Protocol for a registered config side-effect handler.
+
+    Each handler decides whether it applies to the current ``updates``
+    dict (via :meth:`applies`) and, if so, runs the side-effect (via
+    :meth:`apply`). Handlers are registered in
+    :attr:`ConfigApplier._side_effect_handlers` and iterated in order
+    by :meth:`ConfigApplier.apply_config_side_effects`.
+
+    A handler's ``apply`` method is expected to catch its own
+    exceptions (preserving the original log-and-continue behaviour of
+    the if-chain this refactor replaced) — the dispatcher wraps each
+    handler in a defensive try/except as well, so a buggy handler
+    cannot bring down the entire dispatch.
+    """
+
+    #: Short identifier used in log messages + tray notifications.
+    #: Matches the config-field name the original if-block used (e.g.
+    #: ``"autostart"``, ``"hotkey"``, ``"audio_preset"``) so users see
+    #: the same toast text as before the refactor.
+    name: str
+
+    def applies(self, updates: dict) -> bool:
+        """Return True if this handler should run for the given updates."""
+        ...
+
+    def apply(self, ctx: SideEffectContext) -> None:
+        """Apply the side-effect.
+
+        Should log + notify via :func:`_notify_side_effect_failure` on
+        failure rather than raising — the dispatcher's outer try/except
+        is a defensive net, not the primary error path.
+        """
+        ...
+
+
+class _AutostartSyncHandler:
+    """Sync OS autostart entry when ``autostart`` config changes."""
+
+    name = "autostart"
+
+    def applies(self, updates: dict) -> bool:
+        return "autostart" in updates
+
+    def apply(self, ctx: SideEffectContext) -> None:
+        app = ctx.app
+        try:
+            # Phase 2: invoke startup_tasks directly. The
+            # ``app._sync_autostart`` delegate was removed; callers now
+            # target startup_tasks (and tests monkeypatch startup_tasks).
+            from voice_typer.server import startup_tasks
+
+            ctx.status["autostart_status"] = startup_tasks.sync_autostart(app)
+        except Exception as e:
+            log.warning("Failed to sync autostart: %s", e)
+            ctx.status["autostart_status"] = {"registered": False, "error": str(e)}
+            # surface the side-effect failure to the user via
+            # a tray notification (the config has already been
+            # mutated + persisted; the runtime state didn't take
+            # effect, so the user needs a signal).
+            _notify_side_effect_failure(app, "autostart", e)
+
+
+class _PrewarmSyncHandler:
+    """Sync the prewarm scheduled task when ``fast_startup`` changes.
+
+    When the user toggles fast_startup in Settings → General, the
+    OS-level scheduled task must be registered (True) or unregistered
+    (False) immediately — otherwise the task fires silently at next
+    logon and exits with EXIT_DISABLED, or fails to fire when the user
+    re-enables it.
+    """
+
+    name = "fast_startup"
+
+    def applies(self, updates: dict) -> bool:
+        return "fast_startup" in updates
+
+    def apply(self, ctx: SideEffectContext) -> None:
+        app = ctx.app
+        updates = ctx.updates
+        try:
+            from voice_typer.server import startup_tasks
+
+            ctx.status["prewarm_status"] = startup_tasks.sync_prewarm_task(app)
+            log.info(
+                "[SERVICE] Prewarm task synced after fast_startup change (fast_startup=%s)",
+                bool(updates.get("fast_startup")),
+            )
+        except Exception as e:
+            log.warning("Failed to sync prewarm task: %s", e)
+            ctx.status["prewarm_status"] = {"registered": False, "error": str(e)}
+            # surface the prewarm task sync failure to the
+            # user via a tray notification.
+            _notify_side_effect_failure(app, "fast_startup", e)
+
+
+class _EscHotkeyHandler:
+    """Register/unregister ESC hotkey when ``esc_cancel_enabled`` changes."""
+
+    name = "esc_cancel_enabled"
+
+    def applies(self, updates: dict) -> bool:
+        return "esc_cancel_enabled" in updates
+
+    def apply(self, ctx: SideEffectContext) -> None:
+        app = ctx.app
+        updates = ctx.updates
+        try:
+            if updates["esc_cancel_enabled"]:
+                app.hotkeys.register_esc()
+            else:
+                app.hotkeys.unregister_esc()
+        except Exception as e:
+            log.warning("Failed to sync ESC hotkey: %s", e)
+            # surface the ESC hotkey sync failure to the
+            # user via a tray notification.
+            _notify_side_effect_failure(app, "esc_cancel_enabled", e)
+
+
+class _RepasteHotkeyHandler:
+    """Re-register repaste hotkey when ``repaste_hotkey`` changes.
+
+    ``repaste_enabled`` is a run-time toggle on the repaste *action*
+    (whether the repaste hotkey, when pressed, actually fires the
+    repaste) — it does NOT change the hotkey registration. The
+    disjunct ``or "repaste_enabled" in updates`` that lived in the
+    original if-block was dead code: ``register_repaste()`` reads
+    ``config.repaste_hotkey`` (the actual hotkey spec) so the call
+    was harmless, but it was wasted work and misled reviewers into
+    thinking ``repaste_enabled`` affected registration. Only
+    ``repaste_hotkey`` triggers a re-register.
+    """
+
+    name = "repaste_hotkey"
+
+    def applies(self, updates: dict) -> bool:
+        return "repaste_hotkey" in updates
+
+    def apply(self, ctx: SideEffectContext) -> None:
+        app = ctx.app
+        try:
+            app.hotkeys.register_repaste()
+        except Exception as e:
+            log.warning("Failed to sync repaste hotkey: %s", e)
+            # surface the repaste hotkey sync failure to
+            # the user via a tray notification.
+            _notify_side_effect_failure(app, "repaste_hotkey", e)
+
+
+class _DictationHotkeyHandler:
+    """Re-register dictation hotkey when ``recording_mode`` or ``hotkey`` changes.
+
+    Snapshots the previous hotkey so we can restore it if
+    ``app.hotkeys.restart()`` raises. ``restart()`` sets
+    ``config.hotkey = <new>`` before calling ``register()`` — if
+    ``register()`` then fails (or restart itself raises), the on-disk
+    config retains the broken hotkey. We restore the previous value
+    and re-save so the next launch reads a working hotkey.
+
+    ``push_to_talk_hotkey`` was deliberately removed from
+    ``IPC_CONFIG_ALLOWLIST``, so it can never appear in ``updates``
+    via the IPC path. The disjunct that lived in the original
+    if-block was dead code. If ``push_to_talk_hotkey`` is ever
+    re-wired, the allowlist AND this handler's ``applies()`` must be
+    updated together.
+    """
+
+    name = "hotkey"
+
+    def applies(self, updates: dict) -> bool:
+        return "recording_mode" in updates or "hotkey" in updates
+
+    def apply(self, ctx: SideEffectContext) -> None:
+        app = ctx.app
+        config = ctx.config
+        # snapshot the previous hotkey so we can restore it
+        # if ``app.hotkeys.restart()`` raises. ``restart()`` sets
+        # ``config.hotkey = <new>`` before calling ``register()`` —
+        # if ``register()`` then fails (or restart itself raises),
+        # the on-disk config retains the broken hotkey. We restore
+        # the previous value and re-save so the next launch reads a
+        # working hotkey.
+        old_hotkey = getattr(config, "hotkey", None)
+        try:
+            # use ``DEFAULT_HOTKEY`` (the canonical platform default
+            # from ``config.py``, currently ``<caps_lock>``) as the
+            # fallback instead of the stale literal ``"<f2>"``.
+            # ``<f2>`` was the legacy default before the constant was
+            # centralised — leaving it here meant a hypothetical
+            # config object without a ``hotkey`` attribute (test
+            # stub / legacy Config constructed via ``__new__``) would
+            # silently re-register the wrong key. In practice Config
+            # always carries ``hotkey``, so the fallback is defensive
+            # — but it must agree with the rest of the codebase when
+            # it does fire.
+            app.hotkeys.restart(getattr(config, "hotkey", DEFAULT_HOTKEY))
+            log.info(
+                "[SERVICE] Re-registered hotkey after recording_mode/hotkey change (mode=%s)",
+                getattr(config, "recording_mode", "toggle"),
+            )
+        except Exception as e:
+            log.warning("Failed to re-register hotkey after mode change: %s", e)
+            # restore previous hotkey + re-save so a
+            # failed restart doesn't leave the on-disk config with
+            # a broken hotkey value.
+            if old_hotkey is not None:
+                try:
+                    config.hotkey = old_hotkey
+                    save_fn = getattr(config, "save", None)
+                    if callable(save_fn):
+                        save_fn()
+                    log.info(
+                        "[SERVICE] Restored hotkey to %r after restart failure",
+                        old_hotkey,
+                    )
+                except Exception:
+                    log.warning(
+                        "[SERVICE] Failed to restore hotkey after restart failure",
+                        exc_info=True,
+                    )
+
+
+class _TrayLeftClickHandler:
+    """Invalidate tray menu cache when ``tray_left_click_action`` changes.
+
+    BUGFIX: tray_left_click_action was never handled — the tray
+    hardcoded "Toggle Dictation" as the left-click default, so the
+    Settings page choice was completely ignored.
+    """
+
+    name = "tray_left_click_action"
+
+    def applies(self, updates: dict) -> bool:
+        return "tray_left_click_action" in updates
+
+    def apply(self, ctx: SideEffectContext) -> None:
+        app = ctx.app
+        updates = ctx.updates
+        try:
+            app.tray.invalidate_menu_cache()
+            log.info(
+                "[SERVICE] Tray left-click action updated to: %s",
+                updates["tray_left_click_action"],
+            )
+        except Exception as e:
+            log.warning("Failed to update tray left-click action: %s", e)
+            # surface the tray left-click action update
+            # failure to the user via a tray notification.
+            _notify_side_effect_failure(app, "tray_left_click_action", e)
+
+
+class _NotificationsHandler:
+    """Toggle tray notifications when ``show_notifications`` changes.
+
+    BUGFIX: show_notifications changes were not applied until restart.
+    """
+
+    name = "show_notifications"
+
+    def applies(self, updates: dict) -> bool:
+        return "show_notifications" in updates
+
+    def apply(self, ctx: SideEffectContext) -> None:
+        app = ctx.app
+        updates = ctx.updates
+        try:
+            app.tray.set_notifications_enabled(bool(updates["show_notifications"]))
+            log.info(
+                "[SERVICE] Notifications %s",
+                "enabled" if updates["show_notifications"] else "disabled",
+            )
+        except Exception as e:
+            log.warning("Failed to update notifications: %s", e)
+            # surface the notifications update failure to
+            # the user via a tray notification.
+            _notify_side_effect_failure(app, "show_notifications", e)
+
+
+class _BubbleBehaviorHandler:
+    """Apply bubble visibility change when ``bubble_behavior`` changes.
+
+    BUGFIX: bubble_behavior changes were not applied until restart.
+    """
+
+    name = "bubble_behavior"
+
+    def applies(self, updates: dict) -> bool:
+        return "bubble_behavior" in updates
+
+    def apply(self, ctx: SideEffectContext) -> None:
+        app = ctx.app
+        updates = ctx.updates
+        try:
+            behavior = updates["bubble_behavior"]
+            if behavior == "always_visible":
+                try:
+                    if hasattr(app, "_waveform_bubble"):
+                        app._waveform_bubble.show()
+                except Exception:
+                    # previously `except Exception: pass`
+                    # — silent failure meant "always visible" toggle
+                    # did nothing if the bubble was in a bad state.
+                    log.debug(
+                        "[SERVICE] Failed to show waveform bubble after bubble_behavior change",
+                        exc_info=True,
+                    )
+            elif behavior == "show_on_record":
+                # Hide bubble immediately when switching away from always_visible
+                try:
+                    if hasattr(app, "_waveform_bubble") and app._waveform_bubble.visible:
+                        app._waveform_bubble.hide()
+                except Exception:
+                    # same as above — log at debug so the
+                    # failure is at least visible in -vv mode.
+                    log.debug(
+                        "[SERVICE] Failed to hide waveform bubble after bubble_behavior change",
+                        exc_info=True,
+                    )
+            log.info("[SERVICE] Bubble behavior updated to: %s", behavior)
+        except Exception as e:
+            log.warning("Failed to update bubble behavior: %s", e)
+            # surface the bubble behavior update failure to
+            # the user via a tray notification.
+            _notify_side_effect_failure(app, "bubble_behavior", e)
+
+
+class _VolumeDuckPollHandler:
+    """Update smart-duck poll interval when ``volume_duck_smart_poll_interval_ms`` changes.
+
+    BUGFIX: volume_duck_smart_poll_interval_ms changes were not applied
+    until restart.
+
+    Note: the legacy ``volume_duck_smart`` side-effect branch (a
+    ``volume_duck_smart``-in-updates guard in the pre-refactor source)
+    was DEAD CODE — the ``volume_duck_smart`` field was removed from the
+    Config dataclass and from ``IPC_CONFIG_ALLOWLIST``, so the condition
+    could never be True via the IPC path. Smart duck is ALWAYS ON when
+    ``volume_duck_enabled`` is True, and the only user-tunable
+    volume-ducking controls are ``volume_duck_enabled`` /
+    ``volume_duck_level`` / ``volume_duck_fade_ms`` /
+    ``volume_duck_smart_poll_interval_ms``. If ``volume_duck_smart`` is
+    ever re-added to the dataclass AND the allowlist, a corresponding
+    handler must be re-added here alongside them — the three changes
+    go together.
+    """
+
+    name = "volume_duck_smart_poll_interval_ms"
+
+    def applies(self, updates: dict) -> bool:
+        return "volume_duck_smart_poll_interval_ms" in updates
+
+    def apply(self, ctx: SideEffectContext) -> None:
+        app = ctx.app
+        updates = ctx.updates
+        try:
+            if hasattr(app, "_volume_ducker"):
+                app._volume_ducker.set_smart_duck_poll_interval(int(updates["volume_duck_smart_poll_interval_ms"]))
+        except Exception as e:
+            log.warning("Failed to update smart duck poll interval: %s", e)
+            # surface the smart duck poll interval update
+            # failure to the user via a tray notification.
+            _notify_side_effect_failure(app, "volume_duck_smart_poll_interval_ms", e)
+
+
+class _AudioPresetHandler:
+    """Apply audio preset (map preset name → filter toggles) when ``audio_preset`` changes.
+
+    Syncs the legacy ``noise_filter_enabled`` flag so downstream checks
+    (e.g. ``update_level_processor``) correctly disable the processor
+    when preset is "off". The preset's filter toggles are all False,
+    but ``noise_filter_enabled`` was not part of the preset dict — it
+    stays True, causing the level monitor to create an AudioProcessor
+    even when no filters are active, which masks low-level sounds.
+    """
+
+    name = "audio_preset"
+
+    def applies(self, updates: dict) -> bool:
+        return "audio_preset" in updates
+
+    def apply(self, ctx: SideEffectContext) -> None:
+        app = ctx.app
+        config = ctx.config
+        updates = ctx.updates
+        try:
+            preset = updates["audio_preset"]
+            preset_filters = _apply_audio_preset(preset)
+            # Set individual filter toggles from the preset
+            for k, v in preset_filters.items():
+                setattr(config, k, v)
+            # Sync the legacy noise_filter_enabled flag so downstream
+            # checks (e.g. update_level_processor) correctly disable
+            # the processor when preset is "off". The preset's filter
+            # toggles are all False, but noise_filter_enabled was not
+            # part of the preset dict — it stays True, causing the
+            # level monitor to create an AudioProcessor even when no
+            # filters are active, which masks low-level sounds.
+            config.noise_filter_enabled = preset != "off"
+            log.info("[SERVICE] Applied audio preset '%s': %s", preset, preset_filters)
+        except Exception as e:
+            log.warning("Failed to apply audio preset: %s", e)
+            # surface the audio preset apply failure to the
+            # user via a tray notification.
+            _notify_side_effect_failure(app, "audio_preset", e)
+
+
+class _FilterChainHandler:
+    """Rebuild dictation AudioProcessor + sync level monitor when any filter-chain key changes.
+
+    ADR 0007 §6.1: rebuild the dictation processor when any
+    ``noise_filter_*`` / ``audio_preset`` / ``noise_suppression_method``
+    config field changes. This fixes the bug where Settings UI changes
+    didn't take effect in dictation until app restart.
+    ``_FILTER_CHAIN_KEYS`` is a module-level frozenset; the ``&``
+    operator accepts the ``updates.keys()`` view directly so we don't
+    allocate a fresh set on every IPC call.
+    """
+
+    name = "noise_filter_chain"
+
+    def applies(self, updates: dict) -> bool:
+        return bool(_FILTER_CHAIN_KEYS & updates.keys())
+
+    def apply(self, ctx: SideEffectContext) -> None:
+        app = ctx.app
+        config = ctx.config
+        # ADR 0007: rebuild the dictation processor (the main fix).
+        try:
+            if hasattr(app, "_rebuild_audio_processor"):
+                app._rebuild_audio_processor()
+        except Exception as e:
+            log.warning("Failed to rebuild dictation audio processor: %s", e)
+            # surface the audio-processor rebuild failure
+            # to the user via a tray notification. This is the
+            # most user-visible failure mode: the user changed a
+            # noise_filter_* toggle but the live dictation pipeline
+            # is still using the OLD filter chain — the next
+            # dictation will sound wrong.
+            _notify_side_effect_failure(app, "noise_filter_chain", e)
+
+        # Also sync the live level bar + mic test processors so
+        # they reflect the new filters immediately.
+        try:
+            from voice_typer.server.level_monitor import (
+                update_level_processor,
+                update_test_filters,
+            )
+
+            # use the shared helper instead of an inline
+            # 5-key dict (which diverged from the level-monitor-
+            # start path on ``noise_filter_rnnoise``'s default).
+            filters_dict = to_filter_dict(config)
+            update_level_processor(filters_dict)
+            update_test_filters(filters_dict)
+        except Exception as e:
+            log.warning("Failed to sync level bar processor: %s", e)
+            # surface the level bar processor sync failure
+            # to the user via a tray notification.
+            _notify_side_effect_failure(app, "level_bar_filters", e)
+
+
 class ConfigApplier:
     """Owns the post-config-update side-effect dispatch.
 
@@ -336,36 +840,71 @@ class ConfigApplier:
     def __init__(self, service: Any) -> None:
         self._service = service
         self._app = service._app
+        # Build the handler list at construction time. Each handler is
+        # stateless — it reads its inputs from the
+        # :class:`SideEffectContext` — so a single shared instance per
+        # handler is sufficient. Order matters: the audio-preset
+        # handler mutates Config (sets ``noise_filter_*`` toggles from
+        # the preset), and the filter-chain handler reads that mutated
+        # Config via ``to_filter_dict(config)`` — so audio_preset MUST
+        # run before filter_chain. The original if-chain had this order
+        # implicitly; the registered handler list makes it explicit.
+        # The list is a per-instance attribute (not a class attribute)
+        # so tests can monkeypatch it on a single ConfigApplier instance
+        # without affecting other instances.
+        self._side_effect_handlers: list[ConfigSideEffect] = [
+            _AutostartSyncHandler(),
+            _PrewarmSyncHandler(),
+            _EscHotkeyHandler(),
+            _RepasteHotkeyHandler(),
+            _DictationHotkeyHandler(),
+            _TrayLeftClickHandler(),
+            _NotificationsHandler(),
+            _BubbleBehaviorHandler(),
+            _VolumeDuckPollHandler(),
+            _AudioPresetHandler(),
+            _FilterChainHandler(),
+        ]
 
-    # Side-effects ( extraction / ) ────────────────────
+    # Side-effects ( extraction / refactor) ────────────────────
 
     def apply_config_side_effects(self, updates: dict) -> dict:
         """Apply side effects after config changes.
 
-        Centralizes the post-config-update hooks that were
-                previously scattered across ipc_server.py.
+        Centralizes the post-config-update hooks that were previously
+        scattered across ``ipc_server.py``.
 
-        this method was a 215-line branching monolith in
-                ``service.py``.  The extraction to ``config_applier.py`` is
-                the first step; the branching structure itself is preserved
-                verbatim so no behaviour change is introduced in this pass.
-                A future refactor can replace the if-chain with a registered
-        ``ConfigSideEffect`` protocol + handler list ( step 2).
+        Previously a 215-line branching monolith in ``service.py``
+        (one ``if "X" in updates:`` block per config field that needed
+        a runtime side-effect). The extraction to ``config_applier.py``
+        was the first step; the branching structure was preserved
+        verbatim through that pass. The if-chain has now been replaced
+        with a registered :class:`ConfigSideEffect` protocol + handler
+        list — each ``if "X" in updates:`` block from the original
+        monolith is now an ``applies(updates)`` + ``apply(ctx)``
+        method pair on a dedicated handler class, registered in
+        :attr:`_side_effect_handlers` and iterated in registration
+        order by this method. Behaviour is preserved verbatim: each
+        handler carries the same try/except + log + notify pattern as
+        the original block, and the dispatcher's outer try/except is a
+        defensive net for handler bugs (``applies()`` raising, etc.)
+        that the original if-chain didn't need because each block was
+        inlined.
 
-        (session-3): returns a status dict so the caller
-                (``apply_config`` → ``set_config`` IPC handler) can propagate
-                autostart/prewarm registration results to the renderer. The
-                dict shape is::
+        Returns
+        -------
+        dict
+            Side-effect status dict with the shape::
 
-                    {
-                        "autostart_status": {"registered": bool, "error": str | None} | None,
-                        "prewarm_status":   {"registered": bool, "error": str | None} | None,
-                    }
+                {
+                    "autostart_status": {"registered": bool, "error": str | None} | None,
+                    "prewarm_status":   {"registered": bool, "error": str | None} | None,
+                }
 
-                A field is ``None`` when the corresponding config key wasn't in
-                ``updates`` (no sync was attempted). The renderer reads
-                ``autostart_status.error`` to surface "Autostart registration
-                failed: <reason>" instead of silently failing.
+            A field is ``None`` when the corresponding config key wasn't
+            in ``updates`` (no sync was attempted). The renderer reads
+            ``autostart_status.error`` to surface "Autostart registration
+            failed: <reason>" instead of silently failing.
         """
         app = self._app
         config = app.config
@@ -378,309 +917,39 @@ class ConfigApplier:
             "prewarm_status": None,
         }
 
-        # Sync autostart if autostart setting changed
-        if "autostart" in updates:
-            try:
-                # Phase 2: invoke startup_tasks directly. The
-                # ``app._sync_autostart`` delegate was removed; callers now
-                # target startup_tasks (and tests monkeypatch startup_tasks).
-                from voice_typer.server import startup_tasks
+        ctx = SideEffectContext(
+            app=app,
+            config=config,
+            updates=updates,
+            status=side_effect_status,
+        )
 
-                side_effect_status["autostart_status"] = startup_tasks.sync_autostart(app)
+        for handler in self._side_effect_handlers:
+            try:
+                if handler.applies(updates):
+                    handler.apply(ctx)
             except Exception as e:
-                log.warning("Failed to sync autostart: %s", e)
-                side_effect_status["autostart_status"] = {"registered": False, "error": str(e)}
-                # surface the side-effect failure to the user via
-                # a tray notification (the config has already been
-                # mutated + persisted; the runtime state didn't take
-                # effect, so the user needs a signal).
-                _notify_side_effect_failure(app, "autostart", e)
-
-        # Sync the prewarm scheduled task when fast_startup changes.
-        # When the user toggles fast_startup in Settings → General, the
-        # OS-level scheduled task must be registered (True) or
-        # unregistered (False) immediately — otherwise the task fires
-        # silently at next logon and exits with EXIT_DISABLED, or fails
-        # to fire when the user re-enables it.
-        if "fast_startup" in updates:
-            try:
-                from voice_typer.server import startup_tasks
-
-                side_effect_status["prewarm_status"] = startup_tasks.sync_prewarm_task(app)
-                log.info(
-                    "[SERVICE] Prewarm task synced after fast_startup change (fast_startup=%s)",
-                    bool(updates.get("fast_startup")),
+                # Defensive: each handler is expected to catch its own
+                # exceptions internally (preserving the original
+                # log-and-continue behaviour of the if-chain this
+                # refactor replaced), but a bug in ``applies()`` or an
+                # unexpected raise should not bring down the entire
+                # dispatch. Log + notify with the handler's ``name``
+                # (which matches the config-field name the original
+                # block used) so the user sees the same toast.
+                handler_name = getattr(handler, "name", type(handler).__name__)
+                log.warning(
+                    "[SERVICE] Side-effect handler %s raised unexpectedly: %s",
+                    handler_name,
+                    e,
+                    exc_info=True,
                 )
-            except Exception as e:
-                log.warning("Failed to sync prewarm task: %s", e)
-                side_effect_status["prewarm_status"] = {"registered": False, "error": str(e)}
-                # surface the prewarm task sync failure to the
-                # user via a tray notification.
-                _notify_side_effect_failure(app, "fast_startup", e)
+                _notify_side_effect_failure(app, handler_name, e)
 
-        # Register/unregister ESC hotkey
-        if "esc_cancel_enabled" in updates:
-            try:
-                if updates["esc_cancel_enabled"]:
-                    app.hotkeys.register_esc()
-                else:
-                    app.hotkeys.unregister_esc()
-            except Exception as e:
-                log.warning("Failed to sync ESC hotkey: %s", e)
-                # surface the ESC hotkey sync failure to the
-                # user via a tray notification.
-                _notify_side_effect_failure(app, "esc_cancel_enabled", e)
-
-        # Register/unregister repaste hotkey.
-        # dropped the ``or "repaste_enabled" in updates``
-        # disjunct. ``repaste_enabled`` is a run-time toggle on the
-        # repaste *action* (whether the repaste hotkey, when pressed,
-        # actually fires the repaste) — it does NOT change the hotkey
-        # registration. The disjunct was dead code that triggered a
-        # spurious ``register_repaste()`` call whenever the user
-        # toggled the repaste-enabled checkbox, even when the hotkey
-        # itself was unchanged. ``register_repaste()`` reads
-        # ``config.repaste_hotkey`` (the actual hotkey spec) so the
-        # call was harmless, but it was wasted work and misled
-        # reviewers into thinking ``repaste_enabled`` affected
-        # registration.
-        if "repaste_hotkey" in updates:
-            try:
-                app.hotkeys.register_repaste()
-            except Exception as e:
-                log.warning("Failed to sync repaste hotkey: %s", e)
-                # surface the repaste hotkey sync failure to
-                # the user via a tray notification.
-                _notify_side_effect_failure(app, "repaste_hotkey", e)
-
-        # re-register the dictation hotkey when recording_mode
-        # or hotkey changes.
-        # dropped the push_to_talk_hotkey disjunct (the third
-        # ``or <field> in updates`` clause that lived here pre-fix) —
-        # ``push_to_talk_hotkey`` was deliberately removed from
-        # ``IPC_CONFIG_ALLOWLIST`` per , so it can never appear
-        # in ``updates`` via the IPC path. The disjunct was dead code
-        # that misled reviewers into thinking the branch handled a
-        # user-tunable setting. If ``push_to_talk_hotkey`` is ever
-        # re-wired, the allowlist AND this side-effect branch must be
-        # added together.
-        if "recording_mode" in updates or "hotkey" in updates:
-            # snapshot the previous hotkey so we can restore it
-            # if ``app.hotkeys.restart()`` raises. ``restart()`` sets
-            # ``config.hotkey = <new>`` before calling ``register()`` —
-            # if ``register()`` then fails (or restart itself raises),
-            # the on-disk config retains the broken hotkey. We restore
-            # the previous value and re-save so the next launch reads a
-            # working hotkey.
-            #
-            # (Agent 2-k owns the parallel fix inside
-            # ``hotkey_dispatcher.restart()`` itself — restore the
-            # config.hotkey value when ``register()`` returns False.
-            # This block covers the case where ``restart()`` raises.)
-            old_hotkey = getattr(config, "hotkey", None)
-            try:
-                # use ``DEFAULT_HOTKEY`` (the canonical
-                # platform default from ``config.py``, currently
-                # ``<caps_lock>``) as the fallback instead of the
-                # stale literal ``"<f2>"``. ``<f2>`` was the legacy
-                # default before  centralised the constant —
-                # leaving it here meant a hypothetical config object
-                # without a ``hotkey`` attribute (test stub / legacy
-                # Config constructed via ``__new__``) would silently
-                # re-register the wrong key. In practice Config
-                # always carries ``hotkey``, so the fallback is
-                # defensive — but it must agree with the rest of the
-                # codebase when it does fire.
-                app.hotkeys.restart(getattr(config, "hotkey", DEFAULT_HOTKEY))
-                log.info(
-                    "[SERVICE] Re-registered hotkey after recording_mode/hotkey change (mode=%s)",
-                    getattr(config, "recording_mode", "toggle"),
-                )
-            except Exception as e:
-                log.warning("Failed to re-register hotkey after mode change: %s", e)
-                # restore previous hotkey + re-save so a
-                # failed restart doesn't leave the on-disk config with
-                # a broken hotkey value.
-                if old_hotkey is not None:
-                    try:
-                        config.hotkey = old_hotkey
-                        save_fn = getattr(config, "save", None)
-                        if callable(save_fn):
-                            save_fn()
-                        log.info(
-                            "[SERVICE] Restored hotkey to %r after restart failure",
-                            old_hotkey,
-                        )
-                    except Exception:
-                        log.warning(
-                            "[SERVICE] Failed to restore hotkey after restart failure",
-                            exc_info=True,
-                        )
-
-        # BUGFIX: tray_left_click_action was never handled — the tray
-        # hardcoded "Toggle Dictation" as the left-click default, so the
-        # Settings page choice was completely ignored.
-        if "tray_left_click_action" in updates:
-            try:
-                app.tray.invalidate_menu_cache()
-                log.info(
-                    "[SERVICE] Tray left-click action updated to: %s",
-                    updates["tray_left_click_action"],
-                )
-            except Exception as e:
-                log.warning("Failed to update tray left-click action: %s", e)
-                # surface the tray left-click action update
-                # failure to the user via a tray notification.
-                _notify_side_effect_failure(app, "tray_left_click_action", e)
-
-        # BUGFIX: show_notifications changes were not applied until restart.
-        if "show_notifications" in updates:
-            try:
-                app.tray.set_notifications_enabled(bool(updates["show_notifications"]))
-                log.info(
-                    "[SERVICE] Notifications %s",
-                    "enabled" if updates["show_notifications"] else "disabled",
-                )
-            except Exception as e:
-                log.warning("Failed to update notifications: %s", e)
-                # surface the notifications update failure to
-                # the user via a tray notification.
-                _notify_side_effect_failure(app, "show_notifications", e)
-
-        # BUGFIX: bubble_behavior changes were not applied until restart.
-        if "bubble_behavior" in updates:
-            try:
-                behavior = updates["bubble_behavior"]
-                if behavior == "always_visible":
-                    try:
-                        if hasattr(app, "_waveform_bubble"):
-                            app._waveform_bubble.show()
-                    except Exception:
-                        # (session-5): previously `except Exception: pass`
-                        # — silent failure meant "always visible" toggle
-                        # did nothing if the bubble was in a bad state.
-                        log.debug(
-                            "[SERVICE] Failed to show waveform bubble after bubble_behavior change",
-                            exc_info=True,
-                        )
-                elif behavior == "show_on_record":
-                    # Hide bubble immediately when switching away from always_visible
-                    try:
-                        if hasattr(app, "_waveform_bubble") and app._waveform_bubble.visible:
-                            app._waveform_bubble.hide()
-                    except Exception:
-                        # same as above — log at debug so the
-                        # failure is at least visible in -vv mode.
-                        log.debug(
-                            "[SERVICE] Failed to hide waveform bubble after bubble_behavior change",
-                            exc_info=True,
-                        )
-                log.info("[SERVICE] Bubble behavior updated to: %s", behavior)
-            except Exception as e:
-                log.warning("Failed to update bubble behavior: %s", e)
-                # surface the bubble behavior update failure to
-                # the user via a tray notification.
-                _notify_side_effect_failure(app, "bubble_behavior", e)
-
-        # the ``volume_duck_smart`` side-effect branch (an
-        # ``if <field> in updates:`` block that lived here at lines
-        # 518-545 in the pre-fix source) was DEAD CODE — the
-        # ``volume_duck_smart`` field was removed from the Config
-        # dataclass (/) and from ``IPC_CONFIG_ALLOWLIST``,
-        # so the condition could never be True via the IPC path. The
-        # branch survived the field removal because the deletion was
-        # missed. We delete it outright (rather than leaving a comment
-        # + dead body) so code review reflects reality: smart duck is
-        # ALWAYS ON when ``volume_duck_enabled`` is True, and the only
-        # user-tunable volume-ducking controls are ``volume_duck_enabled``
-        # / ``volume_duck_level`` / ``volume_duck_fade_ms`` /
-        # ``volume_duck_smart_poll_interval_ms``. If
-        # ``volume_duck_smart`` is ever re-added to the dataclass AND
-        # the allowlist, the side-effect branch must be re-added here
-        # alongside them — the three changes go together.
-
-        # BUGFIX: volume_duck_smart_poll_interval_ms changes not applied until restart.
-        if "volume_duck_smart_poll_interval_ms" in updates:
-            try:
-                if hasattr(app, "_volume_ducker"):
-                    app._volume_ducker.set_smart_duck_poll_interval(int(updates["volume_duck_smart_poll_interval_ms"]))
-            except Exception as e:
-                log.warning("Failed to update smart duck poll interval: %s", e)
-                # surface the smart duck poll interval update
-                # failure to the user via a tray notification.
-                _notify_side_effect_failure(app, "volume_duck_smart_poll_interval_ms", e)
-
-        # Apply the audio enhancement preset: map preset name to filter toggles.
-        if "audio_preset" in updates:
-            try:
-                preset = updates["audio_preset"]
-                preset_filters = _apply_audio_preset(preset)
-                # Set individual filter toggles from the preset
-                for k, v in preset_filters.items():
-                    setattr(config, k, v)
-                # Sync the legacy noise_filter_enabled flag so downstream
-                # checks (e.g. update_level_processor) correctly disable
-                # the processor when preset is "off". The preset's filter
-                # toggles are all False, but noise_filter_enabled was not
-                # part of the preset dict — it stays True, causing the
-                # level monitor to create an AudioProcessor even when no
-                # filters are active, which masks low-level sounds.
-                config.noise_filter_enabled = preset != "off"
-                log.info("[SERVICE] Applied audio preset '%s': %s", preset, preset_filters)
-            except Exception as e:
-                log.warning("Failed to apply audio preset: %s", e)
-                # surface the audio preset apply failure to the
-                # user via a tray notification.
-                _notify_side_effect_failure(app, "audio_preset", e)
-
-        # ADR 0007 §6.1: Rebuild the dictation AudioProcessor's filter
-        # chain when any noise_filter_* / audio_preset / noise_suppression_method
-        # config field changes. This fixes the bug where Settings UI
-        # changes didn't take effect in dictation until app restart.
-        # ``_FILTER_CHAIN_KEYS`` is a module-level frozenset; the
-        # ``&`` operator accepts the ``updates.keys()`` view directly so
-        # we no longer wrap it in ``set(...)`` (which would allocate a
-        # fresh set on every IPC call).
-        if _FILTER_CHAIN_KEYS & updates.keys():
-            # ADR 0007: rebuild the dictation processor (the main fix).
-            try:
-                if hasattr(app, "_rebuild_audio_processor"):
-                    app._rebuild_audio_processor()
-            except Exception as e:
-                log.warning("Failed to rebuild dictation audio processor: %s", e)
-                # surface the audio-processor rebuild failure
-                # to the user via a tray notification. This is the
-                # most user-visible failure mode: the user changed a
-                # noise_filter_* toggle but the live dictation pipeline
-                # is still using the OLD filter chain — the next
-                # dictation will sound wrong.
-                _notify_side_effect_failure(app, "noise_filter_chain", e)
-
-            # Also sync the live level bar + mic test processors so
-            # they reflect the new filters immediately.
-            try:
-                from voice_typer.server.level_monitor import (
-                    update_level_processor,
-                    update_test_filters,
-                )
-
-                # use the shared helper instead of an inline
-                # 5-key dict (which diverged from the level-monitor-
-                # start path on ``noise_filter_rnnoise``'s default).
-                filters_dict = to_filter_dict(config)
-                update_level_processor(filters_dict)
-                update_test_filters(filters_dict)
-            except Exception as e:
-                log.warning("Failed to sync level bar processor: %s", e)
-                # surface the level bar processor sync failure
-                # to the user via a tray notification.
-                _notify_side_effect_failure(app, "level_bar_filters", e)
-
-        # (session-3): return the accumulated side-effect
-        # statuses so :meth:`apply_config` can propagate them to the
-        # ``set_config`` IPC response. The renderer reads
-        # ``autostart_status.error`` / ``prewarm_status.error`` to
-        # surface registration failures.
+        # return the accumulated side-effect statuses so
+        # :meth:`apply_config` can propagate them to the ``set_config``
+        # IPC response. The renderer reads ``autostart_status.error`` /
+        # ``prewarm_status.error`` to surface registration failures.
         return side_effect_status
 
     # apply_config ( extraction) ────────────────────────────

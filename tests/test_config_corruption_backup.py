@@ -113,7 +113,7 @@ class TestCorruptConfigBackup:
         )
         assert match is not None, (
             f"Backup filename {corrupt_backups[0].name!r} must match the pattern "
-            "'config.json.corrupt-<int-timestamp>-<pid>-<microseconds>' (XZ-R10-10)."
+            "'config.json.corrupt-<int-timestamp>-<pid>-<microseconds>'."
         )
         ts = int(match.group(1))
         # The timestamp must be recent (within the last 60 seconds —
@@ -260,7 +260,7 @@ class TestCorruptConfigBackup:
     def test_multiple_corrupt_loads_create_unique_backups(self, tmp_path, monkeypatch):
         """Two corrupt-loads in the same second must NOT overwrite each other.
 
-        XZ-R10-10: the previous ``.corrupt-<timestamp>`` suffix used
+        the previous ``.corrupt-<timestamp>`` suffix used
         1-second resolution, so two loads in the same second produced
         the same backup filename and ``Path.replace`` atomically
         overwrote the first backup with the second — losing the first
@@ -284,19 +284,19 @@ class TestCorruptConfigBackup:
         # within the same second from the same process).
         corrupt_backups = list(tmp_path.glob("config.json.corrupt-*"))
         assert len(corrupt_backups) == 2, (
-            "XZ-R10-10 regression: expected exactly 2 .corrupt-* backups "
+            "regression: expected exactly 2 .corrupt-* backups "
             f"(one per corrupt load, made unique by the PID + microsecond "
             f"suffix), got {len(corrupt_backups)}: "
             f"{[p.name for p in corrupt_backups]}"
         )
         assert corrupt_backups[0].name != corrupt_backups[1].name, (
-            "XZ-R10-10 regression: two corrupt loads produced identical "
+            "regression: two corrupt loads produced identical "
             f"backup filenames ({corrupt_backups[0].name!r}) — the PID + "
             "microsecond suffix must disambiguate them."
         )
         contents = sorted(p.read_text(encoding="utf-8") for p in corrupt_backups)
         assert contents == ["CORRUPT_1", "CORRUPT_2"], (
-            f"XZ-R10-10: backup contents should be both CORRUPT_1 and CORRUPT_2 (no overwrite), got {contents!r}"
+            f"backup contents should be both CORRUPT_1 and CORRUPT_2 (no overwrite), got {contents!r}"
         )
 
     def test_corrupt_load_returns_defaults(self, tmp_path, monkeypatch):

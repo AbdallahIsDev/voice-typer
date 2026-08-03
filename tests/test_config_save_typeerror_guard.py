@@ -1,4 +1,4 @@
-"""XZ-R10-06: ``Config.save()`` must catch ``TypeError`` / ``ValueError``
+"""``Config.save()`` must catch ``TypeError`` / ``ValueError``
 from ``json.dumps`` and return ``False`` (not propagate).
 
 The pre-fix ``save()`` had this exception tuple::
@@ -48,7 +48,7 @@ def _isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Pat
 
 
 class TestSaveCatchesJsonDumpsTypeError:
-    """XZ-R10-06: ``save()`` must catch ``TypeError`` from ``json.dumps``."""
+    """``save()`` must catch ``TypeError`` from ``json.dumps``."""
 
     def test_save_returns_false_on_non_serializable_field(
         self,
@@ -87,7 +87,7 @@ class TestSaveCatchesJsonDumpsTypeError:
             result = cfg.save()
 
         assert result is False, (
-            "XZ-R10-06 regression: save() should return False when "
+            "regression: save() should return False when "
             "json.dumps raises TypeError, but it returned True (the "
             "non-serializable field was silently dropped or the "
             "exception was swallowed elsewhere)."
@@ -102,15 +102,14 @@ class TestSaveCatchesJsonDumpsTypeError:
             and ("serialize" in r.message.lower() or "Failed to serialize" in r.message)
         ]
         assert len(error_records) >= 1, (
-            "XZ-R10-06: expected an ERROR log about serialization "
-            f"failure, got records: {[r.message for r in caplog.records]}"
+            f"expected an ERROR log about serialization failure, got records: {[r.message for r in caplog.records]}"
         )
 
     def test_save_does_not_propagate_typeerror(
         self,
         _isolated_config_dir: Path,
     ) -> None:
-        """XZ-R10-06 contract: ``save()`` must NEVER raise ``TypeError``
+        """contract: ``save()`` must NEVER raise ``TypeError``
         to the caller — it must catch it and return ``False``. The
         IPC ``set_config`` path relies on this "never raises"
         contract: a propagated ``TypeError`` would crash the IPC
@@ -135,7 +134,7 @@ class TestSaveCatchesJsonDumpsTypeError:
             result = cfg.save()
         except TypeError as exc:
             pytest.fail(
-                "XZ-R10-06 regression: save() propagated TypeError to "
+                "regression: save() propagated TypeError to "
                 f"the caller: {exc!r}. The save() except tuple must "
                 "catch TypeError and return False."
             )
@@ -145,7 +144,7 @@ class TestSaveCatchesJsonDumpsTypeError:
         self,
         _isolated_config_dir: Path,
     ) -> None:
-        """XZ-R10-06: ``json.dumps`` can also raise ``ValueError`` for
+        """``json.dumps`` can also raise ``ValueError`` for
         circular references (when a deeply-nested structure repeats
         itself). ``save()`` must catch ``ValueError`` too and return
         ``False``.
@@ -178,7 +177,7 @@ class TestSaveCatchesJsonDumpsTypeError:
             config_mod.json.dumps = original_dumps  # type: ignore[method-assign]
 
         assert result is False, (
-            "XZ-R10-06 regression: save() should return False when json.dumps raises ValueError, but it returned True."
+            "regression: save() should return False when json.dumps raises ValueError, but it returned True."
         )
 
     def test_save_happy_path_still_returns_true(
@@ -195,9 +194,7 @@ class TestSaveCatchesJsonDumpsTypeError:
         cfg.hotkey = "<f5>"  # change something so save has work to do
         result = cfg.save()
 
-        assert result is True, (
-            "XZ-R10-06 over-correction: a normal save with all-serializable fields should return True."
-        )
+        assert result is True, "over-correction: a normal save with all-serializable fields should return True."
         # The new hotkey must be persisted.
         new_data = json.loads(config_file.read_text())
         assert new_data["hotkey"] == "<f5>"

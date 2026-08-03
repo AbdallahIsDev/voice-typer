@@ -1,19 +1,19 @@
-"""Tests for the XZ-14-04 / XZ-14-05 / XZ-14-08 / XZ-14-09 / XZ-14-15 fixes
+"""Tests for the fixes
 in :mod:`voice_typer.server.config_validators`.
 
 Coverage map (one ``test_*`` function per fix branch):
 
-* XZ-14-04 — cross-field hotkey conflict check
+* cross-field hotkey conflict check
     - :func:`TestCrossFieldHotkeyConflicts`
     - :func:`TestCrossFieldViaValidateConfigUpdate`
     - :func:`TestCrossFieldViaValidateConfig`
-* XZ-14-05 — cross-platform hotkey portability warnings
+* cross-platform hotkey portability warnings
     - :func:`TestCrossPlatformWarnings`
-* XZ-14-08 — language code validator with Whisper allowlist
+* language code validator with Whisper allowlist
     - :func:`TestLanguageValidator`
-* XZ-14-09 — arbitrary lower bounds fixed
+* arbitrary lower bounds fixed
     - :func:`TestBoundsFixes`
-* XZ-14-15 — custom-theme dict key-count caps
+* custom-theme dict key-count caps
     - :func:`TestCustomThemeCaps`
 
 All tests run ON LINUX (sandbox).  Windows / macOS code paths are exercised

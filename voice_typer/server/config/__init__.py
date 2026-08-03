@@ -696,6 +696,22 @@ class Config:
     beam_size: int = 1  # 1 = fastest greedy decoding; higher values trade speed for accuracy
     best_of: int = 1
     condition_on_previous_text: bool = False
+    # Whisper-specific beam size override. Defaults to 1 (matching the
+    # legacy ``beam_size`` field above) for backwards compat — existing
+    # config files without this key continue to behave identically.
+    # When set to a non-default value (e.g. 3 or 5),
+    # ``TranscriptionEngine.__init__`` picks it up via the ``config``
+    # object and uses it for the ``beam_size`` argument passed to
+    # ``model.transcribe(...)`` (see ``_transcribe_unlocked`` /
+    # ``_transcribe_words_unlocked`` / ``_probe_cuda_runtime``).
+    #
+    # WER (word error rate) tradeoff: ``beam_size=1`` (greedy decoding)
+    # is ~1-3% worse than ``beam_size=3-5`` on common benchmarks
+    # (LibriSpeech, Common Voice), but ~2x faster on commodity
+    # hardware. The speed-biased default of 1 keeps transcription
+    # snappy on CPU and low-end GPUs; users who prioritise accuracy
+    # over latency can bump this to 3 or 5.
+    whisper_beam_size: int = 1
 
     # Hidden streaming transcription
     streaming_transcription: bool = True
@@ -1048,6 +1064,13 @@ class Config:
     use_silero_vad: bool = True  # ADR 0007: was False, now True (torch available)
     vad_speech_threshold: float = 0.5  # Silero VAD prob > this → speech candidate
     vad_silence_threshold: float = 0.3  # Silero VAD prob < this → silence candidate
+    # ER-42: auto-calibrate VAD thresholds from the ambient noise floor
+    # during the first ~1.5s of each session (RMS path; Silero-prob path
+    # when use_silero_vad is active). Consumed by VadProcessor
+    # (vad_processor.py) via Recorder._vad_auto_calibrate. Was previously
+    # read via getattr() fallback while unregistered here — the flag could
+    # never be enabled, leaving the calibration feature dead.
+    vad_auto_calibrate: bool = False
 
     # AUDIO-CH: number of channels to request from the input device.
     # Default 1 (mono) — appropriate for dictation. Set to 0 for
