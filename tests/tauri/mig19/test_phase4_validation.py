@@ -140,18 +140,19 @@ import pytest
 #   parents[3] = <project root> (voice-typer/)
 REPO_ROOT = Path(__file__).resolve().parents[3]
 IPC_SERVER_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
-# Phase 4.5 /  — the prior split into ``voice_typer/server/ipc/``
-# was rolled back: ``IPCServer.__init__`` (with the heartbeat-watchdog
-# TAURI_SIDECAR gate + ``_heartbeat_thread = None`` skip path) AND the
-# ``main()`` entry point (with the ``--ws`` mode env-var propagation +
-# the Python-side single-instance mutex TAURI_SIDECAR gate) BOTH live in
-# ``voice_typer/server/ipc_server.py`` again. The ``ipc/`` subpackage now
-# only holds the validation helpers (``validation.py``, ``rate_limiter.py``,
-# ``transport.py``).
-IPC_SERVER_IMPL_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
-IPC_MAIN_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
+# ARCH-045: the ``ipc_server.py`` shim re-exports the IPC logic from
+# the ``voice_typer/server/ipc/`` package. The TAURI_SIDECAR gates
+# moved with the split: the heartbeat-watchdog skip lives in
+# ``ipc/lifecycle.py`` (``IPCServer.__init__``) and the ``--ws`` env
+# propagation + single-instance mutex skip live in
+# ``ipc/entrypoint.py`` (``main`` / ``parse_args``). Tests that
+# source-inspect the TAURI_SIDECAR gates read those files instead of
+# the shim.
+IPC_SERVER_IMPL_PY = REPO_ROOT / "voice_typer" / "server" / "ipc" / "lifecycle.py"
+IPC_MAIN_PY = REPO_ROOT / "voice_typer" / "server" / "ipc" / "entrypoint.py"
 SIDECAR_WS_PY = REPO_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
 WS_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws.rs"
+WS_EVENT_PROTOCOL_RS = REPO_ROOT / "src-tauri" / "src" / "sidecar" / "ws" / "event_protocol.rs"
 ADR_0020 = REPO_ROOT / "docs" / "adr" / "0020-desktop-runtime-migration-analysis.md"
 
 # ── ADR-0020 §2 — frozen 68-command table (the v1 wire contract) ─────────
@@ -676,6 +677,19 @@ def _read_ws_rs() -> str:
     return WS_RS.read_text(encoding="utf-8")
 
 
+def _read_ws_event_protocol_rs() -> str:
+    """Read the Rust WS event-protocol submodule source. The file MUST exist.
+    its absence means the split was rolled back mid-flight.
+    The translate_event_name body + ALLOWED_EVENT_TYPES slice live here after the split.
+    """
+    assert WS_EVENT_PROTOCOL_RS.is_file(), (
+        f"src-tauri/src/sidecar/ws/event_protocol.rs is missing at "
+        f"{WS_EVENT_PROTOCOL_RS} — the split was rolled "
+        "back (ADR-0020 regression)."
+    )
+    return WS_EVENT_PROTOCOL_RS.read_text(encoding="utf-8")
+
+
 def test_ws_bridge_does_not_silently_filter_events():
     """ADR-0020 §event table: the Rust bridge forwards every
     server-initiated event by name. The bridge is a generic fan-out,
@@ -702,8 +716,16 @@ def test_ws_bridge_does_not_silently_filter_events():
     allowlist. The legacy "no allowlist" assertions are obsolete
     (the allowlist is now an intentional defense-in-depth gate) and
     have been removed.
+
+    module split: ``translate_event_name``'s body moved from
+    ``ws.rs`` into ``ws/event_protocol.rs``. The call site
+    ``let emit_name = translate_event_name(event_type);`` stays in
+    ``ws.rs`` (inside ``spawn_reader_task``); the ``other => other``
+    match arm lives in ``event_protocol.rs``. This test now reads
+    BOTH files so the invariant is checked across the split.
     """
     src = _read_ws_rs()
+    event_protocol_src = _read_ws_event_protocol_rs()
     # The bridge MUST route every emitted event name through the
     # ``translate_event_name`` helper (single point of truth for the
     # snake→kebab rename table). This replaces the prior
@@ -715,10 +737,12 @@ def test_ws_bridge_does_not_silently_filter_events():
     # The translate function MUST have an `other => other` arm so any
     # allowlisted-but-not-renamed event name passes through unchanged
     # (forward-compat: new sidecar events added to ALLOWED_EVENT_TYPES
-    # flow through without requiring a host-side release).
-    assert re.search(r"other\s*=>\s*other\s*,", src), (
-        "translate_event_name must have an `other => other` forward-compat "
-        "passthrough arm (unknown event names flow through unchanged)."
+    # flow through without requiring a host-side release). After the
+    # split, this arm lives in `ws/event_protocol.rs`.
+    assert re.search(r"other\s*=>\s*other\s*,", event_protocol_src), (
+        "translate_event_name (now in ws/event_protocol.rs after the split) "
+        "must have an `other => other` forward-compat passthrough arm "
+        "(unknown event names flow through unchanged)."
     )
 
 
@@ -776,10 +800,21 @@ def test_ws_bridge_emits_notification_alias_for_electron_notification():
     """CR-8 (ws.rs): a backward-compat alias emits ``notification``
     alongside the legacy ``electron_notification`` event name so new
     UI code subscribing to ``notification`` keeps working during a
-    rolling upgrade. Drop after one release cycle (ADR-0020 §6.1)."""
-    src = _read_ws_rs()
+    rolling upgrade. Drop after one release cycle (ADR-0020 §6.1).
+
+    module split: after the split, the ``ALLOWED_EVENT_TYPES``
+    slice (which contains ``"notification"``) and the
+    ``translate_event_name`` test (which references
+    ``"electron_notification"``) both live in
+    ``ws/event_protocol.rs``. We assert against the union of
+    ``ws.rs`` + ``ws/event_protocol.rs`` so the alias invariant
+    is checked across the split.
+    """
+    src = _read_ws_rs() + "\n" + _read_ws_event_protocol_rs()
     assert '"electron_notification"' in src and '"notification"' in src, (
-        "ws.rs must emit a `notification` alias for the legacy `electron_notification` event (CR-8, ADR-0020 §6.1)."
+        "ws.rs (+ ws/event_protocol.rs after the split) must reference both "
+        "`electron_notification` (legacy alias) and `notification` (canonical) "
+        "(CR-8, ADR-0020 §6.1)."
     )
 
 
@@ -871,28 +906,28 @@ def test_ws_bridge_forwards_all_24_event_names():
 
 def test_tauri_sidecar_env_disables_heartbeat_watchdog_in_source():
     """ADR-0020 §2 + §10: under ``TAURI_SIDECAR=1`` the Python
-    heartbeat-watchdog thread (ADR-0018) is DISABLED — the Tauri
+    heartbeat-watchdog thread (ADR-0018) is DISABLED - the Tauri
     host's supervisor replaces it. Source-inspect
-    ``ipc_server.py`` (where ``IPCServer.__init__`` lives — the
-    prior Phase 4.5 split into ``ipc/server.py`` was rolled back)
-    for the env-var check + the ``_heartbeat_thread = None``
-    skip path."""
+    ``ipc/lifecycle.py`` (where ``IPCServer.__init__`` lives - the
+    ARCH-045 split moved the heartbeat-watchdog gate out of
+    ``ipc_server.py``) for the env-var check + the
+    ``_heartbeat_thread = None`` skip path."""
     src = IPC_SERVER_IMPL_PY.read_text(encoding="utf-8")
     # The env var MUST be read with the exact "1" sentinel (not
-    # truthy / not "true" — ADR-0020 §10 specifies "=1").
+    # truthy / not "true" - ADR-0020 §7 specifies "=1").
     assert 'os.environ.get("TAURI_SIDECAR") == "1"' in src, (
-        'ipc_server.py must gate the heartbeat watchdog on `TAURI_SIDECAR == "1"` (ADR-0020 §2 + §10).'
+        'ipc/lifecycle.py must gate the heartbeat watchdog on `TAURI_SIDECAR == "1"` (ADR-0020 §2 + §10).'
     )
     # The skip path MUST set ``_heartbeat_thread = None`` (not
-    # start the thread and then immediately stop it — that would
+    # start the thread and then immediately stop it - that would
     # leak a thread).
     # Find the TAURI_SIDECAR gate block and assert
     # ``_heartbeat_thread = None`` appears within ~10 lines.
     gate_idx = src.index('os.environ.get("TAURI_SIDECAR") == "1"')
     window = src[gate_idx : gate_idx + 600]
     assert "_heartbeat_thread = None" in window, (
-        "ipc_server.py must set `self._heartbeat_thread = None` when "
-        "TAURI_SIDECAR=1 (ADR-0020 §10 — skip the heartbeat-watchdog "
+        "ipc/lifecycle.py must set `self._heartbeat_thread = None` when "
+        "TAURI_SIDECAR=1 (ADR-0020 §10 - skip the heartbeat-watchdog "
         "thread entirely, do not start-then-stop)."
     )
 
@@ -901,15 +936,14 @@ def test_tauri_sidecar_env_propagated_by_ws_mode():
     """ADR-0020 §2 + §10: ``--ws`` mode MUST set ``TAURI_SIDECAR=1``
     on the sidecar so the downstream heartbeat-watchdog + Python-side
     single-instance mutex gates see it. Source-inspect
-    ``ipc_server.py`` (where ``main()`` lives — the prior Phase 4.5
-    split into ``ipc/main.py`` was rolled back) for the ``--ws``
-    flag handler."""
+    ``ipc/entrypoint.py`` (where ``main()`` lives - the ARCH-045 main
+    moved out of ``ipc_server.py``) for the ``--ws`` flag handler."""
     src = IPC_MAIN_PY.read_text(encoding="utf-8")
     # ``--ws`` mode MUST set the env var (so a terminal-launched
     # ``python -m voice_typer.server.ipc_server --ws`` also gets the
-    # Tauri-sidecar behavior — ADR-0020 §2 footnote).
+    # Tauri-sidecar behavior - ADR-0020 §2 footnote).
     assert 'os.environ["TAURI_SIDECAR"] = "1"' in src, (
-        "ipc_server.py must set os.environ['TAURI_SIDECAR'] = '1' in --ws mode (ADR-0020 §2 footnote + §10)."
+        "ipc/entrypoint.py must set os.environ['TAURI_SIDECAR'] = '1' in --ws mode (ADR-0020 §2 footnote + §10)."
     )
 
 
@@ -917,30 +951,25 @@ def test_tauri_sidecar_env_disables_python_single_instance_mutex():
     """ADR-0020 §12: under ``TAURI_SIDECAR=1`` the Python-side
     ``VoiceTyperSingleInstance`` Win32 mutex is skipped (the Tauri
     host's single-instance plugin owns it). Source-inspect
-    ``ipc_server.py`` for both TAURI_SIDECAR gates (the heartbeat-
-    watchdog skip and the Python single-instance mutex skip) — the
-    prior Phase 4.5 split into ``ipc/server.py`` + ``ipc/main.py``
-    was rolled back, so both gates live in the same file now
-    (IPC_SERVER_IMPL_PY and IPC_MAIN_PY both alias ``ipc_server.py``)."""
+    ``ipc/entrypoint.py`` for the mutex gate and ``ipc/lifecycle.py``
+    for the heartbeat-watchdog gate - the ARCH-045 split moved both
+    out of ``ipc_server.py`` into the ``ipc/`` package (heartbeat gate
+    in ``lifecycle.py``, ``--ws`` env + mutex gate in ``entrypoint.py``)."""
     server_src = IPC_SERVER_IMPL_PY.read_text(encoding="utf-8")
     main_src = IPC_MAIN_PY.read_text(encoding="utf-8")
-    # The mutex skip gate MUST appear (typically near the bottom of
-    # main() — separate from the heartbeat-watchdog gate).
+    # The mutex skip gate MUST appear (near the bottom of main() -
+    # separate from the heartbeat-watchdog gate in lifecycle.py).
     # Look for at least TWO occurrences of the env-var check across
-    # the two submodules that now host the IPC logic. Both gates live in
-    # ``ipc_server.py`` after the Phase 4.5 rollback (IPC_SERVER_IMPL_PY
-    # and IPC_MAIN_PY now both alias it).
+    # the two submodules that now host the IPC logic.
     occurrences = server_src.count('os.environ.get("TAURI_SIDECAR") == "1"') + main_src.count(
         'os.environ.get("TAURI_SIDECAR") == "1"'
     )
     assert occurrences >= 2, (
-        "ipc_server.py must reference TAURI_SIDECAR=1 in at least two "
-        "gates: (1) the heartbeat-watchdog skip (§10) and (2) the "
-        f"Python single-instance mutex skip (§12). Found {occurrences}."
+        "ipc/ must reference TAURI_SIDECAR=1 in at least two "
+        "gates: (1) the heartbeat-watchdog skip (§10, in lifecycle.py) "
+        "and (2) the Python single-instance mutex skip (§12, in "
+        f"entrypoint.py). Found {occurrences}."
     )
-
-
-# ── Test: sidecar never echoes the token (ADR-0020 §3) ──────────────────
 
 
 def test_sidecar_authenticate_does_not_echo_token(monkeypatch):

@@ -308,21 +308,15 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // (self-hosted LLM/ASR endpoints); mirrors the TS allowlist.
             "add_trusted_endpoint",
         ];
-        let mut set = HashSet::with_capacity(cmds.len());
-        for c in cmds {
-            // Defensive — should never happen (no dupes in the literal
-            // above), but a duplicate entry would silently drop one
-            // command from the set. Log so a future copy-paste slip is
-            // visible during dev.
-            if !set.insert(*c) {
-                log::error!(
-                    "[DISPATCH-ALLOWLIST] duplicate command in ALLOWED_COMMANDS literal: {} — \
-                     update src-tauri/src/commands/sidecar_cmds.rs",
-                    c
-                );
-            }
-        }
-        set
+        // Build the set in one pass. Duplicate detection is enforced
+        // by the `test_allowed_commands_set_contains_no_duplicates`
+        // unit test (which asserts `set.len() == 61`), so we don't
+        // need a runtime `log::error!` per duplicate here — that path
+        // was ~14 lines of defensive logging on a static `&[&str]`
+        // literal and was redundant with the test. If a future
+        // copy-paste slip adds a duplicate, the test fails in CI
+        // before the runtime log would ever fire in production.
+        HashSet::from_iter(cmds.iter().copied())
     })
 }
 

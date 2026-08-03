@@ -211,6 +211,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 SRC_TAURI_DIR = PROJECT_ROOT / "src-tauri" / "src"
 SUPERVISOR_RS = SRC_TAURI_DIR / "sidecar" / "supervisor.rs"
 WS_RS = SRC_TAURI_DIR / "sidecar" / "ws.rs"
+WS_EVENT_PROTOCOL_RS = SRC_TAURI_DIR / "sidecar" / "ws" / "event_protocol.rs"
+# ARCH-045 / RT-FIX-10: the ``std::thread`` spawn bridge for the
+# disconnect → supervisor trigger moved OUT of ``ws.rs`` into
+# ``ws/respawn_scheduler.rs`` (the reader's post-loop cleanup now calls
+# ``trigger_respawn_off_thread`` / ``cleanup_and_trigger_respawn``, which
+# live there). Tests that source-inspect the spawn bridge read this file.
+WS_RESPAWN_SCHEDULER_RS = SRC_TAURI_DIR / "sidecar" / "ws" / "respawn_scheduler.rs"
 UTIL_RS = SRC_TAURI_DIR / "util.rs"
 STATE_RS = SRC_TAURI_DIR / "state.rs"
 SIDECAR_WS_PY = PROJECT_ROOT / "voice_typer" / "server" / "sidecar_ws.py"
@@ -237,6 +244,32 @@ def ws_source() -> str:
     """Full text of src-tauri/src/sidecar/ws.rs (read once per module)."""
     assert WS_RS.is_file(), f"missing: {WS_RS}"
     return WS_RS.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def ws_event_protocol_source() -> str:
+    """Full text of src-tauri/src/sidecar/ws/event_protocol.rs (read once
+    per module). — the
+    ``translate_event_name`` body + ``ALLOWED_EVENT_TYPES`` slice moved
+    here from ``ws.rs``."""
+    assert WS_EVENT_PROTOCOL_RS.is_file(), f"missing: {WS_EVENT_PROTOCOL_RS}"
+    return WS_EVENT_PROTOCOL_RS.read_text(encoding="utf-8")
+
+
+@pytest.fixture(scope="module")
+def ws_respawn_scheduler_source() -> str:
+    """Full text of src-tauri/src/sidecar/ws/respawn_scheduler.rs (read
+    once per module).
+
+    ARCH-045 / RT-FIX-10: the ``std::thread`` spawn bridge that used to
+    live in ``ws.rs`` (the post-loop ``cleanup_and_trigger_respawn`` →
+    ``trigger_respawn_off_thread`` path) moved here. The ``!Send`` WS
+    stream-half still can't be ``tokio::spawn``ed directly, so the
+    supervisor future runs on a spawned ``std::thread`` via
+    ``tauri::async_runtime::block_on``.
+    """
+    assert WS_RESPAWN_SCHEDULER_RS.is_file(), f"missing: {WS_RESPAWN_SCHEDULER_RS}"
+    return WS_RESPAWN_SCHEDULER_RS.read_text(encoding="utf-8")
 
 
 @pytest.fixture(scope="module")
@@ -525,21 +558,35 @@ def test_ws_reader_logs_disconnect_reasons(ws_source: str) -> None:
 # ═══════════════════════════════════════════════════════════════════════════
 
 
-def test_ws_reader_triggers_respawn_after_loop_exit(ws_source: str) -> None:
+def test_ws_reader_triggers_respawn_after_loop_exit(ws_source: str, ws_respawn_scheduler_source: str) -> None:
     """After the reader loop exits (EOF/Close/Err), the reader task MUST
     call ``respawn`` to start the backoff supervisor."""
     assert "respawn(" in ws_source, (
         "WS reader must call respawn() after the reader loop exits — the disconnect → supervisor trigger is missing"
     )
-    # The call must be inside a std::thread::spawn + block_on bridge
-    # (because the WS stream half is !Send so we can't tokio::spawn it
-    # directly — see the inline comment in ws.rs).
-    assert "std::thread::spawn" in ws_source, (
-        "WS reader must spawn supervisor on a std::thread (the WS stream half "
-        "is !Send so a tokio::spawn would fail the Send requirement)"
+    # ARCH-045 / RT-FIX-10: the std::thread spawn bridge moved out of
+    # ws.rs into ws/respawn_scheduler.rs — the reader's post-loop
+    # cleanup calls ``cleanup_and_trigger_respawn`` (ws.rs) which hands
+    # the supervisor future to ``trigger_respawn_off_thread``
+    # (respawn_scheduler.rs). The spawn MUST be a std::thread + block_on
+    # bridge (the WS stream half is !Send so a tokio::spawn would fail
+    # the Send requirement) — verify that bridge lives in
+    # respawn_scheduler.rs.
+    assert (
+        "std::thread::Builder" in ws_respawn_scheduler_source or "std::thread::spawn" in ws_respawn_scheduler_source
+    ), (
+        "respawn_scheduler.rs must spawn the supervisor on a std::thread "
+        "(the WS stream half is !Send so a tokio::spawn would fail the Send "
+        "requirement) — the spawn bridge moved out of ws.rs (ARCH-045)"
     )
-    assert "tauri::async_runtime::block_on" in ws_source, (
-        "WS reader must use tauri::async_runtime::block_on to run the respawn future on the std::thread bridge"
+    assert "tauri::async_runtime::block_on" in ws_respawn_scheduler_source, (
+        "respawn_scheduler.rs must use tauri::async_runtime::block_on to "
+        "run the respawn future on the std::thread bridge"
+    )
+    # The reader's post-loop cleanup in ws.rs must hand off to the
+    # scheduler module (not inline the spawn it no longer owns).
+    assert "cleanup_and_trigger_respawn" in ws_source, (
+        "WS reader post-loop cleanup must call cleanup_and_trigger_respawn (the respawn_scheduler.rs entry point)"
     )
 
 
@@ -1190,7 +1237,7 @@ def test_ws_reader_emits_python_event_alias_for_backward_compat(ws_source: str) 
     )
 
 
-def test_ws_reader_does_not_rename_relaunch_app(ws_source: str) -> None:
+def test_ws_reader_does_not_rename_relaunch_app(ws_source: str, ws_event_protocol_source: str) -> None:
     """PVT-2 cleanup: the WS reader MUST NOT rename ``relaunch_electron``
     → ``relaunch_app``. The Python sidecar now publishes ``relaunch_app``
     directly (see ``app.py`` ``restart_app``), so the Rust bridge forwards
@@ -1201,7 +1248,14 @@ def test_ws_reader_does_not_rename_relaunch_app(ws_source: str) -> None:
     This is a regression check: re-introducing the rename arm would
     recreate the pre-PVT-2 silent-restart bug (the renamed event was
     emitted into the void because no listener subscribed to
-    ``relaunch_app`` pre-PVT-2)."""
+    ``relaunch_app`` pre-PVT-2).
+
+    FZ-24 module split: ``translate_event_name``'s body moved from
+    ``ws.rs`` into ``ws/event_protocol.rs``. The call site
+    ``let emit_name = translate_event_name(event_type);`` stays in
+    ``ws.rs`` (inside ``spawn_reader_task``); the ``other => other``
+    match arm lives in ``ws/event_protocol.rs``. This test now reads
+    BOTH files so the invariant is checked across the split."""
     # The rename match arm MUST NOT be present in ws.rs source.
     rename_re = re.compile(
         r'"relaunch_electron"\s*=>\s*"relaunch_app"',
@@ -1236,9 +1290,11 @@ def test_ws_reader_does_not_rename_relaunch_app(ws_source: str) -> None:
     )
     # The translate function MUST have an `other => other` arm so any
     # event name not in the rename table passes through unchanged.
-    assert re.search(r"other\s*=>\s*other\s*,", ws_source), (
-        "translate_event_name must have an `other => other` forward-compat "
-        "passthrough arm (unknown event names flow through unchanged)."
+    # FZ-24 module split: the arm lives in `ws/event_protocol.rs`.
+    assert re.search(r"other\s*=>\s*other\s*,", ws_event_protocol_source), (
+        "translate_event_name (now in ws/event_protocol.rs after the split) "
+        "must have an `other => other` forward-compat passthrough arm "
+        "(unknown event names flow through unchanged)."
     )
 
 
