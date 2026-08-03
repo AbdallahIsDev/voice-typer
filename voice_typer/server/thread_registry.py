@@ -54,6 +54,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -426,9 +427,8 @@ class ThreadRegistry:
         # (NOT ``sum(join_timeout)``) — a stuck thread no longer blocks
         # shutdown of the other threads.
         join_slice = 0.1
-        import time as _time
 
-        start = _time.monotonic()
+        start = time.monotonic()
         # Per-thread deadline: ``start + entry.join_timeout``.
         deadlines = {id(entry): start + entry.join_timeout for entry in entries}
         # work on a mutable ``pending`` list so we can prune
@@ -443,7 +443,7 @@ class ThreadRegistry:
             pending = [e for e in pending if e.thread.is_alive()]
             if not pending:
                 break
-            now = _time.monotonic()
+            now = time.monotonic()
             # If every alive thread has passed its individual deadline,
             # we're done — give up on the laggards.
             joinable = [e for e in pending if now < deadlines[id(e)]]

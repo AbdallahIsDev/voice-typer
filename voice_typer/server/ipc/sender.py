@@ -8,8 +8,16 @@ god-module. Contains:
 - :data:`_TCP_PENDING_DRAIN_CAP` / :data:`_TCP_PENDING_BUFFER_CAP` —
   pending-buffer tuning constants hoisted from inline magic numbers in
   ``_send``.
-- :class:`OutputMixin` — the ``push`` and ``_send`` methods mixed into
-  :class:`IPCServer`.
+- :class:`_LazyInt` — deferred ``int`` wrapper used to avoid eager
+  ``len(str(msg))`` stringification on the no-client push-event path
+  (ER-84). The wrapper's ``__int__`` is only invoked when the logging
+  framework actually renders the format string, so the recursive
+  ``dict.__str__`` cost is paid ONLY when the rate limiter decides to
+  emit (1st + every 100th occurrence at INFO; suppressed occurrences
+  are zero-cost when DEBUG is disabled — the framework short-circuits
+  before formatting).
+- :class:`OutputMixin` — the ``push``, ``_send`` and
+  ``_send_error_envelope`` methods mixed into :class:`IPCServer`.
 
 The mixin accesses instance state (``self._lock``, ``self._tcp_client``,
 ``self._tcp_write_lock``, ``self._pending_tcp``,
@@ -101,6 +109,47 @@ _TCP_PENDING_BUFFER_CAP: int = 1000
 # max_size=...)``) but the TCP path's ``tcp_client.write(line + "\n")``
 # would happily block the worker thread on a 100-MB send.
 _TCP_MAX_OUTBOUND_BYTES: int = 1 * 1024 * 1024
+
+
+class _LazyInt:
+    """Deferred ``int`` for ``%d`` log formatting (ER-84).
+
+    The no-client push-event path used to evaluate ``len(str(msg))``
+    eagerly as a positional argument to ``log_rate_limited``. Because
+    Python evaluates function arguments before the call, the recursive
+    ``dict.__str__`` (which stringifies every value in the message
+    dict, including the partial transcription text) ran on EVERY
+    dropped push event — even though the rate limiter suppressed
+    99/100 of the resulting log lines.
+
+    Wrapping the computation in ``_LazyInt`` defers ``len(str(msg))``
+    until the logging framework actually renders the format string
+    (``"... (size=%d)" % args``). Rendering only happens when the
+    record's level is enabled:
+
+    * INFO level-emit (1st + every 100th occurrence): rendered.
+    * DEBUG suppressed occurrence: rendered only when DEBUG is
+      enabled (default: disabled) — zero cost otherwise.
+    * Both INFO and DEBUG disabled: zero cost (no LogRecord is
+      created, so no formatting happens).
+
+    The ``%d`` format specifier calls ``int(arg)`` which dispatches to
+    ``__int__``, so the wrapped callable runs only at that point.
+
+    The source-string test in
+    ``tests/test_ipc_no_client_log_redaction.py`` (line ~79) pins the
+    literal ``"len(str(msg))"`` in ``OutputMixin._send``'s source; the
+    lambda body here preserves that literal so the assertion keeps
+    passing.
+    """
+
+    __slots__ = ("_fn",)
+
+    def __init__(self, fn) -> None:  # type: ignore[no-untyped-def]
+        self._fn = fn
+
+    def __int__(self) -> int:
+        return int(self._fn())
 
 
 class _PendingBuffer(deque):
@@ -257,15 +306,65 @@ def _await_socket_writable(conn) -> None:
 class OutputMixin:
     """Output / push methods for :class:`IPCServer`.
 
-    Provides ``push`` and ``_send``. The mixin assumes the host class
-    declares the TCP / stdout transport instance attributes
-    (``_lock``, ``_tcp_client``, ``_tcp_write_lock``, ``_pending_tcp``,
-    ``_tcp_mode``, ``_cached_shutting_down``).
+    Provides ``push``, ``_send`` and ``_send_error_envelope``. The mixin
+    assumes the host class declares the TCP / stdout transport instance
+    attributes (``_lock``, ``_tcp_client``, ``_tcp_write_lock``,
+    ``_pending_tcp``, ``_tcp_mode``, ``_cached_shutting_down``).
     """
 
     def push(self, msg: dict) -> None:
         """Send an unsolicited event (no ``id`` field)."""
         self._send(msg)
+
+    def _send_error_envelope(
+        self,
+        code: str,
+        message: str,
+        *,
+        msg: dict | None = None,
+        _client: object | None = None,
+        _out: TextIO | None = None,
+    ) -> None:
+        """Build + send a structured error envelope (ZR-76 DRY helper).
+
+        Consolidates the inline ``err = {"type": "error", "data": {...}};
+        if "id" in msg: err["id"] = msg["id"]; self._send(err, ...)`` blocks
+        that were copy-pasted across the TCP dispatch / rate-limit /
+        dispatch-exception paths in ``ipc/transport_tcp.py``. The
+        ``code``/``message`` pair and the optional ``id`` propagation are
+        the common shape; sites that need extra fields (e.g.
+        ``protocol_version_mismatch`` adds ``client_protocol_version`` /
+        ``server_protocol_version``) keep their inline construction so the
+        helper signature stays small.
+
+        Parameters
+        ----------
+        code:
+            The namespaced error code (e.g. ``"client.rate_limited"``,
+            ``"server.internal_error"``).
+        message:
+            Human-readable message string.
+        msg:
+            The originating request dict, used ONLY to propagate the
+            ``id`` field for client-side request/response correlation.
+            ``None`` skips ``id`` propagation (push-event / unsolicited
+            error path).
+        _client:
+            Optional local TCP client reference — forwarded to
+            :meth:`_send` so a concurrent fast-auth reconnect that
+            reassigns ``self._tcp_client`` cannot redirect the error to
+            the wrong socket.
+        _out:
+            Optional stdout sink — forwarded to :meth:`_send` for the
+            legacy stdin/stdout transport.
+        """
+        err: dict[str, object] = {
+            "type": "error",
+            "data": {"code": code, "message": message},
+        }
+        if isinstance(msg, dict) and "id" in msg:
+            err["id"] = msg["id"]
+        self._send(err, _client=_client, _out=_out)
 
     def _send(
         self,
@@ -759,12 +858,29 @@ class OutputMixin:
             # every 100th occurrence; suppressed occurrences go to
             # DEBUG with a "(suppressed occurrence N)" suffix so they
             # remain visible when debug-level logging is enabled.
+            #
+            # ER-84: wrap ``len(str(msg))`` in ``_LazyInt`` so the
+            # recursive ``dict.__str__`` cost (which stringifies every
+            # value in the message dict, including partial
+            # transcription text) is deferred until the logging
+            # framework actually renders the format string. The rate
+            # limiter suppresses 99/100 calls, but the eager
+            # ``len(str(msg))`` was computed BEFORE the limiter
+            # decided whether to emit — so the stringification ran on
+            # every dropped push event even when DEBUG was disabled
+            # (the suppressed-occurrence path's ``logger.debug`` call
+            # short-circuits before formatting, but the arg was
+            # already evaluated). With ``_LazyInt``, the ``__int__``
+            # callback fires ONLY when the format string is rendered
+            # (level-emit at INFO; suppressed-emit at DEBUG when DEBUG
+            # is enabled). When DEBUG is disabled (the default), the
+            # cost is zero for the 99/100 suppressed occurrences.
             log_rate_limited(
                 log,
                 logging.INFO,
                 "[IPC] no client; dropping %s event (size=%d)",
                 msg_type,
-                len(str(msg)),
+                _LazyInt(lambda: len(str(msg))),
                 key="ipc-no-client-drop",
                 every_n=100,
             )
@@ -784,4 +900,8 @@ __all__ = [
     # ``list[str]`` — see the class docstring for the deque-with-maxlen
     # rationale).
     "_PendingBuffer",
+    # exported so tests can verify the lazy-evaluation contract
+    # (ER-84): ``int(_LazyInt(...))`` must invoke the wrapped callable
+    # exactly once at evaluation time, not at construction time.
+    "_LazyInt",
 ]

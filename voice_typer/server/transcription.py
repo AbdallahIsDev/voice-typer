@@ -1040,13 +1040,14 @@ class TranscriptionEngine:
                         end,
                         _safe_seg_text,
                     )
-                else:
-                    log.debug(
-                        "[TRANSCRIBE] Segment: [%d chars @ %.1fs - %.1fs]",
-                        len(_seg_text),
-                        start,
-                        end,
-                    )
+                # When ``log_transcriptions`` is False (the default) or
+                # ``config`` is None, emit NO segment DEBUG log at all —
+                # not even a char-count-only summary. The segment
+                # metadata (char count, timestamps) still indirectly
+                # reveals dictation content patterns (e.g. segment
+                # timing → speech cadence, char count → utterance
+                # length). Privacy contract: zero segment data in logs
+                # unless the operator has explicitly opted in.
 
         log.info(
             "[TRANSCRIBE] VAD result: language=%s (prob=%.2f), "
@@ -1246,9 +1247,30 @@ class TranscriptionEngine:
         return self._with_gpu_fallback(self._transcribe_unlocked, audio, audio_stats=audio_stats)
 
     def transcribe_words(self, audio: np.ndarray, offset_seconds: float = 0.0):
-        """Transcribe audio array into word timings with a global offset."""
-        with self._with_lock_and_deferred_gc():
+        """Transcribe audio array into word timings with a global offset.
+
+        Uses the inference-counter pattern (mirrors ``transcribe`` and
+        ``transcribe_with_fallback``): acquire ``self._lock`` only long
+        enough to increment ``_active_inference``, then release before
+        the (potentially multi-second) GPU inference so ``unload()`` /
+        ``is_loaded`` aren't blocked. ``unload()`` waits on
+        ``_inference_cond`` for the counter to drain before nulling
+        ``self._model``. Deferred gc (``_pending_gc_collect``) fires
+        AFTER the lock is released.
+        """
+        with self._lock:
+            if self._model is None:
+                raise RuntimeError("Model not loaded. Call load() first.")
+            self._active_inference += 1
+        try:
             return self._transcribe_words_with_fallback_unlocked(audio, offset_seconds)
+        finally:
+            with self._inference_cond:
+                self._active_inference -= 1
+                if self._active_inference == 0:
+                    self._inference_cond.notify_all()
+            # RACE-023: perform deferred gc OUTSIDE the lock.
+            self._run_deferred_gc()
 
     def _transcribe_words_with_fallback_unlocked(
         self,
@@ -1406,6 +1428,13 @@ class TranscriptionEngine:
     def unload(self) -> None:
         """Free model memory.
 
+        Waits for any in-flight ``transcribe()`` / ``transcribe_with_fallback()``
+        call to finish (via the ``_active_inference`` counter +
+        ``_inference_cond``) BEFORE nulling ``self._model`` so the
+        inference thread doesn't dereference a freed ctranslate2 model
+        (use-after-free). Mirrors ``ParakeetEngine.unload`` and
+        ``QwenEngine.unload``.
+
         PERF- also release DLL directory handles opened by
         ``_configure_nvidia_dll_paths`` so the process doesn't hold
         phantom DLL refs after the model is unloaded.
@@ -1421,7 +1450,9 @@ class TranscriptionEngine:
         """
         import gc
 
-        with self._lock:
+        with self._inference_cond:
+            while self._active_inference > 0:
+                self._inference_cond.wait()
             self._model = None
         # RACE-023: gc.collect() OUTSIDE the lock
         gc.collect()

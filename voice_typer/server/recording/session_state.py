@@ -160,11 +160,37 @@ class SessionState:
                 "[RECORDER] secure_clear_array failed for _cached_resampled_segments in reset_session_state",
                 exc_info=True,
             )
+        # zero the no-resample-path segment list too, mirroring the
+        # resample-path loop above and the bulk ``secure_clear_caches``
+        # contract. ``reset_session_state`` runs from ``start()`` AFTER
+        # ``_secure_clear_session_caches`` (which zeros the cached arrays
+        # and the resample-path segment list), so the no-resample segment
+        # list is normally already-empty here — but defensive zeroing
+        # protects against any code path that populates the list between
+        # ``_secure_clear_session_caches`` and this reset (e.g. a racing
+        # ``snapshot()`` from the streaming thread), and keeps the
+        # contract symmetric with the ``stop()``/``discard()`` path so a
+        # future maintainer can't regress one without regressing the other.
+        try:
+            for seg in recorder._cached_no_resample_segments:
+                if seg is not None and seg.size > 0:
+                    _recording_pkg._secure_clear_array(seg)
+        except (OSError, ValueError):
+            log.warning(
+                "[RECORDER] secure_clear_array failed for _cached_no_resample_segments in reset_session_state",
+                exc_info=True,
+            )
         # reset the resample-path segment list + dirty flag so a
         # new session starts with an empty cache (no stale segments
         # carried over from the previous session).
         recorder._cached_resampled_segments = []
         recorder._cached_resampled_concat_dirty = False
+        # reset the no-resample-path segment list + dirty flag for the
+        # same reason — ``_ensure_no_resample_concat`` short-circuits
+        # when the dirty flag is ``False``, so a stale ``True`` would
+        # serve a stale or empty cache on the next snapshot.
+        recorder._cached_no_resample_segments = []
+        recorder._cached_no_resample_concat_dirty = False
         # reset per-session error counters so each session
         # reports its own dropped-chunk / RMS-callback-error totals
         # (previously these accumulated across sessions).
@@ -364,15 +390,37 @@ class SessionState:
                 "[RECORDER] secure_clear_array failed for _cached_resampled_segments",
                 exc_info=True,
             )
+        # (High): mirror the resample-path loop above for the
+        # no-resample-path segment list. The no-resample path is the
+        # COMMON path in production (AudioProcessor resamples to 16 kHz
+        # before appending, so ``_buffer_sr == target_sr``), so this
+        # list is the primary storage for the dictated prefix in a
+        # typical session. Dropping the list reference without first
+        # zeroing each segment left up to ~115 MB of float32 audio in
+        # process memory until the numpy allocator reused the blocks —
+        # defeating SEC-audit-008's intent for the no-resample-path
+        # segment cache. Best-effort: a failure to zero one segment
+        # doesn't block zeroing the rest or the cache reset.
+        try:
+            for seg in recorder._cached_no_resample_segments:
+                if seg is not None and seg.size > 0:
+                    _recording_pkg._secure_clear_array(seg)
+        except (OSError, ValueError):
+            log.warning(
+                "[RECORDER] secure_clear_array failed for _cached_no_resample_segments",
+                exc_info=True,
+            )
         recorder._cached_resampled = np.array([], dtype=np.float32)
         recorder._cached_no_resample_arr = None
         recorder._cached_native_chunk_count = 0
         recorder._cached_no_resample_len = -1
         # now that every segment's underlying numpy buffer has
-        # been zeroed in-place (above), drop the list reference and
-        # reset the dirty flag so the next session starts clean.
+        # been zeroed in-place (above), drop the list references and
+        # reset the dirty flags so the next session starts clean.
         recorder._cached_resampled_segments = []
         recorder._cached_resampled_concat_dirty = False
+        recorder._cached_no_resample_segments = []
+        recorder._cached_no_resample_concat_dirty = False
         # reset the audio processor's filter state too.
         # IIR ``zi`` arrays + RNNoise ``_carry`` (up to 479 samples,
         # ~2 KB at 16 kHz float32) retain audio-derived residuals

@@ -38,7 +38,7 @@ from __future__ import annotations
 import collections
 import contextlib
 import logging
-import math
+import math  # noqa: F401  # re-exported for tests (recorder.math)
 import os
 import queue
 import threading
@@ -56,7 +56,10 @@ from typing import Any
 # annotation evaluation does NOT trigger the lazy proxy (which would
 # defeat the optimization).
 from voice_typer.server import event_bus
-from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES, WHISPER_SAMPLE_RATE
+from voice_typer.server._audio_constants import (  # noqa: F401  # SILERO_VAD_SAMPLE_RATES re-exported for tests
+    SILERO_VAD_SAMPLE_RATES,
+    WHISPER_SAMPLE_RATE,
+)
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.config import Config
 from voice_typer.server.vad_processor import VadProcessor, VadState
@@ -182,6 +185,14 @@ from .exceptions import (  # noqa: F401, E402 — re-exported for tests
     ResampleUnavailable,
     ResampleUnavailableError,
 )
+
+# Phase 4.5 further-split (DT-21): the device / disconnect-handler
+# state declarations + collaborator constructions (~88 LOC) were
+# extracted to ``RecorderInitMixin._setup_device_state_and_collaborators``.
+# ``Recorder.__init__`` calls the mixin method after the basic Recorder
+# state is initialized. See :mod:`.recorder_init` for the collaborator
+# construction order + the source-inspection compatibility notes.
+from .recorder_init import RecorderInitMixin  # noqa: F401, E402
 from .resampling import _SCIPY_PRELOADER_JOIN_TIMEOUT_S  # noqa: F401, E402 — re-exported for tests
 
 # Phase 4.5: ``resample_audio`` is the promoted body of
@@ -220,6 +231,13 @@ from .stream_lifecycle import StreamLifecycle  # noqa: F401, E402 — re-exporte
 # from ``VadShimMixin`` so existing attribute access on ``Recorder``
 # instances keeps working unchanged.
 from .vad_helpers import VadShimMixin  # noqa: F401, E402
+from .vad_helpers import refresh_vad_caches as _refresh_vad_caches_fn  # noqa: F401, E402
+from .vad_helpers import (  # noqa: F401, E402
+    vad_auto_calibrate as _vad_auto_calibrate_fn,
+)
+from .vad_helpers import (  # noqa: F401, E402
+    vad_update as _vad_update_fn,
+)
 
 # the previous ``_DEFAULT_VAD_SPEECH_THRESHOLD_DB``
 # ``_DEFAULT_VAD_SILENCE_THRESHOLD_DB`` backward-compat aliases (which
@@ -314,6 +332,17 @@ _BUFFER_TELEMETRY_ENABLED = os.environ.get("VOICE_TYPER_VERBOSE", "").lower() in
 # "ring buffer full" warning.
 _AUDIO_RING_BUFFER_CAPACITY = 64
 
+# Rate-limit interval for the real-time ring-overflow WARNING emitted
+# from ``_surface_ring_overflow_warning`` (called by the audio worker
+# thread on every chunk iteration). One WARNING per N seconds —
+# frequent enough to surface a sustained CPU-overload condition
+# promptly, rare enough to avoid log spam when the worker briefly
+# falls behind and recovers. The post-recording WARNING in
+# ``RecordingController._stop_impl`` always fires (unconditionally) so
+# the user sees the total dropped-chunk count for the session even if
+# the real-time WARNING was rate-limited.
+_RING_OVERFLOW_WARN_INTERVAL_S = 5.0
+
 # PortAudio ``blocksize`` literal is defined in
 # ``voice_typer.server._audio_constants`` (single source of truth, no
 # circular import) and re-exported via this module for back-compat with
@@ -372,7 +401,7 @@ _EVENT_WORKER_JOIN_TIMEOUT_S = 2.0
 _EVENT_WORKER_DISCARD_JOIN_TIMEOUT_S = 1.0
 
 
-class Recorder(VadShimMixin):
+class Recorder(VadShimMixin, RecorderInitMixin):
     """Records audio from microphone into a buffer. Session-based: start, accumulate, stop, get data."""
 
     # substrings of PortAudio OSError messages that indicate a
@@ -645,8 +674,19 @@ class Recorder(VadShimMixin):
         self._worker_stop_event: threading.Event = threading.Event()
         self._worker_wake_event: threading.Event = threading.Event()
         # Counter for chunks dropped because the ring buffer was full
-        # (worker couldn't keep up). Logged with throttling.
+        # (worker couldn't keep up). Surfaced by the worker thread via
+        # ``_surface_ring_overflow_warning`` (rate-limited WARNING) and
+        # post-recording by ``RecordingController._stop_impl``.
         self._dropped_ring_chunks: int = 0
+        # Real-time ring-overflow WARNING bookkeeping (see
+        # ``_surface_ring_overflow_warning``). ``_last_seen_dropped_ring_chunks``
+        # is the value of ``_dropped_ring_chunks`` the last time the worker
+        # thread checked; the delta between consecutive checks is the
+        # number of chunks dropped since the last WARNING. ``_ring_overflow_warn_ts``
+        # is the ``time.perf_counter()`` of the last WARNING, used to
+        # rate-limit to one WARNING per ``_RING_OVERFLOW_WARN_INTERVAL_S``.
+        self._last_seen_dropped_ring_chunks: int = 0
+        self._ring_overflow_warn_ts: float = 0.0
 
         # IPC event queue + dedicated worker thread. The audio
         # worker thread (``_audio_worker_loop``) enqueues IPC events
@@ -679,95 +719,24 @@ class Recorder(VadShimMixin):
         # current capacity arrives (rare — blocksize is 512 samples).
         self._mono_scratch_local = threading.local()
 
-        # HOTKEY-CRASH: generation counter incremented in stop() so stale
-        # device-disconnect handlers (launched from the audio callback) can
-        # detect they're operating on an already-stopped stream and bail out
-        # instead of racing with start()/stop().
-        self._stop_generation: int = 0
-        # STREAM-FIX: flag set by stop() BEFORE stream.stop() so
-        # _stream_finished_callback can distinguish "user pressed stop"
-        # (expected, no warning) from "device disconnected" (unexpected,
-        # warn). Previously the callback checked _recording_event, but
-        # stop() clears that flag BEFORE calling stream.stop() — so the
-        # callback always saw is_set()==False and warned on every stop.
-        self._user_stop_pending: bool = False
-
-        # Medium: single-flight guard for the disconnect-handler
-        # thread spawns. Three sites spawn ``_handle_device_disconnect``
-        # on a fresh daemon thread (the audio callback's zero-fill
-        # detector, ``_stream_finished_callback``, and the device
-        # health-checker loop). Without a guard, a flapping device
-        # (BT mic reconnecting repeatedly) can spawn multiple handler
-        # threads concurrently — they race on ``_stream_lifecycle_lock``
-        # and the stream-restart block. The guard ensures only ONE
-        # handler thread is running at a time; additional spawns while
-        # the first is running are no-ops (the existing handler will
-        # complete the restart or hit the retry budget).
-        self._disconnect_handler_lock = threading.Lock()
-        self._disconnect_handler_running = False
-
-        # AUDIO-HOT: hot-plug device disconnect handling
-        # Phase 4.5: the 12 device-related state attrs +
-        # MicrophoneDeviceWatcher lifecycle were moved to
-        # ``DeviceManager`` (see ``device_manager.py``). The attrs are
-        # re-exposed on ``Recorder`` via read/write property shims (see
-        # the property block below ``__init__``) so existing tests that
-        # do ``r._device_disconnected = False`` / ``r._mic_watcher is
-        # None`` keep working unchanged. KEEP-methods on ``Recorder``
-        # that read/write these attrs (``_handle_device_disconnect``,
-        # ``_stream_finished_callback``, ``_process_audio_chunk``,
-        # ``start``) also go through the shims.
-        #
-        # The DeviceManager is constructed AFTER the basic Recorder
-        # state is initialized (``_recording_event``, ``_stream``,
-        # ``config``, etc.) so its ``__init__`` can register the
-        # MicrophoneDeviceWatcher callback against
-        # ``self._invalidate_device_cache`` (a delegator method that
-        # routes through ``self._devices`` — which is set by this
-        # assignment).
-        self._devices: DeviceManager = DeviceManager(self)
-
-        # ``DisconnectHandler`` owns the ~175-LOC stream-restart
-        # block previously inlined in ``_handle_device_disconnect``. The
-        # bouncer checks + ``_stream_lifecycle_lock`` acquisition +
-        # re-checks STAY on ``Recorder._handle_device_disconnect`` so
-        # the  source-inspection regression tests continue to pin
-        # the lock-scope invariant (see
-        # ``tests/test_recorder_worker_lifecycle.py``).
-        # ``AudioPipeline`` owns the six named helpers split out of
-        # ``_process_audio_chunk`` in a previous session. ``Recorder``
-        # keeps 1-line delegator methods on each helper name so existing
-        # call sites and ``inspect.getsource`` checks continue to work.
-        # Both collaborators store a back-reference to ``self`` and do
-        # NOT touch recorder state at construction time, so they can be
-        # instantiated as soon as ``self._devices`` is ready.
-        self._disconnect_handler: DisconnectHandler = DisconnectHandler(self)
-        self._audio_pipeline: AudioPipeline = AudioPipeline(self)
-        # Phase 4.5: three new collaborators constructed here
-        # in the same back-reference pattern as ``_audio_pipeline`` /
-        # ``_disconnect_handler`` above. Each is purely a collaborator —
-        # stores ``self`` and reads/writes ``self.X`` for shared state —
-        # so they can be instantiated as soon as ``self._audio_pipeline``
-        # is ready. Construction order is harmless: each ``__init__`` only
-        # stores the back-reference and does not touch other ``self.X``
-        # state. The chosen order mirrors the dependency direction
-        # (callback → lifecycle → session) for readability.
-        self._capture: AudioCallbackDispatcher = AudioCallbackDispatcher(self)
-        self._stream_lifecycle: StreamLifecycle = StreamLifecycle(self)
-        self._session_state: SessionState = SessionState(self)
-
-        # PERF: pre-warm the device-list cache on a background daemon
-        # thread so the start() hotkey critical path doesn't pay the
-        # 50-200ms PortAudio enumeration cost on the first recording.
-        # ``DeviceManager._refresh_device_list`` is the cached path
-        # (30s TTL, OS-event-invalidated); without pre-warming, the
-        # first ``start()`` after app launch would block on
-        # ``sd.query_devices()`` even though ``Recorder`` was
-        # constructed seconds earlier. The thread is best-effort —
-        # if PortAudio is unavailable (headless CI, no audio HW), the
-        # cache stays empty and ``start()`` falls back to direct
-        # ``sd.query_devices()`` calls (no regression).
-        self._prewarm_device_cache()
+        # Phase 4.5 further-split (DT-21): the device / disconnect-handler
+        # state declarations (``_stop_generation`` /
+        # ``_user_stop_pending`` / ``_disconnect_handler_lock`` /
+        # ``_disconnect_handler_running``) + collaborator constructions
+        # (``_devices`` / ``_disconnect_handler`` / ``_audio_pipeline``
+        # / ``_capture`` / ``_stream_lifecycle`` / ``_session_state``)
+        # + ``_prewarm_device_cache()`` call were extracted to
+        # :meth:`RecorderInitMixin._setup_device_state_and_collaborators`.
+        # Called here AFTER the basic Recorder state (``_recording_event``,
+        # ``_stream``, ``config``, ``_lock``, ``_thread_registry``,
+        # ``_effective_sr``, ``_buffer_sr``, VAD caches, preroll buffer,
+        # ring buffer, worker thread state, ``_actual_channels``,
+        # ``_mono_scratch_local``) is initialized — the collaborators'
+        # ``__init__`` methods store a back-reference to ``self`` and do
+        # NOT touch other recorder state, so the call order is safe.
+        # See :mod:`.recorder_init` for the full collaborator construction
+        # order + the source-inspection compatibility notes.
+        self._setup_device_state_and_collaborators()
 
         # NOTE (): dead_air_timeout / _dead_air_speech_detected
         # _dead_air_silence_start were REMOVED — redundant with
@@ -1468,21 +1437,31 @@ class Recorder(VadShimMixin):
         self._refresh_vad_caches()
 
     def _refresh_vad_caches(self) -> None:
-        """refresh per-chunk VAD caches.
+        """refresh per-chunk VAD caches (delegator).
+
+        Body moved to :func:`.vad_helpers.refresh_vad_caches` so
+        ``recorder.py`` shrinks further (DT-21 further-split). This is
+        a 1-line delegator so existing call sites, subclass overrides,
+        and ``inspect.getsource(Recorder._refresh_vad_caches)`` checks
+        keep working. Tests that monkeypatch
+        ``recorder._refresh_vad_caches`` via
+        ``monkeypatch.setattr(r, "_refresh_vad_caches", lambda: None)``
+        replace the bound delegator on the instance — delegation is
+        bypassed and the lambda runs unchanged.
 
         Called by ``start()`` and ``on_config_changed()`` so the audio
         worker hot path (16 Hz) reads cached scalars instead of
-        dispatching 3 property lookups per chunk × 16 Hz = 48 lookups/sec
-        for values that only change on config edits.
+        dispatching 3 property lookups per chunk × 16 Hz = 48
+        lookups/sec for values that only change on config edits.
 
         Also computes the (up, down) integer ratio for the VAD resample
-        path (). The ratio is derived from ``_buffer_sr``
-        (the post-process_chunk rate set by ``_process_audio_chunk``).
-        When ``_buffer_sr`` is 8000 or 16000, no resample is needed and
-        the cache is set to ``None``. When ``_buffer_sr`` is something
-        else (e.g. 48000 — happens when no AudioProcessor is attached
-        and the device's native rate is non-16 kHz), the cache stores
-        the (up, down) integers so the per-chunk VAD path avoids
+        path. The ratio is derived from ``_buffer_sr`` (the
+        post-process_chunk rate set by ``_process_audio_chunk``). When
+        ``_buffer_sr`` is 8000 or 16000, no resample is needed and the
+        cache is set to ``None``. When ``_buffer_sr`` is something else
+        (e.g. 48000 — happens when no AudioProcessor is attached and
+        the device's native rate is non-16 kHz), the cache stores the
+        (up, down) integers so the per-chunk VAD path avoids
         recomputing ``math.gcd``.
 
         ``_buffer_sr`` may be ``None`` at ``start()`` time (before the
@@ -1491,21 +1470,7 @@ class Recorder(VadShimMixin):
         ``_process_audio_chunk`` differs, the cache is refreshed lazily
         inside ``_process_audio_chunk``.
         """
-        self._cached_vad_enabled = self._vad_enabled
-        self._cached_use_silero_vad = self._use_silero_vad
-        self._cached_silero_available = self._silero_available
-        # the VAD branch decision must use ``_buffer_sr`` (the
-        # post-process_chunk rate) instead of ``_effective_sr`` (the
-        # device's native rate). When a processor is active,
-        # ``_buffer_sr == 16000`` and the VAD branch is skipped entirely
-        # — no double-resample.
-        vad_sr = self._buffer_sr if self._buffer_sr is not None else self._effective_sr
-        if vad_sr is not None and vad_sr not in SILERO_VAD_SAMPLE_RATES and vad_sr > 0:
-            gcd = math.gcd(int(vad_sr), WHISPER_SAMPLE_RATE)
-            self._cached_vad_resample_up_down = (WHISPER_SAMPLE_RATE // gcd, int(vad_sr) // gcd)
-        else:
-            self._cached_vad_resample_up_down = None
-        self._cached_vad_resample_sr = vad_sr
+        return _refresh_vad_caches_fn(self)
 
     # deleted dead ``_compute_vad_enabled`` method (26 LOC).
     # ``VadProcessor.compute_vad_enabled`` is called directly by
@@ -1515,65 +1480,79 @@ class Recorder(VadShimMixin):
     # delegator from  with ZERO call sites in production or tests.
 
     def _vad_auto_calibrate(self, chunk_rms: float, chunk_duration: float) -> None:
-        """Auto-calibrate VAD thresholds based on ambient noise floor.
+        """Auto-calibrate VAD thresholds based on ambient noise floor (delegator).
 
-        delegates to ``self._vad.auto_calibrate(chunk_rms,
-                elapsed_seconds, chunk_duration)``. The ``elapsed_seconds``
-                argument is computed here from ``self._recording_start_time``
-                (which is a Recorder-owned attribute, not a VadProcessor one)
-                so VadProcessor stays clock-agnostic and unit-testable.
+        Body moved to :func:`.vad_helpers.vad_auto_calibrate`. This is a
+        1-line delegator so existing call sites, subclass overrides, and
+        ``inspect.getsource(Recorder._vad_auto_calibrate)`` checks keep
+        working. Tests that mock ``recorder._vad_auto_calibrate`` via
+        ``MagicMock`` replace the bound delegator on the instance —
+        delegation is bypassed and the mock runs unchanged.
 
-        During the first _vad_calibration_duration seconds of
-                recording, we collect RMS values to determine the ambient noise
-                floor. Then we set speech/silence thresholds relative to it.
+        Delegates to ``self._vad.auto_calibrate(chunk_rms, elapsed,
+        chunk_duration)``. The ``elapsed`` argument is computed in the
+        helper from ``self._recording_start_time`` (a Recorder-owned
+        attribute) so VadProcessor stays clock-agnostic.
+
+        During the first ``_vad_calibration_duration`` seconds of
+        recording, we collect RMS values to determine the ambient noise
+        floor. Then we set speech/silence thresholds relative to it.
+
+        VAD-GATE (Task 4): VadProcessor.auto_calibrate also gates on
+        vad_enabled, but the helper short-circuits here too so we
+        don't even call ``time.perf_counter()`` on every chunk in raw
+        mode.
         """
-        # VAD-GATE (Task 4): VadProcessor.auto_calibrate also gates on
-        # vad_enabled, but we short-circuit here too so we don't even
-        # call time.perf_counter() on every chunk in raw mode.
-        if not self._vad_enabled:
-            return
-        elapsed = time.perf_counter() - self._recording_start_time
-        self._vad.auto_calibrate(chunk_rms, elapsed, chunk_duration)
+        return _vad_auto_calibrate_fn(self, chunk_rms, chunk_duration)
 
     # VAD state machine update ─────────────────────────────
 
     def _vad_update(self, chunk_rms_db: float, vad_prob: float | None = None) -> VadState:
-        """Update the VAD state machine based on the current frame's VAD signal.
+        """Update the VAD state machine based on the current frame's VAD signal (delegator).
 
-        delegates to ``self._vad.update_frame(chunk_rms_db, vad_prob)``.
-                The VadProcessor owns the state-machine counters, thresholds, and
-                hysteresis transitions. The historical ``self._vad_*`` attribute
-                names (e.g. ``_vad_consecutive_speech_frames``) remain accessible
-                on ``Recorder`` via property shims that read/write through to
-                ``self._vad``.
+        Body moved to :func:`.vad_helpers.vad_update`. This is a 1-line
+        delegator so existing call sites, subclass overrides, and
+        ``inspect.getsource(Recorder._vad_update)`` checks keep working
+        (notably ``test_grey_zone_does_not_reset_counters`` in
+        ``tests/regressions/audio_test.py`` — the pinned phrases "Grey
+        zone (between speech and silence thresholds)", "pass", and
+        "State transitions" remain in this docstring so the source-
+        string regression test continues to pass after the body move).
 
-        Uses hysteresis — transitioning from SILENCE to SPEECH
-                requires N consecutive loud frames, while SPEECH to SILENCE requires
-                M consecutive quiet frames (hangover period). This prevents rapid
-                toggling at the boundary.
+        Delegates to ``self._vad.update_frame(chunk_rms_db, vad_prob)``.
+        The VadProcessor owns the state-machine counters, thresholds,
+        and hysteresis transitions. The historical ``self._vad_*``
+        attribute names (e.g. ``_vad_consecutive_speech_frames``)
+        remain accessible on ``Recorder`` via property shims that
+        read/write through to ``self._vad``.
 
-                When Silero VAD is enabled and a probability is provided, uses the
-                VAD probability for speech/silence determination instead of RMS dB.
-                Falls back to RMS-based detection if vad_prob is None.
+        Uses hysteresis — transitioning from SILENCE to SPEECH requires
+        N consecutive loud frames, while SPEECH to SILENCE requires M
+        consecutive quiet frames (hangover period). This prevents
+        rapid toggling at the boundary.
 
-                VAD-GATE (Task 4): returns ``VadState.UNKNOWN`` immediately when
-                VAD is disabled (all audio enhancements off). The caller's
-                silence-timer logic sees UNKNOWN and treats it as "not silence"
-                (no silence warnings, no VAD-based auto-stop).
+        When Silero VAD is enabled and a probability is provided, uses
+        the VAD probability for speech/silence determination instead of
+        RMS dB. Falls back to RMS-based detection if vad_prob is None.
 
-        Grey zone (between speech and silence thresholds).
-                Standard VAD hysteresis: leave counters unchanged so a long run
-                of grey-zone chunks doesn't discard accumulated frame history.
-                Implemented in ``VadProcessor.update_frame`` as a ``pass``
-                branch — no counter resets. State transitions with hysteresis
-                are also implemented there. This wrapper preserves the source
-        patterns existing tests pin on (the  comment, the
-                ``pass`` keyword, and the "State transitions" comment must
-                appear in this method's source for
-                ``test_grey_zone_does_not_reset_counters`` to keep passing).
+        VAD-GATE (Task 4): returns ``VadState.UNKNOWN`` immediately
+        when VAD is disabled (all audio enhancements off). The caller's
+        silence-timer logic sees UNKNOWN and treats it as "not silence"
+        (no silence warnings, no VAD-based auto-stop).
+
+        Grey zone (between speech and silence thresholds). Standard VAD
+        hysteresis: leave counters unchanged so a long run of grey-zone
+        chunks doesn't discard accumulated frame history. Implemented
+        in ``VadProcessor.update_frame`` as a ``pass`` branch — no
+        counter resets. State transitions with hysteresis are also
+        implemented there. This wrapper preserves the source patterns
+        existing tests pin on (the "Grey zone" comment, the ``pass``
+        keyword, and the "State transitions" comment must appear in
+        this method's source for
+        ``test_grey_zone_does_not_reset_counters`` to keep passing).
         """
         # State transitions: delegated to VadProcessor.update_frame.
-        return self._vad.update_frame(chunk_rms_db, vad_prob)
+        return _vad_update_fn(self, chunk_rms_db, vad_prob)
 
     # ── ADR 0007 §3.5: _agc_update method deleted ─────────────────────
     # The old per-chunk AGC (C1) has been removed. It duplicated the
@@ -2408,8 +2387,65 @@ class Recorder(VadShimMixin):
                 the full processing-pipeline rationale (HOTKEY-CRASH,
         , AUDIO-CH, AUDIO-PROC, AUDIO-CLIP, ,
         , H12, T021, ).
+
+        ER-89: surface ring-buffer overflow in real time. The RT
+                callback (``_audio_callback_dispatch``) increments
+                ``_dropped_ring_chunks`` when the ring buffer is full
+                but cannot log from the RT path. The worker thread
+                (this method, non-RT-safe to log) checks the counter
+                delta on every iteration and emits a rate-limited
+                WARNING so the user is notified DURING the recording
+                (not only post-stop via ``RecordingController._stop_impl``).
         """
+        self._surface_ring_overflow_warning()
         self._audio_pipeline.process_audio_chunk(indata, frames, time_info, status, perf_ts)
+
+    def _surface_ring_overflow_warning(self) -> None:
+        """Emit a rate-limited WARNING when the ring buffer overflows.
+
+        ER-89: ``_dropped_ring_chunks`` was previously silent during the
+        recording — the user continued speaking while audio was being
+        dropped, with no indication until ``RecordingController._stop_impl``
+        logged the total AFTER ``stop()`` (too late for the user to react
+        by closing background apps or switching to a lighter filter chain).
+
+        This method is called once per chunk from ``_process_audio_chunk``
+        on the audio worker thread (non-RT-safe to log). It computes the
+        delta between consecutive checks and emits a WARNING (rate-limited
+        to one per ``_RING_OVERFLOW_WARN_INTERVAL_S`` seconds) when the
+        counter increases. The WARNING is logged at WARNING level (not
+        ERROR) because dropping a few chunks is recoverable — the
+        transcription will be slightly incomplete but not corrupted.
+
+        The ``_last_seen_dropped_ring_chunks`` counter is ALWAYS updated
+        (even when the WARNING is rate-limited) so the delta does not
+        accumulate across rate-limit windows — the next WARNING reports
+        only the chunks dropped since the previous WARNING, not since the
+        last unthrottled check.
+
+        Thread-safety: the audio worker is the SINGLE reader of
+        ``_dropped_ring_chunks`` (the audio callback is the single writer,
+        atomic under CPython's GIL). No lock is needed here.
+        """
+        current = self._dropped_ring_chunks
+        delta = current - self._last_seen_dropped_ring_chunks
+        # Always update the last-seen counter so the delta doesn't
+        # accumulate across rate-limit windows.
+        self._last_seen_dropped_ring_chunks = current
+        if delta <= 0:
+            return
+        now = time.perf_counter()
+        if now - self._ring_overflow_warn_ts < _RING_OVERFLOW_WARN_INTERVAL_S:
+            return
+        self._ring_overflow_warn_ts = now
+        log.warning(
+            "[RECORDING] Ring buffer overflow: %d chunk(s) dropped since "
+            "last check (total this session: %d). Audio worker cannot keep "
+            "up; transcription may be incomplete. Consider disabling audio "
+            "filters or using a lighter model.",
+            delta,
+            current,
+        )
 
     def _secure_clear_caches(self) -> None:
         """securely zero cached audio arrays BEFORE reassignment.

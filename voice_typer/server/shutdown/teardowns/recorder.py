@@ -75,6 +75,7 @@ def teardown_recorder(controller) -> None:
                     # ``contextlib.suppress`` — the suppress wrapper would
                     # only mask a real bug.
                     app.recorder._force_closed = True
+                    controller._recorder_force_closed = True
                     log.warning(
                         "[SHUTDOWN] recorder.stop() timed out — "
                         "marking recorder as force-closed; downstream "
@@ -93,6 +94,7 @@ def teardown_recorder(controller) -> None:
                         # See note above: ``_force_closed`` is always
                         # present on a real ``Recorder`` instance.
                         app.recorder._force_closed = True
+                        controller._recorder_force_closed = True
                         log.warning(
                             "[SHUTDOWN] recorder.discard() timed out — "
                             "marking recorder as force-closed; downstream "

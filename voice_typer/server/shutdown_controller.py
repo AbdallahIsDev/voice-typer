@@ -57,7 +57,7 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import sys
+import sys  # noqa: F401  # re-exported / monkeypatch target for tests
 import threading
 import time
 from collections.abc import Callable
@@ -73,7 +73,7 @@ if TYPE_CHECKING:
     # the same duck-typed surface).
     from voice_typer.server.app import VoiceTyperApp
 
-from voice_typer.server._timeout_utils import (
+from voice_typer.server._timeout_utils import (  # noqa: F401  # SHUTDOWN_WATCHDOG_TIMEOUT_S + join_leaked_workers re-exported for tests
     SHUTDOWN_WATCHDOG_TIMEOUT_S,
     TIMEOUT,
     _run_parallel_with_timeout,
@@ -423,109 +423,89 @@ class ShutdownController:
         def _shutdown_deadline_near() -> bool:
             return _shutdown_remaining() < 5.0
 
-        # ── Early bookend (sequential) ────────────────────────────────
-        #  (partial): stop the IPC server EARLY so inbound
-        # requests can't resurrect torn-down subsystems. FA2 is adding
-        # a ``_shutting_down`` guard inside ``IPCServer._dispatch()``
-        # to reject handlers mid-shutdown; this stop() call closes the
-        # listening socket + worker pool so no NEW connections are
-        # accepted either. Best-effort — failures here don't prevent
+        # ── Early bookend (parallel ipc_server.stop + WS drain) ─────────
+        #  (partial) + SU-23: stop the IPC server EARLY so inbound
+        # requests can't resurrect torn-down subsystems, and drain / cancel
+        # in-flight WS dispatch requests BEFORE any subsystem teardown —
+        # CONCURRENTLY, in a single ``_run_parallel_with_timeout`` batch
+        # (SU-23). They touch disjoint pools (the TCP worker pool and the WS
+        # dispatch pool), so parallelisation is safe. ``_shutting_down`` is
+        # already True (set by ``quit()`` before calling this method), so the
+        # ``sidecar_ws._make_dispatch`` ``dispatch`` coroutine is already
+        # rejecting NEW requests. Best-effort — failures here don't prevent
         # the rest of cleanup from running.
         try:
             ipc_server = getattr(app, "_ipc_server", None)
+            ws_pool = getattr(ipc_server, "_ws_dispatch_pool", None) if ipc_server is not None else None
+
+            early_items: list[tuple[str, object, float]] = []
             if ipc_server is not None:
-                _run_with_timeout(
-                    "ipc_server.stop",
-                    ipc_server.stop,
-                    timeout=5.0,
-                )
-        except Exception:
-            log.debug("[CLEANUP] ipc_server.stop() failed", exc_info=True)
+                early_items.append(("ipc_server.stop", ipc_server.stop, 5.0))
 
-        # drain / cancel in-flight WS dispatch requests BEFORE
-        # any subsystem teardown. ``_shutting_down`` is already True
-        # (set by ``quit()`` before calling this method), so the
-        # ``sidecar_ws._make_dispatch`` ``dispatch`` coroutine is
-        # already rejecting NEW requests with
-        # ``{"code": "server.shutting_down"}``. This call cancels the
-        # in-flight requests that were accepted BEFORE the flag flipped
-        # — they're the ones that race teardown. ``cancel_futures=True``
-        # cancels queued-but-not-started tasks immediately; in-flight
-        # tasks get a ``concurrent.futures.CancelledError`` on the next
-        # ``await`` checkpoint.
-        try:
-            ipc_server = getattr(app, "_ipc_server", None)
-            ws_pool = getattr(ipc_server, "_ws_dispatch_pool", None)
             if ws_pool is not None and hasattr(ws_pool, "shutdown"):
-                ws_pool.shutdown(wait=False, cancel_futures=True)
-                log.debug("[SHUTDOWN] WS dispatch pool shut down (cancel_futures=True)")
-                # ``shutdown(wait=False, cancel_futures=True)`` only cancels
-                # QUEUED (not-yet-started) dispatch tasks; RUNNING handlers
-                # continue. Without a bounded join, teardown of the
-                # recorder / history_db / crash_recovery subsystems (below)
-                # races any in-flight WS handler that touches them, risking
-                # a half-flushed history DB or a partial crash-recovery
-                # snapshot. Spawn a daemon-thread ``shutdown(wait=True)`` and
-                # join the spawner with a 5s hard deadline — generous for
-                # any single IPC handler, short enough to bound teardown.
-                # If the drain doesn't complete in 5s, log + proceed (the
-                # alternative — blocking _do_cleanup indefinitely — would
-                # hang the entire shutdown path on one stuck handler).
-                #
-                # Note: since Python 3.9, ``ThreadPoolExecutor`` worker
-                # threads are non-daemon, so a handler stuck >5s continues
-                # running on its worker and may delay process exit via the
-                # ``concurrent.futures.thread`` atexit join. The 5s bound
-                # only unblocks ``_do_cleanup`` — it does NOT bound the
-                # atexit join.
-                join_thread = threading.Thread(target=ws_pool.shutdown, kwargs={"wait": True}, daemon=True)
-                join_thread.start()
-                join_thread.join(timeout=5.0)
-                if join_thread.is_alive():
-                    log.warning("[SHUTDOWN] ws_dispatch_pool did not drain in 5s — proceeding anyway")
 
-                # explicit ``threading.Event`` coordination between
-                # the WS dispatch path and ``_do_cleanup``. The pool's
-                # ``shutdown(wait=True)`` only guarantees that the
-                # ``ThreadPoolExecutor`` has drained its worker queue — it
-                # does NOT guarantee that the per-dispatch coroutine body
-                # has finished its DB write (the Future resolves on
-                # ``server._dispatch`` return, but the WS ``dispatch``
-                # coroutine may still be in its ``await loop.run_in_executor``
-                # unwind / result-serialisation tail when the pool reports
-                # drained). That tail can race ``_teardown_history_db`` /
-                # ``_teardown_crash_recovery`` below, silently losing the
-                # user's final transcription_final DB write.
-                #
-                # ``sidecar_ws._make_dispatch`` clears ``_ws_drained_event``
-                # on entry to each dispatch and sets it when the in-flight
-                # count drops to zero (after the dispatch body fully
-                # returns — including the post-Future unwind). We wait on
-                # that Event here, bounded by 2s, BEFORE allowing the
-                # parallel teardown batch to proceed. The 2s budget is
-                # separate from the 5s pool-shutdown join above; the total
-                # worst-case WS-drain budget is 7s, well within the per-
-                # subsystem 10s parallel-batch deadline.
-                #
-                # If the Event wait times out, we log and proceed (the
-                # in-flight handler is on its own — at best it finishes
-                # after the DB is closed and silently fails, at worst the
-                # OS force-kill reaps it; either way _do_cleanup must not
-                # block indefinitely on a single stuck handler).
+                def _drain_ws_pool() -> None:
+                    # ``shutdown(wait=False, cancel_futures=True)`` only
+                    # cancels QUEUED (not-yet-started) tasks; RUNNING handlers
+                    # continue. Without a bounded join, teardown races any
+                    # in-flight WS handler that touches the recorder /
+                    # history_db / crash_recovery subsystems. Spawn a
+                    # daemon-thread ``shutdown(wait=True)`` and join the
+                    # spawner with a 5s hard deadline (generous for any single
+                    # handler, short enough to bound teardown). If the drain
+                    # doesn't complete in 5s, log + proceed.
+                    ws_pool.shutdown(wait=False, cancel_futures=True)
+                    log.debug("[SHUTDOWN] WS dispatch pool shut down (cancel_futures=True)")
+                    join_thread = threading.Thread(
+                        target=ws_pool.shutdown,
+                        kwargs={"wait": True},
+                        daemon=True,
+                    )
+                    join_thread.start()
+                    join_thread.join(timeout=5.0)
+                    if join_thread.is_alive():
+                        log.warning("[SHUTDOWN] ws_dispatch_pool did not drain in 5s — proceeding anyway")
+
+                early_items.append(("ws_dispatch_pool.drain", _drain_ws_pool, 5.0))
+
+            if early_items:
+                _run_parallel_with_timeout(early_items)
+
+            # explicit ``threading.Event`` coordination between the WS
+            # dispatch path and ``_do_cleanup``. The pool's ``shutdown(wait=True)``
+            # (run above) only guarantees that the ThreadPoolExecutor drained
+            # its worker queue — it does NOT guarantee that the per-dispatch
+            # coroutine body finished its DB write (the WS ``dispatch``
+            # coroutine may still be in its ``await loop.run_in_executor``
+            # unwind / result-serialisation tail when the pool reports drained).
+            # ``sidecar_ws._make_dispatch`` clears ``_ws_drained_event`` on
+            # entry to each dispatch and sets it when the in-flight count drops
+            # to zero (after the dispatch body fully returns — including the
+            # post-Future unwind). We wait on that Event here, bounded by 2s,
+            # BEFORE allowing the parallel teardown batch to proceed. If the
+            # wait times out, we log and proceed (the in-flight handler is on
+            # its own).
+            if ipc_server is not None:
                 ws_drained_event = getattr(ipc_server, "_ws_drained_event", None)
                 if ws_drained_event is not None:
                     drained = ws_drained_event.wait(timeout=2.0)
                     if not drained:
                         in_flight = getattr(ipc_server, "_ws_inflight_count", 0)
+                        # DJ-9: drain-timeout branch — log at WARNING and
+                        # proceed (never block) so an in-flight write can't
+                        # stall shutdown.
                         log.warning(
-                            "[SHUTDOWN] WS dispatch drain Event did not "
+                            "[SHUTDOWN] DJ-9: WS dispatch drain Event did not "
                             "fire in 2s — %s in-flight handler(s) may race DB "
                             "teardown; proceeding with cleanup (the in-flight "
                             "write may silently fail)",
                             in_flight,
                         )
         except Exception:
-            log.debug("[SHUTDOWN] WS dispatch pool shutdown failed", exc_info=True)
+            log.debug(
+                "[SHUTDOWN] early bookend (ipc_server.stop + WS drain) failed",
+                exc_info=True,
+            )
 
         # ── Sequenced critical teardowns ────────────────────────────
         # The transcription thread (spawned by ``recorder.stop()``) runs
@@ -1276,201 +1256,61 @@ class ShutdownController:
         teardown_event_bus(self)
 
     # ─── Quit ──────────────────────────────────────────────────────────
+    #
+    # extraction: the bodies of ``quit`` and
+    # ``_arm_shutdown_watchdog`` now live in
+    # :mod:`voice_typer.server.shutdown.lifecycle`. The methods below
+    # are thin delegates that preserve the instance-method API used by
+    # tests (``controller.quit()``, ``controller._arm_shutdown_watchdog(
+    # timeout_s)``) and the ``VoiceTyperApp`` wiring (tray menu callbacks
+    # invoke ``quit_app`` which calls ``quit``; the watchdog is armed
+    # from ``quit`` on a non-main thread).
+    #
+    # The delegate indirection is kept so:
+    #   * tests that ``monkeypatch.setattr(controller, "_arm_shutdown_watchdog",
+    #     spy)`` (see ``tests/test_shutdown_controller.py::
+    #     TestShutdownWatchdog``) still intercept the call; and
+    #   * tests that ``monkeypatch.setattr("voice_typer.server.
+    #     shutdown_controller.join_leaked_workers", fake_join)`` (see
+    #     ``tests/test_shutdown_parallel_pool_drain.py::
+    #     TestWatchdogJoinLeakedWorkers``) still intercept the call
+    #     — :func:`voice_typer.server.shutdown.lifecycle.arm_shutdown_watchdog`
+    #     looks up ``join_leaked_workers`` DYNAMICALLY from
+    #     ``voice_typer.server.shutdown_controller`` (lazy import) so the
+    #     patched attribute is what the body sees.
 
     def quit(self):
         """Shut down the application cleanly.
 
-        ensures all threads, PortAudio streams, and
-        subprocesses are properly stopped with timeouts. Previously
-        thread joins had no timeout and PortAudio streams could be
-        left open if quit() raced with the audio callback.
-
-        the cleanup body has been extracted into
-        ``_do_cleanup()`` so ``restart_app()`` and ``_atexit_cleanup()``
-        share the SAME audited shutdown path. This eliminates the
-        silent data-loss bug where ``restart_app()`` skipped
-        ``history_db.flush()``, ``_crash_recovery.flush()``,
-        ``recorder.shutdown_mic_watcher()``, ``recorder.stop()``,
-        ``_bubble_level_worker`` stop, ``_clear_backend_pid_file()``,
-        and the Win32 mutex handle close — losing pending DB writes
-        and leaking PortAudio streams + the mutex on every restart.
-
-        THREAD-REGISTRY: ``shutdown_all()`` runs BEFORE the existing
-        ``_do_cleanup()`` sequence so the registry's centralized
-        signal-and-join runs first. This closes the "leaked daemon"
-        gap for the bubble-level-pusher (noted at app.py:1377) and
-        gives every registered thread a chance to exit gracefully via
-        its stop_event. The per-site shutdown methods in
-        ``_do_cleanup()`` then run as a safety net — they're all
-        idempotent (Event.set is a no-op if already set; join on a
-        dead thread returns immediately), so the redundant calls are
-        harmless. ``shutdown_all()`` is itself idempotent, so a
-        subsequent call from ``_atexit_cleanup()`` is a no-op.
-
-        the check-then-set on ``_shutting_down`` is now
-        serialized by ``_quit_lock``. Multiple shutdown triggers can
-        fire concurrently (POSIX signal-watcher thread, Win32 console
-        handler thread, IPC ``quit_app`` handler thread, atexit safety
-        net). Without the lock, two threads could both read False,
-        both set True, and both proceed into ``shutdown_all()``. The
-        lock is released BEFORE ``_do_cleanup()`` (which has its own
-        ``_cleanup_done`` guard) so a second quit() arriving during
-        cleanup short-circuits at the ``_shutting_down`` check rather
-        than blocking on _quit_lock.
+        body lives in :func:`voice_typer.server.shutdown.lifecycle.quit`.
+        This delegate preserves the instance-method API used by tests
+        (``controller.quit()``) and the ``VoiceTyperApp`` wiring
+        (tray-menu callbacks invoke ``quit_app`` which calls ``quit``).
         """
-        app = self._app
-        # hold _quit_lock around the check-then-set-then-
-        # shutdown_all sequence. A second concurrent caller that
-        # arrives while we hold the lock will see
-        # ``app._shutting_down == True`` once we release it (because
-        # we set it inside the critical section) and short-circuit.
-        # hold _quit_lock ONLY around the check-then-set
-        # on ``_shutting_down``. ``shutdown_all()`` joins every registered
-        # daemon thread with its per-thread timeout (N threads x M-second
-        # timeouts); holding the lock across it blocked a concurrent
-        # ``quit()`` from the POSIX signal-watcher / Win32 console handler
-        # / IPC ``quit_app`` handler / atexit net for the entire join
-        # window. The ``_shutting_down`` flag (set inside the lock) plus
-        # ``shutdown_all()``'s own idempotency make it safe to release
-        # the lock BEFORE joining -- a second caller arriving mid-join
-        # short-circuits at the ``_shutting_down`` check above rather
-        # than blocking on the lock.
-        with self._quit_lock:
-            if app._shutting_down:
-                log.debug("[SHUTDOWN] quit() already in progress, ignoring duplicate call")
-                return
+        from voice_typer.server.shutdown.lifecycle import quit as _quit
 
-            is_main = threading.current_thread() is threading.main_thread()
-            log.info("[SHUTDOWN] Shutting down")
-            app._shutting_down = True
-            # also set the Event version so executor tasks can check it
-            app._shutting_down_event.set()
-            # _quit_lock is released here (end of ``with`` block) BEFORE
-            # ``shutdown_all()`` and ``_do_cleanup()`` run. Both have
-            # their own idempotency guards (``_shutting_down`` /
-            # ``_cleanup_done``), so a concurrent quit() that arrives
-            # during the join / cleanup will short-circuit at the
-            # ``_shutting_down`` check above (now True) rather than
-            # block on _quit_lock.
-
-        # THREAD-REGISTRY: signal all registered threads to stop and
-        # join them with their per-thread timeouts. Runs BEFORE
-        # _do_cleanup() so the registry's centralized shutdown is the
-        # first pass; the per-site methods in _do_cleanup() then run
-        # as a safety net. Best-effort -- failures here don't prevent
-        # the rest of shutdown from running. Runs OUTSIDE _quit_lock
-        # (see  note above) so a concurrent quit() doesn't
-        # block on the per-thread joins.
-        try:
-            app._thread_registry.shutdown_all()
-        except Exception:
-            log.debug(
-                "[SHUTDOWN] thread_registry.shutdown_all() failed",
-                exc_info=True,
-            )
-
-        # delegate to the shared, idempotent cleanup body. The
-        # _cleanup_done flag inside _do_cleanup() guarantees that a
-        # later _atexit_cleanup() call (or a duplicate quit()) is a
-        # no-op rather than double-flushing / double-stopping.
-        #
-        # NOTE: we call ``app._do_cleanup()`` (the delegate on
-        # VoiceTyperApp) rather than ``self._do_cleanup()`` (the body
-        # on this controller) so test spies that
-        # ``monkeypatch.setattr(app, "_do_cleanup", spy)`` still
-        # intercept the call — see
-        # tests/test_app_cleanup.py::test_quit_calls_do_cleanup.
-        app._do_cleanup()
-
-        # After ``_do_cleanup()`` completes on a non-main thread,
-        # arm a 10s watchdog daemon thread. ``sys.exit(0)`` below only
-        # raises ``SystemExit`` in THIS worker thread — process exit
-        # relies on the main thread returning from ``tray.run()`` (which
-        # ``tray.stop()``, called inside ``_do_cleanup()``, was supposed
-        # to break). If the main thread still hasn't returned after 10s
-        # (pystray's event loop didn't actually break, or the OS window
-        # manager is stuck), the watchdog calls ``os._exit(0)`` as a
-        # last resort. ``os._exit(0)`` is safe here because every
-        # subsystem has already been torn down by ``_do_cleanup()``.
-        # The watchdog is a daemon thread, so it never blocks process
-        # exit in the normal case (main thread returns, process exits,
-        # daemon thread is killed).
-        if not is_main:
-            self._arm_shutdown_watchdog(SHUTDOWN_WATCHDOG_TIMEOUT_S)
-
-        if is_main:
-            sys.exit(0)
+        _quit(self)
 
     def _arm_shutdown_watchdog(self, timeout_s: float) -> None:
         """arm a daemon-thread watchdog that calls
         ``os._exit(0)`` after ``timeout_s`` seconds if the process is
         still alive.
 
-        Used by ``quit()`` (and ``restart_app()`` on the ``VoiceTyperApp``
-        side, which mirrors this pattern) when invoked from a non-main
-        thread. ``sys.exit(0)`` only raises ``SystemExit`` in the worker
-        thread — process exit relies on ``tray.stop()`` breaking the
-        pystray loop on the main thread (parked in ``tray.run()``). If
-        ``tray.stop()`` succeeded but the main thread still hasn't
-        returned from ``tray.run()`` (e.g. pystray's Gtk/Cocoa backend
-        didn't actually break the loop, or the OS window manager is
-        stuck), the watchdog fires ``os._exit(0)`` as a last resort.
-
-        ``os._exit(0)`` bypasses Python's orderly shutdown (no atexit,
-        no daemon-thread joins, no stdio flush). This is safe because
-        ``_do_cleanup()`` has already run every subsystem cleanup by
-        the time the watchdog is armed.
-
-        the watchdog uses a single ``time.sleep(timeout_s)`` call
-        (was a 0.5s polling loop pre-fix). The polling loop's repeated
-        ``time.sleep`` calls made it impossible to distinguish a 2s grace
-        period from 4×0.5s ticks in tests; the single sleep makes the
-        grace period observable. The watchdog is a daemon thread, so it
-        never blocks process exit in the normal case (main thread
-        returns, process exits, daemon thread is killed). Tests can
-        shorten the timeout by patching ``SHUTDOWN_WATCHDOG_TIMEOUT_S``
-        or by passing a smaller ``timeout_s`` directly.
+        body lives in
+        :func:`voice_typer.server.shutdown.lifecycle.arm_shutdown_watchdog`.
+        This delegate preserves the instance-method API used by tests
+        (``controller._arm_shutdown_watchdog(timeout_s)`` — see
+        ``tests/test_shutdown_controller.py::TestShutdownWatchdog``) and
+        the call site inside :func:`lifecycle.quit` (which calls
+        ``controller._arm_shutdown_watchdog(...)`` so test spies that
+        ``monkeypatch.setattr(controller, "_arm_shutdown_watchdog", spy)``
+        still intercept the call).
         """
-
-        def _watchdog() -> None:
-            time.sleep(timeout_s)
-            log.warning(
-                "[SHUTDOWN] GT-43 watchdog: process still alive %.1fs after "
-                "_do_cleanup completed — calling os._exit(0) to unblock the "
-                "main thread (parked in tray.run())",
-                timeout_s,
-            )
-            # Best-effort drain of leaked daemon worker threads before
-            # ``os._exit(0)``. ``_do_cleanup`` runs several teardowns
-            # inside ``_run_with_timeout`` / ``_run_parallel_with_timeout``
-            # — when a teardown exceeds its per-helper 10s deadline, the
-            # worker thread is leaked as a daemon and registered in
-            # ``_timeout_utils._LEAKED_WORKERS``. ``os._exit(0)`` bypasses
-            # interpreter shutdown, so those daemon threads are killed
-            # mid-flight by the OS — usually benign (teardown is best
-            # effort), but if a leaked thread holds a lock on
-            # ``history_db._write_lock`` or the ctranslate2 model mutex,
-            # the OS-level kill can leave the SQLite WAL half-written
-            # or the CUDA context half-torn-down. ``join_leaked_workers``
-            # blocks the watchdog for up to 2s total (per-worker 200ms
-            # join, capped at 10 workers) so the daemons can finish
-            # their critical sections. The 2s drain is well within the
-            # watchdog's 30s budget.
-            try:
-                join_leaked_workers(timeout_s=2.0)
-            except Exception:
-                log.debug(
-                    "[SHUTDOWN] join_leaked_workers raised — proceeding to os._exit(0)",
-                    exc_info=True,
-                )
-            os._exit(0)
-
-        t = threading.Thread(
-            target=_watchdog,
-            name="shutdown-watchdog",
-            daemon=True,
+        from voice_typer.server.shutdown.lifecycle import (
+            arm_shutdown_watchdog,
         )
-        t.start()
+
+        arm_shutdown_watchdog(self, timeout_s)
 
     # ─── atexit safety net (: body → voice_typer.server.atexit_safety) ──
 

@@ -681,17 +681,16 @@ class TCPTransportMixin:
                     # include ``id`` (when present in the
                     # parsed msg) so the client can correlate the
                     # rejection to the originating request.
-                    rate_err: dict[str, object] = {
-                        "type": "error",
-                        "data": {
-                            # Namespaced form (canonical).
-                            "code": "client.rate_limited",
-                            "message": "rate limit exceeded; backing off",
-                        },
-                    }
-                    if isinstance(msg, dict) and "id" in msg:
-                        rate_err["id"] = msg["id"]
-                    self._send(rate_err, _client=client)
+                    # ZR-76: route through ``_send_error_envelope`` so
+                    # the envelope shape (``type`` / ``data{code,message}``
+                    # / optional ``id``) is defined in one place shared
+                    # with the dispatch-exception path below.
+                    self._send_error_envelope(
+                        "client.rate_limited",
+                        "rate limit exceeded; backing off",
+                        msg=msg,
+                        _client=client,
+                    )
                     log.warning(
                         "[TCP] rate limit hit (%d rejected)",
                         rate_limiter.rejected_count,
@@ -822,16 +821,20 @@ class TCPTransportMixin:
             # ``ErrorEvent.code`` narrowing switches on a single
             # canonical prefix (``server.*``) across the TCP / stdin /
             # WS transports.
-            err: dict[str, object] = {
-                "type": "error",
-                "data": {
-                    "code": "server.internal_error",
-                    "message": "internal error",
-                },
-            }
-            if isinstance(msg, dict) and "id" in msg:
-                err["id"] = msg["id"]
-            self._send(err, _client=client)
+            # ZR-76: route through ``_send_error_envelope`` so the
+            # envelope shape matches the rate-limit path above (single
+            # source of truth for ``type`` / ``data{code,message}`` /
+            # optional ``id`` propagation). Sites with extra fields
+            # (``protocol_version_mismatch`` carries
+            # ``client_protocol_version`` / ``server_protocol_version``;
+            # ``auth_failed`` is sent before the dispatch loop captures
+            # ``msg``) keep their inline construction.
+            self._send_error_envelope(
+                "server.internal_error",
+                "internal error",
+                msg=msg if isinstance(msg, dict) else None,
+                _client=client,
+            )
             return
         if result is not None:
             # route the dispatch response to the LOCAL

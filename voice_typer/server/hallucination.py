@@ -105,19 +105,28 @@ def should_reject_low_audio_hallucination(
     # (>= 95% silence) before we reject.
     #
     # when ``duration`` is provided, additionally require
-    # ``duration < 1.0``. Hallucinations on near-silence are typically
+    # ``duration < 10.0``. Hallucinations on near-silence are typically
     # emitted by the decoder within the first ~1s of audio (Whisper's
     # attention window produces a single spurious token cluster that
-    # resolves quickly). A deliberate quiet utterance like "thank you"
+    # resolves quickly), but on medium-length silences (1-10s) the
+    # decoder still produces the same spurious tokens — Whisper has no
+    # "time-aware" mechanism that would suppress them just because more
+    # silence elapsed. A deliberate quiet utterance like "thank you"
     # or "bye" is usually ≥0.5s and recorded with rms > 0.005 (well
-    # above the 0.01 threshold) — but even quiet ones that creep under
-    # 0.01 RMS are still ≥1s long when spoken deliberately. The duration
-    # guard preserves 's catch-rate on real hallucinations while
-    # eliminating the false-positive path where a legitimate quiet
-    # "thank you" / "bye" was cut. When ``duration`` is None (QwenEngine
+    # above the 0.01 threshold) — so even at 6-10s of medium silence,
+    # the rms < 0.01 gate is the authoritative signal: a real quiet
+    # utterance at that duration cannot have rms < 0.01 (it would be
+    # essentially inaudible, ~-40 dBFS, well below any microphone's
+    # useful capture range for speech). Pre-fix the threshold was
+    # ``duration < 1.0``, which left a 1-30s gap where a 6s pure-silence
+    # recording hallucinating "Thanks for watching!" was NOT rejected
+    # (Tier 2 only kicks in at >= 30s). Widening to ``< 10.0`` closes
+    # the 1-10s portion of that gap. The 10-30s range remains Tier 2's
+    # jurisdiction (Tier 2 adds segment-span and silence_pct corroboration
+    # for the longer window). When ``duration`` is None (QwenEngine
     # simple path — no segment timing), keep the existing behavior; the
     # silence_pct corroboration (>= 95%) remains the backstop.
-    if rms < 0.01 and (silence_pct is None or silence_pct >= 95.0) and (duration is None or duration < 1.0):
+    if rms < 0.01 and (silence_pct is None or silence_pct >= 95.0) and (duration is None or duration < 10.0):
         return True
 
     # Tier 2: extended check (requires segment timing info)

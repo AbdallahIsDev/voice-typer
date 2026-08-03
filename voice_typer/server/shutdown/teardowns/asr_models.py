@@ -38,10 +38,30 @@ def teardown_asr_models(controller) -> None:
     and wraps both ``synchronize()`` and ``empty_cache()`` in
     try/except, so it is a no-op on CPU-only hosts.
     """
+    # Resolve helpers from :mod:`voice_typer.server.shutdown_controller` at
+    # call time so tests that monkeypatch ``shutdown_controller._run_with_timeout``
+    # (and the module's ``TIMEOUT`` sentinel / logger) are observed — same lazy
+    # lookup convention as the other teardown modules. SU-24: the unload is
+    # wrapped in ``_run_with_timeout("asr_registry.unload", ..., timeout=8.0)``
+    # so a hung backend unload can't stall the whole shutdown; on TIMEOUT we
+    # still release GPU memory (the cache clear is independent of the unload).
+    import voice_typer.server.shutdown_controller as _sc
+
     try:
         registry = getattr(controller._app.models, "registry", None)
         if registry is not None and hasattr(registry, "unload"):
-            registry.unload()
+            result = _sc._run_with_timeout(
+                "asr_registry.unload",
+                registry.unload,
+                timeout=8.0,
+            )
+            if result is _sc.TIMEOUT:
+                # SU-24: log at WARNING (the GPU cache may not be fully
+                # released) — we still proceed to release_gpu_memory() below.
+                _sc.log.warning(
+                    "[CLEANUP] asr_registry.unload() did not finish within 8s — "
+                    "proceeding to release_gpu_memory (GPU cache may not be fully released)"
+                )
     except Exception:
         log.debug("[CLEANUP] asr_registry.unload() failed", exc_info=True)
     try:

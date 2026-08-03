@@ -86,6 +86,23 @@ from voice_typer.server import event_bus
 # frozenset that ``ipc_server.py`` re-exports from the same source.
 from voice_typer.server.ipc.registry import _READONLY_COMMANDS  # noqa: F401
 
+# the unauthenticated stdin/stdout IPC listener is gated
+# behind this env var. ``LifecycleMixin.start()`` refuses to spawn the
+# stdin listener thread when ``_tcp_mode`` is False AND the env var is not
+# set to ``"1"``. The ``--allow-stdin`` CLI flag in :func:`parse_ipc_args`
+# sets this env var as the alternative gate for development / testing.
+# Production callers (``main()``) always set ``_tcp_mode = True`` before
+# ``start()`` so the gate never fires in production; the gate exists to
+# catch direct-API / test paths that would otherwise silently expose an
+# unauthenticated command channel on the user's terminal.
+# Owned here (leaf module) so both ``ipc/entrypoint.py`` (the
+# ``--allow-stdin`` flag setter) and ``ipc/lifecycle.py`` (the
+# ``start()`` gate) import from the same single source; ``ipc_server.py``
+# re-exports the name so the legacy
+# ``hasattr(ipc_server_mod, "_STDIN_IPC_ENV_VAR")`` test contract is
+# preserved.
+_STDIN_IPC_ENV_VAR: str = "VOICE_TYPER_ALLOW_STDIN_IPC"
+
 # The IPC server's process-wide logger.  ``logging.getLogger`` returns
 # a singleton by name, so importing this object from ``_helpers`` yields
 # the same logger that ``ipc_server.py``'s inline definition produced.
@@ -120,6 +137,7 @@ def _push_event_now(msg: dict) -> bool:
 
 __all__ = [
     "_READONLY_COMMANDS",
+    "_STDIN_IPC_ENV_VAR",
     "_push_event_now",
     "log",
 ]

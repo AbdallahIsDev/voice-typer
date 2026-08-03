@@ -753,11 +753,26 @@ class DeviceManager:
                         saved_name,
                     )
                     self._device_name_mismatch_warned = True
-            except (KeyError, TypeError, AttributeError):
-                # Device info dict shape drift (PortAudio version skew)
-                # or attribute missing on a partially-initialized
-                # recorder. Previously a broad ``except Exception: pass``.
-                pass
+            except Exception:
+                # The mismatch warning is purely diagnostic — if we can't
+                # query the saved index's current info (PortAudio raises
+                # ``PortAudioError`` on a hot-swapped-out index; tests
+                # raise ``RuntimeError``; either way the device is simply
+                # gone), skip the warning and fall through to the
+                # ``return saved_index`` fallback below. A previous
+                # narrowing to ``(KeyError, TypeError, AttributeError)``
+                # let ``PortAudioError`` / ``RuntimeError`` propagate and
+                # crash the resolution path. Broadened to ``Exception``
+                # because no caller of ``_resolve_device`` is prepared to
+                # handle a raised exception from this diagnostic probe.
+                # (XS-36: no bare ``pass`` — log with exc_info so the
+                # diagnostic failure is visible in the log file.)
+                log.debug(
+                    "[RECORDING] DJ-69: could not query saved device index %r "
+                    "(name mismatch warning skipped) — device likely gone",
+                    saved_index,
+                    exc_info=True,
+                )
         return saved_index
 
     def _build_device_info_for_retry_policy(self) -> dict | None:

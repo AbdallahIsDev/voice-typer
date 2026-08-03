@@ -23,14 +23,8 @@ from types import FrameType
 # ``from voice_typer.server.ipc_server import main`` /
 # ``... import parse_ipc_args`` callers keep working unchanged.
 from voice_typer.server._paths import IPC_PORT
-from voice_typer.server.ipc._helpers import log
+from voice_typer.server.ipc._helpers import _STDIN_IPC_ENV_VAR, log
 from voice_typer.server.ipc.transport import _pick_available_port
-
-# The stdin-IPC env-var gate is owned by ``ws_lifecycle`` (it's read
-# inside ``LifecycleMixin.start``). Re-imported here so
-# ``parse_ipc_args`` can set it from ``--allow-stdin`` without
-# duplicating the constant.
-from voice_typer.server.ipc.ws_lifecycle import _STDIN_IPC_ENV_VAR
 
 
 def _set_process_metadata() -> None:

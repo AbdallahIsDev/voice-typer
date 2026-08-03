@@ -84,6 +84,73 @@ _resample_fir_cache: dict[tuple[int, int], tuple[np.ndarray, int, int]] = {}
 _resample_fir_cache_lock = threading.Lock()
 
 
+# ER-88: anti-aliasing FIR filter cache for the no-scipy linear-interp
+# fallback path. ``np.interp`` is pure linear interpolation — when
+# DOWNSAMPLING (e.g. 48k→16k, 44.1k→16k), energy above the target
+# Nyquist (8 kHz) aliases into the speech band, degrading ASR accuracy.
+# We apply a short windowed-sinc low-pass filter at ``target_sr / 2``
+# BEFORE the linear-interp decimation. The filter is small (~31 taps)
+# and cached per (effective_sr, target_sr) pair so the design cost is
+# paid once per session. Without scipy this is the only anti-aliasing
+# we get — with scipy the ``resample_poly`` path is preferred (its own
+# FIR is longer / higher quality). This cache mirrors the
+# ``_resample_fir_cache`` pattern (lock-free fast-path ``dict.get``,
+# lock only on cache miss).
+_antialias_fir_cache: dict[tuple[int, int], np.ndarray] = {}
+_antialias_fir_cache_lock = threading.Lock()
+_ANTIALIAS_FIR_TAPS = 31  # odd; ~31 taps — short enough for RT, sufficient for anti-aliasing
+
+# ER-88: one-time warning flag so the linear-interp fallback surfaces
+# its quality degradation even when callers pass ``log_resample=False``
+# (notably ``_resample_chunk`` on the streaming partial-transcription
+# path, which deliberately suppresses per-call logging). The first
+# fallback invocation emits a single WARNING; subsequent invocations
+# are silent (avoids log spam at 16 Hz). Reset only by process restart.
+_linear_interp_warned: bool = False
+_linear_interp_warn_lock = threading.Lock()
+
+
+def _get_antialias_fir(effective_sr: int, target_sr: int) -> np.ndarray | None:
+    """Return a cached anti-aliasing FIR low-pass filter for the
+    ``(effective_sr, target_sr)`` pair, or ``None`` if no filter is
+    needed (i.e. when UPSAMPLING — linear interp's natural sinc
+    response already attenuates higher frequencies).
+
+    The filter is a windowed-sinc low-pass at ``target_sr / 2``
+    (normalized cutoff ``0.5 * target_sr / effective_sr`` of the
+    source Nyquist), designed with a Hamming window for stop-band
+    attenuation. The taps are pre-cast to ``float32`` so the
+    downstream ``np.convolve`` preserves the input dtype.
+
+    The cache hit path is a lock-free ``dict.get`` (GIL-atomic in
+    CPython); the lock is acquired only on a cache miss to publish
+    the newly-designed filter without two threads racing to design
+    the same ratio.
+    """
+    if target_sr >= effective_sr:
+        # No anti-aliasing filter needed for upsampling (or same-rate):
+        # linear interp's natural (sin x / x) response already
+        # attenuates the upper half of the source band.
+        return None
+    key = (effective_sr, target_sr)
+    cached = _antialias_fir_cache.get(key)
+    if cached is not None:
+        return cached
+    cutoff = 0.5 * target_sr / effective_sr  # normalized to source Nyquist
+    n = np.arange(_ANTIALIAS_FIR_TAPS) - (_ANTIALIAS_FIR_TAPS - 1) / 2
+    sinc = np.sinc(2.0 * cutoff * n)
+    # Hamming window — ~53 dB stop-band attenuation, narrow transition.
+    window = 0.54 - 0.46 * np.cos(2.0 * np.pi * np.arange(_ANTIALIAS_FIR_TAPS) / (_ANTIALIAS_FIR_TAPS - 1))
+    fir = (sinc * window).astype(np.float32)
+    fir = fir / fir.sum()  # normalize DC gain to 1
+    with _antialias_fir_cache_lock:
+        existing = _antialias_fir_cache.get(key)
+        if existing is not None:
+            return existing
+        _antialias_fir_cache[key] = fir
+        return fir
+
+
 def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
     """return cached FIR filter context for the given (up, down) ratio.
 
@@ -372,15 +439,51 @@ def resample_audio(
             # resample_poly path above is preferred (higher quality,
             # anti-aliasing). This fallback produces acceptable results
             # for speech audio at common sample rates (44.1k→16k, 48k→16k).
+            #
+            # ER-88: when DOWNSAMPLING, apply a short windowed-sinc
+            # anti-aliasing FIR low-pass at ``target_sr / 2`` BEFORE the
+            # linear-interp decimation. Without this, energy above
+            # ``target_sr / 2`` (e.g. >8 kHz on a 48k→16k downsample)
+            # aliases into the speech band and degrades ASR accuracy.
+            # The filter is cached per (effective_sr, target_sr) pair;
+            # upsampling / same-rate resampling skips the filter (linear
+            # interp's natural (sin x / x) response already attenuates
+            # the upper half of the source band).
+            fir = _get_antialias_fir(effective_sr, target_sr)
+            src_audio = audio
+            if fir is not None and src_audio.size >= fir.size:
+                # ``mode="same"`` returns an output the same length as
+                # the input (centered), so the subsequent ``np.interp``
+                # length math is unchanged.
+                src_audio = np.convolve(src_audio, fir, mode="same").astype(np.float32, copy=False)
             ratio = target_sr / effective_sr
-            new_len = int(len(audio) * ratio)
-            indices = np.linspace(0, len(audio) - 1, new_len)
+            new_len = int(len(src_audio) * ratio)
+            indices = np.linspace(0, len(src_audio) - 1, new_len)
 
             audio = np.interp(
                 indices,
-                np.arange(len(audio)),
-                audio,
+                np.arange(len(src_audio)),
+                src_audio,
             ).astype(np.float32)
+            # ER-88: one-time WARNING so the streaming / partial path
+            # (which passes ``log_resample=False`` and would otherwise
+            # silently use unfiltered linear interp) surfaces the
+            # quality degradation to the operator. Subsequent calls are
+            # silent to avoid log spam at 16 Hz. The caller's
+            # ``log_resample`` flag still gates the per-call INFO log
+            # below; this is a separate, module-level one-shot warning.
+            global _linear_interp_warned
+            if not _linear_interp_warned:
+                with _linear_interp_warn_lock:
+                    if not _linear_interp_warned:
+                        _linear_interp_warned = True
+                        log.warning(
+                            "[RECORDING] scipy.signal.resample_poly unavailable — "
+                            "using linear-interp resampling fallback%s. Anti-aliasing "
+                            "FIR applied for downsampling, but quality is reduced; "
+                            "install scipy for full-quality resampling.",
+                            "" if fir is not None else " (no anti-aliasing filter)",
+                        )
             if log_resample:
                 log.info(
                     "[RECORDING] Resampled (linear interp) %d Hz -> %d Hz (%d -> %d samples)",

@@ -57,13 +57,16 @@ def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBac
     ``scripts/build/compile_native.{sh,ps1}``, or on a platform where
     the binary isn't bundled), the factory falls back to the legacy
     backends. On Windows this means ``WindowsNativeHotkey`` uses
-    ``GetAsyncKeyState`` polling at 1kHz. This is expected behavior —
-    NOT a bug. The polling backend now also supports modifier-only
-    hotkeys (``<alt>``, ``<ctrl>``, ``<shift>``, ``<win>``) via
-    ``_run_modifier_only_polling_loop``, and suppresses the Caps Lock
-    toggle for ``<caps_lock>`` via ``_suppress_caps_lock_toggle``.
-    Users who want the full feature set (lower CPU, sub-ms latency,
-    native key suppression) should build the native binary.
+    ``GetAsyncKeyState`` polling at ~125 Hz (8 ms cadence via
+    ``kernel32.Sleep(8)`` with ``timeBeginPeriod(8)`` — see
+    ``WindowsNativeHotkey._run_polling_loop``). This is expected
+    behavior — NOT a bug. The polling backend now also supports
+    modifier-only hotkeys (``<alt>``, ``<ctrl>``, ``<shift>``,
+    ``<win>``) via ``_run_modifier_only_polling_loop``, and suppresses
+    the Caps Lock toggle for ``<caps_lock>`` via
+    ``_suppress_caps_lock_toggle``. Users who want the full feature
+    set (lower CPU, sub-ms latency, native key suppression) should
+    build the native binary.
     """
     # NATIVE-001: try the native subprocess backend first. It supports
     # FN on macOS, modifier-only hotkeys everywhere, and key suppression

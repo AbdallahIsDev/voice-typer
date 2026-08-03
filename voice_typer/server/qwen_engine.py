@@ -95,12 +95,14 @@ class QwenEngine:
         self.language = language
         self._model = None
         self._lock = threading.RLock()
-        # RACE-032: separate event to track whether inference is in
-        # progress.  This allows ``is_loaded`` to return True during
-        # a multi-second GPU inference call without having to acquire
-        # the main lock (which the inference thread holds for the
-        # entire call).
-        self._inference_event = threading.Event()
+        # Counter + Condition so transcribe() can release the model lock
+        # during the (potentially long) GPU inference call while still
+        # coordinating with unload(). unload() waits for
+        # ``_active_inference == 0`` before nulling ``self._model`` so a
+        # concurrent transcribe() doesn't dereference a freed PyTorch
+        # module (use-after-free). Mirrors ParakeetEngine's pattern.
+        self._active_inference = 0
+        self._inference_cond = threading.Condition(self._lock)
         # Batch 2-4 chunks per ``model.transcribe()`` call when the
         # qwen_asr wrapper exposes a batched-input API.  Default batch
         # size is 1 (sequential) so the existing test contract that
@@ -123,10 +125,11 @@ class QwenEngine:
     def is_loaded(self) -> bool:
         """Return True if the model has been loaded successfully.
 
-        RACE-032: uses _inference_event to check if the model is
-        available, allowing this check to proceed even during an
-        ongoing inference call (which no longer holds _lock for
-        the entire GPU call).
+        RACE-032: ``transcribe()`` releases ``self._lock`` during the
+        multi-second GPU inference call (incrementing ``_active_inference``
+        before release so ``unload()`` can wait). ``is_loaded`` only
+        acquires ``self._lock`` briefly to read ``self._model``, so it
+        returns True even mid-inference without blocking.
         """
         with self._lock:
             return self._model is not None
@@ -429,13 +432,16 @@ class QwenEngine:
     def transcribe(self, audio: np.ndarray, audio_stats: "tuple[float, float, float] | None" = None) -> str:
         """Transcribe audio array. Returns cleaned text string.
 
-                RACE-032: The lock is only held for state checks/updates.
-                GPU inference runs outside the lock so is_loaded / unload /
-                load don't block for the multi-second duration of the call.
-                ``_inference_event`` is set during inference so is_loaded
-                can still report correctly.
+        RACE-032: The lock is only held for state checks/updates.
+        GPU inference runs outside the lock so is_loaded / unload /
+        load don't block for the multi-second duration of the call.
+        ``_active_inference`` is incremented before releasing the lock
+        and decremented in a ``finally`` block; ``unload()`` waits on
+        ``_inference_cond`` for the counter to return to 0 before
+        nulling ``self._model``, so a concurrent ``unload()`` can't
+        free the model mid-inference (use-after-free).
 
-                PERF-STATS: ``audio_stats`` is an optional pre-computed
+        PERF-STATS: ``audio_stats`` is an optional pre-computed
                 ``(rms, peak, silence_pct)`` tuple from ``Recorder.stop()``.
                 When provided, the engine skips its own RMS computation in
                 hallucination detection.  Note: ``audio_stats`` is only
@@ -455,7 +461,7 @@ class QwenEngine:
             if self._model is None:
                 raise RuntimeError("Qwen model not loaded. Call load() first or check logs for errors.")
             model = self._model
-            self._inference_event.set()
+            self._active_inference += 1
 
         try:
             if len(audio) == 0:
@@ -509,7 +515,10 @@ class QwenEngine:
 
             return text
         finally:
-            self._inference_event.clear()
+            with self._inference_cond:
+                self._active_inference -= 1
+                if self._active_inference == 0:
+                    self._inference_cond.notify_all()
 
     def _transcribe_chunked(
         self,
@@ -954,18 +963,37 @@ class QwenEngine:
     def unload(self) -> None:
         """Free model memory.
 
-        also release PyTorch's CUDA caching allocator
-                blocks via ``release_gpu_memory()`` so a subsequent backend
-                switch can use the freed VRAM.
+        Waits for any in-flight ``transcribe()`` call to finish (via the
+        ``_active_inference`` counter + ``_inference_cond``) BEFORE
+        nulling ``self._model`` so the inference thread doesn't
+        dereference a freed PyTorch module (use-after-free). Mirrors
+        ``ParakeetEngine.unload``.
 
-                RACE-023: gc.collect() moved OUTSIDE the lock to avoid blocking
-                is_loaded / transcribe for 10-100ms.
+        Also releases PyTorch's CUDA caching allocator blocks via
+        ``release_gpu_memory()`` so a subsequent backend switch can use
+        the freed VRAM.
+
+        RACE-023: gc.collect() moved OUTSIDE the lock to avoid blocking
+        is_loaded / transcribe for 10-100ms.
+
+        Defensive fallback: tests that bypass ``__init__`` (e.g.
+        ``QwenEngine.__new__(QwenEngine)`` in
+        ``tests/regressions/gpu_memory_release_test.py``) don't always
+        set up ``_inference_cond`` / ``_active_inference``. Fall back to
+        ``self._lock`` in that case so the regression test still works.
         """
         import gc
 
         from voice_typer.server.transcription import release_gpu_memory
 
-        with self._lock:
+        # Defensive: ``_inference_cond`` is created in ``__init__`` but
+        # some test fixtures bypass ``__init__`` via ``__new__`` and
+        # only set up ``_lock``. Fall back to ``_lock`` (a no-op wait
+        # since ``_active_inference`` defaults to 0 via ``getattr``).
+        inference_cond = getattr(self, "_inference_cond", None) or self._lock
+        with inference_cond:
+            while getattr(self, "_active_inference", 0) > 0:
+                inference_cond.wait()
             self._model = None
         # RACE-023: gc.collect() OUTSIDE the lock
         gc.collect()
@@ -1049,6 +1077,6 @@ def _verify_qwen_model_hashes(model_path: str) -> bool:
         use ``security.verify_model_integrity`` directly.
     """
     raise RuntimeError(
-        "_verify_qwen_model_hashes was deleted in G4-H-33 — "
+        "_verify_qwen_model_hashes was deleted in the fix — "
         "use voice_typer.server.security.verify_model_integrity(path, 'qwen') instead."
     )

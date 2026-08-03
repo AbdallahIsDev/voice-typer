@@ -64,9 +64,18 @@ class SystemHandlersMixin(HandlerBase):
         :meth:`HandlerBase._respond_with_error` (generic WS-path envelope,
         no ``str(e)`` leak). Per-command validation errors (``invalid_field``,
         ``invalid_payload``) remain explicit envelopes the renderer switches on.
-        The ``restart_app`` / ``quit_app`` handlers swallow their catch-all
-        silently because the ack has already been sent to the client by the
-        time the service raises — the error cannot be recovered from the IPC thread.
+        The ``restart_app`` / ``quit_app`` handlers send the ack BEFORE
+        invoking ``service.restart()`` / ``service.quit()`` because the
+        service call may tear down or respawn the process and we want the
+        client to receive the ack even if the call blocks. If the service
+        call raises, the handler pushes a follow-up ``error`` event via
+        :func:`event_bus.publish` carrying ``kind="restart_failed"`` /
+        ``kind="quit_failed"`` and a sanitized ``message``. The renderer
+        subscribes to ``error`` events and surfaces a toast on ``kind``
+        match — without this push, the client would proceed as if the
+        restart/quit succeeded (the original ack has no error channel).
+        The exception itself is not re-raised (which would crash the IPC
+        dispatch thread).
 
         ``_handle_check_accessibility`` distinguishes
         ``subprocess.TimeoutExpired`` / ``FileNotFoundError`` from the
@@ -82,7 +91,17 @@ class SystemHandlersMixin(HandlerBase):
     """
 
     def _handle_restart_app(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``restart_app`` IPC command."""
+        """Handle the ``restart_app`` IPC command.
+
+        Sends the ack BEFORE calling ``service.restart()`` (the service
+        call may block or tear down the process, and the client must
+        receive the ack regardless). If ``service.restart()`` raises,
+        pushes a follow-up ``error`` event via :func:`event_bus.publish`
+        with ``kind="restart_failed"`` so the renderer can surface a
+        toast instead of silently assuming the restart succeeded. The
+        exception is logged and swallowed (the IPC dispatch thread must
+        not crash).
+        """
         resp["type"] = "ack"
         # ensure ack carries an explicit ``data: {}`` for
         # shape consistency with the other ack responses.  This call
@@ -95,11 +114,25 @@ class SystemHandlersMixin(HandlerBase):
             self.service.restart()
         except Exception as e:
             log.error("[IPC] restart_app failed: %s", e, exc_info=True)
-            # The ack was already sent; can't recover from here.
+            # The ack was already sent; can't recover from here, but
+            # push a follow-up ``error`` event so the renderer can show
+            # a toast instead of silently assuming the restart succeeded.
+            # ``str(e)`` is included because the error envelope travels
+            # only over the authenticated WS channel (not exposed to
+            # untrusted callers) and the renderer uses it for a localized
+            # toast body — the generic IPC error envelope avoids leaking
+            # ``str(e)`` for *request-response* paths, but this is a
+            # push-event follow-up to an already-acked command, not a
+            # response to an untrusted request.
+            self._publish_service_failure("restart_failed", str(e))
         return None
 
     def _handle_quit_app(self, data: dict | None, resp: dict) -> dict | None:
-        """Handle the ``quit_app`` IPC command."""
+        """Handle the ``quit_app`` IPC command.
+
+        Mirrors :meth:`_handle_restart_app`: ack first, then
+        ``service.quit()``, then push ``kind="quit_failed"`` on raise.
+        """
         resp["type"] = "ack"
         # same as restart_app — add explicit ``data: {}``.
         resp.setdefault("data", {})
@@ -108,7 +141,34 @@ class SystemHandlersMixin(HandlerBase):
             self.service.quit()
         except Exception as e:
             log.error("[IPC] quit_app failed: %s", e, exc_info=True)
+            self._publish_service_failure("quit_failed", str(e))
         return None
+
+    def _publish_service_failure(self, kind: str, message: str) -> None:
+        """Push a follow-up ``error`` event for a service-call failure.
+
+        ``kind`` is the discriminator the renderer switches on
+        (``"restart_failed"`` / ``"quit_failed"``); ``message`` is the
+        ``str(exc)`` for the toast body. Publish failures are best-effort
+        (logged at debug) so a broken event-bus subscriber can't crash
+        the IPC dispatch thread.
+        """
+        try:
+            event_bus.publish(
+                {
+                    "type": "error",
+                    "data": {
+                        "kind": kind,
+                        "message": message,
+                    },
+                }
+            )
+        except Exception:
+            log.debug(
+                "[IPC] failed to publish service-failure event (kind=%s)",
+                kind,
+                exc_info=True,
+            )
 
     def _handle_check_accessibility(self, data: dict | None, resp: dict) -> dict | None:
         """Handle the ``check_accessibility`` IPC command.
