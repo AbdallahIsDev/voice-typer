@@ -1,0 +1,11 @@
+{
+	"dialog.criticalError.body": "Приложение столкнулось с {count} необработанными исключениями и будет закрыто.\nЖурнал сбоев: {logPath}\nПожалуйста, перезапустите {appName}.",
+	"dialog.criticalError.title": "{appName} — Критическая ошибка",
+	"dialog.export.config": "Экспортировать конфигурацию",
+	"dialog.export.history": "Экспортировать историю",
+	"dialog.export.templates": "Экспортировать шаблоны",
+	"dialog.export.vocabulary": "Экспортировать словарь",
+	"dialog.selectModelFolder.title": "Выберите папку моделей",
+	"dialog.singleInstance.message": "Одновременно может быть запущен только один экземпляр {appName}.\n\nСначала закройте существующий экземпляр, затем попробуйте снова.",
+	"dialog.singleInstance.title": "{appName}"
+}

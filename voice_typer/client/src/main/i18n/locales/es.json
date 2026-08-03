@@ -1,0 +1,11 @@
+{
+	"dialog.criticalError.body": "La aplicación encontró {count} excepciones no capturadas y se cerrará.\nRegistro de errores: {logPath}\nPor favor, reinicia {appName}.",
+	"dialog.criticalError.title": "{appName} — Error crítico",
+	"dialog.export.config": "Exportar configuración",
+	"dialog.export.history": "Exportar historial",
+	"dialog.export.templates": "Exportar plantillas",
+	"dialog.export.vocabulary": "Exportar vocabulario",
+	"dialog.selectModelFolder.title": "Seleccionar carpeta de modelos",
+	"dialog.singleInstance.message": "Solo se puede ejecutar una instancia de {appName} a la vez.\n\nCierra la instancia existente primero e inténtalo de nuevo.",
+	"dialog.singleInstance.title": "{appName}"
+}

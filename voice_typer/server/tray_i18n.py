@@ -243,8 +243,36 @@ def get_tray_locale() -> str:
 
 
 def register_tray_labels(locale: str, labels: dict[str, str]) -> None:
-    """Register translated tray-menu labels for a locale, merging with existing."""
+    """Register translated tray-menu labels for a locale, merging with existing.
+
+    Called on every ``set_tray_locale`` IPC from the renderer. To avoid
+    rebuilding the merged dict (and growing the per-locale allocation)
+    on every call — even when the renderer pushes the SAME labels
+    repeatedly (e.g. on each locale switch back to an already-populated
+    locale) — the merge is short-circuited when the new ``labels`` are
+    a no-op: every key in ``labels`` is already present in the existing
+    locale dict with an identical value. In that case the existing
+    dict is reused as-is (no new dict allocated, no reference swap).
+
+    When the labels DO change (new key, or changed value), the merge
+    proceeds as before: ``{**existing, **labels}`` produces a fresh
+    dict and replaces the locale entry.
+    """
     existing = _TRAY_LABELS_LOCALES.get(locale, {})
+    # Short-circuit: if every key in `labels` is already in `existing`
+    # with the same value, the merge would be a no-op — skip the dict
+    # allocation + reference swap. This caps the per-call cost at
+    # O(len(labels)) comparisons instead of O(len(existing) + len(labels))
+    # for the merge, and avoids churning the locale dict reference
+    # (which the tray menu may be iterating on another thread).
+    if existing:
+        changed = False
+        for key, value in labels.items():
+            if key not in existing or existing[key] != value:
+                changed = True
+                break
+        if not changed:
+            return
     merged = {**existing, **labels}
     _TRAY_LABELS_LOCALES[locale] = merged
 

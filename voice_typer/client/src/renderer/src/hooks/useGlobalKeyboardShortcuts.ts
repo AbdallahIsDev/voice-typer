@@ -106,6 +106,22 @@ export function useGlobalKeyboardShortcuts({
 	useEffect(() => {
 		const keyHandler = (e: KeyboardEvent) => {
 			if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+				// Modal-open guard: when a Radix Dialog / AlertDialog
+				// is open (e.g. ConfirmDialog, the help overlay, the
+				// hotkey picker's modal), Ctrl+B and Ctrl+, would
+				// race the dialog's own keyboard handling and could
+				// navigate the user away from a context they're
+				// actively in (e.g. confirming a destructive action).
+				// The "?" key handler in App.tsx already uses this
+				// same querySelector gate; mirror it here for
+				// consistency. The zoom shortcuts (Ctrl+= / Ctrl+-)
+				// are intentionally NOT gated — they're page-zoom
+				// semantics that apply regardless of modal state,
+				// and a user adjusting zoom while a dialog is open
+				// is a legitimate action.
+				const modalOpen = document.querySelector(
+					'[role="dialog"][data-state="open"]',
+				);
 				const target = e.target as HTMLElement | null;
 				const tag = target?.tagName?.toLowerCase() ?? "";
 				const typing =
@@ -113,17 +129,17 @@ export function useGlobalKeyboardShortcuts({
 					tag === "textarea" ||
 					target?.isContentEditable === true;
 
-				if (e.key === "b" && !typing) {
+				if (e.key === "b" && !typing && !modalOpen) {
 					e.preventDefault();
 					setSidebarCollapsed((c) => !c);
 					return;
 				}
-				if (e.key === "," && !typing) {
+				if (e.key === "," && !typing && !modalOpen) {
 					e.preventDefault();
 					navigate("settings");
 					return;
 				}
-				if (e.key === "h" && !typing) {
+				if (e.key === "h" && !typing && !modalOpen) {
 					e.preventDefault();
 					navigate("home");
 					return;

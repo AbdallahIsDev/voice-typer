@@ -1,0 +1,11 @@
+{
+	"dialog.criticalError.body": "应用遇到 {count} 个未捕获的异常，即将退出。\n崩溃日志：{logPath}\n请重新启动 {appName}。",
+	"dialog.criticalError.title": "{appName} — 严重错误",
+	"dialog.export.config": "导出配置",
+	"dialog.export.history": "导出历史记录",
+	"dialog.export.templates": "导出模板",
+	"dialog.export.vocabulary": "导出词汇表",
+	"dialog.selectModelFolder.title": "选择模型文件夹",
+	"dialog.singleInstance.message": "同一时间只能运行一个 {appName} 实例。\n\n请先关闭已有实例，然后重试。",
+	"dialog.singleInstance.title": "{appName}"
+}

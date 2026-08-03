@@ -75,122 +75,73 @@
  * here so a future contributor can pick it up.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { app } from "electron";
 
 import { APP_NAME } from "./branding";
 
 /**
+ * Synchronously load a locale JSON file at module init.
+ *
+ * The main process is single-threaded and these JSON files are tiny
+ * (9 keys each), so a synchronous read at module init is cheaper than
+ * the dynamic-import Promise dance the renderer uses (the renderer has
+ * React Suspense + lazy chunk loading concerns that don't apply here).
+ *
+ * The JSON files live under `./i18n/locales/<locale>.json` — resolved
+ * via `__dirname` so the path is stable whether the module is loaded
+ * from source (dev / vitest) or from the electron-vite bundled output
+ * (production). The bundler inlines the JSON file content at build
+ * time when the `readFileSync` call is statically analyzable, so this
+ * never does a real disk read in production.
+ */
+function _loadLocaleJson(locale: string): Record<string, string> {
+	const filePath = join(__dirname, "i18n", "locales", `${locale}.json`);
+	return JSON.parse(readFileSync(filePath, "utf8")) as Record<string, string>;
+}
+
+/**
  * The set of locales that ship dialog strings for the main process.
  * Must stay in sync with the renderer's `SUPPORTED_LOCALES`.
+ *
+ * Loaded from per-locale JSON files under `./i18n/locales/` at module
+ * init via `readFileSync`. The `{appName}` placeholder in
+ * `dialog.singleInstance.title` is substituted with `APP_NAME` from
+ * `./branding` so the JSON files stay free of hardcoded product names
+ * (see the branding rule in AGENTS.md).
  */
-const MAIN_STRINGS = {
-	ar: {
-		"dialog.criticalError.body":
-			"واجه التطبيق {count} استثناءات غير معالجة وسيتم إغلاقه.\nسجل الأعطال: {logPath}\nيرجى إعادة تشغيل Voice Typer.",
-		"dialog.criticalError.title": "Voice Typer — خطأ حرج",
-		"dialog.export.config": "تصدير الإعدادات",
-		"dialog.export.history": "تصدير السجل",
-		"dialog.export.templates": "تصدير القوالب",
-		"dialog.export.vocabulary": "تصدير المفردات",
-		"dialog.selectModelFolder.title": "اختيار مجلد النماذج",
-		"dialog.singleInstance.message":
-			"يمكن تشغيل نسخة واحدة فقط من Voice Typer في كل مرة.\n\nأغلق النسخة الموجودة أولاً ثم حاول مرة أخرى.",
-		"dialog.singleInstance.title": APP_NAME,
-	},
-	de: {
-		"dialog.criticalError.body":
-			"Die App ist auf {count} nicht abgefangene Ausnahmen gestoßen und wird beendet.\nAbsturzprotokoll: {logPath}\nBitte starten Sie Voice Typer neu.",
-		"dialog.criticalError.title": "Voice Typer — Kritischer Fehler",
-		"dialog.export.config": "Konfiguration exportieren",
-		"dialog.export.history": "Verlauf exportieren",
-		"dialog.export.templates": "Vorlagen exportieren",
-		"dialog.export.vocabulary": "Vokabular exportieren",
-		"dialog.selectModelFolder.title": "Modellordner auswählen",
-		"dialog.singleInstance.message":
-			"Es kann nur eine Instanz von Voice Typer gleichzeitig ausgeführt werden.\n\nSchließen Sie zuerst die bestehende Instanz und versuchen Sie es erneut.",
-		"dialog.singleInstance.title": APP_NAME,
-	},
-	en: {
-		"dialog.criticalError.body":
-			"The app encountered {count} uncaught exceptions and will exit.\nCrash log: {logPath}\nPlease restart Voice Typer.",
-		"dialog.criticalError.title": "Voice Typer — Critical Error",
-		"dialog.export.config": "Export Configuration",
-		"dialog.export.history": "Export History",
-		"dialog.export.templates": "Export Templates",
-		"dialog.export.vocabulary": "Export Vocabulary",
-		"dialog.selectModelFolder.title": "Select Model Folder",
-		"dialog.singleInstance.message":
-			"Only one instance of Voice Typer can run at a time.\n\nClose the existing instance first, then try again.",
-		"dialog.singleInstance.title": APP_NAME,
-	},
-	es: {
-		"dialog.criticalError.body":
-			"La aplicación encontró {count} excepciones no capturadas y se cerrará.\nRegistro de errores: {logPath}\nPor favor, reinicia Voice Typer.",
-		"dialog.criticalError.title": "Voice Typer — Error crítico",
-		"dialog.export.config": "Exportar configuración",
-		"dialog.export.history": "Exportar historial",
-		"dialog.export.templates": "Exportar plantillas",
-		"dialog.export.vocabulary": "Exportar vocabulario",
-		"dialog.selectModelFolder.title": "Seleccionar carpeta de modelos",
-		"dialog.singleInstance.message":
-			"Solo se puede ejecutar una instancia de Voice Typer a la vez.\n\nCierra la instancia existente primero e inténtalo de nuevo.",
-		"dialog.singleInstance.title": APP_NAME,
-	},
-	fr: {
-		"dialog.criticalError.body":
-			"L'application a rencontré {count} exceptions non interceptées et va se fermer.\nJournal d'incidents : {logPath}\nVeuillez redémarrer Voice Typer.",
-		"dialog.criticalError.title": "Voice Typer — Erreur critique",
-		"dialog.export.config": "Exporter la configuration",
-		"dialog.export.history": "Exporter l'historique",
-		"dialog.export.templates": "Exporter les modèles",
-		"dialog.export.vocabulary": "Exporter le vocabulaire",
-		"dialog.selectModelFolder.title": "Sélectionner le dossier de modèles",
-		"dialog.singleInstance.message":
-			"Une seule instance de Voice Typer peut être exécutée à la fois.\n\nFermez d'abord l'instance existante, puis réessayez.",
-		"dialog.singleInstance.title": APP_NAME,
-	},
-	hi: {
-		"dialog.criticalError.body":
-			"ऐप को {count} अनकैप्चर्ड अपवादों का सामना करना पड़ा और यह बंद हो जाएगा।\nक्रैश लॉग: {logPath}\nकृपया Voice Typer पुनः आरंभ करें।",
-		"dialog.criticalError.title": "Voice Typer — गंभीर त्रुटि",
-		"dialog.export.config": "कॉन्फ़िगरेशन निर्यात करें",
-		"dialog.export.history": "इतिहास निर्यात करें",
-		"dialog.export.templates": "टेम्पलेट निर्यात करें",
-		"dialog.export.vocabulary": "शब्दावली निर्यात करें",
-		"dialog.selectModelFolder.title": "मॉडल फ़ोल्डर चुनें",
-		"dialog.singleInstance.message":
-			"एक समय में Voice Typer की केवल एक ही इंस्टेंस चल सकती है।\n\nपहले मौजूदा इंस्टेंस बंद करें, फिर पुनः प्रयास करें।",
-		"dialog.singleInstance.title": APP_NAME,
-	},
-	ru: {
-		"dialog.criticalError.body":
-			"Приложение столкнулось с {count} необработанными исключениями и будет закрыто.\nЖурнал сбоев: {logPath}\nПожалуйста, перезапустите Voice Typer.",
-		"dialog.criticalError.title": "Voice Typer — Критическая ошибка",
-		"dialog.export.config": "Экспортировать конфигурацию",
-		"dialog.export.history": "Экспортировать историю",
-		"dialog.export.templates": "Экспортировать шаблоны",
-		"dialog.export.vocabulary": "Экспортировать словарь",
-		"dialog.selectModelFolder.title": "Выберите папку моделей",
-		"dialog.singleInstance.message":
-			"Одновременно может быть запущен только один экземпляр Voice Typer.\n\nСначала закройте существующий экземпляр, затем попробуйте снова.",
-		"dialog.singleInstance.title": APP_NAME,
-	},
-	zh: {
-		"dialog.criticalError.body":
-			"应用遇到 {count} 个未捕获的异常，即将退出。\n崩溃日志：{logPath}\n请重新启动 Voice Typer。",
-		"dialog.criticalError.title": "Voice Typer — 严重错误",
-		"dialog.export.config": "导出配置",
-		"dialog.export.history": "导出历史记录",
-		"dialog.export.templates": "导出模板",
-		"dialog.export.vocabulary": "导出词汇表",
-		"dialog.selectModelFolder.title": "选择模型文件夹",
-		"dialog.singleInstance.message":
-			"同一时间只能运行一个 Voice Typer 实例。\n\n请先关闭已有实例，然后重试。",
-		"dialog.singleInstance.title": APP_NAME,
-	},
-} as const;
+function _withAppName(table: Record<string, string>): Record<string, string> {
+	// Substitute the {appName} placeholder with the canonical
+	// APP_NAME constant on every value. Only `dialog.singleInstance.title`
+	// uses the placeholder today, but the helper is generic so future
+	// strings that embed the app name don't need a special case.
+	const result: Record<string, string> = {};
+	for (const [key, value] of Object.entries(table)) {
+		result[key] = value.split("{appName}").join(APP_NAME);
+	}
+	return result;
+}
 
-type MainLocale = keyof typeof MAIN_STRINGS;
+// TypeScript can't infer that every locale key (en, ar, de, ...) is
+// always present in MAIN_STRINGS — the runtime loader guarantees it
+// (each `i18n/locales/<locale>.json` file is committed and tested by
+// `i18n-locale-contract.test.ts`), but the `Record<string, ...>` type
+// widens the key set to `string`. We assert the narrower type so
+// `MAIN_STRINGS.en` is non-undefined at the lookup sites.
+type MainLocale = "ar" | "de" | "en" | "es" | "fr" | "hi" | "ru" | "zh";
+type MainStringsTable = Record<string, string>;
+
+const MAIN_STRINGS: Record<MainLocale, MainStringsTable> = {
+	ar: _withAppName(_loadLocaleJson("ar")),
+	de: _withAppName(_loadLocaleJson("de")),
+	en: _withAppName(_loadLocaleJson("en")),
+	es: _withAppName(_loadLocaleJson("es")),
+	fr: _withAppName(_loadLocaleJson("fr")),
+	hi: _withAppName(_loadLocaleJson("hi")),
+	ru: _withAppName(_loadLocaleJson("ru")),
+	zh: _withAppName(_loadLocaleJson("zh")),
+};
 
 /** English reference keys — every locale must provide exactly these keys. */
 type MainStrings = typeof MAIN_STRINGS.en;
@@ -314,7 +265,7 @@ export function setMainLocale(locale: string): void {
 	if (!registered) {
 		console.warn(
 			`[i18n] setMainLocale: unknown locale "${locale}" — falling back to "en". ` +
-				`Add dialog strings for this locale (or its primary subtag) to MAIN_STRINGS in main/i18n.ts.`,
+				`Add dialog strings for this locale (or its primary subtag) to i18n/locales/<locale>.json.`,
 		);
 	}
 	currentLocale = resolved;

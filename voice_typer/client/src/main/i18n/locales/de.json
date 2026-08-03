@@ -1,0 +1,11 @@
+{
+	"dialog.criticalError.body": "Die App ist auf {count} nicht abgefangene Ausnahmen gestoßen und wird beendet.\nAbsturzprotokoll: {logPath}\nBitte starten Sie {appName} neu.",
+	"dialog.criticalError.title": "{appName} — Kritischer Fehler",
+	"dialog.export.config": "Konfiguration exportieren",
+	"dialog.export.history": "Verlauf exportieren",
+	"dialog.export.templates": "Vorlagen exportieren",
+	"dialog.export.vocabulary": "Vokabular exportieren",
+	"dialog.selectModelFolder.title": "Modellordner auswählen",
+	"dialog.singleInstance.message": "Es kann nur eine Instanz von {appName} gleichzeitig ausgeführt werden.\n\nSchließen Sie zuerst die bestehende Instanz und versuchen Sie es erneut.",
+	"dialog.singleInstance.title": "{appName}"
+}

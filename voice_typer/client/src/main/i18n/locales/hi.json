@@ -1,0 +1,11 @@
+{
+	"dialog.criticalError.body": "ऐप को {count} अनकैप्चर्ड अपवादों का सामना करना पड़ा और यह बंद हो जाएगा।\nक्रैश लॉग: {logPath}\nकृपया {appName} पुनः आरंभ करें।",
+	"dialog.criticalError.title": "{appName} — गंभीर त्रुटि",
+	"dialog.export.config": "कॉन्फ़िगरेशन निर्यात करें",
+	"dialog.export.history": "इतिहास निर्यात करें",
+	"dialog.export.templates": "टेम्पलेट निर्यात करें",
+	"dialog.export.vocabulary": "शब्दावली निर्यात करें",
+	"dialog.selectModelFolder.title": "मॉडल फ़ोल्डर चुनें",
+	"dialog.singleInstance.message": "एक समय में {appName} की केवल एक ही इंस्टेंस चल सकती है।\n\nपहले मौजूदा इंस्टेंस बंद करें, फिर पुनः प्रयास करें।",
+	"dialog.singleInstance.title": "{appName}"
+}

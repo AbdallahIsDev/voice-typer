@@ -1,0 +1,11 @@
+{
+	"dialog.criticalError.body": "L'application a rencontré {count} exceptions non interceptées et va se fermer.\nJournal d'incidents : {logPath}\nVeuillez redémarrer {appName}.",
+	"dialog.criticalError.title": "{appName} — Erreur critique",
+	"dialog.export.config": "Exporter la configuration",
+	"dialog.export.history": "Exporter l'historique",
+	"dialog.export.templates": "Exporter les modèles",
+	"dialog.export.vocabulary": "Exporter le vocabulaire",
+	"dialog.selectModelFolder.title": "Sélectionner le dossier de modèles",
+	"dialog.singleInstance.message": "Une seule instance de {appName} peut être exécutée à la fois.\n\nFermez d'abord l'instance existante, puis réessayez.",
+	"dialog.singleInstance.title": "{appName}"
+}

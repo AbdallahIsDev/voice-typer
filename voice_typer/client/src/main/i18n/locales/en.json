@@ -1,0 +1,11 @@
+{
+	"dialog.criticalError.body": "The app encountered {count} uncaught exceptions and will exit.\nCrash log: {logPath}\nPlease restart {appName}.",
+	"dialog.criticalError.title": "{appName} — Critical Error",
+	"dialog.export.config": "Export Configuration",
+	"dialog.export.history": "Export History",
+	"dialog.export.templates": "Export Templates",
+	"dialog.export.vocabulary": "Export Vocabulary",
+	"dialog.selectModelFolder.title": "Select Model Folder",
+	"dialog.singleInstance.message": "Only one instance of {appName} can run at a time.\n\nClose the existing instance first, then try again.",
+	"dialog.singleInstance.title": "{appName}"
+}

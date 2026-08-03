@@ -1,0 +1,11 @@
+{
+	"dialog.criticalError.body": "واجه التطبيق {count} استثناءات غير معالجة وسيتم إغلاقه.\nسجل الأعطال: {logPath}\nيرجى إعادة تشغيل {appName}.",
+	"dialog.criticalError.title": "{appName} — خطأ حرج",
+	"dialog.export.config": "تصدير الإعدادات",
+	"dialog.export.history": "تصدير السجل",
+	"dialog.export.templates": "تصدير القوالب",
+	"dialog.export.vocabulary": "تصدير المفردات",
+	"dialog.selectModelFolder.title": "اختيار مجلد النماذج",
+	"dialog.singleInstance.message": "يمكن تشغيل نسخة واحدة فقط من {appName} في كل مرة.\n\nأغلق النسخة الموجودة أولاً ثم حاول مرة أخرى.",
+	"dialog.singleInstance.title": "{appName}"
+}
