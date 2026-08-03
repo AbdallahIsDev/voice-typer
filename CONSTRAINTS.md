@@ -57,6 +57,17 @@ Applies to: All agents, all modes.
 
 ---
 
+## Category: Branding
+
+```
+C-BRAND-1
+Rule: Do NOT hardcode the app-name display string anywhere — always use the dynamic branding constant: Python `APP_NAME` (`voice_typer/server/branding.py`), TS main `APP_NAME` (`src/main/branding.ts`), TS renderer `APP_NAME` (`src/renderer/src/branding.ts`), Rust `crate::branding::APP_NAME`. Locale files (BOTH `renderer/src/i18n/translations/*.json` AND `main/i18n/locales/*.json`) MUST use the `{appName}` placeholder token (runtime-substituted, as `_withAppName` in `main/i18n.ts` already does) — never a literal brand string, not even in `en.json`. Prose comments describing the app must also avoid the literal brand. This does NOT apply to internal identifiers (types like `VoiceTyperConfig`, mutex/binary names like `VoiceTyperSingleInstance` / `VoiceTyper.exe`) — those are OS/API identifiers, not the user-facing brand, and must not be renamed.
+Rationale: An agent hardcoded the brand inside locale files (dozens of literal strings across all 8 `i18n/translations/*.json`) plus crash-dialog titles, HTML `<title>` tags, and backend error messages. `scripts/check_branding.py` (BRAND-001) deliberately EXEMPTS renderer translations and comment lines, so those literals bypass CI enforcement — a future product rename becomes a hundreds-of-strings edit instead of a one-constant change. The `{appName}` placeholder pattern already exists in main-process locales; renderer locales must adopt the same pattern.
+Applies to: All agents, all modes. Enforced in CI by `scripts/check_branding.py` for non-locale, non-comment code.
+```
+
+---
+
 ## Category: IPC & Command Surface
 
 

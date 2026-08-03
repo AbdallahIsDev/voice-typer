@@ -95,7 +95,7 @@ source .venv/bin/activate          # macOS / Linux
 #    for the full backstory.
 uv pip install -e ".[test,dev]"
 #    Option B — pin to the hash-pinned locked set used by CI:
-#    (XZ-CC-9: requirements.txt was removed; pip-installable deps now
+#    (requirements.txt was removed; pip-installable deps now
 #    live ONLY in pyproject.toml. For reproducible builds with
 #    --require-hashes, use requirements-lock.txt.)
 uv pip install -r requirements-lock.txt   # reproducible exact versions + sha256 hashes
@@ -141,7 +141,7 @@ source ~/.voice-typer/venv/bin/activate
 #    Option A — extras syntax (preferred):
 pip install -e ".[test,dev]"
 #    Option B — pin to the hash-pinned locked set used by CI:
-#    (XZ-CC-9: requirements.txt was removed; pip-installable deps now
+#    (requirements.txt was removed; pip-installable deps now
 #    live ONLY in pyproject.toml. For reproducible builds with
 #    --require-hashes, use requirements-lock.txt.)
 pip install -r requirements-lock.txt   # reproducible exact versions + sha256 hashes
@@ -173,12 +173,12 @@ This project has a **single source of truth** for Python dependencies:
 `pyproject.toml`'s `[project.dependencies]` (runtime) and
 `[project.optional-dependencies]` (extras: `test`, `dev`, `build`, `windows`,
 `macos`, `linux`, `qwen`, `deepfilternet`). The legacy `requirements.txt`
-mirror file was **removed** (XZ-CC-9) because it drifted out of sync with
+mirror file was **removed** because it drifted out of sync with
 `pyproject.toml` — most notably it omitted two macOS pyobjc frameworks
 (`pyobjc-framework-CoreFoundation`, `pyobjc-framework-ApplicationServices`)
 that `pyproject.toml` correctly declares, causing `pip install
 -r requirements.txt` on macOS to silently break the mic watcher and the
-accessibility probe (XZ-CC-8).
+accessibility probe.
 
 For reproducible builds, use **`requirements-lock.txt`** — it is generated
 via `uv pip compile --generate-hashes --universal` and is safe to install
@@ -200,7 +200,7 @@ uv pip compile --generate-hashes --universal --python-version 3.12 pyproject.tom
 > platform tag"). `--universal` emits `; sys_platform == 'linux'` markers
 > so the lock installs on every platform.
 
-#### Frontend: TypeScript pin policy (XZ-CC-14)
+#### Frontend: TypeScript pin policy
 
 > **DO NOT DOWNGRADE `typescript` below 7.x.** `typescript@7.0.2` is the
 > LATEST STABLE RELEASE (verify with `npm view typescript version`). A
