@@ -155,8 +155,14 @@ function _appendRestartTimestamp(history: number[]): void {
 			} finally {
 				fs.closeSync(fd);
 			}
-		} catch {
-			/* fsync best-effort — not all FSes / platforms support it */
+		} catch (e) {
+			// fsync best-effort — not all FSes / platforms support it
+			// (e.g. some FAT/exFAT variants raise ENOTSUP). Log at
+			// debug so the failure is observable in the diagnostic log
+			// without blocking the rename. The outer catch (line 162)
+			// still handles rename failures; this just covers the
+			// fsync sub-step specifically.
+			log.debug("[RESTART] fsync best-effort failed (proceeding):", e);
 		}
 		fs.renameSync(tmp, file);
 	} catch (e) {
@@ -342,9 +348,13 @@ export function relaunchApp(): void {
 					`(python_crash.*.txt and voice-typer.log), then start ${APP_NAME} ` +
 					`manually once you've addressed the underlying issue.`,
 			);
-		} catch {
-			// dialog may be unavailable in headless mode — the
-			// log.error above is the primary signal in that case.
+		} catch (e) {
+			// dialog may be unavailable in headless mode (CI,
+			// `DISPLAY` unset, or pre-app-ready) — the log.error
+			// above is the primary signal in that case. Log at
+			// debug so a dialog failure is observable in the
+			// diagnostic log without spamming the default level.
+			log.debug("[RESTART] crash-loop dialog.show failed:", e);
 		}
 		// Break the loop: quit WITHOUT relaunching. The user must
 		// start the app again manually after investigating.
