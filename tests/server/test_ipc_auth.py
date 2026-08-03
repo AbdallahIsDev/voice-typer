@@ -29,17 +29,40 @@ class TestTcpIpcAuthHandshake:
     socket.
     """
 
-    def test_no_token_env_allows_unauthenticated(self, server, monkeypatch):
-        """When VOICE_TYPER_IPC_TOKEN is not set, the server should
-        accept unauthenticated connections (standalone mode)."""
+    def test_no_token_env_refuses_all_connections(self, server, monkeypatch):
+        """SEC-018: When VOICE_TYPER_IPC_TOKEN is not set, the server
+        must REFUSE all incoming TCP connections (refuse-all-by-default).
+
+        Pre-SEC-2-fix, the server used to accept unauthenticated
+        connections in standalone mode when the env var was absent.
+        That behavior was closed because it allowed any same-user
+        process on ``127.0.0.1:9876`` to dispatch arbitrary IPC
+        commands (``quit_app`` / ``set_config`` / etc.) without
+        authentication. The current behavior is: every accepted
+        connection is closed before any auth or dispatch runs, and
+        the bind-time logger emits an ERROR.
+        """
         monkeypatch.delenv("VOICE_TYPER_IPC_TOKEN", raising=False)
-        # We can't easily test the full TCP loop without a real socket,
-        # but we can verify the server doesn't crash when the env var
-        # is absent.  The auth-skip path is exercised by the existing
-        # test suite (which runs without the env var).
         import os
 
+        # Confirm the env var is genuinely absent in the test process.
         assert os.environ.get("VOICE_TYPER_IPC_TOKEN", "") == ""
+
+        # Drive the auth path with a mock socket.  The handler
+        # MUST close the conn before any auth read or dispatch.
+        from unittest.mock import MagicMock
+
+        conn = MagicMock()
+        addr = ("127.0.0.1", 9999)
+        # ``expected_token`` is the empty string (the value the TCP
+        # server reads via ``os.environ.get(...)`` when the env var
+        # is unset).  Per SEC-2 the handler must refuse and close.
+        server._handle_tcp_connection(conn, addr, expected_token="")
+        # Connection was closed without any auth or dispatch.
+        conn.close.assert_called_once()
+        # No read/write activity — the conn was closed before any
+        # auth readline could happen.
+        conn.recv.assert_not_called()
 
     def test_auth_with_correct_token_succeeds(self, server, monkeypatch):
         """When the client sends the correct auth token, the connection
