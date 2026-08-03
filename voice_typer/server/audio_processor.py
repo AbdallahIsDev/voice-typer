@@ -35,6 +35,7 @@ from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.audio_chain_builder import build_chain
 from voice_typer.server.audio_filters import FilterChain
+from voice_typer.server.audio_filters.noise_suppressor import _RNNOISE_FRAME_SIZE
 
 np = lazy_module("numpy")
 
@@ -165,12 +166,65 @@ class AudioProcessor:
         # rate, so the resample path is no longer taken).
         self._resample_degraded: bool = False
         self._resample_degraded_reason: str = ""
+        # Zero-frame prewarm: run a short silence buffer through the
+        # chain so stateful filters (RNNoise first-frame JIT/model
+        # warmup, streaming resampler FIR state) initialize BEFORE the
+        # first real audio chunk arrives. Without this, the first
+        # RNNoise frame returns ``None`` (buffering until 480 samples
+        # at 48 kHz are collected) and ``FilterChain.process``
+        # propagates the ``None`` — ``process_chunk`` then falls back
+        # to the unfiltered input, so the first 1-3 words of every
+        # session bypass the gate / EQ / compressor / limiter
+        # downstream of the suppressor. The prewarm feeds exactly one
+        # RNNoise frame (480 samples) of silence at the chain's
+        # sample rate; at 16 kHz this resamples to 3 RNNoise frames,
+        # at 48 kHz to 1 frame — either way the carry buffer is left
+        # empty (clean state) and the first ``denoise_frame`` call
+        # has already happened. The output is discarded. Safe to call
+        # multiple times (idempotent). Wrapped in try/except so a
+        # prewarm failure (e.g. degraded backend) does not break
+        # construction — the chain still works, just without the
+        # warmup benefit.
+        self._prewarm_chain()
         log.info(
             "[AUDIO-PROC] chain built: %s (latency=%.1fms, degraded=%s)",
             self._chain.filter_names,
             self._chain.total_latency_ms,
             self._chain.is_degraded,
         )
+
+    def _prewarm_chain(self) -> None:
+        """Feed one RNNoise frame of silence through the chain.
+
+        Initializes stateful filters (RNNoise backend, streaming
+        resamplers) so the first real audio chunk does not pay the
+        first-frame warmup cost on the RT thread. See the
+        ``__init__`` docstring for the full rationale. The output is
+        discarded — only the side effect (filter state
+        initialization) matters.
+
+        Only runs when the chain actually contains a
+        ``NoiseSuppressor`` — that's the only filter that buffers
+        (returns ``None`` until a full 480-sample frame is
+        collected) and benefits from first-frame warmup. Other
+        filters (HighPass, Gate, EQ, Compressor, Limiter) process
+        sample-by-sample and don't need prewarming. Skipping the
+        prewarm for chains without a NoiseSuppressor also avoids
+        forcing the numpy import for the all-filters-off
+        (``PRESET_OFF``) edge case where no filter would otherwise
+        touch numpy during construction.
+        """
+        try:
+            names = self._chain.filter_names
+            if not any("NoiseSuppressor" in n for n in names):
+                return
+            silence = np.zeros(_RNNOISE_FRAME_SIZE, dtype=np.float32)
+            self._chain.process(silence, self._sample_rate)
+        except Exception:
+            log.debug(
+                "[AUDIO-PROC] prewarm failed (non-fatal — chain still usable)",
+                exc_info=True,
+            )
 
     # ── Lifecycle ───────────────────────────────────────────────────
 
@@ -269,6 +323,39 @@ class AudioProcessor:
     def set_quality_callback(self, cb: QualityCallback) -> None:
         """Wire a quality detector callback."""
         self._quality_callback = cb
+
+    def set_filter_enabled(self, name: str, enabled: bool) -> bool:
+        """Toggle a filter's ``enabled`` flag at runtime (no chain rebuild).
+
+        Thin wrapper around :meth:`FilterChain.set_filter_enabled`. The
+        IPC handler layer can call this to toggle a filter without a
+        full config reload — useful for A/B comparisons and
+        "temporarily bypass RNNoise" controls. Toggling preserves
+        filter state (IIR zi, envelope follower, gate openness)
+        across the bypass window, so a momentarily-disabled filter
+        re-engages with its prior state intact (no transient click
+        from a cold IIR re-initialization).
+
+        NOTE: the IPC command that exposes this to the renderer is
+        NOT wired in this change — the IPC handler files are owned by
+        a different sub-agent. This method (plus
+        :func:`voice_typer.server.audio_chain_builder.set_filter_enabled`
+        and :meth:`FilterChain.set_filter_enabled`) is the
+        server-side API surface; the IPC handler can call this
+        directly with the active AudioProcessor.
+
+        Args:
+            name: filter display name (e.g. ``"HighPass(80Hz)"``,
+                ``"NoiseSuppressor(rnnoise)"``, ``"Compressor"``).
+                Matches ``filter.name`` on each filter in the chain.
+            enabled: True to enable, False to bypass.
+
+        Returns:
+            True if at least one filter matched ``name`` and was
+            toggled, False otherwise (so callers can detect a no-op
+            / typo).
+        """
+        return self._chain.set_filter_enabled(name, enabled)
 
     # ── Real-time processing (called from the audio worker thread) ───
 

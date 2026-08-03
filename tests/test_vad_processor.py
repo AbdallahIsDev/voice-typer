@@ -472,6 +472,219 @@ class TestAutoCalibration:
         assert vp.calibration_status == "skipped_silero"
 
 
+# ── Silero-probability auto-calibration ───────────────────────────────
+
+
+def _config_with_silero_and_auto_calibrate() -> MagicMock:
+    """Return a MagicMock config with Silero VAD + vad_auto_calibrate
+    enabled. The Silero backend is stubbed via vad_check_available_fn
+    in the test body (no torch import required)."""
+    cfg = MagicMock()
+    cfg.use_silero_vad = True
+    cfg.vad_speech_threshold = 0.5  # static default - calibration overrides
+    cfg.vad_silence_threshold = 0.3
+    cfg.vad_auto_calibrate = True  # opt-in flag
+    cfg.noise_filter_highpass = True  # so vad_enabled gate returns True
+    cfg.noise_filter_gate = False
+    cfg.noise_filter_eq = False
+    cfg.noise_filter_compressor = False
+    cfg.noise_filter_limiter = False
+    cfg.noise_filter_notch = False
+    cfg.noise_suppression_method = "none"
+    return cfg
+
+
+class TestSileroAutoCalibrationEr42:
+    """When vad_auto_calibrate=True and Silero is the active
+    backend, the probability thresholds are derived from the first few
+    seconds of Silero probabilities (noise floor) instead of relying on
+    the static config defaults. Default off for backwards compat.
+    """
+
+    def test_flag_defaults_off(self) -> None:
+        """Backwards compat: when the config doesn't set
+        vad_auto_calibrate, the flag is False (existing skipped_silero
+        behavior preserved). MagicMock auto-creates attributes as
+        MagicMock instances (not bools), so the isinstance guard in
+        __init__ treats them as False."""
+        cfg = _config_with_vad_enabled()
+        cfg.use_silero_vad = True
+        # Don't set vad_auto_calibrate - getattr default is False,
+        # and MagicMock auto-attr would be caught by isinstance guard.
+        vp = VadProcessor(cfg, vad_check_available_fn=lambda: True)
+        assert vp.vad_auto_calibrate is False
+
+    def test_flag_read_from_config(self) -> None:
+        """When config.vad_auto_calibrate=True, the flag is True."""
+        cfg = _config_with_silero_and_auto_calibrate()
+        vp = VadProcessor(cfg, vad_check_available_fn=lambda: True)
+        assert vp.vad_auto_calibrate is True
+
+    def test_silero_calibration_collects_probs_until_duration_elapsed(self) -> None:
+        """Before the calibration window elapses, samples are collected
+        but thresholds are NOT yet derived (calibrated stays False)."""
+        vp = VadProcessor(
+            _config_with_silero_and_auto_calibrate(),
+            vad_check_available_fn=lambda: True,
+        )
+        vp.calibration_duration = 1.5
+        vp.auto_calibrate(0.01, elapsed_seconds=0.5, vad_prob=0.05)
+        vp.auto_calibrate(0.011, elapsed_seconds=0.6, vad_prob=0.06)
+        assert vp.calibrated is False
+        assert len(vp.calibration_prob_values) == 2
+        # Thresholds unchanged from config defaults.
+        assert vp.speech_threshold == 0.5
+        assert vp.silence_threshold == 0.3
+
+    def test_silero_calibration_sets_thresholds_relative_to_noise_floor(self) -> None:
+        """After the calibration window, thresholds are derived from
+        the median of collected probabilities:
+            silence = noise_floor + MARGIN (0.05)
+            speech  = silence + SPEECH_DELTA (0.15)
+        """
+        from voice_typer.server.vad_processor import (
+            DEFAULT_VAD_SILERO_CALIBRATION_MARGIN,
+            DEFAULT_VAD_SILERO_SPEECH_DELTA,
+        )
+
+        vp = VadProcessor(
+            _config_with_silero_and_auto_calibrate(),
+            vad_check_available_fn=lambda: True,
+        )
+        vp.calibration_duration = 1.5
+        for i in range(50):
+            vp.auto_calibrate(0.01, elapsed_seconds=0.05 * i + 0.05, vad_prob=0.10)
+        assert vp.calibrated is True
+        assert vp.calibration_status == "calibrated_silero"
+        # noise_floor = 0.10, silence = 0.15, speech = 0.30
+        assert vp.silence_threshold == pytest.approx(0.10 + DEFAULT_VAD_SILERO_CALIBRATION_MARGIN, abs=0.001)
+        assert vp.speech_threshold == pytest.approx(
+            0.10 + DEFAULT_VAD_SILERO_CALIBRATION_MARGIN + DEFAULT_VAD_SILERO_SPEECH_DELTA,
+            abs=0.001,
+        )
+        assert vp.speech_threshold > vp.silence_threshold
+
+    def test_silero_calibration_is_idempotent_after_calibrated(self) -> None:
+        """Once calibrated, subsequent calls with new vad_prob samples
+        are no-ops (thresholds don't change)."""
+        vp = VadProcessor(
+            _config_with_silero_and_auto_calibrate(),
+            vad_check_available_fn=lambda: True,
+        )
+        vp.calibration_duration = 1.5
+        for i in range(50):
+            vp.auto_calibrate(0.01, elapsed_seconds=0.05 * i + 0.05, vad_prob=0.10)
+        assert vp.calibrated is True
+        silence_after_first = vp.silence_threshold
+        speech_after_first = vp.speech_threshold
+        for i in range(50):
+            vp.auto_calibrate(0.5, elapsed_seconds=3.0 + 0.05 * i, vad_prob=0.90)
+        assert vp.silence_threshold == silence_after_first
+        assert vp.speech_threshold == speech_after_first
+
+    def test_silero_calibration_uses_median_not_mean(self) -> None:
+        """Median (not mean) is used so a few transient speech bursts
+        during the calibration window don't pull the floor up."""
+        vp = VadProcessor(
+            _config_with_silero_and_auto_calibrate(),
+            vad_check_available_fn=lambda: True,
+        )
+        vp.calibration_duration = 1.5
+        for i in range(40):
+            vp.auto_calibrate(0.01, elapsed_seconds=0.05 * i + 0.05, vad_prob=0.10)
+        for i in range(10):
+            vp.auto_calibrate(0.5, elapsed_seconds=0.05 * (40 + i) + 0.05, vad_prob=0.80)
+        assert vp.calibrated is True
+        # noise_floor (median) = 0.10 -> silence = 0.15, speech = 0.30.
+        assert vp.silence_threshold == pytest.approx(0.15, abs=0.01)
+        assert vp.speech_threshold == pytest.approx(0.30, abs=0.01)
+
+    def test_silero_calibration_thresholds_clamped_to_unit_interval(self) -> None:
+        """A very high noise floor clamps thresholds to 1.0 and the
+        minimum-spread guard kicks in so speech >= silence."""
+        vp = VadProcessor(
+            _config_with_silero_and_auto_calibrate(),
+            vad_check_available_fn=lambda: True,
+        )
+        vp.calibration_duration = 1.5
+        for i in range(50):
+            vp.auto_calibrate(0.5, elapsed_seconds=0.05 * i + 0.05, vad_prob=0.95)
+        assert vp.calibrated is True
+        assert vp.silence_threshold <= 1.0
+        assert vp.speech_threshold <= 1.0
+        assert vp.speech_threshold >= vp.silence_threshold
+
+    def test_silero_calibration_no_vad_prob_emits_warning_and_skips(self, caplog: pytest.LogCaptureFixture) -> None:
+        """When the flag is on but the caller doesn't pass
+        vad_prob, the calibration is skipped with a WARNING so the
+        misconfiguration is visible (not silent)."""
+        vp = VadProcessor(
+            _config_with_silero_and_auto_calibrate(),
+            vad_check_available_fn=lambda: True,
+        )
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.vad_processor"):
+            vp.auto_calibrate(0.01, elapsed_seconds=10.0)
+        assert vp.calibration_status == "skipped_no_prob"
+        assert vp.calibrated is True
+        assert vp.speech_threshold == 0.5
+        assert vp.silence_threshold == 0.3
+        assert any(
+            "vad_auto_calibrate=True" in record.getMessage() and "vad_prob" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_flag_off_preserves_existing_skipped_silero_behavior(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Backwards compat: with the flag OFF (default), the existing
+        skipped_silero behavior is preserved - even if the caller
+        passes vad_prob, no calibration runs."""
+        cfg = _config_with_silero_and_auto_calibrate()
+        cfg.vad_auto_calibrate = False  # explicitly off
+        vp = VadProcessor(cfg, vad_check_available_fn=lambda: True)
+        with caplog.at_level(logging.INFO, logger="voice_typer.server.vad_processor"):
+            vp.auto_calibrate(0.01, elapsed_seconds=10.0, vad_prob=0.05)
+        assert vp.calibration_status == "skipped_silero"
+        assert vp.calibrated is True
+        assert vp.speech_threshold == 0.5
+        assert vp.silence_threshold == 0.3
+        assert vp.calibration_prob_values == []
+
+    def test_silero_calibration_reset_restores_config_defaults(self) -> None:
+        """reset() restores the Silero probability thresholds to the
+        config defaults and clears the collected prob samples."""
+        vp = VadProcessor(
+            _config_with_silero_and_auto_calibrate(),
+            vad_check_available_fn=lambda: True,
+        )
+        vp.calibration_duration = 1.5
+        for i in range(50):
+            vp.auto_calibrate(0.01, elapsed_seconds=0.05 * i + 0.05, vad_prob=0.10)
+        assert vp.calibrated is True
+        assert vp.speech_threshold != 0.5
+        assert vp.silence_threshold != 0.3
+        # 30 samples are collected (calibration fires at elapsed=1.5s,
+        # the 30th sample; remaining 20 calls are no-ops once calibrated).
+        assert len(vp.calibration_prob_values) > 0
+        vp.reset()
+        assert vp.speech_threshold == 0.5
+        assert vp.silence_threshold == 0.3
+        assert vp.calibration_prob_values == []
+        assert vp.calibrated is False
+        assert vp.calibration_status == "pending"
+
+    def test_silero_calibration_status_calibrated_silero(self) -> None:
+        """The new calibrated_silero status is set after a successful
+        Silero-probability calibration."""
+        vp = VadProcessor(
+            _config_with_silero_and_auto_calibrate(),
+            vad_check_available_fn=lambda: True,
+        )
+        vp.calibration_duration = 0.1
+        for i in range(20):
+            vp.auto_calibrate(0.01, elapsed_seconds=0.01 * i + 0.01, vad_prob=0.08)
+        assert vp.calibration_status == "calibrated_silero"
+        assert vp.calibrated is True
+
+
 # calibration_status () ──────────────────────────────────────
 
 

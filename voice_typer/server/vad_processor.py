@@ -88,6 +88,29 @@ DEFAULT_VAD_SPEECH_FRAMES = 3  # consecutive loud frames to declare SPEECH
 DEFAULT_VAD_SILENCE_FRAMES = 15  # consecutive quiet frames to declare SILENCE (hangover)
 DEFAULT_VAD_HANGOVER_FRAMES = 15  # same as SILENCE_FRAMES — configurable alias
 
+# Silero-probability auto-calibration constants. When
+# ``config.vad_auto_calibrate`` is True and Silero VAD is the active
+# backend, the first ``calibration_duration`` seconds of Silero
+# probabilities are collected and used to derive the probability
+# thresholds from the observed noise floor (instead of relying on the
+# static config defaults). The math mirrors the RMS-dB calibration:
+#   silence_threshold = noise_floor + MARGIN
+#   speech_threshold  = silence_threshold + SPEECH_DELTA
+# where ``noise_floor`` is the median of collected Silero probabilities
+# (a robust estimator that ignores transient speech bursts during the
+# calibration window). The margin/delta are linear deltas in
+# probability space (0-1); ``SPEECH_DELTA = 0.15`` approximates the
+# ~6 dB gap the finding specifies (a 2x amplitude ratio ~= 6 dB, but
+# Silero probabilities don't have a natural dB scale, so a fixed
+# linear delta is the pragmatic interpretation).
+DEFAULT_VAD_SILERO_CALIBRATION_MARGIN: float = 0.05  # silence = noise_floor + 0.05
+DEFAULT_VAD_SILERO_SPEECH_DELTA: float = 0.15  # speech = silence + 0.15 (~6 dB gap equivalent)
+# Minimum separation between speech and silence Silero thresholds after
+# calibration. Guards against a degenerate noise floor (e.g. all-zero
+# probabilities from a silent mic) producing thresholds that are too
+# close to distinguish.
+MIN_VAD_SILERO_THRESHOLD_SPREAD: float = 0.10
+
 # Silero VAD probability thresholds. These must match the canonical
 # defaults declared on the ``Config`` dataclass
 # (``voice_typer.server.config.Config.vad_speech_threshold`` /
@@ -223,12 +246,27 @@ class VadProcessor:
         # auto-calibration state
         self._calibration_duration: float = DEFAULT_VAD_CALIBRATION_DURATION
         self._calibration_rms_values: list[float] = []
+        # Silero-probability samples collected during the
+        # calibration window when ``vad_auto_calibrate`` is enabled.
+        # Separate from ``_calibration_rms_values`` because the two
+        # are different scales (0-1 probability vs linear RMS amplitude)
+        # and only one path runs per session (Silero OR RMS, not both).
+        self._calibration_prob_values: list[float] = []
         self._calibrated: bool = False
         # explicit, inspectable calibration status so a no-op skip
         # (Silero active / VAD disabled / no samples) is never silent.
-        # Values: "pending" | "calibrated" | "skipped_silero" |
-        # "skipped_disabled" | "skipped_no_samples".
+        # Values: "pending" | "calibrated" | "calibrated_silero" |
+        # "skipped_silero" | "skipped_disabled" | "skipped_no_samples" |
+        # "skipped_no_prob".
         self._calibration_status: str = "pending"
+
+        # Opt-in flag for Silero-probability auto-calibration.
+        # Default False for backwards compat. The isinstance guard
+        # avoids tripping on MagicMock configs in tests (which
+        # auto-create attributes as MagicMock instances, not bools).
+        # Same pattern as the vad_grey_zone_hold_limit guard above.
+        _vad_ac_override = getattr(config, "vad_auto_calibrate", False)
+        self._vad_auto_calibrate: bool = isinstance(_vad_ac_override, bool) and _vad_ac_override
 
         # VAD-GATE (Task 4): gate ALL VAD processing on whether any audio
         # enhancement is active. See ``vad_enabled`` property below for
@@ -386,6 +424,7 @@ class VadProcessor:
         chunk_rms: float,
         elapsed_seconds: float,
         chunk_duration: float = 0.0,
+        vad_prob: float | None = None,
     ) -> None:
         """Auto-calibrate VAD thresholds based on ambient noise floor.
 
@@ -404,6 +443,14 @@ class VadProcessor:
                         for signature compatibility with the prior
                         ``Recorder._vad_auto_calibrate(chunk_rms, chunk_duration)``
                         API).
+                    vad_prob: Silero VAD probability for the current
+                        chunk (0-1). When ``config.vad_auto_calibrate`` is
+                        True AND Silero is the active backend, this is
+                        collected during the calibration window and used to
+                        derive the probability thresholds from the observed
+                        noise floor. When None (the default), the Silero
+                        path falls through to the existing ``skipped_silero``
+                        behavior, preserving backwards compat.
         """
         # VAD-GATE (Task 4): skip calibration entirely when VAD is
         # disabled. The prior fix only demoted the log level; this gate
@@ -416,10 +463,31 @@ class VadProcessor:
             return
 
         # when Silero VAD is the active backend, dB-threshold
-        # calibration has no effect (update_frame uses probability thresholds).
-        # Skip the RMS collection and surface a one-time INFO log so the
-        # operator knows calibration is intentionally not running.
+        # calibration has no effect (update_frame uses probability
+        # thresholds). Two sub-paths:
+        #   1. ``vad_auto_calibrate`` enabled AND a vad_prob
+        #      sample is provided -> collect Silero probabilities and
+        #      derive thresholds from the observed noise floor.
+        #   2. Otherwise -> skip with a one-time INFO log so the
+        #      operator knows calibration is intentionally not running
+        #      (preserves the pre-calibration behavior for backwards compat).
         if self._use_silero_vad and self._silero_available:
+            if self._vad_auto_calibrate and vad_prob is not None:
+                self._calibrate_silero_thresholds(vad_prob, elapsed_seconds)
+                return
+            if self._vad_auto_calibrate and vad_prob is None:
+                # the flag is on but the caller didn't pass
+                # vad_prob. Surface a WARNING so the misconfiguration
+                # is visible (not silent).
+                self._calibration_status = "skipped_no_prob"
+                self._calibrated = True  # prevent re-entry / log spam
+                log.warning(
+                    "[VAD] vad_auto_calibrate=True but vad_prob not "
+                    "provided — Silero thresholds left at config defaults "
+                    "[status=skipped_no_prob]"
+                )
+                return
+            # Default (flag off): preserve the previous skip behavior.
             self._calibration_status = "skipped_silero"
             self._calibrated = True  # prevent re-entry
             log.info(
@@ -445,8 +513,8 @@ class VadProcessor:
         noise_db = 20.0 * math.log10(noise_rms) if noise_rms > 0 else -90.0
 
         # Set thresholds relative to noise floor
-        self._silence_threshold_db = noise_db + 6.0  # 6 dB above noise → silence
-        self._speech_threshold_db = noise_db + 18.0  # 18 dB above noise → speech
+        self._silence_threshold_db = noise_db + 6.0  # 6 dB above noise -> silence
+        self._speech_threshold_db = noise_db + 18.0  # 18 dB above noise -> speech
         self._calibrated = True
         self._calibration_status = "calibrated"
 
@@ -460,6 +528,78 @@ class VadProcessor:
             noise_db,
             self._silence_threshold_db,
             self._speech_threshold_db,
+        )
+
+    def _calibrate_silero_thresholds(
+        self,
+        vad_prob: float,
+        elapsed_seconds: float,
+    ) -> None:
+        """Collect Silero probabilities and derive thresholds.
+
+        Mirrors the RMS-dB calibration math but in linear probability
+        space: collect ``vad_prob`` samples during the calibration
+        window, then set::
+
+            noise_floor       = median(collected probs)
+            silence_threshold = noise_floor + MARGIN
+            speech_threshold  = silence_threshold + SPEECH_DELTA
+
+        The thresholds are clamped to ``[0, 1]`` and a minimum spread
+        (``MIN_VAD_SILERO_THRESHOLD_SPREAD``) is enforced so a
+        degenerate noise floor (silent mic) doesn't produce
+        indistinguishable thresholds.
+
+        This is a private helper invoked from ``auto_calibrate`` when
+        ``vad_auto_calibrate`` is True and Silero is the active
+        backend. It mutates ``_speech_threshold`` /
+        ``_silence_threshold`` / ``_calibrated`` /
+        ``_calibration_status`` and appends to
+        ``_calibration_prob_values``.
+        """
+        self._calibration_prob_values.append(float(vad_prob))
+
+        if elapsed_seconds < self._calibration_duration:
+            return  # still collecting samples
+
+        if not self._calibration_prob_values:
+            self._calibration_status = "skipped_no_samples"
+            self._calibrated = True
+            return
+
+        # noise_floor = median of collected Silero probabilities.
+        # Median (not mean) is robust to transient speech bursts
+        # during the calibration window.
+        noise_prob = float(np.median(self._calibration_prob_values))
+
+        # silence = noise_floor + MARGIN
+        silence = noise_prob + DEFAULT_VAD_SILERO_CALIBRATION_MARGIN
+        # speech = silence + SPEECH_DELTA (the finding's "silence + 6dB"
+        # gap, interpreted as a linear delta in probability space).
+        speech = silence + DEFAULT_VAD_SILERO_SPEECH_DELTA
+
+        # Enforce a minimum spread + clamp to [0, 1].
+        if speech - silence < MIN_VAD_SILERO_THRESHOLD_SPREAD:
+            speech = silence + MIN_VAD_SILERO_THRESHOLD_SPREAD
+        silence = max(0.0, min(1.0, silence))
+        speech = max(0.0, min(1.0, speech))
+        # Final guard: if clamping inverted the order (only possible
+        # if silence hit 1.0), force speech to silence + spread.
+        if speech <= silence:
+            speech = min(1.0, silence + MIN_VAD_SILERO_THRESHOLD_SPREAD)
+
+        self._silence_threshold = silence
+        self._speech_threshold = speech
+        self._calibrated = True
+        self._calibration_status = "calibrated_silero"
+
+        log.info(
+            "[VAD] auto-calibrated Silero: noise_floor=%.3f, "
+            "silence_threshold=%.3f, speech_threshold=%.3f "
+            "[status=calibrated_silero]",
+            noise_prob,
+            self._silence_threshold,
+            self._speech_threshold,
         )
 
     def reset(self) -> None:
@@ -481,6 +621,14 @@ class VadProcessor:
         self._speech_threshold_db = DEFAULT_VAD_SPEECH_THRESHOLD_DB
         self._silence_threshold_db = DEFAULT_VAD_SILENCE_THRESHOLD_DB
         self._calibration_rms_values = []
+        # Clear Silero-probability calibration samples too so
+        # the next session re-collects from scratch. Also restore the
+        # Silero probability thresholds to the config defaults.
+        self._calibration_prob_values = []
+        self._speech_threshold = float(getattr(self._config, "vad_speech_threshold", DEFAULT_VAD_SPEECH_PROB_THRESHOLD))
+        self._silence_threshold = float(
+            getattr(self._config, "vad_silence_threshold", DEFAULT_VAD_SILENCE_PROB_THRESHOLD)
+        )
         self._calibrated = False
         self._calibration_status = "pending"
 
@@ -727,6 +875,29 @@ class VadProcessor:
         self._calibration_rms_values = value
 
     @property
+    def calibration_prob_values(self) -> list[float]:
+        """Silero-probability samples collected during the
+        calibration window when ``vad_auto_calibrate`` is enabled.
+        Read/write property for testability + inspection (mirrors
+        ``calibration_rms_values``).
+        """
+        return self._calibration_prob_values
+
+    @calibration_prob_values.setter
+    def calibration_prob_values(self, value: list[float]) -> None:
+        self._calibration_prob_values = value
+
+    @property
+    def vad_auto_calibrate(self) -> bool:
+        """Whether Silero-probability auto-calibration is
+        enabled (``config.vad_auto_calibrate``, default False)."""
+        return self._vad_auto_calibrate
+
+    @vad_auto_calibrate.setter
+    def vad_auto_calibrate(self, value: bool) -> None:
+        self._vad_auto_calibrate = bool(value)
+
+    @property
     def calibrated(self) -> bool:
         return self._calibrated
 
@@ -741,9 +912,13 @@ class VadProcessor:
         makes a no-op skip (Silero active / VAD disabled / no
                 samples) explicit rather than a silent early-return. Values:
                 ``"pending"`` (not yet run), ``"calibrated"`` (RMS-dB thresholds
-                computed), ``"skipped_silero"`` (Silero active — uses probability
-                thresholds), ``"skipped_disabled"`` (VAD off), ``skipped_no_samples``
-                (calibration window elapsed with no RMS samples).
+                computed), ``"calibrated_silero"`` (Silero probability
+                thresholds computed from observed noise floor),
+                ``"skipped_silero"`` (Silero active — uses probability
+                thresholds), ``"skipped_disabled"`` (VAD off),
+                ``"skipped_no_samples"`` (calibration window elapsed with no
+                RMS samples), ``"skipped_no_prob"`` (flag on but the
+                caller did not pass ``vad_prob``).
         """
         return self._calibration_status
 

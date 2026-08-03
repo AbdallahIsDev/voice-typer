@@ -1,7 +1,7 @@
 """Regression tests for two already-fixed review.md entries that touch
 files in this agent's owned lane (WAVE2-A16):
 
-* XZ-R11-01 (High) — ``save_vocabulary_with_diff`` must update the live
+* ``save_vocabulary_with_diff`` must update the live
   in-memory ``VocabularyManager`` after writing the user file. The bug
   was that the IPC handler wrote the user JSON directly without
   reloading ``self._app._vocabulary_manager._data``, so
@@ -9,7 +9,7 @@ files in this agent's owned lane (WAVE2-A16):
   app restart. Fix: after ``_secure_atomic_write``, call
   ``live_vm._load_and_merge()`` under ``live_vm._lock``.
 
-* XZ-CC-2 (Medium) — ``audio_chain_builder.build_chain_from_dict`` used
+* ``audio_chain_builder.build_chain_from_dict`` used
   to mirror ``Config`` noise-filter defaults in a parallel ``_DEFAULTS``
   dict that drifted whenever a default was bumped on ``Config``. Fix:
   drop ``_DEFAULTS``; build a real ``Config()`` instance and apply the
@@ -30,7 +30,7 @@ from unittest.mock import MagicMock
 import pytest
 
 # ──────────────────────────────────────────────────────────────────────────
-# XZ-R11-01: save_vocabulary_with_diff reloads the live VocabularyManager
+# save_vocabulary_with_diff reloads the live VocabularyManager
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -90,7 +90,7 @@ def vocab_mixin(live_vm):
 
 
 class TestSaveVocabularyWithDiffReloadsLiveManager:
-    """XZ-R11-01: ``save_vocabulary_with_diff`` MUST reload the live
+    """``save_vocabulary_with_diff`` MUST reload the live
     VocabularyManager's in-memory ``_data`` after writing the user file.
     """
 
@@ -120,7 +120,7 @@ class TestSaveVocabularyWithDiffReloadsLiveManager:
         # ``_load_and_merge`` is never called and the live ``_data``
         # stays stale until app restart.
         assert calls["n"] >= 1, (
-            "XZ-R11-01: save_vocabulary_with_diff did NOT reload the live "
+            "save_vocabulary_with_diff did NOT reload the live "
             "VocabularyManager after writing the user file. The in-memory "
             "_data will be stale until app restart."
         )
@@ -137,7 +137,7 @@ class TestSaveVocabularyWithDiffReloadsLiveManager:
 
         miss = live_vm.get_category("misspellings")
         assert miss.get("teh") == "TEH (custom override)", (
-            "XZ-R11-01: live VocabularyManager._data is stale — the user "
+            "live VocabularyManager._data is stale — the user "
             "override was written to disk but the in-memory _data was not "
             "reloaded."
         )
@@ -179,12 +179,12 @@ class TestSaveVocabularyWithDiffReloadsLiveManager:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# XZ-CC-2: audio_chain_builder has no parallel _DEFAULTS dict
+# audio_chain_builder has no parallel _DEFAULTS dict
 # ──────────────────────────────────────────────────────────────────────────
 
 
 class TestAudioChainBuilderNoDefaultsDrift:
-    """XZ-CC-2: ``build_chain_from_dict`` must source its defaults from
+    """``build_chain_from_dict`` must source its defaults from
     a real ``Config()`` instance — NOT from a parallel ``_DEFAULTS``
     dict that can silently drift when ``Config`` defaults change.
 
@@ -200,7 +200,7 @@ class TestAudioChainBuilderNoDefaultsDrift:
         import voice_typer.server.audio_chain_builder as mod
 
         assert not hasattr(mod, "_DEFAULTS"), (
-            "XZ-CC-2: audio_chain_builder re-introduced a parallel "
+            "audio_chain_builder re-introduced a parallel "
             "_DEFAULTS dict. This drifts from Config defaults — use "
             "Config() + setattr instead."
         )
@@ -233,7 +233,7 @@ class TestAudioChainBuilderNoDefaultsDrift:
         )
 
         assert chain_from_dict.filter_names == chain_from_config.filter_names, (
-            "XZ-CC-2: build_chain_from_dict({}) produced a different "
+            "build_chain_from_dict({}) produced a different "
             "chain than build_chain(Config()) — defaults are not being "
             "sourced from Config."
         )

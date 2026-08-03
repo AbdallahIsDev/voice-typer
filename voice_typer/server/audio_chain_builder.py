@@ -150,3 +150,45 @@ def build_chain_from_dict(config_dict: dict, sample_rate: int = WHISPER_SAMPLE_R
     for key, value in config_dict.items():
         setattr(cfg, key, value)
     return build_chain(cfg, sample_rate=sample_rate)
+
+
+def set_filter_enabled(chain: FilterChain, name: str, enabled: bool) -> bool:
+    """Toggle a filter's ``enabled`` flag on an existing chain at runtime.
+
+    Thin wrapper around :meth:`FilterChain.set_filter_enabled` so the
+    IPC handler layer can toggle filters at runtime without a full
+    chain rebuild (which would reload RNNoise and reset all filter
+    state). The toggle preserves filter state (IIR zi, envelope
+    follower, gate openness) across the bypass window — a
+    momentarily-disabled filter re-engages with its prior state
+    intact (no transient click from a cold IIR re-initialization).
+
+    The per-filter ``enabled`` flag (see
+    :attr:`voice_typer.server.audio_filters.AudioFilter.enabled`) is
+    consulted by :meth:`FilterChain.process` — when False, the filter
+    is skipped without calling its ``process`` method. The
+    architectural enabler existed on the ABC but had no runtime
+    toggle path; this function + :meth:`FilterChain.set_filter_enabled`
+    expose the server-side API surface for the IPC layer.
+
+    NOTE: the IPC command that exposes this to the renderer (e.g. a
+    ``set_audio_filter_enabled`` command in the IPC handler layer) is
+    NOT wired in this change — the IPC handler files are owned by a
+    different sub-agent. The IPC handler can call this function
+    directly with the chain from the active AudioProcessor, or call
+    :meth:`AudioProcessor.set_filter_enabled` for convenience.
+
+    Args:
+        chain: the live FilterChain (from
+            :attr:`AudioProcessor.chain`).
+        name: filter display name (e.g. ``"HighPass(80Hz)"``,
+            ``"NoiseSuppressor(rnnoise)"``, ``"Compressor"``).
+            Matches ``filter.name`` on each filter in the chain.
+        enabled: True to enable, False to bypass.
+
+    Returns:
+        True if at least one filter matched ``name`` and was
+        toggled, False otherwise (so callers can detect a no-op
+        / typo).
+    """
+    return chain.set_filter_enabled(name, enabled)

@@ -242,6 +242,49 @@ class FilterChain:
             snapshot = list(self._filters)
         return sum(f.latency_ms for f in snapshot)
 
+    def set_filter_enabled(self, name: str, enabled: bool) -> bool:
+        """Toggle the ``enabled`` flag on all filters matching ``name``.
+
+        The per-filter ``enabled`` flag (see :attr:`AudioFilter.enabled`)
+        is consulted by :meth:`process` — when False, the filter is
+        skipped without calling its ``process`` method, so internal
+        state (IIR zi, envelope follower, gate openness) survives the
+        bypass window. The architectural enabler existed on the ABC
+        but had no runtime toggle path — filters could only be
+        enabled/disabled via a full chain rebuild (which reloads
+        RNNoise and resets all filter state). This method exposes a
+        lightweight toggle that preserves filter state across the
+        bypass window, so a momentarily-disabled filter re-engages
+        with its prior state intact (no transient click from a cold
+        IIR re-initialization).
+
+        Thread-safe: snapshots the filter list under the lock
+        (consistent with ``process`` / ``reset``), then sets
+        ``enabled`` on the matching filter object(s) lock-free. The
+        ``enabled`` attribute is a plain bool read live by ``process``
+        (no snapshot), so the toggle takes effect on the NEXT
+        ``process`` call — no lock contention with the audio thread.
+
+        Args:
+            name: filter display name (e.g. ``"HighPass(80Hz)"``,
+                ``"NoiseSuppressor(rnnoise)"``). Matches
+                ``filter.name`` on each filter in the chain.
+            enabled: True to enable, False to bypass.
+
+        Returns:
+            True if at least one filter matched ``name`` and was
+            toggled, False otherwise (so callers can detect a no-op
+            / typo).
+        """
+        with self._lock:
+            snapshot = list(self._filters)
+        matched = False
+        for f in snapshot:
+            if getattr(f, "name", f.__class__.__name__) == name:
+                f.enabled = bool(enabled)
+                matched = True
+        return matched
+
     def swap(self, new_filters: list[AudioFilter]) -> None:
         """Atomically swap the filter list. Used for live config rebuilds.
 

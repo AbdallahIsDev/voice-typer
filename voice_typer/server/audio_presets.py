@@ -26,8 +26,13 @@ PRESET_CUSTOM = "custom"
 ALL_PRESETS: list[str] = [PRESET_AUTO, PRESET_STUDIO, PRESET_NOISY_ROOM, PRESET_OFF, PRESET_CUSTOM]
 
 # Preset → filter settings mapping.
-# Only includes the boolean on/off toggles + method selection.
-# Individual parameter tuning (threshold, ratio, etc.) uses config defaults.
+# Includes the boolean on/off toggles + method selection, AND per-preset
+# parameter overrides (threshold, ratio, cutoff, etc.) where a preset
+# needs to deviate from the config defaults. Presets without explicit
+# parameter overrides (``PRESET_AUTO``, ``PRESET_STUDIO``, ``PRESET_OFF``)
+# use the config defaults for every threshold / ratio / cutoff — this
+# matches the original contract (presets only flipped toggles) so
+# existing behavior is preserved for those presets.
 PRESETS: dict[str, dict[str, Any]] = {
     PRESET_AUTO: {
         "noise_filter_highpass": True,
@@ -55,6 +60,21 @@ PRESETS: dict[str, dict[str, Any]] = {
         "noise_filter_compressor": True,
         "noise_filter_limiter": True,
         "noise_filter_notch": True,
+        # Per-preset parameter overrides. Previously
+        # ``PRESET_NOISY_ROOM`` had identical toggle values to
+        # ``PRESET_AUTO`` — switching to "Noisy Room" only changed the
+        # suppression method (and the notch toggle) while leaving every
+        # threshold / ratio / cutoff at the config default. A noisy
+        # environment (keyboard / fan / HVAC) needs more aggressive
+        # settings: a higher high-pass cutoff to strip HVAC rumble, a
+        # less-sensitive gate threshold (opens only on louder speech
+        # above the noise floor), and a stiffer compressor ratio to
+        # keep transient keyboard noise in check. These overrides are
+        # applied via the same ``setattr`` loop in ``apply_preset`` as
+        # the boolean toggles.
+        "noise_filter_highpass_cutoff_hz": 100.0,  # default 80; strip HVAC rumble
+        "noise_filter_gate_open_threshold_db": -22.0,  # default -26; less sensitive
+        "noise_filter_compressor_ratio": 4.0,  # default 3.0; stiffer for transients
     },
     PRESET_OFF: {
         "noise_filter_highpass": False,
@@ -97,7 +117,18 @@ def apply_preset(preset: str, config: Any) -> None:
     """Apply a named preset to a config object in-place.
 
     For "custom", does nothing (user controls individual fields).
-    For other presets, sets the filter toggles from PRESETS.
+    For other presets, sets the filter toggles AND any per-preset
+    parameter overrides (threshold / ratio / cutoff) from
+    :data:`PRESETS` via ``setattr``. Presets without explicit
+    parameter overrides (``PRESET_AUTO``, ``PRESET_STUDIO``,
+    ``PRESET_OFF``) only set the boolean toggles — every threshold /
+    ratio / cutoff on ``config`` is left at whatever value it
+    currently holds (typically the :class:`Config` default).
+    ``PRESET_NOISY_ROOM`` additionally overrides
+    ``noise_filter_highpass_cutoff_hz``,
+    ``noise_filter_gate_open_threshold_db``, and
+    ``noise_filter_compressor_ratio`` with values tuned for a noisy
+    environment (keyboard / fan / HVAC).
 
     Args:
         preset: one of ALL_PRESETS.
