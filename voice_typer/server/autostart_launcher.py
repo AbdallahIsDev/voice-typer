@@ -290,34 +290,57 @@ _POST_SPAWN_PORT_POLL_TIMEOUT = 5.0
 _POST_SPAWN_PORT_POLL_INTERVAL = 0.1
 
 
-def _wait_for_backend_ready(timeout: float = _POST_SPAWN_PORT_POLL_TIMEOUT) -> None:
+def _wait_for_backend_ready(
+    timeout: float = _POST_SPAWN_PORT_POLL_TIMEOUT,
+    *,
+    deadline_s: float | None = None,
+    poll_interval_s: float | None = None,
+) -> bool | None:
     """Bounded poll for the backend's IPC port to open after spawning.
 
     Polls ``_is_port_open`` every ``_POST_SPAWN_PORT_POLL_INTERVAL``
-    seconds for up to ``timeout`` seconds. Returns as soon as the port
-    opens (early-exit on fast systems) or after the timeout (preserves
-    the original "give the child time to detach" safety net on slow
-    systems). Never raises — a port that never opens is the backend's
-    problem to surface (crash dialog, log), not the launcher's.
+    seconds (or ``poll_interval_s`` if provided) for up to ``timeout``
+    seconds (or ``deadline_s`` if provided). Returns as soon as the
+    port opens (early-exit on fast systems) or after the timeout
+    (preserves the original "give the child time to detach" safety
+    net on slow systems). Never raises — a port that never opens is
+    the backend's problem to surface (crash dialog, log), not the
+    launcher's.
 
-    The IPC port is re-read from the backend PID file on every iteration
-    (via ``_read_ipc_port_from_pid_file``) so the poll picks up the
-    actual port the backend bound to (which may differ from
+    Two calling conventions are supported:
+
+    * Legacy: ``_wait_for_backend_ready(timeout=5.0)`` — used by the
+      call sites in :func:`launch` (returns ``None``).
+    * Test-friendly: ``_wait_for_ipc_ready(deadline_s=5.0,
+      poll_interval_s=0.25)`` — returns ``True`` on port-open,
+      ``False`` on deadline. See
+      ``tests/test_perf_fixes.py::TestWaitForIpcReady``.
+
+    The IPC port is re-read from the backend PID file on every
+    iteration (via ``_read_ipc_port_from_pid_file``) so the poll picks
+    up the actual port the backend bound to (which may differ from
     :data:`IPC_PORT` if 9876 was busy and the backend auto-incremented).
 
     The loop is bounded by an iteration count (derived from
-    ``timeout / interval``) rather than a ``time.monotonic()`` deadline
+    ``deadline / interval``) rather than a ``time.monotonic()`` deadline
     so that tests which monkeypatch ``time.sleep`` to a no-op don't
-    busy-wait for the full ``timeout`` in real time — the loop runs
-    ``int(timeout / interval)`` iterations and exits regardless of
+    busy-wait for the full ``deadline`` in real time — the loop runs
+    ``int(deadline / interval)`` iterations and exits regardless of
     wall-clock elapsed time.
     """
-    max_iterations = max(1, int(timeout / _POST_SPAWN_PORT_POLL_INTERVAL))
+    effective_deadline = _POST_SPAWN_PORT_POLL_TIMEOUT if deadline_s is None else deadline_s
+    effective_interval = _POST_SPAWN_PORT_POLL_INTERVAL if poll_interval_s is None else poll_interval_s
+    # If neither explicit kwarg was passed, this is the legacy
+    # call-site path (launch()) which does not care about the return
+    # value.  In that case return None for backwards compatibility.
+    return_bool = deadline_s is not None
+    max_iterations = max(1, int(effective_deadline / effective_interval))
     for _ in range(max_iterations):
         ipc_port = _read_ipc_port_from_pid_file() or IPC_PORT
         if _is_port_open(IPC_HOST, ipc_port):
-            return
-        time.sleep(_POST_SPAWN_PORT_POLL_INTERVAL)
+            return True if return_bool else None
+        time.sleep(effective_interval)
+    return False if return_bool else None
 
 
 # legacy / alternate-name alias. The test suite in
@@ -872,7 +895,7 @@ def launch() -> int:
             child = _spawn_tauri_host(binary, hidden=hidden)
             if child is not None:
                 _write_pid_file(os.getpid(), getattr(child, "pid", None))
-                _wait_for_backend_ready()
+                _wait_for_ipc_ready()
                 log.info("[AUTOSTART] launcher exiting; tauri child continues detached")
                 return 0
             # no silent Electron fallback — if the Tauri spawn
@@ -900,7 +923,7 @@ def launch() -> int:
         log.info("[AUTOSTART] Trying build-first path...")
         if _ensure_built_and_launch(hidden=hidden):
             log.info("[AUTOSTART] Build-first launch succeeded")
-            _wait_for_backend_ready()
+            _wait_for_ipc_ready()
             return 0
         log.warning("[AUTOSTART] Build-first path failed — falling back to dev mode")
 
@@ -911,7 +934,7 @@ def launch() -> int:
         return 1
 
     _write_pid_file(os.getpid(), getattr(child, "pid", None))
-    _wait_for_backend_ready()
+    _wait_for_ipc_ready()
     log.info("[AUTOSTART] launcher exiting; child continues detached")
     return 0
 

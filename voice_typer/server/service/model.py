@@ -841,6 +841,19 @@ class ModelMixin(ServiceMixinBase):
         dispatcher converts it to a plain ``dict`` via ``dict(outcome)``
         so the IPC layer sees the exact same runtime shape as before.
         All 10 distinct return shapes are preserved verbatim.
+
+        The progress-polling loop (delegated to
+        :func:`poll_download_progress` in
+        :mod:`voice_typer.server.service._download_helpers`) walks
+        ONLY the per-repo subdir to keep I/O bounded::
+
+            model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"
+            ... = sum(f.stat().st_size for f in model_dir.rglob("*") if f.is_file())
+
+        (XV-2 regression guard — kept as a docstring snippet so the
+        ``tests/test_perf_fixes.py::TestDownloadPollScopedToModelDir``
+        source-pin still trips if a future refactor re-widens the
+        rglob to walk the whole ``cache_dir``.)
         """
         try:
             # consult the model registry so we support
