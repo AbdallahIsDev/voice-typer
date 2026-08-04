@@ -1384,6 +1384,7 @@ def _acquire_migration_lock(lock_file):
             deadline = time.monotonic() + _MIGRATION_LOCK_TIMEOUT_SECONDS
             wait_start = time.monotonic()
             warned_slow = False
+            warned_final = False
             while True:
                 try:
                     # LK_NBLCK (non-blocking) + self-paced retry
@@ -1395,12 +1396,40 @@ def _acquire_migration_lock(lock_file):
                     msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
                     break
                 except OSError as e:
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError(
-                            f"migration lock not acquired within "
-                            f"{_MIGRATION_LOCK_TIMEOUT_SECONDS}s — another "
-                            f"process is holding {lock_file}"
-                        ) from e
+                    timed_out = time.monotonic() >= deadline
+                    if timed_out:
+                        # Fail-OPEN stance on the Windows branch:
+                        # the POSIX branch raises TimeoutError so a
+                        # wedged holder is diagnosable, but on Windows
+                        # the previous code (``contextlib.suppress
+                        # (OSError)``) returned the fd silently and
+                        # the caller (``migrate_secrets_to_keyring``)
+                        # had no way to know the lock wasn't held. We
+                        # preserve the caller's ``finally:
+                        # lock_fd.close()`` works (so no fd leak) BUT
+                        # log a single visible WARNING at the end of
+                        # the timeout window so a subsequent race
+                        # condition is diagnosable in operator logs.
+                        # The message contains the exact substring
+                        # ``"Windows migration lock acquire timed
+                        # out"`` and ``"race possible"`` so operator
+                        # log-grep / the regression test contract
+                        # can find it.
+                        if not warned_final:
+                            log.warning(
+                                "[CREDENTIAL_STORE] Windows migration "
+                                "lock acquire timed out after %ss on "
+                                "%s — race possible if another process "
+                                "is also migrating secrets to keyring "
+                                "(last error: %s). Proceeding fail-open "
+                                "to avoid blocking startup; check for "
+                                "concurrent secret-migration attempts.",
+                                _MIGRATION_LOCK_TIMEOUT_SECONDS,
+                                lock_file,
+                                e,
+                            )
+                            warned_final = True
+                        break
                     if not warned_slow and time.monotonic() - wait_start > _MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS:
                         log.warning(
                             "[CREDENTIAL_STORE] migration lock wait on %s "
@@ -1413,9 +1442,11 @@ def _acquire_migration_lock(lock_file):
                         warned_slow = True
                     time.sleep(0.05)
     except Exception:
-        # Any failure acquiring the lock: close the fd and re-raise so
-        # the caller knows the lock is NOT held (callers catch this and
-        # proceed without a lock rather than blocking migration).
+        # Any unexpected failure (NOT the documented Windows lock
+        # timeout, which the ``else`` branch above handles inline):
+        # close the fd and re-raise so the caller knows the lock is
+        # NOT held (callers catch this and proceed without a lock
+        # rather than blocking migration).
         lock_fd.close()
         raise
     return lock_fd

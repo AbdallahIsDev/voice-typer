@@ -51,12 +51,19 @@ def _install_fake_msvcrt(monkeypatch, *, locking_impl):
     """Install a fake ``msvcrt`` module in ``sys.modules``.
 
     ``locking_impl`` is the callable used as ``msvcrt.locking``. The
-    fake module also exposes ``LK_LOCK`` so the import inside
-    ``_acquire_migration_lock`` succeeds.
+    fake module also exposes ``LK_LOCK`` and ``LK_NBLCK`` so the
+    :func:`_acquire_migration_lock` Windows branch can run regardless
+    of which lock mode production code selects.
+
+    The production code uses ``LK_NBLCK`` (non-blocking) inside a
+    polled retry loop, not ``LK_LOCK`` (which blocks internally for
+    ~1s on Windows before raising ``OSError``). Both constants are
+    provided so this fixture is robust to either implementation.
     """
     fake = types.ModuleType("msvcrt")
     fake.locking = locking_impl  # type: ignore[attr-defined]
     fake.LK_LOCK = 1  # type: ignore[attr-defined]
+    fake.LK_NBLCK = 2  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "msvcrt", fake)
     return fake
 
