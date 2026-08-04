@@ -114,11 +114,9 @@ import hmac
 import json
 import logging
 import os
-
 import sys
 import time
 from collections import deque
-from functools import partial
 from typing import TYPE_CHECKING
 
 # Namespaced error code constants. Imported here so the bare-string
@@ -152,7 +150,8 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 # _http_safety.py, _secrets.py, and this module). Aliased to the
 # underscore-prefixed name so existing call sites (e.g. `serve(...,
 # _LOOPBACK_HOST, ...)`) keep working unchanged.
-from voice_typer.server._paths import IPC_TOKEN_ENV_VAR, LOOPBACK_HOST as _LOOPBACK_HOST
+from voice_typer.server._paths import IPC_TOKEN_ENV_VAR
+from voice_typer.server._paths import LOOPBACK_HOST as _LOOPBACK_HOST
 
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 
@@ -257,6 +256,26 @@ _HEARTBEAT_RATE_MAX_PER_WINDOW = 100
 # bounded enough that a wedged peer doesn't tie up the writer task
 # (and the asyncio loop thread) forever.
 _WS_SEND_TIMEOUT_SECONDS = 5.0
+
+
+def _encode_ws_frame(event: dict) -> bytes:
+    """Serialize ``event`` to a WS TEXT-frame payload (UTF-8 bytes).
+
+    Runs ``json.dumps`` + ``.encode`` together so the whole O(n)
+    encode cost stays OFF the asyncio loop thread — the writer task
+    in :func:`_start_writer` calls this via
+    ``loop.run_in_executor(None, _encode_ws_frame, event)``. For
+    near-cap frames (~1 MiB) the in-line encode was 50-100 ms of
+    pure CPU on the loop thread, stalling every other connection's
+    reads + the heartbeat fast-path.
+
+    ``ensure_ascii=False`` keeps multi-byte UTF-8 (e.g. CJK / emoji
+    dictation) as-is on the wire instead of escaping to ``\\uXXXX``
+    (the default ``ensure_ascii=True`` would bloat CJK payloads ~3x).
+    """
+    return json.dumps(event, ensure_ascii=False).encode("utf-8")
+
+
 # Cooperative shutdown hard timeout (ADR-0020 §10). When the host
 # sends {"type":"shutdown"} the sidecar must release the mic, ack,
 # and exit within this window; if it doesn't, the host force-kills
@@ -1081,16 +1100,15 @@ def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
                 if event is None:
                     return
                 try:
-                    # Offload ``json.dumps`` to the default executor. For
+                    # Offload the JSON encode to the default executor:
+                    # ``_encode_ws_frame`` runs ``json.dumps`` +
+                    # ``.encode`` together on a worker thread. For
                     # small frames this is roughly the cost of a thread
                     # handoff (~50 µs) vs the in-line JSON encode
                     # (~10-50 µs) — a wash. For near-cap frames (~1 MiB)
                     # at 1-5 Hz the in-line encode was 50-100 ms of pure
                     # CPU on the asyncio loop thread, stalling every
                     # other connection's reads + the heartbeat fast-path.
-                    # ``functools.partial`` lets us pass the
-                    # ``ensure_ascii=False`` kwarg through the executor's
-                    # ``func, *args`` calling convention.
                     # XV-84: encode ONCE to bytes. The previous code
                     # encoded twice — once here for the size check
                     # (then discarded) and once inside
@@ -1102,12 +1120,12 @@ def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
                     # half and keeps the asyncio loop responsive
                     # under load.
                     #
-                    # ``ensure_ascii=False`` keeps multi-byte UTF-8
-                    # (e.g. CJK / emoji dictation) as-is on the
-                    # wire instead of escaping to ``\uXXXX``
-                    # (the default ``ensure_ascii=True`` would
-                    # bloat CJK payloads ~3x).
-                    raw_bytes = json.dumps(event, ensure_ascii=False).encode("utf-8")
+                    # ``ensure_ascii=False`` (inside the helper) keeps
+                    # multi-byte UTF-8 (e.g. CJK / emoji dictation)
+                    # as-is on the wire instead of escaping to
+                    # ``\uXXXX`` (the default ``ensure_ascii=True``
+                    # would bloat CJK payloads ~3x).
+                    raw_bytes = await loop.run_in_executor(None, _encode_ws_frame, event)
                     # ``len(raw_bytes)`` is the actual UTF-8 byte
                     # count. The previous ``len(raw)`` (char count)
                     # was a LOWER BOUND on the byte count and could
@@ -1128,22 +1146,26 @@ def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
                     # Cap the send at ``_WS_SEND_TIMEOUT_SECONDS`` so a
                     # wedged peer (full TCP send buffer, half-open socket)
                     # cannot tie up this writer task (and the asyncio
-                    # loop thread) indefinitely. On timeout we close the
-                    # connection so the host's reconnect path takes
-                    # over instead of silently dropping further events
-                    # into a buffer that will never drain. Note: we
-                    # pass ``raw_bytes`` (the pre-encoded buffer) to
-                    # ``websocket.send`` — the websockets library
-                    # doesn't need to re-encode.
+                    # loop thread) indefinitely. ``asyncio.wait_for``
+                    # cancels the in-flight send on timeout; we then
+                    # close the connection (code 1011) so the host's
+                    # reconnect path takes over instead of silently
+                    # dropping further events into a buffer that will
+                    # never drain. Note: we pass ``raw_bytes`` (the
+                    # pre-encoded buffer) to ``websocket.send`` — the
+                    # websockets library doesn't need to re-encode.
                     try:
-                        await websocket.send(raw_bytes)
-                    except Exception:
+                        await asyncio.wait_for(websocket.send(raw_bytes), timeout=_WS_SEND_TIMEOUT_SECONDS)
+                    except asyncio.TimeoutError:
                         log.warning(
                             "[SIDECAR-WS] send timed out after %.1fs — closing connection",
                             _WS_SEND_TIMEOUT_SECONDS,
                         )
                         with contextlib.suppress(Exception):
                             await websocket.close(code=1011, reason="send timeout")
+                        return
+                    except Exception:
+                        log.warning("[SIDECAR-WS] send failed", exc_info=True)
                         return
                 except Exception:
                     log.warning("[SIDECAR-WS] send failed", exc_info=True)

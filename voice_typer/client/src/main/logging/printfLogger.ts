@@ -44,7 +44,7 @@
 import path from "node:path";
 import { app } from "electron";
 
-import { ERROR_CLR, INFO_CLR, RESET, WARN_CLR } from "./colors";
+import { DIM, ERROR_CLR, INFO_CLR, RESET, WARN_CLR } from "./colors";
 import { RUNTIME_LOG_MAX_BYTES } from "./constants";
 import { appendLogLine, redactPii, ts } from "./rotation";
 import { appendLifecycleLine, PERSIST_INFO } from "./structuredLogger";
@@ -56,6 +56,7 @@ import { appendLifecycleLine, PERSIST_INFO } from "./structuredLogger";
  */
 export type LogShape = {
 	info(...args: unknown[]): void;
+	debug(...args: unknown[]): void;
 	warn(...args: unknown[]): void;
 	error(...args: unknown[]): void;
 };
@@ -201,7 +202,7 @@ function formatArgsForFile(args: unknown[]): string {
  * passes) twice on identical input.
  */
 function writeStdout(
-	level: "INFO" | "WARN" | "ERROR",
+	level: "INFO" | "DEBUG" | "WARN" | "ERROR",
 	color: string,
 	formattedArgs: string,
 ): void {
@@ -323,6 +324,12 @@ export const log: LogShape = {
 		if (PERSIST_INFO) {
 			appendLifecycleLine("info", args.map((a) => String(a)).join(" "), []);
 		}
+	},
+	debug(...args: unknown[]): void {
+		// Single-format discipline, same as `info` above. Stdout only —
+		// DEBUG not written to file (avoid bloat).
+		const formatted = formatArgsForFile(args);
+		writeStdout("DEBUG", DIM, formatted);
 	},
 	warn(...args: unknown[]): void {
 		// Compute the formatted args ONCE — pre-refactor `writeStdout`

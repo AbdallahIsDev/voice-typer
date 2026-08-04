@@ -1,29 +1,28 @@
-"""Tests for the length-bucketed index in ``vocabulary_automation``.
+"""Tests for the length-bucketed pruning in ``vocabulary_automation``.
 
 Covers the fix for the O(W×V) Levenshtein scan in
 ``_find_closest_vocabulary_match`` — previously the outer loop iterated
-ALL vocab words for EACH input word; now it uses length-bucketed
-pruning to only iterate candidates whose length is within
+ALL vocab words for EACH input word; now it builds a length-bucketed
+index on each call and only iterates candidates whose length is within
 ``max_distance`` of the input word.
 
 Tests:
-  1. ``_build_length_bucketed_index`` correctly buckets words by length.
-  2. ``_find_closest_vocabulary_match`` with a 1000-entry vocab only
+  1. ``_find_closest_vocabulary_match`` with a 1000-entry vocab only
      iterates ~5% of candidates for a 5-letter word with
      ``max_distance=2``.
-  3. The bucketed version produces the SAME result as a full scan
+  2. The bucketed version produces the SAME result as a full scan
      (correctness preserved) — verified on cases with unique minimum
      distances so tie-breaking order doesn't matter.
-  4. The cache is invalidated when vocab changes (new object passed)
-     and when ``_invalidate_length_bucket_cache`` is called.
-  5. Performance: with 5000 entries × 1000-word dictation, the
-     bucketed version is at least 5× faster than the full scan.
+  3. The index is rebuilt from the current vocab on every call (there
+     is no persistent cache — the production caller passes a fresh
+     ``set`` per dictation): empty vocabs return ``None``, a changed
+     vocab is picked up immediately, and ties are broken by
+     vocabulary iteration order (first match wins).
 """
 
 from __future__ import annotations
 
 import random
-import time
 
 import pytest
 
@@ -33,7 +32,7 @@ import pytest
 def _full_scan_reference(word, vocab_words, max_distance):
     """Reference implementation — mimics the pre-fix full scan.
 
-    Used to verify correctness and as the perf baseline.
+    Used to verify correctness.
     """
     from voice_typer.server.vocabulary_automation import _levenshtein
 
@@ -56,73 +55,7 @@ def _full_scan_reference(word, vocab_words, max_distance):
     return best_match if best_distance <= max_distance else None
 
 
-@pytest.fixture(autouse=True)
-def _clear_cache_before_each_test():
-    """Ensure each test starts with an empty length-bucket cache."""
-    from voice_typer.server.vocabulary_automation import _invalidate_length_bucket_cache
-
-    _invalidate_length_bucket_cache()
-    yield
-    _invalidate_length_bucket_cache()
-
-
-# ─── Test 1: _build_length_bucketed_index correctly buckets ────────────────
-
-
-class TestBuildLengthBucketedIndex:
-    def test_simple_bucketing(self):
-        from voice_typer.server.vocabulary_automation import _build_length_bucketed_index
-
-        words = ["cat", "dog", "hello", "world", "a", "be", "see"]
-        buckets = _build_length_bucketed_index(words, max_distance=2)
-
-        assert sorted(buckets.get(1, [])) == ["a"]
-        assert sorted(buckets.get(2, [])) == ["be"]
-        assert sorted(buckets.get(3, [])) == ["cat", "dog", "see"]
-        assert sorted(buckets.get(5, [])) == ["hello", "world"]
-        # No words of length 4.
-        assert buckets.get(4) is None or buckets.get(4) == []
-
-    def test_empty_vocab(self):
-        from voice_typer.server.vocabulary_automation import _build_length_bucketed_index
-
-        buckets = _build_length_bucketed_index([], max_distance=2)
-        assert buckets == {}
-
-    def test_set_input_supported(self):
-        """The real caller (``_collect_vocabulary_words``) passes a set."""
-        from voice_typer.server.vocabulary_automation import _build_length_bucketed_index
-
-        words = {"cat", "dog", "hello"}
-        buckets = _build_length_bucketed_index(words, max_distance=2)
-
-        all_words = []
-        for lst in buckets.values():
-            all_words.extend(lst)
-        assert sorted(all_words) == ["cat", "dog", "hello"]
-
-    def test_cache_hit_returns_same_object(self):
-        """Repeated calls with the same `vocab_words` return the same
-        bucket dict (cached, not rebuilt)."""
-        from voice_typer.server.vocabulary_automation import _build_length_bucketed_index
-
-        words = ["abc", "def", "ghij"]
-        b1 = _build_length_bucketed_index(words, max_distance=2)
-        b2 = _build_length_bucketed_index(words, max_distance=2)
-        # Identity check — same dict object returned from cache.
-        assert b1 is b2
-
-    def test_insertion_order_preserved_within_bucket(self):
-        """Within a bucket, words appear in insertion order."""
-        from voice_typer.server.vocabulary_automation import _build_length_bucketed_index
-
-        words = ["zebra", "apple", "mango", "grape"]
-        buckets = _build_length_bucketed_index(words, max_distance=2)
-        # All length 5 — should preserve insertion order.
-        assert buckets[5] == ["zebra", "apple", "mango", "grape"]
-
-
-# ─── Test 2: candidate pruning ─────────────────────────────────────────────
+# ─── Test 1: candidate pruning ─────────────────────────────────────────────
 
 
 class TestCandidatePruning:
@@ -186,7 +119,7 @@ class TestCandidatePruning:
         assert call_count[0] == 0
 
 
-# ─── Test 3: correctness preserved ─────────────────────────────────────────
+# ─── Test 2: correctness preserved ─────────────────────────────────────────
 
 
 class TestCorrectnessPreserved:
@@ -310,44 +243,44 @@ class TestCorrectnessPreserved:
             )
 
 
-# ─── Test 4: cache invalidation ────────────────────────────────────────────
+# ─── Test 3: per-call rebuild & tie-breaking ───────────────────────────────
 
 
-class TestCacheInvalidation:
-    def test_invalidate_clears_cache(self):
+class TestMatchBehavior:
+    def test_empty_vocab_returns_none(self):
         from voice_typer.server.vocabulary_automation import (
-            _LENGTH_BUCKET_CACHE,
-            _build_length_bucketed_index,
-            _invalidate_length_bucket_cache,
+            _find_closest_vocabulary_match,
         )
 
-        words = ["abc", "defg", "hij"]
-        _build_length_bucketed_index(words, max_distance=2)
-        assert len(_LENGTH_BUCKET_CACHE) == 1
+        assert _find_closest_vocabulary_match("hello", set(), max_distance=2) is None
 
-        _invalidate_length_bucket_cache()
-        assert len(_LENGTH_BUCKET_CACHE) == 0
-
-    def test_new_vocab_replaces_cached_entry(self):
+    def test_set_input_supported(self):
+        """The real caller (``_collect_vocabulary_words``) passes a set."""
         from voice_typer.server.vocabulary_automation import (
-            _LENGTH_BUCKET_CACHE,
-            _build_length_bucketed_index,
+            _find_closest_vocabulary_match,
         )
 
-        words1 = ["abc", "defg"]
-        _build_length_bucketed_index(words1, max_distance=2)
-        assert len(_LENGTH_BUCKET_CACHE) == 1
-        assert _LENGTH_BUCKET_CACHE[0][0] is words1
+        words = {"cat", "dog", "hello"}
+        assert _find_closest_vocabulary_match("helo", words, max_distance=2) == "hello"
 
-        words2 = ["xyz", "wvu"]
-        _build_length_bucketed_index(words2, max_distance=2)
-        assert len(_LENGTH_BUCKET_CACHE) == 1
-        assert _LENGTH_BUCKET_CACHE[0][0] is words2
-        assert _LENGTH_BUCKET_CACHE[0][0] is not words1
+    def test_insertion_order_breaks_ties(self):
+        """Ties are broken by vocabulary iteration order — first match
+        wins (the index preserves iteration order within each bucket,
+        keeping tie-breaking deterministic)."""
+        from voice_typer.server.vocabulary_automation import (
+            _find_closest_vocabulary_match,
+        )
+
+        # Both candidates are distance 1 from "abcde".
+        words = ["abcfe", "abcdf"]
+        assert _find_closest_vocabulary_match("abcde", words, max_distance=2) == "abcfe"
+
+        words = ["abcdf", "abcfe"]
+        assert _find_closest_vocabulary_match("abcde", words, max_distance=2) == "abcdf"
 
     def test_vocab_change_reflects_in_results(self):
-        """When the vocab is replaced with a different set, the new
-        bucketing reflects the new content (not the stale cache)."""
+        """A different vocab object is picked up on the next call —
+        the index is rebuilt per call, not cached."""
         from voice_typer.server.vocabulary_automation import (
             _find_closest_vocabulary_match,
         )
@@ -356,111 +289,7 @@ class TestCacheInvalidation:
         result1 = _find_closest_vocabulary_match("hello", vocab1, max_distance=2)
         assert result1 == "hello"
 
-        # Replace with a different set object — the cache should evict
-        # the old entry and rebuild from the new set.
         vocab2 = {"hallo", "worlt", "pyton"}
         result2 = _find_closest_vocabulary_match("hello", vocab2, max_distance=2)
         # "hallo" is distance 1 from "hello".
         assert result2 == "hallo"
-
-    def test_invalidate_then_rebuild_uses_new_content(self):
-        """After explicit invalidation, the next call rebuilds from the
-        current `vocab_words` (no stale buckets)."""
-        from voice_typer.server.vocabulary_automation import (
-            _build_length_bucketed_index,
-            _invalidate_length_bucket_cache,
-        )
-
-        words = ["abc", "defg"]
-        b1 = _build_length_bucketed_index(words, max_distance=2)
-        assert b1[3] == ["abc"]
-
-        # Mutate the underlying list (simulating vocab change).
-        words.append("xyz")
-        _invalidate_length_bucket_cache()
-        b2 = _build_length_bucketed_index(words, max_distance=2)
-        # Length-3 bucket should now include "xyz".
-        assert sorted(b2[3]) == ["abc", "xyz"]
-
-
-# ─── Test 5: performance ───────────────────────────────────────────────────
-
-
-class TestPerformance:
-    def test_bucketed_at_least_5x_faster_than_full_scan(self):
-        """With 5000 entries × 1000-word dictation, the bucketed
-        version must be at least 5× faster than the full scan.
-
-        The vocab is constructed with a wide length distribution
-        (lengths 1-2500, 2 entries per length = 5000 total) so that
-        for a 5-letter query word with ``max_distance=2`` only ~10
-        candidates (0.2% of 5000) are iterated.  The remaining ~4990
-        vocab entries are pruned by the length bucketing, eliminating
-        their per-iteration length-check + Levenshtein-function-call
-        overhead.
-        """
-        from voice_typer.server.vocabulary_automation import (
-            _find_closest_vocabulary_match,
-            _invalidate_length_bucket_cache,
-            _levenshtein,
-        )
-
-        _invalidate_length_bucket_cache()
-
-        # 5000 entries with a wide length distribution (lengths 1-2500,
-        # 2 entries per length).  This is intentionally synthetic — a
-        # realistic English vocab clusters around 4-12 chars, which
-        # would leave too few length-mismatched entries to demonstrate
-        # the bucketing speedup clearly.  The wide distribution
-        # isolates the algorithmic improvement (length pruning).
-        rng = random.Random(7)
-        vocab: list[str] = []
-        for length in range(1, 2501):
-            for _ in range(2):
-                w = "".join(rng.choice("abcdefghijklmnopqrstuvwxyz") for _ in range(length))
-                vocab.append(w)
-        assert len(vocab) == 5000
-
-        # 1000 query words, all length 5 (so candidates are lengths
-        # 3-7 = 5 buckets × 2 entries = 10 candidates per query).
-        query_words = ["hello"] * 1000
-
-        def full_scan(word, vocab_words, max_distance):
-            best_distance = max_distance + 1
-            best_match = None
-            for candidate in vocab_words:
-                if abs(len(candidate) - len(word)) > max_distance:
-                    continue
-                d = _levenshtein(word, candidate, max_distance=max_distance)
-                if d < best_distance:
-                    best_distance = d
-                    best_match = candidate
-                    if d == 0:
-                        break
-            return best_match if best_distance <= max_distance else None
-
-        # Warm up Python (bytecode caches, allocator, etc.).
-        for w in query_words[:20]:
-            full_scan(w, vocab, 2)
-        _invalidate_length_bucket_cache()
-        for w in query_words[:20]:
-            _find_closest_vocabulary_match(w, vocab, max_distance=2)
-
-        # Time the full scan (no bucketing — iterates all 5000 entries
-        # per query, doing a length check on each).
-        _invalidate_length_bucket_cache()
-        t0 = time.perf_counter()
-        for w in query_words:
-            full_scan(w, vocab, 2)
-        t_full = time.perf_counter() - t0
-
-        # Time the bucketed version (iterates only ~10 candidates per
-        # query after a one-time bucketing cost).
-        _invalidate_length_bucket_cache()
-        t0 = time.perf_counter()
-        for w in query_words:
-            _find_closest_vocabulary_match(w, vocab, max_distance=2)
-        t_bucket = time.perf_counter() - t0
-
-        speedup = t_full / t_bucket if t_bucket > 0 else float("inf")
-        assert speedup >= 5.0, f"Expected ≥5× speedup, got {speedup:.2f}× (full={t_full:.3f}s, bucket={t_bucket:.3f}s)"

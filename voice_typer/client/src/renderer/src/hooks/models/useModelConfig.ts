@@ -119,7 +119,10 @@ export function useModelConfig({
 			// XZ-R16-09: prefix with [renderer:useModelConfig] to
 			// match the [renderer:<module>] convention adopted by
 			// other hooks (usePython, useConnection, etc).
-			console.error("[renderer:useModelConfig] Failed to refresh model status:", err);
+			console.error(
+				"[renderer:useModelConfig] Failed to refresh model status:",
+				err,
+			);
 		}
 	}, [call]);
 
@@ -168,7 +171,10 @@ export function useModelConfig({
 			} else {
 				// XZ-R16-09: prefix with [renderer:useModelConfig] to
 				// match the [renderer:<module>] convention.
-				console.error("[renderer:useModelConfig] Failed to load config:", cfgResult.reason);
+				console.error(
+					"[renderer:useModelConfig] Failed to load config:",
+					cfgResult.reason,
+				);
 			}
 
 			if (statusResult.status === "fulfilled") {
@@ -192,7 +198,10 @@ export function useModelConfig({
 				}
 			} else {
 				// XZ-R16-09: prefix with [renderer:useModelConfig].
-				console.error("[renderer:useModelConfig] Failed to get model status:", statusResult.reason);
+				console.error(
+					"[renderer:useModelConfig] Failed to get model status:",
+					statusResult.reason,
+				);
 			}
 
 			if (catalogResult.status === "fulfilled") {
@@ -206,7 +215,10 @@ export function useModelConfig({
 				}
 			} else {
 				// XZ-R16-09: prefix with [renderer:useModelConfig].
-				console.error("[renderer:useModelConfig] Failed to get model catalog:", catalogResult.reason);
+				console.error(
+					"[renderer:useModelConfig] Failed to get model catalog:",
+					catalogResult.reason,
+				);
 			}
 		} finally {
 			markUpdated();

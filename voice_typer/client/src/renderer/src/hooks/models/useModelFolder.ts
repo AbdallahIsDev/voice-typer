@@ -149,18 +149,18 @@ export function useModelFolder({
 			} else {
 				showSnack(t("models.import.failedAll"), "error");
 			}
-		if (importResult.errors.length > 0) {
-			for (const err of importResult.errors) {
-				// XZ-R16-09: prefix with [renderer:useModelFolder] to
-				// match the [renderer:<module>] convention.
-				console.error(
-					"[renderer:useModelFolder] Import error for",
-					err.model,
-					":",
-					err.error,
-				);
+			if (importResult.errors.length > 0) {
+				for (const err of importResult.errors) {
+					// XZ-R16-09: prefix with [renderer:useModelFolder] to
+					// match the [renderer:<module>] convention.
+					console.error(
+						"[renderer:useModelFolder] Import error for",
+						err.model,
+						":",
+						err.error,
+					);
+				}
 			}
-		}
 		} catch (err) {
 			showSnack(
 				t("models.import.failed", { error: formatErrorMessage(err) }),
