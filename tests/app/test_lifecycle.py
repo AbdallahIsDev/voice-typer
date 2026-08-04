@@ -709,14 +709,30 @@ class TestAppInitManagerFailureWarning:
     production logs (default level is INFO). The fix bumps to
     ``log.warning`` with ``exc_info=True``.
 
-    AB-30: construction is now LAZY (via @property), so the failure
-    is triggered on first access, not during ``__init__``."""
+    AB-30: construction is now LAZY — moved out of ``__init__`` into
+    the dictation-pipeline steps (``text_steps._apply_templates`` /
+    ``_apply_vocabulary``), which construct on first access and log
+    ``[PIPELINE] ... failed`` at WARNING with ``exc_info=True`` when
+    construction raises (DJ-2 kept the app-level ``_template_manager``
+    / ``_vocabulary_manager`` properties as plain backings)."""
 
-    def test_template_manager_failure_logged_at_warning(self, monkeypatch, caplog, tmp_path):
-        """When TemplateManager construction raises, the exception must
-        be logged at WARNING level (not debug)."""
-        import logging
+    # ─── Helpers ────────────────────────────────────────────────
 
+    @staticmethod
+    def _make_pipeline(app):
+        """Build a DictationPipeline shell wired to ``app`` so the
+        text-step mixin methods can be exercised directly."""
+        from voice_typer.server.dictation_pipeline import DictationPipeline
+
+        pipeline = DictationPipeline.__new__(DictationPipeline)
+        pipeline._app = app
+        pipeline._templates_applied = False
+        return pipeline
+
+    @staticmethod
+    def _make_app(monkeypatch, tmp_path):
+        """Minimal app with the lazy manager backings + tray + config
+        the pipeline steps read."""
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
@@ -724,7 +740,24 @@ class TestAppInitManagerFailureWarning:
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
 
+        from voice_typer.server.app import VoiceTyperApp
+
+        app = VoiceTyperApp()
+        app.tray = MagicMock()
+        app.config.templates_enabled = True
+        app.config.vocabulary_enabled = True
+        return app
+
+    def test_template_manager_failure_logged_at_warning(self, monkeypatch, caplog, tmp_path):
+        """When TemplateManager construction raises inside
+        ``_apply_templates``, the exception must be logged at WARNING
+        level (not debug) and the app backing must stay None so the
+        next cycle retries construction."""
+        import logging
+
         import voice_typer.server.templates as templates_mod
+
+        app = self._make_app(monkeypatch, tmp_path)
 
         original_tm = templates_mod.TemplateManager
 
@@ -734,48 +767,48 @@ class TestAppInitManagerFailureWarning:
 
         monkeypatch.setattr(templates_mod, "TemplateManager", _FailingTemplateManager)
 
-        from voice_typer.server.app import VoiceTyperApp
+        pipeline = self._make_pipeline(app)
 
-        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.app"):
-            app_instance = VoiceTyperApp()
-            # trigger lazy init by accessing the property
-            _tm = app_instance._template_manager
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):
+            result = pipeline._apply_templates("hello world")
 
         try:
             template_records = [
                 r
                 for r in caplog.records
-                if "TemplateManager lazy-init failed" in r.message
-                or "TemplateManager lazy-init failed" in str(r.getMessage())
+                if "Template matching failed" in r.message or "Template matching failed" in str(r.getMessage())
             ]
-            assert template_records, "APP-8: VoiceTyperApp._template_manager must log a warning when construction fails"
+            assert template_records, "APP-8: template lazy-init failure must be logged at WARNING"
             rec = template_records[0]
             assert rec.levelno == logging.WARNING, (
-                f"APP-8: TemplateManager init failure must be logged at "
-                f"WARNING level (got {rec.levelname}); previously it was "
-                f"swallowed at debug level, making failures invisible."
+                f"APP-8: template init failure must be logged at WARNING level "
+                f"(got {rec.levelname}); previously it was swallowed at debug "
+                f"level, making failures invisible."
             )
             assert rec.exc_info is not None, (
-                "APP-8: TemplateManager init failure log must include "
-                "exc_info=True so the stack trace is captured for diagnosis"
+                "APP-8: template init failure log must include exc_info=True "
+                "so the stack trace is captured for diagnosis"
             )
-            assert app_instance._template_manager is None, "APP-8: on failure, _template_manager must be reset to None"
+            assert result == "hello world", (
+                "The pipeline must return the original text when template "
+                "matching fails (dictation completes un-transformed)."
+            )
+            assert app._template_manager is None, (
+                "APP-8: on failure, _template_manager backing must stay None so the next cycle retries construction."
+            )
         finally:
             templates_mod.TemplateManager = original_tm
 
     def test_vocabulary_manager_failure_logged_at_warning(self, monkeypatch, caplog, tmp_path):
-        """When VocabularyManager construction raises, the exception must
-        be logged at WARNING level (not debug)."""
+        """When VocabularyManager construction raises inside
+        ``_apply_vocabulary``, the exception must be logged at WARNING
+        level (not debug) and the app backing must stay None so the
+        next cycle retries construction."""
         import logging
 
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
-        monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
-        monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
-        monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
-
         import voice_typer.server.vocabulary as vocab_mod
+
+        app = self._make_app(monkeypatch, tmp_path)
 
         original_vm = vocab_mod.VocabularyManager
 
@@ -785,30 +818,31 @@ class TestAppInitManagerFailureWarning:
 
         monkeypatch.setattr(vocab_mod, "VocabularyManager", _FailingVocabularyManager)
 
-        from voice_typer.server.app import VoiceTyperApp
+        pipeline = self._make_pipeline(app)
 
-        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.app"):
-            app_instance = VoiceTyperApp()
-            # trigger lazy init by accessing the property
-            _vm = app_instance._vocabulary_manager
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.dictation_pipeline"):
+            result = pipeline._apply_vocabulary("hello world")
 
         try:
             vocab_records = [
                 r
                 for r in caplog.records
-                if "VocabularyManager lazy-init failed" in r.message
-                or "VocabularyManager lazy-init failed" in str(r.getMessage())
+                if "Vocabulary correction failed" in r.message or "Vocabulary correction failed" in str(r.getMessage())
             ]
-            assert vocab_records, "APP-8: VoiceTyperApp._vocabulary_manager must log a warning when construction fails"
+            assert vocab_records, "APP-8: vocabulary lazy-init failure must be logged at WARNING"
             rec = vocab_records[0]
             assert rec.levelno == logging.WARNING, (
-                f"APP-8: VocabularyManager init failure must be logged at WARNING level (got {rec.levelname})"
+                f"APP-8: vocabulary init failure must be logged at WARNING level (got {rec.levelname})"
             )
             assert rec.exc_info is not None, (
-                "APP-8: VocabularyManager init failure log must include exc_info=True so the stack trace is captured"
+                "APP-8: vocabulary init failure log must include exc_info=True so the stack trace is captured"
             )
-            assert app_instance._vocabulary_manager is None, (
-                "APP-8: on failure, _vocabulary_manager must be reset to None"
+            assert result == "hello world", (
+                "The pipeline must return the original text when vocabulary "
+                "correction fails (dictation completes un-transformed)."
+            )
+            assert app._vocabulary_manager is None, (
+                "APP-8: on failure, _vocabulary_manager backing must stay None so the next cycle retries construction."
             )
         finally:
             vocab_mod.VocabularyManager = original_vm

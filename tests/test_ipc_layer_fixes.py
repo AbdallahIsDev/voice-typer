@@ -209,7 +209,7 @@ class TestPendingSnapshotGatedOnTcpClient:
         server._lock = threading.RLock()
         server._tcp_write_lock = threading.RLock()
 
-        srv, cli = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv, cli = socket.socketpair()
         try:
             tcp_client = _TCPLineIO(srv)
             server._tcp_client = tcp_client
@@ -278,7 +278,7 @@ class TestCompactJsonSerialization:
         server._pending_tcp = []
         server._tcp_mode = True
 
-        srv, cli = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv, cli = socket.socketpair()
         try:
             tcp_client = _TCPLineIO(srv)
             server._tcp_client = tcp_client
@@ -530,7 +530,7 @@ class TestTransportBuffering:
         readline (the existing contract)."""
         from voice_typer.server.ipc.transport import _TCPLineIO
 
-        srv, cli = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        srv, cli = socket.socketpair()
         try:
             io_obj = _TCPLineIO(srv)
             # Sanity: the reader is a TextIOBase-like object that

@@ -32,12 +32,16 @@ class TestDispatchGetHistory:
                 "data": {"limit": 10},
             }
         )
-        mock_app.history_db.get_recent.assert_called_with(10, 0, raise_on_error=True)
+        mock_app.history_db.get_recent.assert_called_with(
+            10, 0, raise_on_error=True, before_timestamp=None, before_id=None
+        )
 
     def test_default_limit_is_50(self, server, mock_app):
         mock_app.history_db.get_recent = MagicMock(return_value=[])
         server._dispatch({"id": 1, "type": "get_history"})
-        mock_app.history_db.get_recent.assert_called_with(50, 0, raise_on_error=True)
+        mock_app.history_db.get_recent.assert_called_with(
+            50, 0, raise_on_error=True, before_timestamp=None, before_id=None
+        )
 
 
 # ── SEC-010: history limit bounding ──────────────────────────────────────
@@ -59,7 +63,9 @@ class TestHistoryLimitBoundingClampsCallerInput:
             }
         )
         # get_recent must be called with 500, not 100M
-        mock_app.history_db.get_recent.assert_called_once_with(500, 0, raise_on_error=True)
+        mock_app.history_db.get_recent.assert_called_once_with(
+            500, 0, raise_on_error=True, before_timestamp=None, before_id=None
+        )
 
     def test_get_history_with_zero_limit_clamped_to_1(self, server, mock_app):
         mock_app.history_db.get_recent = MagicMock(return_value=[])
@@ -70,7 +76,9 @@ class TestHistoryLimitBoundingClampsCallerInput:
                 "data": {"limit": 0},
             }
         )
-        mock_app.history_db.get_recent.assert_called_once_with(1, 0, raise_on_error=True)
+        mock_app.history_db.get_recent.assert_called_once_with(
+            1, 0, raise_on_error=True, before_timestamp=None, before_id=None
+        )
 
     def test_get_history_with_negative_limit_clamped_to_1(self, server, mock_app):
         mock_app.history_db.get_recent = MagicMock(return_value=[])
@@ -81,7 +89,9 @@ class TestHistoryLimitBoundingClampsCallerInput:
                 "data": {"limit": -100},
             }
         )
-        mock_app.history_db.get_recent.assert_called_once_with(1, 0, raise_on_error=True)
+        mock_app.history_db.get_recent.assert_called_once_with(
+            1, 0, raise_on_error=True, before_timestamp=None, before_id=None
+        )
 
     def test_get_history_with_string_limit_accepted(self, server, mock_app):
         """Numeric strings from form inputs must be accepted."""
@@ -93,7 +103,9 @@ class TestHistoryLimitBoundingClampsCallerInput:
                 "data": {"limit": "25"},
             }
         )
-        mock_app.history_db.get_recent.assert_called_once_with(25, 0, raise_on_error=True)
+        mock_app.history_db.get_recent.assert_called_once_with(
+            25, 0, raise_on_error=True, before_timestamp=None, before_id=None
+        )
 
     def test_get_history_with_garbage_limit_uses_default(self, server, mock_app):
         mock_app.history_db.get_recent = MagicMock(return_value=[])
@@ -104,7 +116,9 @@ class TestHistoryLimitBoundingClampsCallerInput:
                 "data": {"limit": "not-a-number"},
             }
         )
-        mock_app.history_db.get_recent.assert_called_once_with(50, 0, raise_on_error=True)
+        mock_app.history_db.get_recent.assert_called_once_with(
+            50, 0, raise_on_error=True, before_timestamp=None, before_id=None
+        )
 
     def test_get_history_with_negative_offset_clamped_to_0(self, server, mock_app):
         mock_app.history_db.get_recent = MagicMock(return_value=[])
@@ -115,7 +129,9 @@ class TestHistoryLimitBoundingClampsCallerInput:
                 "data": {"offset": -50},
             }
         )
-        mock_app.history_db.get_recent.assert_called_once_with(50, 0, raise_on_error=True)
+        mock_app.history_db.get_recent.assert_called_once_with(
+            50, 0, raise_on_error=True, before_timestamp=None, before_id=None
+        )
 
     def test_get_favorites_with_huge_limit_clamped(self, server, mock_app):
         mock_app.history_db.get_favorites = MagicMock(return_value=[])
@@ -126,7 +142,9 @@ class TestHistoryLimitBoundingClampsCallerInput:
                 "data": {"limit": 10**9},
             }
         )
-        mock_app.history_db.get_favorites.assert_called_once_with(500, 0, raise_on_error=True)
+        mock_app.history_db.get_favorites.assert_called_once_with(
+            500, 0, raise_on_error=True, before_timestamp=None, before_id=None
+        )
 
     def test_search_history_with_huge_limit_clamped(self, server, mock_app):
         mock_app.history_db.search = MagicMock(return_value=[])
@@ -137,4 +155,6 @@ class TestHistoryLimitBoundingClampsCallerInput:
                 "data": {"query": "hello", "limit": 10**9},
             }
         )
-        mock_app.history_db.search.assert_called_once_with("hello", 500, 0, raise_on_error=True)
+        mock_app.history_db.search.assert_called_once_with(
+            "hello", 500, 0, raise_on_error=True, before_timestamp=None, before_id=None
+        )
