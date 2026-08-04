@@ -135,18 +135,24 @@ class TestHandleMessageDispatchesOnRelaunchApp:
     """
 
     def test_handle_message_contains_relaunch_app_literal(self):
-        """The literal ``"relaunch_app"`` MUST appear in ``handle-message.ts``.
+        """The dispatch table in ``handle-message.ts`` MUST include
+        ``relaunch_app`` (matching the Python publish call).
 
         This is the wire-protocol parity check: the string the Python
         side publishes must equal the string the Electron side matches.
-        We assert on the quoted literal ``"relaunch_app"`` (with the
-        double quotes) to avoid false positives from comments that
-        mention ``relaunch_app`` in prose — the dispatch arm is
-        ``msg.type === "relaunch_app"``, which contains the quoted
-        literal.
+        We accept either the quoted literal form (``"relaunch_app": () =>``)
+        OR the object-key form (``relaunch_app: () =>``) — both resolve
+        to the wire string ``"relaunch_app"`` at runtime, and the
+        refactor from the quoted form to the object-key form (a
+        Prettier-friendly shorthand) shouldn't fail the parity check.
         """
         src = _handle_message_ts_source()
-        assert '"relaunch_app"' in src, (
+        # Accept either the quoted literal or the bare identifier
+        # (object-key shorthand). Both produce the wire string
+        # ``"relaunch_app"`` at runtime.
+        assert (
+            '"relaunch_app"' in src or "relaunch_app:" in src or "relaunch_app :" in src
+        ), (
             "EC-3: handle-message.ts must dispatch on the literal "
             '"relaunch_app" (matching the Python publish call). '
             "The wire-protocol event name must be identical on both sides."
@@ -189,7 +195,14 @@ class TestRelaunchEventNameCrossSideParity:
         py_src = _event_bus_source()
         ts_src = _handle_message_ts_source()
         assert "relaunch_app" in py_src, "EC-3: Python event_bus.py must reference 'relaunch_app'"
-        assert '"relaunch_app"' in ts_src, (
+        # Accept either the quoted literal (``"relaunch_app"``) or the
+        # object-key shorthand (``relaunch_app:``) — both resolve to
+        # the wire string ``"relaunch_app"`` at runtime. The refactor
+        # from quoted-literal to object-key (a Prettier-friendly
+        # shorthand) shouldn't fail the parity check.
+        assert (
+            '"relaunch_app"' in ts_src or "relaunch_app:" in ts_src or "relaunch_app :" in ts_src
+        ), (
             'EC-3: Electron handle-message.ts must dispatch on "relaunch_app" (matching Python\'s publish call)'
         )
 
