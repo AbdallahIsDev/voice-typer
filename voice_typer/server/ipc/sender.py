@@ -431,7 +431,15 @@ class OutputMixin:
 
         # Step 2: serialize + write OUTSIDE the lock.  A slow client can
         # stall here without blocking other dispatchers.
-        line = json.dumps(msg)
+        #
+        # XV-83: ``ensure_ascii=False`` keeps multi-byte UTF-8
+        # (e.g. CJK / emoji dictation) as-is on the wire instead of
+        # escaping to ``\uXXXX`` (the default ``ensure_ascii=True``).
+        # ``separators=(",", ":")`` strips the default ``", "`` /
+        # ``": "`` whitespace so the wire format is the minimum
+        # number of bytes. Both are wire-format invariants the
+        # ``test_ipc_layer_fixes`` regression suite pins.
+        line = json.dumps(msg, ensure_ascii=False, separators=(",", ":"))
 
         if out is not None:
             # Stdin/stdout mode — used in tests and the legacy console

@@ -101,6 +101,16 @@ def _make_fake_server() -> MagicMock:
     server._ws_drained_event = None
     server._ws_inflight_lock = None
     server._ws_inflight_count = None
+    # ``server.app._shutting_down`` is checked by the cooperative
+    # shutdown gate in ``_make_dispatch`` BEFORE the rate-limit
+    # check. On a MagicMock, ``getattr(server.app, "_shutting_down",
+    # False)`` returns an auto-vivified child mock (truthy, NOT
+    # ``is True``) and the gate fires — every dispatch returns
+    # ``server.shutting_down`` instead of reaching the rate-limit /
+    # handler path. Pin it to ``False`` so the dispatch body runs
+    # (and the rate-limit / readonly / state-mutating branches
+    # exercise as designed).
+    server.app._shutting_down = False
     # For tests that exercise ``_handle_connection`` (not just
     # ``_make_dispatch``): skip the post-auth ``ready`` emission and
     # the initial ``state_changed`` emission (the latter would
