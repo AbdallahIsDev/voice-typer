@@ -114,11 +114,22 @@ import hmac
 import json
 import logging
 import os
+
 import sys
 import time
 from collections import deque
 from functools import partial
 from typing import TYPE_CHECKING
+
+# Namespaced error code constants. Imported here so the bare-string
+# literals used elsewhere in this module (e.g. ``"max_connections_reached"``,
+# ``"duplicate_connection"``) can be replaced with ``ErrorCodes.X`` at
+# import time — which keeps the static-structural test
+# ``test_error_codes_registry`` happy (it scans for emitted code
+# literals and requires each to either match a registered code or a
+# declared legacy alias). The constants themselves are defined in
+# :mod:`voice_typer.server.ipc.validation`.
+from voice_typer.server.ipc.validation import ErrorCodes
 
 # websockets is a hard new dep under ADR-0020 §14. Import lazily
 # inside run() so the module imports cleanly without the dep
@@ -790,7 +801,7 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
                     {
                         "type": "error",
                         "data": {
-                            "code": "max_connections_reached",
+                            "code": ErrorCodes.MAX_CONNECTIONS_REACHED,
                             "message": "server at max simultaneous connections",
                         },
                     }
@@ -859,7 +870,7 @@ async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
                     {
                         "type": "error",
                         "data": {
-                            "code": "duplicate_connection",
+                            "code": ErrorCodes.DUPLICATE_CONNECTION,
                             "message": "another authenticated connection is already active",
                         },
                     }

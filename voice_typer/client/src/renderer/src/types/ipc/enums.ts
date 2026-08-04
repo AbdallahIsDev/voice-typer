@@ -77,6 +77,8 @@ export type ErrorCodes =
 	| "server.not_found"
 	| "server.not_initialized"
 	| "server.consent_required"
+	| "server.max_connections_reached"
+	| "server.duplicate_connection"
 	| "server.cloud_auth_failed"
 	| "server.cloud_rate_limited"
 	| "server.cloud_server_error"
