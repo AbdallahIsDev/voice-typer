@@ -110,7 +110,7 @@ class HotkeyDispatcher:
 
     # ── Registration ───────────────────────────────────────────────────
 
-    def register(self) -> bool:
+    def register(self, skip_aux: bool = False) -> bool:
         """Register global hotkey using the platform-appropriate backend.
 
         when registration fails (typically because another app
@@ -186,35 +186,41 @@ class HotkeyDispatcher:
         # stops and recreates the backend on every call — causing a
         # brief ESC-unavailable window and unnecessary OS grab churn.
         # When ESC is disabled, tear down any existing backend.
-        if app.config.esc_cancel_enabled:
-            esc_already_alive = (
-                self._esc_backend is not None and self._esc_backend.is_alive() and self._esc_spec == "<esc>"
-            )
-            if not esc_already_alive:
-                self.register_esc()
-        elif self._esc_backend is not None:
-            with contextlib.suppress(Exception):
-                self._esc_backend.stop()
-            self._esc_backend = None
-            self._esc_spec = None
+        #
+        # AB-34: ``skip_aux=True`` (used by ``restart()``) skips the
+        # aux-backend calls entirely — the ESC/repaste specs are
+        # unchanged on a hotkey restart, so re-creating those
+        # backends is wasted work that briefly leaves them dead.
+        if not skip_aux:
+            if app.config.esc_cancel_enabled:
+                esc_already_alive = (
+                    self._esc_backend is not None and self._esc_backend.is_alive() and self._esc_spec == "<esc>"
+                )
+                if not esc_already_alive:
+                    self.register_esc()
+            elif self._esc_backend is not None:
+                with contextlib.suppress(Exception):
+                    self._esc_backend.stop()
+                self._esc_backend = None
+                self._esc_spec = None
 
-        # Feature: Repaste hotkey
-        # skip the teardown+rebuild if the repaste backend is
-        # already alive with the same spec. When repaste is disabled
-        # (empty / None), tear down any existing backend.
-        if app.config.repaste_hotkey:
-            repaste_already_alive = (
-                self._repaste_backend is not None
-                and self._repaste_backend.is_alive()
-                and self._repaste_spec == app.config.repaste_hotkey
-            )
-            if not repaste_already_alive:
-                self.register_repaste()
-        elif self._repaste_backend is not None:
-            with contextlib.suppress(Exception):
-                self._repaste_backend.stop()
-            self._repaste_backend = None
-            self._repaste_spec = None
+            # Feature: Repaste hotkey
+            # skip the teardown+rebuild if the repaste backend is
+            # already alive with the same spec. When repaste is disabled
+            # (empty / None), tear down any existing backend.
+            if app.config.repaste_hotkey:
+                repaste_already_alive = (
+                    self._repaste_backend is not None
+                    and self._repaste_backend.is_alive()
+                    and self._repaste_spec == app.config.repaste_hotkey
+                )
+                if not repaste_already_alive:
+                    self.register_repaste()
+            elif self._repaste_backend is not None:
+                with contextlib.suppress(Exception):
+                    self._repaste_backend.stop()
+                self._repaste_backend = None
+                self._repaste_spec = None
 
         return success
 
@@ -615,18 +621,42 @@ class HotkeyDispatcher:
                 log.exception("[HOTKEY] Failed to stop previous backend before restart")
             self._hotkey_backend = None
 
-        # register() atomically installs a NEW backend on success
-        # (assigning self._hotkey_backend = new_backend AFTER start()
-        # succeeds) and leaves self._hotkey_backend UNCHANGED on
-        # failure. Its return value signals the outcome.
-        register_ok = self.register()
+        # AB-34 / T-1: ``register()`` ALSO calls ``register_esc()`` +
+        # ``register_repaste()`` for first-time-setup convenience, but
+        # ``restart()`` only swaps the MAIN dictation hotkey — the
+        # ESC and repaste specs are unchanged, so re-creating those
+        # backends would waste subprocess spawns / thread creation /
+        # Win32 hook installs and briefly leave ESC dead during the
+        # stop→start window. Inline the main-backend creation here
+        # instead of delegating to ``register()``.
+        try:
+            new_backend = self._create_and_start_main_backend(hotkey)
+            self._hotkey_backend = new_backend
+            register_ok = True
+        except Exception as exc:
+            register_ok = False
+            log.warning(
+                "[HOTKEY] restart register failed for %r: %s",
+                hotkey,
+                exc,
+            )
+            # mirror ``register()``'s tray notification on failure so
+            # the user sees which hotkey the OS rejected (PVT-G5-027
+            # — users would otherwise have no idea why their settings
+            # change silently rolled back).
+            with contextlib.suppress(Exception):
+                app.tray.notify(
+                    APP_NAME,
+                    f"Hotkey {hotkey} could not be registered. "
+                    "It may be in use by another app. "
+                    "Use the tray menu to toggle dictation, or pick a different hotkey in Settings.",
+                )
 
         if register_ok:
-            # register() installed a new backend — old backend already
-            # stopped above. Nothing more to do.
+            # new backend installed — old backend already stopped above.
             pass
         else:
-            # register() failed. The OLD backend was already stopped,
+            # registration failed. The OLD backend was already stopped,
             # so we must restore it by re-creating a backend with the
             # OLD hotkey spec. Revert config so subsequent calls (and
             # the tray.set_hotkey below) reflect the OLD spec.
