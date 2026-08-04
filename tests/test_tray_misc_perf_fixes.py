@@ -232,19 +232,24 @@ class TestElapsedTimerGenerationCounter:
         )
 
     def test_rapid_restart_does_not_leak_timer_ref(self):
-        """Rapid ``start()`` calls don't leave a stale ``_timer``
-        reference — the new ``start()``'s Timer is the sole owner.
+        """Rapid ``start()`` calls don't leave a stale ``_worker``
+        reference — the new ``start()``'s worker is the sole owner.
 
-        Pre-fix, a concurrent ``_tick`` from the prior ``start()`` could
-        overwrite ``self._timer`` with a freshly-scheduled Timer that
-        the new ``start()`` doesn't know about. The generation guard
-        makes the stale ``_tick`` exit without rescheduling.
+        DJ-37 single-worker design: each ``start()`` cancels + joins
+        the prior worker (via ``cancel()``) and increments the
+        generation counter so any in-flight worker from a prior
+        ``start()`` exits on its next ``is_active()`` / generation
+        check. Pre-DJ-37, a concurrent ``_tick`` from the prior
+        ``start()`` could overwrite ``self._timer`` with a freshly
+        scheduled ``threading.Timer`` that the new ``start()`` didn't
+        know about. The generation guard (combined with the explicit
+        ``cancel()`` join) closes that leak.
         """
         from voice_typer.server.tray_elapsed_timer import ElapsedTimer
 
         active = threading.Event()
         active.set()
-        refs: list[threading.Timer | None] = []
+        refs: list[threading.Thread | None] = []
         timer = ElapsedTimer(
             tick_callback=lambda: None,
             is_active=active.is_set,
@@ -252,31 +257,32 @@ class TestElapsedTimerGenerationCounter:
         )
 
         timer.start()
-        first_timer = timer._timer
-        assert first_timer is not None
+        first_worker = timer._worker
+        assert first_worker is not None
+        assert isinstance(first_worker, threading.Thread)
 
-        # Rapid restart — cancels the first timer + increments generation.
+        # Rapid restart — cancels + joins the first worker, then
+        # increments generation before starting the new worker.
         timer.start()
-        second_timer = timer._timer
-        assert second_timer is not None
-        assert second_timer is not first_timer, "Restart should create a NEW Timer, not reuse the prior one"
+        second_worker = timer._worker
+        assert second_worker is not None
+        assert second_worker is not first_worker, "Restart should create a NEW worker, not reuse the prior one"
 
-        # The first timer's _tick (if it fires) will see generation != my_gen
-        # and exit without rescheduling — so it can't overwrite _timer.
-        # Wait briefly to let any in-flight _tick from the first start()
-        # fire and observe the generation guard.
+        # ``cancel()`` (called inside the second ``start()``) joined
+        # the first worker. The generation guard is a belt-and-suspenders
+        # against any worker that escapes the join (e.g. is mid-tick).
         time.sleep(0.05)
 
-        # _timer must still point at the second timer (not overwritten by
-        # a stale _tick from the first start()).
-        assert timer._timer is second_timer, (
-            "Stale _tick from the first start() must NOT overwrite _timer "
-            "(generation guard should have made it exit without rescheduling)"
+        # _worker must still point at the second worker (not overwritten
+        # by a stale tick from the first worker).
+        assert timer._worker is second_worker, (
+            "Stale worker from the first start() must NOT overwrite _worker "
+            "(generation guard should have made it exit without re-entering the loop)"
         )
 
         timer.cancel()
-        # After cancel, the timer ref is cleared.
-        assert timer._timer is None
+        # After cancel, the worker ref is cleared.
+        assert timer._worker is None
 
     def test_stale_tick_does_not_reschedule(self):
         """A ``_tick`` whose generation no longer matches exits without
