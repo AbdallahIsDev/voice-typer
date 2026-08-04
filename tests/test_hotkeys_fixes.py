@@ -51,10 +51,23 @@ def _make_tmp_xdg(tmp_path: Path) -> str:
 
 @pytest.fixture
 def xdg_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
-    """Set ``$XDG_RUNTIME_DIR`` to a per-test tmp dir."""
-    xdg = _make_tmp_xdg(tmp_path)
-    monkeypatch.setenv("XDG_RUNTIME_DIR", xdg)
-    return xdg
+    """Set ``$XDG_RUNTIME_DIR`` to a per-test tmp dir.
+
+    ``$XDG_RUNTIME_DIR`` is the path prefix where the AF_UNIX socket
+    is bound.  Linux ``sun_path`` is capped at 108 bytes; the standard
+    pytest ``tmp_path`` fixture creates deeply-nested paths like
+    ``/tmp/pytest-of-USER/pytest-NN/test_xxx0/xdg-runtime/`` which
+    on its own consumes 80+ bytes.  The 30+ byte
+    ``voice-typer-hotkey-dictation.sock`` filename would push the
+    full path past the AF_UNIX limit.  We override the tmp root with
+    a short, dedicated ``/tmp/vt-xdg`` dir so the full path stays
+    well under the limit on all platforms.
+    """
+    import os as _os
+    short_xdg = _os.path.join(_os.path.realpath(_os.sep), "tmp", "vt-xdg")
+    _os.makedirs(short_xdg, mode=0o700, exist_ok=True)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", short_xdg)
+    return short_xdg
 
 
 class TestWaylandSocketPathPerInstance:
