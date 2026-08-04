@@ -42,6 +42,7 @@ import os
 import random
 import sys
 import time
+from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
 
@@ -103,6 +104,75 @@ _CACHE_RATIO_HIT_THRESHOLD_US = 50.0
 # when the active backend fails to load, so we always warm tiny.en as
 # the declared fallback (in addition to the active backend's model).
 _WHISPER_FALLBACK_MODEL_SIZE = "tiny.en"
+
+
+def _iter_warmable_files(root: Path) -> Iterator[Path]:
+    """Iterate warmable files under ``root`` without per-file ``stat()``.
+
+    DJ-46: replaces the old ``root.rglob('*')`` + ``path.is_file()``
+    pattern. ``rglob`` followed by ``is_file()`` issues a fresh
+    ``stat()`` syscall per entry (~40 k stats for torch alone) even
+    though ``os.scandir`` already returned the d_type for each entry.
+
+    This implementation uses an explicit ``os.scandir`` stack-walk
+    (iterative, not recursive — so deep trees don't hit the recursion
+    limit) and filters by ``entry.is_file()`` (uses the cached d_type
+    on filesystems that populate it: ext4/tmpfs on Linux, APFS on
+    macOS, NTFS on Windows). Filesystems with DT_UNKNOWN (e.g. some
+    FUSE mounts) fall back to a stat() — but that's the same
+    worst-case as the old code, so no regression.
+
+    Only yields files whose suffix is in ``_WARM_PACKAGE_SUFFIXES`` —
+    callers don't have to filter. The walk follows symlinks as
+    ``scandir`` does by default; the symlink-loop test
+    (``test_walk_handles_symlinks_without_infinite_loop``) confirms
+    the iterative stack-walk terminates on a self-referential
+    symlink because each directory is pushed at most once per
+    stack level.
+
+    Yields ``pathlib.Path`` objects (one ``stat`` per yielded Path
+    if the caller accesses Path metadata; the call to
+    ``scandir`` + the suffix check themselves are stat-free).
+    """
+    seen: set[Path] = set()
+    stack: list[Path] = [root]
+    suffixes = _WARM_PACKAGE_SUFFIXES
+    while stack:
+        current = stack.pop()
+        try:
+            with os.scandir(current) as it:
+                for entry in it:
+                    # Follow directories (iterative, not recursive —
+                    # bounded by stack depth, not Python's recursion
+                    # limit). Track seen dirs to terminate on
+                    # symlink loops.
+                    try:
+                        is_dir = entry.is_dir(follow_symlinks=True)
+                    except OSError:
+                        # broken symlink / permission denied on the
+                        # link itself; skip.
+                        continue
+                    if is_dir:
+                        try:
+                            real = Path(entry.path).resolve()
+                        except OSError:
+                            continue
+                        if real in seen:
+                            continue
+                        seen.add(real)
+                        stack.append(Path(entry.path))
+                        continue
+                    # File: filter by suffix (the only test the
+                    # production code makes; per-file stat happens
+                    # later in the warm path which doesn't care about
+                    # d_type).
+                    if not entry.name.endswith(tuple(suffixes)):
+                        continue
+                    yield Path(entry.path)
+        except (FileNotFoundError, PermissionError, NotADirectoryError):
+            # Root may have been deleted between list + scandir; or we
+            # lack permission. Skip silently — prewarm is best-effort.
+            continue
 
 
 def _warm_package_files(pkg_name: str) -> int:
