@@ -329,8 +329,17 @@ class TestMainIndexOnHeadersReceivedStrict:
         # app.isPackaged === false (i.e. dev mode).
         assert "app.isPackaged" in src, "main process CSP must branch on app.isPackaged"
         # Find the script-src line — it should reference app.isPackaged.
-        m = re.search(r"script-src[^;]*", src)
-        assert m, "main process must contain a script-src directive (in index.ts or bootstrap.ts)"
+        # The actual code is a template literal whose body includes a
+        # ``${...}`` placeholder (`` `script-src 'self'${...} ` ``);
+        # match the template-literal form specifically so we don't
+        # confuse it with the `` `script-src` `` token inside the
+        # surrounding docstring / comment.
+        m = re.search(r"`script-src[^`]*\$\{[^`]*isPackaged[^`]*`", src)
+        assert m, (
+            "main process must contain a script-src template literal "
+            "whose ``${...}`` placeholder references isPackaged "
+            "(in index.ts or bootstrap.ts)"
+        )
         script_src_line = m.group(0)
         assert "isPackaged" in script_src_line, (
             f"main process script-src must conditionally add unsafe-eval/"
