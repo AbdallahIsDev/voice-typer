@@ -1256,12 +1256,20 @@ class RecordingController:
         # event is a no-op), so the early non-blocking cancel here
         # does not double-join or race the worker.
         with self._streaming_session_lock:
-            _popped_session = self._streaming_session
-            self._streaming_session = None
-            self._pending_finalize_session = _popped_session
-        if _popped_session is not None:
-            with contextlib.suppress(Exception):
-                _popped_session.cancel()
+            # ``_stop_impl`` does NOT pop the session or signal
+            # cancel. The streaming session stays in
+            # ``self._streaming_session`` so the pipeline's
+            # ``pop_streaming_session()`` (called from
+            # ``DictationPipeline.run``) can retrieve it and call
+            # ``finalize(audio)`` for the streaming fast path. The
+            # pipeline's ``finally`` block also calls
+            # ``session.cancel()`` on the popped session so the
+            # worker thread is signalled to exit. Pre-cancelling
+            # here would prevent the session from emitting its
+            # finalized text (a regression of the streaming fast
+            # path covered by
+            # ``test_stop_dictation_uses_streaming_final_text``).
+            self._pending_finalize_session = self._streaming_session
 
         # RACE-013: Start persistent watchdog thread using Event.wait(timeout=90).
         self._start_watchdog_thread()
