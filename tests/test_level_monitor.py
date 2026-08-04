@@ -537,6 +537,14 @@ class TestHeavyWorkOutsideLock:
         processor = MagicMock()
         processor.process_chunk.side_effect = slow_filter
         lm._level_processor = processor
+        # ``_level_bar_filtered=False`` (the default cosmetic-bar
+        # mode) intentionally SKIPS the filter chain — the user only
+        # wants to see the raw mic level. The test needs the filter
+        # chain to ACTUALLY RUN so we can observe the heavy work; the
+        # fastest way to do that without starting a test recording is
+        # to flip the cosmetic-bar opt-in flag (which has the same
+        # code path in ``_process_level_chunk``).
+        lm._level_bar_filtered = True
 
         lm.start_monitoring(mic_id=None)
         try:

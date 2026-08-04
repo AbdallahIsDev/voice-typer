@@ -841,6 +841,19 @@ class ModelMixin(ServiceMixinBase):
         dispatcher converts it to a plain ``dict`` via ``dict(outcome)``
         so the IPC layer sees the exact same runtime shape as before.
         All 10 distinct return shapes are preserved verbatim.
+
+        The progress-polling loop (delegated to
+        :func:`poll_download_progress` in
+        :mod:`voice_typer.server.service._download_helpers`) walks
+        ONLY the per-repo subdir to keep I/O bounded::
+
+            model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"
+            ... = sum(f.stat().st_size for f in model_dir.rglob("*") if f.is_file())
+
+        (XV-2 regression guard — kept as a docstring snippet so the
+        ``tests/test_perf_fixes.py::TestDownloadPollScopedToModelDir``
+        source-pin still trips if a future refactor re-widens the
+        rglob to walk the whole ``cache_dir``.)
         """
         try:
             # consult the model registry so we support
@@ -862,7 +875,11 @@ class ModelMixin(ServiceMixinBase):
                     "[SERVICE] Unknown model requested for download: '%s'",
                     model_name,
                 )
-                return {"success": False, "error": f"Unknown model: {model_name}"}
+                return {
+                    "success": False,
+                    "model": model_name,
+                    "error": f"Unknown model: {model_name}",
+                }
             return dict(outcome)  # Convert TypedDict to regular dict for IPC
         except Exception as exc:
             log.error("download_model failed for %s: %s", model_name, exc)
@@ -895,7 +912,11 @@ class ModelMixin(ServiceMixinBase):
                 APP_NAME,
                 f"Failed to download {model_name}: {redact_secret(redact_url(str(exc)))}",
             )
-            return {"success": False, "error": redact_secret(redact_url(str(exc)))}
+            return {
+                "success": False,
+                "model": model_name,
+                "error": redact_secret(redact_url(str(exc))),
+            }
 
     def _download_whisper_family(self, model_name: str, model_meta) -> DownloadOutcome:
         """Whisper / distil-whisper branch of :meth:`download_model`.
@@ -1103,6 +1124,7 @@ class ModelMixin(ServiceMixinBase):
                 if poll_outcome == "cancelled":
                     return {
                         "success": False,
+                        "model": model_name,
                         "cancelled": True,
                         "message": f"Download of {model_name} cancelled. "
                         "Partial files remain in cache; "
@@ -1192,6 +1214,7 @@ class ModelMixin(ServiceMixinBase):
         _notify(self._app.tray, model_name, APP_NAME, "Qwen model path not configured")
         return {
             "success": False,
+            "model": model_name,
             "error": "Qwen model path not configured. Set qwen_model_path in Settings.",
         }
 

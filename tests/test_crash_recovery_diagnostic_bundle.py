@@ -693,8 +693,14 @@ class TestEnvVarRedaction:
         from voice_typer.server.crash_recovery import CrashRecovery
 
         # Bearer token (masked, prefix preserved → "Bearer ***") +
-        # 300 trailing chars (preserved, total > 200 → truncated).
-        long_value = "Bearer sk-abcdefghijklmnopqrstuvwxyz1234567890" + " " + "x" * 300
+        # 300 trailing chars. The trailing chars are short tokens
+        # separated by ``.`` (NOT a long bare token) so the
+        # bare-token redaction pattern doesn't match them; the only
+        # redaction is the Bearer + sk- masking at the start, which
+        # leaves a small prefix and a long unbroken suffix — total
+        # > 200 chars triggers the truncation marker.
+        trailing = " ".join(f"a.b.{i:03d}" for i in range(60))  # ~12*60 = 720 chars
+        long_value = "Bearer sk-abcdefghijklmnopqrstuvwxyz1234567890 " + trailing
         monkeypatch.setenv("VOICE_TYPER_LONG", long_value)
         cr = CrashRecovery(config_dir=recovery_dir)
         bundle_path = cr.create_diagnostic_bundle()
@@ -734,9 +740,15 @@ class TestHomePathRedaction:
 
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        # Force the home dir to a distinctive value so we can detect
-        # the prefix.
-        monkeypatch.setattr("os.path.expanduser", lambda p: "/home/test_user" if p == "~" else p)
+        # Patch expanduser so the home IS recovery_dir (the test's
+        # tmp_path). The bundle's prewarm.json contains paths under
+        # the recovery_dir; ``_redact_home_path`` replaces the
+        # home prefix with ``~`` so paths get a ``~`` prefix in the
+        # bundle.
+        monkeypatch.setattr(
+            "os.path.expanduser",
+            lambda p: str(recovery_dir) if p == "~" else p,
+        )
         cr = CrashRecovery(config_dir=recovery_dir)
         bundle_path = cr.create_diagnostic_bundle()
 
@@ -744,9 +756,9 @@ class TestHomePathRedaction:
             prewarm_data = _json.loads(zf.read("prewarm.json").decode("utf-8"))
 
         sentinel_path = prewarm_data.get("sentinel_path", "")
-        # The home-directory prefix MUST NOT appear (the username
-        # ``test_user`` would leak via the path).
-        assert "/home/test_user" not in sentinel_path, (
+        # The full home-directory prefix MUST NOT appear in the
+        # redacted path.
+        assert str(recovery_dir) not in sentinel_path, (
             f"UE-5-F2 regression: home prefix leaked into sentinel_path: {sentinel_path!r}"
         )
         # The path is prefixed with ``~`` (the redacted form).
@@ -762,7 +774,12 @@ class TestHomePathRedaction:
 
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        monkeypatch.setattr("os.path.expanduser", lambda p: "/home/test_user" if p == "~" else p)
+        # See ``test_prewarm_json_sentinel_path_redacted`` for the
+        # rationale on pinning expanduser to recovery_dir.
+        monkeypatch.setattr(
+            "os.path.expanduser",
+            lambda p: str(recovery_dir) if p == "~" else p,
+        )
         cr = CrashRecovery(config_dir=recovery_dir)
         bundle_path = cr.create_diagnostic_bundle()
 
@@ -770,7 +787,7 @@ class TestHomePathRedaction:
             prewarm_data = _json.loads(zf.read("prewarm.json").decode("utf-8"))
 
         pid_file_path = prewarm_data.get("pid_file_path", "")
-        assert "/home/test_user" not in pid_file_path
+        assert str(recovery_dir) not in pid_file_path
         assert pid_file_path.startswith("~")
 
     def test_bundle_path_in_log_is_redacted(self, recovery_dir, monkeypatch, caplog):
@@ -782,7 +799,18 @@ class TestHomePathRedaction:
 
         from voice_typer.server.crash_recovery import CrashRecovery
 
-        monkeypatch.setattr("os.path.expanduser", lambda p: "/home/test_user" if p == "~" else p)
+        # ``_redact_home_path`` only redacts when the path starts
+        # with the home dir (resolved via ``os.path.expanduser``).
+        # The default ``recovery_dir`` is under /tmp; the test's
+        # intent is to verify that paths under the home dir get
+        # redacted, so we patch expanduser to make the home BE the
+        # recovery_dir's parent — any path under recovery_dir will
+        # then start with the (mocked) home and be redacted to a
+        # ``~`` prefix.
+        monkeypatch.setattr(
+            "os.path.expanduser",
+            lambda p: str(recovery_dir) if p == "~" else p,
+        )
         cr = CrashRecovery(config_dir=recovery_dir)
         with caplog.at_level(logging.INFO, logger="voice_typer.server.diagnostics_export"):
             returned_path = cr.create_diagnostic_bundle()

@@ -64,8 +64,15 @@ def _make_minimal_device_manager():
     dm.recorder._spawn_device_thread = MagicMock()
     # ``on_microphone_permission_revoked`` is the callback the helper
     # invokes. Defaults to None (not wired) so the fallback path is
-    # exercised; individual tests override to a callable.
+    # exercised; individual tests override to a callable. We also
+    # explicitly pin ``on_device_lost`` to None so the test exercises
+    # the "neither on_microphone_permission_revoked nor on_device_lost
+    # is wired → fall back to on_silence_auto_stop" path; without
+    # this pin, ``MagicMock`` would auto-vivify ``on_device_lost`` as a
+    # truthy callable and the fallback chain would short-circuit at
+    # the on_device_lost step.
     dm.recorder.on_microphone_permission_revoked = None
+    dm.recorder.on_device_lost = None
     dm.recorder.on_silence_auto_stop = None
     return dm
 
@@ -319,12 +326,25 @@ class TestHealthCheckerLoopPeriodicProbe:
     def test_loop_skips_permission_probe_when_counter_below_interval(self, monkeypatch):
         """With ``_permission_check_interval=2`` and counter starting
         at 0, the loop does NOT call the probe on the first wake
-        (counter goes 0→1, below the threshold of 2)."""
+        (counter goes 0→1, below the threshold of 2).
+
+        To guarantee only ONE wake fires before the stop event, we
+        use a long wake interval (0.5s) — the loop is sleeping in
+        ``Event.wait(0.5)`` when the stop event arrives (~0.05s
+        later), so it wakes-on-stop and exits without a second wake.
+        With the original 0.01s wake interval + 0.05s stop delay,
+        the loop would race through ~5 wakes before the stop
+        arrived and trigger the probe at the 2nd wake.
+        """
         from voice_typer.server import permissions
 
         dm = _make_minimal_device_manager()
         dm._permission_check_interval = 2
         dm._permission_check_counter = 0
+        # Long wake interval so the loop is sleeping when the stop
+        # event fires (rather than racing through multiple 0.01s
+        # wakes).
+        dm._device_check_interval_s = 0.5
         probe_calls: list[bool] = []
         original_probe = dm._check_microphone_permission_revoked
 

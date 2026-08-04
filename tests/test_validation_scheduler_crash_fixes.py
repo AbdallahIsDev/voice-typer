@@ -280,9 +280,18 @@ class TestDirEnsuredFlag:
                 cr.shutdown()
 
     def test_chmod_called_once_then_skipped(self, monkeypatch):
-        """On POSIX, ``os.chmod`` is called on the first save and
-        skipped on subsequent saves (the ``_dir_ensured`` flag is set
-        after the first successful chmod)."""
+        """On POSIX, the DIRECTORY ``os.chmod`` is called on the first
+        save and skipped on subsequent saves (the ``_dir_ensured``
+        flag is set after the first successful chmod).
+
+        Note: every save also calls ``_secure_atomic_write`` which
+        ``os.chmod``s the temp file (and the final renamed file) for
+        ``0o600`` perms — that is per-save by design (the temp file
+        is freshly created each time) and is NOT what this regression
+        is guarding. We filter to the directory path so we only count
+        the dir-chmod that the ``_dir_ensured`` flag is intended to
+        deduplicate.
+        """
         from voice_typer.server import crash_recovery as cr_mod
         from voice_typer.server.crash_recovery import CrashRecovery
 
@@ -307,16 +316,36 @@ class TestDirEnsuredFlag:
                 import time
 
                 time.sleep(0.2)
-                first_chmod_count = len(chmod_calls)
-                assert first_chmod_count >= 1, "XZ-R17-08: first save must call os.chmod at least once"
-                # Second add → second save → chmod must NOT be called
-                # again (the _dir_ensured flag is set).
+                # Filter to directory-mode chmod calls only (the
+                # ``_dir_ensured`` flag guards ``chmod(dir, 0o700)``).
+                # File-mode chmod calls (the temp file + final
+                # ``voice-typer-recovery.json`` for ``0o600``) happen
+                # every save and are out of scope for this regression.
+                config_dir = Path(tmpdir).resolve()
+                dir_chmod_calls = [
+                    p for p in chmod_calls
+                    if p.resolve() == config_dir and p.is_dir()
+                ]
+                first_dir_chmod_count = len(dir_chmod_calls)
+                assert first_dir_chmod_count >= 1, (
+                    f"XZ-R17-08: first save must call os.chmod on the "
+                    f"config dir at least once (got {first_dir_chmod_count} "
+                    f"dir chmods in {chmod_calls!r})"
+                )
+                # Second add → second save → dir-chmod must NOT be
+                # called again (the _dir_ensured flag is set).
                 cr.add("second transcription")
                 time.sleep(0.2)
-                second_chmod_count = len(chmod_calls)
-                assert second_chmod_count == first_chmod_count, (
-                    f"XZ-R17-08: subsequent saves must skip the chmod "
-                    f"(expected {first_chmod_count} calls, got {second_chmod_count})"
+                dir_chmod_calls = [
+                    p for p in chmod_calls
+                    if p.resolve() == config_dir and p.is_dir()
+                ]
+                second_dir_chmod_count = len(dir_chmod_calls)
+                assert second_dir_chmod_count == first_dir_chmod_count, (
+                    f"XZ-R17-08: subsequent saves must skip the dir-chmod "
+                    f"(expected {first_dir_chmod_count} calls, got "
+                    f"{second_dir_chmod_count}; all chmod calls: "
+                    f"{chmod_calls!r})"
                 )
             finally:
                 cr.shutdown()

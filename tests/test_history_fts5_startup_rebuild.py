@@ -86,7 +86,14 @@ class _FlakyConn:
         return _FlakyCursor(self._real.cursor(), self)
 
     def execute(self, sql, *args, **kwargs):
-        if "VALUES('rebuild')" in sql:
+        # Fail on either per-delete ``'optimize'`` (the per-row
+        # FTS5 purge in :meth:`HistoryDB.delete` — preferred over
+        # ``'rebuild'`` for O(N) reasons) OR the periodic
+        # ``'rebuild'`` (run by the retention sweep and the
+        # startup rebuild on each launch). Both forms reach the
+        # FTS5 shadow table via the same ``transcriptions_fts``
+        # INSERT command.
+        if "VALUES('optimize')" in sql or "VALUES('rebuild')" in sql:
             self.rebuild_attempts.append(True)
             if self._rebuild_should_fail():
                 raise sqlite3.OperationalError("simulated FTS5 rebuild failure (AP-17 test)")
@@ -116,7 +123,7 @@ class _FlakyCursor:
         self._parent = parent
 
     def execute(self, sql, *args, **kwargs):
-        if "VALUES('rebuild')" in sql:
+        if "VALUES('optimize')" in sql or "VALUES('rebuild')" in sql:
             self._parent.rebuild_attempts.append(True)
             if self._parent._rebuild_should_fail():
                 raise sqlite3.OperationalError("simulated FTS5 rebuild failure (AP-17 test)")

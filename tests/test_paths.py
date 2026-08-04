@@ -106,11 +106,13 @@ class TestHelpersReturnPathsUnderConfigDir:
 #   - ``_paths.py``: the canonical home for the legacy-path literal
 #     (``legacy_hf_cache_dir()`` defensive fallback, plus docstring
 #     references explaining the migration).
-#   - ``config.py``: the legacy migration probe inside ``_config_dir()``
-#     itself — this IS the canonical legacy-path check that decides
-#     whether to migrate an existing ``~/.voice-typer`` install to the
-#     platform-specific location.
-_ALLOWED_FILES = {"_paths.py", "config.py"}
+#   - ``config/__init__.py``: the legacy migration probe inside
+#     ``_config_dir()`` itself — this IS the canonical legacy-path check
+#     that decides whether to migrate an existing ``~/.voice-typer``
+#     install to the platform-specific location. (Previously a
+#     ``config.py`` module; refactored into a package split across
+#     ``__init__.py`` / ``loader.py`` / ``coercion.py`` / ``sanitization.py``.)
+_ALLOWED_FILES = {"_paths.py", "__init__.py"}
 
 
 def _strip_docstrings(source: str, filename: str) -> list[str]:
@@ -163,10 +165,11 @@ _LEGACY_PATH_PATTERN = re.compile(r'Path\.home\(\)\s*/\s*"\.voice-typer"')
 
 
 class TestNoHardcodedVoiceTyperPaths:
-    """RW-7: no module in ``voice_typer/server/`` (except ``config.py``
-    for the legacy migration probe and ``_paths.py`` itself, which is
-    the canonical home for the legacy-path literal) still contains the
-    pattern ``Path.home() / ".voice-typer"`` in executable code.
+    """RW-7: no module in ``voice_typer/server/`` (except
+    ``config/__init__.py`` for the legacy migration probe and
+    ``_paths.py`` itself, which is the canonical home for the
+    legacy-path literal) still contains the pattern
+    ``Path.home() / ".voice-typer"`` in executable code.
 
     Every auxiliary path (PID files, sentinel files, log files, venv
     interpreters) must route through the helpers in ``_paths.py`` so
@@ -198,7 +201,6 @@ class TestNoHardcodedVoiceTyperPaths:
         examined_names = {p.name for p in py_files}
         examined_rel = {str(p.relative_to(SERVER_DIR)).replace("\\", "/") for p in py_files}
         required_basenames = (
-            "config.py",
             "_paths.py",
             "autostart_launcher.py",
             "prewarm_scheduler_posix.py",
@@ -211,6 +213,18 @@ class TestNoHardcodedVoiceTyperPaths:
                 f"{SERVER_DIR} — the test cannot verify the regression "
                 "without examining the refactored modules"
             )
+        # ``config`` was refactored from a module (``config.py``) to a
+        # package (``config/__init__.py`` + ``loader.py`` + ``coercion.py``
+        # + ``sanitization.py``). The legacy migration probe that the
+        # ``test_config_py_still_has_legacy_migration_probe`` test
+        # verifies now lives in ``config/__init__.py`` (the package's
+        # public surface) — assert that file is present so the
+        # regression test can examine it.
+        assert "config/__init__.py" in examined_rel, (
+            "RW-7 test setup error: config/__init__.py not found under "
+            f"{SERVER_DIR} — the test cannot verify the legacy migration "
+            "probe without examining the refactored config package"
+        )
         # Package-layout sanity: ensure rglob descended into both the
         # ``prewarm/`` and ``server_platform/`` sub-packages (the
         # pre-refactor ``prewarm.py`` and ``server_platform.py`` were
@@ -232,7 +246,13 @@ class TestNoHardcodedVoiceTyperPaths:
             )
 
         for py_file in py_files:
-            if py_file.name in _ALLOWED_FILES:
+            # Allow the canonical homes for the legacy-path literal:
+            #   - ``_paths.py`` (top-level)
+            #   - ``config/__init__.py`` (the refactored home of the
+            #     former ``config.py`` module; the migration probe
+            #     inside ``_config_dir()`` lives there now).
+            rel_to_server = str(py_file.relative_to(SERVER_DIR)).replace("\\", "/")
+            if py_file.name in _ALLOWED_FILES or rel_to_server == "config/__init__.py":
                 continue
             try:
                 source = py_file.read_text(encoding="utf-8")
@@ -256,12 +276,13 @@ class TestNoHardcodedVoiceTyperPaths:
         )
 
     def test_config_py_still_has_legacy_migration_probe(self):
-        """``config.py`` must retain its ``legacy = Path.home() /
+        """``config/__init__.py`` (the refactored home of the former
+        ``config.py`` module) must retain its ``legacy = Path.home() /
         ".voice-typer"`` migration probe — it's the canonical legacy-
         path check that decides whether to migrate an existing
         ``~/.voice-typer`` install to the platform-specific location.
         Removing it would break migration for existing users."""
-        config_py = SERVER_DIR / "config.py"
+        config_py = SERVER_DIR / "config" / "__init__.py"
         source = config_py.read_text(encoding="utf-8")
         lines = _strip_docstrings(source, str(config_py))
         found = False
@@ -272,9 +293,10 @@ class TestNoHardcodedVoiceTyperPaths:
                 found = True
                 break
         assert found, (
-            "RW-7: config.py must retain its legacy migration probe "
-            "('legacy = Path.home() / \".voice-typer\"') — removing it "
-            "would break migration for existing ~/.voice-typer installs"
+            "RW-7: config/__init__.py must retain its legacy migration "
+            "probe ('legacy = Path.home() / \".voice-typer\"') — "
+            "removing it would break migration for existing "
+            "~/.voice-typer installs"
         )
 
     def test_paths_py_has_legacy_hf_cache_dir(self):

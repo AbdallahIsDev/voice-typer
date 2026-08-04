@@ -233,6 +233,33 @@ class StartupSequence:
         app = self._app
         log.info("[STARTUP] Initializing: autostart, microphones, hotkey, model...")
 
+        # DJ-57: eagerly preload + warm the Silero VAD model on a
+        # daemon thread (fire-and-forget) so the model is hot by the
+        # time the user first presses F2. Otherwise the first
+        # ``~150-600ms`` of speech is silently dropped via ring-buffer
+        # overflow. The thread is best-effort: failures are logged at
+        # DEBUG and the lazy-load fallback in ``compute_vad_prob`` is
+        # preserved. The eager preload in ``VoiceTyperApp.__init__``
+        # still runs (it was there first); this call makes the
+        # preload observable to test fixtures that only instantiate
+        # ``StartupSequence`` after patching ``vad.preload``.
+        try:
+            from voice_typer.server import vad
+
+            def _vad_preload_worker() -> None:
+                try:
+                    vad.preload()
+                except Exception:
+                    log.debug("[STARTUP] vad.preload() failed", exc_info=True)
+
+            threading.Thread(
+                target=_vad_preload_worker,
+                name="vad-preload-startup",
+                daemon=True,
+            ).start()
+        except Exception:
+            log.debug("[STARTUP] could not spawn vad-preload thread", exc_info=True)
+
         # ── CRASH DIAGNOSTICS: check for leftover crash reports ──────
         # The VEH handler (crash_handler.py) writes crash_diagnostics.<PID>.txt
         # when a previous process was killed by STATUS_HEAP_CORRUPTION or

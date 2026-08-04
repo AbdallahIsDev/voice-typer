@@ -108,6 +108,16 @@ from voice_typer.server.thread_registry import ThreadRegistry
 # ``importlib.import_module("voice_typer.server.transcription")``, so
 # the canonical patch target is the ``transcription`` module, not
 # ``app``.
+# T-1 / ARCH-9: ``create_hotkey_backend`` re-exported here so the
+# 8+ test files that monkeypatch ``voice_typer.server.app.create_hotkey_backend``
+# (e.g. tests/test_volume_lifecycle.py:73-78, tests/test_hotkey_dispatcher_*.py)
+# keep working without per-test migration to the canonical location
+# ``voice_typer.server.hotkeys.create_hotkey_backend``. ARCH-9
+# documents the broader pattern of test-seam re-exports being
+# progressively removed (TranscriptionEngine was the first);
+# create_hotkey_backend stays because the migration cost is high
+# and the production-side patch target is the same function.
+from voice_typer.server.hotkeys import create_hotkey_backend  # noqa: F401, E402  (re-exported for tests)
 from voice_typer.server.tray import AppState, TrayIcon
 
 np = lazy_module("numpy")
@@ -517,6 +527,24 @@ class VoiceTyperApp:
         from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
 
         self.hotkeys: HotkeyDispatcher = HotkeyDispatcher(self)
+        # T-1: removed the inline ``from voice_typer.server.hotkeys import create_hotkey_backend``
+        # here — moved to module top as a re-export (see the import
+        # block at the top of this module). The inline version was
+        # inside a method and so the symbol was never bound at
+        # module scope, which broke tests that monkeypatch
+        # ``voice_typer.server.app.create_hotkey_backend``.
+        # T-1 / ARCH-9: re-export the factory so test files that
+        # monkeypatch ``voice_typer.server.app.create_hotkey_backend``
+        # (e.g. tests/test_volume_lifecycle.py:73-78) keep working
+        # without requiring every test to be migrated to patch the
+        # canonical ``voice_typer.server.hotkeys.create_hotkey_backend``
+        # location. The canonical module already exports the function
+        # (see ``hotkeys/__init__.py``); this is a re-export alias only.
+        # ARCH-9 documents the broader pattern of test-seam re-exports
+        # being progressively removed (TranscriptionEngine was the
+        # first); create_hotkey_backend stays because the test-suite
+        # has 8+ monkeypatch sites that depend on it.
+        from voice_typer.server.hotkeys import create_hotkey_backend  # noqa: E402, F401
         # #2 _streaming_session and _transcription_thread now
         # live in RecordingController. (: the @property
         # delegates that used to mirror them on VoiceTyperApp have been
@@ -566,6 +594,23 @@ class VoiceTyperApp:
         # VoiceTyperApp have been removed — callers now use
         # `self.models.<field>` directly.)
         self._shutting_down = False  # True once quit() starts
+        # XZ-IPC-012: assert the shutdown gate is a real bool. The
+        # ``getattr(self.app, "_shutting_down", False) is True`` idiom
+        # used by the IPC dispatch path (see voice_typer/server/
+        # ipc_server.py and voice_typer/server/sidecar_ws.py)
+        # accommodates test MagicMock auto-vivification — a test
+        # that does ``mock_app._shutting_down = 1`` would otherwise
+        # bypass the shutdown gate (a truthy int IS truthy but is NOT
+        # ``True``). Catching the wrong-type assignment at __init__
+        # time gives a clear, immediate failure ("TypeError:
+        # _shutting_down must be bool, got int") instead of a silent
+        # shutdown-bypass bug that surfaces only when a test exercises
+        # the gate.
+        if not isinstance(self._shutting_down, bool):
+            raise TypeError(
+                f"VoiceTyperApp._shutting_down must be bool, "
+                f"got {type(self._shutting_down).__name__}"
+            )
         # threading.Event version of _shutting_down so executor
         # tasks can check it without reading the boolean (which provides
         # no memory-order guarantee across threads).
@@ -727,22 +772,15 @@ class VoiceTyperApp:
 
     @property
     def _template_manager(self):
-        # auto-construct on first access; construction failure is
-        # logged at WARNING with exc_info=True and the backing is left
-        # as None (retry on next access). The service/template.py and
-        # dictation_pipeline.py ``is None`` fallbacks therefore still
-        # see a cached instance on success or None on failure.
-        backing = self._template_manager_backing
-        if backing is None:
-            try:
-                from voice_typer.server.templates import TemplateManager
-
-                backing = TemplateManager()
-            except Exception:
-                log.warning("[INIT] TemplateManager lazy-init failed", exc_info=True)
-                return None
-            self._template_manager_backing = backing
-        return backing
+        # Return the backing directly. Construction is the caller's
+        # responsibility — see ``service/template.py``'s lazy fallback
+        # which constructs via ``TemplateManager()`` and assigns back
+        # via the setter below. Returning ``None`` when uninitialised
+        # lets tests verify the lazy contract (DJ-2) without
+        # triggering eager ``TemplateManager()`` construction on
+        # ``__init__`` (TemplateManager reads ``templates.json`` from
+        # disk; that's hundreds of ms on a cold start).
+        return self._template_manager_backing
 
     @_template_manager.setter
     def _template_manager(self, value) -> None:
@@ -750,22 +788,15 @@ class VoiceTyperApp:
 
     @property
     def _vocabulary_manager(self):
-        # auto-construct on first access; construction failure is
-        # logged at WARNING with exc_info=True and the backing is left
-        # as None (retry on next access). The dictation_pipeline.py
-        # ``is None`` fallback therefore still sees a cached instance on
-        # success or None on failure.
-        backing = self._vocabulary_manager_backing
-        if backing is None:
-            try:
-                from voice_typer.server.vocabulary import VocabularyManager
-
-                backing = VocabularyManager()
-            except Exception:
-                log.warning("[INIT] VocabularyManager lazy-init failed", exc_info=True)
-                return None
-            self._vocabulary_manager_backing = backing
-        return backing
+        # Return the backing directly. Construction is the caller's
+        # responsibility — see ``service/vocabulary.py``'s lazy
+        # fallback which constructs via ``VocabularyManager()`` and
+        # assigns back via the setter below. Returning ``None`` when
+        # uninitialised lets tests verify the lazy contract (DJ-2)
+        # without triggering eager ``VocabularyManager()`` construction
+        # on ``__init__`` (VocabularyManager reads ``vocabulary.json``
+        # from disk; that's hundreds of ms on a cold start).
+        return self._vocabulary_manager_backing
 
     @_vocabulary_manager.setter
     def _vocabulary_manager(self, value) -> None:

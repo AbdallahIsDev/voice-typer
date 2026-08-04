@@ -140,7 +140,7 @@ def test_push_to_ws_does_not_touch_queue_directly() -> None:
     - ``_enqueue_safe`` exists as a module-level callable that
       performs the dance.
     """
-    src = inspect.getsource(sidecar_ws._handle_connection)
+    src = inspect.getsource(sidecar_ws._install_subscriber)
     # The marshal pattern is in place.
     assert "loop.call_soon_threadsafe" in src, (
         "_push_to_ws must marshal the enqueue via loop.call_soon_threadsafe (CR-4: asyncio.Queue is not thread-safe)"

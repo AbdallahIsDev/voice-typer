@@ -108,7 +108,8 @@ def _make_recorder(
     rec._cached_resample_key = ("sentinel",)
     rec._cached_no_resample_len = 999
     rec._cached_no_resample_arr = np.array([0.4, 0.4], dtype=np.float32)
-    rec._cached_resampled_segments = ["sentinel"]
+    rec._cached_resampled_segments = [np.array([0.5, 0.5], dtype=np.float32)]  # sentinel: reset clears
+    rec._cached_no_resample_segments = [np.array([0.3, 0.3], dtype=np.float32)]  # sentinel: reset clears
     rec._cached_resampled_concat_dirty = True
     rec._dropped_chunks = 999
     rec._rms_callback_error_count = 999
@@ -135,7 +136,7 @@ def _make_recorder(
     rec._vad_consecutive_silence_frames = 999
     rec._vad_speech_threshold_db = 999.0
     rec._vad_silence_threshold_db = 999.0
-    rec._vad_calibration_rms_values = ["sentinel"]
+    rec._vad_calibration_rms_values = [0.5, 0.5]  # sentinel: reset clears
     rec._vad_calibrated = True
     rec._user_stop_pending = True  # sentinel: reset to False
     rec._preroll_buffer = collections.deque(maxlen=64)
@@ -591,8 +592,15 @@ def test_secure_clear_caches_routes_through_recording_pkg_indirection(monkeypatc
 
     SessionState(_make_recorder()).secure_clear_caches(rec)
 
-    # Both cached arrays must have been routed through the patched binding.
-    assert len(calls) == 2, f"expected 2 calls, got {len(calls)}"
+    # Four calls expected: 1 for ``_cached_resampled`` + 1 for
+    # ``_cached_no_resample_arr`` + 1 segment in
+    # ``_cached_resampled_segments`` + 1 segment in
+    # ``_cached_no_resample_segments``. The production loops over
+    # the segment lists and calls ``_secure_clear_array`` on each
+    # non-empty segment so a per-snapshot dictated-prefix block
+    # doesn't leak the user's voice into the numpy allocator's free
+    # list (SEC-audit-008 / ).
+    assert len(calls) == 4, f"expected 4 calls (2 arrays + 2 segments), got {len(calls)}"
     # All routed calls must have actually zeroed their argument.
     for arr in calls:
         assert np.all(arr == 0)

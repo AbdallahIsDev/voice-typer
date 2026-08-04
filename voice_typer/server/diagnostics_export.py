@@ -72,7 +72,14 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
     except Exception:
         config_dir = recovery._path.parent
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # UE-5-F6 collision: ``%Y%m%d_%H%M%S`` is second-resolution, so
+    # two exports in the same second produce the same bundle_path —
+    # the second call's ``os.replace`` would clobber the first call's
+    # zip. Append ``%f`` (microseconds) for collision-free naming
+    # even on rapid back-to-back exports (e.g. a user triggers one
+    # from Settings → Troubleshooting while a crash-recovery
+    # auto-export fires in the same second).
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
     bundle_name = f"voice-typer-diagnostics-{timestamp}.zip"
     bundle_path = config_dir / bundle_name
 

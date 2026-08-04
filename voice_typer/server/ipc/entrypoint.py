@@ -22,7 +22,7 @@ from types import FrameType
 # Re-exported by ``ipc_server.py`` so existing
 # ``from voice_typer.server.ipc_server import main`` /
 # ``... import parse_ipc_args`` callers keep working unchanged.
-from voice_typer.server._paths import IPC_PORT
+from voice_typer.server._paths import IPC_PORT, IPC_TOKEN_ENV_VAR
 from voice_typer.server.ipc._helpers import _STDIN_IPC_ENV_VAR, log
 from voice_typer.server.ipc.transport import _pick_available_port
 
@@ -377,7 +377,7 @@ def main() -> None:
         # assign it, leaving expected_token empty and the connection
         # unauthenticated.
         ipc_token = electron_launcher.generate_session_token()
-        os.environ["VOICE_TYPER_IPC_TOKEN"] = ipc_token
+        os.environ[IPC_TOKEN_ENV_VAR] = ipc_token
 
         # pass the BOUND socket through to start_tcp so there's
         # no race window between _pick_available_port's probe and the

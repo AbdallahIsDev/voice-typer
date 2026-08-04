@@ -567,9 +567,20 @@ class TranscriptionEngine:
                         import gc
 
                         gc.collect()
-                        # release PyTorch's cached CUDA blocks
-                        # so the next backend (or CPU reload) can use them.
-                        release_gpu_memory()
+                        # XV-72: drop the redundant release_gpu_memory()
+                        # call here. ``del self._model`` plus ``gc.collect()``
+                        # already trigger PyTorch's __del__ hook which
+                        # releases the parameter tensors' CUDA blocks. The
+                        # follow-up ``self._reload_under_lock()`` below
+                        # sets ``_pending_gc_collect = True`` via the
+                        # standard RACE-023 path so the next caller
+                        # (outside the lock) calls release_gpu_memory()
+                        # with proper happens-before semantics. Calling
+                        # release_gpu_memory() inside this lock was a no-op
+                        # for VRAM release + cost ~10-100ms of sync work
+                        # (torch.cuda.empty_cache() blocks the calling
+                        # thread while it iterates the allocator) holding
+                        # the IPC dispatch lock for no benefit.
                     except Exception:
                         log.debug("[MODEL] GPU memory release failed", exc_info=True)
                     self._model = None
@@ -1028,18 +1039,34 @@ class TranscriptionEngine:
                     try:
                         _safe_seg_text = _redact_pii(_seg_text)
                     except Exception:
-                        # fall back to truncation only if the
-                        # redaction engine itself errors (defensive — the
-                        # redact_pii helper has its own try/except but a
-                        # import failure / regex bug should not crash the
-                        # transcription hot path).
-                        _safe_seg_text = _seg_text[:80]
-                    log.debug(
-                        "[TRANSCRIBE] Segment: [%.1fs - %.1fs] %s",
-                        start,
-                        end,
-                        _safe_seg_text,
-                    )
+                        # fall back to a redacted marker only — do NOT
+                        # log the raw text even truncated, because the
+                        # opt-in ``log_transcriptions`` flag is a privacy
+                        # backstop that the user explicitly enabled, and
+                        # ``_redact_pii is None`` (e.g. an import failure
+                        # of the redaction engine) means PII cannot be
+                        # guaranteed masked. Truncating to 80 chars does
+                        # NOT redact — an 80-char window can still
+                        # contain an email address, phone number, or
+                        # SSN fragment. AP-11 fix: log a redacted marker
+                        # + the segment boundaries only.
+                        log.warning(
+                            "[TRANSCRIBE] Segment: [%.1fs - %.1fs] "
+                            "<redaction-engine-failed — segment text NOT "
+                            "logged to preserve PII guarantee; enable "
+                            "voice_typer.server._secrets.redact_pii and "
+                            "retry>",
+                            start,
+                            end,
+                        )
+                        _safe_seg_text = None  # skip the log.debug below
+                    if _safe_seg_text is not None:
+                        log.debug(
+                            "[TRANSCRIBE] Segment: [%.1fs - %.1fs] %s",
+                            start,
+                            end,
+                            _safe_seg_text,
+                        )
                 # When ``log_transcriptions`` is False (the default) or
                 # ``config`` is None, emit NO segment DEBUG log at all —
                 # not even a char-count-only summary. The segment

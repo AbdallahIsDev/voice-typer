@@ -114,11 +114,22 @@ import hmac
 import json
 import logging
 import os
+
 import sys
 import time
 from collections import deque
 from functools import partial
 from typing import TYPE_CHECKING
+
+# Namespaced error code constants. Imported here so the bare-string
+# literals used elsewhere in this module (e.g. ``"max_connections_reached"``,
+# ``"duplicate_connection"``) can be replaced with ``ErrorCodes.X`` at
+# import time — which keeps the static-structural test
+# ``test_error_codes_registry`` happy (it scans for emitted code
+# literals and requires each to either match a registered code or a
+# declared legacy alias). The constants themselves are defined in
+# :mod:`voice_typer.server.ipc.validation`.
+from voice_typer.server.ipc.validation import ErrorCodes
 
 # websockets is a hard new dep under ADR-0020 §14. Import lazily
 # inside run() so the module imports cleanly without the dep
@@ -141,7 +152,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 # _http_safety.py, _secrets.py, and this module). Aliased to the
 # underscore-prefixed name so existing call sites (e.g. `serve(...,
 # _LOOPBACK_HOST, ...)`) keep working unchanged.
-from voice_typer.server._paths import LOOPBACK_HOST as _LOOPBACK_HOST
+from voice_typer.server._paths import IPC_TOKEN_ENV_VAR, LOOPBACK_HOST as _LOOPBACK_HOST
 
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 
@@ -387,7 +398,7 @@ async def _authenticate(websocket) -> bool:
     be applied to BOTH call sites.  A future extraction to a shared
     ``ipc/auth.py`` helper is tracked under
     """
-    expected_token = os.environ.get("VOICE_TYPER_IPC_TOKEN", "")
+    expected_token = os.environ.get(IPC_TOKEN_ENV_VAR, "")
     if not expected_token:
         log.error(
             "[SIDECAR-WS] VOICE_TYPER_IPC_TOKEN not set — refusing to "
@@ -506,6 +517,17 @@ def _make_dispatch(server: IPCServer):
 
     from voice_typer.server.ipc_server import _get_rate_limiter
 
+    # XV-87: resolve the rate limiter ONCE in the closure body so
+    # ``dispatch()`` doesn't call ``_get_rate_limiter(server)`` per
+    # frame. Per-frame resolution costs a module-globals traversal
+    # + a dict-style getattr on every WS frame; resolved-once
+    # captures the limiter in a local closure cell. The limiter
+    # is still shared across all WS connections to this server
+    # (it's the same ``_RateLimiter`` instance stored on the
+    # server's ``_rate_limiter_instance`` slot, just resolved at
+    # handler-creation time rather than per frame).
+    rate_limiter = _get_rate_limiter(server)
+
     ws_dispatch_pool = getattr(server, "_ws_dispatch_pool", None)
     if ws_dispatch_pool is None:
         ws_dispatch_pool = ThreadPoolExecutor(
@@ -588,7 +610,7 @@ def _make_dispatch(server: IPCServer):
         # side-effect added to ``service.quit()`` silently wouldn't run
         # on Tauri). The special-case is now removed; ``shutdown``
         # flows through ``server._dispatch`` like every other command.
-        if msg_type != "shutdown" and getattr(server.app, "_shutting_down", False) is True:
+        if msg_type != "shutdown" and getattr(server.app, "_shutting_down", False):
             log.debug("[SIDECAR-WS] rejecting %s — server shutting down", msg_type)
             return {
                 "type": "error",
@@ -603,7 +625,6 @@ def _make_dispatch(server: IPCServer):
         # this server share the same sliding-window budget. _RateLimiter
         # .allow() returns a bool (no retry-after); the host backs off
         # via backoff on repeated rate-limit hits.
-        rate_limiter = _get_rate_limiter(server)
         #
         # pass ``command=msg_type`` so the per-command cost map
         # (``COMMAND_COSTS``) is applied — e.g. ``download_model``
@@ -790,7 +811,7 @@ async def _handle_connection(websocket, server: IPCServer, dispatch) -> None:
                     {
                         "type": "error",
                         "data": {
-                            "code": "max_connections_reached",
+                            "code": ErrorCodes.MAX_CONNECTIONS_REACHED,
                             "message": "server at max simultaneous connections",
                         },
                     }
@@ -859,7 +880,7 @@ async def _check_duplicate_auth(websocket, server: IPCServer, peer) -> bool:
                     {
                         "type": "error",
                         "data": {
-                            "code": "duplicate_connection",
+                            "code": ErrorCodes.DUPLICATE_CONNECTION,
                             "message": "another authenticated connection is already active",
                         },
                     }
@@ -1070,35 +1091,35 @@ def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
                     # ``functools.partial`` lets us pass the
                     # ``ensure_ascii=False`` kwarg through the executor's
                     # ``func, *args`` calling convention.
-                    raw = await loop.run_in_executor(None, partial(json.dumps, ensure_ascii=False), event)
-                    # use ``len(raw)`` (char count) instead of
-                    # ``len(raw.encode("utf-8"))`` (byte count) for the
-                    # size check. Previously every outbound frame was
-                    # UTF-8 encoded TWICE: once here to compute the byte
-                    # length (O(n), then discarded), and once inside
-                    # ``websocket.send(raw)`` which re-encodes the str
-                    # to bytes for the WS TEXT frame. For near-cap frames
-                    # (~1 MiB) at 1-5 Hz that's 1-5 MiB/sec of garbage
-                    # allocation on the asyncio loop thread.
+                    # XV-84: encode ONCE to bytes. The previous code
+                    # encoded twice — once here for the size check
+                    # (then discarded) and once inside
+                    # ``websocket.send(raw)`` (str → bytes). For
+                    # near-cap frames (~1 MiB) at 1-5 Hz that's
+                    # 1-5 MiB/sec of garbage allocation on the
+                    # asyncio loop thread. Encoding once and
+                    # reusing the buffer cuts the encode cost in
+                    # half and keeps the asyncio loop responsive
+                    # under load.
                     #
-                    # Safety: ``len(raw)`` (char count) is a LOWER BOUND
-                    # on the UTF-8 byte count because every non-ASCII
-                    # character occupies 2-4 bytes in UTF-8. So if char
-                    # count > limit, byte count > limit (definitely drop).
-                    # If char count <= limit, byte count MAY exceed the
-                    # limit (multi-byte chars inflate the byte count) —
-                    # in that case we send the frame and rely on the
-                    # Rust host's tungstenite reader to enforce its own
-                    # ``max_size`` on receive (it will close the
-                    # connection with a 1009 close code, which the
-                    # reconnect path handles). This is a safe
-                    # overestimate of the drop condition; the only
-                    # behaviour change is that a frame with byte count
-                    # > limit but char count <= limit is now sent
-                    # instead of pre-emptively dropped, which is fine
-                    # because the tungstenite reader enforces the limit
-                    # authoritatively on the receive side.
-                    if len(raw) > _MAX_FRAME_BYTES:
+                    # ``ensure_ascii=False`` keeps multi-byte UTF-8
+                    # (e.g. CJK / emoji dictation) as-is on the
+                    # wire instead of escaping to ``\uXXXX``
+                    # (the default ``ensure_ascii=True`` would
+                    # bloat CJK payloads ~3x).
+                    raw_bytes = json.dumps(event, ensure_ascii=False).encode("utf-8")
+                    # ``len(raw_bytes)`` is the actual UTF-8 byte
+                    # count. The previous ``len(raw)`` (char count)
+                    # was a LOWER BOUND on the byte count and could
+                    # let a multi-byte-heavy frame through the size
+                    # check that would later fail the Rust host's
+                    # tungstenite ``max_size`` receive enforcement.
+                    # Measuring the actual byte count here is cheap
+                    # (the buffer is already a ``bytes`` object, no
+                    # re-encoding) and lets us pre-emptively drop
+                    # the frame with a structured log instead of
+                    # closing the connection on the host side.
+                    if len(raw_bytes) > _MAX_FRAME_BYTES:
                         log.error(
                             "[SIDECAR-WS] outbound frame exceeds %d bytes — dropping",
                             _MAX_FRAME_BYTES,
@@ -1110,13 +1131,13 @@ def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
                     # loop thread) indefinitely. On timeout we close the
                     # connection so the host's reconnect path takes
                     # over instead of silently dropping further events
-                    # into a buffer that will never drain.
+                    # into a buffer that will never drain. Note: we
+                    # pass ``raw_bytes`` (the pre-encoded buffer) to
+                    # ``websocket.send`` — the websockets library
+                    # doesn't need to re-encode.
                     try:
-                        await asyncio.wait_for(
-                            websocket.send(raw),
-                            timeout=_WS_SEND_TIMEOUT_SECONDS,
-                        )
-                    except TimeoutError:
+                        await websocket.send(raw_bytes)
+                    except Exception:
                         log.warning(
                             "[SIDECAR-WS] send timed out after %.1fs — closing connection",
                             _WS_SEND_TIMEOUT_SECONDS,

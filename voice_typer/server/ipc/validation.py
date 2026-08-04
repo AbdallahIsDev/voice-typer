@@ -125,6 +125,17 @@ class ErrorCodes:
     UNKNOWN_COMMAND = "server.unknown_command"
     UNKNOWN_TRAY_ITEM = "server.unknown_tray_item"
     SERVER_NOT_FOUND = "server.not_found"
+    # ``max_connections_reached`` is emitted by ``sidecar_ws.py`` when
+    # a new client attempts to connect after the per-process
+    # connection cap has been hit (so the server has to reject
+    # rather than risk resource exhaustion). The renderer surfaces
+    # this as a transient "server busy" toast with a 5 s retry.
+    MAX_CONNECTIONS_REACHED = "server.max_connections_reached"
+    # ``duplicate_connection`` is emitted by ``sidecar_ws.py`` when
+    # an existing client (matched by IP+token) attempts a second
+    # concurrent connection — the new one is rejected, the existing
+    # one is preserved, and the renderer logs a diagnostic.
+    DUPLICATE_CONNECTION = "server.duplicate_connection"
     # ``not_initialized`` is the namespaced form of the
     # legacy un-prefixed ``not_initialized`` code (used by handlers that
     # need to signal "this subsystem is not yet ready" — e.g.

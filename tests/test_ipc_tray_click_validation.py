@@ -96,7 +96,7 @@ class TestTrayClickErrorEnvelopes:
         resp = _base_resp()
         result = server._handle_tray_click("not a dict", resp)
         assert result["type"] == "error"
-        assert result["data"]["code"] == "invalid_payload", (
+        assert result["data"]["code"] == "client.invalid_payload", (
             "Non-dict data must return invalid_payload (CR-12). The old "
             "inline check returned missing_field for this case, conflating "
             "'malformed request' with 'missing field'."
@@ -109,7 +109,7 @@ class TestTrayClickErrorEnvelopes:
         resp = _base_resp()
         result = server._handle_tray_click({}, resp)
         assert result["type"] == "error"
-        assert result["data"]["code"] == "missing_field"
+        assert result["data"]["code"] == "client.missing_field"
         assert result["data"]["field"] == "id"
 
     def test_non_str_id_returns_invalid_field(self, server):
@@ -123,7 +123,7 @@ class TestTrayClickErrorEnvelopes:
         resp = _base_resp()
         result = server._handle_tray_click({"id": 42}, resp)
         assert result["type"] == "error"
-        assert result["data"]["code"] == "invalid_field", (
+        assert result["data"]["code"] == "client.invalid_field", (
             "Non-str id must return invalid_field (CR-12). The old inline "
             "check let int ids slip through to tray.dispatch_tray_action."
         )
@@ -136,14 +136,14 @@ class TestTrayClickErrorEnvelopes:
         resp = _base_resp()
         result = server._handle_tray_click({"id": None}, resp)
         assert result["type"] == "error"
-        assert result["data"]["code"] == "invalid_field"
+        assert result["data"]["code"] == "client.invalid_field"
 
     def test_list_id_returns_invalid_field(self, server):
         """A list is not a valid ``id`` — must return ``invalid_field``."""
         resp = _base_resp()
         result = server._handle_tray_click({"id": ["a", "b"]}, resp)
         assert result["type"] == "error"
-        assert result["data"]["code"] == "invalid_field"
+        assert result["data"]["code"] == "client.invalid_field"
 
 
 class TestTrayClickHappyPath:
@@ -169,7 +169,7 @@ class TestTrayClickHappyPath:
         resp = _base_resp()
         result = server._handle_tray_click({"id": "nonsense"}, resp)
         assert result["type"] == "error"
-        assert result["data"]["code"] == "unknown_tray_item"
+        assert result["data"]["code"] == "server.unknown_tray_item"
         assert result["data"]["id"] == "nonsense"
 
     def test_no_tray_returns_unknown_tray_item(self, server):
@@ -181,7 +181,7 @@ class TestTrayClickHappyPath:
         resp = _base_resp()
         result = server._handle_tray_click({"id": "anything"}, resp)
         assert result["type"] == "error"
-        assert result["data"]["code"] == "unknown_tray_item"
+        assert result["data"]["code"] == "server.unknown_tray_item"
 
     def test_tray_without_dispatch_method_returns_unknown_tray_item(self, server):
         """When ``app.tray`` exists but lacks ``dispatch_tray_action``
@@ -192,7 +192,7 @@ class TestTrayClickHappyPath:
         resp = _base_resp()
         result = server._handle_tray_click({"id": "anything"}, resp)
         assert result["type"] == "error"
-        assert result["data"]["code"] == "unknown_tray_item"
+        assert result["data"]["code"] == "server.unknown_tray_item"
 
 
 if __name__ == "__main__":

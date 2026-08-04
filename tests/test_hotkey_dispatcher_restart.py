@@ -119,8 +119,9 @@ def test_restart_success_installs_new_backend_and_stops_old(dispatcher: HotkeyDi
     assert dispatcher._app.config.hotkey == "<f3>"
     dispatcher._app.config.save.assert_called_once()
 
-    # Factory was called with the new hotkey spec
-    factory.assert_called_once_with("<f3>")
+    # Factory was called with the new hotkey spec (and the role
+    # kwarg, since the role-aware factory refactor).
+    factory.assert_called_once_with("<f3>", role="dictation")
 
     # NEW backend was started and assigned
     new_backend.start.assert_called_once()
@@ -190,10 +191,12 @@ def test_restart_failure_in_factory_restores_old_hotkey_spec(dispatcher: HotkeyD
     old_backend.stop.assert_called_once()
 
     # Factory was called twice: once for the new (failing) hotkey,
-    # once for the restore (with the OLD hotkey spec).
+    # once for the restore (with the OLD hotkey spec). Each call
+    # passes the hotkey spec + role kwarg (canonical signature of
+    # ``create_hotkey_backend`` since the role-aware refactor).
     assert factory.call_count == 2
-    factory.assert_any_call("<bad>")
-    factory.assert_any_call("<f2>")  # old hotkey spec
+    factory.assert_any_call("<bad>", role="dictation")
+    factory.assert_any_call("<f2>", role="dictation")  # old hotkey spec
 
     # Restored backend is installed (a NEW instance — NOT old_backend,
     # which was already stopped).
@@ -282,10 +285,12 @@ def test_restart_failure_in_start_restores_old_hotkey_spec(dispatcher: HotkeyDis
 
     # Factory was called twice: once for "<f5>" (returned the broken
     # new_backend), once for "<f2>" (the OLD hotkey, returns the
-    # restored backend).
+    # restored backend). Each call passes the hotkey spec + role kwarg
+    # (the canonical signature of ``create_hotkey_backend`` since
+    # the role-aware refactor).
     assert factory.call_count == 2
-    factory.assert_any_call("<f5>")
-    factory.assert_any_call("<f2>")
+    factory.assert_any_call("<f5>", role="dictation")
+    factory.assert_any_call("<f2>", role="dictation")
 
     # The broken new backend's start() was attempted (and raised)
     new_backend.start.assert_called_once()

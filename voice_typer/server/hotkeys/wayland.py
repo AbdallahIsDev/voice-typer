@@ -388,6 +388,12 @@ class WaylandHotkey(HotkeyBackend):
         # Clean up stale socket
         if os.path.exists(socket_path):
             os.unlink(socket_path)
+        # IN-25: the socket's parent directory may not exist (e.g. the
+        # AF_UNIX-length fallback in ``_socket_path`` uses a per-role
+        # subdir).  ``bind()`` requires the parent to exist.
+        parent_dir = os.path.dirname(socket_path)
+        if parent_dir and not os.path.isdir(parent_dir):
+            os.makedirs(parent_dir, mode=0o700, exist_ok=True)
 
         self._server_socket = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
         # close bind→chmod TOCTOU window with umask(0o077).

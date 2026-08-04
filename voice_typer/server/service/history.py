@@ -22,21 +22,62 @@ class HistoryMixin(ServiceMixinBase):
 
     # ── History ─────────────────────────────────────────────────
 
-    def get_history(self, limit: int = 50, offset: int = 0) -> list[dict]:
+    def get_history(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        *,
+        before_timestamp: str | None = None,
+        before_id: int | None = None,
+    ) -> list[dict]:
         """Return recent transcriptions.
 
         raise_on_error=True so the IPC layer can distinguish
                 "empty result" from "operation failed" and surface an error
                 to the renderer.
-        """
-        return self._app.history_db.get_recent(limit, offset, raise_on_error=True)
 
-    def search_history(self, query: str, limit: int = 50, offset: int = 0) -> list[dict]:
+        keyset pagination: ``before_timestamp`` + ``before_id``
+        together form the keyset cursor — the WHERE clause restricts
+        to rows strictly older than ``(before_timestamp, before_id)``
+        in (timestamp DESC, id DESC) order, which is O(log N) via
+        ``idx_timestamp`` (vs OFFSET which is O(offset)). Both cursor
+        values must be supplied to use keyset pagination; otherwise
+        the OFFSET fallback fires (backward-compat with the
+        pre-cursor contract). The IPC layer extracts the cursor from
+        ``data.before_timestamp`` / ``data.before_id`` in
+        :mod:`voice_typer.server.handlers.history_handlers`.
+        """
+        return self._app.history_db.get_recent(
+            limit,
+            offset,
+            raise_on_error=True,
+            before_timestamp=before_timestamp,
+            before_id=before_id,
+        )
+
+    def search_history(
+        self,
+        query: str,
+        limit: int = 50,
+        offset: int = 0,
+        *,
+        before_timestamp: str | None = None,
+        before_id: int | None = None,
+    ) -> list[dict]:
         """Search transcriptions by text.
 
-        raise_on_error=True — see ``get_history``.
+        raise_on_error=True — see ``get_history``. Cursor
+        pagination matches ``get_history`` — see that docstring for
+        the O(log N) vs O(offset) tradeoff.
         """
-        return self._app.history_db.search(query, limit, offset, raise_on_error=True)
+        return self._app.history_db.search(
+            query,
+            limit,
+            offset,
+            raise_on_error=True,
+            before_timestamp=before_timestamp,
+            before_id=before_id,
+        )
 
     def get_today_stats(self) -> dict[str, object]:
         """Return today's transcription statistics.
@@ -81,12 +122,27 @@ class HistoryMixin(ServiceMixinBase):
         """
         return self._app.history_db.toggle_favorite(rec_id, raise_on_error=True)
 
-    def get_favorites(self, limit: int = 50, offset: int = 0) -> list[dict]:
+    def get_favorites(
+        self,
+        limit: int = 50,
+        offset: int = 0,
+        *,
+        before_timestamp: str | None = None,
+        before_id: int | None = None,
+    ) -> list[dict]:
         """Return favorited transcriptions.
 
-        raise_on_error=True — see ``get_history``.
+        raise_on_error=True — see ``get_history``. Cursor
+        pagination matches ``get_history`` — see that docstring for
+        the O(log N) vs O(offset) tradeoff.
         """
-        return self._app.history_db.get_favorites(limit, offset, raise_on_error=True)
+        return self._app.history_db.get_favorites(
+            limit,
+            offset,
+            raise_on_error=True,
+            before_timestamp=before_timestamp,
+            before_id=before_id,
+        )
 
     # ── on-demand full-text + total-count accessors ──
 

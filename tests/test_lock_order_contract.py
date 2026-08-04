@@ -67,7 +67,7 @@ SERVICE_PY_FILES = sorted(SERVICE_DIR.glob("*.py")) if SERVICE_DIR.is_dir() else
 # For backwards-compat with tests that import SERVICE_PY as a single path,
 # point at the App-class host (the primary lock holder).
 SERVICE_PY = SERVICE_DIR / "_base.py"
-DICTATION_PIPELINE_PY = SERVER_DIR / "dictation_pipeline.py"
+DICTATION_PIPELINE_PY = SERVER_DIR / "dictation_stages.py"
 # ``_pending_timers_lock`` was migrated to ``TimerCoordinator`` (
 # Phase 7). The real ``threading.Lock()`` construction lives here —
 # ``app.py`` only keeps a shadow assignment

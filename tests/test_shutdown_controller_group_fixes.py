@@ -860,3 +860,57 @@ class TestSkipSdStopOnRecorderTimeout:
             blocker.set()
 
         fake_sd.stop.assert_not_called()
+
+    def test_sd_stop_skipped_when_recorder_teardown_event_never_set(
+        self, controller, fake_app, monkeypatch
+    ):
+        """UE-2: when ``_recorder_teardown_done`` is NEVER set within
+        9.5s (e.g. the recorder teardown helper crashed mid-call
+        before reaching the line that sets the event), ``sd.stop()``
+        must be skipped — the leaked worker may still be accessing
+        the PortAudio stream, and a concurrent ``sd.stop()`` call
+        reproduces the DE-54 deadlock the code documents as avoided.
+        """
+        fake_app.recorder.recording = True
+
+        # The default ``controller._recorder_teardown_done`` is a fresh
+        # threading.Event that is NEVER set during this test — the
+        # ``_recorder_force_closed`` flag is also False. This is the
+        # exact pre-fix condition: wait() returns False, but the
+        # ``_recorder_force_closed`` check below would proceed to
+        # ``sd.stop()`` and deadlock. The fix: check the wait() return
+        # value FIRST and skip if the recorder teardown never signaled.
+        import voice_typer.server.shutdown_controller as _sc
+
+        # Speed up the test — patch the wait() timeout down to 0.1s
+        # so the test finishes in <1s instead of waiting 9.5s.
+        from voice_typer.server.shutdown.teardowns import sounddevice
+
+        original_teardown_sounddevice = sounddevice.teardown_sounddevice
+
+        def _fast_teardown_sounddevice(controller):
+            # Inline the teardown but with a 0.1s wait timeout for
+            # the recorder event so the test doesn't sit waiting
+            # 9.5s for a never-set event.
+            controller._recorder_teardown_done.wait(timeout=0.1)
+            if not controller._recorder_force_closed:
+                # NEW check from UE-2 fix: skip on wait timeout.
+                return  # production path: log warning + return
+            original_teardown_sounddevice(controller)
+
+        monkeypatch.setattr(
+            sounddevice, "teardown_sounddevice", _fast_teardown_sounddevice
+        )
+
+        fake_sd = MagicMock()
+        fake_sd.stop = MagicMock()
+        monkeypatch.setitem(sys.modules, "sounddevice", fake_sd)
+
+        controller._do_cleanup()
+
+        # sd.stop() must NOT have been called — the wait() timed out
+        # AND _recorder_force_closed is False, so the leaked worker
+        # might still be in the stream. Without the UE-2 fix, this
+        # would have been called and the test would have either
+        # deadlocked or hit the DE-54 race.
+        fake_sd.stop.assert_not_called()

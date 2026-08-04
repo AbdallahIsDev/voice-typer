@@ -117,6 +117,20 @@ _SAFE_LOG_CALL_SITES: dict[str, set[str]] = {
     "remote_session.py": {
         "[PLATFORM] RDP/remote session detected (SM_REMOTESESSION=%d)",
     },
+    # ``shutdown/plan.py`` and ``shutdown_controller.py``: the ``result``
+    # variable here is the bool/None return value of a shutdown-step
+    # callable (e.g. ``step.func()``), NOT transcription text. The
+    # ``__repr__`` of a bool/None is ``"True"``/``"False"``/``"None"`` —
+    # not user data. Allowlist to avoid a false positive on the
+    # shared ``result`` name (the AST walker can't tell from the name
+    # alone whether ``result`` is a transcription variable or a generic
+    # function return value).
+    "plan.py": {
+        "[SHUTDOWN] %s raised: %r",
+    },
+    "shutdown_controller.py": {
+        "[SHUTDOWN] %s raised: %r",
+    },
 }
 
 

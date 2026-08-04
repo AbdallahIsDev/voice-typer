@@ -297,6 +297,19 @@ class TestStopDictationRestoresVolume:
         # Simulate an active, ducked recording
         app.recorder.recording = True
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
+        # Mock the ACTIVE transcriber (not the deprecated ``transcriber``
+        # attribute) — the production dictation pipeline calls
+        # ``app.models.active_transcriber()`` which returns the
+        # registry's active backend. Without an explicit override the
+        # fixture's faster_whisper.WhisperModel is a MagicMock and its
+        # ``transcribe_with_fallback`` returns a MagicMock, which the
+        # downstream text_cleanup receives and crashes on. Pin a
+        # string-returning mock so the transcription cycle completes
+        # and the busy_event clears within the test timeout.
+        mock_transcriber = MagicMock()
+        mock_transcriber.transcribe_with_fallback = MagicMock(return_value="hello")
+        mock_transcriber.device_info = "cpu"
+        app.models._registry.register("whisper", mock_transcriber)
         app._volume_ducker.duck(0.25)
         backend.fade_calls.clear()  # we only want to see the restore fade
         assert app._volume_ducker.is_ducked
@@ -351,6 +364,13 @@ class TestStopDictationRestoresVolume:
 
         app.recorder.recording = True
         app.recorder.stop = MagicMock(return_value=np.ones(16000, dtype=np.float32))
+        # Mock the active transcriber (see test_stop_restores_volume
+        # for rationale) so the transcription cycle completes and
+        # the busy_event clears within the test timeout.
+        mock_transcriber = MagicMock()
+        mock_transcriber.transcribe_with_fallback = MagicMock(return_value="hello")
+        mock_transcriber.device_info = "cpu"
+        app.models._registry.register("whisper", mock_transcriber)
 
         app._stop_dictation()
         _wait_for_busy_clear(app)

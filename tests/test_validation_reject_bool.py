@@ -64,7 +64,10 @@ class TestRejectBoolRule:
         assert err is not None
         assert err["type"] == "error"
         assert err["data"]["code"] == "client.invalid_field"
-        assert err["data"]["legacy_code"] == "invalid_field"
+        # ``legacy_code`` was REMOVED when the renderer migrated fully
+        # to the namespaced ``code`` form. The wire contract is now
+        # ``data.code`` ONLY.
+        assert "legacy_code" not in err["data"]
         assert err["data"]["field"] == "limit"
         # the message must call out the bool/int subclass relationship
         # so the caller (renderer dev) understands WHY the value was

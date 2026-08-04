@@ -231,6 +231,12 @@ class TestSwapToLegacy:
 
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
+        # Register a callback so the swap can hand it to the legacy
+        # backend (the no-callback path is a separate defensive
+        # branch that returns early without transitioning to
+        # FALLBACK — covered by ``test_swap_when_legacy_also_fails``
+        # indirectly).
+        adapter._callback = MagicMock()
         legacy = _make_mock_legacy_backend()
         monkeypatch.setattr(adapter, "_create_legacy_backend", lambda: legacy)
         monkeypatch.setattr(adapter, "_schedule_native_retry", lambda: None)
@@ -263,6 +269,7 @@ class TestSwapToLegacy:
 
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
+        adapter._callback = MagicMock()
         legacy = _make_mock_legacy_backend()
         monkeypatch.setattr(adapter, "_create_legacy_backend", lambda: legacy)
         monkeypatch.setattr(adapter, "_schedule_native_retry", lambda: None)
@@ -278,6 +285,7 @@ class TestSwapToLegacy:
 
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
+        adapter._callback = MagicMock()
         failing_legacy = _make_mock_legacy_backend()
         failing_legacy.start.side_effect = RuntimeError("legacy also fails")
         monkeypatch.setattr(adapter, "_create_legacy_backend", lambda: failing_legacy)
@@ -313,6 +321,7 @@ class TestPermanentFailureCallback:
 
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
+        adapter._callback = MagicMock()
         legacy = _make_mock_legacy_backend()
         monkeypatch.setattr(adapter, "_create_legacy_backend", lambda: legacy)
         monkeypatch.setattr(adapter, "_schedule_native_retry", lambda: None)
@@ -401,6 +410,7 @@ class TestSetOnRelease:
 
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
+        adapter._callback = MagicMock()
         legacy = _make_mock_legacy_backend()
         monkeypatch.setattr(adapter, "_create_legacy_backend", lambda: legacy)
         monkeypatch.setattr(adapter, "_schedule_native_retry", lambda: None)
@@ -435,6 +445,7 @@ class TestDiagnose:
 
         native = _make_mock_native_backend()
         adapter = _NativeBackendAdapter(native)
+        adapter._callback = MagicMock()
         legacy = _make_mock_legacy_backend()
         legacy.diagnose.return_value = "MockLegacy"
         monkeypatch.setattr(adapter, "_create_legacy_backend", lambda: legacy)

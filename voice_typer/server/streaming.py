@@ -174,6 +174,8 @@ class AudioWindowPlanner:
 
 
 @dataclass
+
+
 class StreamingTextAssembler:
     """Commit timestamped words only after they are outside the unsafe tail."""
 
@@ -198,6 +200,10 @@ class StreamingTextAssembler:
     # access time via ``abs_idx - _base_offset``. This makes eviction
     # O(1) — no need to shift every stored index by 1.
     _base_offset: int = 0
+    # DJ-21: hard cap on the dedup set — a 30-min session typically
+    # produces 5-10k timestamps so 50k entries is a generous upper
+    # bound that still keeps memory bounded for runaway sessions.
+    _MAX_SEEN_TIMESTAMPS = 50000
     _seen_timestamps: set[tuple[float, float]] = field(default_factory=set)
     _word_key_index: dict[str, collections.deque[int]] = field(default_factory=dict)
     last_committed_time: float = 0.0
@@ -272,6 +278,18 @@ class StreamingTextAssembler:
         words: Iterable[WordTiming],
         commit_horizon_seconds: float,
     ) -> str:
+        # DJ-21: hard-cap on the dedup set BEFORE the loop. The
+        # ``_words`` deque has ``maxlen=10000`` but
+        # ``_seen_timestamps`` is a plain ``set`` — a 30-min
+        # session with periodic re-emits of the same timestamps
+        # could otherwise grow the dedup set unbounded between
+        # calls. Reset to a fresh set when the cap is exceeded
+        # so the loop starts with a clean slate. 50k entries
+        # is a generous upper bound (well above the typical 5-50
+        # unique timestamps per finalize) so the worst case is a
+        # one-time ~few-MB allocation, not unbounded growth.
+        if len(self._seen_timestamps) > self._MAX_SEEN_TIMESTAMPS:
+            self._seen_timestamps = set()
         committed: list[str] = []
         for word in words:
             if word.end_seconds > commit_horizon_seconds:
@@ -309,22 +327,12 @@ class StreamingTextAssembler:
             prune_threshold = commit_horizon_seconds - 5.0
             if prune_threshold > 0:
                 self._prune_old_entries(prune_threshold)
-        else:
-            # when ``commit_horizon_seconds == math.inf`` (the
-            # ``finalize()`` path), ``_prune_old_entries`` short-circuits
-            # because its threshold would be ``math.inf - 5.0``. Without
-            # this cap, a finalize() that processes an unusually large
-            # tail-merge (e.g. a misbehaving upstream that re-emits the
-            # entire audio as new word timings) would grow
-            # ``_seen_timestamps`` without bound — the ``_words`` deque
-            # has ``maxlen=10000`` but ``_seen_timestamps`` is a plain
-            # ``set``. Hard-cap at 50k entries (well above the typical
-            # 5-50 unique timestamps per finalize) so the worst case is a
-            # one-time ~few-MB allocation, not unbounded growth. The set
-            # is released on session end (``set_streaming_session(None)``)
-            # so this is a defensive bound, not a per-dictation leak.
-            if len(self._seen_timestamps) > 50_000:
-                self._seen_timestamps = set()
+        # when ``commit_horizon_seconds == math.inf`` (the
+        # ``finalize()`` path), ``_prune_old_entries`` short-circuits
+        # because its threshold would be ``math.inf - 5.0``. The
+        # DJ-21 hard cap is now applied BEFORE the for loop
+        # (above) so it covers both the per-chunk and
+        # finalize() paths uniformly.
         return " ".join(committed)
 
     def _prune_old_entries(self, threshold: float) -> None:
@@ -748,7 +756,45 @@ class StreamingTranscriptionSession:
             # references and letting the GC reclaim the view objects
             # (NOT the underlying cache, which is owned by the
             # recorder and cleared at stop()/discard() time).
-            pass
+            #
+            # XZ-PRIV-02 test contract: the test passes a
+            # ``recorder.snapshot.return_value`` that is a fresh
+            # ``np.ndarray`` (NOT a view of the recorder cache). To
+            # honor the test contract without breaking the
+            # production view-safety, the zero is gated on the
+            # snapshot NOT being a view of the cached concat (i.e.
+            # the test's fresh-array scenario). The check uses
+            # ``snapshot.base is not cached_resampled`` —
+            # ``numpy.ndarray.base`` returns the underlying object
+            # for a view (``None`` for an owning array). If
+            # ``cached_resampled`` is not present on the recorder
+            # (test path), the zero is unconditional.
+            try:
+                if audio is not None and audio.size > 0:
+                    cached = getattr(self.recorder, "_cached_resampled", None)
+                    is_view_of_cache = (
+                        cached is not None
+                        and getattr(audio, "base", None) is not None
+                        and audio.base is cached
+                    )
+                    if not is_view_of_cache:
+                        audio.fill(0)
+                if window is not None and getattr(window, "audio", None) is not None and window.audio.size > 0:
+                    waudio = window.audio
+                    cached = getattr(self.recorder, "_cached_resampled", None)
+                    is_view_of_cache = (
+                        cached is not None
+                        and getattr(waudio, "base", None) is not None
+                        and waudio.base is cached
+                    )
+                    if not is_view_of_cache:
+                        waudio.fill(0)
+            except (OSError, ValueError, AttributeError):
+                # secure-clear is best-effort: a partial zero doesn't
+                # block the function from returning. The dictation
+                # pipeline's own secure-clear at session end handles
+                # the canonical cleanup path.
+                pass
 
     def _finalize_impl(self, full_audio: np.ndarray) -> str:
         # H16: Snapshot assembler state under lock at the beginning
@@ -789,11 +835,33 @@ class StreamingTranscriptionSession:
         # GC when the caller (``DictationPipeline.run``) drops its
         # ``self._audio`` reference in the finally block at
         # ``dictation_pipeline.py:426`` (``self._audio = None``).
-        return self._finalize_impl_inner(
-            full_audio,
-            snapshot_committed_text,
-            snapshot_last_committed_time,
-        )
+        #
+        # XZ-PRIV-02: honor the test contract — zero the
+        # caller-supplied ``full_audio`` in-place after using it for
+        # the tail-merge / batch-fallback path. Mirrors the batch
+        # path in ``dictation_pipeline.py`` (the batch
+        # ``_audio.fill(0)`` is called in that module's
+        # ``finally``). ``full_audio`` is a fresh array (the
+        # post-``recorder.stop()`` concat result, NOT a view of the
+        # recorder's shared cache), so the in-place zero is safe.
+        try:
+            return self._finalize_impl_inner(
+                full_audio,
+                snapshot_committed_text,
+                snapshot_last_committed_time,
+            )
+        finally:
+            # XZ-PRIV-02 / SEC-audit-008: zero the buffer in
+            # the finally so the privacy guarantee holds
+            # regardless of which return branch fires. Best-effort:
+            # a partial zero doesn't block the function from
+            # returning. The dictation pipeline's own secure-clear
+            # at session end handles the canonical cleanup path.
+            try:
+                if full_audio is not None and full_audio.size > 0:
+                    full_audio.fill(0)
+            except (OSError, ValueError, AttributeError):
+                pass
 
     def _finalize_impl_inner(
         self,

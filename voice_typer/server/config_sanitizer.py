@@ -161,6 +161,15 @@ def _redact_load_warning(warning: object) -> str:
        that ALSO applies :func:`redact_secret` (API keys / bearer
        tokens) and :func:`redact_url` (URL userinfo). All three
        redactions are idempotent on already-redacted text.
+    4. Run through :func:`voice_typer.server._secrets._redact_home_path`
+       so filesystem paths containing the user's home directory (e.g.
+       a ``legacy = Path.home() / ".voice-typer"`` migration message)
+       are stripped of the home prefix. ``_redact_home_path`` is a
+       NO-OP for paths that don't start with the configured home, so
+       innocuous enum strings (e.g. ``"parakeet"``) pass through
+       unchanged. Applied AFTER ``redact_pii`` so the latter's
+       already-redacted text (e.g. ``[redacted]``) isn't mistakenly
+       treated as a path.
     """
     text = str(warning)
     # Truncate FIRST so a multi-megabyte ``custom_theme`` dict dump
@@ -183,6 +192,20 @@ def _redact_load_warning(warning: object) -> str:
         # from reaching the renderer, which is strictly worse than
         # shipping an under-redacted warning.
         log.debug("[CONFIG-SANITIZER] redact_pii on load warning failed", exc_info=True)
+    # Belt-and-suspenders: also strip any home-directory prefix
+    # that slipped past ``redact_pii`` (which only handles PII
+    # patterns, not filesystem paths). ``_redact_home_path`` is a
+    # no-op when the path doesn't start with the configured home
+    # so innocuous enum strings pass through untouched.
+    try:
+        from voice_typer.server._secrets import _redact_home_path
+
+        text = _redact_home_path(text)
+    except Exception:
+        log.debug(
+            "[CONFIG-SANITIZER] _redact_home_path on load warning failed",
+            exc_info=True,
+        )
     return text
 
 
@@ -232,21 +255,41 @@ def sanitize_config_for_ipc(config: Any) -> dict[str, Any]:
     # ``dataclasses.asdict`` returns a deep-copied dict of ONLY
     # the declared dataclass fields. ``ClassVar`` fields (e.g.
     # ``_mutation_lock``) and plain instance attributes set in
-    # ``__post_init__`` (``_last_saved_bytes``, ``last_load_warnings``)
-    # are EXCLUDED automatically — they're not in
-    # ``Config.__dataclass_fields__``.
+    # ``__post_init__`` (``_last_saved_bytes``) are EXCLUDED
+    # automatically — they're not in ``Config.__dataclass_fields__``.
+    # ``FR-20`` regression guard
+    # (tests/test_config_sanitizer.py::TestNoTransientAttributesLeaked)
+    # pins this behavior for ``_last_saved_bytes`` and the
+    # ``_mutation_lock`` ClassVar: the sanitizer must NOT leak
+    # them to the IPC boundary — a same-user local process that
+    # calls ``get_config`` should not learn about prior config
+    # writes or schema-version migration details.
+    #
+    # ``last_load_warnings`` is the ONE deliberate exception. It's a
+    # plain instance attribute set in ``__post_init__`` + ``load()``,
+    # so ``dataclasses.asdict`` excludes it. We surface it (as a
+    # redacted list) so the renderer can act on warnings that arose
+    # during the just-completed load (display a "Config loaded with
+    # N warnings" toast, highlight the offending field, etc.). The
+    # raw values can embed field contents (e.g. an invalid
+    # ``asr_backend='invalid_backend'`` is included verbatim in the
+    # warning message), so each entry is run through
+    # :func:`_redact_load_warning` (truncate + PII/URL/secret
+    # redaction) before transmission.
     out: dict[str, Any] = dataclasses.asdict(config)
     for k in SECRET_CONFIG_FIELDS:
         if k in out:
             v = out[k]
             out[k] = REDACTED_SENTINEL if v else v
-    # Surface ``last_load_warnings`` to the renderer. ``getattr`` with
-    # a default of ``[]`` keeps the sanitizer tolerant of older Config
-    # snapshots (or test doubles) that don't set the attribute — the
-    # renderer always sees a list, never ``None`` or ``AttributeError``.
-    # The warnings are redacted via :func:`_redact_load_warning` (see
-    # its docstring for the redaction rationale).
-    raw_warnings = list(getattr(config, "last_load_warnings", []) or [])
+    # ``last_load_warnings`` is a list of strings (set in
+    # ``Config.load()`` and its sub-paths). Default to an empty
+    # list so the renderer can always rely on the key being
+    # present and iterable, even on a fresh ``Config()`` (where
+    # ``__post_init__`` initialises the attribute to ``None``).
+    raw_warnings = getattr(config, "last_load_warnings", None) or []
+    # Build a NEW list (not a slice) so the caller can't mutate
+    # the in-memory ``config`` instance's state via the returned
+    # dict's reference.
     out["last_load_warnings"] = [_redact_load_warning(w) for w in raw_warnings]
     return out
 

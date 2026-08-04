@@ -86,7 +86,27 @@ def teardown_sounddevice(controller) -> None:
     # _run_with_timeout(10.0) wrapper still has 0.5s slack to log
     # and return if the recorder helper genuinely finishes near the
     # shared deadline.
-    controller._recorder_teardown_done.wait(timeout=9.5)
+    #
+    # UE-2: check the wait() return value. A False return means
+    # the recorder teardown did NOT signal the event within 9.5s —
+    # either the recorder.stop()/discard() raised mid-call, or the
+    # leaked worker is still touching the PortAudio stream. The
+    # happens-before contract assumes the recorder helper always
+    # reaches its final line (which sets _recorder_force_closed),
+    # so a missing set + a wait timeout means the leaked worker
+    # is still in the stream — calling sd.stop() in that state
+    # reproduces the exact DE-54 PortAudio deadlock the code
+    # documents as avoided. Skip sd.stop() on wait timeout
+    # (defense in depth — the subsequent _recorder_force_closed
+    # check still fires for the normal force-close case).
+    _teardown_done = controller._recorder_teardown_done.wait(timeout=9.5)
+    if not _teardown_done:
+        log.warning(
+            "[SHUTDOWN] recorder teardown did NOT signal completion "
+            "within 9.5s — skipping sd.stop() to avoid PortAudio "
+            "deadlock (leaked worker may still be accessing the stream)"
+        )
+        return
     if controller._recorder_force_closed:
         log.warning(
             "[SHUTDOWN] skipping sd.stop() because "

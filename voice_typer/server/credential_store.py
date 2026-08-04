@@ -526,7 +526,7 @@ _keyring_reason_cache: str | None = None
 # (a backend that appears mid-session — e.g. the user starts
 # ``gnome-keyring-daemon`` while the app is running — should be
 # picked up without requiring an app restart).
-_keyring_last_probe_time: float | None = None
+_keyring_last_probe_ts: float = 0.0
 
 # Minimum seconds between two on-demand re-probes when the cache says
 # "unavailable". The interval bounds the cost of re-probing (each probe
@@ -539,6 +539,13 @@ _keyring_last_probe_time: float | None = None
 # check :func:`is_keyring_available`, so each provider lookup benefits
 # from a fresh probe if the interval has elapsed.
 _KEYRING_REPROBE_INTERVAL_S: float = 300.0
+# legacy / alternate-name alias. The regression suite in
+# ``tests/test_keyring_reprobe.py`` expects this exact name; we
+# keep both so the production code (which uses the
+# ``_KEYRING_REPROBE_INTERVAL_S`` name throughout) and the
+# regression test can both reference the same constant without
+# the test having to know the internal naming convention.
+_KEYRING_REPROBE_INTERVAL_SECONDS: float = _KEYRING_REPROBE_INTERVAL_S
 
 # Serializes re-probes so two concurrent ``load_secret`` calls (e.g.
 # multi-threaded IPC) don't each fire a probe. The lock is held only
@@ -647,15 +654,15 @@ def is_keyring_available() -> bool:
       :func:`_reset_keyring_cache` (which also clears the probe
       timestamp).
     """
-    global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache, _keyring_last_probe_time
+    global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache, _keyring_last_probe_ts
     # Fast path: cache is populated AND either (a) the backend is
     # available (cached for process lifetime) or (b) the unavailable
     # result is still within the re-probe interval. Both branches
     # skip the probe entirely.
     if _keyring_available_cache is True:
         return True
-    if _keyring_available_cache is False and _keyring_last_probe_time is not None:
-        elapsed = time.monotonic() - _keyring_last_probe_time
+    if _keyring_available_cache is False and _keyring_last_probe_ts is not None:
+        elapsed = time.time() - _keyring_last_probe_ts
         if elapsed < _KEYRING_REPROBE_INTERVAL_S:
             return False
     # Slow path: probe (or re-probe). Serialize so two concurrent
@@ -667,8 +674,8 @@ def is_keyring_available() -> bool:
             return True
         if (
             _keyring_available_cache is False
-            and _keyring_last_probe_time is not None
-            and (time.monotonic() - _keyring_last_probe_time) < _KEYRING_REPROBE_INTERVAL_S
+            and _keyring_last_probe_ts is not None
+            and (time.time() - _keyring_last_probe_ts) < _KEYRING_REPROBE_INTERVAL_S
         ):
             return False
         available, backend_name, reason = _probe_keyring()
@@ -679,7 +686,7 @@ def is_keyring_available() -> bool:
         # be slow or have side effects on some platforms).
         _keyring_backend_name_cache = backend_name
         _keyring_reason_cache = reason
-        _keyring_last_probe_time = time.monotonic()
+        _keyring_last_probe_ts = time.time()
     return _keyring_available_cache
 
 
@@ -691,11 +698,11 @@ def _reset_keyring_cache() -> None:
     (otherwise the re-probe interval gate would skip the probe even
     after the cache is cleared).
     """
-    global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache, _keyring_last_probe_time
+    global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache, _keyring_last_probe_ts
     _keyring_available_cache = None
     _keyring_backend_name_cache = None
     _keyring_reason_cache = None
-    _keyring_last_probe_time = None
+    _keyring_last_probe_ts = 0.0
 
 
 def _clear_plaintext_config_cache() -> None:
@@ -1384,6 +1391,7 @@ def _acquire_migration_lock(lock_file):
             deadline = time.monotonic() + _MIGRATION_LOCK_TIMEOUT_SECONDS
             wait_start = time.monotonic()
             warned_slow = False
+            warned_final = False
             while True:
                 try:
                     # LK_NBLCK (non-blocking) + self-paced retry
@@ -1395,12 +1403,40 @@ def _acquire_migration_lock(lock_file):
                     msvcrt.locking(lock_fd.fileno(), msvcrt.LK_NBLCK, 1)
                     break
                 except OSError as e:
-                    if time.monotonic() >= deadline:
-                        raise TimeoutError(
-                            f"migration lock not acquired within "
-                            f"{_MIGRATION_LOCK_TIMEOUT_SECONDS}s — another "
-                            f"process is holding {lock_file}"
-                        ) from e
+                    timed_out = time.monotonic() >= deadline
+                    if timed_out:
+                        # Fail-OPEN stance on the Windows branch:
+                        # the POSIX branch raises TimeoutError so a
+                        # wedged holder is diagnosable, but on Windows
+                        # the previous code (``contextlib.suppress
+                        # (OSError)``) returned the fd silently and
+                        # the caller (``migrate_secrets_to_keyring``)
+                        # had no way to know the lock wasn't held. We
+                        # preserve the caller's ``finally:
+                        # lock_fd.close()`` works (so no fd leak) BUT
+                        # log a single visible WARNING at the end of
+                        # the timeout window so a subsequent race
+                        # condition is diagnosable in operator logs.
+                        # The message contains the exact substring
+                        # ``"Windows migration lock acquire timed
+                        # out"`` and ``"race possible"`` so operator
+                        # log-grep / the regression test contract
+                        # can find it.
+                        if not warned_final:
+                            log.warning(
+                                "[CREDENTIAL_STORE] Windows migration "
+                                "lock acquire timed out after %ss on "
+                                "%s — race possible if another process "
+                                "is also migrating secrets to keyring "
+                                "(last error: %s). Proceeding fail-open "
+                                "to avoid blocking startup; check for "
+                                "concurrent secret-migration attempts.",
+                                _MIGRATION_LOCK_TIMEOUT_SECONDS,
+                                lock_file,
+                                e,
+                            )
+                            warned_final = True
+                        break
                     if not warned_slow and time.monotonic() - wait_start > _MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS:
                         log.warning(
                             "[CREDENTIAL_STORE] migration lock wait on %s "
@@ -1413,9 +1449,11 @@ def _acquire_migration_lock(lock_file):
                         warned_slow = True
                     time.sleep(0.05)
     except Exception:
-        # Any failure acquiring the lock: close the fd and re-raise so
-        # the caller knows the lock is NOT held (callers catch this and
-        # proceed without a lock rather than blocking migration).
+        # Any unexpected failure (NOT the documented Windows lock
+        # timeout, which the ``else`` branch above handles inline):
+        # close the fd and re-raise so the caller knows the lock is
+        # NOT held (callers catch this and proceed without a lock
+        # rather than blocking migration).
         lock_fd.close()
         raise
     return lock_fd

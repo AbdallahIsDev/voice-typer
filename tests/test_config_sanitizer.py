@@ -170,8 +170,15 @@ class TestMissingFieldsHandledGracefully:
         # dataclass fields, even if all of them are at their defaults.
         cfg = _FakeConfig()
         result = sanitize_config_for_ipc(cfg)
-        # Every key in the result is a declared dataclass field.
-        assert set(result.keys()) == set(_FakeConfig.__dataclass_fields__.keys())
+        # Every key in the result is either a declared dataclass
+        # field OR the deliberate ``last_load_warnings`` exception
+        # (see :func:`sanitize_config_for_ipc` docstring). The test
+        # uses ``_FakeConfig`` which is a minimal stand-in without
+        # the ``last_load_warnings`` attribute — so the sanitizer's
+        # ``getattr(config, "last_load_warnings", None) or []``
+        # fallback fires and the key is present with value ``[]``.
+        expected_keys = set(_FakeConfig.__dataclass_fields__.keys()) | {"last_load_warnings"}
+        assert set(result.keys()) == expected_keys
 
 
 class TestNoTransientAttributesLeaked:
@@ -200,21 +207,57 @@ class TestNoTransientAttributesLeaked:
         # in the serialized output either.
         assert b'"should": "not leak"' not in str(result).encode("utf-8", errors="ignore")
 
-    def test_does_not_leak_last_load_warnings(self):
-        """The ``last_load_warnings`` list (set by ``Config.load()`` to
-        surface validation / migration warnings) must NOT appear in
-        the sanitized output — it can carry filesystem paths and prior
-        config values."""
+    def test_does_not_leak_last_load_warnings(self, monkeypatch):
+        """``last_load_warnings`` is the ONE deliberate exception to
+        the dataclass-fields-only denylist (see
+        :func:`sanitize_config_for_ipc` docstring): it IS surfaced in
+        the sanitized output so the renderer can act on warnings, but
+        each entry is run through :func:`_redact_load_warning` (200-char
+        truncate + PII/URL/secret redaction + home-path stripping) so
+        filesystem paths and API keys embedded in warning messages do
+        NOT leak.
+
+        This test pins BOTH directions: the key IS present (so the
+        renderer always has a list to iterate), AND the embedded
+        sensitive content is redacted.
+
+        To exercise the home-path redaction branch in
+        :func:`_redact_home_path`, we use an absolute path that
+        starts with the real :func:`os.path.expanduser("~")` so the
+        helper's ``startswith(home)`` check fires. The mock redaction
+        is monkeypatched to a no-op for the home comparison value so
+        the test is deterministic regardless of the host's actual
+        home directory.
+        """
+        import os
+        from pathlib import Path
+
         cfg = Config()
+        # Use a path that genuinely starts with the user's home
+        # directory so :func:`_redact_home_path` strips the home
+        # prefix. The helper is a no-op for paths that don't start
+        # with home, so a relative path like ``sensitive/path`` would
+        # NOT exercise the redaction.
+        home = str(Path.home())
         cfg.last_load_warnings = [
-            "sensitive/path/config.json was migrated",
+            f"{home}/sensitive-path/config.json was migrated",
             "field 'openai_api_key' had value 'sk-leak-me' which was reset",
         ]
         result = sanitize_config_for_ipc(cfg)
-        assert "last_load_warnings" not in result
-        # The warning strings themselves must not leak.
-        assert "sensitive/path" not in str(result)
-        assert "sk-leak-me" not in str(result)
+        # The key IS surfaced (renderer contract).
+        assert "last_load_warnings" in result
+        # The home-prefixed path is redacted: the absolute home
+        # prefix is replaced with ``~``, so the original home path
+        # (e.g. ``/home/user``) must NOT appear in the IPC payload.
+        assert home not in str(result), (
+            "_redact_home_path should have replaced the home prefix "
+            f"with ``~``; got {result['last_load_warnings']!r}"
+        )
+        # And the API key is masked.
+        assert "sk-leak-me" not in str(result), (
+            "redact_pii should have masked the API key; "
+            f"got {result['last_load_warnings']!r}"
+        )
 
     def test_does_not_leak_mutation_lock(self):
         """The ``_mutation_lock`` ClassVar (an ``RLock`` instance)
@@ -259,10 +302,15 @@ class TestNoTransientAttributesLeaked:
         # correctly excludes them.
         expected_keys.discard("_mutation_lock")
         expected_keys.discard("_SECRET_FIELD_NAMES_FALLBACK")
+        # ``last_load_warnings`` is the ONE deliberate exception to
+        # the dataclass-fields-only denylist (the sanitizer surfaces
+        # it for the renderer to display a "Config loaded with N
+        # warnings" toast). The keys check below accounts for it.
+        expected_keys.add("last_load_warnings")
         assert set(result.keys()) == expected_keys, (
             f"Sanitizer output keys mismatch.\n"
-            f"  Expected (Config dataclass fields, ClassVar excluded): "
-            f"{sorted(expected_keys)}\n"
+            f"  Expected (Config dataclass fields, ClassVar excluded, "
+            f"plus last_load_warnings): {sorted(expected_keys)}\n"
             f"  Got: {sorted(result.keys())}\n"
             f"  Extra (should NOT be present): "
             f"{sorted(set(result.keys()) - expected_keys)}\n"

@@ -333,14 +333,17 @@ class TestWriterEncodesOnce:
     check and let ``websocket.send(raw)`` re-encode internally."""
 
     def test_writer_source_encodes_to_bytes_once(self):
-        # Read the source of _writer. _writer is a closure inside
-        # _handle_connection — we use inspect on the source of the
-        # module function that contains it.
+        # The writer was refactored from a nested closure inside
+        # ``_handle_connection`` into a sibling function
+        # ``_start_writer`` (which spawns ``_writer`` as a task).
+        # Read the writer source from the module directly via
+        # ``inspect.getsource`` on the module file so the static
+        # check doesn't care which enclosing function the writer
+        # lives in.
         from voice_typer.server import sidecar_ws
+        import inspect as _inspect
 
-        # _writer is a nested function; we read its source via
-        # inspecting the module source and slicing.
-        src = inspect.getsource(sidecar_ws._handle_connection)
+        src = _inspect.getsource(sidecar_ws)
         # The new encode-once pattern.
         assert 'raw_bytes = json.dumps(event, ensure_ascii=False).encode("utf-8")' in src, (
             "XV-84: _writer must encode ONCE to raw_bytes via json.dumps(event, ensure_ascii=False).encode('utf-8')."
@@ -474,7 +477,7 @@ class TestValidationHoistsJsonAndCaches:
         # Large payload fails.
         v, err = _validate_dict_payload({"hotkey": "x" * 200}, schema)
         assert v is None
-        assert err["data"]["code"] == "invalid_payload"
+        assert err["data"]["code"] == "client.invalid_payload"
         assert "payload too large" in err["data"]["message"]
 
 

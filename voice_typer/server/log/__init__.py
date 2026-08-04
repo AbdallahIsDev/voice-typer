@@ -974,6 +974,17 @@ class _SecureRotatingFileHandler(logging.handlers.RotatingFileHandler):
         # window at the source: the file is born 0o600. Restored in
         # ``finally`` so the umask change does not leak to other
         # threads or to subprocesses spawned after doRollover returns.
+        #
+        # Short-circuit on the file-size pre-check: if the active log
+        # file is under the size cap, no rotation is needed. We do this
+        # BEFORE acquiring the rotation lock so the no-op path
+        # doesn't acquire + release the inter-process lock (which
+        # would still show up in lock-acquisition telemetry and in
+        # the regression test's call-order spy). The check is
+        # duplicated AFTER lock acquisition in case another process
+        # rotated while we were acquiring the lock.
+        if not self._rotation_needed():
+            return
         saved_umask = os.umask(0o077)
         lock_fd = self._acquire_rotation_lock()
         try:
