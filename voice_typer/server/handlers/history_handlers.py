@@ -68,13 +68,35 @@ class HistoryHandlersMixin(HandlerBase):
             # helper coerces the string to int. A non-int, non-str
             # value (e.g. a list or dict) is rejected with
             # ``invalid_field``.
+            #
+            # Keyset pagination cursor (``before_timestamp`` /
+            # ``before_id``): when both are supplied, the service
+            # uses an O(log N) keyset WHERE clause (vs OFFSET which
+            # is O(offset)). Both are required to enable the cursor
+            # path — supplying only one is treated as "no cursor"
+            # (backward-compat with the pre-cursor contract). The
+            # ``before_id`` schema accepts ``(int, str)`` for the
+            # same form-string reason as ``limit``; ``bool`` is
+            # explicitly REJECTED (a Python ``True``/``False`` is
+            # also an ``int`` subclass — without the reject_bool
+            # flag the cursor would silently become ``1``/``0``).
+            # Negative ``before_id`` is also rejected (a negative
+            # keyset row id has no meaning in SQLite's auto-increment
+            # primary key).
             if not isinstance(data, dict):
                 data = {}
             validated, error = _validate_dict_payload(
                 data,
                 {
-                    "limit": {"type": (int, str), "required": False},
-                    "offset": {"type": (int, str), "required": False},
+                    "limit": {"type": (int, str), "required": False, "default": 50},
+                    "offset": {"type": (int, str), "required": False, "default": 0},
+                    "before_timestamp": {"type": str, "required": False, "default": None},
+                    "before_id": {
+                        "type": (int, str),
+                        "required": False,
+                        "reject_bool": True,
+                        "default": None,
+                    },
                 },
             )
             if error:
@@ -83,7 +105,29 @@ class HistoryHandlersMixin(HandlerBase):
             # SEC-010: bound limit/offset to prevent DoS via huge values.
             limit = _bound_history_limit(validated.get("limit", 50))
             offset = _bound_history_offset(validated.get("offset", 0))
-            rows = self.service.get_history(limit, offset)
+            # Extract the keyset cursor (if both pieces are present).
+            # If only one is supplied, treat as "no cursor" so a
+            # malformed payload degrades to the safe OFFSET path
+            # rather than producing a partial / confusing query.
+            before_timestamp = validated.get("before_timestamp")
+            before_id_raw = validated.get("before_id")
+            before_id = None
+            if before_id_raw is not None and not isinstance(before_id_raw, bool):
+                before_id = int(before_id_raw)
+                if before_id < 0:
+                    resp["type"] = "error"
+                    resp["data"] = {
+                        "code": "client.invalid_field",
+                        "field": "before_id",
+                        "message": "before_id must be non-negative",
+                    }
+                    return resp
+            if before_timestamp is not None and before_id is not None:
+                rows = self.service.get_history(
+                    limit, offset, before_timestamp=before_timestamp, before_id=before_id
+                )
+            else:
+                rows = self.service.get_history(limit, offset)
             # Defense-in-depth size check. ``get_recent`` already
             # projects ``text`` to a 500-char preview at the SQL layer,
             # so a 500-row response is ~350KB worst-case — well under
@@ -330,14 +374,24 @@ class HistoryHandlersMixin(HandlerBase):
             # validate ``limit`` / ``offset`` types via the
             # shared ``_validate_dict_payload`` helper. Same pattern as
             # ``_handle_get_history`` (above) — ``(int, str)`` accepts
-            # numeric strings from form inputs.
+            # numeric strings from form inputs. Keyset cursor
+            # (``before_timestamp`` / ``before_id``) follows the same
+            # rules as ``_handle_get_history`` (both required to
+            # enable the cursor; otherwise the OFFSET path fires).
             if not isinstance(data, dict):
                 data = {}
             validated, error = _validate_dict_payload(
                 data,
                 {
-                    "limit": {"type": (int, str), "required": False},
-                    "offset": {"type": (int, str), "required": False},
+                    "limit": {"type": (int, str), "required": False, "default": 50},
+                    "offset": {"type": (int, str), "required": False, "default": 0},
+                    "before_timestamp": {"type": str, "required": False, "default": None},
+                    "before_id": {
+                        "type": (int, str),
+                        "required": False,
+                        "reject_bool": True,
+                        "default": None,
+                    },
                 },
             )
             if error:
@@ -346,7 +400,26 @@ class HistoryHandlersMixin(HandlerBase):
             # SEC-010: bound limit/offset.
             limit = _bound_history_limit(validated.get("limit", 50))
             offset = _bound_history_offset(validated.get("offset", 0))
-            rows = self.service.get_favorites(limit, offset)
+            # Extract the keyset cursor (if both pieces are present).
+            before_timestamp = validated.get("before_timestamp")
+            before_id_raw = validated.get("before_id")
+            before_id = None
+            if before_id_raw is not None and not isinstance(before_id_raw, bool):
+                before_id = int(before_id_raw)
+                if before_id < 0:
+                    resp["type"] = "error"
+                    resp["data"] = {
+                        "code": "client.invalid_field",
+                        "field": "before_id",
+                        "message": "before_id must be non-negative",
+                    }
+                    return resp
+            if before_timestamp is not None and before_id is not None:
+                rows = self.service.get_favorites(
+                    limit, offset, before_timestamp=before_timestamp, before_id=before_id
+                )
+            else:
+                rows = self.service.get_favorites(limit, offset)
             # Same defense-in-depth frame-cap check as
             # ``_handle_get_history`` (see that handler for rationale).
             rows = self._enforce_history_frame_cap(rows, command="get_favorites")
@@ -367,14 +440,23 @@ class HistoryHandlersMixin(HandlerBase):
             # empty query, default limit/offset) still holds.
             # ``limit`` / ``offset`` accept ``(int, str)`` for the same
             # form-input coercion reason as ``_handle_get_history``.
+            # Keyset cursor (``before_timestamp`` / ``before_id``)
+            # follows the same rules as ``_handle_get_history``.
             if not isinstance(data, dict):
                 data = {}
             validated, error = _validate_dict_payload(
                 data,
                 {
                     "query": {"type": str, "required": False, "default": ""},
-                    "limit": {"type": (int, str), "required": False},
-                    "offset": {"type": (int, str), "required": False},
+                    "limit": {"type": (int, str), "required": False, "default": 50},
+                    "offset": {"type": (int, str), "required": False, "default": 0},
+                    "before_timestamp": {"type": str, "required": False, "default": None},
+                    "before_id": {
+                        "type": (int, str),
+                        "required": False,
+                        "reject_bool": True,
+                        "default": None,
+                    },
                 },
             )
             if error:
@@ -384,7 +466,30 @@ class HistoryHandlersMixin(HandlerBase):
             # SEC-010: bound limit/offset.
             limit = _bound_history_limit(validated.get("limit", 50))
             offset = _bound_history_offset(validated.get("offset", 0))
-            rows = self.service.search_history(query, limit, offset)
+            # Extract the keyset cursor (if both pieces are present).
+            before_timestamp = validated.get("before_timestamp")
+            before_id_raw = validated.get("before_id")
+            before_id = None
+            if before_id_raw is not None and not isinstance(before_id_raw, bool):
+                before_id = int(before_id_raw)
+                if before_id < 0:
+                    resp["type"] = "error"
+                    resp["data"] = {
+                        "code": "client.invalid_field",
+                        "field": "before_id",
+                        "message": "before_id must be non-negative",
+                    }
+                    return resp
+            if before_timestamp is not None and before_id is not None:
+                rows = self.service.search_history(
+                    query,
+                    limit,
+                    offset,
+                    before_timestamp=before_timestamp,
+                    before_id=before_id,
+                )
+            else:
+                rows = self.service.search_history(query, limit, offset)
             # Same defense-in-depth frame-cap check as
             # ``_handle_get_history`` (see that handler for rationale).
             rows = self._enforce_history_frame_cap(rows, command="search_history")
