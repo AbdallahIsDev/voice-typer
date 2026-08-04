@@ -378,6 +378,14 @@ def resample_audio(
     """
     if log is None:
         log = logging.getLogger("voice_typer.server.recording")
+    # ER-88: short-circuit on empty input. ``np.interp`` raises
+    # ``ValueError('array of sample points is empty')`` when the
+    # source array is empty (because the ``fp`` argument is a 0-length
+    # array even though ``xi`` is also 0-length). Returning early
+    # here avoids the exception AND avoids the (wasted) scipy
+    # upfirdn call below.
+    if audio.size == 0:
+        return audio
     orig_len = len(audio)
     resampled = False
     last_error: Exception | None = None
