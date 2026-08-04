@@ -174,6 +174,8 @@ class AudioWindowPlanner:
 
 
 @dataclass
+
+
 class StreamingTextAssembler:
     """Commit timestamped words only after they are outside the unsafe tail."""
 
@@ -198,6 +200,10 @@ class StreamingTextAssembler:
     # access time via ``abs_idx - _base_offset``. This makes eviction
     # O(1) — no need to shift every stored index by 1.
     _base_offset: int = 0
+    # DJ-21: hard cap on the dedup set — a 30-min session typically
+    # produces 5-10k timestamps so 50k entries is a generous upper
+    # bound that still keeps memory bounded for runaway sessions.
+    _MAX_SEEN_TIMESTAMPS = 50000
     _seen_timestamps: set[tuple[float, float]] = field(default_factory=set)
     _word_key_index: dict[str, collections.deque[int]] = field(default_factory=dict)
     last_committed_time: float = 0.0
@@ -272,6 +278,18 @@ class StreamingTextAssembler:
         words: Iterable[WordTiming],
         commit_horizon_seconds: float,
     ) -> str:
+        # DJ-21: hard-cap on the dedup set BEFORE the loop. The
+        # ``_words`` deque has ``maxlen=10000`` but
+        # ``_seen_timestamps`` is a plain ``set`` — a 30-min
+        # session with periodic re-emits of the same timestamps
+        # could otherwise grow the dedup set unbounded between
+        # calls. Reset to a fresh set when the cap is exceeded
+        # so the loop starts with a clean slate. 50k entries
+        # is a generous upper bound (well above the typical 5-50
+        # unique timestamps per finalize) so the worst case is a
+        # one-time ~few-MB allocation, not unbounded growth.
+        if len(self._seen_timestamps) > self._MAX_SEEN_TIMESTAMPS:
+            self._seen_timestamps = set()
         committed: list[str] = []
         for word in words:
             if word.end_seconds > commit_horizon_seconds:
@@ -309,22 +327,12 @@ class StreamingTextAssembler:
             prune_threshold = commit_horizon_seconds - 5.0
             if prune_threshold > 0:
                 self._prune_old_entries(prune_threshold)
-        else:
-            # when ``commit_horizon_seconds == math.inf`` (the
-            # ``finalize()`` path), ``_prune_old_entries`` short-circuits
-            # because its threshold would be ``math.inf - 5.0``. Without
-            # this cap, a finalize() that processes an unusually large
-            # tail-merge (e.g. a misbehaving upstream that re-emits the
-            # entire audio as new word timings) would grow
-            # ``_seen_timestamps`` without bound — the ``_words`` deque
-            # has ``maxlen=10000`` but ``_seen_timestamps`` is a plain
-            # ``set``. Hard-cap at 50k entries (well above the typical
-            # 5-50 unique timestamps per finalize) so the worst case is a
-            # one-time ~few-MB allocation, not unbounded growth. The set
-            # is released on session end (``set_streaming_session(None)``)
-            # so this is a defensive bound, not a per-dictation leak.
-            if len(self._seen_timestamps) > 50_000:
-                self._seen_timestamps = set()
+        # when ``commit_horizon_seconds == math.inf`` (the
+        # ``finalize()`` path), ``_prune_old_entries`` short-circuits
+        # because its threshold would be ``math.inf - 5.0``. The
+        # DJ-21 hard cap is now applied BEFORE the for loop
+        # (above) so it covers both the per-chunk and
+        # finalize() paths uniformly.
         return " ".join(committed)
 
     def _prune_old_entries(self, threshold: float) -> None:
