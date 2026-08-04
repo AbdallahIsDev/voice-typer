@@ -350,10 +350,25 @@ class _RateLimiter:
             # instead of O(N) sum() over the deque.
             while self._burst_timestamps and self._burst_timestamps[0][0] < burst_cutoff:
                 _old_ts, _old_cost = self._burst_timestamps.popleft()
-                self._burst_total -= _old_cost
+                # XV-81: clamp the running total at 0. The
+                # subtract path can otherwise go negative when
+                # the deque has duplicate timestamps (the
+                # ``popleft`` removes the oldest entry but
+                # another entry with the same ``_old_cost`` is
+                # still in the deque — the running total no
+                # longer matches the deque's accumulate-value
+                # because the increment in the append path is
+                # monotonic). The clamp is defense-in-depth: the
+                # production invariant is that ``_burst_total``
+                # matches the accumulated costs of the deque
+                # entries (and ditto for sustained), so the clamp
+                # should only fire in pathological race
+                # conditions.
+                self._burst_total = max(0, self._burst_total - _old_cost)
             while self._sustained_timestamps and self._sustained_timestamps[0][0] < sustained_cutoff:
                 _old_ts, _old_cost = self._sustained_timestamps.popleft()
-                self._sustained_total -= _old_cost
+                # XV-81: see burst-total clamp above.
+                self._sustained_total = max(0, self._sustained_total - _old_cost)
             # the cost-weighted check uses the running totals
             # () instead of sum() on every call. ``cost == 1``
             # reduces this to the pre- count-based check.
