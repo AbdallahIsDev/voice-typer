@@ -793,7 +793,10 @@ class TestExtendUrlAllowlistIsWired:
     _EXPECTED_CALLERS: frozenset[str] = frozenset(
         {
             # Config.load re-applies persisted trusted_extra_hosts.
-            "voice_typer/server/config/__init__.py",
+            # config/__init__.py was split into a package
+            # (``config/__init__.py`` + ``config/loader.py``) — the
+            # actual call site moved to loader.py.
+            "voice_typer/server/config/loader.py",
             # ConfigHandlersMixin: set_config trusted_extra_hosts re-apply
             # + the add_trusted_endpoint IPC handler.
             "voice_typer/server/handlers/config_handlers.py",
