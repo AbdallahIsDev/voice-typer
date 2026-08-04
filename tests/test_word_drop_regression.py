@@ -92,6 +92,9 @@ class TestQwenChunking:
         engine._model = MagicMock()
         engine._lock = threading.RLock()
         engine._inference_event = threading.Event()
+        engine._inference_cond = threading.Condition(engine._lock)
+        engine._active_inference = 0
+        engine._INFERENCE_BATCH_SIZE = 1
         engine.language = "en"
         engine.device = "cpu"
         mock_transcription = MagicMock()
@@ -114,6 +117,9 @@ class TestQwenChunking:
         engine._model = MagicMock()
         engine._lock = threading.RLock()
         engine._inference_event = threading.Event()
+        engine._inference_cond = threading.Condition(engine._lock)
+        engine._active_inference = 0
+        engine._INFERENCE_BATCH_SIZE = 1
         engine.language = "en"
         engine.device = "cpu"
         mock_transcription = MagicMock()
