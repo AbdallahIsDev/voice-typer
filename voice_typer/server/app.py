@@ -772,22 +772,15 @@ class VoiceTyperApp:
 
     @property
     def _template_manager(self):
-        # auto-construct on first access; construction failure is
-        # logged at WARNING with exc_info=True and the backing is left
-        # as None (retry on next access). The service/template.py and
-        # dictation_pipeline.py ``is None`` fallbacks therefore still
-        # see a cached instance on success or None on failure.
-        backing = self._template_manager_backing
-        if backing is None:
-            try:
-                from voice_typer.server.templates import TemplateManager
-
-                backing = TemplateManager()
-            except Exception:
-                log.warning("[INIT] TemplateManager lazy-init failed", exc_info=True)
-                return None
-            self._template_manager_backing = backing
-        return backing
+        # Return the backing directly. Construction is the caller's
+        # responsibility — see ``service/template.py``'s lazy fallback
+        # which constructs via ``TemplateManager()`` and assigns back
+        # via the setter below. Returning ``None`` when uninitialised
+        # lets tests verify the lazy contract (DJ-2) without
+        # triggering eager ``TemplateManager()`` construction on
+        # ``__init__`` (TemplateManager reads ``templates.json`` from
+        # disk; that's hundreds of ms on a cold start).
+        return self._template_manager_backing
 
     @_template_manager.setter
     def _template_manager(self, value) -> None:
@@ -795,22 +788,15 @@ class VoiceTyperApp:
 
     @property
     def _vocabulary_manager(self):
-        # auto-construct on first access; construction failure is
-        # logged at WARNING with exc_info=True and the backing is left
-        # as None (retry on next access). The dictation_pipeline.py
-        # ``is None`` fallback therefore still sees a cached instance on
-        # success or None on failure.
-        backing = self._vocabulary_manager_backing
-        if backing is None:
-            try:
-                from voice_typer.server.vocabulary import VocabularyManager
-
-                backing = VocabularyManager()
-            except Exception:
-                log.warning("[INIT] VocabularyManager lazy-init failed", exc_info=True)
-                return None
-            self._vocabulary_manager_backing = backing
-        return backing
+        # Return the backing directly. Construction is the caller's
+        # responsibility — see ``service/vocabulary.py``'s lazy
+        # fallback which constructs via ``VocabularyManager()`` and
+        # assigns back via the setter below. Returning ``None`` when
+        # uninitialised lets tests verify the lazy contract (DJ-2)
+        # without triggering eager ``VocabularyManager()`` construction
+        # on ``__init__`` (VocabularyManager reads ``vocabulary.json``
+        # from disk; that's hundreds of ms on a cold start).
+        return self._vocabulary_manager_backing
 
     @_vocabulary_manager.setter
     def _vocabulary_manager(self, value) -> None:
