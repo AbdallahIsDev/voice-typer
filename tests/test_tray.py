@@ -775,7 +775,14 @@ class TestMicrophoneSubmenu:
         assert any("More microphones" in lb for lb in labels)
 
     def test_mic_submenu_marks_active_with_bullet(self, tray):
-        """Active mic (matching config.microphone) gets a '•' prefix."""
+        """Active mic (matching config.microphone) is marked via
+        ``checked=True`` (the platform-standard checkmark via
+        pystray's ``checked=`` parameter — Win32 MF_CHECKED / macOS
+        NSControlStateValueOn / GTK radio active). Pre- the active
+        mic was prefixed with ``• `` in the label string, which
+        bypassed the platform checkmark, broke screen-reader
+        semantics, and misaligned with the Models submenu.
+        """
         # Configure saved mic preference + set device list.
         tray._config = SimpleNamespace(hotkey="<f2>", model_size="small.en", microphone="5")
         tray.set_microphones(
@@ -785,14 +792,21 @@ class TestMicrophoneSubmenu:
             ]
         )
         items = tray._build_microphones_submenu()
-        labels = [str(i.args[0]) for i in items if isinstance(i, _FakeMenuItem)]
-        # The USB Mic (id=5) should be marked active.
-        usb_label = next(lb for lb in labels if "USB Mic" in lb)
-        assert usb_label.startswith("• "), f"Active mic should be prefixed with '• ', got: {usb_label!r}"
-        # The Built-in Mic (id=0, default=True but not the saved pref)
-        # should NOT be marked active.
-        builtin_label = next(lb for lb in labels if "Built-in Mic" in lb)
-        assert not builtin_label.startswith("• "), f"Non-active mic should NOT have '• ' prefix, got: {builtin_label!r}"
+        # Find the USB Mic (id=5) item and assert it's checked.
+        usb_items = [i for i in items if isinstance(i, _FakeMenuItem) and "USB Mic" in str(i.args[0])]
+        assert usb_items, f"USB Mic menu item not found in {items!r}"
+        usb_item = usb_items[0]
+        assert usb_item.kwargs.get("checked") is True, (
+            f"Active mic (USB Mic) must be marked checked=True; got kwargs={usb_item.kwargs!r}"
+        )
+        # The Built-in Mic (id=0, default=True but not the saved
+        # pref) should NOT be marked active.
+        builtin_items = [i for i in items if isinstance(i, _FakeMenuItem) and "Built-in Mic" in str(i.args[0])]
+        assert builtin_items
+        builtin_item = builtin_items[0]
+        assert builtin_item.kwargs.get("checked") is False, (
+            f"Non-active mic (Built-in Mic) must be marked checked=False; got kwargs={builtin_item.kwargs!r}"
+        )
 
     def test_mic_submenu_click_calls_change_microphone(self, tray):
         """Clicking a mic in the submenu calls change_microphone(id)."""
