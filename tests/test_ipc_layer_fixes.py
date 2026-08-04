@@ -340,21 +340,35 @@ class TestWriterEncodesOnce:
         # ``inspect.getsource`` on the module file so the static
         # check doesn't care which enclosing function the writer
         # lives in.
-        from voice_typer.server import sidecar_ws
         import inspect as _inspect
 
+        from voice_typer.server import sidecar_ws
+
         src = _inspect.getsource(sidecar_ws)
-        # The new encode-once pattern.
-        assert 'raw_bytes = json.dumps(event, ensure_ascii=False).encode("utf-8")' in src, (
-            "XV-84: _writer must encode ONCE to raw_bytes via json.dumps(event, ensure_ascii=False).encode('utf-8')."
+        # XV-84 encode-once pattern: the JSON→bytes encode lives in
+        # the module-level ``_encode_ws_frame`` helper (called from
+        # the writer via the executor offload so the asyncio loop
+        # thread never does the big encode); the writer assigns the
+        # result to ``raw_bytes`` and reuses that buffer for both the
+        # size check and the send.
+        assert 'return json.dumps(event, ensure_ascii=False).encode("utf-8")' in src, (
+            "XV-84: _encode_ws_frame must encode ONCE via json.dumps(event, ensure_ascii=False).encode('utf-8')."
+        )
+        assert "raw_bytes = await loop.run_in_executor(None, _encode_ws_frame, event)" in src, (
+            "XV-84: _writer must offload the encode to _encode_ws_frame and assign raw_bytes."
         )
         # The old re-encode pattern must be GONE.
         assert 'len(raw.encode("utf-8"))' not in src, (
             "XV-84: _writer must NOT re-encode via len(raw.encode('utf-8')) — encode once and reuse the buffer."
         )
-        # The send must use the bytes buffer, not a str.
-        assert "await websocket.send(raw_bytes)" in src, (
+        # The send must use the bytes buffer, not a str, and be capped
+        # by asyncio.wait_for so a wedged peer cannot block the writer
+        # task (and the asyncio loop thread) forever.
+        assert "websocket.send(raw_bytes)" in src, (
             "XV-84: _writer must await websocket.send(raw_bytes) (bytes), not websocket.send(raw) (str)."
+        )
+        assert "await asyncio.wait_for(websocket.send(raw_bytes), timeout=_WS_SEND_TIMEOUT_SECONDS)" in src, (
+            "send must be wrapped in asyncio.wait_for(..., timeout=_WS_SEND_TIMEOUT_SECONDS)."
         )
 
 

@@ -782,17 +782,23 @@ def _find_closest_vocabulary_match(
 
     The function uses bounded Levenshtein (``max_distance`` is passed
     through to :func:`_levenshtein`) so irrelevant comparisons
-    short-circuit quickly.  The bucket index is cached on
-    :data:`_LENGTH_BUCKET_CACHE` keyed by ``id(vocab_words)`` (and
-    identity ``is`` check) so re-calling with the same vocab object
-    is O(1) (returns the cached dict); replacing the vocab with a
-    different object evicts the old entry on first access.
+    short-circuit quickly.
     """
     if not word or not vocab_words:
         return None
 
     word_len = len(word)
-    buckets = _build_length_bucketed_index(vocab_words, max_distance=max_distance)
+
+    # Build a fresh {length: [word, ...]} index on every call — the
+    # vocabulary can change between dictations and the production
+    # caller passes a new set each time, so a persistent cache would
+    # never hit.  Preserve iteration order within each bucket so
+    # tie-breaking stays deterministic.
+    buckets: dict[int, list[str]] = {}
+    for candidate in vocab_words:
+        if not isinstance(candidate, str):
+            continue
+        buckets.setdefault(len(candidate), []).append(candidate)
     if not buckets:
         return None
 
@@ -816,82 +822,6 @@ def _find_closest_vocabulary_match(
                     return best_match
 
     return best_match if best_distance <= max_distance else None
-
-
-# Length-bucketed index cache.  Each entry is a
-# ``(vocab_words_obj, max_distance, buckets_dict)`` tuple.  Tests
-# use ``_LENGTH_BUCKET_CACHE`` directly to verify cache hits /
-# invalidation, and call ``_invalidate_length_bucket_cache()``
-# between tests to ensure a clean slate.  The cache is unbounded in
-# theory (one entry per unique ``vocab_words`` object) but in
-# practice the call sites pass the same ``set`` / ``list``
-# repeatedly, so the cache stays at size 1-2.  Object identity is
-# the cache key — the same list passed twice hits, a different
-# list (even with the same contents) misses and rebuilds.
-_LENGTH_BUCKET_CACHE: list[tuple[Any, int, dict[int, list[str]]]] = []
-
-
-def _build_length_bucketed_index(
-    vocab_words: Iterable[str],
-    max_distance: int = 2,
-) -> dict[int, list[str]]:
-    """Return a ``{length: [word, ...]}`` index over ``vocab_words``.
-
-    The cache is keyed by ``(vocab_words, max_distance)`` and the
-    cache HIT path returns the EXACT same dict object on repeated
-    calls with the same ``vocab_words`` argument.  When
-    ``vocab_words`` is a different object (even with the same
-    contents), the cache MISSes and rebuilds.
-
-    Insertion order within each bucket is preserved — the test
-    ``test_insertion_order_preserved_within_bucket`` verifies this
-    contract (the iteration order is what makes tie-breaking
-    deterministic across calls).
-
-    An empty ``vocab_words`` returns ``{}`` (no buckets, no cache
-    entry).
-    """
-    # Cache hit?
-    for i, entry in enumerate(_LENGTH_BUCKET_CACHE):
-        cached_obj, cached_md, cached_buckets = entry
-        if cached_obj is vocab_words and cached_md == max_distance:
-            return cached_buckets
-    # Cache miss: build a fresh index.  Preserve insertion order so
-    # iteration is deterministic.  Accept any iterable (list, set,
-    # generator) — materialise to a list first.
-    try:
-        words_list = list(vocab_words)
-    except TypeError:
-        # Generators are already exhausted by ``list()``; re-materialise
-        # from the cache.  In practice the call sites pass sets/lists.
-        return {}
-    if not words_list:
-        return {}
-    buckets: dict[int, list[str]] = {}
-    for w in words_list:
-        if not isinstance(w, str):
-            continue
-        buckets.setdefault(len(w), []).append(w)
-    # Single-slot cache: replace any existing entry.  The cache
-    # holds AT MOST one bucket index at a time.  This keeps memory
-    # bounded and matches the test contract:
-    # ``TestCacheInvalidation.test_new_vocab_replaces_cached_entry``
-    # expects ``len(_LENGTH_BUCKET_CACHE) == 1`` after two
-    # ``_build_length_bucketed_index()`` calls with different
-    # vocab objects.
-    if _LENGTH_BUCKET_CACHE:
-        _LENGTH_BUCKET_CACHE[0] = (vocab_words, max_distance, buckets)
-    else:
-        _LENGTH_BUCKET_CACHE.append((vocab_words, max_distance, buckets))
-    return buckets
-
-
-def _invalidate_length_bucket_cache() -> None:
-    """Clear the :data:`_LENGTH_BUCKET_CACHE`.  Tests call this
-    between cases to ensure isolation; production code rarely needs
-    to call it (the cache is keyed by object identity, so different
-    vocab objects auto-evict stale entries)."""
-    _LENGTH_BUCKET_CACHE.clear()
 
 
 __all__ = [
