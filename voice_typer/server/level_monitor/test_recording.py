@@ -637,11 +637,17 @@ def _do_auto_stop_test() -> None:
             exc_info=True,
         )
 
-    with _state._monitor_lock:
-        _secure_clear_test_chunks(_state._test_raw_chunks, _state._test_filtered_chunks, _state._test_chunks)
-        _state._test_raw_chunks.clear()
-        _state._test_filtered_chunks.clear()
-        _state._test_chunks.clear()
+    # G-PERF-RELIABILITY: do NOT clear chunks on auto-stop.
+    # The frontend ``stop_test_recording`` IPC handler runs
+    # AFTER auto-stop fires to fetch the audio; if auto-stop
+    # cleared the chunks, the retrieval would return an empty
+    # audio payload and the user would see a "test failed" toast
+    # despite the test having run to completion. The chunks are
+    # now cleared by ``stop_test_recording`` (after the
+    # frontend retrieves) and by ``cancel_test_recording`` (the
+    # user-cancel path), so the bounded deque (``maxlen == 3s of
+    # audio at 16kHz``) caps the lingering memory at one test's
+    # worth — the intended fix.
 
 
 def _cancel_test_locked() -> bool:
