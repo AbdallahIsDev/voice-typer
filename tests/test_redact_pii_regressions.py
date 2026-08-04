@@ -212,14 +212,30 @@ class TestCloudEnginesRedactionConsistency:
         from voice_typer.server import cloud_engines
 
         src = inspect.getsource(cloud_engines)
-        # The canonical chain appears in both the OpenAI-compatible
-        # path and the Deepgram path. Count occurrences — pre-fix had
-        # 4 (two in each path's HTTPError/URLError branches); the fix
-        # adds 2 more (the generic Exception branches) for a total of
-        # at least 6.
+        # The canonical chain appears in ``_transcribe_with_retry``,
+        # which is the shared retry/redact skeleton called by both
+        # ``_send_openai_compatible`` and ``_send_deepgram``. Each of
+        # the three except branches (HTTPError, URLError, generic
+        # Exception) redacts the exception text via
+        # ``safe_msg = redact_secret(redact_url(str(exc)))`` (the
+        # URLError retry-warning path ALSO inlines the chain, so it
+        # contributes one extra occurrence). Total: 3 + 1 = 4.
+        #
+        # (The original test asserted ``>= 6`` under the assumption
+        # that each of the two provider paths would independently
+        # duplicate the redaction, but the current production code
+        # factors the skeleton into ``_transcribe_with_retry`` and
+        # shares the redaction across both providers — that's the
+        # intended DRY design, not a regression.)
         chain_count = src.count("redact_secret(redact_url(str(exc)))")
-        assert chain_count >= 6, (
-            "XZ-PII-06: expected at least 6 occurrences of "
+        assert chain_count >= 4, (
+            "XZ-PII-06: expected at least 4 occurrences of "
             "``redact_secret(redact_url(str(exc)))`` in cloud_engines.py "
-            f"(2 HTTPError + 2 URLError + 2 generic Exception), found {chain_count}."
+            "(3 in the shared ``_transcribe_with_retry`` except branches "
+            "+ 1 inlined in the URLError retry warning), found "
+            f"{chain_count}. Every redaction site must use the chain "
+            "form so a URL-embedded credential (e.g. "
+            "``https://user:pass@host/...`` echoed in a 500 body) is "
+            "redacted by both ``redact_url`` (URL-cred scrubbing) and "
+            "``redact_secret`` (key-substring scrubbing)."
         )
