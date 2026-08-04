@@ -320,6 +320,15 @@ def _wait_for_backend_ready(timeout: float = _POST_SPAWN_PORT_POLL_TIMEOUT) -> N
         time.sleep(_POST_SPAWN_PORT_POLL_INTERVAL)
 
 
+# legacy / alternate-name alias. The test suite in
+# ``tests/test_perf_fixes.py::TestWaitForIpcReady`` expects this
+# exact name; the production code (which uses the
+# ``_wait_for_backend_ready`` name throughout) is the canonical
+# implementation. Both names point to the same callable so either
+# contract works.
+_wait_for_ipc_ready = _wait_for_backend_ready
+
+
 def _client_dir_exists() -> bool:
     """Return True if the Electron client directory (with package.json) exists."""
     return CLIENT_DIR.is_dir() and (CLIENT_DIR / "package.json").exists()
