@@ -179,14 +179,25 @@ class TestSendDrainBatching:
     def _make_buffered_mock_client(self):
         """Build a mock tcp_client whose ``write``/``flush``/``reset``
         simulate the real ``_TCPLineIO`` buffer-then-flush behavior, so
-        we can count ``sendall`` calls without a real socketpair."""
+        we can count ``sendall`` calls without a real socketpair.
+
+        ``write`` accepts both ``str`` and ``bytes`` — production
+        passes already-encoded bytes (the encode-once refactor
+        upstream); legacy / str callers pass a ``str`` that we encode
+        here for compatibility.
+        """
         tcp_client = MagicMock()
         tcp_client.conn = MagicMock()
         tcp_client.conn.gettimeout.return_value = None
         write_buffer: list[bytes] = []
 
         def mock_write(text):
-            write_buffer.append(text.encode("utf-8"))
+            # ``text`` may be ``str`` (legacy) or ``bytes`` (the
+            # encode-once refactor — pre-encoding the line so the
+            # flush+sendall path doesn't re-encode).
+            if isinstance(text, str):
+                text = text.encode("utf-8")
+            write_buffer.append(text)
 
         def mock_flush():
             if write_buffer:
@@ -298,7 +309,11 @@ class TestSendDrainBatching:
         write_buffer: list[bytes] = []
 
         def mock_write(text):
-            write_buffer.append(text.encode("utf-8"))
+            # ``text`` may be ``str`` (legacy) or ``bytes`` (the
+            # encode-once refactor).
+            if isinstance(text, str):
+                text = text.encode("utf-8")
+            write_buffer.append(text)
 
         # First flush (for the current line) succeeds; second flush
         # (for the drain batch) raises OSError.
