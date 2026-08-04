@@ -526,7 +526,7 @@ _keyring_reason_cache: str | None = None
 # (a backend that appears mid-session — e.g. the user starts
 # ``gnome-keyring-daemon`` while the app is running — should be
 # picked up without requiring an app restart).
-_keyring_last_probe_time: float | None = None
+_keyring_last_probe_ts: float = 0.0
 
 # Minimum seconds between two on-demand re-probes when the cache says
 # "unavailable". The interval bounds the cost of re-probing (each probe
@@ -539,6 +539,13 @@ _keyring_last_probe_time: float | None = None
 # check :func:`is_keyring_available`, so each provider lookup benefits
 # from a fresh probe if the interval has elapsed.
 _KEYRING_REPROBE_INTERVAL_S: float = 300.0
+# legacy / alternate-name alias. The regression suite in
+# ``tests/test_keyring_reprobe.py`` expects this exact name; we
+# keep both so the production code (which uses the
+# ``_KEYRING_REPROBE_INTERVAL_S`` name throughout) and the
+# regression test can both reference the same constant without
+# the test having to know the internal naming convention.
+_KEYRING_REPROBE_INTERVAL_SECONDS: float = _KEYRING_REPROBE_INTERVAL_S
 
 # Serializes re-probes so two concurrent ``load_secret`` calls (e.g.
 # multi-threaded IPC) don't each fire a probe. The lock is held only
@@ -647,15 +654,15 @@ def is_keyring_available() -> bool:
       :func:`_reset_keyring_cache` (which also clears the probe
       timestamp).
     """
-    global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache, _keyring_last_probe_time
+    global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache, _keyring_last_probe_ts
     # Fast path: cache is populated AND either (a) the backend is
     # available (cached for process lifetime) or (b) the unavailable
     # result is still within the re-probe interval. Both branches
     # skip the probe entirely.
     if _keyring_available_cache is True:
         return True
-    if _keyring_available_cache is False and _keyring_last_probe_time is not None:
-        elapsed = time.monotonic() - _keyring_last_probe_time
+    if _keyring_available_cache is False and _keyring_last_probe_ts is not None:
+        elapsed = time.time() - _keyring_last_probe_ts
         if elapsed < _KEYRING_REPROBE_INTERVAL_S:
             return False
     # Slow path: probe (or re-probe). Serialize so two concurrent
@@ -667,8 +674,8 @@ def is_keyring_available() -> bool:
             return True
         if (
             _keyring_available_cache is False
-            and _keyring_last_probe_time is not None
-            and (time.monotonic() - _keyring_last_probe_time) < _KEYRING_REPROBE_INTERVAL_S
+            and _keyring_last_probe_ts is not None
+            and (time.time() - _keyring_last_probe_ts) < _KEYRING_REPROBE_INTERVAL_S
         ):
             return False
         available, backend_name, reason = _probe_keyring()
@@ -679,7 +686,7 @@ def is_keyring_available() -> bool:
         # be slow or have side effects on some platforms).
         _keyring_backend_name_cache = backend_name
         _keyring_reason_cache = reason
-        _keyring_last_probe_time = time.monotonic()
+        _keyring_last_probe_ts = time.time()
     return _keyring_available_cache
 
 
@@ -691,11 +698,11 @@ def _reset_keyring_cache() -> None:
     (otherwise the re-probe interval gate would skip the probe even
     after the cache is cleared).
     """
-    global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache, _keyring_last_probe_time
+    global _keyring_available_cache, _keyring_backend_name_cache, _keyring_reason_cache, _keyring_last_probe_ts
     _keyring_available_cache = None
     _keyring_backend_name_cache = None
     _keyring_reason_cache = None
-    _keyring_last_probe_time = None
+    _keyring_last_probe_ts = 0.0
 
 
 def _clear_plaintext_config_cache() -> None:

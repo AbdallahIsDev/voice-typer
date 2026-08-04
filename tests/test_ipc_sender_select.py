@@ -227,7 +227,9 @@ def test_select_writable_sendall_called_with_correct_data() -> None:
     tcp_client.conn.sendall.side_effect = capture_sendall
 
     msg = {"type": "test_event", "id": 42, "text": "hello"}
-    expected_line = json.dumps(msg) + "\n"
+    # Production now uses compact JSON (no whitespace, ensure_ascii=False)
+    # per XV-83 — see ``test_ipc_layer_fixes::TestCompactJsonSerialization``.
+    expected_line = json.dumps(msg, ensure_ascii=False, separators=(",", ":")) + "\n"
 
     with _patch_select_writable(tcp_client.conn):
         server._send(msg)
@@ -277,7 +279,13 @@ def test_select_writable_sendall_called_with_correct_data_and_drain() -> None:
     mock_mod.select.side_effect = mock_select
 
     msg = {"type": "test_event", "id": 99}
-    expected_current = (json.dumps(msg) + "\n").encode("utf-8")
+    expected_current = (json.dumps(msg, ensure_ascii=False, separators=(",", ":")) + "\n").encode("utf-8")
+    # The drain preserves the pending strings as-is (they were
+    # serialized at enqueue time, before the compact-JSON refactor
+    # in the current-message path). The test pre-populates with
+    # the legacy format (with default ``", "`` / ``": "``
+    # whitespace) to match the production behavior: pending
+    # entries are written verbatim, no re-encoding.
     expected_drain = b'{"pending": 1}\n{"pending": 2}\n'
 
     with patch.object(sender_module, "select", mock_mod):
