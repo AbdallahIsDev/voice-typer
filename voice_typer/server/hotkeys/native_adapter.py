@@ -178,6 +178,24 @@ class _NativeBackendAdapter(HotkeyBackend):
         native_backend.set_permanent_failure_callback(self._on_native_permanent_failure)
         # wire WARN callback
         native_backend.set_warn_callback(self._on_native_warn)
+        # Wire legacy attribute-style callback slots. The
+        # ``SubprocessHotkeyBackend`` historically used attribute
+        # assignment (``backend._on_error_callback = cb``); the
+        # refactor to ``set_error_callback`` is the canonical path,
+        # but tests in ``tests/test_runtime_fallback.py`` (and any
+        # external code that introspects the attribute) still read
+        # the attribute. Mirroring the assignment here keeps both
+        # the method-based setter and the attribute-based reader in
+        # sync — defense-in-depth for the test surface.
+        try:
+            native_backend._on_error_callback = self._on_native_error
+            native_backend._on_permanent_failure_callback = self._on_native_permanent_failure
+        except (AttributeError, TypeError):
+            # Some backends may disallow attribute assignment
+            # (e.g. frozen dataclass). The method-based setter is
+            # the authoritative wire — the attribute mirror is
+            # best-effort for test introspection.
+            pass
 
     def start(self, callback: Callable[[], None]) -> None:
         self._callback = callback
