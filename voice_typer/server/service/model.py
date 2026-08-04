@@ -862,7 +862,11 @@ class ModelMixin(ServiceMixinBase):
                     "[SERVICE] Unknown model requested for download: '%s'",
                     model_name,
                 )
-                return {"success": False, "error": f"Unknown model: {model_name}"}
+                return {
+                    "success": False,
+                    "model": model_name,
+                    "error": f"Unknown model: {model_name}",
+                }
             return dict(outcome)  # Convert TypedDict to regular dict for IPC
         except Exception as exc:
             log.error("download_model failed for %s: %s", model_name, exc)
@@ -895,7 +899,11 @@ class ModelMixin(ServiceMixinBase):
                 APP_NAME,
                 f"Failed to download {model_name}: {redact_secret(redact_url(str(exc)))}",
             )
-            return {"success": False, "error": redact_secret(redact_url(str(exc)))}
+            return {
+                "success": False,
+                "model": model_name,
+                "error": redact_secret(redact_url(str(exc))),
+            }
 
     def _download_whisper_family(self, model_name: str, model_meta) -> DownloadOutcome:
         """Whisper / distil-whisper branch of :meth:`download_model`.
@@ -1103,6 +1111,7 @@ class ModelMixin(ServiceMixinBase):
                 if poll_outcome == "cancelled":
                     return {
                         "success": False,
+                        "model": model_name,
                         "cancelled": True,
                         "message": f"Download of {model_name} cancelled. "
                         "Partial files remain in cache; "
@@ -1192,6 +1201,7 @@ class ModelMixin(ServiceMixinBase):
         _notify(self._app.tray, model_name, APP_NAME, "Qwen model path not configured")
         return {
             "success": False,
+            "model": model_name,
             "error": "Qwen model path not configured. Set qwen_model_path in Settings.",
         }
 
