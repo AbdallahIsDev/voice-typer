@@ -358,9 +358,16 @@ class TestVolumeBackendFadeTo:
     discrete set_linear calls with equal-sized sleeps."""
 
     def test_fade_to_uses_set_linear(self):
-        # Use LinuxVolumeBackend to exercise the default fade_to
-        # (it doesn't override).
-        b = LinuxVolumeBackend()
+        # Use a non-subprocess subclass so the default ``fade_to`` ramp
+        # path runs (the real ``LinuxVolumeBackend._set_linear_is_subprocess``
+        # returns True, which collapses the ramp to a single set_linear
+        # call — see the comment on the LinuxVolumeBackend property).
+        class _InProcessLinuxBackend(LinuxVolumeBackend):
+            @property
+            def _set_linear_is_subprocess(self) -> bool:
+                return False
+
+        b = _InProcessLinuxBackend()
         b._tool = "pactl"
         set_calls = []
         b._run = lambda cmd, timeout=2.0: "ok"
