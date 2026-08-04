@@ -183,4 +183,6 @@ class TestServerFloodResistance:
         # Should succeed (clamped to 500), not crash
         assert result["type"] == "history"
         # get_recent must be called with 500, not 10^9
-        mock_app.history_db.get_recent.assert_called_once_with(500, 0, raise_on_error=True)
+        mock_app.history_db.get_recent.assert_called_once_with(
+            500, 0, raise_on_error=True, before_timestamp=None, before_id=None
+        )

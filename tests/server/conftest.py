@@ -105,7 +105,15 @@ class MockConfig:
 class MockHistoryDB:
     """Minimal history db mock."""
 
-    def get_recent(self, limit=50, offset=0, *, raise_on_error=False):
+    def get_recent(
+        self,
+        limit=50,
+        offset=0,
+        *,
+        raise_on_error=False,
+        before_timestamp=None,
+        before_id=None,
+    ):
         return [
             {"id": 1, "text": "hello world", "timestamp": "2025-01-01"},
         ]
