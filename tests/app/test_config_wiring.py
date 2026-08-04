@@ -251,11 +251,22 @@ class TestSettingsWindowIntegration:
     # production code path constructs a SettingsWindow or calls
     # show_settings / open_settings.
 
-    def test_restart_hotkey_stops_existing_backend_and_registers_new_one(self, app):
+    def test_restart_hotkey_stops_existing_backend_and_registers_new_one(self, app, monkeypatch):
         old_backend = MagicMock()
         app.hotkeys._hotkey_backend = old_backend
         # #2 _register_hotkey now delegates to HotkeyDispatcher.register().
-        # Monkeypatch the dispatcher method directly.
+        # Monkeypatch the factory the dispatcher uses to build a new
+        # main backend, so we can assert the swap happened WITHOUT
+        # going through ``register()`` (which restart() inlines since
+        # AB-34: restart swaps only the main hotkey, skipping the aux
+        # backends register_esc / register_repaste to avoid the
+        # subprocess-spawn + Win32-hook-reinstall churn).
+        new_backend = MagicMock()
+        new_backend.is_alive.return_value = True
+        monkeypatch.setattr(
+            "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+            MagicMock(return_value=new_backend),
+        )
         app.hotkeys.register = MagicMock()
 
         # Phase 2: was ``app._restart_hotkey("<f3>")`` (test-seam
@@ -264,7 +275,12 @@ class TestSettingsWindowIntegration:
 
         assert app.config.hotkey == "<f3>"
         old_backend.stop.assert_called_once()
-        app.hotkeys.register.assert_called_once()
+        # restart() inlines main-backend creation; the factory was
+        # called with the new spec (and the role kwarg that the
+        # role-aware factory accepts).
+        import voice_typer.server.hotkey_dispatcher as _hd
+        _hd.create_hotkey_backend.assert_called_with("<f3>", role="dictation")
+        assert app.hotkeys._hotkey_backend is new_backend
 
     def test_restart_app_does_not_spawn_subprocess(self, app, monkeypatch):
         """fix-restart-tcp: restart_app() must NOT spawn a replacement

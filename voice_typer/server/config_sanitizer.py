@@ -234,20 +234,18 @@ def sanitize_config_for_ipc(config: Any) -> dict[str, Any]:
     # ``_mutation_lock``) and plain instance attributes set in
     # ``__post_init__`` (``_last_saved_bytes``, ``last_load_warnings``)
     # are EXCLUDED automatically — they're not in
-    # ``Config.__dataclass_fields__``.
+    # ``Config.__dataclass_fields__``. ``FR-20`` regression guard
+    # (tests/test_config_sanitizer.py::TestNoTransientAttributesLeaked)
+    # pins this behavior: the sanitizer must NOT leak
+    # ``_last_saved_bytes`` OR ``last_load_warnings`` to the IPC
+    # boundary — a same-user local process that calls ``get_config``
+    # should not learn about prior config writes or schema-version
+    # migration details.
     out: dict[str, Any] = dataclasses.asdict(config)
     for k in SECRET_CONFIG_FIELDS:
         if k in out:
             v = out[k]
             out[k] = REDACTED_SENTINEL if v else v
-    # Surface ``last_load_warnings`` to the renderer. ``getattr`` with
-    # a default of ``[]`` keeps the sanitizer tolerant of older Config
-    # snapshots (or test doubles) that don't set the attribute — the
-    # renderer always sees a list, never ``None`` or ``AttributeError``.
-    # The warnings are redacted via :func:`_redact_load_warning` (see
-    # its docstring for the redaction rationale).
-    raw_warnings = list(getattr(config, "last_load_warnings", []) or [])
-    out["last_load_warnings"] = [_redact_load_warning(w) for w in raw_warnings]
     return out
 
 

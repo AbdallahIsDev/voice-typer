@@ -4,6 +4,15 @@ Each engine implements the TranscriberProtocol so the app can swap
 backends transparently. Cloud engines send audio to an API endpoint
 and return the transcribed text.
 
+FR-6: per-transcription connection lifecycle. Each CloudEngine
+instance is created per-transcription (not cached across dictations)
+so a stale connection from a previous dictation can never serve a
+later request — the most common cause of "the model talks to the
+wrong endpoint" bugs in long-running tray apps. See
+``TestPerTranscriptionLifecycleDocumented`` in
+``tests/test_cloud_engines_dead_cache_removed.py`` for the
+regression guard.
+
 Configuration:
     asr_backend: "openai" | "groq" | "deepgram"
     cloud_api_key: str
@@ -16,7 +25,9 @@ import json
 import logging
 import threading
 import time
+import wave
 from collections.abc import Callable
+from datetime import datetime, timezone
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
@@ -127,8 +138,6 @@ _PROVIDER_DEFAULTS = {
 
 def _audio_to_wav_bytes(audio: np.ndarray, sample_rate: int = WHISPER_SAMPLE_RATE) -> bytes:
     """Convert float32 numpy array to WAV bytes."""
-    import wave
-
     buf = io.BytesIO()
     # Convert float32 to int16
     audio_int16 = np.clip(audio * 32767, -32768, 32767).astype(np.int16)
@@ -187,7 +196,6 @@ def _parse_retry_after(header_value: str | None) -> float:
         # returns a timezone-aware datetime (or None if unparseable).
         seconds = 2.0
         try:
-            from datetime import datetime, timezone
             from email.utils import parsedate_to_datetime
 
             dt = parsedate_to_datetime(header_value)
@@ -951,17 +959,16 @@ class CloudEngine:
             # confirms the host is reachable).
             if self.provider == "deepgram":
                 # Deepgram: send empty WAV bytes; expect 400 (bad audio)
-                # or 200 (success with empty transcript).
+                # or 200 (success with empty transcript). Use the
+                # shared _audio_to_wav_bytes helper (was inline before
+                # — the test_cloud_engines_wav_helper regression guard
+                # pins the helper as the single source of WAV encoding
+                # so the duplicate byte-string literal can't drift).
+                empty_wav = _audio_to_wav_bytes(np.zeros(0, dtype=np.float32))
                 headers = {
                     "Authorization": f"Token {self.api_key}",
                     "Content-Type": "audio/wav",
                 }
-                # Empty WAV header (44 bytes, no data)
-                empty_wav = (
-                    b"RIFF\x24\x00\x00\x00WAVEfmt \x10\x00\x00\x00"
-                    b"\x01\x00\x01\x00\x80\xbb\x00\x00\x00\x77\x01\x00"
-                    b"\x02\x00\x10\x00data\x00\x00\x00\x00"
-                )
                 req = Request(self.api_url, data=empty_wav, headers=headers, method="POST")
             else:
                 # OpenAI-compatible: send empty multipart body.
