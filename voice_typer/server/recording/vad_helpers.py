@@ -206,8 +206,18 @@ def vad_auto_calibrate(recorder: Any, chunk_rms: float, chunk_duration: float) -
     first chunk arrives — see the ``refresh_vad_caches`` docstring
     above. Matches the pattern already used at
     ``audio_pipeline.py:475`` on the same per-chunk hot path.
+
+    Fallback: when the cache is ``False`` we fall back to the dynamic
+    ``_vad_enabled`` property. This keeps direct callers that never
+    went through ``start()``/``refresh_vad_caches()`` (e.g. the
+    ``audio_test.py`` regression suite, which feeds ``_vad_auto_calibrate``
+    directly after forcing the RMS backend) behaviorally identical to
+    the pre-cache check. On the 16 Hz hot path the cache is primed to
+    ``True`` by ``refresh_vad_caches`` before the first chunk, so the
+    dynamic lookup is only reached when VAD is disabled (a 5 s TTL
+    flat-line, matching the pre-PERF behavior).
     """
-    if not recorder._cached_vad_enabled:
+    if not recorder._cached_vad_enabled and not recorder._vad_enabled:
         return
     elapsed = time.perf_counter() - recorder._recording_start_time
     recorder._vad.auto_calibrate(chunk_rms, elapsed, chunk_duration)
