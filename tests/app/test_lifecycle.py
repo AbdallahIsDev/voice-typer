@@ -634,9 +634,7 @@ class TestStartupResilience:
         # start path re-checks ``app.recorder.recording`` after the
         # model load and aborts post-load steps (including the
         # model-fail discard) when it is False.
-        app.recorder.start = MagicMock(
-            side_effect=lambda *a, **kw: setattr(app.recorder, "recording", True)
-        )
+        app.recorder.start = MagicMock(side_effect=lambda *a, **kw: setattr(app.recorder, "recording", True))
 
         app._start_dictation()
 
