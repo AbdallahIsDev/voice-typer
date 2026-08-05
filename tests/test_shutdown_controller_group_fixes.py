@@ -129,14 +129,6 @@ class _FakeApp:
 
 
 @pytest.fixture
-def tmp_config_dir(tmp_path, monkeypatch):
-    """Point config to a temp directory (so PID file writes are isolated)."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
-    return tmp_path
-
-
-@pytest.fixture
 def fake_app(tmp_config_dir, monkeypatch):
     """Return a ``_FakeApp`` with the shutdown environment stubbed out.
 
@@ -861,9 +853,7 @@ class TestSkipSdStopOnRecorderTimeout:
 
         fake_sd.stop.assert_not_called()
 
-    def test_sd_stop_skipped_when_recorder_teardown_event_never_set(
-        self, controller, fake_app, monkeypatch
-    ):
+    def test_sd_stop_skipped_when_recorder_teardown_event_never_set(self, controller, fake_app, monkeypatch):
         """UE-2: when ``_recorder_teardown_done`` is NEVER set within
         9.5s (e.g. the recorder teardown helper crashed mid-call
         before reaching the line that sets the event), ``sd.stop()``
@@ -880,7 +870,6 @@ class TestSkipSdStopOnRecorderTimeout:
         # ``_recorder_force_closed`` check below would proceed to
         # ``sd.stop()`` and deadlock. The fix: check the wait() return
         # value FIRST and skip if the recorder teardown never signaled.
-        import voice_typer.server.shutdown_controller as _sc
 
         # Speed up the test — patch the wait() timeout down to 0.1s
         # so the test finishes in <1s instead of waiting 9.5s.
@@ -898,9 +887,7 @@ class TestSkipSdStopOnRecorderTimeout:
                 return  # production path: log warning + return
             original_teardown_sounddevice(controller)
 
-        monkeypatch.setattr(
-            sounddevice, "teardown_sounddevice", _fast_teardown_sounddevice
-        )
+        monkeypatch.setattr(sounddevice, "teardown_sounddevice", _fast_teardown_sounddevice)
 
         fake_sd = MagicMock()
         fake_sd.stop = MagicMock()

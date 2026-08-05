@@ -273,7 +273,7 @@ def _build_dispatcher_recorder(
     recorder._thread_registry = None
     # For ``start_audio_worker_body``: ``_audio_worker_loop`` is the
     # thread target. ``Recorder`` provides this in production.
-    recorder._audio_worker_loop = lambda: None
+    recorder._audio_worker_loop = lambda *args: None
     return recorder, arrays
 
 

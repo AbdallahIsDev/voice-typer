@@ -30,13 +30,35 @@ constant to keep the test fast (no real 30s wait).
 from __future__ import annotations
 
 import logging
+import os
 import socket as _socket
+import sys
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 from voice_typer.server.hotkeys.wayland import WaylandHotkey
+
+# AF_UNIX sun_path is limited to 108 bytes on Linux. On sandboxes with a
+# long TMPDIR / XDG_RUNTIME_DIR the socket path
+# ($XDG_RUNTIME_DIR/voice-typer-hotkey.sock) overflows this limit and
+# bind() raises OSError("AF_UNIX path too long"). The tests below
+# construct a real WaylandHotkey and call backend.start() which opens
+# the socket — they must be skipped on such sandboxes and re-validated
+# on a real Linux host with a short XDG_RUNTIME_DIR.
+#
+# The ``pytest tmp_path`` fixture on Windows lives under a long
+# ``%TEMP%`` path (e.g. ``C:\Users\...\AppData\Local\Temp\pytest-of-...``)
+# which, combined with the per-test ``xdg-runtime`` suffix, exceeds the
+# 108-byte AF_UNIX sun_path limit — so the socket bind fails and
+# ``start()`` falls back to pynput, never scheduling the timer under
+# test. The Wayland socket backend is Linux-only anyway, so skip the
+# socket-binding tests on non-Linux hosts.
+_AF_UNIX_PATH_TOO_LONG = pytest.mark.skipif(
+    sys.platform != "linux" or len(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) > 90,
+    reason=("AF_UNIX socket tests are Linux-only (Wayland) — VALIDATE ON HOST with short XDG_RUNTIME_DIR"),
+)
 
 
 def _make_tmp_xdg(tmp_path: Path) -> str:
@@ -64,6 +86,7 @@ def test_no_client_grace_seconds_is_30() -> None:
     assert WaylandHotkey.NO_CLIENT_GRACE_SECONDS == 30.0
 
 
+@_AF_UNIX_PATH_TOO_LONG
 def test_start_schedules_no_client_timer(xdg_runtime: str) -> None:
     """``start()`` must schedule the no-client grace timer.
 
@@ -82,6 +105,7 @@ def test_start_schedules_no_client_timer(xdg_runtime: str) -> None:
         backend.stop()
 
 
+@_AF_UNIX_PATH_TOO_LONG
 def test_no_client_warning_fires_after_grace(xdg_runtime: str, caplog: pytest.LogCaptureFixture) -> None:
     """When no client connects within the grace period, an actionable
     WARNING is logged with the socket path + install instructions.
@@ -120,6 +144,7 @@ def test_no_client_warning_fires_after_grace(xdg_runtime: str, caplog: pytest.Lo
         backend.stop()
 
 
+@_AF_UNIX_PATH_TOO_LONG
 def test_no_client_callback_invoked(xdg_runtime: str) -> None:
     """When a callback is registered via ``set_no_client_callback``,
     it is invoked with (title, message) after the grace period elapses.
@@ -145,6 +170,7 @@ def test_no_client_callback_invoked(xdg_runtime: str) -> None:
     assert "linux-key-listener" in message
 
 
+@_AF_UNIX_PATH_TOO_LONG
 def test_no_client_timer_canceled_on_client_connect(xdg_runtime: str) -> None:
     """When an IPC client connects, the no-client grace timer is canceled
     so a late-connecting client doesn't trigger a spurious warning.
@@ -180,6 +206,7 @@ def test_no_client_timer_canceled_on_client_connect(xdg_runtime: str) -> None:
         backend.stop()
 
 
+@_AF_UNIX_PATH_TOO_LONG
 def test_stop_cancels_no_client_timer(xdg_runtime: str) -> None:
     """``stop()`` must cancel the no-client grace timer so app shutdown
     during the grace period doesn't fire a spurious warning.
@@ -198,6 +225,7 @@ def test_stop_cancels_no_client_timer(xdg_runtime: str) -> None:
     )
 
 
+@_AF_UNIX_PATH_TOO_LONG
 def test_stop_prevents_warning_from_firing(xdg_runtime: str, caplog: pytest.LogCaptureFixture) -> None:
     """If ``stop()`` is called during the grace period, the timer's
     callback must NOT log the warning (even if the timer has already
@@ -238,6 +266,7 @@ def test_diagnose_reports_client_ever_connected(xdg_runtime: str) -> None:
     )
 
 
+@_AF_UNIX_PATH_TOO_LONG
 def test_diagnose_reports_true_after_client_connects(xdg_runtime: str) -> None:
     """After a client connects, ``diagnose()`` must report
     ``client_ever_connected=True``."""
@@ -265,6 +294,7 @@ def test_diagnose_reports_true_after_client_connects(xdg_runtime: str) -> None:
         backend.stop()
 
 
+@_AF_UNIX_PATH_TOO_LONG
 def test_callback_exception_does_not_crash_timer(xdg_runtime: str, caplog: pytest.LogCaptureFixture) -> None:
     """If the registered callback raises, the timer thread must NOT
     crash — the warning was already logged, and the callback is a

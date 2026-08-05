@@ -172,25 +172,48 @@ class TestTrayThreadAttributeNaming:
         assert "_bg_work_thread" not in tray_py
 
     def test_bg_thread_used_in_all_three_paths(self):
+        """All start paths funnel through the ``_launch_bg_work`` helper,
+        which is the single place that assigns ``self._bg_thread``.
+
+        Phase 6 refactor extracted the 4 near-duplicate
+        ``if self._bg_work_fn: threading.Thread(...).start()`` blocks
+        into ``_launch_bg_work()`` (daemon thread + store on
+        ``self._bg_thread``). The test pins the canonical attribute
+        name and the shared-launch shape: exactly one assignment site
+        for ``self._bg_thread`` and at least 3 callers of the helper
+        (the ``VOICE_TYPER_NO_TRAY``, Wayland-without-SNI, pystray
+        ``OSError``, and normal start paths).
+        """
         tray_py = (REPO_ROOT / "voice_typer" / "server" / "tray.py").read_text(encoding="utf-8")
-        count = tray_py.count("self._bg_thread = threading.Thread")
-        assert count == 3
+        # The canonical thread attribute is assigned in exactly ONE place
+        # (the shared launch helper) — no drift between paths.
+        assert tray_py.count("self._bg_thread = threading.Thread") == 1
+        # All start paths call the shared helper.
+        assert tray_py.count("_launch_bg_work()") >= 3
 
 
 class TestElectronUserDataPathMatchesConfigDir:
     """Electron's userData matches Python's config dir."""
 
     def test_main_sets_user_data_path(self):
-        main_ts = (REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "index.ts").read_text(encoding="utf-8")
-        assert 'app.setPath("userData"' in main_ts
+        # REF-2 split: userData wiring moved from main/index.ts to
+        # bootstrap.ts (bootstrapRuntime sets app.setPath("userData")).
+        bootstrap_ts = (REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "bootstrap.ts").read_text(
+            encoding="utf-8"
+        )
+        assert 'app.setPath("userData"' in bootstrap_ts
 
     def test_main_mirrors_python_config_dir_logic(self):
-        main_ts = (REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "index.ts").read_text(encoding="utf-8")
-        assert "VOICE_TYPER_CONFIG_DIR" in main_ts
-        assert ".voice-typer" in main_ts
-        assert "APPDATA" in main_ts
-        assert "Application Support" in main_ts
-        assert "XDG_DATA_HOME" in main_ts
+        # REF-2 split: the config-dir resolver moved to single_instance.ts
+        # (computeConfigDir mirrors Python's _config_dir).
+        single_instance_ts = (REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "single_instance.ts").read_text(
+            encoding="utf-8"
+        )
+        assert "VOICE_TYPER_CONFIG_DIR" in single_instance_ts
+        assert ".voice-typer" in single_instance_ts
+        assert "APPDATA" in single_instance_ts
+        assert "Application Support" in single_instance_ts
+        assert "XDG_DATA_HOME" in single_instance_ts
 
     def test_gitignore_does_not_ignore_scripts_build(self):
         gitignore = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8")
@@ -371,12 +394,23 @@ class TestConsoleHandlerPythonw:
     """_install_win32_console_handler skips pythonw.exe."""
 
     def test_skipped_on_pythonw(self, monkeypatch):
-        from voice_typer.server import app as app_module
+        # Phase 7: the pythonw skip lives in
+        # signal_handlers.install_win32_console_handler (the module-level
+        # function the ShutdownController delegate calls). Test the real
+        # skip path with a fake controller carrying a bare _app.
+        from voice_typer.server import signal_handlers
 
-        app = app_module.VoiceTyperApp.__new__(app_module.VoiceTyperApp)
+        class _FakeApp:
+            pass
+
+        class _FakeController:
+            _app = _FakeApp()
+
         monkeypatch.setattr(sys, "platform", "win32")
         monkeypatch.setattr(sys, "executable", "C:\\Python312\\pythonw.exe")
-        app._install_win32_console_handler()
+        # Must not raise and must not install a console handler.
+        signal_handlers.install_win32_console_handler(_FakeController())
+        assert not hasattr(_FakeController._app, "_console_handler")
 
 
 class TestConfigDirIsPlatformAware:
@@ -425,5 +459,7 @@ class TestResetToDefaultsPreservesOnboardingCompleted:
         settings = (
             REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "pages" / "Settings.tsx"
         ).read_text(encoding="utf-8")
+        # resetToDefaults skips onboarding_completed via the hoisted
+        # CONFIG_PROTECTED_KEYS blocklist (excluded from factory reset).
         assert "onboarding_completed" in settings
-        assert "intentionally preserved" in settings or "skip" in settings.lower()
+        assert "CONFIG_PROTECTED_KEYS" in settings

@@ -15,8 +15,10 @@ delaying ``stop()`` latency by the same amount.
 
 Fix
 ---
-The drain loop now checks ``recorder._worker_stop_event.is_set()``
-every ``_DRAIN_STOP_CHECK_INTERVAL`` (=4) chunks. On stop signal, it
+The drain loop now checks the effective stop event (``_stop.is_set()``,
+where ``_stop`` is the explicit ``stop_event`` captured at spawn time
+or ``recorder._worker_stop_event`` as a fallback — WM-8) every
+``_DRAIN_STOP_CHECK_INTERVAL`` (=4) chunks. On stop signal, it
 breaks out of the drain immediately via ``return`` (sacrificing
 in-flight audio — acceptable since ``drain=True`` is best-effort).
 
@@ -217,8 +219,10 @@ class TestAudioWorkerLoopDrainStopCheck:
 
     def test_drain_loop_source_contains_stop_event_check(self):
         """Source-inspection guard: the drain loop body must contain
-        an inline ``_worker_stop_event.is_set()`` check (AB-2 fix).
-        Guards against accidental removal of the check during future
+        an inline ``_stop.is_set()`` check (AB-2 fix). WM-8 renamed the
+        dynamic ``recorder._worker_stop_event`` to the effective
+        ``_stop`` local (explicit ``stop_event`` or fallback). Guards
+        against accidental removal of the check during future
         refactors."""
         src = inspect.getsource(AudioCallbackDispatcher.audio_worker_loop)
         # Strip the outer-docstring portion (the method's docstring
@@ -231,10 +235,12 @@ class TestAudioWorkerLoopDrainStopCheck:
         assert drain_idx != -1, "could not locate drain loop in source"
         drain_body = src[drain_idx:]
         # The drain body must include a stop-event check (the  fix).
-        assert "_worker_stop_event.is_set()" in drain_body, (
+        assert "_stop.is_set()" in drain_body, (
             "AB-2: the drain loop body must contain a "
-            "``_worker_stop_event.is_set()`` check between chunk "
-            "iterations. The fix appears to have been removed."
+            "``_stop.is_set()`` check between chunk "
+            "iterations. WM-8 renamed the dynamic "
+            "``_worker_stop_event`` to the effective ``_stop`` "
+            "local — the check must not be removed."
         )
         # The drain body must also yield the GIL with time.sleep(0).
         assert "time.sleep(0)" in drain_body, (

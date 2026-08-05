@@ -15,6 +15,7 @@ because it's only used by TestAcceptLoopWorkerPool.
 from __future__ import annotations
 
 import contextlib
+import inspect
 import json
 import socket
 import sys
@@ -262,8 +263,23 @@ class TestAcceptLoopWorkerPool:
         # response (not the push).
         _drain(fast_sock, timeout=0.3)
         _send_line(fast_sock, {"id": 4242, "type": "get_status"})
-        resp = _read_line(fast_sock, timeout=3.0)
-        elapsed = time.monotonic() - start
+        try:
+            resp = _read_line(fast_sock, timeout=3.0)
+        except (TimeoutError, ConnectionError, OSError) as exc:
+            # A raw socket timeout here would surface as an unhandled
+            # test ERROR instead of a diagnostic assertion failure. The
+            # read timeout (3.0s) can fire before the threshold check
+            # below on a loaded/coverage-instrumented machine, so
+            # convert it into a clear, timetracked assertion instead.
+            elapsed = time.monotonic() - start
+            pytest.fail(
+                f"fast client did not receive a response within 3.0s of "
+                f"sending get_status ({elapsed:.2f}s elapsed) — "
+                f"the slow-auth client likely blocked the accept loop "
+                f"(SEC-8 regression): {exc!r}"
+            )
+        else:
+            elapsed = time.monotonic() - start
 
         # 3) The fast client must have received a status response with
         #    the matching id. This proves the accept loop accepted the
@@ -302,8 +318,6 @@ class TestAcceptLoopWorkerPool:
         checking so explanatory text mentioning the old inline
         pattern doesn't trip the assertion.
         """
-        import inspect
-
         source = inspect.getsource(IPCServer._accept_tcp)
         # Strip comment lines and inline comments.
         code_lines = []
@@ -345,8 +359,6 @@ class TestAcceptLoopWorkerPool:
         """Static check: ``stop()`` must shut down the worker pool so
         in-flight auth handshakes don't linger past shutdown.
         """
-        import inspect
-
         source = inspect.getsource(IPCServer.stop)
         assert "_tcp_worker_pool" in source, "IPCServer.stop must shut down _tcp_worker_pool (SEC-8)."
         assert "shutdown" in source, "IPCServer.stop must call .shutdown() on the worker pool (SEC-8)."
@@ -364,8 +376,6 @@ class TestAcceptLoopWorkerPool:
         ``client = auth_client`` capture (and the finally-block
         ``if self._tcp_client is client`` guard) prevents this.
         """
-        import inspect
-
         source = inspect.getsource(IPCServer._handle_tcp_connection)
         # The dispatch loop must use a local `client` reference, not
         # `self._tcp_client` directly.
@@ -383,3 +393,20 @@ class TestAcceptLoopWorkerPool:
             "`self._tcp_client is client` before clearing (SEC-8: "
             "another handler may have replaced self._tcp_client)."
         )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Smoke: ensure the new symbols are importable
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_sec8_worker_pool_attribute_exists():
+    """SEC-8: IPCServer instances must have a ``_tcp_worker_pool``
+    attribute (lazily created in ``start_tcp``).
+    """
+    from tests.fixtures.ipc_test_helpers import make_ipc_server_with_fakes
+
+    server, _, _ = make_ipc_server_with_fakes()
+    # Before start_tcp(), the pool is None.
+    assert hasattr(server, "_tcp_worker_pool")
+    assert server._tcp_worker_pool is None

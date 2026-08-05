@@ -1418,3 +1418,108 @@ class TestCrashBufferLayout:
         labels = {label for label, _ in crash_handler._CRASH_MSG_LAYOUT}
         for required in ("bom", "timestamp", "crash_label", "code", "addr", "pid", "tid", "name"):
             assert required in labels, f"GT-B2-14: layout must include '{required}' segment; got {sorted(labels)}"
+
+
+class TestCrashBufferUsesSecureRotatingFileHandler:
+    """The crash-buffer target ``RotatingFileHandler`` MUST be the
+    secure variant from ``voice_typer.server.log`` — never a stock
+    ``logging.handlers.RotatingFileHandler``.
+
+    A stock ``RotatingFileHandler`` lacks the post-rotation ``0o600``
+    ``chmod`` and the inter-process rotation lock, so the crash-buffer
+    file (which contains the same PII-redacted log records as
+    ``voice-typer.log``) would become world-readable after rotation
+    (re-opened with the process umask, typically ``0o022``). The
+    insecure fallback was removed from ``install_memory_buffer``;
+    these tests guard against its reintroduction.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _reset_memory_buffer(self):
+        """Remove any MemoryHandler installed by a previous test so
+        each test starts from a clean state (the module-level
+        ``_reset_crash_handler_module_state`` fixture does NOT touch
+        ``_memory_handler`` / ``_crash_buffer_handler``)."""
+        from voice_typer.server.crash_handler._memory_buffer import (
+            uninstall_memory_buffer,
+        )
+
+        uninstall_memory_buffer()
+        yield
+        uninstall_memory_buffer()
+
+    def test_target_handler_is_secure_rotating_file_handler(self, tmp_path: Path):
+        """When the ``log`` package is importable (the normal case),
+        ``install_memory_buffer`` must use ``_SecureRotatingFileHandler``
+        as the crash-buffer target — NOT a stock
+        ``RotatingFileHandler``."""
+        from voice_typer.server.crash_handler._memory_buffer import (
+            install_memory_buffer,
+        )
+        from voice_typer.server.log import _SecureRotatingFileHandler
+
+        install_memory_buffer(tmp_path)
+
+        assert crash_handler._crash_buffer_handler is not None, "target RotatingFileHandler must be installed"
+        assert isinstance(crash_handler._crash_buffer_handler, _SecureRotatingFileHandler), (
+            "crash-buffer target must be _SecureRotatingFileHandler "
+            f"(got {type(crash_handler._crash_buffer_handler).__name__}); "
+            "the insecure stock RotatingFileHandler fallback must NOT be used"
+        )
+
+    def test_target_handler_is_not_stock_rotating_file_handler(self, tmp_path: Path):
+        """Defense-in-depth: even though ``_SecureRotatingFileHandler``
+        subclasses ``RotatingFileHandler``, the installed target's
+        concrete type must NOT be the stock base class. This catches a
+        regression where the fallback is reintroduced (the stock
+        handler is an instance of ``RotatingFileHandler`` but not of
+        ``_SecureRotatingFileHandler``)."""
+        from voice_typer.server.crash_handler._memory_buffer import (
+            install_memory_buffer,
+        )
+        from voice_typer.server.log import _SecureRotatingFileHandler
+
+        install_memory_buffer(tmp_path)
+
+        assert crash_handler._crash_buffer_handler is not None
+        # The concrete type must be the secure subclass (or a subclass
+        # thereof), NOT the stock base class.
+        assert type(crash_handler._crash_buffer_handler) is not logging.handlers.RotatingFileHandler, (
+            "crash-buffer target must not be a stock RotatingFileHandler; "
+            "it must be _SecureRotatingFileHandler (or a subclass)"
+        )
+        assert isinstance(crash_handler._crash_buffer_handler, _SecureRotatingFileHandler)
+
+    def test_no_insecure_fallback_when_secure_handler_unavailable(self, tmp_path: Path, monkeypatch):
+        """If the secure handler import fails, ``install_memory_buffer``
+        must propagate the ``ImportError`` — it must NOT silently fall
+        back to a stock ``RotatingFileHandler`` (which lacks ``0o600``
+        perms and the inter-process rotation lock).
+
+        The secure handler import is hoisted out of the FS-ops
+        ``try``/``except`` so the ``ImportError`` propagates to the
+        caller (``set_crash_handler_config_dir`` suppresses it via
+        ``contextlib.suppress(Exception)``). The crash buffer is left
+        uninstalled rather than silently writing to a world-readable
+        file.
+        """
+        import voice_typer.server.log as _log_pkg
+        from voice_typer.server.crash_handler._memory_buffer import (
+            install_memory_buffer,
+        )
+
+        # Hide the secure handler from the package so the hoisted
+        # ``from voice_typer.server.log import _SecureRotatingFileHandler``
+        # inside ``install_memory_buffer`` raises ``ImportError``.
+        # ``monkeypatch.delattr`` restores the attribute at teardown.
+        monkeypatch.delattr(_log_pkg, "_SecureRotatingFileHandler", raising=False)
+
+        with pytest.raises(ImportError):
+            install_memory_buffer(tmp_path)
+
+        # The insecure fallback must NOT have been installed.
+        assert crash_handler._crash_buffer_handler is None, (
+            "crash-buffer target must NOT be installed when the secure "
+            "handler import fails — no insecure stock RotatingFileHandler "
+            "fallback is permitted"
+        )

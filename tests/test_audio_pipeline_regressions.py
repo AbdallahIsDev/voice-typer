@@ -378,12 +378,15 @@ class TestResampleFallbackDegraded:
         from voice_typer.server import audio_processor as ap_module
         from voice_typer.server.audio_processor import AudioProcessor
 
-        # Force _get_resample_poly to raise (simulates scipy missing or
-        # any other resample failure).
+        # Force the resample path to raise (simulates scipy missing or
+        # any other resample failure). ``audio_processor`` resolves the
+        # resampler via the lazy ``_get_resample_poly_fn()`` accessor
+        # (which imports from ``recording.resampling`` on first use), so
+        # the accessor is patched to return a raising callable.
         def _raise_runtime_error():
             raise RuntimeError("simulated scipy missing")
 
-        monkeypatch.setattr(ap_module, "_get_resample_poly", _raise_runtime_error)
+        monkeypatch.setattr(ap_module, "_get_resample_poly_fn", lambda: _raise_runtime_error)
 
         p = AudioProcessor(_FakeConfig(), sample_rate=16000)
         assert p.is_degraded is False, "freshly constructed processor must not be degraded"
@@ -423,7 +426,7 @@ class TestResampleFallbackDegraded:
         def _raise_runtime_error():
             raise RuntimeError("simulated scipy missing")
 
-        monkeypatch.setattr(ap_module, "_get_resample_poly", _raise_runtime_error)
+        monkeypatch.setattr(ap_module, "_get_resample_poly_fn", lambda: _raise_runtime_error)
 
         p = AudioProcessor(_FakeConfig(), sample_rate=16000)
         audio = (np.random.randn(1024).astype(np.float32)) * 0.3
@@ -453,7 +456,7 @@ class TestResampleFallbackDegraded:
         def _raise_runtime_error():
             raise RuntimeError("simulated scipy missing")
 
-        monkeypatch.setattr(ap_module, "_get_resample_poly", _raise_runtime_error)
+        monkeypatch.setattr(ap_module, "_get_resample_poly_fn", lambda: _raise_runtime_error)
 
         p = AudioProcessor(_FakeConfig(), sample_rate=16000)
         audio = (np.random.randn(1024).astype(np.float32)) * 0.3
@@ -474,7 +477,7 @@ class TestResampleFallbackDegraded:
         def _raise_runtime_error():
             raise RuntimeError("simulated scipy missing")
 
-        monkeypatch.setattr(ap_module, "_get_resample_poly", _raise_runtime_error)
+        monkeypatch.setattr(ap_module, "_get_resample_poly_fn", lambda: _raise_runtime_error)
 
         p = AudioProcessor(_FakeConfig(), sample_rate=16000)
         audio = (np.random.randn(1024).astype(np.float32)) * 0.3

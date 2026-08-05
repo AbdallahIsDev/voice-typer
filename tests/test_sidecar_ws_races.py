@@ -42,6 +42,7 @@ import pytest
 websockets = pytest.importorskip("websockets")
 
 from voice_typer.server import sidecar_ws  # noqa: E402
+from voice_typer.server.ipc.validation import ErrorCodes  # noqa: E402
 
 # ─── Helpers ────────────────────────────────────────────────────────────
 
@@ -219,7 +220,7 @@ async def test_concurrent_connections_at_one_slot_one_rejected_not_blocked(
     # ``max_connections_reached`` (rejected at cap). With the original
     # bug, both would be ``auth_failed`` (the second would have blocked
     # on acquire, then proceeded once the first released).
-    assert sorted(codes) == ["auth_failed", "max_connections_reached"], (
+    assert sorted(codes) == ["auth_failed", ErrorCodes.MAX_CONNECTIONS_REACHED], (
         f"expected one auth_failed + one max_connections_reached (fix), "
         f"got {codes} — if both are auth_failed, the cap TOCTOU race is "
         f"back (the second connection blocked on sem.acquire() instead "
@@ -267,7 +268,7 @@ async def test_concurrent_connections_at_zero_cap_all_rejected_quickly(
     # Every websocket should have been rejected with max_connections_reached.
     for ws in wss:
         code = _extract_error_code(ws)
-        assert code == "max_connections_reached", (
+        assert code == ErrorCodes.MAX_CONNECTIONS_REACHED, (
             f"expected max_connections_reached for every concurrent at-cap connection, got {code!r}"
         )
         assert len(ws._closed_with) == 1
@@ -331,7 +332,7 @@ async def test_concurrent_duplicate_auth_only_one_succeeds() -> None:
     )
     frame = json.loads(loser_ws._sent_frames[0])
     assert frame["type"] == "error"
-    assert frame["data"]["code"] == "duplicate_connection", (
+    assert frame["data"]["code"] == ErrorCodes.DUPLICATE_CONNECTION, (
         f"expected code='duplicate_connection', got {frame['data']['code']!r}"
     )
     assert "message" in frame["data"]
@@ -372,7 +373,7 @@ async def test_duplicate_auth_rejects_when_existing_open() -> None:
     # Sent a duplicate_connection error frame + closed with 1008.
     assert len(new_ws._sent_frames) == 1
     frame = json.loads(new_ws._sent_frames[0])
-    assert frame["data"]["code"] == "duplicate_connection"
+    assert frame["data"]["code"] == ErrorCodes.DUPLICATE_CONNECTION
     assert len(new_ws._closed_with) == 1
     _, close_kwargs = new_ws._closed_with[0]
     assert close_kwargs.get("code") == 1008
@@ -433,6 +434,167 @@ async def test_duplicate_auth_proceeds_when_no_existing() -> None:
     assert result is True, "should proceed when no existing connection"
     assert len(new_ws._sent_frames) == 0
     assert server._active_ws_connection is new_ws
+
+
+# ─── Dispatch pre-executor TOCTOU re-check ─────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_dispatch_pre_executor_toctou_recheck_rejects_when_flag_flips_after_inflight_recheck(
+    monkeypatch,
+) -> None:
+    """The dispatch coroutine re-checks ``app._shutting_down``
+    immediately before ``loop.run_in_executor`` and short-circuits with
+    a ``server.shutting_down`` error envelope when the flag has flipped
+    in the window between the in-flight-count re-check and the actual
+    executor submission.
+
+    Pre-fix the dispatch would proceed to ``loop.run_in_executor`` and
+    the handler would run during shutdown — racing
+    ``ShutdownController._do_cleanup`` (which tears down the recorder /
+    history DB / crash-recovery subsystems concurrently). Post-fix the
+    pre-executor re-check short-circuits with the structured error and
+    the handler is never called; the in-flight count is decremented
+    (net-zero) by the ``finally`` block so ``_do_cleanup`` is not
+    blocked.
+
+    The test simulates the race by leaving the flag ``False`` through
+    the early gate, the rate-limiter call, and the in-flight-count
+    re-check (so all three pass), then flipping it to ``True`` as a
+    side effect of acquiring ``_ws_inflight_lock`` — which the dispatch
+    path acquires AFTER the in-flight-count re-check and BEFORE the
+    pre-executor re-check. The lock wrapper delegates to a real
+    ``threading.Lock`` so concurrent access (if any) is still
+    serialized; the flip is the only observable side effect.
+    """
+    # The dispatch path imports ``_get_rate_limiter`` from
+    # ``ipc_server.py``. Skip gracefully if the module is in a
+    # transient broken state (mirrors the existing TOCTOU test in
+    # ``test_sidecar_ws.py``).
+    try:
+        from voice_typer.server.ipc_server import _get_rate_limiter  # noqa: F401
+    except Exception as exc:  # noqa: BLE001 — broad on purpose
+        pytest.skip(f"ipc_server.py not importable: {exc}")
+
+    monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "test-token")
+
+    # Build a MagicMock server with the attributes ``_make_dispatch``
+    # touches. Pre-set ``_ready_emitted`` / ``_lock`` / ``app.tray._state``
+    # so the dispatch path's ready-emit + state-emit side effects are
+    # skipped (mirrors the existing TOCTOU test setup).
+    server = MagicMock()
+    server._ready_emitted = True
+    server._lock = MagicMock()
+    server._lock.__enter__ = MagicMock(return_value=None)
+    server._lock.__exit__ = MagicMock(return_value=False)
+    server.app.tray._state = None
+    server.push = MagicMock()
+
+    # Use a real ThreadPoolExecutor for the dispatch pool so the
+    # ``loop.run_in_executor`` call would actually dispatch if the
+    # re-check didn't short-circuit.
+    import concurrent.futures
+
+    real_pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+    server._ws_dispatch_pool = real_pool
+    server._ws_dispatch_futures = set()
+
+    # Track whether the handler was called. The pre-executor re-check
+    # MUST short-circuit before ``loop.run_in_executor``, so the handler
+    # is never invoked.
+    dispatch_called: list[bool] = []
+
+    def _real_dispatch(msg):
+        dispatch_called.append(True)
+        return {"type": "ok"}
+
+    server._dispatch = _real_dispatch
+
+    # Start with the flag ``False`` so the early gate, the rate-limiter
+    # call, and the in-flight-count re-check all pass.
+    server.app._shutting_down = False
+
+    # Pre-set ``_ws_inflight_lock`` to a wrapper that flips the flag to
+    # ``True`` on ``__enter__``. The dispatch path acquires this lock
+    # AFTER the in-flight-count re-check (to increment the count +
+    # clear the drain Event) and releases it BEFORE the pre-executor
+    # re-check. So the flip lands in the TOCTOU window the new
+    # pre-executor re-check is designed to close. The wrapper delegates
+    # to a real ``threading.Lock`` so the count + Event mutation
+    # critical section is still serialized.
+    import threading as _threading
+
+    real_inflight_lock = _threading.Lock()
+
+    class _FlagFlippingInflightLock:
+        def __enter__(self):
+            real_inflight_lock.acquire()
+            # Flip the flag AFTER the in-flight-count re-check has
+            # passed but BEFORE the pre-executor re-check runs.
+            server.app._shutting_down = True
+            return self
+
+        def __exit__(self, *_exc):
+            real_inflight_lock.release()
+            return False
+
+    server._ws_inflight_lock = _FlagFlippingInflightLock()
+    # Pre-set the count + drain Event so ``_make_dispatch`` does NOT
+    # create new ones (which would shadow our lock wrapper — the
+    # ``getattr(server, "_ws_inflight_lock", None)`` lookup would find
+    # our pre-set wrapper and skip the lazy-create branch).
+    server._ws_inflight_count = 0
+    server._ws_drained_event = _threading.Event()
+    server._ws_drained_event.set()
+
+    # Rate limiter: allow without flipping the flag. The lock wrapper
+    # does the flipping in the TOCTOU window between the
+    # in-flight-count re-check and the pre-executor re-check.
+    monkeypatch.setattr(
+        "voice_typer.server.ipc_server._get_rate_limiter",
+        lambda s: type("_L", (), {"allow": lambda self, command=None: True})(),
+    )
+
+    dispatch = sidecar_ws._make_dispatch(server)
+
+    # Drive the dispatch coroutine directly with a single message.
+    msg = {"type": "get_status", "id": "test-pre-executor-toctou"}
+    result = await dispatch(msg, websocket=MagicMock())
+
+    # The pre-executor re-check should have rejected the dispatch.
+    assert result is not None, "dispatch should have returned a server.shutting_down error envelope"
+    assert result.get("type") == "error", f"expected type='error', got {result!r}"
+    data = result.get("data", {})
+    assert data.get("code") == "server.shutting_down", (
+        f"expected code='server.shutting_down' (pre-executor re-check), got {data!r}"
+    )
+
+    # The handler must NOT have been called — the re-check short-circuited
+    # before ``loop.run_in_executor``.
+    assert dispatch_called == [], (
+        "the pre-executor re-check should have short-circuited BEFORE "
+        "loop.run_in_executor(ws_dispatch_pool, server._dispatch, msg) — "
+        "the handler ran, which means the re-check is missing or broken"
+    )
+
+    # The in-flight count must be back to 0 — the ``finally`` block
+    # decremented it after the early return (net-zero: incremented
+    # before the try, decremented in the finally).
+    assert server._ws_inflight_count == 0, (
+        f"expected _ws_inflight_count == 0 (finally block should have "
+        f"decremented after the pre-executor re-check's early return), "
+        f"got {server._ws_inflight_count}"
+    )
+
+    # The drain Event must be set — the ``finally`` block re-sets it
+    # when the count drops to 0, so ``_do_cleanup`` is not blocked on
+    # a dispatch that never reached the executor.
+    assert server._ws_drained_event.is_set(), (
+        "expected _ws_drained_event to be set (finally block should have "
+        "re-set it when count dropped to 0 after the early return)"
+    )
+
+    real_pool.shutdown(wait=True)
 
 
 if __name__ == "__main__":

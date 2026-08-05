@@ -254,6 +254,7 @@ class TestWsRsAllowlistStatus:
         is a Rust file — the Python test cannot modify it).
         """
         import pytest
+
         src = _ws_rs_source()
         start_marker = "const ALLOWED_EVENT_TYPES: &[&str] = &["
         idx = src.find(start_marker)

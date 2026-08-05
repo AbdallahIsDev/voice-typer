@@ -448,7 +448,12 @@ class TestLaunchPreservesElectronPath:
         # ``npm`` / ``npm.cmd`` (Windows fallback) or the full path
         # (e.g. ``/usr/bin/npm``).
         npm_bin = captured["cmd"][0]
-        assert npm_bin.endswith("npm") or npm_bin.endswith("npm.cmd"), f"expected npm binary, got {npm_bin!r}"
+        # Case-insensitive: ``shutil.which("npm")`` on Windows resolves
+        # to e.g. ``C:\\Program Files\\nodejs\\npm.CMD`` (uppercase
+        # extension), which ``str.endswith("npm.cmd")`` would reject.
+        assert npm_bin.lower().endswith("npm") or npm_bin.lower().endswith("npm.cmd"), (
+            f"expected npm binary, got {npm_bin!r}"
+        )
         assert captured["env"].get("VT_START_HIDDEN") == "1"
 
 

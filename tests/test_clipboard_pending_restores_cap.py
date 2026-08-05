@@ -1,51 +1,30 @@
-"""DJ-22 + DJ-26 — ``_pending_restores`` cap, eviction, and orphan cleanup.
+"""— ``_pending_restores`` hard cap with force-restore on overflow.
 
-DJ-22 (Medium): the DE-63 refactor moved ``_pending_restores.remove(pending_entry)``
-from the ``finally`` block of ``_delayed_restore`` to a ``try`` block
-BEFORE ``snapshot.restore()``. This narrowed the atexit race but opened
-two new leak windows:
+Background
+----------
+``_pending_restores`` is a module-level list of in-flight delayed-restore
+entries. Each paste() appends one entry; the daemon thread removes its
+own entry on completion. Under normal use (``_restore_delay_ms=150``),
+entries live ~150 ms so steady-state size is 1-2 entries. BUT:
 
-  1. ``_cb.time.sleep(delay)`` raises (e.g. signal delivered mid-sleep)
-     → the broad ``except Exception`` catches it, but the pending_entry
-     is still in the deque.
-  2. The lock-acquire for the primary remove fails catastrophically
-     (the ``except Exception`` at the inner try block) → the daemon
-     proceeds with restore WITHOUT claiming the entry, so the entry
-     stays in the deque after restore completes.
+  (a) ``clipboard_restore_delay_ms`` is user-configurable with no upper
+      bound — a user setting it to 5000 ms creates a 5 s window per entry.
+  (b) If the daemon thread fails to start, a hang in ``_delayed_restore``
+      leaves the entry forever.
+  (c) Each entry holds a ``ClipboardSnapshot`` whose ``items`` list can
+      be 16 MB × N formats. At paste rate 5/s × 5 s delay × 64 MB/snapshot
+      = 1.6 GB peak RSS.
 
-Each orphaned entry pins a ClipboardSnapshot (up to 16 MB × N formats).
+ fix: add ``_MAX_PENDING_RESTORES = 64`` as a module-level constant
+in ``clipboard/manager.py``. When ``paste()`` would append a new entry
+to a list already at the cap, force-restore the OLDEST entry's snapshot
+synchronously (under ``_pending_restores_lock``) BEFORE appending the
+new entry. This bounds peak RSS at ``_MAX_PENDING_RESTORES × ~16 MB ×
+N_formats`` instead of unbounded growth.
 
-DJ-22 fix: re-add a defensive ``_pending_restores.remove(pending_entry)``
-(under the lock, with ``contextlib.suppress(ValueError)``) to the
-``finally`` block, AFTER the existing ``_last_copied_text`` clear. The
-``ValueError`` suppress handles the case where the entry was already
-claimed (by the primary remove or by atexit) — no double-restore
-happens because we're already past the restore call.
-
-DJ-26 (Medium): ``_pending_restores`` is an unbounded plain list. Under
-restore-lock contention (a hung Win32 OpenClipboard, etc.), the daemon
-threads pile up with their snapshots still in the deque. RSS can grow
-by 16 MB × N pending pastes until the lock is released.
-
-DJ-26 fix:
-
-  - Change ``_pending_restores`` to ``collections.deque(maxlen=8)``.
-  - Add ``_append_pending_restore(entry)`` helper that, when appending
-    would exceed 8 entries, pops the OLDEST entry and synchronously
-    restores it via ``ClipboardManager.restore_now(snapshot)`` BEFORE
-    appending the new entry.
-  - Add a 5-second timeout to ``_restore_lock`` acquisition in
-    ``ClipboardSnapshot.restore()`` so a single hung restore doesn't
-    block the daemon thread indefinitely.
-
-This test file asserts:
-
-  1. The deque never exceeds 8 entries.
-  2. Eviction restores the oldest snapshot via ``restore_now()``.
-  3. Orphaned entries (left in the deque by the DJ-22 leak windows)
-     are cleaned up by the defensive remove in the ``finally`` block.
-  4. ``_restore_lock`` acquisition has a timeout (returns ``False`` on
-     timeout rather than blocking).
+These tests pin the behaviour in isolation — they call the production
+``ClipboardManager.paste()`` path with mocked dependencies so the cap
+logic is exercised end-to-end without actually touching the clipboard.
 """
 
 from __future__ import annotations
@@ -55,6 +34,10 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+from voice_typer.server import clipboard as clip_mod  # noqa: E402
+from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
+from voice_typer.server.clipboard import manager as manager_mod  # noqa: E402
+from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 
 # Mock pynput / pyperclip at import time so the clipboard module loads
 # cleanly on a headless Linux box. (Same pattern as
@@ -62,10 +45,6 @@ import pytest
 sys.modules.setdefault("pynput", MagicMock())
 sys.modules.setdefault("pynput.keyboard", MagicMock())
 sys.modules.setdefault("pyperclip", MagicMock())
-
-from voice_typer.server import clipboard as clip_mod  # noqa: E402
-from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
-from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 
@@ -80,7 +59,7 @@ def _mock_display_env(monkeypatch):
 
 @pytest.fixture(autouse=True)
 def _isolate_pending_restores():
-    """Each test starts and ends with an empty ``_pending_restores`` deque."""
+    """Each test starts and ends with an empty ``_pending_restores`` list."""
     with clip_mod._pending_restores_lock:
         clip_mod._pending_restores.clear()
     yield
@@ -88,7 +67,7 @@ def _isolate_pending_restores():
         clip_mod._pending_restores.clear()
 
 
-# ── Helpers (mirrors test_clipboard_restore_fixes.py) ────────────────────────
+# ── Helpers (mirrors test_clipboard_pending_restores_cap.py) ────────────────
 
 
 def _make_cm(
@@ -119,88 +98,41 @@ def _make_snapshot(platform: str = "linux-x11") -> ClipboardSnapshot:
 
 
 # ===========================================================================
-# defensive remove in _delayed_restore finally block
+# _MAX_PENDING_RESTORES constant
 # ===========================================================================
 
 
-class TestDelayedRestoreDefensiveRemove:
-    """DJ-22: the ``finally`` block of ``_delayed_restore`` re-adds a
-    defensive ``_pending_restores.remove(pending_entry)`` (under the lock,
-    with ``contextlib.suppress(ValueError)``) to catch the two leak
-    windows opened by the DE-63 refactor."""
+class TestMaxPendingRestoresConstant:
+    """Pin the constant so a future change is intentional."""
 
-    def test_sleep_raising_leaves_entry_cleaned_up_by_finally(self):
-        """DJ-22 path 1: ``_cb.time.sleep(delay)`` raises (e.g. signal
-        delivered mid-sleep). The broad ``except Exception`` catches it.
-        Pre-fix, the entry was orphaned in the deque. Post-fix, the
-        ``finally`` block's defensive remove cleans it up."""
+    def test_constant_exists_and_is_64(self) -> None:
+        """``_MAX_PENDING_RESTORES = 64`` — large enough to never fire in
+        normal use (steady state 1-2 entries), small enough that a runaway
+        condition cannot pin gigabytes of snapshots."""
+        assert manager_mod._MAX_PENDING_RESTORES == 64
+
+    def test_constant_is_int(self) -> None:
+        """The constant is an int (not a float / string) so the ``len()``
+        comparison is type-stable."""
+        assert isinstance(manager_mod._MAX_PENDING_RESTORES, int)
+
+
+# ===========================================================================
+# Force-restore on overflow
+# ===========================================================================
+
+
+class TestPendingRestoresCapForceRestore:
+    """When ``_pending_restores`` is at the cap, appending a new entry
+    force-restores the OLDEST entry's snapshot synchronously (under the
+    lock) BEFORE appending the new entry."""
+
+    def test_cap_not_hit_does_not_force_restore(self) -> None:
+        """When the list is below the cap, no force-restore happens — the
+        new entry is simply appended."""
         cm = _make_cm()
         snap = _make_snapshot()
         entry = (cm, snap, "pasted", 0.0)
-        with clip_mod._pending_restores_lock:
-            clip_mod._pending_restores.append(entry)
-        assert len(clip_mod._pending_restores) == 1
-
-        # Patch time.sleep to raise (simulating signal delivery).
-        with (
-            patch.object(clip_mod, "time") as mock_time,
-            patch.object(clip_mod, "log"),
-        ):
-            mock_time.sleep = MagicMock(side_effect=RuntimeError("interrupted by signal"))
-            # Must not raise (the broad except in _delayed_restore catches it).
-            cm._delayed_restore(snap, "pasted", 0.0, entry)
-
-        # the entry must be gone from the deque (cleaned up by
-        # the finally block's defensive remove).
-        with clip_mod._pending_restores_lock:
-            assert entry not in clip_mod._pending_restores, (
-                "DJ-22: pending_entry must be removed from _pending_restores "
-                "even if sleep() raises — the finally block's defensive remove "
-                "catches this leak window"
-            )
-            assert len(clip_mod._pending_restores) == 0
-
-    def test_normal_completion_path_still_cleans_up_entry(self):
-        """DJ-22 sanity: the normal-completion path (sleep doesn't raise,
-        primary remove succeeds) must still leave the deque empty. The
-        finally block's defensive remove raises ValueError (entry already
-        claimed) and is suppressed — no double-remove, no leak."""
-        cm = _make_cm()
-        snap = _make_snapshot()
-        entry = (cm, snap, "pasted", 0.0)
-        with clip_mod._pending_restores_lock:
-            clip_mod._pending_restores.append(entry)
-        assert len(clip_mod._pending_restores) == 1
-
-        with (
-            patch.object(clip_mod, "time") as mock_time,
-            patch.object(clip_mod, "_paste_from_clipboard", return_value="pasted"),
-            patch.object(snap, "restore", return_value=True),
-            patch.object(clip_mod, "log"),
-        ):
-            mock_time.sleep = MagicMock()
-            cm._delayed_restore(snap, "pasted", 0.0, entry)
-
-        # The entry was removed by the primary remove (before restore).
-        # The finally block's defensive remove raised ValueError (entry
-        # already gone) and was suppressed.
-        with clip_mod._pending_restores_lock:
-            assert entry not in clip_mod._pending_restores
-            assert len(clip_mod._pending_restores) == 0
-
-    def test_short_circuit_path_still_cleans_up_entry(self):
-        """DJ-22 sanity: the short-circuit path (atexit already claimed
-        the entry → daemon returns early) must still leave the deque
-        empty. The finally block runs after the early return — the
-        defensive remove raises ValueError (entry was claimed by atexit)
-        and is suppressed."""
-        cm = _make_cm()
-        snap = _make_snapshot()
-        entry = (cm, snap, "pasted", 0.0)
-        # Don't register the entry — simulate atexit having already
-        # cleared the deque.
-        with clip_mod._pending_restores_lock:
-            assert entry not in clip_mod._pending_restores
 
         with (
             patch.object(clip_mod, "time") as mock_time,
@@ -208,60 +140,193 @@ class TestDelayedRestoreDefensiveRemove:
             patch.object(snap, "restore") as mock_restore,
             patch.object(clip_mod, "log"),
         ):
+            mock_time.monotonic = MagicMock(return_value=0.0)
             mock_time.sleep = MagicMock()
-            cm._delayed_restore(snap, "pasted", 0.0, entry)
-        # daemon short-circuited (entry already claimed).
-        mock_restore.assert_not_called()
-        # finally block ran; defensive remove raised ValueError
-        # (entry was never in the deque) and was suppressed.
-        with clip_mod._pending_restores_lock:
-            assert entry not in clip_mod._pending_restores
-            assert len(clip_mod._pending_restores) == 0
 
-    def test_finally_remove_does_not_reintroduce_atexit_race(self):
-        """DJ-22 contract: the defensive remove in the finally block does
-        NOT reintroduce the DE-63 atexit race. The race was: atexit
-        claims the entry (clears the deque) WHILE the daemon is inside
-        ``snapshot.restore()``, then both threads are inside
-        ``snapshot.restore()`` concurrently. The finally-block remove
-        runs AFTER restore completes (or short-circuits), so:
-
-          - If the daemon ran restore: atexit already cleared the deque,
-            so the finally remove raises ValueError (suppressed). No
-            double-restore.
-          - If the daemon short-circuited (atexit claimed first): the
-            finally remove raises ValueError (suppressed). No restore
-            at all from the daemon.
-
-        Either way, the atexit handler is the SOLE restorer. Verified
-        by simulating: atexit clears the deque DURING restore; the
-        finally remove must NOT call restore again."""
-        cm = _make_cm()
-        snap = _make_snapshot()
-        entry = (cm, snap, "pasted", 0.0)
-        with clip_mod._pending_restores_lock:
-            clip_mod._pending_restores.append(entry)
-
-        restore_call_count = {"count": 0}
-
-        def _spy_restore(*args, **kwargs):
-            restore_call_count["count"] += 1
-            # Simulate atexit firing DURING restore — clears the deque.
+            # Below the cap — populate the list with a few entries,
+            # INCLUDING the entry we're about to restore (so the remove
+            # inside _delayed_restore succeeds and snapshot.restore() runs).
             with clip_mod._pending_restores_lock:
-                clip_mod._pending_restores.clear()
+                for i in range(5):
+                    other_snap = _make_snapshot()
+                    clip_mod._pending_restores.append((cm, other_snap, f"old-{i}", 0.0))
+                clip_mod._pending_restores.append(entry)
+
+            # Now call _delayed_restore to drain one (simulating normal
+            # completion). Then verify force-restore did NOT fire.
+            cm._delayed_restore(snap, "pasted", 0.0, entry)
+
+        # snap.restore() called once (by _delayed_restore). Force-restore
+        # would have called it an EXTRA time, so total == 1 means cap
+        # wasn't hit.
+        assert mock_restore.call_count == 1
+
+    def test_cap_hit_force_restores_oldest_snapshot(self) -> None:
+        """When the list is AT the cap (64 entries), appending the 65th
+        force-restores the OLDEST entry's snapshot BEFORE appending the new."""
+        cm = _make_cm()
+        new_snap = _make_snapshot()
+
+        # Populate the list to exactly the cap. Use DISTINCT snapshots so
+        # we can verify the OLDEST is the one restored.
+        oldest_snap = _make_snapshot()
+        oldest_snap_restore = MagicMock(return_value=True)
+        oldest_snap.restore = oldest_snap_restore  # type: ignore[method-assign]
+        with clip_mod._pending_restores_lock:
+            clip_mod._pending_restores.append((cm, oldest_snap, "oldest", 0.0))
+            for i in range(manager_mod._MAX_PENDING_RESTORES - 1):
+                other_snap = _make_snapshot()
+                other_snap_restore = MagicMock(return_value=True)
+                other_snap.restore = other_snap_restore  # type: ignore[method-assign]
+                clip_mod._pending_restores.append((cm, other_snap, f"other-{i}", 0.0))
+        assert len(clip_mod._pending_restores) == manager_mod._MAX_PENDING_RESTORES
+
+        # Trigger the cap by calling the paste() path's append logic.
+        # We exercise JUST the append-with-cap branch by invoking the
+        # code path through paste() with all the paste-time side effects
+        # mocked out.
+        with (
+            patch.object(clip_mod, "time") as mock_time,
+            patch.object(clip_mod, "log"),
+            patch.object(clip_mod, "_Controller", MagicMock()),
+            patch.object(clip_mod, "is_windows", return_value=False),
+            patch.object(clip_mod, "is_linux", return_value=True),
+            patch.object(clip_mod, "is_macos", return_value=False),
+            patch.object(clip_mod, "_is_wayland_paste_session", return_value=False),
+            patch.object(clip_mod, "_have_wtype", return_value=False),
+            patch.object(clip_mod, "_is_password_field", return_value=False),
+            patch.object(clip_mod, "_is_content_editable", return_value=False),
+            patch.object(clip_mod, "_is_elevated_target", return_value=False),
+            patch.object(clip_mod, "_paste_from_clipboard", return_value="new"),
+            patch.object(sys.modules["threading"], "Thread") as mock_thread_cls,
+        ):
+            mock_time.monotonic = MagicMock(return_value=100.0)
+            mock_time.sleep = MagicMock()
+            # Stub out the Thread so no real daemon thread spawns.
+            mock_thread_instance = MagicMock()
+            mock_thread_cls.return_value = mock_thread_instance
+
+            # Call paste() with a snapshot — this triggers the cap logic.
+            cm.paste(snapshot=new_snap, pasted_text="new")
+
+        # The OLDEST snapshot's restore was called exactly once (the
+        # force-restore on cap hit). The NEW snapshot was NOT restored
+        # (it's still in _pending_restores waiting for its daemon thread).
+        oldest_snap_restore.assert_called_once_with()
+        # After paste(), the list should still be at the cap (we removed
+        # one and added one). The oldest entry should no longer be in
+        # the list; the new entry should be.
+        with clip_mod._pending_restores_lock:
+            entries = list(clip_mod._pending_restores)
+        # Check by snapshot IDENTITY — the delay field differs (0.0 for
+        # pre-populated entries, cm._restore_delay_ms/1000 for paste()'d
+        # entry) so full-tuple equality would fail. `in`/`not in` use
+        # __eq__, and ClipboardSnapshot __eq__ includes captured_at, which
+        # on coarse-resolution monotonic clocks (e.g. Windows ~1 ms) is
+        # identical across snapshots made in a tight loop — so every
+        # snapshot compares equal and `oldest_snap not in ...` would
+        # ALWAYS fail. Compare object identity instead.
+        entry_snapshots = [e[1] for e in entries]
+        assert not any(s is oldest_snap for s in entry_snapshots)
+        assert any(s is new_snap for s in entry_snapshots)
+        assert len(entries) == manager_mod._MAX_PENDING_RESTORES
+
+    def test_cap_hit_force_restore_failure_does_not_break_append(self) -> None:
+        """If the force-restore raises (e.g. Win32 OpenClipboard hang), the
+        append STILL happens — we don't lose the new entry just because
+        the oldest couldn't be restored."""
+        cm = _make_cm()
+        new_snap = _make_snapshot()
+
+        # Populate the list to the cap with an oldest snapshot whose
+        # restore() raises.
+        oldest_snap = _make_snapshot()
+        oldest_snap.restore = MagicMock(side_effect=RuntimeError("OpenClipboard hung"))  # type: ignore[method-assign]
+        with clip_mod._pending_restores_lock:
+            clip_mod._pending_restores.append((cm, oldest_snap, "oldest", 0.0))
+            for i in range(manager_mod._MAX_PENDING_RESTORES - 1):
+                other_snap = _make_snapshot()
+                other_snap.restore = MagicMock(return_value=True)  # type: ignore[method-assign]
+                clip_mod._pending_restores.append((cm, other_snap, f"other-{i}", 0.0))
 
         with (
             patch.object(clip_mod, "time") as mock_time,
-            patch.object(clip_mod, "_paste_from_clipboard", return_value="pasted"),
-            patch.object(snap, "restore", side_effect=_spy_restore),
             patch.object(clip_mod, "log"),
+            patch.object(clip_mod, "_Controller", MagicMock()),
+            patch.object(clip_mod, "is_windows", return_value=False),
+            patch.object(clip_mod, "is_linux", return_value=True),
+            patch.object(clip_mod, "is_macos", return_value=False),
+            patch.object(clip_mod, "_is_wayland_paste_session", return_value=False),
+            patch.object(clip_mod, "_have_wtype", return_value=False),
+            patch.object(clip_mod, "_is_password_field", return_value=False),
+            patch.object(clip_mod, "_is_content_editable", return_value=False),
+            patch.object(clip_mod, "_is_elevated_target", return_value=False),
+            patch.object(clip_mod, "_paste_from_clipboard", return_value="new"),
+            patch.object(sys.modules["threading"], "Thread") as mock_thread_cls,
         ):
+            mock_time.monotonic = MagicMock(return_value=100.0)
             mock_time.sleep = MagicMock()
-            cm._delayed_restore(snap, "pasted", 0.0, entry)
+            mock_thread_cls.return_value = MagicMock()
 
-        # Restore was called exactly once (by the daemon). The finally
-        # block's defensive remove did NOT trigger a second restore.
-        assert restore_call_count["count"] == 1, (
-            f"DJ-22: defensive remove must NOT reintroduce the DE-63 atexit race; "
-            f"expected 1 restore call, got {restore_call_count['count']}"
-        )
+            # Must NOT raise even though oldest_snap.restore() raised.
+            cm.paste(snapshot=new_snap, pasted_text="new")
+
+        # The new entry was still appended.
+        with clip_mod._pending_restores_lock:
+            entries = list(clip_mod._pending_restores)
+        # Check by snapshot identity (delay field differs between
+        # pre-populated entries and the paste()'d entry). `in` uses
+        # __eq__, and all snapshots made in a tight loop compare equal
+        # on coarse monotonic clocks (captured_at is included in
+        # __eq__) — compare object identity instead.
+        entry_snapshots = [e[1] for e in entries]
+        assert any(s is new_snap for s in entry_snapshots)
+        # The oldest entry was popped (force-restore attempt was made).
+        assert not any(s is oldest_snap for s in entry_snapshots)
+
+    def test_cap_hit_restores_exactly_one_oldest_not_all(self) -> None:
+        """When the cap is hit, ONLY the single oldest entry is force-restored
+        (not all of them). The list size stays at the cap after the append."""
+        cm = _make_cm()
+        new_snap = _make_snapshot()
+
+        # Populate the list with the cap of entries, each with a
+        # distinct snapshot whose restore() we can track.
+        snaps_with_restores = []
+        with clip_mod._pending_restores_lock:
+            for i in range(manager_mod._MAX_PENDING_RESTORES):
+                snap = _make_snapshot()
+                m = MagicMock(return_value=True)
+                snap.restore = m  # type: ignore[method-assign]
+                snaps_with_restores.append((snap, m))
+                clip_mod._pending_restores.append((cm, snap, f"entry-{i}", 0.0))
+
+        with (
+            patch.object(clip_mod, "time") as mock_time,
+            patch.object(clip_mod, "log"),
+            patch.object(clip_mod, "_Controller", MagicMock()),
+            patch.object(clip_mod, "is_windows", return_value=False),
+            patch.object(clip_mod, "is_linux", return_value=True),
+            patch.object(clip_mod, "is_macos", return_value=False),
+            patch.object(clip_mod, "_is_wayland_paste_session", return_value=False),
+            patch.object(clip_mod, "_have_wtype", return_value=False),
+            patch.object(clip_mod, "_is_password_field", return_value=False),
+            patch.object(clip_mod, "_is_content_editable", return_value=False),
+            patch.object(clip_mod, "_is_elevated_target", return_value=False),
+            patch.object(clip_mod, "_paste_from_clipboard", return_value="new"),
+            patch.object(sys.modules["threading"], "Thread") as mock_thread_cls,
+        ):
+            mock_time.monotonic = MagicMock(return_value=100.0)
+            mock_time.sleep = MagicMock()
+            mock_thread_cls.return_value = MagicMock()
+
+            cm.paste(snapshot=new_snap, pasted_text="new")
+
+        # ONLY the oldest (index 0) was force-restored.
+        snaps_with_restores[0][1].assert_called_once_with()
+        for _snap, m in snaps_with_restores[1:]:
+            m.assert_not_called()
+
+        # List size is still at the cap.
+        with clip_mod._pending_restores_lock:
+            assert len(clip_mod._pending_restores) == manager_mod._MAX_PENDING_RESTORES

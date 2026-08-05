@@ -231,12 +231,15 @@ def test_ipc_token_is_read_from_env_var_not_from_arg_or_file(monkeypatch):
 
     # The expected-token lookup must be exactly this call:
     #   expected_token = os.environ.get("VOICE_TYPER_IPC_TOKEN", "")
-    pattern = r'os\.environ\.get\s*\(\s*["\']VOICE_TYPER_IPC_TOKEN["\']\s*,\s*["\']["\']\s*\)'
+    pattern = r'os\.environ\.get\s*\(\s*(?:["\']VOICE_TYPER_IPC_TOKEN["\']|IPC_TOKEN_ENV_VAR)\s*,\s*["\']["\']\s*\)'
     assert re.search(pattern, source), (
         "sidecar_ws.py must read the expected token via "
-        "os.environ.get('VOICE_TYPER_IPC_TOKEN', '') — found a different "
-        "lookup shape. The env var is the only secure source on Linux "
-        "(cmdline leaks via /proc/<pid>/cmdline; files need separate perms)."
+        "os.environ.get('VOICE_TYPER_IPC_TOKEN', '') — either as a "
+        "literal string or via the IPC_TOKEN_ENV_VAR constant "
+        "(defined in voice_typer.server._paths and equal to "
+        "'VOICE_TYPER_IPC_TOKEN'). Found a different lookup shape. "
+        "The env var is the only secure source on Linux (cmdline "
+        "leaks via /proc/<pid>/cmdline; files need separate perms)."
     )
 
     # And it must NOT fall back to a CLI arg or a config file. The
@@ -935,6 +938,7 @@ def test_auth_uses_only_standard_library_plus_websockets():
         "logging",
         "os",
         "sys",
+        "time",
         "typing",
     )
     for imp in top_level_imports:
@@ -965,12 +969,16 @@ def test_rust_auth_frame_has_no_display_server_branch():
     """
     source = _read_ws_rs_source()
 
-    # The auth frame is constructed at ws.rs:36:
-    #   let auth = json!({"type": "auth", "token": token});
-    # Verify the auth-frame construction is present and unconditional.
-    assert 'json!({"type": "auth", "token": token})' in source, (
-        'ws.rs must construct the auth frame as json!({"type": "auth", "token": token}) — got a different shape.'
-    )
+    # The auth frame is constructed at ws.rs as a `json!({...})` macro
+    # call. The macro may be formatted inline on a single line OR
+    # split across multiple lines (rustfmt style) — accept both.
+    # Required keys: "type": "auth" and "token": token (the token
+    # binding from the outer scope). Additional keys like
+    # "protocol_version" are additive and may be present.
+    assert re.search(
+        r'json!\s*\(\s*\{\s*"type"\s*:\s*"auth"\s*,\s*"token"\s*:\s*token',
+        source,
+    ), 'ws.rs must construct the auth frame as json!({"type": "auth", "token": token}) — got a different shape.'
 
     # Scan for cfg(target_arch) / cfg(target_os) anywhere in ws.rs —
     # the WS client (auth, reader, writer, reconnect) must be

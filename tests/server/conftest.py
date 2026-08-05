@@ -19,9 +19,13 @@ Pytest fixtures provided:
 - :func:`server_with_mock_app_for_tcp_io`     — same, scoped for TCP send-lock-split / write-timeout tests
 - :func:`clean_registry`            — snapshot/clear/restore the push-event
                                        registry around a test
-- :func:`tmp_config_dir`            — tmp_path with config._config_dir patched
-                                       (shadows the parent conftest fixture so
-                                       server tests are self-contained)
+
+Note: ``tmp_config_dir`` is intentionally NOT defined here — the
+canonical fixture in ``tests/conftest.py`` (which patches BOTH
+``voice_typer.server.config._config_dir`` AND
+``voice_typer.server.app._config_dir``) is picked up automatically.
+A previous local shadow patched only ``config._config_dir`` and
+silently let ``app.py`` paths write to the real user config dir.
 """
 
 import dataclasses
@@ -33,15 +37,45 @@ import pytest
 
 # ── Module-level pystray mock ───────────────────────────────────────────
 #
-# Mock pystray before importing tray (which is imported by ipc_server
-# transitively). Without this, pystray tries to connect to an X display on
-# Linux and crashes in headless CI.
+# This module-level ``sys.modules.setdefault("pystray", ...)`` is a
+# deliberate, documented exception to the parent ``tests/conftest.py``'s
+# warning against collection-time ``sys.modules`` mutations (see the
+# ``real_pil`` eviction block in ``mock_heavy_imports`` for why PIL
+# collection-time setdefaults are harmful). It is kept here for two
+# reasons:
 #
-# NOTE: PIL is NOT mocked at module level. tray.py and ipc_server.py use
+# 1. The ``from voice_typer.server import event_bus, ipc_server`` import
+#    below is intentionally module-level because ``event_bus`` and
+#    ``ipc_server`` are re-exported via ``__all__`` — sibling test
+#    modules (e.g. ``tests/server/test_push_events.py``) import them
+#    back out as ``from tests.server.conftest import event_bus,
+#    ipc_server``. Deferring the import into fixtures would break that
+#    re-export contract, so the deferred-import alternative is not
+#    viable here.
+#
+# 2. ``voice_typer.server.tray`` currently uses ``lazy_module("pystray")``
+#    (PERF-COLDSTART-001), so the import chain below does NOT eagerly
+#    pull in ``pystray`` today — meaning the setdefault is technically
+#    dead code right now. It is retained as a defensive safety net:
+#    (a) the same ``_mock_pystray`` idiom is used by 17+ sibling test
+#    modules (``tests/test_tray.py``, ``tests/test_e2e_pipeline.py``, …)
+#    so removing it here would be inconsistent with the project-wide
+#    convention without removing it everywhere;
+#    (b) if a future refactor re-eagerifies the pystray import inside
+#    ``tray.py`` or ``ipc_server.py``, this setdefault prevents a
+#    headless-CI crash (pystray's xorg backend tries to connect to an
+#    X display at import time on Linux) before any fixture can run.
+#
+# PIL is NOT mocked at module level here. tray.py and ipc_server.py use
 # lazy imports for PIL (via tray_icon._get_pil_image), so PIL is never
 # imported at module load time. Mocking it here would permanently
 # pollute ``sys.modules`` and break later tests that need real PIL
 # (e.g. tests/test_tray_icon.py with @pytest.mark.real_pil).
+#
+# The autouse session-scoped ``mock_heavy_imports_session`` fixture in
+# ``tests/conftest.py`` also installs a ``MagicMock()`` for ``pystray``
+# once the first test runs (after collection), so the ``_mock_pystray``
+# below only bridges the collection-time window before that fixture fires.
 _mock_pystray = MagicMock()
 _mock_pystray.Menu.SEPARATOR = "SEP"
 _mock_pystray.MenuItem = MagicMock
@@ -255,17 +289,6 @@ def clean_registry():
         event_bus._subscribers.update(original)
 
 
-@pytest.fixture
-def tmp_config_dir(tmp_path, monkeypatch):
-    """Temporary config directory with _config_dir monkeypatched.
-
-    Shadows the parent ``tests/conftest.py`` fixture of the same name so
-    the server test package is self-contained.
-    """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
-
-
 # ── Re-exports for tests that need direct access ────────────────────────
 __all__ = [
     "AppState",
@@ -283,5 +306,4 @@ __all__ = [
     "server_with_mock_app_for_push_events",
     "server_with_mock_app_for_tcp_io",
     "clean_registry",
-    "tmp_config_dir",
 ]

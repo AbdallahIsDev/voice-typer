@@ -201,6 +201,10 @@ class TestStopAudioPrep:
 
         monkeypatch.setattr(recording_mod.sd, "InputStream", FallbackStream)
 
+        # Disable the prewarm InputStream probe  so it doesn't
+        # race with start() and add an extra entry to opened_devices.
+        monkeypatch.setattr(Recorder, "_prewarm_input_stream", lambda self, **kw: None)
+
         config = MagicMock(sample_rate=16000, microphone="9")
         r = Recorder(config)
 
@@ -1567,18 +1571,21 @@ class TestAudio69RebuildOnSampleRateMismatch:
     ``input_sample_rate=recorder._effective_sr``) handles the
     native-rate → 16 kHz downsample on the worker thread.
 
-    Previously these tests asserted ``rebuild_from_config`` /
-    ``set_sample_rate`` were called from ``start()``. After the refactor
-    neither is called — the tests now pin the post-removal contract.
-    Filter-chain correctness at 16 kHz is preserved by
-    ``process_chunk``'s internal resample.
+    These tests cover the start-path retune behavior. The retune was
+    re-added to ``start()`` in a non-blocking, failure-tolerant wrapper
+    (try/except that logs-but-continues). When ``set_sample_rate`` is
+    available, ``start()`` calls it to retune the chain to the device's
+    native rate, eliminating the 3x resample roundtrip per chunk for
+    RNNoise-enabled chains. When ``set_sample_rate`` is unavailable,
+    ``rebuild_from_config`` is used as a fallback. The per-chunk resample
+    in ``process_chunk`` remains as the ultimate fallback if both fail.
     """
 
     def test_rebuild_called_when_sample_rate_mismatches(self, monkeypatch):
-        """with the retune call removed, ``rebuild_from_config``
-        is NOT called from ``start()`` even when the device native rate
-        (48 kHz) differs from the chain rate (16 kHz). The per-chunk
-        resample in ``process_chunk`` handles the downsample instead."""
+        """When the device native rate (48 kHz) differs from the chain rate
+        (16 kHz) AND ``set_sample_rate`` is unavailable,
+        ``rebuild_from_config`` is called from ``start()`` as a fallback
+        to retune the chain to the device's native rate."""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -1620,9 +1627,9 @@ class TestAudio69RebuildOnSampleRateMismatch:
 
         r.start()
         try:
-            # rebuild_from_config is NOT called from start()
-            # (the retune was removed; process_chunk handles the resample).
-            audio_proc.rebuild_from_config.assert_not_called()
+            # With set_sample_rate unavailable, rebuild_from_config is
+            # called as the retune fallback.
+            audio_proc.rebuild_from_config.assert_called_once()
         finally:
             r.stop()
 
@@ -1673,11 +1680,10 @@ class TestAudio69RebuildOnSampleRateMismatch:
             r.stop()
 
     def test_set_sample_rate_preferred_when_available(self, monkeypatch):
-        """with the retune call removed, ``set_sample_rate`` is
-        NOT called from ``start()`` even when it's available and the
-        device native rate (48 kHz) differs from the chain rate (16 kHz).
-        The per-chunk resample in ``process_chunk`` handles the
-        downsample instead."""
+        """When ``set_sample_rate`` is available AND the device native rate
+        (48 kHz) differs from the chain rate (16 kHz), ``set_sample_rate``
+        is called from ``start()`` to retune the chain. This eliminates
+        the 3x resample roundtrip per chunk for RNNoise-enabled chains."""
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
@@ -1718,9 +1724,9 @@ class TestAudio69RebuildOnSampleRateMismatch:
 
         r.start()
         try:
-            # set_sample_rate is NOT called from start().
-            audio_proc.set_sample_rate.assert_not_called()
-            # rebuild_from_config is also NOT called.
+            # set_sample_rate IS called from start() when available.
+            audio_proc.set_sample_rate.assert_called_once_with(48000)
+            # rebuild_from_config is NOT called (set_sample_rate preferred).
             audio_proc.rebuild_from_config.assert_not_called()
         finally:
             r.stop()

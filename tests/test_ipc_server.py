@@ -549,8 +549,11 @@ class TestAckBeforeCleanup:
         server._handle_shutdown(data=None, resp={"id": 1})
 
         # Wait for the background thread to land its call.
-        deadline = time.time() + 2.0
-        while time.time() < deadline and "thread" not in captured:
+        # Use time.monotonic() — wall-clock (time.time()) can jump
+        # forward under NTP/manual adjustments, causing the loop to
+        # exit early as if the deadline had expired.
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and "thread" not in captured:
             time.sleep(0.005)
         assert "thread" in captured, (
             "GT-5: service.quit() was not called within 2s — the background cleanup thread never started."
@@ -588,8 +591,11 @@ class TestBaseExceptionCatch:
 
         # Wait for the thread to call service.quit (and trigger the
         # SystemExit). The thread must NOT propagate.
-        deadline = time.time() + 2.0
-        while time.time() < deadline and not server.service.quit.called:
+        # Use time.monotonic() — wall-clock (time.time()) can jump
+        # forward under NTP/manual adjustments, causing the loop to
+        # exit early as if the deadline had expired.
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not server.service.quit.called:
             time.sleep(0.005)
         assert server.service.quit.called, (
             "GT-C3-7: service.quit() must be called by the background "

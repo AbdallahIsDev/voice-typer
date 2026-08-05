@@ -196,6 +196,23 @@ class TestTauriBundleResources:
 class TestSubprocessSpawn:
     """Verify ``SubprocessHotkeyBackend._spawn_process`` uses ``subprocess.Popen`` correctly."""
 
+    @pytest.fixture(autouse=True)
+    def _trusted_binary(self, monkeypatch):
+        """Bypass SHA-256 verification for the dummy test binaries.
+
+        ``_spawn_process`` re-verifies the binary's checksum BEFORE every
+        spawn (including watchdog respawns — the TOCTOU mitigation). The
+        tests inject a ``tmp_path`` dummy file whose SHA-256 is not in the
+        manifest, so verification would fail and ``_spawn_process`` would
+        set ``_failed=True`` and return early without ever calling
+        ``subprocess.Popen``. Patch the verifier to trust any path so the
+        Popen contract (argv, pipes, creationflags, error mapping) is what
+        gets exercised.
+        """
+        import voice_typer.server.native_hotkeys.binary_path as bp
+
+        monkeypatch.setattr(bp, "verify_native_binary_or_skip", lambda path: True)
+
     def test_spawn_uses_subprocess_popen(self, windows_env, monkeypatch, tmp_path):
         """``_spawn_process`` must call ``subprocess.Popen`` (not ``run``/``call``/``check_output``).
 
@@ -285,8 +302,9 @@ class TestSubprocessSpawn:
         assert kwargs.get("stderr") == subprocess.STDOUT, (
             "stderr must redirect to stdout so errors surface in the wire stream"
         )
-        assert kwargs.get("stdin") == subprocess.DEVNULL, (
-            "stdin must be DEVNULL — the binary is event-driven, not command-driven"
+        assert kwargs.get("stdin") == subprocess.PIPE, (
+            "stdin must be PIPE — the liveness watchdog writes PING\\n to it "
+            "(the binary answers PONG; see _watchdog_loop)"
         )
 
     def test_spawn_uses_create_no_window_on_windows(self, windows_env, monkeypatch, tmp_path):

@@ -36,7 +36,27 @@ from __future__ import annotations
 import time
 from unittest.mock import MagicMock
 
+import pytest
 from voice_typer.server.dictation_pipeline import DictationPipeline
+from voice_typer.server.dictation_pipeline.enhancement_steps import (
+    _reset_shared_polish_executor,
+)
+
+
+@pytest.fixture(autouse=True)
+def _reset_shared_polish_executor_between_tests():
+    """test-isolation fixture.
+
+    The shared ThreadPoolExecutor (module-level singleton in
+    enhancement_steps) is reused across dictation cycles in production.
+    Without this fixture, a slow-polish test that times out leaks a
+    worker thread that blocks the next test's polish call
+    (max_workers=1 -> concurrent submits queue). Reset the executor
+    before each test so each test starts with a fresh worker.
+    """
+    _reset_shared_polish_executor()
+    yield
+    _reset_shared_polish_executor()
 
 
 def _make_app_with_polish(polish_side_effect) -> MagicMock:

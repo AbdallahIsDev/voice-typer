@@ -814,10 +814,27 @@ def test_sidecar_ws_emits_server_started_with_port(sidecar_ws_source) -> None:
     ONLY thing that ever goes to stdout).
     """
     assert "def _emit_server_started" in sidecar_ws_source, "sidecar_ws.py must define _emit_server_started(port: int)"
+    # The payload may be constructed inline as
+    # `json.dumps({"event": "server_started", "port": ...})` (single-line
+    # form) OR as a separate `payload = {"event": "server_started",
+    # "port": int(port)}` dict that is then passed to `json.dumps(payload)`.
+    # The Rust host's `parse_server_started` only cares that the JSON
+    # output contains `{"event":"server_started","port":<n>}` — the
+    # Python-side construction shape is an implementation detail.
     assert re.search(
-        r'json\.dumps\s*\(\s*\{\s*"event"\s*:\s*"server_started"\s*,\s*"port"\s*:',
+        r'json\.dumps\s*\(\s*(?:\{\s*"event"\s*:\s*"server_started"\s*,\s*"port"\s*:|payload\b)',
         sidecar_ws_source,
     ), '_emit_server_started must emit {"event":"server_started","port":<n>} (matches spawn.rs::parse_server_started)'
+    # The payload dict (whether inline or a separate variable) MUST
+    # contain the required keys so the JSON output matches what
+    # spawn.rs::parse_server_started expects.
+    assert re.search(
+        r'"event"\s*:\s*"server_started"\s*,\s*"port"\s*:',
+        sidecar_ws_source,
+    ), (
+        "_emit_server_started must construct a payload with "
+        '"event": "server_started" and "port": <n> keys (matches spawn.rs::parse_server_started)'
+    )
     assert "getsockname" in sidecar_ws_source, (
         "sidecar_ws.py must read the OS-assigned port via "
         "ws_server.sockets[0].getsockname()[1] — never assume a fixed port"

@@ -301,7 +301,7 @@ def test_build_script_includes_ct2_libs_plural_layout_guarded():
 
 
 # ─── Tests: model path resolves to ~/.local/share/voice-typer/models ──────────
-def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch):
+def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch, tmp_path):
     """The model download path MUST resolve to
     ``~/.local/share/voice-typer/models`` on Linux.
 
@@ -336,19 +336,33 @@ def test_model_path_resolves_to_xdg_data_home_on_linux(monkeypatch):
     monkeypatch.setattr(config_mod, "is_macos", lambda: False)
     monkeypatch.setattr(config_mod, "is_windows", lambda: False)
 
-    # No legacy ~/.voice-typer dir in the sandbox (we don't create one),
-    # so _config_dir will fall through to the Linux branch.
+    # The real ``~/.voice-typer`` legacy dir may exist on developer
+    # machines / sandboxes (other tests in this suite create it via
+    # _config_dir() side effects). The production _config_dir() checks
+    # for the legacy dir FIRST (migration path — existing users keep
+    # their data where it is) and returns it if it exists, which would
+    # short-circuit the Linux XDG branch we want to exercise here. Mock
+    # ``Path.home()`` to a tmp_path that has no ``.voice-typer`` subdir
+    # so _config_dir falls through to the Linux XDG branch.
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
     # Clear the override so we test the real Linux branch.
     monkeypatch.delenv("VOICE_TYPER_CONFIG_DIR", raising=False)
     # Also clear XDG_DATA_HOME so we test the default ~/.local/share path
     # (the runbook §6.3 + ADR-0020 §8 default).
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
 
+    # _config_dir() is memoized via functools.lru_cache for the process
+    # lifetime — clear the cache so the monkeypatched Path.home() +
+    # env vars take effect on the next call.
+    from voice_typer.server.config_internals.paths import _reset_config_dir_cache
+
+    _reset_config_dir_cache()
+
     from voice_typer.server import _paths
 
     models_dir = _paths.config_dir() / "models"
 
-    expected = Path.home() / ".local" / "share" / "voice-typer" / "models"
+    expected = tmp_path / ".local" / "share" / "voice-typer" / "models"
     assert models_dir == expected, (
         f"model path on Linux must resolve to "
         f"~/.local/share/voice-typer/models "

@@ -103,6 +103,21 @@ ALLOWED_UNTRANSLATED = {
     "about.creditsFontsValue",  # "Geist"
     "about.creditsIconsValue",  # "Hugeicons"
     "about.creditsLibrariesValue",  # "faster-whisper, CTranslate2, Electron, ..."
+    # notify.*_title keys — notification titles that are just the app
+    # name placeholder ("{appName}"). The app name is a brand noun
+    # (same rationale as app.name) and the value carries no translatable
+    # prose, so the title is intentionally identical across all locales.
+    "notify.model_manager.backend_change_deferred_title",  # "{appName}"
+    "notify.model_manager.backend_init_failed_title",  # "{appName}"
+    "notify.recording_controller.consent_required_title",  # "{appName}"
+    "notify.recording_controller.max_duration_stop_title",  # "{appName}"
+    "notify.recording_controller.mic_disconnected_title",  # "{appName}"
+    "notify.recording_controller.mic_permission_revoked_title",  # "{appName}"
+    "notify.recording_controller.silence_auto_stop_title",  # "{appName}"
+    "notify.recording_controller.watchdog_title",  # "{appName}"
+    "notify.recording_controller.xrun_warning_title",  # "{appName}"
+    "notify.settings_controller.autostart_toggle_failed_title",  # "{appName}"
+    "notify.settings_controller.microphone_selection_failed_title",  # "{appName}"
     # Universal abbreviation.
     "bubble.recordingLabel",  # "REC"
     # Universal sort notation — identical across Latin-script locales.

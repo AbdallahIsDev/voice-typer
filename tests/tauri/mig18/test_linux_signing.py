@@ -156,7 +156,12 @@ def test_desktop_template_exists_and_is_valid() -> None:
     """
     assert DESKTOP_TEMPLATE.is_file(), f"desktop template missing: {DESKTOP_TEMPLATE}"
     text = DESKTOP_TEMPLATE.read_text()
-    assert text.lstrip().startswith("[Desktop Entry]"), "desktop template must start with '[Desktop Entry]'"
+    # The template legitimately has comment lines (lines starting with
+    # `#`) before the `[Desktop Entry]` header — per the freedesktop.org
+    # Desktop Entry Spec, comments are allowed anywhere in the file.
+    # Require the header to be present (anywhere), not necessarily
+    # first.
+    assert "[Desktop Entry]" in text, "desktop template must contain a '[Desktop Entry]' header"
     # Parse as INI-like key=value lines under the [Desktop Entry] header.
     keys: dict[str, str] = {}
     in_header = False

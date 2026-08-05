@@ -473,7 +473,13 @@ def test_linux_service_uses_frozen_exe_not_python_module(monkeypatch, tmp_path):
         "service unit must have an ExecStart= line — without it systemd won't know what to run"
     )
     # ExecStart=<path> — split on '=' and verify the RHS is a single token.
+    # The production code wraps every ExecStart token in double quotes
+    # via `_systemd_escape_arg()` (security hardening — prevents
+    # directive injection via env-var-controlled paths). Strip the
+    # surrounding quotes before comparing to the frozen exe path.
     execstart_value = execstart_line.split("=", 1)[1].strip()
+    if len(execstart_value) >= 2 and execstart_value.startswith('"') and execstart_value.endswith('"'):
+        execstart_value = execstart_value[1:-1]
     assert execstart_value == str(frozen_exe), (
         f"ExecStart value must be the frozen exe path only "
         f"('{frozen_exe}'), got '{execstart_value}' — when the frozen exe "

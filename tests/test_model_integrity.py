@@ -21,22 +21,27 @@ _COMMIT_SHA_RE = re.compile(r"^[0-9a-f]{40}$")
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
-def test_verify_model_integrity_missing_dir():
+def _ok(result: tuple) -> bool:
+    """``asr_setup._verify_model_integrity`` returns ``(ok, details)``."""
+    return bool(result[0])
+
+
+def test_verify_model_integrity_missing_dir(isolated_integrity_cache):
     """Returns False for non-existent directory."""
     from voice_typer.server.asr_setup import _verify_model_integrity
 
-    assert _verify_model_integrity("test/model", "/nonexistent/path") is False
+    assert _ok(_verify_model_integrity("test/model", "/nonexistent/path")) is False
 
 
-def test_verify_model_integrity_empty_dir():
+def test_verify_model_integrity_empty_dir(isolated_integrity_cache):
     """Returns False for directory with no model files."""
     from voice_typer.server.asr_setup import _verify_model_integrity
 
     with tempfile.TemporaryDirectory() as tmp:
-        assert _verify_model_integrity("test/model", tmp) is False
+        assert _ok(_verify_model_integrity("test/model", tmp)) is False
 
 
-def test_verify_model_integrity_valid():
+def test_verify_model_integrity_valid(isolated_integrity_cache):
     """Returns True for directory with model and config files."""
     from voice_typer.server.asr_setup import _verify_model_integrity
 
@@ -45,26 +50,26 @@ def test_verify_model_integrity_valid():
         (Path(tmp) / "model.safetensors").write_bytes(b"\x00" * 100)
         # Create a config file
         (Path(tmp) / "config.json").write_text('{"model_type": "test"}')
-        assert _verify_model_integrity("test/model", tmp) is True
+        assert _ok(_verify_model_integrity("test/model", tmp)) is True
 
 
-def test_verify_model_integrity_no_config():
+def test_verify_model_integrity_no_config(isolated_integrity_cache):
     """Returns False for directory with model but no config."""
     from voice_typer.server.asr_setup import _verify_model_integrity
 
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "model.bin").write_bytes(b"\x00" * 100)
-        assert _verify_model_integrity("test/model", tmp) is False
+        assert _ok(_verify_model_integrity("test/model", tmp)) is False
 
 
-def test_verify_model_integrity_empty_model_file():
+def test_verify_model_integrity_empty_model_file(isolated_integrity_cache):
     """Returns False for directory with empty model file."""
     from voice_typer.server.asr_setup import _verify_model_integrity
 
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "model.safetensors").write_bytes(b"")
         (Path(tmp) / "config.json").write_text("{}")
-        assert _verify_model_integrity("test/model", tmp) is False
+        assert _ok(_verify_model_integrity("test/model", tmp)) is False
 
 
 # ── SEC-audit-005: Manifest enforcement regression tests ──────────────────
@@ -175,7 +180,7 @@ def test_model_hashes_fallback_matches_json(monkeypatch):
         )
 
 
-def test_verify_model_integrity_hard_fails_on_hash_mismatch(monkeypatch, tmp_path):
+def test_verify_model_integrity_hard_fails_on_hash_mismatch(monkeypatch, tmp_path, isolated_integrity_cache):
     """SEC-audit-005: verify_model_integrity() must return False when a pinned
     file's SHA-256 doesn't match — preventing a tampered model from loading.
 
@@ -209,7 +214,7 @@ def test_verify_model_integrity_hard_fails_on_hash_mismatch(monkeypatch, tmp_pat
     )
 
 
-def test_verify_model_integrity_passes_when_all_hashes_match(monkeypatch, tmp_path):
+def test_verify_model_integrity_passes_when_all_hashes_match(monkeypatch, tmp_path, isolated_integrity_cache):
     """SEC-audit-005: verify_model_integrity() returns True when all pinned
     file hashes match — verifying the happy path of hash enforcement."""
     from voice_typer.server import security
@@ -234,7 +239,7 @@ def test_verify_model_integrity_passes_when_all_hashes_match(monkeypatch, tmp_pa
     assert result is True
 
 
-def test_verify_model_integrity_fails_when_pinned_file_missing(monkeypatch, tmp_path):
+def test_verify_model_integrity_fails_when_pinned_file_missing(monkeypatch, tmp_path, isolated_integrity_cache):
     """SEC-audit-005: verify_model_integrity() returns False when a pinned
     file is missing from the model directory."""
     from voice_typer.server import security

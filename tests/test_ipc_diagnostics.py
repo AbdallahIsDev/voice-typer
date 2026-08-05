@@ -301,26 +301,35 @@ class TestStderrRedaction:
             f"GT-B1-5 regression: raw secret leaked to stderr; stderr was:\n{stderr_text}"
         )
 
-    def test_redactor_failure_falls_back_to_unredacted_print(
-        self, diag_dir: Path, tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]
+    def test_redactor_failure_falls_back_to_redacted_marker(
+        self,
+        diag_dir: Path,
+        tmp_path: Path,
+        monkeypatch,
+        capsys: pytest.CaptureFixture[str],
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """If ``redact_for_export`` itself raises on the stderr-fallback
-        call, the stderr fallback must still print SOMETHING (the
-        unredacted payload) — a partially-redacted traceback is better
-        than no traceback at all (matches the ``except Exception:``
-        last-resort philosophy of the surrounding block).
+        call, the stderr fallback must print a fixed REDACTED-MARKER
+        string — NEVER the raw ``buf`` payload. The raw traceback may
+        carry API keys / bearer tokens injected via ``{clipboard}``
+        dictation-pipeline templates, env-var dumps from buggy
+        handlers, or ``?key=sk-...`` URL query-string secrets that the
+        redactor was supposed to mask but couldn't. A marker-only
+        stderr line is better than a PII leak — the original
+        exception is still logged via the ``_log.critical`` calls in
+        the /tmp-fallback path, so the diagnostic content is not lost,
+        only the stderr copy of it is suppressed.
 
-        The test uses a side_effect function that lets the first few
+        This test reverses the pre-fix fail-OPEN behavior (which
+        printed the raw ``buf.getvalue()`` to stderr when the redactor
+        raised — exactly the PII leak this fix closes). The test uses
+        a side_effect function that lets the first few
         ``redact_for_export`` calls succeed (so the function reaches
         the stderr-fallback path) and then raises on the call inside
-        the stderr-fallback ``try`` block. This isolates the GT-B1-5
-        fallback branch from the other ``redact_for_export`` call
-        sites in the function (``redacted_argv`` and the primary-
-        write path).
-
-        UE-5-F4: patches ``redact_for_export`` instead of the
-        historical ``_redact_text`` (the redactor was switched to the
-        unified pipeline).
+        the stderr-fallback ``try`` block. This isolates the fallback
+        branch from the other ``redact_for_export`` call sites in the
+        function (``redacted_argv`` and the primary-write path).
         """
         nonexistent = tmp_path / "does-not-exist"
         monkeypatch.setattr(tempfile, "gettempdir", lambda: str(nonexistent))
@@ -358,20 +367,134 @@ class TestStderrRedaction:
                 "voice_typer.server._secrets.redact_for_export",
                 side_effect=_partial_redactor,
             ),
+            caplog.at_level(logging.DEBUG, logger="voice_typer.server.ipc_server"),
         ):
             write_startup_diagnostic("construction", exc=RuntimeError("boom"))
 
         captured = capsys.readouterr()
         stderr_text = captured.err
-        # The diagnostic header must still be on stderr even though the
-        # redactor blew up on the stderr-fallback call — proves the
-        # fallback-to-unredacted branch fired.
-        assert "Voice Typer startup failed at" in stderr_text
         # And we must have actually taken the raising branch (i.e. the
-        # side_effect was called at least 3 times).
+        # side_effect was called at least 3 times — argv + primary
+        # write + stderr fallback).
         assert call_state["n"] >= 3, (
             f"expected redact_for_export to be called >=3 times (argv + "
             f"primary write + stderr fallback); got {call_state['n']}"
+        )
+        # The PRIMARY regression assertion: the raw ``buf`` content
+        # (which carries the diagnostic header that would have been
+        # printed pre-fix) MUST NOT be on stderr. This is the PII-leak
+        # gate — if this regresses, an attacker could read API keys /
+        # bearer tokens off stderr (e.g. via a wrapper script that
+        # captures stderr).
+        assert "Voice Typer startup failed at" not in stderr_text, (
+            f"regression: raw buf content leaked to stderr when redact_for_export raised; stderr was:\n{stderr_text}"
+        )
+        # The traceback content of the caller-passed exception must
+        # also NOT appear on stderr — that's the actual PII carrier.
+        assert "RuntimeError" not in stderr_text, (
+            "regression: raw traceback content leaked to stderr when "
+            "redact_for_export raised; stderr was:\n"
+            f"{stderr_text}"
+        )
+        assert "boom" not in stderr_text, (
+            "regression: raw exception message leaked to stderr when "
+            "redact_for_export raised; stderr was:\n"
+            f"{stderr_text}"
+        )
+        # The fixed redacted-marker string MUST appear on stderr (so
+        # the operator can see that a diagnostic was attempted but
+        # redaction failed). The marker carries the outer write_exc
+        # type name (OSError — the primary write failure that put us
+        # on this fallback path).
+        assert "[redaction failed — traceback suppressed to avoid PII leak]" in stderr_text, (
+            f"expected the redaction-failed marker on stderr; got:\n{stderr_text}"
+        )
+        assert "OSError" in stderr_text, (
+            "expected the outer write_exc type name (OSError) appended "
+            f"to the redaction-failed marker; got:\n{stderr_text}"
+        )
+        # The WARNING log MUST be emitted so the operator can see (in
+        # the rotating log file, not just stderr) that the redactor
+        # raised. The log message names the redactor exception type
+        # (RuntimeError — the inner exception from _partial_redactor).
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert warning_records, (
+            "expected at least one WARNING record for the redactor-raised "
+            f"fallback; got levels={[r.levelname for r in caplog.records]}"
+        )
+        warning_msgs = [r.getMessage() for r in warning_records]
+        assert any("[LOG-SETUP] redact_for_export raised" in m for m in warning_msgs), (
+            "expected a WARNING record with the '[LOG-SETUP] redact_for_export "
+            f"raised' marker; got warning messages: {warning_msgs!r}"
+        )
+        assert any("RuntimeError" in m for m in warning_msgs), (
+            f"expected the redactor exception type name (RuntimeError) in the WARNING message; got: {warning_msgs!r}"
+        )
+
+    def test_redactor_failure_marker_excludes_secret_in_buf(
+        self, diag_dir: Path, tmp_path: Path, monkeypatch, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        """Defence-in-depth: when ``redact_for_export`` raises on the
+        stderr-fallback call, the marker string printed to stderr must
+        NOT contain a secret that was present in the original ``buf``
+        payload. The marker is a fixed string + the outer write_exc
+        type name — neither of which can carry the buf content — so a
+        40-char API key embedded in the caller-passed exception's
+        ``str()`` (mirroring the ``{clipboard}`` template-substitution
+        vector) must NOT survive to stderr.
+
+        This is the end-to-end PII-leak assertion: it builds an
+        exception whose ``str()`` includes a 40-char API key, then
+        monkeypatches ``redact_for_export`` to raise on the
+        stderr-fallback call. The stderr output must NOT contain the
+        raw key.
+        """
+        nonexistent = tmp_path / "does-not-exist"
+        monkeypatch.setattr(tempfile, "gettempdir", lambda: str(nonexistent))
+
+        from voice_typer.server import _secrets as secrets_mod
+
+        real_redact = secrets_mod.redact_for_export
+        call_state = {"n": 0}
+
+        def _partial_redactor(text: str) -> str:
+            call_state["n"] += 1
+            if call_state["n"] >= 3:
+                raise RuntimeError("redactor broken on stderr fallback")
+            return real_redact(text)
+
+        secret_key = "sk-" + "a" * 40  # 43-char bearer-style token
+        exc = RuntimeError(f"failed to load model with key={secret_key}")
+
+        with (
+            patch(
+                "voice_typer.server.config._config_dir",
+                return_value=diag_dir,
+            ),
+            patch(
+                "voice_typer.server.config._secure_atomic_write",
+                side_effect=OSError("read-only filesystem"),
+            ),
+            patch(
+                "voice_typer.server._secrets.redact_for_export",
+                side_effect=_partial_redactor,
+            ),
+        ):
+            write_startup_diagnostic("construction", exc=exc)
+
+        captured = capsys.readouterr()
+        stderr_text = captured.err
+        # The raw secret MUST NOT appear on stderr — this is the
+        # core PII-leak gate. Pre-fix, the raw buf (containing the
+        # secret-bearing traceback) was printed verbatim.
+        assert secret_key not in stderr_text, (
+            f"regression: raw API key leaked to stderr when redact_for_export raised; stderr was:\n{stderr_text}"
+        )
+        # The marker MUST appear (proving we took the new fail-closed
+        # branch rather than e.g. crashing or silently swallowing the
+        # exception).
+        assert "[redaction failed — traceback suppressed to avoid PII leak]" in stderr_text, (
+            f"expected the redaction-failed marker on stderr; got:\n{stderr_text}"
         )
 
 

@@ -24,6 +24,7 @@ still mention the name for human readers.
 C-DATA-1 compliance: no network access. Pure import + ast-grep check.
 C-STYLE-1 compliance: no task ID in the test name.
 """
+
 from __future__ import annotations
 
 import re
@@ -105,6 +106,5 @@ def test_no_bare_ipc_token_env_var_literal_in_production() -> None:
             offenders.append(f"{py_file}:{line_no}: {match.group()!r}")
     assert not offenders, (
         "Found bare 'VOICE_TYPER_IPC_TOKEN' literal in production code "
-        "(must go through voice_typer.server._paths.IPC_TOKEN_ENV_VAR):\n"
-        + "\n".join(offenders)
+        "(must go through voice_typer.server._paths.IPC_TOKEN_ENV_VAR):\n" + "\n".join(offenders)
     )

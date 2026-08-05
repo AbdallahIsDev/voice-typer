@@ -279,6 +279,7 @@ class TestSettingsWindowIntegration:
         # called with the new spec (and the role kwarg that the
         # role-aware factory accepts).
         import voice_typer.server.hotkey_dispatcher as _hd
+
         _hd.create_hotkey_backend.assert_called_with("<f3>", role="dictation")
         assert app.hotkeys._hotkey_backend is new_backend
 
@@ -317,8 +318,21 @@ class TestSettingsWindowIntegration:
         with contextlib.suppress(SystemExit):
             app.restart_app()
 
-        assert popen_calls == [], (
-            f"restart_app must NOT spawn a subprocess (Electron is the sole spawner); got Popen calls: {popen_calls}"
+        # fix-restart-tcp: the port-race risk is a REPLACEMENT backend /
+        # Electron spawn (two processes fighting over port 9876).
+        # restart_app() itself must not spawn one. Benign OS utilities
+        # that run as a side effect of config-dir setup / resource
+        # probing (``icacls`` ACL enforcement on the fresh temp config
+        # dir, ``lscpu`` CPU inventory) are NOT replacement spawns and
+        # are filtered out.
+        replacement_spawns = [
+            (args, kwargs)
+            for args, kwargs in popen_calls
+            if not (args and args[0] and args[0][0] in ("icacls", "lscpu"))
+        ]
+        assert replacement_spawns == [], (
+            "restart_app must NOT spawn a replacement backend/Electron "
+            f"subprocess (port-race); got: {replacement_spawns}"
         )
 
     def test_restart_app_pushes_restart_ack_event(self, app, monkeypatch):

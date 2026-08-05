@@ -296,3 +296,22 @@ class TestRedactSecretThreshold20:
             f"the pre-fix {{32,}} threshold must NOT appear in the generic "
             f"pattern after G4-L-06; got pattern {pattern_str!r}"
         )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Smoke: ensure the new symbols are importable
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_sec9_flag_patterns_module_constants():
+    """SEC-9: ``_secrets`` module must expose the new flag-pattern
+    constants (static check that the fix is in place).
+    """
+    assert hasattr(_secrets, "_FLAG_KEY_PATTERNS")
+    assert hasattr(_secrets, "_FLAG_VALUE_PATTERN")
+    assert hasattr(_secrets, "_BARE_KEY_VALUE_PATTERN")
+    assert hasattr(_secrets, "_SECRET_KEYWORDS")
+    assert "token" in _secrets._SECRET_KEYWORDS
+    assert "key" in _secrets._SECRET_KEYWORDS
+    assert "password" in _secrets._SECRET_KEYWORDS
+    assert "api_key" in _secrets._SECRET_KEYWORDS

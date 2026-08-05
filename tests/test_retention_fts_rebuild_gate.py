@@ -13,6 +13,10 @@ These tests pin the new behavior:
 
 - ``test_apply_retention_skips_fts5_rebuild_when_ratio_below_threshold``
   — a small delete (<20% of rows) must NOT issue the 'rebuild' command.
+- ``test_apply_retention_runs_fts5_optimize_when_ratio_below_threshold``
+  — a small delete (<20% of rows) MUST issue the cheap 'optimize'
+  command instead, so sub-threshold deletes still purge segment data
+  from ``transcriptions_fts_data`` without an O(N) re-index.
 - ``test_apply_retention_runs_fts5_rebuild_when_ratio_above_threshold``
   — a large delete (>20% of rows) MUST still issue the 'rebuild'
   command (the existing FR-27 privacy guarantee is preserved).
@@ -97,6 +101,10 @@ def _rebuild_seen(executed_sql: list[str]) -> bool:
     return any("transcriptions_fts" in sql and "rebuild" in sql.lower() for sql in executed_sql)
 
 
+def _optimize_seen(executed_sql: list[str]) -> bool:
+    return any("transcriptions_fts" in sql and "optimize" in sql.lower() for sql in executed_sql)
+
+
 class TestAb25FtsRebuildGate:
     """AB-25: ``apply_retention`` only rebuilds FTS5 when ``ratio > 0.20``."""
 
@@ -143,6 +151,54 @@ class TestAb25FtsRebuildGate:
         # VACUUM must also be skipped (sanity check — pre-existing behavior).
         vacuum_seen = any(sql.strip().upper() == "VACUUM" for sql in executed_sql)
         assert not vacuum_seen, f"VACUUM should also be skipped at ratio < 0.20. Executed SQL: {executed_sql}"
+
+    def test_apply_retention_runs_fts5_optimize_when_ratio_below_threshold(self, db, monkeypatch):
+        """A small delete (<20% of rows) must issue the cheap FTS5
+        'optimize' command (NOT the O(N) 'rebuild') so sub-threshold
+        deletes still purge segment data from
+        ``transcriptions_fts_data`` — closing the privacy gap without
+        burning an O(N) re-index on every 10-minute tick.
+        """
+        # Insert 20 recent rows (retention_days will not delete them).
+        for i in range(20):
+            db.add_transcription(f"recent phrase {i}")
+        db.flush()
+
+        # Insert 1 OLD row that retention_days=1 will delete.
+        old_date = (datetime.now() - timedelta(days=30)).isoformat()
+
+        def _do_insert_old(conn):
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT INTO transcriptions (text, timestamp) VALUES (?, ?)",
+                ("old secret phrase", old_date),
+            )
+            conn.commit()
+
+        db._submit_write(_do_insert_old, wait=True)
+        db.flush()
+
+        executed_sql: list[str] = []
+        _spy_submit_write(db, monkeypatch, executed_sql)
+
+        # Act: retention_days=1 deletes the 1 old row out of 21 total.
+        # ratio = 1/21 ≈ 4.8% — well below the 20% gate.
+        deleted = db.apply_retention(retention_days=1)
+        assert deleted == 1, f"expected 1 row deleted, got {deleted}"
+
+        # The cheap 'optimize' MUST have been issued (privacy hardening
+        # for sub-threshold sweeps)...
+        assert _optimize_seen(executed_sql), (
+            "apply_retention did NOT issue the FTS5 'optimize' command for "
+            f"a small delete (1/21 ≈ 4.8% < 20% threshold). "
+            f"Executed SQL: {executed_sql}"
+        )
+        # ...while the O(N) 'rebuild' must NOT fire (gate preserved).
+        assert not _rebuild_seen(executed_sql), (
+            "apply_retention issued the FTS5 'rebuild' command for a "
+            f"small delete (1/21 ≈ 4.8% < 20% threshold) — the O(N) gate "
+            f"must be preserved. Executed SQL: {executed_sql}"
+        )
 
     def test_apply_retention_runs_fts5_rebuild_when_ratio_above_threshold(self, db, monkeypatch):
         """A large delete (>20% of rows) MUST still issue the FTS5 'rebuild'

@@ -327,13 +327,20 @@ class TestShutdownSidecarSource:
         )
         # The kill is reached on BOTH paths (graceful + timeout) — verify
         # the kill call is NOT inside an `if`/`else` that only fires on
-        # one branch. We check it appears after the wait block closes.
-        # The `drop(rx_guard)` line marks the end of the wait block.
-        idx_drop = body.index("drop(rx_guard)")
+        # one branch. We check it appears AFTER the wait block closes.
+        # The take of `state.child` (mutex_lock(&state.child).take()) marks
+        # the start of the force-kill section (it runs after the wait block
+        # — `rx_guard.take()` + the `if let Some(mut rx) = rx_opt { ... }`
+        # match — has finished). Previously this used a literal
+        # `drop(rx_guard)` marker, but the wait block was refactored to use
+        # an inner `let rx_opt = { let mut rx_guard = ...; rx_guard.take() };`
+        # block so the guard drops implicitly at the block end.
+        idx_take = take_match.start()
         idx_kill = kill_match.start()
-        assert idx_kill > idx_drop, (
-            "child.kill() must run AFTER the wait block (drop(rx_guard)) so it "
-            "fires on both the graceful-exit and timeout paths"
+        assert idx_kill > idx_take, (
+            "child.kill() must run AFTER the wait block (marked by the "
+            "state.child take()) so it fires on both the graceful-exit "
+            "and timeout paths"
         )
 
     def test_logs_graceful_and_force_kill_outcomes(self):
@@ -461,11 +468,22 @@ class TestLinuxSignalBehavior:
         returned by ``Command::spawn()``; its ``kill(self)`` method
         sends SIGTERM on Unix (Linux + macOS). This is the variant the
         Linux runbook Step 10 exercises on release builds.
+
+        The variant wraps ``Option<CommandChild>`` (not a bare
+        ``CommandChild``) so the ``Drop`` impl can ``take()`` the child
+        out of ``&mut self`` for a best-effort kill on drop
+        (``CommandChild::kill`` consumes ``self``). The regex accepts
+        both the bare ``CommandChild`` form and the ``Option<CommandChild>``
+        wrapper.
         """
         src = _read(_STATE_RS)
-        assert re.search(r"ShellPlugin\s*\(\s*CommandChild\s*\)", src), (
-            "SidecarHandle must have a ShellPlugin(CommandChild) variant for "
-            "release builds (CommandChild::kill sends SIGTERM on Linux)"
+        assert re.search(
+            r"ShellPlugin\s*\(\s*(?:Option\s*<\s*)?CommandChild(?:\s*>\s*)?\s*\)",
+            src,
+        ), (
+            "SidecarHandle must have a ShellPlugin(CommandChild) [or "
+            "ShellPlugin(Option<CommandChild>)] variant for release builds "
+            "(CommandChild::kill sends SIGTERM on Linux)"
         )
 
     def test_sidecar_handle_has_dev_mode_variant(self):
@@ -492,29 +510,40 @@ class TestLinuxSignalBehavior:
         """
         src = _read(_STATE_RS)
         # The kill method exists and is async (returns io::Result<()>).
+        # `self` may be bound as `mut self` (post-refactor — needed so
+        # `match &mut self` can borrow the inner Option mutably for
+        # `c.take()`) or as plain `self` (pre-refactor).
         assert re.search(
-            r"pub\(crate\)\s+async\s+fn\s+kill\s*\(\s*self\s*\)\s*->\s*std::io::Result<\(\)>",
+            r"pub\(crate\)\s+async\s+fn\s+kill\s*\(\s*(?:mut\s+)?self\s*\)\s*->\s*std::io::Result<\(\)>",
             src,
         ), "SidecarHandle must have an async kill(self) -> io::Result<()> method"
-        # Both arms call .kill() on the inner handle.
+        # Both arms call .kill() on the inner handle. The DevMode arm
+        # may use either `mut c` (pre-refactor, when `self` was matched
+        # by value) or `c` (post-refactor, when `match &mut self` is
+        # used — the binding is already `&mut`, no `mut` needed).
         assert "SidecarHandle::ShellPlugin(c)" in src, (
             "kill() must match SidecarHandle::ShellPlugin(c) and call c.kill()"
         )
-        assert "SidecarHandle::DevMode(mut c)" in src, (
-            "kill() must match SidecarHandle::DevMode(mut c) and call c.kill().await"
+        assert "SidecarHandle::DevMode(mut c)" in src or "SidecarHandle::DevMode(c)" in src, (
+            "kill() must match SidecarHandle::DevMode(mut c) (or DevMode(c) "
+            "post-&mut-self refactor) and call c.kill().await"
         )
-        # ShellPlugin arm calls c.kill() (sync — CommandChild::kill is sync).
-        # DevMode arm calls c.kill().await (async — tokio Child::kill is async).
-        # Both arms may use either an inline expression (`=> c.kill()...`)
-        # or a block (`=> { c.kill()... }`); accept both forms.
+        # ShellPlugin arm kills the inner CommandChild. Post-refactor the
+        # arm does `match c.take() { Some(child) => child.kill()..., None => Ok(()) }`
+        # (because the variant wraps `Option<CommandChild>` so Drop can
+        # `take()` it). Pre-refactor the arm called `c.kill()` directly.
+        # Accept both forms.
         m_shell = re.search(
-            r"SidecarHandle::ShellPlugin\(c\)\s*=>\s*(?:\{[^}]*?c\.kill\(\)|c\.kill\(\))",
+            r"SidecarHandle::ShellPlugin\(c\)\s*=>\s*(?:\{[^}]*?c\.kill\(\)|c\.kill\(\)|match\s+c\.take\(\))",
             src,
             re.DOTALL,
         )
-        assert m_shell, "ShellPlugin arm must call c.kill() (CommandChild::kill is sync, sends SIGTERM on Linux)"
+        assert m_shell, (
+            "ShellPlugin arm must call c.kill() (CommandChild::kill is sync, "
+            "sends SIGTERM on Linux) or take()+kill() on the inner Option"
+        )
         m_dev = re.search(
-            r"SidecarHandle::DevMode\(mut c\)\s*=>\s*(?:\{[^}]*?c\.kill\(\)\.await|c\.kill\(\)\.await)",
+            r"SidecarHandle::DevMode\s*\(\s*(?:mut\s+)?c\)\s*=>\s*(?:\{[^}]*?c\.kill\(\)\.await|c\.kill\(\)\.await)",
             src,
             re.DOTALL,
         )
@@ -629,7 +658,13 @@ class TestLinuxSignalBehavior:
         """
         src = _read(_STATE_RS)
         # ShellPlugin variant exists (release → SIGTERM on Linux).
-        assert re.search(r"ShellPlugin\s*\(\s*CommandChild\s*\)", src), (
+        # Post-refactor the variant wraps `Option<CommandChild>` so the
+        # Drop impl can take() it; the regex accepts both the bare
+        # `CommandChild` form and the `Option<CommandChild>` wrapper.
+        assert re.search(
+            r"ShellPlugin\s*\(\s*(?:Option\s*<\s*)?CommandChild(?:\s*>\s*)?\s*\)",
+            src,
+        ), (
             "Linux release builds must use SidecarHandle::ShellPlugin "
             "(CommandChild::kill → SIGTERM via nix::sys::signal::kill)"
         )
@@ -640,14 +675,15 @@ class TestLinuxSignalBehavior:
         # The kill method dispatches on the variant — the ShellPlugin
         # arm is sync (.kill() no .await) and the DevMode arm is async
         # (.kill().await). This shape is what makes the variant split
-        # actually determine the signal.
+        # actually determine the signal. The DevMode binding may be `c`
+        # (post-&mut-self refactor) or `mut c` (pre-refactor).
         assert re.search(
-            r"SidecarHandle::ShellPlugin\(c\)\s*=>\s*(?:\{[^}]*?c\.kill\(\)|c\.kill\(\))",
+            r"SidecarHandle::ShellPlugin\(c\)\s*=>\s*(?:\{[^}]*?c\.kill\(\)|c\.kill\(\)|match\s+c\.take\(\))",
             src,
             re.DOTALL,
         ), "ShellPlugin arm must call c.kill() (sync → SIGTERM on Linux)"
         assert re.search(
-            r"SidecarHandle::DevMode\(mut c\)\s*=>\s*(?:\{[^}]*?c\.kill\(\)\.await|c\.kill\(\)\.await)",
+            r"SidecarHandle::DevMode\s*\(\s*(?:mut\s+)?c\)\s*=>\s*(?:\{[^}]*?c\.kill\(\)\.await|c\.kill\(\)\.await)",
             src,
             re.DOTALL,
         ), "DevMode arm must call c.kill().await (async → SIGKILL on Linux)"

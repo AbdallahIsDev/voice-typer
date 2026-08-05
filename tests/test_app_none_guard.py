@@ -54,14 +54,6 @@ import pytest
 
 
 @pytest.fixture
-def tmp_config_dir(tmp_path, monkeypatch):
-    """Point config to a temp directory (so PID file writes are isolated)."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
-    return tmp_path
-
-
-@pytest.fixture
 def app(tmp_config_dir, monkeypatch):
     """Create a VoiceTyperApp with mocked dependencies for None-guard tests.
 

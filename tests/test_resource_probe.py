@@ -106,7 +106,7 @@ class TestCheckResourcesRAM:
         # Avoid the POSIX disk branch actually logging disk info that
         # could interfere with assertions on RAM-only records. Patch
         # statvfs to return plenty of free space.
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         with caplog.at_level(logging.INFO, logger="voice_typer.server.resource_probe"):
             check_resources()
@@ -127,7 +127,7 @@ class TestCheckResourcesRAM:
             "psutil.virtual_memory",
             lambda: _fake_vm(512 * 1024**2),  # 512 MB available
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.resource_probe"):
             check_resources()
@@ -144,7 +144,7 @@ class TestCheckResourcesRAM:
             "psutil.virtual_memory",
             lambda: _fake_vm(1500 * 1024**2),  # ~1.5 GB available
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         with caplog.at_level(logging.INFO, logger="voice_typer.server.resource_probe"):
             check_resources()
@@ -171,7 +171,7 @@ class TestCheckResourcesDisk:
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         with caplog.at_level(logging.INFO, logger="voice_typer.server.resource_probe"):
             check_resources()
@@ -191,7 +191,7 @@ class TestCheckResourcesDisk:
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(500 * 1024**2))  # 500 MB free
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(500 * 1024**2), raising=False)  # 500 MB free
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.resource_probe"):
             check_resources()
@@ -295,7 +295,7 @@ class TestCheckResourcesGPU:
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         with caplog.at_level(logging.INFO, logger="voice_typer.server.resource_probe"):
             check_resources()
@@ -325,7 +325,7 @@ class TestCheckResourcesGPU:
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.resource_probe"):
             check_resources()
@@ -349,7 +349,7 @@ class TestCheckResourcesLogger:
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         with caplog.at_level(logging.INFO, logger="voice_typer.server.resource_probe"):
             check_resources()
@@ -366,7 +366,7 @@ class TestCheckResourcesLogger:
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         with caplog.at_level(logging.INFO, logger="voice_typer.server.dictation_pipeline"):
             check_resources(logger=custom_logger)
@@ -392,7 +392,7 @@ class TestCheckResourcesGracefulDegradation:
         doesn't apply (non-Windows), the RAM check logs DEBUG and the
         function continues to the disk check."""
         _patch_psutil_unavailable(monkeypatch)
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         with caplog.at_level(logging.DEBUG, logger="voice_typer.server.resource_probe"):
             check_resources()
@@ -492,7 +492,7 @@ class TestCheckResourcesGracefulDegradation:
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         def _raising_is_available():
             raise RuntimeError("CUDA driver mismatch")
@@ -565,7 +565,7 @@ class TestCheckResourcesThrottled:
             return _fake_vm(4 * 1024**3)
 
         monkeypatch.setattr("psutil.virtual_memory", _counting_vm)
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         # last_check_ts = 100.0, now = 110.0, interval = 60.0
         # → 110 - 100 = 10 < 60 → SKIP
@@ -590,7 +590,7 @@ class TestCheckResourcesThrottled:
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         # last_check_ts = 0.0, now = 100.0, interval = 60.0
         # → 100 - 0 = 100 ≥ 60 → RUN, return now=100.0
@@ -610,7 +610,7 @@ class TestCheckResourcesThrottled:
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
         monkeypatch.setattr(resource_probe.time, "monotonic", lambda: 9999.0)
 
         # last_check_ts = 0.0, default interval = 60.0
@@ -636,7 +636,7 @@ class TestCheckResourcesThrottled:
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         # last_check_ts = 0.0, now = 60.0, interval = 60.0
         # → 60 - 0 = 60, NOT < 60 → RUN
@@ -661,7 +661,7 @@ class TestCheckResourcesThrottled:
             "psutil.virtual_memory",
             lambda: _fake_vm(4 * 1024**3),
         )
-        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3))
+        monkeypatch.setattr("os.statvfs", lambda path: _fake_statvfs(50 * 1024**3), raising=False)
 
         with caplog.at_level(logging.INFO, logger="voice_typer.server.dictation_pipeline"):
             check_resources_throttled(

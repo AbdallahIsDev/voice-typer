@@ -50,6 +50,10 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+from voice_typer.server import clipboard as clip_mod  # noqa: E402
+from voice_typer.server import clipboard_snapshot as snap_mod  # noqa: E402
+from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
+from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 
 # Mock pynput / pyperclip at import time so the clipboard module loads
 # cleanly on a headless Linux box. (Same pattern as
@@ -57,11 +61,6 @@ import pytest
 sys.modules.setdefault("pynput", MagicMock())
 sys.modules.setdefault("pynput.keyboard", MagicMock())
 sys.modules.setdefault("pyperclip", MagicMock())
-
-from voice_typer.server import clipboard as clip_mod  # noqa: E402
-from voice_typer.server import clipboard_snapshot as snap_mod  # noqa: E402
-from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
-from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Display-env isolation () — autouse fixture mirroring the pattern
@@ -706,6 +705,278 @@ class TestWindowsRestoreReturnsFalseOnAllFailures:
 
 
 # ===========================================================================
+# macOS _restore_macos returns False on per-item / writeObjects_ failure
+# ===========================================================================
+
+
+def _install_fake_appkit_for_restore(
+    *,
+    set_data_returns: bool = True,
+    write_objects_returns: bool = True,
+):
+    """Install fake ``AppKit`` and ``Foundation`` modules into ``sys.modules``
+    for the macOS restore path.
+
+    ``set_data_returns`` controls the BOOL return value of
+    ``NSPasteboardItem.setData_forType_`` (True = item accepted the type,
+    False = item rejected — e.g. unsupported type-name or a payload that
+    violates the type's contract).
+
+    ``write_objects_returns`` controls the BOOL return value of
+    ``NSPasteboard.writeObjects_`` (True = at least one NSPasteboardItem
+    was accepted by the pasteboard, False = no items accepted → the
+    clipboard is still empty after ``clearContents``).
+
+    Returns ``(appkit, foundation, pb, item_mock)`` so tests can assert
+    on call patterns. The ``item_mock`` is the single
+    NSPasteboardItem instance returned by ``alloc().init()`` — when the
+    snapshot has multiple pasteboard-item indices, every alloc().init()
+    call returns the SAME mock (sufficient for the boolean-returns tests
+    below; the multi-item structural test inspects ``writeObjects_``'s
+    call_args instead).
+    """
+    item_mock = MagicMock(name="ns_pasteboard_item")
+    item_mock.setData_forType_.return_value = set_data_returns
+
+    alloc_mock = MagicMock(name="ns_pasteboard_item_alloc")
+    alloc_mock.init.return_value = item_mock
+
+    pasteboard_item_cls = MagicMock(name="NSPasteboardItem")
+    pasteboard_item_cls.alloc.return_value = alloc_mock
+
+    pb = MagicMock(name="ns_pasteboard")
+    pb.clearContents.return_value = None
+    pb.writeObjects_.return_value = write_objects_returns
+
+    ns_pasteboard_cls = MagicMock(name="NSPasteboard")
+    ns_pasteboard_cls.generalPasteboard.return_value = pb
+
+    appkit = MagicMock(name="AppKit")
+    appkit.NSPasteboard = ns_pasteboard_cls
+    appkit.NSPasteboardItem = pasteboard_item_cls
+
+    foundation = MagicMock(name="Foundation")
+    # NSData.dataWithBytes_length_ and NSData.data() return opaque NSData
+    # placeholders — the production code only passes them through to
+    # setData_forType_; their internal structure is irrelevant to the
+    # restore contract under test.
+    foundation.NSData.dataWithBytes_length_.return_value = MagicMock(name="nsdata_bytes")
+    foundation.NSData.data.return_value = MagicMock(name="nsdata_empty")
+
+    return appkit, foundation, pb, item_mock
+
+
+class TestMacosRestoreReturnsFalseOnAllFailures:
+    """macOS ``_restore_macos`` returns ``False`` when zero items are
+    successfully set OR ``writeObjects_`` rejects the items.
+
+    Pre-fix: ``clearContents()`` ran first (clearing the pasteboard),
+    then per-item ``setData_forType_`` failures were silently swallowed
+    (the return value was ignored) and ``writeObjects_``'s BOOL return
+    was also ignored — the function returned ``True`` unconditionally
+    and the caller logged "Restored snapshot" while the clipboard was
+    left EMPTY. This mirrors the Windows ``_restore_windows`` pattern
+    (DE-62): track ``success_count``, inspect ``writeObjects_``, and
+    return ``False`` with a WARNING log on failure.
+    """
+
+    def test_restore_macos_returns_false_when_all_setdata_fail(self):
+        """All ``setData_forType_`` calls fail → ``success_count == 0``
+        → return False (not True — false success with empty pasteboard)."""
+        snap = ClipboardSnapshot(
+            platform="macos",
+            items=[(0, "public.utf8-plain-text", b"hello")],
+            captured_at=0.0,
+        )
+        appkit, foundation, pb, item_mock = _install_fake_appkit_for_restore(
+            set_data_returns=False,  # setData_forType_ fails
+            write_objects_returns=True,
+        )
+
+        with (
+            patch.dict(sys.modules, {"AppKit": appkit, "Foundation": foundation}),
+            patch.object(snap_mod, "log") as mock_log,
+        ):
+            result = snap._restore_macos()
+
+        assert result is False, (
+            "When all setData_forType_ calls fail, _restore_macos must "
+            "return False (not True — false success with empty pasteboard "
+            "after clearContents)"
+        )
+        # The warning must mention the per-item failure mode.
+        mock_log.warning.assert_called_once()
+        warning_args = mock_log.warning.call_args
+        # The format string reports per-item success and writeObjects_.
+        fmt_str = warning_args.args[0]
+        assert "items set" in fmt_str and "writeObjects_" in fmt_str, (
+            f"WARNING format string must report items-set count and writeObjects_; got {fmt_str!r}"
+        )
+        # success_count=0, total items=1, writeObjects_ returned True.
+        assert warning_args.args[1:] == (0, 1, True), (
+            f"WARNING args must be (success_count, total, write_ok); got {warning_args.args[1:]!r}"
+        )
+        # clearContents DID run (pasteboard is now empty).
+        pb.clearContents.assert_called_once()
+        # setData_forType_ was called but returned False.
+        item_mock.setData_forType_.assert_called()
+
+    def test_restore_macos_returns_true_when_at_least_one_item_set(self):
+        """At least one ``setData_forType_`` succeeds AND
+        ``writeObjects_`` returns True → return True (sanity check)."""
+        snap = ClipboardSnapshot(
+            platform="macos",
+            items=[
+                (0, "public.utf8-plain-text", b"hello"),
+                (0, "public.rtf", b"{\\rtf1 hello}"),
+            ],
+            captured_at=0.0,
+        )
+        appkit, foundation, pb, _ = _install_fake_appkit_for_restore(
+            set_data_returns=True,
+            write_objects_returns=True,
+        )
+
+        with (
+            patch.dict(sys.modules, {"AppKit": appkit, "Foundation": foundation}),
+            patch.object(snap_mod, "log"),
+        ):
+            result = snap._restore_macos()
+
+        assert result is True
+        # writeObjects_ was called with a non-empty list.
+        pb.writeObjects_.assert_called_once()
+        ns_items_arg = pb.writeObjects_.call_args.args[0]
+        assert isinstance(ns_items_arg, list) and len(ns_items_arg) >= 1
+
+    def test_restore_macos_returns_false_when_writeobjects_returns_false(self):
+        """``setData_forType_`` succeeds (so ``success_count > 0``) but
+        ``writeObjects_`` returns False (pasteboard rejected every item)
+        → return False.
+
+        This is the failure mode unique to the macOS path: per-item
+        ``setData_forType_`` calls succeed (the NSPasteboardItem accepts
+        the data) but the pasteboard itself rejects the items at
+        ``writeObjects_`` time. Pre-fix, this returned True — silent
+        data loss with false-success signal."""
+        snap = ClipboardSnapshot(
+            platform="macos",
+            items=[(0, "public.utf8-plain-text", b"hello")],
+            captured_at=0.0,
+        )
+        appkit, foundation, pb, item_mock = _install_fake_appkit_for_restore(
+            set_data_returns=True,  # setData_forType_ succeeds
+            write_objects_returns=False,  # but writeObjects_ rejects
+        )
+
+        with (
+            patch.dict(sys.modules, {"AppKit": appkit, "Foundation": foundation}),
+            patch.object(snap_mod, "log") as mock_log,
+        ):
+            result = snap._restore_macos()
+
+        assert result is False, (
+            "When writeObjects_ returns False, _restore_macos must return "
+            "False (not True — pasteboard rejected every item, clipboard is "
+            "empty after clearContents)"
+        )
+        # WARNING was logged (not DEBUG).
+        mock_log.warning.assert_called_once()
+        warning_args = mock_log.warning.call_args
+        # The format string references "items set" and "writeObjects_".
+        fmt_str = warning_args.args[0]
+        assert "items set" in fmt_str and "writeObjects_" in fmt_str, (
+            f"WARNING format string must report items-set count and writeObjects_; got {fmt_str!r}"
+        )
+        # success_count=1, total items=1, writeObjects_ returned False.
+        assert warning_args.args[1:] == (1, 1, False), (
+            f"WARNING args must be (success_count, total, write_ok) with write_ok=False; got {warning_args.args[1:]!r}"
+        )
+        # setData_forType_ DID succeed (success_count was > 0), but
+        # writeObjects_ rejected the items — the failure is on the
+        # pasteboard side, not the item side.
+        item_mock.setData_forType_.assert_called()
+        pb.writeObjects_.assert_called_once()
+
+    def test_restore_macos_returns_false_when_no_items(self):
+        """A snapshot with zero items must NOT call ``writeObjects_``
+        (nothing to write), but ``success_count == 0`` → return False
+        (mirrors the Windows empty-items path)."""
+        snap = ClipboardSnapshot(
+            platform="macos",
+            items=[],  # empty
+            captured_at=0.0,
+        )
+        appkit, foundation, pb, _ = _install_fake_appkit_for_restore()
+
+        with (
+            patch.dict(sys.modules, {"AppKit": appkit, "Foundation": foundation}),
+            patch.object(snap_mod, "log") as mock_log,
+        ):
+            result = snap._restore_macos()
+
+        # zero items → success_count == 0 → return False.
+        assert result is False
+        # writeObjects_ must NOT be called when ns_items is empty
+        # (the `if ns_items else True` guard short-circuits to True,
+        # but success_count == 0 still triggers the False return).
+        pb.writeObjects_.assert_not_called()
+        # WARNING was logged for the 0/0 items-set case.
+        mock_log.warning.assert_called_once()
+
+    def test_restore_macos_multi_item_mixed_success_returns_true(self):
+        """Multi-item / multi-type pasteboard where one ``setData_forType_``
+        call fails but another succeeds: ``success_count > 0`` and
+        ``writeObjects_`` returns True → return True.
+
+        This pins the best-effort semantics: per-item failures are
+        logged at DEBUG and skipped, but as long as AT LEAST ONE type
+        was set AND ``writeObjects_`` accepted the items, the restore
+        is considered successful (mirror of the Windows path's
+        per-item-continue + at-least-one-succeeded contract).
+        """
+        # Two pasteboard items (idx=0 and idx=1), each with one type.
+        snap = ClipboardSnapshot(
+            platform="macos",
+            items=[
+                (0, "public.utf8-plain-text", b"item-0-text"),
+                (1, "public.utf8-plain-text", b"item-1-text"),
+            ],
+            captured_at=0.0,
+        )
+        appkit, foundation, pb, item_mock = _install_fake_appkit_for_restore(
+            set_data_returns=True,  # all setData_forType_ succeed
+            write_objects_returns=True,
+        )
+        # Make the FIRST setData_forType_ call fail and the SECOND
+        # succeed — proves best-effort continues past a per-item failure.
+        item_mock.setData_forType_.side_effect = [False, True]
+
+        with (
+            patch.dict(sys.modules, {"AppKit": appkit, "Foundation": foundation}),
+            patch.object(snap_mod, "log") as mock_log,
+        ):
+            result = snap._restore_macos()
+
+        # success_count == 1 (the second call), writeObjects_ == True → True.
+        assert result is True
+        # No WARNING was logged — the per-item failure was DEBUG-only.
+        mock_log.warning.assert_not_called()
+        # The DEBUG log for the per-item failure was emitted.
+        debug_calls = [str(c) for c in mock_log.debug.call_args_list]
+        assert any("setData_forType_ failed" in c for c in debug_calls), (
+            f"Per-item setData_forType_ failure must be logged at DEBUG; got debug calls: {debug_calls!r}"
+        )
+        # writeObjects_ was called with both NSPasteboardItem instances
+        # (the per-item failure did NOT abort the loop — best-effort).
+        pb.writeObjects_.assert_called_once()
+        ns_items_arg = pb.writeObjects_.call_args.args[0]
+        assert len(ns_items_arg) == 2, (
+            f"Multi-item pasteboard must write 2 NSPasteboardItem objects; got {len(ns_items_arg)}"
+        )
+
+
+# ===========================================================================
 # atexit/signal handler races daemon restore
 # ===========================================================================
 
@@ -775,8 +1046,8 @@ class TestAtexitDoesNotRaceDaemonRestore:
         mock_restore.assert_not_called()
 
     def test_daemon_short_circuit_logs_at_debug(self):
-        """DE-63: the short-circuit path logs at DEBUG (not WARNING —
-        this is an expected race-resolution, not an error)."""
+        """The atexit-claimed short-circuit path logs at DEBUG (not
+        WARNING — this is an expected race-resolution, not an error)."""
         cm = _make_cm()
         snap = _make_snapshot()
         entry = (cm, snap, "pasted", 0.0)
@@ -791,10 +1062,10 @@ class TestAtexitDoesNotRaceDaemonRestore:
             cm._delayed_restore(snap, "pasted", 0.0, entry)
         # A debug log was emitted for the short-circuit.
         mock_log.debug.assert_called()
-        # Verify at least one debug call mentions
+        # The debug call names the atexit-claimed race resolution.
         debug_calls = [str(c) for c in mock_log.debug.call_args_list]
-        assert any("DE-63" in c for c in debug_calls), (
-            f"DE-63 short-circuit must log at DEBUG with the finding ID; got debug calls: {debug_calls!r}"
+        assert any("already claimed by atexit" in c for c in debug_calls), (
+            f"atexit-claimed short-circuit must log at DEBUG with the reason; got debug calls: {debug_calls!r}"
         )
 
     def test_atexit_handler_skips_entries_claimed_by_daemon(self):

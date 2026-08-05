@@ -186,3 +186,154 @@ class TestServerFloodResistance:
         mock_app.history_db.get_recent.assert_called_once_with(
             500, 0, raise_on_error=True, before_timestamp=None, before_id=None
         )
+
+
+# Per-command cost map coverage ────────────────────────────────────────
+
+
+class TestRateLimiterCommandCosts:
+    """Coverage for the per-command cost map (``COMMAND_COSTS``).
+
+    The cost map assigns each known IPC command a "weight" against the
+    shared burst/sustained budgets. Pre-this-coverage, the dict had ZERO
+    direct tests — a regression that flipped ``download_model`` from 50
+    to 1 (silently letting a buggy client fire 200 model downloads per
+    second instead of 4) would have passed CI. These tests pin the
+    configured cost of representative commands from each cost tier
+    (cheap / mid / expensive) so future renames or value drift surface
+    as test failures.
+    """
+
+    def test_heartbeat_costs_one(self):
+        """``heartbeat`` is explicitly listed at cost 1 so future
+        changes to ``DEFAULT_COST`` don't silently change the
+        heartbeat's rate-limit characteristics (heartbeats fire every
+        5 s / 15 s and must NEVER trip the burst cap).
+
+        Note: ``_RateLimiter.allow`` short-circuits to ``True`` for
+        ``command == "heartbeat"`` (the limiter bypass — see
+        ``rate_limiter.py``), so the call does NOT actually consume a
+        unit; this test pins the *configured* cost (``COMMAND_COSTS``
+        entry) rather than the runtime cost. The configured cost is
+        the contract a future refactor that removes the bypass would
+        inherit, so it must stay 1.
+        """
+        from voice_typer.server.ipc.rate_limiter import COMMAND_COSTS
+        from voice_typer.server.ipc_server import _RateLimiter
+
+        assert COMMAND_COSTS["heartbeat"] == 1, (
+            "heartbeat must be explicitly listed in COMMAND_COSTS at "
+            "cost 1 so future DEFAULT_COST changes don't alter its "
+            "rate-limit characteristics."
+        )
+        rl = _RateLimiter(burst=10, sustained_per_sec=10, window=1.0)
+        # Heartbeat bypasses the limiter — returns True without recording.
+        assert rl.allow(command="heartbeat", now=0.0) is True
+        # The bypass means no burst budget is consumed; the configured
+        # cost stays pinned at 1 (above) regardless of the bypass.
+        assert rl._burst_total == 0
+
+    def test_download_model_costs_50(self):
+        """``download_model`` consumes 50 of the 200-unit burst budget,
+        so a client can fire at most 4 ``download_model`` requests in
+        any 1 s window before the 5th is rejected."""
+        from voice_typer.server.ipc.rate_limiter import COMMAND_COSTS
+        from voice_typer.server.ipc_server import _RateLimiter
+
+        assert COMMAND_COSTS["download_model"] == 50, (
+            "download_model must cost 50 (was 10 pre-audit) — large "
+            "model downloads saturate the dispatcher thread pool and "
+            "the disk long after the rate-limit window has slid past."
+        )
+        rl = _RateLimiter(burst=200, sustained_per_sec=600, window=10.0)
+        # First 4 download_model calls: 4 * 50 = 200 == burst budget.
+        for i in range(4):
+            assert rl.allow(command="download_model", now=0.0) is True, (
+                f"download_model call #{i + 1} should be accepted (cumulative cost {50 * (i + 1)} <= burst=200)."
+            )
+        # 5th would push total to 250 > 200 → rejected.
+        assert rl.allow(command="download_model", now=0.0) is False, (
+            "5th download_model in the same 1s window must be rejected (cumulative cost 250 > burst=200)."
+        )
+        # Verify the cost was actually consumed (running total matches
+        # 4 accepted calls × 50 units each).
+        assert rl._burst_total == 200, (
+            "download_model's per-call cost (50) must be reflected in "
+            "the limiter's running burst total after 4 accepted calls."
+        )
+
+    def test_unknown_command_uses_default_cost(self):
+        """Unknown commands (not in ``COMMAND_COSTS``) default to
+        ``DEFAULT_COST`` (1). Preserves backward compatibility with
+        the count-based limiter: a caller that doesn't pass ``command``
+        (or passes an unrecognized name) is treated as cost 1, identical
+        to the pre-cost-map behavior."""
+        from voice_typer.server.ipc.rate_limiter import (
+            COMMAND_COSTS,
+            DEFAULT_COST,
+        )
+        from voice_typer.server.ipc_server import _RateLimiter
+
+        # Sanity: "frobnicate" is not a known command.
+        assert "frobnicate" not in COMMAND_COSTS, (
+            "Test fixture sanity: 'frobnicate' should NOT be in "
+            "COMMAND_COSTS — pick a different unknown-command name "
+            "if this assertion ever fires."
+        )
+        rl = _RateLimiter(burst=10, sustained_per_sec=10, window=1.0)
+        assert rl.allow(command="frobnicate", now=0.0) is True
+        # DEFAULT_COST (1) unit consumed.
+        assert rl._burst_total == DEFAULT_COST, (
+            "Unknown commands must consume exactly DEFAULT_COST units; "
+            "the running burst total must reflect DEFAULT_COST after "
+            "one accepted call."
+        )
+
+
+class TestRateLimiterIntegrationWithDispatch:
+    """Integration: the per-process ``_RateLimiter`` is now consulted
+    at the TOP of ``IPCServer._dispatch`` (the single chokepoint that
+    makes the limiter apply to ALL three transports — TCP, WS, stdin —
+    via one lookup). These tests flood ``server._dispatch`` with
+    expensive commands and verify only the expected few are accepted;
+    the rest are rejected with the ``client.rate_limited`` envelope."""
+
+    def test_flood_of_download_model_rejected_by_rate_limit(self, server, mock_app):
+        """Flood 200 ``download_model`` commands via ``server._dispatch``.
+        Each consumes 50 burst units (burst=200), so exactly 4 are
+        accepted; the remaining 196 are rejected with the
+        ``client.rate_limited`` envelope (the same envelope shape the
+        TCP read loop emits at ``transport_tcp.py:689-694``).
+        """
+        from unittest.mock import MagicMock
+
+        # Mock _handle_download_model so the test doesn't actually try
+        # to download a model — we're testing the rate-limit chokepoint
+        # in ``_dispatch``, not the handler body. The mock returns a
+        # success envelope so the accepted/rejected count cleanly
+        # reflects the limiter's decision.
+        server._handle_download_model = MagicMock(return_value={"type": "result", "data": {"ok": True}})
+
+        accepted = 0
+        rejected = 0
+        for i in range(200):
+            result = server._dispatch({"id": i, "type": "download_model"})
+            data = result.get("data", {}) if isinstance(result, dict) else {}
+            code = data.get("code", "")
+            if code == "client.rate_limited":
+                rejected += 1
+            else:
+                accepted += 1
+
+        # download_model costs 50; burst=200 → exactly 4 accepted (4*50=200),
+        # 196 rejected. The sustained cap (600 over 10s) doesn't trip first
+        # because 4*50=200 < 600.
+        assert accepted == 4, (
+            "Expected exactly 4 download_model commands accepted "
+            "(burst=200 / cost=50 = 4); got "
+            f"{accepted}. The per-command cost map and the dispatcher "
+            "rate-limit chokepoint must agree on download_model=50."
+        )
+        assert rejected == 196, (
+            f"Expected exactly 196 download_model commands rejected with client.rate_limited; got {rejected}."
+        )

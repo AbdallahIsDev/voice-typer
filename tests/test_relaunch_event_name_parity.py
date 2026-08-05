@@ -150,9 +150,7 @@ class TestHandleMessageDispatchesOnRelaunchApp:
         # Accept either the quoted literal or the bare identifier
         # (object-key shorthand). Both produce the wire string
         # ``"relaunch_app"`` at runtime.
-        assert (
-            '"relaunch_app"' in src or "relaunch_app:" in src or "relaunch_app :" in src
-        ), (
+        assert '"relaunch_app"' in src or "relaunch_app:" in src or "relaunch_app :" in src, (
             "EC-3: handle-message.ts must dispatch on the literal "
             '"relaunch_app" (matching the Python publish call). '
             "The wire-protocol event name must be identical on both sides."
@@ -200,9 +198,7 @@ class TestRelaunchEventNameCrossSideParity:
         # the wire string ``"relaunch_app"`` at runtime. The refactor
         # from quoted-literal to object-key (a Prettier-friendly
         # shorthand) shouldn't fail the parity check.
-        assert (
-            '"relaunch_app"' in ts_src or "relaunch_app:" in ts_src or "relaunch_app :" in ts_src
-        ), (
+        assert '"relaunch_app"' in ts_src or "relaunch_app:" in ts_src or "relaunch_app :" in ts_src, (
             'EC-3: Electron handle-message.ts must dispatch on "relaunch_app" (matching Python\'s publish call)'
         )
 

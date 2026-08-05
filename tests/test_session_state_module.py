@@ -722,7 +722,15 @@ def test_resize_buffers_skips_main_buffer_resize_when_already_large_enough():
 
 
 def test_resize_buffers_resizes_ring_buffer_proportional_to_sample_rate():
-    """The SPSC ring buffer is resized to ~1 second of audio at the effective sample rate."""
+    """The SPSC ring buffer is resized to ~2 seconds of audio at the effective sample rate.
+
+    the default ``VOICE_TYPER_RING_BUFFER_SECONDS`` was bumped
+    from ``1.0`` to ``2.0`` (and the floor from 16 to 64) so the ring
+    buffer absorbs the pre-roll filter-chain prepend duration (JB-55 —
+    prepend now runs on the worker thread while live audio accumulates
+    in the ring buffer) plus RNNoise worker stalls. The env var
+    override still works (see ``test_resize_buffers_ring_buffer_honors_env_var_override``).
+    """
     rec = _make_recorder(config=_make_config(sample_rate=48000))
 
     SessionState(_make_recorder()).resize_buffers_for_sample_rate(
@@ -731,23 +739,29 @@ def test_resize_buffers_resizes_ring_buffer_proportional_to_sample_rate():
         max_rec=900,
     )
 
-    # 48000 / 512 * 1.0 = 93.75 → int(93.75) = 93 chunks for ~1 second at 48 kHz.
-    assert rec._ring_buffer.maxlen == 93
+    # 48000 / 512 * 2.0 = 187.5 → int(187.5) = 187 chunks for ~2 seconds at 48 kHz.
+    assert rec._ring_buffer.maxlen == 187
 
 
-def test_resize_buffers_ring_buffer_floor_at_16_chunks():
-    """A low blocksize / high sample-rate combination floors the ring at 16 chunks."""
+def test_resize_buffers_ring_buffer_floor_at_64_chunks():
+    """A low blocksize / high sample-rate combination floors the ring at 64 chunks.
+
+    the floor was bumped from 16 to 64 so a 16 kHz / 512-block
+    device still gets ~2s of headroom (64 * 512 / 16000 = 2.048s),
+    preserving the RNNoise-worker-stall headroom intent that previously
+    lived in the (now-removed) ``_uu36_*`` override block.
+    """
     rec = _make_recorder(config=_make_config(sample_rate=8000))
 
     # Force a tiny ring capacity by using a small effective_sr (so
-    # 8000/512 * 1.0 = 15.6 → 15, which the floor bumps to 16).
+    # 8000/512 * 2.0 = 31.25 → 31, which the floor bumps to 64).
     SessionState(_make_recorder()).resize_buffers_for_sample_rate(
         rec,
         effective_sr=8000,
         max_rec=900,
     )
 
-    assert rec._ring_buffer.maxlen == 16
+    assert rec._ring_buffer.maxlen == 64
 
 
 def test_resize_buffers_ring_buffer_honors_env_var_override(monkeypatch):
@@ -822,8 +836,9 @@ def test_resize_buffers_falls_back_to_config_sample_rate_when_effective_zero():
         max_rec=900,
     )
 
-    # 16000 / 512 * 1.0 = 31.25 → 31 chunks for ~1 second at 16 kHz.
-    assert rec._ring_buffer.maxlen == 31
+    # 16000 / 512 * 2.0 = 62.5 → 62 chunks for ~2 seconds at 16 kHz,
+    # which is below the 64-chunk floor, so the floor kicks in → 64.
+    assert rec._ring_buffer.maxlen == 64
 
 
 def test_resize_buffers_preserves_existing_ring_buffer_contents():

@@ -16,6 +16,7 @@ HOTKEY-UNIFY-002: verifies that:
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
 import pytest
@@ -79,93 +80,53 @@ def test_reserved_hotkeys_match_frontend() -> None:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def test_is_reserved_hotkey_win32() -> None:
+def test_is_reserved_hotkey_win32(monkeypatch: pytest.MonkeyPatch) -> None:
     """Win32-reserved shortcuts are detected on the win32 platform."""
-    import voice_typer.server.config_validators as cv
-
-    original = cv._sys.platform
-    cv._sys.platform = "win32"
-    try:
-        assert _validate_hotkey("<win>+<e>") is not None
-        assert _validate_hotkey("<win>+<v>") is not None
-        assert _validate_hotkey("<win>+<space>") is not None
-        assert _validate_hotkey("<win>+<l>") is not None
-    finally:
-        cv._sys.platform = original
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert _validate_hotkey("<win>+<e>") is not None
+    assert _validate_hotkey("<win>+<v>") is not None
+    assert _validate_hotkey("<win>+<space>") is not None
+    assert _validate_hotkey("<win>+<l>") is not None
 
 
-def test_is_reserved_hotkey_darwin() -> None:
+def test_is_reserved_hotkey_darwin(monkeypatch: pytest.MonkeyPatch) -> None:
     """macOS-reserved shortcuts are detected on the darwin platform."""
-    import voice_typer.server.config_validators as cv
-
-    original = cv._sys.platform
-    cv._sys.platform = "darwin"
-    try:
-        assert _validate_hotkey("<cmd>+<space>") is not None
-        assert _validate_hotkey("<cmd>+<q>") is not None
-        assert _validate_hotkey("<cmd>+<tab>") is not None
-    finally:
-        cv._sys.platform = original
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert _validate_hotkey("<cmd>+<space>") is not None
+    assert _validate_hotkey("<cmd>+<q>") is not None
+    assert _validate_hotkey("<cmd>+<tab>") is not None
 
 
-def test_is_reserved_hotkey_linux() -> None:
+def test_is_reserved_hotkey_linux(monkeypatch: pytest.MonkeyPatch) -> None:
     """Linux-reserved shortcuts are detected on the linux platform."""
-    import voice_typer.server.config_validators as cv
-
-    original = cv._sys.platform
-    cv._sys.platform = "linux"
-    try:
-        assert _validate_hotkey("<super>+<l>") is not None
-        assert _validate_hotkey("<super>+<d>") is not None
-    finally:
-        cv._sys.platform = original
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert _validate_hotkey("<super>+<l>") is not None
+    assert _validate_hotkey("<super>+<d>") is not None
 
 
-def test_is_reserved_hotkey_cross_platform() -> None:
+def test_is_reserved_hotkey_cross_platform(monkeypatch: pytest.MonkeyPatch) -> None:
     """A shortcut reserved on one platform is NOT reserved on another.
 
     <cmd>+<tab> is reserved on macOS (Spotlight) but not on Windows/Linux.
     <win>+<e> is reserved on Windows (Explorer) but not on macOS.
     """
-    import voice_typer.server.config_validators as cv
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert _validate_hotkey("<cmd>+<tab>") is None
 
-    original = cv._sys.platform
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert _validate_hotkey("<cmd>+<tab>") is None
 
-    cv._sys.platform = "win32"
-    try:
-        assert _validate_hotkey("<cmd>+<tab>") is None
-    finally:
-        cv._sys.platform = original
-
-    cv._sys.platform = "linux"
-    try:
-        assert _validate_hotkey("<cmd>+<tab>") is None
-    finally:
-        cv._sys.platform = original
-
-    cv._sys.platform = "darwin"
-    try:
-        assert _validate_hotkey("<win>+<e>") is None
-    finally:
-        cv._sys.platform = original
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert _validate_hotkey("<win>+<e>") is None
 
 
-def test_is_reserved_hotkey_case_insensitive() -> None:
+def test_is_reserved_hotkey_case_insensitive(monkeypatch: pytest.MonkeyPatch) -> None:
     """Comparison is case-insensitive — <WIN>+<E> matches <win>+<e>."""
-    import voice_typer.server.config_validators as cv
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert _validate_hotkey("<WIN>+<E>") is not None
 
-    original = cv._sys.platform
-    cv._sys.platform = "win32"
-    try:
-        assert _validate_hotkey("<WIN>+<E>") is not None
-    finally:
-        cv._sys.platform = original
-
-    cv._sys.platform = "darwin"
-    try:
-        assert _validate_hotkey("<Cmd>+<Space>") is not None
-    finally:
-        cv._sys.platform = original
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert _validate_hotkey("<Cmd>+<Space>") is not None
 
 
 def test_is_reserved_hotkey_empty() -> None:
@@ -174,32 +135,19 @@ def test_is_reserved_hotkey_empty() -> None:
     assert _validate_hotkey(None) is not None  # type: ignore[arg-type]
 
 
-def test_is_reserved_hotkey_non_reserved() -> None:
+def test_is_reserved_hotkey_non_reserved(monkeypatch: pytest.MonkeyPatch) -> None:
     """Common dictation shortcuts are NOT reserved."""
-    import voice_typer.server.config_validators as cv
+    monkeypatch.setattr(sys, "platform", "win32")
+    assert _validate_hotkey("<f2>") is None
+    assert _validate_hotkey("<caps_lock>") is None
+    assert _validate_hotkey("<ctrl>+<alt>+v") is None
 
-    original = cv._sys.platform
+    monkeypatch.setattr(sys, "platform", "darwin")
+    assert _validate_hotkey("<f2>") is None
+    assert _validate_hotkey("<ctrl>+<alt>+v") is None
 
-    cv._sys.platform = "win32"
-    try:
-        assert _validate_hotkey("<f2>") is None
-        assert _validate_hotkey("<caps_lock>") is None
-        assert _validate_hotkey("<ctrl>+<alt>+v") is None
-    finally:
-        cv._sys.platform = original
-
-    cv._sys.platform = "darwin"
-    try:
-        assert _validate_hotkey("<f2>") is None
-        assert _validate_hotkey("<ctrl>+<alt>+v") is None
-    finally:
-        cv._sys.platform = original
-
-    cv._sys.platform = "linux"
-    try:
-        assert _validate_hotkey("<ctrl>+<alt>+v") is None
-    finally:
-        cv._sys.platform = original
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert _validate_hotkey("<ctrl>+<alt>+v") is None
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -207,7 +155,7 @@ def test_is_reserved_hotkey_non_reserved() -> None:
 # ──────────────────────────────────────────────────────────────────────────
 
 
-def test_validate_config_update_rejects_reserved_hotkey() -> None:
+def test_validate_config_update_rejects_reserved_hotkey(monkeypatch: pytest.MonkeyPatch) -> None:
     """Setting a reserved hotkey via IPC is rejected.
 
     A malicious IPC client that bypasses the frontend validation
@@ -215,19 +163,13 @@ def test_validate_config_update_rejects_reserved_hotkey() -> None:
     rejected by the backend mirror.
     """
     # Use the darwin platform to test <cmd>+<space> rejection.
-    # We monkeypatch _sys.platform to make this deterministic
+    # We monkeypatch sys.platform to make this deterministic
     # regardless of where the test runs.
-    import voice_typer.server.config_validators as cv
-
-    original = cv._sys.platform
-    cv._sys.platform = "darwin"
-    try:
-        validated, errors = validate_config_update({"hotkey": "<cmd>+<space>"})
-        assert len(errors) == 1
-        assert "reserved" in errors[0].lower()
-        assert "hotkey" not in validated
-    finally:
-        cv._sys.platform = original
+    monkeypatch.setattr(sys, "platform", "darwin")
+    validated, errors = validate_config_update({"hotkey": "<cmd>+<space>"})
+    assert len(errors) == 1
+    assert "reserved" in errors[0].lower()
+    assert "hotkey" not in validated
 
 
 def test_validate_config_update_accepts_non_reserved_hotkey() -> None:
@@ -237,21 +179,15 @@ def test_validate_config_update_accepts_non_reserved_hotkey() -> None:
     assert validated.get("hotkey") == "<f2>"
 
 
-def test_validate_config_update_rejects_reserved_repaste_hotkey() -> None:
+def test_validate_config_update_rejects_reserved_repaste_hotkey(monkeypatch: pytest.MonkeyPatch) -> None:
     """The repaste_hotkey field also rejects reserved shortcuts."""
-    import voice_typer.server.config_validators as cv
-
-    original = cv._sys.platform
-    cv._sys.platform = "win32"
-    try:
-        validated, errors = validate_config_update({"repaste_hotkey": "<win>+<l>"})
-        assert len(errors) == 1
-        assert "reserved" in errors[0].lower()
-    finally:
-        cv._sys.platform = original
+    monkeypatch.setattr(sys, "platform", "win32")
+    validated, errors = validate_config_update({"repaste_hotkey": "<win>+<l>"})
+    assert len(errors) == 1
+    assert "reserved" in errors[0].lower()
 
 
-def test_validate_config_update_silently_drops_push_to_talk_hotkey() -> None:
+def test_validate_config_update_silently_drops_push_to_talk_hotkey(monkeypatch: pytest.MonkeyPatch) -> None:
     """GT-F2-8: ``push_to_talk_hotkey`` was removed from
     ``IPC_CONFIG_ALLOWLIST`` to match the TS-side contract (config.ts
     documents it as a write-only back-compat field the renderer MUST
@@ -263,18 +199,12 @@ def test_validate_config_update_silently_drops_push_to_talk_hotkey() -> None:
     dropped by ``validate_config_update`` (same contract as any other
     unknown key), so the reserved-shortcut validator never runs.
     """
-    import voice_typer.server.config_validators as cv
-
-    original = cv._sys.platform
-    cv._sys.platform = "darwin"
-    try:
-        validated, errors = validate_config_update({"push_to_talk_hotkey": "<cmd>+<q>"})
-        # No errors — the field is silently dropped, not rejected.
-        assert errors == [], f"push_to_talk_hotkey should be silently dropped (GT-F2-8); got errors: {errors}"
-        # The field does not appear in the validated dict.
-        assert "push_to_talk_hotkey" not in validated
-    finally:
-        cv._sys.platform = original
+    monkeypatch.setattr(sys, "platform", "darwin")
+    validated, errors = validate_config_update({"push_to_talk_hotkey": "<cmd>+<q>"})
+    # No errors — the field is silently dropped, not rejected.
+    assert errors == [], f"push_to_talk_hotkey should be silently dropped (GT-F2-8); got errors: {errors}"
+    # The field does not appear in the validated dict.
+    assert "push_to_talk_hotkey" not in validated
 
 
 # ──────────────────────────────────────────────────────────────────────────

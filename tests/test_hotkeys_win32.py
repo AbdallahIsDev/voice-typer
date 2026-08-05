@@ -17,6 +17,23 @@ def _flip(backend):
     backend._stop_event.is_set.return_value = True
 
 
+def _wait_until(predicate, timeout: float = 3.0, msg: str = "condition not met"):
+    """Poll ``predicate`` until truthy or ``timeout`` elapses.
+
+    Production ``start()`` sets ``_ready_event`` BEFORE the detection
+    branch runs on the worker thread, so ``_hook_handle`` /
+    ``_using_polling`` are assigned asynchronously after ``start()``
+    returns. Immediate asserts race the thread; a bounded poll makes
+    the tests deterministic.
+    """
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if predicate():
+            return
+        time.sleep(0.01)
+    raise AssertionError(f"{msg} (waited {timeout}s)")
+
+
 # ─── Fixture ─────────────────────────────────────────────────────────────────
 
 
@@ -73,6 +90,12 @@ class TestRegisterHotKeyFailure:
         try:
             backend.start(MagicMock())
             # Preferred fallback is the low-level hook (not polling).
+            # _hook_handle is set on the worker thread after start()
+            # returns (ready_event precedes the detection branch).
+            _wait_until(
+                lambda: backend._hook_handle is not None,
+                msg="LL hook handle never installed",
+            )
             assert not backend._using_polling
             assert backend._hook_handle is not None
             assert backend._last_error == 1409
@@ -93,11 +116,13 @@ class TestRegisterHotKeyFailure:
         backend = WindowsNativeHotkey("<f2>")
         try:
             backend.start(MagicMock())
-            # start() joins on _ready_event, which run() sets only AFTER
-            # assigning _using_polling (both failure branches set it
-            # before _ready_event.set()), so by the time start() returns
-            # _using_polling is already correct — no iteration-event race.
-            # Give the polling loop a moment to spin up its loop thread.
+            # _using_polling is set on the worker thread after start()
+            # returns (ready_event precedes the detection branch) —
+            # poll for it instead of racing the thread.
+            _wait_until(
+                lambda: backend._using_polling,
+                msg="polling fallback never engaged",
+            )
             assert backend._using_polling
             assert backend._hook_handle is None
         finally:
@@ -224,6 +249,12 @@ class TestDiagnoseMethod:
             assert backend._ready_event.is_set()
             assert backend._success is True  # hook fallback, not an error
             # Preferred fallback is the low-level hook, not polling.
+            # _hook_handle is set on the worker thread after start()
+            # returns (ready_event precedes the detection branch).
+            _wait_until(
+                lambda: backend._hook_handle is not None,
+                msg="LL hook handle never installed",
+            )
             assert not backend._using_polling
             assert backend._hook_handle is not None
         finally:
@@ -282,7 +313,16 @@ class TestModifierOnlyHotkeys:
     """
 
     def test_alt_only_hotkey_starts_without_error(self, mock_win32):
-        """<alt> no longer raises ValueError at start() time."""
+        """<alt> no longer raises ValueError at start() time.
+
+        Modifier-only specs now PREFER the WH_KEYBOARD_LL hook when it
+        installs successfully (the hook sees raw modifier VKs); the
+        polling loop is the fallback when the hook can't be installed.
+        This test pins both paths: hook succeeds by default (hook mode),
+        and forcing the hook to fail lands on the modifier-only polling
+        loop without raising.
+        """
+        mock_user32, _ = mock_win32
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<alt>")
@@ -291,9 +331,29 @@ class TestModifierOnlyHotkeys:
             assert backend._is_modifier_only is True
             assert backend._vk is None
             assert backend._modifiers & 0x0001  # _MOD_ALT
-            assert backend._using_polling is True
+            # Hook installs by default → hook mode (not polling).
+            _wait_until(
+                lambda: backend._hook_handle is not None,
+                msg="LL hook handle never installed for modifier-only spec",
+            )
+            assert backend._using_polling is False
         finally:
             backend.stop()
+
+        # Force the hook to fail → the modifier-only polling loop is the
+        # fallback (still no ValueError).
+        mock_user32.SetWindowsHookExW.return_value = 0
+        backend2 = WindowsNativeHotkey("<alt>")
+        try:
+            backend2.start(MagicMock())
+            _wait_until(
+                lambda: backend2._using_polling,
+                msg="modifier-only polling fallback never engaged",
+            )
+            assert backend2._using_polling is True
+            assert backend2._hook_handle is None
+        finally:
+            backend2.stop()
 
     def test_modifier_only_hotkey_skips_register_hotkey(self, mock_win32):
         """RegisterHotKey must NOT be called for modifier-only hotkeys
@@ -337,6 +397,9 @@ class TestModifierOnlyHotkeys:
         the callback fires exactly once (not zero, not repeatedly).
         """
         mock_user32, _ = mock_win32
+        # Force the LL hook to fail so the modifier-only POLLING loop
+        # runs (modifier-only specs prefer the hook when it installs).
+        mock_user32.SetWindowsHookExW.return_value = 0
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         backend = WindowsNativeHotkey("<alt>")

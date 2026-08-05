@@ -322,10 +322,7 @@ class TestDirEnsuredFlag:
                 # ``voice-typer-recovery.json`` for ``0o600``) happen
                 # every save and are out of scope for this regression.
                 config_dir = Path(tmpdir).resolve()
-                dir_chmod_calls = [
-                    p for p in chmod_calls
-                    if p.resolve() == config_dir and p.is_dir()
-                ]
+                dir_chmod_calls = [p for p in chmod_calls if p.resolve() == config_dir and p.is_dir()]
                 first_dir_chmod_count = len(dir_chmod_calls)
                 assert first_dir_chmod_count >= 1, (
                     f"XZ-R17-08: first save must call os.chmod on the "
@@ -336,10 +333,7 @@ class TestDirEnsuredFlag:
                 # called again (the _dir_ensured flag is set).
                 cr.add("second transcription")
                 time.sleep(0.2)
-                dir_chmod_calls = [
-                    p for p in chmod_calls
-                    if p.resolve() == config_dir and p.is_dir()
-                ]
+                dir_chmod_calls = [p for p in chmod_calls if p.resolve() == config_dir and p.is_dir()]
                 second_dir_chmod_count = len(dir_chmod_calls)
                 assert second_dir_chmod_count == first_dir_chmod_count, (
                     f"XZ-R17-08: subsequent saves must skip the dir-chmod "

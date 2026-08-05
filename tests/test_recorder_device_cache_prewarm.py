@@ -251,7 +251,9 @@ class TestStartUsesCachedLookup:
         orig_init = OkStream.__init__
 
         def capture_init(self, *a, **kw):
-            opened.append(kw.get("channels"))
+            # Capture the full kwargs so we can filter out prewarm calls
+            # (the prewarm uses callback=None; start() uses a real callback).
+            opened.append(kw)
             orig_init(self, *a, **kw)
 
         OkStream.__init__ = capture_init
@@ -273,9 +275,13 @@ class TestStartUsesCachedLookup:
 
         r.start()
         try:
-            assert opened, "start() should have opened an InputStream"
-            assert opened[0] == 2, (
-                f"channels should be capped at 2 (from cache); got {opened[0]!r}. "
+            # Filter out prewarm calls (callback=None) — only keep real
+            # start() calls (which pass a real callback closure).
+            real_opens = [kw for kw in opened if kw.get("callback") is not None]
+            assert real_opens, "start() should have opened an InputStream with a callback"
+            channels_used = real_opens[0].get("channels")
+            assert channels_used == 2, (
+                f"channels should be capped at 2 (from cache); got {channels_used!r}. "
                 "If this is 1, the cached lookup fallback fired — the cache "
                 "may not have been consulted."
             )

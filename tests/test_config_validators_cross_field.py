@@ -276,6 +276,113 @@ class TestCrossPlatformWarnings:
         assert "win32" in warning
         assert "repaste_hotkey" in warning
 
+    # ── Blanket-blocked combos (Cmd+<letter> / Win+* / Alt+Shift) ──────
+    #
+    # The tests below cover hotkeys that are NOT in the per-platform
+    # explicit reserved list but ARE hard-rejected by the blanket-block
+    # stage helpers (``_check_os_shell_combos`` for Win+* on Windows and
+    # Cmd+<letter> on macOS; ``_check_alt_shift`` for bare Alt+Shift on
+    # Windows).  Before the fix, ``_cross_platform_hotkey_warning`` only
+    # called ``_check_platform_reserved`` (the explicit-list lookup), so
+    # these hotkeys produced NO warning on a non-current platform even
+    # though they would be hard-rejected there.  Each test pins one
+    # blanket-rule path on one non-current platform.
+
+    def test_cmd_b_warns_on_non_darwin_platform(self) -> None:
+        # <cmd>+<b> is NOT in the darwin explicit reserved list (which
+        # only covers Cmd+Q/W/H/M/Tab/Space/Shift+3/4/5), but it IS
+        # hard-rejected on macOS by the Cmd+<letter> blanket rule in
+        # ``_check_os_shell_combos``.  On Linux (current platform) the
+        # hotkey is valid, so the cross-platform warning must surface
+        # the macOS rejection as a portability notice.
+        with patch.object(sys, "platform", "linux"):
+            warning = _cross_platform_hotkey_warning("<cmd>+<b>", "hotkey")
+        assert warning is not None
+        assert "hotkey" in warning
+        assert "portable" in warning
+        assert "Cmd+B" in warning
+        assert "macOS" in warning
+
+    def test_win_a_warns_on_non_win32_platform(self) -> None:
+        # <win>+<a> is NOT in the win32 explicit reserved list (which
+        # covers Win+E/V/Space/D/L/Tab/R/I/P/M), but it IS hard-rejected
+        # on Windows by the Win+* blanket rule in
+        # ``_check_os_shell_combos``.  On Linux the hotkey is valid (the
+        # Win key is reported as ``super`` on Linux, and ``<super>+<a>``
+        # is not in the linux reserved list either), so the cross-platform
+        # warning must surface the Windows rejection.
+        with patch.object(sys, "platform", "linux"):
+            warning = _cross_platform_hotkey_warning("<win>+<a>", "hotkey")
+        assert warning is not None
+        assert "hotkey" in warning
+        assert "portable" in warning
+        assert "Windows key combinations" in warning
+
+    def test_cmd_z_warns_on_non_darwin_platform(self) -> None:
+        # <cmd>+<z> (Cmd+Z = undo on macOS) is NOT in the darwin
+        # explicit reserved list but IS hard-rejected by the
+        # Cmd+<letter> blanket rule.  Mirrors ``test_cmd_b_warns_...``
+        # with a different letter to confirm the blanket rule covers
+        # every alpha letter, not just the ones in the explicit list.
+        with patch.object(sys, "platform", "linux"):
+            warning = _cross_platform_hotkey_warning("<cmd>+<z>", "push_to_talk_hotkey")
+        assert warning is not None
+        assert "push_to_talk_hotkey" in warning
+        assert "portable" in warning
+        assert "Cmd+Z" in warning
+        assert "macOS" in warning
+
+    def test_win_s_warns_on_non_win32_platform(self) -> None:
+        # <win>+<s> (Win+S = search on Windows) is NOT in the win32
+        # explicit reserved list but IS hard-rejected by the Win+*
+        # blanket rule.  Mirrors ``test_win_a_warns_...`` with a
+        # different letter.
+        with patch.object(sys, "platform", "linux"):
+            warning = _cross_platform_hotkey_warning("<win>+<s>", "repaste_hotkey")
+        assert warning is not None
+        assert "repaste_hotkey" in warning
+        assert "portable" in warning
+        assert "Windows key combinations" in warning
+
+    def test_alt_shift_aliases_warn_on_non_win32_platform(self) -> None:
+        # <alt_l>+<shift_l> parses to ``["alt", "shift"]`` (the parser
+        # resolves ``alt_l`` / ``shift_l`` aliases to their canonical
+        # ``alt`` / ``shift`` forms), so ``_check_alt_shift`` matches
+        # the bare Alt+Shift pattern.  But the normalized string
+        # ``"<alt_l>+<shift_l>"`` is NOT equal to ``"<alt>+<shift>"``
+        # in the win32 explicit reserved list, so
+        # ``_check_platform_reserved`` does NOT catch it.  This is the
+        # only test that specifically exercises the ``_check_alt_shift``
+        # path in ``_cross_platform_hotkey_warning`` — without it, a
+        # future contributor could remove the ``_check_alt_shift`` call
+        # and the other 4 blanket-rule tests would still pass (because
+        # they exercise ``_check_os_shell_combos``).
+        with patch.object(sys, "platform", "linux"):
+            warning = _cross_platform_hotkey_warning("<alt_l>+<shift_l>", "hotkey")
+        assert warning is not None
+        assert "hotkey" in warning
+        assert "portable" in warning
+        assert "Alt+Shift" in warning
+        assert "Windows" in warning
+
+    def test_blanket_blocked_combos_via_cross_platform_warnings(self) -> None:
+        # Integration: ``cross_platform_hotkey_warnings(cfg)`` must
+        # surface the blanket-rule warnings for every hotkey field on
+        # the cfg, not just the explicit-list warnings.  A cfg with one
+        # hotkey per blanket-rule path should produce three warnings
+        # (Cmd+letter on macOS, Win+* on Windows, Alt+Shift on Windows).
+        cfg = SimpleNamespace(
+            hotkey="<cmd>+<b>",  # darwin blanket rule (Cmd+letter)
+            repaste_hotkey="<win>+<a>",  # win32 blanket rule (Win+*)
+            push_to_talk_hotkey="<alt_l>+<shift_l>",  # win32 blanket rule (Alt+Shift)
+        )
+        with patch.object(sys, "platform", "linux"):
+            warnings = cross_platform_hotkey_warnings(cfg)
+        assert len(warnings) == 3, f"expected 3 blanket-rule warnings, got {len(warnings)}: {warnings}"
+        assert any("hotkey" in w and "Cmd+B" in w for w in warnings), warnings
+        assert any("repaste_hotkey" in w and "Windows key combinations" in w for w in warnings), warnings
+        assert any("push_to_talk_hotkey" in w and "Alt+Shift" in w for w in warnings), warnings
+
     def test_no_warning_for_unreserved_hotkey(self) -> None:
         # <f5> is not reserved on any platform.
         with patch.object(sys, "platform", "linux"):
@@ -501,6 +608,174 @@ class TestLanguageValidator:
         validated, errors = validate_config_update({"language": "fr"})
         assert errors == []
         assert validated == {"language": "fr"}
+
+    # ── empty / too-small whisper.tokenizer.LANGUAGES dict fallback ────
+    #
+    # Regression guard: when the whisper package IS importable but its
+    # LANGUAGES dict is empty (or suspiciously small — fewer than 50
+    # entries vs. the upstream 99), `_try_load_whisper_languages` MUST
+    # return None so `_build_allowed_languages` falls back to the
+    # hardcoded list.  Without this guard, every language code is
+    # rejected and the whole app is broken (the empty dict imports fine,
+    # so the ImportError fallback never fires).
+
+    def test_try_load_returns_none_when_languages_dict_empty(self) -> None:
+        # Inject a fake ``whisper.tokenizer`` module whose LANGUAGES dict
+        # is empty.  ``patch.dict(sys.modules, ...)`` works whether or
+        # not the real ``whisper`` package is installed in the test env
+        # (it is NOT installed in the sandbox), because the import inside
+        # ``_try_load_whisper_languages`` re-binds ``LANGUAGES`` from the
+        # (patched) module namespace on every call.
+        import sys as _sys
+        import types as _types
+
+        from voice_typer.server.config_validators import (
+            language as _lang_mod,
+        )
+
+        fake_tokenizer = _types.ModuleType("whisper.tokenizer")
+        fake_tokenizer.LANGUAGES = {}  # type: ignore[attr-defined]
+        fake_whisper = _types.ModuleType("whisper")
+        fake_whisper.tokenizer = fake_tokenizer  # type: ignore[attr-defined]
+
+        with patch.dict(
+            _sys.modules,
+            {
+                "whisper": fake_whisper,
+                "whisper.tokenizer": fake_tokenizer,
+            },
+        ):
+            result = _lang_mod._try_load_whisper_languages()
+        assert result is None, f"expected None (trigger fallback) when LANGUAGES is empty, got {result!r}"
+
+    def test_try_load_returns_none_when_languages_dict_too_small(self) -> None:
+        # Boundary: a dict with exactly 49 entries (one below the 50-code
+        # sanity floor) is still treated as broken.  Whisper's upstream
+        # dict has 99, so anything under 50 is almost certainly a stub.
+        import sys as _sys
+        import types as _types
+
+        from voice_typer.server.config_validators import (
+            language as _lang_mod,
+        )
+
+        tiny_langs = {f"l{i:02d}": f"lang{i:02d}" for i in range(49)}
+        fake_tokenizer = _types.ModuleType("whisper.tokenizer")
+        fake_tokenizer.LANGUAGES = tiny_langs  # type: ignore[attr-defined]
+        fake_whisper = _types.ModuleType("whisper")
+        fake_whisper.tokenizer = fake_tokenizer  # type: ignore[attr-defined]
+
+        with patch.dict(
+            _sys.modules,
+            {
+                "whisper": fake_whisper,
+                "whisper.tokenizer": fake_tokenizer,
+            },
+        ):
+            result = _lang_mod._try_load_whisper_languages()
+        assert result is None, f"expected None (trigger fallback) when LANGUAGES has <50 entries, got {result!r}"
+
+    def test_try_load_succeeds_when_languages_dict_large_enough(self) -> None:
+        # Boundary complement: a dict with exactly 50 entries (the floor)
+        # is accepted as legitimate and returned with the live-dict
+        # source label (NOT the hardcoded fallback).
+        import sys as _sys
+        import types as _types
+
+        from voice_typer.server.config_validators import (
+            language as _lang_mod,
+        )
+
+        langs = {f"l{i:02d}": f"lang{i:02d}" for i in range(50)}
+        fake_tokenizer = _types.ModuleType("whisper.tokenizer")
+        fake_tokenizer.LANGUAGES = langs  # type: ignore[attr-defined]
+        fake_whisper = _types.ModuleType("whisper")
+        fake_whisper.tokenizer = fake_tokenizer  # type: ignore[attr-defined]
+
+        with patch.dict(
+            _sys.modules,
+            {
+                "whisper": fake_whisper,
+                "whisper.tokenizer": fake_tokenizer,
+            },
+        ):
+            result = _lang_mod._try_load_whisper_languages()
+        assert result is not None, "expected a (frozenset, source) tuple when LANGUAGES has >=50 entries, got None"
+        allowed, source = result
+        assert source == "whisper.tokenizer.LANGUAGES"
+        assert len(allowed) == 50
+
+    def test_build_allowed_languages_falls_back_when_dict_empty(self) -> None:
+        # End-to-end through `_build_allowed_languages`: with LANGUAGES
+        # empty, the helper returns the hardcoded fallback tuple.
+        import sys as _sys
+        import types as _types
+
+        from voice_typer.server.config_validators import (
+            language as _lang_mod,
+        )
+
+        fake_tokenizer = _types.ModuleType("whisper.tokenizer")
+        fake_tokenizer.LANGUAGES = {}  # type: ignore[attr-defined]
+        fake_whisper = _types.ModuleType("whisper")
+        fake_whisper.tokenizer = fake_tokenizer  # type: ignore[attr-defined]
+
+        with patch.dict(
+            _sys.modules,
+            {
+                "whisper": fake_whisper,
+                "whisper.tokenizer": fake_tokenizer,
+            },
+        ):
+            allowed, source = _lang_mod._build_allowed_languages()
+        assert source == "hardcoded fallback (whisper not importable)"
+        assert len(allowed) >= 50
+        assert "en" in allowed
+        assert "yue" in allowed
+
+    def test_validate_en_passes_when_whisper_languages_empty(self) -> None:
+        # End-to-end: with whisper.tokenizer.LANGUAGES mocked empty,
+        # `_validate_language("en")` MUST still return None (accept).
+        # This is the marquee regression case for the empty-LANGUAGES
+        # fallback: without the fix, the empty dict is used as the
+        # allowlist and "en" is rejected.
+        import sys as _sys
+        import types as _types
+
+        from voice_typer.server.config_validators import (
+            language as _lang_mod,
+        )
+
+        fake_tokenizer = _types.ModuleType("whisper.tokenizer")
+        fake_tokenizer.LANGUAGES = {}  # type: ignore[attr-defined]
+        fake_whisper = _types.ModuleType("whisper")
+        fake_whisper.tokenizer = fake_tokenizer  # type: ignore[attr-defined]
+
+        with patch.dict(
+            _sys.modules,
+            {
+                "whisper": fake_whisper,
+                "whisper.tokenizer": fake_tokenizer,
+            },
+        ):
+            allowed, source = _lang_mod._build_allowed_languages()
+
+        # Patch the module-level allowlist (built at import time from the
+        # real / empty-whisper state) with the rebuilt fallback so
+        # `_validate_language` sees the hardcoded list.
+        with (
+            patch.object(_lang_mod, "_ALLOWED_LANGUAGES", allowed),
+            patch.object(_lang_mod, "_ALLOWED_LANGUAGES_SOURCE", source),
+        ):
+            assert _lang_mod._validate_language("en") is None, (
+                "valid code 'en' was rejected when LANGUAGES was empty — fallback did not fire"
+            )
+            assert _lang_mod._validate_language("fr") is None
+            assert _lang_mod._validate_language("yue") is None
+            # Sanity: an invalid code is still rejected by the fallback.
+            err = _lang_mod._validate_language("zzzzz")
+            assert err is not None
+            assert "Invalid language code" in err
 
 
 # ──────────────────────────────────────────────────────────────────────────

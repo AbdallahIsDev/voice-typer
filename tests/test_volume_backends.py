@@ -335,8 +335,14 @@ class TestWinBackendSmoke:
         """On non-Windows (or without pycaw installed), initialize() should
         return False gracefully rather than crashing."""
         b = WinVolumeBackend()
-        # pycaw isn't installed in the test environment
-        ok = b.initialize()
+        # Force pycaw/comtypes to be unavailable regardless of the host
+        # (on a Windows dev box pycaw may be installed, which would make
+        # initialize() succeed — this test pins the graceful-failure path,
+        # so we simulate the ImportError deterministically). Setting a
+        # sys.modules entry to None makes the lazy ``from pycaw.pycaw
+        # import ...`` inside initialize() raise ImportError.
+        with patch.dict(sys.modules, {"pycaw": None, "pycaw.pycaw": None, "comtypes": None}):
+            ok = b.initialize()
         assert ok is False
 
     def test_get_state_returns_none_when_uninitialized(self):

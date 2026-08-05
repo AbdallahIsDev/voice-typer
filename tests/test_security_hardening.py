@@ -25,7 +25,7 @@ import pytest
 class TestModelIntegrity:
     """SEC-audit-005: verify_model_integrity with SHA-256 hash checking."""
 
-    def test_verify_model_integrity_valid(self, tmp_path):
+    def test_verify_model_integrity_valid(self, isolated_integrity_cache, tmp_path):
         """Returns True for directory with model and config files."""
         from voice_typer.server.security import verify_model_integrity
 
@@ -33,26 +33,26 @@ class TestModelIntegrity:
         (tmp_path / "config.json").write_text('{"model_type": "test"}')
         assert verify_model_integrity(str(tmp_path), "test/model") is True
 
-    def test_verify_model_integrity_missing_dir(self):
+    def test_verify_model_integrity_missing_dir(self, isolated_integrity_cache):
         """Returns False for non-existent directory."""
         from voice_typer.server.security import verify_model_integrity
 
         assert verify_model_integrity("/nonexistent/path", "test/model") is False
 
-    def test_verify_model_integrity_empty_dir(self, tmp_path):
+    def test_verify_model_integrity_empty_dir(self, isolated_integrity_cache, tmp_path):
         """Returns False for directory with no model files."""
         from voice_typer.server.security import verify_model_integrity
 
         assert verify_model_integrity(str(tmp_path), "test/model") is False
 
-    def test_verify_model_integrity_no_config(self, tmp_path):
+    def test_verify_model_integrity_no_config(self, isolated_integrity_cache, tmp_path):
         """Returns False for directory with model but no config.json."""
         from voice_typer.server.security import verify_model_integrity
 
         (tmp_path / "model.bin").write_bytes(b"\x00" * 100)
         assert verify_model_integrity(str(tmp_path), "test/model") is False
 
-    def test_verify_model_integrity_empty_model_file(self, tmp_path):
+    def test_verify_model_integrity_empty_model_file(self, isolated_integrity_cache, tmp_path):
         """Returns False for directory with empty model file."""
         from voice_typer.server.security import verify_model_integrity
 
@@ -82,7 +82,7 @@ class TestModelIntegrity:
         for repo_id, manifest in MODEL_HASHES.items():
             assert "revision" in manifest, f"Missing 'revision' key for {repo_id}"
 
-    def test_verify_model_integrity_with_pinned_hash(self, tmp_path):
+    def test_verify_model_integrity_with_pinned_hash(self, isolated_integrity_cache, tmp_path):
         """Returns False when pinned hash doesn't match actual file hash."""
         from voice_typer.server.security import verify_model_integrity
 
@@ -131,7 +131,7 @@ class TestQwenModelIntegrityHardFail:
     agent 2-f migrates it) refuse to load a tampered model directory.
     """
 
-    def test_qwen_dir_with_empty_pinned_files_hard_fails(self, tmp_path):
+    def test_qwen_dir_with_empty_pinned_files_hard_fails(self, isolated_integrity_cache, tmp_path):
         """G4-H-33: a local Qwen dir with the default (empty) pinned-files
         manifest MUST hard-fail integrity verification.
 
@@ -157,7 +157,7 @@ class TestQwenModelIntegrityHardFail:
             "tampered local model has no upstream SHA pin to fall back on."
         )
 
-    def test_qwen_dir_tampered_with_pinned_hash_mismatch(self, tmp_path):
+    def test_qwen_dir_tampered_with_pinned_hash_mismatch(self, isolated_integrity_cache, tmp_path):
         """G4-H-33: a tampered local Qwen dir (pinned hash mismatch)
         is rejected via the canonical ``verify_model_integrity`` path.
 
@@ -207,7 +207,7 @@ class TestQwenModelIntegrityHardFail:
             security.MODEL_HASHES.clear()
             security.MODEL_HASHES.update(original)
 
-    def test_qwen_dir_valid_with_correct_pinned_hashes(self, tmp_path):
+    def test_qwen_dir_valid_with_correct_pinned_hashes(self, isolated_integrity_cache, tmp_path):
         """G4-H-33: a valid local Qwen dir (pinned hashes match) is
         accepted via ``verify_model_integrity``.
 
@@ -251,7 +251,7 @@ class TestQwenModelIntegrityHardFail:
             security.MODEL_HASHES.clear()
             security.MODEL_HASHES.update(original)
 
-    def test_qwen_dir_missing_pinned_file(self, tmp_path):
+    def test_qwen_dir_missing_pinned_file(self, isolated_integrity_cache, tmp_path):
         """G4-H-33: a local Qwen dir missing a pinned file is rejected.
 
         Even when the manifest is populated with pinned hashes, if a

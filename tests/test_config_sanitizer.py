@@ -229,7 +229,6 @@ class TestNoTransientAttributesLeaked:
         the test is deterministic regardless of the host's actual
         home directory.
         """
-        import os
         from pathlib import Path
 
         cfg = Config()
@@ -250,13 +249,11 @@ class TestNoTransientAttributesLeaked:
         # prefix is replaced with ``~``, so the original home path
         # (e.g. ``/home/user``) must NOT appear in the IPC payload.
         assert home not in str(result), (
-            "_redact_home_path should have replaced the home prefix "
-            f"with ``~``; got {result['last_load_warnings']!r}"
+            f"_redact_home_path should have replaced the home prefix with ``~``; got {result['last_load_warnings']!r}"
         )
         # And the API key is masked.
         assert "sk-leak-me" not in str(result), (
-            "redact_pii should have masked the API key; "
-            f"got {result['last_load_warnings']!r}"
+            f"redact_pii should have masked the API key; got {result['last_load_warnings']!r}"
         )
 
     def test_does_not_leak_mutation_lock(self):

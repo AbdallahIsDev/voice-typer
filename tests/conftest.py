@@ -61,6 +61,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.fixtures.cache_resets import clear_caches
+
 
 def wait_until(
     predicate: Callable[[], bool],
@@ -275,30 +277,191 @@ def winfunctype_alias(monkeypatch):
         )
 
 
+# ── Heavy-import mocking: session + per-test split ────────────────────
+#
+# Originally a single autouse ``mock_heavy_imports`` fixture ran at
+# function scope for every one of the ~12k tests, installing the SAME
+# unconditional mocks (sounddevice, faster_whisper, pystray, pyperclip,
+# torch, transformers) each time. The mocks are identical across every
+# test, so the per-test ``sys.modules.setitem`` calls (~6) + MagicMock
+# constructions (~4) were pure overhead — ~120k redundant operations
+# per session.
+#
+# The split below moves the unconditional mocks into a session-scoped
+# fixture (``mock_heavy_imports_session``) that runs once per worker.
+# The per-test ``mock_heavy_imports`` fixture retains ONLY the work
+# that actually varies per test:
+#
+#   - pynput marker branch (``real_pynput`` opts out of the pynput mock)
+#   - PIL marker branch (``real_pil`` opts out + evicts stale mocks)
+#   - torch marker branch (``real_torch`` opts out + evicts the session
+#     torch mock so a real ``torch.backends.mps`` import succeeds)
+#   - ``atexit.register`` patch (per-test, imports ``voice_typer.server.app``)
+#   - ``force_pynput_hotkey_backend`` patch (per-test, imports
+#     ``voice_typer.server.hotkeys``)
+#   - ``keyboard_ownership`` singleton reset (per-test, MUST run before
+#     each test to prevent state leakage)
+#
+# The per-test fixture name is intentionally kept as ``mock_heavy_imports``
+# (NOT renamed to ``mock_heavy_imports_per_test`` as a strict reading of
+# the task spec might suggest) because four test files override the
+# conftest fixture by redefining their own ``mock_heavy_imports`` at
+# function scope:
+#
+#   - tests/test_recorder_double_resample.py (custom sounddevice mock)
+#   - tests/test_tray.py (custom pystray/PIL mocks)
+#   - tests/test_shutdown_plan_zr17.py (no-op override to avoid
+#     importing ``voice_typer.server.app``)
+#   - tests/test_volume_lifecycle.py (custom create_hotkey_backend patch)
+#
+# Renaming the conftest fixture would silently break those overrides:
+# the local ``mock_heavy_imports`` would no longer shadow the conftest
+# autouse fixture, and the conftest version would run alongside the
+# local one — for ``test_shutdown_plan_zr17.py`` this would re-introduce
+# the ``voice_typer.server.app`` import that the override deliberately
+# avoids. Keeping the original name preserves the shadow semantics.
+# The session-scoped fixture uses a distinct name
+# (``mock_heavy_imports_session``) so there is no collision.
+
+
+class _FakeOutOfMemoryError(Exception):
+    """Mock stand-in for ``torch.cuda.OutOfMemoryError``.
+
+    Real torch's OOM error subclasses ``RuntimeError``; ours subclasses
+    ``Exception`` so it doesn't accidentally match a real
+    ``RuntimeError`` raised by the SUT (which would incorrectly trigger
+    the GPU-fallback path in
+    ``voice_typer/server/transcription.py:1260``).
+    """
+
+
+class _FakeTensor:
+    """Real class so ``isinstance(x, torch.Tensor)`` is valid.
+
+    ``MagicMock`` attributes are not types, so any
+    ``isinstance``/``issubclass`` check against ``mock_torch.Tensor``
+    raises ``TypeError``. Using a real (empty) class makes those checks
+    return ``False`` cleanly — which is the correct semantics for a
+    mock torch (nothing is ever a real torch tensor under this
+    fixture).
+
+    Defined at module level (rather than inside the session fixture)
+    so the class object is shared across the whole session — ``isinstance``
+    identity checks against ``torch.Tensor`` are stable, not
+    re-instantiated per session setup.
+    """
+
+
+def _build_mock_torch() -> MagicMock:
+    """Construct the session-shared ``torch`` MagicMock.
+
+    Centralised so the session fixture stays readable and so a future
+    test that needs the same mock torch (without going through
+    ``sys.modules``) can call this directly. The two real-class
+    attributes (``cuda.OutOfMemoryError`` + ``Tensor``) are populated
+    here, not via bare MagicMock auto-attribute, because production
+    code does ``isinstance(exc, torch.cuda.OutOfMemoryError)`` and
+    scipy's ``array_api_compat`` does ``isinstance(x, torch.Tensor)`` —
+    both raise ``TypeError`` against a MagicMock attribute.
+    """
+    mock_torch = MagicMock(name="mock_torch")
+    mock_torch.cuda.OutOfMemoryError = _FakeOutOfMemoryError
+    mock_torch.Tensor = _FakeTensor
+    return mock_torch
+
+
+@pytest.fixture(scope="session", autouse=True)
+def mock_heavy_imports_session():
+    """Install unconditional heavy-import mocks once per worker session.
+
+    These six mocks (sounddevice, faster_whisper, faster_whisper.WhisperModel,
+    pystray, pyperclip, torch, transformers) are identical across every
+    test. Moving them from the per-test ``mock_heavy_imports`` fixture
+    to this session-scoped fixture eliminates ~6 ``sys.modules.setitem``
+    + ~4 ``MagicMock`` constructions per test × ~12k tests.
+
+    Uses the ``pytest.MonkeyPatch()`` factory (instead of the
+    ``monkeypatch`` fixture, which is function-scoped and cannot be
+    requested from a session-scoped fixture). Cleanup happens in the
+    ``finally`` block via ``mp.undo()`` so the session teardown
+    restores ``sys.modules`` to its pre-session state — important when
+    running multiple pytest invocations in the same interpreter (e.g.
+    via ``pytest.main()`` in a notebook).
+
+    Tests marked ``@pytest.mark.real_torch`` evict the session torch
+    mock in the per-test ``mock_heavy_imports`` fixture (mirroring the
+    ``real_pil`` eviction pattern) and import the real ``torch``
+    package, so they can exercise real ``torch.backends.mps`` semantics
+    on Apple Silicon. No test currently uses ``real_torch`` (the marker
+    was registered for future use), but the eviction branch is in
+    place to keep the contract symmetric with ``real_pil``.
+
+    Per-test local overrides of ``mock_heavy_imports`` (in
+    ``tests/test_shutdown_plan_zr17.py``, ``tests/test_volume_lifecycle.py``,
+    etc.) do NOT shadow this session fixture — they shadow only the
+    function-scoped ``mock_heavy_imports`` of the same name. So every
+    test (including those with local overrides) gets the session mocks
+    installed; the local override only replaces the per-test portion.
+    This is intentional and matches the original behaviour for the
+    unconditional mocks.
+    """
+    mp = pytest.MonkeyPatch()
+    try:
+        mock_sd = MagicMock()
+        mock_sd.query_devices.return_value = []
+        mp.setitem(sys.modules, "sounddevice", mock_sd)
+
+        mock_whisper = MagicMock()
+        mp.setitem(sys.modules, "faster_whisper", mock_whisper)
+        mp.setitem(sys.modules, "faster_whisper.WhisperModel", MagicMock())
+
+        mp.setitem(sys.modules, "pystray", MagicMock())
+        mp.setitem(sys.modules, "pyperclip", MagicMock())
+
+        # ``torch.backends``, ``torch.backends.mps`` etc. are
+        # auto-created child mocks — no explicit per-submodule setitem
+        # is needed. ``transformers`` is also mocked because the
+        # parakeet_engine + noise_suppressor paths lazily import it.
+        mp.setitem(sys.modules, "torch", _build_mock_torch())
+        mp.setitem(sys.modules, "transformers", MagicMock(name="mock_transformers"))
+
+        yield
+    finally:
+        mp.undo()
+
+
 @pytest.fixture(autouse=True)
 def mock_heavy_imports(monkeypatch, request):
-    """Mock all hardware/GUI dependencies so tests run headless.
+    """Per-test conditional mocks + atexit + keyboard_ownership reset.
+
+    Handles ONLY the work that varies per test:
+
+      - ``real_pynput`` marker branch (opt out of the pynput mock).
+      - ``real_pil`` marker branch (opt out + evict stale PIL mocks
+        that test modules may have installed at collection time).
+      - ``real_torch`` marker branch (opt out + evict the session
+        torch mock so a real ``torch.backends.mps`` import succeeds).
+      - ``atexit.register`` patch (prevents production atexit handlers
+        from polluting test output).
+      - ``force_pynput_hotkey_backend`` patch (uniform PynputHotkey
+        backend across platforms — without it, hotkey tests only pass
+        on Linux/X11 by accident).
+      - ``keyboard_ownership`` singleton reset (prevents stale owner
+        state from a prior test leaking into the next).
+
+    The unconditional mocks (sounddevice, faster_whisper, pystray,
+    pyperclip, torch, transformers) are installed ONCE per session by
+    :func:`mock_heavy_imports_session` and are NOT re-installed here.
 
     tests marked with @pytest.mark.real_pynput will NOT
     have pynput mocked, so they can test the real keyboard listener.
     """
-    mock_sd = MagicMock()
-    mock_sd.query_devices.return_value = []
-    monkeypatch.setitem(sys.modules, "sounddevice", mock_sd)
-
-    mock_whisper = MagicMock()
-    monkeypatch.setitem(sys.modules, "faster_whisper", mock_whisper)
-    monkeypatch.setitem(sys.modules, "faster_whisper.WhisperModel", MagicMock())
-
     # only mock pynput if the test doesn't request real pynput
     if not request.node.get_closest_marker("real_pynput"):
         mock_pynput = MagicMock()
         mock_pynput_kb = MagicMock()
         monkeypatch.setitem(sys.modules, "pynput", mock_pynput)
         monkeypatch.setitem(sys.modules, "pynput.keyboard", mock_pynput_kb)
-
-    mock_pystray = MagicMock()
-    monkeypatch.setitem(sys.modules, "pystray", mock_pystray)
 
     # only mock PIL if the test doesn't request real PIL
     if not request.node.get_closest_marker("real_pil"):
@@ -322,6 +485,11 @@ def mock_heavy_imports(monkeypatch, request):
         # PIL.ImageDraw from sys.modules before importing the real
         # package. We identify mocks by checking ``__spec__`` — real
         # modules have a non-None ``__spec__``; MagicMocks do not.
+        #
+        # Note: the session-scoped ``mock_heavy_imports_session`` does
+        # NOT mock PIL (it's intentionally per-test because of this
+        # eviction branch), so the only stale mock to evict is one
+        # left behind by a prior test's collection-time setdefault.
         for _key in ("PIL", "PIL.Image", "PIL.ImageDraw"):
             _existing = sys.modules.get(_key)
             if _existing is not None and getattr(_existing, "__spec__", None) is None:
@@ -340,77 +508,37 @@ def mock_heavy_imports(monkeypatch, request):
         except ImportError:
             pass  # PIL not available — tests will skip
 
-    monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
-
-    # torch is a heavy optional dep (~17s import cost on the
-    # sandbox) that is lazily imported by 6 production modules
-    # (transcription.py, dictation_pipeline.py, vad.py,
-    # crash_recovery.py, parakeet_engine.py, noise_suppressor.py).
-    # Each test that touched those paths previously re-implemented the
-    # same local torch mock with drift (some mocked
-    # ``torch.backends.mps``, some didn't). Hoisting the mock into the
-    # autouse fixture eliminates the 17s import tax and the drift.
+    # torch is installed unconditionally by the session-scoped
+    # ``mock_heavy_imports_session`` fixture. The ``real_torch`` marker
+    # branch below mirrors the ``real_pil`` eviction pattern: detect
+    # the session-installed mock (it has no ``__spec__``), evict it,
+    # and import the real ``torch`` package so tests marked
+    # ``@pytest.mark.real_torch`` can exercise real
+    # ``torch.backends.mps`` semantics on Apple Silicon. No test
+    # currently uses the marker, but the branch is in place to keep
+    # the contract symmetric with ``real_pil``.
     #
-    # tests marked with @pytest.mark.real_torch will
-    # NOT have torch mocked, so they can exercise real
-    # ``torch.backends.mps`` semantics on Apple Silicon.
-    if not request.node.get_closest_marker("real_torch"):
-        mock_torch = MagicMock(name="mock_torch")
+    # ``transformers`` is also evicted because the session fixture
+    # mocks it alongside ``torch`` — a ``real_torch`` test almost
+    # certainly wants real ``transformers`` too (the two are imported
+    # together by ``parakeet_engine`` + ``noise_suppressor``).
+    if request.node.get_closest_marker("real_torch"):
+        for _key in ("torch", "transformers"):
+            _existing = sys.modules.get(_key)
+            if _existing is not None and getattr(_existing, "__spec__", None) is None:
+                # Looks like the session mock (no ``__spec__``) — evict
+                # it so the real import below actually loads the package.
+                del sys.modules[_key]
+        try:
+            import importlib as _importlib
 
-        # Production code at ``voice_typer/server/transcription.py:1260``
-        # does ``isinstance(exc, torch.cuda.OutOfMemoryError)``. A bare
-        # MagicMock attribute is NOT a type, so ``isinstance`` raises
-        # ``TypeError`` (NOT caught by the surrounding
-        # ``except (ImportError, AttributeError)`` — the production
-        # guard only handles the no-torch-installed case).
-        # Fix: expose a real exception subclass at that attribute path
-        # so the isinstance check returns False cleanly (the mock is
-        # never a real torch, so OOM is never "matched") and the
-        # production code falls through to its substring-based MRO
-        # check.
-        class _FakeOutOfMemoryError(Exception):
-            """Mock stand-in for ``torch.cuda.OutOfMemoryError``.
-
-            Real torch's OOM error subclasses ``RuntimeError``; ours
-            subclasses ``Exception`` so it doesn't accidentally match
-            a real ``RuntimeError`` raised by the SUT (which would
-            incorrectly trigger the GPU-fallback path).
-            """
-
-        mock_torch.cuda.OutOfMemoryError = _FakeOutOfMemoryError
-
-        # scipy's ``array_api_compat`` dispatcher calls
-        # ``is_torch_array(x)`` whenever ``'torch' in sys.modules`` (which
-        # is always true under this fixture). That helper does
-        # ``isinstance(x, torch.Tensor)`` — and a bare ``MagicMock``
-        # attribute is NOT a type, so the call raises
-        # ``TypeError: isinstance() arg 2 must be a type`` and crashes
-        # any scipy function (``scipy.signal.butter`` / ``lfilter`` /
-        # ``resample_poly`` — all used lazily by ``audio_filters/`` and
-        # ``recording/resampling.py``) the first time it dispatches on a
-        # non-numpy input. The same class of bug also breaks
-        # ``issubclass(np.ndarray, torch.Tensor)`` probes used by other
-        # array-API-aware libraries. Fix: expose a real (empty) class at
-        # ``torch.Tensor`` so the isinstance/issubclass checks return
-        # ``False`` cleanly instead of raising.
-        class _FakeTensor:
-            """Real class so ``isinstance(x, torch.Tensor)`` is valid.
-
-            ``MagicMock`` attributes are not types, so any
-            ``isinstance``/``issubclass`` check against ``mock_torch.Tensor``
-            raises ``TypeError``. Using a real (empty) class makes those
-            checks return ``False`` cleanly — which is the correct
-            semantics for a mock torch (nothing is ever a real torch
-            tensor under this fixture).
-            """
-
-        mock_torch.Tensor = _FakeTensor
-        monkeypatch.setitem(sys.modules, "torch", mock_torch)
-        # ``torch.backends``, ``torch.backends.mps`` etc. are
-        # auto-created child mocks — no explicit per-submodule setitem
-        # is needed. ``transformers`` is also mocked because the
-        # parakeet_engine + noise_suppressor paths lazily import it.
-        monkeypatch.setitem(sys.modules, "transformers", MagicMock(name="mock_transformers"))
+            _real_torch = _importlib.import_module("torch")
+            monkeypatch.setitem(sys.modules, "torch", _real_torch)
+        except ImportError:
+            # torch not available — the test will likely skip via
+            # ``pytest.importorskip("torch")``. Leave sys.modules
+            # without torch; the session mock was already evicted.
+            pass
 
     # Prevent atexit handler from polluting test output. :
     # previously this was wrapped in ``contextlib.suppress(Exception)``,
@@ -419,6 +547,13 @@ def mock_heavy_imports(monkeypatch, request):
     # only catches the two real failure modes (the module isn't
     # importable, or the attribute is missing) and warns on either so
     # drift is visible in CI output without failing the test.
+    #
+    # Per-test (NOT session) because: (a) it imports
+    # ``voice_typer.server.app``, which test_shutdown_plan_zr17.py
+    # explicitly avoids via its local no-op override of
+    # ``mock_heavy_imports``; (b) the patch is idempotent so per-test
+    # re-installation is cheap; (c) keeping it per-test preserves the
+    # shadow semantics of the four local overrides.
     try:
         monkeypatch.setattr(
             "voice_typer.server.app.atexit.register",
@@ -448,6 +583,13 @@ def mock_heavy_imports(monkeypatch, request):
     # ``except (ImportError, AttributeError)`` + ``warnings.warn`` so a
     # renamed module or moved function surfaces as a warning rather
     # than a silent patch-skip.
+    #
+    # Per-test (NOT session) because: (a) it imports
+    # ``voice_typer.server.hotkeys``, which some local overrides
+    # (test_volume_lifecycle.py) re-implement with a different patch
+    # target (``app.create_hotkey_backend`` vs
+    # ``hotkey_dispatcher.create_hotkey_backend``); keeping it per-test
+    # preserves the shadow semantics.
     try:
         from voice_typer.server.hotkeys import PynputHotkey
 
@@ -575,6 +717,32 @@ def templates_dir(tmp_path, monkeypatch):
     return tmp_path
 
 
+@pytest.fixture
+def isolated_integrity_cache(tmp_path, monkeypatch):
+    """Point the on-disk model-integrity cache at a temp dir.
+
+    ``security.verify_model_integrity`` persists its memoized SHA-256
+    hashes to ``<config_dir>/cache/integrity_cache.json`` via
+    ``_integrity_cache_path()`` (which honors the
+    ``_integrity_cache_path_override`` module hook). Tests that exercise
+    the real verifier would otherwise write real user state under the
+    developer's config directory — which can be read-only or
+    ACL-restricted (causing ``tempfile.mkstemp`` inside
+    ``_secure_atomic_write`` to hang) and pollute real cache data
+    across runs. Request this fixture from any test class that calls
+    ``verify_model_integrity`` (e.g. model-integrity, parakeet/qwen
+    engine hard-fail tests).
+    """
+    from voice_typer.server import security as security_module
+
+    monkeypatch.setattr(
+        security_module,
+        "_integrity_cache_path_override",
+        tmp_path / "cache" / "integrity_cache.json",
+    )
+    return tmp_path / "cache" / "integrity_cache.json"
+
+
 # clear ``get_native_binary_path`` LRU cache between tests ──────
 
 
@@ -582,7 +750,7 @@ def templates_dir(tmp_path, monkeypatch):
 def clear_binary_path_cache():
     """Clear the ``functools.lru_cache`` on
     ``voice_typer.server.native_hotkeys.binary_path.get_native_binary_path``
-    before every test.
+    (and three other production caches) before every test.
 
     memoises ``get_native_binary_path()`` with
     ``functools.lru_cache(maxsize=1)`` so production startup doesn't
@@ -613,97 +781,25 @@ def clear_binary_path_cache():
     assert the cache actually memoises (and that ``cache_clear`` resets
     it) — those tests use ``monkeypatch.setattr`` to swap the function
     out, so they are unaffected by this fixture.
+
+    The four caches cleared here (and the per-cache rationale for each)
+    are tabulated in :data:`tests.fixtures.cache_resets.CACHES_TO_CLEAR`
+    and iterated by :func:`tests.fixtures.cache_resets.clear_caches`.
+    Moving the loop out of this fixture (and out of ``conftest.py``)
+    means adding a fifth cached callable is now a one-line table edit
+    instead of another copy-pasted ``try/except ImportError`` block
+    here — which was the latent-bug vector that bit us once already
+    (the original early ``return`` on ``ImportError`` for
+    ``native_hotkeys.binary_path`` silently skipped all subsequent
+    clears; converting to per-entry ``try/except`` + a table makes the
+    same drift mechanically impossible).
+
+    Each entry's clear is independent — a missing optional dependency
+    (e.g. ``clipboard.linux`` on Windows-only test runs) raises
+    ``ImportError`` for THAT entry only; the loop moves on. Same
+    semantics as the original copy-pasted blocks, just table-driven.
     """
-    # The original early ``return`` on ``ImportError`` for
-    # ``native_hotkeys.binary_path`` skipped all subsequent cache
-    # clears in this fixture. That was a latent bug: if a future
-    # refactor split out ``native_hotkeys`` while keeping ``prewarm``
-    # importable, the new ``_resolve_hf_cache_dir`` clear below would
-    # silently stop running. Converted to the same try/except/else
-    # pattern  already uses so every clear runs independently of
-    # the others.
-    try:
-        from voice_typer.server.native_hotkeys.binary_path import (
-            get_native_binary_path,
-        )
-    except ImportError:
-        # Module not importable in this test environment (e.g. a
-        # stripped-down test subset). Nothing to clear for THIS path —
-        # subsequent clears below still run.
-        pass
-    else:
-        # ``functools.lru_cache`` decorates the function with
-        # ``cache_clear``. If a future change removes the decorator,
-        # the ``getattr`` guard keeps this fixture a no-op rather than
-        # erroring — the affected tests would then start failing
-        # (which is the desired signal: the caching contract was
-        # broken).
-        cache_clear = getattr(get_native_binary_path, "cache_clear", None)
-        if cache_clear is not None:
-            cache_clear()
-
-    # clear the memoised ``shutil.which`` cache in
-    # ``voice_typer.server.clipboard.linux``.  Same rationale as above:
-    # tests that monkeypatch ``shutil.which`` to simulate different
-    # ``$PATH`` states need a fresh cache per test, otherwise the
-    # first test's results leak into subsequent tests.  Tests that
-    # monkeypatch ``_cb._have_wl_clipboard`` / ``_cb._have_wtype``
-    # directly bypass this cache entirely (the patched attribute
-    # replaces the function object on the package namespace), so the
-    # ``cache_clear`` is a no-op for them.
-    try:
-        from voice_typer.server.clipboard.linux import _shutil_which_cached
-    except ImportError:
-        pass
-    else:
-        which_cache_clear = getattr(_shutil_which_cached, "cache_clear", None)
-        if which_cache_clear is not None:
-            which_cache_clear()
-
-    # The ``spawn_background_prewarm`` path now calls
-    # ``_pkg.is_prewarm_running()`` at the top, which routes through
-    # ``_pid_file_path()`` → ``_config_root()`` →
-    # ``_resolve_hf_cache_dir()`` (decorated ``@lru_cache(maxsize=1)``
-    # in ``voice_typer/server/prewarm/cache_probe.py``). Without this
-    # clear, the ``TestSpawnBackgroundPrewarm`` tests in BOTH
-    # ``tests/test_prewarm.py`` and ``tests/test_prewarm_process_tracker.py``
-    # pollute the cache with the real ``~/.local/share/voice-typer/huggingface``
-    # path, so subsequent ``TestResolveHfCacheDir`` tests (which
-    # monkeypatch ``_config_dir`` to a tmp_path) fail because the
-    # cached value doesn't match the patched path. The
-    # ``_resolve_hf_cache_dir`` docstring claims "Tests clear the cache
-    # via ``cache_clear()`` in the autouse fixture" — this block makes
-    # that claim true.
-    try:
-        from voice_typer.server.prewarm.cache_probe import (
-            _resolve_hf_cache_dir,
-        )
-    except ImportError:
-        # Module not importable in this test environment — nothing to
-        # clear.
-        pass
-    else:
-        resolve_hf_cache_clear = getattr(_resolve_hf_cache_dir, "cache_clear", None)
-        if resolve_hf_cache_clear is not None:
-            resolve_hf_cache_clear()
-
-    # also clear ``_cached_active_config`` so tests that
-    # monkeypatch ``Config.load`` (e.g. test_e2e_smoke's prewarm
-    # filter test) don't see a stale cached config from a prior test.
-    # Without this clear, the first test that calls
-    # ``_active_model_cache_dirs()`` populates the cache, and the
-    # second test's ``monkeypatch.setattr(Config, "load", ...)``
-    # has no effect because the cached config is returned directly.
-    try:
-        from voice_typer.server.prewarm.cache_probe import (
-            _cached_active_config,
-        )
-    except ImportError:
-        pass
-    else:
-        cached_cfg_clear = getattr(_cached_active_config, "cache_clear", None)
-        if cached_cfg_clear is not None:
-            cached_cfg_clear()
+    clear_caches()
 
 
 # daemon-thread leak prevention ──────────────────────────────────

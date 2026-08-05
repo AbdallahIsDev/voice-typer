@@ -385,3 +385,20 @@ class TestCreateLnkShortcutIntegration:
         assert "Voice Typer; dictation" in content, (
             f"semicolon in description must appear literally inside single-quoted string; script was:\n{content}"
         )
+
+
+# ──────────────────────────────────────────────────────────────────────
+# Smoke: ensure the new symbols are importable
+# ──────────────────────────────────────────────────────────────────────
+
+
+def test_sec10_helper_functions_exist():
+    """SEC-10: ``server_platform`` module must expose the new
+    helper functions (static check that the fix is in place).
+    """
+    from voice_typer.server import server_platform
+
+    assert hasattr(server_platform, "_ps_single_quote")
+    assert hasattr(server_platform, "_build_powershell_lnk_script")
+    assert callable(server_platform._ps_single_quote)
+    assert callable(server_platform._build_powershell_lnk_script)

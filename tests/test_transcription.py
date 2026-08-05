@@ -51,6 +51,23 @@ def mock_faster_whisper(monkeypatch):
 class TestFallbackChain:
     """Verify the fallback chain tries the right device/compute combinations."""
 
+    @pytest.fixture(autouse=True)
+    def _force_cuda_available(self, monkeypatch):
+        """Force the CUDA-DLL gate open for chain-logic tests.
+
+        ``_cuda_runtime_available`` (the Windows fast-path gate added
+        for startup speed) returns False on hosts that have a CUDA
+        driver but missing cuBLAS/cuLt DLLs (e.g. CPU-only torch
+        installs) — causing ``_resolve_device`` to skip CUDA and the
+        chain to start on CPU. These tests exercise the CHAIN
+        construction itself, so the gate is pinned open to make them
+        deterministic regardless of the host's CUDA state.
+        """
+        monkeypatch.setattr(
+            "voice_typer.server.transcription._cuda_runtime_available",
+            lambda: True,
+        )
+
     def test_chain_includes_float32_last_resort(self):
         """The fallback chain must include CPU/float32/tiny.en as the last resort."""
         from voice_typer.server.transcription import TranscriptionEngine

@@ -58,7 +58,7 @@ class FakeInputStream:
     Recorder.start() and stop() work unmodified.
     """
 
-    def __init__(self, samplerate, channels, dtype, device, callback, **kwargs):
+    def __init__(self, samplerate, channels, dtype, device=None, callback=None, **kwargs):
         self.samplerate = samplerate
         self.channels = channels
         self.dtype = dtype
@@ -80,6 +80,21 @@ class FakeInputStream:
         """Simulate PortAudio delivering one audio chunk to the callback."""
         frames = samples.shape[0]
         self.callback(samples, frames, None, 0)
+
+
+def _capture_stream(streams):
+    """Return the real capture InputStream.
+
+    ``Recorder.__init__`` opens a prewarm stream with ``callback=None``
+    (``_prewarm_input_stream``) and the Windows mic-permission probe
+    opens one without a callback, so ``captured_streams`` may contain
+    extra no-callback streams. The actual capture stream is the one
+    opened by ``start()`` with a real callback.
+    """
+    for s in streams:
+        if s.callback is not None:
+            return s
+    raise AssertionError("no InputStream with a callback was opened by start()")
 
 
 def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
@@ -135,7 +150,7 @@ def _make_recorder_with_processor(monkeypatch, *, device_native_sr: int, chain_s
     simulated ``device_native_sr`` microphone.
 
     Returns ``(recorder, captured_streams)`` so the test can drive the
-    callback via ``captured_streams[0].push_chunk(...)``.
+    callback via ``_capture_stream(captured_streams).push_chunk(...)``.
     """
     from voice_typer.server import recording as rec_mod
     from voice_typer.server.audio_processor import AudioProcessor
@@ -149,6 +164,21 @@ def _make_recorder_with_processor(monkeypatch, *, device_native_sr: int, chain_s
         return s
 
     monkeypatch.setattr(rec_mod.sd, "InputStream", fake_input_stream)
+
+    # CR-5 contract: this test drives the per-chunk-resample path of
+    # ``AudioProcessor.process_chunk`` (48 kHz → chain rate) and asserts
+    # ``_buffer_sr`` tracks the chain's construction rate. The retune
+    # added on ``start()`` (``retune_audio_processor``) rebuilds the
+    # chain AT the device native rate, which would make ``_buffer_sr``
+    # equal the device rate instead — a different (also correct)
+    # architecture pinned by ``test_recorder_split_start.py``. Disable
+    # the retune here so the per-chunk-resample fallback path (the
+    # production fallback when ``set_sample_rate`` fails) is exercised
+    # deterministically.
+    monkeypatch.setattr(
+        "voice_typer.server.recording.disconnect_handler.retune_audio_processor",
+        lambda *a, **kw: None,
+    )
 
     # Simulate a device whose native rate is ``device_native_sr`` — the
     # failure scenario is a non-16 kHz mic (e.g. 48000).
@@ -206,7 +236,9 @@ class TestNoDoubleResample:
             chain_sr=16000,
         )
         r.start()
-        assert captured_streams, "start() should have opened an InputStream"
+        # the capture stream is the one with a real callback (prewarm
+        # streams open with callback=None).
+        stream = _capture_stream(captured_streams)
 
         # The device native rate (48 kHz) should now be the effective rate.
         assert r._effective_sr == 48000, f"Expected _effective_sr=48000 (device native), got {r._effective_sr}"
@@ -218,7 +250,7 @@ class TestNoDoubleResample:
         # ``_buffer_sr`` tracker must reflect the chain's construction
         # rate (16000), NOT the device's native rate (48000).
         chunk_48k = _make_sine(freq=440, duration_s=1024 / 48000, sr=48000, amp=0.3)
-        captured_streams[0].push_chunk(chunk_48k)
+        stream.push_chunk(chunk_48k)
         _drain_ring_buffer(r)
 
         # _buffer_sr must reflect the chain's construction rate
@@ -280,12 +312,12 @@ class TestNoDoubleResample:
         )
         r = Recorder(config, audio_processor=None)
         r.start()
-        assert captured_streams
+        stream = _capture_stream(captured_streams)
 
         assert r._effective_sr == 48000
 
         chunk_48k = _make_sine(freq=440, duration_s=1024 / 48000, sr=48000, amp=0.3)
-        captured_streams[0].push_chunk(chunk_48k)
+        stream.push_chunk(chunk_48k)
         _drain_ring_buffer(r)
 
         # else-branch: no processor → buffer stores native-rate audio.

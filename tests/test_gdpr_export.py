@@ -400,3 +400,125 @@ def test_export_gdpr_bundle_succeeds_when_config_dir_empty(tmp_path) -> None:
         assert Path(result["path"]).exists()
     finally:
         mp.undo()
+
+
+def test_export_gdpr_bundle_includes_rust_logs_subdir(tmp_path) -> None:
+    """The zip must include the Rust host's ``logs/`` subdirectory.
+
+    The Rust host (``src-tauri/src/platform/logging.rs:30-34``) writes
+    ``<config_dir>/logs/voice-typer.log`` plus rotated backups
+    ``.log.1``..``.log.4``.  The Rust logger has no PII redaction, so
+    dictated-text fragments may be present.  The GDPR delete path
+    rmtree's this directory (see
+    ``PrivacyMixin._gdpr_rmtree_rust_logs``), so the export path must
+    walk the same directory recursively so the Art. 20 portability
+    copy matches the Art. 17 erasure set.
+    """
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "export_gdpr_bundle"):
+            pytest.skip("Fix-D not yet landed")
+        _seed_personal_data(tmp_path)
+        logs_dir = tmp_path / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        (logs_dir / "voice-typer.log").write_text("2024-01-01 12:00:00 INFO [rust] transcript='secret from rust'\n")
+        (logs_dir / "voice-typer.log.1").write_text("2024-01-01 11:00:00 INFO [rust] rotated secret\n")
+        result = svc.export_gdpr_bundle()
+        assert result["success"] is True
+        with zipfile.ZipFile(result["path"]) as zf:
+            names = zf.namelist()
+            assert "logs/voice-typer.log" in names, f"logs/voice-typer.log not in export: {names}"
+            assert "logs/voice-typer.log.1" in names, f"logs/voice-typer.log.1 (rotated backup) not in export: {names}"
+    finally:
+        mp.undo()
+
+
+def test_export_gdpr_bundle_includes_crash_archive_subdir(tmp_path) -> None:
+    """The zip must include the ``crash_diagnostics_archive/`` subdir.
+
+    The crash handler moves processed crash dumps into
+    ``<config_dir>/crash_diagnostics_archive/`` for retention (see
+    ``voice_typer/server/crash_handler/_diagnostics_archive.py``).
+    The GDPR delete path rmtree's this directory (see
+    ``PrivacyMixin._gdpr_rmtree_crash_archive``), so the export path
+    must walk the same directory recursively so the Art. 20
+    portability copy matches the Art. 17 erasure set.
+    """
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "export_gdpr_bundle"):
+            pytest.skip("Fix-D not yet landed")
+        _seed_personal_data(tmp_path)
+        archive_dir = tmp_path / "crash_diagnostics_archive"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        _pid = os.getpid()
+        archived_veh = archive_dir / f"crash_diagnostics.{_pid}.txt"
+        archived_veh.write_text(f"archived VEH crash dump for PID {_pid}\nstack trace with secret='pii'\n")
+        archived_py = archive_dir / f"python_crash.{_pid}.txt"
+        archived_py.write_text(f"archived Python excepthook marker for PID {_pid}\ntraceback with secret='pii'\n")
+        result = svc.export_gdpr_bundle()
+        assert result["success"] is True
+        with zipfile.ZipFile(result["path"]) as zf:
+            names = zf.namelist()
+            assert any(n.startswith("crash_diagnostics_archive/") and n.endswith(".txt") for n in names), (
+                f"crash_diagnostics_archive/ files not in export: {names}"
+            )
+            assert any(n.startswith(f"crash_diagnostics_archive/crash_diagnostics.{_pid}.") for n in names), (
+                f"crash_diagnostics_archive/crash_diagnostics.<PID>.txt not in export: {names}"
+            )
+            assert any(n.startswith(f"crash_diagnostics_archive/python_crash.{_pid}.") for n in names), (
+                f"crash_diagnostics_archive/python_crash.<PID>.txt not in export: {names}"
+            )
+    finally:
+        mp.undo()
+
+
+def test_export_gdpr_bundle_includes_subdir_nested_files(tmp_path) -> None:
+    """The recursive subdir walk must descend into nested subdirectories
+    and preserve the relative path as the zip arcname.
+
+    A nested file at ``<config_dir>/logs/sub/deep.log`` must appear in
+    the zip as ``logs/sub/deep.log`` — the on-disk structure is
+    preserved inside the zip so the user can navigate the export.
+    """
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "export_gdpr_bundle"):
+            pytest.skip("Fix-D not yet landed")
+        _seed_personal_data(tmp_path)
+        nested_dir = tmp_path / "logs" / "nested"
+        nested_dir.mkdir(parents=True, exist_ok=True)
+        (nested_dir / "deep.log").write_text("nested rust log with secret='pii'\n")
+        result = svc.export_gdpr_bundle()
+        assert result["success"] is True
+        with zipfile.ZipFile(result["path"]) as zf:
+            names = zf.namelist()
+            assert "logs/nested/deep.log" in names, f"nested subdir file logs/nested/deep.log not in export: {names}"
+    finally:
+        mp.undo()
+
+
+def test_export_gdpr_bundle_no_partial_subdir_walk_when_missing(tmp_path) -> None:
+    """A fresh-install config dir (no ``logs/`` / ``crash_diagnostics_archive/``
+    subdirs) must not raise — the recursive subdir walk is a silent no-op
+    for missing subdirs."""
+    svc, mp = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "export_gdpr_bundle"):
+            pytest.skip("Fix-D not yet landed")
+        _seed_personal_data(tmp_path)
+        # NOTE: deliberately NOT creating logs/ or crash_diagnostics_archive/.
+        result = svc.export_gdpr_bundle()
+        assert result["success"] is True
+        with zipfile.ZipFile(result["path"]) as zf:
+            names = zf.namelist()
+            # No subdir-prefixed entries should exist when the subdirs
+            # are absent — the walk is a no-op.
+            assert not any(n.startswith("logs/") for n in names), (
+                f"logs/ entries leaked into export with no logs/ dir on disk: {names}"
+            )
+            assert not any(n.startswith("crash_diagnostics_archive/") for n in names), (
+                f"crash_diagnostics_archive/ entries leaked with no archive dir on disk: {names}"
+            )
+    finally:
+        mp.undo()

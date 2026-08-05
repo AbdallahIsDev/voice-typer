@@ -59,7 +59,7 @@ class FakeInputStream:
     Recorder.start() and stop() work unmodified.
     """
 
-    def __init__(self, samplerate, channels, dtype, device, callback, **kwargs):
+    def __init__(self, samplerate, channels, dtype, device=None, callback=None, **kwargs):
         self.samplerate = samplerate
         self.channels = channels
         self.dtype = dtype
@@ -84,6 +84,21 @@ class FakeInputStream:
         # indata is shape (frames, channels).
         frames = samples.shape[0]
         self.callback(samples, frames, None, 0)
+
+
+def _capture_stream(streams):
+    """Return the real capture InputStream.
+
+    ``Recorder.__init__`` opens a prewarm stream with ``callback=None``
+    (``_prewarm_input_stream``) and the Windows mic-permission probe
+    opens one without a callback, so ``captured_streams`` may contain
+    extra no-callback streams. The actual capture stream is the one
+    opened by ``start()`` with a real callback.
+    """
+    for s in streams:
+        if s.callback is not None:
+            return s
+    raise AssertionError("no InputStream with a callback was opened by start()")
 
 
 def _drain_ring_buffer(rec, timeout_s: float = 2.0) -> None:
@@ -192,8 +207,7 @@ class TestRecorderCallbackWithAudioProcessor:
         r = Recorder(config, audio_processor=proc)
 
         r.start()
-        assert len(captured_streams) == 1
-        stream = captured_streams[0]
+        stream = _capture_stream(captured_streams)
 
         # Push 5 chunks of 1024 samples each — this would have raised
         # NameError on the FIRST chunk in the buggy version.
@@ -252,7 +266,7 @@ class TestRecorderCallbackWithAudioProcessor:
         )
         r = Recorder(config, audio_processor=proc)
         r.start()
-        stream = captured_streams[0]
+        stream = _capture_stream(captured_streams)
 
         # Push a 0.5s chunk of 30 Hz sine (below the 80 Hz cutoff).
         raw_chunk = _make_sine(freq=30, duration_s=0.5, amp=0.5)
@@ -310,7 +324,7 @@ class TestRecorderCallbackWithAudioProcessor:
         r.on_rms_level = lambda rms, peak, *args: rms_calls.append((rms, peak))
 
         r.start()
-        stream = captured_streams[0]
+        stream = _capture_stream(captured_streams)
         stream.push_chunk(_make_sine(freq=440, duration_s=0.1, amp=0.3))
         r.stop()
 
@@ -358,7 +372,7 @@ class TestRecorderCallbackWithAudioProcessor:
 
         r = Recorder(config, audio_processor=proc)
         r.start()
-        stream = captured_streams[0]
+        stream = _capture_stream(captured_streams)
 
         for _ in range(3):
             stream.push_chunk(_make_sine(freq=440, duration_s=0.05, amp=0.3))
@@ -402,7 +416,7 @@ class TestRecorderCallbackWithAudioProcessor:
         )
         r = Recorder(config, audio_processor=None)
         r.start()
-        stream = captured_streams[0]
+        stream = _capture_stream(captured_streams)
 
         for _ in range(3):
             stream.push_chunk(_make_sine(freq=440, duration_s=0.05, amp=0.3))
@@ -448,7 +462,7 @@ class TestRecorderCallbackWithAudioProcessor:
         )
         r = Recorder(config, audio_processor=proc)
         r.start()
-        stream = captured_streams[0]
+        stream = _capture_stream(captured_streams)
 
         # Push a chunk WITH a non-zero status flag (simulating xrun).
         chunk = _make_sine(freq=440, duration_s=0.05, amp=0.3)

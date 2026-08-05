@@ -533,7 +533,7 @@ class TestQwenIntegrityHardFail:
         with pytest.raises(RuntimeError, match="deleted in the fix"):
             _verify_qwen_model_hashes("/some/path")
 
-    def test_load_returns_false_for_empty_files_manifest(self, tmp_path):
+    def test_load_returns_false_for_empty_files_manifest(self, isolated_integrity_cache, tmp_path):
         """the fix-9: default ship-state manifest (``revision:
         local, files: {}``) → ``load()`` returns False.
 
@@ -572,7 +572,7 @@ class TestQwenIntegrityHardFail:
         # called — the integrity gate fires before the package import.
         mock_qwen_module.Qwen3ASRModel.from_pretrained.assert_not_called()
 
-    def test_load_returns_false_on_pinned_hash_mismatch(self, tmp_path, monkeypatch):
+    def test_load_returns_false_on_pinned_hash_mismatch(self, isolated_integrity_cache, tmp_path, monkeypatch):
         """when the qwen manifest pins hashes and a file's
         SHA-256 doesn't match, ``load()`` returns False (tampered model
         refused)."""
@@ -611,7 +611,7 @@ class TestQwenIntegrityHardFail:
         assert engine.is_loaded is False
         mock_qwen_module.Qwen3ASRModel.from_pretrained.assert_not_called()
 
-    def test_load_succeeds_when_pinned_hashes_match(self, tmp_path, monkeypatch):
+    def test_load_succeeds_when_pinned_hashes_match(self, isolated_integrity_cache, tmp_path, monkeypatch):
         """happy path: when the qwen manifest pins the correct
         SHA-256 for every file, ``load()`` proceeds to from_pretrained
         and returns True."""

@@ -120,9 +120,17 @@ class TestNonCriticalNotificationsRespectToggle:
         assert "notify(" in block or 'notify("' in block
 
     def test_microphone_selection_uses_notify(self):
-        # Phase 6: _select_microphone moved to SettingsController.
+        # Phase 6: _select_microphone moved to SettingsController. The
+        # English notification strings moved to i18n keys
+        # (notify.settings_controller.mic_next_recording /
+        # mic_save_failed) — assert the i18n keys + the notify() call
+        # site (notify, not notify_safety, so the toggle is respected).
         src = _read_ux018(SETTINGS_CONTROLLER_PY)
-        assert "Microphone:" in src or "Microphone next recording" in src
+        assert "notify.settings_controller.mic_next_recording" in src
+        assert "notify.settings_controller.mic_save_failed" in src
+        idx = src.index("notify.settings_controller.mic_next_recording")
+        block = src[max(0, idx - 300) : idx + 100]
+        assert "app.tray.notify(" in block
 
     def test_audio_quality_warning_uses_notify(self):
         # Phase 7: _finalize_audio_quality_report moved to

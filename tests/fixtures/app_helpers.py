@@ -148,6 +148,61 @@ def make_sine(freq: float, duration_s: float, sr: int = 16000, amp: float = 0.5)
     return (amp * np.sin(2 * np.pi * freq * t)).astype(np.float32)
 
 
+def join_model_load_thread(app: Any, timeout: float = 2.0) -> None:
+    """Best-effort join of ``app.models._model_load_thread`` after a test.
+
+    Mirrors the teardown logic in ``tests/app/conftest.py:59-61`` (the
+    ``app`` fixture). ``VoiceTyperApp.__init__`` schedules the model
+    load on a background daemon thread (``_do_startup`` →
+    ``_model_load_thread``). Without joining that thread at the end of
+    a test, the loader can keep running after the test's VoiceTyperApp
+    instance has been torn down — touching freed attributes and causing
+    flaky failures in unrelated later tests (see the
+    ``tests/app/conftest.py`` docstring).
+
+    Tests that construct a real ``VoiceTyperApp`` via
+    :func:`make_voice_typer_app` should call this helper in a
+    ``try/finally`` (or use it from a yield-style fixture's teardown
+    branch) to match the ``app`` fixture's behaviour::
+
+        from tests.fixtures.app_helpers import (
+            make_voice_typer_app,
+            join_model_load_thread,
+        )
+
+        def test_thing(tmp_config_dir, monkeypatch):
+            app = make_voice_typer_app(tmp_config_dir, monkeypatch)
+            try:
+                ...  # exercise app
+            finally:
+                join_model_load_thread(app)
+
+    Best-effort: if the thread is ``None`` or has already finished, the
+    ``join`` is a no-op. The ``timeout`` bounds how long we wait —
+    matching the 2.0s default used by the canonical ``app`` fixture.
+
+    Parameters
+    ----------
+    app : voice_typer.server.app.VoiceTyperApp
+        The app instance whose background loader thread should be
+        joined. Accepts any object whose ``models`` attribute may carry
+        a ``_model_load_thread`` field — duck-typed so test fakes that
+        don't set ``models`` (or set it to ``None``) are tolerated.
+    timeout : float, optional
+        Maximum seconds to wait for the loader thread to finish.
+        Default 2.0 (matches ``tests/app/conftest.py``).
+    """
+    models = getattr(app, "models", None)
+    if models is None:
+        return
+    loader = getattr(models, "_model_load_thread", None)
+    if loader is None:
+        return
+    if not getattr(loader, "is_alive", lambda: False)():
+        return
+    loader.join(timeout=timeout)
+
+
 # Sentinel type alias used only in the type hints above. We use ``Any``
 # for ``monkeypatch`` and the return type so the module stays importable
 # without pytest installed at type-check time. We do NOT actually import
@@ -159,4 +214,5 @@ def make_sine(freq: float, duration_s: float, sr: int = 16000, amp: float = 0.5)
 __all__ = [
     "make_voice_typer_app",
     "make_sine",
+    "join_model_load_thread",
 ]

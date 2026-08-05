@@ -111,7 +111,7 @@ class TestAvailableResultCachedForProcessLifetime:
 
         assert credential_store.is_keyring_available() is True
         # Pretend a day has passed.
-        credential_store._keyring_last_probe_time = time.monotonic() - 86400.0
+        credential_store._keyring_last_probe_ts = time.time() - 86400.0
         assert credential_store.is_keyring_available() is True
         assert len(calls) == 1, "available result must not be re-probed regardless of elapsed time"
 
@@ -158,9 +158,7 @@ class TestUnavailableResultReprobedAfterInterval:
 
         # Move the probe timestamp far into the past so the interval gate
         # opens. (We don't sleep — just rewrite the timestamp.)
-        credential_store._keyring_last_probe_time = time.monotonic() - (
-            credential_store._KEYRING_REPROBE_INTERVAL_S + 1.0
-        )
+        credential_store._keyring_last_probe_ts = time.time() - (credential_store._KEYRING_REPROBE_INTERVAL_S + 1.0)
 
         # Next call must re-probe and pick up the now-available backend.
         assert credential_store.is_keyring_available() is True
@@ -188,18 +186,22 @@ class TestUnavailableResultReprobedAfterInterval:
         finally:
             credential_store._KEYRING_REPROBE_INTERVAL_S = original
 
-    def test_reprobe_uses_monotonic_time(self, monkeypatch):
-        """The interval gate must use ``time.monotonic`` (immune to wall-clock
-        adjustments like NTP steps or DST jumps), not ``time.time``."""
-        # Set the cache to unavailable with a known monotonic timestamp.
+    def test_reprobe_records_probe_timestamp(self, monkeypatch):
+        """The interval gate records a float timestamp close to ``time.time``.
+
+        Production uses ``time.time`` for the re-probe interval gate (a
+        wall-clock delta over a 300s window is immune to NTP steps that
+        would otherwise trigger spurious re-probes). This pins the
+        production attribute name (``_keyring_last_probe_ts``) and the
+        ``0.0`` "never probed" sentinel.
+        """
+        # Set the cache to unavailable with a known timestamp.
         monkeypatch.setattr(credential_store, "_probe_keyring", _stub_probe(False))
         assert credential_store.is_keyring_available() is False
-        # The recorded timestamp must be a float close to "now" (monotonic).
-        ts = credential_store._keyring_last_probe_time
+        # The recorded timestamp must be a float close to "now".
+        ts = credential_store._keyring_last_probe_ts
         assert isinstance(ts, float)
-        # monotonic() returns a positive float on Linux; just check it's
-        # within a reasonable window of "now".
-        assert abs(ts - time.monotonic()) < 5.0
+        assert abs(ts - time.time()) < 5.0
 
 
 # ── Test-helper contract: _reset_keyring_cache ─────────────────────────
@@ -207,7 +209,7 @@ class TestUnavailableResultReprobedAfterInterval:
 
 class TestResetKeyringCacheClearsProbeTimestamp:
     """``_reset_keyring_cache`` is the test-only escape hatch. It MUST
-    clear ``_keyring_last_probe_time`` too — otherwise the re-probe
+    clear ``_keyring_last_probe_ts`` too — otherwise the re-probe
     interval gate would skip the probe even after the cache is cleared,
     breaking every test that relies on a forced re-probe."""
 
@@ -215,14 +217,14 @@ class TestResetKeyringCacheClearsProbeTimestamp:
         monkeypatch.setattr(credential_store, "_probe_keyring", _stub_probe(False))
         # Populate the cache + timestamp.
         assert credential_store.is_keyring_available() is False
-        assert credential_store._keyring_last_probe_time is not None
+        assert credential_store._keyring_last_probe_ts != 0.0
 
         credential_store._reset_keyring_cache()
 
         assert credential_store._keyring_available_cache is None
         assert credential_store._keyring_backend_name_cache is None
         assert credential_store._keyring_reason_cache is None
-        assert credential_store._keyring_last_probe_time is None
+        assert credential_store._keyring_last_probe_ts == 0.0
 
     def test_reset_forces_next_call_to_reprobe(self, monkeypatch):
         """After ``_reset_keyring_cache``, the next ``is_keyring_available``
@@ -269,7 +271,7 @@ class TestConcurrentReprobesAreSerialized:
 
         # Force the interval gate open so both threads enter the slow path.
         credential_store._keyring_available_cache = False
-        credential_store._keyring_last_probe_time = time.monotonic() - 86400.0
+        credential_store._keyring_last_probe_ts = time.time() - 86400.0
 
         barrier = threading.Barrier(2)
         results: list[bool] = []

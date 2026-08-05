@@ -268,6 +268,7 @@ class TestConfigLoadRaisesInInit:
         ``tray.notify`` with a user-facing message about the config
         load failure."""
         from voice_typer.server import app as app_module
+        from voice_typer.server import i18n
         from voice_typer.server.config import Config
 
         monkeypatch.setattr(app_module, "is_autostart_enabled", lambda: False)
@@ -304,10 +305,18 @@ class TestConfigLoadRaisesInInit:
                 "DE-48: __init__ must call self.tray.notify when Config.load() raises (after the tray is built)"
             )
             # The message must mention the config load failure.
+            # Resolve the i18n keys at the test's active locale (default
+            # ``en``) so the assertion stays valid regardless of which
+            # string the locale registry maps ``error.config_load_failed.*``
+            # to — the contract under test is that __init__ routed the
+            # notification through ``i18n.t(...)`` for these keys.
             titles_msgs = " ".join(f"{t} {m}" for t, m in notify_calls)
-            assert "Config load failed" in titles_msgs, (
-                "DE-48: the tray notification must mention 'Config load failed' "
-                "so the user knows their settings were reset; got: " + repr(notify_calls)
+            expected_title = i18n.t("error.config_load_failed.title")
+            expected_body = i18n.t("error.config_load_failed.body")
+            assert expected_title in titles_msgs or expected_body in titles_msgs, (
+                "DE-48: the tray notification must mention the config-load "
+                "failure (expected i18n-resolved title or body for the "
+                "active locale); got: " + repr(notify_calls)
             )
         finally:
             with contextlib.suppress(Exception):
@@ -345,11 +354,20 @@ class TestConfigLoadRaisesInInit:
             assert instance._config_load_failed is False, (
                 "DE-48: _config_load_failed must be False when Config.load() succeeds"
             )
-            # No config-load-failure notification.
+            # No config-load-failure notification. The notification now
+            # routes through ``i18n.t("error.config_load_failed.*")`` —
+            # resolve the locale strings and assert neither was emitted.
+            from voice_typer.server import i18n
+
+            config_fail_title = i18n.t("error.config_load_failed.title")
+            config_fail_body = i18n.t("error.config_load_failed.body")
             config_fail_notifies = [
                 (t, m)
                 for t, m in notify_calls
-                if "Config load failed" in (t or "") or "Config load failed" in (m or "")
+                if config_fail_title in (t or "")
+                or config_fail_title in (m or "")
+                or config_fail_body in (t or "")
+                or config_fail_body in (m or "")
             ]
             assert config_fail_notifies == [], (
                 "DE-48: __init__ must NOT call tray.notify with a config-load "

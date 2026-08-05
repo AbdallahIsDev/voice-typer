@@ -100,7 +100,7 @@ class _FakeRecorder:
         # Shared.
         self._thread_registry = thread_registry
 
-    def _audio_worker_loop(self) -> None:
+    def _audio_worker_loop(self, stop_event=None, wake_event=None) -> None:
         """Fake audio worker loop — wait for work or stop, drain ring
         buffer (no real processing), exit on stop."""
         while True:
@@ -292,7 +292,10 @@ class TestStopAudioWorkerBody:
         dispatcher = AudioCallbackDispatcher(fake)
 
         # Inject a slow loop that ignores the stop event for a while.
-        def slow_loop() -> None:
+        # It accepts the explicit ``(stop_event, wake_event)`` args that
+        # ``start_audio_worker_body`` now passes at thread-spawn time
+        # (WM-8) so the thread body signature matches production.
+        def slow_loop(stop_event=None, wake_event=None) -> None:
             time.sleep(0.2)  # much longer than the join timeout
 
         fake._audio_worker_loop = slow_loop  # type: ignore[method-assign]

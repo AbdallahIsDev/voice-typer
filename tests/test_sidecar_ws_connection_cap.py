@@ -43,6 +43,7 @@ import pytest
 websockets = pytest.importorskip("websockets")
 
 from voice_typer.server import sidecar_ws  # noqa: E402
+from voice_typer.server.ipc.validation import ErrorCodes  # noqa: E402
 
 
 def _make_fake_websocket(auth_frame: str | None = None) -> MagicMock:
@@ -160,7 +161,7 @@ async def test_at_cap_rejects_with_1008_before_auth(monkeypatch) -> None:
     assert len(ws._sent_frames) == 1, f"expected exactly one max_connections_reached frame, got {ws._sent_frames}"
     frame = json.loads(ws._sent_frames[0])
     assert frame["type"] == "error"
-    assert frame["data"]["code"] == "max_connections_reached", (
+    assert frame["data"]["code"] == ErrorCodes.MAX_CONNECTIONS_REACHED, (
         f"expected code='max_connections_reached', got {frame['data']['code']!r}"
     )
     assert "message" in frame["data"]

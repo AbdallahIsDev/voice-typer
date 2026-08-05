@@ -64,6 +64,7 @@ def xdg_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
     well under the limit on all platforms.
     """
     import os as _os
+
     short_xdg = _os.path.join(_os.path.realpath(_os.sep), "tmp", "vt-xdg")
     _os.makedirs(short_xdg, mode=0o700, exist_ok=True)
     monkeypatch.setenv("XDG_RUNTIME_DIR", short_xdg)

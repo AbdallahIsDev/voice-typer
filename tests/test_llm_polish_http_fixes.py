@@ -287,3 +287,133 @@ class TestFlatMaxTokens:
         assert observed_values == {1024}, (
             f"max_tokens varied with input length: {observed_values!r} (expected constant {{1024}})"
         )
+
+
+# redact_pii fail-closed ─────────────────────────────
+
+
+class TestRedactPiiFailClosed:
+    """When ``redact_pii`` raises inside ``_call_api``, the pre-API
+    PII redaction gate must fail CLOSED — i.e. it must NOT send the
+    un-redacted user-content to the LLM endpoint. The user-content
+    may contain PII injected via template ``{clipboard}`` substitution
+    (passwords, 2FA codes, private messages).
+
+    Previously the ``except Exception`` branch swallowed the failure
+    at DEBUG level and shipped the original text to the LLM anyway
+    (fail-OPEN). The fix: (1) log at WARNING level so operators see
+    the failure, and (2) return the original text UNPOLISHED, skipping
+    the API call entirely.
+
+    These tests monkeypatch ``redact_pii`` to raise and assert that
+    ``_opener.open`` is NOT called.
+    """
+
+    def test_call_api_skips_api_call_when_redact_pii_raises(self, polisher):
+        """when ``redact_pii`` raises, ``_call_api`` must
+        return the original text WITHOUT calling ``_opener.open`` —
+        the un-redacted text must NOT be sent to the LLM."""
+        from voice_typer.server import security
+
+        original = "Hello world this is a test of the polish path"
+        with (
+            patch.object(security, "redact_pii", side_effect=RuntimeError("boom")),
+            patch("voice_typer.server.llm_polish._opener.open") as mock_open,
+        ):
+            result = polisher._call_api(original, "You are a text editor.")
+
+        # Must return the original text UNPOLISHED.
+        assert result == original
+        # CRITICAL: no API call must have been made — un-redacted
+        # text must NOT be sent to the LLM endpoint.
+        mock_open.assert_not_called()
+
+    def test_polish_skips_api_call_when_redact_pii_raises(self, polisher):
+        """the fail-closed behavior must propagate through
+        ``polish()``. The user still gets their original transcription
+        pasted (so the dictation isn't dropped), but no LLM API call
+        is made — no un-redacted PII leaves the device."""
+        from voice_typer.server import security
+
+        original = "Hello world this is a test of the polish path"
+        with (
+            patch.object(security, "redact_pii", side_effect=RuntimeError("boom")),
+            patch("voice_typer.server.llm_polish._opener.open") as mock_open,
+        ):
+            result = polisher.polish(original)
+
+        assert result == original
+        mock_open.assert_not_called()
+
+    def test_redact_pii_failure_logs_at_warning_not_debug(self, polisher, caplog):
+        """the ``redact_pii`` failure must be logged at
+        WARNING level (not DEBUG) so operators can detect when the
+        fail-closed path fires. A DEBUG-level log is invisible in the
+        default production log level — which previously meant a
+        silent PII leak was possible for the entire lifetime of a
+        broken ``security`` module."""
+        import logging
+
+        from voice_typer.server import security
+
+        with (
+            patch.object(security, "redact_pii", side_effect=RuntimeError("boom")),
+            patch("voice_typer.server.llm_polish._opener.open"),
+            caplog.at_level(logging.DEBUG, logger="voice_typer.server.llm_polish"),
+        ):
+            polisher._call_api(
+                "Hello world this is a test of the polish path",
+                "You are a text editor.",
+            )
+
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "redact_pii" in r.getMessage()]
+        assert len(warning_records) == 1, (
+            f"Expected exactly 1 WARNING record about redact_pii failure, got {warning_records!r}"
+        )
+
+    def test_redact_pii_success_still_calls_api(self, polisher):
+        """regression guard: when ``redact_pii`` succeeds (even
+        if it makes no changes to the text), the API call must still
+        proceed normally. This guards against an over-broad fix that
+        accidentally skips the API call unconditionally."""
+        from voice_typer.server import security
+
+        original = "Hello world this is a test of the polish path"
+        # ``redact_pii`` returns the input unchanged (no PII found)
+        # — the API call must still happen.
+        with (
+            patch.object(security, "redact_pii", return_value=original),
+            patch(
+                "voice_typer.server.llm_polish._opener.open",
+                return_value=_make_mock_response("Polished"),
+            ) as mock_open,
+        ):
+            result = polisher._call_api(original, "You are a text editor.")
+
+        assert result == "Polished"
+        mock_open.assert_called_once()
+
+    def test_redact_pii_failure_returns_original_even_with_response_mocked(self, polisher):
+        """robustness: even if ``_opener.open`` is mocked to
+        return a successful response (which would normally produce
+        "Polished"), the fail-closed gate must prevent the call from
+        happening at all. This guards against a regression where the
+        ``return text`` is accidentally placed after the API call
+        instead of inside the ``except`` block."""
+        from voice_typer.server import security
+
+        original = "Hello world this is a test of the polish path"
+        with (
+            patch.object(security, "redact_pii", side_effect=RuntimeError("boom")),
+            patch(
+                "voice_typer.server.llm_polish._opener.open",
+                return_value=_make_mock_response("SHOULD NOT BE REACHED"),
+            ) as mock_open,
+        ):
+            result = polisher._call_api(original, "You are a text editor.")
+
+        # Must return the original text, NOT the mocked "Polished"
+        # response — because the API call was never made.
+        assert result == original
+        assert result != "SHOULD NOT BE REACHED"
+        mock_open.assert_not_called()

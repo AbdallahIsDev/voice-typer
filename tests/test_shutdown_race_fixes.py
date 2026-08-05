@@ -606,6 +606,205 @@ class TestFastCleanupUnconditionalFlush:
         )
 
 
+# ── F3: Win32 console handler install is idempotent  ───────────
+
+
+class TestWin32ConsoleHandlerInstallIdempotent:
+    """F3 ``install_win32_console_handler`` must NOT replace
+    ``app._console_handler`` once it has been set. Each call constructs a
+    fresh ``ctypes.CFUNCTYPE`` wrapper and (without the idempotency
+    guard) would overwrite the previous wrapper, dropping the only
+    Python reference to it. Windows still holds the raw C function
+    pointer in the console-control handler chain — once the wrapper is
+    garbage-collected, the next console event (Ctrl+C / logoff / close)
+    calls into freed Python memory → use-after-free → segfault.
+
+    The fix adds an early-return guard at the function top:
+
+        if getattr(app, "_console_handler", None) is not None:
+            return
+
+    These tests mock ``ctypes.windll`` so the Win32 install path runs on
+    Linux (``ctypes.wintypes`` is cross-platform; only ``windll`` is
+    Windows-only). The autouse ``mock_heavy_imports`` override in this
+    module keeps the shared conftest from touching
+    ``voice_typer.server.app`` — the ``fake_app`` fixture installs a
+    MagicMock for it, and we monkeypatch ``is_windows`` back to True for
+    these tests."""
+
+    def test_second_call_is_noop(self, controller, fake_app, monkeypatch):
+        """Two sequential installs: the second call must NOT replace
+        ``app._console_handler`` and must NOT call
+        ``SetConsoleCtrlHandler`` a second time.
+
+        Pre-fix, the second call constructed a fresh ``CFUNCTYPE``
+        wrapper, overwrote ``app._console_handler`` (dropping the only
+        Python reference to the first wrapper), and called
+        ``SetConsoleCtrlHandler`` again (which ADDS to the chain rather
+        than replacing) — so the first raw function pointer was leaked
+        into the chain with no live Python wrapper keeping its
+        callable's closure alive. The next console event would call
+        into freed memory → segfault."""
+        # Force the Windows code path. We access the app module via
+        # ``from voice_typer.server import app`` (which honors the
+        # sys.modules MagicMock installed by the ``fake_app`` fixture)
+        # because ``monkeypatch.setattr`` with a dotted string does
+        # ``getattr(voice_typer.server, "app")`` — that fails because
+        # the ``fake_app`` fixture installs the MagicMock only in
+        # ``sys.modules``, not as an attribute on the parent package.
+        from voice_typer.server import app as _app_module
+
+        monkeypatch.setattr(_app_module, "is_windows", lambda: True)
+        # Avoid the pythonw.exe short-circuit.
+        monkeypatch.setattr(sys, "executable", "/fake/path/python.exe")
+
+        # Mock ctypes.windll (Windows-only on Linux). The install body
+        # does ``import ctypes`` locally and accesses
+        # ``ctypes.windll.kernel32``; setting the attribute on the real
+        # ctypes module is visible to the local ``import ctypes``
+        # because they share the same module object in ``sys.modules``.
+        import ctypes
+
+        fake_kernel32 = MagicMock()
+        fake_kernel32.SetConsoleCtrlHandler.return_value = True
+        fake_windll = MagicMock()
+        fake_windll.kernel32 = fake_kernel32
+        monkeypatch.setattr(ctypes, "windll", fake_windll, raising=False)
+
+        # First call: installs the handler. ``_console_handler`` goes
+        # from absent/None → a real ``CFunctionType`` wrapper instance.
+        controller._install_win32_console_handler()
+        first_handler = fake_app._console_handler
+        assert first_handler is not None, (
+            "first call to install_win32_console_handler must set "
+            "app._console_handler (the test setup forces Windows + python.exe "
+            "so the install path must execute end-to-end)"
+        )
+        # SetConsoleCtrlHandler must have been called once with the new
+        # handler and ``True`` (Add=TRUE). The Win32 API ADDS to the
+        # chain rather than replacing, so a second call would leak the
+        # first raw pointer when its wrapper is GC'd.
+        assert fake_kernel32.SetConsoleCtrlHandler.call_count == 1, (
+            f"first call must register the handler exactly once; "
+            f"got {fake_kernel32.SetConsoleCtrlHandler.call_count} calls"
+        )
+
+        # Second call: must be a no-op. ``_console_handler`` MUST NOT
+        # change — overwriting drops the only Python reference to the
+        # previous ``CFUNCTYPE`` wrapper while Windows still holds the
+        # raw function pointer in the console-control chain.
+        controller._install_win32_console_handler()
+        assert fake_app._console_handler is first_handler, (
+            "second call to install_win32_console_handler must NOT "
+            "replace app._console_handler — overwriting drops the only "
+            "Python reference to the previous CFUNCTYPE wrapper while "
+            "Windows still holds the raw function pointer in the console-"
+            "control chain → use-after-free → segfault on next console event"
+        )
+        # SetConsoleCtrlHandler MUST NOT have been called a second time
+        # — the Win32 API ADDS to the handler chain (no replace); a
+        # second registration would leak the first raw pointer.
+        assert fake_kernel32.SetConsoleCtrlHandler.call_count == 1, (
+            f"second call must not invoke SetConsoleCtrlHandler — "
+            f"the Win32 API ADDS to the handler chain (no replace); a "
+            f"second registration would leak the first raw pointer when "
+            f"its wrapper is GC'd. Got call_count="
+            f"{fake_kernel32.SetConsoleCtrlHandler.call_count}"
+        )
+
+    def test_guard_fires_even_when_ctypes_raises(self, controller, fake_app, monkeypatch):
+        """The idempotency guard must fire BEFORE the ctypes try block.
+        If a previous install succeeded, a second call must be a no-op
+        even if ``ctypes.windll`` is broken (the guard returns before
+        touching ctypes at all).
+
+        This pins the guard's placement: it must be at the function top
+        (after the ``is_windows`` + pythonw checks), NOT inside the try
+        block. Putting the guard inside the try block would re-enter
+        ctypes every call and risk a fresh install on a transient
+        ctypes failure."""
+        from voice_typer.server import app as _app_module
+
+        monkeypatch.setattr(_app_module, "is_windows", lambda: True)
+        monkeypatch.setattr(sys, "executable", "/fake/path/python.exe")
+
+        import ctypes
+
+        fake_kernel32 = MagicMock()
+        fake_kernel32.SetConsoleCtrlHandler.return_value = True
+        fake_windll = MagicMock()
+        fake_windll.kernel32 = fake_kernel32
+        monkeypatch.setattr(ctypes, "windll", fake_windll, raising=False)
+
+        # First call: succeeds.
+        controller._install_win32_console_handler()
+        first_handler = fake_app._console_handler
+        assert first_handler is not None
+
+        # Break ctypes.windll AFTER the first install — the second call
+        # must still be a no-op because the guard returns before the
+        # try block is entered. We swap the windll mock for a custom
+        # object whose ``__getattr__`` raises (MagicMock itself rejects
+        # setting magic methods, so we use a plain class instead).
+        # ``monkeypatch.setattr`` will undo this at teardown, restoring
+        # the previous mock (and ultimately deleting ``ctypes.windll``
+        # since the first ``monkeypatch.setattr`` recorded ``NOTSET``).
+        class _BrokenWindll:
+            def __getattr__(self, name):
+                raise RuntimeError(f"ctypes.windll.{name} access broken")
+
+        monkeypatch.setattr(ctypes, "windll", _BrokenWindll(), raising=False)
+
+        controller._install_win32_console_handler()
+        assert fake_app._console_handler is first_handler, (
+            "idempotency guard must fire BEFORE the ctypes try block "
+            "so a broken ctypes does not crash the second call or replace "
+            "the existing handler"
+        )
+
+    def test_idempotency_guard_present_in_source(self):
+        """Source-inspection: ``install_win32_console_handler`` must
+        contain the idempotency guard as a code statement. The guard
+        short-circuits before the ``ctypes.CFUNCTYPE`` wrapper is
+        constructed, so the previous wrapper's Python reference is
+        preserved.
+
+        Pins the guard against accidental removal by a future refactor
+        that might bypass the behavioral tests above (e.g. someone
+        renaming the function or moving the install logic elsewhere)."""
+        import re
+
+        signal_handlers_path = os.path.join(
+            os.path.dirname(__file__),
+            "..",
+            "voice_typer",
+            "server",
+            "signal_handlers.py",
+        )
+        with open(signal_handlers_path, encoding="utf-8") as f:
+            src = f.read()
+        idx = src.find("def install_win32_console_handler(")
+        assert idx > -1, "install_win32_console_handler must exist"
+        # The function body ends at the next top-level ``def `` (the
+        # ``win32_console_handler`` function that follows it).
+        next_def = src.find("\ndef ", idx + 1)
+        body = src[idx:next_def]
+        # The idempotency guard code statement must exist as an
+        # indented line (not as docstring prose).
+        guard_pattern = re.compile(
+            r'^[ \t]+if getattr\(app, ["\']_console_handler["\'], None\) is not None:',
+            re.MULTILINE,
+        )
+        assert guard_pattern.search(body), (
+            "install_win32_console_handler must contain the idempotency "
+            "guard `if getattr(app, '_console_handler', None) is not None: "
+            "return` as a code statement before constructing a new "
+            "CFUNCTYPE wrapper — without it, the previous wrapper is GC'd "
+            "while Windows still holds the raw function pointer → "
+            "use-after-free → segfault on the next console event"
+        )
+
+
 # ── Helper ────────────────────────────────────────────────────────────
 
 

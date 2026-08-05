@@ -24,21 +24,11 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-
-@pytest.fixture
-def config_dir(tmp_path: Path, monkeypatch) -> Path:
-    """Point ``config._config_dir`` at a temp directory so config.json
-    lands in ``tmp_path`` instead of the user's real config dir."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
-
 
 class TestConfigSaveSkip:
     """``Config.save()`` skips the write when content is unchanged."""
 
-    def test_save_skips_write_when_content_unchanged(self, config_dir: Path) -> None:
+    def test_save_skips_write_when_content_unchanged(self, tmp_config_dir: Path) -> None:
         """``Config.save()`` with unchanged content must NOT call
         ``_secure_atomic_write``.
 
@@ -73,7 +63,7 @@ class TestConfigSaveSkip:
                 ),
             )
 
-    def test_save_writes_when_content_changed(self, config_dir: Path) -> None:
+    def test_save_writes_when_content_changed(self, tmp_config_dir: Path) -> None:
         """``Config.save()`` with changed content must call
         ``_secure_atomic_write``.
 
@@ -110,7 +100,7 @@ class TestConfigSaveSkip:
         assert cfg._last_saved_bytes is not None
         assert cfg._last_saved_bytes != cached_bytes, "cache should be updated after a changed-content save"
 
-    def test_first_save_always_writes(self, config_dir: Path) -> None:
+    def test_first_save_always_writes(self, tmp_config_dir: Path) -> None:
         """A fresh ``Config()`` instance (``_last_saved_bytes is None``)
         must always perform the write on the first save, even if the
         content happens to match what's on disk.

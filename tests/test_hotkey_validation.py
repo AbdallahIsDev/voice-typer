@@ -32,9 +32,6 @@ from voice_typer.server.config_validators import (
 
 ALLOWED_HOTKEYS = [
     "<caps_lock>",
-    "<ctrl>",
-    "<alt>",
-    "<shift>",
     "<f2>",
     "<delete>",
     "<insert>",
@@ -47,8 +44,6 @@ ALLOWED_HOTKEYS = [
     "<alt>+<r>",
     "<alt>+<z>",
     "<alt>+<v>",
-    # Ctrl+Shift (modifier-only combo) is allowed.
-    "<ctrl>+<shift>",
     # Ctrl+Alt+<key> is allowed.
     "<ctrl>+<alt>+<u>",
     "<ctrl>+<alt>+<v>",
@@ -195,13 +190,18 @@ class TestValidateHotkeyPlatformConditional:
         result = _validate_hotkey("<alt>+<shift>")
         assert result is not None, "Alt+Shift should be blocked on Windows (language switching)"
 
-    def test_alt_shift_allowed_on_linux(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Alt+Shift is allowed on Linux (no language-switching conflict)."""
+    def test_alt_shift_rejected_on_linux_modifier_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Alt+Shift is rejected on Linux because it's modifier-only (zero non-modifier keys).
+
+        Previously this was allowed, but a global hotkey listener (pynput, Win32
+        RegisterHotKey, macOS CGEventTap) requires exactly one non-modifier key
+        to register. A modifier-only combo silently fails to register.
+        """
         import voice_typer.server.config_validators as cv
 
         monkeypatch.setattr(cv._sys, "platform", "linux")
         result = _validate_hotkey("<alt>+<shift>")
-        assert result is None, "Alt+Shift should be allowed on Linux"
+        assert result is not None, "Alt+Shift should be rejected on Linux (modifier-only combo)"
 
 
 class TestValidateHotkeyWindowsSpecific:
@@ -527,7 +527,7 @@ class TestCfg3MultiKeyComboRejection:
     def test_rejects_multi_non_modifier(self, hotkey: str) -> None:
         result = _validate_hotkey(hotkey)
         assert result is not None, f"{hotkey!r} has 2+ non-modifier keys and should be rejected (CFG-3)"
-        assert "at most one non-modifier" in result, (
+        assert "exactly one non-modifier key" in result, (
             f"Error message for {hotkey!r} should mention multi-key rule; got: {result!r}"
         )
 
@@ -541,24 +541,18 @@ class TestCfg3MultiKeyComboRejection:
             "<shift>+<f5>",
             "<ctrl>+<f1>",
             "<ctrl>+<alt>+<f9>",
-            "<ctrl>+<shift>",  # zero non-modifiers (modifier-only combo)
-            "<alt>+<shift>",  # zero non-modifiers
         ],
     )
-    def test_allows_single_non_modifier(self, hotkey: str) -> None:
+    def test_allows_single_non_modifier(self, hotkey: str, monkeypatch: pytest.MonkeyPatch) -> None:
         """Combos with at most one non-modifier key are still allowed
         (CFG-3 doesn't over-block)."""
         # Pin platform to linux for determinism (some combos are
         # platform-conditional).
         import voice_typer.server.config_validators as cv
 
-        original = cv._sys.platform
-        cv._sys.platform = "linux"
-        try:
-            result = _validate_hotkey(hotkey)
-            assert result is None, f"{hotkey!r} has <=1 non-modifier key and should be allowed; got: {result!r}"
-        finally:
-            cv._sys.platform = original
+        monkeypatch.setattr(cv._sys, "platform", "linux")
+        result = _validate_hotkey(hotkey)
+        assert result is None, f"{hotkey!r} has <=1 non-modifier key and should be allowed; got: {result!r}"
 
     def test_error_message_includes_count(self) -> None:
         """The error message includes the actual count so the user knows
@@ -614,7 +608,7 @@ class TestXe12CapsLockNotAModifier:
             "toggle key, not a modifier. Remove it from hotkey_reserved.json."
         )
 
-    def test_caps_lock_still_recognized_as_non_modifier_key(self) -> None:
+    def test_caps_lock_still_recognized_as_non_modifier_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``<caps_lock>`` alone is still a valid single-key hotkey
         (it's the default hotkey on every platform). XE-12-1 only
         removes it from the MODIFIERS list — it remains a valid
@@ -623,16 +617,12 @@ class TestXe12CapsLockNotAModifier:
         # checks are platform-conditional — e.g. <super> on Linux).
         import voice_typer.server.config_validators as cv
 
-        original = cv._sys.platform
-        cv._sys.platform = "linux"
-        try:
-            assert _validate_hotkey("<caps_lock>") is None, (
-                "<caps_lock> alone should remain a valid hotkey (XE-12-1 only "
-                "removes it from the modifiers list, not from the keyspace)"
-            )
-            assert _validate_hotkey("<capslock>") is None, "<capslock> (no underscore) should remain a valid hotkey"
-        finally:
-            cv._sys.platform = original
+        monkeypatch.setattr(cv._sys, "platform", "linux")
+        assert _validate_hotkey("<caps_lock>") is None, (
+            "<caps_lock> alone should remain a valid hotkey (XE-12-1 only "
+            "removes it from the modifiers list, not from the keyspace)"
+        )
+        assert _validate_hotkey("<capslock>") is None, "<capslock> (no underscore) should remain a valid hotkey"
 
     def test_caps_lock_plus_v_rejected(self) -> None:
         """``<caps_lock>+<v>`` must be rejected — both ``caps_lock``
@@ -649,11 +639,11 @@ class TestXe12CapsLockNotAModifier:
             "XE-12-1: <caps_lock>+<v> must be rejected — caps_lock is not a "
             "modifier, so the combo has 2 non-modifier keys (Stage 5)"
         )
-        assert "at most one non-modifier" in result, (
+        assert "exactly one non-modifier key" in result, (
             f"XE-12-1: rejection should come from Stage 5 (multi-non-modifier); got: {result!r}"
         )
 
-    def test_caps_lock_plus_ctrl_plus_v_rejected(self) -> None:
+    def test_caps_lock_plus_ctrl_plus_v_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``<caps_lock>+<ctrl>+<v>`` must be rejected — even with
         a real modifier (``ctrl``) present, the combo still has 2
         non-modifier keys (``caps_lock`` and ``v``) and is structurally
@@ -669,19 +659,15 @@ class TestXe12CapsLockNotAModifier:
         # so the rejection reason is the same on every platform).
         import voice_typer.server.config_validators as cv
 
-        original = cv._sys.platform
-        cv._sys.platform = "linux"
-        try:
-            result = _validate_hotkey("<caps_lock>+<ctrl>+<v>")
-            assert result is not None, (
-                "XE-12-1: <caps_lock>+<ctrl>+<v> must be rejected — caps_lock "
-                "is not a modifier, so the combo has 2 non-modifier keys (Stage 5)"
-            )
-            assert "at most one non-modifier" in result, (
-                f"XE-12-1: rejection should come from Stage 5 (multi-non-modifier); got: {result!r}"
-            )
-        finally:
-            cv._sys.platform = original
+        monkeypatch.setattr(cv._sys, "platform", "linux")
+        result = _validate_hotkey("<caps_lock>+<ctrl>+<v>")
+        assert result is not None, (
+            "XE-12-1: <caps_lock>+<ctrl>+<v> must be rejected — caps_lock "
+            "is not a modifier, so the combo has 2 non-modifier keys (Stage 5)"
+        )
+        assert "exactly one non-modifier key" in result, (
+            f"XE-12-1: rejection should come from Stage 5 (multi-non-modifier); got: {result!r}"
+        )
 
     def test_capslock_no_underscore_plus_v_rejected(self) -> None:
         """The ``capslock`` (no underscore) alias must also be
@@ -695,11 +681,11 @@ class TestXe12CapsLockNotAModifier:
             "XE-12-1: <capslock>+<v> must be rejected — capslock (no underscore) "
             "is not a modifier, so the combo has 2 non-modifier keys (Stage 5)"
         )
-        assert "at most one non-modifier" in result, (
+        assert "exactly one non-modifier key" in result, (
             f"XE-12-1: rejection should come from Stage 5 (multi-non-modifier); got: {result!r}"
         )
 
-    def test_caps_lock_plus_caps_lock_dedups_to_single_key(self) -> None:
+    def test_caps_lock_plus_caps_lock_dedups_to_single_key(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``<caps_lock>+<caps_lock>`` is deduplicated by the canonical
         parser to a single non-modifier key (``keys=("caps_lock",)``),
         so it's effectively the same as ``<caps_lock>`` alone and is
@@ -709,18 +695,14 @@ class TestXe12CapsLockNotAModifier:
         """
         import voice_typer.server.config_validators as cv
 
-        original = cv._sys.platform
-        cv._sys.platform = "linux"
-        try:
-            result = _validate_hotkey("<caps_lock>+<caps_lock>")
-            # Dedup'd to a single non-modifier key → accepted.
-            assert result is None, (
-                "XE-12-1: <caps_lock>+<caps_lock> deduplicates to a single "
-                "non-modifier key and should be accepted (same as <caps_lock>); "
-                f"got: {result!r}"
-            )
-        finally:
-            cv._sys.platform = original
+        monkeypatch.setattr(cv._sys, "platform", "linux")
+        result = _validate_hotkey("<caps_lock>+<caps_lock>")
+        # Dedup'd to a single non-modifier key → accepted.
+        assert result is None, (
+            "XE-12-1: <caps_lock>+<caps_lock> deduplicates to a single "
+            "non-modifier key and should be accepted (same as <caps_lock>); "
+            f"got: {result!r}"
+        )
 
 
 if __name__ == "__main__":

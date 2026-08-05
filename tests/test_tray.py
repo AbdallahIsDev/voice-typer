@@ -776,12 +776,17 @@ class TestMicrophoneSubmenu:
 
     def test_mic_submenu_marks_active_with_bullet(self, tray):
         """Active mic (matching config.microphone) is marked via
-        ``checked=True`` (the platform-standard checkmark via
-        pystray's ``checked=`` parameter — Win32 MF_CHECKED / macOS
+        ``checked`` (the platform-standard checkmark via pystray's
+        ``checked=`` parameter — Win32 MF_CHECKED / macOS
         NSControlStateValueOn / GTK radio active). Pre- the active
         mic was prefixed with ``• `` in the label string, which
         bypassed the platform checkmark, broke screen-reader
         semantics, and misaligned with the Models submenu.
+
+        pystray's ``checked`` must be a CALLABLE (it is invoked as
+        ``checked(item)`` at render time; a raw bool raises
+        ``ValueError`` at MenuItem construction, crashing the tray at
+        startup). The callable is evaluated to the active-mic bool.
         """
         # Configure saved mic preference + set device list.
         tray._config = SimpleNamespace(hotkey="<f2>", model_size="small.en", microphone="5")
@@ -796,16 +801,20 @@ class TestMicrophoneSubmenu:
         usb_items = [i for i in items if isinstance(i, _FakeMenuItem) and "USB Mic" in str(i.args[0])]
         assert usb_items, f"USB Mic menu item not found in {items!r}"
         usb_item = usb_items[0]
-        assert usb_item.kwargs.get("checked") is True, (
-            f"Active mic (USB Mic) must be marked checked=True; got kwargs={usb_item.kwargs!r}"
+        checked_cb = usb_item.kwargs.get("checked")
+        assert callable(checked_cb), (
+            f"pystray checked= must be a callable (raw bool crashes the tray); got {checked_cb!r}"
         )
+        assert checked_cb(None) is True, f"Active mic (USB Mic) checked() must return True; got {checked_cb(None)!r}"
         # The Built-in Mic (id=0, default=True but not the saved
         # pref) should NOT be marked active.
         builtin_items = [i for i in items if isinstance(i, _FakeMenuItem) and "Built-in Mic" in str(i.args[0])]
         assert builtin_items
         builtin_item = builtin_items[0]
-        assert builtin_item.kwargs.get("checked") is False, (
-            f"Non-active mic (Built-in Mic) must be marked checked=False; got kwargs={builtin_item.kwargs!r}"
+        builtin_checked_cb = builtin_item.kwargs.get("checked")
+        assert callable(builtin_checked_cb), f"pystray checked= must be a callable; got {builtin_checked_cb!r}"
+        assert builtin_checked_cb(None) is False, (
+            f"Non-active mic (Built-in Mic) checked() must return False; got {builtin_checked_cb(None)!r}"
         )
 
     def test_mic_submenu_click_calls_change_microphone(self, tray):

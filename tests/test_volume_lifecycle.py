@@ -28,7 +28,6 @@ from __future__ import annotations
 import contextlib
 import sys
 import time
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -75,26 +74,6 @@ def mock_heavy_imports(monkeypatch):
         "voice_typer.server.app.create_hotkey_backend",
         lambda hotkey_str: PynputHotkey(hotkey_str),
     )
-
-
-@pytest.fixture
-def tmp_config_dir(tmp_path: Path, monkeypatch) -> Path:
-    """Point config at a temp directory so tests don't touch user state.
-
-    Patches BOTH ``voice_typer.server.config._config_dir`` (used by
-    Config.load / Config.save and the rest of the codebase) AND
-    ``voice_typer.server.app._config_dir`` (which app.py bound at
-    import time via ``from voice_typer.server.config import _config_dir``).
-    Without the second patch, DuckCrashRecovery would use the real
-    ``~/.voice-typer`` path because conftest.py's autouse
-    ``mock_heavy_imports`` fixture imports ``voice_typer.server.app``
-    BEFORE this fixture runs (it patches
-    ``voice_typer.server.app.atexit.register``), freezing the local
-    reference.
-    """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
-    return tmp_path
 
 
 # ── Fake VolumeBackend (in-memory, no hardware) ─────────────────────────

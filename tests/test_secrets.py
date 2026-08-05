@@ -6,6 +6,8 @@ Verifies:
 - Cloud URL allowlist (default hosts, runtime extension, assertion behavior)
 """
 
+import os
+
 import pytest
 from voice_typer.server import _secrets
 from voice_typer.server._secrets import (
@@ -337,18 +339,29 @@ class TestRedactHomePath:
     the OS username via the home-directory prefix.
     """
 
+    def _expect_home_prefix(self, *parts: str) -> str:
+        """Build the platform-correct expected output for a home-
+        redacted path.
+
+        ``_redact_home_path`` normalizes via ``os.path.normpath``, so
+        the emitted separator is ``os.sep`` (``/`` on POSIX, ``\\`` on
+        Windows). Expected values must be built with ``os.sep`` rather
+        than hard-coded forward slashes to stay green on both.
+        """
+        return "~" + os.sep + os.sep.join(parts)
+
     def test_replaces_posix_home_prefix(self, monkeypatch):
         """A POSIX home path ``/home/alice/.voice-typer/...`` becomes
         ``~/.voice-typer/...``."""
         monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice" if p == "~" else p)
         out = _redact_home_path("/home/alice/.voice-typer/.prewarm-sentinel")
-        assert out == "~/.voice-typer/.prewarm-sentinel", out
+        assert out == self._expect_home_prefix(".voice-typer", ".prewarm-sentinel"), out
 
     def test_replaces_macos_home_prefix(self, monkeypatch):
         """A macOS home path ``/Users/alice/...`` becomes ``~/...``."""
         monkeypatch.setattr("os.path.expanduser", lambda p: "/Users/alice" if p == "~" else p)
         out = _redact_home_path("/Users/alice/.voice-typer/diagnostics.zip")
-        assert out == "~/.voice-typer/diagnostics.zip", out
+        assert out == self._expect_home_prefix(".voice-typer", "diagnostics.zip"), out
 
     def test_replaces_windows_home_prefix(self, monkeypatch):
         """A Windows home path ``C:\\Users\\alice\\...`` becomes
@@ -384,7 +397,7 @@ class TestRedactHomePath:
 
         monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice" if p == "~" else p)
         out = _redact_home_path(Path("/home/alice/.voice-typer/.prewarm-sentinel"))
-        assert out == "~/.voice-typer/.prewarm-sentinel", out
+        assert out == self._expect_home_prefix(".voice-typer", ".prewarm-sentinel"), out
 
     def test_empty_home_returns_path_unchanged(self, monkeypatch):
         """If ``os.path.expanduser('~')`` returns ``'~'`` (cannot
@@ -403,7 +416,7 @@ class TestRedactHomePath:
         # double slash).
         monkeypatch.setattr("os.path.expanduser", lambda p: "/home/alice/" if p == "~" else p)
         out = _redact_home_path("/home/alice/.voice-typer/.prewarm-sentinel")
-        assert out == "~/.voice-typer/.prewarm-sentinel", out
+        assert out == self._expect_home_prefix(".voice-typer", ".prewarm-sentinel"), out
 
 
 # redact_for_export unified pipeline ───────

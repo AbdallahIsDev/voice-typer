@@ -708,3 +708,226 @@ class TestCloudEngineTypedExceptions:
         )
         with pytest.raises(CloudConfigError, match="missing API key"):
             engine.transcribe(np.zeros(16000, dtype=np.float32))
+
+
+# ── CloudEngine.test_connection: error-branch regression guards ──────────
+
+
+class TestCloudEngineTestConnectionErrorBranches:
+    """Regression guards for the three ``test_connection`` error-branch
+    fixes:
+
+    1. The non-HTTP catch-all must chain ``redact_url`` before
+       ``redact_secret`` (so URL userinfo / query-string secrets are
+       stripped, not just ``sk-…`` / ``Bearer …`` tokens).
+    2. A 5xx HTTP response must surface a "temporarily unavailable"
+       diagnostic instead of being reported as a plain success.
+    3. The HTTP probe must use ``self._REQUEST_TIMEOUT_SECONDS``
+       instead of a hardcoded ``10`` so a future timeout change
+       propagates here automatically.
+    """
+
+    def test_catch_all_chains_redact_url_through_redact_secret(self):
+        """The non-HTTP-error catch-all branch must run the exception
+        message through ``redact_secret(redact_url(...))`` — not just
+        ``redact_secret(...)``.
+
+        Pre-fix the branch called only ``redact_secret``, which masks
+        OpenAI-style ``sk-…`` keys and ``Bearer`` / ``Token`` auth
+        headers but does NOT strip URL userinfo (``user:pass@host``).
+        An exception whose message is a bare URL with userinfo would
+        leak the password verbatim into the returned message and out
+        to the UI.
+
+        This test injects a generic ``Exception`` whose message is a
+        bare URL with a short password in userinfo.  The password is
+        deliberately short (7 chars) so the generic 20+ char
+        alphanumeric pattern in ``redact_secret`` cannot catch it —
+        only ``redact_url``'s userinfo-component removal can.  The
+        assertion therefore discriminates between the pre-fix
+        (``redact_secret`` only — password leaks) and post-fix
+        (``redact_secret(redact_url(...))`` — password stripped) code
+        paths.
+        """
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        password = "shortpw"  # 7 chars — below the 20-char generic threshold
+        url_with_userinfo = f"https://alice:{password}@api.openai.com/v1/audio/transcriptions"
+        engine = CloudEngine(
+            provider="openai",
+            api_key="sk-test",
+            api_url="https://api.openai.com/v1/audio/transcriptions",
+            consent_given=True,
+        )
+        with patch(
+            "voice_typer.server.cloud_engines._opener.open",
+            side_effect=Exception(url_with_userinfo),
+        ):
+            success, msg = engine.test_connection()
+        assert success is False
+        assert password not in msg, f"userinfo password leaked into test_connection message: {msg!r}"
+        # Host preserved so the diagnostic stays useful.
+        assert "api.openai.com" in msg
+
+    def test_5xx_http_error_returns_temporarily_unavailable_diagnostic(self):
+        """A 5xx HTTP response means the server is reachable but is
+        itself failing (overload, maintenance, internal error).
+        Pre-fix ``test_connection`` reported this as a plain
+        ``"Connected to {provider} (HTTP {status})"`` success —
+        misleading, because the user's transcriptions will fail
+        until the provider recovers.
+
+        Post-fix the branch returns ``success=True`` (the connection
+        itself did succeed) with a message that names the status and
+        hints at the cause.
+        """
+        import io
+        from urllib.error import HTTPError
+
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(
+            provider="openai",
+            api_key="sk-test",
+            api_url="https://api.openai.com/v1/audio/transcriptions",
+            consent_given=True,
+        )
+        http_err = HTTPError(
+            url="https://api.openai.com/v1/audio/transcriptions",
+            code=503,
+            msg="Service Unavailable",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error": "server_error"}'),
+        )
+        with patch(
+            "voice_typer.server.cloud_engines._opener.open",
+            side_effect=http_err,
+        ):
+            success, msg = engine.test_connection()
+        # Connection itself succeeded — the server answered.
+        assert success is True
+        # Message must surface the status code and the "temporarily
+        # unavailable" hint so the user can tell this is NOT a clean
+        # success.
+        assert "HTTP 503" in msg
+        assert "temporarily unavailable" in msg
+
+    def test_5xx_branch_covers_full_range(self):
+        """The 5xx branch must fire for every status in 500-599, not
+        just one canonical code.  Probes the boundaries (500, 599) and
+        a mid-range code (502) so an off-by-one (e.g. ``<= 599`` vs
+        ``< 600``) is caught.
+        """
+        import io
+        from urllib.error import HTTPError
+
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        for code in (500, 502, 599):
+            engine = CloudEngine(
+                provider="openai",
+                api_key="sk-test",
+                api_url="https://api.openai.com/v1/audio/transcriptions",
+                consent_given=True,
+            )
+            http_err = HTTPError(
+                url="https://api.openai.com/v1/audio/transcriptions",
+                code=code,
+                msg="Server Error",
+                hdrs=None,
+                fp=io.BytesIO(b"{}"),
+            )
+            with patch(
+                "voice_typer.server.cloud_engines._opener.open",
+                side_effect=http_err,
+            ):
+                success, msg = engine.test_connection()
+            assert success is True, f"HTTP {code} should report success=True"
+            assert f"HTTP {code}" in msg, f"HTTP {code} message must name the status: {msg!r}"
+            assert "temporarily unavailable" in msg, f"HTTP {code} message must include the unavailable hint: {msg!r}"
+
+    def test_4xx_other_than_401_403_still_plain_success(self):
+        """A 4xx other than 401/403 (e.g. 400 "bad body", 422
+        "validation error") means the server is reachable and the key
+        was accepted at the auth layer — the 5xx branch must NOT fire
+        for these.  This guards the boundary between the new 5xx
+        branch and the existing "any other HTTP error" success.
+        """
+        import io
+        from urllib.error import HTTPError
+
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(
+            provider="openai",
+            api_key="sk-test",
+            api_url="https://api.openai.com/v1/audio/transcriptions",
+            consent_given=True,
+        )
+        http_err = HTTPError(
+            url="https://api.openai.com/v1/audio/transcriptions",
+            code=400,
+            msg="Bad Request",
+            hdrs=None,
+            fp=io.BytesIO(b"{}"),
+        )
+        with patch(
+            "voice_typer.server.cloud_engines._opener.open",
+            side_effect=http_err,
+        ):
+            success, msg = engine.test_connection()
+        assert success is True
+        assert "HTTP 400" in msg
+        # The 5xx "temporarily unavailable" hint must NOT appear for
+        # a 4xx — that would mislead the user into thinking the
+        # provider is down when their request body was the problem.
+        assert "temporarily unavailable" not in msg
+
+    def test_uses_request_timeout_seconds_constant_not_hardcoded_10(self):
+        """The HTTP probe in ``test_connection`` must pass
+        ``self._REQUEST_TIMEOUT_SECONDS`` as the timeout to
+        ``_opener.open()`` — not a hardcoded ``10``.
+
+        ``_REQUEST_TIMEOUT_SECONDS`` defaults to ``10.0``, so a plain
+        ``timeout == 10`` assertion would pass either way.  This test
+        patches the instance attribute to a sentinel value (``42.0``)
+        that the literal ``10`` could never match, then asserts the
+        sentinel flows through to the opener — proving the constant
+        is being read at call time, not inlined as a literal.
+        """
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(
+            provider="openai",
+            api_key="sk-test",
+            api_url="https://api.openai.com/v1/audio/transcriptions",
+            consent_given=True,
+        )
+        # Sentinel: a hardcoded ``10`` could never match 42.0.
+        engine._REQUEST_TIMEOUT_SECONDS = 42.0
+
+        captured: dict = {}
+
+        class _FakeResp:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def _capture(req, timeout=None, **kwargs):
+            captured["timeout"] = timeout
+            return _FakeResp()
+
+        with patch(
+            "voice_typer.server.cloud_engines._opener.open",
+            side_effect=_capture,
+        ):
+            engine.test_connection()
+
+        assert captured.get("timeout") == 42.0, (
+            f"expected timeout=42.0 (the sentinel), got {captured.get('timeout')!r} "
+            "— test_connection is not reading self._REQUEST_TIMEOUT_SECONDS"
+        )
