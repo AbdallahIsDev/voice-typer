@@ -363,7 +363,7 @@ jobs:
           restore-keys: |
             tauri-linux-${{ env.BUILD_ARCH }}-
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 24
         uses: actions/setup-node@v7
         with:
           # Node 24 — CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19).

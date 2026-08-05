@@ -5,7 +5,7 @@
 	"private": true,
 	"main": "./out/main/index.js",
 	"//engines_note": "Node 24 is the CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19). If a newer LTS is available, bump this comment AND the engines.node AND .nvmrc AND all .github/workflows/*.yml files together. Node 20 deprecation also causes [DEP0040] punycode DeprecationWarning noise in CI logs.",
-	"//overrides_note": "rimraf@2+temp@0.9.4 pulled by electron-winstaller (CJS-only) cannot be force-bumped. As of 2026-07-25, npm audit reports 15 high severity vulnerabilities (build-time only via electron-builder transitive chain; runtime bundle is clean). Track: https://github.com/electron-userland/electron-builder/issues for brace-expansion fix.",
+	"//overrides_note": "rimraf@2+temp@0.9.4 pulled by electron-winstaller (CJS-only) cannot be force-bumped. As of 2026-08-04, `npm audit` reports 0 vulnerabilities after overrides (was 6: 4 high, 2 moderate — all in dev-time transitive chains). Runtime renderer bundle is clean. Track: https://github.com/electron-userland/electron-builder/issues for brace-expansion fix.",
 	"engines": {
 		"node": ">=24"
 	},
@@ -59,7 +59,13 @@
 	"overrides": {
 		"@electron/asar": "^4.2.1",
 		"@electron/get": "^5.0.0",
-		"@hono/node-server": "^2.0.11"
+		"@hono/node-server": "^2.0.11",
+		"brace-expansion": "^5.0.9",
+		"undici": "^7.28.1",
+		"ip-address": "^10.3.1",
+		"fast-uri": "^3.1.5",
+		"hono": "^4.12.34",
+		"postcss": "^8.5.23"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.5.3",
@@ -101,7 +107,6 @@
 		"html-to-image": "^1.11.13",
 		"radix-ui": "^1.6.2",
 		"react": "^19.2.7",
-		"react-day-picker": "^10.0.1",
 		"react-dom": "^19.2.7",
 		"sonner": "^2.0.7",
 		"tailwind-merge": "^3.6.0",

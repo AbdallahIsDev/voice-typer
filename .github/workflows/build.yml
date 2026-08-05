@@ -9,6 +9,8 @@
 #   actions/attest-build-provenance@v4 — Node 24 runtime; wraps actions/attest (v1 = Node 16, deprecated)
 #   astral-sh/setup-uv@v6            — Node 24 runtime (v3 = Node 20, deprecated)
 #   mikepenz/action-junit-report@v6   — Node 24 runtime (v4 = Node 20, deprecated)
+#   codecov/codecov-action@v5          — Node 24 runtime (v4 = Node 20, deprecated)
+#   peter-evans/create-issue-from-file@v5 — Node 24 runtime (v4 = Node 20, deprecated)
 # Breaking changes already verified safe for this repo:
 #   - setup-node@v6+ auto-caches via packageManager field → not used here (explicit `cache: npm`)
 #   - setup-python@v7 removed `pip-install` input → not used in any workflow
@@ -626,6 +628,20 @@ jobs:
       - name: Install client dependencies
         working-directory: voice_typer/client
         run: npm ci
+
+      # Supply-chain: audit the production dependency graph for known
+      # high+ advisories. `--omit=dev` skips devDependencies (dev deps
+      # never ship in the Tauri installer — only runtime deps are a
+      # supply-chain risk for end users). `--audit-level=high` exits
+      # non-zero only for HIGH/CRITICAL findings (low/moderate are
+      # reported but tolerated — matches the pip-audit gate policy in
+      # this workflow's pip-audit-weekly job).
+      # TODO: switch to hard-fail once the override list (accepted-
+      # findings) is verified in production CI.
+      - name: npm audit (high+ only, warn-only)
+        working-directory: voice_typer/client
+        continue-on-error: true
+        run: npm audit --audit-level=high --omit=dev
 
       - name: Type-check
         working-directory: voice_typer/client

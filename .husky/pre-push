@@ -77,4 +77,15 @@ fi
         echo "[pre-push] (base deps only:  uv pip install -e . -r requirements-lock.txt)";
         exit 1; }
 
+# Run pre-commit hooks declared at the `pre-push` stage — primarily mypy
+# (see .pre-commit-config.yaml `stages: [pre-push]`). pre-commit is
+# optional: skip silently if not installed so the hook still works in
+# minimal checkouts. The `--from-ref HEAD~1 --to-ref HEAD` pair scopes
+# mypy to files changed in the last commit (matching the pre-commit
+# default for push hooks).
+echo "[pre-push] Running pre-commit (mypy) at pre-push stage..."
+if command -v pre-commit >/dev/null 2>&1; then
+  pre-commit run --hook-stage pre-push --from-ref HEAD~1 --to-ref HEAD || { echo "[pre-push] pre-commit (mypy) FAILED"; exit 1; }
+fi
+
 echo "[pre-push] All checks passed."

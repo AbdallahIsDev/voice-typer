@@ -56,6 +56,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Supply-chain: audit the production dependency graph for known
+      # high+ advisories. `--omit=dev` skips devDependencies (dev deps
+      # never ship in the Tauri installer — only runtime deps are a
+      # supply-chain risk for end users). `--audit-level=high` exits
+      # non-zero only for HIGH/CRITICAL findings (low/moderate are
+      # reported but tolerated — matches the pip-audit gate policy in
+      # build.yml).
+      # TODO: switch to hard-fail once the override list (accepted-
+      # findings) is verified in production CI.
+      - name: npm audit (high+ only, warn-only)
+        continue-on-error: true
+        run: npm audit --audit-level=high --omit=dev
+
       # CI-05 / cache-trap guard: `typecheck:ci` runs `tsc -b --force`,
       # a FULL cache-busting build. A plain `tsc --noEmit` can reuse a
       # stale tsbuildinfo/out and report a false green (see DX-013 fix).

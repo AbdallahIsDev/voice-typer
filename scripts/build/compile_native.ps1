@@ -76,8 +76,16 @@ if ($Check) {
         }
     }
 
-    Write-Error "[compile_native] MISSING: neither cl.exe (MSVC) nor vswhere.exe nor vcvars64.bat found."
-    Write-Error "  Install Visual Studio Build Tools with the 'Desktop development with C++' workload."
+    # (e) MinGW gcc on PATH? (fallback toolchain for dev machines
+    # without Visual Studio Build Tools — ADR-0020 §3.)
+    $gccCheck = Get-Command "gcc.exe" -ErrorAction SilentlyContinue
+    if ($gccCheck) {
+        Write-Host "[compile_native] OK: MinGW gcc.exe found on PATH at $($gccCheck.Source)"
+        exit 0
+    }
+
+    Write-Error "[compile_native] MISSING: neither cl.exe (MSVC) nor vswhere.exe nor vcvars64.bat nor gcc.exe (MinGW) found."
+    Write-Error "  Install Visual Studio Build Tools with the 'Desktop development with C++' workload, or install MinGW-w64 gcc."
     Write-Error "  Download: https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022"
     exit 1
 }
@@ -140,41 +148,62 @@ if (-not $vcvarsFound) {
     }
 }
 
+# MinGW gcc fallback (ADR-0020 §3): for developers without Visual
+# Studio Build Tools. gcc needs no vcvars environment — the MinGW
+# install carries its own windows.h + user32 import lib on PATH.
+$gccOnPath = Get-Command "gcc.exe" -ErrorAction SilentlyContinue
 if (-not $vcvarsFound) {
-    Write-Error "MSVC toolchain not found. Install Visual Studio Build Tools with the 'Desktop development with C++' workload."
-    Write-Error "  Download: https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022"
-    exit 1
+    if ($gccOnPath) {
+        Write-Host "[compile_native] MSVC not found — falling back to MinGW gcc.exe at $($gccOnPath.Source)"
+    } else {
+        Write-Error "MSVC toolchain not found. Install Visual Studio Build Tools with the 'Desktop development with C++' workload."
+        Write-Error "  Download: https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022"
+        Write-Error "  (MinGW gcc.exe was also not found on PATH — install either toolchain to build the native key listener.)"
+        exit 1
+    }
 }
 
-Write-Host "[compile_native] Using vcvars64.bat: $vcvarsFound"
+# ─── Toolchain selection ────────────────────────────────────────────────────
+# _WIN32_WINNT=0x0600 (Vista+) is passed to BOTH toolchains because
+# WH_KEYBOARD_LL (SetWindowsHookEx) requires Vista+; the define is what
+# makes the Win32 headers expose the API surface the C source uses.
+$win32Winnt = "0x0600"
 
-# ─── Compile via a temp batch wrapper that sources vcvars64.bat ─────────────
-# vcvars64.bat populates INCLUDE / LIB / LIBPATH and prepends the MSVC bin
-# dir to PATH, then we chain into cl.exe. We MUST run this through cmd.exe
-# (not PowerShell's `&` invocation of cl.exe directly) because the env-var
-# setup happens in the cmd subprocess and only applies inside that process.
-#
-# Why write a temp .bat instead of `cmd /c "$vcvars && cl.exe ..."`:
-#   When PowerShell passes a single string containing multiple quote chars
-#   to `cmd /c`, cmd's quote-stripping rule (see `cmd /?` → /C) removes the
-#   FIRST and LAST quote characters from the command line, which corrupts
-#   paths containing spaces (e.g. "C:\Program Files\Microsoft Visual
-#   Studio\..."). Writing a temp batch file and invoking `cmd /c <file>`
-#   avoids the issue entirely — no string quote-stripping possible.
-$batchContent = @"
+if ($vcvarsFound) {
+    Write-Host "[compile_native] Using vcvars64.bat: $vcvarsFound"
+
+    # ─── Compile via a temp batch wrapper that sources vcvars64.bat ─────────
+    # vcvars64.bat populates INCLUDE / LIB / LIBPATH and prepends the MSVC bin
+    # dir to PATH, then we chain into cl.exe. We MUST run this through cmd.exe
+    # (not PowerShell's `&` invocation of cl.exe directly) because the env-var
+    # setup happens in the cmd subprocess and only applies inside that process.
+    #
+    # Why write a temp .bat instead of `cmd /c "$vcvars && cl.exe ..."`:
+    #   When PowerShell passes a single string containing multiple quote chars
+    #   to `cmd /c`, cmd's quote-stripping rule (see `cmd /?` → /C) removes the
+    #   FIRST and LAST quote characters from the command line, which corrupts
+    #   paths containing spaces (e.g. "C:\Program Files\Microsoft Visual
+    #   Studio\..."). Writing a temp batch file and invoking `cmd /c <file>`
+    #   avoids the issue entirely — no string quote-stripping possible.
+    $batchContent = @"
 @echo off
 call `"$vcvarsFound`" >nul
 if errorlevel 1 exit /b %errorlevel%
-cl.exe /O2 /nologo `"$SourceFile`" /link user32.lib /nologo /out:`"$OutputExe`"
+cl.exe /O2 /nologo /D_WIN32_WINNT=$win32Winnt `"$SourceFile`" /link user32.lib /nologo /out:`"$OutputExe`"
 exit /b %errorlevel%
 "@
-$batchFile = Join-Path $env:TEMP "voice-typer_compile_native_$(Get-Random).bat"
-Set-Content -Path $batchFile -Value $batchContent -Encoding ASCII
-try {
-    & cmd /c $batchFile
+    $batchFile = Join-Path $env:TEMP "voice-typer_compile_native_$(Get-Random).bat"
+    Set-Content -Path $batchFile -Value $batchContent -Encoding ASCII
+    try {
+        & cmd /c $batchFile
+        $exitCode = $LASTEXITCODE
+    } finally {
+        Remove-Item -Path $batchFile -Force -ErrorAction SilentlyContinue
+    }
+} else {
+    # MinGW fallback: gcc links user32 via ``-luser32``.
+    & $gccOnPath.Source -O2 -D_WIN32_WINNT=$win32Winnt -o "$OutputExe" "$SourceFile" -luser32
     $exitCode = $LASTEXITCODE
-} finally {
-    Remove-Item -Path $batchFile -Force -ErrorAction SilentlyContinue
 }
 if ($null -eq $exitCode) { $exitCode = 1 }
 if ($exitCode -ne 0) {

@@ -25,7 +25,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help setup test test-client lint build typecheck clean
+.PHONY: help setup test test-client lint build build-tauri typecheck clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -50,6 +50,9 @@ typecheck: ## Run TypeScript + Python type checks
 
 build: ## Build the app (Electron renderer + main)
 	cd voice_typer/client && npm run build
+
+build-tauri: ## Build the Tauri v2 host (sidecar + prewarm + native + cargo tauri build)
+	bash scripts/build/build_tauri_all.sh
 
 clean: ## Remove build artifacts and caches
 	rm -rf voice_typer/client/dist voice_typer/client/out

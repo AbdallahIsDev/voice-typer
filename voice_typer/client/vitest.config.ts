@@ -11,7 +11,7 @@ import { aliases } from "./aliases";
 // only the `@`, `#ui`, and `#utils` aliases are kept here because they
 // are the only ones with real backing files. The stale `#components`,
 // `#lib`, and `#hooks` aliases (which pointed at non-existent barrel
-//files) were removed in  — code uses `@/components/...`,
+// files) were removed — code uses `@/components/...`,
 // `@/lib/...`, and `@/hooks/...` instead.
 //
 // Main-process tests (`src/main/**`) opt into a node environment via the
@@ -20,7 +20,7 @@ import { aliases } from "./aliases";
 // that have no DOM dependency and would error out under jsdom's
 // `window` shims.
 //
-//Globals are intentionally OFF (): every test file imports
+// Globals are intentionally OFF: every test file imports
 // `describe`/`it`/`expect`/`vi` explicitly from "vitest", so the global
 // injection just adds hidden coupling to vitest's runtime types and
 // makes it harder to swap the test runner. Turning it off surfaces any
@@ -101,7 +101,7 @@ export default defineConfig({
 				"src/main/index.ts",
 				"src/preload/index.ts",
 			],
-			//floor coverage so deletions / untested branches
+			// Use a floor on coverage so deletions / untested branches
 			// surface in CI rather than silently rotting. Thresholds are
 			// deliberately conservative — raising them is encouraged as
 			// the suite grows, but lowering them requires justification.
