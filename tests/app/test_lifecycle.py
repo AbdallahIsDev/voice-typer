@@ -629,6 +629,14 @@ class TestStartupResilience:
         app.tray = MagicMock()
         app.recorder = MagicMock()
         app.recorder.recording = False
+        # The real Recorder flips ``recording`` to True inside
+        # ``start()``; the MagicMock does not, so simulate it — the
+        # start path re-checks ``app.recorder.recording`` after the
+        # model load and aborts post-load steps (including the
+        # model-fail discard) when it is False.
+        app.recorder.start = MagicMock(
+            side_effect=lambda *a, **kw: setattr(app.recorder, "recording", True)
+        )
 
         app._start_dictation()
 
