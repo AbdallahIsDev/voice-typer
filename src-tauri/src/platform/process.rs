@@ -131,12 +131,12 @@ pub(crate) fn register_kill_on_parent_exit(pid: u32) -> Result<(), String> {
 // ─── Windows: Job Object with JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE ───────
 //
 // The Job Object is created ONCE per process (lazy-init via
-// `OnceLock<JobHandle>`) and shared across all sidecar spawns. Every
-// successful `register_kill_on_parent_exit` call assigns the new pid
-// to the same Job Object. When the host process exits, Windows closes
-// all handles (including the Job Object handle stored in the static),
-// which triggers the `KILL_ON_JOB_CLOSE` limit and terminates every
-// process assigned to the Job Object.
+// `Mutex<Option<JobHandle>>`) and shared across all sidecar spawns.
+// Every successful `register_kill_on_parent_exit` call assigns the new
+// pid to the same Job Object. When the host process exits, Windows
+// closes all handles (including the Job Object handle stored in the
+// static), which triggers the `KILL_ON_JOB_CLOSE` limit and terminates
+// every process assigned to the Job Object.
 //
 // The Job Object is created with:
 //   - `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`: kill all assigned processes
@@ -149,7 +149,7 @@ pub(crate) fn register_kill_on_parent_exit(pid: u32) -> Result<(), String> {
 
 #[cfg(target_os = "windows")]
 mod windows_impl {
-    use std::sync::OnceLock;
+    use std::sync::Mutex;
 
     // windows-sys is NOT in our Cargo.toml — the existing `windows`
     // crate (with `Win32_UI_WindowsAndMessaging`, `Win32_Foundation`,
@@ -204,15 +204,29 @@ mod windows_impl {
     unsafe impl Sync for JobHandle {}
 
     /// Process-wide Job Object. Created on first use; reused for all
-    /// subsequent sidecar spawns. The `OnceLock` ensures the Job Object
+    /// subsequent sidecar spawns. The `Mutex` ensures the Job Object
     /// is created exactly once even if multiple threads race to call
     /// `register_kill_on_parent_exit` concurrently (which shouldn't
     /// happen in practice — there's only one sidecar — but the lock
     /// makes the invariant explicit).
-    /// Stores `Result` so the fallible `create_job_object` can be used
-    /// with the stable `get_or_init` (the unstable `get_or_try_init`
-    /// is not available in Rust 1.77).
-    static JOB_OBJECT: OnceLock<Result<JobHandle, String>> = OnceLock::new();
+    ///
+    /// Stored as `Mutex<Option<JobHandle>>` (NOT
+    /// `OnceLock<Result<JobHandle, String>>`) so a transient
+    /// `create_job_object` failure (e.g. Windows HANDLE-table
+    /// exhaustion at boot, low-memory condition) is NOT cached — the
+    /// next `register_kill_on_parent_exit` call retries
+    /// `create_job_object` from scratch. The prior `OnceLock<Result>`
+    /// design permanently cached the first failure, disabling the
+    /// kill-on-parent-exit guarantee for the lifetime of the host
+    /// even after the transient condition cleared.
+    ///
+    /// `try_lock` is used at the call site (not `lock`) so a
+    /// contended lock — e.g. another thread mid-`AssignProcessToJobObject`
+    /// — returns an error rather than blocking the sidecar-spawn
+    /// path. Contention is virtually impossible (single sidecar per
+    /// host) but the non-blocking contract keeps the spawn path
+    /// latency-bounded.
+    static JOB_OBJECT: Mutex<Option<JobHandle>> = Mutex::new(None);
 
     /// Open a handle to the target pid with the rights needed to
     /// assign it to a Job Object (`PROCESS_SET_QUOTA` +
@@ -232,8 +246,11 @@ mod windows_impl {
     }
 
     /// Create the process-wide Job Object with
-    /// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Called once via
-    /// `OnceLock::get_or_init`-style logic.
+    /// `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. Called on the first
+    /// successful `register_kill_on_parent_exit_windows` invocation
+    /// (and re-called if a prior call's `create_job_object` failed
+    /// transiently — see the `JOB_OBJECT` static doc for why the
+    /// retry-on-failure contract matters).
     fn create_job_object() -> Result<JobHandle, String> {
         // SAFETY: `CreateJobObjectW(NULL, NULL)` is safe — it returns
         // either a valid handle or `INVALID_HANDLE_VALUE` (which we
@@ -273,16 +290,38 @@ mod windows_impl {
     /// Windows: assign `pid` to the process-wide Job Object.
     /// The Job Object has `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` set, so
     /// when the host process exits and the Job Object handle is closed
-    /// (by the `OnceLock`'s static-drop), Windows kills every process
-    /// assigned to the Job Object.
+    /// (by the static's drop), Windows kills every process assigned to
+    /// the Job Object.
     pub(crate) fn register_kill_on_parent_exit_windows(pid: u32) -> Result<(), String> {
-        // Get-or-create the process-wide Job Object. Uses the stable
-        // `get_or_init` API with a `Result`-wrapped OnceLock since
-        // `get_or_try_init` is unstable until Rust 1.81+.
-        let job_handle: &HANDLE = match JOB_OBJECT.get_or_init(|| create_job_object()) {
-            Ok(jh) => &jh.0,
-            Err(e) => return Err(e.clone()),
-        };
+        // Get-or-create the process-wide Job Object. We use
+        // `Mutex::try_lock` (not `lock`) so a contended lock returns
+        // an error rather than blocking the sidecar-spawn path; the
+        // contention window is virtually zero (single sidecar per
+        // host) but the non-blocking contract keeps the spawn path
+        // latency-bounded.
+        //
+        // On the `None` path (first call, OR a prior call's
+        // `create_job_object` failure left the slot empty), we
+        // (re)create the Job Object. A failure here is returned as
+        // `Err` WITHOUT populating the slot — so the next call
+        // retries `create_job_object` from scratch. This fixes the
+        // prior `OnceLock<Result<JobHandle, String>>` bug where a
+        // transient `create_job_object` failure was cached forever,
+        // permanently disabling the kill-on-parent-exit guarantee.
+        let mut guard = JOB_OBJECT.try_lock().map_err(|e| {
+            format!("JOB_OBJECT lock contended/poisoned: {}", e)
+        })?;
+        if guard.is_none() {
+            let jh = create_job_object()?;
+            *guard = Some(jh);
+        }
+        // SAFETY: `guard.is_none()` was just checked and `*guard`
+        // was set to `Some(jh)` on the None path. The `expect` is
+        // unreachable but documents the invariant.
+        let job_handle: &HANDLE = &guard
+            .as_ref()
+            .expect("JOB_OBJECT must be Some after the create-or-reuse path above")
+            .0;
 
         // Open a handle to the target process with the rights needed
         // for `AssignProcessToJobObject`.
@@ -644,8 +683,10 @@ pub(crate) fn kill_process_tree(pid: u32) {
 // per-descendant fork/exec overhead.
 
 /// Send `sig` to `pid` via the `libc::kill(2)` syscall (best-effort:
-/// logs on failure but doesn't abort the caller). Returns the raw
-/// `libc::kill` rc (0 on success, -1 on error with errno set).
+/// logs on failure but doesn't abort the caller). Returns `true` if a
+/// non-ESRCH failure occurred (i.e. the signal was NOT delivered AND
+/// the reason was not "pid already exited"); `false` otherwise (signal
+/// delivered, OR ESRCH race-window where the pid was already gone).
 ///
 /// Replaces the prior `Command::new("kill").args(["-TERM" | "-KILL",
 /// &pid]).status()` shell-out — same POSIX semantics (signal
@@ -654,8 +695,16 @@ pub(crate) fn kill_process_tree(pid: u32) {
 /// that already exited between the snapshot and the signal —
 /// downgraded to `debug!` to avoid log spam during the SIGKILL phase
 /// (every SIGKILL on a SIGTERM-reaped pid returns ESRCH).
+///
+/// Per-pid non-ESRCH failures (e.g. EPERM on a root-owned descendant)
+/// are also demoted to `debug!` to avoid log spam — a single
+/// `kill_process_tree` call iterates many descendants, and the prior
+/// per-pid `warn!` made log triage difficult. The caller
+/// (`kill_process_tree`) aggregates the `true` returns into ONE
+/// summary `warn!` at the end of the call so the operator still sees
+/// the failure (once per `kill_process_tree` invocation, not N times).
 #[cfg(unix)]
-fn signal_pid(pid: u32, sig: libc::c_int) {
+fn signal_pid(pid: u32, sig: libc::c_int) -> bool {
     let rc = unsafe { libc::kill(pid as libc::pid_t, sig) };
     if rc != 0 {
         let errno = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
@@ -669,15 +718,30 @@ fn signal_pid(pid: u32, sig: libc::c_int) {
                 pid,
                 signal_name(sig)
             );
+            // ESRCH is not a failure — the pid is already gone, which
+            // is the desired end state.
+            false
         } else {
-            log::warn!(
+            // Demoted from `warn!` to `debug!` per the aggregation
+            // contract: the caller (`kill_process_tree`) counts the
+            // `true` returns from this fn and emits ONE summary
+            // `warn!` at the end. Per-pid `warn!` spam made shutdown
+            // log triage difficult (a sidecar with N descendants
+            // produced 2N+ warn lines per `kill_process_tree` call,
+            // one per signal phase per pid).
+            log::debug!(
                 "[KILL-TREE] kill({}, {}) failed: errno={} ({})",
                 pid,
                 signal_name(sig),
                 errno,
                 std::io::Error::last_os_error()
             );
+            // Non-ESRCH failure: signal the caller to aggregate.
+            true
         }
+    } else {
+        // Signal delivered successfully.
+        false
     }
 }
 
@@ -836,11 +900,15 @@ fn signal_process_group(sidecar_pgid: libc::pid_t, sig: libc::c_int) {
         // ESRCH (No such process) is expected if the group has already
         // exited — not a warning-worthy condition.
         if errno != libc::ESRCH {
+            // Log format: `kill(-<pgid>, <signal-name>) failed: errno=<n> (<msg>)`.
+            // The prior format `kill(-TERM -12345, 15)` was nonsensical
+            // (mixed the literal "-TERM" with the pgid), making log
+            // triage harder. The new format mirrors `man 2 kill`
+            // invocation: `kill(-<pgid>, <SIGNAME>)`.
             log::warn!(
-                "[KILL-TREE] kill({} -{}, {}) failed: errno={} ({})",
-                if sig == libc::SIGTERM { "-TERM" } else { "-KILL" },
+                "[KILL-TREE] kill(-{}, {}) failed: errno={} ({})",
                 sidecar_pgid,
-                sig,
+                signal_name(sig),
                 errno,
                 std::io::Error::last_os_error()
             );

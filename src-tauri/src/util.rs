@@ -94,11 +94,6 @@ pub(crate) const DISPATCH_SHORT_TIMEOUT_SECS: u64 = 15;
 /// "restarting…" banner before the process exits.
 pub(crate) const PRE_RESTART_DELAY_MS: u64 = 500;
 
-/// Polling interval for the cooperative-shutdown waiter in
-/// `shutdown_sidecar`. We sleep in increments of this duration until
-/// `SHUTDOWN_ACK_TIMEOUT_MS` elapses, then force-kill the child.
-pub(crate) const SHUTDOWN_POLL_INTERVAL_MS: u64 = 100;
-
 /// ADR-0020 §11: max bytes per log file before rotation.
 pub(crate) const ROTATE_MAX_BYTES: u64 = 5 * 1024 * 1024; // 5 MB
 
@@ -584,13 +579,7 @@ mod tests {
         // deadline via `tokio::time::timeout`.
         assert_eq!(
             SHUTDOWN_ACK_TIMEOUT_MS, 2000,
-            "SHUTDOWN_ACK_TIMEOUT_MS must be 2000 (2s graceful window — UI-active path only)"
-        );
-        // The poll interval is only used by the dev-mode fallback path
-        // (the ShellPlugin path now uses tokio::time::timeout + rx.recv).
-        assert_eq!(
-            SHUTDOWN_POLL_INTERVAL_MS, 100,
-            "SHUTDOWN_POLL_INTERVAL_MS must be 100ms (dev-mode fallback step)"
+            "SHUTDOWN_ACK_TIMEOUT_MS must be 2000 (2s graceful window - UI-active path only)"
         );
     }
 

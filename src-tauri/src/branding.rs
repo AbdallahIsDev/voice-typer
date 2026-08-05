@@ -1,9 +1,8 @@
 //! Cross-language brand constant for the Voice Typer Tauri host.
 //!
 //! The brand literal `"Voice Typer"` was previously inlined at
-//! 4+ Rust sites (`tray.rs::TRAY_TOOLTIP`, `tray.rs::empty_menu`'s
-//! placeholder label, `commands::paste::execute_paste`'s toast title,
-//! `migrate::electron_userdata_candidates`'s defensive third probe).
+//! multiple Rust sites (`tray.rs::TRAY_TOOLTIP`, `tray.rs::empty_menu`'s
+//! placeholder label, `migrate::electron_userdata_candidates`'s defensive third probe).
 //! Each inline literal was a drift hazard — a future rename would
 //! have to find + touch every site, and there was no compiler-enforced
 //! single source of truth.

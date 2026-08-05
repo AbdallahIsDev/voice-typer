@@ -46,8 +46,12 @@ fn test_parse_keyword_position_bottom() {
 fn test_parse_keyword_position_bottom_clamped_when_bubble_taller_than_screen() {
     // Mirrors the legacy `test_parse_position_bottom_clamped_when_bubble_taller_than_screen`
     // — `(screen_h - bubble_h).max(0)` clamps the negative result to 0.
+    // The centered-x is clamped too: `((320 - 400) / 2).max(0) == 0`,
+    // so a bubble wider than the screen doesn't end up off-screen left
+    // (same clamp `test_parse_keyword_position_top_centered_x_clamped_when_bubble_wider_than_screen`
+    // pins for the "top" arm).
     let (x, y) = parse_keyword_position("bottom", 320, 80, 400, 200).unwrap();
-    assert_eq!(x, (320 - 400) / 2);
+    assert_eq!(x, 0); // ((320 - 400) / 2).max(0) == 0
     assert_eq!(y, 0); // (80 - 200).max(0) == 0
 }
 
@@ -131,8 +135,13 @@ fn test_parse_position_negative_coords() {
 
 #[test]
 fn test_parse_position_bottom_clamped_when_bubble_taller_than_screen() {
+    // The centered-x is clamped to >=0 in production (see the
+    // `((screen_w - bubble_w) / 2).max(0)` arms in `parse_position`
+    // and `parse_keyword_position`) — a bubble wider than the screen
+    // must not end up off-screen left. `((320 - 400) / 2).max(0)`
+    // evaluates to 0, not -40.
     let (x, y) = parse_position(json!("bottom"), json!("bottom"), 320, 80, 400, 200).unwrap();
-    assert_eq!(x, (320 - 400) / 2);
+    assert_eq!(x, 0); // ((320 - 400) / 2).max(0) == 0
     assert_eq!(y, 0); // (80 - 200).max(0) == 0
 }
 

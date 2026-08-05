@@ -502,10 +502,18 @@ mod tests {
             "CR-39: empty VOICE_TYPER_CONFIG_DIR should be treated as unset"
         );
         #[cfg(target_os = "windows")]
-        assert_eq!(
-            p,
-            std::path::PathBuf::from("/nonexistent_home_for_cr39_test/voice-typer"),
-            "CR-39: empty VOICE_TYPER_CONFIG_DIR should be treated as unset"
-        );
+        {
+            // Windows ignores `home` — the config dir is APPDATA-based
+            // (or the CWD-relative `./voice-typer` fallback when
+            // APPDATA is missing, as here). So the empty override falls
+            // through to the documented CWD fallback, NOT
+            // `home/voice-typer`. Matches the `appdata.unwrap_or_else`
+            // path in `config_dir_from_env`.
+            assert_eq!(
+                p,
+                std::path::PathBuf::from(".").join(APP_SLUG),
+                "CR-39: empty VOICE_TYPER_CONFIG_DIR should be treated as unset (CWD fallback)"
+            );
+        }
     }
 }

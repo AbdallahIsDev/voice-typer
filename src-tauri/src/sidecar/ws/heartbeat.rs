@@ -337,6 +337,13 @@ mod tests {
 
     /// `shutdown_sidecar_for_exit` must abort any in-flight
     /// heartbeat task stored on `state.heartbeat_handle`.
+    ///
+    /// The handle is aborted + cleared EARLY in the function (before the
+    /// graceful-exit wait). In dev-mode (`child_exit_rx = None`) that
+    /// wait sleeps `EXIT_SHUTDOWN_ACK_TIMEOUT_MS` (30s) before the
+    /// force-kill backstop, so this test runs the shutdown on the async
+    /// runtime and polls for the early handle-clear instead of awaiting
+    /// full completion.
     #[tokio::test]
     async fn test_gt8_shutdown_sidecar_for_exit_aborts_heartbeat_handle() {
         use crate::state::shutdown_sidecar_for_exit;
@@ -348,17 +355,29 @@ mod tests {
         assert!(state.heartbeat_handle.lock().await.is_some());
 
         let state_clone = state.clone();
-        tokio::time::timeout(
-            Duration::from_millis(3000),
-            shutdown_sidecar_for_exit(&state_clone),
-        )
-        .await
-        .expect("shutdown_sidecar_for_exit should complete within 3s");
+        let shutdown_task = tauri::async_runtime::spawn(async move {
+            shutdown_sidecar_for_exit(&state_clone).await;
+        });
 
-        assert!(
-            state.heartbeat_handle.lock().await.is_none(),
-            "GT-8: shutdown_sidecar_for_exit must abort + clear the heartbeat handle"
+        // Poll for the early handle-clear with a bounded deadline. The
+        // 20ms interval is intentional (event-based poll, not a fixed
+        // sleep — matches the XS-53 bounded-polling pattern elsewhere).
+        tokio::time::timeout(Duration::from_millis(3000), async {
+            loop {
+                if state.heartbeat_handle.lock().await.is_none() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect(
+            "GT-8: shutdown_sidecar_for_exit must abort + clear the heartbeat handle within 3s",
         );
+
+        // Stop the spawned shutdown task — its remaining 30s dev-mode
+        // sleep is irrelevant to the assertion above.
+        shutdown_task.abort();
     }
 
     // abort_heartbeat helper ────────────────────────────

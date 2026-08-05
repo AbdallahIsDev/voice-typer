@@ -641,7 +641,7 @@ pub(crate) fn send_fire_and_forget_frame(
 ) -> Option<u64> {
     use std::sync::atomic::Ordering;
     let ws_tx = lock(&state.ws_tx).clone()?;
-    let id = state.next_id.fetch_add(1, Ordering::SeqCst);
+    let id = state.next_id.fetch_add(1, Ordering::Relaxed);
     let frame = serde_json::json!({
         "type": frame_type,
         "data": {},

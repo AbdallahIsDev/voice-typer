@@ -32,33 +32,20 @@ use serde_json::Value;
 ///
 /// Returns the bound port + the child handle on success.
 ///
-/// the cold-start path (called from `main.rs`) does NOT pass a
-/// `shutting_down` flag — the host has just started, so the
-/// `shutting_down` AtomicBool is `false` and would remain so for the
-/// duration of the spawn. A quit during cold-start spawn is handled by
-/// the post-spawn `shutting_down.load()` re-check in `main.rs` (which
-/// kills the freshly-spawned sidecar). The supervisor's respawn path
-/// (`crate::sidecar::supervisor::respawn_inner`) calls
-/// `spawn_sidecar_and_get_port_with_shutdown` instead, passing
+/// Both the cold-start path (`initialize_sidecar`) and the supervisor's
+/// respawn path (`respawn_inner`) call the
+/// `spawn_sidecar_and_get_port_with_shutdown` variant below, passing
 /// `&state.shutting_down` so the stdout-read loop can short-circuit
-/// mid-handshake if the user quits the app during a respawn.
-pub(crate) async fn spawn_sidecar_and_get_port(
-    app: &tauri::AppHandle,
-    token: &str,
-) -> Result<(u16, SidecarHandle, Option<mpsc::Receiver<CommandEvent>>), String> {
-    spawn_sidecar_and_get_port_inner(app, token, None).await
-}
-
-/// Same as `spawn_sidecar_and_get_port` but accepts a `shutting_down`
-/// flag that the stdout-read loop polls between iterations. When the
-/// flag flips to `true` (e.g. the user quit the app while a respawn was
-/// in flight), the loop kills the freshly-spawned child and returns
-/// `Err("shutdown")` instead of waiting up to `SERVER_STARTED_TIMEOUT_MS`
-/// (30s) for a `server_started` line that will never arrive.
+/// mid-handshake if the user quits the app during a spawn.
 ///
-/// Used by `crate::sidecar::supervisor::respawn_inner` — the cold-start
-/// path in `main.rs` continues to call the no-shutdown variant (see
-/// its doc comment for rationale).
+/// When the shutdown flag flips to `true` (e.g. the user quit the app
+/// while a respawn was in flight), the loop kills the freshly-spawned
+/// child and returns `Err("shutdown")` instead of waiting up to
+/// `SERVER_STARTED_TIMEOUT_MS` (30s) for a `server_started` line that
+/// will never arrive.
+///
+/// Used by `crate::sidecar::supervisor::respawn_inner` and by the
+/// cold-start path (`sidecar::spawn::initialize_sidecar`).
 pub(crate) async fn spawn_sidecar_and_get_port_with_shutdown(
     app: &tauri::AppHandle,
     token: &str,
@@ -140,7 +127,7 @@ pub(crate) async fn initialize_sidecar(
 ) {
     let token = crate::util::generate_token();
 
-    match spawn_sidecar_and_get_port(app_handle, &token).await {
+    match spawn_sidecar_and_get_port_with_shutdown(app_handle, &token, &state.shutting_down).await {
         Ok((port, child, exit_rx)) => {
             //re-check shutting_down AFTER spawn
             // returns — if the user quit the app while we
@@ -373,7 +360,8 @@ pub(crate) async fn spawn_sidecar_release(
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
         .env("VOICE_TYPER_NATIVE_DIR", native_dir.to_string_lossy().to_string())
-        .env("VOICE_TYPER_PREWARM_EXE", prewarm_exe);
+        .env("VOICE_TYPER_PREWARM_EXE", prewarm_exe)
+        .env("VOICE_TYPER_CONFIG_DIR", crate::platform::paths::config_dir().to_string_lossy().to_string());
 
     // Tauri v2's shell plugin automatically pipes stdout/stderr —
     // the `spawn()` returns a `Receiver<CommandEvent>` that yields
@@ -726,6 +714,7 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         // logs a warning so the developer knows prewarm is disabled
         // in this dev session.
         .env("VOICE_TYPER_PREWARM_EXE", dev_prewarm_exe())
+        .env("VOICE_TYPER_CONFIG_DIR", crate::platform::paths::config_dir().to_string_lossy().to_string())
         // set VOICE_TYPER_DEBUG=1 so the Python sidecar enables
         // verbose debug logging (its `log.py` checks this env var).
         // Previously this set only `RUST_LOG=debug`, which is

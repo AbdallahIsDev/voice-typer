@@ -9,6 +9,7 @@ use crate::state::lock as mutex_lock;
 use crate::util::{
     DISPATCH_SHORT_TIMEOUT_SECS, DISPATCH_TIMEOUT_SECS, SHUTDOWN_ACK_TIMEOUT_MS,
 };
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
@@ -521,9 +522,19 @@ async fn dispatch_frame(
     // wasted serialization CPU + ~256 KiB of wasted heap allocation
     // + a deep Value clone per dispatch.
     const DISPATCH_DATA_MAX_BYTES: usize = 256 * 1024;
-    let data_str: String = match data.as_ref() {
-        Some(data_val) => serde_json::to_string(data_val).unwrap_or_else(|_| "null".to_string()),
-        None => "{}".to_string(),
+    // `Cow<'static, str>` for `data_str` so the `data: None` case
+    // uses `Cow::Borrowed("{}")` (a zero-allocation static slice — no
+    // heap-allocated `String` for the common 2-byte literal). The
+    // `data: Some(v)` case stays `Cow::Owned(serde_json::to_string(v)...)`
+    // (one heap allocation for the serialized payload, same as before).
+    // The size check below (`data_str.len()`) and the `format!` frame
+    // construction further down both work unchanged with a `Cow<str>`
+    // (it derefs to `&str`).
+    let data_str: Cow<'static, str> = match data.as_ref() {
+        Some(data_val) => Cow::Owned(
+            serde_json::to_string(data_val).unwrap_or_else(|_| "null".to_string()),
+        ),
+        None => Cow::Borrowed("{}"),
     };
     if data_str.len() > DISPATCH_DATA_MAX_BYTES {
         log::warn!(

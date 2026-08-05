@@ -372,27 +372,58 @@ fn spawn_writer_task(
                 );
             }
         }
+        // Gate the drain and respawn trigger on the same generation
+        // check as the ws_tx clear above. The writer cleanup previously
+        // did an UNCONDITIONAL drain + respawn trigger — if a newer
+        // reconnect had bumped the generation and added new in-flight
+        // dispatches, the old writer's unconditional drain would reject
+        // the NEW connection's dispatches with sidecar_disconnected
+        // errors and emit a spurious supervisor_relaunching banner.
+        // Mirror the reader cleanup block (ws.rs:840-892) which already
+        // gates all three side effects on the generation check.
         {
-            let count = drain_pending_with_disconnect_error(&state_for_cleanup).await;
-            if count > 0 {
-                log::warn!(
-                    "[WS-WRITER] drained {} pending dispatch requests on write-half failure (XE-15-1)",
-                    count
+            let current_generation = state_for_cleanup.ws_generation.load(Ordering::SeqCst);
+            if current_generation == my_generation {
+                let count = drain_pending_with_disconnect_error(&state_for_cleanup).await;
+                if count > 0 {
+                    log::warn!(
+                        "[WS-WRITER] drained {} pending dispatch requests on write-half failure",
+                        count
+                    );
+                }
+            } else {
+                log::info!(
+                    "[WS-WRITER] cleanup skipping drain — generation mismatch \
+                     (mine={}, current={})",
+                    my_generation,
+                    current_generation
                 );
             }
         }
         if !state_for_cleanup.shutting_down.load(Ordering::SeqCst) {
-            let _ = app_for_cleanup.emit(
-                "supervisor_relaunching",
-                json!({"reason": "writer_half_closed"}),
-            );
-            log::warn!(
-                "[WS-WRITER] write half closed — triggering supervisor respawn (XE-15-1)"
-            );
-            trigger_respawn_off_thread(
-                app_for_cleanup.clone(),
-                state_for_cleanup.clone(),
-            );
+            let current_generation = state_for_cleanup.ws_generation.load(Ordering::SeqCst);
+            if current_generation == my_generation {
+                if let Err(e) = app_for_cleanup.emit(
+                    "supervisor_relaunching",
+                    json!({"reason": "writer_half_closed"}),
+                ) {
+                    log::warn!("[WS-WRITER] failed to emit supervisor_relaunching: {}", e);
+                }
+                log::warn!(
+                    "[WS-WRITER] write half closed — triggering supervisor respawn"
+                );
+                trigger_respawn_off_thread(
+                    app_for_cleanup.clone(),
+                    state_for_cleanup.clone(),
+                );
+            } else {
+                log::info!(
+                    "[WS-WRITER] cleanup skipping respawn trigger — generation mismatch \
+                     (mine={}, current={})",
+                    my_generation,
+                    current_generation
+                );
+            }
         }
     });
 }

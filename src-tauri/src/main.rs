@@ -152,7 +152,10 @@ fn main() {
             // ADR-0020 §8: one-time Electron userData → Tauri config_dir
             // migration, BEFORE the sidecar spawns (so the sidecar boots
             // against already-migrated data). Idempotent + non-destructive.
-            migrate::migrate_electron_userdata(&app_handle);
+            // Runs on the async runtime's blocking thread pool via
+            // `migrate_electron_userdata_async` (called inside the spawn
+            // block below) so the Tauri event loop is not stalled for
+            // 5-30s on first launch.
             //Listen for the `relaunch_app` event (renamed from
             // Python's `relaunch_electron`) and trigger a full app
             // restart. The listener body (relaunch_ack + delayed
@@ -179,9 +182,31 @@ fn main() {
             // `sidecar::spawn::initialize_sidecar` so this file stays
             // wiring-only (C-ARCH-1).
             tauri::async_runtime::spawn(async move {
+                // ADR-0020 §8: run the one-time Electron→Tauri migration
+                // on the blocking pool (fs-heavy, 5-30s on first launch)
+                // so the async task is not stalled. MUST run before
+                // initialize_sidecar so the sidecar boots against
+                // already-migrated data.
+                migrate::migrate_electron_userdata_async(&app_handle).await;
                 let state: tauri::State<'_, Arc<SidecarState>> = app_handle.state();
                 let state = state.inner().clone();
-                sidecar::spawn::initialize_sidecar(&app_handle, state).await;
+                // Wrap in catch_unwind so a panic in initialize_sidecar
+                // (e.g. a future invariant violation) is logged with
+                // the actual panic message rather than silently lost
+                // (Tauri's runtime does not surface spawned-task panics).
+                let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    tauri::async_runtime::block_on(async {
+                        sidecar::spawn::initialize_sidecar(&app_handle, state).await;
+                    });
+                }));
+                if let Err(payload) = result {
+                    let msg = payload
+                        .downcast_ref::<&'static str>()
+                        .copied()
+                        .or_else(|| payload.downcast_ref::<String>().map(|s| s.as_str()))
+                        .unwrap_or("<non-string panic>");
+                    log::error!("[MAIN] initialize_sidecar task panicked: {}", msg);
+                }
             });
             Ok(())
         })

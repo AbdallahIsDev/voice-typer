@@ -202,6 +202,7 @@ pub(crate) fn write_restart_counter(count: u32) {
 ///     to the same `SidecarState` instance, not a free-floating helper.
 ///     The function only writes a disk file; it does not touch the
 ///     shared state.
+#[allow(dead_code)] // intended: caller is a different lane, wired separately (see doc above)
 pub(crate) fn clear_restart_counter_for_user_restart(_state: &Arc<SidecarState>) {
     log::info!(
         "[SUPERVISOR] user-initiated restart requested — clearing persisted restart counter \
@@ -343,14 +344,19 @@ pub(crate) async fn respawn(
         .await;
     match inner_result {
         Ok(r) => r,
-        Err(_panic_payload) => {
+        Err(panic_payload) => {
+            let msg = panic_payload
+                .downcast_ref::<&'static str>()
+                .copied()
+                .or_else(|| panic_payload.downcast_ref::<String>().map(|s| s.as_str()))
+                .unwrap_or("<non-string panic payload>");
             log::error!(
-                "[SUPERVISOR] respawn_inner panicked — clearing respawn_in_progress \
-                 so future respawns can proceed"
+                "[SUPERVISOR] respawn_inner panicked: {} — clearing respawn_in_progress \
+                 so future respawns can proceed",
+                msg
             );
-            //clear the flag in the Err(panic) arm.
             state.respawn_in_progress.store(false, Ordering::SeqCst);
-            Err("respawn_inner panicked".to_string())
+            Err(format!("respawn_inner panicked: {}", msg))
         }
     }
 }
@@ -387,7 +393,22 @@ pub(crate) async fn respawn_inner(
             return Ok(());
         }
         log::warn!("[SUPERVISOR] respawn attempt {} after {}ms", attempt + 1, delay_ms);
-        tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
+        // Cancellable backoff: poll shutting_down every 100ms so a
+        // user-initiated quit during the backoff sleep (up to 8s on
+        // the 5th iteration) doesn't delay app exit by the full sleep.
+        let sleep_target = tokio::time::Instant::now() + Duration::from_millis(*delay_ms);
+        loop {
+            if state.shutting_down.load(Ordering::SeqCst) {
+                log::info!("[SUPERVISOR] shutting down during backoff sleep — aborting respawn");
+                state.respawn_in_progress.store(false, Ordering::SeqCst);
+                return Ok(());
+            }
+            let now = tokio::time::Instant::now();
+            if now >= sleep_target {
+                break;
+            }
+            tokio::time::sleep(std::cmp::min(sleep_target - now, Duration::from_millis(100))).await;
+        }
 
         // re-check `shutting_down` immediately before spawning a
         // new sidecar. The check at the top of the loop could be stale
@@ -742,7 +763,6 @@ mod tests {
     use super::*;
     use crate::state::SidecarState;
     use std::sync::Arc;
-    use std::time::Duration;
 
     // parse_restart_counter saturating cast ──────────────
 

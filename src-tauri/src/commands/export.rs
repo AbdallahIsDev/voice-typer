@@ -256,6 +256,7 @@ pub(crate) fn value_to_string_into(out: &mut String, v: &Value) {
 /// implementations produce byte-identical output for the same input
 /// (enforced by the TS parity test `export-handlers-csv-escape.test.ts`
 /// and by the `test_csv_escape_*` cases in this module).
+#[allow(dead_code)] // test-only: production path uses csv_escape_into (see doc above)
 pub(crate) fn csv_escape(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     csv_escape_into(&mut out, s);
