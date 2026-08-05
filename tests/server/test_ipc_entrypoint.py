@@ -279,13 +279,19 @@ class TestMainEntrypoint:
         result = entrypoint.main()
         assert result is None, "main() must return None on a clean shutdown (Python exit code 0)."
 
-        # At least one signal handler was registered via signal.signal.
-        assert len(signal_calls) >= 1, (
-            "main() must register at least one signal handler via "
-            "signal.signal (the SIGUSR1 faulthandler-dump handler on POSIX)."
-        )
-        # On POSIX, SIGUSR1 was among the registered signals.
+        # On POSIX, main() registers a SIGUSR1 faulthandler-dump handler
+        # via signal.signal. On Windows SIGUSR1 does not exist and
+        # main() legitimately registers nothing (faulthandler.enable()
+        # alone does not call signal.signal) — gate both assertions on
+        # the platform so the test passes everywhere but only pins the
+        # registration where it exists.
         if hasattr(signal, "SIGUSR1"):
+            # At least one signal handler was registered via signal.signal.
+            assert len(signal_calls) >= 1, (
+                "main() must register at least one signal handler via "
+                "signal.signal (the SIGUSR1 faulthandler-dump handler on POSIX)."
+            )
+            # On POSIX, SIGUSR1 was among the registered signals.
             registered_signals = {call[0] for call in signal_calls}
             assert signal.SIGUSR1 in registered_signals, (
                 "POSIX main() must register a handler for SIGUSR1 so "
