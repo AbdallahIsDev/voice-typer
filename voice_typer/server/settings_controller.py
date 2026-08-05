@@ -40,6 +40,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from voice_typer.server import i18n
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.recording import Recorder
 
@@ -105,7 +106,7 @@ class SettingsController:
                 log.info("[CONFIG] Autostart set to %s", enabled)
             except Exception as e:
                 log.exception("[CONFIG] Failed to set autostart")
-                app.tray.notify(APP_NAME, f"Could not change autostart setting.\n{e}")
+                app.tray.notify(APP_NAME, i18n.t("notify.settings_controller.autostart_failed", error=str(e)))
 
     # ── Notifications ──────────────────────────────────────────────────
 
@@ -149,13 +150,13 @@ class SettingsController:
                 log.warning("[CONFIG] Failed to save microphone selection to disk")
                 app.tray.notify(
                     APP_NAME,
-                    "Failed to save microphone selection. Check disk space or permissions.",
+                    i18n.t("notify.settings_controller.mic_save_failed"),
                 )
             label = mic_name if mic_name else "System Default"
 
             if app.recorder.recording:
                 log.info("[CONFIG] Microphone changed to %s; applying after active recording", label)
-                app.tray.notify(APP_NAME, f"Microphone next recording: {label}")
+                app.tray.notify(APP_NAME, i18n.t("notify.settings_controller.mic_next_recording", label=label))
                 return
 
             # Re-create with new mic. NOTE: this intentionally does NOT pass
@@ -166,4 +167,4 @@ class SettingsController:
             # primary instance only.
             app.recorder = Recorder(app.config, audio_processor=app._audio_processor)  # re-create with new mic
             log.info("[CONFIG] Microphone changed to: %s", label)
-            app.tray.notify(APP_NAME, f"Microphone: {label}")
+            app.tray.notify(APP_NAME, i18n.t("notify.settings_controller.mic_changed", label=label))

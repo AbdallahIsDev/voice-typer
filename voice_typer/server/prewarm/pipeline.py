@@ -122,7 +122,7 @@ def run(
     finish before loading the model (avoids the disk-I/O fight when the
     user logs in faster than prewarm can warm the cache).
     """
-    _pkg._setup_logging()
+    _pkg._setup_logging(prewarm_only=True)
     if delay > 0:
         log.info("[PREWARM] delaying %.0fs to let login settle", delay)
         time.sleep(delay)

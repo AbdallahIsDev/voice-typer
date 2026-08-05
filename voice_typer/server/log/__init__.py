@@ -81,6 +81,7 @@ from voice_typer.server.log.formatters import (  # noqa: F401
     _extract_topic,
     _FileFormatter,
     _infer_topic,
+    _iso_timestamp,
     _JsonFormatter,
 )
 
@@ -195,30 +196,6 @@ _devnull_files: list = []
 # config without restarting.  Values are stored as level *names*
 # (``"DEBUG"``, ``"INFO"`` ...) so the dict is JSON-serialisable for IPC.
 _module_level_overrides: dict[str, str] = {}
-
-
-def _iso_timestamp(record: logging.LogRecord, *, utc: bool = False) -> str:
-    """Return an ISO 8601 timestamp with milliseconds and timezone.
-
-    ``logging.Formatter.formatTime`` with a custom format string
-    bypasses Python's ``%(msecs)`` / ``%(asctime)`` defaults and drops
-    both milliseconds and the timezone offset.  For an audio app that
-    pushes ``bubble_level`` events at ~60 Hz, two log lines within the
-    same second are indistinguishable, and cross-timezone support
-    tickets require manual timezone inference.
-
-    By default the local-time zone offset is appended (``+0200``);
-    pass ``utc=True`` for the JSON formatter which emits a Z-suffixed
-    UTC timestamp (``...Z``) that log aggregators expect.
-    """
-    if utc:
-        ct = time.gmtime(record.created)
-        base = time.strftime("%Y-%m-%dT%H:%M:%S", ct)
-        return f"{base}.{int(record.msecs):03d}Z"
-    ct = time.localtime(record.created)
-    base = time.strftime("%Y-%m-%dT%H:%M:%S", ct)
-    tz = time.strftime("%z", ct) or "+0000"
-    return f"{base}.{int(record.msecs):03d}{tz}"
 
 
 def reset() -> None:

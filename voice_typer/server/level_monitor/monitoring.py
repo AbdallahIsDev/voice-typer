@@ -663,18 +663,25 @@ def _idle_timeout_auto_stop() -> bool:
     """auto-stop the monitor stream if the IPC idle-timeout has fired.
 
     Called from the level worker loop on every iteration. Returns True
-    if the stream was auto-stopped (so the caller can log it).
+    if the stream was auto-stopped (so the caller can ``return`` from
+    the worker loop — see ``_level_worker_loop``).
 
-    The stream is closed (``stream.stop()`` / ``stream.close()``) but
-    the worker thread itself is NOT stopped — the worker keeps running
-    so the next ``start_monitoring`` call doesn't have to spin up a
-    fresh thread (idempotent reuse, see ``_ensure_level_worker_running``).
+    The stream is closed (``stream.stop()`` / ``stream.close()``) AND
+    the worker thread exits its loop on the next iteration (the caller
+    ``return``s after a True return). The next ``start_monitoring``
+    call spawns a fresh worker thread via
+    ``_ensure_level_worker_running`` (thread creation is ~1 ms —
+    negligible vs. the 60 s idle window). This eliminates the 4 Hz
+    idle wakeups (250 ms backstop ``wait()`` timeout × forever) that
+    would otherwise drain the battery on an idle laptop.
 
     IMPORTANT: this function must NOT call ``stop_monitoring()`` —
     ``stop_monitoring`` calls ``_stop_level_worker`` which joins the
     worker thread, and we ARE the worker thread. Deadlock would result.
     Instead, we close the stream directly and flip ``_monitor_active``
-    to False.
+    to False. The caller (``_level_worker_loop``) is responsible for
+    clearing ``_level_worker_thread`` and ``return``ing — it does NOT
+    call ``_stop_level_worker`` (which would deadlock joining itself).
     """
     if not _state._monitor_active:
         return False

@@ -991,7 +991,12 @@ class CloudEngine:
             # request — a redirect to an attacker URL would otherwise POST
             # the test payload there).  Mirrors ``_call_api`` in
             # ``llm_polish.py`` and the main transcription path above.
-            with _opener.open(req, timeout=10) as resp:
+            # Use the shared ``_REQUEST_TIMEOUT_SECONDS`` constant
+            # instead of a hardcoded ``10`` so a future change to the
+            # per-call timeout propagates here automatically.  Mirrors
+            # the per-transcription HTTP path (see
+            # ``_send_openai_compatible`` / ``_send_deepgram``).
+            with _opener.open(req, timeout=self._REQUEST_TIMEOUT_SECONDS) as resp:
                 return True, f"Connected to {self.provider} (status {resp.status})"
         except Exception as exc:
             # A 400/401/403/422 error means the server is reachable
@@ -1007,7 +1012,31 @@ class CloudEngine:
                 # rejected; 400/422 = key accepted, body invalid.
                 if status in (401, 403):
                     return False, f"Connected to {self.provider}, but API key was rejected (HTTP {status})"
+                # A 5xx means the server is reachable but is itself
+                # failing (overload, maintenance, internal error).
+                # Treating that as a plain "Connected" success is
+                # misleading — the user's transcriptions will fail
+                # until the provider recovers.  Surface a diagnostic
+                # that names the status and hints at the cause, while
+                # still reporting ``success=True`` (the connection
+                # itself DID succeed; the provider is the problem,
+                # not our config).
+                if 500 <= status < 600:
+                    return True, (
+                        f"Connected to {self.provider}, but server returned "
+                        f"HTTP {status} — provider may be temporarily unavailable"
+                    )
                 # Any other HTTP error means the server is up and
                 # talking to us — treat as success.
                 return True, f"Connected to {self.provider} (HTTP {status})"
-            return False, f"Connection failed: {redact_secret(msg)}"
+            # Chain ``redact_url`` (strips URL userinfo +
+            # query-string secrets) BEFORE ``redact_secret`` (masks
+            # ``sk-…`` / ``Bearer …`` / generic long alphanumeric
+            # runs).  Mirrors the catch-all branches in
+            # ``_send_openai_compatible`` / ``_send_deepgram`` above
+            # so the redaction contract is identical across every
+            # error path in this module.  Pre-fix this branch called
+            # only ``redact_secret``, leaving URL userinfo (e.g.
+            # ``user:pass@host``) and short query-string secrets
+            # verbatim in the returned message.
+            return False, f"Connection failed: {redact_secret(redact_url(msg))}"

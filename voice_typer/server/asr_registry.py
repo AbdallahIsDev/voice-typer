@@ -834,9 +834,51 @@ class AsrBackendRegistry:
 
         used by app.py's _change_model() before loading
                 the new model.
+
+        Refuses to unload a backend that is currently marked busy
+        (inside :meth:`transcribe_with_fallback` /
+        :meth:`busy_context`). Raises :class:`RuntimeError` so the caller
+        (``ModelManager._change_model_unload_phase``, ``idle_unload``,
+        ``force_unload_active``) can catch and defer / log. This closes
+        the TOCTOU window where :meth:`transcribe_with_fallback` captures
+        the backend object under ``self._lock`` (the
+        ``backend = self._backends.get(target)`` line) and then invokes
+        ``backend.transcribe_with_fallback(...)`` *outside* the lock —
+        without this guard a concurrent ``unload()`` would tear down the
+        backend (free its CUDA tensors / ctranslate2 handle) while a
+        transcription is mid-flight, crashing the C-level call with a
+        use-after-free.
+
+        The busy-check is performed under ``self._lock`` so it is atomic
+        w.r.t. :meth:`set_busy` / :meth:`clear_busy` (which both acquire
+        the same lock). A ``False`` result is still just a snapshot — the
+        backend could become busy immediately after ``unload`` returns —
+        but the guard eliminates the *known* race where the transcribe
+        thread is already inside ``busy_context`` when ``unload`` is
+        called. Callers that need a stricter guarantee must layer their
+        own mutex on top (e.g. ``_config_mutation_lock`` in
+        ``ModelManager._change_model``).
+
+        Callers SHOULD wrap this call in ``try/except RuntimeError`` and
+        log/defer rather than letting the exception propagate — see
+        ``model_manager.py`` ``idle_unload`` (~L1794) and
+        ``force_unload_active`` (~L1915) for the canonical
+        ``log.warning(..., exc_info=True)`` pattern. The
+        ``_change_model_unload_phase`` caller (~L929) is currently a
+        bare call; it relies on the upstream ``_change_model_setattr_phase``
+        deferral (``recorder.recording or not _busy_event.is_set()``) to
+        avoid reaching this path while busy — a follow-up task should
+        add a ``try/except`` there for defense-in-depth.
         """
         target = name or self.active_name
         with self._lock:
+            # Refuse to unload a busy backend. Use the resolved
+            # ``target`` (NOT the raw ``name`` parameter) so the check
+            # also fires when ``name=None`` (unload-the-active-backend
+            # calls). ``self._busy_backends`` is a ``set[str]`` so
+            # ``target in self._busy_backends`` is O(1).
+            if target in self._busy_backends:
+                raise RuntimeError(f"cannot unload busy backend: {target}")
             backend = self._backends.get(target)
         if backend is not None:
             try:

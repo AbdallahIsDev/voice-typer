@@ -521,14 +521,24 @@ class SessionState:
         # also available as ``_AUDIO_RING_BUFFER_CAPACITY_FALLBACK_S``
         # for environments where the worker is known to be slow
         # (set via env var).
-        _ring_buffer_seconds = float(os.environ.get("VOICE_TYPER_RING_BUFFER_SECONDS", "1.0"))
+        # default to 2.0s of headroom so the ring buffer can
+        # absorb the pre-roll filter-chain prepend duration (—
+        # prepend now runs on the worker thread while live audio
+        # accumulates in the ring buffer) plus RNNoise worker stalls.
+        # The env var ``VOICE_TYPER_RING_BUFFER_SECONDS`` overrides
+        # this for environments that need tighter (or looser) capacity.
+        _ring_buffer_seconds = float(os.environ.get("VOICE_TYPER_RING_BUFFER_SECONDS", "2.0"))
         if sizing_sr > 0:
             new_ring_capacity = int(sizing_sr / blocksize * _ring_buffer_seconds)
-            if new_ring_capacity < 16:
-                # Floor at 16 chunks so a very low blocksize / high sr
-                # combination doesn't under-allocate (16 chunks ≈ 0.5s
-                # at 16kHz/512 — enough for one VAD inference spike).
-                new_ring_capacity = 16
+            # floor at 64 chunks so a 16 kHz / 512-block device
+            # still gets ~2s of headroom (64 * 512 / 16000 = 2.048s),
+            # preserving the RNNoise-worker-stall headroom intent that
+            # previously lived in the (now-removed) ``_uu36_*`` override
+            # block in ``_recorder_split.start_recording``. 64 chunks
+            # is also sufficient for one VAD inference spike (Silero
+            # ~1-5ms against a 32ms budget).
+            if new_ring_capacity < 64:
+                new_ring_capacity = 64
             if new_ring_capacity != _recording_pkg._AUDIO_RING_BUFFER_CAPACITY and new_ring_capacity > 0:
                 # Preserve any chunks already in the ring buffer
                 # (defensive -- start() clears the ring buffer in

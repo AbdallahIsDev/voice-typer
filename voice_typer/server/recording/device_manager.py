@@ -447,9 +447,35 @@ class DeviceManager:
                 "Microphone permission revoked" notification instead of the
                 misleading "silence detected" message.
 
+        BT devices (Bluetooth HFP/HSP, hands-free, or 8/16 kHz
+                native-rate signatures) get a tighter 5 s interval
+                (``_device_check_interval_s_bt``) so a profile-switch
+                drift is detected within ~5 s instead of up to 30 s.
+                The interval is re-evaluated every iteration so a
+                profile switch mid-session is picked up promptly.
+
+        when ``current_device is None`` (``config.microphone is
+                None`` — PortAudio opened the OS default), the loop
+                also queries ``sd.query_devices(kind="input")["index"]``
+                and compares to ``_stream_open_default_input_index``
+                (captured at stream-open time or lazily on the first
+                iteration). On mismatch (user changed the OS default
+                input mid-session), it routes through
+                ``_handle_device_disconnect`` so the stream is torn
+                down + re-opened against the new OS default.
+
                 Exits immediately when ``_device_health_stop_event`` is set.
         """
-        while not self._device_health_stop_event.wait(timeout=self._device_check_interval_s):
+        while True:
+            # Compute the effective poll interval per iteration. BT
+            # devices (HFP/HSP, hands-free, or 8/16 kHz native rate)
+            # get a 5 s interval so a profile-switch drift is detected
+            # within ~5 s; everything else gets the default 30 s. The
+            # classification is re-evaluated every iteration so a BT
+            # profile switch mid-session is picked up promptly.
+            effective_interval = self._effective_device_check_interval_s()
+            if self._device_health_stop_event.wait(timeout=effective_interval):
+                return
             # skip the check if we've already detected a disconnect
             # and scheduled a handler.
             if self._device_disconnected:
@@ -538,8 +564,233 @@ class DeviceManager:
                                     kwargs={"_captured_generation": _captured_gen},
                                     single_flight=True,
                                 )
+                else:
+                    # ``current_device is None`` → ``config.microphone
+                    # is None`` → PortAudio opened the OS default at
+                    # stream-open time. The OS-event watchers only
+                    # listen for device-LIST changes — none subscribe
+                    # to default-input-device-change notifications on
+                    # every platform. The health-checker fills the
+                    # gap by periodically re-querying the OS default
+                    # input and comparing to the index captured at
+                    # stream-open (or lazily on the first iteration).
+                    # On mismatch, route through
+                    # ``_handle_device_disconnect`` so the stream is
+                    # torn down + re-opened against the new OS
+                    # default. Best-effort — any query failure is
+                    # logged and skipped (the next iteration retries).
+                    self._check_default_input_device_changed()
             except Exception:
                 log.debug("[RECORDING] Device health checker error", exc_info=True)
+
+    def _effective_device_check_interval_s(self) -> float:
+        """Return the effective health-checker interval for the current device.
+
+        BT devices (Bluetooth HFP/HSP headsets, hands-free devices, or
+        any device whose native sample rate is 8/16 kHz — the HFP/HSP
+        narrowband signature) get ``_device_check_interval_s_bt``
+        (default 5 s). Everything else gets ``_device_check_interval_s``
+        (default 30 s). The BT classification is done via
+        ``_get_max_retries_for_device`` (which checks the BT keywords +
+        8/16 kHz signature) on ``_build_device_info_for_retry_policy``
+        — a fresh ``sd.query_devices`` query per call.
+
+        The cost is one ``sd.query_devices`` per loop iteration. With
+        the default 30 s interval this is negligible; with the 5 s BT
+        interval it's 1 call per 5 s — acceptable.
+
+        Best-effort: if the query fails or the device info is None,
+        returns the default 30 s interval (can't tell if the device
+        is BT).
+        """
+        try:
+            dev_info = self._build_device_info_for_retry_policy()
+            if dev_info is not None and self._get_max_retries_for_device(dev_info) >= 6:
+                return self._device_check_interval_s_bt
+        except Exception:
+            log.debug(
+                "[RECORDING] BT-classification query failed; using default health-checker interval",
+                exc_info=True,
+            )
+        return self._device_check_interval_s
+
+    def record_stream_open_default_input_index(self, index: Any | None = None) -> None:
+        """Record the OS default input device index at stream-open time.
+
+        Called by ``Recorder.start()`` (via stream_lifecycle) when the
+        stream is opened with ``config.microphone is None``. The
+        health-checker compares this index to subsequent
+        ``sd.query_devices(kind="input")["index"]`` results; on
+        mismatch it routes through ``_handle_device_disconnect`` so
+        the stream is torn down + re-opened against the new OS
+        default.
+
+        If ``index`` is None (the caller didn't capture it), the
+        health-checker lazily captures it on the first iteration
+        (similar to baseline capture in
+        ``MicrophoneDeviceWatcher._check_default_device_changed``).
+
+        Public so stream_lifecycle.py can call it; safe to call
+        multiple times (the most recent value wins).
+        """
+        self._stream_open_default_input_index = index
+
+    def _check_default_input_device_changed(self) -> None:
+        """Detect OS default input device change when ``config.microphone is None``.
+
+        Queries ``sd.query_devices(kind="input")`` (which PortAudio
+        resolves to the OS default input) and compares its ``index``
+        to ``_stream_open_default_input_index``. On the first
+        successful query, captures the baseline (lazily —
+        ``record_stream_open_default_input_index`` may not have been
+        called by older callers). On subsequent queries, on mismatch
+        routes through ``_handle_device_disconnect`` so the stream is
+        torn down + re-opened against the new OS default.
+
+        Best-effort: any query failure is logged and skipped (the
+        next iteration retries). HOTKEY-CRASH: double-checks the
+        recording is still active before scheduling the handler.
+        """
+        try:
+            current_info = sd.query_devices(kind="input")
+        except Exception:
+            log.debug(
+                "[RECORDING] sd.query_devices(kind='input') failed; "
+                "skipping default-input-device change check this cycle",
+                exc_info=True,
+            )
+            return
+        if not isinstance(current_info, dict):
+            return
+        try:
+            current_index = current_info.get("index")
+        except Exception:
+            return
+        if current_index is None:
+            return
+        stream_open_index = self._stream_open_default_input_index
+        # Lazily capture the baseline on the first successful query
+        # (older callers may not have called
+        # ``record_stream_open_default_input_index`` — the first
+        # iteration establishes the baseline so a mid-session OS
+        # default change is detected on subsequent iterations).
+        if stream_open_index is None:
+            self._stream_open_default_input_index = current_index
+            return
+        if current_index == stream_open_index:
+            return
+        log.warning(
+            "[RECORDING] OS default input device changed (index %r -> %r) "
+            "— routing through disconnect handler to re-open against the new OS default",
+            stream_open_index,
+            current_index,
+        )
+        # HOTKEY-CRASH: double-check recording is still active before
+        # scheduling the handler — if the user already stopped the
+        # recording, there's nothing to recover.
+        try:
+            if not self.recorder._recording_event.is_set():
+                return
+        except AttributeError:
+            pass
+        self._device_disconnected = True
+        # Update the baseline so a subsequent iteration doesn't
+        # re-fire (the disconnect handler will re-open against the
+        # new OS default; the next stream-open will record the new
+        # baseline via ``record_stream_open_default_input_index``).
+        self._stream_open_default_input_index = current_index
+        _captured_gen = getattr(self.recorder, "_stop_generation", 0)
+        with contextlib.suppress(Exception):
+            self.recorder._spawn_device_thread(
+                name="device-default-input-changed",
+                target=self.recorder._handle_device_disconnect,
+                kwargs={"_captured_generation": _captured_gen},
+                single_flight=True,
+            )
+
+    def _verify_post_restart_sample_rate(
+        self,
+        restart_device: Any,
+        candidate_sr: Any,
+    ) -> None:
+        """Re-query the device's ``default_samplerate`` after a restart and
+        schedule an immediate drift re-check on mismatch.
+
+        After a successful ``restart_stream``, the new stream is open
+        at ``candidate_sr`` (the rate the restart path negotiated).
+        A BT HFP/HSP profile switch (e.g. A2DP → HFP) can race the
+        restart: the restart re-opens at the rate the device
+        advertised at restart time, but the device may switch to a
+        different rate immediately after (e.g. when a phone call
+        grabs the mic). The next health-checker iteration would catch
+        the drift on the regular cadence (30 s, or 5 s for BT), but
+        this method catches it immediately.
+
+        On mismatch, logs a WARNING and triggers an immediate drift
+        re-check by querying ``sd.query_devices(restart_device)`` and
+        routing through ``_handle_device_disconnect`` if drift is
+        detected (mirroring the in-loop drift-detection path).
+
+        Best-effort: any query failure is logged and skipped (the
+        next health-checker iteration will catch the drift on the
+        regular cadence).
+
+        Intended to be called by ``DisconnectHandler.restart_stream``
+        (in disconnect_handler.py) after the new stream is opened.
+        """
+        if restart_device is None or candidate_sr is None:
+            return
+        try:
+            post_info = sd.query_devices(restart_device)
+        except Exception:
+            log.debug(
+                "[RECORDING] post-restart sd.query_devices(%r) failed; skipping immediate drift re-check",
+                restart_device,
+                exc_info=True,
+            )
+            return
+        if not isinstance(post_info, dict):
+            return
+        try:
+            post_sr = post_info.get("default_samplerate")
+            if post_sr is None:
+                return
+            post_sr = float(post_sr)
+            cand_sr = float(candidate_sr)
+        except (TypeError, ValueError):
+            return
+        if abs(post_sr - cand_sr) <= 1.0:
+            return
+        log.warning(
+            "[RECORDING] Post-restart sample-rate drift detected on device %r "
+            "(candidate_sr=%r, device default_samplerate=%r) — scheduling immediate drift re-check",
+            restart_device,
+            candidate_sr,
+            post_sr,
+        )
+        # Immediate drift re-check: if the recorder's ``_effective_sr``
+        # still mismatches the device's current native rate, route
+        # through ``_handle_device_disconnect`` so the stream is torn
+        # down + re-opened at the new rate. This mirrors the in-loop
+        # drift-detection path (``_detect_sample_rate_drift`` +
+        # ``_spawn_device_thread``) but runs immediately after the
+        # restart instead of waiting for the next 5-30 s health-checker
+        # wake.
+        if self._detect_sample_rate_drift(post_info):
+            try:
+                if not self.recorder._recording_event.is_set():
+                    return
+            except AttributeError:
+                pass
+            self._device_disconnected = True
+            _captured_gen = getattr(self.recorder, "_stop_generation", 0)
+            with contextlib.suppress(Exception):
+                self.recorder._spawn_device_thread(
+                    name="device-post-restart-drift",
+                    target=self.recorder._handle_device_disconnect,
+                    kwargs={"_captured_generation": _captured_gen},
+                    single_flight=True,
+                )
 
     def _detect_sample_rate_drift(self, dev_info: Any) -> bool:
         """Return True if the device's ``default_samplerate`` differs from

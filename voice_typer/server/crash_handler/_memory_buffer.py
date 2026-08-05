@@ -108,6 +108,22 @@ def install_memory_buffer(config_dir: Path) -> None:
         log.debug("[CRASH-BUF] failed to resolve config_dir", exc_info=True)
         return
 
+    # Reuse _SecureRotatingFileHandler from the sibling ``log`` package
+    # so the crash-buffer file inherits the same 0o600 perms and
+    # inter-process rotation lock as the main rotating log. The import
+    # is from a sibling package (``voice_typer.server.log``) and is
+    # REQUIRED — there is deliberately NO insecure fallback to a stock
+    # ``RotatingFileHandler``. If the import fails the exception
+    # propagates to the caller (``set_crash_handler_config_dir``
+    # suppresses it via ``contextlib.suppress(Exception)``), leaving
+    # the crash buffer uninstalled. The crash buffer is a nice-to-have
+    # diagnostic aid, not a critical-path component; losing it is
+    # preferable to silently writing crash records to a world-readable
+    # handler that lacks 0o600 perms and the inter-process rotation
+    # lock (a stock ``RotatingFileHandler`` re-opens rotated files with
+    # the process umask, which is typically 0o022 — world-readable).
+    from voice_typer.server.log import _SecureRotatingFileHandler
+
     # Build (or rebuild) the target RotatingFileHandler. The target is
     # replaced on every call so a config-dir migration re-points the
     # file at the new location. The previous target (if any) is closed
@@ -115,31 +131,13 @@ def install_memory_buffer(config_dir: Path) -> None:
     try:
         resolved.mkdir(parents=True, exist_ok=True)
         buffer_path = resolved / "voice-typer-crash-buffer.log"
-        # Reuse _SecureRotatingFileHandler from the log module so the
-        # crash-buffer file gets the same 0o600 perms + inter-process
-        # lock guarantees as the main rotating log. Falls back to a
-        # stock RotatingFileHandler if the secure handler can't be
-        # imported (e.g. during early bootstrap before the log package
-        # is wired up).
-        target_handler: logging.Handler | None = None
-        try:
-            from voice_typer.server.log import _SecureRotatingFileHandler
-
-            target_handler = _SecureRotatingFileHandler(
-                buffer_path,
-                maxBytes=1 * 1024 * 1024,  # 1 MiB — small buffer file
-                backupCount=1,
-                encoding="utf-8",
-                errors="backslashreplace",
-            )
-        except Exception:
-            target_handler = logging.handlers.RotatingFileHandler(
-                buffer_path,
-                maxBytes=1 * 1024 * 1024,
-                backupCount=1,
-                encoding="utf-8",
-                errors="backslashreplace",
-            )
+        target_handler = _SecureRotatingFileHandler(
+            buffer_path,
+            maxBytes=1 * 1024 * 1024,  # 1 MiB — small buffer file
+            backupCount=1,
+            encoding="utf-8",
+            errors="backslashreplace",
+        )
         # Tighten perms on POSIX so the crash buffer (which contains
         # the same PII-redacted log records as voice-typer.log) is not
         # world-readable.

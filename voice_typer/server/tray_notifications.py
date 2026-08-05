@@ -188,7 +188,7 @@ def do_notify(tray: TrayIcon, title: str, message: str) -> None:
 
 
 def on_parakeet_cpu_fallback(tray: TrayIcon, event: dict) -> None:
-    """SK-b: handle ``parakeet_cpu_fallback`` events from parakeet_engine.
+    """Handle ``parakeet_cpu_fallback`` events from parakeet_engine.
 
     parakeet_engine publishes ``{"type": "parakeet_cpu_fallback",
     "data": {"device": "cpu", "reason": "..."}}`` when GPU transcription

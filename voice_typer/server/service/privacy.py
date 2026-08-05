@@ -41,10 +41,24 @@ import logging
 import os
 
 from voice_typer.server._secrets import redact_secret, redact_url
-from voice_typer.server._user_data_files import _GDPR_PERSONAL_FILES
+from voice_typer.server._user_data_files import (
+    _GDPR_PERSONAL_FILES,
+)
+from voice_typer.server._user_data_files import (
+    _GDPR_PERSONAL_GLOBS as _GDPR_PERSONAL_GLOBS_INVENTORY,
+)
 from voice_typer.server.service._base import ServiceMixinBase
 
 log = logging.getLogger(__name__)
+
+# Once-per-process flag for the missing-``_config_mutation_lock``
+# warning emitted by ``PrivacyMixin.delete_all_personal_data`` when the
+# app doesn't expose the lock (test fakes / misconfigured host). Real
+# ``VoiceTyperApp`` instances always provide the lock; the warning
+# exists to surface the misconfiguration without spamming the log on
+# every GDPR delete. Mirrors the
+# ``config_handlers._CONFIG_LOCK_MISSING_WARNED`` pattern.
+_GDPR_CONFIG_LOCK_MISSING_WARNED: bool = False
 
 
 class PrivacyMixin(ServiceMixinBase):
@@ -174,6 +188,21 @@ class PrivacyMixin(ServiceMixinBase):
         # ``history.db.corrupt-*`` () which was already
         # covered.
         "history.db.pre-migration-v*",
+        # Explicit corrupt / pre-migration backup sidecars.
+        # The trailing-``*`` globs above technically already match
+        # ``-wal`` / ``-shm`` sidecars too, but the corrupt-quarantine
+        # path (``history_db_internals/recovery.py``) and the
+        # pre-migration backup path both create byte-for-byte sidecar
+        # copies that retain dictated plaintext. Enumerating them
+        # explicitly here (mirrored from
+        # ``_user_data_files._GDPR_PERSONAL_GLOBS``) makes the
+        # inventory self-documenting and survives a future tightening
+        # of the bare ``history.db.corrupt-*`` glob to exclude sidecars.
+        "history.db.corrupt-*-wal",
+        "history.db.corrupt-*-shm",
+        "history.db.pre-migration-v*.bak",
+        "history.db.pre-migration-v*.bak-wal",
+        "history.db.pre-migration-v*.bak-shm",
     )
 
     # Privacy / GDPR ( / ) ───────────────────────────────
@@ -326,11 +355,35 @@ class PrivacyMixin(ServiceMixinBase):
         rotated log backups, crash diagnostic files — see the per-
         pattern rationale on the constant).  Same per-unlink error
         handling as :meth:`_gdpr_unlink_personal_files`.
+
+        The ``_GDPR_PERSONAL_GLOBS`` tuple includes explicit
+        ``-wal`` / ``-shm`` sidecar patterns alongside the bare
+        ``history.db.corrupt-*`` / ``history.db.pre-migration-v*``
+        globs. A single on-disk file (e.g. ``history.db.corrupt-123-wal``)
+        is matched by BOTH the bare glob AND the sidecar glob. The
+        first unlink succeeds; the second would raise
+        ``FileNotFoundError`` (a subclass of ``OSError``, NOT
+        ``PermissionError``) and be mis-reported as a failure.
+        Dedup via a ``seen`` set keyed on the resolved path so each
+        file is unlinked at most once — also prevents the same file
+        appearing twice in the ``erased`` list reported to the user.
         """
         from pathlib import Path
 
+        seen: set[str] = set()
         for pattern in PrivacyMixin._GDPR_PERSONAL_GLOBS:
             for path in Path(config_dir).glob(pattern):
+                key = str(path)
+                if key in seen:
+                    # Already unlinked by an earlier overlapping
+                    # glob pattern (e.g. ``history.db.corrupt-*`` and
+                    # ``history.db.corrupt-*-wal`` both match
+                    # ``history.db.corrupt-<ts>-wal``). Skip silently
+                    # so we don't double-report in ``erased`` or
+                    # surface a false ``FileNotFoundError`` in
+                    # ``failed``.
+                    continue
+                seen.add(key)
                 try:
                     path.unlink()
                     erased.append(str(path))
@@ -594,6 +647,59 @@ class PrivacyMixin(ServiceMixinBase):
                 failed[str(re_cleanup_path)] = f"{type(exc).__name__}: {exc}"
 
     @staticmethod
+    def _gdpr_zip_directory(
+        zf: object,
+        config_dir: "os.PathLike[str] | str",
+        subdir: str,
+        prefix: str,
+    ) -> None:
+        """Recursively walk ``<config_dir>/<subdir>/`` into the zip.
+
+        The GDPR delete path removes the ``logs/`` (Rust host rotating
+        log) and ``crash_diagnostics_archive/`` (archived crash
+        diagnostics) subdirectories via :meth:`_gdpr_rmtree_rust_logs`
+        and :meth:`_gdpr_rmtree_crash_archive`.  The export path must
+        include the *same* files so the user receives an Art. 20
+        portability copy of every artifact the delete would erase —
+        otherwise the export / delete set drift and the user's
+        portability right is silently narrower than their erasure
+        right.
+
+        Each file is added to the zip under ``<prefix>/<relative-path>``
+        where ``<relative-path>`` is the file's path relative to
+        ``<config_dir>/<subdir>/`` (POSIX-joined so the zip is
+        portable across OSes).  The prefix preserves the on-disk
+        directory structure inside the zip so the user can tell at
+        a glance which artifact came from which subdir, and nested
+        files (e.g. ``logs/sub/file.log``) keep their nesting.
+
+        Best-effort: a missing ``<subdir>`` (fresh install, or older
+        build that hasn't created it yet) is a silent no-op; a
+        per-file ``Exception`` (e.g. permission error on read, or a
+        dangling symlink that ``is_file()`` skips) is caught + logged
+        at DEBUG so a single unreadable file doesn't abort the whole
+        export (the user gets a partial zip rather than nothing).
+        """
+        from pathlib import Path
+
+        root = Path(config_dir) / subdir
+        if not root.is_dir():
+            return
+        for path in root.rglob("*"):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(root).as_posix()
+            arcname = f"{prefix}/{rel}"
+            try:
+                zf.write(path, arcname=arcname)  # type: ignore[attr-defined]
+            except Exception as exc:
+                log.debug(
+                    "[SERVICE] GDPR export: could not add %s to zip: %s",
+                    path,
+                    exc,
+                )
+
+    @staticmethod
     def _gdpr_build_zip(zf: object, config_dir: "os.PathLike[str] | str") -> None:
         """write every personal-data artifact into ``zf``.
 
@@ -603,6 +709,14 @@ class PrivacyMixin(ServiceMixinBase):
         Per-file errors are caught + logged at DEBUG so a single
         unreadable file doesn't abort the whole export (the user gets
         a partial zip rather than nothing).
+
+        The two personal-data *subdirectories* (``logs/`` and
+        ``crash_diagnostics_archive/``) are walked recursively via
+        :meth:`_gdpr_zip_directory` because the glob loop above only
+        matches files at the ``config_dir`` root.  The delete path
+        rmtree's both subdirectories (see
+        :meth:`_gdpr_rmtree_rust_logs` / :meth:`_gdpr_rmtree_crash_archive`),
+        so the export path must walk them too for Art. 20 parity.
         """
         from pathlib import Path
 
@@ -623,10 +737,26 @@ class PrivacyMixin(ServiceMixinBase):
         # rotated log backups ``voice-typer.log.*`` + ``prewarm.log.*``,
         # crash diagnostic files ``crash_diagnostics.*.txt`` +
         # ``python_crash.*.txt``).
+        #
+        # ``_GDPR_PERSONAL_GLOBS`` includes overlapping
+        # patterns (e.g. ``history.db.corrupt-*`` and
+        # ``history.db.corrupt-*-wal`` both match
+        # ``history.db.corrupt-<ts>-wal``). Without dedup the same file
+        # would be ``zf.write``n twice with the same ``arcname`` —
+        # ``zipfile.ZipFile`` accepts the duplicate write but emits a
+        # ``UserWarning: Duplicate name`` and the second entry shadows
+        # the first when extracted. Dedup via a ``seen`` set keyed on
+        # the resolved path so each file is added to the zip at most
+        # once.
+        seen: set[str] = set()
         for pattern in PrivacyMixin._GDPR_PERSONAL_GLOBS:
             for path in config_dir_path.glob(pattern):
                 if not path.is_file():
                     continue
+                key = str(path)
+                if key in seen:
+                    continue
+                seen.add(key)
                 try:
                     zf.write(path, arcname=path.name)  # type: ignore[attr-defined]
                 except Exception as exc:
@@ -635,6 +765,14 @@ class PrivacyMixin(ServiceMixinBase):
                         path,
                         exc,
                     )
+        # 3. Recursive subdirectory walks.  ``logs/`` holds the Rust
+        # host rotating log (no PII redaction per the Rust logger) and
+        # ``crash_diagnostics_archive/`` holds archived crash dumps the
+        # crash handler moves there for retention.  Both subdirs are
+        # rmtree'd by the GDPR delete path; the export must include the
+        # same files for Art. 20 portability parity.
+        PrivacyMixin._gdpr_zip_directory(zf, config_dir, "logs", "logs")
+        PrivacyMixin._gdpr_zip_directory(zf, config_dir, "crash_diagnostics_archive", "crash_diagnostics_archive")
 
     @staticmethod
     def _gdpr_rotate_exports(config_dir: "os.PathLike[str] | str") -> None:
@@ -709,6 +847,23 @@ class PrivacyMixin(ServiceMixinBase):
                 order and assembles the result dict.  See the helper docstrings
                 for the per-step rationale (WAL checkpoint, keychain clear,
                 engine invalidation, etc.).
+
+        The unlink + keychain-clear + post-cleanup-sweep sequence is
+                now wrapped in ``self._app._config_mutation_lock`` so a
+                concurrent ``set_config`` / ``reset_config_to_defaults`` /
+                ``onboarding_apply`` IPC call cannot interleave its
+                read-modify-save cycle with the GDPR delete. Without the
+                lock, a concurrent ``set_config`` could (a) lose the user's
+                just-saved config (GDPR unlinks ``config.json`` between the
+                ``set_config`` read and save), or (b) re-create
+                ``config.json`` with a stale ``keyring://`` reference token
+                that the GDPR delete just cleared from the keychain. The
+                lock is an ``RLock`` so a re-entrant call from the same
+                thread (e.g. ``delete_secret`` → ``Config.save``) is safe.
+                Missing-lock fallback (test fakes / misconfigured host) is
+                preserved — the deletion still proceeds lock-free and a
+                WARNING is logged once per process (mirrors the
+                ``config_handlers._handle_set_config`` pattern).
         """
         from voice_typer.server.config import _config_dir
 
@@ -723,34 +878,85 @@ class PrivacyMixin(ServiceMixinBase):
         hdb = getattr(self._app, "history_db", None)
         self._gdpr_checkpoint_history_db(hdb, close=True)
 
-        # Rust logs/ subdirectory (recursively removed).
+        # Rust logs/ subdirectory (recursively removed). Outside the
+        # config-mutation lock because the Rust logs are not touched
+        # by ``set_config`` / ``onboarding_apply`` (the lock is for
+        # config-file mutation serialization, not arbitrary file IO).
         self._gdpr_rmtree_rust_logs(config_dir, erased, failed)
 
-        # Hardcoded personal-data files + glob-pattern personal-data files.
-        self._gdpr_unlink_personal_files(config_dir, erased, failed)
-        self._gdpr_unlink_personal_globs(config_dir, erased, failed)
-
-        # Archived crash diagnostics directory.
-        self._gdpr_rmtree_crash_archive(config_dir, erased, failed)
-
-        # OS keychain entries + in-memory Config attrs + cached engines.
+        # Acquire ``self._app._config_mutation_lock`` for the
+        # remainder of the GDPR delete sequence (unlink personal files +
+        # clear keychain + invalidate cached engines + invalidate
+        # managers + post-cleanup sweep). The lock serializes the delete
+        # against concurrent ``set_config`` /
+        # ``reset_config_to_defaults`` / ``onboarding_apply`` IPC calls
+        # that also acquire the lock for their read-modify-save
+        # sequence. Without the lock, a concurrent ``set_config`` could
+        # re-create ``config.json`` with stale API keys / a stale
+        # ``keyring://`` reference token that the GDPR delete just
+        # tried to clear (see the race description in the docstring above).
+        #
+        # ``RLock`` reentrancy makes this safe even if a helper re-enters
+        # the lock (e.g. ``delete_secret`` → ``Config.save`` which calls
+        # ``set_mutation_lock``-wired ``save()`` that re-acquires the
+        # same ``RLock`` from the same thread).
+        #
+        # Missing-lock fallback (test fakes / misconfigured host) is
+        # preserved — the deletion still proceeds lock-free. A WARNING
+        # is logged once per process so the misconfiguration surfaces
+        # without spamming the log on every GDPR delete (mirrors the
+        # ``config_handlers._handle_set_config`` pattern).
         app = self._app
-        self._gdpr_clear_keychain(app, failed)
-        self._gdpr_invalidate_cached_engines(app)
+        config_lock = getattr(app, "_config_mutation_lock", None)
+        if config_lock is None:
+            global _GDPR_CONFIG_LOCK_MISSING_WARNED  # noqa: PLW0603 — module-level once-flag
+            if not _GDPR_CONFIG_LOCK_MISSING_WARNED:
+                _GDPR_CONFIG_LOCK_MISSING_WARNED = True
+                log.warning(
+                    "[SERVICE] GDPR delete_all_personal_data: app has no "
+                    "_config_mutation_lock — running lock-free; concurrent "
+                    "set_config / reset_config_to_defaults / onboarding_apply "
+                    "may interleave with the delete (this warning fires once "
+                    "per process)"
+                )
 
-        # Re-read the (now-empty) vocabulary / templates files into the
-        # live in-memory managers so the next dictation doesn't apply
-        # the just-deleted PII (Art. 17 right-to-erasure: the data
-        # must not remain usable in any form).
-        self._gdpr_invalidate_managers(app)
+        def _gdpr_critical_section() -> None:
+            # Hardcoded personal-data files + glob-pattern personal-data files.
+            self._gdpr_unlink_personal_files(config_dir, erased, failed)
+            self._gdpr_unlink_personal_globs(config_dir, erased, failed)
+
+            # Archived crash diagnostics directory.
+            self._gdpr_rmtree_crash_archive(config_dir, erased, failed)
+
+            # OS keychain entries + in-memory Config attrs + cached engines.
+            self._gdpr_clear_keychain(app, failed)
+            self._gdpr_invalidate_cached_engines(app)
+
+            # Re-read the (now-empty) vocabulary / templates files into the
+            # live in-memory managers so the next dictation doesn't apply
+            # the just-deleted PII (Art. 17 right-to-erasure: the data
+            # must not remain usable in any form).
+            self._gdpr_invalidate_managers(app)
+
+            # Post-cleanup sweep for re-created lock files.
+            self._gdpr_post_cleanup_sweep(config_dir, erased, failed)
+
+        if config_lock is not None:
+            with config_lock:
+                _gdpr_critical_section()
+        else:
+            _gdpr_critical_section()
 
         # Re-create the live HistoryDB instance so the app can keep
-        # accepting dictations after the GDPR delete.
+        # accepting dictations after the GDPR delete. Done OUTSIDE the
+        # config-mutation lock because ``HistoryDB.__init__`` opens its
+        # own writer thread + lock and never touches ``config.json``
+        # (so there's no race with ``set_config``); holding the
+        # config-mutation lock across ``HistoryDB.__init__`` would
+        # serialize an unrelated slow operation (DB open + schema init
+        # + retention sweep) with every IPC ``set_config`` call.
         if hdb is not None:
             self._gdpr_recreate_history_db(app)
-
-        # Post-cleanup sweep for re-created lock files.
-        self._gdpr_post_cleanup_sweep(config_dir, erased, failed)
 
         log.info(
             "[SERVICE] GDPR Art. 17 delete: erased %d file(s)/dir(s), %d failure(s)",
@@ -866,3 +1072,23 @@ class PrivacyMixin(ServiceMixinBase):
 
 
 __all__ = ["PrivacyMixin"]
+
+
+# Drift guard: assert the inventory tuple in
+# ``_user_data_files._GDPR_PERSONAL_GLOBS`` is a subset of the inline
+# ``PrivacyMixin._GDPR_PERSONAL_GLOBS`` defined in the class body above
+# so a future rename in the corruption-recovery / pre-migration-backup
+# filename formats that updates only one of the two inventories is
+# caught at import time. Computed at module-level (after the class
+# body finishes evaluation) because Python class-body comprehensions
+# cannot reference names defined in the same class body (the
+# comprehension creates its own scope that doesn't see the enclosing
+# class scope).
+_GDPR_GLOBS_DRIFT_GUARD: bool = all(pat in PrivacyMixin._GDPR_PERSONAL_GLOBS for pat in _GDPR_PERSONAL_GLOBS_INVENTORY)
+assert _GDPR_GLOBS_DRIFT_GUARD, (
+    "Drift detected: _user_data_files._GDPR_PERSONAL_GLOBS has a pattern not "
+    "present in PrivacyMixin._GDPR_PERSONAL_GLOBS. Update one to match the "
+    "other so the corrupt / pre-migration backup file patterns stay in lock-"
+    f"step. Inventory: {_GDPR_PERSONAL_GLOBS_INVENTORY!r}, "
+    f"inline: {PrivacyMixin._GDPR_PERSONAL_GLOBS!r}"
+)

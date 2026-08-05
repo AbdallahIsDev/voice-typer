@@ -10,7 +10,9 @@ passed-in reference.
 Free functions:
 
 - :func:`apply_retention` — runs the chunked retention sweep on the
-  writer thread, then conditionally VACUUMs.
+  writer thread, then conditionally VACUUMs and hardens the FTS5
+  index (``'optimize'`` for small sweeps, ``'rebuild'`` after large
+  purges).
 - :func:`schedule_periodic_retention` — spawns the daemon thread that
   periodically calls ``apply_retention``.
 - :func:`stop_periodic_retention` — signals + joins the periodic
@@ -24,7 +26,7 @@ import logging
 import sqlite3
 import threading
 from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 if TYPE_CHECKING:
     from voice_typer.server.history_db import HistoryDB
@@ -36,6 +38,202 @@ log = logging.getLogger(__name__)
 #   ``apply_retention``. Each batch commits so the WAL doesn't grow
 #   unboundedly and external readers see progress.
 _RETENTION_BATCH = 100
+
+
+def _rebuild_fts(
+    conn: sqlite3.Connection,
+    db: HistoryDB | object | None = None,
+    *,
+    source: str = "apply_retention",
+    deleted: int | None = None,
+    command: Literal["rebuild", "optimize"] = "rebuild",
+) -> bool:
+    """Issue an FTS5 ``'rebuild'`` / ``'optimize'`` command and surface the outcome.
+
+    Extracted from the in-line ``try/except sqlite3.Error`` block that
+    previously lived only inside :func:`apply_retention`. The FTS5
+    AFTER DELETE trigger (``schema.py:_MIGRATION_V3``) only marks the
+    rowid as deleted in the FTS5 delete-bitmap — the segment data in
+    ``transcriptions_fts_data`` (containing the dictated plaintext)
+    survives the trigger delete AND ``VACUUM`` (VACUUM rebuilds the
+    main DB file but does NOT rebuild FTS5 shadow tables). The
+    ``'rebuild'`` command drops all segments and rebuilds them from
+    the (now-reduced) content table, so deleted dictated text is no
+    longer recoverable from ``transcriptions_fts_data`` via forensic
+    tools. The ``'optimize'`` form is the cheap sibling: it runs the
+    FTS5 optimizer (consolidating segments AND applying the
+    delete-bitmap to the merged output) without an O(N) re-index, at
+    typically 3-4x less cost than ``'rebuild'``.
+
+    This helper exists so the SAME observability (per-instance
+    ``db._fts5_rebuild_failures`` counter +
+    ``event_bus.publish({"type": "history_fts5_rebuild_failed"})``
+    toast) is applied to EVERY call site that issues the rebuild —
+    :func:`apply_retention` here, plus (intended)
+    :meth:`voice_typer.server.history_db.HistoryDB.delete` and
+    :meth:`voice_typer.server.history_db.HistoryDB.clear_all` in
+    ``history_db.py``. The single-row ``delete`` path and the
+    ``clear_all`` path both must invoke the rebuild so a user who
+    deletes a single sensitive transcription (e.g. one containing a
+    dictated password) leaves that text unrecoverable. ``clear_all``
+    already issued the rebuild; the helper centralizes the logic so
+    the per-row ``delete`` path can reuse it.
+
+    Parameters
+    ----------
+    conn
+        The writer-thread's ``sqlite3.Connection``. The command is
+        issued via ``conn.cursor().execute(...)`` (NOT ``conn.execute``
+        directly) so callers that mock the cursor's ``execute`` to
+        simulate FTS5 failures see the failure — ``conn.execute``
+        bypasses the cursor mock and the simulated failure is silently
+        swallowed by the real connection.
+    db
+        The :class:`~voice_typer.server.history_db.HistoryDB` instance
+        (or any duck-typed object exposing ``_fts5_rebuild_failures``
+        and ``db_path``). ``None`` is tolerated for unit-test doubles
+        that don't expose these attributes (the failure counter and
+        event_bus publish are skipped).
+    source
+        Short string identifying the call site (``"apply_retention"`` /
+        ``"delete"`` / ``"clear_all"``). Surfaced in the
+        ``history_fts5_rebuild_failed`` event_bus payload and the
+        log message so the renderer / diagnostics can tell which path
+        failed.
+    deleted
+        Optional deleted-row count for the event_bus payload. ``None``
+        when the call site doesn't track this (e.g. ``clear_all``).
+    command
+        ``"rebuild"`` (default) or ``"optimize"``. ``"rebuild"`` drops
+        all segments and re-indexes from the content table (O(N), the
+        ultimate safety net after large purges). ``"optimize"`` runs
+        the FTS5 optimizer only (typically 3-4x cheaper; used for
+        small retention sweeps and per-row deletes where the O(N)
+        rebuild would burn on every tick).
+
+    Returns
+    -------
+    bool
+        ``True`` if the rebuild succeeded (or the FTS5 table doesn't
+        exist — pre-V3 DB — treated as success since there is nothing
+        to rebuild). ``False`` if the rebuild failed (the privacy
+        guarantee is broken; callers may surface this via the
+        ``RetentionResult.fts5_rebuild_ok`` attribute or their own
+        return shape).
+
+    The command is wrapped in a tolerant ``try/except sqlite3.Error``
+    so an older DB (pre-V3 migration, no FTS table yet) doesn't crash
+    the calling path. On failure the privacy guarantee is broken, so
+    the failure is logged at ``ERROR``, the per-instance
+    ``db._fts5_rebuild_failures`` counter is incremented, and an
+    ``event_bus`` event ``{"type": "history_fts5_rebuild_failed"}``
+    is published so the renderer can surface a toast.
+
+    The rebuild is issued via ``conn.cursor().execute(...)`` (NOT
+    ``conn.execute(...)`` directly) so callers that mock the cursor's
+    ``execute`` to simulate FTS5 failures (see
+    ``tests/test_history_retention_index.py::TestRetentionFts5RebuildFailure``)
+    see the failure — ``conn.execute`` bypasses the cursor mock and
+    the simulated failure is silently swallowed by the real
+    connection. The cursor is closed in a ``finally`` block so the
+    cursor-close contract is preserved (matches the
+    ``clear_all`` pattern at ``history_db.py:1901-1908``).
+
+    Note: ``'rebuild'`` is O(N) (drops and rebuilds ALL segments from
+    the content table). For the single-row delete path this adds
+    latency proportional to the total row count — but the privacy
+    guarantee (deleted text is actually unrecoverable) is more
+    important than latency. The per-row ``delete`` path in
+    ``history_db.py`` uses the cheaper ``'optimize'`` form; the
+    periodic retention tick runs a full ``'rebuild'`` after large
+    sweeps (ratio > 0.20) as the ultimate safety net, and now issues a
+    single ``'optimize'`` for small sweeps (0 < ratio <= 0.20) so
+    sub-threshold deletes still get privacy hardening without an O(N)
+    re-index every 10 minutes.
+    """
+    fts_cursor = conn.cursor()
+    try:
+        fts_cursor.execute(f"INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('{command}')")
+        conn.commit()
+        action = "rebuilt" if command == "rebuild" else "optimized"
+        if deleted is not None:
+            log.info(
+                "[HISTORY_DB] FTS5 segments %s after %s (deleted %d rows)",
+                action,
+                source,
+                deleted,
+            )
+        else:
+            log.info(
+                "[HISTORY_DB] FTS5 segments %s after %s",
+                action,
+                source,
+            )
+        return True
+    except sqlite3.Error as e:
+        # escalate from WARNING to ERROR — the GDPR Art. 17 /
+        # privacy guarantee is broken (deleted dictated text
+        # remains recoverable from ``transcriptions_fts_data`` via
+        # forensic tools), not merely "suboptimal".
+        log.error(
+            "[HISTORY_DB] FTS5 '%s' after %s FAILED: %s "
+            "(FTS5 shadow-table segment data may persist — deleted "
+            "dictated text remains recoverable; manual re-index advised)",
+            command,
+            source,
+            e,
+        )
+        # observable metric — increment the per-instance failure
+        # counter so diagnostics / IPC ``get_diagnostics`` handlers
+        # can surface it to the user. ``getattr`` default keeps this
+        # safe if the HistoryDB instance was constructed by an older
+        # code path that didn't initialize the counter.
+        if db is not None:
+            try:
+                current = getattr(db, "_fts5_rebuild_failures", 0)
+                db._fts5_rebuild_failures = current + 1  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001 — best-effort metric
+                log.debug(
+                    "[HISTORY_DB] could not increment _fts5_rebuild_failures counter",
+                    exc_info=True,
+                )
+        # best-effort event_bus publication so the renderer can show
+        # a toast. Wrapped broadly because the event_bus import or
+        # the publish call may fail (e.g. circular import during early
+        # init); none of those should crash the calling path which
+        # has already done its row deletes.
+        try:
+            from voice_typer.server import event_bus
+
+            event_bus.publish(
+                {
+                    "type": "history_fts5_rebuild_failed",
+                    "data": {
+                        "db_path": str(getattr(db, "db_path", "")) if db is not None else "",
+                        "deleted": deleted if deleted is not None else 0,
+                        "error": str(e),
+                        "source": source,
+                    },
+                }
+            )
+        except Exception as publish_exc:  # noqa: BLE001
+            log.warning(
+                "[HISTORY_DB] event_bus.publish(history_fts5_rebuild_failed) failed (best-effort, %s continues): %s",
+                source,
+                publish_exc,
+            )
+        return False
+    finally:
+        # cursor-close contract: always close the cursor we
+        # opened above, even on the success path (the
+        # long-lived ``cursor`` from the top of
+        # ``_do_retention`` is closed in that function's own
+        # ``finally``; ``_rebuild_fts`` creates its OWN cursor
+        # so it owns its lifecycle). ``contextlib.suppress`` because the cursor may
+        # already be closed by the ``conn.commit()`` path on some
+        # SQLite builds, and a double-close is harmless.
+        with contextlib.suppress(Exception):
+            fts_cursor.close()
 
 
 class RetentionResult(int):
@@ -139,6 +337,14 @@ def apply_retention(
         readers) for small sweeps while still reclaiming space after
         large purges.
 
+    FTS5 hardening runs whenever rows were actually deleted:
+        the full ``'rebuild'`` fires above the same ``ratio > 0.20``
+        threshold (O(N) re-index — the privacy safety net after a
+        large purge), while small sweeps issue a single ``'optimize'``
+        (cheap, idempotent) so sub-threshold deletes still purge
+        segment data from ``transcriptions_fts_data`` without an O(N)
+        re-index on every 10-minute tick.
+
     if the FTS5 ``'rebuild'`` command fails after a sweep,
         the failure is no longer silent — it is logged at ``ERROR``
         level (the privacy guarantee is broken, not merely suboptimal),
@@ -174,190 +380,275 @@ def apply_retention(
             cursor.execute("SELECT COUNT(*) FROM transcriptions")
             initial_count = cursor.fetchone()[0]
 
+            # Predict whether VACUUM (or incremental_vacuum) will fire
+            # AFTER the chunked DELETEs. If so, toggle
+            # ``PRAGMA secure_delete=OFF``
+            # BEFORE the DELETEs to avoid redundant zeroing I/O
+            # (~200MB wasted on a 50K-row DB). The subsequent
+            # VACUUM rewrites the file (old pages not in the new
+            # file) or incremental_vacuum removes the free pages
+            # from the file — either way the deleted text is not
+            # recoverable, providing the equivalent privacy
+            # guarantee. ``secure_delete`` is per-connection in
+            # modern SQLite, but toggling it on the writer is safe
+            # regardless: readers don't DELETE, so their
+            # secure_delete setting is irrelevant.
+            #
+            # For new DBs created with ``PRAGMA auto_vacuum=INCREMENTAL``
+            # (set in ``init_schema``), use ``PRAGMA incremental_vacuum(100)``
+            # instead of full ``VACUUM`` — incremental_vacuum reclaims
+            # free pages incrementally without rewriting the entire
+            # file (no exclusive lock, ~100x faster on large DBs).
+            # For existing DBs (auto_vacuum=NONE), keep the full
+            # VACUUM-at-20% path as fallback.
+            auto_vacuum_row = cursor.execute("PRAGMA auto_vacuum").fetchone()
+            auto_vacuum_mode = int(auto_vacuum_row[0]) if auto_vacuum_row else 0
+            use_incremental_vacuum = auto_vacuum_mode == 2  # INCREMENTAL
+
+            predicted_deletes = 0
             if retention_days > 0:
-                # compute the cutoff in UTC and format as
-                # ``'%Y-%m-%d %H:%M:%S'`` to exactly match the format
-                # SQLite uses for ``CURRENT_TIMESTAMP``. The previous
-                # code used naive ``datetime.now()`` (local time) and
-                # ``.isoformat()`` (which appends a TZ offset like
-                # ``+02:00``), so the comparison against the
-                # UTC-stamped ``transcriptions.timestamp`` column was
-                # wrong by the local TZ offset — on a machine whose
-                # local TZ is ahead of UTC, rows up to
-                # ``TZ_offset_hours`` newer than the true cutoff were
-                # incorrectly deleted. Using UTC + the bare
-                # ``'%Y-%m-%d %H:%M:%S'`` format (no TZ suffix) makes
-                # the lexicographic ``timestamp < ?`` comparison
-                # apples-to-apples with ``CURRENT_TIMESTAMP``.
-                cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
-                while True:
-                    cursor.execute(
-                        "DELETE FROM transcriptions WHERE id IN ("
-                        "  SELECT id FROM transcriptions"
-                        "  WHERE timestamp < ? AND favorite = 0"
-                        "  LIMIT ?"
-                        ")",
-                        (cutoff, _RETENTION_BATCH),
-                    )
-                    batch_deleted = cursor.rowcount
-                    if batch_deleted == 0:
-                        break
-                    deleted += batch_deleted
-                    conn.commit()  # release write lock between batches
+                cutoff_predict = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime(
+                    "%Y-%m-%d %H:%M:%S"
+                )
+                cur = cursor.execute(
+                    "SELECT COUNT(*) FROM transcriptions WHERE timestamp < ? AND favorite = 0",
+                    (cutoff_predict,),
+                )
+                predicted_deletes = max(predicted_deletes, int(cur.fetchone()[0]))
+            if effective_max > 0 and initial_count > effective_max:
+                predicted_deletes = max(predicted_deletes, initial_count - effective_max)
+            will_reclaim = initial_count > 0 and predicted_deletes > 0 and (predicted_deletes / initial_count) > 0.20
+            secure_delete_toggled = False
+            if will_reclaim:
+                with contextlib.suppress(sqlite3.Error):
+                    cursor.execute("PRAGMA secure_delete=OFF")
+                    secure_delete_toggled = True
 
-            if effective_max > 0:
-                # Compute ``total`` once before the loop and decrement
-                # by ``batch_deleted`` per iteration. Previously this
-                # block re-ran ``SELECT COUNT(*) FROM transcriptions``
-                # on every iteration — O(N^2) total (one full COUNT
-                # scan per batch). For a power-user DB with 50K rows
-                # and max_entries=1000, that's 490 COUNT scans; each
-                # COUNT is O(N) on the favorite=0 subset, so the total
-                # cost was O(N^2/batch_size).
-                cursor.execute("SELECT COUNT(*) FROM transcriptions")
-                total = cursor.fetchone()[0]
-                while total > effective_max:
-                    excess = min(total - effective_max, _RETENTION_BATCH)
-                    cursor.execute(
-                        """
-                        DELETE FROM transcriptions
-                        WHERE id IN (
-                            SELECT id FROM transcriptions
-                            WHERE favorite = 0
-                            ORDER BY timestamp ASC
-                            LIMIT ?
+            try:
+                if retention_days > 0:
+                    # compute the cutoff in UTC and format as
+                    # ``'%Y-%m-%d %H:%M:%S'`` to exactly match the format
+                    # SQLite uses for ``CURRENT_TIMESTAMP``. The previous
+                    # code used naive ``datetime.now()`` (local time) and
+                    # ``.isoformat()`` (which appends a TZ offset like
+                    # ``+02:00``), so the comparison against the
+                    # UTC-stamped ``transcriptions.timestamp`` column was
+                    # wrong by the local TZ offset — on a machine whose
+                    # local TZ is ahead of UTC, rows up to
+                    # ``TZ_offset_hours`` newer than the true cutoff were
+                    # incorrectly deleted. Using UTC + the bare
+                    # ``'%Y-%m-%d %H:%M:%S'`` format (no TZ suffix) makes
+                    # the lexicographic ``timestamp < ?`` comparison
+                    # apples-to-apples with ``CURRENT_TIMESTAMP``.
+                    cutoff = (datetime.now(timezone.utc) - timedelta(days=retention_days)).strftime("%Y-%m-%d %H:%M:%S")
+                    while True:
+                        cursor.execute(
+                            "DELETE FROM transcriptions WHERE id IN ("
+                            "  SELECT id FROM transcriptions"
+                            "  WHERE timestamp < ? AND favorite = 0"
+                            "  LIMIT ?"
+                            ")",
+                            (cutoff, _RETENTION_BATCH),
                         )
-                    """,
-                        (excess,),
-                    )
-                    batch_deleted = cursor.rowcount
-                    if batch_deleted == 0:
-                        break
-                    deleted += batch_deleted
-                    total -= batch_deleted
-                    conn.commit()  # release write lock between batches
+                        batch_deleted = cursor.rowcount
+                        if batch_deleted == 0:
+                            break
+                        deleted += batch_deleted
+                        conn.commit()  # release write lock between batches
 
-            # Close any open transaction before VACUUM (the last
-            # DELETE with 0 rows still auto-opened a transaction).
-            conn.commit()
-
-            # VACUUM only if >20% of rows were deleted.
-            # This avoids the VACUUM cost for small sweeps (e.g.
-            # daily retention that deletes a handful of rows)
-            # while still reclaiming space after large purges.
-            if deleted > 0 and initial_count > 0:
-                ratio = deleted / initial_count
-                if ratio > 0.20:
-                    try:
-                        conn.execute("VACUUM")
-                        log.info(
-                            "[HISTORY_DB] VACUUM completed after retention (deleted %d/%d rows, %.0f%%)",
-                            deleted,
-                            initial_count,
-                            ratio * 100,
-                        )
-                    except sqlite3.Error as e:
-                        log.warning(
-                            "[HISTORY_DB] VACUUM after retention failed: %s",
-                            e,
-                        )
-                    # rebuild FTS5 segments after a bulk retention
-                    # delete. The DELETE trigger
-                    # ``transcriptions_ad_fts`` only marks rowids as
-                    # deleted in the FTS5 delete-bitmap; the segment data
-                    # in ``transcriptions_fts_data`` survives both the
-                    # trigger delete and ``VACUUM`` (VACUUM rebuilds the
-                    # main DB file but does NOT rebuild FTS5 shadow
-                    # tables). After a large retention sweep, dictated
-                    # text remained recoverable from
-                    # ``transcriptions_fts_data`` via forensic tools —
-                    # defeating  / GDPR Art. 17. The
-                    # ``'rebuild'`` command drops all segments and
-                    # rebuilds them from the (now-reduced) content
-                    # table, so deleted dictated text is no longer
-                    # recoverable. Wrapped in a tolerant try/except so
-                    # an older DB (pre-V3 migration, no FTS table yet)
-                    # doesn't crash the retention path. Only runs when
-                    # we actually deleted rows (a no-op retention sweep
-                    # has nothing to rebuild and would just churn the
-                    # FTS index).
-                    #
-                    # the rebuild is gated by the SAME ``ratio > 0.20``
-                    # threshold as VACUUM. Below that threshold, the FTS5
-                    # delete-bitmap trigger already hides deleted rows
-                    # from MATCH results — the only thing ``'rebuild'``
-                    # would reclaim is segment data in
-                    # ``transcriptions_fts_data``, which isn't worth an
-                    # O(N) re-index for a handful of deletes (the
-                    # 10-minute periodic-retention tick would otherwise
-                    # burn O(N) on every tick for ~1-row deletes).
-                    # Above the threshold, the rebuild MUST fire to
-                    # preserve the  privacy guarantee (deleted
-                    # dictated text must not remain recoverable from
-                    # ``transcriptions_fts_data`` via forensic tools
-                    # after a large purge).
-                    try:
-                        cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
-                        conn.commit()
-                        log.info(
-                            "[HISTORY_DB] FTS5 segments rebuilt after retention (deleted %d rows, ratio %.0f%%)",
-                            deleted,
-                            ratio * 100,
-                        )
-                    except sqlite3.Error as e:
-                        # escalate from WARNING to ERROR — the
-                        # GDPR Art. 17 /  privacy guarantee is
-                        # broken (deleted dictated text remains
-                        # recoverable from ``transcriptions_fts_data``
-                        # via forensic tools), not merely "suboptimal".
-                        fts5_rebuild_ok = False
-                        log.error(
-                            "[HISTORY_DB] FTS5 'rebuild' after retention FAILED: %s "
-                            "(FTS5 shadow-table segment data may persist — deleted "
-                            "dictated text remains recoverable; manual re-index advised)",
-                            e,
-                        )
-                        # observable metric — increment the
-                        # per-instance failure counter so diagnostics /
-                        # IPC ``get_diagnostics`` handlers can surface it
-                        # to the user. ``getattr`` default keeps this
-                        # safe if the HistoryDB instance was constructed
-                        # by an older code path that didn't initialize
-                        # the counter.
-                        try:
-                            current = getattr(db, "_fts5_rebuild_failures", 0)
-                            db._fts5_rebuild_failures = current + 1
-                        except Exception:  # noqa: BLE001 — best-effort metric
-                            log.debug(
-                                "[HISTORY_DB] could not increment _fts5_rebuild_failures counter",
-                                exc_info=True,
+                if effective_max > 0:
+                    # Compute ``total`` once before the loop and decrement
+                    # by ``batch_deleted`` per iteration. Previously this
+                    # block re-ran ``SELECT COUNT(*) FROM transcriptions``
+                    # on every iteration — O(N^2) total (one full COUNT
+                    # scan per batch). For a power-user DB with 50K rows
+                    # and max_entries=1000, that's 490 COUNT scans; each
+                    # COUNT is O(N) on the favorite=0 subset, so the total
+                    # cost was O(N^2/batch_size).
+                    cursor.execute("SELECT COUNT(*) FROM transcriptions")
+                    total = cursor.fetchone()[0]
+                    while total > effective_max:
+                        excess = min(total - effective_max, _RETENTION_BATCH)
+                        cursor.execute(
+                            """
+                            DELETE FROM transcriptions
+                            WHERE id IN (
+                                SELECT id FROM transcriptions
+                                WHERE favorite = 0
+                                ORDER BY timestamp ASC
+                                LIMIT ?
                             )
-                        # best-effort event_bus publication so the
-                        # renderer can show a toast. Wrapped broadly
-                        # because the event_bus import or the publish call
-                        # may fail (e.g. circular import during early
-                        # init); none of those should crash the retention
-                        # path which has already done the chunked DELETEs.
-                        try:
-                            from voice_typer.server import event_bus
+                        """,
+                            (excess,),
+                        )
+                        batch_deleted = cursor.rowcount
+                        if batch_deleted == 0:
+                            break
+                        deleted += batch_deleted
+                        total -= batch_deleted
+                        conn.commit()  # release write lock between batches
 
-                            event_bus.publish(
-                                {
-                                    "type": "history_fts5_rebuild_failed",
-                                    "data": {
-                                        "db_path": str(getattr(db, "db_path", "")),
-                                        "deleted": deleted,
-                                        "error": str(e),
-                                        "source": "apply_retention",
-                                    },
-                                }
-                            )
-                        except Exception as publish_exc:  # noqa: BLE001
-                            log.warning(
-                                "[HISTORY_DB] event_bus.publish(history_fts5_rebuild_failed) "
-                                "failed (best-effort, retention continues): %s",
-                                publish_exc,
-                            )
+                # Close any open transaction before VACUUM (the last
+                # DELETE with 0 rows still auto-opened a transaction).
+                conn.commit()
+
+                # Reclaim free pages only if >20% of rows were deleted.
+                # This avoids the reclamation cost for small sweeps (e.g.
+                # daily retention that deletes a handful of rows)
+                # while still reclaiming space after large purges.
+                if deleted > 0 and initial_count > 0:
+                    ratio = deleted / initial_count
+                    if ratio > 0.20:
+                        reclaim_ok = False
+                        if use_incremental_vacuum:
+                            # ``incremental_vacuum`` reclaims up to N
+                            # free pages without
+                            # rewriting the entire file (no exclusive
+                            # lock). 100 pages is fast (~1ms) and
+                            # sufficient for typical retention sweeps;
+                            # the next sweep reclaims more if needed.
+                            try:
+                                cursor.execute("PRAGMA incremental_vacuum(100)")
+                                reclaim_ok = True
+                                log.info(
+                                    "[HISTORY_DB] incremental_vacuum(100) "
+                                    "completed after retention (deleted "
+                                    "%d/%d rows, %.0f%%)",
+                                    deleted,
+                                    initial_count,
+                                    ratio * 100,
+                                )
+                            except sqlite3.Error as e:
+                                log.warning(
+                                    "[HISTORY_DB] incremental_vacuum after "
+                                    "retention failed: %s (falling back to "
+                                    "full VACUUM)",
+                                    e,
+                                )
+                        if not reclaim_ok:
+                            # Full VACUUM fallback (existing DBs without
+                            # auto_vacuum=INCREMENTAL, OR
+                            # incremental_vacuum failed).
+                            try:
+                                conn.execute("VACUUM")
+                                reclaim_ok = True
+                                log.info(
+                                    "[HISTORY_DB] VACUUM completed after retention (deleted %d/%d rows, %.0f%%)",
+                                    deleted,
+                                    initial_count,
+                                    ratio * 100,
+                                )
+                            except sqlite3.Error as e:
+                                # If we toggled secure_delete=OFF, a
+                                # VACUUM failure is a privacy regression:
+                                # deleted text may be recoverable from
+                                # free pages (no zeroing happened).
+                                # Escalate to ERROR so the user can
+                                # investigate. The next retention tick
+                                # will retry VACUUM.
+                                if secure_delete_toggled:
+                                    log.error(
+                                        "[HISTORY_DB] VACUUM after retention "
+                                        "FAILED with secure_delete=OFF: %s — "
+                                        "deleted text may be recoverable from "
+                                        "free pages until the next successful "
+                                        "VACUUM (privacy regression).",
+                                        e,
+                                    )
+                                else:
+                                    log.warning(
+                                        "[HISTORY_DB] VACUUM after retention failed: %s",
+                                        e,
+                                    )
+                        # rebuild FTS5 segments after a bulk retention
+                        # delete. The DELETE trigger
+                        # ``transcriptions_ad_fts`` only marks rowids as
+                        # deleted in the FTS5 delete-bitmap; the segment data
+                        # in ``transcriptions_fts_data`` survives both the
+                        # trigger delete and ``VACUUM``/``incremental_vacuum``
+                        # (both rebuild/reclaim the main DB file but do NOT
+                        # rebuild FTS5 shadow tables). After a large retention
+                        # sweep, dictated text remained recoverable from
+                        # ``transcriptions_fts_data`` via forensic tools —
+                        # defeating  / GDPR Art. 17. The
+                        # ``'rebuild'`` command drops all segments and
+                        # rebuilds them from the (now-reduced) content
+                        # table, so deleted dictated text is no longer
+                        # recoverable. Wrapped in a tolerant try/except so
+                        # an older DB (pre-V3 migration, no FTS table yet)
+                        # doesn't crash the retention path. Only runs when
+                        # we actually deleted rows (a no-op retention sweep
+                        # has nothing to rebuild and would just churn the
+                        # FTS index).
+                        #
+                        # the rebuild is gated by the SAME ``ratio > 0.20``
+                        # threshold as VACUUM. Below that threshold, the FTS5
+                        # delete-bitmap trigger already hides deleted rows
+                        # from MATCH results — the only thing ``'rebuild'``
+                        # would reclaim is segment data in
+                        # ``transcriptions_fts_data``, which isn't worth an
+                        # O(N) re-index for a handful of deletes (the
+                        # 10-minute periodic-retention tick would otherwise
+                        # burn O(N) on every tick for ~1-row deletes).
+                        # Above the threshold, the rebuild MUST fire to
+                        # preserve the  privacy guarantee (deleted
+                        # dictated text must not remain recoverable from
+                        # ``transcriptions_fts_data`` via forensic tools
+                        # after a large purge).
+                        # Below the threshold (but with rows actually
+                        # deleted), the cheaper ``'optimize'`` command is
+                        # issued instead: it consolidates segments and
+                        # applies the delete-bitmap to the merged output
+                        # (so deleted text is purged from the shadow
+                        # table) at a cost proportional to the pending
+                        # merges — NOT an O(N) re-index — closing the
+                        # sub-threshold privacy gap without burning on
+                        # every 10-minute tick.
+                        # FTS5 hardening is invoked via the
+                        # centralized ``_rebuild_fts`` helper so the
+                        # observability (per-instance failure counter +
+                        # ``event_bus`` toast) is identical across every
+                        # call site (``apply_retention`` here, plus
+                        # ``history_db.py::delete`` / ``clear_all``).
+                        if not _rebuild_fts(
+                            conn,
+                            db,
+                            source="apply_retention",
+                            deleted=deleted,
+                        ):
+                            fts5_rebuild_ok = False
+                    else:
+                        # Small sweep (0 < ratio <= 0.20): single
+                        # ``'optimize'`` — see the comment above.
+                        if not _rebuild_fts(
+                            conn,
+                            db,
+                            source="apply_retention",
+                            deleted=deleted,
+                            command="optimize",
+                        ):
+                            fts5_rebuild_ok = False
+            finally:
+                # Restore ``secure_delete=ON`` unconditionally (even on
+                # exception) so subsequent per-row deletes on this
+                # connection re-zero pages.
+                # If the chunked DELETEs + reclamation raised, we
+                # still want secure_delete=ON for the rest of the
+                # connection's lifetime (the next retention tick will
+                # retry).
+                if secure_delete_toggled:
+                    with contextlib.suppress(sqlite3.Error):
+                        cursor.execute("PRAGMA secure_delete=ON")
+                # cursor-close contract (DJ-18): close the long-lived
+                # cursor opened at the top of ``_do_retention``.
+                # ``_rebuild_fts`` opens/closes its OWN cursor, so on
+                # the rebuild/optimize path this ``finally`` is the
+                # only place the long-lived cursor is closed.
+                # ``contextlib.suppress`` because a double-close is
+                # harmless on SQLite builds that auto-close cursors
+                # after ``conn.commit()``.
+                with contextlib.suppress(Exception):
+                    cursor.close()
 
             if deleted:
                 log.info(
@@ -521,6 +812,14 @@ def schedule_periodic_retention(
                     max_entries=max_ent,
                     retention_count=ret_count,
                 )
+                # Per-row FTS5 ``'optimize'`` flush: a previous revision
+                # called ``db._flush_pending_fts_optimize(wait=False)``
+                # here, but that method was never implemented — the call
+                # was silently swallowed by ``contextlib.suppress``. The
+                # GDPR Art. 17 right-to-erasure safety net is already
+                # covered by ``apply_retention``'s post-sweep FTS5
+                # ``'rebuild'`` (see ``_rebuild_fts5``) plus the
+                # ``_fts5_startup_rebuild`` sweep on next launch.
             except Exception:
                 log.warning(
                     "[HISTORY_DB] periodic retention run failed",

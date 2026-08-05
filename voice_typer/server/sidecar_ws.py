@@ -117,6 +117,7 @@ import os
 import sys
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 # Namespaced error code constants. Imported here so the bare-string
@@ -257,6 +258,29 @@ _HEARTBEAT_RATE_MAX_PER_WINDOW = 100
 # (and the asyncio loop thread) forever.
 _WS_SEND_TIMEOUT_SECONDS = 5.0
 
+# Graceful WS shutdown budget (seconds). ``ws_graceful_shutdown`` sends
+# ``close(code=1001, reason="going away")`` to every authenticated
+# connection, then sleeps for this long so the WS close handshake has
+# time to complete on the wire BEFORE the asyncio loop is stopped.
+# Without this sleep, ``loop.stop()`` can fire before the peer
+# receives the close frame — the TCP socket is torn down mid-handshake
+# and the host sees a TCP RST instead of a clean WS close, triggering
+# the respawn path as if the sidecar had crashed (the exact failure
+# mode the graceful-shutdown path was added to prevent). 500 ms is
+# ~50x the loopback RTT, which is generous for the close-frame
+# round-trip even under load.
+_WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS = 0.5
+
+# Bounded-wait budget (seconds) for in-flight dispatch futures during
+# ``ws_graceful_shutdown``. Each future registered on
+# ``server._ws_dispatch_futures`` gets its own ``.result(timeout=...)``
+# call — a single stuck handler cannot block the shutdown indefinitely.
+# 2.0 s matches the Rust host's ``SHUTDOWN_ACK_TIMEOUT_MS = 2000`` (in
+# ``src-tauri/src/util.rs``): if a handler has not completed by the
+# time the host's hard-timeout fires, the host force-kills the process
+# tree anyway, so waiting longer in Python would be wasted time.
+_WS_DISPATCH_DRAIN_TIMEOUT_SECONDS = 2.0
+
 
 def _encode_ws_frame(event: dict) -> bytes:
     """Serialize ``event`` to a WS TEXT-frame payload (UTF-8 bytes).
@@ -264,8 +288,8 @@ def _encode_ws_frame(event: dict) -> bytes:
     Runs ``json.dumps`` + ``.encode`` together so the whole O(n)
     encode cost stays OFF the asyncio loop thread — the writer task
     in :func:`_start_writer` calls this via
-    ``loop.run_in_executor(None, _encode_ws_frame, event)``. For
-    near-cap frames (~1 MiB) the in-line encode was 50-100 ms of
+    ``loop.run_in_executor(_get_ws_encode_pool(), _encode_ws_frame, event)``.
+    For near-cap frames (~1 MiB) the in-line encode was 50-100 ms of
     pure CPU on the loop thread, stalling every other connection's
     reads + the heartbeat fast-path.
 
@@ -274,6 +298,407 @@ def _encode_ws_frame(event: dict) -> bytes:
     (the default ``ensure_ascii=True`` would bloat CJK payloads ~3x).
     """
     return json.dumps(event, ensure_ascii=False).encode("utf-8")
+
+
+# Dedicated ThreadPoolExecutor for WS frame ENCODE offload (json.dumps +
+# .encode on a worker thread). Mirrors the dispatch pool pattern in
+# ``_make_dispatch`` (the ``_ws_dispatch_pool`` block): created lazily
+# on first use, stored on the IPC server as ``server._ws_encode_pool``
+# so ``ShutdownController._do_cleanup`` can reach it via
+# ``app._ipc_server._ws_encode_pool`` and
+# ``shutdown(wait=False, cancel_futures=True)`` to drain / cancel
+# in-flight encodes BEFORE tearing down the recorder / history DB /
+# crash-recovery writer.
+#
+# A module-level singleton cache (``_ws_encode_pool_singleton``) is
+# also kept so the per-connection ``_writer`` task — which has no
+# server reference (its signature is locked to ``(websocket, outbound)``
+# by ``tests/test_sidecar_ws_handle_connection_split.py``) — can reach
+# the same pool. The single-process / single-server lifecycle makes
+# the singleton safe: there is exactly one encode pool per sidecar
+# process. ``_make_dispatch(server)`` seeds the singleton on first
+# call, before any WS connection is accepted.
+#
+# Pre- this used ``loop.run_in_executor(None, _encode_ws_frame, event)``
+# — the asyncio loop's DEFAULT executor, which has no handle
+# ``ShutdownController`` can reach. A long-running encode (a near-cap
+# 1 MiB ``vocabulary_suggestion`` frame at shutdown) would race
+# teardown, half-flush the history DB, and leak a partially-written
+# crash-recovery snapshot. The dedicated pool lets the shutdown path
+# bounded-wait for in-flight encodes (mirroring the dispatch-pool
+# drain).
+_ws_encode_pool_singleton: ThreadPoolExecutor | None = None
+
+
+def _get_ws_encode_pool(server: IPCServer | None = None) -> ThreadPoolExecutor:
+    """Lazily create / return the WS frame-encode thread pool.
+
+    Mirrors the dispatch pool pattern in ``_make_dispatch`` (lines
+    ~550-558): created on first use, stored on the IPC server as
+    ``server._ws_encode_pool`` so the shutdown path can reach it via
+    ``app._ipc_server._ws_encode_pool``. When called WITHOUT a server
+    (the ``_writer`` task's case — its signature is locked to
+    ``(websocket, outbound)``), the module-level singleton cache is
+    used. The first call WITH a server seeds the singleton; subsequent
+    calls without a server reuse it.
+
+    ``max_workers=2`` is enough for the encode workload: even with
+    two concurrent connections each pushing near-cap frames at 1-5 Hz,
+    the encode itself is ~50-100 ms — two workers drain faster than
+    the queue fills. More workers would just contend with the
+    dispatch pool (4 workers) for CPU during heavy ``transcribe``
+    dispatches.
+    """
+    global _ws_encode_pool_singleton
+    if server is not None:
+        pool = getattr(server, "_ws_encode_pool", None)
+        if pool is None:
+            pool = ThreadPoolExecutor(
+                max_workers=2,
+                thread_name_prefix="sidecar-ws-encode",
+            )
+            # ``setattr`` on a real IPCServer stores the attribute; on
+            # a MagicMock test double it overrides the auto-vivified
+            # child (same pattern as ``_ws_dispatch_pool`` above).
+            server._ws_encode_pool = pool  # type: ignore[attr-defined]
+        # Seed / refresh the module-level singleton so the ``_writer``
+        # task (which has no server reference) can reach the same pool.
+        _ws_encode_pool_singleton = pool
+        return pool
+    # No server reference (called from ``_writer`` which only has
+    # websocket + outbound, or from ``_read_loop``'s response path
+    # where we want to avoid the ``getattr`` overhead on every frame).
+    # Use the module-level cache; create lazily if no server-bearing
+    # call has happened yet (defensive — in production
+    # ``_make_dispatch(server)`` runs in ``run(server)`` BEFORE any
+    # connection is accepted, so the singleton is seeded before
+    # ``_writer`` is started).
+    if _ws_encode_pool_singleton is None:
+        _ws_encode_pool_singleton = ThreadPoolExecutor(
+            max_workers=2,
+            thread_name_prefix="sidecar-ws-encode",
+        )
+    return _ws_encode_pool_singleton
+
+
+def shutdown_encode_pool(server: IPCServer | None = None) -> None:
+    """Drain / cancel in-flight WS frame encodes.
+
+    Called by ``ShutdownController._do_cleanup`` (in
+    ``shutdown_controller.py`` — NOT this file) to drain / cancel
+    in-flight encodes BEFORE tearing down the recorder / history DB /
+    crash-recovery writer. Mirrors the dispatch-pool drain
+    (``_ws_dispatch_pool.shutdown(wait=False, cancel_futures=True)``).
+
+    NOTE: ``shutdown_controller.py`` is OUTSIDE this module's file
+    ownership boundary. A matching ``sidecar_ws.shutdown_encode_pool(
+    ipc_server)`` call must be added to ``_do_cleanup`` in a follow-up
+    by the orchestrator (or by the shutdown_controller.py owner);
+    until then the pool's worker threads are leaked on shutdown
+    (acceptable — the process is exiting anyway, the OS reclaims the
+    threads, and any in-flight encode is aborted by process exit
+    regardless of pool state).
+    """
+    global _ws_encode_pool_singleton
+    pool: ThreadPoolExecutor | None = None
+    if server is not None:
+        pool = getattr(server, "_ws_encode_pool", None)
+        if pool is not None:
+            # Defensive, never fatal.
+            with contextlib.suppress(Exception):
+                server._ws_encode_pool = None  # type: ignore[attr-defined]
+    if pool is None and _ws_encode_pool_singleton is not None:
+        pool = _ws_encode_pool_singleton
+        _ws_encode_pool_singleton = None
+    if pool is not None:
+        try:
+            pool.shutdown(wait=False, cancel_futures=True)
+        except Exception:  # noqa: BLE001 — defensive, never fatal
+            log.warning("[SIDECAR-WS] encode pool shutdown failed", exc_info=True)
+
+
+async def _safe_send(websocket, event: dict) -> str:
+    """Encode + size-cap + timeout-protected send for one outbound WS frame.
+
+    Shared by the dispatch-response path in :func:`_read_loop` and the
+    writer-task path in :func:`_start_writer._writer`. Both paths MUST
+    apply the same three defenses against an oversized / wedged-peer
+    DoS — pre-fix the dispatch-response path applied NONE of them,
+    so a handler returning a multi-MiB response (e.g. ``get_history``
+    / ``list_models`` / ``get_vocabulary`` for a user with thousands
+    of entries) would (1) block the asyncio loop thread with
+    synchronous ``json.dumps`` (50-100 ms per MiB — stalls every
+    other connection's reads + the heartbeat fast-path), (2) block
+    forever if the peer's TCP send buffer fills (no timeout), and
+    (3) exceed the 1 MiB ``_MAX_FRAME_BYTES`` cap that ADR-0020 §10
+    mandates (the websockets library's ``max_size`` is enforced on
+    INBOUND frames only — the OUTBOUND side had no cap).
+
+    The three defenses:
+
+    (1) Offload ``json.dumps`` + UTF-8 encode to a worker thread via
+        :func:`loop.run_in_executor`. For near-cap frames (~1 MiB) the
+        in-line encode was 50-100 ms of pure CPU on the asyncio loop
+        thread, stalling every other connection's reads + the heartbeat
+        fast-path.
+    (2) Drop the frame pre-emptively with an ERROR log if
+        ``len(raw_bytes) > _MAX_FRAME_BYTES`` — otherwise the Rust
+        host's tungstenite ``max_size`` receive enforcement would close
+        the connection on its end (with a 1009) and surface a
+        misleading transport error. Measuring the actual UTF-8 byte
+        count (not the char count) catches multi-byte-heavy frames
+        (CJK / emoji dictation) the pre-fix char-count check missed.
+    (3) Wrap ``websocket.send`` in :func:`asyncio.wait_for` with
+        ``_WS_SEND_TIMEOUT_SECONDS`` so a wedged peer (full TCP send
+        buffer, half-open socket) cannot tie up the calling coroutine
+        (and the asyncio loop thread) indefinitely. On timeout the
+        connection is closed with code 1011 so the host's reconnect
+        path takes over.
+
+    Returns one of three status strings so the caller can distinguish
+    "drop and keep going" (oversized) from "drop and bail out"
+    (timeout / send error):
+
+    - ``"sent"`` — the frame was sent successfully.
+    - ``"dropped"`` — the frame exceeded ``_MAX_FRAME_BYTES`` and was
+      dropped with an ERROR log. The connection is still healthy.
+    - ``"failed"`` — the send timed out (connection closed with 1011)
+      OR raised an unexpected exception. The connection is unreliable
+      or already closing.
+
+    The caller MUST NOT re-attempt the send on ``"failed"`` — the
+    timeout path already initiated a WS close, and a re-attempt would
+    race the close handshake.
+    """
+    loop = asyncio.get_running_loop()
+    raw_bytes = await loop.run_in_executor(_get_ws_encode_pool(), _encode_ws_frame, event)
+    if len(raw_bytes) > _MAX_FRAME_BYTES:
+        log.error(
+            "[SIDECAR-WS] outbound frame exceeds %d bytes — dropping",
+            _MAX_FRAME_BYTES,
+        )
+        return "dropped"
+    try:
+        await asyncio.wait_for(websocket.send(raw_bytes), timeout=_WS_SEND_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        log.warning(
+            "[SIDECAR-WS] send timed out after %.1fs — closing connection",
+            _WS_SEND_TIMEOUT_SECONDS,
+        )
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1011, reason="send timeout")
+        return "failed"
+    except Exception:
+        log.warning("[SIDECAR-WS] send failed", exc_info=True)
+        return "failed"
+    return "sent"
+
+
+async def _graceful_close_all_conns(server: IPCServer) -> None:
+    """Send ``close(code=1001, reason="going away")`` to every
+    authenticated WS connection, then sleep for the close-handshake
+    budget so the peer has time to receive the close frame before the
+    asyncio loop is stopped.
+
+    Runs on the WS loop via :func:`asyncio.run_coroutine_threadsafe`
+    from :func:`ws_graceful_shutdown` (which is invoked from a
+    non-loop thread — the ``ShutdownController._do_cleanup`` thread).
+    Each ``ws.close()`` is awaited sequentially so the close frames
+    are emitted in arrival order; a single wedged peer cannot block
+    the whole close pass because the outer
+    :func:`asyncio.run_coroutine_threadsafe` ``.result(timeout=...)``
+    bounds the total close pass.
+
+    Failures on individual connections are logged at DEBUG and the
+    close pass continues — one dead peer must not prevent the close
+    frame from reaching the other (still-alive) peer.
+    """
+    conns = list(getattr(server, "_ws_authenticated_conns", set()))
+    for ws in conns:
+        try:
+            await ws.close(code=1001, reason="going away")
+        except Exception:
+            log.debug(
+                "[SIDECAR-WS] graceful close failed for one connection",
+                exc_info=True,
+            )
+    # Allow time for the WS close handshake to complete on the wire
+    # before ``loop.stop()`` fires — see
+    # ``_WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS`` for the rationale.
+    await asyncio.sleep(_WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS)
+
+
+def _attach_ws_graceful_shutdown(server: IPCServer) -> None:
+    """Install graceful-shutdown hooks on the IPCServer.
+
+    Adds three pieces of WS-state to the server (idempotently —
+    existing values are preserved) and installs a
+    ``ws_graceful_shutdown`` callable plus a ``server.stop`` wrapper:
+
+    - ``server._ws_authenticated_conns``: ``set`` of authenticated
+      websockets, populated by :func:`_handle_connection_inner` after a
+      successful auth and discarded in the connection ``finally`` block.
+      ``ws_graceful_shutdown`` iterates this set to send ``close(1001)``.
+    - ``server._ws_dispatch_futures``: ``set`` of in-flight
+      ``concurrent.futures.Future`` objects. The dispatch path may
+      register futures here so ``ws_graceful_shutdown`` can
+      bounded-wait for them.
+    - ``server._ws_loop``: the asyncio loop running :func:`run._main`.
+      Set in :func:`_handle_connection_inner` (per-connection, but the
+      loop is shared across all connections) and read by
+      ``ws_graceful_shutdown`` to schedule the close coroutine +
+      ``loop.stop``. Without this reference, ``ws_graceful_shutdown``
+      (invoked from a non-loop thread) would have no way to stop the
+      WS loop — the loop would stay alive until process exit, defeating
+      the graceful-shutdown contract.
+
+    The ``server.stop`` wrapper calls ``server.ws_graceful_shutdown()``
+    FIRST (looked up dynamically so tests can replace it post-install),
+    then delegates to the original ``server.stop``. Exceptions from
+    ``ws_graceful_shutdown`` are logged at DEBUG and the original
+    ``stop`` STILL runs — a failure in the WS close path must not
+    prevent the TCP teardown. This satisfies the "BEFORE
+    ``ipc_server.stop()``" requirement WITHOUT modifying
+    ``shutdown_controller.py`` or ``ipc_server.py`` (file ownership
+    boundary — this module owns all WS-state).
+
+    Idempotent: a second call is a no-op (detected via the
+    ``_ws_graceful_shutdown_installed`` marker). Without this guard, a
+    double-install would wrap ``server.stop`` twice, creating a chain
+    of wrappers calling each other on every shutdown.
+    """
+    if getattr(server, "_ws_graceful_shutdown_installed", False):
+        return
+    server._ws_graceful_shutdown_installed = True  # type: ignore[attr-defined]
+
+    # Initialize the WS-state attributes ONLY if they are not already
+    # set. Tests (and a future caller) may pre-populate these before
+    # calling ``_attach_ws_graceful_shutdown``; the install must not
+    # overwrite existing state. ``getattr(..., None)`` returns None for
+    # an unset attribute on a real IPCServer, and returns a MagicMock
+    # child on a MagicMock test double — both are "already set" from
+    # the install's perspective, so we preserve them. The
+    # ``_make_real_server_for_graceful_shutdown`` test helper explicitly
+    # pre-sets these to real ``set()`` instances before calling install.
+    if getattr(server, "_ws_authenticated_conns", None) is None:
+        server._ws_authenticated_conns = set()  # type: ignore[attr-defined]
+    if getattr(server, "_ws_dispatch_futures", None) is None:
+        server._ws_dispatch_futures = set()  # type: ignore[attr-defined]
+
+    def ws_graceful_shutdown() -> None:
+        """Send close(1001) to all authenticated conns, bounded-wait
+        for in-flight dispatch futures, then stop the WS loop.
+
+        Invoked from a non-loop thread (the
+        ``ShutdownController._do_cleanup`` thread via the
+        ``server.stop`` wrapper). The close coroutine is scheduled on
+        the WS loop via :func:`asyncio.run_coroutine_threadsafe` so it
+        runs on the loop that owns the websockets (calling
+        ``ws.close()`` on a different loop is unsafe for real
+        ``websockets`` library connections — their internal state is
+        tied to the loop that created them).
+
+        The dispatch-future drain uses
+        ``concurrent.futures.Future.result(timeout=...)`` which is a
+        blocking call safe to invoke from any thread. Each future gets
+        its own timeout — a single stuck handler cannot block the
+        whole drain pass.
+
+        The loop stop is scheduled via
+        ``loop.call_soon_threadsafe(loop.stop)`` — the only
+        documented thread-safe way to hand work to an asyncio loop
+        from outside it. ``loop.stop`` causes ``loop.run_forever()``
+        (in :func:`run`) to return, which lets ``asyncio.run()``
+        finalize the loop and ``run()`` return to its caller.
+
+        If ``server._ws_loop`` is unset or already closed, the close
+        and stop are skipped (logged at DEBUG) — the drain still runs
+        so any in-flight futures are bounded-waited. This makes
+        ``ws_graceful_shutdown`` safe to call even when the WS path
+        was never entered (e.g. the server ran in TCP-only mode).
+        """
+        loop = getattr(server, "_ws_loop", None)
+
+        # 1. Send close(1001, "going away") to each authenticated conn
+        #    + sleep for the close-handshake budget. The whole close
+        #    pass is one coroutine scheduled on the WS loop so the
+        #    individual ``ws.close()`` calls run on the correct loop.
+        if loop is not None and not loop.is_closed():
+            try:
+                close_future = asyncio.run_coroutine_threadsafe(
+                    _graceful_close_all_conns(server),
+                    loop,
+                )
+                # Bounded-wait: handshake sleep (0.5 s) + per-conn
+                # close calls + slack. If the close pass hangs (e.g. a
+                # wedged peer's ``ws.close()`` blocks), abandon it and
+                # proceed to the drain + loop stop — the host's hard
+                # timeout will force-kill the process anyway.
+                close_future.result(
+                    timeout=_WS_GRACEFUL_CLOSE_HANDSHAKE_SECONDS + _WS_DISPATCH_DRAIN_TIMEOUT_SECONDS + 0.5,
+                )
+            except Exception:
+                log.debug(
+                    "[SIDECAR-WS] graceful close pass failed or timed out — continuing to drain + loop stop",
+                    exc_info=True,
+                )
+        else:
+            log.debug("[SIDECAR-WS] no WS loop reference (or loop closed) — skipping close pass")
+
+        # 2. Bounded-wait for in-flight dispatch futures. Each future
+        #    gets its own timeout so one stuck handler cannot block
+        #    the whole drain. The set is snapshotted to avoid
+        #    mutation-during-iteration if a dispatch completes and
+        #    discards itself from the set while we iterate.
+        futures = list(getattr(server, "_ws_dispatch_futures", set()))
+        for future in futures:
+            try:
+                future.result(timeout=_WS_DISPATCH_DRAIN_TIMEOUT_SECONDS)
+            except Exception:
+                log.debug(
+                    "[SIDECAR-WS] dispatch future did not complete within "
+                    "%.1fs drain timeout — proceeding to loop stop",
+                    _WS_DISPATCH_DRAIN_TIMEOUT_SECONDS,
+                    exc_info=True,
+                )
+
+        # 3. Stop the WS loop. ``call_soon_threadsafe`` is the only
+        #    documented thread-safe way to schedule a callback on a
+        #    running loop from a non-loop thread. ``loop.stop`` causes
+        #    ``loop.run_forever()`` (in :func:`run`) to return.
+        if loop is not None and not loop.is_closed():
+            try:
+                loop.call_soon_threadsafe(loop.stop)
+            except RuntimeError:
+                log.debug(
+                    "[SIDECAR-WS] loop.stop() scheduling failed — loop already closed",
+                    exc_info=True,
+                )
+        else:
+            log.debug("[SIDECAR-WS] no WS loop reference (or loop closed) — cannot stop loop")
+
+    server.ws_graceful_shutdown = ws_graceful_shutdown  # type: ignore[attr-defined]
+
+    # Wrap ``server.stop`` so ``ws_graceful_shutdown`` runs FIRST.
+    # The wrapper looks up ``server.ws_graceful_shutdown`` DYNAMICALLY
+    # (not via the closure-captured reference) so tests that replace
+    # ``server.ws_graceful_shutdown`` post-install observe the
+    # replacement. The original ``stop`` is captured at install time
+    # (before any test replacement).
+    original_stop = server.stop
+
+    def wrapped_stop(*args, **kwargs):
+        try:
+            # Dynamic lookup — see comment above.
+            server.ws_graceful_shutdown()
+        except Exception:
+            log.debug(
+                "[SIDECAR-WS] ws_graceful_shutdown raised — continuing to original stop",
+                exc_info=True,
+            )
+        return original_stop(*args, **kwargs)
+
+    server.stop = wrapped_stop  # type: ignore[attr-defined]
 
 
 # Cooperative shutdown hard timeout (ADR-0020 §10). When the host
@@ -555,7 +980,7 @@ def _make_dispatch(server: IPCServer):
         )
         # ``setattr`` on a real IPCServer stores the attribute; on a
         # MagicMock test double it overrides the auto-vivified child.
-        server._ws_dispatch_pool = ws_dispatch_pool  # type: ignore[attr-defined]
+        server._ws_dispatch_pool = ws_dispatch_pool
 
     # explicit ``threading.Event`` coordination between the WS
     # dispatch path and ``ShutdownController._do_cleanup``. The pool's
@@ -589,13 +1014,13 @@ def _make_dispatch(server: IPCServer):
     if ws_drained_event is None:
         ws_drained_event = _threading.Event()
         ws_drained_event.set()  # initially drained — count is 0
-        server._ws_drained_event = ws_drained_event  # type: ignore[attr-defined]
+        server._ws_drained_event = ws_drained_event
     ws_inflight_lock = getattr(server, "_ws_inflight_lock", None)
     if ws_inflight_lock is None:
         ws_inflight_lock = _threading.Lock()
-        server._ws_inflight_lock = ws_inflight_lock  # type: ignore[attr-defined]
+        server._ws_inflight_lock = ws_inflight_lock
     if getattr(server, "_ws_inflight_count", None) is None:
-        server._ws_inflight_count = 0  # type: ignore[attr-defined]
+        server._ws_inflight_count = 0
 
     async def dispatch(msg: dict, websocket) -> dict | None:
         msg_type = msg.get("type")
@@ -669,6 +1094,39 @@ def _make_dispatch(server: IPCServer):
                 },
             }
 
+        # TOCTOU re-check: the early ``_shutting_down`` gate
+        # above was read BEFORE the rate-limiter call. The flag can
+        # flip in the gap between that read and the actual
+        # ``pool.submit`` — e.g. ``ShutdownController.quit()`` runs
+        # concurrently between the early gate and here, OR the
+        # rate-limiter itself blocks long enough for the shutdown
+        # sequence to start. Re-check immediately before the in-flight
+        # count increment (so a TOCTOU-rejected dispatch does NOT
+        # touch the count — net-zero) and short-circuit with the SAME
+        # ``server.shutting_down`` error envelope as the early gate.
+        # This shrinks (does NOT eliminate) the TOCTOU window: the
+        # flag can still flip DURING the handler's execution, but that
+        # residual race is owned by the handler's own
+        # shutdown-awareness (e.g. ``download_model`` checks
+        # ``_shutting_down`` between chunks). Placing the re-check
+        # BEFORE the in-flight count increment (rather than
+        # immediately before ``loop.run_in_executor``) avoids
+        # incrementing then decrementing the count for a rejected
+        # dispatch — the count is only touched for dispatches that
+        # actually reach the executor.
+        if msg_type != "shutdown" and getattr(server.app, "_shutting_down", False):
+            log.debug(
+                "[SIDECAR-WS] TOCTOU re-check rejecting %s — server shutting down",
+                msg_type,
+            )
+            return {
+                "type": "error",
+                "data": {
+                    "code": "server.shutting_down",
+                    "message": "server is shutting down; please retry later",
+                },
+            }
+
         # mark this dispatch as in-flight + clear the drain Event
         # so ``ShutdownController._do_cleanup`` knows to wait for us
         # before tearing down the DB / recorder / crash-recovery
@@ -680,7 +1138,7 @@ def _make_dispatch(server: IPCServer):
         # The lock is held for the minimum work needed (increment +
         # Event.clear); the dispatch body itself runs without the lock.
         with ws_inflight_lock:
-            server._ws_inflight_count = server._ws_inflight_count + 1  # type: ignore[attr-defined]
+            server._ws_inflight_count = server._ws_inflight_count + 1
             ws_drained_event.clear()
 
         # Dispatch on the worker thread pool so a slow handler
@@ -694,6 +1152,35 @@ def _make_dispatch(server: IPCServer):
         # cannot track that early-return control flow).
         result: dict | None = None
         try:
+            # Pre-executor TOCTOU re-check: the early ``_shutting_down``
+            # gate above and the in-flight-count re-check both run BEFORE
+            # the count increment. The flag can flip in the window
+            # between that re-check and this point — e.g. during the
+            # count increment + ``ws_drained_event.clear()`` under
+            # ``ws_inflight_lock``, the ``asyncio.get_running_loop()``
+            # call, or the ``try`` entry. Re-checking immediately before
+            # ``loop.run_in_executor`` shrinks the TOCTOU window to just
+            # the ``run_in_executor`` await itself (the residual race
+            # during the handler's execution is owned by the handler's
+            # own shutdown-awareness — e.g. ``download_model`` checks
+            # ``_shutting_down`` between chunks). On rejection, the
+            # ``finally`` block below decrements the in-flight count
+            # (net-zero — the count was incremented above) and re-sets
+            # the drain Event when the count drops to zero, so
+            # ``_do_cleanup`` is not blocked on a dispatch that never
+            # reached the executor.
+            if msg_type != "shutdown" and getattr(server.app, "_shutting_down", False):
+                log.debug(
+                    "[SIDECAR-WS] pre-executor TOCTOU re-check rejecting %s — server shutting down",
+                    msg_type,
+                )
+                return {
+                    "type": "error",
+                    "data": {
+                        "code": "server.shutting_down",
+                        "message": "server is shutting down; please retry later",
+                    },
+                }
             # use the dedicated ``_ws_dispatch_pool`` (not the
             # asyncio default executor) so ``ShutdownController._do_cleanup``
             # can ``pool.shutdown(wait=False, cancel_futures=True)`` to
@@ -735,9 +1222,9 @@ def _make_dispatch(server: IPCServer):
             # actual dispatch state, otherwise ``_do_cleanup`` would
             # wait on an Event that never fires — a deadlock).
             with ws_inflight_lock:
-                server._ws_inflight_count = server._ws_inflight_count - 1  # type: ignore[attr-defined]
-                if server._ws_inflight_count <= 0:  # type: ignore[attr-defined]
-                    server._ws_inflight_count = 0  # type: ignore[attr-defined]
+                server._ws_inflight_count = server._ws_inflight_count - 1
+                if server._ws_inflight_count <= 0:
+                    server._ws_inflight_count = 0
                     ws_drained_event.set()
 
         if return_error is not None:
@@ -804,7 +1291,7 @@ def _get_ws_connection_semaphore(server: IPCServer) -> asyncio.Semaphore:
     if not isinstance(sem, asyncio.Semaphore):
         sem = asyncio.Semaphore(_MAX_WS_CONNECTIONS)
         with contextlib.suppress(Exception):
-            server._ws_connection_semaphore = sem  # type: ignore[attr-defined]
+            server._ws_connection_semaphore = sem
     return sem
 
 
@@ -1092,84 +1579,42 @@ def _start_writer(websocket, outbound: asyncio.Queue) -> asyncio.Task:
     """
 
     async def _writer() -> None:
-        """Drain the outbound queue and write each event as a WS frame."""
-        loop = asyncio.get_running_loop()
+        """Drain the outbound queue and write each event as a WS frame.
+
+        Delegates each send to :func:`_safe_send`, which applies the
+        three safeguards that previously lived inline in this
+        coroutine: offloads ``json.dumps`` to ``loop.run_in_executor``,
+        wraps ``websocket.send`` in ``asyncio.wait_for(timeout=
+        _WS_SEND_TIMEOUT_SECONDS)``, and on ``TimeoutError`` calls
+        ``websocket.close(code=1011, reason="send timeout")``. The
+        shared helper is also used by :func:`_read_loop`'s
+        dispatch-response path so the two outbound paths cannot
+        diverge on the DoS defenses again (regression guard for
+        the finding where the dispatch response bypassed the
+        writer's size cap + timeout + off-loop encode).
+        """
         try:
             while True:
                 event = await outbound.get()
                 if event is None:
                     return
-                try:
-                    # Offload the JSON encode to the default executor:
-                    # ``_encode_ws_frame`` runs ``json.dumps`` +
-                    # ``.encode`` together on a worker thread. For
-                    # small frames this is roughly the cost of a thread
-                    # handoff (~50 µs) vs the in-line JSON encode
-                    # (~10-50 µs) — a wash. For near-cap frames (~1 MiB)
-                    # at 1-5 Hz the in-line encode was 50-100 ms of pure
-                    # CPU on the asyncio loop thread, stalling every
-                    # other connection's reads + the heartbeat fast-path.
-                    # XV-84: encode ONCE to bytes. The previous code
-                    # encoded twice — once here for the size check
-                    # (then discarded) and once inside
-                    # ``websocket.send(raw)`` (str → bytes). For
-                    # near-cap frames (~1 MiB) at 1-5 Hz that's
-                    # 1-5 MiB/sec of garbage allocation on the
-                    # asyncio loop thread. Encoding once and
-                    # reusing the buffer cuts the encode cost in
-                    # half and keeps the asyncio loop responsive
-                    # under load.
-                    #
-                    # ``ensure_ascii=False`` (inside the helper) keeps
-                    # multi-byte UTF-8 (e.g. CJK / emoji dictation)
-                    # as-is on the wire instead of escaping to
-                    # ``\uXXXX`` (the default ``ensure_ascii=True``
-                    # would bloat CJK payloads ~3x).
-                    raw_bytes = await loop.run_in_executor(None, _encode_ws_frame, event)
-                    # ``len(raw_bytes)`` is the actual UTF-8 byte
-                    # count. The previous ``len(raw)`` (char count)
-                    # was a LOWER BOUND on the byte count and could
-                    # let a multi-byte-heavy frame through the size
-                    # check that would later fail the Rust host's
-                    # tungstenite ``max_size`` receive enforcement.
-                    # Measuring the actual byte count here is cheap
-                    # (the buffer is already a ``bytes`` object, no
-                    # re-encoding) and lets us pre-emptively drop
-                    # the frame with a structured log instead of
-                    # closing the connection on the host side.
-                    if len(raw_bytes) > _MAX_FRAME_BYTES:
-                        log.error(
-                            "[SIDECAR-WS] outbound frame exceeds %d bytes — dropping",
-                            _MAX_FRAME_BYTES,
-                        )
-                        continue
-                    # Cap the send at ``_WS_SEND_TIMEOUT_SECONDS`` so a
-                    # wedged peer (full TCP send buffer, half-open socket)
-                    # cannot tie up this writer task (and the asyncio
-                    # loop thread) indefinitely. ``asyncio.wait_for``
-                    # cancels the in-flight send on timeout; we then
-                    # close the connection (code 1011) so the host's
-                    # reconnect path takes over instead of silently
-                    # dropping further events into a buffer that will
-                    # never drain. Note: we pass ``raw_bytes`` (the
-                    # pre-encoded buffer) to ``websocket.send`` — the
-                    # websockets library doesn't need to re-encode.
-                    try:
-                        await asyncio.wait_for(websocket.send(raw_bytes), timeout=_WS_SEND_TIMEOUT_SECONDS)
-                    except asyncio.TimeoutError:
-                        log.warning(
-                            "[SIDECAR-WS] send timed out after %.1fs — closing connection",
-                            _WS_SEND_TIMEOUT_SECONDS,
-                        )
-                        with contextlib.suppress(Exception):
-                            await websocket.close(code=1011, reason="send timeout")
-                        return
-                    except Exception:
-                        log.warning("[SIDECAR-WS] send failed", exc_info=True)
-                        return
-                except Exception:
-                    log.warning("[SIDECAR-WS] send failed", exc_info=True)
+                send_status = await _safe_send(websocket, event)
+                if send_status == "failed":
+                    # Timeout or send error — ``_safe_send`` already
+                    # logged + initiated the close (timeout path) or
+                    # the connection is otherwise unreliable. Return
+                    # so the orchestrator's finally block cleans up
+                    # (subscriber unsubscribe + writer-task cancel +
+                    # active-connection slot clear).
                     return
+                # ``"sent"`` → keep draining the queue.
+                # ``"dropped"`` → the frame exceeded
+                # ``_MAX_FRAME_BYTES`` and was logged + skipped by
+                # ``_safe_send``. Preserve the pre-fix ``continue``
+                # behaviour so one pathological event does not kill
+                # the whole outbound stream (subsequent events on the
+                # queue are independent and may be perfectly
+                # sendable).
         except asyncio.CancelledError:
             return
 
@@ -1294,10 +1739,30 @@ async def _read_loop(websocket, server: IPCServer, dispatch) -> None:
         if result is not None:
             if request_id is not None and isinstance(result, dict):
                 result = {**result, "id": request_id}
-            try:
-                await websocket.send(json.dumps(result, ensure_ascii=False))
-            except Exception:
-                log.warning("[SIDECAR-WS] response send failed", exc_info=True)
+            # Route the dispatch response through ``_safe_send`` so it
+            # gets the SAME three DoS defenses the writer task applies
+            # to outbound events: off-loop ``json.dumps``, the
+            # ``_MAX_FRAME_BYTES`` 1 MiB cap, and the
+            # ``_WS_SEND_TIMEOUT_SECONDS`` send timeout. Pre-fix the
+            # dispatch response called ``websocket.send(json.dumps(...))``
+            # directly, bypassing all three — a handler returning a
+            # multi-MiB response (e.g. ``get_history`` /
+            # ``get_vocabulary`` for a user with thousands of entries)
+            # would (1) block the asyncio loop thread with synchronous
+            # ``json.dumps``, (2) block forever on a wedged peer, and
+            # (3) exceed the 1 MiB cap that ADR-0020 §10 mandates.
+            send_status = await _safe_send(websocket, result)
+            if send_status != "sent":
+                # ``"dropped"`` (oversized) or ``"failed"`` (timeout /
+                # send error). For ``"dropped"`` the host is expecting
+                # a response with this ``request_id`` and would hang
+                # until its own timeout; bailing out + the resulting
+                # WS close lets the host's reconnect path take over
+                # immediately instead of silently dropping the
+                # response. For ``"failed"`` the connection is
+                # already unreliable or closing. Either way ``break``
+                # exits the read loop and the orchestrator's finally
+                # block cleans up.
                 break
 
 
@@ -1340,6 +1805,33 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
         return
 
     loop = asyncio.get_running_loop()
+    # Store the loop reference on the server so
+    # ``ws_graceful_shutdown`` (invoked from a non-loop thread by the
+    # ``server.stop`` wrapper installed in ``_attach_ws_graceful_shutdown``)
+    # can schedule the close coroutine + ``loop.stop``. All WS
+    # connections share the same loop (the one running ``run._main``),
+    # so this per-connection write is idempotent in production. The
+    # ``contextlib.suppress`` guards against a test double where
+    # attribute-write may be restricted.
+    with contextlib.suppress(Exception):
+        server._ws_loop = loop  # type: ignore[attr-defined]
+
+    # Register the authenticated websocket on
+    # ``server._ws_authenticated_conns`` so ``ws_graceful_shutdown``
+    # can send ``close(1001)`` to it during graceful shutdown. The
+    # websocket is removed in the ``finally`` block below (only if it
+    # is still in the set — a concurrent shutdown may have already
+    # snapshotted and cleared the set). ``discard`` is used (not
+    # ``remove``) so the cleanup is idempotent if the websocket was
+    # already removed. The ``getattr(..., None)`` guard skips the
+    # registration when the graceful-shutdown hooks were never
+    # installed (e.g. the server runs in TCP-only mode, or a test
+    # MagicMock without the hooks).
+    authed_conns = getattr(server, "_ws_authenticated_conns", None)
+    if authed_conns is not None:
+        with contextlib.suppress(Exception):
+            authed_conns.add(websocket)
+
     outbound: asyncio.Queue[dict] = asyncio.Queue(maxsize=256)
     # ``_install_subscriber`` MUST run BEFORE ``_emit_ready_if_first``
     # so the WS subscriber (``_push_to_ws``) is registered on ``event_bus``
@@ -1369,6 +1861,14 @@ async def _handle_connection_inner(websocket, server: IPCServer, dispatch, peer)
         writer_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await writer_task
+        # Remove the websocket from the authenticated-conns set so
+        # ``ws_graceful_shutdown`` does not send ``close(1001)`` to a
+        # websocket that has already closed. ``discard`` is idempotent
+        # (no error if the websocket was already removed).
+        authed_conns = getattr(server, "_ws_authenticated_conns", None)
+        if authed_conns is not None:
+            with contextlib.suppress(Exception):
+                authed_conns.discard(websocket)
         # clear the active-connection slot ONLY if it still
         # points at THIS socket — a concurrent auth may have already
         # replaced it. Compare-and-clear under ``server._lock``.
@@ -1442,7 +1942,26 @@ def run(server: IPCServer) -> int:
 
     dispatch = _make_dispatch(server)
 
+    # Install the graceful-shutdown hooks BEFORE the loop starts so the
+    # ``server.stop`` wrapper (which calls ``ws_graceful_shutdown``) is
+    # in place before any connection arrives. ``_attach_ws_graceful_shutdown``
+    # is idempotent, so a double-call (e.g. the test harness calls it
+    # first, then ``run`` calls it again) is a no-op.
+    _attach_ws_graceful_shutdown(server)
+
     async def _main() -> int:
+        # Store the loop reference on the server so
+        # ``ws_graceful_shutdown`` (invoked from a non-loop thread by
+        # the ``server.stop`` wrapper) can schedule the close coroutine
+        # + ``loop.stop``. This is set here (in ``_main``) so it is
+        # available even if no WS connection has been established yet
+        # (e.g. the host sends ``shutdown`` before the first
+        # connection). ``_handle_connection_inner`` ALSO sets this per
+        # connection (idempotently — same loop, shared across all
+        # connections).
+        with contextlib.suppress(Exception):
+            server._ws_loop = asyncio.get_running_loop()  # type: ignore[attr-defined]
+
         # bind on 127.0.0.1:0 → OS assigns an ephemeral port.
         # max_size enforces the 1 MiB frame cap (ADR-0020 §10).
         async with serve(

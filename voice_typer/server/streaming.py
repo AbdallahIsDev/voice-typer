@@ -174,8 +174,6 @@ class AudioWindowPlanner:
 
 
 @dataclass
-
-
 class StreamingTextAssembler:
     """Commit timestamped words only after they are outside the unsafe tail."""
 
@@ -773,9 +771,7 @@ class StreamingTranscriptionSession:
                 if audio is not None and audio.size > 0:
                     cached = getattr(self.recorder, "_cached_resampled", None)
                     is_view_of_cache = (
-                        cached is not None
-                        and getattr(audio, "base", None) is not None
-                        and audio.base is cached
+                        cached is not None and getattr(audio, "base", None) is not None and audio.base is cached
                     )
                     if not is_view_of_cache:
                         audio.fill(0)
@@ -783,9 +779,7 @@ class StreamingTranscriptionSession:
                     waudio = window.audio
                     cached = getattr(self.recorder, "_cached_resampled", None)
                     is_view_of_cache = (
-                        cached is not None
-                        and getattr(waudio, "base", None) is not None
-                        and waudio.base is cached
+                        cached is not None and getattr(waudio, "base", None) is not None and waudio.base is cached
                     )
                     if not is_view_of_cache:
                         waudio.fill(0)

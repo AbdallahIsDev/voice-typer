@@ -171,6 +171,35 @@ _INITIAL_LABELS: dict[str, str] = {
         "Voice biometric consent is required to start recording.\n"
         "Enable it in Settings > Privacy > Voice Biometric Consent."
     ),
+    # consent_check_failed: distinct from consent_required — this fires
+    # when the consent CHECK itself raised (corrupted config read, etc.)
+    # rather than the consent being False. The user is told the check
+    # failed and recording was refused, so they know to investigate the
+    # config / re-grant consent rather than just toggling the setting.
+    "notify.recording_controller.consent_check_failed": (
+        "Could not verify voice biometric consent.\nRecording refused — check Settings > Privacy."
+    ),
+    # mic_disconnected: recorder device-lost callback (slow path —
+    # zero-fill-chunk retry exhausted). Distinct from mic_unplugged
+    # (fast path — OS device-list change) so the user sees an accurate
+    # "disconnected after retries" message rather than "unplugged".
+    "notify.recording_controller.mic_disconnected": (
+        "Microphone disconnected. Recording stopped. Reconnect the microphone to resume."
+    ),
+    # mic_unplugged: fast-path active-mic-lost callback (OS device-list
+    # change while recording). Distinct from mic_disconnected (slow
+    # path) so the user sees an accurate "unplugged" message rather
+    # than the misleading "disconnected after retries".
+    "notify.recording_controller.mic_unplugged": "Microphone was unplugged. Recording stopped.",
+    # mic_permission_revoked: mid-recording OS-level permission
+    # revocation (e.g. user toggled mic access off in System Settings).
+    # Distinct from silence_auto_stop so the user sees an accurate
+    # "permission revoked" message rather than the misleading
+    # "silence detected" auto-stop after 30-60s of zero-filled buffers.
+    "notify.recording_controller.mic_permission_revoked": (
+        "Microphone permission was revoked. Recording stopped. "
+        "Re-grant microphone access in your OS privacy settings to resume."
+    ),
     # (session NH): the start_failed notification no longer
     # interpolates {error} into the user-facing message — exception text
     # can leak absolute paths, device names, and hostnames. The full
@@ -203,6 +232,7 @@ _INITIAL_LABELS: dict[str, str] = {
         "Could not load the speech model.\n{error}\n\nThe app will keep running. Press F2 to retry loading."
     ),
     "notify.model_manager.change_deferred": "Model will change to {model} after current recording",
+    "notify.model_manager.backend_change_deferred": "Backend will change to {backend} after current recording.",
     # tray.py update-check notification () ─────────────────────
     "notify.update_available_body": "{app} {version} is available (you have {current})",
 }

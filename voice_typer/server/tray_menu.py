@@ -658,14 +658,19 @@ def build_microphones_submenu(tray) -> list:
     for mic in tray._microphones:
         mic_id = str(mic.get("id", ""))
         mic_name = str(mic.get("name", mic_id)) or mic_id
-        # Native checkmark via ``checked=bool``: previously the
+        # Native checkmark via ``checked=callable``: previously the
         # active mic was prefixed with "• " (and non-active with ""),
         # which bypassed the platform checkmark, broke screen-reader
         # semantics, and misaligned with the Models submenu (which
-        # also uses ``checked=``). pystray.MenuItem's ``checked``
-        # parameter renders the platform-standard checkmark. The menu
-        # is rebuilt on every right-click via invalidate_menu_cache,
-        # so the bool is fresh at display time.
+        # also uses ``checked=``). pystray's MenuItem ``checked``
+        # parameter renders the platform-standard checkmark, but it
+        # MUST be a callable — pystray wraps it via
+        # ``_assert_callable(checked, lambda _: None)`` and invokes it
+        # as ``checked(item)`` at render time; a raw bool raises
+        # ``ValueError`` at MenuItem construction (crashes the tray
+        # at startup). The menu is rebuilt on every right-click via
+        # invalidate_menu_cache, so the captured bool is fresh at
+        # display time.
         is_active = mic_id == active_mic_id
         # Default-arg capture so each iteration's mic_id is bound
         # at lambda creation time (not lazily at call time).
@@ -673,7 +678,7 @@ def build_microphones_submenu(tray) -> list:
             pystray.MenuItem(
                 mic_name,
                 wrap_callback(lambda _id=mic_id: tray._controller.change_microphone(_id)),
-                checked=is_active,
+                checked=(lambda _item, _active=is_active: _active),
             )
         )
     if tray._microphones:

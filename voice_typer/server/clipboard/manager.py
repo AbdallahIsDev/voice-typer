@@ -74,8 +74,23 @@ from voice_typer.server.config import DEFAULT_CLIPBOARD_RESTORE_DELAY_MS as _DEF
 # Each entry is a tuple of (ClipboardManager, ClipboardSnapshot,
 # pasted_text, delay). The lock guards the list because the daemon
 # thread and atexit handler may run concurrently.
+#
+# Hard cap on the in-flight pending-restores list. Under normal
+# use (``_restore_delay_ms=150``), entries live ~150 ms so the
+# steady-state size is bounded by paste rate × 0.15 s — typically 1-2
+# entries. BUT: (a) ``clipboard_restore_delay_ms`` is user-configurable
+# with no upper bound — a user setting it to 5000 ms creates a 5 s
+# window per entry; (b) if the daemon thread fails to start, a hang in
+# ``_delayed_restore`` leaves the entry forever; (c) each entry holds a
+# ``ClipboardSnapshot`` whose ``items`` list can be 16 MB × N formats.
+# At paste rate 5/s × 5 s delay × 64 MB/snapshot = 1.6 GB peak RSS.
+# 64 is large enough that the cap never fires in normal use (steady
+# state is 1-2 entries, peaks at ~5-10 during a paste burst) but small
+# enough that a runaway condition (daemon thread leak, user-set
+# 60-second restore delay) cannot pin gigabytes of clipboard snapshots.
 _pending_restores: list[tuple[Any, Any, str, float]] = []
 _pending_restores_lock = threading.Lock()
+_MAX_PENDING_RESTORES = 64
 
 
 def _force_restore_pending_at_exit() -> None:
@@ -300,11 +315,11 @@ class ClipboardManager:
             try:
                 if _cb.is_macos():
                     if _cb._is_password_field_macos():
-                        _cb.log.info("[CLIPBOARD] Paste blocked — macOS password field is focused (G4-H-05)")
+                        _cb.log.info("[CLIPBOARD] Paste blocked — macOS password field is focused")
                         return False
                 elif _cb.is_linux():  # noqa: SIM102
                     if _cb._is_password_field_linux():
-                        _cb.log.info("[CLIPBOARD] Paste blocked — Linux password field is focused (G4-H-05)")
+                        _cb.log.info("[CLIPBOARD] Paste blocked — Linux password field is focused")
                         return False
             except Exception:
                 # Outer fail-open: if the dispatch itself raises,
@@ -312,7 +327,7 @@ class ClipboardManager:
                 # behavior, and we'd rather allow paste than block all
                 # dictation because of a bug in the platform helper.
                 _cb.log.warning(
-                    "[CLIPBOARD] non-Windows password-field check raised — failing open (G4-H-05)",
+                    "[CLIPBOARD] non-Windows password-field check raised — failing open",
                     exc_info=True,
                 )
             return True
@@ -383,7 +398,7 @@ class ClipboardManager:
                     return False
             except Exception:
                 _cb.log.warning(
-                    "[CLIPBOARD] _is_elevated_target check raised — blocking paste (fail-closed, CLIP-3)",
+                    "[CLIPBOARD] _is_elevated_target check raised — blocking paste (fail-closed)",
                     exc_info=True,
                 )
                 return False
@@ -429,7 +444,7 @@ class ClipboardManager:
                         return False
                 except Exception:
                     _cb.log.warning(
-                        "[CLIPBOARD] _is_password_field check raised — blocking paste (fail-closed, CLIP-3)",
+                        "[CLIPBOARD] _is_password_field check raised — blocking paste (fail-closed)",
                         exc_info=True,
                     )
                     return False
@@ -809,6 +824,43 @@ class ClipboardManager:
             expected = pasted_text if pasted_text is not None else self._last_copied_text
             _pending_entry = (self, snapshot, expected, delay)
             with _pending_restores_lock:
+                # Hard cap on the in-flight pending-restores list.
+                # If we're at the cap, force-restore the OLDEST entry's
+                # snapshot synchronously (under the lock — atomic w.r.t.
+                # other appends) BEFORE appending the new entry. This
+                # bounds peak RSS: without the cap, a runaway condition
+                # (user-set 60 s restore delay, daemon-thread leak,
+                # OpenClipboard hang) pins N × ~16 MB × N formats of
+                # clipboard snapshots in Python heap until atexit. The
+                # oldest entry is the one closest to having been
+                # restored anyway (its daemon thread is the one most
+                # likely already mid-sleep or stuck), so evicting it
+                # minimises disruption. The force-restore path is the
+                # same ``snapshot.restore()`` call used by the atexit
+                # handler — the snapshot is restored to the clipboard,
+                # clobbering whatever the most recent paste() put there.
+                # That's the correct behaviour: the cap exists to
+                # prevent unbounded memory growth, and the user's
+                # original clipboard content (the snapshot) is more
+                # valuable than the dictated text that would have been
+                # restored a few hundred ms later.
+                if len(_pending_restores) >= _MAX_PENDING_RESTORES:
+                    oldest_entry = _pending_restores.pop(0)
+                    _oldest_cm, oldest_snapshot, _oldest_text, _oldest_delay = oldest_entry
+                    try:
+                        oldest_snapshot.restore()
+                        _cb.log.warning(
+                            "[CLIPBOARD] _pending_restores cap hit (%d) — "
+                            "synchronously restored oldest snapshot to prevent "
+                            "unbounded growth",
+                            _MAX_PENDING_RESTORES,
+                        )
+                    except Exception:
+                        _cb.log.exception(
+                            "[CLIPBOARD] force-restore of oldest pending entry "
+                            "failed (cap=%d) — leaving clipboard state as-is",
+                            _MAX_PENDING_RESTORES,
+                        )
                 _pending_restores.append(_pending_entry)
             # wrap Thread().start() in try/except — if start() fails
             # (out of thread resources / fd exhaustion), remove the orphaned
@@ -1129,7 +1181,7 @@ class ClipboardManager:
                         _cb.log.warning(
                             "[CLIPBOARD] Foreground window changed during paste "
                             "(TOCTOU: hwnd %d -> %d) — aborting paste to avoid "
-                            "sending Ctrl+V into the wrong window (G4-M-25)",
+                            "sending Ctrl+V into the wrong window",
                             safe_hwnd,
                             current_hwnd,
                         )
@@ -1148,9 +1200,7 @@ class ClipboardManager:
                 self._safe_key_press(_cb._Key.ctrl, "v")
 
             if not paste_succeeded:
-                _cb.log.warning(
-                    "[CLIPBOARD] Auto-paste failed (SendInput partial success — UIPI may have blocked) (CLIP-14)"
-                )
+                _cb.log.warning("[CLIPBOARD] Auto-paste failed (SendInput partial success — UIPI may have blocked)")
                 return False
 
             self._last_paste_time = _cb.time.monotonic()
@@ -1230,8 +1280,7 @@ class ClipboardManager:
                             # synchronously. Bail out to avoid a
                             # concurrent snapshot.restore() call.
                             _cb.log.debug(
-                                "[CLIPBOARD-AUDIT] Pending entry already claimed "
-                                "by atexit — skipping daemon restore (DE-63)"
+                                "[CLIPBOARD-AUDIT] Pending entry already claimed by atexit — skipping daemon restore"
                             )
                             return  #  short-circuit
                 except Exception:  # pragma: no cover — catastrophic lock failure

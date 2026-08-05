@@ -23,6 +23,14 @@ from voice_typer.server.volume_backend_base import VolumeState
 log = logging.getLogger(__name__)
 
 _DEFAULT_FILENAME = "duck_crash_recovery.json"
+# Separate sentinel file written by ``load_stale`` BEFORE the
+# caller restores the volume. Its existence on next-launch signals
+# "a restore was attempted but didn't complete cleanly" — see
+# ``load_stale``'s state-machine docstring for the four cases. The
+# sentinel is distinct from the main JSON so that flipping
+# ``consumed=True`` (now done in ``clear()`` AFTER a successful
+# restore) is decoupled from the "restore in progress" signal.
+_RESTORING_SENTINEL_FILENAME = "duck_crash_recovery.restoring"
 
 # retry configuration for ``save()``. Previously ``save()``
 # was fire-and-forget — a single transient disk failure (NFS hang, disk
@@ -47,23 +55,34 @@ class DuckCrashRecovery:
 
     state machine
     -------------------
-    The persisted JSON carries a ``"consumed": bool`` flag that
-    disambiguates the two previously-overloaded meanings of "file
-    present":
+    A separate ``duck_crash_recovery.restoring`` sentinel file (see
+    ``_RESTORING_SENTINEL_FILENAME``) disambiguates the four next-launch
+    cases. The persisted JSON carries a ``"consumed": bool`` flag; the
+    sentinel signals "a restore was attempted but didn't complete
+    cleanly". ``load_stale()`` writes the sentinel BEFORE returning the
+    state; ``clear()`` flips ``consumed=True`` AFTER the restore
+    succeeds (so a crash between ``load_stale`` and ``clear`` is
+    detectable next launch):
 
-    * ``consumed=False`` (or absent for back-compat with files written
-      by previous versions): the duck is active and the volume has not
-      been restored yet. ``load_stale()`` returns the state AND writes
-      ``consumed=True`` back to the file. A subsequent process launch
-      that sees ``consumed=True`` returns ``None`` (the prior launch
-      already restored the volume; restoring again would clobber a
-      user-initiated manual change in the interim).
+    * Case 1 — ``consumed=False``, no sentinel: normal first launch.
+      ``load_stale()`` writes the sentinel and returns the state.
+    * Case 2 — ``consumed=True``, no sentinel: the restore completed
+      fully. ``load_stale()`` returns ``None``.
+    * Case 3 — ``consumed=False``, sentinel exists: the previous
+      launch crashed between ``load_stale`` and ``clear``; the volume
+      is still ducked. ``load_stale()`` RE-ATTEMPTS the restore
+      (returns the state again).
+    * Case 4 — ``consumed=True``, sentinel exists: ``clear`` flipped
+      ``consumed=True`` but crashed before deleting the sentinel. The
+      restore already succeeded; ``load_stale()`` cleans up the
+      sentinel and returns ``None``.
+    * Orphaned sentinel (no main file): cleaned up by ``load_stale()``.
 
-    * ``consumed=True``: the volume was already restored (or the
-      previous restore attempt crashed mid-restore, in which case the
-      user's volume is in an unknown state and auto-restoring on top
-      of it would be wrong). ``load_stale()`` returns ``None`` and
-      leaves the file in place (the next ``clear()`` will delete it).
+    ``consumed=False`` (or absent for back-compat with files written by
+    previous versions) means the duck is active and the volume has not
+    been restored yet. ``consumed=True`` means the volume was already
+    restored (or is in an unknown state — auto-restoring on top of it
+    would be wrong).
 
     Within a single Python process, ``load_stale()`` is idempotent:
     the first call caches the state in ``self._cached_stale`` and
@@ -88,10 +107,14 @@ class DuckCrashRecovery:
 
             config_dir = _paths.config_dir()
         self._path = config_dir / _DEFAULT_FILENAME
+        # Separate sentinel file written by ``load_stale`` before
+        # the caller restores the volume. See the module-level docstring
+        # for ``_RESTORING_SENTINEL_FILENAME`` and ``load_stale``'s
+        # state-machine docstring for the four next-launch cases.
+        self._restoring_sentinel_path = config_dir / _RESTORING_SENTINEL_FILENAME
         # in-memory cache of the most-recently-loaded stale
         # state. See the class docstring for the rationale.
         self._cached_stale: VolumeState | None = None
-        self._cache_dirty: bool = False
         # ``_consumed_writeback_failed`` is set to True when
         # ``_mark_consumed`` exhausts its retry budget without
         # successfully writing ``consumed=True`` back to the file.
@@ -108,6 +131,36 @@ class DuckCrashRecovery:
     @property
     def path(self) -> Path:
         return self._path
+
+    def _write_restoring_sentinel(self) -> None:
+        """Best-effort write of the restoring sentinel file.
+
+        The sentinel's EXISTENCE is the signal — it carries no data.
+        Written by ``load_stale`` BEFORE returning the state so a crash
+        between ``load_stale`` and the caller's ``clear`` is detectable
+        on the next launch. Uses the same atomic write helper as
+        ``save`` (no half-written sentinels).
+        """
+        try:
+            self._restoring_sentinel_path.parent.mkdir(parents=True, exist_ok=True)
+            from voice_typer.server.config import _secure_atomic_write
+
+            _secure_atomic_write(self._restoring_sentinel_path, "restoring", durability=False)
+        except OSError as exc:
+            log.debug("[VOLUME-CRASH] Could not write restoring sentinel: %s", exc)
+
+    def _delete_restoring_sentinel(self) -> None:
+        """Best-effort delete of the restoring sentinel file.
+
+        Called by ``save`` (fresh duck cycle), ``clear`` (cleanup), and
+        ``load_stale`` (Case 4 / orphaned-sentinel cleanup). Best-effort
+        so a transient disk failure can't break the caller.
+        """
+        try:
+            if self._restoring_sentinel_path.exists():
+                self._restoring_sentinel_path.unlink()
+        except OSError as exc:
+            log.debug("[VOLUME-CRASH] Could not delete restoring sentinel: %s", exc)
 
     def save(self, state: VolumeState) -> bool:
         """Persist the pre-duck volume state.
@@ -154,7 +207,6 @@ class DuckCrashRecovery:
         # is now stale (in the "stale cache" sense, not the
         # "stale crash-recovery file" sense).
         self._cached_stale = None
-        self._cache_dirty = False
         # a fresh ``save()`` always represents a clean duck
         # cycle — clear the writeback-failed flag so a subsequent
         # ``load_stale()`` doesn't accidentally treat the new file as
@@ -162,6 +214,11 @@ class DuckCrashRecovery:
         # retried below; if THAT fails the operator sees the existing
         # WARNING and the duck is aborted at the caller layer.
         self._consumed_writeback_failed = False
+        # A fresh ``save()`` starts a new duck cycle — any
+        # leftover sentinel from a previous (crashed) restore attempt
+        # is stale and must be removed so the next ``load_stale()``
+        # doesn't mistake it for an in-flight restore. Best-effort.
+        self._delete_restoring_sentinel()
 
         from voice_typer.server.config import _secure_atomic_write
 
@@ -259,7 +316,13 @@ class DuckCrashRecovery:
             )
             return None
 
+        # Orphaned sentinel with no main file — stale leftover from a
+        # ``clear`` that deleted the main file but crashed before
+        # deleting the sentinel. Clean it up and return None (there is
+        # no state to restore).
         if not self._path.exists():
+            if self._restoring_sentinel_path.exists():
+                self._delete_restoring_sentinel()
             return None
         try:
             from voice_typer.server.config import _secure_read_text
@@ -268,38 +331,35 @@ class DuckCrashRecovery:
             data = json.loads(raw)
             # ``consumed`` defaults to ``False`` for back-compat
             # with files written by previous versions that lack the
-            # key. A ``True`` value means a prior launch already
-            # restored the volume — auto-restoring again would clobber
-            # a user-initiated manual change in the interim, so we
-            # return ``None`` and let the caller skip the restore.
+            # key. A ``True`` value means the restore already
+            # completed — auto-restoring again would clobber a
+            # user-initiated manual change in the interim.
             if bool(data.get("consumed", False)):
-                # Leave the file in place; ``clear()`` will delete it
-                # on the next successful duck→restore cycle.
+                # Case 2/4: the restore already succeeded. A leftover
+                # sentinel (Case 4 — ``clear`` crashed between
+                # ``_mark_consumed`` and deleting the sentinel) is
+                # cleaned up here; ``clear()`` will delete the main
+                # file on the next duck→restore cycle.
+                if self._restoring_sentinel_path.exists():
+                    self._delete_restoring_sentinel()
                 return None
             state = VolumeState(
                 linear=float(data["linear"]),
                 muted=bool(data["muted"]),
             )
-            # write ``consumed=True`` back to the file so a
-            # subsequent process launch (after a crash between this
-            # load and the eventual ``clear()``) sees the consumed
-            # flag and skips the (potentially destructive) restore.
-            # ``_mark_consumed`` now retries the write-back
-            # up to ``_SAVE_MAX_RETRIES`` times; if all attempts fail
-            # it sets ``_consumed_writeback_failed=True`` and this
-            # method does NOT cache the state (so a subsequent
-            # same-process ``load_stale()`` call returns None via the
-            # guard above). The caller's restore() still gets the
-            # state from THIS call so the in-process restore proceeds;
-            # the flag only blocks a NEXT-process re-restore via
-            # this method's re-call in the SAME process.
-            self._mark_consumed(data)
-            if not self._consumed_writeback_failed:
-                self._cached_stale = state
+            # Case 1/3: write the restoring sentinel BEFORE returning
+            # the state so a crash between this load and the caller's
+            # eventual ``clear()`` is detectable on next launch. The
+            # ``consumed=True`` flip is deferred to ``clear()`` (after
+            # the restore succeeds) — flipping it here would leave a
+            # crash-mid-restore stuck at the ducked level with no
+            # re-attempt path.
+            self._write_restoring_sentinel()
+            self._cached_stale = state
             return state
         except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
             log.warning("[VOLUME-CRASH] Failed to parse stale state: %s", exc)
-            self.clear()  # delete corrupt file
+            self.clear()  # delete corrupt main file + any sentinel
             return None
 
     def _mark_consumed(self, data: dict) -> None:
@@ -336,7 +396,6 @@ class DuckCrashRecovery:
             try:
                 # durability=False — see save() for rationale.
                 _secure_atomic_write(self._path, payload, durability=False)
-                self._cache_dirty = True
                 # write succeeded — clear the failure flag
                 # (it may have been set by a previous failed attempt
                 # in this same call).
@@ -372,14 +431,39 @@ class DuckCrashRecovery:
         corrupt. Also invalidates the in-memory cache so a
         subsequent ``load_stale()`` after ``clear()`` correctly returns
         ``None`` (rather than the cached pre-clear state).
+
+        Performs three steps in order so every mid-clear crash point is
+        recoverable on next launch:
+
+        1. Flip ``consumed=True`` on the main file (``_mark_consumed``).
+           Crash here → next launch sees consumed=True + sentinel
+           (Case 4) → sentinel cleaned up, no re-restore.
+        2. Delete the restoring sentinel. Crash here → next launch
+           sees consumed=True, no sentinel (Case 2) → no re-restore.
+        3. Delete the main file. Completed → no files, no re-restore.
         """
         # invalidate the in-memory cache.
         self._cached_stale = None
-        self._cache_dirty = False
         # clear the writeback-failed flag — the file is being
         # deleted, so the next ``load_stale()`` will see no file (return
         # None) and there's no "unknown state" to track.
         self._consumed_writeback_failed = False
+        # Step 1: flip consumed=True on the main file (if it parses) so
+        # a crash mid-clear is detectable on next launch. Best-effort —
+        # an unreadable/corrupt main file just skips the flip.
+        if self._path.exists():
+            try:
+                from voice_typer.server.config import _secure_read_text
+
+                raw = _secure_read_text(self._path, encoding="utf-8")
+                self._mark_consumed(json.loads(raw))
+            except (OSError, json.JSONDecodeError, ValueError, KeyError, TypeError):
+                # Corrupt/unreadable main file — skip the flip; the
+                # deletions below still clean everything up.
+                pass
+        # Step 2: delete the restoring sentinel.
+        self._delete_restoring_sentinel()
+        # Step 3: delete the main file.
         try:
             if self._path.exists():
                 self._path.unlink()

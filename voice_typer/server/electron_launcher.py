@@ -61,7 +61,6 @@ log = logging.getLogger(__name__)
 # auth.
 from voice_typer.server._paths import IPC_TOKEN_ENV_VAR  # noqa: E402
 
-
 # env-var names that are ALWAYS stripped from the Electron
 # child's environment, regardless of pattern matching. These are the
 # well-known cloud-provider API keys / model download tokens that the
@@ -170,6 +169,21 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     -------
     The child PID on success, or None on failure.
     """
+    # Guard the client directory BEFORE spawning. The pip-installed
+    # backend has no ``voice_typer/client`` tree, so ``Popen(cwd=CLIENT_DIR)``
+    # would raise ``NotADirectoryError`` ([WinError 267]) — a confusing
+    # traceback for a user who ran ``voice-typer`` from a terminal. Fail
+    # gracefully with an actionable message instead (the backend keeps
+    # running in standalone mode with no UI).
+    if not CLIENT_DIR.is_dir():
+        log.warning(
+            "[LAUNCHER] Electron client directory not found (%s) — cannot "
+            "launch the UI. This backend has no bundled frontend (e.g. a "
+            "pip install); run from a source checkout with "
+            "`voice_typer/client`, or use the packaged desktop app.",
+            CLIENT_DIR,
+        )
+        return None
     # Strip sensitive env vars the Electron child does not need.
     # The Python server reads NO API keys from env (cloud keys come from
     # the keyring). The IPC token trio (VOICE_TYPER_IPC_TOKEN /
@@ -192,7 +206,9 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     # surface (without values) any sensitive env keys the
     # parent had, so a future leak in a downstream log is auditable.
     # Only KEY NAMES are logged — values are never printed.
-    _log_sensitive_env_keys(dict(os.environ), context="electron_launcher.launch_electron_frontend")
+    # Short context label: the PII filter would otherwise mangle the
+    # 20+ char function name (``electron_launcher.***``) in the audit line.
+    _log_sensitive_env_keys(dict(os.environ), context="electron_launcher")
 
     spawn_kwargs: dict = dict(cwd=str(CLIENT_DIR))
     spawn_kwargs.update(_electron_log_files())

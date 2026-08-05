@@ -650,16 +650,58 @@ def _ensure_single_instance_posix(silent: bool = False):
         # attempt ``flock(LOCK_EX | LOCK_NB)``.
         existing_fd: int | None = None
         try:
+            # Add ``O_NOFOLLOW`` to close a TOCTOU symlink race.
+            # Pre-fix, an attacker who could win the race between the
+            # ``O_CREAT|O_EXCL`` call above (which exits(1) on ELOOP
+            # via ``_try_acquire``) and this secondary open could:
+            #   1. Plant a regular file at ``backend.lock`` →
+            #      ``O_EXCL`` fails with ``FileExistsError`` →
+            #      ``_try_acquire`` returns None → we reach this open.
+            #   2. Replace the regular file with a symlink pointing at
+            #      an attacker-chosen target (e.g. ``/etc/passwd`` or
+            #      a victim's writable file).
+            #   3. This secondary ``os.open(O_RDWR)`` (without
+            #      ``O_NOFOLLOW``) would follow the symlink and open
+            #      the TARGET for read/write — the subsequent
+            #      ``os.ftruncate`` / ``os.write`` (PID rewrite) would
+            #      clobber the target's content.
+            # ``O_NOFOLLOW`` causes the kernel to raise ``ELOOP`` if
+            # the trailing component (``backend.lock``) is a symlink,
+            # breaking the chain at the last hop. The broad ``except
+            # OSError`` below already handles ``ELOOP`` by falling
+            # through to the legacy PID-check path (which uses
+            # ``open(path)`` to read the PID — that DOES follow
+            # symlinks, but only to READ the symlink target's content
+            # as a PID; if it's not a digit, ``_read_pid_from_lockfile``
+            # returns None and the legacy path ``os.unlink``s the
+            # symlink itself — NOT the target — before retrying
+            # ``_try_acquire`` with ``O_EXCL``).
             existing_fd = os.open(
                 str(lock_path),
-                os.O_RDWR | os.O_CLOEXEC,
+                os.O_RDWR | os.O_CLOEXEC | os.O_NOFOLLOW,
             )
-        except OSError:
+        except OSError as exc:
             # Cannot open the existing lockfile (e.g., restrictive
-            # permissions, or the file disappeared between O_EXCL and
-            # this open). Fall through to the legacy PID-check path
-            # below — it may still be able to read the PID via
-            # Python's ``open()`` and reclaim via unlink+retry.
+            # permissions, the file disappeared between O_EXCL and
+            # this open, OR ``O_NOFOLLOW`` raised ``ELOOP`` because
+            # the trailing component is a symlink). Fall
+            # through to the legacy PID-check path below — it may
+            # still be able to read the PID via Python's ``open()``
+            # and reclaim via unlink+retry. The legacy path's
+            # ``os.unlink`` removes the symlink itself (not the
+            # target), and the subsequent ``_try_acquire`` retry
+            # with ``O_CREAT|O_EXCL|O_NOFOLLOW`` creates a fresh
+            # regular file.
+            if exc.errno == errno.ELOOP:
+                # Explicit ELOOP handling so operators grep-ing
+                # logs for symlink attacks can find this code path.
+                # Not a warning — the legacy fallback below handles
+                # it gracefully — but a DEBUG log aids post-incident
+                # forensics.
+                log.debug(
+                    "single_instance: backend.lock is a symlink (ELOOP on "
+                    "secondary open) — falling through to legacy PID-check path"
+                )
             existing_fd = None
 
         if existing_fd is not None:

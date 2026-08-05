@@ -422,6 +422,92 @@ class HandlerBase(HandlerMixinBase):
         }
         return resp
 
+    def _error_response(
+        self,
+        resp: dict,
+        message: str,
+        *,
+        code: str = ErrorCodes.HANDLER_ERROR,
+        **extra: Any,
+    ) -> dict:
+        """Stamp a per-command error envelope on ``resp`` and return it.
+
+        Mirrors the standalone
+        :func:`voice_typer.server.ipc.validation._error_response`
+        helper but accepts ``**extra`` kwargs that are merged into
+        ``resp["data"]`` alongside the standard ``code`` + ``message``
+        pair. Used by per-command VALIDATION errors (e.g.
+        ``missing_field``, ``invalid_field``, ``not_found``) that
+        carry field-level context (``field="provider"``,
+        ``field="dir_path"``) the bare function form cannot represent.
+
+        Previously, each handler constructed its inline ``error``
+        envelope ad-hoc::
+
+            resp["type"] = "error"
+            resp["data"] = {"message": "Missing 'provider' parameter"}
+            return resp
+
+        The inline envelope omitted the ``code`` field that every
+        other error path (validation, dispatch safety net, rate
+        limiter, the catch-all :meth:`_respond_with_error`) stamps.
+        Clients branching on ``code`` (e.g. the renderer's toast
+        dispatch) silently fell through to a generic "unknown error"
+        path for these per-command validation rejections. Routing
+        them through ``_error_response`` ensures every error envelope
+        on the wire carries a structured ``code`` so the renderer can
+        programmatically distinguish "missing field" from "invalid
+        value" from "not found" from "internal error".
+
+        Parameters
+        ----------
+        resp :
+            The response dict to mutate in place. ``resp["type"]`` is
+            set to ``"error"`` and ``resp["data"]`` is set to a new
+            dict ``{"code": code, "message": message, **extra}``.
+        message :
+            Sanitized, user-visible error message. MUST NOT carry
+            Python internals, file paths, or PII beyond what the
+            per-command validation contract allows (the message is
+            shown to the renderer / user).
+        code :
+            Error code from :class:`ErrorCodes`. Defaults to
+            ``server.handler_error`` to match the standalone function.
+            Per-command validation errors should override with the
+            appropriate ``client.*`` code (``MISSING_FIELD``,
+            ``INVALID_FIELD``, ``NOT_FOUND``, ``PATH_NOT_ALLOWED`` …).
+        **extra :
+            Arbitrary additional fields merged into ``resp["data"]``
+            AFTER ``code`` and ``message`` (so callers can't
+            accidentally clobber the standard pair). Typical keys:
+            ``field`` (the rejected field name), ``provider``
+            (the rejected cloud-provider name). These are part of the
+            documented IPC contract for per-command validation errors
+            — see ``voice_typer/server/ipc/validation.py`` and the
+            renderer's ``usePython.ts`` switch.
+
+        Returns
+        -------
+        dict
+            The same ``resp`` dict, mutated in place. Returning it
+            lets callers write ``return self._error_response(...)``
+            to match the existing ``return resp`` shape of every
+            handler.
+        """
+        resp["type"] = "error"
+        # ErrorEnvelope contract — see validation.py
+        data: dict[str, Any] = {"code": code, "message": message}
+        if extra:
+            # Merge extra fields AFTER ``code`` + ``message`` so the
+            # standard pair is always present and cannot be clobbered
+            # by a caller-supplied ``code``/``message`` kwarg (Python
+            # would raise ``TypeError: multiple values for keyword
+            # argument`` if a caller tried — the explicit ``code``
+            # parameter above shadows any ``code`` in ``**extra``).
+            data.update(extra)
+        resp["data"] = data
+        return resp
+
     # ── Template-method helper for handler consistency ────
     # The 14 handler mixins are inconsistent in (a) try/except usage,
     # (b) pre-coercion of ``data``, (c) error envelope shape. The

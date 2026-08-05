@@ -286,14 +286,18 @@ def build_models_menu_items(
         # RadioMenuItem active). Previously we manually prefixed the
         # label with "• " (and non-active with "  "), which bypassed
         # the native checkmark and broke screen-reader semantics.
-        # ``checked`` accepts a bool (static at build time) — the menu
-        # is rebuilt on every right-click via invalidate_menu_cache,
-        # so the value is fresh at display time.
+        # ``checked`` MUST be a callable — pystray wraps it via
+        # ``_assert_callable(checked, lambda _: None)`` and invokes it
+        # as ``checked(item)`` at render time; a raw bool raises
+        # ``ValueError`` at MenuItem construction (crashes the tray
+        # at startup). The menu is rebuilt on every right-click via
+        # invalidate_menu_cache, so the captured bool is fresh at
+        # display time.
         items.append(
             menu_item_class(
                 name,
                 wrap_fn(change_fn),
-                checked=is_active,
+                checked=(lambda _item, _active=is_active: _active),
             )
         )
 

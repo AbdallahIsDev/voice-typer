@@ -207,14 +207,28 @@ def _check_single_alphanumeric(parts: list[str]) -> str | None:
 
 
 def _check_multi_non_modifier(parts: list[str]) -> str | None:
-    """Stage 5: reject combos with more than one non-modifier key.
+    """Stage 5: reject combos that don't have EXACTLY one non-modifier key.
 
-    A global hotkey listener (pynput, the Windows low-level hook
-    ``WH_KEYBOARD_LL``, the macOS ``CGEventTap``) registers a single
-    non-modifier key plus zero-or-more modifiers. A combo like
-    ``<a>+<b>`` would either fail to register, fire spuriously when
-    either key is pressed alone, or require the user to press both keys
-    simultaneously in a way that's indistinguishable from typing.
+    A global hotkey listener (pynput's ``GlobalHotKeysListener``, the
+    Windows low-level hook ``WH_KEYBOARD_LL``, Win32 ``RegisterHotKey``,
+    the macOS ``CGEventTap``) registers a single non-modifier key plus
+    zero-or-more modifiers. Two structural violations are caught here:
+
+    * **More than one non-modifier key** (e.g. ``<a>+<b>``) would either
+      fail to register, fire spuriously when either key is pressed alone,
+      or require the user to press both keys simultaneously in a way
+      that's indistinguishable from typing.
+
+    * **Zero non-modifier keys** (e.g. ``<ctrl>+<shift>``, a bare
+      ``<cmd_l>``, or ``<cmd_l>+<cmd_r>`` which the canonical parser
+      deduplicates to ``["cmd"]``) is silently accepted by the parser
+      but cannot be registered by any of the listener backends: every
+      backend requires a concrete non-modifier key as the trigger.
+      Accepting such a combo at config-load time produces a SILENT
+      registration failure at runtime — the listener starts, claims the
+      hotkey is "armed", but never fires because there is no key to
+      match. Rejecting here surfaces an actionable error to the user
+      instead.
 
     This stage runs BEFORE the Ctrl+letter / Shift+letter blanket
     rules so a structurally invalid combo like ``<ctrl>+<a>+<b>``
@@ -223,12 +237,8 @@ def _check_multi_non_modifier(parts: list[str]) -> str | None:
     reserved-shortcut error.
     """
     non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
-    if len(non_mods) > 1:
-        return (
-            f"hotkey has {len(non_mods)} non-modifier keys — "
-            "at most one non-modifier key is supported (global hotkey "
-            "listeners register a single non-modifier plus modifiers)"
-        )
+    if len(non_mods) != 1:
+        return f"hotkey must have exactly one non-modifier key (got {len(non_mods)})"
     return None
 
 

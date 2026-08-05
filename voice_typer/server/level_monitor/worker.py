@@ -326,7 +326,7 @@ def _level_worker_loop() -> None:
 
         # idle-timeout auto-stop. If no IPC ``get_level`` poll
         # has been received in ``_state._LEVEL_IDLE_TIMEOUT_SEC``
-        # seconds (default 5.0), auto-stop the stream. The tray bubble
+        # seconds (default 60.0), auto-stop the stream. The tray bubble
         # is likely hidden; the level bar isn't visible. The next
         # ``start_monitoring`` / ``get_level`` poll will re-start it.
         # This prevents the RNNoise filter chain from pegging a core
@@ -335,7 +335,38 @@ def _level_worker_loop() -> None:
         # (monitoring.py imports worker.py for _ensure_level_worker_running).
         from .monitoring import _idle_timeout_auto_stop
 
-        _idle_timeout_auto_stop()
+        if _idle_timeout_auto_stop():
+            # idle-timeout closed the stream. Exit the worker
+            # loop so the thread terminates — eliminates the 4 Hz idle
+            # wakeups (250 ms backstop ``wait()`` timeout × forever)
+            # that would otherwise drain the battery on an idle laptop
+            # (~345k idle wakeups/day). The next ``start_monitoring``
+            # call spawns a fresh worker via
+            # ``_ensure_level_worker_running`` (thread creation is
+            # ~1 ms — negligible vs. the 60 s idle window).
+            #
+            # Race-safety: clear ``_level_worker_thread`` BEFORE
+            # returning so a concurrent ``start_monitoring`` call's
+            # ``_ensure_level_worker_running`` sees "no worker" and
+            # spawns a fresh one. Relying solely on ``is_alive()``
+            # would race: between this point and the thread actually
+            # exiting, ``is_alive()`` is still True, so
+            # ``_ensure_level_worker_running`` would mistakenly reuse
+            # the exiting thread and the new stream's chunks would have
+            # no consumer (frozen level bar).
+            #
+            # SPSC safety: at this point the worker has already exited
+            # its drain loop above (the last ``_level_ring_buffer.popleft()``
+            # call is long past) and is past the last shared-state
+            # write. Clearing the slot here cannot cause a duplicate
+            # consumer because the new worker (if spawned) is the only
+            # thread popping from ``_level_ring_buffer``; this thread is
+            # about to exit and will never pop again. The
+            # ``_ensure_level_worker_running`` clear of the ring buffer
+            # (on fresh-worker spawn) eliminates any residual chunks
+            # from the closed stream so the new worker starts clean.
+            _state._level_worker_thread = None
+            return
 
         if _state._level_worker_stop_event.is_set():
             return

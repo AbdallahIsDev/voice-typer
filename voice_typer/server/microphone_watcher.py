@@ -136,6 +136,44 @@ class MicrophoneDeviceWatcher:
         self._on_active_mic_lost: Callable[[], None] | None = None
         self._device_id_provider: Callable[[], list[Any]] | None = None
 
+        # Idle-recording gating. ``RecordingController`` calls
+        # ``set_idle(True)`` when no recording is active and
+        # ``set_idle(False)`` when a recording starts. When idle, the
+        # macOS-without-pyobjc polling path widens its cadence from
+        # the active 3 s to a gentler 12 s — at idle, 10–15 s of
+        # hot-plug detection latency is acceptable, and the 10–50 ms
+        # CoreAudio round trip per poll is wasted CPU when no recording
+        # is in flight. Default is ``True`` (the app launches idle).
+        self._is_idle: bool = True
+        self._idle_poll_interval_s: float = 12.0
+        self._active_poll_interval_s: float = 3.0
+
+        # Default-input-device change detection. When
+        # ``config.microphone is None`` PortAudio opens the OS default
+        # input at stream-open time and never re-resolves it. If the
+        # user changes the OS default mid-session, the recorder keeps
+        # streaming from the OLD device silently. The watcher periodically
+        # queries ``sd.query_devices(kind="input")`` (which returns the
+        # OS default input) and, when the index changes, fires
+        # ``_on_default_device_changed`` so the recorder can route
+        # through ``_handle_device_disconnect`` (tear down + re-open).
+        # All three default to ``None``/no-op — the watcher is fully
+        # backward-compatible if no caller registers the hook.
+        self._on_default_device_changed: Callable[[], None] | None = None
+        self._last_default_input_index: Any | None = None
+
+    def set_on_default_device_changed(self, callback: Callable[[], None] | None) -> None:
+        """Register a callback that fires when the OS default input device changes.
+
+        The callback takes no arguments and is invoked from the watcher
+        thread. Exceptions are swallowed (logged) so a callback failure
+        never crashes the watcher. Pass ``None`` to unregister.
+        """
+        self._on_default_device_changed = callback
+        # Reset the cached index so the next poll cycle captures the
+        # current default without firing a spurious change event.
+        self._last_default_input_index = None
+
     # ── platform detection ────────────────────────────────────────────
 
     def _detect_platform(self) -> str:
@@ -354,6 +392,16 @@ class MicrophoneDeviceWatcher:
 
     # ── Linux implementation ──────────────────────────────────────────
 
+    # Secondary PulseAudio/PipeWire-level poll cadence. The primary
+    # ``/dev/snd`` poll is cheap (``os.listdir`` ≈ µs) but only sees
+    # ALSA kernel devices. ``sd.query_devices()`` (a 10–50 ms
+    # PortAudio round trip on Linux PulseAudio/PipeWire) sees BT
+    # headsets and virtual sources that never touch ``/dev/snd``. We
+    # throttle the secondary poll to once per 5 s regardless of the
+    # primary poll cadence so the test-suite's small ``poll_interval``
+    # values (e.g. 0.05 s) don't multiply the PortAudio cost.
+    _LINUX_SD_QUERY_INTERVAL_S: float = 5.0
+
     def _run_linux(self) -> None:
         """Watch ``/dev/snd`` for changes by polling directory listing.
 
@@ -362,6 +410,24 @@ class MicrophoneDeviceWatcher:
         ``pyinotify``/``inotify_simple`` to keep the dependency
         surface minimal — PortAudio's 30s cache is the ultimate
         fallback if this loop misses an event.
+
+        On modern desktop Linux the user-facing audio stack is
+        PulseAudio or PipeWire, which exposes Bluetooth headsets, USB
+        mics, and virtual sources as userspace sources — NOT as new
+        ALSA kernel devices in ``/dev/snd``. A Bluetooth headset
+        pairing produces a PulseAudio source
+        ``bluez_source.XX_XX_XX_XX_XX_XX`` without touching
+        ``/dev/snd``. To catch these, a secondary
+        ``sd.query_devices()`` poll runs every
+        ``_LINUX_SD_QUERY_INTERVAL_S`` seconds (default 5 s) and
+        diffs the device signature set (mirroring ``_run_macos``'s
+        approach). The ``/dev/snd`` poll catches ALSA-level events
+        with low CPU; the ``sd.query_devices()`` poll catches
+        PulseAudio/PipeWire-level events with ~10–50 ms CPU every 5 s.
+
+        Also runs ``_check_default_device_changed()`` each cycle so
+        the OS default input device change is detected when
+        ``config.microphone is None``.
         """
         import os
 
@@ -383,10 +449,30 @@ class MicrophoneDeviceWatcher:
             )
             return
 
+        # Secondary PulseAudio/PipeWire-level poll state. Lazily
+        # imported; if sounddevice is unavailable (e.g. PortAudio not
+        # installed), the secondary poll is silently skipped — the
+        # ``/dev/snd`` poll still catches ALSA-level events.
+        # ``last_sd_query_monotonic`` is initialized to ``time.monotonic()``
+        # so the first secondary poll happens at
+        # ``_LINUX_SD_QUERY_INTERVAL_S`` (5 s) after start — not on
+        # the very first iteration (which would burn a 10–50 ms
+        # PortAudio round trip at startup for no benefit, since the
+        # baseline would be captured anyway).
+        last_sd_sig: set | None = None
+        last_sd_query_monotonic: float = time.monotonic()
+        try:
+            import sounddevice as _sd  # noqa: F401 — used inside loop
+
+            sd_available = True
+        except ImportError:
+            sd_available = False
+
         log.debug(
-            "[MIC-WATCHER] watching %s (%d entries)",
+            "[MIC-WATCHER] watching %s (%d entries, sd.query_devices poll %s)",
             snd_dir,
             len(last_entries),
+            "enabled" if sd_available else "disabled (sounddevice unavailable)",
         )
         while not self._stop_event.wait(self._poll_interval):
             try:
@@ -396,7 +482,7 @@ class MicrophoneDeviceWatcher:
                 # the isdir check and now — skip this cycle. The TTL
                 # cache will refresh on the next list_microphones
                 # call regardless.
-                continue
+                current = last_entries  # suppress spurious change
             if current != last_entries:
                 log.debug(
                     "[MIC-WATCHER] %s entries changed (%d -> %d), invalidating cache",
@@ -406,6 +492,36 @@ class MicrophoneDeviceWatcher:
                 )
                 last_entries = current
                 self._invoke_callback()
+
+            # Secondary PulseAudio/PipeWire-level poll. Throttled to
+            # ``_LINUX_SD_QUERY_INTERVAL_S`` so the test-suite's small
+            # ``poll_interval`` values don't multiply the PortAudio
+            # cost. Best-effort — any exception is logged and skipped.
+            now = time.monotonic()
+            if sd_available and (now - last_sd_query_monotonic) >= self._LINUX_SD_QUERY_INTERVAL_S:
+                last_sd_query_monotonic = now
+                try:
+                    import sounddevice as _sd
+
+                    current_devices = _sd.query_devices()
+                    current_sd_sig = {self._device_signature(d) for d in current_devices}
+                except Exception:
+                    # Transient PortAudio error — skip this cycle.
+                    current_sd_sig = None
+                if current_sd_sig is not None:
+                    if last_sd_sig is not None and current_sd_sig != last_sd_sig:
+                        log.debug(
+                            "[MIC-WATCHER] sd.query_devices signature set changed (%d -> %d), invalidating cache",
+                            len(last_sd_sig),
+                            len(current_sd_sig),
+                        )
+                        self._invoke_callback()
+                    last_sd_sig = current_sd_sig
+
+            # Default-input-device change detection (catches
+            # ``pactl set-default-source`` and similar). No-op when
+            # no callback is registered.
+            self._check_default_device_changed()
 
     # ── macOS implementation ────────────────────────────────────────
 
@@ -436,6 +552,46 @@ class MicrophoneDeviceWatcher:
             dev.get("hostapi"),
             dev.get("default_samplerate"),
         )
+
+    def _check_default_device_changed(self) -> None:
+        """Detect OS default-input-device changes and fire the callback.
+
+        When ``_on_default_device_changed`` is registered, query
+        ``sd.query_devices(kind='input')`` and compare its index to
+        ``_last_default_input_index``. On mismatch, invoke the callback
+        and update the cached index. On first capture (no prior index),
+        store the index but do NOT fire (avoids a spurious callback at
+        watcher startup). Exceptions are swallowed so a transient
+        ``sd.query_devices`` failure never crashes the watcher thread.
+        """
+        if self._on_default_device_changed is None:
+            return
+        try:
+            current = self._query_default_input_device()
+            # MagicMock (tests) or other object with .index attribute.
+            current_index = current.get("index") if isinstance(current, dict) else getattr(current, "index", None)
+        except Exception:
+            log.debug("[MIC-WATCHER] default-device check failed", exc_info=True)
+            return
+        if self._last_default_input_index is None:
+            # First capture — store, don't fire.
+            self._last_default_input_index = current_index
+            return
+        if current_index != self._last_default_input_index:
+            self._last_default_input_index = current_index
+            try:
+                self._on_default_device_changed()
+            except Exception:
+                log.exception("[MIC-WATCHER] _on_default_device_changed callback raised")
+
+    def _query_default_input_device(self) -> Any:
+        """Wrapper around ``sd.query_devices(kind='input')`` for test mocking."""
+        sd = self._sd if hasattr(self, "_sd") else None
+        if sd is None:
+            import voice_typer.server.recording as recording_mod
+
+            sd = recording_mod.sd
+        return sd.query_devices(kind="input")
 
     def _run_macos(self) -> None:
         """Watch for CoreAudio device changes by polling ``sounddevice``.

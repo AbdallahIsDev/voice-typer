@@ -21,6 +21,8 @@ import socket
 from collections.abc import Iterable
 from urllib.parse import urlparse
 
+from voice_typer.server._paths import LOOPBACK_HOSTS as _LOOPBACK_HOSTS
+
 log = logging.getLogger(__name__)
 
 
@@ -535,10 +537,6 @@ def redact_for_export(text: str) -> str:
 # To extend the allowlist at runtime (e.g. for a self-hosted vLLM
 # endpoint), call ``extend_url_allowlist(["my-host.example.com"])``.
 # Extensions are process-global and apply to all HTTP clients.
-
-# module-level constant — was a per-call `frozenset({...})` literal
-# in assert_url_allowed, re-evaluated on every cloud URL validation.
-_LOOPBACK_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
 
 _DEFAULT_ALLOWED_HOSTS = frozenset(
     {

@@ -170,6 +170,62 @@ _GDPR_PERSONAL_FILES: tuple[str, ...] = (
 )
 
 
+# Glob-style inventories for corrupt-quarantine and pre-migration
+# backup files that retain dictated plaintext. The corruption recovery
+# path (``history_db_internals/recovery.py``) renames the corrupt DB
+# to ``history.db.corrupt-<timestamp>`` (plus ``-wal``/``-shm``
+# sidecars). The pre-migration backup path
+# (``history_db_internals/recovery.py:backup_before_migration``)
+# copies the live DB to ``history.db.pre-migration-v<from>.bak``
+# (plus ``-wal``/``-shm`` sidecars). Both retain dictated PII.
+#
+# These patterns cannot live in ``_USER_DATA_FILES`` /
+# ``_GDPR_PERSONAL_FILES`` because those are exact-match inventories
+# walked by simple ``for name in <list>: unlink(config_dir / name)``
+# loops. Instead the purge walk
+# (``config.purge_user_data``:365-389) iterates the ``config_dir``
+# and matches the prefix ``history.db.corrupt-`` /
+# ``history.db.pre-migration-v``, and the GDPR walk
+# (``PrivacyMixin._gdpr_unlink_personal_globs`` /
+# ``PrivacyMixin._gdpr_build_zip``) consumes
+# ``PrivacyMixin._GDPR_PERSONAL_GLOBS``. This tuple is the single
+# source of truth those two consumers reach for so the corrupt /
+# pre-migration backup patterns cannot drift from the actual on-disk
+# filenames again.
+#
+# Every entry is a shell glob pattern consumable by ``pathlib.Path.glob``.
+# The ``-wal`` / ``-shm`` sidecar entries are technically redundant
+# with the bare ``history.db.corrupt-*`` / ``history.db.pre-migration-v*.bak``
+# globs (the trailing ``*`` matches the ``-wal`` / ``-shm`` suffix
+# too), but they are enumerated explicitly so the inventory is
+# self-documenting and survives a future tightening of the bare
+# glob to ``history.db.corrupt-<ts>`` (no sidecars).
+_USER_DATA_GLOBS: tuple[str, ...] = (
+    "history.db.corrupt-*",
+    "history.db.corrupt-*-wal",
+    "history.db.corrupt-*-shm",
+    "history.db.pre-migration-v*.bak",
+    "history.db.pre-migration-v*.bak-wal",
+    "history.db.pre-migration-v*.bak-shm",
+)
+
+# GDPR personal-data globs — same set as ``_USER_DATA_GLOBS`` but
+# consulted by ``PrivacyMixin._gdpr_unlink_personal_globs`` /
+# ``PrivacyMixin._gdpr_build_zip`` for the Art. 17 / Art. 20 paths.
+# Kept as a distinct tuple from ``_USER_DATA_GLOBS`` so a future
+# divergence (e.g. a non-personal-data corrupt file the purge path
+# should still remove for hygiene reasons) can be expressed without
+# polluting the GDPR inventory.
+_GDPR_PERSONAL_GLOBS: tuple[str, ...] = (
+    "history.db.corrupt-*",
+    "history.db.corrupt-*-wal",
+    "history.db.corrupt-*-shm",
+    "history.db.pre-migration-v*.bak",
+    "history.db.pre-migration-v*.bak-wal",
+    "history.db.pre-migration-v*.bak-shm",
+)
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Sanity check: verify the literals above match the canonical constants
 # exported by the owning modules. This catches drift if a future rename
@@ -220,4 +276,6 @@ except ImportError:
 __all__ = [
     "_USER_DATA_FILES",
     "_GDPR_PERSONAL_FILES",
+    "_USER_DATA_GLOBS",
+    "_GDPR_PERSONAL_GLOBS",
 ]

@@ -272,12 +272,22 @@ class UndoRepasteController:
             # partial) chunk — there's no subsequent chunk to space it
             # from.
             _undo_chunk_size = 10
+            # Clear ``_last_transcription`` BEFORE the backspace
+            # loop so a crash mid-loop (process killed, OOM, SIGKILL)
+            # leaves the bookkeeping consistent with the partial delete
+            # the user's foreground app already saw. A re-undo after a
+            # crash therefore no-ops (returns "Nothing to undo") rather
+            # than sending N MORE backspaces against already-partially-
+            # deleted text and erasing the user's PREVIOUS unrelated
+            # text. Trade-off: if the loop fails partway, the user can't
+            # retry the undo from this process — they can repaste the
+            # transcription instead.
+            app._last_transcription = ""
             for _i in range(char_count):
                 kb.press("\x08")  # Backspace
                 kb.release("\x08")
                 if (_i + 1) % _undo_chunk_size == 0 and (_i + 1) < char_count:
                     time.sleep(0.01)
-            app._last_transcription = ""
             app.tray.notify(APP_NAME, i18n.t("notify.app.undo_done", char_count=char_count))
         except ImportError:
             log.warning("[UNDO] pynput not available for undo")

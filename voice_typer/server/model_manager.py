@@ -125,6 +125,18 @@ class ModelManager:
         # before any thread can call ``active_transcriber``.
         self._lazy_init_lock = threading.Lock()
 
+        #  spawn lock guarding ``start_background_load``'s
+        # check-then-spawn critical section. The liveness check
+        # (``_model_load_thread is None / not alive``) + Thread
+        # construction + assignment to ``_model_load_thread`` MUST be
+        # atomic so two concurrent callers can't both spawn a ModelLoad
+        # thread (the second assignment would overwrite the first,
+        # leaking the first thread — still running, untracked, no
+        # shutdown join). Plain Lock (no re-entrancy needed); created in
+        # ``__init__`` so it exists before any thread can call
+        # ``start_background_load``.
+        self._model_load_spawn_lock = threading.Lock()
+
         #  reentrant lock guarding the entire body of
         # ``change_model`` so two concurrent calls cannot both unload +
         # re-register + reload the same backend (which previously left
@@ -322,7 +334,11 @@ class ModelManager:
                     hint = " Check that Parakeet weights are downloaded."
                 self._app.tray.notify(
                     APP_NAME,
-                    f"Could not initialize the {backend_name.title()} backend.{hint}",
+                    i18n.t(
+                        "notify.model_manager.backend_init_failed",
+                        backend=backend_name.title(),
+                        hint=hint,
+                    ),
                 )
             except Exception:
                 # previously a bare ``except Exception: pass``.
@@ -362,8 +378,15 @@ class ModelManager:
         if self._app._shutting_down:
             log.debug("[MODEL] load_background skipped — shutdown already in progress")
             return
+        # Capture the backend/model BEFORE the try so the except handler
+        # can log them without re-reading ``self._app.config`` (which
+        # could itself be the source of the original exception — a
+        # degraded/None config would make the handler raise a SECOND
+        # exception, skipping the pending-dictation clear and the tray
+        # ERROR transition).
+        backend_name = getattr(self._app.config, "asr_backend", "unknown")
+        model_size = getattr(self._app.config, "model_size", "unknown")
         try:
-            backend_name = self._app.config.asr_backend
             self._ensure_engine(backend_name)
 
             # Set tray state before heavy import so user sees progress
@@ -433,13 +456,35 @@ class ModelManager:
                     _attempted,
                 )
                 self._app.tray.set_state(AppState.ERROR, "Model load failed -- press F2 to retry")
+                # Clear the pending-dictation flag so the ``finally``
+                # block does NOT auto-start a dictation that would
+                # immediately fail (no model is loaded). Pre-fix, the
+                # flag was NOT cleared and the finally block
+                # unconditionally scheduled ``_start_dictation``, which
+                # fell through to ``fallback_to_whisper`` (same root
+                # cause), entered a tight retry loop, and spammed the
+                # tray with ERROR state.
+                self._pending_dictation = False
 
         except Exception:
-            log.exception("[STARTUP] Background model load crashed")
+            log.exception(
+                "[STARTUP] Background model load crashed (backend=%s, model=%s)",
+                backend_name,
+                model_size,
+            )
             self._app.tray.set_state(AppState.ERROR, "Model load failed -- press F2 to retry")
+            # Same failure-path guard as above: a crash must NOT trigger
+            # the finally's auto-start of a pending dictation (it would
+            # crash again on the same root cause).
+            self._pending_dictation = False
         finally:
             self._model_load_thread = None
-            # If the user pressed F2 during load, honour it now.
+            # If the user pressed F2 during load, honour it now — but
+            # ONLY on success. On failure/crash the ``_pending_dictation``
+            # flag was already cleared by the error paths above, so this
+            # check skips the auto-start (which would otherwise loop on
+            # ``fallback_to_whisper`` and fail the same way, spamming the
+            # tray with ERROR state).
             if self._pending_dictation and not self._app._shutting_down:
                 log.info("[STARTUP] Pending dictation -- auto-starting now")
                 self._pending_dictation = False
@@ -465,12 +510,18 @@ class ModelManager:
         """
         if self._model_load_thread is not None and self._model_load_thread.is_alive():
             return
-        self._model_load_thread = threading.Thread(
-            target=self.load_background,
-            name="ModelLoad",
-            daemon=True,
-        )
-        self._model_load_thread.start()
+        with self._model_load_spawn_lock:
+            # Re-check under the lock — a concurrent caller may have
+            # spawned the thread between our check and the lock
+            # acquisition.
+            if self._model_load_thread is not None and self._model_load_thread.is_alive():
+                return
+            self._model_load_thread = threading.Thread(
+                target=self.load_background,
+                name="ModelLoad",
+                daemon=True,
+            )
+            self._model_load_thread.start()
         # track the loader centrally so shutdown_all() can
         # signal-and-join it. Best-effort — if the registry is missing
         # (e.g. in a stripped-down test fixture) we log and continue;
@@ -561,7 +612,7 @@ class ModelManager:
                 f"Ready -- {active.device_info}" if active else "Ready",
             )
         else:
-            self._app.tray.set_state(AppState.ERROR, "Model failed to load -- press F2 to retry")
+            self._app.tray.set_state(AppState.ERROR, i18n.t("state.model_manager.load_failed_retry"))
             if notify_on_failure:
                 # critical — bypass toggle (model load failed).
                 # Use the i18n key so the tray tooltip + OS notification
@@ -708,11 +759,11 @@ class ModelManager:
                 _failed_backend,
                 _failed_model,
             )
-            self._app.tray.set_state(AppState.ERROR, "Model failed to load -- press F2 to retry")
+            self._app.tray.set_state(AppState.ERROR, i18n.t("state.model_manager.load_failed_retry"))
             if notify_on_failure:
                 self._app.tray.notify(
                     APP_NAME,
-                    f"Could not load the speech model.\n{e}\n\nThe app will keep running. Press F2 to retry loading.",
+                    i18n.t("notify.model_manager.load_failed", error=str(e)),
                 )
 
     def change_model(self, model_size: str) -> dict:
@@ -847,12 +898,22 @@ class ModelManager:
             # still held — concurrent IPC set_config calls can proceed.
             # Phase 2: construct + load the new engine OUTSIDE the
             # config lock (see above).
-            self._change_model_load_phase(new_backend, model_size)
-        # publish asr_backend_ready event on completion so the
-        # renderer (and any in-process subscribers) know the load
-        # finished. Published AFTER the lock is released so subscribers
-        # don't block on the lock.
-        self._publish_backend_ready_event(new_backend, model_size)
+            failure_reason = self._change_model_load_phase(new_backend, model_size)
+        # Publish asr_backend_ready ONLY on success. On failure, publish
+        # asr_backend_load_failed so the renderer can show an error
+        # instead of silently dismissing the loading spinner. Published
+        # AFTER the lock is released so subscribers don't block on the
+        # lock. ``failure_reason is None`` covers the deferred
+        # early-return path (no event published — the load didn't
+        # happen).
+        if failure_reason is None:
+            self._publish_backend_ready_event(new_backend, model_size)
+        else:
+            self._publish_backend_load_failed_event(
+                new_backend,
+                model_size,
+                failure_reason=failure_reason,
+            )
 
     def _change_model_setattr_phase(self, model_size: str) -> tuple[str, str, bool]:
         """Phase 1a: determine backend, setattr + save config.
@@ -902,7 +963,7 @@ class ModelManager:
             self._pending_model_change = model_size
             self._app.tray.notify(
                 APP_NAME,
-                f"Model will change to {model_size} after current recording",
+                i18n.t("notify.model_manager.change_deferred", model=model_size),
             )
             return new_backend, old_backend, True
         return new_backend, old_backend, False
@@ -945,7 +1006,7 @@ class ModelManager:
                 self.transcriber.unload()
             self.transcriber = None
 
-    def _change_model_load_phase(self, new_backend: str, model_size: str) -> None:
+    def _change_model_load_phase(self, new_backend: str, model_size: str) -> str | None:
         """Phase 2: construct + load the new engine.
 
         Caller MUST hold ``_model_change_lock``. Must NOT hold
@@ -957,6 +1018,16 @@ class ModelManager:
         backend name. The underlying exception is already logged one
         level down by ``AsrBackendRegistry.load_active`` via
         ``log.exception`` (see ``asr_registry.py``).
+
+        Returns
+        -------
+        str | None
+            ``None`` on success; a short human-readable
+            ``failure_reason`` string on failure (falsy ``load_active``
+            return or raised exception). The caller
+            (``_change_model_blocking``) uses the return value to decide
+            whether to publish ``asr_backend_ready`` vs
+            ``asr_backend_load_failed``.
         """
         # Create new engine object via registry.create()
         self._ensure_engine(new_backend)
@@ -987,16 +1058,18 @@ class ModelManager:
                 else:
                     self._app.tray.set_state(AppState.IDLE, f"Ready -- {new_backend.title()} ASR")
                 self._app.tray.invalidate_menu_cache()
-            else:
-                log.warning(
-                    "[MODEL] %s model failed to load (model_size=%s)",
-                    new_backend.title(),
-                    model_size,
-                )
-                self._app.tray.set_state(AppState.ERROR, f"{new_backend.title()} model failed to load")
+                return None
+            log.warning(
+                "[MODEL] %s model failed to load (model_size=%s)",
+                new_backend.title(),
+                model_size,
+            )
+            self._app.tray.set_state(AppState.ERROR, f"{new_backend.title()} model failed to load")
+            return f"{new_backend.title()} model failed to load"
         except Exception as exc:
             log.exception("[MODEL] Model load failed: %s", exc)
             self._app.tray.set_state(AppState.ERROR, f"Model failed: {exc}")
+            return f"load_active raised: {exc}"
 
     # set_active_backend — switch ASR backend WITHOUT changing
     # model_size. Mirrors change_model's unload/reload cycle but only
@@ -1119,7 +1192,7 @@ class ModelManager:
             self._pending_backend_change = backend
             self._app.tray.notify(
                 APP_NAME,
-                f"Backend will change to {backend} after current recording",
+                i18n.t("notify.model_manager.backend_change_deferred", backend=backend),
             )
             return {
                 "status": "deferred",
@@ -1170,8 +1243,13 @@ class ModelManager:
         the load to complete (tests) can do so. The IPC handler uses
         the non-blocking ``set_active_backend`` instead.
 
-        On completion (success or failure), publishes an
-        ``asr_backend_ready`` event on the event_bus.
+        On completion, publishes ``asr_backend_ready`` ONLY on success.
+        On failure (load_active returned falsy OR raised), publishes
+        ``asr_backend_load_failed`` with ``{"backend": ..., "failure_reason": ...}``
+        so the renderer can show an error instead of silently
+        dismissing the loading spinner. The deferred case (recording
+        in progress) and the no-op case (backend already active)
+        publish no event.
         """
         if backend not in ("whisper", "qwen", "parakeet"):
             raise ValueError(
@@ -1185,6 +1263,11 @@ class ModelManager:
         # Outer = _model_change_lock (held throughout the
         # unload+construct+load cycle). Inner = _config_mutation_lock
         # (acquired only for setattr + save + the quick unload phase).
+        # ``load_outcome`` captures whether the load succeeded so we
+        # can publish the correct event AFTER the lock is released.
+        # Initialised to ``None`` so the no-op / deferred early returns
+        # skip event publication (their existing behaviour).
+        load_outcome: bool | None = None
         with self._model_change_lock:
             with self._app._config_mutation_lock:
                 old_backend = self._app.config.asr_backend
@@ -1233,7 +1316,7 @@ class ModelManager:
                     self._pending_backend_change = backend
                     self._app.tray.notify(
                         APP_NAME,
-                        f"Backend will change to {backend} after current recording",
+                        i18n.t("notify.model_manager.backend_change_deferred", backend=backend),
                     )
                     return
                 log.info(
@@ -1277,6 +1360,7 @@ class ModelManager:
                     else:
                         self._app.tray.set_state(AppState.IDLE, f"Ready -- {name.title()} ASR")
                     self._app.tray.invalidate_menu_cache()
+                    load_outcome = True
                 else:
                     log.warning(
                         "[MODEL] %s backend failed to load during set_active_backend",
@@ -1286,13 +1370,25 @@ class ModelManager:
                         AppState.ERROR,
                         f"{backend.title()} backend failed to load",
                     )
+                    load_outcome = False
             except Exception as exc:
                 log.exception("[MODEL] set_active_backend load failed: %s", exc)
                 self._app.tray.set_state(AppState.ERROR, f"Backend failed: {exc}")
-        # publish asr_backend_ready event on completion so the
-        # renderer (and any in-process subscribers) know the load
-        # finished.
-        self._publish_backend_ready_event(backend, self._app.config.model_size)
+                load_outcome = False
+        # Publish asr_backend_ready ONLY on success. On failure, publish
+        # asr_backend_load_failed so the renderer can show an error
+        # instead of silently dismissing the loading spinner. Published
+        # AFTER the lock is released so subscribers don't block on the
+        # lock. ``load_outcome is None`` covers the no-op and deferred
+        # early-return paths (no event published).
+        if load_outcome is True:
+            self._publish_backend_ready_event(backend, self._app.config.model_size)
+        elif load_outcome is False:
+            self._publish_backend_load_failed_event(
+                backend,
+                self._app.config.model_size,
+                failure_reason="load_active returned falsy or raised",
+            )
 
     def _publish_backend_ready_event(self, backend: str, model_size: str) -> None:
         """Publish an ``asr_backend_ready`` event on the event_bus.
@@ -1324,6 +1420,64 @@ class ModelManager:
         except Exception:
             log.debug(
                 "[MODEL] Failed to publish asr_backend_ready event",
+                exc_info=True,
+            )
+
+    def _publish_backend_load_failed_event(
+        self,
+        backend: str,
+        model_size: str,
+        *,
+        failure_reason: str,
+    ) -> None:
+        """Publish an ``asr_backend_load_failed`` event on the event_bus.
+
+        Previously ``_change_model_blocking`` and
+        ``_set_active_backend_blocking`` published ``asr_backend_ready``
+        UNCONDITIONALLY on completion — even when ``load_active`` had
+        returned falsy or raised. The renderer's loading spinner was
+        dismissed on ``asr_backend_ready``, so a failed load left the
+        user with no visual indication that the spinner had cleared
+        because the load FAILED (not because it succeeded). The
+        renderer's tray icon transitioned to ``AppState.ERROR`` (set by
+        the load-phase error path), but the renderer-side spinner
+        dismissal was incorrect.
+
+        This companion event is published ONLY on failure. The renderer
+        should subscribe to it (alongside ``asr_backend_ready``) and
+        show an error message in addition to dismissing the spinner.
+
+        ``failure_reason`` is a short, human-readable string explaining
+        why the load failed (e.g. ``"load_active returned falsy"`` or
+        ``"load_active raised: <ExcType>"``). It's surfaced in the
+        event payload so the renderer can show it verbatim or map it to
+        a user-facing message.
+
+        NOTE: the renderer change (subscribing to
+        ``asr_backend_load_failed`` and showing an error) is OUT OF
+        SCOPE for this fix — it lives in the Electron/renderer codebase.
+        This method only emits the event; the renderer's matching
+        listener must be added separately.
+
+        Best-effort — a publish failure is logged at DEBUG and swallowed
+        (the load already failed; the event is purely informational).
+        """
+        try:
+            from voice_typer.server import event_bus
+
+            event_bus.publish(
+                {
+                    "type": "asr_backend_load_failed",
+                    "data": {
+                        "backend": backend,
+                        "model_size": model_size,
+                        "failure_reason": failure_reason,
+                    },
+                }
+            )
+        except Exception:
+            log.debug(
+                "[MODEL] Failed to publish asr_backend_load_failed event",
                 exc_info=True,
             )
 
@@ -1478,16 +1632,41 @@ class ModelManager:
         # actively dictating so the model must NOT be unloaded mid-
         # dictation. This is the canonical "cancel on activity" path.
         self.cancel_idle_unload_timer()
-        backend = self._app.config.asr_backend
-        # race-safe lazy init. The check inside _ensure_engine
-        # is also guarded, but we need to guard the whole check-then-init
-        # sequence so two threads don't both create the engine.
-        # _lazy_init_lock is created in __init__ (LAZY-INIT-LOCK-FIX).
+        # race-safe lazy init. The ``backend = config.asr_backend`` read
+        # MUST happen INSIDE ``_lazy_init_lock`` (not before it) so a
+        # concurrent ``_change_model_blocking`` — which does NOT take
+        # ``_lazy_init_lock`` — cannot rewrite ``config.asr_backend``
+        # between our read and the lock acquisition (producing a phantom
+        # VRAM engine for the stale backend name). The check inside
+        # ``_ensure_engine`` is also guarded, but we need to guard the
+        # whole check-then-init sequence so two threads don't both create
+        # the engine. ``_lazy_init_lock`` is created in __init__
+        # (LAZY-INIT-LOCK-FIX).
         with self._lazy_init_lock:
+            backend = self._app.config.asr_backend
             engine = self._registry.get(backend)
             if engine is None:
                 self._ensure_engine(backend)
                 engine = self._registry.get(backend)
+                # re-validate ``config.asr_backend`` after
+                # ``_ensure_engine``: a concurrent ``_change_model_blocking``
+                # may have rewritten it while we constructed the (now
+                # phantom) engine for the stale backend name. Re-route to
+                # the CURRENT backend so the caller never transcribes
+                # against an abandoned backend.
+                current_backend = self._app.config.asr_backend
+                if current_backend != backend:
+                    log.info(
+                        "[MODEL] config.asr_backend changed during engine "
+                        "init (%s -> %s); re-routing to current backend",
+                        backend,
+                        current_backend,
+                    )
+                    backend = current_backend
+                    engine = self._registry.get(backend)
+                    if engine is None:
+                        self._ensure_engine(backend)
+                        engine = self._registry.get(backend)
             # reload-after-idle-unload. If the engine exists but
             # has been unloaded by the idle-unload timer (is_loaded=False),
             # reload it via load_active so the SAME backend is restored

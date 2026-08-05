@@ -89,7 +89,7 @@ import time
 from collections.abc import Callable
 from typing import Any, TypeVar
 
-from voice_typer.server._secrets import redact_api_keys
+from voice_typer.server._secrets import redact_secret
 
 log = logging.getLogger("voice_typer.server.credential_store")
 
@@ -326,6 +326,28 @@ PROVIDER_TO_CONFIG_FIELD: dict[str, str] = {
 #: Reverse lookup: Config dataclass field name → provider name.
 CONFIG_FIELD_TO_PROVIDER: dict[str, str] = {v: k for k, v in PROVIDER_TO_CONFIG_FIELD.items()}
 
+#: Superset of :data:`PROVIDER_TO_CONFIG_FIELD` keys plus any
+#: historical / deprecated / typo'd provider names that prior app
+#: versions may have stored in the OS keychain. The GDPR delete path
+#: (:func:`delete_secret`) iterates this superset so that orphaned
+#: keychain entries left behind by deprecated / typo'd provider names
+#: are cleaned up alongside the current providers — closing the
+#: "GDPR delete leaves orphaned OS-keychain entries" gap (the privacy
+#: service's per-provider loop only iterates :data:`PROVIDER_TO_CONFIG_FIELD`,
+#: so entries stored under names NOT in that map would otherwise persist
+#: in the OS keychain indefinitely; on macOS Keychain they survive app
+#: uninstall).
+#:
+#: When a provider is deprecated or renamed, ADD the old name here (do
+#: NOT remove it from this set even after it's removed from
+#: :data:`PROVIDER_TO_CONFIG_FIELD`). The frozenset is a module-level
+#: attribute so tests can monkey-patch it to inject test-only
+#: deprecated names. :func:`store_secret` rejects providers NOT in
+#: :data:`PROVIDER_TO_CONFIG_FIELD` (defense-in-depth against NEW
+#: orphans), but this set is the cleanup mechanism for PRE-EXISTING
+#: orphans created before that validation landed.
+_KNOWN_PROVIDERS_HISTORY: frozenset[str] = frozenset(PROVIDER_TO_CONFIG_FIELD.keys())
+
 #: Maximum length of a sanitized reason / diagnostic string. Keeps the
 #: renderer tooltip concise and bounds the amount of keyring-backend
 #: error text we surface over IPC or write to logs.
@@ -333,7 +355,7 @@ _REASON_MAX_LEN = 200
 
 # thread-local record of the most recent ``store_secret`` outcome.
 # Used by :func:`last_store_outcome` so the IPC handler (Fix-G) can
-# surface ``{"stored_in": "keyring"|"plaintext", "provider": "...",
+# surface ``{"stored_in": "keyring"|"plaintext"|"failed", "provider": "...",
 # "reason": "..."}`` in the ``set_config`` ack payload WITHOUT changing
 # ``store_secret``'s return type from ``bool``. The state is thread-local
 # because the IPC server is multi-threaded and the call to
@@ -367,12 +389,17 @@ def _set_last_store_outcome(
         ``"plaintext"`` if it was written to ``config.json`` as a
         fallback. ``"deleted"`` is used when an empty value triggered
         :func:`delete_secret` (so the caller can distinguish a delete
-        from a real store).
+        from a real store). ``"failed"`` is used when keyring
+        failed AND the plaintext fallback also failed — the secret
+        was NOT saved anywhere.
     reason : str | None
         Short, redacted reason string when ``stored_in`` is
         ``"plaintext"`` (the keyring exception message passed through
         :func:`_redact_sensitive`). ``None`` for the keyring-success
-        and delete paths.
+        and delete paths. For the ``"failed"`` path, a short summary
+        of both the keyring failure and the plaintext-fallback
+        failure (the detailed plaintext-fallback error is already
+        logged by :func:`_write_plaintext_fallback`).
     provider : str | None
         The provider name passed to ``store_secret`` (e.g.
         ``"openai"``, ``"groq"``). Included so the IPC handler can
@@ -413,6 +440,9 @@ def last_store_outcome() -> dict[str, Any]:
               * ``"plaintext"``  — secret written to ``config.json``
                 as a fallback (keyring was unavailable or errored).
               * ``"deleted"``    — empty value triggered a delete.
+              * ``"failed"``     — secret was NOT saved anywhere
+                — keyring failed AND the plaintext fallback
+                also failed (e.g. corrupt config.json, disk error).
               * ``"unknown"``    — no ``store_secret`` call has been
                 made on this thread yet (e.g. on a fresh IPC handler
                 thread that has only served read requests).
@@ -420,7 +450,9 @@ def last_store_outcome() -> dict[str, Any]:
           when ``stored_in`` is ``"plaintext"`` (the keyring exception
           message, with paths / API-key-like substrings stripped by
           :func:`_redact_sensitive`). ``None`` for the keyring-success,
-          delete, and unknown paths.
+          delete, and unknown paths. For the ``"failed"`` outcome
+         , the reason summarizes both the keyring failure and
+          the plaintext-fallback failure.
         - ``provider`` (str | None): the provider name passed to the
           most recent ``store_secret`` call (e.g. ``"openai"``).
           Included so the IPC handler can build a more informative
@@ -434,6 +466,12 @@ def last_store_outcome() -> dict[str, Any]:
     before being stored, so it never contains a filesystem path or an
     API-key-like substring. Suitable for direct inclusion in an IPC
     ack payload that the renderer displays to the user.
+
+    a new ``"failed"`` outcome value indicates the secret was
+    NOT saved anywhere — keyring failed AND the plaintext fallback
+    also failed (e.g. corrupt config.json that is not a dict, disk
+    error). The renderer should show a distinct error so the user
+    knows their API key was dropped (vs. saved in plaintext).
     """
     outcome = getattr(_last_store_outcome, "outcome", None)
     if outcome is None:
@@ -461,8 +499,12 @@ def last_store_outcome() -> dict[str, Any]:
 #   gsk_12+, 32+ char alphanum). It duplicated
 #   ``_secrets._KEY_PATTERNS`` (Bearer / Token / sk-any / 20+ char
 #   alphanum) and the two had drifted. The pattern is now shared:
-#   ``_redact_sensitive`` calls :func:`_secrets.redact_api_keys` with
-#   ``replacement="[redacted]"``. The local ``_PATH_RE`` remains here
+#   ``_redact_sensitive`` calls :func:`_secrets.redact_secret` with
+#   ``aggressive=True``, which applies BOTH the SEC-9 flag / ``key=value``
+#   patterns (``_secrets._FLAG_KEY_PATTERNS`` — e.g. ``token=abc``,
+#   ``password=hunter2``, ``--api_key=xyz``) AND the API-key patterns
+#   (``_secrets._KEY_PATTERNS`` — Bearer / Token / ``sk-`` / 20+ char
+#   alphanumeric run). The local ``_PATH_RE`` remains here
 #   because filesystem-path redaction is specific to keyring exception
 #   messages (not duplicated anywhere else in the codebase).
 _PATH_RE = re.compile(
@@ -484,17 +526,29 @@ def _redact_sensitive(text: str | None) -> str | None:
     values without a separate None check).
 
     API-key redaction delegates to
-    :func:`voice_typer.server._secrets.redact_api_keys` (the canonical
-    helper) with ``replacement="[redacted]"``. The shared
-    ``_KEY_PATTERNS`` list in ``_secrets`` is the single source of
-    truth for "what an API-key-like substring looks like" across the
-    codebase.
+    :func:`voice_typer.server._secrets.redact_secret` (the canonical
+    helper) with ``aggressive=True``. ``redact_secret`` applies BOTH
+    the SEC-9 flag / ``key=value`` patterns
+    (:data:`_secrets._FLAG_KEY_PATTERNS` — e.g. ``token=abc``,
+    ``password=hunter2``, ``--api_key=xyz``) AND the API-key patterns
+    (:data:`_secrets._KEY_PATTERNS` — Bearer / Token / ``sk-`` / 20+
+    char alphanumeric run). The ``aggressive=True`` opt-in bypasses
+    the ``_MIN_REDACT_LEN`` short-string guard so bare short secrets
+    (e.g. a 6-char ``token=secret`` value, well under the 20-char
+    generic threshold, and without a Bearer / Token / sk- prefix) are
+    still caught.
+
+    The canonical ``redact_secret`` helper uses ``"***"`` as its
+    redaction marker; this helper normalizes it to ``"[redacted]"``
+    (the IPC-bound marker convention used elsewhere in this module and
+    pinned by existing tests) so callers see a consistent marker
+    regardless of which underlying helper ran.
     """
     if not text:
         return text
     s = str(text)
     s = _PATH_RE.sub("[path]", s)
-    s = redact_api_keys(s, replacement="[redacted]")
+    s = redact_secret(s, aggressive=True).replace("***", "[redacted]")
     if len(s) > _REASON_MAX_LEN:
         s = s[: _REASON_MAX_LEN - 3] + "..."
     return s
@@ -799,10 +853,17 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
         the IPC caller (Fix-G), call :func:`last_store_outcome`
         immediately after this function returns on the same thread.
         It returns a dict ``{"stored_in": "keyring"|"plaintext"|
-        "deleted"|"unknown", "reason": str | None, "provider": str | None}``
+        "deleted"|"failed"|"unknown", "reason": str | None, "provider": str | None}``
         matching the most recent call to ``store_secret`` on this
         thread. The boolean return value alone is preserved for
         backwards compat with every existing caller.
+
+        ``"failed"`` is a new outcome value indicating the
+        secret was NOT saved anywhere — keyring failed AND the
+        plaintext fallback also failed (e.g. corrupt config.json,
+        disk error). The renderer should show a distinct error so
+        the user knows their API key was dropped (vs. saved in
+        plaintext).
 
     Notes
     -----
@@ -819,6 +880,30 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
     ``store_secret`` and ``last_store_outcome`` on the same thread
     (no inter-thread hand-off).
     """
+    # Reject unknown providers BEFORE any other logic. A typo'd or
+    # deprecated provider name (e.g. "openai_v2", "OpenAI") would
+    # otherwise be stored in the keychain under that name and never
+    # cleaned up by the GDPR delete path (the privacy service iterates
+    # PROVIDER_TO_CONFIG_FIELD, so an entry stored under a name NOT in
+    # that map is an orphan). delete_secret iterates
+    # _KNOWN_PROVIDERS_HISTORY to clean up PRE-EXISTING orphans, but
+    # this validation prevents NEW orphans from being created in the
+    # first place. The empty-value (delete) path is also rejected here
+    # — callers who want to clear a stale orphaned entry must use
+    # delete_secret directly (which iterates the history).
+    if provider not in PROVIDER_TO_CONFIG_FIELD:
+        log.warning(
+            "[CREDENTIAL_STORE] rejecting store_secret for unknown provider=%r "
+            "(not in PROVIDER_TO_CONFIG_FIELD) — prevents orphaned OS-keychain entries",
+            provider,
+        )
+        _set_last_store_outcome(
+            "plaintext",
+            f"unknown provider {provider!r}",
+            provider=provider,
+        )
+        return False
+
     if not value:
         # Empty value = delete. Remove from both stores to keep them
         # in sync (the keyring might have a stale entry from a prior
@@ -903,7 +988,28 @@ def store_secret(provider: str, value: str, *, _caller_holds_config_lock: bool =
             len(value),
             redacted_reason,
         )
-        _write_plaintext_fallback(provider, value, caller_holds_config_lock=_caller_holds_config_lock)
+        # _write_plaintext_fallback now returns bool — check it
+        # so we can surface a distinct "failed" outcome when the
+        # plaintext fallback itself failed (e.g. corrupt config.json,
+        # disk error). Pre-fix, _write_plaintext_fallback returned None
+        # and swallowed all errors internally, so store_secret could
+        # never detect a fallback failure — the user's API key was
+        # silently dropped (not in keyring, not in config.json) while
+        # the outcome still said "plaintext".
+        ok = _write_plaintext_fallback(provider, value, caller_holds_config_lock=_caller_holds_config_lock)
+        if not ok:
+            # The plaintext fallback write failed — the secret was NOT
+            # saved anywhere. Surface a distinct "failed" outcome so
+            # the renderer can tell the user their API key was not
+            # saved (vs. saved in plaintext). The detailed reason was
+            # already logged by _write_plaintext_fallback (with
+            # redaction); the outcome reason is a short summary.
+            _set_last_store_outcome(
+                "failed",
+                f"plaintext fallback write failed after keyring error: {redacted_reason}",
+                provider=provider,
+            )
+            return False
         # record the fallback outcome (with the redacted reason)
         # so the IPC handler can include the reason in the ack payload
         # the renderer shows to the user.
@@ -1010,6 +1116,41 @@ def delete_secret(provider: str, config: Any = None) -> None:
                     provider,
                     _redact_sensitive(str(e)),
                 )
+
+            # Orphan cleanup: iterate _KNOWN_PROVIDERS_HISTORY and delete
+            # any historical / deprecated / typo'd provider-name entries
+            # from the keychain. The privacy service's GDPR loop only
+            # iterates PROVIDER_TO_CONFIG_FIELD (current providers), so
+            # entries stored under names NOT in that map would otherwise
+            # be orphans. We skip (a) the specific provider passed to
+            # this call (already deleted above) and (b) current providers
+            # (the privacy service's per-provider loop handles them —
+            # re-deleting would be redundant). This runs on EVERY
+            # delete_secret call (including the store_secret empty-value
+            # path), so a single GDPR flow cleans up all known orphans
+            # via the first delete_secret invocation; subsequent calls
+            # re-attempt the same deletes (no-op, idempotent).
+            for historical_provider in _KNOWN_PROVIDERS_HISTORY:
+                if historical_provider == provider:
+                    continue  # already deleted above
+                if historical_provider in PROVIDER_TO_CONFIG_FIELD:
+                    continue  # privacy service's per-provider loop handles these
+                try:
+                    _run_keyring_call(
+                        keyring.delete_password,
+                        KEYRING_SERVICE_NAME,
+                        historical_provider,
+                    )
+                    log.info(
+                        "[CREDENTIAL_STORE] deleted orphaned keychain entry for historical provider=%s",
+                        historical_provider,
+                    )
+                except Exception as e:
+                    log.debug(
+                        "[CREDENTIAL_STORE] keychain delete for historical provider=%s raised: %s",
+                        historical_provider,
+                        _redact_sensitive(str(e)),
+                    )
     except Exception as e:
         log.debug(
             "[CREDENTIAL_STORE] keyring delete failed for provider=%s: %s",
@@ -1150,7 +1291,12 @@ def _read_plaintext_fallback(provider: str) -> str | None:
             data = json.loads(_secure_read_text(config_file))
             _plaintext_config_cache[config_file_str] = (mtime_ns, data)
     except Exception as e:
-        log.debug(
+        # raise the corruption-log level from DEBUG to
+        # WARNING. A parse failure here means config.json is corrupt
+        # (or unreadable) — the user has no way to notice this at
+        # DEBUG level (which is off by default). WARNING surfaces it
+        # in the default log level so the user can manually recover.
+        log.warning(
             "[CREDENTIAL_STORE] plaintext fallback read failed for provider=%s: %s",
             provider,
             _redact_sensitive(str(e)),
@@ -1160,7 +1306,39 @@ def _read_plaintext_fallback(provider: str) -> str | None:
     field = PROVIDER_TO_CONFIG_FIELD.get(provider)
     if not field:
         return None
+    # guard against non-string ``api_key`` values that
+    # may appear in a hand-edited or corrupted config.json. Pre-fix,
+    # a dict / list / int value would crash with ``AttributeError``
+    # at ``value.startswith(...)`` below — propagating up through
+    # ``load_secret`` and ``Config.load``'s except block. Mirror the
+    # migration path's ``isinstance(value, str)`` guard (line ~1646).
+    # Also defensively check ``data`` is a dict (mirror migration
+    # line ~1581) so a list / scalar root doesn't crash on
+    # ``data.get(field, "")`` — the broad except above does NOT cover
+    # this line (it's outside the try).
+    if not isinstance(data, dict):
+        log.warning(
+            "[CREDENTIAL_STORE] plaintext fallback: config.json root is not a dict (type=%s) — skipping provider=%s",
+            type(data).__name__,
+            provider,
+        )
+        return None
     value = data.get(field, "")
+    if not isinstance(value, str):
+        # Non-string value (e.g. int, dict, list from a hand-edited
+        # or corrupted config.json). Skip this provider with a warning
+        # so the user sees what's wrong; ``.startswith()`` below would
+        # otherwise raise ``AttributeError``.
+        if value == "" or value is None:
+            # Empty default — nothing to load.
+            return None
+        log.warning(
+            "[CREDENTIAL_STORE] plaintext fallback: provider=%s field=%s has non-string value (type=%s) — skipping",
+            provider,
+            field,
+            type(value).__name__,
+        )
+        return None
     if not value:
         return None
     if value.startswith(KEYRING_REF_PREFIX):
@@ -1171,14 +1349,14 @@ def _read_plaintext_fallback(provider: str) -> str | None:
     return value
 
 
-def _write_plaintext_fallback(provider: str, value: str, *, caller_holds_config_lock: bool = False) -> None:
+def _write_plaintext_fallback(provider: str, value: str, *, caller_holds_config_lock: bool = False) -> bool:
     """Write a secret (or empty string) to config.json's flat api_key field.
 
     Reads config.json, updates the single field, and writes it back
     via ``_secure_atomic_write`` (which enforces ``0o600`` on POSIX).
     Preserves all other config fields.
 
-    On any I/O error, logs and returns — never raises.
+    On any I/O error, logs and returns ``False`` — never raises.
 
     the read-modify-write is wrapped in
     ``_acquire_config_lock()`` (the same cross-process lock used by
@@ -1191,6 +1369,23 @@ def _write_plaintext_fallback(provider: str, value: str, *, caller_holds_config_
     ``True`` (the caller is ``Config._save_unlocked`` which already
     holds the lock), we SKIP re-acquiring and rely on the caller's
     lock for cross-process safety.
+
+    Returns
+    -------
+    bool
+        ``True`` if the write completed (or was a successful no-op,
+        e.g. clearing a field that wasn't present). ``False`` if the
+        write failed (corrupt config.json that is not a dict, parse
+        error, disk error, or any unexpected exception). Callers
+        (``store_secret``) check the return to surface a distinct
+        ``"failed"`` outcome to the renderer so the user knows their
+        API key was NOT saved anywhere (vs. saved in plaintext).
+
+        When ``config.json`` parses to a non-dict root, the
+        previous code silently set ``data = {}`` and overwrote the
+        file — destroying the corrupt file's recoverable content. Now
+        we mirror the migration path (line ~1581): log a warning and
+        skip the write so the user can manually recover.
     """
     try:
         from voice_typer.server.config import (
@@ -1202,23 +1397,36 @@ def _write_plaintext_fallback(provider: str, value: str, *, caller_holds_config_
 
         config_file = _config_dir() / "config.json"
 
-        def _do_read_modify_write() -> None:
+        def _do_read_modify_write() -> bool:
             data: dict[str, Any] = {}
             if config_file.exists():
                 try:
                     data = json.loads(_secure_read_text(config_file))
                     if not isinstance(data, dict):
-                        data = {}
+                        # mirror the migration path (line ~1581).
+                        # Silently overwriting with {} would destroy the
+                        # corrupt file's recoverable content. Skip the
+                        # write so the user can manually recover, and
+                        # return False so store_secret surfaces a
+                        # "failed" outcome (the secret was NOT saved).
+                        log.warning(
+                            "[CREDENTIAL_STORE] config.json root is not a dict — "
+                            "skipping write to preserve existing data for manual recovery"
+                        )
+                        return False
                 except Exception as e:
                     log.error(
                         "[CREDENTIAL_STORE] config.json parse failed — refusing to overwrite; "
                         "preserving corrupt file for recovery: %s",
                         _redact_sensitive(str(e)),
                     )
-                    return
+                    return False
             field = PROVIDER_TO_CONFIG_FIELD.get(provider)
             if not field:
-                return
+                # Unknown provider — no-op (not a failure). In practice
+                # store_secret only calls us with the 5 known providers,
+                # so this branch is defensive.
+                return True
             if value:
                 data[field] = value
             elif field in data:
@@ -1226,32 +1434,35 @@ def _write_plaintext_fallback(provider: str, value: str, *, caller_holds_config_
                 data[field] = ""
             else:
                 # Field not present and we're clearing — nothing to do.
-                return
+                return True
             _secure_atomic_write(config_file, json.dumps(data, indent=2))
+            return True
 
         if caller_holds_config_lock:
             # caller (Config._save_unlocked) already holds the
             # cross-process lock — re-acquiring would deadlock because
             # fcntl.flock is per-open-file-description, not per-fd.
-            _do_read_modify_write()
+            ok = _do_read_modify_write()
         else:
             # hold the cross-process lock for the full
             # read-modify-write so concurrent Config.save() / migration
             # can't clobber our change (or vice versa).
             with _acquire_config_lock():
-                _do_read_modify_write()
-        if value:
+                ok = _do_read_modify_write()
+        if ok and value:
             log.info(
                 "[CREDENTIAL_STORE] wrote plaintext fallback for provider=%s (len=%d) to config.json",
                 provider,
                 len(value),
             )
+        return ok
     except Exception as e:
         log.error(
             "[CREDENTIAL_STORE] plaintext fallback write failed for provider=%s: %s",
             provider,
             _redact_sensitive(str(e)),
         )
+        return False
 
 
 # ── Migration ───────────────────────────────────────────────────────────
@@ -1372,14 +1583,18 @@ def _acquire_migration_lock(lock_file):
                         raise TimeoutError(
                             f"migration lock not acquired within "
                             f"{_MIGRATION_LOCK_TIMEOUT_SECONDS}s — another "
-                            f"process is holding {lock_file}"
+                            f"process is holding {_redact_sensitive(str(lock_file))}"
                         ) from e
                     if not warned_slow and time.monotonic() - wait_start > _MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS:
+                        # redact ``lock_file`` — the path contains
+                        # the username (e.g. /home/<user>/.config/...) and
+                        # is PII. Defense in depth alongside the path
+                        # regex in ``_redact_sensitive``.
                         log.warning(
                             "[CREDENTIAL_STORE] migration lock wait on %s "
                             "exceeds %.1fs — another process may be wedging "
                             "config.json.lock (will time out in %.1fs)",
-                            lock_file,
+                            _redact_sensitive(str(lock_file)),
                             _MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS,
                             max(0.0, deadline - time.monotonic()),
                         )
@@ -1423,6 +1638,16 @@ def _acquire_migration_lock(lock_file):
                         # log-grep / the regression test contract
                         # can find it.
                         if not warned_final:
+                            # redact both ``lock_file`` (path
+                            # contains username — PII) and ``e`` (raw
+                            # OSError may embed the path too, depending
+                            # on the backend). Defense in depth: the
+                            # _PATH_RE regex in _redact_sensitive also
+                            # strips /home/<user> etc., but explicitly
+                            # calling _redact_sensitive makes the
+                            # intent clear and catches anything the
+                            # regex misses (e.g. Windows C:\Users\<user>
+                            # paths from msvcrt errors).
                             log.warning(
                                 "[CREDENTIAL_STORE] Windows migration "
                                 "lock acquire timed out after %ss on "
@@ -1432,17 +1657,19 @@ def _acquire_migration_lock(lock_file):
                                 "to avoid blocking startup; check for "
                                 "concurrent secret-migration attempts.",
                                 _MIGRATION_LOCK_TIMEOUT_SECONDS,
-                                lock_file,
-                                e,
+                                _redact_sensitive(str(lock_file)),
+                                _redact_sensitive(str(e)),
                             )
                             warned_final = True
                         break
                     if not warned_slow and time.monotonic() - wait_start > _MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS:
+                        # redact ``lock_file`` (same PII concern
+                        # as the POSIX slow-wait branch above).
                         log.warning(
                             "[CREDENTIAL_STORE] migration lock wait on %s "
                             "exceeds %.1fs — another process may be wedging "
                             "config.json.lock (will time out in %.1fs)",
-                            lock_file,
+                            _redact_sensitive(str(lock_file)),
                             _MIGRATION_LOCK_SLOW_WAIT_WARN_SECONDS,
                             max(0.0, deadline - time.monotonic()),
                         )
@@ -1522,18 +1749,64 @@ def migrate_secrets_to_keyring() -> int:
     try:
         lock_fd = _acquire_migration_lock(lock_file)
     except Exception as e:
-        # Fail-open: if we can't acquire the lock (e.g. the config dir
-        # is read-only), proceed WITHOUT the lock.  This preserves the
-        # prior single-process behavior on platforms where locking is
-        # unavailable.  The migration is still idempotent at the
-        # keyring level (set_password overwrites), so the worst case is
-        # a redundant keyring write — never data loss on a single
-        # process.
-        log.debug(
-            "[CREDENTIAL_STORE] migration: could not acquire lock (%s) — proceeding without",
+        # ABORT migration when the lock can't be acquired
+        # (e.g. POSIX TimeoutError, OSError opening the lock file).
+        # Previously this branch set ``lock_fd = None`` and fell
+        # through to ``_migrate_secrets_to_keyring_locked`` — a
+        # fail-open stance that re-opens RACE-001: two app instances
+        # starting simultaneously could both fail to acquire the
+        # lock (e.g. on a wedged holder) and both proceed to
+        # read-migrate-write config.json concurrently, clobbering
+        # each other's writes (potentially losing a real secret
+        # from disk).
+        #
+        # The fail-open stance is preserved ONLY for the documented
+        # Windows msvcrt.locking timeout — that branch handles the
+        # timeout INLINE (logs a warning and ``break``s out of the
+        # loop without raising), so ``lock_fd`` is the opened fd
+        # (NOT None) and this ``except`` is not entered. The Windows
+        # fail-open contract is preserved by that inline handling
+        # (and verified by ``test_timeout_warning_visible_through_migrate``).
+        #
+        # Best-effort defensive write of ``secrets_migrated = True``
+        # so the next launch skips migration (avoids a retry storm
+        # if the lock is permanently wedged). Wrapped in
+        # try/except — we don't hold the lock, so this write COULD
+        # race with the holder, but the worst case is a redundant
+        # write of a flag (no secret content). If the write fails
+        # (e.g. read-only config dir), we silently skip — the next
+        # launch will retry the lock acquisition.
+        log.warning(
+            "[CREDENTIAL_STORE] migration: could not acquire lock on %s "
+            "(%s) — ABORTING migration to avoid racing with the lock holder. "
+            "The next launch will retry; if the lock is permanently wedged, "
+            "manually delete the lock file.",
+            _redact_sensitive(str(lock_file)),
             _redact_sensitive(str(e)),
         )
-        lock_fd = None
+        try:
+            from voice_typer.server.config import (
+                _secure_atomic_write,
+                _secure_read_text,
+            )
+
+            if config_file.exists():
+                existing = json.loads(_secure_read_text(config_file))
+                if isinstance(existing, dict) and not existing.get("secrets_migrated", False):
+                    existing["secrets_migrated"] = True
+                    _secure_atomic_write(config_file, json.dumps(existing, indent=2))
+            else:
+                _secure_atomic_write(
+                    config_file,
+                    json.dumps({"secrets_migrated": True}, indent=2),
+                )
+        except Exception as write_err:
+            log.debug(
+                "[CREDENTIAL_STORE] migration: could not defensively set "
+                "secrets_migrated flag after lock-acquire failure: %s",
+                _redact_sensitive(str(write_err)),
+            )
+        return 0
 
     try:
         return _migrate_secrets_to_keyring_locked(config_file)
@@ -1836,6 +2109,7 @@ __all__ = [
     "KEYRING_SERVICE_NAME",
     "PROVIDER_TO_CONFIG_FIELD",
     "CONFIG_FIELD_TO_PROVIDER",
+    "_KNOWN_PROVIDERS_HISTORY",
     "clear_in_memory_secrets",
     "delete_secret",
     "get_keyring_status",

@@ -123,9 +123,7 @@ class HistoryHandlersMixin(HandlerBase):
                     }
                     return resp
             if before_timestamp is not None and before_id is not None:
-                rows = self.service.get_history(
-                    limit, offset, before_timestamp=before_timestamp, before_id=before_id
-                )
+                rows = self.service.get_history(limit, offset, before_timestamp=before_timestamp, before_id=before_id)
             else:
                 rows = self.service.get_history(limit, offset)
             # Defense-in-depth size check. ``get_recent`` already
@@ -415,9 +413,7 @@ class HistoryHandlersMixin(HandlerBase):
                     }
                     return resp
             if before_timestamp is not None and before_id is not None:
-                rows = self.service.get_favorites(
-                    limit, offset, before_timestamp=before_timestamp, before_id=before_id
-                )
+                rows = self.service.get_favorites(limit, offset, before_timestamp=before_timestamp, before_id=before_id)
             else:
                 rows = self.service.get_favorites(limit, offset)
             # Same defense-in-depth frame-cap check as

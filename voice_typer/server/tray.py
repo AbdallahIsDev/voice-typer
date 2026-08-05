@@ -5,18 +5,18 @@ Restart / Quit. Left-click + "Open App" launches (or focuses) the
 Electron app; all settings / history / templates live in the Electron
 window only.
 
- module-split history — each concern lives in its own module;
+Module-split history — each concern lives in its own module;
 ``TrayIcon`` below is a thin orchestrator of one-line delegates:
-  - menu building → ``tray_menu.py`` (#13 / )
-  - types → ``tray_types.py`` ()
-  - icon rendering → ``tray_icon.py`` ()
-  - i18n → ``tray_i18n.py`` ()
+  - menu building → ``tray_menu.py``
+  - types → ``tray_types.py``
+  - icon rendering → ``tray_icon.py``
+  - i18n → ``tray_i18n.py``
   - Wayland SNI detection → ``tray_wayland_detect.py``
   - elapsed-recording timer → ``tray_elapsed_timer.py``
-  - window management → ``tray_window.py`` ( / )
-  - notifications → ``tray_notifications.py`` ( / )
+  - window management → ``tray_window.py``
+  - notifications → ``tray_notifications.py``
 
- (Phase 4.5 spaghetti split, ):  extracted the
+Phase 4.5 spaghetti split: extracted the
 window-management + notification methods to ``tray_window.py`` and
 ``tray_notifications.py``; this pass trims the verbose docstrings so the
 class is a thin orchestrator (target ≤600 lines). Every public + private
@@ -108,15 +108,15 @@ class TrayIcon:
         self._message = ""
         self._notifications_enabled = True
         self._microphones: list[dict] = []  # mics submenu cache
-        self._recording_started_at: float | None = None  #
-        self._elapsed_timer: threading.Timer | None = None  #
+        self._recording_started_at: float | None = None
+        self._elapsed_timer: threading.Timer | None = None
         self._elapsed_timer_helper = ElapsedTimer(
             tick_callback=self._on_elapsed_tick,
             is_active=lambda: self._state == AppState.RECORDING,
             set_timer_ref=self._set_elapsed_timer_ref,
         )
         self._autostart_enabled = False
-        self._cpu_fallback_active: bool = False  # SK-b
+        self._cpu_fallback_active: bool = False
         # Pre-run state queue — flushed once the pystray event loop is live.
         self._pending_states: list[tuple[AppState, str]] = []
         self._pending_notifications: list[tuple[str, str]] = []
@@ -151,13 +151,13 @@ class TrayIcon:
         self._tray_id_map: dict[str, Callable] = {}
         # cache-skip — skip ``_make_icon`` redraw when
         # ``state == _last_applied_state``. The 1s elapsed-recording tick
-        # () calls ``_apply_state`` every second; pre- this
+        # calls ``_apply_state`` every second; pre-this
         # re-malloc'd a fresh PIL image + pystray icon handle on every
         # tick (and tickled the WinError 1402 stale-handle bug on Windows).
         # The tooltip (``self._icon.title``) is still updated unconditionally
         # so the elapsed ``mm:ss`` stays live.
         self._last_applied_state: AppState | None = None
-        # DJ-38: last-published (icon_name, tooltip) tuple for publish
+        # last-published (icon_name, tooltip) tuple for publish
         # dedup. ``_publish_tray_state`` skips the emit entirely when
         # both fields match the cache; ``stop()`` clears it so a
         # restarted tray re-publishes its initial state. The cache key
@@ -176,7 +176,7 @@ class TrayIcon:
     def set_state(self, state: AppState, message: str = "") -> None:
         """Update tray icon state and tooltip.
 
-        DJ-41: short-circuit at the top — when ``state`` AND
+        Short-circuit at the top — when ``state`` AND
         ``message`` are both unchanged, every downstream unit of work
         (menu-cache invalidation, elapsed-timer start/stop, icon
         redraw, event emit, menu push) is skipped. Callers that
@@ -214,7 +214,7 @@ class TrayIcon:
             self._maybe_publish_tray_menu()
 
     def set_microphones(self, mics: list[dict] | None) -> None:
-        """Cache the mic device list + invalidate the menu cache ().
+        """Cache the mic device list + invalidate the menu cache.
 
         None/empty normalized to []. ADR-0020 §6.5: push to Tauri.
 
@@ -251,7 +251,7 @@ class TrayIcon:
         return is_linux_wayland_without_sni()
 
     def refresh_config(self, config) -> None:
-        """Replace the cached Config reference and rebuild the menu ()."""
+        """Replace the cached Config reference and rebuild the menu."""
         self._config = config
         self._hotkey = getattr(config, "hotkey", self._hotkey) or self._hotkey
         self._invalidate_menu_cache_locked()
@@ -286,7 +286,7 @@ class TrayIcon:
         env var;  Linux Wayland without StatusNotifierItem
         (pystray GTK backend would hang on icon.run());
         pystray.Icon() raised OSError. On all three ``_tray_unavailable``
-        is set True and run() blocks on ``_run_event``. SK-b: subscribe
+        is set True and run() blocks on ``_run_event``. Subscribe
         to parakeet_cpu_fallback BEFORE the early-return paths.
         """
         self._bg_work_fn = self._wrap_bg_work(bg_work)
@@ -296,15 +296,14 @@ class TrayIcon:
 
             _event_bus.subscribe(self._on_parakeet_cpu_fallback)
         except Exception:
-            # Promote DEBUG → WARNING. The SK-b CPU-fallback
+            # Promote DEBUG → WARNING. The CPU-fallback
             # notification is safety-critical (alerts the user that a
             # model swap to CPU mode happened); silently swallowing the
             # subscribe failure at DEBUG hid cases where event_bus was
             # mis-imported or the handler signature drifted, leaving
             # users with no fallback alert.
             log.warning(
-                "[TRAY] could not subscribe to parakeet_cpu_fallback — "
-                "CPU-fallback alerts will NOT be surfaced (SK-b degraded)",
+                "[TRAY] could not subscribe to parakeet_cpu_fallback — CPU-fallback alerts will NOT be surfaced",
                 exc_info=True,
             )
 
@@ -422,7 +421,7 @@ class TrayIcon:
     def stop(self) -> None:
         """Stop the tray icon and exit the event loop (idempotent).
 
-        release ``_run_event``. SK-b: unsubscribe
+        release ``_run_event``. Unsubscribe
         parakeet_cpu_fallback (set.discard — safe if never registered).
 
         ``self._icon.stop()`` + ``self._icon = None`` are
@@ -441,12 +440,12 @@ class TrayIcon:
             if self._icon:
                 self._icon.stop()
                 self._icon = None
-        self._cancel_elapsed_timer()  #
-        self._run_event.set()  #
+        self._cancel_elapsed_timer()
+        self._run_event.set()
         # clear the icon-state cache so a restarted tray
         # redraws the icon on the first ``_apply_state`` (no stale cache).
         self._last_applied_state = None
-        # DJ-38: clear the publish dedup cache so a restarted tray
+        # clear the publish dedup cache so a restarted tray
         # re-publishes its initial state (no stale suppression).
         self._last_published = None
 
@@ -497,7 +496,7 @@ class TrayIcon:
         return _do_notify(self, title, message)
 
     def _on_parakeet_cpu_fallback(self, event: dict) -> None:
-        """SK-b: handle parakeet_cpu_fallback events (delegate)."""
+        """Handle parakeet_cpu_fallback events (delegate)."""
         from voice_typer.server.tray_notifications import (
             on_parakeet_cpu_fallback as _on_fallback,
         )
@@ -515,10 +514,10 @@ class TrayIcon:
             title += f" — {message}"
         elif state != AppState.IDLE:
             title += f" — {state.value}"
-        if self._cpu_fallback_active:  # SK-b
+        if self._cpu_fallback_active:
             title += " (CPU fallback)"
-        if state == AppState.RECORDING and self._recording_started_at is not None:  #
-            elapsed = time.monotonic() - self._recording_started_at  #
+        if state == AppState.RECORDING and self._recording_started_at is not None:
+            elapsed = time.monotonic() - self._recording_started_at
             title += f" ({self._format_elapsed(elapsed)})"
         if self._config:  # model name
             model = getattr(self._config, "model_size", "")
@@ -534,7 +533,7 @@ class TrayIcon:
         instead of mutating pystray Icon). No-op on Electron/pystray.
         Best-effort (hot path).
 
-        DJ-38: suppress redundant publishes — the cache key is the
+        Suppress redundant publishes — the cache key is the
         FULL ``(icon_name, tooltip)`` tuple (not just icon_name), so a
         tooltip-only change still emits. A failed publish is NOT
         cached, so the next call retries (no silent drop)."""
@@ -542,7 +541,7 @@ class TrayIcon:
 
         icon_name = _APP_STATE_TO_ICON_NAME.get(self._state, "idle")
         tooltip = self._compute_tooltip(self._state, self._message)
-        # DJ-38: identical last-published state → skip the emit
+        # identical last-published state → skip the emit
         # entirely (redundant tray_state events cause the Tauri host to
         # re-run tray.set_icon / tray.set_tooltip, which on Windows is
         # a DestroyIcon / LoadIcon round-trip per call).
@@ -570,7 +569,7 @@ class TrayIcon:
          skip the ``_make_icon`` redraw when
         ``state == self._last_applied_state`` — the icon PNG depends only
         on ``state``, not on the ``message`` / elapsed time. The 1s
-        elapsed-recording tick () re-enters here every second; the
+        elapsed-recording tick re-enters here every second; the
         cache-skip avoids re-malloc'ing a fresh PIL image + pystray icon
         handle on every tick (and avoids tickling the WinError 1402
         stale-handle bug —  / ). The tooltip assignment is
@@ -618,7 +617,7 @@ class TrayIcon:
                             "`_icon_handle` attribute — DestroyIcon workaround "
                             "disabled (OSError: %r). The tray will keep running "
                             "but rapid icon updates on Windows may hit WinError "
-                            "1402. See S2-CR-71 / TODO S2-CR-16: replace the "
+                            "1402. Replace the "
                             "private attribute access with a public "
                             "`reset_icon_handle()` API when upstream exposes "
                             "it, and bump pystray to the release that ships it.",
@@ -700,7 +699,7 @@ class TrayIcon:
                     }
                 )
 
-    # ─── (): elapsed-recording timer ──────────────────────
+    # ─── elapsed-recording timer ──────────────────────
 
     @staticmethod
     def _format_elapsed(seconds: float) -> str:
@@ -876,7 +875,7 @@ class TrayIcon:
         return maybe_publish_tray_menu(self)
 
     def _build_microphones_submenu(self) -> list:
-        """Build the Microphones ▸ submenu () — delegate."""
+        """Build the Microphones ▸ submenu — delegate."""
         from voice_typer.server.tray_menu import build_microphones_submenu
 
         return build_microphones_submenu(self)

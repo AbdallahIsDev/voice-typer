@@ -42,15 +42,6 @@ from voice_typer.server.handlers.microphone_test_handlers import (
 )
 from voice_typer.server.handlers.model_handlers import ModelHandlersMixin
 from voice_typer.server.handlers.onboarding_handlers import OnboardingHandlersMixin
-
-# (FA16, 2026-07-19): ``PrivacyHandlersMixin`` was defined
-# in ``privacy_handlers.py`` ( / ) and imported by
-# ``ipc_server.py`` at module load time, but was missing from this
-# package's ``__all__`` re-export list — same defect class as the
-# ``RepasteHandlersMixin`` fix below. External callers doing
-# ``from voice_typer.server.handlers import PrivacyHandlersMixin``
-# would have hit ``ImportError``. Adding it here makes the package
-# re-export match the actual set of mixin classes.
 from voice_typer.server.handlers.privacy_handlers import PrivacyHandlersMixin
 
 # (IMPROVE-mode run, 2026-07-19): ``RepasteHandlersMixin`` was
@@ -84,10 +75,6 @@ __all__ = [
     "ModelHandlersMixin",
     "SystemHandlersMixin",
     "VocabularyAutomationHandlersMixin",
-    # ``PrivacyHandlersMixin`` ( / ) is part of
-    # the package re-export surface — it was previously defined in
-    # ``privacy_handlers.py`` and imported by ``ipc_server.py`` but
-    # missing from ``__all__`` (same defect class as ).
     "PrivacyHandlersMixin",
     # ``RepasteHandlersMixin`` () is part of the package
     # re-export surface — it was previously defined in

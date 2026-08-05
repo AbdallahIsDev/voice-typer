@@ -129,6 +129,19 @@ def signal_watcher_loop(controller: ShutdownController) -> None:
         (immediate termination with no cleanup). The event is
         cleared after each wakeup so a subsequent signal re-arms the
         watcher for the next dispatch.
+
+    Escalation on the SECOND signal. The first signal spawns
+        a ``quit()`` worker (graceful shutdown). If a second signal
+        arrives (``controller._signal_count >= 2``), the watcher
+        logs "second signal received — forcing immediate exit" and
+        calls ``os._exit(1)`` directly, bypassing ``quit()``. This
+        matches the Python default behaviour the user expects when
+        double-tapping Ctrl+C because the first one was slow. The
+        ``os._exit`` call is guarded with ``contextlib.suppress(
+        Exception)`` so a logging failure doesn't prevent exit. The
+        watcher still runs the first-signal path (spawn ``quit()``)
+        for robustness — if ``os._exit`` is somehow patched out
+        (e.g. in tests), the graceful path still runs.
     """
     # outer ``while True:`` keeps the watcher alive across
     # multiple signal deliveries. ``quit()`` is idempotent (guarded by
@@ -147,6 +160,39 @@ def signal_watcher_loop(controller: ShutdownController) -> None:
         # clear the event so a subsequent signal arrival is
         # observable (re-arms the ``wait()`` above for the next round).
         controller._shutdown_signal_event.clear()
+        # Escalation check. ``_signal_count`` is incremented
+        # in the async-signal-safe handler; here we read it in the
+        # normal thread context. If this is the SECOND (or later)
+        # signal, force-exit immediately — the user is asking for
+        # termination and the first graceful ``quit()`` is taking
+        # too long (e.g. ``tray.stop()`` hanging on a frozen GNOME
+        # Shell, or ``recorder.stop()`` hung on a wedged WASAPI
+        # stream). ``os._exit(1)`` bypasses Python's orderly
+        # shutdown — safe here because the first signal's ``quit()``
+        # worker has already had a chance to run the critical
+        # flushes (history_db, crash_recovery) before the user
+        # double-tapped.
+        signal_count = getattr(controller, "_signal_count", 0)
+        if signal_count >= 2:
+            try:
+                log.warning(
+                    "[SIGNAL] second signal received (count=%d) — forcing immediate exit (os._exit(1))",
+                    signal_count,
+                )
+            except Exception:
+                # Same async-signal-safe fallback pattern as the
+                # handler (logging lock held, broken handler, etc.). ``os.write(2, ...)``
+                # is async-signal-safe and gives the operator one
+                # line of evidence. Never let a logging failure
+                # prevent the force-exit.
+                with contextlib.suppress(OSError):
+                    os.write(2, b"[SIGNAL] second signal received - forcing immediate exit\n")
+            # ``os._exit(1)`` is the whole point of the escalation.
+            # Guard with ``contextlib.suppress(Exception)`` so a
+            # final logging failure (or any other exception in the
+            # escalation path) doesn't prevent the exit.
+            with contextlib.suppress(Exception):
+                os._exit(1)
         # Outside the signal context — safe to use logging and threading.
         signum = controller._shutdown_signum
         try:
@@ -193,6 +239,23 @@ def install_win32_console_handler(controller: ShutdownController) -> None:
     if not _app_module.is_windows():
         return
     app = controller._app
+
+    # Idempotency guard: if a handler was already installed, do NOT
+    # create a new ``CFUNCTYPE`` wrapper. Each call constructs a fresh
+    # wrapper and (without this guard) would overwrite
+    # ``app._console_handler``, dropping the only Python reference to
+    # the PREVIOUS wrapper. Windows still holds the raw C function
+    # pointer in its console-control handler chain, so once the old
+    # wrapper is garbage-collected the next console event (Ctrl+C,
+    # logoff, close) calls into freed Python memory → use-after-free /
+    # segfault. ``SetConsoleCtrlHandler`` ADDS to the chain rather
+    # than replacing, so the leaked pointer is never re-validated.
+    # Returning here keeps the original wrapper (and its underlying
+    # callable) alive for the lifetime of the process.
+    if getattr(app, "_console_handler", None) is not None:
+        log.debug("[WIN32] console control handler already installed — skipping re-install")
+        return
+
     # detect pythonw.exe (no console) and skip install.
     exe_name = Path(sys.executable).name.lower()
     if exe_name == "pythonw.exe":

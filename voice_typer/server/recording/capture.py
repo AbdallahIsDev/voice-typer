@@ -161,6 +161,52 @@ class AudioCallbackDispatcher:
         # finishes setting self._recording_start_time and other
         # per-session state. Bail out early so the silence/max-
         # duration callbacks don't compute against a None timestamp.
+        #
+        # The entire body is wrapped in try/except so a bug in
+        # the RT callback (e.g. an unexpected AttributeError from a
+        # None _ring_buffer / _preroll_buffer) is surfaced on
+        # ``recorder._last_callback_error`` and logged at ERROR by
+        # ``_stream_finished_callback`` instead of being silently
+        # swallowed by PortAudio (which aborts the stream and surfaces
+        # to the user as a phantom "device disconnect"). The exception
+        # is re-raised after storage so PortAudio's stream-abort
+        # semantics are preserved — the difference is the user now
+        # sees the true cause in the log instead of a misdiagnosis.
+        try:
+            return self._dispatch_callback_body_inner(recorder, indata, frames, time_info, status)
+        except Exception as exc:
+            # Store on the recorder so _stream_finished_callback can
+            # log the true cause. Atomic under CPython's GIL (single
+            # attribute assignment). We do NOT use a lock here — this
+            # is the RT callback, taking a lock would risk an overrun
+            # against the 32ms deadline. The store-then-reraise
+            # pattern means PortAudio's behavior is unchanged (the
+            # stream still aborts), but the diagnostic is preserved.
+            recorder._last_callback_error = exc
+            raise
+
+    def _dispatch_callback_body_inner(
+        self,
+        recorder: Any,
+        indata: Any,
+        frames: int,
+        time_info: Any,
+        status: Any,
+    ) -> Any:
+        """Inner body of :meth:`dispatch_callback_body` (split out
+        for the try/except wrapper).
+
+        Extracted verbatim from the pre-split ``dispatch_callback_body``
+        body so the try/except wrapper above is the ONLY change — the
+        source-inspection contracts in
+        ``tests/test_capture_module.py::TestDispatchCallbackBodySourceContract``
+        (which check the absence of heavy-pipeline ops, the absence of
+        ``_ring_buffer.append``, and the absence of
+        ``_worker_wake_event.set``) continue to pass against this
+        inner method because the body is unchanged. The wrapper
+        delegates here, so the heavy-pipeline / append / set literals
+        are still not present in ``dispatch_callback_body``'s source.
+        """
         if not recorder._recording_event.is_set():
             # AUDIO-PRE: capture pre-roll even when not officially
             # recording. This is a fast path (~10µs): copy + mono
@@ -214,7 +260,12 @@ class AudioCallbackDispatcher:
         perf_ts = time.perf_counter()
         return (chunk_copy, frames, time_info, status, perf_ts)
 
-    def audio_worker_loop(self, recorder: Any) -> None:
+    def audio_worker_loop(
+        self,
+        recorder: Any,
+        stop_event: Any = None,
+        wake_event: Any = None,
+    ) -> None:
         """Body of :meth:`Recorder._audio_worker_loop`.
 
         Consumes chunks from the SPSC ring buffer and runs the heavy
@@ -229,16 +280,58 @@ class AudioCallbackDispatcher:
         doesn't lose in-flight audio (unless ``drain=False`` was passed
         to ``_stop_audio_worker``, in which case the ring buffer was
         already cleared by the caller).
+
+        Before entering the main drain loop, this worker drains
+        ``recorder._preroll_buffer`` in reverse, runs each chunk
+        through ``recorder._audio_processor.process_chunk`` (best-effort
+        filter chain), and ``appendleft`` to ``recorder._buffer`` —
+        the same work ``_prepend_preroll_to_buffer`` used to do
+        synchronously on the start() thread. Moving the prepend here
+        unblocks start() (which previously blocked 465ms-4.65s on the
+        prepend) while preserving chronological order: pre-roll chunks
+        land at the front of ``_buffer`` BEFORE any live chunk (live
+        chunks only reach ``_buffer`` via ``_process_audio_chunk`` in
+        the main drain loop below). The ring buffer (sized for 2.0s of
+        headroom) absorbs the prepend duration — live audio chunks
+        queued by the callback during the prepend are drained
+        immediately after the prepend finishes.
         """
+        # WM-8: prefer explicit ``stop_event`` / ``wake_event`` (captured
+        # at thread-spawn time by ``start_audio_worker_body``) over the
+        # dynamic ``recorder._worker_stop_event`` /
+        # ``_worker_wake_event`` attributes. A stale worker whose
+        # recorder's events were replaced must retain its OLD (set) events
+        # and exit — reading the NEW (cleared) attribute dynamically would
+        # resume the loop and violate the SPSC single-consumer invariant.
+        # Fall back to the dynamic attributes when ``None`` (direct test /
+        # legacy call sites) — preserves backward compat.
+        _stop = stop_event if stop_event is not None else recorder._worker_stop_event
+        _wake = wake_event if wake_event is not None else recorder._worker_wake_event
+        # ── phase 0: pre-roll filter-chain prepend ──
+        # Moved off the start() thread to avoid blocking the hotkey
+        # critical path. The worker is the single consumer of
+        # ``_preroll_buffer`` (the callback only writes to it when
+        # ``_recording_event`` is clear, which is now set), so this
+        # drain is race-free. The prepend body lives in
+        # ``SessionState.prepend_preroll_to_buffer`` (shared with the
+        # unit-tested direct call site).
+        try:
+            recorder._prepend_preroll_to_buffer()
+        except Exception:
+            log.warning(
+                "[RECORDING] Pre-roll prepend failed on audio worker thread",
+                exc_info=True,
+            )
+
         while True:
             # Wait for work or stop signal. The 50ms timeout ensures we
             # notice the stop flag even if the wake event is missed
             # (e.g., if the callback sets the event between the worker's
             # wait() return and the clear() call — a rare race that the
             # timeout covers).
-            if not recorder._worker_stop_event.is_set():
-                recorder._worker_wake_event.wait(timeout=0.05)
-            recorder._worker_wake_event.clear()
+            if not _stop.is_set():
+                _wake.wait(timeout=0.05)
+            _wake.clear()
 
             # Drain all available chunks. Each chunk is processed by
             # _process_audio_chunk which does the heavy lifting.
@@ -281,7 +374,7 @@ class AudioCallbackDispatcher:
                     )
                 _drain_count += 1
                 if _drain_count % _DRAIN_STOP_CHECK_INTERVAL == 0:
-                    if recorder._worker_stop_event.is_set():
+                    if _stop.is_set():
                         return  # bail out early when stop signaled
                     time.sleep(0)  # yield GIL to reduce CPU burn
 
@@ -289,7 +382,7 @@ class AudioCallbackDispatcher:
             # exiting so stop() doesn't lose in-flight audio. For the
             # discard() path, the ring buffer was already cleared by the
             # caller, so the drain loop above was a no-op.
-            if recorder._worker_stop_event.is_set():
+            if _stop.is_set():
                 return
 
     # Phase 4.5: worker-lifecycle bodies (Option C) ──────
@@ -330,12 +423,15 @@ class AudioCallbackDispatcher:
                 this method is the body inside the lock. Idempotent: if the
                 worker is already running, returns early.
 
-                Called by ``start()`` AFTER the PortAudio stream is successfully
-                opened and the pre-roll buffer has been prepended, but BEFORE
-                ``_recording_event.set()`` is... actually, it's called AFTER
-                ``_recording_event.set()`` because the callback needs the event
-                to be set before it will push to the ring buffer. The worker
-                thread is a daemon so it never blocks process exit.
+                Called by ``start()`` AFTER the PortAudio stream is
+                successfully opened and ``_recording_event`` is set
+                (the callback needs the event set before it will push
+                to the ring buffer). The pre-roll filter-chain prepend
+                is NO LONGER done synchronously on the start() thread —
+                the worker thread performs the prepend as a "phase 0"
+                at the top of ``audio_worker_loop`` before entering the
+                main drain loop. The worker thread is a daemon so it
+                never blocks process exit.
 
                 THREAD-REGISTRY: when a registry was provided to ``__init__``,
                 the worker thread is registered so ``shutdown_all()`` can
@@ -386,6 +482,13 @@ class AudioCallbackDispatcher:
         recorder._ring_buffer.clear()
         recorder._worker_thread = threading.Thread(
             target=recorder._audio_worker_loop,
+            # WM-8: pass the CURRENT stop / wake events as explicit
+            # args so the worker binds to THESE events at spawn time.
+            # If the recorder's events are later replaced (stale-worker
+            # SPSC race), the OLD worker retains its OLD (set) events
+            # and exits instead of reading the NEW (cleared)
+            # ``_worker_stop_event`` attribute dynamically.
+            args=(recorder._worker_stop_event, recorder._worker_wake_event),
             name=_AUDIO_WORKER_THREAD_NAME,
             daemon=True,
         )

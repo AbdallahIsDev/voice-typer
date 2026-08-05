@@ -299,7 +299,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "tray_click": "_handle_tray_click",
     # Fix-A (IMPROVE-mode run, 2026-07-21): GDPR Art. 17 (right
     # to erasure) and Art. 20 (right to data portability) handlers.
-    # Registered by PrivacyHandlersMixin; service methods live on
+    # Registered via dedicated Rust commands; service methods live on
     # VoiceTyperService (delete_all_personal_data / export_gdpr_bundle).
 }
 

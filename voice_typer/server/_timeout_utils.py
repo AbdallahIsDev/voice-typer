@@ -105,7 +105,11 @@ _LEAKED_WORKERS: list[threading.Thread] = []
 _LEAKED_WORKERS_LOCK = threading.Lock()
 
 
-def join_leaked_workers(timeout: float = 1.0) -> int:
+def join_leaked_workers(
+    timeout: float = 1.0,
+    *,
+    total_budget: float | None = None,
+) -> int:
     """Best-effort join of every leaked worker thread.
 
     when ``_run_with_timeout`` returns ``TIMEOUT``,
@@ -115,13 +119,30 @@ def join_leaked_workers(timeout: float = 1.0) -> int:
         (PortAudio streams, file handles, locks) before the process is
         torn down.
 
-        Each leaked worker is joined with up to *timeout* seconds (the
-        budget is per-worker, NOT shared — callers that need a global
-        cap should pass a smaller value). Threads that have already
-        exited (or exit during the join) are removed from the registry.
-        Threads still alive after the join remain in the registry —
-        they are daemon threads, so ``os._exit(0)`` will reap them when
-        the process dies.
+        Two budget modes are supported:
+
+        * **Per-worker** (default, ``timeout`` keyword): each leaked
+          worker is joined with up to *timeout* seconds. The budget is
+          per-worker, NOT shared — callers that need a global cap should
+          pass a smaller value or use ``total_budget``. With N leaked
+          workers, worst-case wall time = ``N * timeout``.
+        * **Shared deadline** (``total_budget`` keyword): when
+          provided, takes precedence over ``timeout``. A single global
+          deadline (``time.monotonic() + total_budget``) is shared
+          across all workers. Each worker is joined with
+          ``min(0.2, remaining_budget)`` seconds, where
+          ``remaining_budget = deadline - time.monotonic()``. The
+          iteration is capped at the first 10 workers by registration
+          order so the worst-case wall time is bounded by
+          ``min(10 * 0.2, total_budget) = min(2.0, total_budget)``
+          seconds. This is the mode the shutdown watchdog uses so its
+          effective time stays bounded regardless of how many workers
+          are in the registry.
+
+        Threads that have already exited (or exit during the join) are
+        removed from the registry. Threads still alive after the join
+        remain in the registry — they are daemon threads, so
+        ``os._exit(0)`` will reap them when the process dies.
 
         Thread-safe: takes :data:`_LEAKED_WORKERS_LOCK` to snapshot and
         prune the list. Safe to call concurrently with ``_run_with_timeout``
@@ -130,9 +151,16 @@ def join_leaked_workers(timeout: float = 1.0) -> int:
         Parameters
         ----------
         timeout : float
-            Per-worker join timeout in seconds. ``0`` returns immediately
-            (just prunes already-dead threads). Negative values are
-            clamped to ``0.0``.
+            Per-worker join timeout in seconds (used when
+            ``total_budget`` is None). ``0`` returns immediately (just
+            prunes already-dead threads). Negative values are clamped
+            to ``0.0``.
+        total_budget : float | None
+            Global shared deadline for ALL workers. When
+            provided, takes precedence over ``timeout``: each worker
+            is joined with ``min(0.2, remaining_budget)`` seconds, and
+            the iteration is capped at the first 10 workers. Negative
+            values are clamped to ``0.0``.
 
         Returns
         -------
@@ -141,6 +169,11 @@ def join_leaked_workers(timeout: float = 1.0) -> int:
             the number of workers remaining in the registry). Useful for
             diagnostics / logging.
     """
+    # Shared-deadline mode: cap worker count + use a single
+    # global budget so the watchdog's effective time is bounded.
+    if total_budget is not None:
+        return _join_leaked_workers_with_budget(total_budget)
+
     if timeout < 0:
         timeout = 0.0
     # Snapshot under the lock so we do not mutate the list while
@@ -174,6 +207,78 @@ def join_leaked_workers(timeout: float = 1.0) -> int:
             timeout,
         )
     return remaining
+
+
+# Per-worker cap for the shared-deadline join mode. The
+# watchdog's effective time is bounded by ``min(_MAX_WORKERS_TO_JOIN *
+# 0.2, total_budget)`` = ``min(2.0, total_budget)`` seconds.
+_MAX_WORKERS_TO_JOIN = 10
+# Per-worker timeout cap in shared-deadline mode. Each worker
+# gets at most this many seconds; the remaining budget is shared with
+# subsequent workers.
+_PER_WORKER_TIMEOUT_CAP_S = 0.2
+
+
+def _join_leaked_workers_with_budget(total_budget: float) -> int:
+    """Shared-deadline join. Each worker gets at most
+    ``min(_PER_WORKER_TIMEOUT_CAP_S, remaining_budget)`` seconds; the
+    iteration is capped at the first ``_MAX_WORKERS_TO_JOIN`` workers
+    by registration order. The worst-case wall time is
+    ``min(_MAX_WORKERS_TO_JOIN * _PER_WORKER_TIMEOUT_CAP_S, total_budget)``
+    = ``min(2.0, total_budget)`` seconds, regardless of how many
+    workers are in the registry.
+    """
+    import time as _time
+
+    if total_budget < 0:
+        total_budget = 0.0
+    deadline = _time.monotonic() + total_budget
+    # Snapshot under the lock so we do not mutate the list while
+    # iterating. Cap at the first _MAX_WORKERS_TO_JOIN workers by
+    # registration order (the list is append-ordered, so the first N
+    # entries are the oldest leaked workers).
+    with _LEAKED_WORKERS_LOCK:
+        snapshot = list(_LEAKED_WORKERS[:_MAX_WORKERS_TO_JOIN])
+    if not snapshot:
+        return 0
+    per_worker_used: list[float] = []
+    for t in snapshot:
+        remaining = deadline - _time.monotonic()
+        if remaining <= 0.0:
+            # Budget exhausted — stop iterating. Remaining workers
+            # (including any beyond the cap) stay in the registry and
+            # are reaped by os._exit(0).
+            break
+        if not t.is_alive():
+            continue
+        per_worker_timeout = min(_PER_WORKER_TIMEOUT_CAP_S, remaining)
+        try:
+            t.join(timeout=per_worker_timeout)
+        except Exception:  # noqa: BLE001 — best-effort; never propagate
+            log.debug(
+                "[TIMEOUT-UTILS] join_leaked_workers: join() raised for %r",
+                t.name,
+                exc_info=True,
+            )
+        per_worker_used.append(per_worker_timeout)
+    # Prune dead threads from the registry (best-effort cleanup so
+    # the list does not grow without bound if join_leaked_workers is
+    # called repeatedly without os._exit(0) — e.g. in tests).
+    with _LEAKED_WORKERS_LOCK:
+        _LEAKED_WORKERS[:] = [t for t in _LEAKED_WORKERS if t.is_alive()]
+        remaining_count = len(_LEAKED_WORKERS)
+    if remaining_count:
+        avg_per_worker = sum(per_worker_used) / len(per_worker_used) if per_worker_used else 0.0
+        log.warning(
+            "[TIMEOUT-UTILS] join_leaked_workers: %d worker(s) still alive "
+            "after shared-deadline join (total_budget=%.2fs, avg_per_worker="
+            "%.3fs, capped_at=%d) — they will be reaped by os._exit(0)",
+            remaining_count,
+            total_budget,
+            avg_per_worker,
+            _MAX_WORKERS_TO_JOIN,
+        )
+    return remaining_count
 
 
 def _run_with_timeout(description: str, func, timeout: float = 5.0):

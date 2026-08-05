@@ -151,9 +151,27 @@ class StdinRunnerMixin:
                     # handler bug doesn't silently kill the stdin
                     # thread. Log server-side with traceback; return a
                     # generic ``internal_error`` envelope to the client.
+                    #
+                    # PII guard: log ONLY the command ``type`` (extracted
+                    # from the already-parsed ``msg`` BEFORE the dispatch
+                    # failure) — NOT the raw stdin line. The raw line is
+                    # 120 chars of stdin JSON which can include API keys
+                    # (``set_config`` carries ``cloud_api_key`` /
+                    # ``openai_api_key``) or transcription text
+                    # (``transcribe_final`` carries the user's audio
+                    # payload). Logging those would leak PII / secrets
+                    # into the server log. ``msg`` is guaranteed to be a
+                    # dict at this point (the ``isinstance(msg, dict)``
+                    # gate above dispatched non-dict JSON to the
+                    # invalid-payload branch via ``continue``), so
+                    # ``msg.get("type", "<unknown>")`` is safe; the
+                    # defensive ``isinstance`` re-check is belt-and-
+                    # suspenders for the pathological case where
+                    # ``_dispatch`` itself mutated ``msg``.
+                    msg_type = msg.get("type", "<unknown>") if isinstance(msg, dict) else "<unknown>"
                     log.error(
-                        "[IPC] stdin dispatch failed for line=%r: %s",
-                        line[:120],
+                        "[IPC] stdin dispatch failed for type=%r: %s",
+                        msg_type,
                         dispatch_exc,
                         exc_info=True,
                     )

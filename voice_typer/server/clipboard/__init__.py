@@ -20,7 +20,7 @@ Design contract preserved from the original monolith:
   V down, V up, Ctrl up) submitted as a single atomic INPUT batch to
   avoid applications interpreting key-up as a duplicate paste event.
 
-On Windows, we always prefer SendInput over
+PLAT-001: On Windows, we always prefer SendInput over
 pynput.keyboard.Controller for sending keystrokes.  pynput uses
 SendInput internally on Windows, but when UIPI (User Interface
 Privilege Isolation) blocks it (e.g. targeting an elevated process

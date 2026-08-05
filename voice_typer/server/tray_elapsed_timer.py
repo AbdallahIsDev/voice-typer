@@ -1,6 +1,6 @@
 """Elapsed-recording tooltip timer extracted from ``tray.py``.
 
-DJ-37 (): a single daemon worker thread per recording session
+A single daemon worker thread per recording session
 that loops on ``Event.wait(1.0)`` and invokes ``tick_callback`` on each
 tick — replacing the prior self-rescheduling ``threading.Timer`` chain
 (one Timer per second of recording, ~1 800 Timer allocations over a
@@ -34,7 +34,7 @@ log = logging.getLogger(__name__)
 
 
 class ElapsedTimer:
-    """DJ-37: elapsed-recording tooltip timer helper.
+    """Elapsed-recording tooltip timer helper.
 
     Manages a single daemon worker thread (``tray-elapsed-timer``) that
     loops on ``Event.wait(1.0)`` and invokes ``tick_callback`` on each
@@ -108,7 +108,7 @@ class ElapsedTimer:
         RECORDING transitions (e.g. from a stop/restart race) don't
         leak overlapping worker threads.
 
-        DJ-37 single-worker design: each ``start()`` creates EXACTLY
+        Single-worker design: each ``start()`` creates EXACTLY
         ONE worker thread (not a chain of ``threading.Timer``
         objects). The worker loops on ``Event.wait(1.0)`` and exits
         when ``is_active()`` returns False, ``cancel()`` sets the
@@ -136,7 +136,7 @@ class ElapsedTimer:
         self._stop_event = threading.Event()
 
         def _worker_loop() -> None:
-            """Single-worker DJ-37 loop. Exits on:
+            """Single-worker loop. Exits on:
             1. ``is_active()`` returning False (the owner has
                transitioned away from RECORDING).
             2. ``_stop_event`` being set (``cancel()`` was called).

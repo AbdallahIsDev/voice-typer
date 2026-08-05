@@ -196,15 +196,14 @@ def _coerce_streaming_fields(data: dict[str, Any]) -> None:
         )
         step = 5.0
         data["streaming_step_seconds"] = 5.0
-    try:
-        left_overlap = float(data.get("streaming_left_overlap_seconds", 3.0))
-    except (TypeError, ValueError):
-        log.warning(
-            "[CONFIG] invalid streaming_left_overlap_seconds value %r; resetting to default 3.0",
-            data.get("streaming_left_overlap_seconds"),
-        )
-        left_overlap = 3.0
-        data["streaming_left_overlap_seconds"] = 3.0
+    # Block 1 already validated, clamped, and stored
+    # ``streaming_left_overlap_seconds`` above (lines 110-141), so the
+    # key is guaranteed present and numeric here — no default or
+    # try/except needed. The previous re-read used a bare ``3.0``
+    # default that could drift from ``STREAMING_LEFT_OVERLAP_SECONDS_MIN``
+    # (see module docstring on the parallel ``max_recording_time_seconds``
+    # drift hazard).
+    left_overlap = float(data["streaming_left_overlap_seconds"])
     if step >= chunk:
         log.warning(
             "[CONFIG] streaming_step_seconds (%.1f) >= streaming_chunk_seconds (%.1f); clamping step to chunk/2",

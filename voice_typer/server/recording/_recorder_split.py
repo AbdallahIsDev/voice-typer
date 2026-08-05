@@ -696,8 +696,18 @@ def start_recording(recorder: Recorder) -> None:
 
     recorder._recording_event.set()
 
-    # AUDIO-PRE: prepend pre-roll buffer to reduce cold-start latency.
-    recorder._prepend_preroll_to_buffer()
+    # the pre-roll filter-chain prepend has been MOVED off the
+    # start() thread. Pre-fix, ``_prepend_preroll_to_buffer()`` ran
+    # synchronously here (between ``_recording_event.set()`` and
+    # ``_start_audio_worker()``), blocking start() for 465ms-4.65s
+    # (1s pre-roll × ~93 chunks × 5-50ms RNNoise per chunk). Live
+    # audio chunks accumulated in the ring buffer unprocessed for the
+    # entire prepend duration. The prepend now runs as a "phase 0"
+    # inside ``AudioCallbackDispatcher.audio_worker_loop`` (capture.py)
+    # BEFORE the main drain loop — so start() returns immediately
+    # after ``_start_audio_worker()``. The ring buffer (sized for 2.0s
+    # of headroom per the headroom requirement) absorbs the prepend duration; the worker
+    # drains the live backlog as soon as the prepend finishes.
 
     target_sr = recorder.config.sample_rate
     if (
@@ -708,31 +718,42 @@ def start_recording(recorder: Recorder) -> None:
         # Warm up synchronously to avoid racing with stop()
         recorder.warm_up_resampler()
 
-    # The ``retune_audio_processor(...)`` call that
-    # used to live here (rebuilding the AudioProcessor's chain at the
-    # device's native sample rate) has been removed. The chain stays at
-    # its construction rate (typically WHISPER_SAMPLE_RATE = 16 kHz) and
-    # the per-chunk resample in ``AudioProcessor.process_chunk`` (called
-    # from ``audio_pipeline.process_audio_chunk`` with
+    # best-effort retune of the AudioProcessor's filter chain
+    # to the device's native sample rate. Pre-fix, the start() path
+    # REMOVED this retune (deliberately, because the old call could
+    # fail silently and leave the chain mistuned on the start()
+    # critical path). The per-chunk resample in
+    # ``AudioProcessor.process_chunk`` (called from
+    # ``audio_pipeline.process_audio_chunk`` with
     # ``input_sample_rate=recorder._effective_sr``) handles the
-    # 48 kHz → 16 kHz downsample on the worker thread.
+    # 48 kHz → 16 kHz downsample on the worker thread as the robust
+    # fallback. We now re-add the retune inside a try/except that
+    # logs-but-continues on failure — unifying the start() and
+    # hot-plug paths (``disconnect_handler.retune_audio_processor``)
+    # and eliminating the 3× RNNoise resample roundtrip per chunk on
+    # 48 kHz devices. The per-chunk resample remains as the fallback
+    # if ``set_sample_rate`` raises.
     #
-    # The retune call was a latency optimization (avoiding the per-chunk
-    # resample) but it ran on the start() critical path and could fail
-    # silently (e.g. ``set_sample_rate`` raising on a hot-plug) leaving
-    # the chain mistuned. The per-chunk resample is robust by design —
-    # it always resamples to the chain rate regardless of the device's
-    # native rate, so filter coefficients stay correctly tuned.
-    #
-    # Filter-chain correctness at 16 kHz is preserved:
-    #   - With processor: ``process_chunk`` resamples to ``_sample_rate``
-    #     (16 kHz) → filters built at 16 kHz are fed 16 kHz audio ✓
-    #   - Without processor: filters are not applied (no chain) ✓
-    #
-    # ``_buffer_sr`` is still set correctly by ``process_audio_chunk``
-    # (audio_pipeline.py:297-304) to the processor's ``_sample_rate``
-    # (16 kHz) or to ``_effective_sr`` (no-processor path), so
-    # ``stop()``/``snapshot()`` resample decisions are unaffected.
+    # Filter-chain correctness is preserved either way:
+    #   - Retune succeeds: chain built at ``effective_sr``; live chunks
+    #     fed at ``effective_sr`` → no per-chunk resample needed ✓
+    #   - Retune fails: chain stays at WHISPER_SAMPLE_RATE (16 kHz);
+    #     ``process_chunk`` resamples each chunk 48k→16k before
+    #     filtering ✓
+    try:
+        from .disconnect_handler import retune_audio_processor
+
+        retune_audio_processor(
+            recorder._audio_processor,
+            effective_sr,
+            recorder.config,
+            context="on start",
+        )
+    except Exception:
+        log.warning(
+            "[RECORDING] retune_audio_processor failed on start — per-chunk resample will run on the worker thread",
+            exc_info=True,
+        )
 
     # refresh the per-chunk VAD property cache now that
     # ``_effective_sr`` is finalized. The cache lets the
@@ -740,13 +761,15 @@ def start_recording(recorder: Recorder) -> None:
     # dispatching 3 property lookups per chunk × 16 Hz = 48/sec.
     recorder._refresh_vad_caches()
 
-    # Start the audio worker thread AFTER the pre-roll
-    # buffer has been prepended (so the worker doesn't race with
-    # start()'s appendleft) and AFTER _recording_event.set() (so the
-    # callback will actually push to the ring buffer). The worker
-    # drains the ring buffer and runs the heavy processing pipeline
-    # (filter chain, VAD, resample, state machine) off the real-time
-    # audio thread.
+    # Start the audio worker thread AFTER ``_recording_event.set()``
+    # (so the callback will actually push to the ring buffer). The
+    # worker drains the ring buffer and runs the heavy processing
+    # pipeline (filter chain, VAD, resample, state machine) off the
+    # real-time audio thread. As of  the worker ALSO drains
+    # ``_preroll_buffer`` and prepends it to ``_buffer`` as a
+    # "phase 0" before entering the main drain loop — so start()
+    # returns immediately after this call (no synchronous prepend
+    # on the start() thread).
     #
     # REC-2 contract: if ``_start_audio_worker`` OR
     # ``_start_event_worker`` raises, the PortAudio stream we just

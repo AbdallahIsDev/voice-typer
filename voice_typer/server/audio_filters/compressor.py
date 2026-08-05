@@ -81,6 +81,16 @@ class Compressor(AudioFilter):
         self._env_db_buf: np.ndarray | None = None
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
+        # Debug-only guard: the envelope-follower coefficients
+        # (``_attack_coeff`` / ``_release_coeff``) are derived from
+        # ``self._sample_rate``; feeding audio at a different rate
+        # shifts the attack/release ballistics (a 6 ms attack built
+        # at 16 kHz actually responds in 2 ms when fed 48 kHz audio).
+        # Python strips this assert under ``-O``; in debug builds a
+        # mismatch surfaces as an ``AssertionError``.
+        assert sample_rate == self._sample_rate, (
+            f"{type(self).__name__} built at {self._sample_rate} Hz, called with {sample_rate} Hz"
+        )
         if audio.size == 0:
             return audio
 

@@ -77,6 +77,11 @@ class _OrchestratorMixin:
     # exercise the timeout path without waiting 4s in real time.
     _LLM_POLISH_PIPELINE_TIMEOUT_S: float = 4.0
 
+    # cached 11-stage list shared across all pipeline instances.
+    # None until the first __init__ populates it. Stage objects are
+    # stateless (each run reads from ctx, not self), so sharing is safe.
+    _SHARED_STAGES: list | None = None
+
     def __init__(self, app: Any):
         self._app = app
         self._cycle_id = ""
@@ -121,7 +126,12 @@ class _OrchestratorMixin:
         # set this attribute, and ``run`` rebuilds the default list
         # when that happens so the finally-block teardown still
         # exercises the production code paths.
-        self._stages: list = build_default_stages()
+        # stage objects are stateless (each run reads from ctx,
+        # not self), so a single shared list is reused across all
+        # pipeline instances. Lazy-init via the class attribute.
+        if _OrchestratorMixin._SHARED_STAGES is None:
+            _OrchestratorMixin._SHARED_STAGES = build_default_stages()
+        self._stages: list = _OrchestratorMixin._SHARED_STAGES
 
     def request_abort(self) -> None:
         """Signal the active ASR backend to abort in-flight inference.
@@ -316,6 +326,22 @@ class _OrchestratorMixin:
                         _timings.get("transcribe", 0.0),
                         self._cycle_id,
                     )
+                    # zero and release both audio references
+                    # immediately after TranscribeStage returns. No
+                    # stage after this one reads ctx.audio or
+                    # self._audio (stages 3-11 operate on text only).
+                    # The finally-block zero-and-clear below is kept
+                    # as defense-in-depth (becomes a no-op here).
+                    try:
+                        if self._audio is not None and isinstance(self._audio, np.ndarray):
+                            self._audio.fill(0)
+                    except Exception:
+                        log.debug(
+                            "[PIPELINE] post-transcribe audio zero failed",
+                            exc_info=True,
+                        )
+                    self._audio = None
+                    ctx.audio = None
 
             _total_ms = (time.perf_counter() - _t0) * 1000
             log.info(

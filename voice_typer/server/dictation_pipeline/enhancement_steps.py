@@ -28,7 +28,9 @@ monolith; extracted as a mixin with NO behavior change.
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import logging
+import threading
 from typing import Any
 
 from voice_typer.server.branding import APP_NAME
@@ -40,8 +42,79 @@ from voice_typer.server.dictation_pipeline.helpers import (
 log = logging.getLogger(__name__)
 
 
+# module-level singleton ``ThreadPoolExecutor`` for LLM polish.
+# Previously, ``_call_polish_with_timeout`` allocated a fresh
+# ``ThreadPoolExecutor(max_workers=1)`` per dictation cycle and called
+# ``executor.shutdown(wait=False)`` on the timeout path. On a stalled
+# LLM endpoint, the worker thread kept running ``polisher.polish(text)``
+# for up to 10 s (the inner socket timeout); rapid start/stop cycles
+# accumulated up to 10 stalled daemon threads + orphaned sockets in a
+# 40 s window.
+#
+# The singleton has ``max_workers=1`` so concurrent polish calls queue
+# (the second waits for the first), bounding the stalled-thread count
+# to 1 regardless of cycle frequency. The executor lives for the
+# process lifetime; it is never shut down per cycle. At process exit,
+# the daemon worker thread is killed by the interpreter shutdown.
+#
+# Lazy-init under a lock so the first polish call from any thread
+# safely constructs the executor exactly once. Tests can call
+# ``_reset_shared_polish_executor()`` to drop the singleton between
+# test cases (the next polish call rebuilds it).
+_SHARED_POLISH_EXECUTOR: Any | None = None
+_SHARED_POLISH_EXECUTOR_LOCK = threading.Lock()
+
+
+def _get_shared_polish_executor() -> Any:
+    """Return the module-level singleton ``ThreadPoolExecutor``.
+
+    Lazy-init under ``_SHARED_POLISH_EXECUTOR_LOCK`` so the first
+    polish call from any thread safely constructs the executor exactly
+    once. Reuses the same executor across all dictation cycles (see
+    the rationale above).
+    """
+    global _SHARED_POLISH_EXECUTOR
+    import concurrent.futures
+
+    if _SHARED_POLISH_EXECUTOR is None:
+        with _SHARED_POLISH_EXECUTOR_LOCK:
+            if _SHARED_POLISH_EXECUTOR is None:
+                _SHARED_POLISH_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+                    max_workers=1,
+                    thread_name_prefix="llm-polish-shared",
+                )
+    return _SHARED_POLISH_EXECUTOR
+
+
+def _reset_shared_polish_executor() -> None:
+    """Drop the singleton executor (TEST-ONLY — used by tests to assert
+    reuse across cycles without leaking the executor between test
+    cases). Production code never calls this.
+    """
+    global _SHARED_POLISH_EXECUTOR
+    with _SHARED_POLISH_EXECUTOR_LOCK:
+        if _SHARED_POLISH_EXECUTOR is not None:
+            with contextlib.suppress(Exception):
+                _SHARED_POLISH_EXECUTOR.shutdown(wait=False)
+        _SHARED_POLISH_EXECUTOR = None
+
+
 class _EnhancementStepsMixin:
     """Mixin: LLM polish, AI enhancement, vocabulary-automation steps."""
+
+    # transcripts above this word count skip LLM polish
+    # entirely. A 1000-word transcript (~1.5 K tokens) typically
+    # round-trips in 2-4 s on a healthy endpoint, but a 5000-word
+    # transcript (~7.5 K tokens) takes 8-20 s — well past the 4 s
+    # pipeline-side cap (``_LLM_POLISH_PIPELINE_TIMEOUT_S``). On
+    # timeout the unpolished text is returned silently, so the user
+    # pays for an LLM API call that never produces output. Skipping
+    # polish for long transcripts preserves the 4 s budget for short
+    # utterances where polish is most valuable. 1500 words ≈ 9-10
+    # minutes of dictation at 150 wpm — a reasonable cutoff for
+    # "long-form dictation" where the user expects the raw transcript
+    # to be saved quickly and polish is a "nice-to-have" not a "must".
+    _LLM_POLISH_WORD_LIMIT: int = 1500
 
     def _call_polish_with_timeout(self, polisher: Any, text: str) -> str:
         """Run ``polisher.polish(text)`` in a side-thread with a hard timeout.
@@ -56,8 +129,8 @@ class _EnhancementStepsMixin:
         timeout in ``LLMPolisher._call_api`` on a stalled
         connection).
 
-        This wrapper submits the polish call to a short-lived
-        ``ThreadPoolExecutor`` and awaits the result with
+        This wrapper submits the polish call to the shared
+        ``ThreadPoolExecutor`` (see the shared executor) and awaits the result with
         :data:`_LLM_POLISH_PIPELINE_TIMEOUT_S` (4s by default —
         intentionally shorter than the underlying 10s socket timeout
         so a stalled LLM endpoint does not occupy the pipeline thread
@@ -67,6 +140,13 @@ class _EnhancementStepsMixin:
         ``urlopen`` call) and self-terminates when the inner 10s
         socket timeout fires or the LLM responds. The leaked thread
         is a daemon, so it cannot block process shutdown.
+
+        the executor is a module-level singleton
+        (``_get_shared_polish_executor``) with ``max_workers=1``, so
+        concurrent polish calls queue (the second waits for the first)
+        and the stalled-thread count is bounded to 1 regardless of
+        cycle frequency. The executor is NEVER shut down per cycle —
+        it lives for the process lifetime.
 
         On exception (network error, LLM API error, redact_pii
         failure inside ``_call_api``) the exception propagates to the
@@ -91,15 +171,13 @@ class _EnhancementStepsMixin:
         import concurrent.futures
 
         timeout_s = self._LLM_POLISH_PIPELINE_TIMEOUT_S
-        # Spawn a single-use executor with a daemon worker thread so
-        # an in-flight polish call cannot block process shutdown. The
-        # executor is shut down with ``wait=False`` in the finally
-        # block — the worker thread exits on its own when ``polish``
-        # returns (or the inner socket timeout fires), at which point
-        # the executor is GC-eligible. A fresh executor per call
-        # keeps the implementation simple (no lifecycle management on
-        # the pipeline) and is cheap (one thread, no queueing).
-        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="llm-polish")
+        # reuse the shared singleton executor across cycles.
+        # ``max_workers=1`` means a concurrent polish call queues
+        # behind the first (the queue is unbounded by default — see
+        # ``concurrent.futures.ThreadPoolExecutor`` docs — so the
+        # submit call never blocks). The executor is never shut down
+        # here; it lives for the process lifetime.
+        executor = _get_shared_polish_executor()
         future = executor.submit(polisher.polish, text)
         try:
             return future.result(timeout=timeout_s)
@@ -112,11 +190,11 @@ class _EnhancementStepsMixin:
                 self._cycle_id,
             )
             return text
-        finally:
-            # Do NOT block on shutdown — the polish thread may still
-            # be running (timeout path). The daemon worker thread
-            # will exit on its own when ``polish`` returns.
-            executor.shutdown(wait=False)
+        # NO ``executor.shutdown(wait=False)`` here — the
+        # executor is shared across cycles and must not be torn down
+        # on the timeout path. The daemon worker thread exits on its
+        # own when ``polish`` returns (or the inner socket timeout
+        # fires); the executor itself lives until process teardown.
 
     def _apply_llm_polish(self, text: str) -> str:
         """Step 7: Apply LLM polishing (if consented).
@@ -197,7 +275,34 @@ class _EnhancementStepsMixin:
                         preset=self._app.config.llm_preset,
                         enabled=True,
                     )
-                text = self._call_polish_with_timeout(self._app._llm_polisher, text)
+                # skip polish for long transcripts. The 4 s
+                # pipeline-side cap (``_LLM_POLISH_PIPELINE_TIMEOUT_S``)
+                # is tuned for short utterances (a 1000-word transcript
+                # round-trips in 2-4 s on a healthy endpoint). Long
+                # transcripts (1500+ words ≈ 9-10 min @ 150 wpm)
+                # typically take 8-20 s — well past the 4 s cap — so
+                # on timeout the user pays for an LLM API call that
+                # never produces output, and a leaked daemon thread
+                # keeps running for up to 10 s. Skipping polish here
+                # preserves the 4 s budget for short utterances where
+                # polish is most valuable, and avoids the leaked-
+                # thread overhead for long dictations where the raw
+                # transcript is already useful. Word count is a cheap
+                # proxy for token count (no tokenizer needed) —
+                # ``str.split()`` on whitespace is ~1 µs per 1k words.
+                _word_count = len(text.split())
+                if _word_count > self._LLM_POLISH_WORD_LIMIT:
+                    log.info(
+                        "[LLM_POLISH] Skipping polish for long transcript "
+                        "(word_count=%d > limit=%d) — preserves 4s pipeline "
+                        "budget for short utterances; raw transcript returned. "
+                        "(cycle=%s)",
+                        _word_count,
+                        self._LLM_POLISH_WORD_LIMIT,
+                        self._cycle_id,
+                    )
+                else:
+                    text = self._call_polish_with_timeout(self._app._llm_polisher, text)
             except Exception as exc:
                 # redact the exception message before
                 # logging. LLM API errors can echo the request URL +
@@ -344,30 +449,71 @@ class _EnhancementStepsMixin:
             # Push any remaining (pending) suggestions to the frontend.
             pending = automation.get_pending_suggestions()
             if pending:
-                try:
-                    from voice_typer.server import event_bus
-
-                    event_bus.publish(
-                        {
-                            "type": "vocabulary_suggestion",
-                            "data": {
-                                "suggestions": [
-                                    {
-                                        "original": s.original,
-                                        "corrected": s.corrected,
-                                        "confidence": s.confidence,
-                                        "context": s.context,
-                                        "timestamp": s.timestamp,
-                                    }
-                                    for s in pending
-                                ],
-                            },
-                        }
-                    )
-                except Exception:
+                # only re-publish when the pending list actually
+                # changed since the last publish. Previously, every
+                # cycle where the pending list was non-empty re-
+                # serialized and re-published ALL pending suggestions
+                # (up to MAX_PENDING=200, ~50 KB per event). For 1000
+                # cycles with a full pending list, that was ~50 MB of
+                # redundant IPC traffic. The signature is
+                # ``(count, sha256_of_serialized_items)`` — count is a
+                # cheap short-circuit for the common case (suggestion
+                # accepted / dismissed → count changes); the hash
+                # catches the rare case where the count is the same but
+                # the contents changed (e.g. a suggestion's confidence
+                # was bumped by a re-analysis). The signature lives on
+                # ``self._app`` (session-scoped) via ``getattr`` /
+                # ``setattr`` so this fix does NOT touch ``app.py``
+                # (owned by another file group). ``None`` sentinel =
+                # "never published" → first non-empty list always
+                # publishes.
+                _current_sig = (
+                    len(pending),
+                    hashlib.sha256(
+                        "\x1f".join(f"{s.original}\x1e{s.corrected}\x1e{s.confidence}" for s in pending).encode(
+                            "utf-8", errors="replace"
+                        )
+                    ).hexdigest(),
+                )
+                _last_sig = getattr(self._app, "_last_vocab_sig", None)
+                if _last_sig == _current_sig:
+                    # No change since last publish — skip the redundant
+                    # IPC event. Logged at DEBUG so the delta-publish
+                    # behavior is observable without spamming the log
+                    # at the default level.
                     log.debug(
-                        "[VOCAB_AUTO] could not push vocabulary_suggestion event",
-                        exc_info=True,
+                        "[VOCAB_AUTO] pending list unchanged (count=%d, sig=%s…) — "
+                        "skipping redundant vocabulary_suggestion publish. (cycle=%s)",
+                        _current_sig[0],
+                        _current_sig[1][:8],
+                        self._cycle_id,
                     )
+                else:
+                    self._app._last_vocab_sig = _current_sig
+                    try:
+                        from voice_typer.server import event_bus
+
+                        event_bus.publish(
+                            {
+                                "type": "vocabulary_suggestion",
+                                "data": {
+                                    "suggestions": [
+                                        {
+                                            "original": s.original,
+                                            "corrected": s.corrected,
+                                            "confidence": s.confidence,
+                                            "context": s.context,
+                                            "timestamp": s.timestamp,
+                                        }
+                                        for s in pending
+                                    ],
+                                },
+                            }
+                        )
+                    except Exception:
+                        log.debug(
+                            "[VOCAB_AUTO] could not push vocabulary_suggestion event",
+                            exc_info=True,
+                        )
         except Exception:
             log.warning("[VOCAB_AUTO] Analysis failed", exc_info=True)

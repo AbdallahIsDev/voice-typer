@@ -196,8 +196,18 @@ def vad_auto_calibrate(recorder: Any, chunk_rms: float, chunk_duration: float) -
     VAD-GATE (Task 4): VadProcessor.auto_calibrate also gates on
     vad_enabled, but we short-circuit here too so we don't even call
     time.perf_counter() on every chunk in raw mode.
+
+    PERF: read ``recorder._cached_vad_enabled`` (the cached scalar set
+    by ``refresh_vad_caches`` at ``Recorder.start()`` /
+    ``on_config_changed()``) instead of the dynamic ``_vad_enabled``
+    property (which does a 5 s TTL cache lookup involving
+    ``time.perf_counter()``). The cached scalar is always initialized
+    to ``False`` in ``Recorder.__init__`` and refreshed before the
+    first chunk arrives — see the ``refresh_vad_caches`` docstring
+    above. Matches the pattern already used at
+    ``audio_pipeline.py:475`` on the same per-chunk hot path.
     """
-    if not recorder._vad_enabled:
+    if not recorder._cached_vad_enabled:
         return
     elapsed = time.perf_counter() - recorder._recording_start_time
     recorder._vad.auto_calibrate(chunk_rms, elapsed, chunk_duration)

@@ -17,8 +17,6 @@ from __future__ import annotations
 import contextlib
 import logging
 import os
-import sys
-import time
 
 # ``_run_with_timeout`` / ``TIMEOUT`` are looked up DYNAMICALLY from
 # :mod:`voice_typer.server.shutdown_controller` at call time so tests
@@ -26,6 +24,7 @@ import time
 # still take effect (mirrors the convention documented in
 # ``shutdown_controller.py``'s module docstring).
 from voice_typer.server import shutdown_controller as _sc  # noqa: F401
+from voice_typer.server.platform_utils import is_windows
 
 
 def _run_with_timeout(*args, **kwargs):
@@ -79,7 +78,7 @@ def teardown_electron(controller) -> None:
                     # branch had SIGKILL escalation but the Windows
                     # branch was a silent no-op on timeout (the
                     # electron process tree would keep running).
-                    if sys.platform == "win32":
+                    if is_windows():
                         # Best-effort: a failure here must NOT
                         # prevent the PID clear below (stale PID
                         # would block the next launch's
@@ -120,28 +119,53 @@ def teardown_electron(controller) -> None:
                     import signal as _sig
 
                     log.info("[SHUTDOWN] Terminating Electron subprocess (PID=%s)", electron_pid)
-                    # SIGTERM → 2s waitpid poll → SIGKILL on POSIX.
+                    # SIGTERM → 2s blocking waitpid → SIGKILL on POSIX.
                     # ``os.kill(SIGTERM)`` returns immediately (it just
-                    # queues the signal); the 2s waitpid poll gives the
-                    # child a grace period to exit cleanly before we
-                    # escalate to SIGKILL.
+                    # queues the signal); the 2s waitpid gives the child
+                    # a grace period to exit cleanly before we escalate
+                    # to SIGKILL.
+                    #
+                    # The previous implementation used a 2s busy-wait
+                    # poll loop (``deadline = time.monotonic() + 2.0;
+                    # while ...: os.waitpid(pid, WNOHANG);
+                    # time.sleep(0.1)``) — 20 iterations × 0.1s sleep =
+                    # 20 kernel wakeups for what is a single blocking
+                    # wait. Replaced with a single
+                    # ``os.waitpid(electron_pid, 0)`` (the blocking
+                    # variant — ``WNOHANG`` removed) wrapped in
+                    # ``_run_with_timeout(timeout=2.0)`` so the 2s grace
+                    # period is enforced by a SINGLE waitpid syscall +
+                    # at most one worker-thread join. On Windows the
+                    # loop is already skipped (``not is_windows()``
+                    # check below) so this change is POSIX-only.
                     with contextlib.suppress(OSError, ProcessLookupError):
                         os.kill(electron_pid, _sig.SIGTERM)
-                    deadline = time.monotonic() + 2.0
                     reaped = False
-                    while time.monotonic() < deadline:
+                    if not is_windows():
+                        # Single blocking ``os.waitpid`` wrapped
+                        # in ``_run_with_timeout``. ``_run_with_timeout``
+                        # re-raises OSError (e.g. ECHILD when the child
+                        # was already reaped by a prior call); catch
+                        # that here and treat it as "reaped" (matching
+                        # the original poll-loop's behaviour, which
+                        # broke out of the loop on OSError).
                         try:
-                            pid_done, _status = os.waitpid(electron_pid, os.WNOHANG)
-                            if pid_done != 0:
+                            _waitpid_result = _run_with_timeout(
+                                "electron.waitpid",
+                                lambda: os.waitpid(electron_pid, 0),
+                                timeout=2.0,
+                            )
+                            if _waitpid_result is not TIMEOUT:
+                                # ``os.waitpid`` returns ``(pid, status)``;
+                                # any non-error return means the child was
+                                # reaped.
                                 reaped = True
-                                break
                         except OSError:
                             # Child already reaped or not a child of
-                            # this process — stop polling.
+                            # this process — treat as reaped (no need
+                            # to SIGKILL).
                             reaped = True
-                            break
-                        time.sleep(0.1)
-                    if not reaped and sys.platform != "win32":
+                    if not reaped and not is_windows():
                         with contextlib.suppress(OSError, ProcessLookupError):
                             os.kill(electron_pid, _sig.SIGKILL)
     except Exception:

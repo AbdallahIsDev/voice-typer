@@ -324,6 +324,40 @@ def init_schema(
 
     cursor = conn.cursor()
 
+    # cursor-close contract (DJ-18): ``init_schema`` has three exit
+    # paths (migration failure, corruption-recovery recursion, normal
+    # return) — each closes ``cursor`` before returning so no cursor
+    # is leaked even when a fresh connection is substituted mid-init.
+
+    # review.md finding JB-41: opt new DBs into
+    # ``PRAGMA auto_vacuum=INCREMENTAL`` so subsequent
+    # ``PRAGMA incremental_vacuum(N)`` calls (in ``apply_retention``
+    # and ``clear_all``) can reclaim free pages incrementally —
+    # without the exclusive lock and full file rewrite that
+    # ``VACUUM`` requires. ``auto_vacuum`` can ONLY be set when the
+    # schema is empty (no tables), so this is a no-op for existing
+    # DBs (which keep the full-``VACUUM``-at-20% fallback path).
+    # Detection: query ``sqlite_master`` for any user table — if
+    # none exist, this is a fresh DB and the PRAGMA takes effect.
+    try:
+        has_tables = cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' LIMIT 1").fetchone() is not None
+    except sqlite3.Error:
+        has_tables = True  # be conservative — don't touch auto_vacuum
+    if not has_tables:
+        try:
+            cursor.execute("PRAGMA auto_vacuum=INCREMENTAL")
+            log.info(
+                "[HISTORY_DB] New DB: set PRAGMA auto_vacuum=INCREMENTAL "
+                "(enables fast incremental_vacuum reclamation in "
+                "apply_retention / clear_all)"
+            )
+        except sqlite3.Error as e:
+            log.warning(
+                "[HISTORY_DB] Could not set auto_vacuum=INCREMENTAL on "
+                "new DB (%s) — falling back to full-VACUUM reclamation",
+                e,
+            )
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transcriptions (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -489,6 +523,8 @@ def init_schema(
                 e,
             )
             db._init_error = e
+            with contextlib.suppress(Exception):
+                cursor.close()
             return conn
 
     # Create indexes AFTER migration so 'favorite' column exists.
@@ -536,6 +572,8 @@ def init_schema(
         if new_conn is not None:
             # Corruption detected and a fresh DB was created.
             # Re-run schema init on the fresh connection.
+            with contextlib.suppress(Exception):
+                cursor.close()
             return init_schema(db, new_conn, _is_recovery=True)
 
     log.info(
@@ -543,4 +581,6 @@ def init_schema(
         db.db_path,
         _CURRENT_SCHEMA_VERSION,
     )
+    with contextlib.suppress(Exception):
+        cursor.close()
     return conn

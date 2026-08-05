@@ -149,6 +149,22 @@ _NON_RESTORABLE_FORMATS: frozenset[int] = frozenset(
 # restored (they typically want the *next* copy to replace it).
 _MAX_FORMAT_BYTES = 16 * 1024 * 1024
 
+# Running-total cap on the bytes captured across ALL formats in
+# a single ``ClipboardSnapshot``. The Windows clipboard can expose 15+
+# formats per copy (CF_UNICODETEXT, CF_TEXT, CF_OEMTEXT, CF_LOCALE,
+# CF_DIB, CF_DIBV5, "Rich Text Format", "HTML Format", "XML
+# Spreadsheet", "Biff12", "Biff8", "Biff5", "CSV", "Hyperlink", plus
+# private formats). Each is read into a fresh ``bytes`` object and held
+# in ``items`` until ``restore()`` runs. The per-format cap (above)
+# bounds a single format at 16 MB, but the theoretical peak per
+# snapshot is 16 MB × 20 formats = 320 MB. 64 MB caps the running
+# total: once we've captured 64 MB of formats, we break out of the
+# format-walk loop. The captured formats (text first, because
+# ``EnumClipboardFormats`` returns CF_* text formats in ID order, and
+# most apps register text formats before rich formats) are sufficient
+# for restore; later formats (RTF, HTML, image) are best-effort.
+_MAX_TOTAL_SNAPSHOT_BYTES = 64 * 1024 * 1024
+
 
 def _builtin_format_name(fmt: int) -> str:
     """Return the standard name for a builtin clipboard format, or ''."""
@@ -320,6 +336,15 @@ class ClipboardSnapshot:
             return None
         try:
             items: list[tuple[int, str, bytes]] = []
+            # Running total of bytes captured across ALL formats
+            # in this snapshot. Once we hit ``_MAX_TOTAL_SNAPSHOT_BYTES``
+            # we break out of the format-walk loop — the captured
+            # formats (text first) are sufficient for restore; later
+            # formats (RTF, HTML, image) are best-effort. This bounds
+            # the worst-case per-snapshot memory at 64 MB + one format
+            # over the cap (<= 16 MB), instead of 16 MB × 20 formats
+            # = 320 MB.
+            total_bytes = 0
             fmt = 0
             while True:
                 fmt = user32.EnumClipboardFormats(fmt)
@@ -379,6 +404,22 @@ class ClipboardSnapshot:
                     kernel32.GlobalUnlock(handle)
 
                 items.append((fmt, name, data))
+
+                # Track the running total of bytes captured
+                # across all formats. Once we hit the per-snapshot cap,
+                # break out of the format-walk loop — the captured
+                # formats (text first) are sufficient for restore;
+                # later formats (RTF, HTML, image) are best-effort.
+                total_bytes += size
+                if total_bytes >= _MAX_TOTAL_SNAPSHOT_BYTES:
+                    log.debug(
+                        "[CLIPBOARD-SNAPSHOT] total bytes captured (%d) >= %d-byte cap — "
+                        "stopping format walk after %d formats (remaining formats are best-effort)",
+                        total_bytes,
+                        _MAX_TOTAL_SNAPSHOT_BYTES,
+                        len(items),
+                    )
+                    break
 
             if not items:
                 # Empty clipboard — return None so the caller skips restore.
@@ -553,6 +594,22 @@ class ClipboardSnapshot:
         Groups items by their original pasteboard item index and writes
         one NSPasteboardItem per original index, preserving multi-item
         pasteboards.
+
+        (Data integrity): the pre-fix code called
+                ``item.setData_forType_`` and ``pb.writeObjects_`` without
+                inspecting their return values — a per-item failure (e.g.
+                an unsupported type-name, a payload that violates the
+                type's contract) or a ``writeObjects_`` rejection (which
+                returns NO if NO items were accepted) was silently
+                swallowed, the function returned ``True`` unconditionally,
+                and the caller logged "Restored snapshot" while the
+                clipboard was left empty (``clearContents`` having already
+                wiped it). Mirror of the Windows ``_restore_windows``
+                pattern: track ``success_count`` (increment only when
+                ``setData_forType_`` returns True), inspect
+                ``writeObjects_``'s BOOL return, and return ``False`` with
+                a WARNING log if zero items were set OR ``writeObjects_``
+                returned False.
         """
         try:
             import AppKit  # type: ignore[import-not-found]
@@ -572,16 +629,36 @@ class ClipboardSnapshot:
         for idx, type_name, data in self.items:
             grouped[idx].append((type_name, data))
 
+        success_count = 0
         ns_items = []
         for idx in sorted(grouped.keys()):
             item = AppKit.NSPasteboardItem.alloc().init()
             for type_name, data in grouped[idx]:
                 nsdata = Foundation.NSData.dataWithBytes_length_(data, len(data)) if data else Foundation.NSData.data()
-                item.setData_forType_(nsdata, type_name)
+                if item.setData_forType_(nsdata, type_name):
+                    success_count += 1
+                else:
+                    log.debug(
+                        "[CLIPBOARD-SNAPSHOT] setData_forType_ failed for idx=%d type=%r",
+                        idx,
+                        type_name,
+                    )
             ns_items.append(item)
 
-        if ns_items:
-            pb.writeObjects_(ns_items)
+        # ``writeObjects_`` returns YES only if at least one NSPasteboardItem
+        # was accepted by the pasteboard; a NO return means the clipboard is
+        # still empty after clearContents (silent data loss).
+        write_ok = bool(pb.writeObjects_(ns_items)) if ns_items else True
+
+        if success_count == 0 or not write_ok:
+            log.warning(
+                "[CLIPBOARD-SNAPSHOT] _restore_macos: %d/%d items set, "
+                "writeObjects_=%s — clipboard may be empty after clearContents",
+                success_count,
+                len(self.items),
+                write_ok,
+            )
+            return False
         return True
 
     # ─── Linux X11 (xclip, text-only — documented limitation) ──────────

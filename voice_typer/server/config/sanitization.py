@@ -27,6 +27,7 @@ the functions here (preserving the existing public API used by
 from __future__ import annotations
 
 import logging
+import math
 import types
 from typing import TYPE_CHECKING, Any
 
@@ -409,6 +410,36 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
                 )
                 continue
             if isinstance(val, float):
+                # NaN / Inf survive the dataclass constructor because
+                # they ARE valid Python floats — but they poison every
+                # downstream range comparison (``nan < lo`` and
+                # ``nan > hi`` both return ``False``, so a NaN value
+                # silently bypasses every ``if cfg.foo > X`` guard) and
+                # ``json.dumps`` writes them back as bare ``NaN`` /
+                # ``Infinity`` literals (non-standard JSON) on the next
+                # ``save()``. ``scalar._make_float_validator`` flags
+                # them with a "must be a finite number" warning, but
+                # the validator is advisory — it appends to
+                # ``last_load_warnings`` without mutating the field,
+                # so without this reset the bad value would persist on
+                # the instance and round-trip back to disk on the next
+                # save. ``json.loads`` accepts ``NaN`` / ``Infinity``
+                # as a non-standard extension by default, so a
+                # hand-edited or corrupted ``config.json`` can smuggle
+                # one in (e.g. ``"streaming_silence_threshold": NaN``
+                # would silently disable the silence detector).
+                # Reset to the dataclass default and record a warning
+                # so the renderer can surface "your config was
+                # corrected" via ``last_load_warnings``.
+                if math.isnan(val) or math.isinf(val):
+                    data[field_name] = cls._warn_and_reset(
+                        field_name,
+                        val,
+                        defaults,
+                        warnings,
+                        reason="had non-finite float value",
+                    )
+                    continue
                 continue
             try:
                 coerced = float(val)
@@ -419,6 +450,22 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
                     defaults,
                     warnings,
                     reason="had non-float value",
+                )
+                continue
+            # A coerced value can also be non-finite — e.g.
+            # ``float("inf")`` parses successfully out of a numeric
+            # string, and ``float("nan")`` likewise. Guard the coerced
+            # value with the same NaN/Inf reset so a hand-edited
+            # ``"streaming_silence_threshold": "Infinity"`` string is
+            # caught here rather than passing through to the dataclass
+            # constructor + save() round-trip.
+            if math.isnan(coerced) or math.isinf(coerced):
+                data[field_name] = cls._warn_and_reset(
+                    field_name,
+                    val,
+                    defaults,
+                    warnings,
+                    reason="had non-finite float value",
                 )
                 continue
             data[field_name] = cls._warn_and_coerce(

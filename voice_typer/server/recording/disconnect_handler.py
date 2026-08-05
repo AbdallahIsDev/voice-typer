@@ -105,10 +105,10 @@ def retune_audio_processor(
             )
         except Exception:
             log.warning(
-                "[RECORDING] AudioProcessor.set_sample_rate(%d) failed %s — "
-                "per-chunk resample will run on the RT thread",
-                effective_sr,
+                "[RECORDING] retune_audio_processor failed %s — "
+                "set_sample_rate(%d) failed; per-chunk resample will run on the worker thread",
                 context,
+                effective_sr,
                 exc_info=True,
             )
     else:
@@ -121,7 +121,8 @@ def retune_audio_processor(
             )
         except Exception:
             log.warning(
-                "[RECORDING] AudioProcessor.rebuild_from_config failed %s — filter coefficients may be mistuned",
+                "[RECORDING] retune_audio_processor failed %s — "
+                "rebuild_from_config failed; filter coefficients may be mistuned",
                 context,
                 exc_info=True,
             )
@@ -285,6 +286,42 @@ class DisconnectHandler:
                 # AUDIO-HOT: finished_callback detects unexpected stream termination
                 finished_callback=recorder._stream_finished_callback,
             )
+            # flush stale-rate ring-buffer contents BEFORE
+            # ``stream.start()``. Pre-fix, the zeroing + clear lived
+            # AFTER ``stream.start()`` (between start and clear, the
+            # new stream's PortAudio callback fired ~1-3 times at 16
+            # Hz × ~60ms window ≈ 1 chunk, pushing fresh NEW-rate
+            # audio into ``_ring_buffer`` — which the subsequent
+            # ``.clear()`` indiscriminately zeroed along with the
+            # intended OLD-rate chunks). Moving the clear BEFORE
+            # ``stream.start()`` means only pre-disconnect old-rate
+            # chunks are cleared; the new stream's first chunks land
+            # in an empty ring buffer and are preserved.
+            #
+            # SEC-audit-008: zero each chunk's numpy array BEFORE
+            # ``.clear()`` so the user's voice data doesn't linger in
+            # process memory after the deque reference is dropped (the
+            # bare ``.clear()`` only drops references, leaving the
+            # underlying float32 arrays intact until GC). Mirrors the
+            # preroll-buffer pattern in stop()/discard() (see
+            # ``recorder.py``'s ``_preroll_buffer`` clearing). Ring
+            # buffer chunks are small (~2KB each, capacity-bounded by
+            # ``_AUDIO_RING_BUFFER_CAPACITY``) so synchronous zeroing is
+            # acceptable here. Ring buffer items are 5-tuples
+            # ``(chunk_copy, frames, time_info, status, perf_ts)`` —
+            # the numpy array is the first element. Defensive against
+            # direct-array items (legacy/fallback) too.
+            #
+            # ``collections.deque.clear()`` is atomic under the GIL
+            # and the ring buffer is single-producer (audio callback)
+            # / single-consumer (worker), so clearing here without
+            # the lock is safe — the worker's next ``popleft()``
+            # raises ``IndexError`` and the drain loop breaks cleanly.
+            for _payload in recorder._ring_buffer:
+                _arr = _payload[0] if isinstance(_payload, tuple) else _payload
+                if isinstance(_arr, np.ndarray):
+                    _arr.fill(0)
+            recorder._ring_buffer.clear()
             stream.start()
             # re-check the stop_generation under the stream-lifecycle
             # lock BEFORE assigning ``recorder._stream``. A concurrent
@@ -306,36 +343,6 @@ class DisconnectHandler:
                     stream.close()
                 return
             recorder._stream = stream
-            # Flush stale-rate buffer contents on hot-swap. Pre-disconnect
-            # chunks sitting in the SPSC ring buffer are at the OLD
-            # device's native rate; if left in place, the audio worker
-            # would drain them and append to ``_buffer``, re-introducing
-            # the rate inconsistency that the ``_buffer.clear()`` below
-            # is meant to eliminate. ``collections.deque.clear()`` is
-            # atomic under the GIL and the ring buffer is single-producer
-            # (audio callback) / single-consumer (worker), so clearing
-            # here without the lock is safe — the worker's next
-            # ``popleft()`` raises ``IndexError`` and the drain loop
-            # breaks cleanly.
-            #
-            # SEC-audit-008: zero each chunk's numpy array BEFORE
-            # ``.clear()`` so the user's voice data doesn't linger in
-            # process memory after the deque reference is dropped (the
-            # bare ``.clear()`` only drops references, leaving the
-            # underlying float32 arrays intact until GC). Mirrors the
-            # preroll-buffer pattern in stop()/discard() (see
-            # ``recorder.py``'s ``_preroll_buffer`` clearing). Ring
-            # buffer chunks are small (~2KB each, capacity-bounded by
-            # ``_AUDIO_RING_BUFFER_CAPACITY``) so synchronous zeroing is
-            # acceptable here. Ring buffer items are 5-tuples
-            # ``(chunk_copy, frames, time_info, status, perf_ts)`` — the
-            # numpy array is the first element. Defensive against
-            # direct-array items (legacy/fallback) too.
-            for _payload in recorder._ring_buffer:
-                _arr = _payload[0] if isinstance(_payload, tuple) else _payload
-                if isinstance(_arr, np.ndarray):
-                    _arr.fill(0)
-            recorder._ring_buffer.clear()
             with recorder._lock:
                 recorder._effective_sr = candidate_sr
                 # reset the silence timer so a hot-swap recovery does

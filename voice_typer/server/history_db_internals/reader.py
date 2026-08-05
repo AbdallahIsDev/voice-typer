@@ -59,9 +59,11 @@ def _get_read_conn(db: HistoryDB) -> sqlite3.Connection:
     mode, readers never block the writer and the writer never
     blocks readers.
 
-    SEC-007: on POSIX, tightens the DB file and its parent
-    directory to 0o600 / 0o700 so transcription history is not
-    world-readable.
+    SEC-007: directory + file permission tightening (0o700 / 0o600
+    on POSIX) is owned by the writer's ``open_write_conn`` (single
+    source of truth) — readers inherit the already-tightened file
+    perms and don't repeat the mkdir/chmod churn on every
+    new-reader creation.
 
     Memory management: each read connection carries a 2 MB SQLite
     page cache (``PRAGMA cache_size=-2000``, ). When the

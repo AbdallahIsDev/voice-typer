@@ -53,6 +53,7 @@ from voice_typer.server._http_safety import build_secure_opener
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import (
+    ErrorCodes,
     LegacyErrorCodes,
     ResponseEnvelope,
     _validate_dict_payload,
@@ -153,9 +154,12 @@ class CloudTestHandlersMixin(HandlerBase):
 
             if not provider:
                 log.warning("[IPC] test_cloud_connection called without provider")
-                resp["type"] = "error"
-                resp["data"] = {"message": "Missing 'provider' parameter"}
-                return resp
+                return self._error_response(
+                    resp,
+                    "Missing 'provider' parameter",
+                    code=ErrorCodes.MISSING_FIELD,
+                    field="provider",
+                )
 
             endpoint = _PROVIDER_TEST_ENDPOINTS.get(provider)
             if endpoint is None:
@@ -163,9 +167,12 @@ class CloudTestHandlersMixin(HandlerBase):
                     "[IPC] test_cloud_connection called with unknown provider: %s",
                     provider,
                 )
-                resp["type"] = "error"
-                resp["data"] = {"message": f"Unknown provider: {provider}"}
-                return resp
+                return self._error_response(
+                    resp,
+                    f"Unknown provider: {provider}",
+                    code=ErrorCodes.INVALID_FIELD,
+                    field="provider",
+                )
 
             # Look up the API key from the live Config dataclass (NOT
             # from ``service.get_config()`` which returns a sanitized
@@ -174,9 +181,12 @@ class CloudTestHandlersMixin(HandlerBase):
             if config_field is None:
                 # Defensive: should be unreachable because the endpoint
                 # lookup above already rejected unknown providers.
-                resp["type"] = "error"
-                resp["data"] = {"message": f"Unknown provider: {provider}"}
-                return resp
+                return self._error_response(
+                    resp,
+                    f"Unknown provider: {provider}",
+                    code=ErrorCodes.INVALID_FIELD,
+                    field="provider",
+                )
 
             api_key = getattr(self.app.config, config_field, "") or ""
             if not api_key:

@@ -87,7 +87,18 @@ class VocabularyManager:
         self._load_and_merge()
 
     def _invalidate_pattern_cache(self) -> None:
-        """invalidate the compiled-pattern cache. Called on any mutation."""
+        """invalidate the compiled-pattern cache. Called on any mutation.
+
+        Does NOT acquire ``self._lock``: the assignment is a single
+        GIL-atomic attribute write, and callers may already hold the
+        lock when calling us. In particular ``_load_and_merge`` is
+        invoked under ``live_vm._lock`` by
+        ``save_vocabulary_with_diff`` (``service/vocabulary.py``), so
+        acquiring the non-reentrant ``threading.Lock`` here would
+        self-deadlock. The rebuild path in ``_get_compiled_patterns``
+        reads ``self._data`` under the lock, so a concurrent rebuild
+        cannot observe a half-merged data state.
+        """
         self._compiled_patterns = None
 
     def _get_compiled_patterns(self, category: str) -> list[tuple[object, str]]:
@@ -222,7 +233,7 @@ class VocabularyManager:
         where the destination is locked by an editor / cloud-sync
         client.
 
-        M-63: previously this method logged failures and returned
+        previously this method logged failures and returned
         silently — a contract described in the docstring as
         "best-effort". That left CRUD callers (``add_entry`` /
         ``add_phrase`` / ``remove_entry`` / ``remove_phrase`` /
@@ -237,7 +248,7 @@ class VocabularyManager:
         import time as _time
 
         max_retries = 3
-        # M-63: track the final failure so we can raise after the
+        # track the final failure so we can raise after the
         # retry loop instead of silently returning.
         final_exc: Exception | None = None
         for attempt in range(max_retries):
@@ -276,7 +287,7 @@ class VocabularyManager:
                 # captured automatically via sys.exc_info().
                 log.exception("[VOCAB] Failed to save user vocabulary")
                 break
-        # M-63: surface the failure to callers so they can roll back
+        # surface the failure to callers so they can roll back
         # any in-memory mutation they made before calling us.
         if final_exc is not None:
             raise final_exc
@@ -312,8 +323,18 @@ class VocabularyManager:
             return list(self._data.get(category, []))
 
     def get_all(self) -> dict:
-        """Return a copy of all merged data."""
-        return dict(self._data)
+        """Return a shallow copy of all merged data.
+
+        Acquires ``self._lock`` and returns shallow copies of each
+        category container (``dict(v)`` for dict categories, ``list(v)``
+        for list categories) so a concurrent ``add_entry`` /
+        ``remove_entry`` / ``import_json`` mutation can't mutate the
+        returned containers mid-iteration by the caller. Mirrors the
+        snapshot pattern in ``get_category`` (line ~286) and
+        ``apply_to_text``.
+        """
+        with self._lock:
+            return {cat: (dict(v) if isinstance(v, dict) else list(v)) for cat, v in self._data.items()}
 
     # ── CRUD for dict-based categories ───────────────────────────────
 
@@ -323,7 +344,7 @@ class VocabularyManager:
         Enforces MAX_CORRECTIONS_ENTRIES, MAX_PATTERN_LENGTH, and
         MAX_REPLACEMENT_LENGTH limits.  Returns False if limits are exceeded.
 
-        M-63: rolls back the in-memory mutation if ``_save_user`` raises
+        rolls back the in-memory mutation if ``_save_user`` raises
         so the in-memory state stays consistent with the on-disk state.
         """
         if category not in ("misspellings", "technical_terms", "names", "products"):
@@ -352,14 +373,14 @@ class VocabularyManager:
                     MAX_CORRECTIONS_ENTRIES,
                 )
                 return False
-            # M-63: snapshot for rollback.
+            # snapshot for rollback.
             had_key = key in cat_data
             old_value = cat_data.get(key)
             cat_data[key] = value
         try:
             self._save_user()
         except Exception:
-            # M-63: roll back the in-memory mutation.
+            # roll back the in-memory mutation.
             with self._lock:
                 if had_key:
                     cat_data[key] = old_value
@@ -373,7 +394,7 @@ class VocabularyManager:
     def remove_entry(self, category: str, key: str) -> bool:
         """Remove an entry from a dict-based category.
 
-        M-63: rolls back the in-memory mutation if ``_save_user`` raises
+        rolls back the in-memory mutation if ``_save_user`` raises
         so the in-memory state stays consistent with the on-disk state.
         """
         removed = False
@@ -389,7 +410,7 @@ class VocabularyManager:
             try:
                 self._save_user()
             except Exception:
-                # M-63: roll back the in-memory mutation.
+                # roll back the in-memory mutation.
                 with self._lock:
                     if isinstance(cat_data, dict):
                         cat_data[key] = old_value
@@ -406,7 +427,7 @@ class VocabularyManager:
         Enforces MAX_CORRECTIONS_ENTRIES, MAX_PATTERN_LENGTH, and
         MAX_REPLACEMENT_LENGTH limits.  Returns False if limits are exceeded.
 
-        M-63: rolls back the in-memory mutation if ``_save_user`` raises
+        rolls back the in-memory mutation if ``_save_user`` raises
         so the in-memory state stays consistent with the on-disk state.
         """
         if category not in ("phrase_corrections", "extra_word_patterns"):
@@ -442,7 +463,7 @@ class VocabularyManager:
         try:
             self._save_user()
         except Exception:
-            # M-63: roll back the in-memory mutation.
+            # roll back the in-memory mutation.
             with self._lock, contextlib.suppress(ValueError):
                 cat_data.remove(new_entry)
             raise
@@ -453,7 +474,7 @@ class VocabularyManager:
     def remove_phrase(self, category: str, index: int) -> bool:
         """Remove a phrase entry by index.
 
-        M-63: rolls back the in-memory mutation if ``_save_user`` raises
+        rolls back the in-memory mutation if ``_save_user`` raises
         so the in-memory state stays consistent with the on-disk state.
         """
         removed = False
@@ -468,7 +489,7 @@ class VocabularyManager:
             try:
                 self._save_user()
             except Exception:
-                # M-63: roll back the in-memory mutation.
+                # roll back the in-memory mutation.
                 with self._lock:
                     if isinstance(cat_data, list):
                         cat_data.insert(index, old_entry)
@@ -499,7 +520,7 @@ class VocabularyManager:
             (merge=False) would exceed ``MAX_CORRECTIONS_ENTRIES``.
           - Logs a single warning summarising the dropped count.
 
-        M-63: snapshots the entire ``_data`` dict before mutating and
+        snapshots the entire ``_data`` dict before mutating and
         restores it on save failure so the in-memory state stays
         consistent with the on-disk state. The snapshot is a shallow
         copy of the top-level dict plus shallow copies of each
@@ -605,7 +626,7 @@ class VocabularyManager:
 
             count = 0
             with self._lock:
-                # M-63: snapshot for rollback. Shallow-copy the
+                # snapshot for rollback. Shallow-copy the
                 # top-level dict AND each category container so
                 # in-place mutations (dict.update / list.extend) on
                 # the live containers don't pollute the snapshot.
@@ -640,7 +661,7 @@ class VocabularyManager:
                 try:
                     self._save_user()
                 except Exception:
-                    # M-63: roll back the in-memory mutation.
+                    # roll back the in-memory mutation.
                     with self._lock:
                         self._data.clear()
                         self._data.update(snapshot)

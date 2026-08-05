@@ -192,6 +192,11 @@ def ensure_hf_env():
     os.environ.setdefault("HF_HUB_DISABLE_XET", "true")
     # Suppress "unauthenticated requests" nag
     os.environ.setdefault("HF_HUB_DISABLE_UNVERIFIED_ACCESS_WARNING", "1")
+    # Disable huggingface_hub telemetry (C-DATA-1: no unsolicited egress).
+    # Defensive — pinning the flag now guards against future
+    # huggingface_hub releases that expand their telemetry surface,
+    # without introducing any network call ourselves.
+    os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
 
 
 def _verify_model_integrity(repo_id: str, local_dir: str) -> tuple[bool, dict[str, Any]]:

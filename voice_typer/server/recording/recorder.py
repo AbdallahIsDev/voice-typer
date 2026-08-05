@@ -678,6 +678,17 @@ class Recorder(VadShimMixin, RecorderInitMixin):
         # ``_surface_ring_overflow_warning`` (rate-limited WARNING) and
         # post-recording by ``RecordingController._stop_impl``.
         self._dropped_ring_chunks: int = 0
+        # Captures the most recent exception raised inside
+        # ``AudioCallbackDispatcher.dispatch_callback_body`` (the
+        # PortAudio RT-callback body). PortAudio silently aborts the
+        # stream when the callback raises, which surfaces to the user
+        # as a "device disconnect" — a misdiagnosis. The body now
+        # catches the exception, stores it here, and re-raises (so
+        # PortAudio still aborts). ``_stream_finished_callback`` reads
+        # this attribute, logs the true cause at ERROR with full
+        # traceback, and clears it. Read/written atomically under the
+        # GIL (single assignment of an attribute reference).
+        self._last_callback_error: Exception | None = None
         # Real-time ring-overflow WARNING bookkeeping (see
         # ``_surface_ring_overflow_warning``). ``_last_seen_dropped_ring_chunks``
         # is the value of ``_dropped_ring_chunks`` the last time the worker
@@ -1150,6 +1161,15 @@ class Recorder(VadShimMixin, RecorderInitMixin):
                 in sounddevice. The primary disconnect detection is done in the audio
                 callback via zero-filled indata detection (see _audio_callback_dispatch).
 
+        If ``dispatch_callback_body`` captured an exception (stored
+                on ``self._last_callback_error``), the stream finished because
+                the RT callback raised — NOT because of a device disconnect.
+                Log the true cause at ERROR with full traceback so the user /
+                developer can diagnose the actual bug instead of chasing a
+                phantom "device disconnect". The attribute is cleared after
+                logging so a subsequent genuine disconnect is not masked by
+                a stale exception reference.
+
         capture ``gen = self._stop_generation`` at scheduling time
                 and pass it via ``kwargs={'_captured_generation': gen}`` so the
                 spawned ``_handle_device_disconnect`` can bail out if a deliberate
@@ -1160,6 +1180,28 @@ class Recorder(VadShimMixin, RecorderInitMixin):
                 ``_stop_generation=0`` on the first session — defeating the
                 bouncer for any stop() that landed between scheduling and execution.
         """
+        # Surfacing the true cause of a callback-driven stream abort.
+        # ``dispatch_callback_body`` (in capture.py) wraps its body in
+        # try/except, stores any exception on ``self._last_callback_error``,
+        # and re-raises so PortAudio still aborts the stream. Without this
+        # block, the user would see the "Stream finished unexpectedly"
+        # warning below — a misdiagnosis that hides a real bug in the RT
+        # callback. Read the attribute atomically (single attribute-read
+        # under the GIL) and clear it immediately so a future genuine
+        # disconnect is not masked by a stale reference.
+        captured_err = self._last_callback_error
+        if captured_err is not None:
+            self._last_callback_error = None
+            log.error(
+                "[RECORDER] stream finished due to callback exception",
+                exc_info=captured_err,
+            )
+            # The stream aborted because of a code bug, not a device
+            # issue — do NOT spawn the disconnect-retry handler (it
+            # would mask the bug by restarting the stream on the
+            # default device). The recording state is left to the
+            # user's next start()/stop()/discard() call.
+            return
         if self._device_disconnected:
             return  # already handling disconnect via callback detection
         # STREAM-FIX: if stop() set this flag, the stream
@@ -1563,6 +1605,20 @@ class Recorder(VadShimMixin, RecorderInitMixin):
         """Import and initialize the high-quality resampler before recording stops."""
         try:
             resample_poly = _recording_pkg._get_resample_poly()
+            # ``_get_resample_poly()`` may legitimately return
+            # ``None`` when a test monkeypatches it to ``lambda: None`` or
+            # when a future refactor caches a None sentinel instead of
+            # raising. Pre-fix, the next line would call
+            # ``None(np.zeros(...), 160, 441)`` and raise ``TypeError:
+            # 'NoneType' object is not callable`` — caught by the broad
+            # ``except Exception`` below and logged as "Resampler warm-up
+            # failed: 'NoneType' object is not callable", which is
+            # misleading. The explicit None check emits the same "scipy
+            # not available" warning as the ``ImportError`` branch so the
+            # diagnostic is consistent.
+            if resample_poly is None:
+                log.warning("[RECORDING] scipy not available, will use linear interp resampling")
+                return
             resample_poly(np.zeros(32, dtype=np.float32), 160, 441)
             log.debug("[RECORDING] Resampler warmed up")
         except ImportError:
@@ -1648,6 +1704,15 @@ class Recorder(VadShimMixin, RecorderInitMixin):
         If PortAudio is unavailable (headless CI, no audio HW), the cache
         stays empty and ``start()`` falls back to direct
         ``sd.query_devices()`` calls — no regression.
+
+        In addition to warming the device-list cache, the prewarm thread
+        also opens a brief ``sd.InputStream`` against the configured mic
+        (via ``_prewarm_input_stream``). This validates the device, warms
+        PortAudio's internal device-state cache (so the first ``start()``
+        doesn't pay the full Pa_OpenStream + Pa_StartStream cost), and
+        surfaces permission errors at app launch instead of at first
+        hotkey. Failures are logged at INFO and never propagated — the
+        prewarm is purely best-effort.
         """
         import threading as _threading
 
@@ -1656,6 +1721,12 @@ class Recorder(VadShimMixin, RecorderInitMixin):
                 self._devices._refresh_device_list()
             except Exception:
                 log.debug("[RECORDING] device cache pre-warm failed", exc_info=True)
+            # Phase 2: briefly open + start + stop + close an InputStream
+            # against the configured mic. This is the actual "warm"
+            # operation — the device-list cache only avoids query RPCs,
+            # not the open/start cost. See ``_prewarm_input_stream`` for
+            # the rationale and timeout guard.
+            self._prewarm_input_stream()
 
         _threading.Thread(
             target=_warm,
@@ -1667,6 +1738,93 @@ class Recorder(VadShimMixin, RecorderInitMixin):
         # (before ``_thread_registry`` could be wired by a caller) and is
         # a one-shot best-effort daemon. The 4 disconnect-path spawns
         # below ARE routed through the helper for registry + single-flight.
+
+    def _prewarm_input_stream(self, *, timeout_s: float = 2.0) -> None:
+        """Briefly open + start + stop + close an InputStream to warm PortAudio.
+
+        Resolves the configured mic via ``_resolve_device()``, opens a
+        brief ``sd.InputStream(...)`` with the resolved sample rate, calls
+        ``stream.start()`` then immediately ``stream.stop()`` +
+        ``stream.close()``. This validates the device, warms PortAudio's
+        internal device-state cache, and surfaces permission errors at
+        app launch instead of at first hotkey press.
+
+        The open/start/stop/close sequence runs on a NESTED daemon thread
+        joined with a 2s timeout — if the device is stuck (e.g. a flaky
+        BT headset), the prewarm thread returns without blocking process
+        startup. The nested thread is a daemon so it never blocks process
+        exit. Failures are logged at INFO (not WARNING) because the
+        prewarm is purely best-effort: a failure here is recovered by the
+        normal ``start()`` candidate loop on the first hotkey press.
+
+        No ``_stream_lifecycle_lock`` is acquired: the prewarm opens a
+        THROWAWAY stream (local to this method) and does NOT touch
+        ``recorder._stream``, so the lock (which protects
+        ``recorder._stream`` from concurrent ``_teardown_stream`` /
+        ``_handle_device_disconnect``) is not needed. Acquiring the lock
+        here would block tests that hold the lock for setup.
+        """
+        import threading as _threading
+
+        result: dict[str, Any] = {"done": _threading.Event(), "ok": False, "err": None}
+
+        def _do_open() -> None:
+            try:
+                device = self._resolve_device()
+                candidate_sr, _dev_info = self._resolve_effective_sample_rate(device)
+                prewarm_stream = sd.InputStream(
+                    samplerate=candidate_sr,
+                    channels=1,
+                    dtype="float32",
+                    device=device,
+                    # No callback — the stream is opened only to warm
+                    # PortAudio's device state and validate permissions.
+                    # Passing ``callback=None`` makes sounddevice use an
+                    # internal no-op callback (PortAudio still
+                    # initializes the stream + allocates buffers).
+                    callback=None,
+                    blocksize=_AUDIO_BLOCKSIZE,
+                    latency="low",
+                )
+                prewarm_stream.start()
+                try:
+                    prewarm_stream.stop()
+                finally:
+                    with contextlib.suppress(Exception):
+                        prewarm_stream.close()
+                log.info(
+                    "[RECORDING] Input stream prewarm succeeded: device=[%s] samplerate=%d",
+                    device if device is not None else "default",
+                    candidate_sr,
+                )
+                result["ok"] = True
+            except Exception as e:
+                result["err"] = e
+            finally:
+                result["done"].set()
+
+        worker = _threading.Thread(
+            target=_do_open,
+            name="recorder-stream-prewarm",
+            daemon=True,
+        )
+        worker.start()
+        # Bound the wait so a stuck device doesn't stall the prewarm
+        # thread (which itself is a daemon — the wait is defensive
+        # against the rare case where the prewarm thread was joined
+        # by a caller that expected it to terminate quickly).
+        if not result["done"].wait(timeout=timeout_s):
+            log.info(
+                "[RECORDING] Input stream prewarm timed out after %.1fs "
+                "(device may be stuck — the first start() will retry)",
+                timeout_s,
+            )
+            return
+        if not result["ok"] and result["err"] is not None:
+            log.info(
+                "[RECORDING] Input stream prewarm skipped: %s",
+                result["err"],
+            )
 
     def _cached_max_input_channels(self, device: int | None) -> int:
         """Return ``max_input_channels`` for ``device`` from the cached device list.
@@ -2232,6 +2390,18 @@ class Recorder(VadShimMixin, RecorderInitMixin):
             # pushed by mistake — it skips the publish instead of
             # crashing ``event_bus.publish`` with a TypeError.
             if not isinstance(event, dict):
+                # Pre-fix this branch silently ``continue``d,
+                # swallowing any non-dict / non-sentinel event without a
+                # log. A future variant pushed by mistake would be
+                # invisible in production. Log at WARNING (not ERROR)
+                # because the worker continues running; the missing event
+                # is recoverable on the next publish. ``%r`` formats the
+                # type so the offending variant is identifiable without
+                # dumping the (potentially large) event payload.
+                log.warning(
+                    "[RECORDING] Event worker skipped non-dict event: %r",
+                    type(event),
+                )
                 continue
             try:
                 event_bus.publish(event)
@@ -2247,7 +2417,7 @@ class Recorder(VadShimMixin, RecorderInitMixin):
                     exc_info=True,
                 )
 
-    def _audio_worker_loop(self) -> None:
+    def _audio_worker_loop(self, stop_event: Any = None, wake_event: Any = None) -> None:
         """Audio worker thread main loop — drains the ring buffer.
 
         Phase 4.5 — body moved to
@@ -2258,8 +2428,19 @@ class Recorder(VadShimMixin, RecorderInitMixin):
         mod:`.capture` for the collaborator pattern and the
                 rationale (worker thread runs the heavy processing pipeline
                 off the real-time audio thread).
+
+        ``stop_event`` / ``wake_event`` are passed through to the
+                body as EXPLICIT parameters (captured at thread-spawn time by
+                ``AudioCallbackDispatcher.start_audio_worker_body``) instead
+                of being read dynamically from ``self._worker_stop_event`` /
+                ``self._worker_wake_event`` on every iteration. See the body's
+                docstring for the stale-worker SPSC-violation rationale. The
+                parameters default to ``None`` so direct call sites that
+                don't pass them (e.g. legacy tests) keep working — the body
+                falls back to ``self._worker_stop_event`` /
+                ``self._worker_wake_event`` when ``None`` is passed.
         """
-        self._capture.audio_worker_loop(self)
+        self._capture.audio_worker_loop(self, stop_event, wake_event)
 
     def _audio_callback_dispatch(self, indata: np.ndarray, frames: int, time_info: Any, status: Any) -> None:
         """Real-time audio callback entry point — RT-safe path.
@@ -2643,6 +2824,34 @@ class Recorder(VadShimMixin, RecorderInitMixin):
                 while ``discard_recording`` is tearing the stream down. The lock
                 is released before return; it is NOT held across
                 ``thread.join()`` (would deadlock the audio worker).
+
+        Idle fast-path. ``discard()`` is a
+                no-op when the recorder is not recording — matching
+                ``stop()``'s contract. Pre-fix, ``discard()`` unconditionally
+                bumped ``_stop_generation``, set ``_user_stop_pending``, tore
+                down the stream (already None), and stopped the workers
+                (already None) — wasted work that also created a window for
+                the race described below: ``start()`` releases
+                ``_start_lock`` before calling ``_recorder_split.start_recording``,
+                so a concurrent ``discard()`` that acquired the lock between
+                the gate and ``_recording_event.set()`` inside
+                ``start_recording`` would observe ``is_set()==False``, run its
+                full body (bumping ``_stop_generation`` etc.), then
+                ``start_recording`` would proceed to ``_recording_event.set()``
+                — leaving the recorder in a "recording" state with no live
+                stream. The ``is_set()`` fast-path below closes the race.
         """
         with self._start_lock:
+            # Idle fast-path. Without this guard, a
+            # discard() that lands between ``start()``'s gate and
+            # ``_recording_event.set()`` inside ``start_recording`` would
+            # run its full body on an idle recorder, then
+            # ``start_recording`` would proceed and leave the recorder in
+            # a "recording" state with no live stream. Matching ``stop()``'s
+            # contract closes the race. This is also the idle fast-path
+            # that prevents wasted work: no ``_stop_generation``
+            # increment, no ``_user_stop_pending`` flip, no stream teardown,
+            # no worker stop.
+            if not self._recording_event.is_set():
+                return
             _recorder_split.discard_recording(self)

@@ -71,6 +71,14 @@ class Equalizer(AudioFilter):
         self._delay_buf: np.ndarray | None = None
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
+        # Debug-only guard: the EQ crossover coefficients (``_lf``,
+        # ``_hf``) are derived from ``self._sample_rate``; feeding
+        # audio at a different rate shifts the 800 Hz / 5 kHz
+        # crossovers. Python strips this assert under ``-O``; in
+        # debug builds a mismatch surfaces as an ``AssertionError``.
+        assert sample_rate == self._sample_rate, (
+            f"{type(self).__name__} built at {self._sample_rate} Hz, called with {sample_rate} Hz"
+        )
         if audio.size == 0:
             return audio
 

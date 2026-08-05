@@ -317,6 +317,11 @@ def redact_pii(text: str) -> str:
     redacted text.
 
     Patterns redacted:
+      - Filesystem paths containing the user's home directory
+        (``/home/alice/…``, ``/Users/alice/…``,
+        ``C:\\Users\\alice\\…``) → home prefix replaced with ``~``
+        (via :func:`_redact_home_path_in_text` /
+        :func:`voice_typer.server._secrets._redact_home_path`)
       - Email addresses → [EMAIL]
       - Phone numbers (US-style 7-digit) → [PHONE]
       - Phone numbers (international, E.164-ish) → [PHONE]
@@ -332,6 +337,14 @@ def redact_pii(text: str) -> str:
         stripped, host preserved
         (via :func:`voice_typer.server._secrets.redact_url`)
 
+    The home-path redaction runs FIRST (mirroring :func:`_redact_text`)
+    so a bare path like ``/home/alice/.voice-typer/foo.log`` is
+    sanitised before any of the pattern substitutions see it. This
+    closes a PII leak in the cloud-LLM call path (``llm_polish.py``),
+    the hallucination filter, the config sanitizer, and the diagnostic
+    bundle exporter — all of which call ``redact_pii`` directly or
+    indirectly via ``redact_for_export``.
+
     Known limitations (NOT matched): US ABA routing numbers
     (9-digit form, too high a false-positive rate on ordinary numeric
     text — see ``PIIRedactionFilter`` docstring for details).
@@ -346,6 +359,15 @@ def redact_pii(text: str) -> str:
     str
         Text with PII patterns replaced by redaction tokens.
     """
+    # step 0 — redact the home-directory prefix unconditionally.
+    # This MUST run before the PII / secret / URL passes: a bare path
+    # like ``/home/alice/.voice-typer/foo.log`` carries no fast-path
+    # trigger and no PII token, so the downstream passes would leave
+    # the OS username intact — leaking it to the cloud LLM
+    # (``llm_polish.py``), diagnostic bundle (``redact_for_export``),
+    # hallucination filter, and config sanitizer. Mirrors the same
+    # step in :func:`_redact_text`.
+    text = _redact_home_path_in_text(text)
     for pattern, replacement in PIIRedactionFilter._PATTERNS:
         text = pattern.sub(replacement, text)
     # also redact API keys / bearer tokens (idempotent on

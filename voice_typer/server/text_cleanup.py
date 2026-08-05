@@ -652,25 +652,15 @@ def configure_corrections(
     etc.), or None on success / no-file.  Callers can surface this
     to the user via a tray notification so they know why their
     corrections aren't taking effect.
+
+    The user-corrections path is resolved inside ``_active_corrections``
+    → ``_load_external_corrections`` (which raises ``CorrectionsLoadError``
+    on a malformed file, caught below and surfaced as the returned
+    error-message string). The previous inline ``_user_path`` block
+    duplicated that resolution and was dead — removed.
     """
     global _active_misspellings, _active_phrases, _active_extra_words
     global _active_phrase_patterns, _active_extra_word_patterns
-
-    # Determine the user corrections path (mirrors _load_external_corrections)
-    # the user_path was previously used by an inline parse block
-    # that duplicated ``_load_external_corrections``'s read+parse. The
-    # inline parse was removed; ``configure_corrections`` now relies on
-    # ``_active_corrections`` → ``_load_external_corrections`` to raise
-    # ``CorrectionsLoadError`` on a malformed file (which is then caught
-    # below and surfaced as the returned error-message string). The
-    # ``user_path`` variable is retained only so the docstring's
-    # reference to "the external file" remains accurate; it is no longer
-    # used by the function body.
-    _user_path = None
-    if corrections_path:
-        _user_path = Path(corrections_path)
-    elif config_dir is not None:
-        _user_path = config_dir / "voice-typer-corrections.json"
 
     # previously this function did its OWN ``_secure_read_text`` +
     # ``json.loads(raw)`` parse to detect a malformed user file, and then
@@ -1061,18 +1051,6 @@ def _apply_case_preserving_replacement(match: re.Match[str], good: str) -> str:
                 result[i] = result[i].upper()
         return "".join(result)
     return good
-
-
-def _make_case_preserving_replacement(good: str):
-    """Return a ``re.sub`` callback that replaces ``good`` preserving case.
-
-    the per-bad-word redefinition is replaced with a
-        ``functools.partial`` binding. This hoists the closure object
-        creation out of the hot loop.
-    """
-    from functools import partial
-
-    return partial(_apply_case_preserving_replacement, good=good)
 
 
 def _remove_extra_words(text: str) -> str:

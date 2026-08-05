@@ -82,6 +82,34 @@ _resample_poly_lock = threading.Lock()
 # memo dict with no eviction policy.
 _resample_fir_cache: dict[tuple[int, int], tuple[np.ndarray, int, int]] = {}
 _resample_fir_cache_lock = threading.Lock()
+# Soft cap on the FIR-tap cache size. The original comment assumed
+# "≤2" distinct (up, down) ratios in practice (the device's native
+# rate and the chain's 16 kHz rate). That assumption is fragile —
+# a long-running session that hot-plugs through several Bluetooth
+# headsets (each re-negotiating a different native rate: 8k, 16k,
+# 44.1k, 48k) or a test harness cycling synthetic rates can grow
+# the cache to dozens of entries. Each entry holds a full FIR
+# (``2 * half_len + 1`` taps × float32) — for an unbounded cache
+# that's a slow memory leak. The cap of 32 is comfortably above the
+# 2-4 entries seen in normal operation; when exceeded, we clear the
+# whole cache (simpler than LRU, and a re-design is microseconds for
+# the small ratios that dominate production traffic).
+_RESAMPLE_FIR_CACHE_MAX_ENTRIES: int = 32
+
+# Cap on the FIR filter ``half_len`` for "ugly" (low-GCD) sample-rate
+# ratios. ``scipy.signal.resample_poly``'s default design uses
+# ``half_len = 10 * max(up, down)``; for 44.1k→16k (gcd=100,
+# max_rate=441) that yields a 8821-tap FIR — ~140× heavier than the
+# 61-tap FIR for 48k→16k. The cap below truncates ``half_len`` (and
+# thus the filter length) at a practical bound, accepting a slightly
+# wider transition band on the rare 44.1k device in exchange for
+# ~30× lower MAC count on the RT thread. 256 was chosen as a round
+# power-of-2 that comfortably bounds the design cost while leaving
+# enough taps for a usable anti-aliasing filter at the worst-case
+# 8 kHz target Nyquist. Tuned to leave the common 48k→16k
+# (max_rate=3, half_len=30) and 22.05k→16k (max_rate=15,
+# half_len=150) paths untouched.
+_RESAMPLE_FIR_HALF_LEN_CAP: int = 256
 
 
 # ER-88: anti-aliasing FIR filter cache for the no-scipy linear-interp
@@ -99,6 +127,11 @@ _resample_fir_cache_lock = threading.Lock()
 _antialias_fir_cache: dict[tuple[int, int], np.ndarray] = {}
 _antialias_fir_cache_lock = threading.Lock()
 _ANTIALIAS_FIR_TAPS = 31  # odd; ~31 taps — short enough for RT, sufficient for anti-aliasing
+# Soft cap on the anti-alias FIR cache (mirrors
+# ``_RESAMPLE_FIR_CACHE_MAX_ENTRIES``). Same rationale — the original
+# assumption that the cache stays at ≤2 entries is fragile under
+# device hot-plug churn, so we cap and clear-on-overflow.
+_ANTIALIAS_FIR_CACHE_MAX_ENTRIES: int = 32
 
 # ER-88: one-time warning flag so the linear-interp fallback surfaces
 # its quality degradation even when callers pass ``log_resample=False``
@@ -147,6 +180,11 @@ def _get_antialias_fir(effective_sr: int, target_sr: int) -> np.ndarray | None:
         existing = _antialias_fir_cache.get(key)
         if existing is not None:
             return existing
+        # Soft cap: clear the whole cache if it has grown past the cap
+        # (mirrors ``_resample_fir_cache``). See
+        # ``_ANTIALIAS_FIR_CACHE_MAX_ENTRIES`` for the rationale.
+        if len(_antialias_fir_cache) > _ANTIALIAS_FIR_CACHE_MAX_ENTRIES:
+            _antialias_fir_cache.clear()
         _antialias_fir_cache[key] = fir
         return fir
 
@@ -208,6 +246,19 @@ def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
     max_rate = max(up, down)
     f_c = 1.0 / max_rate
     half_len = 10 * max_rate
+    # Cap ``half_len`` for "ugly" ratios where ``max(up, down)`` is
+    # large (e.g. 44.1k→16k has gcd=100, up=160, down=441, max_rate=441,
+    # so the unfiltered ``half_len = 4410`` produces a 8821-tap FIR —
+    # ~140× heavier than the 61-tap FIR for the 48k→16k path). The cap
+    # trades a slightly wider transition band on those rare devices for
+    # a ~30× lower MAC count on the RT thread (512 samples × 16 Hz ×
+    # 8821 taps ≈ 72M MACs/sec → ~2.4M MACs/sec at the 256 cap). The
+    # cap is only hit when ``max_rate > 25`` (i.e. ``10 * max_rate > 250``),
+    # which in practice means non-power-of-2 ratios like 44.1/16 — the
+    # common 48k/16k path (max_rate=3) and 22.05k/16k path
+    # (max_rate=15) are untouched.
+    if half_len > _RESAMPLE_FIR_HALF_LEN_CAP:
+        half_len = _RESAMPLE_FIR_HALF_LEN_CAP
     # scipy's default window is ('kaiser', 5.0) — NOT 'hamming'.
     # Using the wrong window produces a filter with different
     # stop-band attenuation and pass-band ripple, so the output
@@ -234,6 +285,12 @@ def _get_resample_fir_taps(up: int, down: int) -> tuple[np.ndarray, int, int]:
         existing = _resample_fir_cache.get(key)
         if existing is not None:
             return existing
+        # Soft cap: clear the whole cache if it has grown past the
+        # cap. See ``_RESAMPLE_FIR_CACHE_MAX_ENTRIES`` for the
+        # rationale (simple full-clear over LRU; re-design is cheap
+        # for the small ratios that dominate production traffic).
+        if len(_resample_fir_cache) > _RESAMPLE_FIR_CACHE_MAX_ENTRIES:
+            _resample_fir_cache.clear()
         _resample_fir_cache[key] = ctx
         return ctx
 

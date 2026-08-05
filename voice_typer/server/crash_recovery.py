@@ -1100,6 +1100,15 @@ class CrashRecovery:
         """
         with self._lock:
             self._entries.clear()
+            # Mark as loaded so a subsequent lazy ``_load()`` (from
+            # ``count`` / ``get_all`` / ``get_unpasted`` / a second
+            # ``check_on_startup``) does NOT re-read the stale on-disk
+            # entries and resurrect the just-cleared state. Without the
+            # flag, a ``clear()`` that ran before the first ``_load()``
+            # would see the disk file still holding the entries and
+            # repopulate them — breaking the "cleared after
+            # acknowledgment" contract.
+            self._loaded = True
         self._enqueue_save()
         log.info("[RECOVERY] Recovery entries cleared")
 

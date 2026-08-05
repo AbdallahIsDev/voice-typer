@@ -341,6 +341,19 @@ def resolve_device(engine, device: str) -> tuple[str, str]:
     if device in ("auto", "cuda"):
         try:
             _t._configure_nvidia_dll_paths()
+            # Windows fast path: when the CUDA runtime DLLs cannot be
+            # loaded (CPU-only torch, missing nvidia-* wheels), skip the
+            # expensive ``import ctranslate2`` + CUDA device probe — the
+            # import alone costs ~20s of CUDA enumeration and the probe
+            # would fail at load time anyway, forcing a CPU reload.
+            if getattr(_t, "_cuda_runtime_available", lambda: True)() is False:
+                log.warning(
+                    "[MODEL] CUDA runtime DLLs unavailable on Windows — using CPU directly (skipped ~20s CUDA probe)"
+                )
+                if device == "cuda":
+                    log.warning("[MODEL] CUDA requested but DLLs unavailable, falling back to CPU")
+                log.info("[MODEL] Using CPU for transcription")
+                return "cpu", "int8"
             import ctranslate2
 
             if ctranslate2.get_cuda_device_count() > 0:

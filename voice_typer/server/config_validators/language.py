@@ -20,7 +20,11 @@ picked up automatically.
 
 from __future__ import annotations
 
+import logging
+
 from voice_typer.server.config_validators.scalar import _make_str_validator
+
+_LOGGER = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────────────────────────────────
 # recognized Whisper language codes.
@@ -44,15 +48,36 @@ def _try_load_whisper_languages() -> tuple[frozenset[str], str] | None:
     """Attempt to load the language-code set from ``whisper.tokenizer``.
 
     Returns ``(frozenset, source_label)`` on success, or ``None`` if the
-    ``whisper`` package is not importable.  Keeping the import in a
-    dedicated helper makes the fallback path explicit and easy to test.
+    ``whisper`` package is not importable OR the imported ``LANGUAGES``
+    dict is suspiciously small (fewer than 50 entries — Whisper's
+    upstream dict has 99, so anything under 50 is almost certainly a
+    broken / stubbed / partially-initialized import).  Returning
+    ``None`` triggers the hardcoded fallback in
+    :func:`_build_allowed_languages`, so a broken whisper install
+    degrades gracefully instead of rejecting every language code.
+    Keeping the import in a dedicated helper makes the fallback path
+    explicit and easy to test.
     """
     try:
         from whisper.tokenizer import LANGUAGES as _whisper_languages  # type: ignore[import-not-found]  # noqa: N811
-
-        return frozenset(_whisper_languages.keys()), "whisper.tokenizer.LANGUAGES"
     except ImportError:
         return None
+
+    # Whisper's upstream LANGUAGES dict has 99 entries (as of
+    # v20231117).  A dict with fewer than 50 entries is almost
+    # certainly broken (stubbed / monkeypatched / partial import);
+    # using it as the allowlist would reject every language code and
+    # break the whole app.  Fall back to the hardcoded list and log a
+    # WARNING so the operator can investigate the whisper install.
+    if len(_whisper_languages) < 50:
+        _LOGGER.warning(
+            "whisper.tokenizer.LANGUAGES has only %d entries (expected ~99); "
+            "falling back to the hardcoded language-code list",
+            len(_whisper_languages),
+        )
+        return None
+
+    return frozenset(_whisper_languages.keys()), "whisper.tokenizer.LANGUAGES"
 
 
 def _hardcoded_language_codes() -> frozenset[str]:

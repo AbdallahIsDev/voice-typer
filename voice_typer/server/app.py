@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 
 # CRASH-HANDLER: Windows VEH + Python excepthook for silent crash diagnostics
 from voice_typer.server import crash_handler as _crash_handler
+from voice_typer.server import i18n
 
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests
 # and for runtime lookups from voice_typer.server.startup_tasks.  # ruff: noqa: F401
@@ -61,6 +62,28 @@ from voice_typer.server.config import Config, _config_dir
 from voice_typer.server.crash_recovery import CrashRecovery
 from voice_typer.server.history_db import HistoryDB
 
+# ``TranscriptionEngine`` was re-exported here purely so tests could
+# monkeypatch ``voice_typer.server.app.TranscriptionEngine``. The
+# monkeypatch sites have been migrated to the canonical location
+# ``voice_typer.server.transcription.TranscriptionEngine`` (see
+# tests/app/test_lifecycle.py + tests/test_qwen_engine.py), so this
+# re-export is no longer needed. Note: production code in this module
+# does NOT instantiate ``TranscriptionEngine`` directly — the ASR
+# registry (``asr_registry._BACKEND_SPECS``) constructs backends via
+# ``importlib.import_module("voice_typer.server.transcription")``, so
+# the canonical patch target is the ``transcription`` module, not
+# ``app``.
+# T-1 / ARCH-9: ``create_hotkey_backend`` re-exported here so the
+# 8+ test files that monkeypatch ``voice_typer.server.app.create_hotkey_backend``
+# (e.g. tests/test_volume_lifecycle.py:73-78, tests/test_hotkey_dispatcher_*.py)
+# keep working without per-test migration to the canonical location
+# ``voice_typer.server.hotkeys.create_hotkey_backend``. ARCH-9
+# documents the broader pattern of test-seam re-exports being
+# progressively removed (TranscriptionEngine was the first);
+# create_hotkey_backend stays because the migration cost is high
+# and the production-side patch target is the same function.
+from voice_typer.server.hotkeys import create_hotkey_backend  # noqa: F401, E402  (re-exported for tests)
+
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests.  # ruff: noqa: F401
 # use centralized platform helpers instead of raw sys.platform checks.
 # signal_handlers.install_win32_console_handler and various tests monkeypatch
@@ -70,7 +93,18 @@ from voice_typer.server.platform_utils import (  # noqa: F401
     is_macos,
     is_windows,
 )
-from voice_typer.server.recording import Recorder
+
+# ``Recorder`` is imported lazily inside ``VoiceTyperApp.__init__``
+# (immediately before ``self.recorder = Recorder(...)``) to match the
+# deferred-import pattern already used for ``RecordingController``,
+# ``ModelManager``, and the other heavy classes below. Importing it at
+# module top would trigger ``voice_typer/server/recording/__init__.py``
+# which eagerly loads 7+ submodules that each do ``import numpy as np``
+# at module top, adding ~250–335 ms to every cold start. The proxy
+# ``np = lazy_module("numpy")`` bound on the recording package is
+# defeated if any submodule does a direct top-level ``import numpy``.
+# Deferring the ``Recorder`` import until ``__init__`` keeps the
+# recording package out of the module-import critical path entirely.
 from voice_typer.server.security import PIIRedactionFilter as _PIIRedactionFilter  # noqa: F401
 
 # autostart + microphone helpers are re-exported from server_platform so
@@ -96,28 +130,6 @@ from voice_typer.server.text_cleanup import (  # noqa: F401 (re-exported for tes
     configure_corrections,
 )
 from voice_typer.server.thread_registry import ThreadRegistry
-
-# ``TranscriptionEngine`` was re-exported here purely so tests could
-# monkeypatch ``voice_typer.server.app.TranscriptionEngine``. The
-# monkeypatch sites have been migrated to the canonical location
-# ``voice_typer.server.transcription.TranscriptionEngine`` (see
-# tests/app/test_lifecycle.py + tests/test_qwen_engine.py), so this
-# re-export is no longer needed. Note: production code in this module
-# does NOT instantiate ``TranscriptionEngine`` directly — the ASR
-# registry (``asr_registry._BACKEND_SPECS``) constructs backends via
-# ``importlib.import_module("voice_typer.server.transcription")``, so
-# the canonical patch target is the ``transcription`` module, not
-# ``app``.
-# T-1 / ARCH-9: ``create_hotkey_backend`` re-exported here so the
-# 8+ test files that monkeypatch ``voice_typer.server.app.create_hotkey_backend``
-# (e.g. tests/test_volume_lifecycle.py:73-78, tests/test_hotkey_dispatcher_*.py)
-# keep working without per-test migration to the canonical location
-# ``voice_typer.server.hotkeys.create_hotkey_backend``. ARCH-9
-# documents the broader pattern of test-seam re-exports being
-# progressively removed (TranscriptionEngine was the first);
-# create_hotkey_backend stays because the migration cost is high
-# and the production-side patch target is the same function.
-from voice_typer.server.hotkeys import create_hotkey_backend  # noqa: F401, E402  (re-exported for tests)
 from voice_typer.server.tray import AppState, TrayIcon
 
 np = lazy_module("numpy")
@@ -241,8 +253,49 @@ class _LazyAudioProcessorProxy:
         return getattr(self._resolve(), name)
 
 
+# Register English fallbacks for the new i18n keys consumed by
+# this module (``error.config_load_failed.title`` /
+# ``error.config_load_failed.body`` and ``state.app.starting``). The canonical home for English fallbacks is
+# ``voice_typer/server/i18n.py::_INITIAL_LABELS`` (which already holds
+# every other ``notify.app.*`` / ``state.*`` key used elsewhere in the
+# server), but that module is owned by another lane — so we extend the
+# existing English registry in place rather than replacing it via
+# ``i18n.register_locale`` (which REPLACES the locale's label dict,
+# wiping all other English keys). ``setdefault`` makes this idempotent:
+# if a future i18n.py change adds the same key to ``_INITIAL_LABELS``,
+# that value wins (this extension becomes a no-op). Non-English locales
+# are populated via the ``set_tray_locale`` IPC (pushed by the renderer
+# on locale change) and via the JSON locale files at
+# ``voice_typer/client/src/main/i18n/locales/*.json`` (consumed by the
+# TS main process's ``mainT()``). Per C-I18N-1, the keys MUST exist in
+# every locale file so the missing-key tooling doesn't silently fall
+# back to English.
+with i18n._LOCK:
+    _en_labels = i18n._REGISTRY.setdefault("en", {})
+    # DE-48: the tray notification for a config-load failure routes
+    # through these two keys (resolved by the regression guard in
+    # ``tests/app/test_app_lifecycle_fixes.py``). The title is a
+    # non-brand literal (C-BRAND-1-safe) so the failure is surfaced
+    # in the notification even when ``APP_NAME`` is customized.
+    _en_labels.setdefault("error.config_load_failed.title", "Config load failed")
+    _en_labels.setdefault(
+        "error.config_load_failed.body",
+        "Settings were reset to defaults. Check the logs for details.",
+    )
+    _en_labels.setdefault("state.app.starting", "Starting...")
+
+
 class VoiceTyperApp:
     """The main application."""
+
+    # Declared as a class attribute (not only dynamically injected by
+    # ``DictationPipeline._maybe_init_vocabulary_automation``) so
+    # ``build_ipc_server``'s runtime ``isinstance(app, AppProtocol)``
+    # check passes at startup — the protocol declares
+    # ``_vocabulary_automation: Any`` and the attribute must exist from
+    # construction time (see ``providers.py``). The pipeline overwrites
+    # it with the real controller when dictation initialises.
+    _vocabulary_automation: Any = None
 
     def __init__(self):
         # catch unexpected exceptions from Config.load() (e.g.
@@ -255,6 +308,38 @@ class VoiceTyperApp:
             self.config = Config.load()
         except Exception:
             log.error("[INIT] Config.load() raised", exc_info=True)
+            # Self-heal: rename the existing config file to
+            # ``config.json.corrupt-<timestamp>.bak`` so the next restart
+            # loads fresh defaults instead of re-failing on the same
+            # corrupt file. We use the existing ``_config_dir`` symbol
+            # (already imported at the top of this module from
+            # ``voice_typer.server.config``) rather than
+            # ``voice_typer.server._paths.config_dir`` so the
+            # ``tmp_config_dir`` test fixture (which patches
+            # ``config._config_dir`` and ``app._config_dir``) takes
+            # effect — using ``_paths.config_dir()`` here would resolve
+            # the REAL user config dir during tests and rename the
+            # user's actual config. Best-effort: if the rename itself
+            # fails (permissions, readonly mount), we still fall back to
+            # ``Config()`` so init can proceed; the next restart will
+            # re-attempt Config.load() against the same corrupt file
+            # and re-trigger this path.
+            try:
+                _config_path = _config_dir() / "config.json"
+                if _config_path.exists():
+                    import time as _time
+
+                    _corrupt_path = _config_path.with_name(f"config.json.corrupt-{int(_time.time())}.bak")
+                    _config_path.rename(_corrupt_path)
+                    log.warning(
+                        "[INIT] renamed corrupt config to %s",
+                        _corrupt_path.name,
+                    )
+            except Exception:
+                log.warning(
+                    "[INIT] could not rename corrupt config",
+                    exc_info=True,
+                )
             self.config = Config()
             self._config_load_failed = True
         else:
@@ -340,6 +425,13 @@ class VoiceTyperApp:
         # constructed). Calling it here would trigger the proxy to
         # resolve immediately, defeating the lazy construction.
 
+        # ``Recorder`` is imported here (not at module top) so the
+        # ``voice_typer.server.recording`` package — which eagerly loads
+        # 7+ numpy-importing submodules — stays out of the module-import
+        # critical path. Matches the deferred-import pattern used below
+        # for ``RecordingController``, ``ModelManager``, etc.
+        from voice_typer.server.recording import Recorder
+
         self.recorder = Recorder(
             self.config,
             audio_processor=self._audio_processor,
@@ -407,11 +499,17 @@ class VoiceTyperApp:
         # notification so the user knows their settings were reset to
         # defaults.  Wrapped in try/except so a tray.backend failure
         # (e.g. notification daemon not ready) doesn't crash init.
+        # DE-48: title and body are BOTH localized via ``i18n.t``
+        # (C-I18N-1). The English fallbacks for
+        # ``error.config_load_failed.title`` /
+        # ``error.config_load_failed.body`` are registered at the
+        # top of this module (extends ``i18n._REGISTRY["en"]`` since
+        # ``i18n.py::_INITIAL_LABELS`` is owned by another lane).
         if self._config_load_failed:
             try:
                 self.tray.notify(
-                    "Config load failed",
-                    "Settings were reset to defaults. Check the logs for details.",
+                    i18n.t("error.config_load_failed.title"),
+                    i18n.t("error.config_load_failed.body"),
                 )
             except Exception:
                 log.debug("[INIT] tray.notify for config load failure failed", exc_info=True)
@@ -527,24 +625,20 @@ class VoiceTyperApp:
         from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
 
         self.hotkeys: HotkeyDispatcher = HotkeyDispatcher(self)
-        # T-1: removed the inline ``from voice_typer.server.hotkeys import create_hotkey_backend``
-        # here — moved to module top as a re-export (see the import
-        # block at the top of this module). The inline version was
-        # inside a method and so the symbol was never bound at
-        # module scope, which broke tests that monkeypatch
-        # ``voice_typer.server.app.create_hotkey_backend``.
-        # T-1 / ARCH-9: re-export the factory so test files that
-        # monkeypatch ``voice_typer.server.app.create_hotkey_backend``
-        # (e.g. tests/test_volume_lifecycle.py:73-78) keep working
-        # without requiring every test to be migrated to patch the
-        # canonical ``voice_typer.server.hotkeys.create_hotkey_backend``
-        # location. The canonical module already exports the function
-        # (see ``hotkeys/__init__.py``); this is a re-export alias only.
-        # ARCH-9 documents the broader pattern of test-seam re-exports
-        # being progressively removed (TranscriptionEngine was the
-        # first); create_hotkey_backend stays because the test-suite
-        # has 8+ monkeypatch sites that depend on it.
-        from voice_typer.server.hotkeys import create_hotkey_backend  # noqa: E402, F401
+        # The dead inline ``from voice_typer.server.hotkeys
+        # import create_hotkey_backend`` that lived here (inside
+        # ``__init__``) has been removed. It was a no-op — the symbol
+        # was already imported at module top (line ~120, see the
+        # ``# noqa: F401, E402 (re-exported for tests)`` import there)
+        # so the module attribute ``voice_typer.server.app
+        # .create_hotkey_backend`` was already bound. The inline import
+        # only bound a *local* variable inside ``__init__`` that was
+        # never read, and the surrounding comment block (which claimed
+        # the inline import was "a re-export alias") was misleading.
+        # Test monkeypatch sites that patch
+        # ``voice_typer.server.app.create_hotkey_backend`` are
+        # unaffected — they patch the module attribute, which comes
+        # from the module-top import, not this deleted inline one.
         # #2 _streaming_session and _transcription_thread now
         # live in RecordingController. (: the @property
         # delegates that used to mirror them on VoiceTyperApp have been
@@ -598,7 +692,7 @@ class VoiceTyperApp:
         # ``getattr(self.app, "_shutting_down", False) is True`` idiom
         # used by the IPC dispatch path (see voice_typer/server/
         # ipc_server.py and voice_typer/server/sidecar_ws.py)
-        # accommodates test MagicMock auto-vivification — a test
+        # accommodates test MagicMock auto-vivification - a test
         # that does ``mock_app._shutting_down = 1`` would otherwise
         # bypass the shutdown gate (a truthy int IS truthy but is NOT
         # ``True``). Catching the wrong-type assignment at __init__
@@ -607,10 +701,7 @@ class VoiceTyperApp:
         # shutdown-bypass bug that surfaces only when a test exercises
         # the gate.
         if not isinstance(self._shutting_down, bool):
-            raise TypeError(
-                f"VoiceTyperApp._shutting_down must be bool, "
-                f"got {type(self._shutting_down).__name__}"
-            )
+            raise TypeError(f"VoiceTyperApp._shutting_down must be bool, got {type(self._shutting_down).__name__}")
         # threading.Event version of _shutting_down so executor
         # tasks can check it without reading the boolean (which provides
         # no memory-order guarantee across threads).
@@ -1104,7 +1195,10 @@ class VoiceTyperApp:
         self.tray.set_notifications_enabled(self.config.show_notifications)
 
         # Queue "Loading" state before the event loop starts
-        self.tray.set_state(AppState.LOADING, "Starting...")
+        # Localized via ``i18n.t("state.app.starting")`` (C-I18N-1)
+        # instead of the hardcoded English literal ``"Starting..."``. The
+        # English fallback is registered at the top of this module.
+        self.tray.set_state(AppState.LOADING, i18n.t("state.app.starting"))
 
         # wire the waveform bubble now (on the main thread, before
         # the bg ``_do_startup`` thread runs). The wiring used to happen
@@ -1533,12 +1627,25 @@ def main() -> None:
     """
     # Enable faulthandler for automatic thread-dump on SIGSEGV/SIGABRT.
     # Invaluable for debugging production crashes with CUDA/GPU drivers.
+    # ``faulthandler.enable()`` failure is logged at WARNING (not DEBUG)
+    # because crash thread-dumps are a critical production-debugging
+    # capability — if faulthandler is unavailable (e.g. stripped from
+    # a minimal Python build, or ``faulthandler.enable()`` raises on a
+    # platform without SIGSEGV support), the operator MUST know that
+    # crash dumps will not be generated, otherwise a subsequent
+    # production crash yields no thread-state snapshot and the support
+    # ticket goes round-trip with "no traceback available". DEBUG is
+    # invisible in default log configs; WARNING lands in the rotating
+    # log file.
     try:
         import faulthandler
 
         faulthandler.enable()
     except Exception:
-        log.debug("[IPC] faulthandler not available", exc_info=True)
+        log.warning(
+            "[IPC] faulthandler not available — crash thread-dumps will not be generated",
+            exc_info=True,
+        )
 
     from voice_typer.server.ipc_server import main as ipc_main
 

@@ -28,7 +28,10 @@ from __future__ import annotations
 
 from voice_typer.server.config_validators.hotkey import (
     _RESERVED_HOTKEYS,
+    _check_alt_shift,
+    _check_os_shell_combos,
     _check_platform_reserved,
+    _parse_hotkey_parts,
     _platform_key,
 )
 
@@ -225,15 +228,41 @@ def _cross_platform_hotkey_warning(value: str, field_name: str) -> str | None:
         on the user's current platform, and rejecting it would deny the user
         the freedom to set platform-specific shortcuts.  The warning just
         alerts them that the config won't be portable to the named platform.
+
+        In addition to the per-platform explicit denylist
+        (:func:`_check_platform_reserved`), this helper also invokes the
+        blanket-block stage helpers on each non-current platform:
+        :func:`_check_os_shell_combos` (Win+* on Windows, Cmd+<letter> on
+        macOS) and :func:`_check_alt_shift` (Alt+Shift on Windows).  Without
+        these, a hotkey like ``<cmd>+<b>`` on Linux gives no warning even
+        though it is hard-rejected on macOS (Cmd+B is not in the explicit
+        darwin reserved list — it is blocked by the Cmd+<letter> blanket
+        rule), and ``<win>+<a>`` on Linux gives no warning even though it
+        is hard-rejected on Windows (Win+A is not in the explicit win32
+        reserved list — it is blocked by the Win+* blanket rule).
     """
     if not isinstance(value, str) or not value.strip():
         return None
     normalized = value.strip().lower()
+    parts = _parse_hotkey_parts(value)
+    if not parts:
+        return None
     current_platform = _platform_key()
     for platform in _RESERVED_HOTKEYS:
         if platform == current_platform:
             continue
+        # Run the same platform-specific stage helpers that
+        # ``_validate_hotkey`` runs on the current platform, so a hotkey
+        # that is hard-rejected on a non-current platform produces a
+        # matching portability warning. Order mirrors the stage order in
+        # ``_validate_hotkey``: explicit per-platform reserved list first,
+        # then the Win+* / Cmd+<letter> blanket rule, then the Alt+Shift
+        # language-switching rule. The first non-None result wins.
         err = _check_platform_reserved(normalized, platform)
+        if err is None:
+            err = _check_os_shell_combos(parts, platform)
+        if err is None:
+            err = _check_alt_shift(parts, platform)
         if err is not None:
             return f"{field_name} ({value!r}) is {err} — this config will not be portable to that platform"
     return None

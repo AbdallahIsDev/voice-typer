@@ -202,6 +202,11 @@ class ParakeetEngine:
     _AutoProcessor: Any = None
     _torch: Any = None
     _hf_home_set: bool = False
+    # Guards the check-then-import sequence in ``_ensure_imports`` so
+    # two threads racing on the first transcribe() call don't both run
+    # the multi-second torch/transformers import in parallel. Class-
+    # level because the import state it guards is class-level.
+    _imports_lock: threading.Lock = threading.Lock()
 
     def __init__(
         self,
@@ -293,53 +298,62 @@ class ParakeetEngine:
 
     @classmethod
     def _ensure_imports(cls):
-        if cls._imports_loaded:
-            log.info("[PARAKEET] AI libraries already imported — skipping re-import")
-            return
-        # OBSERVE-001: the torch + transformers import is the single most
-        # expensive step on a fresh process (several seconds of CPU work,
-        # not disk I/O once prewarm has warmed the OS page cache). It used
-        # to be silent, leaving a mysterious gap between "backend
-        # registered" and "Loading model". Log each import with its own
-        # elapsed time so the gap is fully visible.
-        _t0 = time.perf_counter()
-        try:
-            log.info("[PARAKEET] importing torch (this can take a few seconds on first import)...")
-            import torch
+        # Hold ``_imports_lock`` for the check-then-import sequence so
+        # two threads racing on the first transcribe() call don't both
+        # import torch + transformers in parallel. The fast path
+        # (imports already loaded) re-checks the flag under the lock and
+        # returns immediately; the slow path runs the multi-second
+        # torch/transformers imports serially. The lock is class-level
+        # because ``_imports_loaded`` / ``_torch`` / ``_AutoModelForTDT``
+        # / ``_AutoProcessor`` are class-level state.
+        with cls._imports_lock:
+            if cls._imports_loaded:
+                log.info("[PARAKEET] AI libraries already imported — skipping re-import")
+                return
+            # OBSERVE-001: the torch + transformers import is the single most
+            # expensive step on a fresh process (several seconds of CPU work,
+            # not disk I/O once prewarm has warmed the OS page cache). It used
+            # to be silent, leaving a mysterious gap between "backend
+            # registered" and "Loading model". Log each import with its own
+            # elapsed time so the gap is fully visible.
+            _t0 = time.perf_counter()
+            try:
+                log.info("[PARAKEET] importing torch (this can take a few seconds on first import)...")
+                import torch
 
-            _torch_s = time.perf_counter() - _t0
-            log.info("[PARAKEET] torch imported (%.2fs)", _torch_s)
+                _torch_s = time.perf_counter() - _t0
+                log.info("[PARAKEET] torch imported (%.2fs)", _torch_s)
 
-            # ``AutoModelForTDT`` was added to transformers in
-            # 4.50 (our pyproject floor).  The venv on this runner has
-            # 4.44, so a static ``from transformers import AutoModelForTDT``
-            # trips pyrefly's missing-module-attribute even though the
-            # surrounding try/except ImportError is the runtime guard.
-            # Resolve via ``getattr`` so the static checker does not
-            # see the (possibly absent) attribute access.
-            _t1 = time.perf_counter()
-            log.info("[PARAKEET] importing transformers...")
-            import transformers
+                # ``AutoModelForTDT`` was added to transformers in
+                # 4.50 (our pyproject floor).  The venv on this runner has
+                # 4.44, so a static ``from transformers import AutoModelForTDT``
+                # trips pyrefly's missing-module-attribute even though the
+                # surrounding try/except ImportError is the runtime guard.
+                # Resolve via ``getattr`` so the static checker does not
+                # see the (possibly absent) attribute access.
+                _t1 = time.perf_counter()
+                log.info("[PARAKEET] importing transformers...")
+                import transformers
 
-            _tf_s = time.perf_counter() - _t1
-            log.info("[PARAKEET] transformers imported (%.2fs)", _tf_s)
-            cls._torch = torch
-            cls._AutoModelForTDT = getattr(transformers, "AutoModelForTDT", None)
-            cls._AutoProcessor = getattr(transformers, "AutoProcessor", None)
-            if cls._AutoModelForTDT is None or cls._AutoProcessor is None:
-                raise ImportError(
-                    "transformers package is missing AutoModelForTDT / AutoProcessor — install transformers>=4.50"
+                _tf_s = time.perf_counter() - _t1
+                log.info("[PARAKEET] transformers imported (%.2fs)", _tf_s)
+                cls._torch = torch
+                cls._AutoModelForTDT = getattr(transformers, "AutoModelForTDT", None)
+                cls._AutoProcessor = getattr(transformers, "AutoProcessor", None)
+                if cls._AutoModelForTDT is None or cls._AutoProcessor is None:
+                    raise ImportError(
+                        "transformers package is missing AutoModelForTDT / AutoProcessor — install transformers>=4.50"
+                    )
+                cls._imports_loaded = True
+                log.info(
+                    "[PARAKEET] AI libraries imported (torch=%.2fs, transformers=%.2fs, total=%.2fs)",
+                    _torch_s,
+                    _tf_s,
+                    time.perf_counter() - _t0,
                 )
-            cls._imports_loaded = True
-            log.info(
-                "[PARAKEET] AI libraries imported (torch=%.2fs, transformers=%.2fs, total=%.2fs)",
-                _torch_s,
-                _tf_s,
-                time.perf_counter() - _t0,
-            )
-        except ImportError:
-            cls._imports_loaded = False
-            log.warning("[PARAKEET] AI library import failed — torch/transformers not installed?")
+            except ImportError:
+                cls._imports_loaded = False
+                log.warning("[PARAKEET] AI library import failed — torch/transformers not installed?")
 
     def _inference_mode_ctx(self) -> Any:
         """Return a context manager that wraps torch.inference_mode().
@@ -376,7 +390,22 @@ class ParakeetEngine:
         When the system drive is nearly full, Windows can't grow the pagefile,
         causing error 1455. This check avoids that error and gives a clean
         warning instead.
+
+        PLATFORM-QUALIFIED: the pagefile/CUDA-error-1455 failure mode is
+        Windows-only (Linux/macOS don't use a Windows-style pagefile for
+        GPU memory). Previously this body ran unconditionally on every
+        platform, reading ``SYSTEMDRIVE`` (which is unset on Linux/macOS)
+        and falling back to ``"C:\\"`` — then ``psutil.disk_usage("C:\\")``
+        raised ``FileNotFoundError`` on Linux/macOS, which was swallowed
+        by the broad ``except Exception`` below, silently no-op-ing the
+        check. Now we short-circuit at the top on non-Windows so the
+        intent is explicit and the silent except-path is no longer the
+        de-facto Linux/macOS behavior.
         """
+        from voice_typer.server.platform_utils import is_windows
+
+        if not is_windows():
+            return False
         try:
             import psutil
 

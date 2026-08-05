@@ -282,10 +282,19 @@ def _configure_nvidia_dll_paths():
     Delegates to the ``transcription._nvidia_dll_paths`` singleton.
     RACE-029: serialized by ``_nvidia_config_lock`` to prevent concurrent
     calls from corrupting ``_nvidia_dll_path_handles`` and PATH.
+
+    Also gates CUDA visibility: when the runtime DLLs cannot actually be
+    loaded (CPU-only torch install, missing ``nvidia-*`` wheels), every
+    downstream ``import ctranslate2`` / ``import torch`` would otherwise
+    pay ~20s of CUDA device enumeration before falling back to CPU.
+    Setting ``CUDA_VISIBLE_DEVICES=""`` here — before those imports run
+    — makes them skip the GPU probe entirely (~3s vs ~22s cold) and
+    keeps model loading on CPU directly.
     """
     from voice_typer.server import transcription as _t
 
     _t._nvidia_dll_paths.configure()
+    _configure_cuda_visibility_if_broken()
 
 
 def _configure_nvidia_dll_paths_locked():
@@ -298,3 +307,89 @@ def _configure_nvidia_dll_paths_locked():
     from voice_typer.server import transcription as _t
 
     _t._nvidia_dll_paths._configure_locked()
+
+
+# ── CUDA runtime availability gate ────────────────────────────────────
+#
+# The CUDA runtime DLLs (cuBLAS / cuLt / cuDNN) ship with the
+# ``nvidia-*`` wheels or the GPU build of torch — NOT with a CPU-only
+# torch install. On such machines ``ctranslate2.get_cuda_device_count()``
+# still reports a device (the driver is present), but model load fails
+# with "cublas64_12.dll is not found or cannot be loaded" — after
+# ~20s of CUDA enumeration during ``import ctranslate2``. These helpers
+# make that failure cheap and early.
+
+_CUDA_DLL_CANDIDATES = ("cublas64_12.dll", "cublasLt64_12.dll")
+_cuda_availability_checked = False
+_cuda_available = True
+
+
+def _cuda_runtime_available() -> bool:
+    """Return True when the CUDA runtime DLLs can actually be loaded.
+
+    Non-Windows platforms return True unconditionally (no cheap ctypes
+    probe exists there; the normal ``ctranslate2`` detection path
+    applies). On Windows, probes the core cuBLAS DLLs via
+    ``ctypes.WinDLL`` after :func:`_configure_nvidia_dll_paths` has
+    prepended the NVIDIA wheel directories to PATH. The result is
+    cached per process (the probe costs a few milliseconds).
+
+    Fail-open: any unexpected error (e.g. ``ctypes.WinDLL`` missing when
+    a non-Windows platform is mocked as Windows in tests) returns True
+    so the caller falls through to the authoritative ctranslate2
+    detection.
+    """
+    global _cuda_availability_checked, _cuda_available
+    if not is_windows():
+        return True
+    if _cuda_availability_checked:
+        return _cuda_available
+    _cuda_availability_checked = True
+    try:
+        import ctypes
+
+        _cuda_available = all(_load_cuda_dll(ctypes, name) for name in _CUDA_DLL_CANDIDATES)
+    except Exception:
+        _cuda_available = True  # fail-open: let ctranslate2 decide
+    if not _cuda_available:
+        log.warning(
+            "[CUDA-DLL] CUDA runtime DLLs unavailable (%s missing) — CUDA disabled; model will load on CPU",
+            " / ".join(_CUDA_DLL_CANDIDATES),
+        )
+    return _cuda_available
+
+
+def _load_cuda_dll(ctypes: Any, name: str) -> bool:
+    """Probe-load a single CUDA DLL; return True if it can be loaded."""
+    try:
+        handle = ctypes.WinDLL(name)
+        del handle
+        return True
+    except OSError:
+        return False
+
+
+def _configure_cuda_visibility_if_broken() -> None:
+    """Hide the GPU from downstream libraries when CUDA is unusable.
+
+    Sets ``CUDA_VISIBLE_DEVICES=""`` once when the CUDA runtime DLLs
+    cannot be loaded, so ``import ctranslate2`` / ``import torch`` skip
+    the ~20s CUDA device-enumeration stall and load in CPU-only mode.
+    No-op on non-Windows, when CUDA is usable, or when the variable is
+    already set (by the user or a prior call).
+    """
+    if not is_windows():
+        return
+    if _cuda_runtime_available():
+        return
+    # Only skip when the variable is present AND explicitly empty
+    # (i.e. the user already hid the GPU). An UNSET variable must be
+    # set to "" here — otherwise ``import ctranslate2`` would still
+    # probe CUDA for ~20s before the model-load failure.
+    if os.environ.get("CUDA_VISIBLE_DEVICES") == "":
+        return  # already hidden
+    os.environ["CUDA_VISIBLE_DEVICES"] = ""
+    log.info(
+        "[CUDA-DLL] Set CUDA_VISIBLE_DEVICES='' — downstream imports "
+        "(ctranslate2/torch) skip CUDA enumeration (~20s) and load on CPU"
+    )

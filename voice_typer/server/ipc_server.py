@@ -13,6 +13,7 @@ Usage (stdin/stdout mode — ``voice-typer`` CLI)::
     python -m voice_typer.server.ipc_server
 """
 
+import asyncio  # noqa: F401  # re-exported for tests (ipc_server.asyncio) + asyncio.Semaphore annotation below
 import contextlib  # noqa: F401  # re-exported for tests (ipc_server.contextlib)
 import json  # noqa: F401  # re-exported for tests (ipc_server.json)
 import os  # noqa: F401  # re-exported for tests (ipc_server.os)
@@ -293,9 +294,6 @@ from voice_typer.server.handlers.microphone_test_handlers import (  # noqa: E402
 )
 from voice_typer.server.handlers.model_handlers import ModelHandlersMixin  # noqa: E402
 from voice_typer.server.handlers.onboarding_handlers import OnboardingHandlersMixin  # noqa: E402
-from voice_typer.server.handlers.privacy_handlers import (  # noqa: E402
-    PrivacyHandlersMixin,
-)
 from voice_typer.server.handlers.repaste_handlers import RepasteHandlersMixin  # noqa: E402
 from voice_typer.server.handlers.status_handlers import StatusHandlersMixin  # noqa: E402
 from voice_typer.server.handlers.system_handlers import SystemHandlersMixin  # noqa: E402
@@ -373,7 +371,6 @@ class IPCServer(
     SystemHandlersMixin,
     VocabularyAutomationHandlersMixin,
     RepasteHandlersMixin,
-    PrivacyHandlersMixin,
     CloudTestHandlersMixin,
 ):
     """Reads JSON commands from stdin or TCP, dispatches, writes responses.
@@ -593,6 +590,29 @@ class IPCServer(
         # ``_rate_limiter_instance is None`` at dispatch time rather than
         # as a silent slow-path regression.
         self._rate_limiter_instance: _RateLimiter | None = None
+
+        # Declare the 5 WS-pool attributes on the ``IPCServer`` class
+        # itself (were dynamically injected by the module-level
+        # ``_get_ws_dispatch_pool`` / ``_get_ws_connection_semaphore``
+        # helpers in ``sidecar_ws.py``, with ``# type: ignore[attr-defined]``
+        # silencing the missing-attribute diagnostic at every assignment
+        # / read site). Declaring them here means the type checker can
+        # verify both the ``setattr`` sites and the ``getattr`` fast paths
+        # in ``sidecar_ws.py``; 9 ``# type: ignore[attr-defined]``
+        # suppressions in ``sidecar_ws.py`` are removed as a result.
+        #
+        # The attributes are genuinely ``Optional`` — they are ``None``
+        # until the WS dispatch path is first entered (a server running
+        # in TCP / standalone mode never touches them). The lazy-attach
+        # pattern is preserved: ``sidecar_ws._get_ws_dispatch_pool``
+        # (and siblings) still call ``getattr(server, "_ws_...", None)``
+        # first and only construct + assign on miss — but the assignment
+        # is now a plain ``server._ws_... = x`` with no type-ignore.
+        self._ws_dispatch_pool: ThreadPoolExecutor | None = None
+        self._ws_drained_event: threading.Event | None = None
+        self._ws_inflight_lock: threading.Lock | None = None
+        self._ws_inflight_count: int = 0
+        self._ws_connection_semaphore: asyncio.Semaphore | None = None
 
         # Cached snapshot of ``self.app._shutting_down`` for the hot
         # ``_send`` path. Previously ``_send`` did

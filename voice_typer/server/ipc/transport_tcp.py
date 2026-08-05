@@ -21,8 +21,8 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 
-from voice_typer.server.handlers._log import log
 from voice_typer.server._paths import IPC_TOKEN_ENV_VAR
+from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.rate_limiter import (
     _HEARTBEAT_INTERVAL_SECONDS,
     _HEARTBEAT_TIMEOUT_SECONDS,
@@ -457,7 +457,10 @@ class TCPTransportMixin:
                 and hmac.compare_digest(auth_msg.get("token", ""), expected_token)
             )
             if not token_valid:
-                log.warning("[TCP] auth failed — invalid token")
+                # Include the peer address so repeated stale-client
+                # retries (e.g. a leftover Electron/Tauri host holding an
+                # old token) are distinguishable from a real attack.
+                log.warning("[TCP] auth failed — invalid token (from %s)", addr)
                 try:
                     auth_client.write(
                         json.dumps(

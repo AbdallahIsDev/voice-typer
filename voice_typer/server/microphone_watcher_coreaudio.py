@@ -111,10 +111,28 @@ def _try_import_coreaudio() -> SimpleNamespace:
             "pyobjc-framework-CoreFoundation"
         ) from exc
 
+    # Default-input-device property selector. Use ``getattr`` so a
+    # pyobjc release that lacks the symbol (older
+    # pyobjc-framework-CoreAudio versions) falls back to ``None``
+    # and the watcher skips registering that listener rather than
+    # raising ``AttributeError``. ``kAudioHardwarePropertyDefaultInputDevice``
+    # fires when the user changes the default input device in macOS
+    # System Settings → Sound — critical for ``config.microphone is
+    # None`` (PortAudio opens the OS default at stream-open time and
+    # never re-resolves). The existing ``kAudioHardwarePropertyDevices``
+    # listener only fires on device-LIST changes (add/remove), NOT on
+    # default-device changes.
+    k_audio_hardware_property_default_input_device = getattr(
+        __import__("CoreAudio"),
+        "kAudioHardwarePropertyDefaultInputDevice",
+        None,
+    )
+
     return SimpleNamespace(
         add_listener=AudioObjectAddPropertyListener,
         remove_listener=AudioObjectRemovePropertyListener,
         property_devices=kAudioHardwarePropertyDevices,
+        property_default_input=k_audio_hardware_property_default_input_device,
         element_master=kAudioObjectPropertyElementMaster,
         scope_global=kAudioObjectPropertyScopeGlobal,
         system_object=kAudioObjectSystemObject,
@@ -387,34 +405,116 @@ class CoreAudioMicrophoneWatcher:
             )
             return
 
-        # Capture the current thread's CFRunLoop so ``stop()`` can
-        # wake it from another thread. Must be done BEFORE
-        # ``CFRunLoopRun`` because ``CFRunLoopRun`` blocks.
-        # publish under ``self._lock`` so ``stop()``'s
-        # snapshot of (``_run_loop``, ``_ca``) is atomic with the
-        # assignment. The lock is NOT held during ``CFRunLoopRun``
-        # (which blocks) — that would deadlock ``stop()``.
-        with self._lock:
-            self._run_loop = ca.runloop_get_current()
+        # Second listener on ``kAudioHardwarePropertyDefaultInputDevice``
+        # — fires when the user changes the default input device in
+        # macOS System Settings → Sound (critical for
+        # ``config.microphone is None``: PortAudio opens the OS
+        # default at stream-open time and never re-resolves; without
+        # this listener, a mid-session default change is silently
+        # ignored). Best-effort: ``property_default_input`` is ``None``
+        # on older pyobjc releases that lack the symbol, in which
+        # case this listener is skipped (the polling watcher's
+        # ``_check_default_device_changed`` is the fallback).
+        default_input_address: tuple | None = None
+        default_input_registered = False
+        if ca.property_default_input is not None:
+            default_input_address = (
+                ca.property_default_input,
+                ca.scope_global,
+                ca.element_master,
+            )
+            try:
+                di_status = ca.add_listener(
+                    ca.system_object,
+                    default_input_address,
+                    _listener,
+                    None,
+                )
+            except Exception:
+                log.warning(
+                    "[MIC-WATCHER-CA] AudioObjectAddPropertyListener(default-input) raised "
+                    "(continuing with device-list listener only)",
+                    exc_info=True,
+                )
+                di_status = None
+            if di_status is not None and di_status != _NO_ERR:
+                log.warning(
+                    "[MIC-WATCHER-CA] AudioObjectAddPropertyListener(default-input) failed "
+                    "(status=%s, continuing with device-list listener only)",
+                    di_status,
+                )
+            else:
+                default_input_registered = True
+                log.debug("[MIC-WATCHER-CA] default-input-device listener registered alongside device-list listener")
 
-        log.debug("[MIC-WATCHER-CA] listener registered, entering CFRunLoop")
-        # ``CFRunLoopRun`` blocks until ``CFRunLoopStop`` is called
-        # from another thread (or a run-loop source signals stop).
-        ca.runloop_run()
-
-        # Cleanup — remove the listener. Best-effort: if this fails
-        # the listener leaks but the watcher thread is dying anyway,
-        # and the 30 s TTL cache in ``recording.py`` covers missed
-        # notifications.
+        # Wrap runloop-capture + run + cleanup in try/finally so a
+        # runloop-capture failure (plausible under pyobjc when the
+        # thread has no run loop yet, or under memory pressure) does
+        # NOT orphan the already-registered listener(s). Pre-fix,
+        # ``ca.runloop_get_current()`` raising propagated to
+        # ``_run``'s top-level except, which logged and exited the
+        # thread WITHOUT removing the listener — the orphaned listener
+        # continued to fire into the Python ``_listener`` closure on
+        # every subsequent device change for the lifetime of the
+        # process. The closure captures ``self`` (via
+        # ``self._on_change()``), so ``self`` was kept alive by
+        # CoreAudio's internal reference even after ``stop()``
+        # cleared ``self._listener_proc = None``.
         try:
-            ca.remove_listener(
-                ca.system_object,
-                address,
-                _listener,
-                None,
-            )
-        except Exception:
-            log.debug(
-                "[MIC-WATCHER-CA] AudioObjectRemovePropertyListener failed",
-                exc_info=True,
-            )
+            # Capture the current thread's CFRunLoop so ``stop()`` can
+            # wake it from another thread. Must be done BEFORE
+            # ``CFRunLoopRun`` because ``CFRunLoopRun`` blocks.
+            # publish under ``self._lock`` so ``stop()``'s
+            # snapshot of (``_run_loop``, ``_ca``) is atomic with the
+            # assignment. The lock is NOT held during ``CFRunLoopRun``
+            # (which blocks) — that would deadlock ``stop()``.
+            with self._lock:
+                self._run_loop = ca.runloop_get_current()
+
+            log.debug("[MIC-WATCHER-CA] listener registered, entering CFRunLoop")
+            # ``CFRunLoopRun`` blocks until ``CFRunLoopStop`` is called
+            # from another thread (or a run-loop source signals stop).
+            ca.runloop_run()
+        finally:
+            # Cleanup — remove the listener(s). Best-effort: if this
+            # fails the listener leaks but the watcher thread is
+            # dying anyway, and the 30 s TTL cache in ``recording.py``
+            # covers missed notifications. Guarded with
+            # ``if _listener is not None`` and ``self._ca is not None``
+            # so a ``stop()`` that already cleared ``_ca`` (and the
+            # local ``_listener`` closure went out of scope) is a
+            # silent no-op rather than an AttributeError.
+            #
+            # Re-read ``self._ca`` here rather than relying on the
+            # outer ``ca`` parameter: ``stop()`` may have cleared
+            # ``self._ca = None`` between the ``add_listener`` call
+            # and this cleanup. The local ``ca`` is still valid
+            # (Python keeps the SimpleNamespace alive via the local
+            # reference), so we use it for the ``remove_listener``
+            # call — the symbols are the same instance.
+            if _listener is not None:
+                try:
+                    ca.remove_listener(
+                        ca.system_object,
+                        address,
+                        _listener,
+                        None,
+                    )
+                except Exception:
+                    log.debug(
+                        "[MIC-WATCHER-CA] AudioObjectRemovePropertyListener failed",
+                        exc_info=True,
+                    )
+                if default_input_registered and default_input_address is not None:
+                    try:
+                        ca.remove_listener(
+                            ca.system_object,
+                            default_input_address,
+                            _listener,
+                            None,
+                        )
+                    except Exception:
+                        log.debug(
+                            "[MIC-WATCHER-CA] AudioObjectRemovePropertyListener(default-input) failed",
+                            exc_info=True,
+                        )

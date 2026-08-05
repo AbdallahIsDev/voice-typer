@@ -166,11 +166,11 @@ def quit(controller: ShutdownController) -> None:  # noqa: A001 — mirrors the 
     app._do_cleanup()
 
     # After ``_do_cleanup()`` completes on a non-main thread,
-    # arm a 10s watchdog daemon thread. ``sys.exit(0)`` below only
+    # arm a 2s watchdog daemon thread. ``sys.exit(0)`` below only
     # raises ``SystemExit`` in THIS worker thread — process exit
     # relies on the main thread returning from ``tray.run()`` (which
     # ``tray.stop()``, called inside ``_do_cleanup()``, was supposed
-    # to break). If the main thread still hasn't returned after 10s
+    # to break). If the main thread still hasn't returned after 2s
     # (pystray's event loop didn't actually break, or the OS window
     # manager is stuck), the watchdog calls ``os._exit(0)`` as a
     # last resort. ``os._exit(0)`` is safe here because every
@@ -178,6 +178,10 @@ def quit(controller: ShutdownController) -> None:  # noqa: A001 — mirrors the 
     # The watchdog is a daemon thread, so it never blocks process
     # exit in the normal case (main thread returns, process exits,
     # daemon thread is killed).
+    # The constant ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` is 2.0s (matches
+    # ``_DE11_GRACE_PERIOD_SECONDS``); the previous comment incorrectly
+    # said "10s". Git history confirms it has always been 2.0s (see
+    # ``_timeout_utils.py:_DE11_GRACE_PERIOD_SECONDS``).
     if not is_main:
         controller._arm_shutdown_watchdog(SHUTDOWN_WATCHDOG_TIMEOUT_S)
 
@@ -238,11 +242,19 @@ def arm_shutdown_watchdog(
         # effort), but if a leaked thread holds a lock on
         # ``history_db._write_lock`` or the ctranslate2 model mutex,
         # the OS-level kill can leave the SQLite WAL half-written
-        # or the CUDA context half-torn-down. ``join_leaked_workers``
-        # blocks the watchdog for up to 2s total (per-worker 200ms
-        # join, capped at 10 workers) so the daemons can finish
-        # their critical sections. The 2s drain is well within the
-        # watchdog's 30s budget.
+        # or the CUDA context half-torn-down.
+        #
+        # ``join_leaked_workers`` is called in shared-deadline mode
+        # (``total_budget=1.0``) so the watchdog's effective time is
+        # bounded regardless of how many workers are in the registry.
+        # Each worker gets at most ``min(0.2, remaining_budget)`` seconds
+        # and the iteration is capped at the first 10 workers by
+        # registration order, so the worst-case drain time is
+        # ``min(10 * 0.2, 1.0) = 1.0`` seconds. The previous call used
+        # ``timeout=0.5`` per-worker with no worker-count cap, so N
+        # leaked workers would block for ``N * 0.5`` seconds (e.g.
+        # 20 workers → 10s — far exceeding the 2s watchdog budget).
+        # The 1.0s drain is well within the watchdog's 2s budget.
         #
         # Lazy import so tests that patch
         # ``voice_typer.server.shutdown_controller.join_leaked_workers``
@@ -257,10 +269,29 @@ def arm_shutdown_watchdog(
                 join_leaked_workers,
             )
 
-            join_leaked_workers(timeout=0.5)
+            join_leaked_workers(total_budget=1.0)
         except Exception:
             log.debug(
                 "[SHUTDOWN] join_leaked_workers raised — proceeding to os._exit(0)",
+                exc_info=True,
+            )
+        # Best-effort clear of the backend PID file BEFORE
+        # ``os._exit(0)``. ``os._exit(0)`` bypasses atexit (and
+        # therefore bypasses the atexit safety net registered in
+        # ``teardowns/pid_file.py``), so without this call a stale
+        # PID file from this process would survive and falsely block
+        # the next launch's single-instance check (or trigger a
+        # stale-PID kill of an unrelated recycled PID). Failure here
+        # MUST NOT block the exit — log a warning and proceed to
+        # ``os._exit(0)`` so the watchdog still unblocks the main
+        # thread.
+        try:
+            from voice_typer.server import app as _app_module
+
+            _app_module._clear_backend_pid_file()
+        except Exception:
+            log.warning(
+                "[SHUTDOWN] could not clear backend PID file before os._exit",
                 exc_info=True,
             )
         os._exit(0)

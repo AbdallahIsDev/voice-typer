@@ -60,9 +60,7 @@ import os
 import sys  # noqa: F401  # re-exported / monkeypatch target for tests
 import threading
 import time
-from collections.abc import Callable
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     # Type-only import to avoid the import cycle (``app`` imports
@@ -73,6 +71,13 @@ if TYPE_CHECKING:
     # the same duck-typed surface).
     from voice_typer.server.app import VoiceTyperApp
 
+# Single source of truth for the declarative shutdown plan + driver lives
+# in :mod:`voice_typer.server.shutdown.plan` (extracted out of this module
+# to keep the controller wiring-focused). Re-imported here so existing
+# callers — tests do
+# ``from voice_typer.server.shutdown_controller import ShutdownPlan,
+# ShutdownStep`` — keep resolving, and so the dataclass constructors used
+# in ``_do_cleanup`` below remain in scope without duplication.
 from voice_typer.server._timeout_utils import (  # noqa: F401  # SHUTDOWN_WATCHDOG_TIMEOUT_S + join_leaked_workers re-exported for tests
     SHUTDOWN_WATCHDOG_TIMEOUT_S,
     TIMEOUT,
@@ -81,6 +86,11 @@ from voice_typer.server._timeout_utils import (  # noqa: F401  # SHUTDOWN_WATCHD
     join_leaked_workers,
 )
 from voice_typer.server.platform_utils import is_windows
+from voice_typer.server.shutdown.plan import (  # noqa: F401  # re-exported for tests + call sites
+    ShutdownPlan,
+    ShutdownStep,
+    run_plan,
+)
 
 log = logging.getLogger(__name__)
 
@@ -107,10 +117,13 @@ log = logging.getLogger(__name__)
 # applied inconsistently — only the ``recorder.stop`` →
 # ``shutdown_mic_watcher`` pair had it inline.
 #
-# The dataclasses below make the ordering contract EXPLICIT and
-# machine-checkable. ``_do_cleanup`` builds two ``ShutdownPlan``
-# instances (sequenced + parallel) and hands them to ``_run_plan``,
-# which:
+# The dataclasses in :mod:`voice_typer.server.shutdown.plan`
+# (``ShutdownStep`` / ``ShutdownPlan``) make the ordering contract
+# EXPLICIT and machine-checkable, and the :func:`run_plan` driver
+# encapsulates the per-step timeout + barrier logic.
+# ``_do_cleanup`` builds two ``ShutdownPlan`` instances (sequenced +
+# parallel) and hands them to ``_run_plan`` (a thin delegate to
+# :func:`run_plan`), which:
 #   1. runs each step via ``_run_with_timeout`` (sequenced) or
 #      ``_run_parallel_with_timeout`` (parallel);
 #   2. records which step names timed out; and
@@ -122,73 +135,39 @@ log = logging.getLogger(__name__)
 # The barrier is currently expressed for the PortAudio resource pair
 # (``teardown_sounddevice`` depends on ``teardown_recorder`` and skips
 # when the recorder timed out). The same pattern can be extended to
-# future resource pairs without modifying ``_run_plan``.
+# future resource pairs without modifying ``run_plan``.
 
 
-@dataclass(frozen=True)
-class ShutdownStep:
-    """One declarative teardown step.
+# ─── Shutdown-deadline budget helpers (module-level) ────────────────
+#
+# Extracted from the closures that previously lived inside
+# ``_do_cleanup`` so the extracted plan-building helpers
+# (``_build_sequenced_plan`` / ``_build_parallel_plan``) and
+# ``_run_plan`` (inter-step deadline check) can share the same
+# deadline-budget logic without re-defining the closures or passing
+# them as parameters. Reading *deadline* as a parameter (instead of
+# capturing a local) keeps the helpers pure functions of the deadline.
 
-    Parameters
-    ----------
-    name:
-        Unique identifier within the owning :class:`ShutdownPlan`.
-        Used as the ``depends_on`` target by other steps.
-    func:
-        The callable to invoke (typically a bound ``_teardown_*``
-        method on :class:`ShutdownController`).
-    timeout:
-        Per-step hard timeout in seconds. When the step does not
-        finish in time, ``_run_with_timeout`` returns :data:`TIMEOUT`
-        and the worker thread is leaked as a daemon (registered for
-        best-effort join via ``join_leaked_workers``).
-    depends_on:
-        Name of another step in the SAME plan or in a previously-run
-        plan whose completion this step logically depends on. Used
-        together with ``skip_if_dep_timed_out`` to express the
-        barrier pattern. ``None`` (default) means no dependency.
-    skip_if_dep_timed_out:
-        When True, ``_run_plan`` skips this step if the named
-        ``depends_on`` step timed out. This is the barrier: a
-        downstream call that touches the same OS resource as an
-        upstream call (e.g. ``sd.stop()`` after a leaked
-        ``recorder.stop()``) MUST be skipped because the upstream
-        worker is still accessing the resource and a concurrent
-        downstream call can deadlock (notably on WASAPI PortAudio
-        backends where the stream lock is held).
+
+def _shutdown_remaining(deadline: float) -> float:
+    """Return the remaining seconds until *deadline* (clamped to 0).
+
+    The clamp to 0 ensures downstream ``< 5.0`` (near) and
+    ``min(step_timeout, remaining)`` (cap) computations never go
+    negative when the deadline has already passed.
     """
-
-    name: str
-    func: Callable[[], object]
-    timeout: float
-    depends_on: str | None = None
-    skip_if_dep_timed_out: bool = False
+    return max(0.0, deadline - time.monotonic())
 
 
-@dataclass(frozen=True)
-class ShutdownPlan:
-    """An ordered collection of :class:`ShutdownStep` instances.
+def _shutdown_deadline_near(deadline: float) -> bool:
+    """True when less than 5s remain before *deadline*.
 
-    The ``phase`` field selects the execution strategy:
-
-    * ``"sequenced"`` — steps run one at a time, each wrapped in
-      ``_run_with_timeout``. A slow step does not block subsequent
-      steps past its own timeout. Used for teardowns that MUST
-      complete in order (e.g. ``recorder.stop`` must finish before
-      ``history_db.flush`` so the transcription thread's final write
-      is enqueued before the DB is closed).
-    * ``"parallel"`` — steps run concurrently via
-      ``_run_parallel_with_timeout`` (a bounded ``ThreadPoolExecutor``
-      with max_workers=8). Used for teardowns that touch disjoint
-      resources and can race safely.
-
-    The ``_run_plan`` driver returns the set of step names that
-    timed out (so a subsequent plan can apply ``skip_if_dep_timed_out``
-    barriers against them).
+    The 5s threshold gates the skip of non-critical teardowns so the
+    remaining budget can be spent on critical flushes (history_db,
+    crash_recovery, recorder.stop, mutex, PID file) + the late
+    ``tray.stop`` bookend.
     """
-
-    phase: Literal["sequenced", "parallel"]
-    steps: tuple[ShutdownStep, ...] = field(default_factory=tuple)
+    return _shutdown_remaining(deadline) < 5.0
 
 
 class ShutdownController:
@@ -276,6 +255,16 @@ class ShutdownController:
         self._shutdown_signal_event: threading.Event = threading.Event()
         self._shutdown_signum: int | None = None
         self._signal_watcher_started = False
+        # Counter for the number of POSIX signals received. Incremented
+        # in the async-signal-safe handler (atomic ``int`` increment
+        # under the GIL) and read by ``signal_watcher_loop`` to
+        # escalate on the SECOND signal (force-exit via ``os._exit(1)``).
+        # Initial value 0; the first signal increments to 1 (graceful
+        # path), the second to 2 (escalation path).
+        # ``getattr(controller, "_signal_count", 0)`` in the watcher
+        # handles the case where a test bypassed ``__init__`` (e.g.
+        # ``SimpleNamespace``).
+        self._signal_count: int = 0
         # dedicated lock for the check-then-set-then-shutdown_all
         # sequence in ``quit()``. Multiple shutdown triggers can fire
         # concurrently (POSIX signal-watcher, Win32 console handler,
@@ -323,6 +312,17 @@ class ShutdownController:
         # happens-before guarantee on the flag read.
         self._recorder_teardown_done: threading.Event = threading.Event()
         self._recorder_force_closed: bool = False
+
+        # Published by ``_do_cleanup`` so ``_run_plan`` can apply
+        # inter-step deadline checks between sequenced
+        # teardowns without changing its call-site signature (the exact
+        # text ``_timed_out = self._run_plan(sequenced_plan,
+        # frozenset())`` is pinned by
+        # ``tests/test_shutdown_recording_fixes.py``). ``None`` outside
+        # an active ``_do_cleanup`` call — direct ``_run_plan``
+        # invocations from tests (which use a fresh controller or
+        # ``__new__``) skip the inter-step check.
+        self._shutdown_deadline: float | None = None
 
     # ─── Shared cleanup body ───────────────────────────────────────────
 
@@ -408,32 +408,109 @@ class ShutdownController:
         # crash_recovery stay in the sequenced phase (NOT a parallel
         # sub-batch) so the recorder's transcription thread is joined
         # before the DB flush, and the crash-recovery snapshot drains
-        # after — see the sequenced-phase rationale below. The 20s
-        # deadline is checked before each phase; when the remaining
-        # budget drops below 5s, non-critical teardowns are SKIPPED and
-        # only critical flushes (history_db, crash_recovery,
+        # after — see the sequenced-phase rationale in
+        # ``_build_sequenced_plan``. The 20s deadline is checked before
+        # each phase and between each sequenced step; when the
+        # remaining budget drops below 5s, non-critical teardowns are
+        # SKIPPED and only critical flushes (history_db, crash_recovery,
         # recorder.stop, mutex, PID file) + the late ``tray.stop``
         # bookend run. Skipped teardowns are logged at WARNING.
         _shutdown_deadline: float = time.monotonic() + 20.0
         _shutdown_skipped: list[str] = []
-
-        def _shutdown_remaining() -> float:
-            return max(0.0, _shutdown_deadline - time.monotonic())
-
-        def _shutdown_deadline_near() -> bool:
-            return _shutdown_remaining() < 5.0
+        # Publish the deadline on the instance so ``_run_plan`` can
+        # apply inter-step deadline checks between sequenced
+        # teardowns without changing its call-site signature (the exact
+        # text ``_timed_out = self._run_plan(sequenced_plan,
+        # frozenset())`` is pinned by static contract tests in
+        # ``tests/test_shutdown_recording_fixes.py``). ``_do_cleanup``
+        # is idempotent (gated by ``_cleanup_done``) so the body runs
+        # at most once per controller; direct ``_run_plan`` invocations
+        # from tests use a fresh controller where the attribute is
+        # ``None`` (initialised in ``__init__``).
+        self._shutdown_deadline = _shutdown_deadline
 
         # ── Early bookend (parallel ipc_server.stop + WS drain) ─────────
         #  (partial) + SU-23: stop the IPC server EARLY so inbound
         # requests can't resurrect torn-down subsystems, and drain / cancel
         # in-flight WS dispatch requests BEFORE any subsystem teardown —
         # CONCURRENTLY, in a single ``_run_parallel_with_timeout`` batch
-        # (SU-23). They touch disjoint pools (the TCP worker pool and the WS
-        # dispatch pool), so parallelisation is safe. ``_shutting_down`` is
-        # already True (set by ``quit()`` before calling this method), so the
-        # ``sidecar_ws._make_dispatch`` ``dispatch`` coroutine is already
-        # rejecting NEW requests. Best-effort — failures here don't prevent
-        # the rest of cleanup from running.
+        # (SU-23). They touch disjoint pools (the TCP worker pool and the
+        # WS dispatch pool), so parallelisation is safe. Body extracted to
+        # ``_drain_ws_dispatch_pool`` — preserves the exact
+        # WS-pool drain logic including the ``if join_thread.is_alive():``
+        # timeout branch.
+        self._drain_ws_dispatch_pool(app)
+
+        # ── Sequenced critical teardowns ────────────────────────────
+        # The transcription thread (spawned by ``recorder.stop()``) runs
+        # ASR inference and writes its result to ``history_db`` via
+        # fire-and-forget ``add_transcription()``. The ASR model the
+        # thread is mid-inference on must NOT be unloaded, and the DB
+        # must NOT be closed, until the thread has finished. The
+        # sequenced phase runs the dependent teardowns IN ORDER (timers
+        # → recorder → history_db → crash_recovery), each wrapped in
+        # ``_run_with_timeout`` so a stuck helper doesn't block the
+        # rest of cleanup. Plan construction (including the deadline-near
+        # skip of ``teardown_timers_and_recording``) lives in
+        # ``_build_sequenced_plan``.
+        sequenced_plan = self._build_sequenced_plan(_shutdown_deadline, _shutdown_skipped)
+        _timed_out = self._run_plan(sequenced_plan, frozenset())
+
+        # ── Parallel batch: 11 independent teardown helpers ─────────
+        # Each helper is isolated — a failure in one does NOT propagate
+        # (``_run_parallel_with_timeout`` captures per-call exceptions).
+        # ``_teardown_asr_models`` is placed FIRST so the (potentially
+        # slow) CUDA context teardown starts as early as possible. It
+        # runs AFTER the sequenced critical phase (which joins the
+        # transcription thread), so the ASR model is only unloaded once
+        # the thread's inference has completed. Plan construction
+        # (including the deadline-near skip of non-critical helpers +
+        # the ``teardown_sounddevice`` barrier on ``teardown_recorder``)
+        # lives in ``_build_parallel_plan``.
+        parallel_plan = self._build_parallel_plan(_shutdown_deadline, _timed_out, _shutdown_skipped)
+        if parallel_plan is not None:
+            self._run_plan(parallel_plan, _timed_out)
+
+        # Overall-deadline summary: emit a single WARNING listing every
+        # teardown that was skipped due to the 20s deadline.
+        if _shutdown_skipped:
+            log.warning(
+                "[SHUTDOWN] skipped %d teardown(s) due to 20s deadline: %s",
+                len(_shutdown_skipped),
+                ", ".join(_shutdown_skipped),
+            )
+
+        log.info("[SHUTDOWN] Shutdown complete, exiting")
+
+        # ── Late bookend (sequential) ────────────────────────────────
+        # ``tray.stop()`` MUST be the LAST step in ``_do_cleanup()``.
+        # Body extracted to ``_late_bookend_tray_stop`` —
+        # preserves the timeout branch + the non-main-thread
+        # ``os._exit(0)`` fallback.
+        self._late_bookend_tray_stop(app)
+
+    # ─── Early bookend helper — ──────────────────────
+
+    def _drain_ws_dispatch_pool(self, app) -> None:
+        """Early bookend: stop the IPC server + drain the WS dispatch pool.
+
+        Extracted from ``_do_cleanup``. Stops the IPC server
+        EARLY so inbound requests can't resurrect torn-down subsystems,
+        and drains / cancels in-flight WS dispatch requests BEFORE any
+        subsystem teardown — concurrently, in a single
+        ``_run_parallel_with_timeout`` batch. They touch disjoint pools
+        (the TCP worker pool and the WS dispatch pool), so
+        parallelisation is safe. ``_shutting_down`` is already True (set
+        by ``quit()`` before calling ``_do_cleanup``), so the
+        ``sidecar_ws._make_dispatch`` ``dispatch`` coroutine is already
+        rejecting NEW requests. Best-effort — failures here don't
+        prevent the rest of cleanup from running.
+
+        Preserves the ``if join_thread.is_alive():`` drain-timeout
+        branch (pinned by
+        ``tests/test_shutdown_fast_path.py::TestOsExitOnStuckWsDrain::
+        test_ws_drain_timeout_branch_exists``).
+        """
         try:
             ipc_server = getattr(app, "_ipc_server", None)
             ws_pool = getattr(ipc_server, "_ws_dispatch_pool", None) if ipc_server is not None else None
@@ -488,76 +565,96 @@ class ShutdownController:
             if ipc_server is not None:
                 ws_drained_event = getattr(ipc_server, "_ws_drained_event", None)
                 if ws_drained_event is not None:
-                    drained = ws_drained_event.wait(timeout=2.0)
-                    if not drained:
-                        in_flight = getattr(ipc_server, "_ws_inflight_count", 0)
-                        # DJ-9: drain-timeout branch — log at WARNING and
-                        # proceed (never block) so an in-flight write can't
-                        # stall shutdown.
-                        log.warning(
-                            "[SHUTDOWN] DJ-9: WS dispatch drain Event did not "
-                            "fire in 2s — %s in-flight handler(s) may race DB "
-                            "teardown; proceeding with cleanup (the in-flight "
-                            "write may silently fail)",
-                            in_flight,
+                    # Skip the 2s wait when the WS pool is already idle
+                    # (``_ws_inflight_count == 0``). The
+                    # ``sidecar_ws._make_dispatch`` lazily attaches
+                    # ``_ws_inflight_count`` (an int, initially 0) on
+                    # first dispatch; before any dispatch has ever
+                    # fired, the attribute is missing —
+                    # ``getattr(..., 0)`` falls back to 0 and the wait
+                    # is skipped (no in-flight handler can race DB
+                    # teardown when the pool has never been used).
+                    # When ``_ws_inflight_count > 0``, the original 2s
+                    # bounded wait is kept so an in-flight handler
+                    # gets its bounded window to finish its DB write
+                    # before ``_teardown_history_db`` starts.
+                    ws_inflight = getattr(ipc_server, "_ws_inflight_count", 0)
+                    if ws_inflight == 0:
+                        log.debug(
+                            "[SHUTDOWN] ws_drained_event.wait skipped "
+                            "(_ws_inflight_count=0 — no in-flight WS handler "
+                            "can race DB teardown)"
                         )
+                    else:
+                        drained = ws_drained_event.wait(timeout=2.0)
+                        if not drained:
+                            in_flight = getattr(ipc_server, "_ws_inflight_count", 0)
+                            # DJ-9: drain-timeout branch — log at WARNING and
+                            # proceed (never block) so an in-flight write can't
+                            # stall shutdown.
+                            log.warning(
+                                "[SHUTDOWN] DJ-9: WS dispatch drain Event did not "
+                                "fire in 2s — %s in-flight handler(s) may race DB "
+                                "teardown; proceeding with cleanup (the in-flight "
+                                "write may silently fail)",
+                                in_flight,
+                            )
         except Exception:
             log.debug(
                 "[SHUTDOWN] early bookend (ipc_server.stop + WS drain) failed",
                 exc_info=True,
             )
 
-        # ── Sequenced critical teardowns ────────────────────────────
-        # The transcription thread (spawned by ``recorder.stop()``) runs
-        # ASR inference and writes its result to ``history_db`` via
-        # fire-and-forget ``add_transcription()``. The ASR model the
-        # thread is mid-inference on must NOT be unloaded, and the DB
-        # must NOT be closed, until the thread has finished. Running
-        # ``_teardown_recorder``, ``_teardown_history_db``, and
-        # ``_teardown_asr_models`` concurrently in a single parallel
-        # wave races the thread's inference + DB write, risking:
-        #   - a segfault or undefined torch state when the ASR model is
-        #     unloaded under the transcription thread
-        #   - silent drop of the user's last utterance when the DB is
-        #     closed before the thread's ``add_transcription()`` fires
-        #
-        # The sequenced phase runs the dependent teardowns IN ORDER, each
-        # wrapped in ``_run_with_timeout`` so a stuck helper doesn't
-        # block the rest of cleanup:
-        #   1. ``_teardown_timers_and_recording`` — cancel timers, pop
-        #      the streaming session, signal cancel.
-        #   2. ``_teardown_recorder`` — ``recorder.stop()`` + join the
-        #      transcription thread (3s timeout). Sets
-        #      ``_recorder_teardown_done`` so the downstream
-        #      ``_teardown_sounddevice`` (in the parallel batch) gets a
-        #      happens-before guarantee on ``_recorder_force_closed``.
-        #   3. ``_teardown_history_db`` — ``flush()`` + ``close()`` to
-        #      drain pending writes (including the one the transcription
-        #      thread just enqueued).
-        #   4. ``_teardown_crash_recovery`` — ``flush()`` + ``shutdown()``
-        #      to drain pending crash-recovery snapshots.
-        #
-        # ``_teardown_asr_models`` stays in the parallel batch (below):
-        # the sequenced phase completes BEFORE the parallel batch starts,
-        # so the transcription thread is already joined by the time the
-        # ASR model is unloaded. This preserves the parallel speedup for
-        # CUDA teardown (which is independent of the DB close).
-        #
-        # The sequenced phase is now declared as a list of
-        # 5-element tuples ``(name, func, timeout, depends_on,
-        # skip_if_dep_timed_out)`` and executed by :meth:`_run_plan`
-        # via the :class:`ShutdownPlan` dataclass. The driver returns
-        # the set of step names that timed out, which is threaded into
-        # the parallel plan below so the barrier
-        # (``skip_if_dep_timed_out``) can skip downstream steps whose
-        # upstream resource is still being accessed by a leaked worker.
-        # The list-of-tuples form (rather than direct ``ShutdownStep``
-        # construction) is kept so source-text contract tests
-        # (``tests/test_shutdown_fast_path.py::TestSequentialHistoryAndCrashRecovery``
-        # and ``tests/test_shutdown_asr_unload.py::TestTeardownAsrModelsContract``)
-        # continue to find the sequenced / parallel symbols + the
-        # ``("teardown_<name>",`` entry pattern.
-        #
+    # ─── Sequenced plan builder — ────────────────────
+
+    def _build_sequenced_plan(
+        self,
+        deadline: float,
+        skipped: list[str],
+    ) -> ShutdownPlan:
+        """Build the sequenced critical-teardown plan.
+
+        Extracted from ``_do_cleanup``. The sequenced phase
+        runs the dependent teardowns IN ORDER, each wrapped in
+        ``_run_with_timeout`` so a stuck helper doesn't block the rest
+        of cleanup:
+
+          1. ``_teardown_timers_and_recording`` — cancel timers, pop
+             the streaming session, signal cancel. SKIPPED when the
+             deadline is near (non-critical).
+          2. ``_teardown_recorder`` — ``recorder.stop()`` + join the
+             transcription thread (3s timeout). Sets
+             ``_recorder_teardown_done`` so the downstream
+             ``_teardown_sounddevice`` (in the parallel batch) gets a
+             happens-before guarantee on ``_recorder_force_closed``.
+          3. ``_teardown_history_db`` — ``flush()`` + ``close()`` to
+             drain pending writes (including the one the transcription
+             thread just enqueued).
+          4. ``_teardown_crash_recovery`` — ``flush()`` + ``shutdown()``
+             to drain pending crash-recovery snapshots.
+
+        ``_teardown_asr_models`` stays in the parallel batch (built by
+        ``_build_parallel_plan``): the sequenced phase completes BEFORE
+        the parallel batch starts, so the transcription thread is
+        already joined by the time the ASR model is unloaded.
+
+        The list-of-tuples form (rather than direct ``ShutdownStep``
+        construction) is kept so source-text contract tests
+        (``tests/test_shutdown_fast_path.py::TestSequentialHistoryAndCrashRecovery``
+        and ``tests/test_shutdown_asr_unload.py::TestTeardownAsrModelsContract``)
+        continue to find the sequenced / parallel symbols + the
+        ``("teardown_<name>",`` entry pattern.
+
+        Parameters
+        ----------
+        deadline:
+            The overall 20s shutdown deadline (``time.monotonic() +
+            20.0``), used to decide whether to skip the non-critical
+            ``teardown_timers_and_recording`` step.
+        skipped:
+            Mutable list of skipped step names; appended to in place so
+            ``_do_cleanup`` can emit a single summary WARNING at the end.
+        """
         # Overall-deadline skip: when the 20s deadline is near (< 5s
         # remaining) at the start of the sequenced phase,
         # ``teardown_timers_and_recording`` is SKIPPED (non-critical).
@@ -565,13 +662,13 @@ class ShutdownController:
         # ``teardown_crash_recovery`` ALWAYS run — they contain critical
         # flushes.
         sequenced_items: list[tuple[str, object, float, str | None, bool]] = []
-        if _shutdown_deadline_near():
+        if _shutdown_deadline_near(deadline):
             log.warning(
                 "[SHUTDOWN] deadline near (%.1fs remaining) at sequenced "
                 "phase entry — skipping teardown_timers_and_recording (non-critical)",
-                _shutdown_remaining(),
+                _shutdown_remaining(deadline),
             )
-            _shutdown_skipped.append("teardown_timers_and_recording")
+            skipped.append("teardown_timers_and_recording")
         else:
             sequenced_items.append(
                 ("teardown_timers_and_recording", self._teardown_timers_and_recording, 10.0, None, False),
@@ -589,47 +686,70 @@ class ShutdownController:
             phase="sequenced",
             steps=tuple(ShutdownStep(*item) for item in sequenced_items),
         )
-        _timed_out = self._run_plan(sequenced_plan, frozenset())
+        return sequenced_plan
 
-        # ── Parallel batch: 11 independent teardown helpers ─────────
-        # Each helper is isolated — a failure in one does NOT propagate
-        # (``_run_parallel_with_timeout`` captures per-call exceptions).
-        # Shared 10s deadline: each helper is wrapped in
-        # ``_run_with_timeout(..., timeout=10.0)`` by
-        # ``_run_parallel_with_timeout``; if a helper exceeds 10s, the
-        # worker thread is leaked as a daemon and the orchestrator moves
-        # on. The bookends (early WS drain + sequenced critical phase
-        # above + late ``tray.stop`` below) remain sequential.
-        #
-        # ``_teardown_asr_models`` is placed FIRST in the parallel batch
-        # so the (potentially slow) CUDA context teardown starts as
-        # early as possible. It runs AFTER the sequenced critical phase
-        # (which joins the transcription thread), so the ASR model is
-        # only unloaded once the thread's inference has completed — no
-        # race between ``registry.unload()`` and mid-inference torch
-        # state.
-        #
-        # Barrier: ``teardown_sounddevice`` declares
-        # ``depends_on="teardown_recorder"`` + ``skip_if_dep_timed_out=
-        # True``. When the recorder's PortAudio stream failed to close
-        # in time, the leaked worker is still accessing the stream and
-        # a concurrent ``sd.stop()`` can deadlock on WASAPI backends
-        # (stream lock held). The ``_run_plan`` driver skips the step
-        # when the dependency is in ``_timed_out``. The existing
-        # ``_recorder_teardown_done`` Event inside ``teardown_sounddevice``
-        # is kept as a defense-in-depth happens-before guard for the
-        # ``_recorder_force_closed`` flag read (the dataclass barrier
-        # short-circuits before the Event wait when the recorder timed
-        # out; the Event still fires for the success path so the flag
-        # read is ordered).
-        #
-        # Overall-deadline skip: when the 20s deadline is near (< 5s
-        # remaining), skip NON-CRITICAL parallel helpers. The critical
-        # set is ``{teardown_pid_file, teardown_mutex_handle}`` — they
-        # release the single-instance PID file + mutex so the next
-        # launch isn't blocked. Everything else is non-critical under a
-        # tight deadline — the OS will reap those resources at process
-        # exit.
+    # ─── Parallel plan builder — ─────────────────────
+
+    def _build_parallel_plan(
+        self,
+        deadline: float,
+        timed_out: frozenset[str],
+        skipped: list[str],
+    ) -> ShutdownPlan | None:
+        """Build the parallel-batch plan, applying deadline-near skips.
+
+        Extracted from ``_do_cleanup``. Each helper is
+        isolated — a failure in one does NOT propagate
+        (``_run_parallel_with_timeout`` captures per-call exceptions).
+        Shared 10s deadline: each helper is wrapped in
+        ``_run_with_timeout(..., timeout=10.0)`` by
+        ``_run_parallel_with_timeout``; if a helper exceeds 10s, the
+        worker thread is leaked as a daemon and the orchestrator moves
+        on.
+
+        ``_teardown_asr_models`` is placed FIRST in the parallel batch
+        so the (potentially slow) CUDA context teardown starts as
+        early as possible. It runs AFTER the sequenced critical phase
+        (which joins the transcription thread), so the ASR model is
+        only unloaded once the thread's inference has completed — no
+        race between ``registry.unload()`` and mid-inference torch
+        state.
+
+        Barrier: ``teardown_sounddevice`` declares
+        ``depends_on="teardown_recorder"`` + ``skip_if_dep_timed_out=
+        True``. When the recorder's PortAudio stream failed to close
+        in time, the leaked worker is still accessing the stream and
+        a concurrent ``sd.stop()`` can deadlock on WASAPI backends
+        (stream lock held). The ``_run_plan`` driver skips the step
+        when the dependency is in ``timed_out``.
+
+        Overall-deadline skip: when the 20s deadline is near (< 5s
+        remaining), skip NON-CRITICAL parallel helpers. The critical
+        set is ``{teardown_pid_file, teardown_mutex_handle}`` — they
+        release the single-instance PID file + mutex so the next
+        launch isn't blocked. Everything else is non-critical under a
+        tight deadline — the OS will reap those resources at process
+        exit.
+
+        Parameters
+        ----------
+        deadline:
+            The overall 20s shutdown deadline, used to decide which
+            non-critical helpers to skip.
+        timed_out:
+            Step names that timed out in the sequenced plan (used by
+            ``_run_plan`` for the barrier — NOT used directly here but
+            threaded through for the subsequent ``_run_plan`` call).
+        skipped:
+            Mutable list of skipped step names; appended to in place.
+
+        Returns
+        -------
+        ShutdownPlan | None
+            The parallel plan, or ``None`` if every helper was skipped
+            (defensive — the critical set ensures at least 2 items
+            always run, so ``None`` is never returned in practice).
+        """
         _shutdown_critical_parallel: frozenset[str] = frozenset({"teardown_pid_file", "teardown_mutex_handle"})
         all_parallel_items: list[tuple[str, object, float, str | None, bool]] = [
             ("teardown_asr_models", self._teardown_asr_models, 10.0, None, False),
@@ -646,62 +766,56 @@ class ShutdownController:
         ]
         parallel_items: list[tuple[str, object, float, str | None, bool]] = []
         for _desc, _func, _timeout, _dep, _skip in all_parallel_items:
-            if _shutdown_deadline_near() and _desc not in _shutdown_critical_parallel:
+            if _shutdown_deadline_near(deadline) and _desc not in _shutdown_critical_parallel:
                 log.warning(
                     "[SHUTDOWN] deadline near (%.1fs remaining) — skipping non-critical %s",
-                    _shutdown_remaining(),
+                    _shutdown_remaining(deadline),
                     _desc,
                 )
-                _shutdown_skipped.append(_desc)
+                skipped.append(_desc)
                 continue
             parallel_items.append((_desc, _func, _timeout, _dep, _skip))
         # Guard against empty parallel_items (defensive — critical set
         # ensures at least 2 items always run).
-        if parallel_items:
-            parallel_plan = ShutdownPlan(
-                phase="parallel",
-                steps=tuple(ShutdownStep(*item) for item in parallel_items),
-            )
-            self._run_plan(parallel_plan, _timed_out)
+        if not parallel_items:
+            return None
+        parallel_plan = ShutdownPlan(
+            phase="parallel",
+            steps=tuple(ShutdownStep(*item) for item in parallel_items),
+        )
+        return parallel_plan
 
-        # Overall-deadline summary: emit a single WARNING listing every
-        # teardown that was skipped due to the 20s deadline.
-        if _shutdown_skipped:
-            log.warning(
-                "[SHUTDOWN] skipped %d teardown(s) due to 20s deadline: %s",
-                len(_shutdown_skipped),
-                ", ".join(_shutdown_skipped),
-            )
+    # ─── Late bookend helper — ───────────────────────
 
-        log.info("[SHUTDOWN] Shutdown complete, exiting")
+    def _late_bookend_tray_stop(self, app) -> None:
+        """Late bookend: ``tray.stop()`` — MUST be the LAST step in cleanup.
 
-        # ── Late bookend (sequential) ────────────────────────────────
-        # ``tray.stop()`` MUST be the LAST step in
-        # ``_do_cleanup()``. Previously it was step 13 of 19, which
-        # broke the pystray loop on the main thread (blocked in
-        # ``tray.run()`` via ``ipc_server.main()``) before the
-        # remaining cleanups could finish. Moving ``tray.stop()`` to
-        # the end ensures the main thread stays alive (blocked in
-        # ``tray.run()``) until every other cleanup has completed.
-        # Idempotent — wrapped in try-except so a second call after
-        # the tray is already stopped doesn't propagate.
-        # 5s timeout.
-        #
-        #  if ``tray.stop()`` times out AND we're on a
-        # non-main thread, call ``os._exit(0)`` immediately. The main
-        # thread is parked in pystray's ``tray.run()`` event loop and
-        # relies on ``tray.stop()`` breaking that loop to return. If
-        # ``tray.stop()`` hangs, the main thread never returns and the
-        # process is unkillable via the normal path — ``sys.exit(0)`` in
-        # ``quit()`` only raises ``SystemExit`` in THIS worker thread.
-        # ``os._exit(0)`` bypasses Python's orderly shutdown but is safe
-        # here because every other subsystem has already been torn down
-        # by the cleanup steps above. On the main thread, we just log
-        # and continue — ``quit()``'s ``sys.exit(0)`` will handle exit.
-        #
-        # when ``tray.stop()`` RAISES (not times out), the
-        # failure is logged at ERROR (was DEBUG pre-fix) so operators
-        # can see why the main thread stayed parked in ``tray.run()``.
+        Extracted from ``_do_cleanup``. ``tray.stop()`` MUST
+        be the LAST step. Previously it was step 13 of 19, which broke
+        the pystray loop on the main thread (blocked in ``tray.run()``
+        via ``ipc_server.main()``) before the remaining cleanups could
+        finish. Moving ``tray.stop()`` to the end ensures the main
+        thread stays alive (blocked in ``tray.run()``) until every
+        other cleanup has completed. Idempotent — wrapped in
+        try-except so a second call after the tray is already stopped
+        doesn't propagate. 5s timeout.
+
+        If ``tray.stop()`` times out AND we're on a non-main thread,
+        call ``os._exit(0)`` immediately. The main thread is parked in
+        pystray's ``tray.run()`` event loop and relies on
+        ``tray.stop()`` breaking that loop to return. If
+        ``tray.stop()`` hangs, the main thread never returns and the
+        process is unkillable via the normal path — ``sys.exit(0)`` in
+        ``quit()`` only raises ``SystemExit`` in THIS worker thread.
+        ``os._exit(0)`` bypasses Python's orderly shutdown but is safe
+        here because every other subsystem has already been torn down
+        by the cleanup steps above. On the main thread, we just log
+        and continue — ``quit()``'s ``sys.exit(0)`` will handle exit.
+
+        When ``tray.stop()`` RAISES (not times out), the failure is
+        logged at ERROR (was DEBUG pre-fix) so operators can see why
+        the main thread stayed parked in ``tray.run()``.
+        """
         try:
             _tray_stop_result = _run_with_timeout(
                 "tray.stop",
@@ -726,145 +840,25 @@ class ShutdownController:
         """Execute a :class:`ShutdownPlan` and return the set of step
         names that timed out.
 
-        This driver replaces the inline ``for ... in items`` loops
-        that previously lived in ``_do_cleanup``. Behaviour preserved:
+        Thin delegate to :func:`voice_typer.server.shutdown.plan.run_plan`.
+        The driver body (per-step timeout wrapping, pre-flight barrier
+        skip, degraded-step summary) is owned by the extracted
+        :mod:`shutdown.plan` module so it can be unit-tested in
+        isolation — see ``tests/test_shutdown_plan_zr17.py``. The
+        delegate keeps this method on ``ShutdownController`` so the
+        existing ``self._run_plan(plan, prior_timed_out)`` call sites
+        in ``_do_cleanup`` (and the source-inspection tests in
+        ``tests/test_shutdown_recording_fixes.py``) continue to work
+        unchanged.
 
-        * Sequenced phase: each step is wrapped in ``_run_with_timeout``;
-          per-step failures (BaseException) are logged at DEBUG and
-          captured into the ``degraded`` list; TIMEOUT results are
-          logged at WARNING. A summary WARNING fires after the loop if
-          any step degraded.
-        * Parallel phase: steps are handed to
-          ``_run_parallel_with_timeout`` (bounded ThreadPoolExecutor,
-          max_workers=8); per-step results are inspected for BaseException
-          (logged at DEBUG) or TIMEOUT (logged at WARNING); a summary
-          WARNING fires if any step degraded.
-
-        Barrier: for each step, if ``depends_on`` is set and the
-        named dependency is in ``prior_timed_out`` (the union of
-        upstream-plan timed-out steps and any same-plan timed-out steps
-        observed so far) and ``skip_if_dep_timed_out`` is True, the step
-        is SKIPPED (not invoked). The skip is logged at WARNING so
-        operators see the barrier fire. Without this barrier, a
-        downstream call that touches the same OS resource as a leaked
-        upstream worker (e.g. ``sd.stop()`` after a timed-out
-        ``recorder.stop()``) can deadlock on backends like WASAPI where
-        the stream lock is held.
-
-        Parameters
-        ----------
-        plan:
-            The :class:`ShutdownPlan` to execute.
-        prior_timed_out:
-            Step names that timed out in a previously-run plan (e.g. the
-            sequenced plan's timed-out steps are passed in when running
-            the parallel plan, so parallel steps with
-            ``depends_on="teardown_recorder"`` can apply the
-            barrier).
-
-        Returns
-        -------
-        frozenset[str]
-            The union of ``prior_timed_out`` and any step names in THIS
-            plan that timed out. Pass this to the next ``_run_plan``
-            call so cross-plan barriers work.
+        The extracted driver performs a lazy import of
+        ``_run_with_timeout`` / ``_run_parallel_with_timeout`` from
+        THIS module at call time, so tests that monkeypatch
+        ``shutdown_controller._run_with_timeout`` (or
+        ``shutdown_controller._run_parallel_with_timeout``) still
+        take effect through the delegate.
         """
-        if not plan.steps:
-            return prior_timed_out
-
-        timed_out: set[str] = set(prior_timed_out)
-        degraded: list[str] = []
-
-        if plan.phase == "sequenced":
-            for step in plan.steps:
-                if step.depends_on is not None and step.skip_if_dep_timed_out and step.depends_on in timed_out:
-                    log.warning(
-                        "[SHUTDOWN] skipping %s because dependency %s "
-                        "timed out (barrier — downstream call "
-                        "touches the same OS resource as the leaked "
-                        "upstream worker)",
-                        step.name,
-                        step.depends_on,
-                    )
-                    degraded.append(f"{step.name} (skipped: dep {step.depends_on} timed out)")
-                    continue
-                try:
-                    result = _run_with_timeout(step.name, step.func, timeout=step.timeout)
-                    if result is TIMEOUT:
-                        log.warning(
-                            "[SHUTDOWN] %s timed out — worker thread leaked as daemon",
-                            step.name,
-                        )
-                        timed_out.add(step.name)
-                        degraded.append(f"{step.name} (timeout)")
-                except BaseException as exc:  # noqa: BLE001 — per-step isolation
-                    log.debug("[SHUTDOWN] %s raised: %r", step.name, exc)
-                    degraded.append(f"{step.name} (raised: {exc!r})")
-        elif plan.phase == "parallel":
-            # Barrier (pre-flight skip): for each step, if its
-            # declared ``depends_on`` is in ``timed_out`` (which is the
-            # union of ``prior_timed_out`` from earlier plans and any
-            # same-plan timed-out steps observed so far — though the
-            # latter is rare in the parallel phase because steps run
-            # concurrently), and the step opted in to
-            # ``skip_if_dep_timed_out``, SKIP the step (do not submit
-            # it to the pool). This is the barrier applied
-            # uniformly: a downstream call that touches the same OS
-            # resource as a leaked upstream worker MUST be skipped
-            # because the upstream worker is still accessing the
-            # resource and a concurrent downstream call can deadlock
-            # (notably on WASAPI PortAudio backends where the stream
-            # lock is held).
-            #
-            # The pre-flight skip is the canonical barrier
-            # location for cross-plan dependencies (e.g. the parallel
-            # ``teardown_sounddevice`` step depending on the sequenced
-            # ``teardown_recorder`` step). Per-step in-body barriers
-            # (e.g. the ``_recorder_teardown_done`` Event inside
-            # ``teardown_sounddevice``) remain as defense-in-depth for
-            # the case where the dependency SUCCEEDED but the per-step
-            # body still needs to coordinate with the upstream step's
-            # published state (e.g. the ``_recorder_force_closed``
-            # flag).
-            items: list[tuple[str, object, float]] = []
-            for step in plan.steps:
-                if step.depends_on is not None and step.skip_if_dep_timed_out and step.depends_on in timed_out:
-                    log.warning(
-                        "[SHUTDOWN] skipping %s because dependency %s "
-                        "timed out (barrier — downstream call "
-                        "touches the same OS resource as the leaked "
-                        "upstream worker)",
-                        step.name,
-                        step.depends_on,
-                    )
-                    degraded.append(f"{step.name} (skipped: dep {step.depends_on} timed out)")
-                    continue
-                items.append((step.name, step.func, step.timeout))
-            results = _run_parallel_with_timeout(items)
-            for desc, result in results:
-                if isinstance(result, BaseException):
-                    log.debug("[SHUTDOWN] %s raised: %r", desc, result)
-                    degraded.append(f"{desc} (raised: {result!r})")
-                elif result is TIMEOUT:
-                    log.warning(
-                        "[SHUTDOWN] %s timed out — worker thread leaked as daemon",
-                        desc,
-                    )
-                    timed_out.add(desc)
-                    degraded.append(f"{desc} (timeout)")
-        else:  # pragma: no cover — defensive; Literal type guards this
-            log.error("[SHUTDOWN] unknown plan phase: %r", plan.phase)
-
-        if degraded:
-            log.warning(
-                "[SHUTDOWN] %d/%d %s teardown helpers degraded: %s",
-                len(degraded),
-                len(plan.steps),
-                plan.phase,
-                ", ".join(degraded),
-            )
-
-        return frozenset(timed_out)
+        return run_plan(self, plan, prior_timed_out)
 
     def _do_fast_cleanup(self) -> None:
         """critical-only cleanup for Windows logoff/shutdown.

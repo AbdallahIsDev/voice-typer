@@ -52,11 +52,6 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-try:
-    from scipy import signal as _sp_signal
-except Exception:  # scipy not installed or broken (e.g. numpy/scipy version mismatch)
-    _sp_signal = None  # type: ignore[assignment]
-
 from voice_typer.server import recording as _recording_pkg
 from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES, WHISPER_SAMPLE_RATE
 from voice_typer.server.recording import resampling as _resampling_mod
@@ -67,6 +62,34 @@ from voice_typer.server.vad_processor import VadState
 # to ``caplog.at_level(..., logger="voice_typer.server.recording")`` in
 # tests.
 log = logging.getLogger("voice_typer.server.recording")
+
+
+# ``scipy.signal`` is bound lazily (see :func:`_ensure_sp_signal`) so
+# the ~1-2s scipy import does not sit on the app's startup critical
+# path when VAD — the only scipy consumer — is disabled (raw recording
+# mode). ``_sp_signal`` may be ``None`` when scipy is unavailable; the
+# VAD resample path below falls back to ``resample_poly`` in that case.
+_sp_signal: Any | None = None
+
+
+def _ensure_sp_signal() -> Any | None:
+    """Import ``scipy.signal`` lazily on first VAD use.
+
+    Returns the ``scipy.signal`` module, or ``None`` when scipy is
+    missing or broken. Deferred from module-import time to first use:
+    the VAD resample path is the ONLY consumer of ``_sp_signal``, so an
+    eager import wasted ~1-2s of startup even on machines that never
+    exercise it.
+    """
+    global _sp_signal
+    if _sp_signal is not None:
+        return _sp_signal
+    try:
+        from scipy import signal as _sp_signal  # noqa: N816
+    except Exception:  # scipy not installed or broken (e.g. numpy/scipy version mismatch)
+        _sp_signal = None
+    return _sp_signal
+
 
 if TYPE_CHECKING:
     from .recorder import Recorder
@@ -502,6 +525,10 @@ class AudioPipeline:
                     # computed (e.g. first chunk after start(), or a
                     # hot-plug rebuild that called set_sample_rate).
                     recorder._refresh_vad_caches()
+                # lazily import scipy.signal on first VAD resample —
+                # keeps the ~1-2s scipy import off the startup path
+                # when VAD is disabled (raw recording mode).
+                _ensure_sp_signal()
                 _up_down = recorder._cached_vad_resample_up_down
                 if _up_down is not None:
                     try:
@@ -724,7 +751,18 @@ class AudioPipeline:
         # owned by ``recorder.py`` and cannot be extended with a new
         # parameter from this module. Both methods run on the same
         # worker thread, so the handoff is single-threaded.
-        if indata.size:
+        #
+        # PERF: gate the (relatively) expensive ``np.dot`` reduction on
+        # ``recorder._cached_vad_enabled`` so it is skipped entirely in
+        # raw mode (VAD off). ``vad_auto_calibrate`` short-circuits with
+        # ``if not recorder._cached_vad_enabled: return`` so the
+        # computed value would be discarded anyway — skipping the
+        # computation saves one BLAS ``sdot`` per chunk (~16 Hz) in raw
+        # mode. The cached scalar (set by ``refresh_vad_caches`` at
+        # ``Recorder.start()`` / ``on_config_changed()``) is always
+        # initialized to ``False`` in ``Recorder.__init__`` and refreshed
+        # before the first chunk arrives.
+        if recorder._cached_vad_enabled and indata.size:
             _raw_flat = indata.reshape(-1)
             self._pending_raw_chunk_rms = float(np.sqrt(np.dot(_raw_flat, _raw_flat) / _raw_flat.size))
         else:

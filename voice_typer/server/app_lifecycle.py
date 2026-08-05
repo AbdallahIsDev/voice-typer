@@ -401,8 +401,15 @@ class LifecycleController:
             try:
                 app.shutdown._arm_shutdown_watchdog(app._shutdown_watchdog_timeout_s)
             except Exception:
-                log.debug(
-                    "[RESTART] GT-43: failed to arm shutdown watchdog",
+                # This is the LAST line of defense against a hung
+                # restart — if the watchdog itself failed to arm (e.g.
+                # ``app.shutdown`` is None because ShutdownController
+                # lazy-init failed), the old process will never exit and
+                # the new instance can't bind. Failure here MUST be loud
+                # (ERROR) so it shows up in the default-INFO production
+                # log; the previous DEBUG level was invisible to operators.
+                log.error(
+                    "[RESTART] failed to arm shutdown watchdog — restart may hang",
                     exc_info=True,
                 )
         log.info("[RESTART] Old process exiting via sys.exit(0)")

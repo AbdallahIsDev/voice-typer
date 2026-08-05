@@ -112,11 +112,13 @@ def teardown_recorder(controller) -> None:
     # calls can segfault or leave the audio device inconsistent.
     try:
         if app.recorder is not None and not recorder_force_closed:
-            _run_with_timeout(
+            _mic_watcher_result = _run_with_timeout(
                 "recorder.shutdown_mic_watcher",
                 app.recorder.shutdown_mic_watcher,
                 timeout=5.0,
             )
+            if _mic_watcher_result is TIMEOUT:
+                log.warning("[SHUTDOWN] recorder.shutdown_mic_watcher timed out")
         elif recorder_force_closed:
             log.warning(
                 "[SHUTDOWN] skipping recorder.shutdown_mic_watcher "

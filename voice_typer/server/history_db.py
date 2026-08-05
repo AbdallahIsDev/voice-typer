@@ -295,6 +295,12 @@ class HistoryDBError(RuntimeError):
 # ``history_db_internals.schema.init_schema`` reads, so in-place
 # mutation (e.g. ``unittest.mock.patch.dict``) is observed by the
 # schema initializer.
+from voice_typer.server.history_db_internals.schema import (  # noqa: E402,F401 — backward-compat re-export so tests reading history_db._MIGRATIONS / _CURRENT_SCHEMA_VERSION keep working
+    _CURRENT_SCHEMA_VERSION,
+    _MIGRATION_V2,
+    _MIGRATION_V3,
+    _MIGRATIONS,
+)
 
 
 def _secure_copy_db_file(src: Path, dst: Path) -> None:
@@ -925,44 +931,151 @@ class HistoryDB:
         return new_conn
 
     def _fts5_startup_rebuild(self, conn: sqlite3.Connection) -> None:
-        """Best-effort FTS5 ``'rebuild'`` on every launch.
+        """Best-effort FTS5 ``'rebuild'`` gated by a persisted failure flag.
 
         The ``delete``, ``clear_all``, and ``apply_retention`` paths
-        each issue the FTS5 ``'rebuild'`` command after their bulk
-        DELETEs to zero dictated text out of
-        ``transcriptions_fts_data`` (GDPR Art. 17 right-to-erasure).
-        But that rebuild is wrapped in a tolerant
-        ``try/except sqlite3.Error`` — if it fails (transient FTS5
-        error, disk full), the failure is logged and swallowed (no
-        raise, no rollback), incrementing ``self._fts5_rebuild_failures``
-        and publishing an ``event_bus`` event. The segment data from
-        the failed delete lingers in ``transcriptions_fts_data``,
-        recoverable via forensic tools, until FTS5's background
-        compaction happens to merge that segment (days or weeks
-        later).
+        each issue the FTS5 ``'rebuild'`` (or ``'optimize'`` for
+        per-row deletes) command after their bulk DELETEs to zero
+        dictated text out of ``transcriptions_fts_data`` (GDPR Art.
+        17 right-to-erasure). But that rebuild is wrapped in a
+        tolerant ``try/except sqlite3.Error`` — if it fails
+        (transient FTS5 error, disk full), the failure is logged
+        and swallowed (no raise, no rollback), incrementing
+        ``self._fts5_rebuild_failures`` and publishing an
+        ``event_bus`` event. The segment data from the failed delete
+        lingers in ``transcriptions_fts_data``, recoverable via
+        forensic tools, until FTS5's background compaction happens
+        to merge that segment (days or weeks later).
 
         This startup sweep bounds the worst-case exposure window to
-        "between launches": on every HistoryDB construction (after the
-        schema is initialized), we run ``'rebuild'`` once. If the
-        previous session's delete-time rebuild failed, this sweep
-        clears the lingering segment data on the next launch.
+        "between launches": on HistoryDB construction (after the
+        schema is initialized), we run ``'rebuild'`` ONCE when
+        needed. If the previous session's delete-time rebuild
+        failed, this sweep clears the lingering segment data on the
+        next launch.
 
-        Best-effort: a failure here is logged at WARNING (not ERROR —
-        a startup sweep failure is not actionable mid-session; the
-        next session will retry) and swallowed — the app must still
-        start. Tolerant of older DBs that haven't yet run the V3
-        migration (no ``transcriptions_fts`` table) — the
-        ``sqlite3.Error`` raised by "no such table" is caught and
-        logged at WARNING.
+        Gating: the previous implementation ran the O(N) ``'rebuild'``
+        on EVERY launch — 100-500ms of cold-start latency even when
+        the previous session had no FTS5 failure. Now a
+        ``fts5_rebuild_failed`` flag is persisted in
+        ``schema_meta``:
+
+        - flag = ``'1'``: a previous delete/clear_all/retention
+          rebuild FAILED → run startup rebuild to clear the
+          lingering FTS5 segment data.
+        - flag = ``'0'``: previous startup rebuild succeeded and no
+          failure has been recorded since → SKIP the O(N) rebuild.
+        - flag absent (NULL): never set before (fresh DB or first
+          launch after this fix landed) → run rebuild once to
+          establish a clean baseline, then set flag to ``'0'``.
+
+        On successful rebuild the flag is set to ``'0'`` so
+        subsequent launches skip. On a failed delete/clear_all
+        rebuild (in this module) or a failed retention rebuild
+        (in ``retention.py``), the flag is set to ``'1'`` so the
+        next launch retries.
+
+        Best-effort: a failure here is logged at WARNING (not
+        ERROR — a startup sweep failure is not actionable
+        mid-session; the next session will retry) and swallowed —
+        the app must still start. Tolerant of older DBs that
+        haven't yet run the V3 migration (no
+        ``transcriptions_fts`` table) — the ``sqlite3.Error``
+        raised by "no such table" is caught and logged at WARNING.
         """
+        # Read the persisted fts5_rebuild_failed flag from
+        # schema_meta. The schema_meta table is created by
+        # init_schema (CREATE TABLE IF NOT EXISTS) BEFORE this
+        # method is called, so the SELECT is always safe.
+        try:
+            with contextlib.closing(conn.cursor()) as cursor:
+                cursor.execute("SELECT value FROM schema_meta WHERE key = 'fts5_rebuild_failed'")
+                row = cursor.fetchone()
+                flag_value = row[0] if row is not None else None
+        except sqlite3.Error as e:
+            # If schema_meta itself is unreadable, fall through to
+            # running the rebuild — best-effort, mirrors the
+            # pre-flag behavior.
+            log.debug(
+                "[HISTORY] Could not read fts5_rebuild_failed flag from schema_meta: %s — running rebuild",
+                e,
+            )
+            flag_value = None
+
+        # Steady-state skip: flag is explicitly '0' (previous
+        # rebuild succeeded, no failure recorded since). Avoids the
+        # O(N) rebuild on every launch. We can't also skip when the
+        # flag is NULL: a fresh DB has no flag row yet, and the
+        # existing tests (and the GDPR guarantee) require the
+        # rebuild to run at least once on a fresh DB to establish a
+        # clean baseline post-V3-migration.
+        if flag_value == "0":
+            log.debug(
+                "[HISTORY] FTS5 startup rebuild succeeded (skipped — previous rebuild "
+                "succeeded, no failure recorded since)"
+            )
+            return
+
         try:
             with contextlib.closing(conn.cursor()) as cursor:
                 cursor.execute("INSERT INTO transcriptions_fts(transcriptions_fts) VALUES('rebuild')")
             conn.commit()
+            # Persist the success state so subsequent launches skip
+            # the O(N) rebuild. INSERT OR REPLACE upserts the flag
+            # row (created here on first launch, updated on every
+            # successful retry after a prior failure).
+            with contextlib.suppress(sqlite3.Error):
+                with contextlib.closing(conn.cursor()) as flag_cursor:
+                    flag_cursor.execute(
+                        "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('fts5_rebuild_failed', '0')"
+                    )
+                conn.commit()
             log.debug("[HISTORY] FTS5 startup rebuild succeeded")
         except sqlite3.Error as e:
             log.warning(
                 "[HISTORY] FTS5 startup rebuild failed: %s — segments from failed deletes may persist",
+                e,
+            )
+            # Persist the failure state so the next launch retries.
+            # Best-effort: a failure here (e.g. disk full) means we
+            # can't record the flag, but the in-memory
+            # ``_fts5_rebuild_failures`` counter is NOT incremented
+            # for the startup path (only the delete/clear_all/
+            # retention paths increment it) — the startup sweep is
+            # best-effort and a failure to persist the flag just
+            # means the next launch re-runs the rebuild (the safe
+            # default).
+            with contextlib.suppress(sqlite3.Error):
+                with contextlib.closing(conn.cursor()) as flag_cursor:
+                    flag_cursor.execute(
+                        "INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('fts5_rebuild_failed', '1')"
+                    )
+                conn.commit()
+
+    def _mark_fts5_rebuild_failed(self, conn: sqlite3.Connection) -> None:
+        """Persist the ``fts5_rebuild_failed`` flag so the next launch
+        retries the FTS5 startup rebuild.
+
+        Called from the tolerant ``except sqlite3.Error`` branches in
+        ``delete`` (after a failed per-row ``'optimize'``) and
+        ``clear_all`` (after a failed ``'rebuild'``). The retention
+        path (``retention.py``) sets the same flag via the same
+        schema_meta key — paired change in that module.
+
+        Best-effort: a failure to persist the flag (e.g. disk full)
+        is swallowed at DEBUG — the in-memory
+        ``self._fts5_rebuild_failures`` counter is still incremented
+        by the caller, so the failure is observable via diagnostics
+        even if the persisted flag isn't updated.
+        """
+        try:
+            with contextlib.closing(conn.cursor()) as cursor:
+                cursor.execute("INSERT OR REPLACE INTO schema_meta (key, value) VALUES ('fts5_rebuild_failed', '1')")
+            conn.commit()
+        except sqlite3.Error as e:
+            log.debug(
+                "[HISTORY_DB] Could not persist fts5_rebuild_failed flag to schema_meta: %s "
+                "(in-memory counter still incremented; next launch may skip the startup rebuild)",
                 e,
             )
 
@@ -1745,6 +1858,13 @@ class HistoryDB:
                     # retention.py / clear_all pattern).
                     with contextlib.suppress(Exception):
                         self._fts5_rebuild_failures = getattr(self, "_fts5_rebuild_failures", 0) + 1
+                    # Persist the fts5_rebuild_failed flag so the
+                    # next launch's startup rebuild runs (clearing
+                    # the lingering segment data). Best-effort: a
+                    # failure to persist is swallowed inside
+                    # _mark_fts5_rebuild_failed.
+                    with contextlib.suppress(Exception):
+                        self._mark_fts5_rebuild_failed(conn)
                 return True
 
         result = self._submit_write(_do_delete, wait=True)
@@ -1928,6 +2048,13 @@ class HistoryDB:
                         "[HISTORY_DB] could not increment _fts5_rebuild_failures counter",
                         exc_info=True,
                     )
+                # Persist the fts5_rebuild_failed flag so the
+                # next launch's startup rebuild runs (clearing the
+                # lingering segment data). Best-effort: a failure
+                # to persist is swallowed inside
+                # _mark_fts5_rebuild_failed.
+                with contextlib.suppress(Exception):
+                    self._mark_fts5_rebuild_failed(conn)
                 # best-effort event_bus publication so
                 # the renderer can show a toast. Wrapped broadly
                 # because the event_bus import or the publish
@@ -2459,13 +2586,31 @@ class HistoryDB:
             # Sargable predicate. ``DATE(timestamp) = DATE('now')`` applies
             # a function to every row's ``timestamp`` column, so SQLite
             # cannot use ``idx_timestamp`` and falls back to a full table
-            # scan. The range form ``timestamp >= DATE('now') AND
-            # timestamp < DATE('now', '+1 day')`` lets the query planner
-            # use the index. ``timestamp`` is stored as an ISO-8601 string
-            # (``datetime.now().isoformat()``), so lexicographic comparison
-            # against the date-only ``DATE('now')`` boundary is correct:
-            # any ISO-8601 timestamp from today sorts after "YYYY-MM-DD"
-            # (today's midnight) and before "YYYY-MM-DD" of tomorrow.
+            # scan. The range form ``timestamp >= <lower> AND
+            # timestamp < <upper>`` lets the query planner use the index.
+            #
+            # ``timestamp`` is stored as an ISO-8601 string
+            # (``CURRENT_TIMESTAMP`` — UTC, NOT ``datetime.now().isoformat()``
+            # which would be local), so lexicographic comparison against
+            # the datetime boundaries is correct: any ISO-8601 timestamp
+            # from a given day sorts after that day's midnight string and
+            # before the next day's midnight string.
+            #
+            # Timezone fix (two-step): (1) the boundaries use
+            # ``DATETIME('now', 'localtime', 'start of day')`` so "today"
+            # tracks the user's LOCAL calendar day, not UTC — previously
+            # ``DATE('now')`` returned the UTC date, so for a user in
+            # UTC+8 dictating at 9pm local (1pm UTC) the "today" stats
+            # rolled over to a new UTC day showing 0 until midnight UTC.
+            # (2) the boundary values are then converted back to UTC via
+            # the trailing ``'utc'`` modifier, because the ``timestamp``
+            # column is stored as UTC (``CURRENT_TIMESTAMP``). Without
+            # the conversion, a UTC+X machine compared the UTC-stored
+            # ISO strings against *local* midnight strings — off by the
+            # timezone offset, so rows written after local midnight but
+            # before the UTC midnight of the same local day fell outside
+            # the window and were silently excluded from "today"
+            # (count=0 on the Dashboard until the clock caught up).
             cursor.execute("""
                 SELECT
                     COUNT(*) as count,
@@ -2473,8 +2618,8 @@ class HistoryDB:
                     SUM(word_count) as word_count,
                     SUM(duration) as duration
                 FROM transcriptions
-                WHERE timestamp >= DATE('now')
-                  AND timestamp < DATE('now', '+1 day')
+                WHERE timestamp >= DATETIME('now', 'localtime', 'start of day', 'utc')
+                  AND timestamp < DATETIME('now', 'localtime', 'start of day', '+1 day', 'utc')
             """)
             row = cursor.fetchone()
         result = {
@@ -2669,18 +2814,35 @@ class HistoryDB:
         ``{"ok": bool, "error": str | None}``
 
         - ``ok`` is ``True`` only if the writer thread is alive AND
-          ``_init_error`` is ``None`` (no schema init failure). This
-          is the minimum viable health signal: a dead writer or a
-          failed migration means writes will silently fail.
+          ``_init_error`` is ``None`` (no schema init failure) AND
+          ``_writer_ready`` is set (schema init has finished). This is
+          the minimum viable health signal: a dead writer, a failed
+          migration, or a still-running init means writes will
+          silently fail.
         - ``error`` is a human-readable string describing the
           failure, or ``None`` if healthy.
 
         Callers (e.g. the IPC ``get_diagnostics`` handler) can expose
         this to the renderer so the user sees a clear "history DB is
         unavailable" message instead of silently-failed writes.
+
+        The ``_writer_ready`` check is critical: ``__init__`` returns
+        to the caller after at most ``_WRITER_READY_TIMEOUT`` (30s)
+        even if the writer thread hasn't finished schema init. Without
+        this check, ``health_check`` would return ``{ok: True}``
+        during that 30s init window — readers connecting before the
+        schema exists would get "no such table" errors, and writes
+        would queue up but never run. Surfacing "still initializing"
+        lets callers (e.g. the IPC layer) back off or show a
+        "warming up" message instead of treating the DB as healthy.
         """
         if self._init_error is not None:
             return {"ok": False, "error": str(self._init_error)}
         if not self._writer_thread.is_alive():
             return {"ok": False, "error": "history DB writer thread is not alive"}
+        if not self._writer_ready.is_set():
+            return {
+                "ok": False,
+                "error": "history DB schema initialization still in progress (writer not ready)",
+            }
         return {"ok": True, "error": None}

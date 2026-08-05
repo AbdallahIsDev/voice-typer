@@ -2121,10 +2121,21 @@ class Config:
     # malformed-on-disk api_key value doesn't get echoed into log
     # files at WARNING level. The set is sourced from
     # ``credential_store.PROVIDER_TO_CONFIG_FIELD.values()`` (the
-    # canonical provider→field map) with a hardcoded fallback in case
-    # ``credential_store`` cannot be imported (defensive — should never
-    # happen in production but guards against test environments with
-    # partial module mocks).
+    # canonical provider→field map).
+    #
+    # (fail-closed): the historical fallback literal
+    # ``_SECRET_FIELD_NAMES_FALLBACK`` (a 5-field hardcoded set) is
+    # RETAINED for parity assertions in tests, but the
+    # :meth:`_secret_field_names` classmethod NO LONGER returns it on
+    # import failure. Instead, the helper logs ``CRITICAL`` and
+    # RE-RAISES — mirroring the fail-closed pattern in
+    # :func:`voice_typer.server.config_sanitizer._derive_secret_fields`
+    # (lines 76-115). A silent fallback to a stale literal would leave
+    # any newly added provider's API key un-redacted in
+    # :meth:`_warn_and_reset` / :meth:`_warn_and_coerce` log lines
+    # (``val_repr = repr(val)``) whenever the fallback kicks in — a
+    # security degradation. Failing loudly surfaces the breakage at
+    # the first call site (typically ``Config.load()`` redaction).
     #
     # The set is computed lazily on first access (via the classmethod
     # :meth:`_secret_field_names`) to avoid an import-cycle at module
@@ -2148,21 +2159,48 @@ class Config:
 
         Lazily imports ``credential_store.PROVIDER_TO_CONFIG_FIELD``
         (the canonical provider→field map) so the secret-field list
-        stays in sync with the credential-store definition. Falls back
-        to :data:`_SECRET_FIELD_NAMES_FALLBACK` (a hardcoded set of the
-        five known api_key field names) if the import fails — defensive
-        against test environments with partial module mocks.
+        stays in sync with the credential-store definition.
+
+        SECURITY (fail-closed): if the import of
+        ``PROVIDER_TO_CONFIG_FIELD`` fails for ANY reason (broken
+        install, sandbox without the package, partial-import during
+        test collection, future refactor that breaks the import path),
+        we log ``CRITICAL`` and RE-RAISE. We do NOT fall back to the
+        historical ``_SECRET_FIELD_NAMES_FALLBACK`` literal: a silent
+        fallback to a stale 5-field set would leave any newly added
+        provider's API key un-redacted in ``_warn_and_reset`` /
+        ``_warn_and_coerce`` log lines (``val_repr = repr(val)``)
+        whenever the fallback kicks in (SEC-003 regression analog).
+        Failing the import loudly surfaces the breakage at the first
+        call site (typically ``Config.load()`` redaction), which is
+        strictly safer than silently degrading the redaction
+        boundary. Mirrors the fail-closed pattern in
+        :func:`voice_typer.server.config_sanitizer._derive_secret_fields`
+        (lines 76-115) so the two paths handle the SAME failure
+        identically.
         """
         try:
             from voice_typer.server import credential_store
 
             return frozenset(credential_store.PROVIDER_TO_CONFIG_FIELD.values())
-        except Exception:  # noqa: BLE001 — defensive fallback
-            log.debug(
-                "[CONFIG] could not import credential_store for _secret_field_names — using hardcoded fallback set",
-                exc_info=True,
+        except Exception as exc:
+            # Fail-closed: do NOT fall back to the hardcoded
+            # ``_SECRET_FIELD_NAMES_FALLBACK`` literal. A silent
+            # fallback would mask a broken install / sandbox and could
+            # leave newly added provider API keys un-redacted in log
+            # lines (the sanitizer fail-closed analog prevents the same
+            # leak over IPC). Re-raise so the breakage is loud and
+            # immediate at the first call site (Config.load()
+            # redaction). The existing tests will surface any
+            # early-startup path that relied on the silent fallback.
+            log.critical(
+                "[CONFIG] could not import credential_store for "
+                "_secret_field_names — secret-field redaction may be "
+                "incomplete. Refusing to fall back to a hardcoded "
+                "literal (fail-closed). Original error: %s",
+                exc,
             )
-            return cls._SECRET_FIELD_NAMES_FALLBACK
+            raise
 
     @classmethod
     def _warn_and_reset(

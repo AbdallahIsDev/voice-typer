@@ -107,23 +107,7 @@ def atexit_cleanup(controller: ShutdownController) -> None:
         log.exception("[ATEXIT] _do_cleanup() raised — emergency cleanup incomplete")
 
 
-def register_atexit_hooks(controller: ShutdownController) -> None:
-    """Register the atexit safety-net hooks for this controller.
-
-    Convenience wrapper: registers both :func:`atexit_log` and
-    :func:`atexit_cleanup` (in that order) with the :mod:`atexit`
-    module so they fire at interpreter shutdown. Mirrors what
-    ``VoiceTyperApp.start()`` previously did inline via
-    ``atexit.register(self._atexit_log)`` / ``atexit.register(self._atexit_cleanup)``.
-    """
-    import atexit
-
-    atexit.register(atexit_log, controller)
-    atexit.register(atexit_cleanup, controller)
-
-
 __all__ = [
     "atexit_log",
     "atexit_cleanup",
-    "register_atexit_hooks",
 ]

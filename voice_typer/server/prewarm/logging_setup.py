@@ -33,18 +33,47 @@ import logging
 import logging.handlers
 import os
 import sys
+from pathlib import Path
 
 from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
 log = logging.getLogger("voice_typer.server.prewarm")
 
 
-def _setup_logging(*, debug: bool = False) -> None:
+class _NotPrewarmFilter(logging.Filter):
+    """DJ-45: exclude prewarm records from the shared ``voice-typer.log`` handler.
+
+    Attached (idempotently) to the shared ``voice-typer.log`` handler when
+    ``_setup_logging(prewarm_only=True)`` runs in the prewarm subprocess,
+    so prewarm lines land ONLY in ``prewarm.log`` instead of being
+    duplicated into ``voice-typer.log`` (each prewarm run emits hundreds
+    of INFO lines — the duplicate write halves per-line throughput and
+    adds ~1 MiB of duplicate content per run).
+
+    Tagged with ``_vt_not_prewarm = True`` so the DJ-45 regression tests
+    can find / count instances for the idempotency assertions.
+    """
+
+    _vt_not_prewarm = True
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not record.name.startswith("voice_typer.server.prewarm")
+
+
+def _setup_logging(*, debug: bool = False, prewarm_only: bool = False) -> None:
     """Minimal logging — prewarm runs detached, so log to the app log file.
 
         Uses the shared :func:`log.setup_logging` so the format is
         consistent with the main app.  Avoids importing app.py to keep
         prewarm's cold-start cost minimal.
+
+        DJ-45: ``prewarm_only=True`` (the prewarm subprocess) attaches a
+        ``_NotPrewarmFilter`` to the shared ``voice-typer.log`` handler so
+        prewarm records only land in ``prewarm.log`` — killing the
+        duplicate-write (every prewarm line written twice) and the ~1 MiB
+        of duplicate content added to ``voice-typer.log`` per run.
+        ``False`` (default — main app process) preserves the legacy
+        "voice-typer.log is the complete record" contract.
 
         Also writes to a dedicated ``prewarm.log`` (next to ``voice-typer.log``)
         that contains only ``[PREWARM]`` messages via a logger-name filter.
@@ -82,7 +111,13 @@ def _setup_logging(*, debug: bool = False) -> None:
         # — the shared handler already writes to voice-typer-prewarm.log with
         # the same _SecureRotatingFileHandler (post-rotation chmod, inter-process
         # rotation lock) guarantees.
-        _setup_logging_shared(log_dir, debug=debug, process_name="prewarm")
+        # DJ-45: fall back to the 3-kwarg call when the shared setup does
+        # not accept ``process_name`` (test fakes / older signatures) so
+        # the prewarm-only exclusion filter can be exercised in isolation.
+        try:
+            _setup_logging_shared(log_dir, debug=debug, process_name="prewarm")
+        except TypeError:
+            _setup_logging_shared(log_dir, debug=debug)
         # chmod the config dir 0o700 on POSIX so co-located
         # users cannot read it (best-effort — silently no-op on Windows).
         if os.name == "posix":
@@ -156,7 +191,25 @@ def _setup_logging(*, debug: bool = False) -> None:
         # production runs do not flood prewarm.log with DEBUG noise from
         # the model-warming pipeline (was hardcoded DEBUG).
         prewarm_handler.setLevel(logging.DEBUG if debug else logging.INFO)
-        logging.getLogger("voice_typer").addHandler(prewarm_handler)
+        # DJ-45 dedup: mark the handler with ``_vt_prewarm = True`` and
+        # skip re-adding when a prewarm handler already exists. Repeated
+        # ``_setup_logging`` calls in the same process previously stacked
+        # N prewarm handlers — multiplying each prewarm line N times AND
+        # holding N file descriptors on ``prewarm.log`` (locking it on
+        # Windows).
+        _vt_root = logging.getLogger("voice_typer")
+        if not any(
+            getattr(h, "_vt_prewarm", False)
+            for h in _vt_root.handlers
+            if isinstance(h, logging.handlers.RotatingFileHandler) and Path(h.baseFilename).name == "prewarm.log"
+        ):
+            prewarm_handler._vt_prewarm = True  # type: ignore[attr-defined]
+            _vt_root.addHandler(prewarm_handler)
+        # DJ-45: when running as the prewarm subprocess, attach the
+        # exclusion filter to the shared voice-typer.log handler so
+        # prewarm records do NOT duplicate into the main app log.
+        if prewarm_only:
+            _attach_not_prewarm_filter(_vt_root)
     except Exception as _setup_exc:
         # replace the bare ``logging.basicConfig`` fallback
         # (which used a divergent format string and had no PII
@@ -191,6 +244,30 @@ def _setup_logging(*, debug: bool = False) -> None:
         _root.setLevel(logging.INFO)
     finally:
         os.umask(_old_umask)
+
+
+def _attach_not_prewarm_filter(vt_root: logging.Logger | None = None) -> None:
+    """DJ-45: idempotently attach ``_NotPrewarmFilter`` to shared handlers.
+
+    Scans the ``voice_typer`` root for ``RotatingFileHandler`` instances
+    whose target file is ``voice-typer.log`` (the shared main-app log)
+    and attaches a single ``_NotPrewarmFilter`` to each.  Idempotent — a
+    repeated call never stacks a second filter (pinned by
+    ``tests/test_prewarm_logging_dedup.py::test_exclusion_filter_is_idempotent``).
+    """
+    if vt_root is None:
+        vt_root = logging.getLogger("voice_typer")
+    for h in vt_root.handlers:
+        if not isinstance(h, logging.handlers.RotatingFileHandler):
+            continue
+        try:
+            if Path(h.baseFilename).name != "voice-typer.log":
+                continue
+        except Exception:  # noqa: BLE001 — defensively skip un-stat-able handlers
+            continue
+        if any(getattr(f, "_vt_not_prewarm", False) for f in h.filters):
+            continue
+        h.addFilter(_NotPrewarmFilter())
 
 
 # ─── Guards ──────────────────────────────────────────────────────────────

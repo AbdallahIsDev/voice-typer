@@ -493,7 +493,7 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
     # same-app restart — full env intentionally inherited
     # (see _launch_electron_built for rationale). Only sensitive KEY
     # NAMES are logged for audit; values are never printed.
-    _log_sensitive_env_keys(env, context="autostart_launcher._spawn_tauri_host")
+    _log_sensitive_env_keys(env, context="autostart")
     sk: dict = {}
     sk.update(_tauri_log_files())
     sk.update(_spawn_flags(hidden=hidden))
@@ -550,7 +550,7 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
     # surface (without values) any sensitive env keys the
     # child will inherit, so a future leak in a downstream log is
     # auditable. Only KEY NAMES are logged — values are never printed.
-    _log_sensitive_env_keys(env, context="autostart_launcher._spawn_electron")
+    _log_sensitive_env_keys(env, context="autostart")
     try:
         child = subprocess.Popen([exe, "."], env=env, **sk)
         log.info(
@@ -656,7 +656,7 @@ def _focus_running_app() -> bool:
         # inherited (see _launch_electron_built for rationale). Only
         # sensitive KEY NAMES are logged for audit; values are never
         # printed.
-        _log_sensitive_env_keys(env, context="autostart_launcher._focus_running_app")
+        _log_sensitive_env_keys(env, context="autostart")
         sk: dict = {}
         sk.update(_tauri_log_files())
         sk.update(_spawn_flags(hidden=False))  # focus probe is intentionally foreground
@@ -697,7 +697,7 @@ def _focus_running_app() -> bool:
         # NAMES are logged for audit; values are never printed.
         env = dict(os.environ)
         env["VT_FOCUS_ONLY"] = "1"
-        _log_sensitive_env_keys(env, context="autostart_launcher._focus_running_app")
+        _log_sensitive_env_keys(env, context="autostart")
         child = subprocess.Popen([exe, "."], env=env, **spawn_kwargs)
         log.info(
             "[AUTOSTART] spawned lean electron to focus running instance (pid=%s)",
@@ -727,7 +727,7 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
     env = dict(os.environ)
     if hidden:
         env["VT_START_HIDDEN"] = "1"
-    _log_sensitive_env_keys(env, context="autostart_launcher._spawn_npm_run_dev")
+    _log_sensitive_env_keys(env, context="autostart")
 
     try:
         # S-7: prefer list form over shell=True.

@@ -179,14 +179,26 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
         # secrets embedded in the traceback (URL query-string keys,
         # env-var dumps, bearer tokens) are masked the same way they
         # would be in a ``log.critical`` record.  If the redactor
-        # itself raises, fall back to printing the unredacted payload
-        # -- a partially-redacted traceback is better than no traceback
-        # at all (this matches the ``except Exception:`` last-resort
-        # philosophy of the surrounding block).
+        # itself raises, fall back to a fixed redacted-marker string
+        # -- NEVER the raw ``buf`` payload. The raw traceback may
+        # carry API keys / bearer tokens injected via ``{clipboard}``
+        # dictation-pipeline templates, env-var dumps from buggy
+        # handlers, or ``?key=sk-...`` URL query-string secrets that
+        # the redactor was supposed to mask but couldn't. A
+        # marker-only stderr line (with the outer ``write_exc`` type
+        # name appended so the operator can see the primary write
+        # failure that put us on this fallback path) is better than a
+        # PII leak -- the original exception is still logged via the
+        # ``_log.critical`` calls below, so the diagnostic content is
+        # not lost, only the stderr copy of it is suppressed.
         try:
             stderr_payload = redact_for_export(buf.getvalue())
-        except Exception:
-            stderr_payload = buf.getvalue()
+        except Exception as exc:
+            stderr_payload = "[redaction failed — traceback suppressed to avoid PII leak] " + type(write_exc).__name__
+            _log.warning(
+                "[LOG-SETUP] redact_for_export raised %s; falling back to redacted marker",
+                type(exc).__name__,
+            )
         print(stderr_payload, file=sys.stderr)
         try:
             # the /tmp fallback must be (a) PII-redacted
@@ -219,9 +231,15 @@ def write_startup_diagnostic(phase: str, exc: BaseException | None = None) -> No
             # may legitimately exist from a previous crash.
             redacted_payload = redact_for_export(buf.getvalue())
             tmp = Path(tempfile.gettempdir()) / "voice-typer-startup-error.log"
+            # ``os.O_NOFOLLOW`` is POSIX-only (absent on Windows). Use
+            # ``getattr`` so the overwrite-semantics fallback still
+            # works on every platform — on Windows, NTFS reparse
+            # points are governed by the ``FILE_ATTRIBUTE_REPARSE_POINT``
+            # ACL surface, and the fallback file lives in the per-user
+            # temp dir, so the symlink-hardening flag is best-effort.
             fd = os.open(
                 str(tmp),
-                os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
                 0o600,
             )
             with os.fdopen(fd, "w", encoding="utf-8", closefd=True) as f:

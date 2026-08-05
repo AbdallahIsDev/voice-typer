@@ -71,6 +71,16 @@ class HighPassFilter(AudioFilter):
             self._state = None
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
+        # Debug-only guard: the IIR coefficients were designed at
+        # ``self._sample_rate`` (see ``_init_filter``); feeding audio
+        # at a different rate silently mistunes the cutoff (an 80 Hz
+        # high-pass built at 16 kHz actually cuts at 240 Hz when fed
+        # 48 kHz audio). Python strips this assert under ``-O`` so
+        # production builds pay zero cost; in debug builds a mismatch
+        # surfaces as an ``AssertionError`` instead of silent mistune.
+        assert sample_rate == self._sample_rate, (
+            f"{type(self).__name__} built at {self._sample_rate} Hz, called with {sample_rate} Hz"
+        )
         if self._state is None or audio.size == 0:
             return audio
 

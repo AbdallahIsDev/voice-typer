@@ -26,8 +26,8 @@ and import pre-downloaded models from a local directory.
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.validation import (
+    ErrorCodes,
     ResponseEnvelope,
-    _error_response,
     _validate_dict_payload,
 )
 
@@ -68,13 +68,16 @@ class ModelHandlersMixin(HandlerBase):
             model_name = validated.get("model", "") or ""
             if not model_name:
                 log.warning("[IPC] download_model called without model name")
-                resp["type"] = "error"
-                resp["data"] = {"message": "Missing 'model' parameter"}
-            else:
-                log.info("[IPC] download_model called for '%s'", model_name)
-                result = self.service.download_model(model_name)
-                resp["type"] = "download_model_result"
-                resp["data"] = result
+                return self._error_response(
+                    resp,
+                    "Missing 'model' parameter",
+                    code=ErrorCodes.MISSING_FIELD,
+                    field="model",
+                )
+            log.info("[IPC] download_model called for '%s'", model_name)
+            result = self.service.download_model(model_name)
+            resp["type"] = "download_model_result"
+            resp["data"] = result
         except Exception as exc:
             # emit the generic WS-path envelope instead of
             # leaking ``str(exc)`` to the renderer. 's intent
@@ -206,9 +209,12 @@ class ModelHandlersMixin(HandlerBase):
             dir_path = dir_path_raw if isinstance(dir_path_raw, str) else ""
             if not dir_path:
                 log.warning("[IPC] import_model called without dir_path")
-                resp["type"] = "error"
-                resp["data"] = {"message": "Missing 'dir_path' parameter"}
-                return resp
+                return self._error_response(
+                    resp,
+                    "Missing 'dir_path' parameter",
+                    code=ErrorCodes.MISSING_FIELD,
+                    field="dir_path",
+                )
 
             # validate dir_path is within an allowed root before
             # passing it to import_model.  Resolve the path to an
@@ -229,23 +235,26 @@ class ModelHandlersMixin(HandlerBase):
                 # message is still echoed because it carries the
                 # user-supplied path that was rejected.
                 log.warning("[IPC] import_model path rejected: %s", exc)
-                return _error_response(
+                return self._error_response(
                     resp,
                     str(exc),
-                    code="client.path_not_allowed",
+                    code=ErrorCodes.PATH_NOT_ALLOWED,
                 )
 
             import os
 
             if not os.path.isdir(dir_path):
                 log.warning("[IPC] import_model: directory not found: %s", dir_path)
-                resp["type"] = "error"
-                resp["data"] = {"message": f"Directory not found: {dir_path}"}
-            else:
-                log.info("[IPC] import_model called for path: %s", dir_path)
-                result = self.service.import_model(dir_path)
-                resp["type"] = "import_model_result"
-                resp["data"] = result
+                return self._error_response(
+                    resp,
+                    f"Directory not found: {dir_path}",
+                    code=ErrorCodes.NOT_FOUND,
+                    field="dir_path",
+                )
+            log.info("[IPC] import_model called for path: %s", dir_path)
+            result = self.service.import_model(dir_path)
+            resp["type"] = "import_model_result"
+            resp["data"] = result
         except Exception as exc:
             # generic WS-path envelope (no str(exc) leak).
             # correlation: ``dir_path`` is logged at INFO on
@@ -276,13 +285,16 @@ class ModelHandlersMixin(HandlerBase):
             model_name = validated.get("model", "") or ""
             if not model_name:
                 log.warning("[IPC] delete_model called without model name")
-                resp["type"] = "error"
-                resp["data"] = {"message": "Missing 'model' parameter"}
-            else:
-                log.info("[IPC] delete_model called for '%s'", model_name)
-                result = self.service.delete_model(model_name)
-                resp["type"] = "delete_model_result"
-                resp["data"] = result
+                return self._error_response(
+                    resp,
+                    "Missing 'model' parameter",
+                    code=ErrorCodes.MISSING_FIELD,
+                    field="model",
+                )
+            log.info("[IPC] delete_model called for '%s'", model_name)
+            result = self.service.delete_model(model_name)
+            resp["type"] = "delete_model_result"
+            resp["data"] = result
         except Exception as exc:
             # generic WS-path envelope (no str(exc) leak).
             # correlation: ``model_name`` is logged at INFO on

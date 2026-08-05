@@ -303,7 +303,23 @@ class LLMPolisher:
                 )
                 text = redacted_text
         except Exception:
-            log.debug("[LLM_POLISH] CR-10: redact_pii failed — sending original text", exc_info=True)
+            # Fail CLOSED: if PII redaction fails for any reason
+            # (broken security module, regex regression, etc.) we must
+            # NOT send the un-redacted user-content to the LLM
+            # endpoint. The user-content may contain PII injected via
+            # template ``{clipboard}`` substitution (passwords, 2FA
+            # codes, private messages). Previously this branch
+            # swallowed the failure at DEBUG level and shipped the
+            # original text to the LLM anyway — a fail-OPEN PII leak.
+            # Now we log at WARNING (operators need to see this) and
+            # return the original text UNPOLISHED, skipping the API
+            # call entirely. The user gets their transcription pasted
+            # without LLM polish rather than risking a PII leak.
+            log.warning(
+                "[LLM_POLISH] redact_pii failed — skipping LLM API call (returning original text unpolished)",
+                exc_info=True,
+            )
+            return text
 
         payload = json.dumps(
             {

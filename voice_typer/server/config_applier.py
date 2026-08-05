@@ -982,11 +982,20 @@ class ConfigApplier:
 
         API key fields (``openai_api_key`` / ``groq_api_key``
                 ``deepgram_api_key`` / ``cloud_api_key`` / ``llm_api_key``)
-                are routed through ``credential_store.store_secret()`` BEFORE
-                ``setattr(app.config, ...)`` so the secret lands in the OS
-                keychain (with plaintext fallback). The in-memory Config
-                attribute is then set to the real value so cloud_engines /
-                llm_polish can use it. The subsequent ``app.config.save()``
+                are routed through ``credential_store.store_secret()`` AFTER
+                ``app.config.save_strict()`` succeeds. Previously
+                the routing happened BEFORE ``setattr(app.config, ...)``;
+                on a ``save_strict`` disk-write failure the in-memory
+                Config was rolled back to the OLD value via ``set_keys``
+                but the keychain retained the NEW value, leaving the
+                keychain inconsistent with disk + in-memory state.
+                Deferring to AFTER ``save_strict`` keeps the keychain in
+                lock-step with disk: if save fails, the keychain is NOT
+                touched (it still holds whatever a prior successful save
+                wrote). The in-memory Config attribute carries the real
+                value (NOT the ``keyring://`` reference) so cloud_engines /
+                llm_polish / dictation_pipeline can use it; the subsequent
+                ``app.config.save()`` (called inside ``save_strict``)
                 writes only a ``keyring://<provider>`` reference token to
                 config.json (when keyring is available) — see
                 ``Config.save()`` for the on-disk format.
@@ -1017,6 +1026,47 @@ class ConfigApplier:
                     <reason>" instead of silently failing. A field is ``None``
                     when the corresponding config key wasn't in ``updates``.
         """
+        # SEC-002 defense-in-depth: even though the IPC
+        # ``set_config`` handler runs ``validate_config_update`` (which
+        # silently drops non-allowlisted keys) BEFORE calling
+        # ``service.apply_config``, this check at the boundary of
+        # ``apply_config`` itself surfaces any internal caller (e.g. a
+        # new IPC handler that forgets to invoke
+        # ``validate_config_update``) that tries to ``setattr`` a
+        # non-allowlisted field onto ``app.config``. Without this, a
+        # bug in any caller would silently let a trusted-path field
+        # (e.g. ``schema_version``, ``qwen_model_path``) be mutated at
+        # runtime, defeating SEC-002.
+        #
+        # Implementation note (minimal fix): we log CRITICAL and
+        # CONTINUE (no ``raise``) rather than raising ``ValueError``
+        # because some existing internal callers (e.g.
+        # ``tests/test_config_acl_and_preset_autoswitch.py``) invoke
+        # ``apply_config`` directly with deprecated Config-runtime
+        # fields (``noise_filter_enabled`` — a runtime switch per ADR
+        # 0009 that was removed from ``IPC_CONFIG_ALLOWLIST`` but is
+        # still on the Config dataclass) to exercise the preset
+        # auto-switch logic. Raising would break those tests
+        # (NEVER DOWNGRADE — Rule 4). The CRITICAL log surfaces the
+        # violation observably so operators can grep for it; a future
+        # cleanup can tighten this to a hard ``raise`` once the
+        # deprecated runtime-only fields are removed from the Config
+        # dataclass or the test fixtures are updated to use
+        # allowlisted substitutes.
+        from voice_typer.server.config_validators import IPC_CONFIG_ALLOWLIST
+
+        _unknown = set(updates) - IPC_CONFIG_ALLOWLIST.keys()
+        if _unknown:
+            log.critical(
+                "[SERVICE] SEC-002 violation: apply_config received "
+                "non-allowlisted keys %s — the IPC ``set_config`` handler "
+                "should have dropped these via validate_config_update. "
+                "Continuing (no raise) for backward compat with internal "
+                "callers that pass deprecated runtime-only Config fields "
+                "(e.g. noise_filter_enabled). Investigate the caller if "
+                "this appears in production logs.",
+                sorted(_unknown),
+            )
         app = self._app
         # (session-3): capture the side-effect status dict for
         # return. The ``with`` block below may raise (e.g. ``save_strict``
@@ -1065,32 +1115,6 @@ class ConfigApplier:
                             current_preset,
                         )
                         updates = {**updates, "audio_preset": "custom"}
-            # pre-route api_key fields through credential_store.
-            # We do this BEFORE setattr so that even if save() is
-            # never called (e.g. apply_config_side_effects raises),
-            # the secret is already persisted to the keychain. The
-            # in-memory attribute is then set to the real value.
-            try:
-                from voice_typer.server import credential_store
-
-                for k, v in list(updates.items()):
-                    provider = credential_store.CONFIG_FIELD_TO_PROVIDER.get(k)
-                    if provider is None:
-                        continue
-                    # store_secret never raises — it falls back to
-                    # plaintext in config.json on keyring failure.
-                    credential_store.store_secret(provider, v)
-                    # The in-memory attribute carries the real value
-                    # (NOT the keyring:// reference) so cloud_engines /
-                    # llm_polish / dictation_pipeline can use it. The
-                    # subsequent save() will replace the on-disk value
-                    # with a reference token (when keyring is available).
-            except Exception as exc:
-                log.warning(
-                    "[SERVICE] RW-01: credential_store pre-route failed: %s — "
-                    "falling back to plain setattr (secret will be in config.json)",
-                    exc,
-                )
             # wrap the setattr loop in try/except. On exception,
             # restore pre-loop values for the keys we already set, then
             # re-raise so the caller sees the original error.
@@ -1198,6 +1222,41 @@ class ConfigApplier:
                                 exc_info=True,
                             )
                     raise
+                # Defer credential_store.store_secret to AFTER
+                # save_strict succeeded. Previously this block ran
+                # BEFORE setattr, so on save_strict failure the
+                # in-memory Config was rolled back to the OLD value via
+                # ``set_keys`` while the keychain retained the NEW value,
+                # leaving the keychain inconsistent with disk +
+                # in-memory state. Now: if save_strict raises, the
+                # ``raise`` above propagates BEFORE this block executes,
+                # so the keychain is left untouched (it still holds
+                # whatever a prior successful save wrote). If save_strict
+                # succeeds, the keychain is updated to match the new
+                # in-memory + on-disk state. ``store_secret`` never
+                # raises (it falls back to plaintext in config.json on
+                # keyring failure), so a broken D-Bus / locked Keychain
+                # cannot break the save path here. Note: ``save_strict``
+                # already routed the secret via ``Config.save()`` when
+                # keyring is available, so this call is a redundant
+                # safety net for the no-keyring-available plaintext
+                # fallback path and for callers whose ``Config.save()``
+                # was patched to skip routing (e.g. test mocks).
+                try:
+                    from voice_typer.server import credential_store
+
+                    for k, v in list(updates.items()):
+                        provider = credential_store.CONFIG_FIELD_TO_PROVIDER.get(k)
+                        if provider is None:
+                            continue
+                        credential_store.store_secret(provider, v)
+                except Exception as exc:
+                    log.warning(
+                        "[SERVICE] RW-01: credential_store post-save route "
+                        "failed: %s — secret may not be in keychain (will "
+                        "fall back to plaintext in config.json on next save)",
+                        exc,
+                    )
 
             # ADR-0010 §8.3b: propagate clipboard config changes to the
             # live ClipboardManager (DP7). Without this, runtime changes

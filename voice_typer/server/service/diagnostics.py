@@ -50,20 +50,49 @@ class DiagnosticsMixin(ServiceMixinBase):
                 recovery-entry storage concern). Returns
                 ``{"success": bool, "path": str}`` on success or
                 ``{"success": False, "message": str}`` on failure.
+
+                When ``self._app._crash_recovery`` is ``None`` the
+                previous implementation silently fell back to constructing a
+                fresh ``CrashRecovery()`` instance and exporting an *empty*
+                bundle (no recovery entries, no recent crashes). The user got
+                a ``{"success": True, "path": ...}`` response pointing at a
+                useless file. Now we refuse to export and return a clear
+                failure message instead, with a WARNING log so the empty-
+                bundle regression is visible in support tickets.
         """
         try:
-            # Use ``getattr`` instead of direct attribute access so the
-            # static type checker doesn't flag the access (``self._app``
-            # is typed as :class:`AppProtocol` which doesn't declare
-            # ``_crash_recovery`` per ADR-0008-§3.1 — see
-            # ``providers.py`` for the full rationale). ``getattr`` returns
-            # ``Any`` to the type checker and is functionally equivalent at
-            # runtime.
+            # Direct attribute access (NOT ``getattr``) is correct
+            # here — ``self._app`` is duck-typed at runtime as a
+            # ``VoiceTyperApp`` which always sets ``self._crash_recovery``
+            # in ``__init__`` (possibly to ``None`` during early startup
+            # or after a failed init). The previous comment claimed
+            # ``getattr`` was used "so the static type checker doesn't
+            # flag the access" but the code already used direct access —
+            # the comment was stale and has been corrected. ``AppProtocol``
+            # does not declare ``_crash_recovery`` (ADR-0008-§3.1 — the
+            # protocol surface is intentionally minimal), so type-checkers
+            # that run on the mixin see an unknown-attribute warning on
+            # this line; that's an accepted trade-off (the mixin is
+            # composed into ``VoiceTyperService`` whose ``self._app`` is
+            # the concrete ``VoiceTyperApp``, not the narrow
+            # ``AppProtocol``).
             recovery = self._app._crash_recovery
             if recovery is None:
-                from voice_typer.server.crash_recovery import CrashRecovery
-
-                recovery = CrashRecovery()
+                # Refuse to export rather than silently producing
+                # an empty bundle from a fresh ``CrashRecovery()``. The
+                # WARNING level (not ERROR) reflects that this is a
+                # degraded-but-recoverable state — the app may still be
+                # mid-startup, or the crash-recovery subsystem failed to
+                # initialize but the rest of the app is functional.
+                log.warning(
+                    "[DIAGNOSTICS] export_diagnostics refused: "
+                    "self._app._crash_recovery is None — cannot export "
+                    "diagnostics (crash-recovery subsystem unavailable)"
+                )
+                return {
+                    "success": False,
+                    "message": "Crash recovery unavailable — cannot export diagnostics",
+                }
             # call the diagnostics_export module directly instead
             # of going through the ``CrashRecovery.create_diagnostic_bundle``
             # delegate. Same observable behavior — the delegate on

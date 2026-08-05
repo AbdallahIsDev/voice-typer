@@ -57,6 +57,34 @@ class DictationMixin(ServiceMixinBase):
                 recovery is too slow.
 
                 Returns ``{"success": bool, "message": str}``.
+
+        Layering-violation follow-up:
+                This method reaches into a PRIVATE method of
+                ``RecordingController`` (``self._app.recording.
+                _force_recover_from_stuck_transcription``), violating the
+                service-layer's contract (ADR-0008-§3.1 — the service layer
+                should only touch public surface of the app/controller
+                layer). The correct fix is to add a PUBLIC
+                ``RecordingController.force_recover(self, *, force: bool =
+                False) -> None`` method that delegates to the private one,
+                and have this service method call the public wrapper.
+
+                The public-method extraction is deferred to a follow-up:
+                ``voice_typer/server/controllers/recording_controller.py``
+                was being edited by a parallel worker at the time this
+                service-layer change was made. Editing it concurrently
+                would cause a file conflict per the HARD RULES
+                ("STAY IN LANE"). The follow-up either:
+                  (a) adds ``force_recover()`` to the controller, OR
+                  (b) restructures the controller / service split so the
+                      private method moves to a service-owned module.
+
+                Until then, this private-method call stays — it works at
+                runtime (Python doesn't enforce encapsulation) but is a
+                known layering smell flagged for follow-up. A ``# noqa:
+                SLF001`` is NOT added because we want static-analysis
+                tools (pyrefly/ruff) to keep flagging this line so the
+                smell is not silently forgotten.
         """
         try:
             self._app.recording._force_recover_from_stuck_transcription(force=True)

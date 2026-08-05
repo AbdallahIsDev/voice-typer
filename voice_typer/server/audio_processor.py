@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
+from math import gcd
 
 # (PERF-COLDSTART-001): numpy is ~250-335ms cumulative on cold start
 # and is NOT touched during ``VoiceTyperApp.__init__`` or ``start()`` — it
@@ -39,35 +40,91 @@ from voice_typer.server.audio_filters.noise_suppressor import _RNNOISE_FRAME_SIZ
 
 np = lazy_module("numpy")
 
-# CRIT-6: lazy-imported resampler to avoid pulling scipy
-# into every test that constructs an AudioProcessor.  The first
-# ``process_chunk`` call that actually needs to resample will import it.
-_resample_poly = None
-_resample_poly_import_error: Exception | None = None
+# CRIT-6: lazy-imported resampler to avoid pulling scipy into every
+# test that constructs an AudioProcessor. The first ``process_chunk``
+# call that actually needs to resample will import it. The
+# ``_get_resample_poly`` and ``_get_resample_fir_taps`` helpers (with
+# their import-error caching + retry-on-error logic) live in
+# ``voice_typer.server.recording.resampling`` — importing them here at
+# module top would pull numpy + scipy into every test that touches this
+# module, so all three lookups (``_get_resample_poly``, ``upfirdn``,
+# ``_get_resample_fir_taps``) are deferred to first use via the cached
+# lazy helpers below. Mirrors the ``_get_lfilter`` pattern in
+# ``audio_filters/base.py``.
+
+# Cached lazy import of scipy.signal.upfirdn. The hot path is a single
+# module-level variable lookup; the first call pays the (one-time)
+# scipy import. If the import fails the error is cached and re-raised.
+_upfirdn = None
+_upfirdn_import_error: Exception | None = None
 
 
-def _get_resample_poly():
-    """Lazy import of scipy.signal.resample_poly.
+def _get_upfirdn():
+    """Lazy import of scipy.signal.upfirdn.
 
-    The chain is built at ``config.sample_rate`` (16 kHz) but the
-    PortAudio stream may run at the device's native rate (48 kHz on
-    most mics).  When the rates differ we resample the chunk to the
-    chain's rate before filtering so the filter coefficients are
-    applied at the correct frequency.
+    Caches the function reference after the first successful import so
+    the RT-thread hot path (~16 Hz) pays only a module-level variable
+    lookup. If the import fails, the error is cached and re-raised on
+    every subsequent call so callers see consistent behavior.
     """
-    global _resample_poly, _resample_poly_import_error
-    if _resample_poly is not None:
-        return _resample_poly
-    if _resample_poly_import_error is not None:
-        raise _resample_poly_import_error
+    global _upfirdn, _upfirdn_import_error
+    if _upfirdn is not None:
+        return _upfirdn
+    if _upfirdn_import_error is not None:
+        raise _upfirdn_import_error
     try:
-        from scipy.signal import resample_poly as _rp  # type: ignore[import-untyped]
+        from scipy.signal import upfirdn as _uf
 
-        _resample_poly = _rp
-        return _resample_poly
-    except Exception as exc:  # pragma: no cover - exercised only when scipy missing
-        _resample_poly_import_error = exc
+        _upfirdn = _uf
+        return _uf
+    except ImportError as exc:
+        _upfirdn_import_error = exc
         raise
+
+
+# Cached lazy lookup of ``_get_resample_fir_taps`` from
+# ``voice_typer.server.recording.resampling``. The resampling module
+# imports numpy at module top, so importing it eagerly here would
+# defeat the cold-start lazy-numpy strategy. After the first call the
+# function reference is cached, so the hot path is a single variable
+# read.
+_resample_fir_taps_fn = None
+
+
+def _get_resample_fir_taps_fn():
+    """Lazy accessor for ``_get_resample_fir_taps`` from resampling.py."""
+    global _resample_fir_taps_fn
+    if _resample_fir_taps_fn is None:
+        from voice_typer.server.recording.resampling import _get_resample_fir_taps
+
+        _resample_fir_taps_fn = _get_resample_fir_taps
+    return _resample_fir_taps_fn
+
+
+# Cached lazy lookup of ``_get_resample_poly`` from
+# ``voice_typer.server.recording.resampling``. The resampling module's
+# version centralizes the 5-minute retry-on-error caching and the
+# import-error state — using it here (instead of a duplicate local
+# copy) means a fix to one propagates to both call sites and there's
+# exactly one import-error cache to inspect during cold-start
+# profiling.
+_resample_poly_fn = None
+
+
+def _get_resample_poly_fn():
+    """Lazy accessor for ``_get_resample_poly`` from resampling.py.
+
+    Defers the resampling-module import (which transitively imports
+    numpy) until the first ``process_chunk`` call that actually needs
+    to resample. After the first call the function reference is cached,
+    so the RT-thread hot path is a single variable lookup.
+    """
+    global _resample_poly_fn
+    if _resample_poly_fn is None:
+        from voice_typer.server.recording.resampling import _get_resample_poly
+
+        _resample_poly_fn = _get_resample_poly
+    return _resample_poly_fn
 
 
 log = logging.getLogger(__name__)
@@ -420,12 +477,18 @@ class AudioProcessor:
             # log level for the fallback path so operators see the
             # mistune ( -- was DEBUG, invisible in default logs).
             try:
-                resample_poly = _get_resample_poly()
+                # Use the shared ``_get_resample_poly`` from
+                # ``recording.resampling`` (with 5-minute retry-on-error
+                # caching) instead of a duplicate local copy. See
+                # ``recording/resampling.py`` for the rationale.
+                resample_poly = _get_resample_poly_fn()()
                 # scipy.signal.resample_poly uses integer up/down ratios.
                 # Compute the greatest common divisor to keep the ratio
-                # in reduced form (smaller FFT sizes, faster).
-                from math import gcd
-
+                # in reduced form (smaller FFT sizes, faster). ``gcd``
+                # is hoisted to the module top — per-call ``from math
+                # import gcd`` was ~48 dict lookups/sec on the RT
+                # thread; the top-level import is a single bytecode
+                # LOAD_GLOBAL at call time.
                 up = self._sample_rate
                 down = int(input_sample_rate)
                 g = gcd(up, down)
@@ -433,13 +496,14 @@ class AudioProcessor:
                 down //= g
                 # use cached FIR taps + upfirdn instead of
                 # resample_poly re-designing the filter on every call.
+                # Both ``upfirdn`` and ``_get_resample_fir_taps`` are
+                # resolved through cached lazy helpers (``_get_upfirdn``
+                # / ``_get_resample_fir_taps_fn``) so the hot path is a
+                # single variable lookup — no per-call ``from ... import``
+                # statements on the RT thread.
                 try:
-                    from scipy.signal import upfirdn
-
-                    from voice_typer.server.recording.resampling import _get_resample_fir_taps
-
-                    taps = _get_resample_fir_taps(up, down)
-                    chunk = upfirdn(taps, chunk, up=up, down=down).astype(np.float32, copy=False)
+                    taps = _get_resample_fir_taps_fn()(up, down)
+                    chunk = _get_upfirdn()(taps, chunk, up=up, down=down).astype(np.float32, copy=False)
                 except Exception:
                     chunk = resample_poly(chunk, up, down).astype(np.float32, copy=False)
                 # one-shot WARNING (rate-limited) so operators can

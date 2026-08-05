@@ -33,10 +33,13 @@ import typing
 
 from voice_typer.server.asr_errors import ConsentRequiredError
 from voice_typer.server.handlers._log import log
+from voice_typer.server.ipc.rate_limiter import _get_rate_limiter
 from voice_typer.server.ipc.registry import _READONLY_COMMANDS
 from voice_typer.server.ipc.validation import (
     CommandHandler,
+    ErrorCodes,
     ResponseEnvelope,
+    _error_response,
     _validate_dict_payload,
 )
 from voice_typer.server.log import reset_correlation_id, set_correlation_id
@@ -76,6 +79,30 @@ class DispatcherMixin:
         shutdown re-check is done unlocked (mirroring the original
          gate).
         """
+        # First-line defense: validate that ``msg`` is a dict before
+        # any ``msg.get(...)`` access. Non-dict JSON (lists, ints,
+        # strings, ``None``) is valid JSON but would crash
+        # ``msg.get("type")`` with ``AttributeError``, killing the IPC
+        # thread silently. The TCP and stdin transports pre-check this
+        # before calling ``_dispatch``; this gate is the single
+        # chokepoint so a future transport that forgets the pre-check
+        # (or a direct test caller) cannot crash the dispatcher.
+        # Returns a structured ``server.unknown_command`` envelope
+        # (NOT ``client.invalid_payload``) to mirror the
+        # ``_handle_unknown_command`` shape and let clients branch on
+        # the same code as for unrecognized commands.
+        if not isinstance(msg, dict):
+            # ErrorEnvelope contract — see validation.py
+            err: ResponseEnvelope = {
+                "type": "error",
+                "data": {
+                    "code": ErrorCodes.UNKNOWN_COMMAND,
+                    "message": "message must be a JSON object",
+                    "command": msg,
+                },
+            }
+            return err
+
         # cooperative shutdown gate. When the app is shutting
         # down (``app._shutting_down is True``), reject all NEW dispatch
         # requests with a structured ``shutting_down`` error so the client
@@ -97,6 +124,37 @@ class DispatcherMixin:
         # is an attribute chain that always invokes ``__getattribute__``.
         if getattr(self, "_cached_shutting_down", False) is True:
             return self._shutting_down_error(msg)
+
+        # Rate-limit check at the TOP of ``_dispatch`` (before handler
+        # resolution). Pre-this-chokepoint, only the TCP read loop
+        # (``transport_tcp.py:665``) and the WS dispatch wrapper
+        # (``sidecar_ws._make_dispatch``) enforced the per-process
+        # ``_RateLimiter``; the stdin path (``stdin_runner._run``) had
+        # NO rate-limit check, so a buggy/loopy stdin client could
+        # dispatch unbounded ``download_model`` / ``set_config`` /
+        # ``shutdown`` commands without ever being throttled. Moving
+        # the check here makes the limiter apply to ALL three
+        # transports via a single chokepoint — future transports
+        # inherit the limiter for free. The heartbeat command
+        # bypasses the limiter (``_RateLimiter.allow`` short-circuits
+        # to ``True`` for ``command == "heartbeat"``) so the heartbeat
+        # watchdog's 5 s / 15 s keep-alive is unaffected. The error
+        # envelope mirrors the TCP path's
+        # (``transport_tcp.py:689-694``) so a client branching on
+        # ``code`` sees ``client.rate_limited`` + the same message
+        # across all three transports.
+        if not _get_rate_limiter(self).allow(command=msg.get("type", "")):
+            # ErrorEnvelope contract — see validation.py
+            rl_err: ResponseEnvelope = {
+                "type": "error",
+                "data": {
+                    "code": ErrorCodes.RATE_LIMITED,
+                    "message": "rate limit exceeded; backing off",
+                },
+            }
+            if "id" in msg:
+                rl_err["id"] = msg["id"]
+            return rl_err
 
         cmd = msg.get("type")
         data = msg.get("data")
@@ -216,6 +274,32 @@ class DispatcherMixin:
                 getattr(exc, "scope", ""),
             )
             result = resp
+        except Exception as exc:
+            # Top-level catch-all so a handler bug (e.g. an uncaught
+            # ``RuntimeError`` / ``KeyError`` / ``ValueError`` raised
+            # inside a ``_handle_<cmd>`` body) does NOT propagate out
+            # of ``_dispatch`` and kill the calling IPC thread. The
+            # TCP path has an analogous catch in
+            # ``_tcp_dispatch_and_respond``; the stdin path catches
+            # via ``_run``'s ``except Exception`` clause. Catching
+            # here too means ALL three transports get the same
+            # defense-in-depth — a future transport that forgets its
+            # own catch-all is still protected. The envelope uses
+            # ``_error_response`` (R13-F3) so clients branching on
+            # ``code`` see the namespaced ``server.handler_error``
+            # (matching the handler-level catch-alls) rather than
+            # the bare ``internal_error`` the stdin path emits —
+            # and the full traceback is logged server-side at ERROR
+            # with ``exc_info=True`` for operator diagnosis. The
+            # ``ConsentRequiredError`` clause above MUST come first
+            # so the typed consent signal is preserved.
+            result = _error_response(resp, "internal error", code=ErrorCodes.HANDLER_ERROR)
+            log.error(
+                "[IPC] handler %s raised: %s",
+                cmd_key,
+                exc,
+                exc_info=True,
+            )
         finally:
             if _corr_token is not None:
                 reset_correlation_id(_corr_token)

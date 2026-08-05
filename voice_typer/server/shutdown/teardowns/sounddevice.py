@@ -82,13 +82,26 @@ def teardown_sounddevice(controller) -> None:
     deadlock was holding).
     """
     # Wait for recorder teardown to complete (it sets
-    # _recorder_force_closed). Bound the wait at 9.5s so the outer
-    # _run_with_timeout(10.0) wrapper still has 0.5s slack to log
+    # _recorder_force_closed). Bound the wait at 1.0s so the outer
+    # _run_with_timeout(10.0) wrapper still has 9.0s slack to log
     # and return if the recorder helper genuinely finishes near the
     # shared deadline.
     #
+    # The previous 9.5s wait consumed 95% of this helper's 10s
+    # parallel budget for a defensive case. Because ``teardown_recorder``
+    # runs in the SEQUENCED phase (it completes BEFORE the parallel
+    # batch starts) and ``teardown_sounddevice`` declares
+    # ``depends_on="teardown_recorder"`` + ``skip_if_dep_timed_out=True``,
+    # the ``_run_plan`` barrier already SKIPS ``teardown_sounddevice``
+    # entirely when ``teardown_recorder`` is in ``_timed_out``. So the
+    # ``wait()`` here only fires when ``teardown_recorder`` SUCCEEDED
+    # but failed to set the event (e.g. raised mid-body after starting
+    # the recorder.stop() worker) — a rare defensive case. 1.0s is
+    # enough to detect that case while leaving 9.0s of slack for the
+    # actual ``sd.stop()`` + ``sd.wait()`` drain.
+    #
     # UE-2: check the wait() return value. A False return means
-    # the recorder teardown did NOT signal the event within 9.5s —
+    # the recorder teardown did NOT signal the event within 1.0s —
     # either the recorder.stop()/discard() raised mid-call, or the
     # leaked worker is still touching the PortAudio stream. The
     # happens-before contract assumes the recorder helper always
@@ -99,11 +112,11 @@ def teardown_sounddevice(controller) -> None:
     # documents as avoided. Skip sd.stop() on wait timeout
     # (defense in depth — the subsequent _recorder_force_closed
     # check still fires for the normal force-close case).
-    _teardown_done = controller._recorder_teardown_done.wait(timeout=9.5)
+    _teardown_done = controller._recorder_teardown_done.wait(timeout=1.0)
     if not _teardown_done:
         log.warning(
             "[SHUTDOWN] recorder teardown did NOT signal completion "
-            "within 9.5s — skipping sd.stop() to avoid PortAudio "
+            "within 1.0s — skipping sd.stop() to avoid PortAudio "
             "deadlock (leaked worker may still be accessing the stream)"
         )
         return
