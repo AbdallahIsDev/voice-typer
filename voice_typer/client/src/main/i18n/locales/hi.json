@@ -5,7 +5,13 @@
 	"dialog.export.history": "इतिहास निर्यात करें",
 	"dialog.export.templates": "टेम्पलेट निर्यात करें",
 	"dialog.export.vocabulary": "शब्दावली निर्यात करें",
+	"dialog.preloadError.body": "{appName} प्रारंभ करने में विफल ({file} में प्रीलोड स्क्रिप्ट त्रुटि)।\n\nकृपया {appName} पुनः इंस्टॉल करें।\n\nयदि पुनः इंस्टॉल करने के बाद भी समस्या बनी रहती है, तो कृपया सहायता से संपर्क करें।",
 	"dialog.selectModelFolder.title": "मॉडल फ़ोल्डर चुनें",
 	"dialog.singleInstance.message": "एक समय में {appName} की केवल एक ही इंस्टेंस चल सकती है।\n\nपहले मौजूदा इंस्टेंस बंद करें, फिर पुनः प्रयास करें।",
-	"dialog.singleInstance.title": "{appName}"
+	"dialog.singleInstance.title": "{appName}",
+	"notify.app.config_load_failed_body": "कॉन्फ़िगरेशन लोड विफल। सेटिंग्स डिफ़ॉल्ट पर रीसेट कर दी गई हैं। विवरण के लिए लॉग देखें।",
+	"state.app.starting": "प्रारंभ हो रहा है...",
+	"dialog.crashLoop.title": "{appName} — क्रैश लूप",
+	"dialog.crashLoop.mainBody": "मुख्य विंडो रेंडरर बार-बार क्रैश हो चुका है और ठीक नहीं हो सकता।\n\nकृपया रीस्टार्ट या क्विट के लिए ट्रे आइकन का उपयोग करें, फिर {appName} को पुनः लॉन्च करें।",
+	"dialog.crashLoop.bubbleBody": "बबल ओवरले रेंडरर बार-बार क्रैश हो चुका है और ठीक नहीं हो सकता।\n\nकृपया रीस्टार्ट या क्विट के लिए ट्रे आइकन का उपयोग का उपयोग करें, फिर {appName} को पुनः लॉन्च करें।"
 }

@@ -23,16 +23,19 @@ vi.mock("../i18n", () => ({ mainT: (k: string) => k }));
 
 import fs from "node:fs";
 
+// Production `atomicWriteFile` is ASYNC — it writes via
+// `fs.promises.writeFile` + `fs.promises.rename` (see
+// export-handlers.ts; the sync `atomicWriteFileSync` variant is
+// deprecated and no longer used by the export handlers). Spy the
+// promises API (instead of the sync `writeFileSync`) so the tests
+// capture the exported content without touching the real filesystem,
+// and stub rename/unlink so the atomic swap short-circuits instead of
+// throwing ENOENT on the (never-created) staging file.
 const writeSpy = vi
-	.spyOn(fs, "writeFileSync")
-	.mockImplementation(() => undefined);
-
-//the atomic-write helper now also calls `fs.renameSync` and
-// (on Windows) `fs.unlinkSync`. Mock both as no-ops so the existing
-// tests that spy on `writeFileSync` content continue to pass without
-// touching the real filesystem.
-vi.spyOn(fs, "renameSync").mockImplementation(() => undefined);
-vi.spyOn(fs, "unlinkSync").mockImplementation(() => undefined);
+	.spyOn(fs.promises, "writeFile")
+	.mockImplementation(() => Promise.resolve());
+vi.spyOn(fs.promises, "rename").mockImplementation(() => Promise.resolve());
+vi.spyOn(fs.promises, "unlink").mockImplementation(() => Promise.resolve());
 
 describe("R6-F9: export-handlers format validation + row cap", () => {
 	let historyHandler: (event: unknown, args: unknown) => Promise<unknown>;

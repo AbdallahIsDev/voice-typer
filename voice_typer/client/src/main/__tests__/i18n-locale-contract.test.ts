@@ -24,7 +24,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { mainT, setMainLocale } from "../i18n";
+import { type MainKey, mainT, setMainLocale } from "../i18n";
 
 // Mirror of `SUPPORTED_LOCALES` in `src/renderer/src/i18n/i18n.ts`.
 // When the renderer adds a new locale, this array MUST be updated.
@@ -89,16 +89,22 @@ describe("AC-114: main-process i18n locales match renderer SUPPORTED_LOCALES", (
 	it("every locale provides the full English key set", () => {
 		// Every locale JSON must define all keys present in en.json.
 		// We probe one representative key per dialog group.
-		const probeKeys = [
+		const probeKeys: readonly MainKey[] = [
 			"dialog.criticalError.body",
 			"dialog.criticalError.title",
 			"dialog.export.config",
 			"dialog.export.history",
 			"dialog.export.templates",
 			"dialog.export.vocabulary",
+			"dialog.preloadError.body",
 			"dialog.selectModelFolder.title",
 			"dialog.singleInstance.message",
 			"dialog.singleInstance.title",
+			"dialog.crashLoop.title",
+			"dialog.crashLoop.mainBody",
+			"dialog.crashLoop.bubbleBody",
+			"notify.app.config_load_failed_body",
+			"state.app.starting",
 		];
 		setMainLocale("en");
 		const enValues = probeKeys.map((k) => mainT(k));

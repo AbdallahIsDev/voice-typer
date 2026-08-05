@@ -102,7 +102,10 @@ function rmrf(target: string): void {
  */
 function emitUncaught(n: number, prefix = "boom"): void {
 	for (let i = 0; i < n; i++) {
-		process.emit("uncaughtException", new Error(`${prefix} ${i}`));
+		(process.emit as (event: string, ...args: unknown[]) => boolean)(
+			"uncaughtException",
+			new Error(`${prefix} ${i}`),
+		);
 	}
 }
 
@@ -111,7 +114,10 @@ function emitUncaught(n: number, prefix = "boom"): void {
  */
 function emitRejection(n: number, prefix = "reject"): void {
 	for (let i = 0; i < n; i++) {
-		process.emit("unhandledRejection", new Error(`${prefix} ${i}`));
+		(process.emit as (event: string, ...args: unknown[]) => boolean)(
+			"unhandledRejection",
+			new Error(`${prefix} ${i}`),
+		);
 	}
 }
 

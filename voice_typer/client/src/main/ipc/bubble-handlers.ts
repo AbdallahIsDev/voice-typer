@@ -2,7 +2,6 @@
  * Bubble-window IPC handlers.
  *
  * Extracted from `index.ts` (REF-2). Registers:
- *   - bubble:move-by — keyboard nudge ()
  *   - bubble:draggable — toggle draggability (synced to bubble renderer)
  *   - bubble:resize — fit pill content exactly (clamped to min/max)
  *   - bubble:show-from-renderer — show from the bubble's own UI
@@ -10,13 +9,22 @@
  *     (Channel-rename: previously `set_bubble_position` (snake_case);
  *     migrated to `bubble:set-position` to match the bubble:* convention.
  *     The legacy listener was removed once the preload files were migrated.)
+ *   - bubble:toggle-dictation — bubble mic button → Python backend
  *   - bubble:ready — renderer readiness signal
+ *   - bubble:dismiss — '×' button (cancel-then-hide)
+ *   - bubble:hidden — exit-animation-complete signal
+ *
+ * The `bubble:move-by` keyboard-nudge handler was removed — it had no
+ * production caller (the bubble window is `focusable: false`, so the
+ * renderer-side keydown handler that fed this channel was dead code).
+ * When globalShortcut wiring is added later, re-add the handler
+ * atomically alongside its hotkey registration.
  *
  * SEC-016: `assertFromBubble()` rejects IPC messages not coming from the
  * bubble window's webContents, so a compromised main window can't
  * hijack the always-on-top bubble as a phishing overlay.
  */
-import { ipcMain, screen } from "electron";
+import { ipcMain } from "electron";
 import { BUBBLE_HEIGHT, BUBBLE_WIDTH } from "../constants";
 //converted from defensive `require("../logging")` to a static
 // ESM import — the previous try/catch + console.* fallback was added
@@ -111,13 +119,36 @@ export function _resetLastKnownBubbleMode(): void {
  * malicious third party that got code into the main window) could
  * hijack the always-on-top bubble as a phishing overlay by sending
  * drag/position commands.
+ *
+ * The `channel` argument is included in the rejection log so operators
+ * can grep the runtime log to identify WHICH bubble IPC was rejected
+ * (previously the rejection was silent — a misconfigured preload or a
+ * hostile renderer could send packets that were silently dropped, with
+ * no log trail to diagnose). The `senderUrl` field surfaces the origin
+ * frame's URL so a cross-origin attempt is visible at diagnosis time.
  */
-function assertFromBubble(event: Electron.IpcMainEvent): boolean {
-	if (!state.bubbleWindow || state.bubbleWindow.isDestroyed()) return false;
+function assertFromBubble(
+	event: Electron.IpcMainEvent,
+	channel: string,
+): boolean {
+	if (!state.bubbleWindow || state.bubbleWindow.isDestroyed()) {
+		log.warn("bubble IPC rejected: no bubble window", {
+			channel,
+			senderUrl: event.senderFrame?.url,
+		});
+		return false;
+	}
 	// Compare senderFrame to the bubble window's main frame.  Electron
 	// exposes event.senderFrame (an Electron.WebFrameMain) which is the
 	// origin of the IPC message.
-	return event.senderFrame === state.bubbleWindow.webContents.mainFrame;
+	if (event.senderFrame !== state.bubbleWindow.webContents.mainFrame) {
+		log.warn("bubble IPC rejected: senderFrame mismatch", {
+			channel,
+			senderUrl: event.senderFrame?.url,
+		});
+		return false;
+	}
+	return true;
 }
 
 /**
@@ -140,61 +171,6 @@ function clampBubbleSize(
 }
 
 export function registerBubbleHandlers(): void {
-	//keyboard-based bubble repositioning for accessibility.
-	// Arrow keys move the bubble by 10px; Shift+Arrow moves by 1px (fine).
-	// Renderer-keyboard-move note: the renderer-side keydown handler that
-	// USED to feed this channel was dead code (the bubble window is
-	// `focusable: false`).
-	// To re-enable keyboard-move, register a main-process global hotkey
-	// (Electron globalShortcut) that sends `bubble:move-by` — see the
-	// comment in `Bubble.tsx` for details. The handler is preserved so
-	// a future global-hotkey wiring can drive it directly.
-	// Validate the IPC payload at runtime with `typeof`-narrowing
-	// checks. The previous `(event, { deltaX, deltaY }: …)` annotation
-	// was a compile-time hint only — Electron types the `ipcMain.on`
-	// listener's second argument as `any`, so a malformed payload (or a
-	// hostile renderer) would have slipped past `tsc` and crashed the
-	// main process when destructuring `undefined`. The runtime checks
-	// silently drop bad payloads instead.
-	ipcMain.on(BubbleChannels.moveBy, (event, payload: unknown) => {
-		if (!assertFromBubble(event)) return;
-		if (typeof payload !== "object" || payload === null) return;
-		const { deltaX, deltaY } = payload as Record<string, unknown>;
-		if (typeof deltaX !== "number" || typeof deltaY !== "number") return;
-		if (!state.bubbleWindow || state.bubbleWindow.isDestroyed()) return;
-		const [x, y] = state.bubbleWindow.getPosition() as [number, number];
-		const bubbleW = state.bubbleWindow.getBounds().width;
-		const bubbleH = state.bubbleWindow.getBounds().height;
-		// T2-003: previously used the inline `require("electron").screen`
-		// (untyped `any`), and called `getDisplayMatching(x, y)` with two
-		// numbers — but Electron's `getDisplayMatching` expects a single
-		// `Rectangle` argument. The legacy call relied on Electron's
-		// tolerance (it coerced the leading-numeric positional args into
-		// a degenerate 0x0 rect, then fell back to the primary display).
-		// Replaced with a typed top-level `import { screen }` and a proper
-		// `Rectangle` so the call signature matches the API and `tsc` can
-		// verify it. The original (x, y) anchor point is preserved by
-		// passing the bubble's actual width/height in the rect so the
-		// display match is at least as accurate as before (and strictly
-		// typed) instead of the previous degenerate 0x0 match.
-		const display = screen.getDisplayMatching({
-			x,
-			y,
-			width: bubbleW,
-			height: bubbleH,
-		});
-		const bounds = display.workArea;
-		const newX = Math.max(
-			bounds.x,
-			Math.min(bounds.x + bounds.width - bubbleW, x + deltaX),
-		);
-		const newY = Math.max(
-			bounds.y,
-			Math.min(bounds.y + bounds.height - bubbleH, y + deltaY),
-		);
-		state.bubbleWindow.setPosition(newX, newY);
-	});
-
 	// Runtime-`typeof`-narrow the payload. The previous `(_event,
 	// draggable: boolean)` annotation was compile-time only; a
 	// non-boolean payload would have silently set `bubbleDraggable`
@@ -226,7 +202,7 @@ export function registerBubbleHandlers(): void {
 	// payload could previously crash `clampBubbleSize` by passing
 	// `undefined`; the runtime check drops it instead.
 	ipcMain.on(BubbleChannels.resize, (event, payload: unknown) => {
-		if (!assertFromBubble(event)) return;
+		if (!assertFromBubble(event, BubbleChannels.resize)) return;
 		if (typeof payload !== "object" || payload === null) return;
 		const { width, height } = payload as Record<string, unknown>;
 		if (typeof width !== "number" || typeof height !== "number") return;
@@ -244,7 +220,7 @@ export function registerBubbleHandlers(): void {
 	ipcMain.on(BubbleChannels.showFromRenderer, (event) => {
 		// SEC-016: bubble show/hide from the bubble's own UI is allowed;
 		// the main window uses `set_config` (allowlisted) for global toggle.
-		if (!assertFromBubble(event)) return;
+		if (!assertFromBubble(event, BubbleChannels.showFromRenderer)) return;
 		showBubbleWindow();
 	});
 
@@ -255,13 +231,27 @@ export function registerBubbleHandlers(): void {
 	// the main process forwards it to the Python backend as the
 	// allowlisted `toggle_dictation` command. SEC-016: restricted to the
 	// bubble frame so only the bubble can trigger dictation this way.
+	//
+	// The Python backend's reply is a Promise<unknown> — `sendToPython`
+	// RESOLVES even when the backend returns a structured `{ _error, _code }`
+	// envelope (the rejection path is reserved for transport-level
+	// failures: TCP disconnect, timeout, disallowed command). Inspect the
+	// resolved value for the `_error` key so a backend-side failure (e.g.
+	// audio device unavailable, model load error) is logged for diagnosis
+	// instead of being silently swallowed by the `.catch`-only handler.
 	ipcMain.on(BubbleChannels.toggleDictation, (event) => {
-		if (!assertFromBubble(event)) return;
+		if (!assertFromBubble(event, BubbleChannels.toggleDictation)) return;
 		// `toggle_dictation` is in ALLOWED_COMMANDS, so this is a
 		// sanctioned backend call (never an arbitrary command).
-		void sendToPython({ type: "toggle_dictation" }).catch((err) => {
-			log.warn("[BUBBLE] toggle_dictation failed:", String(err));
-		});
+		void sendToPython({ type: "toggle_dictation" })
+			.then((resp) => {
+				if (resp && typeof resp === "object" && "_error" in resp) {
+					log.warn("[BUBBLE] toggle_dictation backend error", resp);
+				}
+			})
+			.catch((err) => {
+				log.warn("[BUBBLE] toggle_dictation failed:", String(err));
+			});
 	});
 
 	// Channel rename: bubble position channel renamed from `set_bubble_position`
@@ -319,7 +309,7 @@ export function registerBubbleHandlers(): void {
 
 	ipcMain.on(BubbleChannels.ready, (event) => {
 		// SEC-016: only the bubble window signals readiness.
-		if (!assertFromBubble(event)) return;
+		if (!assertFromBubble(event, BubbleChannels.ready)) return;
 		//previously set `state._bubblePageReady = true`
 		// here, but `showBubbleWindow()` never consulted the
 		// field — it was dead write-only state. The dead write
@@ -354,13 +344,36 @@ export function registerBubbleHandlers(): void {
 	// Without this, clicking ✕ while recording would vanish the
 	// bubble but the finalized text would still get pasted —
 	// violating the user's "stop this" intent.
+	//
+	// Idempotency: `toggle_dictation` is non-idempotent (a second
+	// toggle re-starts recording). A rapid double-click on ✕ would
+	// fire two toggle_dictation calls — the first stops the
+	// recording, the second starts a new one. Clear the cached mode
+	// to "idle" immediately AFTER firing the dismiss-triggered
+	// toggle so a second dismiss sees "idle" and skips the toggle.
+	// The next `bubble_set_state` push from the backend (after the
+	// toggle takes effect) overwrites this with the actual new mode.
+	// The Python backend's structured `_error` reply envelope is
+	// inspected on resolve (see `bubble:toggle-dictation` above for
+	// the same pattern) so a backend-side failure is logged for
+	// diagnosis instead of being silently swallowed.
 	ipcMain.on(BubbleChannels.dismiss, (event) => {
-		if (!assertFromBubble(event)) return;
+		if (!assertFromBubble(event, BubbleChannels.dismiss)) return;
 		const mode = _lastKnownBubbleMode;
 		if (mode === "recording" || mode === "transcribing") {
-			void sendToPython({ type: "toggle_dictation" }).catch((err) => {
-				log.warn("[BUBBLE] dismiss toggle_dictation failed:", String(err));
-			});
+			void sendToPython({ type: "toggle_dictation" })
+				.then((resp) => {
+					if (resp && typeof resp === "object" && "_error" in resp) {
+						log.warn("[BUBBLE] dismiss toggle_dictation backend error", resp);
+					}
+				})
+				.catch((err) => {
+					log.warn("[BUBBLE] dismiss toggle_dictation failed:", String(err));
+				});
+			// Clear the cached mode so a rapid second dismiss
+			// sees "idle" and skips the toggle (non-idempotent:
+			// a second toggle would re-start recording).
+			_lastKnownBubbleMode = "idle";
 		}
 		hideBubbleWindow();
 	});
@@ -378,7 +391,7 @@ export function registerBubbleHandlers(): void {
 	// SEC-016: restricted to the bubble frame so a compromised main
 	// renderer can't fire a fake "animation complete" signal.
 	ipcMain.on(BubbleChannels.hidden, (event) => {
-		if (!assertFromBubble(event)) return;
+		if (!assertFromBubble(event, BubbleChannels.hidden)) return;
 		const cb = consumeHideAnimationCallback();
 		if (cb) cb();
 	});

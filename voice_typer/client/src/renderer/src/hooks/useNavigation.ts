@@ -27,6 +27,7 @@
 
 import { useEffect } from "react";
 import { create } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import { isKnownPage } from "@/router/routes";
 import type { Page } from "@/types/ipc";
 
@@ -210,6 +211,97 @@ const useNavStore = create<NavStore>()((set, get) => {
  */
 export function _resetNavigationForTest(): void {
 	useNavStore.setState(loadNavState());
+	// Also reset the document-listener install flag so a test that
+	// re-mounts App (or calls `useNavigation` again) doesn't skip the
+	// listener install because of a stale `documentListenersInstalled`
+	// from a prior test.
+	documentListenersInstalled = false;
+}
+
+// ── Document listeners (mouse X1/X2 + Alt+Arrow) ───────────────────
+//
+// previously each `useNavigation` consumer registered its OWN
+// `mouseup` + `keydown` listeners on `document`. With 6+ consumers
+// (App, Home, Settings, History, Dashboard, AudioSettingsSection),
+// that was 12+ listeners on `document` per app load — each one
+// invoked on every mouseup / keydown event app-wide, even though the
+// handler bodies only differ by which `goBack` / `goForward` closure
+// they close over (and those are stable Zustand store actions that
+// NEVER change identity, so all 6 closures were functionally
+// identical).
+//
+// The listeners are now installed EXACTLY ONCE per app load via a
+// module-level `documentListenersInstalled` flag. The handlers call
+// `useNavStore.getState().goBack()` / `.goForward()` directly so they
+// don't depend on any consumer's render closure. The first
+// `useNavigation` consumer triggers the install via
+// `ensureDocumentListeners()`; subsequent consumers no-op.
+//
+// The `useEffect` inside `useNavigation` still runs (for parity with
+// the prior structure + to keep the test surface stable), but its
+// body is a no-op when `documentListenersInstalled` is already true.
+// This keeps the hook's call shape unchanged (rules-of-hooks
+// compliant) while deduplicating the actual listener registration.
+let documentListenersInstalled = false;
+
+function ensureDocumentListeners(): void {
+	if (documentListenersInstalled) return;
+	if (typeof document === "undefined") return;
+	documentListenersInstalled = true;
+
+	// Mouse forward/back buttons (X1/X2) navigate like a browser.
+	const mouseHandler = (e: MouseEvent) => {
+		if (e.button === 3) {
+			e.preventDefault();
+			useNavStore.getState().goBack();
+		} else if (e.button === 4) {
+			e.preventDefault();
+			useNavStore.getState().goForward();
+		}
+	};
+	// Keyboard equivalent for back/forward navigation: Alt+ArrowLeft
+	// goes back, Alt+ArrowRight goes forward — matching the behaviour
+	// of every major browser so users with a keyboard-only workflow
+	// get the same affordance the mouse X1/X2 buttons already provide.
+	//
+	// The handler is suppressed when focus is inside an editable
+	// element (`<input>`, `<textarea>`, `<select>`, or
+	// `contentEditable`) so a user editing a text field with arrow
+	// keys doesn't get yanked to another page just because they
+	// happened to hold Alt. The browser's own Alt+Arrow text-editing
+	// shortcuts (e.g. Alt+Left/Right to move the caret by word on
+	// macOS) keep working because we return before calling
+	// `preventDefault()` in that branch.
+	const keyHandler = (e: KeyboardEvent) => {
+		if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+		if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+
+		const target = e.target as HTMLElement | null;
+		const tag = target?.tagName?.toLowerCase() ?? "";
+		const typing =
+			tag === "input" ||
+			tag === "textarea" ||
+			tag === "select" ||
+			target?.isContentEditable === true;
+		if (typing) return;
+
+		e.preventDefault();
+		if (e.key === "ArrowLeft") {
+			useNavStore.getState().goBack();
+		} else {
+			useNavStore.getState().goForward();
+		}
+	};
+
+	document.addEventListener("mouseup", mouseHandler);
+	document.addEventListener("keydown", keyHandler);
+	// Note: we deliberately do NOT register a cleanup that removes
+	// the listeners. The store + listeners are app-lifetime singletons
+	// (the store survives hot-reload of any consumer; removing the
+	// listeners on the FIRST consumer's unmount would break navigation
+	// for all OTHER consumers still mounted). The
+	// `_resetNavigationForTest` seam re-installs them in tests by
+	// resetting `documentListenersInstalled`.
 }
 
 /**
@@ -220,68 +312,44 @@ export function _resetNavigationForTest(): void {
  *
  * Every call site shares the SAME store, so a `navigate()` call from
  * any page re-renders App.tsx's router (see the module docstring).
+ *
+ * the 4 stable action selectors are consolidated into a single
+ * `useShallow` subscription (mirrors `useConnection.ts:97-105`). Zustand
+ * still runs each registered selector on every `set()` call, but
+ * `useShallow` collapses the 4 action reads into ONE selector run + ONE
+ * shallow-equal check (the action function references never change
+ * identity, so the shallow-equal return object is stable across
+ * unrelated state changes — this hook does NOT re-render when only
+ * `page` / `history` / `index` change). Combined with the 3 value
+ * selectors (`page`, `history`, `index`), the total selector run count
+ * per `set()` is now 4 (down from 7). The document listeners are
+ * installed exactly once per app load (see `ensureDocumentListeners`).
  */
 export function useNavigation() {
 	const currentPage = useNavStore((s) => s.page);
 	const history = useNavStore((s) => s.history);
 	const index = useNavStore((s) => s.index);
-	const navigate = useNavStore((s) => s.navigate);
-	const replace = useNavStore((s) => s.replace);
-	const goBack = useNavStore((s) => s.goBack);
-	const goForward = useNavStore((s) => s.goForward);
+	const { navigate, replace, goBack, goForward } = useNavStore(
+		useShallow((s) => ({
+			navigate: s.navigate,
+			replace: s.replace,
+			goBack: s.goBack,
+			goForward: s.goForward,
+		})),
+	);
 
-	// Mouse forward/back buttons (X1/X2) navigate like a browser
+	// Install the document-level listeners exactly once per app load.
+	// The empty dep array means this runs on mount for EVERY consumer,
+	// but `ensureDocumentListeners` short-circuits after the first
+	// install — so only the first consumer actually registers the
+	// listeners. Subsequent consumers' effects are no-ops. We still
+	// call the effect (rather than calling `ensureDocumentListeners`
+	// at module load time) so tests that reset the install flag via
+	// `_resetNavigationForTest` can re-trigger the install on the
+	// next mount.
 	useEffect(() => {
-		const handler = (e: MouseEvent) => {
-			if (e.button === 3) {
-				e.preventDefault();
-				goBack();
-			} else if (e.button === 4) {
-				e.preventDefault();
-				goForward();
-			}
-		};
-		document.addEventListener("mouseup", handler);
-		return () => document.removeEventListener("mouseup", handler);
-	}, [goBack, goForward]);
-
-	// Keyboard equivalent for back/forward navigation: Alt+ArrowLeft
-	// goes back, Alt+ArrowRight goes forward — matching the behaviour
-	// of every major browser so users with a keyboard-only workflow
-	// get the same affordance the mouse X1/X2 buttons already provide.
-	//
-	// The handler is suppressed when focus is inside an editable
-	// element (`<input>`, `<textarea>`, `<select>`, or
-	// `contentEditable`) so a user editing a text field with arrow keys
-	// doesn't get yanked to another page just because they happened to
-	// hold Alt. The browser's own Alt+Arrow text-editing shortcuts
-	// (e.g. Alt+Left/Right to move the caret by word on macOS) keep
-	// working because we return before calling `preventDefault()` in
-	// that branch.
-	useEffect(() => {
-		const handler = (e: KeyboardEvent) => {
-			if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-			if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
-
-			const target = e.target as HTMLElement | null;
-			const tag = target?.tagName?.toLowerCase() ?? "";
-			const typing =
-				tag === "input" ||
-				tag === "textarea" ||
-				tag === "select" ||
-				target?.isContentEditable === true;
-			if (typing) return;
-
-			e.preventDefault();
-			if (e.key === "ArrowLeft") {
-				goBack();
-			} else {
-				goForward();
-			}
-		};
-		document.addEventListener("keydown", handler);
-		return () => document.removeEventListener("keydown", handler);
-	}, [goBack, goForward]);
+		ensureDocumentListeners();
+	}, []);
 
 	return {
 		currentPage,

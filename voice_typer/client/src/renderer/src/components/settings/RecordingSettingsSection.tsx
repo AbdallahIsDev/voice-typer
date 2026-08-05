@@ -172,7 +172,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 		setSoundFeedbackEnabled(checked);
 	};
 
-	// Fix #9: track invalid reasons for the NumberInputStepper inputs
+	// track invalid reasons for the NumberInputStepper inputs
 	// so we can surface inline error messages and helper text. The state
 	// is set by the NumberInputStepper's `onInvalid` callback (called
 	// with "parse" | "range" | null) and read in the JSX below the input.
@@ -384,7 +384,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 									step={1}
 									value={String(config.silence_warning_seconds)}
 									onChange={handleSilenceWarningChange}
-									// Fix #9: surface parse / range errors via inline
+									// surface parse / range errors via inline
 									// message + helper text. The NumberInputStepper
 									// still sets aria-invalid internally for SR + visual.
 									onInvalid={setSilenceInvalidReason}
@@ -430,7 +430,7 @@ export const RecordingSettingsSection = memo(function RecordingSettingsSection({
 									step={1}
 									value={String(maxRecordingMinutes)}
 									onChange={handleMaxRecordingTimeChange}
-									// Fix #9: surface parse / range errors via inline
+									// surface parse / range errors via inline
 									// message + helper text.
 									onInvalid={setMaxRecordingInvalidReason}
 									className="w-20 text-center"

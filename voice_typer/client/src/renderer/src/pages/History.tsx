@@ -456,7 +456,7 @@ export default function HistoryPage() {
 					<>
 						<ActivityList
 							// R7-F16: cap visible list at 200 items.
-							items={sortedRecords.slice(0, 200)}
+							items={sortedRecords.slice(0, 50)}
 							lineClamp={3}
 							onDelete={handleDelete}
 							onToggleFavorite={handleToggleFavorite}

@@ -77,7 +77,7 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 		<div className="flex items-center gap-1">
 			<div
 				className={cn(
-					// Fix #8: add a subtle border to the track so it stays
+					// add a subtle border to the track so it stays
 					// visible on light / low-contrast backgrounds even when
 					// the level is zero (previously the track vanished on
 					// pure-white surfaces).
@@ -101,7 +101,7 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 						playing && "opacity-30",
 					)}
 					style={{
-						// Fix #8: ``Math.max(1, …)`` pinned an empty bar to 1% even
+						// ``Math.max(1, …)`` pinned an empty bar to 1% even
 						// when the user was totally silent — visually lying that
 						// there's "some" signal.  Use ``Math.max(0, …)`` so a
 						// silent input renders a truly empty track.
@@ -110,7 +110,7 @@ export function LevelBar({ level, playing }: LevelBarProps) {
 					}}
 				/>
 			</div>
-			{/* Fix #9: a colour-only "clipping" signal is invisible to
+			{/* a colour-only "clipping" signal is invisible to
                             red-green colour-blind users (deuteranopia / protanopia
                             make the destructive red and primary blue look nearly
                             identical at small heights).  Render a ⚠ glyph next to

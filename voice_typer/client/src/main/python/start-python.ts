@@ -218,8 +218,13 @@ export function startPython() {
 					: `${APP_NAME}'s Python backend exited unexpectedly with code ${code} and will now exit.\n\nPlease check the logs and try again.`;
 			try {
 				dialog.showErrorBox(crashTitle, crashBody);
-			} catch {
+			} catch (e) {
 				// dialog may not be available in headless mode
+				// (CI, `DISPLAY` unset, or pre-app-ready). Log at debug so
+				// the failure is observable in the diagnostic log without
+				// spamming the default level — mirrors the debug-log pattern
+				// used in `relaunch-app.ts:351`.
+				log.debug("[PYTHON] crash dialog.showErrorBox failed (non-fatal):", e);
 			}
 			state.pythonProcess = null;
 			state.tcpSocket = null;
@@ -292,8 +297,16 @@ export function startPython() {
 				"Python backend not found",
 				`${APP_NAME} could not start its backend:\n${err.message}`,
 			);
-		} catch {
+		} catch (e) {
 			// dialog may not be available in headless mode
+			// (CI, `DISPLAY` unset, or pre-app-ready). Log at debug so
+			// the failure is observable in the diagnostic log without
+			// spamming the default level — mirrors the debug-log pattern
+			// used in `relaunch-app.ts:351`.
+			log.debug(
+				"[PYTHON] spawn-failure dialog.showErrorBox failed (non-fatal):",
+				e,
+			);
 		}
 		app.quit();
 	});

@@ -5,7 +5,13 @@
 	"dialog.export.history": "Exportar historial",
 	"dialog.export.templates": "Exportar plantillas",
 	"dialog.export.vocabulary": "Exportar vocabulario",
+	"dialog.preloadError.body": "{appName} no se pudo iniciar (error del script de precarga en {file}).\n\nReinstale {appName}.\n\nSi el problema persiste después de reinstalar, póngase en contacto con soporte.",
 	"dialog.selectModelFolder.title": "Seleccionar carpeta de modelos",
 	"dialog.singleInstance.message": "Solo se puede ejecutar una instancia de {appName} a la vez.\n\nCierra la instancia existente primero e inténtalo de nuevo.",
-	"dialog.singleInstance.title": "{appName}"
+	"dialog.singleInstance.title": "{appName}",
+	"notify.app.config_load_failed_body": "Error al cargar la configuración. Se restablecieron los valores predeterminados. Revisa los registros para más detalles.",
+	"state.app.starting": "Iniciando...",
+	"dialog.crashLoop.title": "{appName} — Bucle de fallo",
+	"dialog.crashLoop.mainBody": "La ventana principal del renderizador ha fallado repetidamente y no se puede recuperar.\n\nUse el icono de la bandeja para Reiniciar o Salir, y luego vuelva a iniciar {appName}.",
+	"dialog.crashLoop.bubbleBody": "La ventana superpuesta del renderizador ha fallado repetidamente y no se puede recuperar.\n\nUse el icono de la bandeja para Reiniciar o Salir, y luego vuelva a iniciar {appName}."
 }

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -40,4 +41,4 @@ export function RecordingStatusPill({
 	);
 }
 
-export default RecordingStatusPill;
+export default memo(RecordingStatusPill);

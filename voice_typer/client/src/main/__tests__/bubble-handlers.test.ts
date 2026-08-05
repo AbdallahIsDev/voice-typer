@@ -143,21 +143,24 @@ describe("XS-78: bubble-handlers.ts", () => {
 	});
 
 	describe("registerBubbleHandlers() registers all expected channels", () => {
-		it("registers the 7 documented bubble:* channels", () => {
+		it("registers the 8 documented bubble:* channels", () => {
 			// Reset the mock so we only see registrations from this call.
 			mocks.ipcOn.mockClear();
 			registerBubbleHandlers();
 
 			const channels = mocks.ipcOn.mock.calls.map((c: unknown[]) => c[0]);
-			// The 7 channels documented in bubble-handlers.ts:
-			// bubble:move-by, bubble:draggable, bubble:resize,
+			// The channels documented in bubble-handlers.ts (8 total):
+			// bubble:draggable, bubble:resize,
 			// bubble:show-from-renderer, bubble:toggle-dictation,
 			// bubble:set-position, bubble:ready, bubble:dismiss,
 			// bubble:hidden.
-			// (9 total — the doc lists 7 in the header but the module
-			// also registers toggle-dictation, dismiss, hidden.)
+			//
+			// NOTE: `bubble:move-by` is INTENTIONALLY NOT registered —
+			// the keyboard-nudge handler was removed because it had no
+			// production caller (the bubble window is focusable: false,
+			// so the renderer-side keydown handler that fed this channel
+			// was dead code). See the module docstring.
 			const expected = [
-				"bubble:move-by",
 				"bubble:draggable",
 				"bubble:resize",
 				"bubble:show-from-renderer",
@@ -170,6 +173,8 @@ describe("XS-78: bubble-handlers.ts", () => {
 			for (const ch of expected) {
 				expect(channels).toContain(ch);
 			}
+			// The removed handler must NOT be registered.
+			expect(channels).not.toContain("bubble:move-by");
 		});
 
 		it("does NOT register non-bubble channels (e.g. python-call)", () => {

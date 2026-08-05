@@ -86,28 +86,37 @@ const GLOBAL_ERROR_TOAST_ID = "global-error-handler";
  * could confuse users or, in a worst case, aid an attacker probing
  * the renderer surface.
  *
- * : previously called ``require("../i18n/i18n")`` lazily so
- * the global error handler could be installed before the i18n module
+ * Previously this function called ``require("../i18n/i18n")`` lazily
+ * so the global error handler could be installed before the i18n module
  * loaded. That reasoning was sound but ``require`` is not available
  * in the sandboxed renderer — so the lazy import always failed and
  * the hardcoded English fallback always won. With the top-level ESM
  * ``import`` we now actually resolve the localized string.
+ *
+ * The hardcoded English fallback
+ * "The app encountered an unexpected error. Your data is safe." has
+ * been dropped. ``t()`` is a pure lookup that walks the
+ * currentLocale → primary-subtag → en → raw-key chain — it never
+ * throws and never returns an empty string (the worst case is the
+ * raw dot-path key, which is ugly but unambiguously signals broken
+ * i18n to the developer). The defensive try/catch is retained so a
+ * FUTURE i18n implementation that does throw can never break the
+ * global error handler; in that case we return the raw key rather
+ * than a hardcoded English string, preserving the "broken i18n
+ * should be visible, not silently masked" invariant.
  */
 function _genericUserMessage(): string {
-	// ``t()`` is a pure lookup that falls back to English, then to
-	// the raw key. It cannot throw — but we still guard so a future
-	// i18n implementation that does throw never breaks the global
-	// error handler.
 	try {
-		const msg = t("errorBoundary.description");
-		if (typeof msg === "string" && msg.length > 0) return msg;
+		return t("errorBoundary.description");
 	} catch (e) {
-		// Fall through to the hardcoded default. The i18n module
-		// should never throw, but we guard so a future implementation
-		// can't break the global error handler.
-		console.warn("[globalErrorHandler] i18n t() failed, using default:", e);
+		// The i18n module should never throw, but we guard so a future
+		// implementation can't break the global error handler. Return
+		// the raw key (not a hardcoded English string) so broken i18n
+		// is unambiguously visible to developers rather than silently
+		// masked.
+		console.warn("[globalErrorHandler] i18n t() failed:", e);
+		return "errorBoundary.description";
 	}
-	return "The app encountered an unexpected error. Your data is safe.";
 }
 
 /**
@@ -147,23 +156,29 @@ function _formatForConsole(err: unknown): string {
 }
 
 /**
- * : safely resolve a localized string, falling back to the
- * provided English default when i18n is unavailable or the key is
- * missing. Mirrors the defensive pattern in ``_genericUserMessage``
- * so the action-button labels never throw.
+ * Safely resolve a localized string, letting the i18n layer
+ * handle missing keys. The i18n layer (``i18n/translate.ts``) walks
+ * the currentLocale → primary-subtag → en → raw-key chain — it never
+ * throws and returns the raw dot-path key as the last-resort
+ * fallback (e.g. ``t("errors.viewLogsAction")`` returns
+ * ``"errors.viewLogsAction"`` when the key is missing from BOTH the
+ * active locale AND the English fallback table). That raw key is
+ * ugly but unambiguously signals broken i18n to the developer; it
+ * is preferable to silently masking the gap with a hardcoded
+ * English string that hides the missing-key bug.
+ *
+ * The defensive try/catch is retained so a FUTURE i18n
+ * implementation that does throw can never break the global error
+ * handler; in that case we return the raw key rather than a
+ * hardcoded English string.
  */
-export function _safeT(key: string, fallback: string): string {
+export function _safeT(key: string): string {
 	try {
-		const msg = t(key);
-		// `t()` returns the raw key string when the key is missing from
-		// the locale dictionary. Detect this case and fall back to the
-		// English fallback so raw dot-paths like "errors.viewLogsAction"
-		// never render as toast button labels.
-		if (typeof msg === "string" && msg.length > 0 && msg !== key) return msg;
+		return t(key);
 	} catch (e) {
 		console.warn(`[globalErrorHandler] i18n t("${key}") failed:`, e);
+		return key;
 	}
-	return fallback;
 }
 
 /**
@@ -203,7 +218,7 @@ function _buildToastOptions(formattedError: string): {
 	const windowApi = window.window_;
 	if (typeof windowApi?.openLogs === "function") {
 		opts.action = {
-			label: _safeT("errors.viewLogsAction", "View logs"),
+			label: _safeT("errors.viewLogsAction"),
 			onClick: () => {
 				try {
 					void windowApi.openLogs?.();
@@ -223,7 +238,7 @@ function _buildToastOptions(formattedError: string): {
 		typeof navigator.clipboard?.writeText === "function"
 	) {
 		opts.cancel = {
-			label: _safeT("errors.copyErrorAction", "Copy error"),
+			label: _safeT("errors.copyErrorAction"),
 			onClick: () => {
 				navigator.clipboard
 					.writeText(formattedError)

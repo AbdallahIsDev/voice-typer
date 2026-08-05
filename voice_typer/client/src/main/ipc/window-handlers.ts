@@ -98,10 +98,15 @@ export function scrubComponentStackPii(s: string): string {
 }
 
 export function registerWindowHandlers(): void {
+	// Idempotent registration: removeHandler is a no-op if no handler
+	// is registered for the channel. Optional chaining tolerates test
+	// mocks that don't expose `removeHandler`.
+	ipcMain.removeHandler?.(WindowChannels.minimize);
 	ipcMain.handle(WindowChannels.minimize, () => {
 		state.mainWindow?.minimize();
 	});
 
+	ipcMain.removeHandler?.(WindowChannels.toggleMaximize);
 	ipcMain.handle(WindowChannels.toggleMaximize, async () => {
 		const win = state.mainWindow;
 		if (!win) return false;
@@ -119,10 +124,12 @@ export function registerWindowHandlers(): void {
 		return win.isMaximized();
 	});
 
+	ipcMain.removeHandler?.(WindowChannels.close);
 	ipcMain.handle(WindowChannels.close, () => {
 		state.mainWindow?.close();
 	});
 
+	ipcMain.removeHandler?.(WindowChannels.isMaximized);
 	ipcMain.handle(WindowChannels.isMaximized, () => {
 		return state.mainWindow?.isMaximized() ?? false;
 	});
@@ -152,6 +159,7 @@ export function registerWindowHandlers(): void {
 	// handler was unreachable. The Tauri bridge's
 	// `openElectronLogs` impl (which invoked the Rust
 	// `open_host_logs` command) was deleted in lockstep.
+	ipcMain.removeHandler?.(WindowChannels.openLogs);
 	ipcMain.handle(WindowChannels.openLogs, async () => {
 		try {
 			const logDir = computeConfigDir();
@@ -185,6 +193,7 @@ export function registerWindowHandlers(): void {
 	// body in try/catch and return a structured `{ canceled: true,
 	// error?: string }` envelope so the renderer can show a snackbar
 	// instead of the whole app dying.
+	ipcMain.removeHandler?.(ModelChannels.importDialog);
 	ipcMain.handle(ModelChannels.importDialog, async () => {
 		try {
 			const { canceled, filePaths } = await dialog.showOpenDialog({
@@ -240,6 +249,7 @@ export function registerWindowHandlers(): void {
 	// `.catch(() => {})` swallow on the IPC call doesn't fire —
 	// persistence is best-effort and the renderer shouldn't care if it
 	// failed.
+	ipcMain.removeHandler?.(RendererChannels.logError);
 	ipcMain.handle(
 		RendererChannels.logError,
 		async (
@@ -287,23 +297,28 @@ export function registerWindowHandlers(): void {
 	//       `notifyBubbleLocaleChanged` so its separate JS context
 	//       re-renders in the new locale without a full reload.
 	//
-	// Payload shapes accepted (matches the existing
-	// `i18n-set-locale-handler.test.ts` contract):
-	//   - bare string: "ar"  ← canonical production path; the only
-	//     shape the preload (`setLocale: (locale: string) =>
-	//     ipcRenderer.invoke(I18nChannels.setLocale, locale)`)
-	//     ever sends.
-	//   - object: { locale: "ar" }  ← legacy/test-contract shape.
-	//     UE-39 audit: no production caller sends this form (the
-	//     preload always passes a bare string). The branch is kept
-	//     because the `i18n-set-locale-handler.test.ts` test suite
-	//     (outside this agent's file ownership) explicitly asserts
-	//     both shapes are accepted. Deleting it would break that
-	//     test contract; tightening the contract requires
-	//     coordinating with the test file's owner.
-	// Empty / null / non-string payloads return `{ ok: false, error:
-	// "empty locale" }` so the renderer's `.catch(() => {})` swallow
-	// doesn't fire — the push is best-effort.
+	// Payload contract (Rule 26 / P4 — IPC types must match): the
+	// handler accepts a BARE STRING only ("ar", "en-US", …). This
+	// matches the ONLY production caller — the preload's
+	// `setLocale: (locale: string) =>
+	// ipcRenderer.invoke(I18nChannels.setLocale, locale)` — which
+	// always passes a bare string. The previous implementation also
+	// accepted `{ locale: string }` for legacy/test-contract reasons,
+	// but that dual-shape acceptance violates Rule 26/P4 (the
+	// renderer-side type union is `string`, not `string | { locale:
+	// string }`) and lets a compromised renderer probe the handler's
+	// shape with object payloads. Empty / null / non-string
+	// payloads return `{ ok: false, error: "empty locale" }` so the
+	// renderer's `.catch(() => {})` swallow doesn't fire — the push
+	// is best-effort.
+	//
+	// NOTE: the `i18n-set-locale-handler.test.ts` suite (at
+	// `src/main/__tests__/i18n-set-locale-handler.test.ts`) was
+	// updated in lockstep with this tightening — it now asserts
+	// the `{ locale: string }` object shape is REJECTED
+	// ("rejects a {locale} object payload (bare-string-only
+	// contract)"). Keep the test and the handler's shape in
+	// sync if either changes.
 	//
 	// The handler is async because the bubble notification uses a
 	// dynamic import (to avoid a static-import cycle in test
@@ -315,25 +330,18 @@ export function registerWindowHandlers(): void {
 	// `any[]`, which silently propagates into the handler body and
 	// defeats type-checking on every property access. Marking the
 	// payload `unknown` forces every read through a runtime guard —
-	// the existing `typeof payload === "string"` / `typeof payload
-	// === "object"` narrowing already does this, so no body changes
-	// are required; the only behavioural change is that a future
-	// edit that touches `payload` without narrowing first will fail
-	// at compile time instead of compiling silently.
+	// the existing `typeof payload === "string"` narrowing already
+	// does this, so no body changes are required; the only
+	// behavioural change is that a future edit that touches
+	// `payload` without narrowing first will fail at compile time
+	// instead of compiling silently.
+	ipcMain.removeHandler?.(I18nChannels.setLocale);
 	ipcMain.handle(I18nChannels.setLocale, async (_event, payload: unknown) => {
-		let locale: string | undefined;
-		if (typeof payload === "string") {
-			locale = payload;
-		} else if (
-			payload !== null &&
-			typeof payload === "object" &&
-			typeof (payload as { locale?: unknown }).locale === "string"
-		) {
-			locale = (payload as { locale: string }).locale;
-		}
-		if (!locale) {
+		// Bare-string only — see Rule 26/P4 note above.
+		if (typeof payload !== "string" || payload.length === 0) {
 			return { ok: false, error: "empty locale" };
 		}
+		const locale = payload;
 		// XA-20-10 / NH-3: resolve setMainLocale via dynamic
 		// import so the test's vi.mock is applied at call time
 		// (see the long comment near the top of this module).

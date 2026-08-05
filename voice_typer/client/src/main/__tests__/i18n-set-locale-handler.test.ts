@@ -6,9 +6,10 @@
  * Verifies that:
  *   - The handler is registered under the `i18n:set-locale` channel.
  *   - It calls `setMainLocale(locale)` with the locale string from the
- *     payload (both `{locale: "ar"}` object form and bare `"ar"` string
- *     form are accepted — the bare-string form matches the preload's
- *     `ipcRenderer.invoke("i18n:set-locale", locale)` call shape).
+ *     payload. The handler accepts a BARE STRING only — the `{locale:
+ *     string}` object form is rejected (the preload always invokes
+ *     `ipcRenderer.invoke("i18n:set-locale", locale)` with a bare
+ *     string, matching the renderer-side `string` type union).
  *   - It resolves with `{ ok: true }` on success.
  *   - It resolves with `{ ok: false, error }` (rather than throwing)
  *     when the payload is missing or empty, so the renderer's
@@ -94,11 +95,17 @@ describe("NH-3: i18n:set-locale IPC handler", () => {
 		expect(result).toEqual({ ok: true });
 	});
 
-	it("accepts a {locale} object payload and calls setMainLocale with the locale field", async () => {
+	it("rejects a {locale} object payload (bare-string-only contract)", async () => {
+		// Rule 26/P4: the renderer-side IPC type union is `string`, NOT
+		// `string | { locale: string }`. The handler accepts a BARE
+		// STRING only — the preload always invokes
+		// `ipcRenderer.invoke("i18n:set-locale", locale)` with a bare
+		// string. An object payload is therefore rejected (not treated
+		// as a locale) so a compromised renderer can't probe the
+		// handler's shape.
 		const result = await setLocaleHandler(null, { locale: "fr" });
-		expect(mocks.setMainLocale).toHaveBeenCalledTimes(1);
-		expect(mocks.setMainLocale).toHaveBeenCalledWith("fr");
-		expect(result).toEqual({ ok: true });
+		expect(mocks.setMainLocale).not.toHaveBeenCalled();
+		expect(result).toEqual({ ok: false, error: "empty locale" });
 	});
 
 	it("passes the locale string through unchanged (no normalisation)", async () => {

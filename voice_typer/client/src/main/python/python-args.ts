@@ -12,6 +12,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { app } from "electron";
 import { IPC_PORT } from "../constants";
+import { log } from "../logging";
 import { computeConfigDir } from "../single_instance";
 
 /**
@@ -83,10 +84,13 @@ function resolveBundledBackend(platform: NodeJS.Platform): string | null {
 			if (fs.existsSync(candidate)) {
 				return candidate;
 			}
-		} catch {
+		} catch (e) {
 			// fs.existsSync can throw on broken symlinks / permission
 			// errors — try the next candidate before falling through
-			// to the dev venv.
+			// to the dev venv. Log at debug so the failure
+			// is observable in the diagnostic log without spamming the
+			// default level (mirrors `relaunch-app.ts:158`).
+			log.debug("[PY-ARGS] fs.existsSync failed (non-fatal):", e);
 		}
 	}
 	return null;

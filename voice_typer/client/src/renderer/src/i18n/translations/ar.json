@@ -888,7 +888,9 @@
 			"notchFrequency": "تردد الشق",
 			"notchFrequencyInfo": "تردد مركز الشق. 50Hz لأوروبا/آسيا، 60Hz لأمريكا الشمالية.",
 			"notchFrequencyInfoSearch": "تردد مركز الشق.",
-			"notchFrequencyAria": "تردد الشق"
+			"notchFrequencyAria": "تردد الشق",
+			"crossLinkBanner": "يمكن أيضًا تعديل هذه الإعدادات من صفحة الميكروفون (مع سير عمل اختبار تسجيل A/B).",
+			"goToMicrophone": "الانتقال إلى الميكروفون"
 		},
 		"aiEnhancement": {
 			"title": "تحسين بالذكاء الاصطناعي",
@@ -1837,6 +1839,45 @@
 		"restartLoopBreak": {
 			"title": "لا يمكن إعادة تشغيل {appName} بأمان",
 			"body": "تتعطل الواجهة الخلفية لـ Python عند الإطلاق. بعد {count} محاولات على مدار {seconds} ثانية، تم تفعيل مانع حلقة إعادة التشغيل. يرجى التحقق من ملفات السجل وإعادة التثبيت إذا استمرت المشكلة."
+		}
+	},
+	"error": {
+		"config_load_failed": {
+			"title": "فشل تحميل الإعدادات",
+			"body": "تمت إعادة التعيين إلى الإعدادات الافتراضية. تحقق من السجلات لمزيد من التفاصيل."
+		}
+	},
+	"state": {
+		"starting": "جارٍ التشغيل..."
+	},
+	"notify": {
+		"recording_controller": {
+			"consent_required_title": "{appName}",
+			"consent_required_body": "يلزم الحصول على موافقة القياسات الصوتية البيومترية لبدء التسجيل.\nفعّلها من الإعدادات > الخصوصية > موافقة القياسات الصوتية البيومترية.",
+			"watchdog_title": "{appName}",
+			"watchdog_body": "لا يزال التفريغ الصوتي قيد التشغيل.\nقد تستغرق التسجيلات الطويلة أو وضع المعالج الاحتياطي وقتًا إضافيًا.",
+			"mic_disconnected_title": "{appName}",
+			"mic_disconnected_body": "تم فصل الميكروفون.",
+			"silence_auto_stop_title": "{appName}",
+			"silence_auto_stop_body": "تم إيقاف التسجيل: لم يتم اكتشاف أي صوت.",
+			"max_duration_stop_title": "{appName}",
+			"max_duration_stop_body": "تم إيقاف التسجيل: تم بلوغ الحد الأقصى للمدة.",
+			"mic_permission_revoked_title": "{appName}",
+			"mic_permission_revoked_body": "تم إبطال إذن الميكروفون.",
+			"xrun_warning_title": "{appName}",
+			"xrun_warning_body": "تم اكتشاف فيض في الذاكرة المؤقتة للصوت. جرّب حجمًا أكبر للذاكرة المؤقتة."
+		},
+		"model_manager": {
+			"backend_init_failed_title": "{appName}",
+			"backend_init_failed_body": "تعذّر تهيئة الواجهة الخلفية {backend}. تحقق من السجلات لمزيد من التفاصيل.",
+			"backend_change_deferred_title": "{appName}",
+			"backend_change_deferred_body": "ستتغير الواجهة الخلفية إلى {backend} بعد التسجيل الحالي."
+		},
+		"settings_controller": {
+			"autostart_toggle_failed_title": "{appName}",
+			"autostart_toggle_failed_body": "تعذّر تغيير إعداد التشغيل التلقائي.\n{error}",
+			"microphone_selection_failed_title": "{appName}",
+			"microphone_selection_failed_body": "تعذّر تغيير الميكروفون."
 		}
 	}
 }

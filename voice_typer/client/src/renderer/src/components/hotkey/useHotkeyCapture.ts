@@ -1,7 +1,7 @@
 /**
  * Capture-session state machine for ``HotkeyPicker``.
  *
- * : the hook now uses ``useReducer(hotkeyCaptureReducer, ...)`` for
+ * The hook now uses ``useReducer(hotkeyCaptureReducer, ...)`` for
  * the visible UI state (status / error / secondsRemaining /
  * heldModifiersLabel). The reducer is a pure function exported from
  * ``hotkey-utils.ts`` so it can be unit-tested in isolation.
@@ -65,7 +65,7 @@ export interface UseHotkeyCaptureParams {
 	mode: "single" | "combo";
 	onChange: (hotkey: string) => void;
 	/**
-	 * ESC-: optional callback invoked when capture mode starts.
+	 * optional callback invoked when capture mode starts.
 	 * Used by the parent to pause the global ESC cancel hotkey in the
 	 * backend so that pressing Escape during capture doesn't trigger
 	 * recording cancellation. Should be a stable ``useCallback`` so
@@ -73,14 +73,14 @@ export interface UseHotkeyCaptureParams {
 	 */
 	onCaptureStart?: () => void;
 	/**
-	 * ESC-: optional callback invoked when capture mode ends
+	 * optional callback invoked when capture mode ends
 	 * (user pressed Escape, selected a key, or clicked the button
 	 * again).  Used by the parent to resume the global ESC cancel
 	 * hotkey in the backend. Should be a stable ``useCallback``.
 	 */
 	onCaptureEnd?: () => void;
 	/**
-	 * DUPLICATE-001: hotkey strings that are already occupied by other
+	 * hotkey strings that are already occupied by other
 	 * settings. When the user tries to set this picker to a value that's
 	 * already in use, an error is shown and the change is rejected.
 	 * This prevents two settings from having the same hotkey.
@@ -123,13 +123,13 @@ export function useHotkeyCapture({
 		null,
 	);
 	const containerRef = useRef<HTMLDivElement | null>(null);
-	// HOTKEY-MULTIKEY-001: refs tracking the full set of pressed keys.
+	// refs tracking the full set of pressed keys.
 	const heldModifiersRef = useRef<Set<string>>(new Set());
 	const heldNonModifiersRef = useRef<Set<string>>(new Set());
 	const sessionModifiersRef = useRef<Set<string>>(new Set());
 	const sessionNonModifiersRef = useRef<Set<string>>(new Set());
 	const unsupportedComboRef = useRef<string | null>(null);
-	// ESC-KEYUP-FIX: tracks whether ESC was pressed during the current
+	// tracks whether ESC was pressed during the current
 	// capture session so handleKeyUp can exit on ESC release instead of
 	// on key-down.
 	const escPressedRef = useRef(false);
@@ -174,7 +174,7 @@ export function useHotkeyCapture({
 		);
 	}, []);
 
-	// HOTKEY-FULLMSG-001: build the full attempted-shortcut label for an
+	// build the full attempted-shortcut label for an
 	// error message. Combines session modifiers (canonical order),
 	// session non-modifiers (insertion order), and optionally an extra
 	// key label that isn't in the session sets.
@@ -227,7 +227,7 @@ export function useHotkeyCapture({
 		}, 1000);
 	}, []);
 
-	// HOTKEY-MULTIKEY-001: reset all capture-session refs to their empty
+	// reset all capture-session refs to their empty
 	// state. Called after a successful commit, after a cancel, or after
 	// an error to give the user a fresh attempt. Does NOT touch the
 	// reducer error state (caller dispatches SetError separately).
@@ -300,7 +300,7 @@ export function useHotkeyCapture({
 		const parts = [...mods, ...keys];
 		if (parts.length === 0) return;
 
-		// HOTKEY-FULLMSG-001: in single mode, if the user pressed
+		// in single mode, if the user pressed
 		// modifiers alongside a non-modifier, the full combo is NOT a
 		// valid dictation key. Show an error referencing the FULL
 		// attempted combo.
@@ -337,7 +337,7 @@ export function useHotkeyCapture({
 	// ── Public actions ───────────────────────────────────────────────
 
 	const cancelRecording = useCallback(() => {
-		// ESC-KEYUP-FIX guard: if the backend pushes a
+		// if the backend pushes a
 		// hotkey_capture_cancel event while the frontend has already
 		// exited capture (e.g. via key-up handler), the reducer's
 		// OutsideClick case is a no-op when status !== "capturing", so
@@ -359,7 +359,7 @@ export function useHotkeyCapture({
 
 	// ── Keydown handler (stable — only depends on stable helpers) ────
 	//
-	// HOTKEY-MULTIKEY-001: each pressed key is added to the appropriate
+	// each pressed key is added to the appropriate
 	// ``held*`` set and the sticky ``session*`` set. No commit happens
 	// here — the candidate is finalized only when all keys are released
 	// (see keyUp handler).
@@ -368,7 +368,7 @@ export function useHotkeyCapture({
 			if (!capturingRef.current) return;
 
 			if (e.key === "Escape") {
-				// ESC-KEYUP-FIX: cancel on ESC RELEASE (key-up), not on
+				// cancel on ESC RELEASE (key-up), not on
 				// key-down. Just record that ESC was pressed; handleKeyUp
 				// does the cancel on release.
 				e.preventDefault();
@@ -413,7 +413,7 @@ export function useHotkeyCapture({
 			}
 
 			if (!pynputName) {
-				// HOTKEY-FULLMSG-001: include held modifiers AND any
+				// include held modifiers AND any
 				// non-modifier keys already pressed in this session in
 				// the error message, so the user sees the complete
 				// attempted shortcut.
@@ -440,14 +440,14 @@ export function useHotkeyCapture({
 
 	// ── Keyup handler (stable — reads commit fns via refs) ───────────
 	//
-	// HOTKEY-DEFER-001 (preserved): committing on keyUP (not keyDOWN)
+	// committing on keyUP (not keyDOWN)
 	// eliminates the capture-triggers-recording race where the backend
 	// sees the still-held key as a fresh press.
 	const handleKeyUp = useCallback(
 		(e: KeyboardEvent) => {
 			if (!capturingRef.current) return;
 
-			// ESC-KEYUP-FIX: exit capture mode on ESC release.
+			// exit capture mode on ESC release.
 			if (e.key === "Escape" && escPressedRef.current) {
 				escPressedRef.current = false;
 				resetCaptureSession();
@@ -489,7 +489,7 @@ export function useHotkeyCapture({
 				return;
 			}
 
-			// HOTKEY-MULTIKEY-001: commit only when ALL non-modifier keys
+			// commit only when ALL non-modifier keys
 			// have been released — makes the captured combo release-order
 			// independent.
 			if (
@@ -518,7 +518,7 @@ export function useHotkeyCapture({
 		}
 	}, [state.status, onCaptureStart, onCaptureEnd, clearCountdown]);
 
-	//ESC-: always-attached keyboard listener — NEVER re-register,
+	// always-attached keyboard listener — NEVER re-register,
 	// avoiding the race window where listeners are removed and re-added.
 	// handleKeyDown / handleKeyUp are stable (dispatch-only deps), so
 	// this effect runs once on mount.
@@ -533,7 +533,7 @@ export function useHotkeyCapture({
 		};
 	}, [handleKeyDown, handleKeyUp]);
 
-	// ESC-CAPTURE-FIX / ESC-KEYUP-FIX: listen for backend-triggered
+	// listen for backend-triggered
 	// capture cancel events. The backend pushes
 	// ``hotkey_capture_cancel`` on ESC key-up (release) via its release
 	// callback. cancelRecording is stable, so the subscription doesn't

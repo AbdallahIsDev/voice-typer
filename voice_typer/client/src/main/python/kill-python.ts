@@ -84,8 +84,12 @@ export function killPythonProcessWithSigkillFallback(
 				if (proc.exitCode === null && proc.signalCode === null) {
 					try {
 						proc.kill("SIGKILL");
-					} catch {
-						/* best-effort */
+					} catch (e) {
+						/* best-effort — proc may have already exited.
+						 * Log at debug so the failure is
+						 * observable in the diagnostic log without spamming
+						 * the default level. */
+						log.debug("[KILL] SIGKILL fallback failed (non-fatal):", e);
 					}
 				}
 			}, 3000);

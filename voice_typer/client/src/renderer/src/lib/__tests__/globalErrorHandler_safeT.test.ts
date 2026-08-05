@@ -2,15 +2,25 @@
  * Unit tests for the ``_safeT`` i18n fallback helper in
  * ``globalErrorHandler.ts``.
  *
- * Background: ``_safeT(key, fallback)`` resolves the toast action-button
- * labels (e.g. "View logs" / "Copy error"). The underlying ``t()``
- * function (see ``i18n/translate.ts``) returns the RAW KEY STRING when
- * the key is missing from BOTH the active locale AND the English
- * fallback table — so a naive "is the string non-empty?" check would
- * let the raw dot-path (e.g. ``"errors.viewLogsAction"``) leak through
- * to the UI as the button label. ``_safeT`` is responsible for
- * detecting that case (``msg === key``) and substituting the provided
- * English fallback instead.
+ * Background: ``_safeT(key)`` resolves the toast action-button labels
+ * (e.g. "View logs" / "Copy error"). The underlying ``t()`` function
+ * (see ``i18n/translate.ts``) walks the currentLocale → primary-subtag
+ * → en → raw-key chain — it never throws and returns the raw dot-path
+ * key as the last-resort fallback (e.g. ``t("errors.viewLogsAction")``
+ * returns ``"errors.viewLogsAction"`` when the key is missing from
+ * BOTH the active locale AND the English fallback table).
+ *
+ * WM-C5-F9 (this revision): the previous implementation accepted an
+ * English ``fallback`` parameter and substituted it whenever ``t()``
+ * returned the raw key (or threw, or returned an empty string). That
+ * silently masked missing-key bugs — a translator who forgot to add
+ * ``errors.viewLogsAction`` to a locale file would never see the gap
+ * because the English fallback always won. The new implementation
+ * drops the English fallback entirely and lets the i18n layer's own
+ * raw-key fallback surface the gap. The defensive try/catch is
+ * retained so a FUTURE ``t()`` implementation that throws can never
+ * break the global error handler; in that case ``_safeT`` returns the
+ * raw key (not a hardcoded English string).
  *
  * These tests mock ``@/i18n/i18n`` so we can deterministically control
  * what ``t()`` returns per case — without depending on which keys
@@ -43,50 +53,31 @@ describe("_safeT i18n fallback helper", () => {
 			return key;
 		});
 
-		expect(_safeT("errors.viewLogsAction", "View logs")).toBe("View logs");
-		expect(_safeT("errors.copyErrorAction", "Copy error")).toBe("Copy error");
+		expect(_safeT("errors.viewLogsAction")).toBe("View logs");
+		expect(_safeT("errors.copyErrorAction")).toBe("Copy error");
 	});
 
-	it("returns the English fallback (NOT the raw key) when the key is missing", () => {
-		// Simulate the real ``t()`` behavior for a missing key: return the
-		// raw key string verbatim (this is what ``translate.ts:147`` does
-		// when neither the active locale nor English has the key).
+	it("returns the raw key (letting the i18n layer surface the gap) when the key is missing", () => {
+		// WM-C5-F9: when the key is missing from BOTH the active locale AND
+		// the English fallback table, ``t()`` returns the raw dot-path key
+		// verbatim (see ``translate.ts``). ``_safeT`` must NOT mask this
+		// with a hardcoded English string — the raw key unambiguously
+		// signals broken i18n to the developer.
 		vi.mocked(t).mockImplementation((key: string) => key);
 
-		expect(_safeT("errors.viewLogsAction", "View logs")).toBe("View logs");
-		expect(_safeT("errors.copyErrorAction", "Copy error")).toBe("Copy error");
+		expect(_safeT("errors.viewLogsAction")).toBe("errors.viewLogsAction");
+		expect(_safeT("errors.copyErrorAction")).toBe("errors.copyErrorAction");
 	});
 
-	it("does NOT return the raw dot-path key when the key is missing", () => {
-		// This is the regression guard: pre-fix, ``_safeT`` returned the
-		// raw key string (e.g. "errors.viewLogsAction") as the button
-		// label. The fix must guarantee that the raw key never escapes.
-		vi.mocked(t).mockImplementation((key: string) => key);
-
-		const viewLogsLabel = _safeT("errors.viewLogsAction", "View logs");
-		const copyErrorLabel = _safeT("errors.copyErrorAction", "Copy error");
-
-		expect(viewLogsLabel).not.toBe("errors.viewLogsAction");
-		expect(copyErrorLabel).not.toBe("errors.copyErrorAction");
-	});
-
-	it("returns the fallback when t() returns an empty string", () => {
-		// Defensive: even though the real ``t()`` returns the key (not "")
-		// for a missing key, the ``msg.length > 0`` guard is still
-		// meaningful for keys whose translation value IS an empty string.
-		// ``_safeT`` must fall back rather than render an empty label.
-		vi.mocked(t).mockImplementation(() => "");
-
-		expect(_safeT("errors.viewLogsAction", "View logs")).toBe("View logs");
-	});
-
-	it("returns the fallback when t() throws", () => {
-		// The try/catch inside ``_safeT`` must swallow a throwing ``t()``
-		// and yield the fallback rather than propagate the error.
+	it("returns the raw key when t() throws", () => {
+		// The defensive try/catch inside ``_safeT`` must swallow a throwing
+		// ``t()`` and yield the raw key (NOT a hardcoded English string)
+		// so a future broken i18n implementation is visible rather than
+		// silently masked.
 		vi.mocked(t).mockImplementation(() => {
 			throw new Error("i18n unavailable");
 		});
 
-		expect(_safeT("errors.viewLogsAction", "View logs")).toBe("View logs");
+		expect(_safeT("errors.viewLogsAction")).toBe("errors.viewLogsAction");
 	});
 });

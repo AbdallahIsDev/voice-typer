@@ -68,6 +68,19 @@ interface PendingOutboundEntry {
 	msg: Record<string, unknown>;
 	resolve: (value: unknown) => void;
 	reject: (reason: unknown) => void;
+	// capture the original caller's `senderId` at queue-push
+	// time so the flush can re-invoke `sendToPython` with the SAME
+	// sender identity. Pre-fix, the flush passed `null` unconditionally,
+	// which meant (a) the per-renderer rate limit did not apply to
+	// replayed commands (a renderer that flooded idempotent commands
+	// during a disconnect would bypass its budget on flush), and
+	// (b) the renderer-vs-internal allowlist split lost its renderer
+	// context — though in practice the queue only accepts idempotent
+	// commands (`get_config` / `get_status` / `heartbeat` /
+	// `set_config`), none of which are in `_INTERNAL_ONLY_COMMANDS`,
+	// so the allowlist split was already a no-op for queued entries.
+	// The rate-limit bypass was the real bug.
+	senderId: number | null;
 	ts: number;
 }
 
@@ -393,6 +406,7 @@ export function sendToPython(
 					resolve,
 					reject,
 					ts: Date.now(),
+					senderId,
 				});
 				return;
 			}

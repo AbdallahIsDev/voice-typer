@@ -47,13 +47,15 @@ vi.mock("electron", () => ({
 
 vi.mock("../i18n", () => ({ mainT: (k: string) => k }));
 
-// Mock fs so atomicWriteFileSync's internal writeFileSync/renameSync/
-// unlinkSync are no-ops. We spy on writeFileSync to capture the content.
+// Mock fs so atomicWriteFile's internal fs.promises.writeFile /
+// rename / unlink are no-ops. We spy on fs.promises.writeFile to
+// capture the content (the export handlers migrated from the sync
+// atomicWriteFileSync to the async atomicWriteFile).
 const writeSpy = vi
-	.spyOn(fs, "writeFileSync")
-	.mockImplementation(() => undefined);
-vi.spyOn(fs, "renameSync").mockImplementation(() => undefined);
-vi.spyOn(fs, "unlinkSync").mockImplementation(() => undefined);
+	.spyOn(fs.promises, "writeFile")
+	.mockImplementation(() => Promise.resolve());
+vi.spyOn(fs.promises, "rename").mockImplementation(() => Promise.resolve());
+vi.spyOn(fs.promises, "unlink").mockImplementation(() => Promise.resolve());
 
 // ────────────────────────────────────────────────────────────────────
 // Source-text helpers

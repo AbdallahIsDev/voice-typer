@@ -1,5 +1,6 @@
 import { Mic02Icon, TextIcon, Time02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { memo } from "react";
 import { t } from "@/i18n/i18n";
 import { compactNumber, formatDuration } from "@/lib/format";
 import type { TodayStats } from "@/types/ipc";
@@ -61,7 +62,7 @@ interface StatCardsProps {
 	stats: TodayStats;
 }
 
-export default function StatCards({ stats }: StatCardsProps) {
+function StatCards({ stats }: StatCardsProps) {
 	return (
 		<div className="flex gap-2 w-full">
 			{CARDS.map((card) => {
@@ -90,3 +91,5 @@ export default function StatCards({ stats }: StatCardsProps) {
 		</div>
 	);
 }
+
+export default memo(StatCards);

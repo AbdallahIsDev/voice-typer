@@ -882,7 +882,9 @@
 			"notchFrequency": "नॉच आवृत्ति",
 			"notchFrequencyInfo": "नॉच की केंद्र आवृत्ति। यूरोप/एशिया मेन्स के लिए 50 Hz, उत्तरी अमेरिका मेन्स के लिए 60 Hz।",
 			"notchFrequencyInfoSearch": "नॉच की केंद्र आवृत्ति।",
-			"notchFrequencyAria": "नॉच आवृत्ति"
+			"notchFrequencyAria": "नॉच आवृत्ति",
+			"crossLinkBanner": "इन सेटिंग्स को माइक्रोफ़ोन पेज पर भी संपादित किया जा सकता है (टेस्ट-रिकॉर्ड A/B वर्कफ़्लो के साथ)।",
+			"goToMicrophone": "माइक्रोफ़ोन पर जाएँ"
 		},
 		"aiEnhancement": {
 			"title": "AI संवर्द्धन",
@@ -1837,6 +1839,45 @@
 		"restartLoopBreak": {
 			"title": "{appName} सुरक्षित रूप से पुनरारंभ नहीं हो सकता",
 			"body": "Python बैकएंड लॉन्च पर क्रैश हो रहा है। {seconds} सेकंड में {count} प्रयासों के बाद, रीस्टार्ट लूप ब्रेकर सक्रिय हो गया है। कृपया लॉग फ़ाइलें जांचें और यदि समस्या बनी रहती है तो पुनः स्थापित करें।"
+		}
+	},
+	"error": {
+		"config_load_failed": {
+			"title": "कॉन्फ़िग लोड करना विफल",
+			"body": "सेटिंग्स डिफ़ॉल्ट पर रीसेट कर दी गईं। विवरण के लिए लॉग देखें।"
+		}
+	},
+	"state": {
+		"starting": "शुरू हो रहा है..."
+	},
+	"notify": {
+		"recording_controller": {
+			"consent_required_title": "{appName}",
+			"consent_required_body": "रिकॉर्डिंग शुरू करने के लिए वॉइस बायोमेट्रिक सहमति आवश्यक है।\nइसे सेटिंग्स > गोपनीयता > वॉइस बायोमेट्रिक सहमति में सक्षम करें।",
+			"watchdog_title": "{appName}",
+			"watchdog_body": "ट्रांसक्रिप्शन अभी भी चल रहा है।\nलंबी रिकॉर्डिंग या CPU फ़ॉलबैक में अतिरिक्त समय लग सकता है।",
+			"mic_disconnected_title": "{appName}",
+			"mic_disconnected_body": "माइक्रोफ़ोन डिस्कनेक्ट हो गया।",
+			"silence_auto_stop_title": "{appName}",
+			"silence_auto_stop_body": "रिकॉर्डिंग रुकी: कोई ऑडियो नहीं मिला।",
+			"max_duration_stop_title": "{appName}",
+			"max_duration_stop_body": "रिकॉर्डिंग रुकी: अधिकतम अवधि तक पहुँच गई।",
+			"mic_permission_revoked_title": "{appName}",
+			"mic_permission_revoked_body": "माइक्रोफ़ोन अनुमति रद्द कर दी गई।",
+			"xrun_warning_title": "{appName}",
+			"xrun_warning_body": "ऑडियो बफ़र ओवरफ़्लो पाया गया। बड़े बफ़र आकार के साथ प्रयास करें।"
+		},
+		"model_manager": {
+			"backend_init_failed_title": "{appName}",
+			"backend_init_failed_body": "{backend} बैकएंड शुरू नहीं किया जा सका। विवरण के लिए लॉग देखें।",
+			"backend_change_deferred_title": "{appName}",
+			"backend_change_deferred_body": "वर्तमान रिकॉर्डिंग के बाद बैकएंड {backend} में बदल जाएगा।"
+		},
+		"settings_controller": {
+			"autostart_toggle_failed_title": "{appName}",
+			"autostart_toggle_failed_body": "ऑटोस्टार्ट सेटिंग बदली नहीं जा सकी।\n{error}",
+			"microphone_selection_failed_title": "{appName}",
+			"microphone_selection_failed_body": "माइक्रोफ़ोन बदला नहीं जा सका।"
 		}
 	}
 }

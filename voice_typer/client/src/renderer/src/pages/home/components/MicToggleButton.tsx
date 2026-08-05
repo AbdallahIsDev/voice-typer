@@ -1,5 +1,6 @@
 import { Mic02Icon, StopIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { memo } from "react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -86,4 +87,4 @@ export function MicToggleButton({
 	);
 }
 
-export default MicToggleButton;
+export default memo(MicToggleButton);

@@ -178,10 +178,91 @@ export interface ForceCancelTranscriptionRequest {
 	data?: Record<string, unknown>;
 }
 
-export interface GetDiskInfoRequest {
-	type: "get_disk_info";
+// 12 missing interfaces — commands that ARE registered in the
+// Python ``_COMMAND_REGISTRY`` (``server/ipc/registry.py``) AND in
+// the renderer allowlist (``src/main/allowed-commands.ts``) AND are
+// invoked from the renderer but were absent from the ``PythonRequest``
+// union. Each interface uses a permissive ``data?: Record<string,
+// unknown>`` shape (matching the existing widened entries above) so
+// the typed ``PythonCall`` overload in ``hooks/usePython.ts`` catches
+// command-name typos at compile time without pinning a wire shape
+// that may drift. Tighten individual interfaces to bare (no-data) or
+// stricter ``data:`` shapes as the wire contracts are verified
+// against the Python handler signatures (out of lane for this slice
+// — the Python-side enum lives in another sub-agent's scope).
+
+export interface GetDefaultsRequest {
+	type: "get_defaults";
 	data?: Record<string, unknown>;
 }
+
+export interface DownloadModelRequest {
+	type: "download_model";
+	data?: Record<string, unknown>;
+}
+
+export interface ImportModelRequest {
+	type: "import_model";
+	data?: Record<string, unknown>;
+}
+
+export interface DeleteModelRequest {
+	type: "delete_model";
+	data?: Record<string, unknown>;
+}
+
+export interface TestCloudConnectionRequest {
+	type: "test_cloud_connection";
+	data?: Record<string, unknown>;
+}
+
+export interface SetEscCancelPausedRequest {
+	type: "set_esc_cancel_paused";
+	data?: Record<string, unknown>;
+}
+
+export interface MicrophoneTestStartRequest {
+	type: "microphone_test_start";
+	data?: Record<string, unknown>;
+}
+
+export interface GetVolumeBackendStatusRequest {
+	type: "get_volume_backend_status";
+	data?: Record<string, unknown>;
+}
+
+export interface OpenPrewarmLogRequest {
+	type: "open_prewarm_log";
+	data?: Record<string, unknown>;
+}
+
+export interface OnboardingGetModelOptionsRequest {
+	type: "onboarding_get_model_options";
+	data?: Record<string, unknown>;
+}
+
+export interface OnboardingGetHotkeyPresetsRequest {
+	type: "onboarding_get_hotkey_presets";
+	data?: Record<string, unknown>;
+}
+
+export interface AddTrustedEndpointRequest {
+	type: "add_trusted_endpoint";
+	data?: Record<string, unknown>;
+}
+
+// ``GetDiskInfoRequest`` (phantom): the ``get_disk_info``
+// command was a member of this union AND the renderer's
+// ``useModelFolder`` hook probed it on mount, BUT it was never
+// registered in the Python ``_COMMAND_REGISTRY``
+// (``server/ipc/registry.py``) nor allowed through the renderer
+// allowlist (``src/main/allowed-commands.ts``). The probe in
+// ``useModelFolder.ts`` was therefore dead — it always threw and was
+// swallowed silently by a try/catch. The interface has been removed
+// and the dead probe code deleted from the hook. If a future
+// backend exposes ``get_disk_info``, re-add the interface here AND
+// add the matching ``ALLOWED_COMMANDS`` entry + Python handler
+// before re-introducing a renderer call site.
 
 export interface GetModelCatalogRequest {
 	type: "get_model_catalog";
@@ -213,10 +294,16 @@ export interface MicrophoneTestStopRequest {
 	data?: Record<string, unknown>;
 }
 
-export interface ModelsFolderSupportedRequest {
-	type: "models_folder_supported";
-	data?: Record<string, unknown>;
-}
+// ``ModelsFolderSupportedRequest`` (phantom): the
+// ``models_folder_supported`` command was a member of this union but
+// was never registered in ``_COMMAND_REGISTRY`` nor allowed through
+// ``ALLOWED_COMMANDS``. The renderer's ``useModelFolder`` hook probed
+// it on mount to gate the "Open models folder" button's visibility —
+// the probe always failed silently, so the button was never shown.
+// Removed; the dead probe code in ``useModelFolder.ts`` is deleted
+// too. If a future backend exposes this, re-add the interface here
+// AND register the handler + allowlist entry before introducing a
+// renderer call site.
 
 export interface OnboardingApplyRequest {
 	type: "onboarding_apply";
@@ -268,10 +355,18 @@ export interface OnboardingStartRequest {
 	data?: Record<string, unknown>;
 }
 
-export interface OpenModelsFolderRequest {
-	type: "open_models_folder";
-	data?: Record<string, unknown>;
-}
+// ``OpenModelsFolderRequest`` (phantom): the
+// ``open_models_folder`` command was a member of this union but was
+// never registered in ``_COMMAND_REGISTRY`` nor allowed through
+// ``ALLOWED_COMMANDS``. The renderer's ``useModelFolder`` hook
+// exposed a ``handleOpenModelsFolder`` action that called it, but the
+// button invoking that action was gated behind the (always-failing)
+// ``models_folder_supported`` probe above — so the call never
+// executed in practice. Removed; the dead ``handleOpenModelsFolder``
+// body in ``useModelFolder.ts`` is deleted too. If a future backend
+// exposes ``open_models_folder``, re-add the interface here AND
+// register the handler + allowlist entry before introducing a
+// renderer call site.
 
 export interface PauseModelDownloadRequest {
 	type: "pause_model_download";
@@ -340,14 +435,17 @@ export type PythonRequest =
 	// methodology and the rationale for the permissive shape.
 	| CancelModelDownloadRequest
 	| ForceCancelTranscriptionRequest
-	| GetDiskInfoRequest
+	// phantom ``GetDiskInfoRequest`` removed — never
+	// registered in ``_COMMAND_REGISTRY`` nor allowed through
+	// ``ALLOWED_COMMANDS``; the renderer's probe always failed.
 	| GetModelCatalogRequest
 	| GetModelStatusRequest
 	| GetPrewarmStatusRequest
 	| GetTemplatesRequest
 	| MicrophoneTestCancelRequest
 	| MicrophoneTestStopRequest
-	| ModelsFolderSupportedRequest
+	// phantom ``ModelsFolderSupportedRequest`` removed —
+	// same reason as ``GetDiskInfoRequest`` above.
 	| OnboardingApplyRequest
 	| OnboardingGetMicrophonesRequest
 	| OnboardingIsFirstRunRequest
@@ -358,14 +456,31 @@ export type PythonRequest =
 	| OnboardingSetModelRequest
 	| OnboardingSkipRequest
 	| OnboardingStartRequest
-	| OpenModelsFolderRequest
+	// phantom ``OpenModelsFolderRequest`` removed —
+	// same reason as ``GetDiskInfoRequest`` above.
 	| PauseModelDownloadRequest
 	| RepasteLastRequest
 	| RestoreHistoryRequest
 	| ResumeModelDownloadRequest
 	| RunPrewarmRequest
 	| SaveTemplatesRequest
-	| UndoLastRequest;
+	| UndoLastRequest
+	// 12 missing interfaces added — commands that ARE in
+	// ``_COMMAND_REGISTRY`` + ``ALLOWED_COMMANDS`` AND are called
+	// from the renderer but were previously absent from this
+	// union. See the individual interface declarations above.
+	| GetDefaultsRequest
+	| DownloadModelRequest
+	| ImportModelRequest
+	| DeleteModelRequest
+	| TestCloudConnectionRequest
+	| SetEscCancelPausedRequest
+	| MicrophoneTestStartRequest
+	| GetVolumeBackendStatusRequest
+	| OpenPrewarmLogRequest
+	| OnboardingGetModelOptionsRequest
+	| OnboardingGetHotkeyPresetsRequest
+	| AddTrustedEndpointRequest;
 
 // ── Response data shapes ────────────────────────────────────────────────────────────────
 //

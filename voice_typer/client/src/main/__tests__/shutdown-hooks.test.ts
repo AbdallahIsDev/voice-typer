@@ -327,6 +327,14 @@ describe("stop-python.ts: SIGKILL escalation contract (source-text)", () => {
 class _MockChildProcess extends EventEmitter {
 	pid = 12345;
 	killed = false;
+	// The production escalation liveness check is
+	// `proc.exitCode === null && proc.signalCode === null` (proc has
+	// NOT actually exited). undefined would fail the `=== null` check
+	// and make the SIGKILL escalation dead code, so the mock must
+	// default both to null — matching a freshly-spawned, still-running
+	// child process.
+	exitCode: number | null = null;
+	signalCode: NodeJS.Signals | null = null;
 	kill = vi.fn((_signal?: NodeJS.Signals) => true);
 }
 

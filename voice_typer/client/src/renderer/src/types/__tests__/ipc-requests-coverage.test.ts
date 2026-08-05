@@ -69,14 +69,21 @@ const _RENDERER_CALLED_COMMANDS = {
 	// the call-site survey).
 	cancel_model_download: true,
 	force_cancel_transcription: true,
-	get_disk_info: true,
+	// phantom ``get_disk_info`` removed — the
+	// ``useModelFolder`` probe that called it was dead (command
+	// not registered in ``_COMMAND_REGISTRY`` nor allowed through
+	// ``ALLOWED_COMMANDS``); the probe has been deleted from the
+	// hook. If a future backend exposes ``get_disk_info``, re-add
+	// the matching interface here AND the
+	// ``_RENDERER_CALLED_COMMANDS`` entry simultaneously.
 	get_model_catalog: true,
 	get_model_status: true,
 	get_prewarm_status: true,
 	get_templates: true,
 	microphone_test_cancel: true,
 	microphone_test_stop: true,
-	models_folder_supported: true,
+	// phantom ``models_folder_supported`` removed — same
+	// reason as ``get_disk_info`` above.
 	onboarding_apply: true,
 	onboarding_get_microphones: true,
 	onboarding_is_first_run: true,
@@ -87,7 +94,8 @@ const _RENDERER_CALLED_COMMANDS = {
 	onboarding_set_model: true,
 	onboarding_skip: true,
 	onboarding_start: true,
-	open_models_folder: true,
+	// phantom ``open_models_folder`` removed — same
+	// reason as ``get_disk_info`` above.
 	pause_model_download: true,
 	repaste_last: true,
 	restore_history: true,
@@ -95,7 +103,146 @@ const _RENDERER_CALLED_COMMANDS = {
 	run_prewarm: true,
 	save_templates: true,
 	undo_last: true,
+	// 12 missing commands added — these ARE in the
+	// Python ``_COMMAND_REGISTRY`` AND the renderer allowlist
+	// AND are invoked from renderer code (see review.md
+	// for the per-command call-site survey).
+	get_defaults: true,
+	download_model: true,
+	import_model: true,
+	delete_model: true,
+	test_cloud_connection: true,
+	set_esc_cancel_paused: true,
+	microphone_test_start: true,
+	get_volume_backend_status: true,
+	open_prewarm_log: true,
+	onboarding_get_model_options: true,
+	onboarding_get_hotkey_presets: true,
+	// NOTE: ``add_trusted_endpoint`` is intentionally NOT in
+	// this ``_RENDERER_CALLED_COMMANDS`` map because no renderer
+	// call site invokes it today (it's in ``ALLOWED_COMMANDS``
+	// + ``_COMMAND_REGISTRY`` but the UI is not yet wired). It
+	// IS in the ``PythonRequest`` union below (so future
+	// renderer code can call it with type narrowing) and in
+	// ``_SERVER_REGISTRY_MINUS_PYTHON_ONLY`` (so the
+	// ``PythonRequest["type"] ⊆ server_registry`` guard
+	// passes) — but it's not in this map because no
+	// ``call<...>("add_trusted_endpoint")`` site exists yet.
+	// When a future renderer feature wires it up, add it here
+	// so the ``RENDERER_CALLED_COMMANDS ⊆ PythonRequest["type"]``
+	// guard continues to pin the new call site.
 } satisfies Partial<Record<PythonRequest["type"], true>>;
+
+// ── Section 1b: server-registry parity ──────────────────────────────
+//
+// ``_SERVER_REGISTRY_MINUS_PYTHON_ONLY`` is a static mirror of
+// every command registered in the Python ``_COMMAND_REGISTRY``
+// (``voice_typer/server/ipc/registry.py``) MINUS the entries in
+// ``_PYTHON_ONLY_COMMANDS`` (``{"shutdown", "tray_click"}`` — host-
+// internal commands the renderer never invokes). The list was
+// compiled by reading the canonical registry file and is kept in
+// sync manually: if a future Python-side change adds or removes a
+// command, this list AND the matching
+// ``tests/test_ec4_python_command_registry_parity.py`` (Python-side
+// parity test) AND ``src/main/allowed-commands.ts`` MUST all be
+// updated in lockstep (the 4-way parity contract documented in the
+// registry module's docstring).
+//
+// This list asserts the "PythonRequest["type"] ⊆ server_registry -
+// _PYTHON_ONLY_COMMANDS" half of the parity invariant: every member
+// of the ``PythonRequest`` union must be a real, dispatcher-
+// recognised command (otherwise the typed ``PythonCall`` overload
+// would let a renderer call site send a command that the backend
+// silently rejects with ``unknown_command``).
+const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
+	get_status: true,
+	toggle_dictation: true,
+	undo_last: true,
+	repaste_last: true,
+	get_config: true,
+	get_defaults: true,
+	set_config: true,
+	get_history: true,
+	get_today_stats: true,
+	delete_history: true,
+	restore_history: true,
+	clear_history: true,
+	toggle_favorite: true,
+	get_favorites: true,
+	search_history: true,
+	get_history_count: true,
+	get_transcription_text: true,
+	get_microphones: true,
+	get_volume_backend_status: true,
+	get_model_status: true,
+	get_prewarm_status: true,
+	run_prewarm: true,
+	open_prewarm_log: true,
+	get_vocabulary: true,
+	save_vocabulary: true,
+	get_templates: true,
+	save_templates: true,
+	restart_app: true,
+	quit_app: true,
+	// NOTE: ``shutdown`` and ``tray_click`` are intentionally
+	// ABSENT — they're the ``_PYTHON_ONLY_COMMANDS`` exclusions
+	// (host-internal, never renderer-invoked).
+	onboarding_is_first_run: true,
+	onboarding_start: true,
+	onboarding_next_step: true,
+	onboarding_prev_step: true,
+	onboarding_set_microphone: true,
+	onboarding_set_hotkey: true,
+	onboarding_set_model: true,
+	onboarding_skip: true,
+	onboarding_apply: true,
+	onboarding_get_microphones: true,
+	onboarding_get_model_options: true,
+	onboarding_get_hotkey_presets: true,
+	onboarding_check_permissions: true,
+	onboarding_reset: true,
+	microphone_test_start: true,
+	microphone_test_stop: true,
+	microphone_test_cancel: true,
+	microphone_test_get_level: true,
+	level_monitor_start: true,
+	level_monitor_stop: true,
+	import_model: true,
+	download_model: true,
+	cancel_model_download: true,
+	pause_model_download: true,
+	resume_model_download: true,
+	get_model_catalog: true,
+	delete_model: true,
+	set_tray_locale: true,
+	test_cloud_connection: true,
+	add_trusted_endpoint: true,
+	set_esc_cancel_paused: true,
+	force_cancel_transcription: true,
+	heartbeat: true,
+	relaunch_ack: true,
+	// NOTE: ``tray_click`` and ``shutdown`` are intentionally
+	// absent — they're ``_PYTHON_ONLY_COMMANDS`` exclusions.
+} satisfies Record<string, true>;
+
+// Compile-time guard: every ``PythonRequest["type"]`` literal must
+// be a key of ``_SERVER_REGISTRY_MINUS_PYTHON_ONLY``. If a phantom
+// command (like the deleted ``get_disk_info`` /
+// ``models_folder_supported`` / ``open_models_folder``) is ever
+// reintroduced into the ``PythonRequest`` union, the conditional
+// below resolves to ``false`` and the ``true`` assignment fails to
+// compile.
+//
+// This guard is the symmetric counterpart of Section 1's
+// ``RENDERER_CALLED_COMMANDS ⊆ PythonRequest["type"]`` check: that
+// one catches MISSING interfaces (renderer call sites with no
+// matching union member), and this one catches PHANTOM interfaces
+// (union members with no matching server handler).
+type _PhantomCommandGuard =
+	PythonRequest["type"] extends keyof typeof _SERVER_REGISTRY_MINUS_PYTHON_ONLY
+		? true
+		: false;
+const _noPhantomCommands: _PhantomCommandGuard = true;
 
 // ── Section 2: typo guard ───────────────────────────────────────────
 //
@@ -171,6 +318,23 @@ describe("PythonRequest union covers renderer-called commands", () => {
 
 	it("typo'd command name is NOT in the PythonRequest union", () => {
 		expect(_typoCmdNotInUnion).toBe(false);
+	});
+
+	it("PythonRequest union contains NO phantom commands (every type is in the server registry minus python-only)", () => {
+		// Compile-time guard via ``_PhantomCommandGuard``
+		// above; runtime tautology asserts the guard runs in
+		// CI. If a phantom command (e.g. ``get_disk_info``,
+		// ``models_folder_supported``, ``open_models_folder``)
+		// is reintroduced into the ``PythonRequest`` union
+		// without a matching ``_COMMAND_REGISTRY`` entry, the
+		// conditional resolves to ``false`` and the const
+		// assignment fails to compile.
+		expect(_noPhantomCommands).toBe(true);
+		// Sanity: the registry mirror has enough entries to
+		// be a meaningful guard (catches a future contributor
+		// accidentally emptying the map).
+		const registryKeys = Object.keys(_SERVER_REGISTRY_MINUS_PYTHON_ONLY);
+		expect(registryKeys.length).toBeGreaterThanOrEqual(60);
 	});
 
 	it("typed PythonCall overload narrows data to undefined for bare commands", async () => {

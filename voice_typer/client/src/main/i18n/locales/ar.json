@@ -5,7 +5,13 @@
 	"dialog.export.history": "تصدير السجل",
 	"dialog.export.templates": "تصدير القوالب",
 	"dialog.export.vocabulary": "تصدير المفردات",
+	"dialog.preloadError.body": "فشل بدء تشغيل {appName} (خطأ في سكربت التحميل المسبق في {file}).\n\nيرجى إعادة تثبيت {appName}.\n\nإذا استمرت المشكلة بعد إعادة التثبيت، يرجى الاتصال بالدعم الفني.",
 	"dialog.selectModelFolder.title": "اختيار مجلد النماذج",
 	"dialog.singleInstance.message": "يمكن تشغيل نسخة واحدة فقط من {appName} في كل مرة.\n\nأغلق النسخة الموجودة أولاً ثم حاول مرة أخرى.",
-	"dialog.singleInstance.title": "{appName}"
+	"dialog.singleInstance.title": "{appName}",
+	"notify.app.config_load_failed_body": "فشل تحميل الإعدادات. تمت إعادة التعيين إلى الإعدادات الافتراضية. تحقق من السجلات لمزيد من التفاصيل.",
+	"state.app.starting": "جارٍ التشغيل...",
+	"dialog.crashLoop.title": "{appName} — حلقة التعطل",
+	"dialog.crashLoop.mainBody": "تعطلت نافذة العرض الرئيسية بشكل متكرر ولا يمكن استعادتها.\n\nيرجى استخدام أيقونة الدرج لإعادة التشغيل أو الخروج، ثم إطلاق {appName} مرة أخرى.",
+	"dialog.crashLoop.bubbleBody": "تعطلت نافذة الفقاعة العائمة بشكل متكرر ولا يمكن استعادتها.\n\nيرجى استخدام أيقونة الدرج لإعادة التشغيل أو الخروج، ثم إطلاق {appName} مرة أخرى."
 }

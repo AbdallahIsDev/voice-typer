@@ -882,7 +882,9 @@
 			"notchFrequency": "陷波频率",
 			"notchFrequencyInfo": "陷波滤波器的中心频率。欧洲/亚洲市电为 50Hz，北美市电为 60Hz。",
 			"notchFrequencyInfoSearch": "陷波滤波器的中心频率。",
-			"notchFrequencyAria": "陷波频率"
+			"notchFrequencyAria": "陷波频率",
+			"crossLinkBanner": "这些设置也可以在“麦克风”页面编辑（带有测试录音 A/B 工作流）。",
+			"goToMicrophone": "前往麦克风"
 		},
 		"aiEnhancement": {
 			"title": "AI 增强",
@@ -1837,6 +1839,45 @@
 		"restartLoopBreak": {
 			"title": "{appName} 无法安全重启",
 			"body": "Python 后端在启动时崩溃。在 {seconds} 秒内尝试 {count} 次后，重启循环断路器已启动。请检查日志文件，如果问题持续则重新安装。"
+		}
+	},
+	"error": {
+		"config_load_failed": {
+			"title": "配置加载失败",
+			"body": "设置已重置为默认值。请查看日志了解详情。"
+		}
+	},
+	"state": {
+		"starting": "正在启动..."
+	},
+	"notify": {
+		"recording_controller": {
+			"consent_required_title": "{appName}",
+			"consent_required_body": "开始录音需要语音生物识别同意。\n请在 设置 > 隐私 > 语音生物识别同意 中启用。",
+			"watchdog_title": "{appName}",
+			"watchdog_body": "转录仍在运行。\n长时间录音或 CPU 回退可能需要额外时间。",
+			"mic_disconnected_title": "{appName}",
+			"mic_disconnected_body": "麦克风已断开。",
+			"silence_auto_stop_title": "{appName}",
+			"silence_auto_stop_body": "录音已停止：未检测到音频。",
+			"max_duration_stop_title": "{appName}",
+			"max_duration_stop_body": "录音已停止：已达到最大时长。",
+			"mic_permission_revoked_title": "{appName}",
+			"mic_permission_revoked_body": "麦克风权限已被撤销。",
+			"xrun_warning_title": "{appName}",
+			"xrun_warning_body": "检测到音频缓冲区溢出。请尝试更大的缓冲区大小。"
+		},
+		"model_manager": {
+			"backend_init_failed_title": "{appName}",
+			"backend_init_failed_body": "无法初始化 {backend} 后端。请查看日志了解详情。",
+			"backend_change_deferred_title": "{appName}",
+			"backend_change_deferred_body": "当前录音结束后，后端将切换为 {backend}。"
+		},
+		"settings_controller": {
+			"autostart_toggle_failed_title": "{appName}",
+			"autostart_toggle_failed_body": "无法更改自启动设置。\n{error}",
+			"microphone_selection_failed_title": "{appName}",
+			"microphone_selection_failed_body": "无法更改麦克风。"
 		}
 	}
 }

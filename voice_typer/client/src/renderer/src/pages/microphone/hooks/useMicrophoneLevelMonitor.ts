@@ -267,49 +267,94 @@ export function useMicrophoneLevelMonitor({
 	//  rAF loop — imperative DOM writes for the LevelBar fill.
 	//
 	// Mirrors the bubble's ``useAudioLevels`` rAF pattern
-	// (``useAudioLevels.ts:262-317``): the loop runs continuously while
-	// the meter is mounted, reads the live ``levelRef`` / ``peakRef``
-	// (mutated by the ``mic_level`` push handler at ≤30 Hz), and writes
-	// the latest level to the ``LevelBar``'s fill div (``[role="progressbar"]
-	// > div``) inside the consumer-attached ``meterRef`` wrapper. This
-	// bypasses React's re-render cycle entirely — no ``setLevel`` /
-	// ``setPeak`` calls, no parent re-render, no reconciliation of the
-	// ``Microphone`` page subtree.
+	// (``useAudioLevels.ts:262-317``), including the "wake-on-event"
+	// scheduling gate (``useAudioLevels.ts:286-305``): the loop is
+	// (re)armed by an explicit ``wake()`` call instead of unconditionally
+	// re-scheduling on every frame.
 	//
-	// Gate: the loop self-gates on the same conditions as the push
-	// handler (visibility + ``testRunning || micMonitoring`` + not
-	// playing). When the gate is closed, the rAF callback no-ops and
-	// re-schedules the next frame (the loop stays alive so it can react
-	// to gate flips without a remount — same rationale as the bubble's
-	// regression guard). When the tab is hidden, the browser
-	// throttles rAF to ~1 Hz, so the loop naturally pauses.
+	// Previously the rAF callback unconditionally re-scheduled
+	// the next frame on EVERY gate-closed branch (hidden / not
+	// monitoring / playing) "so the loop can react to gate flips without
+	// a remount". But the Microphone page is commonly mounted while the
+	// user is NOT actively testing / monitoring — they just navigated to
+	// the page to read / scroll. The loop ticked at ~60 Hz doing 3 ref
+	// reads + visibility check + a no-op reschedule, keeping the
+	// renderer's compositing thread awake on battery-constrained
+	// laptops. Browsers throttle rAF in HIDDEN tabs (~1 Hz) but DON'T
+	// throttle it when the tab is VISIBLE and the page is just idle — so
+	// the cost was real on visible tabs.
+	//
+	// Fix: adopt the bubble's wake-on-event pattern.
+	//   - The ``mic_level`` push handler (below) updates
+	//     ``lastLevelEventAtRef.current`` on every event and calls
+	//     ``wakeRef.current?.()`` to (re)arm the loop.
+	//   - The rAF callback checks ``performance.now() -
+	//     lastLevelEventAtRef.current > IDLE_TIMEOUT_MS`` (500ms). If
+	//     idle, it returns WITHOUT scheduling the next frame — the loop
+	//     pauses. The next ``mic_level`` event re-arms via ``wake()``.
+	//   - Gate-closed branches (hidden / not monitoring / playing) also
+	//     return WITHOUT rescheduling. The next ``mic_level`` event
+	//     (which arrives at ≤30 Hz from the backend when the gate is
+	//     open) re-arms via ``wake()``. When the gate is closed the push
+	//     handler suppresses wake too, so the loop stays paused — no
+	//     idle spinning.
+	//   - On mount, ``lastLevelEventAtRef.current`` is primed to
+	//     ``performance.now()`` and ``wake()`` is called once so the
+	//     loop runs for at least the first 500ms (giving the backend
+	//     time to start publishing ``mic_level`` events after
+	//     ``level_monitor_start``). If real events arrive within 500ms
+	//     (the normal case), the loop continues. If none arrive (e.g.
+	//     mic is muted, no audio input, or backend stalls), the loop
+	//     pauses after 500ms — no continuous spin.
 	//
 	// Visual parity: the prior React-driven path updated ``LevelBar``'s
 	// ``width`` + ``backgroundColor`` at ≤30 Hz via inline ``style``
 	// props. This rAF loop writes the same ``width`` + ``backgroundColor``
-	// to the same DOM node at ≤60 Hz — strictly smoother than the prior
-	// 30 Hz cadence, with the same visual result (the bar fills to the
-	// latest level with the same colour ladder).
+	// to the same DOM node at ≤60 Hz while events are flowing — strictly
+	// smoother than the prior 30 Hz cadence, with the same visual result
+	// (the bar fills to the latest level with the same colour ladder).
+	// When the loop is paused (idle / gate closed), the bar holds its
+	// last value — which matches the prior behaviour (the React state
+	// was already stale during monitoring; only the rAF-driven DOM write
+	// was live).
+	const lastLevelEventAtRef = useRef(0);
+	const frameRef = useRef<number | null>(null);
+	const wakeRef = useRef<(() => void) | null>(null);
+	const IDLE_TIMEOUT_MS = 500;
+
 	useEffect(() => {
-		let rafId: number | null = null;
+		// Prime the timestamp so the first frame runs (gives the
+		// backend time to start publishing ``mic_level`` events within
+		// the 500ms idle window). Without this, the very first frame
+		// would see ``now - 0 > 500`` and immediately pause — leaving
+		// the LevelBar at 0% even though the one-shot poll had already
+		// seeded ``levelRef.current``.
+		lastLevelEventAtRef.current = performance.now();
 
 		const animate = () => {
-			rafId = null;
+			frameRef.current = null;
 			// Gate: skip DOM writes when hidden / not monitoring / playing.
-			// rAF still re-schedules so the loop can react to gate flips.
+			// Do NOT reschedule — the next ``mic_level`` event (which
+			// arrives at ≤30 Hz when the gate is open) re-arms via
+			// ``wake()``. When the gate is closed the push handler
+			// suppresses wake too, so the loop stays paused instead of
+			// spinning at 60 Hz doing nothing (wake-on-event fix).
 			if (
 				typeof document !== "undefined" &&
 				document.visibilityState !== "visible"
 			) {
-				rafId = requestAnimationFrame(animate);
 				return;
 			}
 			if (!testRunningRef.current && !micMonitoringRef.current) {
-				rafId = requestAnimationFrame(animate);
 				return;
 			}
-			if (playingRef.current) {
-				rafId = requestAnimationFrame(animate);
+			if (playingRef.current) return;
+
+			// Idle pause: if no ``mic_level`` event has arrived
+			// within ``IDLE_TIMEOUT_MS``, pause the loop. The next event
+			// re-arms via ``wake()``.
+			const now = performance.now();
+			if (now - lastLevelEventAtRef.current > IDLE_TIMEOUT_MS) {
 				return;
 			}
 
@@ -331,16 +376,35 @@ export function useMicrophoneLevelMonitor({
 				}
 			}
 
-			rafId = requestAnimationFrame(animate);
+			// Schedule the next frame. The idle check above will pause
+			// the loop on the next frame if no new ``mic_level`` event has
+			// arrived in the interim.
+			frameRef.current = requestAnimationFrame(animate);
 		};
 
-		rafId = requestAnimationFrame(animate);
+		// ``wake`` function — idempotent (re)starter. Called from the
+		// ``mic_level`` push handler on every event + once on mount. If a
+		// frame is already scheduled, wake is a no-op (the in-flight
+		// frame will pick up the latest ``lastLevelEventAtRef.current``
+		// when it fires).
+		const wake = () => {
+			if (frameRef.current !== null) return;
+			frameRef.current = requestAnimationFrame(animate);
+		};
+		wakeRef.current = wake;
+
+		// Initial wake — starts the loop so the first frame can render
+		// the level seeded by the one-shot poll above. If no real
+		// ``mic_level`` events arrive within 500ms, the loop pauses after
+		// the first frame window.
+		wake();
 
 		return () => {
-			if (rafId !== null) {
-				cancelAnimationFrame(rafId);
-				rafId = null;
+			if (frameRef.current !== null) {
+				cancelAnimationFrame(frameRef.current);
+				frameRef.current = null;
 			}
+			wakeRef.current = null;
 		};
 	}, [meterRef, playingRef, testRunningRef]);
 
@@ -386,6 +450,14 @@ export function useMicrophoneLevelMonitor({
 				if (typeof levelData.peak === "number") {
 					peakRef.current = levelData.peak;
 				}
+				// Wake-on-event: mark that a ``mic_level`` event
+				// arrived and (re)arm the rAF loop. If the loop was paused
+				// due to idle (no events for > 500ms), this resumes it. If
+				// a frame is already scheduled, ``wake()`` is a no-op (the
+				// in-flight frame will pick up the updated
+				// ``lastLevelEventAtRef.current`` when it fires).
+				lastLevelEventAtRef.current = performance.now();
+				wakeRef.current?.();
 				// ``active`` flips rarely (monitoring start/stop) — safe
 				// to drive a React re-render here so the label toggles.
 				if (typeof levelData.active === "boolean") {

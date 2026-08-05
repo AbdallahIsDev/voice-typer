@@ -882,7 +882,9 @@
 			"notchFrequency": "Частота режекторного фильтра",
 			"notchFrequencyInfo": "Центральная частота режекторного фильтра. 50 Гц для сети Европы/Азии, 60 Гц для сети Северной Америки.",
 			"notchFrequencyInfoSearch": "Центральная частота режекторного фильтра.",
-			"notchFrequencyAria": "Частота режекторного фильтра"
+			"notchFrequencyAria": "Частота режекторного фильтра",
+			"crossLinkBanner": "Эти настройки также можно изменить на странице «Микрофон» (с рабочим процессом тестовой записи A/B).",
+			"goToMicrophone": "Перейти к микрофону"
 		},
 		"aiEnhancement": {
 			"title": "ИИ-улучшения",
@@ -1837,6 +1839,45 @@
 		"restartLoopBreak": {
 			"title": "{appName} не может безопасно перезапуститься",
 			"body": "Бэкенд Python падает при запуске. После {count} попыток за {seconds} секунд сработал ограничитель цикла перезапуска. Пожалуйста, проверьте файлы логов и переустановите, если проблема сохраняется."
+		}
+	},
+	"error": {
+		"config_load_failed": {
+			"title": "Не удалось загрузить конфигурацию",
+			"body": "Настройки сброшены к значениям по умолчанию. Подробности см. в журналах."
+		}
+	},
+	"state": {
+		"starting": "Запуск..."
+	},
+	"notify": {
+		"recording_controller": {
+			"consent_required_title": "{appName}",
+			"consent_required_body": "Для начала записи требуется согласие на голосовую биометрию.\nВключите его в Настройки > Конфиденциальность > Согласие на голосовую биометрию.",
+			"watchdog_title": "{appName}",
+			"watchdog_body": "Транскрибация ещё выполняется.\nДлинные записи или резервный режим CPU могут занять дополнительное время.",
+			"mic_disconnected_title": "{appName}",
+			"mic_disconnected_body": "Микрофон отключён.",
+			"silence_auto_stop_title": "{appName}",
+			"silence_auto_stop_body": "Запись остановлена: звук не обнаружен.",
+			"max_duration_stop_title": "{appName}",
+			"max_duration_stop_body": "Запись остановлена: достигнута максимальная длительность.",
+			"mic_permission_revoked_title": "{appName}",
+			"mic_permission_revoked_body": "Разрешение на микрофон отозвано.",
+			"xrun_warning_title": "{appName}",
+			"xrun_warning_body": "Обнаружено переполнение аудиобуфера. Попробуйте увеличить размер буфера."
+		},
+		"model_manager": {
+			"backend_init_failed_title": "{appName}",
+			"backend_init_failed_body": "Не удалось инициализировать бэкенд {backend}. Подробности см. в журналах.",
+			"backend_change_deferred_title": "{appName}",
+			"backend_change_deferred_body": "Бэкенд изменится на {backend} после текущей записи."
+		},
+		"settings_controller": {
+			"autostart_toggle_failed_title": "{appName}",
+			"autostart_toggle_failed_body": "Не удалось изменить настройку автозапуска.\n{error}",
+			"microphone_selection_failed_title": "{appName}",
+			"microphone_selection_failed_body": "Не удалось изменить микрофон."
 		}
 	}
 }

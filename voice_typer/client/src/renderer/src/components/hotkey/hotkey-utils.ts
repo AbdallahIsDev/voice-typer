@@ -1,13 +1,13 @@
 /**
  * Hotkey utilities for the Settings UI.
  *
- * NATIVE-001: updated for the new native subprocess hotkey architecture.
+ * updated for the new native subprocess hotkey architecture.
  * The dropdown now offers only keys that are universally present on all
  * keyboards (Caps Lock, Alt, common modifier combos) plus the Fn key
  * (macOS only — firmware-only on Windows/Linux). The custom capture
  * button still lets users pick any key.
  *
- * HOTKEY-UNIFY-002: this module now re-exports the shared validation
+ * this module now re-exports the shared validation
  * system from ``hotkey-validation.ts``. The legacy ``validateHotkey``
  * function below is kept for backward compat with callers that pass
  * the ``mode`` argument (single/combo). Internally it delegates to
@@ -15,7 +15,7 @@
  * is the single source of truth for reserved-shortcut checking,
  * structural validation, and normalization.
  *
- * ISSUE-8: the preset lists are exposed via getter functions
+ * the preset lists are exposed via getter functions
  * ``getSingleKeyPresets()`` and ``getComboPresets()`` that re-detect
  * the platform on every call. New code should call the getters
  * directly so the presets always reflect the current platform — handy
@@ -153,7 +153,7 @@ function getKeyLabelAlias(): Readonly<Record<string, string>> {
 }
 
 export const KEY_CODE_TO_PYNPUT: Record<string, string> = {
-	// ISSUE-3 (Key-name maps): this table maps Browser key codes
+	// this table maps Browser key codes
 	// (e.code) to pynput-style lowercase names. It is ONE OF THREE
 	// independent key-name tables that share a common vocabulary:
 	//
@@ -167,7 +167,7 @@ export const KEY_CODE_TO_PYNPUT: Record<string, string> = {
 	// canonical name-to-name transformer — if you add a name here,
 	// add it there too so the native backends can recognize it.
 	//
-	//HOTKEY-: letters and digits were missing from
+	// letters and digits were missing from
 	// this table, so capturing combos like Alt+Q, Ctrl+Alt+V, or even
 	// the default repaste hotkey Ctrl+Alt+V would fail with "Key 'v'
 	// is not supported" — despite the error message literally
@@ -317,7 +317,7 @@ export function getModifierCodeMap(isMac: boolean): Record<string, string> {
  * Single-key presets — only keys that are safe to use alone as a
  * dictation trigger.
  *
- * FIX-HOTKEY-AND-NOTIFICATION: the dropdown was reduced to only the
+ * the dropdown was reduced to only the
  * keys that are safe to use as a bare modifier/single-key trigger.
  * Removed:
  * - Win (Windows only): pressing the Win key alone opens the Start
@@ -344,14 +344,14 @@ export function getModifierCodeMap(isMac: boolean): Record<string, string> {
  * - Ctrl (every keyboard; modifier-only release detection)
  * - Fn (macOS only — firmware-only on Windows/Linux)
  *
- * FIX-HOTKEY-ARCHITECTURE: F1–F12 entries were removed from the
+ * F1–F12 entries were removed from the
  * dropdown entirely. They're not universally present on laptop
  * keyboards (which require an Fn+F-key combo) and the native hotkey
  * architecture treats Caps Lock as the recommended default. Function
  * keys are still available via the custom capture button for users
  * who have a keyboard with dedicated function keys.
  *
- * ISSUE-8: this used to be a module-level constant computed once at
+ * this used to be a module-level constant computed once at
  * import time. It's now a getter so the platform is re-detected on
  * every call. The list is small (<5 entries) and the platform check
  * is a single ``navigator.userAgent`` regex, so calling this on every
@@ -381,7 +381,7 @@ export function getSingleKeyPresets(): { value: string; label: string }[] {
  * Combo presets — multi-key hotkey combinations (e.g. Ctrl+Shift+V,
  * Ctrl+Alt+V) used for re-paste and other shortcut settings.
  *
- * ISSUE-8: this is a getter so the platform is re-detected on every
+ * this is a getter so the platform is re-detected on every
  * call, avoiding staleness from module-level platform detection.
  */
 export function getComboPresets(): { value: string; label: string }[] {
@@ -417,7 +417,7 @@ export function getComboPresets(): { value: string; label: string }[] {
  *
  * Returns "None" if the hotkey is empty/falsy.
  *
- * : on macOS, the four primary modifiers are rendered as
+ * on macOS, the four primary modifiers are rendered as
  * platform-native glyphs (⌘ Cmd, ⌃ Ctrl, ⌥ Alt/Option, ⇧ Shift) and
  * joined WITHOUT separators — matching the macOS Human Interface
  * Guidelines (e.g. "⌘⇧V" rather than "Cmd+Shift+V"). On Windows and
@@ -480,7 +480,7 @@ export function validateHotkey(
 	hotkey: string,
 	mode: "single" | "combo",
 ): string | null {
-	// HOTKEY-UNIFY-002: delegate to the shared validation system.
+	// delegate to the shared validation system.
 	// The shared validateHotkey handles:
 	//  - empty / no-keys check
 	//  - reserved-shortcut check (OS-specific)
@@ -507,7 +507,7 @@ export function validateHotkey(
 	if (parts.length === 0) {
 		return t("hotkeyValidation.noKeys");
 	}
-	// NATIVE-001: allow single modifiers (alt, ctrl, shift, fn, cmd, win)
+	// allow single modifiers (alt, ctrl, shift, fn, cmd, win)
 	// as the dictation key. The native backends support modifier-only
 	// release detection.
 	if (mode === "single") {
@@ -521,7 +521,7 @@ export function validateHotkey(
 		// Accept any single key (including modifiers and caps_lock)
 		return null;
 	}
-	// Combo mode: HOTKEY-MULTIKEY-001 — pure-modifier combos (e.g.
+	// Combo mode: pure-modifier combos (e.g.
 	// ``<ctrl>+<shift>``, ``<ctrl>+<alt>``) are now ALLOWED. The structural
 	// "must end with non-modifier" rule only applies to MIXED combos
 	// (modifiers + non-modifiers). The shared validator already enforces
@@ -685,7 +685,7 @@ export function hotkeyCaptureReducer(
 				heldModifiersLabel: buildHeldModifiersLabelFromAction(action.modifiers),
 			};
 		case "EscPressed":
-			// ESC-KEYUP-FIX: no visible state change here — the ESC
+			// no visible state change here — the ESC
 			// press is tracked in ``escPressedRef`` (genuine mutable
 			// state) and the cancel happens on ESC release via
 			// ``EscReleased``.

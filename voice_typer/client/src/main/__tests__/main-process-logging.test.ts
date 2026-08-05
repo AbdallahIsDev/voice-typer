@@ -47,6 +47,10 @@ vi.mock("../logging", () => ({
 		info: vi.fn(),
 		warn: hoisted.logWarnSpy,
 		error: vi.fn(),
+		// tray_available.ts also logs at debug level for the dbus-send
+		// fallback probe — the mock must expose it or the catch block
+		// throws `log.debug is not a function`.
+		debug: vi.fn(),
 	},
 }));
 

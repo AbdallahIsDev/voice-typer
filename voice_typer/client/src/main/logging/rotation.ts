@@ -280,7 +280,17 @@ export function rotateIfNeeded(
 	} else {
 		try {
 			size = fs.statSync(filePath).size;
-		} catch {
+		} catch (e) {
+			// ENOENT is the expected case (file not yet
+			// created on the first append) — return
+			// silently so `appendLogLine`'s appendFileSync
+			// creates the file. Any other error (EACCES,
+			// EIO, ENOTDIR, ...) signals a real
+			// degradation that the orchestrator should
+			// surface via the logging-health ring.
+			const code = (e as NodeJS.ErrnoException).code;
+			if (code === "ENOENT") return;
+			recordLoggingFailure(filePath, "statSync", e);
 			return;
 		}
 	}
@@ -366,18 +376,46 @@ export function appendLogLine(
 	maxBytes: number = DEFAULT_MAIN_LOG_MAX_BYTES,
 ): void {
 	try {
-		// Defer rotation to the next event-loop tick.
-		setImmediate(() => {
+		// Pre-append synchronous rotation: if the cached size
+		// already exceeds the cap, rotate BEFORE the append so
+		// the rotation is not lost on a hard crash exit
+		// (SIGKILL / segfault / OOM-kill). The deferred
+		// `setImmediate` rotation below only fires on the next
+		// event-loop tick — a hard crash before that tick would
+		// lose the rotation entirely, leaving the next process
+		// to inherit an oversized file. The synchronous path
+		// only fires when the cache already knows the file is
+		// over the cap (so we don't pay the `statSync` cost on
+		// the cold-start / cache-miss path — the deferred
+		// `rotateIfNeeded` handles that).
+		const preCachedSize = _getCachedFileSize(filePath);
+		if (preCachedSize !== null && preCachedSize > maxBytes) {
 			try {
 				rotateIfNeeded(filePath, maxBytes);
 			} catch (e) {
 				console.warn(
-					`[logging] deferred rotateIfNeeded failed for ${filePath}:`,
+					`[logging] synchronous rotateIfNeeded failed for ${filePath}:`,
 					e,
 				);
-				recordLoggingFailure(filePath, "rotateIfNeeded.deferred", e);
+				recordLoggingFailure(filePath, "rotateIfNeeded.pre-append", e);
 			}
-		});
+		} else {
+			// Defer rotation to the next event-loop tick
+			// for the non-urgent case (cached size below
+			// the cap, or cache miss — the deferred
+			// `rotateIfNeeded` will stat the file then).
+			setImmediate(() => {
+				try {
+					rotateIfNeeded(filePath, maxBytes);
+				} catch (e) {
+					console.warn(
+						`[logging] deferred rotateIfNeeded failed for ${filePath}:`,
+						e,
+					);
+					recordLoggingFailure(filePath, "rotateIfNeeded.deferred", e);
+				}
+			});
+		}
 		fs.appendFileSync(filePath, line, { flag: "a", mode: 0o600 });
 		// Skip chmod if already verified for this path.
 		if (!_permsVerified.has(filePath)) {
@@ -413,7 +451,15 @@ export const cleanConsoleMsg = (msg: string): string =>
 
 export function ts(): string {
 	const d = new Date();
-	const h = d.getHours() % 12 || 12;
+	// 24-hour clock (00-23). The previous 12-hour form
+	// (`d.getHours() % 12 || 12`) was ambiguous in log triage —
+	// `07:15:30` could be AM or PM. 24-hour is the unambiguous
+	// ISO-style convention used by Python's logging module and by
+	// the rest of the Electron / Rust / Python cross-process log
+	// timeline, so the printf-style `log.*` lines now line up with
+	// `electron-main.log`'s ISO-8601 timestamps (which already use
+	// 24-hour via `new Date().toISOString()`).
+	const h = String(d.getHours()).padStart(2, "0");
 	const m = String(d.getMinutes()).padStart(2, "0");
 	const s = String(d.getSeconds()).padStart(2, "0");
 	return `${DIM}${h}:${m}:${s}${RESET}`;

@@ -1,5 +1,6 @@
 import { ClipboardPasteIcon, Undo02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
+import { memo } from "react";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
 
@@ -69,4 +70,4 @@ export function LastTranscriptionPreview({
 	);
 }
 
-export default LastTranscriptionPreview;
+export default memo(LastTranscriptionPreview);

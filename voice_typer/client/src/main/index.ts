@@ -24,9 +24,6 @@
  *                             CSP, error handlers)
  *
  * What stays here:
- *   - ALLOWED_COMMANDS re-export (canonical declaration lives in
- *     `./allowed-commands.ts`; this file re-exports it so existing
- *     imports like `send-to-python.ts` keep working).
  *   - Security-warning suppression.
  *   - `app.setAppUserModelId("VoiceTyper")`.
  *   - `acquireSingleInstanceLock()` + `registerIpcHandlers()` calls.
@@ -57,27 +54,12 @@ import { state } from "./state";
 import { isLinuxWaylandWithoutSni } from "./tray_available";
 import { createWindows, showMainWindow } from "./windows";
 
-//the canonical ALLOWED_COMMANDS declaration lives in
-// `./allowed-commands` (a dependency-free leaf module). It is
-// re-exported here so existing imports — notably
-// `./python/send-to-python.ts` imports `ALLOWED_COMMANDS` from
-// `../index` — keep working without introducing a circular
-// dependency (allowed-commands.ts imports nothing from this file).
-export { ALLOWED_COMMANDS } from "./allowed-commands";
-
 // Suppress Electron's built-in security-warning console spam in dev mode
 // (the "Insecure Content-Security-Policy" message about unsafe-eval).
 // Vite dev mode needs unsafe-eval for sourcemaps — this is expected.
 if (process.env.npm_lifecycle_event === "dev" || !app.isPackaged) {
 	process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 }
-
-//the canonical ALLOWED_COMMANDS declaration lives in
-// `./allowed-commands.ts` (see top-of-file re-export). The inline
-// duplicate declaration that used to live here was removed to
-// eliminate the risk of the two declarations drifting out of sync
-// (the inline copy was previously missing 3 entries that the
-// canonical copy had, and vice-versa for other entries).
 
 try {
 	// Best-effort — only matters on Windows 7+.
@@ -297,7 +279,7 @@ app.on("activate", () => {
 // obsolete after REF-2 split it into submodules. The follow-up
 //comment claimed the re-export preserved "the public API
 // surface so any external consumer importing from `./index` still
-//resolves `APP_NAME`" — but a repo-wide audit (see finding )
+//resolves `APP_NAME`" — but a repo-wide audit
 // found ZERO such consumers: every APP_NAME import goes directly to
 // `./branding`. Keeping a dead re-export on the wiring-only entry
 // point risks confusion (the canonical declaration lives in

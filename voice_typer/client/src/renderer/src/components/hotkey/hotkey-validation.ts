@@ -1,7 +1,7 @@
 /**
  * Shared hotkey validation system — used by all keyboard shortcut settings.
  *
- * HOTKEY-UNIFY-001: previously validation was duplicated between
+ * previously validation was duplicated between
  * HotkeyPicker, hotkey-utils.ts, and backend config_validators.py.
  * This module is the single source of truth for:
  * - Blocked/reserved shortcuts (OS-specific)
@@ -13,7 +13,7 @@
  * ``voice_typer/server/config_validators.py`` as ``_RESERVED_HOTKEYS``.
  * The two MUST be kept in sync — if you add a shortcut here, add it there.
  *
- * HOTKEY-VALIDATION-002 (Task 2.2.5): the prior fix over-corrected by
+ * the prior fix over-corrected by
  * adding letters/digits to KEY_CODE_TO_PYNPUT without adding a
  * validation rule to reject single letters/digits as standalone
  * hotkeys. This module now mirrors ALL backend rules: universal
@@ -27,7 +27,7 @@
 /**
  * Reserved OS shortcuts that should never be assignable.
  *
- * HOTKEY-SHARED-001: loaded from the canonical JSON file at
+ * loaded from the canonical JSON file at
  * ``voice_typer/server/hotkey_reserved.json``. A copy lives at
  * ``voice_typer/client/src/renderer/src/data/hotkey_reserved.json``
  * and is imported with a project-relative path so the import doesn't
@@ -114,7 +114,7 @@ const _MESSAGE_SPECIAL_LABELS: Readonly<Record<string, string>> = {
 };
 
 /**
- * : format a pynput hotkey string for inclusion in an error
+ * format a pynput hotkey string for inclusion in an error
  * message so the user can see EXACTLY which combo was rejected.
  *
  * Implemented locally (rather than importing ``formatHotkey`` from
@@ -184,7 +184,7 @@ export function detectPlatform(): string {
 export function isReserved(hotkey: string, platform: string): boolean {
 	if (!hotkey) return false;
 	const reserved = RESERVED_SHORTCUTS[platform] || [];
-	//HOTKEY-: normalize both sides via normalizeHotkey()
+	// normalize both sides via normalizeHotkey()
 	// (which strips angle brackets and lowercases) before comparing. The
 	// RESERVED_SHORTCUTS table stores entries with brackets on both parts
 	// (e.g. ``"<win>+<e>"``), but callers pass hotkeys using the pynput
@@ -227,7 +227,7 @@ export function normalizeHotkey(hotkey: string): string {
  *     system shortcuts.
  *  4. Single letter/digit rejection: a standalone ``<a>``, ``<1>``, etc.
  *     is rejected because it would interfere with normal typing.
- *     HOTKEY-VALIDATION-002 (Task 2.2.5): the prior fix added letters
+ *     the prior fix added letters
  *     and digits to KEY_CODE_TO_PYNPUT (so Alt+Q works) but forgot to
  *     add a rule preventing them from being assigned as standalone
  *     hotkeys — silently accepting ``<a>`` and triggering dictation
@@ -252,7 +252,7 @@ export function normalizeHotkey(hotkey: string): string {
  * The ``partial`` field on ValidationResult is typed as ``never`` to
  * make this contract enforceable at the type level.
  *
- * HOTKEY-VALIDATION-002 (Task 2.2.5): the prior frontend validator
+ * the prior frontend validator
  * was missing rules 2, 6, 7, 8, 9, 10 — only rules 1, 3, 5 were
  * enforced. This allowed the frontend to accept combos the backend
  * would reject (e.g. ``<ctrl>+<c>``, ``<alt>+<tab>``) and combos the
@@ -307,7 +307,7 @@ export function validateHotkey(
 	const isModifier = (p: string): boolean => _isModifier(p);
 	const nonMods = parts.filter((p) => !isModifier(p));
 
-	// 4. Single letter/digit rejection (HOTKEY-VALIDATION-002).
+	// 4. Single letter/digit rejection.
 	//    A standalone <a>, <1>, etc. would trigger on every keypress
 	//    of that character during normal typing.
 	if (parts.length === 1) {
@@ -324,7 +324,7 @@ export function validateHotkey(
 
 	// 5. Structural: a combo that includes a NON-MODIFIER must NOT end with
 	//    a modifier (e.g. ``Ctrl+Alt+V`` is fine, ``Ctrl+V+Alt`` is not).
-	//    HOTKEY-MULTIKEY-001 (Task 1.3): pure-modifier combos (e.g.
+	//    pure-modifier combos (e.g.
 	//    ``Ctrl+Shift``, ``Ctrl+Alt``) are now ALLOWED — they're valid
 	//    modifier-only release triggers in the native backends. The
 	//    previous blanket rule "combo must not end with a modifier"
@@ -347,7 +347,7 @@ export function validateHotkey(
 	}
 
 	// 6. Win+anything block (Windows only).
-	// HOTKEY-VALIDATION-002 (Task 2.2.5): the prior code blanket-blocked
+	// the prior code blanket-blocked
 	// Super+anything on Linux too, which incorrectly rejected
 	// <super>+<space> (a combo most Linux DEs allow reassigning). The
 	// blanket block now applies only on Windows (where the Win key is

@@ -92,7 +92,7 @@ export function _setSessionIdForTest(id: string | undefined): void {
 	_sessionId = id;
 }
 
-// ─── Memoization slots for the three Electron log file paths ────────
+// ─── Memoized `<userData>/<filename>` resolver ────────────────────
 //
 // Mirror the `getRuntimeLogPath()` pattern in `./printfLogger.ts`:
 // `app.getPath("userData")` is non-trivial (Electron lazy-loads its
@@ -103,22 +103,62 @@ export function _setSessionIdForTest(id: string | undefined): void {
 // `logger.warn` / `logger.error` round-trip (previously every WARN/ERROR
 // line re-resolved `mainLogPath()` via `app.getPath`).
 //
-// The cache uses `undefined` as the "not yet computed" sentinel. On the
-// first call, the path is resolved (with a `process.cwd()` fallback if
-// Electron is unavailable, mirroring `getRuntimeLogPath`'s
-// `?? process.cwd()` nullish-coalesce AND its try/catch — preserving
-// the existing `string` return type so callers like `appendLogLine`
-// don't need to handle `string | null`). Subsequent calls return the
-// cached value without touching `app.getPath` again.
+// Previously three near-identical resolvers (`mainLogPath` /
+// `lifecycleLogPath` / `rendererErrorsLogPath`) each carried their own
+// `let _fooLogPath: string | undefined;` slot AND their own copy of
+// the same `app?.getPath?.("userData") ?? process.cwd()` + try/catch
+// resolution body. The deduplication below collapses the three slots
+// into a single `Map<string, string>` keyed by filename, with one
+// shared `memoizeUserDataPath(filename)` helper. Per-filename cache
+// keys preserve the test contract that each resolver triggers
+// `app.getPath` exactly once on its first call (independent memoization
+// — see `log-path-memoization.test.ts`).
 //
-// `_resetMainLogPathForTest()` clears all three slots so unit tests
-// can re-resolve after swapping the Electron mock (matches the
+// The cache uses `undefined` as the "not yet computed" sentinel (via
+// `Map.get` returning `undefined` on miss). On the first call, the
+// path is resolved (with a `process.cwd()` fallback if Electron is
+// unavailable, mirroring `getRuntimeLogPath`'s `?? process.cwd()`
+// nullish-coalesce AND its try/catch — preserving the existing
+// `string` return type so callers like `appendLogLine` don't need to
+// handle `string | null`). Subsequent calls return the cached value
+// without touching `app.getPath` again.
+//
+// `_resetMainLogPathForTest()` clears the cache so unit tests can
+// re-resolve after swapping the Electron mock (matches the
 // `_resetRuntimeLogPathForTest()` convention in printfLogger — same
 // name shape, same "one reset covers the module's memoization state"
-// ergonomics).
-let _mainLogPath: string | undefined;
-let _lifecycleLogPath: string | undefined;
-let _rendererErrorsLogPath: string | undefined;
+// ergonomics). The legacy name is preserved so existing test imports
+// keep working.
+const _userDataPathCache = new Map<string, string>();
+
+/**
+ * Resolve `<userData>/<filename>` with memoization keyed by filename.
+ * Used by `mainLogPath` / `lifecycleLogPath` / `rendererErrorsLogPath`
+ * so the three resolvers share one cache + one resolution body instead
+ * of three near-identical copies. Each filename gets its own cache
+ * entry, so the three resolvers memoize independently — calling
+ * `mainLogPath()` does NOT pre-populate `lifecycleLogPath()`'s slot.
+ *
+ * First call per filename resolves via `app.getPath("userData")`;
+ * subsequent calls return the cached value without re-touching
+ * Electron. If `app.getPath` throws (Electron unavailable in a
+ * degenerate test environment), the fallback is
+ * `path.join(process.cwd(), filename)` — cached so subsequent calls
+ * don't re-attempt.
+ */
+function memoizeUserDataPath(filename: string): string {
+	const cached = _userDataPathCache.get(filename);
+	if (cached !== undefined) return cached;
+	let resolved: string;
+	try {
+		const userDataDir = app?.getPath?.("userData") ?? process.cwd();
+		resolved = path.join(userDataDir, filename);
+	} catch {
+		resolved = path.join(process.cwd(), filename);
+	}
+	_userDataPathCache.set(filename, resolved);
+	return resolved;
+}
 
 /**
  * Test seam: clear the memoized `mainLogPath` / `lifecycleLogPath` /
@@ -132,9 +172,7 @@ let _rendererErrorsLogPath: string | undefined;
  * `bootstrapRuntime()`'s `setupUserData()` step).
  */
 export function _resetMainLogPathForTest(): void {
-	_mainLogPath = undefined;
-	_lifecycleLogPath = undefined;
-	_rendererErrorsLogPath = undefined;
+	_userDataPathCache.clear();
 }
 
 /**
@@ -144,15 +182,7 @@ export function _resetMainLogPathForTest(): void {
  * `electron-main.log` rotation window.
  */
 export function lifecycleLogPath(): string {
-	if (_lifecycleLogPath === undefined) {
-		try {
-			const userDataDir = app?.getPath?.("userData") ?? process.cwd();
-			_lifecycleLogPath = path.join(userDataDir, "electron-lifecycle.log");
-		} catch {
-			_lifecycleLogPath = path.join(process.cwd(), "electron-lifecycle.log");
-		}
-	}
-	return _lifecycleLogPath;
+	return memoizeUserDataPath("electron-lifecycle.log");
 }
 
 /**
@@ -188,29 +218,16 @@ export function appendLifecycleLine(
 ): void {
 	try {
 		const tsStr = new Date().toISOString();
-		// Redact PII / API keys / URL credentials from
-		// the message + args before persisting to the lifecycle
-		// log (mirrors `formatLine`'s redaction so the opt-in
-		// INFO persistence stream never leaks dictated-text
-		// fragments or secrets that the renderer may have logged
-		// via `logger.info`).
-		const safeMsg = redactPii(msg);
-		const formatted =
-			args.length > 0
-				? `${safeMsg} ${args
-						.map((a) => {
-							if (a instanceof Error) {
-								return redactPii(a.stack ?? `${a.name}: ${a.message}`);
-							}
-							if (typeof a === "string") return redactPii(a);
-							try {
-								return redactPii(JSON.stringify(a));
-							} catch {
-								return redactPii(String(a));
-							}
-						})
-						.join(" ")}`
-				: safeMsg;
+		// Redact PII / API keys / URL credentials from the
+		// message + args before persisting to the lifecycle
+		// log. Shares the same `redactArgsForFile` helper as
+		// `formatLine` so the opt-in INFO persistence stream
+		// never leaks dictated-text fragments or secrets that
+		// the renderer may have logged via `logger.info`, and
+		// so the two tees (`electron-main.log` via `formatLine`
+		// and `electron-lifecycle.log` via this function) never
+		// drift in their redaction / formatting.
+		const formatted = redactArgsForFile(msg, args);
 		const line = `${tsStr} [${level.toUpperCase()}] ${formatted}\n`;
 		const p = lifecycleLogPath();
 		// Delegate to the shared `appendLogLine` helper so the
@@ -238,6 +255,43 @@ export function appendLifecycleLine(
 type Level = "debug" | "info" | "warn" | "error";
 
 /**
+ * Redact PII / API keys / URL credentials from `msg` + `args` and
+ * join them into a single space-separated string for file output.
+ * Mirrors `printfLogger.ts::formatArgsForFile` (single-format
+ * discipline — the formatted string is shared between the file tee
+ * and any other consumer).
+ *
+ * Used by both `formatLine` (the `electron-main.log` writer) and
+ * `appendLifecycleLine` (the opt-in `electron-lifecycle.log` writer)
+ * so the two tees never drift in their redaction / formatting —
+ * pre-extraction they each carried their own duplicate copy of the
+ * same redact-and-format block.
+ *
+ * Errors are stringified with their stack (when available) so the
+ * file log preserves the same detail as stdout. Non-stringifiable
+ * values fall back to `String(value)` to never throw. Idempotent on
+ * already-redacted text so callers that pre-redact (e.g. via
+ * `cleanConsoleMsg` chains) don't double-redact.
+ */
+function redactArgsForFile(msg: string, args: unknown[]): string {
+	const safeMsg = redactPii(msg);
+	if (args.length === 0) return safeMsg;
+	return `${safeMsg} ${args
+		.map((a) => {
+			if (a instanceof Error) {
+				return redactPii(a.stack ?? `${a.name}: ${a.message}`);
+			}
+			if (typeof a === "string") return redactPii(a);
+			try {
+				return redactPii(JSON.stringify(a));
+			} catch {
+				return redactPii(String(a));
+			}
+		})
+		.join(" ")}`;
+}
+
+/**
  * Format a log line for the file. Always ends with `\n` so `tail -f`
  * shows lines as they're written.
  *
@@ -250,29 +304,7 @@ type Level = "debug" | "info" | "warn" | "error";
 function formatLine(level: Level, msg: string, args: unknown[]): string {
 	const tsStr = new Date().toISOString();
 	const sessionId = getSessionId();
-	// Redact PII / API keys / URL credentials from the
-	// message + args before joining so the file log never leaks
-	// user-spoken text or secrets. Mirrors the parity already in
-	// `printfLogger.ts::formatArgsForFile`. Idempotent on already-
-	// redacted text so callers that pre-redact (e.g. via
-	// `cleanConsoleMsg` chains) don't double-redact.
-	const safeMsg = redactPii(msg);
-	const formatted =
-		args.length > 0
-			? `${safeMsg} ${args
-					.map((a) => {
-						if (a instanceof Error) {
-							return redactPii(a.stack ?? `${a.name}: ${a.message}`);
-						}
-						if (typeof a === "string") return redactPii(a);
-						try {
-							return redactPii(JSON.stringify(a));
-						} catch {
-							return redactPii(String(a));
-						}
-					})
-					.join(" ")}`
-			: safeMsg;
+	const formatted = redactArgsForFile(msg, args);
 	return `${tsStr} [${sessionId}] [${level.toUpperCase()}] ${formatted}\n`;
 }
 
@@ -294,15 +326,7 @@ function formatLine(level: Level, msg: string, args: unknown[]): string {
  * subsequent calls don't re-attempt.
  */
 export function mainLogPath(): string {
-	if (_mainLogPath === undefined) {
-		try {
-			const userDataDir = app?.getPath?.("userData") ?? process.cwd();
-			_mainLogPath = path.join(userDataDir, "electron-main.log");
-		} catch {
-			_mainLogPath = path.join(process.cwd(), "electron-main.log");
-		}
-	}
-	return _mainLogPath;
+	return memoizeUserDataPath("electron-main.log");
 }
 
 /**
@@ -320,21 +344,7 @@ export function mainLogPath(): string {
  * so subsequent calls don't re-attempt.
  */
 export function rendererErrorsLogPath(): string {
-	if (_rendererErrorsLogPath === undefined) {
-		try {
-			const userDataDir = app?.getPath?.("userData") ?? process.cwd();
-			_rendererErrorsLogPath = path.join(
-				userDataDir,
-				"electron-renderer-errors.log",
-			);
-		} catch {
-			_rendererErrorsLogPath = path.join(
-				process.cwd(),
-				"electron-renderer-errors.log",
-			);
-		}
-	}
-	return _rendererErrorsLogPath;
+	return memoizeUserDataPath("electron-renderer-errors.log");
 }
 
 /**
@@ -366,15 +376,24 @@ export const logger: {
 		}
 	},
 	info(msg: string, ...args: unknown[]): void {
-		console.info(msg, ...args);
+		// Dev-only stdout + file write: in packaged builds
+		// stdout/stderr are closed (no terminal attached) so
+		// `console.info` is a no-op. Skipping the call in
+		// production avoids the wasted `console.info` invoke
+		// (and any console-formatter overhead Electron's
+		// renderer-devtools bridge might attach). `warn` and
+		// `error` (below) intentionally keep their `console.*`
+		// calls OUTSIDE the gate — their stderr output may be
+		// captured by Electron's crash reporter even in
+		// packaged builds, so they must fire unconditionally.
 		if (!app.isPackaged) {
+			console.info(msg, ...args);
 			// Dev: persist INFO so the dev can grep the file.
 			appendLogLine(mainLogPath(), formatLine("info", msg, args));
 		}
 		// Production: INFO is too chatty for the rotating file —
 		// it would push WARN/ERROR out of the 5 MB window too
-		// fast. Skip the file write; the console call above is a
-		// no-op in packaged builds (no terminal attached).
+		// fast. Skip the file write.
 		//
 		// Opt-in INFO persistence. When
 		// `VOICE_TYPER_ELECTRON_INFO_LOG=1` is set (support /

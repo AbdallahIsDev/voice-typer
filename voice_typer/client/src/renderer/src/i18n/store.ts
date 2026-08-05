@@ -21,6 +21,10 @@
 // but whose identity is stable) plus a small mutator for ``_currentLocale``
 // (which IS reassigned on locale switch).
 
+// APP_NAME from `@/branding` is the single source of truth for the
+// product name — used by `_withAppName` below to substitute the
+// `{appName}` placeholder in locale values at load time (C-BRAND-1).
+import { APP_NAME } from "@/branding";
 import { notifyLocaleSubscribers } from "./hooks";
 import { type Locale, SUPPORTED_LOCALES } from "./locale";
 import { pushLocaleToMainProcess, pushLocaleToPythonBackend } from "./push";
@@ -103,11 +107,75 @@ export function flatten(
 // Register English translations at module eval time. English is the
 // universal fallback so it MUST be available synchronously — the
 // dynamic-import path is only for non-English locales.
-_translations.set("en", flatten(en as TranslationDict));
+// `{appName}` placeholders are substituted with APP_NAME at load time
+// via `_withAppName` so locale JSON stays free of hardcoded brand
+// strings (C-BRAND-1). Mirrors the main-process loader in
+// `src/main/i18n.ts:114-124` — both bundles now post-process every
+// locale value through the same `{appName}` substitution.
+_translations.set("en", _applyAppName(flatten(en as TranslationDict)));
 //defensive — drop any stale resolved-string cache for "en"
 // (the cache is empty at module load, but this keeps the registration
 // paths consistent with ensureLocaleLoaded/registerTranslations below).
 _invalidateResolvedCache("en");
+
+/**
+ * Substitute the ``{appName}`` placeholder with the canonical
+ * ``APP_NAME`` constant on every value in a flat translation record.
+ *
+ * Mirrors the main-process ``_withAppName`` helper in
+ * ``src/main/i18n.ts:114-124`` so renderer and main-process locale
+ * loading stay symmetric: a future product rename propagates to every
+ * locale file via the single ``APP_NAME`` constant (C-BRAND-1) instead
+ * of requiring a hundreds-of-strings edit across the 8 locale JSON
+ * files. Only a handful of ``dialog.singleInstance.*`` strings use the
+ * placeholder today, but the helper is generic so future strings that
+ * embed the app name don't need a special case — and so the planned
+ * migration of ~290 strings to the ``{appName}`` placeholder pattern
+ * is unblocked.
+ *
+ * Exported (with leading underscore → "internal helper" convention,
+ * matching the main-process naming) so the locale-key-parity test can
+ * import it for direct verification. The leading underscore signals
+ * that consumers outside the i18n package should not call this — the
+ * substitution is applied automatically at registration time.
+ *
+ * @param translations Flat dot-keyed translation record (e.g. the
+ *                     output of ``flatten()`` converted via
+ *                     ``Object.fromEntries``). Nested objects are NOT
+ *                     supported — call this AFTER flattening.
+ * @returns A new record with every ``{appName}`` occurrence in every
+ *          value replaced with ``APP_NAME``. The input record is not
+ *          mutated.
+ */
+export function _withAppName(
+	translations: Record<string, string>,
+): Record<string, string> {
+	const result: Record<string, string> = {};
+	for (const [key, value] of Object.entries(translations)) {
+		result[key] = value.split("{appName}").join(APP_NAME);
+	}
+	return result;
+}
+
+/**
+ * Apply ``_withAppName`` to the renderer's runtime ``Map<string,
+ * string>`` translation shape. Used at every registration site
+ * (module-init for English, ``registerTranslations`` for synchronous
+ * callers, ``ensureLocaleLoaded`` for dynamic-imported non-English
+ * locales) so every translation value is post-processed at load time.
+ *
+ * The conversion path (``Map`` → ``Record`` via
+ * ``Object.fromEntries`` → ``_withAppName`` → ``Map`` via
+ * ``Object.entries``) is fine because registration is a cold path:
+ * it runs at most once per locale, and locale JSON files are tiny
+ * (the largest is ~1900 lines / ~50 KB), so the extra allocation is
+ * negligible.
+ */
+function _applyAppName(table: Map<string, string>): Map<string, string> {
+	const record = Object.fromEntries(table.entries());
+	const substituted = _withAppName(record);
+	return new Map(Object.entries(substituted));
+}
 
 /**
  * Asynchronously load + register a non-English locale's translation
@@ -145,7 +213,12 @@ export function ensureLocaleLoaded(locale: Locale): Promise<void> {
 				/* @vite-ignore */ `./translations/${locale}.json`
 			);
 			const data = (mod as { default: TranslationDict }).default;
-			_translations.set(locale, flatten(data));
+			// Apply `{appName}` → APP_NAME substitution at load time
+			// (mirrors main-process _withAppName in src/main/i18n.ts:114-124)
+			// so locale JSON files stay free of hardcoded brand strings
+			// (C-BRAND-1). The substitution runs once per locale per
+			// session — the result is cached in `_translations`.
+			_translations.set(locale, _applyAppName(flatten(data)));
 			//drop the per-locale resolved-string cache so
 			// the next ``t()`` call resolves against the freshly-
 			// loaded map.
@@ -175,7 +248,13 @@ export function registerTranslations(
 	locale: Locale,
 	data: TranslationDict,
 ): void {
-	_translations.set(locale, flatten(data));
+	// Apply `{appName}` → APP_NAME substitution at registration time
+	// (mirrors main-process _withAppName in src/main/i18n.ts:114-124) so
+	// locale JSON files stay free of hardcoded brand strings (C-BRAND-1).
+	// This path covers synchronous callers (e.g. tests that register
+	// fixture tables via `registerTranslations("en", {...})`) so they
+	// get the same `{appName}` substitution as the JSON-file path.
+	_translations.set(locale, _applyAppName(flatten(data)));
 	//invalidate the per-locale resolved-string cache so the
 	// newly-registered translations are picked up by the next ``t()`` call.
 	_invalidateResolvedCache(locale);

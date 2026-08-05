@@ -888,7 +888,9 @@
 			"notchFrequency": "Kerbfrequenz",
 			"notchFrequencyInfo": "Mittenfrequenz der Kerbe. 50 Hz für Europa/Asien Netz, 60 Hz für Nordamerika Netz.",
 			"notchFrequencyInfoSearch": "Mittenfrequenz der Kerbe.",
-			"notchFrequencyAria": "Kerbfrequenz"
+			"notchFrequencyAria": "Kerbfrequenz",
+			"crossLinkBanner": "Diese Einstellungen lassen sich auch auf der Mikrofon-Seite bearbeiten (mit einem A/B-Testaufnahme-Workflow).",
+			"goToMicrophone": "Zum Mikrofon"
 		},
 		"aiEnhancement": {
 			"title": "KI-Verbesserung",
@@ -1837,6 +1839,45 @@
 		"restartLoopBreak": {
 			"title": "{appName} kann nicht sicher neu gestartet werden",
 			"body": "Das Python-Backend stürzt beim Start ab. Nach {count} Versuchen über {seconds} Sekunden wurde der Neustart-Schutz aktiviert. Bitte prüfen Sie die Protokolldateien und installieren Sie neu, falls das Problem besteht."
+		}
+	},
+	"error": {
+		"config_load_failed": {
+			"title": "Konfiguration laden fehlgeschlagen",
+			"body": "Einstellungen wurden auf Standardwerte zurückgesetzt. Details findest du in den Protokollen."
+		}
+	},
+	"state": {
+		"starting": "Wird gestartet ..."
+	},
+	"notify": {
+		"recording_controller": {
+			"consent_required_title": "{appName}",
+			"consent_required_body": "Die Zustimmung zur Stimmbiometrie ist erforderlich, um die Aufnahme zu starten.\nAktiviere sie unter Einstellungen > Datenschutz > Zustimmung zur Stimmbiometrie.",
+			"watchdog_title": "{appName}",
+			"watchdog_body": "Die Transkription läuft noch.\nLange Aufnahmen oder CPU-Fallback können zusätzliche Zeit benötigen.",
+			"mic_disconnected_title": "{appName}",
+			"mic_disconnected_body": "Mikrofon getrennt.",
+			"silence_auto_stop_title": "{appName}",
+			"silence_auto_stop_body": "Aufnahme gestoppt: Kein Audio erkannt.",
+			"max_duration_stop_title": "{appName}",
+			"max_duration_stop_body": "Aufnahme gestoppt: Maximale Dauer erreicht.",
+			"mic_permission_revoked_title": "{appName}",
+			"mic_permission_revoked_body": "Mikrofonberechtigung entzogen.",
+			"xrun_warning_title": "{appName}",
+			"xrun_warning_body": "Audio-Pufferüberlauf erkannt. Versuche eine höhere Puffergröße."
+		},
+		"model_manager": {
+			"backend_init_failed_title": "{appName}",
+			"backend_init_failed_body": "Das {backend}-Backend konnte nicht initialisiert werden. Details findest du in den Protokollen.",
+			"backend_change_deferred_title": "{appName}",
+			"backend_change_deferred_body": "Das Backend wird nach der aktuellen Aufnahme zu {backend} wechseln."
+		},
+		"settings_controller": {
+			"autostart_toggle_failed_title": "{appName}",
+			"autostart_toggle_failed_body": "Die Autostart-Einstellung konnte nicht geändert werden.\n{error}",
+			"microphone_selection_failed_title": "{appName}",
+			"microphone_selection_failed_body": "Mikrofon konnte nicht geändert werden."
 		}
 	}
 }

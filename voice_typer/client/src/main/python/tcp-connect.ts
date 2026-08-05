@@ -99,8 +99,16 @@ export function tcpConnect(port: number): void {
 						TCP_STARTUP_TIMEOUT_MS / 1000
 					} seconds.\n\nPlease check the logs and try again.`,
 				);
-			} catch {
+			} catch (e) {
 				// dialog may not be available in headless mode
+				// (CI, `DISPLAY` unset, or pre-app-ready). Log at debug so
+				// the failure is observable in the diagnostic log without
+				// spamming the default level — mirrors the debug-log pattern
+				// used in `relaunch-app.ts:351`.
+				log.debug(
+					"[TCP] startup-timeout dialog.showErrorBox failed (non-fatal):",
+					e,
+				);
 			}
 			app.quit();
 		}, TCP_STARTUP_TIMEOUT_MS);

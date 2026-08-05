@@ -212,23 +212,21 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 		updateConfigDebounced("volume_duck_level", v);
 	const handleAudioPresetChange = (v: string) =>
 		updateConfig({ audio_preset: v as VoiceTyperConfig["audio_preset"] });
-	// NOTE: banner + button text are inline English literals (rather
-	// than `t()` keys) so this fix is self-contained to this file —
-	// the locale JSON files are owned by a different sub-agent. The
-	// strings are simple enough that the i18n migration can wait for
-	// a dedicated locale pass without blocking the cross-link UX.
-	const crossLinkBannerText =
-		"These settings are also editable on the Microphone page (with a test-record A/B workflow).";
-	const goToMicrophoneLabel = "Go to Microphone";
+	// Cross-link banner text + button label are routed through the i18n
+	// layer so they render in the user's selected UI locale. The keys live
+	// under `settings.audioEnhancement.crossLinkBanner` /
+	// `settings.audioEnhancement.goToMicrophone` in the locale JSON files.
+	const crossLinkBannerText = t("settings.audioEnhancement.crossLinkBanner");
+	const goToMicrophoneLabel = t("settings.audioEnhancement.goToMicrophone");
 
 	return (
 		<>
 			{/* Cross-link banner: the same audio preset + filter chain is
-				also editable on the Microphone page (with the additional
-				test-record A/B workflow that this Settings surface lacks).
-				Surfacing this here prevents the user from assuming the two
-				surfaces control different things just because they look
-				different. */}
+                                also editable on the Microphone page (with the additional
+                                test-record A/B workflow that this Settings surface lacks).
+                                Surfacing this here prevents the user from assuming the two
+                                surfaces control different things just because they look
+                                different. */}
 			<div
 				role="note"
 				className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-border bg-(--bg-subtle) px-4 py-3 text-sm text-(--text-primary)"
@@ -249,10 +247,10 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 				description={t("settings.audioEnhancement.description")}
 			>
 				{/*per-row visibility filtering so a search query
-				only highlights the rows whose label/info matches —
-				previously the section-level check showed the entire
-				section (including all rows) when ANY row matched,
-				which defeated the purpose of in-section search. */}
+                                only highlights the rows whose label/info matches —
+                                previously the section-level check showed the entire
+                                section (including all rows) when ANY row matched,
+                                which defeated the purpose of in-section search. */}
 				<div className="animate-fade-in space-y-0 divide-y divide-border">
 					{/* ── Volume Backend status ── */}
 					{isVisible(
@@ -365,14 +363,14 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 
 					{/* ── ADR 0007: Custom filter controls (only when preset === 'custom') ── */}
 					{/*F-1: filter chain extracted to shared <AudioFilterChain />.
-					: the filter chain rows themselves are search-filtered
-					inside <AudioFilterChain> via its own isVisible checks (it
-					receives the same `isVisible` prop through `sectionProps`).
-					Only render the chain wrapper when at least one of its
-					parent rows (the preset selector) is visible OR the user is
-					actively searching for a filter name — see AudioFilterChain
-					implementation. Keep this conditional on preset==="custom" so
-					the chain never appears for a non-custom preset. */}
+                                        : the filter chain rows themselves are search-filtered
+                                        inside <AudioFilterChain> via its own isVisible checks (it
+                                        receives the same `isVisible` prop through `sectionProps`).
+                                        Only render the chain wrapper when at least one of its
+                                        parent rows (the preset selector) is visible OR the user is
+                                        actively searching for a filter name — see AudioFilterChain
+                                        implementation. Keep this conditional on preset==="custom" so
+                                        the chain never appears for a non-custom preset. */}
 					{config.audio_preset === "custom" && (
 						<AudioFilterChain config={config} onConfigChange={updateConfig} />
 					)}

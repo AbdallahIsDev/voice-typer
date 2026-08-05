@@ -12,6 +12,13 @@
  *     SEC-017 filtering so transcription/history never leak to the bubble).
  */
 import { app } from "electron";
+// PythonIpcError is the typed error class the python-call-handler
+// checks via `instanceof`. Constructing it here (instead of a bare
+// `new Error(message)` with `code` attached ad-hoc) preserves the
+// `err.code` field through the handler's `instanceof PythonIpcError`
+// branch so the renderer receives the correct `_code` instead of the
+// generic `"command_failed"` fallback.
+import type { PythonCallErrorCode } from "../../shared/python-call-error-code";
 import {
 	BUBBLE_ONLY_TYPES,
 	setLastKnownBubbleMode,
@@ -29,6 +36,7 @@ import { hideBubbleWindow, showBubbleWindow, showMainWindow } from "../windows";
 //broadcastToMainWindow imported directly from main-window
 // (windows/index.ts is owned by another sub-agent and doesn't re-export it).
 import { broadcastToMainWindow } from "../windows/main-window";
+import { PythonIpcError } from "./errors";
 import { relaunchApp } from "./relaunch-app";
 import { sendToPython } from "./send-to-python";
 
@@ -116,7 +124,15 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 			? "already relaunching"
 			: "triggering relaunch";
 		log.info(`[RESTART] received relaunch_app from Python (${_relaunchDbg})`);
-		sendToPython({ type: "relaunch_ack" }).catch(() => {});
+		// WM-C1-09: surface the ack-write failure at debug level
+		// instead of silently swallowing. The ack is best-effort
+		// (the backend proceeds to sys.exit(0) regardless), but a
+		// failure here is worth logging for diagnostics — the
+		// previous `.catch(() => {})` hid genuine socket-closed
+		// errors during the teardown race.
+		sendToPython({ type: "relaunch_ack" }).catch((e) =>
+			log.debug("[IPC] relaunch_ack failed:", e),
+		);
 		relaunchApp();
 	},
 };
@@ -145,15 +161,34 @@ export function handleMessage(msg: Record<string, unknown>): void {
 					typeof errData.message === "string"
 						? errData.message
 						: "Unknown error";
-				const err = new Error(message);
-				//sub-finding: previously only `message` was
-				// surfaced on the rejected Error — `data.code` was discarded.
+				// construct a typed `PythonIpcError` when
+				// `errData.code` is a string so the
+				// `python-call-handler`'s `instanceof PythonIpcError`
+				// check passes and `err.code` propagates to the
+				// renderer's `_code` field. Previously a bare
+				// `new Error(message)` was constructed with `code`
+				// attached ad-hoc, but `python-call-handler` checks
+				// `instanceof PythonIpcError` — the ad-hoc `code` was
+				// lost (the handler fell back to the generic
+				// `"command_failed"` classification for EVERY
+				// Python-side error, even timeouts).
+				//
 				// The Python backend emits structured `code` values
 				// (`unknown_command`, `internal_error`, `rate_limited`,
-				// `invalid_field`, `missing_field`, `unknown_tray_item`)
-				// precisely so renderer code can branch on them. Attach
-				// `code` (and the optional `field`/`command`/`id` context
-				// fields) to the Error so consumers can do
+				// `invalid_field`, `missing_field`, `unknown_tray_item`,
+				// and potentially `command_timeout`); constructing a
+				// `PythonIpcError` preserves whichever of these the
+				// backend sent so downstream consumers branching on
+				// `err.code` see the real value. The cast is necessary
+				// because `PythonIpcError.code` is typed as the finite
+				// `PythonCallErrorCode` union, but the Python side may
+				// emit codes outside that union — at runtime the field
+				// is just a string, so the cast is sound.
+				//
+				//sub-finding: previously only `message` was
+				// surfaced on the rejected Error — `data.code` was discarded.
+				// Attach the optional `field`/`command`/`id` context
+				// fields too so consumers can do
 				// `if ((err as any).code === "rate_limited") ...` instead of
 				// pattern-matching the human-readable message string.
 				//avoid the unsafe `as string | undefined` cast. Narrow
@@ -161,17 +196,31 @@ export function handleMessage(msg: Record<string, unknown>): void {
 				// (number, object, array) is treated as undefined.
 				const code =
 					typeof errData.code === "string" ? errData.code : undefined;
+				const err: Error & {
+					code?: string;
+					field?: unknown;
+					command?: unknown;
+					id?: unknown;
+				} =
+					code !== undefined
+						? new PythonIpcError(code as PythonCallErrorCode, message)
+						: new Error(message);
+				// `PythonIpcError` already sets `.code` in its
+				// constructor; the bare-`Error` branch leaves it
+				// undefined. Re-assigning here is harmless and keeps
+				// both branches uniform so the optional context
+				// fields below attach to a consistent shape.
 				if (code !== undefined) {
-					(err as Error & { code?: string }).code = code;
+					err.code = code;
 				}
 				if (errData.field !== undefined) {
-					(err as Error & { field?: unknown }).field = errData.field;
+					err.field = errData.field;
 				}
 				if (errData.command !== undefined) {
-					(err as Error & { command?: unknown }).command = errData.command;
+					err.command = errData.command;
 				}
 				if (errData.id !== undefined) {
-					(err as Error & { id?: unknown }).id = errData.id;
+					err.id = errData.id;
 				}
 				entry.reject(err);
 			} else {

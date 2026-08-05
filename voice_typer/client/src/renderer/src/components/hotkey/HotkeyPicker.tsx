@@ -31,21 +31,21 @@ interface HotkeyPickerProps {
 	className?: string;
 	"aria-label"?: string;
 	/**
-	 * ESC-: optional callback invoked when capture mode starts.
+	 * optional callback invoked when capture mode starts.
 	 * Used by the parent to pause the global ESC cancel hotkey in the
 	 * backend so that pressing Escape during capture doesn't trigger
 	 * recording cancellation.
 	 */
 	onCaptureStart?: () => void;
 	/**
-	 * ESC-: optional callback invoked when capture mode ends
+	 * optional callback invoked when capture mode ends
 	 * (user pressed Escape, selected a key, or clicked the button
 	 * again).  Used by the parent to resume the global ESC cancel
 	 * hotkey in the backend.
 	 */
 	onCaptureEnd?: () => void;
 	/**
-	 * DUPLICATE-001: hotkey strings that are already occupied by other
+	 * hotkey strings that are already occupied by other
 	 * settings. When the user tries to set this picker to a value that's
 	 * already in use, an error is shown and the change is rejected.
 	 * This prevents two settings from having the same hotkey.
@@ -141,7 +141,7 @@ export function HotkeyPicker({
 		occupiedHotkeys,
 	});
 
-	//HOTKEY-: "Custom" sentinel. When the current
+	// "Custom" sentinel. When the current
 	// hotkey is not one of the preset values, the Select would render
 	// an empty trigger (Radix Select quirk: a non-empty value that
 	// matches no SelectItem suppresses the placeholder). We detect

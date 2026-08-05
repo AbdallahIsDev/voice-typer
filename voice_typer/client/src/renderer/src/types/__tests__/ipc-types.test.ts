@@ -329,22 +329,28 @@ describe("YJ-34: asr_backend_disabled / asr_last_resort_unloaded / llm_polish_fa
 	// union, the corresponding conditional resolves to `false` and the
 	// `true` assignment fails to compile.
 	//
-	// WIRE-SHAPE NOTE: `asr_backend_disabled` and `asr_last_resort_unloaded`
-	// put payload fields at the message ROOT (not under `data`) — verified
-	// by reading the Python emitters at `asr_registry.py:531-538` and
-	// `:330-336`. `llm_polish_failed` publishes a bare `{ "type": "..." }`
-	// frame with NO payload fields. The guards below mirror these
-	// exact wire shapes — if a future Python refactor wraps the fields
-	// in a `data` envelope, the guards must be updated to match (and
-	// the runtime assertions in the parity test below will surface the
-	// drift).
+	// WIRE-SHAPE NOTE (corrected): `asr_backend_disabled`
+	// and `asr_last_resort_unloaded` put payload fields under the
+	// canonical `data:` key — verified by reading the Python
+	// emitters at `asr_registry.py:625-637` (`asr_backend_disabled`)
+	// and `:361-372` (`asr_last_resort_unloaded`). Earlier guards
+	// asserted the fields were at the message ROOT — that was a
+	// stale claim from before the Python emitters were wrapped in
+	// the `data:` envelope (matching every other
+	// `event_bus.publish(...)` caller). `llm_polish_failed` publishes
+	// a bare `{ "type": "..." }` frame with NO payload fields. The
+	// guards below mirror these exact wire shapes — if a future
+	// Python refactor removes the `data:` envelope (or a TS refactor
+	// re-flattens the interfaces), the guards fail compile.
 
-	it("a `{ type: 'asr_backend_disabled', backend, failure_count, timestamp }` value IS assignable to PythonPushEvent (compile-time guard)", () => {
+	it("a `{ type: 'asr_backend_disabled', data: { backend, failure_count, timestamp } }` value IS assignable to PythonPushEvent (compile-time guard)", () => {
 		type HasASRBackendDisabled = {
 			type: "asr_backend_disabled";
-			backend: string;
-			failure_count: number;
-			timestamp: string;
+			data: {
+				backend: string;
+				failure_count: number;
+				timestamp: string;
+			};
 		} extends PythonPushEvent
 			? true
 			: false;
@@ -352,11 +358,13 @@ describe("YJ-34: asr_backend_disabled / asr_last_resort_unloaded / llm_polish_fa
 		expect(_guard).toBe(true);
 	});
 
-	it("a `{ type: 'asr_last_resort_unloaded', backend, timestamp }` value IS assignable to PythonPushEvent (compile-time guard)", () => {
+	it("a `{ type: 'asr_last_resort_unloaded', data: { backend, timestamp } }` value IS assignable to PythonPushEvent (compile-time guard)", () => {
 		type HasASRLastResortUnloaded = {
 			type: "asr_last_resort_unloaded";
-			backend: string;
-			timestamp: string;
+			data: {
+				backend: string;
+				timestamp: string;
+			};
 		} extends PythonPushEvent
 			? true
 			: false;

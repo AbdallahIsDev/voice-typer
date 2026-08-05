@@ -355,56 +355,61 @@ export interface ParakeetCpuFallbackEvent {
 // path but were typed as `never` in the union, forcing
 // `as unknown as PythonPushEvent` casts — a Rule 26 violation).
 //
-// WIRE-SHAPE NOTE: unlike most other events in this union, the Python
-// emitters for `asr_backend_disabled` and `asr_last_resort_unloaded`
-// put the payload fields at the message ROOT (not under a `data` key).
-// Verified by reading the emitters at:
-//   - `voice_typer/server/asr_registry.py:531-538` (`asr_backend_disabled`)
-//   - `voice_typer/server/asr_registry.py:330-336` (`asr_last_resort_unloaded`)
+// WIRE-SHAPE NOTE (corrected): the Python emitters for
+// `asr_backend_disabled` and `asr_last_resort_unloaded` put the
+// payload fields under the canonical `data:` key — matching every
+// other `event_bus.publish(...)` caller in the codebase. Verified
+// by reading the emitters at:
+//   - `voice_typer/server/asr_registry.py:625-637` (`asr_backend_disabled`)
+//   - `voice_typer/server/asr_registry.py:361-372` (`asr_last_resort_unloaded`)
 //   - `voice_typer/server/dictation_pipeline.py:919` (`llm_polish_failed`)
-// The TS interfaces below mirror the actual wire shape. If a future
-// Python refactor wraps these in a `data: { ... }` envelope, the TS
-// types must be updated to match (and the parity test in
-// `types/__tests__/ipc-types.test.ts` should be extended to assert the
-// field set).
+// The TS interfaces below mirror the actual wire shape (nested under
+// `data:`). The earlier comment block claimed the fields were at the
+// message ROOT — that was a stale claim from before the Python
+// emitters were wrapped in the `data:` envelope; the parity test
+// in `types/__tests__/ipc-types.test.ts` was extended to
+// assert the corrected shape so a future regression here is surfaced.
 
-/** Pushed by `voice_typer/server/asr_registry.py:531-538` when an ASR
+/** Pushed by `voice_typer/server/asr_registry.py:625-637` when an ASR
  *  backend (e.g. whisper CUDA) auto-disables after repeated OOM / load
  *  failures and the registry falls back to a different backend. The
  *  renderer surfaces a one-time "ASR backend X disabled, falling back
  *  to Y" banner so the user knows transcription may be slower or use
  *  a different model.
  *
- *  Wire shape (fields at ROOT, NOT under `data` — see the note
- *  above):
- *    `{ "type": "asr_backend_disabled", "backend": "<name>",
- *       "failure_count": <int>, "timestamp": "<iso-8601>" }` */
+ *  Wire shape (payload nested under `data:` — see the note above):
+ *    `{ "type": "asr_backend_disabled", "data": {
+ *        "backend": "<name>", "failure_count": <int>,
+ *        "timestamp": "<iso-8601>" } }` */
 export interface ASRBackendDisabledEvent {
 	type: "asr_backend_disabled";
-	/** The disabled backend's name (e.g. `"whisper"`, `"parakeet"`). */
-	backend: string;
-	/** Number of consecutive failures that triggered the disable. */
-	failure_count: number;
-	/** ISO-8601 timestamp emitted by the Python `datetime.now(timezone.utc)`. */
-	timestamp: string;
+	data: {
+		/** The disabled backend's name (e.g. `"whisper"`, `"parakeet"`). */
+		backend: string;
+		/** Number of consecutive failures that triggered the disable. */
+		failure_count: number;
+		/** ISO-8601 timestamp emitted by the Python `datetime.now(timezone.utc)`. */
+		timestamp: string;
+	};
 }
 
-/** Pushed by `voice_typer/server/asr_registry.py:330-336` when the
+/** Pushed by `voice_typer/server/asr_registry.py:361-372` when the
  *  LAST-RESORT ASR backend is unloaded — i.e. no ASR backend is
  *  available until the user manually restarts the app or reconfigures.
  *  The renderer surfaces a critical "No ASR backend available — please
  *  restart" banner so the user knows dictation is unavailable.
  *
- *  Wire shape (fields at ROOT, NOT under `data` — see the note
- *  above):
- *    `{ "type": "asr_last_resort_unloaded", "backend": "<name>",
- *       "timestamp": "<iso-8601>" }` */
+ *  Wire shape (payload nested under `data:` — see the note above):
+ *    `{ "type": "asr_last_resort_unloaded", "data": {
+ *        "backend": "<name>", "timestamp": "<iso-8601>" } }` */
 export interface ASRLastResortUnloadedEvent {
 	type: "asr_last_resort_unloaded";
-	/** The last-resort backend's name that was just unloaded. */
-	backend: string;
-	/** ISO-8601 timestamp emitted by the Python `datetime.now(timezone.utc)`. */
-	timestamp: string;
+	data: {
+		/** The last-resort backend's name that was just unloaded. */
+		backend: string;
+		/** ISO-8601 timestamp emitted by the Python `datetime.now(timezone.utc)`. */
+		timestamp: string;
+	};
 }
 
 /** Pushed by `voice_typer/server/dictation_pipeline.py:919` when the
@@ -518,12 +523,13 @@ export type PythonPushEvent =
 	// three more server-emitted events previously missing from
 	// the union. Each is published by `event_bus.publish(...)` in the
 	// Python tree:
-	//   - `asr_backend_disabled`     — `asr_registry.py:531-538`
-	//   - `asr_last_resort_unloaded` — `asr_registry.py:330-336`
+	//   - `asr_backend_disabled`     — `asr_registry.py:625-637`
+	//   - `asr_last_resort_unloaded` — `asr_registry.py:361-372`
 	//   - `llm_polish_failed`        — `dictation_pipeline.py:919`
-	// See the per-interface docstrings for the wire shape (note: the
-	// first two put payload fields at the message ROOT, not under
-	// `data`).
+	// See the per-interface docstrings for the wire shape (all three
+	// payloads nest under `data:` — the earlier "ROOT fields"
+	// comment was a stale claim from before the Python
+	// emitters were wrapped in the canonical `data:` envelope).
 	| ASRBackendDisabledEvent
 	| ASRLastResortUnloadedEvent
 	| LLMPolishFailedEvent

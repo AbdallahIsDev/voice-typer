@@ -909,7 +909,9 @@
 			"notchFrequency": "Notch Frequency",
 			"notchFrequencyInfo": "Center frequency of the notch. 50Hz for Europe/Asia mains, 60Hz for North America mains.",
 			"notchFrequencyInfoSearch": "Center frequency of the notch.",
-			"notchFrequencyAria": "Notch Frequency"
+			"notchFrequencyAria": "Notch Frequency",
+			"crossLinkBanner": "These settings are also editable on the Microphone page (with a test-record A/B workflow).",
+			"goToMicrophone": "Go to Microphone"
 		},
 		"aiEnhancement": {
 			"title": "AI Enhancement",
@@ -1837,6 +1839,45 @@
 		"restartLoopBreak": {
 			"title": "{appName} cannot restart safely",
 			"body": "The Python backend is crashing on launch. After {count} attempts over {seconds} seconds, the restart loop breaker has engaged. Please check the log files and reinstall if the problem persists."
+		}
+	},
+	"error": {
+		"config_load_failed": {
+			"title": "Config load failed",
+			"body": "Settings were reset to defaults. Check the logs for details."
+		}
+	},
+	"state": {
+		"starting": "Starting..."
+	},
+	"notify": {
+		"recording_controller": {
+			"consent_required_title": "{appName}",
+			"consent_required_body": "Voice biometric consent is required to start recording.\nEnable it in Settings > Privacy > Voice Biometric Consent.",
+			"watchdog_title": "{appName}",
+			"watchdog_body": "Transcription is still running.\nLong recordings or CPU fallback can take extra time.",
+			"mic_disconnected_title": "{appName}",
+			"mic_disconnected_body": "Microphone disconnected.",
+			"silence_auto_stop_title": "{appName}",
+			"silence_auto_stop_body": "Recording stopped: no audio detected.",
+			"max_duration_stop_title": "{appName}",
+			"max_duration_stop_body": "Recording stopped: maximum duration reached.",
+			"mic_permission_revoked_title": "{appName}",
+			"mic_permission_revoked_body": "Microphone permission revoked.",
+			"xrun_warning_title": "{appName}",
+			"xrun_warning_body": "Audio buffer overflow detected. Try a higher buffer size."
+		},
+		"model_manager": {
+			"backend_init_failed_title": "{appName}",
+			"backend_init_failed_body": "Could not initialize the {backend} backend. Check the logs for details.",
+			"backend_change_deferred_title": "{appName}",
+			"backend_change_deferred_body": "Backend will change to {backend} after current recording."
+		},
+		"settings_controller": {
+			"autostart_toggle_failed_title": "{appName}",
+			"autostart_toggle_failed_body": "Could not change autostart setting.\n{error}",
+			"microphone_selection_failed_title": "{appName}",
+			"microphone_selection_failed_body": "Could not change microphone."
 		}
 	}
 }

@@ -2,16 +2,14 @@
 //
 // History: an earlier revision of this component hosted an in-app
 // "Check for Updates" button that fired a `fetch()` against the
-// GitHub releases API (a remote HTTPS endpoint).
-// A subsequent privacy fix removed the AUTO-firing `useEffect` that
-// ran the same fetch on every Settings mount, leaving the explicit
-// manual button as the only network call. C-DATA-1 (the offline
-// guarantee) forbids ANY network call in the production code path —
-// including an explicit user click. The manual check has therefore
-// been removed entirely. The Updates section now shows the installed
-// version plus a static message directing the user to open the
-// GitHub releases page in their browser. No `fetch`, no `XMLHttpRequest`,
-// no `WebSocket`, no DNS lookup leaves the renderer.
+// GitHub releases API (a remote HTTPS endpoint). The "Check for
+// Updates" button was removed because the offline-by-default UX
+// was preferred; if a future iteration wants to add it back
+// (user-initiated GitHub API check), C-DATA-1 permits it under
+// the auto-update category — see docs/auto-update-feature.md.
+// The Updates section now shows the installed version plus a
+// static message directing the user to open the GitHub releases
+// page in their browser.
 //
 // The prewarm cache status surface is unaffected: it queries the
 // Python sidecar over the local IPC bridge (in-process, no network).
@@ -248,14 +246,13 @@ export default function PrewarmAndUpdates({
 		}
 	};
 
-	// C-DATA-1 (offline guarantee): the previous "Check for Updates"
-	// button — which fired a renderer `fetch()` to the remote
-	// click — has been REMOVED. Even an explicit user click is a
-	// network call in the production code path, which the offline
-	// guarantee forbids. The Updates section now shows the installed
-	// version plus a static message directing the user to open the
-	// GitHub releases page in their browser. No fetch, no
-	// XMLHttpRequest, no WebSocket leaves the renderer.
+	// The "Check for Updates" button was removed because the
+	// offline-by-default UX was preferred; if a future iteration
+	// wants to add it back (user-initiated GitHub API check),
+	// C-DATA-1 permits it under the auto-update category — see
+	// docs/auto-update-feature.md. The Updates section now shows
+	// the installed version plus a static message directing the
+	// user to open the GitHub releases page in their browser.
 
 	// On mount: fetch prewarm status only. No network call is ever
 	// fired from this component (the prewarm status call is a local
@@ -283,7 +280,7 @@ export default function PrewarmAndUpdates({
 	return (
 		<>
 			{/* ── Cache Status (ADR-0009 Issue 3) ─────────────────────── */}
-			{/* Fix #4: section-level hide-when-empty check — when no row
+			{/* section-level hide-when-empty check — when no row
 				matches the active search query, hide the whole section
 				(including its action buttons) so the tab doesn't show a
 				lonely header above an empty body. */}
@@ -405,14 +402,13 @@ export default function PrewarmAndUpdates({
 			)}
 
 			{/* ── Updates (offline notice) ──────────────────────────── */}
-			{/* C-DATA-1: the previous "Check for Updates" button fired a
-				`fetch()` to the remote releases endpoint on click — a
-				network call in the production code path, forbidden by the
-				offline guarantee. The button, the latestVersion state,
-				and the the manual update-check handler handler have all been removed.
-				The section now shows the installed version plus a static
-				offline message + a user-clicked external link to the
-				GitHub releases page. */}
+			{/* The "Check for Updates" button was removed because the
+				offline-by-default UX was preferred; if a future iteration
+				wants to add it back (user-initiated GitHub API check),
+				C-DATA-1 permits it under the auto-update category — see
+				docs/auto-update-feature.md. The section now shows the
+				installed version plus a static offline message + a
+				user-clicked external link to the GitHub releases page. */}
 			{[
 				t("about.installedVersion"),
 				t("about.offlineUpdatesMessage"),
@@ -433,14 +429,13 @@ export default function PrewarmAndUpdates({
 						/>
 					)}
 					<div className="flex flex-wrap items-center gap-2 px-3.5 py-3.5 border-t border-border">
-						{/* C-DATA-1 (offline guarantee): the previous
-						"Check for Updates" button fired a renderer
-						`fetch()` to the remote releases endpoint on click — a network
-						call in the production code path, forbidden. The
-						button + handler + latestVersion state have all
-						been removed; in their place, a static offline
-						notice directs the user to open the GitHub
-						releases page in their own browser. */}
+						{/* The "Check for Updates" button was removed because
+						the offline-by-default UX was preferred; if a future
+						iteration wants to add it back (user-initiated GitHub
+						API check), C-DATA-1 permits it under the auto-update
+						category — see docs/auto-update-feature.md. A static
+						offline notice now directs the user to open the
+						GitHub releases page in their own browser. */}
 						<p className="text-sm text-(--text-muted) mr-auto">
 							{t("about.offlineUpdatesMessage")}
 						</p>

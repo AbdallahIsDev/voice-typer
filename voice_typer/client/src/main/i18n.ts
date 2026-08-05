@@ -97,8 +97,13 @@ import { APP_NAME } from "./branding";
  * never does a real disk read in production.
  */
 function _loadLocaleJson(locale: string): Record<string, string> {
-	const filePath = join(__dirname, "i18n", "locales", `${locale}.json`);
-	return JSON.parse(readFileSync(filePath, "utf8")) as Record<string, string>;
+	try {
+		const filePath = join(__dirname, "i18n", "locales", `${locale}.json`);
+		return JSON.parse(readFileSync(filePath, "utf8")) as Record<string, string>;
+	} catch (e) {
+		console.warn("[i18n] failed to load locale", locale, e);
+		return {};
+	}
 }
 
 /**
@@ -146,6 +151,43 @@ const MAIN_STRINGS: Record<MainLocale, MainStringsTable> = {
 /** English reference keys — every locale must provide exactly these keys. */
 type MainStrings = typeof MAIN_STRINGS.en;
 type MainStringsKey = keyof MainStrings;
+
+/**
+ * Canonical, hand-maintained list of dialog keys that `mainT` accepts.
+ *
+ * The renderer's i18n layer infers its key set from the JSON imports
+ * directly (TypeScript can read `import en from "./en.json"`), but the
+ * main process loads its locale JSON via `fs.readFileSync` at module
+ * init — so the type system sees `Record<string, string>` and cannot
+ * narrow the key set. `MAIN_KEYS` is the manual bridge: it lets
+ * `MainKey = typeof MAIN_KEYS[number]` act as the literal-union type
+ * for `mainT`'s `key` parameter, catching typos like
+ * `mainT("dialog.criticalError.titl")` at compile time.
+ *
+ * Keep this array in lockstep with `i18n/locales/en.json` for the
+ * core dialog keys. The contract is enforced by
+ * `main/__tests__/i18n-main-keys-contract.test.ts`.
+ */
+export const MAIN_KEYS = [
+	"dialog.criticalError.title",
+	"dialog.criticalError.body",
+	"dialog.singleInstance.title",
+	"dialog.singleInstance.message",
+	"dialog.selectModelFolder.title",
+	"dialog.export.config",
+	"dialog.export.history",
+	"dialog.export.templates",
+	"dialog.export.vocabulary",
+	"dialog.preloadError.body",
+	"notify.app.config_load_failed_body",
+	"state.app.starting",
+	"dialog.crashLoop.title",
+	"dialog.crashLoop.mainBody",
+	"dialog.crashLoop.bubbleBody",
+] as const;
+
+/** Literal-union type of {@link MAIN_KEYS} — narrows `mainT`'s `key` parameter. */
+export type MainKey = (typeof MAIN_KEYS)[number];
 
 /**
  * The locale used by {@link mainT} for subsequent lookups.
@@ -287,7 +329,7 @@ export function setMainLocale(locale: string): void {
  * visible during testing instead of silently dropping data.
  */
 export function mainT(
-	key: string,
+	key: MainKey,
 	fmt?: Record<string, string | number>,
 ): string {
 	const table = MAIN_STRINGS[currentLocale] as MainStrings | undefined;

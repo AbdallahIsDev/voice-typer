@@ -138,25 +138,54 @@ describe("GT-60: will-quit has an else branch that exits immediately when python
 //synchronous SIGKILL in _productionExit (source-text)
 // ────────────────────────────────────────────────────────────────────
 
-describe("GT-12: bootstrap.ts _productionExit synchronously SIGKILLs Python before app.quit()", () => {
-	it("calls state.pythonProcess?.kill('SIGKILL') BEFORE app.quit()", () => {
+describe("bootstrap.ts _productionExit stops Python BEFORE app.quit() (no unconditional SIGKILL)", () => {
+	it("calls stopPython() BEFORE app.quit()", () => {
 		const src = readSrc("../bootstrap.ts");
 		const fnIdx = src.indexOf("function _productionExit");
 		expect(fnIdx).toBeGreaterThan(-1);
-		const block = src.slice(fnIdx, fnIdx + 1200);
-		const sigkillIdx = block.indexOf('kill("SIGKILL")');
+		const block = src.slice(fnIdx, fnIdx + 1600);
+		const stopIdx = block.indexOf("stopPython()");
 		const quitIdx = block.indexOf("app.quit()");
-		expect(sigkillIdx).toBeGreaterThan(-1);
+		expect(stopIdx).toBeGreaterThan(-1);
 		expect(quitIdx).toBeGreaterThan(-1);
-		// SIGKILL must come BEFORE app.quit() in the function body.
-		expect(sigkillIdx).toBeLessThan(quitIdx);
+		// stopPython() must come BEFORE app.quit() in the function body
+		// so the graceful quit_app → SIGTERM → SIGKILL escalation runs
+		// before Electron's before-quit / will-quit lifecycle fires.
+		expect(stopIdx).toBeLessThan(quitIdx);
 	});
 
-	it("wraps the SIGKILL in try/catch so a failure cannot block the exit", () => {
+	it("does NOT contain an unconditional synchronous pythonProcess?.kill('SIGKILL')", () => {
 		const src = readSrc("../bootstrap.ts");
 		const fnIdx = src.indexOf("function _productionExit");
-		const block = src.slice(fnIdx, fnIdx + 1200);
-		expect(block).toMatch(/try\s*\{[\s\S]*?SIGKILL[\s\S]*?\}\s*catch/);
+		expect(fnIdx).toBeGreaterThan(-1);
+		const block = src.slice(fnIdx, fnIdx + 1600);
+		// The synchronous SIGKILL step was removed: it raced the
+		// already-exited pid (kernel pid-recycling footgun) and skipped
+		// Python's atexit hooks (tray.py::_atexit, single-instance lock
+		// release). The SIGTERM→SIGKILL escalation inside stopPython()
+		// covers the "Python won't exit" case; the
+		// PROCESS_EXIT_BACKSTOP_MS backstop covers "Electron won't exit".
+		expect(block).not.toContain('kill("SIGKILL")');
+		expect(block).not.toContain("pythonProcess?.kill");
+	});
+
+	it("wraps stopPython() in try/catch so a failure cannot block the exit", () => {
+		const src = readSrc("../bootstrap.ts");
+		const fnIdx = src.indexOf("function _productionExit");
+		expect(fnIdx).toBeGreaterThan(-1);
+		const block = src.slice(fnIdx, fnIdx + 1600);
+		expect(block).toMatch(/try\s*\{[\s\S]*?stopPython\(\)[\s\S]*?\}\s*catch/);
+	});
+
+	it("arms a PROCESS_EXIT_BACKSTOP_MS backstop that is .unref()'d", () => {
+		const src = readSrc("../bootstrap.ts");
+		const fnIdx = src.indexOf("function _productionExit");
+		expect(fnIdx).toBeGreaterThan(-1);
+		const block = src.slice(fnIdx, fnIdx + 1600);
+		expect(block).toMatch(
+			/setTimeout\([\s\S]*?PROCESS_EXIT_BACKSTOP_MS[\s\S]*?\)/,
+		);
+		expect(block).toMatch(/\.unref\(\)/);
 	});
 });
 

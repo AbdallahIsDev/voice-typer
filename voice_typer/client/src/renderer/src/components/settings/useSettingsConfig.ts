@@ -9,13 +9,13 @@
 // Behaviour is identical to the previous inline implementation:
 //   - `updateConfig(updates)` applies the update to local state
 //     immediately, mirrors it into the Zustand appStore synchronously
-//     (D1-FIX so App.tsx's route guard sees the new value on the next
+//     (so App.tsx's route guard sees the new value on the next
 //     render), and queues a microtask flush that sends a single
-//     diffed `set_config` IPC (PERF-002 batching).
+//     diffed `set_config` IPC (batching).
 //   - `updateConfigDebounced(key, value, delayMs)` is the same but
 //     defers the IPC commit by `delayMs` so rapid keystrokes collapse
 //     into one write. Sets `pending=true` while the timer is running
-//so the save indicator can show "Pending…" ( Fix #8).
+//so the save indicator can show "Pending…".
 //   - `loadConfig()` re-fetches from the backend.
 //   - `flushPendingUpdates()` is exposed (via ref) so the page's
 //     unmount cleanup can flush any in-flight writes.
@@ -143,30 +143,59 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	const [error, setError] = useState<string | null>(null);
 	const savedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-	// PERF-002: batched writes — accumulate updates in `pendingUpdatesRef`
+	// batched writes — accumulate updates in `pendingUpdatesRef`
 	// and flush them in a single `set_config` IPC via a microtask.
 	const lastSavedConfigRef = useRef<VoiceTyperConfig | null>(_cachedConfig);
 	const pendingUpdatesRef = useRef<Partial<VoiceTyperConfig>>({});
 	const flushScheduledRef = useRef(false);
 	const flushPromiseResolversRef = useRef<Array<() => void>>([]);
 	const flushPendingUpdatesRef = useRef<() => Promise<void>>(async () => {});
-	// PERF-MEMO-001: ref mirror of `config` so `updateConfig` /
+	// ref mirror of `config` so `updateConfig` /
 	// `updateConfigDebounced` can have stable identity (empty deps).
 	const configRef = useRef<VoiceTyperConfig | null>(_cachedConfig);
 	useEffect(() => {
 		configRef.current = config;
 	}, [config]);
 
-	const loadConfig = useCallback(async () => {
-		try {
-			const result = await call<VoiceTyperConfig>("get_config");
-			_cachedConfig = result;
-			lastSavedConfigRef.current = result;
-			setConfig(result);
-		} catch (err) {
-			console.error("Failed to load config:", err);
-		}
-	}, [call]);
+	// Per-instance cancelled flag. Set to `true` on unmount so any
+	// in-flight `loadConfig` fetch (whether triggered by the Settings
+	// page's mount effect, a `config_changed` event, or a manual refresh)
+	// short-circuits its `setConfig` call instead of writing to a dead
+	// React state. `loadConfig` defaults its `isCancelled` parameter to
+	// read this ref, so callers don't need to wire up their own
+	// cancellation - the hook owns it. Mirrors the pattern in
+	// `useMicrophoneData.ts` (which uses a local `cancelled` flag
+	// captured by the mount effect's closure); the ref-based variant
+	// here is necessary because this hook does NOT own the mount-time
+	// `loadConfig()` call (the consumer does).
+	const cancelledRef = useRef(false);
+	useEffect(() => {
+		cancelledRef.current = false;
+		return () => {
+			cancelledRef.current = true;
+		};
+	}, []);
+
+	const loadConfig = useCallback(
+		async (isCancelled: () => boolean = () => cancelledRef.current) => {
+			try {
+				const result = await call<VoiceTyperConfig>("get_config");
+				// Short-circuit every setState after the await so an
+				// unmounted component (or a stale invocation superseded by a
+				// newer `loadConfig` call) does not have its in-flight
+				// `setConfig` call land on a dead or stale React state.
+				if (isCancelled()) return;
+				_cachedConfig = result;
+				lastSavedConfigRef.current = result;
+				setConfig(result);
+			} catch (err) {
+				if (!isCancelled()) {
+					console.error("Failed to load config:", err);
+				}
+			}
+		},
+		[call],
+	);
 
 	const flushPendingUpdates = useCallback(async () => {
 		const updates = pendingUpdatesRef.current;
@@ -271,7 +300,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			const newConfig = { ...currentConfig, ...updates };
 			_cachedConfig = newConfig;
 			setConfig(newConfig);
-			// D1-FIX: synchronously mirror the update into the Zustand
+			// synchronously mirror the update into the Zustand
 			// appStore so App.tsx's route guard sees the new value on
 			// the next render (the config_changed push event arrives
 			// later, asynchronously).
@@ -291,7 +320,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			}
 			await flushPromise;
 		},
-		[], // PERF-MEMO-001: stable identity — reads from refs
+		[], // stable identity — reads from refs
 	);
 
 	//debounced update for text inputs that fire on every
@@ -326,7 +355,7 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			(pendingDebouncedValuesRef.current as Record<string, unknown>)[
 				key as string
 			] = value;
-			//Fix #8: mark the save as pending so the indicator
+			// mark the save as pending so the indicator
 			// shows "Pending…" while the debounce timer is running.
 			setPending(true);
 			debouncedTimers.current[key as string] = setTimeout(() => {

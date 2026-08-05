@@ -889,7 +889,9 @@
 			"notchFrequency": "Frecuencia de notch",
 			"notchFrequencyInfo": "Frecuencia central del notch. 50 Hz para red de Europa/Asia, 60 Hz para red de América del Norte.",
 			"notchFrequencyInfoSearch": "Frecuencia central del notch.",
-			"notchFrequencyAria": "Frecuencia de notch"
+			"notchFrequencyAria": "Frecuencia de notch",
+			"crossLinkBanner": "Estos ajustes también se pueden editar en la página de Micrófono (con un flujo de trabajo de grabación de prueba A/B).",
+			"goToMicrophone": "Ir a Micrófono"
 		},
 		"aiEnhancement": {
 			"title": "Mejora con IA",
@@ -1837,6 +1839,45 @@
 		"restartLoopBreak": {
 			"title": "{appName} no puede reiniciarse de forma segura",
 			"body": "El backend de Python está fallando al iniciar. Después de {count} intentos en {seconds} segundos, el disyuntor de reinicio se ha activado. Por favor verifique los archivos de registro y reinstale si el problema persiste."
+		}
+	},
+	"error": {
+		"config_load_failed": {
+			"title": "Error al cargar la configuración",
+			"body": "Se restablecieron los valores predeterminados. Revisa los registros para más detalles."
+		}
+	},
+	"state": {
+		"starting": "Iniciando..."
+	},
+	"notify": {
+		"recording_controller": {
+			"consent_required_title": "{appName}",
+			"consent_required_body": "Se requiere el consentimiento de biometría de voz para iniciar la grabación.\nActívalo en Configuración > Privacidad > Consentimiento de biometría de voz.",
+			"watchdog_title": "{appName}",
+			"watchdog_body": "La transcripción sigue en ejecución.\nLas grabaciones largas o el respaldo de CPU pueden tardar más.",
+			"mic_disconnected_title": "{appName}",
+			"mic_disconnected_body": "Micrófono desconectado.",
+			"silence_auto_stop_title": "{appName}",
+			"silence_auto_stop_body": "Grabación detenida: no se detectó audio.",
+			"max_duration_stop_title": "{appName}",
+			"max_duration_stop_body": "Grabación detenida: se alcanzó la duración máxima.",
+			"mic_permission_revoked_title": "{appName}",
+			"mic_permission_revoked_body": "Permiso de micrófono revocado.",
+			"xrun_warning_title": "{appName}",
+			"xrun_warning_body": "Se detectó un desbordamiento del búfer de audio. Prueba con un tamaño de búfer mayor."
+		},
+		"model_manager": {
+			"backend_init_failed_title": "{appName}",
+			"backend_init_failed_body": "No se pudo inicializar el backend {backend}. Revisa los registros para más detalles.",
+			"backend_change_deferred_title": "{appName}",
+			"backend_change_deferred_body": "El backend cambiará a {backend} después de la grabación actual."
+		},
+		"settings_controller": {
+			"autostart_toggle_failed_title": "{appName}",
+			"autostart_toggle_failed_body": "No se pudo cambiar la configuración de inicio automático.\n{error}",
+			"microphone_selection_failed_title": "{appName}",
+			"microphone_selection_failed_body": "No se pudo cambiar el micrófono."
 		}
 	}
 }

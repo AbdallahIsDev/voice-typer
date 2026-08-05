@@ -20,13 +20,16 @@
  *      installed, conservatively assume SNI is unavailable — matches the
  *      Python `dbus` module ImportError fallback).
  *
- * The check is synchronous and runs once at module load (the same
- * contract as the Python side, which runs the check inside `__init__`
- * before the tray thread starts). The D-Bus subprocess call is ~1ms on
- * a warm session bus.
+ * The check is synchronous and cached on first call.
+ * `index.ts` pre-warms the cache after `startPython()` (so the
+ * `window-all-closed` handler returns instantly instead of blocking on
+ * the D-Bus subprocess check on the quit hot-path). Subsequent calls
+ * return the cached boolean without re-shelling out. The D-Bus subprocess
+ * call is ~1ms on a warm session bus.
  * R6-F11: `execFileSync` timeout reduced from 2000ms → 500ms. The check
- * runs at module load AND in the `window-all-closed` handler (),
- * which is on the quit hot-path. A 2s timeout on a missing `gdbus` /
+ * is invoked from the `window-all-closed` handler (), which is on the
+ * quit hot-path (cache pre-warmed by `index.ts` after `startPython()`).
+ * A 2s timeout on a missing `gdbus` /
  * `dbus-send` binary (or a hung D-Bus session) would block the quit
  * sequence for 2s per check — visible "the app takes forever to close"
  * UX bug. 500ms is still 50× the typical warm-cache latency (~1ms) but
@@ -58,7 +61,7 @@ function dbusNameHasOwner(name: string): boolean | null {
 	try {
 		const out = execFileSync("gdbus", gdbusArgs, {
 			timeout: DBUS_PROBE_TIMEOUT_MS,
-			stdio: ["ignore", "pipe", "ignore"],
+			stdio: ["ignore", "pipe", "pipe"],
 		}).toString();
 		// gdbus prints `(true,)` or `(false,)` for a boolean return.
 		return out.includes("true");
@@ -68,9 +71,29 @@ function dbusNameHasOwner(name: string): boolean | null {
 		// so a real gdbus install that suddenly starts failing is
 		// diagnosable from the runtime log instead of silently
 		// degrading to the dbus-send code path.
+		//
+		// Capture stderr (stdio now `"pipe"` instead of
+		// `"ignore"`) so the warn log includes the actual gdbus
+		// error message. Without stderr, a "NameHasOwner" D-Bus
+		// call that failed with `org.freedesktop.DBus.Error.ServiceUnknown`
+		// was logged as a bare `{}` Error object with no message,
+		// making production gdbus failures (corrupted install,
+		// selinux denial) indistinguishable from a missing-binary
+		// ENOENT.
+		let stderrText: string | undefined;
+		try {
+			// `execFileSync` throws on non-zero exit; the captured
+			// stderr Buffer is exposed on `e.stderr`.
+			const buf = (e as { stderr?: Buffer }).stderr;
+			if (buf && buf.length > 0) stderrText = buf.toString().trim();
+		} catch {
+			// Reading stderr is best-effort; never let it mask
+			// the original failure.
+		}
 		log.warn(
 			"[tray_available] gdbus probe failed, falling through to dbus-send:",
 			e,
+			stderrText ? `stderr: ${stderrText}` : "",
 		);
 	}
 	const dbusSendArgs = [
@@ -85,11 +108,30 @@ function dbusNameHasOwner(name: string): boolean | null {
 	try {
 		const out = execFileSync("dbus-send", dbusSendArgs, {
 			timeout: DBUS_PROBE_TIMEOUT_MS,
-			stdio: ["ignore", "pipe", "ignore"],
+			stdio: ["ignore", "pipe", "pipe"],
 		}).toString();
 		// dbus-send prints `   boolean true` or `   boolean false`.
 		return /boolean\s+true/.test(out);
-	} catch {
+	} catch (e) {
+		// Same stderr-capture treatment as the gdbus
+		// branch. dbus-send is the final fallback before the
+		// conservative "assume SNI unavailable" path, so a debug
+		// log (rather than warn) is sufficient — falling through
+		// is the expected behavior on systems where dbus-send is
+		// not installed (the conservative fallback correctly
+		// handles that case).
+		let stderrText: string | undefined;
+		try {
+			const buf = (e as { stderr?: Buffer }).stderr;
+			if (buf && buf.length > 0) stderrText = buf.toString().trim();
+		} catch {
+			// Best-effort.
+		}
+		log.debug(
+			"[tray_available] dbus-send probe failed (conservative fallback will apply):",
+			e,
+			stderrText ? `stderr: ${stderrText}` : "",
+		);
 		return null;
 	}
 }

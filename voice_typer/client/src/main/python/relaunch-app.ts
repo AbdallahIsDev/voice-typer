@@ -29,6 +29,17 @@ import { APP_NAME } from "../branding";
 import { log } from "../logging";
 import { computeConfigDir } from "../single_instance";
 import { state } from "../state";
+// `atomicWriteFile` is the shared temp+fsync+rename helper
+// (mirrors the Rust `atomic_write_bytes` canonical implementation).
+// Previously `_appendRestartTimestamp` inlined an equivalent
+// write-tmp / fsync / rename sequence — a duplicate of the helper in
+// `atomic-write.ts`. The inline copy drifted (e.g. the helper's
+// `finally { closeSync }` was replicated as try/finally here, but a
+// future fix to the helper's fsync error handling would not propagate).
+// Replacing the inline copy with the shared helper makes
+// `atomic-write.ts` the single source of truth for the atomic-write
+// pattern across the main process.
+import { atomicWriteFile } from "./atomic-write";
 import { killPythonProcessWithSigkillFallback } from "./kill-python";
 import { _resetIpcBackpressure } from "./send-to-python";
 import { startPython } from "./start-python";
@@ -123,48 +134,24 @@ function _appendRestartTimestamp(history: number[]): void {
 		// telemetry) — no PII, but tighten perms anyway to match the
 		// rest of the config dir (electron.pid is also 0o600).
 		//
-		//atomic write (temp + fsync + rename). Pre-fix,
-		// ``fs.writeFileSync`` with ``flag: "w"`` was
-		// truncate-then-write — a crash mid-write left a partial
-		// JSON body that ``_readRestartHistory``'s
-		// ``JSON.parse`` rejected, silently returning ``[]`` and
-		// BYPASSING the loop-breaker on the next launch (re-entering
-		// the crash loop with no "cannot restart safely" dialog).
-		// The Rust mirror (``supervisor.rs::write_restart_counter``)
-		// already used ``atomic_write_bytes`` (temp + fsync + rename)
-		// for this exact reason. We now mirror that pattern in JS:
-		// write to ``<file>.tmp``, fsync, then atomic-rename over
-		// the destination. On POSIX, ``rename`` is atomic; on
-		// Windows, ``MoveFileEx`` with ``MOVEFILE_REPLACE_EXISTING``
-		// is atomic. A crash mid-write now leaves the previous
-		// (complete) history file intact — the .tmp is the only
-		// casualty, and it's overwritten on the next attempt.
-		const tmp = `${file}.tmp`;
-		fs.writeFileSync(tmp, JSON.stringify(pruned), {
-			encoding: "utf-8",
-			mode: 0o600,
-		});
-		// fsync the .tmp so the bytes hit disk before the rename
-		// (otherwise a power loss after rename but before the
-		// FS sync could leave the destination file with zero
-		// bytes on some filesystems).
-		try {
-			const fd = fs.openSync(tmp, "r");
-			try {
-				fs.fsyncSync(fd);
-			} finally {
-				fs.closeSync(fd);
-			}
-		} catch (e) {
-			// fsync best-effort — not all FSes / platforms support it
-			// (e.g. some FAT/exFAT variants raise ENOTSUP). Log at
-			// debug so the failure is observable in the diagnostic log
-			// without blocking the rename. The outer catch (line 162)
-			// still handles rename failures; this just covers the
-			// fsync sub-step specifically.
-			log.debug("[RESTART] fsync best-effort failed (proceeding):", e);
-		}
-		fs.renameSync(tmp, file);
+		// delegate to the shared `atomicWriteFile` helper
+		// (temp + fsync + rename). Pre-fix, this function inlined
+		// an equivalent sequence (write `<file>.tmp` with
+		// `flag: "w"`, `fsyncSync`, `renameSync`) — a duplicate of
+		// `atomic-write.ts`'s helper. The inline copy was a
+		// truncate-then-write whose partial-write window (crash
+		// mid-write) could leave a corrupted JSON body that
+		// `_readRestartHistory`'s `JSON.parse` rejected, silently
+		// returning `[]` and BYPASSING the loop-breaker on the next
+		// launch (re-entering the crash loop with no "cannot restart
+		// safely" dialog). The Rust mirror
+		// (`supervisor.rs::write_restart_counter`) already used
+		// `atomic_write_bytes` for this exact reason; the shared
+		// JS helper now mirrors that pattern in one place. A crash
+		// mid-write now leaves the previous (complete) history file
+		// intact — the `.tmp` is the only casualty, and it's
+		// overwritten on the next attempt.
+		atomicWriteFile(file, JSON.stringify(pruned), { mode: 0o600 });
 	} catch (e) {
 		// Best-effort: if we can't persist the counter, the worst
 		// case is the cap not firing this round — the underlying

@@ -118,8 +118,20 @@ function setupUserData(): void {
 		// Ensure the directory exists before Electron tries to use it.
 		try {
 			fs.mkdirSync(configDir, { recursive: true });
-		} catch {
-			/* ignore */
+		} catch (e) {
+			// Previously this catch was silent (`/* ignore */`),
+			// which masked three distinct failure modes:
+			//   1. Permissions error on a shared / multi-user install
+			//      (e.g. /opt owned by root).
+			//   2. Disk full / read-only filesystem (Live USB).
+			//   3. Path-too-long on Windows (MAX_PATH=260).
+			// All three surfaced downstream as a cryptic
+			// `app.setPath("userData", ...)` failure with no
+			// upstream context. Logging here gives operators a
+			// breadcrumb pointing at the real cause. The mkdir
+			// is still best-effort — Electron falls back to its
+			// default userData if `app.setPath` is never called.
+			log.warn("[MAIN] mkdirSync for userData failed:", e);
 		}
 		app.setPath("userData", configDir);
 		//route through the structured `log` logger so
@@ -440,7 +452,8 @@ export function _installErrorHandlers(opts: {
  * instance mutex + tray icon).
  *
  * Sequence:
- *   1. `stopPython()` — sends `quit_app` over TCP, force-kills after 3s.
+ *   1. `stopPython()` — sends `quit_app` over TCP, force-kills after 3s
+ *      via the SIGTERM→SIGKILL escalation in `python/stop-python.ts`.
  *   2. `clearElectronPidFile()` — removes `electron.pid` so the next
  *      launch doesn't think we're still alive.
  *   3. `app.quit()` — fires `before-quit` → `will-quit` (gives the
@@ -449,6 +462,19 @@ export function _installErrorHandlers(opts: {
  *   4. 2s `process.exit(1)` backstop — if `app.quit()` hangs (a stuck
  *      `before-quit` handler, a deadlock in the Python IPC ack path),
  *      we still exit so the user isn't left with a zombie process.
+ *
+ * The prior synchronous `state.pythonProcess?.kill("SIGKILL")`
+ * step between (2) and (3) was removed. It defeated the graceful
+ * `stopPython()` shutdown in step (1): the SIGTERM→SIGKILL escalation
+ * inside `stopPython()` already covers the "Python won't exit" case
+ * within its own 3s+3s schedule, and the `PROCESS_EXIT_BACKSTOP_MS`
+ * `process.exit(1)` in step (4) covers the "Electron won't exit" case.
+ * The synchronous SIGKILL fired UNCONDITIONALLY — even when Python had
+ * already exited cleanly from the `quit_app` IPC — which (a) races the
+ * already-exited pid (the kernel may have recycled it for an unrelated
+ * process — `kill(SIGKILL)` on a recycled pid is a security-relevant
+ * footgun), and (b) skips Python's atexit hooks (`tray.py::_atexit`,
+ * `single_instance` lock release), leaving stale locks on disk.
  *
  * The hook is idempotent: if `app.quit()` succeeds and the process
  * exits before 2s, the `setTimeout` callback never fires (Node exits
@@ -465,13 +491,6 @@ function _productionExit(code: number): void {
 		clearElectronPidFile();
 	} catch (e) {
 		log.error("[VT] clearElectronPidFile() failed during production exit:", e);
-	}
-	//synchronously SIGKILL the Python backend BEFORE the
-	// quit call so the kill is NOT timer-dependent.
-	try {
-		state.pythonProcess?.kill("SIGKILL");
-	} catch (e) {
-		log.error("[VT] synchronous SIGKILL of Python failed:", e);
 	}
 	// Schedule the quit call so Electron's before-quit/will-quit hooks fire.
 	try {
@@ -525,12 +544,31 @@ export function _childProcessGoneHandlerRegisteredForTest(): boolean {
 }
 
 /**
+ * Set the Windows App User Model ID so taskbar grouping works correctly.
+ * Best-effort — only matters on Windows 7+. Called from `bootstrapRuntime()`
+ * between `setupUserData()` and `setupCsp()` so it runs inside
+ * `app.whenReady()` rather than at module-load time (defers the Windows
+ * registry write out of the module-evaluation hot path).
+ */
+function setupAppUserModelId(): void {
+	try {
+		app.setAppUserModelId("VoiceTyper");
+	} catch (e) {
+		// setAppUserModelId can throw on non-Windows or if the
+		// registry write fails; non-fatal — Windows taskbar grouping
+		// falls back to the default (app.exe name) which is acceptable.
+		log.warn("[bootstrap] setAppUserModelId failed (non-fatal):", e);
+	}
+}
+
+/**
  * Run all the one-shot runtime setup steps. Called once from
  * `app.whenReady()` in `index.ts`.
  */
 export function bootstrapRuntime(): void {
 	generateSessionNonce();
 	setupUserData();
+	setupAppUserModelId();
 	setupCsp();
 	setupErrorHandlers();
 	//best-effort crash reporter.

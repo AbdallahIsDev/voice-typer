@@ -69,6 +69,7 @@
  *    ``killPythonProcessWithSigkillFallback`` helper in ``kill-python.ts``.
  */
 import { spawnSync } from "node:child_process";
+import { log } from "../logging";
 import { state } from "../state";
 import { _resetIpcBackpressure, sendToPython } from "./send-to-python";
 //clear the TCP startup timeout so the 60s timer doesn't fire
@@ -147,12 +148,15 @@ function _treeKillWindows(pid: number, force: boolean): void {
 	}
 	try {
 		spawnSync("taskkill", args, { stdio: "ignore" });
-	} catch {
+	} catch (e) {
 		/* best-effort — taskkill missing, PID already gone, or
 		 * spawnSync threw. The caller proceeds regardless; the
 		 * worst case is the old process surviving (and the new
 		 * one failing to bind the single-instance mutex, which
-		 * forces the next relaunch to clean it up). */
+		 * forces the next relaunch to clean it up). Log at debug so
+		 * the failure is observable in the diagnostic log (mirrors
+		 * `relaunch-app.ts:158`). */
+		log.debug("[STOP] taskkill failed (non-fatal):", e);
 	}
 }
 
@@ -292,8 +296,22 @@ export function stopPython() {
 				// throws — caught below; Windows: taskkill on
 				// a dead pid returns non-zero exit code,
 				// swallowed).
+				//
+				// Liveness check: use
+				// ``proc.exitCode === null && proc.signalCode === null``
+				// (proc has NOT actually exited) instead of
+				// ``!proc.killed``. ``subprocess.killed`` is set
+				// to ``true`` immediately after ``subprocess.kill()``
+				// successfully SENDS a signal — it does NOT reset
+				// when the proc actually dies. So by the time
+				// escalateTimer fires, ``proc.killed`` is already
+				// ``true`` (set by the ``proc.kill("SIGTERM")`` above),
+				// and ``!proc.killed`` would be ``false``, making
+				// the SIGKILL escalation dead code on POSIX. Mirrors
+				// the fix already shipped in
+				// ``kill-python.ts::killPythonProcessWithSigkillFallback``.
 				const escalateTimer = setTimeout(() => {
-					if (!proc.killed) {
+					if (proc.exitCode === null && proc.signalCode === null) {
 						try {
 							if (process.platform === "win32") {
 								if (typeof pid === "number") {
@@ -302,14 +320,24 @@ export function stopPython() {
 							} else {
 								proc.kill("SIGKILL");
 							}
-						} catch {
-							/* best-effort — proc may have already exited */
+						} catch (e) {
+							/* best-effort — proc may have already exited.
+							 * Log at debug so the failure is
+							 * observable in the diagnostic log without spamming
+							 * the default level. */
+							log.debug(
+								"[STOP] escalate SIGKILL/taskkill failed (non-fatal):",
+								e,
+							);
 						}
 					}
 				}, ESCALATE_TIMER_MS);
 				proc.once("exit", () => clearTimeout(escalateTimer));
-			} catch {
-				/* best-effort — proc may have already exited */
+			} catch (e) {
+				/* best-effort — proc may have already exited.
+				 * Log at debug so the failure is observable
+				 * in the diagnostic log without spamming the default level. */
+				log.debug("[STOP] SIGTERM/taskkill failed (non-fatal):", e);
 			}
 			state.pythonProcess = null;
 		}

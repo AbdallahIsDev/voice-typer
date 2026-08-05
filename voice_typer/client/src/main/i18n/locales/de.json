@@ -5,7 +5,13 @@
 	"dialog.export.history": "Verlauf exportieren",
 	"dialog.export.templates": "Vorlagen exportieren",
 	"dialog.export.vocabulary": "Vokabular exportieren",
+	"dialog.preloadError.body": "{appName} konnte nicht gestartet werden (Fehler im Preload-Skript in {file}).\n\nBitte installieren Sie {appName} neu.\n\nWenn das Problem nach der Neuinstallation weiterhin besteht, wenden Sie sich an den Support.",
 	"dialog.selectModelFolder.title": "Modellordner auswählen",
 	"dialog.singleInstance.message": "Es kann nur eine Instanz von {appName} gleichzeitig ausgeführt werden.\n\nSchließen Sie zuerst die bestehende Instanz und versuchen Sie es erneut.",
-	"dialog.singleInstance.title": "{appName}"
+	"dialog.singleInstance.title": "{appName}",
+	"notify.app.config_load_failed_body": "Laden der Konfiguration fehlgeschlagen. Einstellungen wurden auf Standardwerte zurückgesetzt. Siehe Protokolle für Details.",
+	"state.app.starting": "Wird gestartet...",
+	"dialog.crashLoop.title": "{appName} — Absturzschleife",
+	"dialog.crashLoop.mainBody": "Das Hauptfenster-Renderer ist wiederholt abgestürzt und kann nicht wiederhergestellt werden.\n\nBitte verwenden Sie das Tray-Symbol zum Neustarten oder Beenden und starten Sie {appName} dann erneut.",
+	"dialog.crashLoop.bubbleBody": "Das Bubble-Overlay-Renderer ist wiederholt abgestürzt und kann nicht wiederhergestellt werden.\n\nBitte verwenden Sie das Tray-Symbol zum Neustarten oder Beenden und starten Sie {appName} dann erneut."
 }

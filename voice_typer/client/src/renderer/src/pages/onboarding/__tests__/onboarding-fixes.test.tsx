@@ -755,6 +755,22 @@ describe("Done step reveals Skip button when apply fails", () => {
 			expect(screen.getByRole("button", { name: "Get started" })).toBeTruthy();
 		});
 
+		// The Done step's consent probe (useEffect on
+		// step_name === DONE_STEP_NAME) fires async and reads
+		// voice_biometric_consent from get_config. The Get Started
+		// button is DISABLED (isConsentBlocked) until the probe
+		// resolves and `consentAccepted` flips to true. React 19
+		// does NOT fire onClick on a disabled button, so we must
+		// wait for the consent checkbox to be checked before
+		// clicking — otherwise the click is a no-op, handleApply
+		// never runs, and the Skip escape hatch never appears.
+		await waitFor(() => {
+			const checkbox = screen.getByTestId(
+				"onboarding-consent-checkbox",
+			) as HTMLInputElement;
+			expect(checkbox.checked).toBe(true);
+		});
+
 		// Click Get Started — this triggers handleApply which throws
 		// synchronously. The wizard must NOT navigate away.
 		fireEvent.click(screen.getByRole("button", { name: "Get started" }));

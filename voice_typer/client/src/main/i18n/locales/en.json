@@ -5,7 +5,13 @@
 	"dialog.export.history": "Export History",
 	"dialog.export.templates": "Export Templates",
 	"dialog.export.vocabulary": "Export Vocabulary",
+	"dialog.preloadError.body": "{appName} failed to start (preload script error in {file}).\n\nPlease reinstall {appName}.\n\nIf the problem persists after reinstalling, please contact support.",
 	"dialog.selectModelFolder.title": "Select Model Folder",
 	"dialog.singleInstance.message": "Only one instance of {appName} can run at a time.\n\nClose the existing instance first, then try again.",
-	"dialog.singleInstance.title": "{appName}"
+	"dialog.singleInstance.title": "{appName}",
+	"notify.app.config_load_failed_body": "Config load failed. Settings were reset to defaults. Check the logs for details.",
+	"state.app.starting": "Starting...",
+	"dialog.crashLoop.title": "{appName} — Crash loop",
+	"dialog.crashLoop.mainBody": "The main window renderer has crashed repeatedly and cannot recover.\n\nPlease use the tray icon to Restart or Quit, then relaunch {appName}.",
+	"dialog.crashLoop.bubbleBody": "The bubble overlay renderer has crashed repeatedly and cannot recover.\n\nPlease use the tray icon to Restart or Quit, then relaunch {appName}."
 }

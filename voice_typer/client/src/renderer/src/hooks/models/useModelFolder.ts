@@ -3,11 +3,24 @@
  *
  *  (Phase 4.5 spaghetti split): extracted from the former
  * `useModelLifecycle.ts` (995-line) monolith. This sub-hook owns:
- *   • `diskInfo` — result of the optional `get_disk_info` IPC probe
- *     (). `null` until the probe resolves; stays `null` on
- *     older backends that don't expose the IPC.
- *   • `modelsFolderSupported` — whether the `open_models_folder` IPC
- *     family is registered (probed once on mount).
+ *   • `diskInfo` — always `null` today. Historically the result of an
+ *     optional `get_disk_info` IPC probe; the probe was removed
+ *     because the command was never registered in the Python
+ *     `_COMMAND_REGISTRY` nor allowed through the renderer
+ *     allowlist (``src/main/allowed-commands.ts``), so the probe always
+ *     failed silently and `diskInfo` stayed `null` in practice. The
+ *     field is preserved in the return type for backwards-compat with
+ *     the ``LocalModelsPanel`` consumer (which still expects the
+ *     prop) and so a future backend can re-introduce the probe by
+ *     re-adding the interface + allowlist entry without touching
+ *     consumers.
+ *   • `modelsFolderSupported` — always `false` today. Historically the
+ *     result of an optional `models_folder_supported` probe; the probe
+ *     was removed (same phantom-command reason as
+ *     `diskInfo`). Preserved in the return type for the same
+ *     backwards-compat reason — the consumer's conditional render of
+ *     the "Open models folder" button simply always evaluates to
+ *     `false`.
  *   • `isImporting` — flag for the "Import Model" button's loading
  *     state.
  *
@@ -16,29 +29,23 @@
  *     the `import_model` IPC with the picked path, surfaces success /
  *     warning / error snacks, and re-runs `loadConfig` to reconcile the
  *     local model list with the freshly-imported entries.
- *   • `handleOpenModelsFolder` — calls the optional `open_models_folder`
- *     IPC; silently no-ops (button hidden) on backends that don't
- *     expose it.
- *   • The mount-time disk-info + open-folder-IPC probe effect.
+ *   • `handleOpenModelsFolder` — NO-OP today. Historically called the
+ *     `open_models_folder` IPC, but that command was never
+ *     registered so the button was never rendered (it was
+ *     gated behind the always-failing `models_folder_supported`
+ *     probe). The function is preserved as a no-op for
+ *     backwards-compat with the ``LocalModelsPanel`` / ``Models``
+ *     page consumer (which still passes it as the "Open models
+ *     folder" button's onClick prop); since the button is never
+ *     rendered, the no-op is never invoked.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { t } from "@/i18n/i18n";
 import { type DiskInfo, formatErrorMessage } from "@/lib/utils/models";
 
 // ── Types ─────────────────────────────────────────────────────────────
 
 type CallFn = <T>(cmd: string, data?: Record<string, unknown>) => Promise<T>;
-
-/**
- * Result returned by the backend's optional `open_models_folder` IPC.
- * Older backends don't expose this command; the renderer probes once
- * and hides the "Open models folder" button when the IPC is missing.
- */
-interface OpenFolderResult {
-	success: boolean;
-	path?: string;
-	error?: string;
-}
 
 interface UseModelFolderArgs {
 	call: CallFn;
@@ -65,55 +72,20 @@ export function useModelFolder({
 	loadConfig,
 }: UseModelFolderArgs): UseModelFolderResult {
 	const [isImporting, setIsImporting] = useState(false);
-	//optional disk-space + open-folder IPCs ─────────────
-	const [diskInfo, setDiskInfo] = useState<DiskInfo | null>(null);
-	const [modelsFolderSupported, setModelsFolderSupported] = useState(false);
-
-	//probe optional disk-info + open-folder IPCs ────────
-	//
-	// The backend may or may not expose `get_disk_info` and
-	// `open_models_folder`. We probe both once on mount; on failure we
-	// silently disable the corresponding UI affordances (disk-space
-	// warning, "Open models folder" button). This keeps the page
-	// forward-compatible with future backend improvements without
-	// breaking on older backends.
-	useEffect(() => {
-		let cancelled = false;
-		(async () => {
-			try {
-				const info = await call<DiskInfo>("get_disk_info");
-				if (!cancelled && info && typeof info.free_bytes === "number") {
-					setDiskInfo(info);
-				}
-			} catch (e) {
-				// Backend doesn't support get_disk_info (older server version) —
-				// silently skip; disk-space widget stays hidden.
-				console.warn("[useModelFolder] get_disk_info probe failed:", e);
-			}
-			try {
-				// Probe whether the open-folder family of IPCs is
-				// registered. We don't actually open anything here; the
-				// real open call happens in `handleOpenModelsFolder`
-				// when the user clicks the button.
-				const probe = await call<unknown>("models_folder_supported");
-				if (!cancelled) {
-					// Any non-erroring response means the IPC is registered.
-					setModelsFolderSupported(true);
-					void probe; // explicit no-op discard
-				}
-			} catch (e) {
-				// Backend doesn't expose the open-folder family — keep
-				// the button hidden.
-				console.warn(
-					"[useModelFolder] models_folder_supported probe failed:",
-					e,
-				);
-			}
-		})();
-		return () => {
-			cancelled = true;
-		};
-	}, [call]);
+	// The optional `get_disk_info` / `models_folder_supported`
+	// mount-time probes were removed — both commands were never
+	// registered in the Python `_COMMAND_REGISTRY` nor allowed
+	// through the renderer allowlist, so the probes always failed
+	// silently and the state stayed at its initial values
+	// (`null` / `false`). The constants below preserve the public
+	// interface for the `LocalModelsPanel` / `Models.tsx` consumers
+	// (which still read these fields as props) without lying about
+	// the existence of an active probe. If a future backend exposes
+	// either command, re-add the matching interface in
+	// `types/ipc/requests.ts`, the `ALLOWED_COMMANDS` entry, the
+	// Python handler, and only then restore the probe here.
+	const diskInfo: DiskInfo | null = null;
+	const modelsFolderSupported = false;
 
 	// ── Action: handleImportModel ───────────────────────────────────
 	const handleImportModel = useCallback(async () => {
@@ -171,25 +143,25 @@ export function useModelFolder({
 		}
 	}, [call, loadConfig, showSnack]);
 
-	//Action: handleOpenModelsFolder () ────────────────────
+	// `handleOpenModelsFolder` was previously an async action
+	// that called the `open_models_folder` IPC. That command was
+	// never registered in `_COMMAND_REGISTRY` nor allowed through
+	// `ALLOWED_COMMANDS`, AND the button invoking this action was
+	// gated behind the always-failing `models_folder_supported`
+	// probe (so the action never executed in practice). The body is
+	// replaced with a no-op to preserve the public interface
+	// (`LocalModelsPanel` / `Models.tsx` still pass it as the "Open
+	// models folder" button's onClick prop — which itself is never
+	// rendered because `modelsFolderSupported === false`).
 	//
-	// Calls the backend's optional `open_models_folder` IPC. The button
-	// is only rendered when the probe on mount succeeded
-	// (`modelsFolderSupported === true`), so this should normally
-	// succeed. We still guard against an IPC error so a transient
-	// backend issue doesn't crash the page.
+	// If a future backend exposes `open_models_folder`, re-add the
+	// matching interface in `types/ipc/requests.ts`, the
+	// `ALLOWED_COMMANDS` entry, the Python handler, AND restore the
+	// `modelsFolderSupported` probe above before reintroducing a
+	// real implementation here.
 	const handleOpenModelsFolder = useCallback(async () => {
-		try {
-			const result = await call<OpenFolderResult>("open_models_folder");
-			if (result?.success) return;
-			showSnack(result?.error || t("models.openFolderFailed"), "warning");
-		} catch (err) {
-			showSnack(
-				t("models.import.failed", { error: formatErrorMessage(err) }),
-				"error",
-			);
-		}
-	}, [call, showSnack]);
+		/* no-op — see the comment above. */
+	}, []);
 
 	return {
 		diskInfo,
