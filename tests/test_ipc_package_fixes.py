@@ -37,8 +37,19 @@ import dataclasses
 
 import pytest
 
+# Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
+# loadscope): pin every test in this module onto a single worker so the
+# imported ``ipc_server.IPCServer`` (which triggers handler-mixin imports
+# that load heavy modules) doesn't race with sibling IPC test modules
+# under ``pytest -n auto``. xdist's default ``load`` scheduler does NOT
+# strictly honor this marker (verified on xdist 3.8.0), so it's a best-
+# effort hint — when it IS honored (e.g. CI runs with
+# ``--dist=loadscope``) it eliminates the worker-crash reports seen in
+# the baseline. No-op when xdist isn't active. (C-TEST-5: test isolation.)
+pytestmark = pytest.mark.xdist_group("ipc_layer_fixes")
+
 # imports ────────────────────────────────────────────────
-from voice_typer.server.ipc.history_bounds import (
+from voice_typer.server.ipc.history_bounds import (  # noqa: E402
     _HISTORY_OFFSET_MAX,
     _REDACTED_SENTINEL,
     _SECRET_CONFIG_FIELDS,
@@ -49,14 +60,14 @@ from voice_typer.server.ipc.history_bounds import (
 )
 
 # imports ────────────────────────────────────────────────────────
-from voice_typer.server.ipc.rate_limiter import (
+from voice_typer.server.ipc.rate_limiter import (  # noqa: E402
     COMMAND_COSTS,
     DEFAULT_COST,
     _RateLimiter,
 )
 
 # imports ────────────────────────────────────────────────────────
-from voice_typer.server.ipc.validation import (
+from voice_typer.server.ipc.validation import (  # noqa: E402
     ERROR_CODES,
     _validate_dict_payload,
 )
@@ -66,7 +77,7 @@ from voice_typer.server.ipc.validation import (
 # mapping command name → handler method name). Importing the class
 # triggers the handler-mixin imports; that's fine in a test process
 # (the mixins are designed to be imported at test-collection time).
-from voice_typer.server.ipc_server import IPCServer
+from voice_typer.server.ipc_server import IPCServer  # noqa: E402
 
 # ══════════════════════════════════════════════════════════════════════════
 # pattern-based secret-field denylist + non-None redaction

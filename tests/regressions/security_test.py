@@ -1,7 +1,7 @@
 """Regression tests split out of the former ``tests/test_bugfix_regressions.py``.
 
-This module is part of the ``tests/regressions/`` package created by
-REF-4. The class/method names, assertion logic, and imports below are
+This module is part of the ``tests/regressions/`` package.
+The class/method names, assertion logic, and imports below are
 preserved verbatim from the original 4446-line monolith — only file
 location has changed.
 
@@ -28,15 +28,13 @@ import pytest
 # decorator behind ``sys.platform == "win32"``, so the module imports
 # cleanly on Linux/macOS without any test-infrastructure shim.
 class TestTranscriptionLoggingRedactsPii:
-    """SEC-009.
-
-    Pre-fix: ``redact_pii()`` was dead code — declared in security.py
+    """Pre-fix: ``redact_pii()`` was dead code — declared in security.py
     but never called from production. The original SEC-009 fix wired
     ``redact_pii()`` into the ``log_transcriptions=True`` path of
     ``DictationPipeline._store_result`` so PII patterns were masked
     before hitting the log file.
 
-    G4-H-08 (superseded SEC-009): ``redact_pii()`` only masked four
+    ``redact_pii()`` only masked four
     patterns (email / US-phone / SSN / credit-card-like) — medical
     dictation, financial narratives, addresses, and names passed
     through verbatim. For a voice-typing tool this is the primary
@@ -49,7 +47,7 @@ class TestTranscriptionLoggingRedactsPii:
     """
 
     def test_store_result_logs_sha256_hash_not_raw_text(self, caplog):
-        """SEC-009 / G4-H-08: when ``log_transcriptions`` is enabled,
+        """when ``log_transcriptions`` is enabled,
         ``DictationPipeline._store_result`` must log a non-reversible
         SHA-256 hash prefix of the transcription text — NOT the raw
         text and NOT a four-pattern ``redact_pii()`` masked version
@@ -106,11 +104,11 @@ class TestTranscriptionLoggingRedactsPii:
         # regressed to either logging raw text or to ``redact_pii()``
         # (the pre- four-pattern masker).
         assert sha256_calls, (
-            "SEC-009 / G4-H-08: _store_result must call hashlib.sha256 on "
+            "_store_result must call hashlib.sha256 on "
             "the transcription text when log_transcriptions is True."
         )
         assert any(raw_text.encode("utf-8") in call_args for call_args in sha256_calls), (
-            "SEC-009 / G4-H-08: hashlib.sha256 must be called with the raw transcription text as its argument."
+            "hashlib.sha256 must be called with the raw transcription text as its argument."
         )
 
         # The raw transcription text must NOT appear in any log line —
@@ -118,7 +116,7 @@ class TestTranscriptionLoggingRedactsPii:
         # core SEC-009 invariant: PII never leaks to the log file.
         log_text = caplog.text
         assert raw_text not in log_text, (
-            "SEC-009 / G4-H-08: the raw transcription text must NOT appear "
+            "the raw transcription text must NOT appear "
             "in the log output — only a non-reversible SHA-256 hash prefix "
             "should be logged. The raw text was found in the log."
         )
@@ -127,7 +125,7 @@ class TestTranscriptionLoggingRedactsPii:
         import re
 
         assert re.search(r"hash=[0-9a-f]{12}", log_text), (
-            "SEC-009 / G4-H-08: the log line should contain "
+            "the log line should contain "
             "'hash=<12-char hex prefix>' when log_transcriptions is True."
         )
 
@@ -151,7 +149,7 @@ class TestTranscriptionLoggingRedactsPii:
         assert redact_pii(text) == text
 
     def test_transcribe_segment_log_redacts_pii_when_log_transcriptions_true(self, caplog):
-        """XS-20 / SEC-009: ``TranscriptionEngine._transcribe_unlocked``
+        """``TranscriptionEngine._transcribe_unlocked``
         logs per-segment DEBUG lines. Pre-fix, raw segment text was
         logged verbatim at DEBUG level regardless of
         ``log_transcriptions``, leaking any PII the user dictated
@@ -239,14 +237,14 @@ class TestTranscriptionLoggingRedactsPii:
         # The raw email MUST NOT appear in the log output — only the
         # ``[EMAIL]`` redaction token should appear in its place.
         assert raw_email not in log_text, (
-            "XS-20 / SEC-009: raw PII (email) must NOT appear in the "
+            "raw PII (email) must NOT appear in the "
             "transcription segment DEBUG log when log_transcriptions is "
             "True. redact_pii should have masked it as [EMAIL]."
         )
         # The ``[EMAIL]`` redaction token SHOULD appear (proving the
         # redact_pii call site fired).
         assert "[EMAIL]" in log_text, (
-            "XS-20 / SEC-009: when log_transcriptions is True, segment "
+            "when log_transcriptions is True, segment "
             "text should be passed through redact_pii before logging, "
             "producing the [EMAIL] token for an email pattern."
         )
@@ -306,14 +304,14 @@ class TestTranscriptionLoggingRedactsPii:
         # The raw segment text (containing SSN + CC patterns) MUST NOT
         # appear in the log output when log_transcriptions is False.
         assert seg_text not in log_text, (
-            "XS-20 / SEC-009: when log_transcriptions is False, the "
+            "when log_transcriptions is False, the "
             "segment DEBUG log must NOT contain raw segment text — only "
             "the char count + timestamps."
         )
         # And the redaction tokens should NOT appear either (because
         # the text was never logged at all, not even through redact_pii).
         assert "[SSN]" not in log_text, (
-            "XS-20 / SEC-009: when log_transcriptions is False, the "
+            "when log_transcriptions is False, the "
             "segment DEBUG log must not emit any text content — not "
             "even redacted text."
         )
@@ -321,9 +319,7 @@ class TestTranscriptionLoggingRedactsPii:
 
 
 class TestReadCappedAbortsOnOverflow:
-    """SEC-030.
-
-    Pre-fix: the ``total > max_bytes`` abort path in ``_read_capped``
+    """Pre-fix: the ``total > max_bytes`` abort path in ``_read_capped``
     was untested. A malformed server sending >50MB could timeout
     instead of cleanly aborting. Fix: add a test that supplies chunks
     summing >50MB and asserts ``RuntimeError`` is raised.
@@ -392,9 +388,7 @@ class TestReadCappedAbortsOnOverflow:
 
 
 class TestMutexHardenedWithSecurityDescriptor:
-    r"""PLAT-040.
-
-    The finding: CreateMutexW with NULL security descriptor and bare
+    r"""The finding: CreateMutexW with NULL security descriptor and bare
     name. Investigation: the mutex now has ``Local\`` prefix,
     a fixed name (no install-path hash), and a restrictive DACL.
     This test pins that state.
@@ -403,7 +397,7 @@ class TestMutexHardenedWithSecurityDescriptor:
     def test_mutex_name_has_local_prefix(self):
         r"""The mutex name must have Local\ prefix (no install hash).
 
-        RW-8: KEEP — pins PLAT-040 (mutex name has Local\ prefix,
+        KEEP — pins PLAT-040 (mutex name has Local\ prefix,
         no install-path hash). A behavioral test would need to spawn
         two processes and observe the mutex collision, which is heavy;
         the source-string check catches reintroduction of the install
@@ -433,9 +427,7 @@ class TestMutexHardenedWithSecurityDescriptor:
 
 
 class TestClipboardRetryNarrowedException:
-    """PLAT-007.
-
-    The finding: retry loop caught broad ``Exception``, masking
+    """The finding: retry loop caught broad ``Exception``, masking
     permanent failures. Fix: narrow to ``OSError`` with
     ``winerror == 5`` (ERROR_ACCESS_DENIED) check.
     """
@@ -475,9 +467,7 @@ class TestClipboardRetryNarrowedException:
 
 
 class TestComtypesFallbackFailsClosed:
-    """PLAT-014.
-
-    The finding: comtypes absence → fail-open (returns True = safe to
+    """The finding: comtypes absence → fail-open (returns True = safe to
     paste). Fix: add credential-dialog window-class heuristic as a
     fallback, and log a WARNING (not INFO) so operators notice.
     """
@@ -486,7 +476,7 @@ class TestComtypesFallbackFailsClosed:
         from voice_typer.server import clipboard
 
         assert hasattr(clipboard, "_CRED_DIALOG_CLASSES"), (
-            "PLAT-014: _CRED_DIALOG_CLASSES constant must exist for the comtypes-absence fallback."
+            "_CRED_DIALOG_CLASSES constant must exist for the comtypes-absence fallback."
         )
         assert isinstance(clipboard._CRED_DIALOG_CLASSES, set)
         assert len(clipboard._CRED_DIALOG_CLASSES) > 0
@@ -495,7 +485,7 @@ class TestComtypesFallbackFailsClosed:
         from voice_typer.server import clipboard
 
         assert hasattr(clipboard, "_focused_window_is_credential_dialog"), (
-            "PLAT-014: _focused_window_is_credential_dialog helper must exist."
+            "_focused_window_is_credential_dialog helper must exist."
         )
         assert callable(clipboard._focused_window_is_credential_dialog)
 
@@ -534,18 +524,16 @@ class TestComtypesFallbackFailsClosed:
         # Accept both ``log.warning(...)`` and ``_log().warning(...)``
         # forms (the clipboard module uses the lazy ``_log()`` helper).
         assert re.search(r"\b(?:log|_log\(\))\.warning\b", src), (
-            "PLAT-014: comtypes-absence must log at WARNING level (not INFO)"
+            "comtypes-absence must log at WARNING level (not INFO)"
         )
         # Must call the credential-dialog fallback
         assert "_focused_window_is_credential_dialog" in src, (
-            "PLAT-014: comtypes-absence path must call _focused_window_is_credential_dialog"
+            "comtypes-absence path must call _focused_window_is_credential_dialog"
         )
 
 
 class TestMutexAcquisitionHasRetryAndTimeout:
-    """PLAT-011.
-
-    The finding: no retry/timeout for mutex acquisition. Investigation:
+    """The finding: no retry/timeout for mutex acquisition. Investigation:
     the immediate-exit-on-ERROR_ALREADY_EXISTS is intentional — if
     another instance holds the mutex, it IS running. This test pins
     that behavior so a future "let's add retry" change is caught.
@@ -569,20 +557,18 @@ class TestMutexAcquisitionHasRetryAndTimeout:
         # ``error_already_exists`` — both are valid representations of
         # the Windows system error code.
         assert "ERROR_ALREADY_EXISTS" in src or "error_already_exists" in src or "183" in src, (
-            "PLAT-011: _ensure_single_instance must check ERROR_ALREADY_EXISTS"
+            "_ensure_single_instance must check ERROR_ALREADY_EXISTS"
         )
         # The immediate-exit behavior is intentional — no retry loop
         # should be added without explicit design discussion.
         assert "for attempt" not in src or "retry" not in src.lower(), (
-            "PLAT-011: _ensure_single_instance intentionally does NOT retry. "
+            "_ensure_single_instance intentionally does NOT retry. "
             "Adding retry would delay the 'already running' message to the user."
         )
 
 
 class TestSystemRootValidationFunctional:
-    """PLAT-016.
-
-    The finding: only existence tests for _validate_systemroot, no
+    """The finding: only existence tests for _validate_systemroot, no
     functional test that verifies a malicious SystemRoot is rejected.
     Fix: add a test that sets SystemRoot to an attacker-controlled path
     and verifies the function rejects it.
@@ -635,7 +621,7 @@ class TestSystemRootValidationFunctional:
         """A SystemRoot pointing to a nonexistent directory must be
         rejected (reset to the safe default ``C:\\Windows``).
 
-        WR-5: previously this test was a complete no-op on Linux CI:
+        previously this test was a complete no-op on Linux CI:
         (1) it set ``SystemRoot`` (mixed-case) but the production
         function reads ``SYSTEMROOT`` (all-caps, case-sensitive on
         Linux); (2) it never patched ``is_windows`` so the function

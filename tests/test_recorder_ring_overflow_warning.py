@@ -1,4 +1,4 @@
-"""ER-89 regression tests: real-time ring-overflow WARNING from the
+"""regression tests: real-time ring-overflow WARNING from the
 audio worker thread.
 
 ``Recorder._audio_callback_dispatch`` (the RT PortAudio callback)
@@ -47,7 +47,7 @@ def recorder():
 
 
 class TestSourceInspection:
-    """ER-89: ``_process_audio_chunk`` must call
+    """``_process_audio_chunk`` must call
     ``_surface_ring_overflow_warning`` so the worker thread surfaces
     ring-buffer overflows in real time."""
 
@@ -56,7 +56,7 @@ class TestSourceInspection:
 
         src = inspect.getsource(Recorder._process_audio_chunk)
         assert "_surface_ring_overflow_warning" in src, (
-            "ER-89: _process_audio_chunk must call _surface_ring_overflow_warning "
+            "_process_audio_chunk must call _surface_ring_overflow_warning "
             "so ring-buffer overflow is surfaced in real time (not only post-stop)."
         )
 
@@ -64,14 +64,14 @@ class TestSourceInspection:
         from voice_typer.server.recording import Recorder
 
         src = inspect.getsource(Recorder._surface_ring_overflow_warning)
-        assert "log.warning" in src, "ER-89: _surface_ring_overflow_warning must emit a WARNING log."
+        assert "log.warning" in src, "_surface_ring_overflow_warning must emit a WARNING log."
 
     def test_warning_helper_does_not_call_event_bus_publish(self):
-        """RW-8 contract is preserved: ``_process_audio_chunk`` (and
+        """contract is preserved: ``_process_audio_chunk`` (and
         its callees) must NOT call ``event_bus.publish`` directly —
         route IPC events through ``self._event_queue.put`` instead.
         The real-time ring-overflow surfacing is log-only (no IPC
-        event) so the RW-8 contract is trivially satisfied, but the
+        event) so the contract is trivially satisfied, but the
         regression guard pins it so a future change doesn't slip in
         an ``event_bus.publish`` call.
         """
@@ -79,8 +79,8 @@ class TestSourceInspection:
 
         src = inspect.getsource(Recorder._surface_ring_overflow_warning)
         assert "event_bus.publish" not in src, (
-            "ER-89: _surface_ring_overflow_warning must not call event_bus.publish "
-            "directly (RW-8 contract — route IPC events through _event_queue.put)."
+            "_surface_ring_overflow_warning must not call event_bus.publish "
+            "directly (contract — route IPC events through _event_queue.put)."
         )
 
     def test_init_declares_warning_bookkeeping_attrs(self):
@@ -88,9 +88,9 @@ class TestSourceInspection:
 
         src = inspect.getsource(Recorder.__init__)
         assert "_last_seen_dropped_ring_chunks" in src, (
-            "ER-89: Recorder.__init__ must declare _last_seen_dropped_ring_chunks."
+            "Recorder.__init__ must declare _last_seen_dropped_ring_chunks."
         )
-        assert "_ring_overflow_warn_ts" in src, "ER-89: Recorder.__init__ must declare _ring_overflow_warn_ts."
+        assert "_ring_overflow_warn_ts" in src, "Recorder.__init__ must declare _ring_overflow_warn_ts."
 
 
 # ── Behavioral tests ─────────────────────────────────────────────
@@ -109,7 +109,7 @@ class TestRingOverflowWarning:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
             recorder._surface_ring_overflow_warning()
         assert not any("Ring buffer overflow" in r.message for r in caplog.records), (
-            "ER-89: no WARNING expected when _dropped_ring_chunks is unchanged."
+            "no WARNING expected when _dropped_ring_chunks is unchanged."
         )
 
     def test_warning_emitted_on_counter_increase(self, recorder, caplog):
@@ -122,7 +122,7 @@ class TestRingOverflowWarning:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
             recorder._surface_ring_overflow_warning()
         warnings = [r for r in caplog.records if "Ring buffer overflow" in r.message]
-        assert len(warnings) == 1, "ER-89: exactly one WARNING expected on delta increase."
+        assert len(warnings) == 1, "exactly one WARNING expected on delta increase."
         assert "5 chunk(s) dropped" in warnings[0].message
         assert "total this session: 5" in warnings[0].message
 
@@ -137,7 +137,7 @@ class TestRingOverflowWarning:
             recorder._dropped_ring_chunks = 10
             recorder._surface_ring_overflow_warning()  # rate-limited, no WARNING
         warnings = [r for r in caplog.records if "Ring buffer overflow" in r.message]
-        assert len(warnings) == 1, "ER-89: second call within rate-limit interval must NOT emit a WARNING."
+        assert len(warnings) == 1, "second call within rate-limit interval must NOT emit a WARNING."
 
     def test_delta_does_not_accumulate_across_rate_limit_windows(self, recorder, caplog):
         """The ``_last_seen_dropped_ring_chunks`` counter is ALWAYS
@@ -162,11 +162,11 @@ class TestRingOverflowWarning:
             recorder._dropped_ring_chunks = 12
             recorder._surface_ring_overflow_warning()  # WARNING delta=2
         warnings = [r for r in caplog.records if "Ring buffer overflow" in r.message]
-        assert len(warnings) == 2, "ER-89: expected 2 WARNINGs (first + after rate-limit window expiry)."
+        assert len(warnings) == 2, "expected 2 WARNINGs (first + after rate-limit window expiry)."
         # The second WARNING reports only the delta since the first
         # WARNING's last_seen update (12 - 10 = 2), NOT 12.
         assert "2 chunk(s) dropped" in warnings[1].message, (
-            "ER-89: delta must NOT accumulate across rate-limit windows — "
+            "delta must NOT accumulate across rate-limit windows — "
             "the second WARNING should report only chunks dropped since the "
             "previous WARNING (delta=2), not the session total delta (12)."
         )
@@ -181,7 +181,7 @@ class TestRingOverflowWarning:
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.recording"):
             recorder._surface_ring_overflow_warning()
         assert not any("Ring buffer overflow" in r.message for r in caplog.records), (
-            "ER-89: no WARNING expected when _dropped_ring_chunks decreases."
+            "no WARNING expected when _dropped_ring_chunks decreases."
         )
         # The last-seen counter is still updated so subsequent
         # increases are measured from the new (lower) baseline.
@@ -214,6 +214,6 @@ class TestRingOverflowWarning:
             perf_ts=0.0,
         )
         assert calls == [("warning",)], (
-            "ER-89: _process_audio_chunk must call _surface_ring_overflow_warning on every chunk iteration."
+            "_process_audio_chunk must call _surface_ring_overflow_warning on every chunk iteration."
         )
         recorder._audio_pipeline.process_audio_chunk.assert_called_once()

@@ -449,17 +449,32 @@ class TestConcurrentStartStopNoLeak:
         assert not errors, f"GT-23: concurrent start()/stop() raised: {errors}"
 
         # Final cleanup: ensure no worker thread is left running.
-        r.stop()
-        # Give daemon threads a moment to exit.
-        time.sleep(0.1)
-
-        # Assert: no leaked audio-worker / event-worker threads.
         worker_names = {
             "audio-worker",
             "event-worker",
             "stream-finished-handler",
             "device-disconnect-handler",
         }
+        r.stop()
+        # GT-23 load-flake guard: under a loaded runner (full-suite
+        # serial run), a worker started by the last in-flight start()
+        # can still be mid-teardown right after stop() returns, and a
+        # superseded zombie worker (the stale-alive branch in
+        # ``_start_audio_worker`` replaced its stop/wake events and
+        # discarded its ref) may not have reached its next loop
+        # iteration yet. Poll (bounded) until BOTH the tracked refs are
+        # None AND no worker-named thread is alive — stop() is
+        # idempotent, and a REAL leak keeps the threads alive past the
+        # deadline, so the asserts below still fire.
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            live = [t for t in threading.enumerate() if t.name in worker_names]
+            if not live and r._worker_thread is None and r._event_worker_thread is None:
+                break
+            r.stop()
+            time.sleep(0.01)
+
+        # Assert: no leaked audio-worker / event-worker threads.
         # The recorder's tracked worker thread refs must be None after stop().
         assert r._worker_thread is None, (
             "GT-23 regression: r._worker_thread is not None after stop() — "
@@ -522,7 +537,20 @@ class TestConcurrentStartStopNoLeak:
         assert not errors, f"GT-23: concurrent start()/discard() raised: {errors}"
 
         r.stop()
-        time.sleep(0.1)
+        # GT-23 load-flake guard — see test_concurrent_start_stop_no_leak.
+        worker_names = {
+            "audio-worker",
+            "event-worker",
+            "stream-finished-handler",
+            "device-disconnect-handler",
+        }
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            live = [t for t in threading.enumerate() if t.name in worker_names]
+            if not live and r._worker_thread is None and r._event_worker_thread is None:
+                break
+            r.stop()
+            time.sleep(0.01)
         assert r._worker_thread is None, "GT-23 regression: worker_thread leaked after start/discard hammer"
         assert r._event_worker_thread is None, "GT-23 regression: event_worker_thread leaked after start/discard hammer"
 

@@ -1,4 +1,4 @@
-"""Trimmed per CR-92 — trivial existence-check meta-tests removed.
+"""Trimmed — trivial existence-check meta-tests removed.
 
 Previously this file was 738 LOC of pure existence-check meta-tests
 (e.g., ``assert "TestFoo" in test_bar.read_text()``) that pinned
@@ -37,9 +37,7 @@ import pytest
 
 
 class TestVkLookupBenchmarkExists:
-    """PLAT-002.
-
-    The finding: VK lookup performance not benchmarked. Fix: add a
+    """The finding: VK lookup performance not benchmarked. Fix: add a
     pytest-benchmark test for the VK map initialization and lookup.
 
     The three tests below pin the meaningful invariants: the perf
@@ -54,7 +52,7 @@ class TestVkLookupBenchmarkExists:
         t0 = time.perf_counter()
         _init_vk_map()
         elapsed_ms = (time.perf_counter() - t0) * 1000
-        assert elapsed_ms < 100, f"PLAT-002: VK map init took {elapsed_ms:.1f}ms (target < 100ms)"
+        assert elapsed_ms < 100, f"VK map init took {elapsed_ms:.1f}ms (target < 100ms)"
 
     def test_vk_lookup_is_o1_dict_get(self):
         # KEEP — pins  (VK lookup uses dict.get, O(1)).
@@ -67,7 +65,7 @@ class TestVkLookupBenchmarkExists:
 
         src = inspect.getsource(hotkeys)
         # The lookup uses _VK_MAP.get(key_name)
-        assert "_VK_MAP.get" in src or "_VK_MAP[" in src, "PLAT-002: VK lookup must use dict.get (O(1))"
+        assert "_VK_MAP.get" in src or "_VK_MAP[" in src, "VK lookup must use dict.get (O(1))"
 
     def test_vk_lookup_returns_correct_code_for_f2(self):
         """VK_F2 = 0x71 (113)."""
@@ -76,14 +74,12 @@ class TestVkLookupBenchmarkExists:
         _init_vk_map()
         # F2 should map to VK_F2 = 113
         assert _VK_MAP.get("f2") == 113 or _VK_MAP.get("F2") == 113, (
-            f"PLAT-002: VK lookup for 'f2' must return 113, got {_VK_MAP.get('f2')}"
+            f"VK lookup for 'f2' must return 113, got {_VK_MAP.get('f2')}"
         )
 
 
 class TestParametrizeUsageCountAboveThirty:
-    """TEST-032.
-
-    The finding: only 6 @pytest.mark.parametrize uses. Investigation:
+    """The finding: only 6 @pytest.mark.parametrize uses. Investigation:
     41 uses now exist across 7 files. This test pins that state.
     """
 
@@ -93,7 +89,7 @@ class TestParametrizeUsageCountAboveThirty:
         Uses Python's pathlib + grep instead of the Unix `grep` command
         so it works on Windows too.
 
-        RW-8: KEEP — pins TEST-032 (>= 30 @pytest.mark.parametrize uses).
+        KEEP — pins (>= 30 @pytest.mark.parametrize uses).
         A behavioral test would need to count parametrize uses at runtime,
         which is the same operation; the file-content check is the most
         direct way to catch a regression where parametrize uses drop.
@@ -106,13 +102,11 @@ class TestParametrizeUsageCountAboveThirty:
                 count += content.count("@pytest.mark.parametrize")
             except Exception:
                 pass
-        assert count >= 30, f"TEST-032: expected at least 30 @pytest.mark.parametrize uses, found {count}"
+        assert count >= 30, f"expected at least 30 @pytest.mark.parametrize uses, found {count}"
 
 
 class TestNoImportMockInTests:
-    """TEST-033.
-
-    The finding: `import mock` and `from unittest.mock import` coexist.
+    """The finding: `import mock` and `from unittest.mock import` coexist.
     Investigation: 0 `import mock` instances; convention documented in
     CONTRIBUTING.md. This test pins that state by actually walking
     every test file and failing on violations.
@@ -134,7 +128,7 @@ class TestNoImportMockInTests:
             except Exception:
                 pass
         assert not violations, (
-            f"TEST-033: found `import mock` usage in tests:\n{chr(10).join(violations)}\n"
+            f"found `import mock` usage in tests:\n{chr(10).join(violations)}\n"
             "Use `from unittest.mock import MagicMock, patch` instead."
         )
 

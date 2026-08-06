@@ -37,6 +37,8 @@ from voice_typer.server.hotkeys.win32_vk import (
 )
 from voice_typer.server.hotkeys.windows import polling_strategy
 
+from tests.fixtures.wait_for import wait_for
+
 # ---------------------------------------------------------------------------
 # Mock backend — binds the polling_strategy functions as methods,
 # mimicking how ``WindowsNativeHotkey`` binds them at class body.
@@ -136,6 +138,17 @@ def _run_in_thread_and_join(target, args=(), timeout=2.0):
     return thread
 
 
+def _wait_until(predicate, timeout: float = 3.0, msg: str = "condition not met"):
+    """Poll ``predicate`` until truthy or ``timeout`` elapses.
+
+    Thin wrapper around :func:`tests.fixtures.wait_for.wait_for` that
+    raises ``AssertionError`` on timeout. Used for positive waits
+    (waiting for a callback to fire or a counter to advance).
+    """
+    if not wait_for(predicate, timeout=timeout):
+        raise AssertionError(f"{msg} (waited {timeout}s)")
+
+
 # ---------------------------------------------------------------------------
 # (e) Graceful degradation when Win32 API unavailable (``_user32=None``)
 # ---------------------------------------------------------------------------
@@ -219,14 +232,30 @@ class TestSinglePressSingleCallback:
         callback = MagicMock()
         thread = _run_in_thread_and_join(backend._run_polling_loop, args=(callback,))
         try:
-            time.sleep(0.03)  # phase 1: nothing pressed
-            assert callback.call_count == 0, "Callback fired before key was pressed"
+            # Phase 1: nothing pressed. Wait 30ms and verify the
+            # callback does NOT fire (wait_for returns True if the
+            # predicate became truthy — we expect False here).
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.03), (
+                "Callback fired before key was pressed"
+            )
             state["value"] = 1  # phase 2: press
-            time.sleep(0.04)
+            # Wait for the callback to fire on the not-held → held
+            # transition (toggle mode fires on press).
+            _wait_until(
+                lambda: callback.call_count >= 1,
+                timeout=2.0,
+                msg="Callback did not fire on press",
+            )
             assert callback.call_count == 1, f"Expected exactly one callback on press, got {callback.call_count}"
             state["value"] = 2  # phase 3: release
-            time.sleep(0.04)
-            assert callback.call_count == 1, f"Callback fired on release in toggle mode: {callback.call_count}"
+            # Toggle mode must NOT fire on release. Wait 40ms and
+            # verify the callback count stays at 1 (wait_for returns
+            # True if the predicate became truthy — we expect False).
+            _count_after_press = callback.call_count
+            assert not wait_for(
+                lambda: callback.call_count > _count_after_press,
+                timeout=0.04,
+            ), f"Callback fired on release in toggle mode: {callback.call_count}"
         finally:
             backend._stop_event.set()
             thread.join(timeout=2.0)
@@ -260,17 +289,34 @@ class TestPressHoldReleaseNoRepeat:
         callback = MagicMock()
         thread = _run_in_thread_and_join(backend._run_polling_loop, args=(callback,))
         try:
-            time.sleep(0.03)
-            assert callback.call_count == 0
+            # Phase 1: nothing pressed. Wait 30ms and verify no fire.
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.03)
             state["value"] = 1  # press and HOLD
-            time.sleep(0.15)  # hold for 150ms — far longer than polling interval
-            assert callback.call_count == 1, (
+            # Wait for the callback to fire on the not-held → held
+            # transition (toggle mode fires on press).
+            _wait_until(
+                lambda: callback.call_count >= 1,
+                timeout=2.0,
+                msg="Callback did not fire on press",
+            )
+            # Hold for 150ms — must NOT re-fire. Wait 150ms and verify
+            # the callback count stays at 1 (wait_for returns True if
+            # the predicate became truthy — we expect False here).
+            _count_after_press = callback.call_count
+            assert not wait_for(
+                lambda: callback.call_count > _count_after_press,
+                timeout=0.15,
+            ), (
                 f"Callback fired {callback.call_count} times during hold — "
                 f"must fire exactly once on press, never while held"
             )
             state["value"] = 2  # release
-            time.sleep(0.04)
-            assert callback.call_count == 1, f"Callback fired on release in toggle mode: {callback.call_count}"
+            # Toggle mode must NOT fire on release. Wait 40ms and verify.
+            _count_after_release = callback.call_count
+            assert not wait_for(
+                lambda: callback.call_count > _count_after_release,
+                timeout=0.04,
+            ), f"Callback fired on release in toggle mode: {callback.call_count}"
         finally:
             backend._stop_event.set()
             thread.join(timeout=2.0)
@@ -293,11 +339,24 @@ class TestPressHoldReleaseNoRepeat:
         callback = MagicMock()
         thread = _run_in_thread_and_join(backend._run_polling_loop, args=(callback,))
         try:
-            for _ in range(2):
+            for _i in range(1, 3):
                 state["value"] = 1
-                time.sleep(0.04)
+            for i in range(1, 3):
+                state["value"] = 1
+                # Wait for the callback to fire on the press transition.
+                _wait_until(
+                    lambda _i=i: callback.call_count == _i,
+                    timeout=2.0,
+                    msg=f"Callback did not fire on press (cycle {i})",
+                )
                 state["value"] = 0
-                time.sleep(0.04)
+                # Toggle mode must NOT fire on release. Wait 40ms and
+                # verify the callback count stays at i.
+                _count_after_press = callback.call_count
+                assert not wait_for(
+                    lambda _count=_count_after_press: callback.call_count > _count,
+                    timeout=0.04,
+                ), f"Callback fired on release in toggle mode: {callback.call_count}"
             assert callback.call_count == 2, f"Expected 2 fires (one per press), got {callback.call_count}"
         finally:
             backend._stop_event.set()
@@ -326,9 +385,12 @@ class TestImeCompositionSuppression:
         callback = MagicMock()
         thread = _run_in_thread_and_join(backend._run_polling_loop, args=(callback,))
         try:
-            time.sleep(0.1)
-            # ... the callback must NOT fire while IME is composing.
-            assert callback.call_count == 0, f"Callback fired during IME composition: {callback.call_count}"
+            # IME is composing the entire time. Wait 100ms and verify
+            # the callback does NOT fire (wait_for returns True if the
+            # predicate became truthy — we expect False here).
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.1), (
+                f"Callback fired during IME composition: {callback.call_count}"
+            )
         finally:
             backend._stop_event.set()
             thread.join(timeout=2.0)
@@ -363,7 +425,13 @@ class TestCapsLockSuppression:
         callback = MagicMock()
         thread = _run_in_thread_and_join(backend._run_polling_loop, args=(callback,))
         try:
-            time.sleep(0.08)
+            # Wait for the polling loop to observe the press and fire
+            # the callback (the not-held → held transition).
+            _wait_until(
+                lambda: callback.call_count >= 1,
+                timeout=2.0,
+                msg="Caps Lock press did not fire the callback",
+            )
             assert callback.call_count >= 1, "Caps Lock press should fire the callback"
             # _suppress_caps_lock_toggle must be called to undo the OS toggle.
             assert backend._suppress_caps_lock_toggle.called, "Caps Lock press must invoke _suppress_caps_lock_toggle"
@@ -390,8 +458,13 @@ class TestCapsLockSuppression:
         callback = MagicMock()
         thread = _run_in_thread_and_join(backend._run_polling_loop, args=(callback,))
         try:
-            time.sleep(0.08)
-            assert callback.call_count == 0, f"Callback fired during caps-lock suppression: {callback.call_count}"
+            # While _caps_lock_suppressing is True, the polling loop
+            # skips processing. Wait 80ms and verify the callback does
+            # NOT fire (wait_for returns True if the predicate became
+            # truthy — we expect False here).
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.08), (
+                f"Callback fired during caps-lock suppression: {callback.call_count}"
+            )
         finally:
             backend._stop_event.set()
             thread.join(timeout=2.0)
@@ -427,7 +500,13 @@ class TestPollIntervalBackoff:
 
         thread = _run_in_thread_and_join(backend._run_polling_loop, args=(MagicMock(),))
         try:
-            time.sleep(0.05)
+            # Wait for the polling loop to make at least 2 Sleep calls
+            # (confirms the loop ran at least 2 iterations at 8ms each).
+            _wait_until(
+                lambda: mock_kernel32.Sleep.call_count >= 2,
+                timeout=2.0,
+                msg="Polling loop did not make enough Sleep calls",
+            )
         finally:
             backend._stop_event.set()
             thread.join(timeout=2.0)
@@ -450,7 +529,13 @@ class TestPollIntervalBackoff:
 
         thread = _run_in_thread_and_join(backend._run_polling_loop, args=(MagicMock(),))
         try:
-            time.sleep(0.05)
+            # Wait for the polling loop to make at least 2 Sleep calls
+            # (confirms the loop ran at least 2 iterations at 50ms each).
+            _wait_until(
+                lambda: mock_kernel32.Sleep.call_count >= 2,
+                timeout=2.0,
+                msg="Polling loop did not make enough Sleep calls during IME composition",
+            )
         finally:
             backend._stop_event.set()
             thread.join(timeout=2.0)
@@ -471,7 +556,13 @@ class TestPollIntervalBackoff:
 
         thread = _run_in_thread_and_join(backend._run_polling_loop, args=(MagicMock(),))
         try:
-            time.sleep(0.05)
+            # Wait for the polling loop to make at least 2 Sleep calls
+            # (confirms the loop ran at least 2 iterations at 1ms each).
+            _wait_until(
+                lambda: mock_kernel32.Sleep.call_count >= 2,
+                timeout=2.0,
+                msg="Polling loop did not make enough Sleep calls during caps-lock suppression",
+            )
         finally:
             backend._stop_event.set()
             thread.join(timeout=2.0)
@@ -514,22 +605,37 @@ class TestModifierOnlyPollingLoop:
 
         thread = _run_in_thread_and_join(backend._run_modifier_only_polling_loop, args=(press_callback,))
         try:
-            time.sleep(0.03)
-            assert press_callback.call_count == 0
-            assert release_callback.call_count == 0
+            # Phase 1: nothing pressed. Wait 30ms and verify no fire.
+            assert not wait_for(lambda: press_callback.call_count > 0, timeout=0.03)
+            assert not wait_for(lambda: release_callback.call_count > 0, timeout=0.03)
             state["value"] = 1  # press
-            time.sleep(0.05)
+            # Wait for the press callback to fire (PTT mode fires on press).
+            _wait_until(
+                lambda: press_callback.call_count >= 1,
+                timeout=2.0,
+                msg="PTT press callback did not fire on press",
+            )
             assert press_callback.call_count == 1, (
                 f"PTT press should fire once on press, got {press_callback.call_count}"
             )
-            # Hold for 150ms — must NOT re-fire.
-            time.sleep(0.15)
-            assert press_callback.call_count == 1, (
+            # Hold for 150ms — must NOT re-fire. Wait 150ms and verify
+            # the press callback count stays at 1 (wait_for returns
+            # True if the predicate became truthy — we expect False).
+            _press_count_after_hold_start = press_callback.call_count
+            assert not wait_for(
+                lambda: press_callback.call_count > _press_count_after_hold_start,
+                timeout=0.15,
+            ), (
                 f"PTT press fired {press_callback.call_count} times during hold — must fire exactly once"
             )
             assert release_callback.call_count == 0
             state["value"] = 0  # release
-            time.sleep(0.05)
+            # Wait for the release callback to fire.
+            _wait_until(
+                lambda: release_callback.call_count >= 1,
+                timeout=2.0,
+                msg="PTT on_release did not fire on release",
+            )
             assert release_callback.call_count == 1, (
                 f"PTT on_release should fire once on release, got {release_callback.call_count}"
             )

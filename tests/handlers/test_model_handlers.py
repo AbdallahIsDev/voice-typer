@@ -14,7 +14,7 @@ Covers the 7 model-management IPC handlers defined in
 - ``_handle_delete_model`` — validates ``model`` name, calls
   ``service.delete_model``.
 
-UE-15 (2026-07-30): ``_handle_test_llm_connection`` was deleted — the
+``_handle_test_llm_connection`` was deleted — the
 renderer's Settings page now uses ``service.test_llm_connection``
 directly (not over IPC). The corresponding ``TestTestLlmConnection``
 class was removed in lockstep.
@@ -137,7 +137,7 @@ class TestImportModel:
         assert "dir_path" in resp["data"]["message"]
 
     def test_path_outside_allowed_roots_returns_error(self, ipc_server, fake_service, monkeypatch):
-        """RW-5: ``_validate_import_path`` rejects paths outside the
+        """``_validate_import_path`` rejects paths outside the
         home dir, OS temp, or HF cache.  We patch the validator to
         simulate a rejected path (avoids depending on the real
         filesystem layout in CI).

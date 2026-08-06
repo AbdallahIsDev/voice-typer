@@ -81,8 +81,8 @@ _SEGMENT_LIST_COMPACTION_THRESHOLD = 64
 # WHISPER_SAMPLE_RATE (16 kHz). The helper definition still lives in
 # ``disconnect_handler.py`` (other call site also removed; the function
 # is kept for the direct unit tests in ``test_device_manager.py``).
-from .exceptions import (
-    ResampleError,  # noqa: E402 — post-threshold import kept for direct unit tests (see comment above)
+from .exceptions import (  # noqa: E402 — post-threshold import kept for direct unit tests (see comment above)
+    ResampleError,
 )
 
 if TYPE_CHECKING:

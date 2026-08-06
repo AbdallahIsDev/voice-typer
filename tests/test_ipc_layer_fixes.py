@@ -37,6 +37,17 @@ from unittest.mock import MagicMock
 
 import pytest
 
+# Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
+# loadscope): pin every test in this module onto a single worker so the
+# socketpair + thread + MagicMock state doesn't interleave with other
+# IPC / network test modules under ``pytest -n auto``. xdist's default
+# ``load`` scheduler does NOT strictly honor this marker (verified on
+# xdist 3.8.0), so it's a best-effort hint — when it IS honored (e.g.
+# CI runs with ``--dist=loadscope``) it eliminates the cross-module
+# worker-crash reports seen in the baseline. No-op when xdist isn't
+# active. (C-TEST-5: test isolation.)
+pytestmark = pytest.mark.xdist_group("ipc_layer_fixes")
+
 # running totals in _RateLimiter ──────────────────────────────
 
 

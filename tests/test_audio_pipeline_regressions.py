@@ -1,4 +1,4 @@
-"""SA-5 (audio) — regression tests for findings #53, #108, #245.
+"""regression tests for findings #53, #108, #245.
 
 Scope
 -----
@@ -14,7 +14,7 @@ Fix-Existing mode session:
   invocations and asserting no per-sample ``abs()``/``log10()``/
   ``power()`` calls happen inside the filter ``process()`` bodies.
 
-- **Finding #108 (S3-CR-6, Critical)** — ``noise_suppressor.py``
+- **Finding #108 (Critical)** — ``noise_suppressor.py``
   ``deepfilternet`` path was a silent passthrough: users selecting the
   ``noisy_room`` preset got ZERO neural noise suppression with no UI
   signal. The fix marks ``is_degraded=True`` AND falls back to

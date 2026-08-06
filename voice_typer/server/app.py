@@ -1442,8 +1442,37 @@ class VoiceTyperApp:
         body extracted to
         :class:`voice_typer.server.controllers.config_editor_launcher.ConfigEditorLauncher`.
         Behaviour preserved verbatim — only the class boundary moved.
+
+        (security fix, restored): hold
+        ``_config_mutation_lock`` for the FULL editor session — not just
+        the save/reload phases — so a concurrent IPC ``set_config``
+        cannot atomically clobber ``config.json`` mid-edit (TOCTOU
+        race). The launcher's internal ``with self.app._config_mutation_lock:``
+        blocks re-acquire the same RLock (reentrant — no-op while the
+        outer hold is active), so the lock is held continuously from
+        the pre-editor save through the editor wait through the
+        post-editor reload. A concurrent ``set_config`` (which goes
+        through ``ConfigApplier.apply_config`` → ``_config_mutation_lock``)
+        blocks until the editor exits and the reload completes — exactly
+        the SEC-audit-011 invariant the regression test
+        (``tests/regressions/concurrency_test.py::TestConfigEditHoldsMutationLock``)
+        pins.
+
+        The earlier "split-lock" relaxation released the lock
+        during the editor wait to keep the tray / IPC responsive while
+        the user edited. That trade-off downgraded the security
+        invariant: a concurrent ``set_config`` could land its save on
+        disk between the editor's open and the user's manual save,
+        silently losing the user's edits on the subsequent reload.
+        Restoring the full-session hold closes the TOCTOU window at
+        the cost of blocking concurrent config mutations for the
+        editor session (bounded by the launcher's 30-minute timeout —
+        see ``config_editor._EDITOR_SESSION_TIMEOUT_SECONDS``). The
+        IPC thread is NOT blocked because the editor launch runs on
+        the tray / hotkey thread, not the IPC dispatch thread.
         """
-        self._config_editor_launcher.open()
+        with self._config_mutation_lock:
+            self._config_editor_launcher.open()
 
     # ─── TrayController Protocol Methods (P3) ────────────────────────
 
@@ -1471,14 +1500,14 @@ class VoiceTyperApp:
     def change_model(self, model_size: str) -> None:
         """TrayController protocol: change transcription model.
 
-         (pyrefly): parameter renamed from ``model`` to
+        (pyrefly): parameter renamed from ``model`` to
         ``model_size`` to match :class:`voice_typer.server.providers.AppProtocol`'s
         ``change_model(self, model_size: str)`` signature. Pyrefly
         enforces parameter-name matching for Protocol members (a call
         like ``app.change_model(model_size="large")`` must be valid on
         any AppProtocol implementation), so the names must agree.
 
-         Phase 2: the ``_change_model`` delegate has been removed;
+        Phase 2: the ``_change_model`` delegate has been removed;
         this method now calls ``self.models.change_model`` directly.
         """
         self.models.change_model(model_size)

@@ -1,4 +1,4 @@
-"""RW-9 regression tests for the ``WaveformBubbleWiring`` extraction.
+"""regression tests for the ``WaveformBubbleWiring`` extraction.
 
 The ``_wire_waveform_bubble`` method (and its associated bubble-level-pusher
 background worker) was extracted from ``VoiceTyperApp`` to

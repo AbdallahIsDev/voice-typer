@@ -1,4 +1,4 @@
-"""PERF-10: ``VoiceTyperService.get_model_status`` TTL cache tests.
+"""``VoiceTyperService.get_model_status`` TTL cache tests.
 
 WR-3: this module was extracted from ``tests/handlers/test_status_handlers.py``
 (lines 305-503 of that file). The class tests ``VoiceTyperService`` TTL cache
@@ -19,11 +19,11 @@ from __future__ import annotations
 import os
 from unittest.mock import MagicMock
 
-# ── PERF-10: get_model_status TTL cache ───────────────────────────────
+# ── get_model_status TTL cache ───────────────────────────────
 
 
 class TestModelStatusCache:
-    """PERF-10: ``VoiceTyperService.get_model_status`` caches result for 5 s.
+    """``VoiceTyperService.get_model_status`` caches result for 5 s.
 
     The IPC renderer polls ``get_model_status`` every 2 s while the
     Models page is open, and each call performs ~28
@@ -180,13 +180,13 @@ class TestModelStatusCache:
 
         service = VoiceTyperService(app)
 
-        # Drive the cache clock manually.  ``get_model_status`` reads
-        # ``time.monotonic()`` from the module-level ``time`` import
-        # in voice_typer.server.service, so patching that binding
-        # controls the cache's view of "now".
+        # Drive the cache clock manually.  ``get_model_status`` lives in
+        # the model mixin (``voice_typer.server.service.model``) and
+        # reads ``time.monotonic()`` from that module's ``time`` import,
+        # so patching that binding controls the cache's view of "now".
         fake_now = [0.0]
         monkeypatch.setattr(
-            "voice_typer.server.service.time.monotonic",
+            "voice_typer.server.service.model.time.monotonic",
             lambda: fake_now[0],
         )
 

@@ -1,6 +1,6 @@
 """Tests for ``MicrophoneDeviceWatcher._post_quit_to_windows`` (SI-18).
 
-SI-18 (Medium): on 64-bit Windows, ``_post_quit_to_windows`` called
+on 64-bit Windows, ``_post_quit_to_windows`` called
 ``user32.PostMessageW(hwnd, ...)`` without first setting
 ``PostMessageW.restype`` / ``PostMessageW.argtypes``. ctypes defaults
 to ``c_int`` restype and untyped argtypes, which TRUNCATES the 64-bit
@@ -28,7 +28,6 @@ verify:
 
 from __future__ import annotations
 
-import ctypes
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -68,7 +67,7 @@ def fake_windll_for_post_quit():
 
 
 class TestPostQuitToWindowsArgtypes:
-    """SI-18: ``_post_quit_to_windows`` must set argtypes/restype
+    """``_post_quit_to_windows`` must set argtypes/restype
     BEFORE calling ``PostMessageW`` so the 64-bit HWND is not
     truncated to ``c_int``."""
 
@@ -246,16 +245,13 @@ class TestPostQuitToWindowsArgtypes:
         """When ``ctypes.windll`` is unavailable (non-Windows, or
         ``ctypes`` failed to expose it), the method logs and returns
         without raising.
-
         This is the normal Linux/macOS path — ``_post_quit_to_windows``
         is called unconditionally from ``stop()`` and must not raise
         on platforms where ``windll`` doesn't exist.
-
-        On Linux CI, ``ctypes.windll`` doesn't exist naturally so the
-        test exercises the real fallback path. On Windows CI
-        (``windll`` is present), we patch ``ctypes.windll.user32`` to
-        raise ``AttributeError`` on access — simulating the
-        "windll exists but user32 lookup fails" edge case.
+        On any platform we patch ``ctypes.windll`` with a stub whose
+        ``user32`` lookup raises ``AttributeError`` — simulating the
+        "windll exists but user32 lookup fails" edge case (Windows) and
+        the naturally-absent case (POSIX) uniformly.
         """
         watcher = MicrophoneDeviceWatcher(on_change=lambda: None)
         watcher._windows_hwnd = 0x1234  # would normally trigger the call
@@ -263,21 +259,8 @@ class TestPostQuitToWindowsArgtypes:
         with caplog.at_level(
             logging.DEBUG,
             logger="voice_typer.server.microphone_watcher",
-        ):
-            if hasattr(ctypes, "windll"):
-                # Windows CI: windll exists. Patch the user32 access
-                # to raise AttributeError, simulating the "windll
-                # unavailable" path.
-                with patch.object(
-                    ctypes.windll,
-                    "user32",
-                    new_callable=lambda: _raise_attribute_error(),
-                    create=True,
-                ):
-                    watcher._post_quit_to_windows()
-            else:
-                # Linux CI: windll naturally absent — just call.
-                watcher._post_quit_to_windows()
+        ), patch("ctypes.windll", _NoUser32Windll(), create=True):
+            watcher._post_quit_to_windows()
 
         debug_msgs = [r.message for r in caplog.records if r.levelno <= logging.DEBUG]
         assert any("windll unavailable" in m for m in debug_msgs), (
@@ -285,15 +268,17 @@ class TestPostQuitToWindowsArgtypes:
         )
 
 
-def _raise_attribute_error():
-    """Return a ``PropertyMock`` that raises ``AttributeError`` on access.
-
-    Used to simulate the absence of ``ctypes.windll.user32`` on Windows
-    CI (where ``windll`` itself exists).
+class _NoUser32Windll:
+    """Stand-in for ``ctypes.windll`` whose ``user32`` lookup fails.
+    A plain class attribute would not raise — the production code does
+    ``ctypes.windll.user32`` (attribute access). A ``@property`` on the
+    class raises ``AttributeError`` on access, which is exactly the
+    failure the production code guards against.
     """
-    from unittest.mock import PropertyMock
 
-    return PropertyMock(side_effect=AttributeError("mock: user32 unavailable"))
+    @property
+    def user32(self) -> None:
+        raise AttributeError("mock: user32 unavailable")
 
 
 # ── End-to-end: ``stop()`` triggers ``_post_quit_to_windows`` ──────────

@@ -1,6 +1,6 @@
-"""Tests for SEC-009: PII redaction in logs, and RW-6: API-key redaction.
+"""redaction in logs, and API-key redaction.
 
-RW-6 extends ``PIIRedactionFilter`` to also redact:
+extends ``PIIRedactionFilter`` to also redact:
   - API keys / bearer tokens (via ``_secrets.redact_secret``)
   - URL-embedded credentials (via ``_secrets.redact_url``)
   - Traceback text (when ``record.exc_info`` is set)
@@ -9,7 +9,7 @@ RW-6 extends ``PIIRedactionFilter`` to also redact:
 import logging
 import sys
 
-# ─── SEC-009: existing PII patterns (unchanged behavior) ──────────────────
+# ─── existing PII patterns (unchanged behavior) ──────────────────
 
 
 def test_pii_redaction_email():
@@ -60,7 +60,7 @@ def test_pii_redaction_no_false_positives():
 
 
 def test_rw6_api_key_redaction_openai_style():
-    """RW-6: OpenAI-style keys (sk-...) are redacted from log messages."""
+    """OpenAI-style keys (sk-...) are redacted from log messages."""
     from voice_typer.server.security import PIIRedactionFilter
 
     f = PIIRedactionFilter()
@@ -81,7 +81,7 @@ def test_rw6_api_key_redaction_openai_style():
 
 
 def test_rw6_api_key_redaction_bearer_token():
-    """RW-6: Bearer tokens are redacted; 'Bearer' prefix is preserved."""
+    """Bearer tokens are redacted; 'Bearer' prefix is preserved."""
     from voice_typer.server.security import PIIRedactionFilter
 
     f = PIIRedactionFilter()
@@ -104,7 +104,7 @@ def test_rw6_api_key_redaction_bearer_token():
 
 
 def test_rw6_api_key_redaction_token_keyword():
-    """RW-6: 'Token <secret>' auth is redacted; 'Token' prefix preserved."""
+    """'Token <secret>' auth is redacted; 'Token' prefix preserved."""
     from voice_typer.server.security import PIIRedactionFilter
 
     f = PIIRedactionFilter()
@@ -125,7 +125,7 @@ def test_rw6_api_key_redaction_token_keyword():
 
 
 def test_rw6_url_credential_redaction():
-    """RW-6: URL-embedded credentials (user:pass@) are stripped."""
+    """URL-embedded credentials (user:pass@) are stripped."""
     from voice_typer.server.security import PIIRedactionFilter
 
     f = PIIRedactionFilter()
@@ -154,7 +154,7 @@ def test_rw6_url_credential_redaction():
 
 
 def test_rw6_short_messages_unchanged():
-    """RW-6: Short messages without secrets pass through unchanged."""
+    """Short messages without secrets pass through unchanged."""
     from voice_typer.server.security import PIIRedactionFilter
 
     f = PIIRedactionFilter()
@@ -168,7 +168,7 @@ def test_rw6_short_messages_unchanged():
 
 
 def test_rw6_traceback_redaction_exc_text():
-    """RW-6: API keys in exception messages are redacted in record.exc_text."""
+    """API keys in exception messages are redacted in record.exc_text."""
     from voice_typer.server.security import PIIRedactionFilter
 
     f = PIIRedactionFilter()
@@ -200,7 +200,7 @@ def test_rw6_traceback_redaction_exc_text():
 
 
 def test_rw6_traceback_redaction_via_default_formatter():
-    """RW-6: Default logging.Formatter output has redacted traceback."""
+    """Default logging.Formatter output has redacted traceback."""
     from voice_typer.server.security import PIIRedactionFilter
 
     api_key = "sk-abcdefghijklmnopqrstuvwxyz1234567890ABCDEF"
@@ -235,7 +235,7 @@ def test_rw6_traceback_redaction_via_default_formatter():
 
 
 def test_rw6_traceback_redaction_chained_exception():
-    """RW-6: API keys in chained exception __cause__ messages are redacted."""
+    """API keys in chained exception __cause__ messages are redacted."""
     from voice_typer.server.security import PIIRedactionFilter
 
     f = PIIRedactionFilter()
@@ -270,7 +270,7 @@ def test_rw6_traceback_redaction_chained_exception():
 
 
 def test_rw6_end_to_end_log_file_no_api_key(tmp_path):
-    """RW-6: An actual log file (via setup_logging) contains no API key.
+    """An actual log file (via setup_logging) contains no API key.
 
     This exercises the full pipeline: ``get_logger('voice_typer.<x>')``
     → handler filter → ``_FileFormatter`` → log file on disk.  This
@@ -305,7 +305,7 @@ def test_rw6_end_to_end_log_file_no_api_key(tmp_path):
 
 
 def test_rw6_end_to_end_log_file_pii_still_redacted(tmp_path):
-    """RW-6: Existing PII patterns still fire through the full pipeline."""
+    """Existing PII patterns still fire through the full pipeline."""
     from voice_typer.server.log import reset, setup_logging
 
     reset()
@@ -328,7 +328,7 @@ def test_rw6_end_to_end_log_file_pii_still_redacted(tmp_path):
 
 
 def test_g4_m_26_international_phone_redacted():
-    """G4-M-26: international phone numbers (E.164-ish) are redacted."""
+    """international phone numbers (E.164-ish) are redacted."""
     from voice_typer.server.security import PIIRedactionFilter
 
     f = PIIRedactionFilter()
@@ -360,7 +360,7 @@ def test_g4_m_26_international_phone_redacted():
 
 
 def test_g4_m_26_iban_redacted():
-    """G4-M-26: IBAN (international bank account number) is redacted."""
+    """IBAN (international bank account number) is redacted."""
     from voice_typer.server.security import PIIRedactionFilter
 
     f = PIIRedactionFilter()
@@ -390,7 +390,7 @@ def test_g4_m_26_iban_redacted():
 
 
 def test_g4_m_26_us_routing_number_not_redacted():
-    """G4-M-26: 9-digit US ABA routing numbers are NOT matched
+    """9-digit US ABA routing numbers are NOT matched
     (too high a false-positive rate on ordinary numeric text)."""
     from voice_typer.server.security import redact_pii
 
@@ -409,7 +409,7 @@ def test_g4_m_26_us_routing_number_not_redacted():
 
 
 def test_g4_m_26_redact_pii_helper_covers_new_patterns():
-    """G4-M-26: the standalone ``redact_pii`` helper also redacts the
+    """the standalone ``redact_pii`` helper also redacts the
     new international phone + IBAN patterns (it shares the same
     ``_PATTERNS`` list as ``PIIRedactionFilter``)."""
     from voice_typer.server.security import redact_pii
@@ -431,7 +431,7 @@ def test_g4_m_26_redact_pii_helper_covers_new_patterns():
 
 
 def test_g4_h_03_lastresort_is_stream_handler_with_pii_filter():
-    """G4-H-03: ``logging.lastResort`` is a ``StreamHandler`` carrying
+    """``logging.lastResort`` is a ``StreamHandler`` carrying
     a ``PIIRedactionFilter`` so third-party logger output (keyring,
     urllib3, websockets) is redacted."""
     import logging
@@ -451,7 +451,7 @@ def test_g4_h_03_lastresort_is_stream_handler_with_pii_filter():
 
 
 def test_g4_h_03_lastresort_filter_redacts_pii():
-    """G4-H-03: the PIIRedactionFilter attached to ``logging.lastResort``
+    """the PIIRedactionFilter attached to ``logging.lastResort``
     actually redacts PII when applied to a record (sanity check that
     the filter is functional, not just attached)."""
     import logging
@@ -477,7 +477,7 @@ def test_g4_h_03_lastresort_filter_redacts_pii():
 
 
 def test_g4_h_03_third_party_logger_output_redacted_via_lastresort():
-    """G4-H-03: end-to-end — a third-party logger with NO handlers
+    """end-to-end — a third-party logger with NO handlers
     routes through ``logging.lastResort``, which redacts PII.
 
     This simulates the production scenario: a buggy keyring backend
@@ -534,7 +534,7 @@ def test_g4_h_03_third_party_logger_output_redacted_via_lastresort():
 
 
 def test_g4_h_03_install_lastresort_pii_filter_idempotent():
-    """G4-H-03: ``install_lastresort_pii_filter()`` is idempotent —
+    """``install_lastresort_pii_filter()`` is idempotent —
     calling it multiple times replaces the prior handler rather than
     stacking duplicate filters."""
     import logging

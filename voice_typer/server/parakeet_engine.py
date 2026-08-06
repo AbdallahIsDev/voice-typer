@@ -170,10 +170,13 @@ def _cleanup_hf_cache_dir(model_dir: "Any") -> None:
     """Cache cleanup: best-effort delete a tampered HF cache dir.
 
     this local helper now delegates to the canonical
-    ``voice_typer.server.asr_utils.cleanup_hf_cache_dir`` so the
+    ``voice_typer.server._hf_cache_cleanup.cleanup_hf_cache_dir`` so the
     cleanup logic lives in one place (previously the same body was
     duplicated 3x across ``transcription.py``,
-    ``asr_setup.py``, and here —  finding #2).
+    ``asr_setup.py``, and here). The
+    ``_hf_cache_cleanup`` module in turn delegates to
+    ``asr_utils.cleanup_hf_cache_dir`` where the actual implementation
+    lives.
 
     The ``model_dir`` argument is preserved for backward compatibility
     with the existing call site in ``ParakeetEngine.load()`` (which
@@ -190,7 +193,7 @@ def _cleanup_hf_cache_dir(model_dir: "Any") -> None:
     caller) is the security gate; this cleanup is just hygiene so a
     retry doesn't silently re-load the same tampered files.
     """
-    from voice_typer.server.asr_utils import cleanup_hf_cache_dir
+    from voice_typer.server._hf_cache_cleanup import cleanup_hf_cache_dir
 
     # ``model_dir`` is intentionally ignored — see docstring above.
     cleanup_hf_cache_dir(_PARAKERT_MODEL_ID, log_prefix="[PARAKEET]")

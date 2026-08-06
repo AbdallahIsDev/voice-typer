@@ -1,7 +1,7 @@
 """Regression tests for PLAT-* fixes.
 
 Tests cover the key platform fixes:
-  PLAT-006: EmptyClipboard() before pyperclip.copy()
+  EmptyClipboard() before pyperclip.copy()
   PLAT-008: Environment variable validation
   PLAT-013: Elevated target detection
   PLAT-014: Password field detection
@@ -59,7 +59,7 @@ class TestWin32ClipboardAbstraction:
 
 
 class TestEmptyClipboard:
-    """PLAT-006: _win32_empty_clipboard uses Win32Clipboard abstraction."""
+    """_win32_empty_clipboard uses Win32Clipboard abstraction."""
 
     def test_win32_empty_clipboard_skips_on_non_windows(self, monkeypatch):
         monkeypatch.setattr("voice_typer.server.clipboard.is_windows", lambda: False)
@@ -584,7 +584,13 @@ class TestMacOSAccessibilityGuide:
 
         import voice_typer.server.hotkeys as hk_mod
 
-        source = inspect.getsource(hk_mod.PynputHotkey.start)
+        # The macOS Accessibility guide lives in
+        # ``PynputHotkey._start_listener`` (the exception handler that
+        # logs the permission guide when pynput fails on macOS), not in
+        # the thin ``start`` wrapper. Inspect the whole class body so
+        # the assertion holds regardless of which method the guide
+        # moves to.
+        source = inspect.getsource(hk_mod.PynputHotkey)
         assert "Accessibility" in source or "accessibility" in source
 
 

@@ -1,4 +1,4 @@
-"""RW-5: regression tests for macOS/Linux installers embedding the Python backend.
+"""regression tests for macOS/Linux installers embedding the Python backend.
 
 Confirmed gap (d-review): CI built the Electron UI for macOS/Linux but NOT the
 Python backend. The macOS/Linux installers contained only Electron — ship-blocker
@@ -16,7 +16,7 @@ This module verifies the three wiring points that close the gap:
    and packaged into the installer.
 
 3. ``voice_typer/client/src/main/python/python-args.ts`` — ``pythonArgs()``
-   (extracted from ``index.ts`` during REF-2) looks up the embedded backend
+   (extracted from ``index.ts``) looks up the embedded backend
    under ``process.resourcesPath`` for macOS and Linux before falling back
    to the dev-mode venv.
 """
@@ -31,7 +31,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 ELECTRON_BUILDER_YML = REPO_ROOT / "voice_typer" / "client" / "electron-builder.yml"
 BUILD_YML = REPO_ROOT / ".github" / "workflows" / "build.yml"
 # pythonArgs() was extracted from index.ts into python/python-args.ts
-# during the REF-2 wiring-only split; the contract (embedded backend
+# during the wiring-only split; the contract (embedded backend
 # lookup under process.resourcesPath + dev-venv fallback) is unchanged.
 INDEX_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "python" / "python-args.ts"
 
@@ -131,13 +131,13 @@ class TestElectronBuilderHasLinuxExtraResources:
 
 
 class TestElectronBuilderWindowsSectionUntouched:
-    """Sanity: RW-5's macOS/Linux extraResources entries must NOT leak into
+    """Sanity: macOS/Linux extraResources entries must NOT leak into
     the win: section. The Windows installer is owned by sub-agent
-    rw-4-windows-installer (which may add its own win: extraResources with
-    a different `from` path — that's their territory, not RW-5's).
+    windows-installer (which may add its own win: extraResources with
+    a different `from` path — that's their territory).
 
-    We can't assert "win: has no extraResources" because rw-4 may add one.
-    Instead we verify the RW-5-specific path tokens (voice-typer-backend.app
+    We can't assert "win: has no extraResources" because may add one.
+    Instead we verify the path tokens (voice-typer-backend.app
     and the ../dist/voice-typer-backend Linux path) are NOT in win:.
     """
 
@@ -147,23 +147,23 @@ class TestElectronBuilderWindowsSectionUntouched:
         win_blob = str(win)
         assert "voice-typer-backend.app" not in win_blob, (
             "win: section must NOT contain the macOS .app path — that's "
-            "RW-5's mac:-only entry. rw-4-windows-installer owns win:."
+            "mac:-only entry. windows-installer owns win:."
         )
 
     def test_win_section_does_not_have_linux_backend_path(self):
         cfg = _load_yml(ELECTRON_BUILDER_YML)
         win = cfg.get("win", {}) or {}
         # The Linux entry uses `from: ../dist/voice-typer-backend` (no .app).
-        # If rw-4 adds a win: extraResources, it would use a Windows-style
+        # If adds a win: extraResources, it would use a Windows-style
         # path (e.g. ../../dist/VoiceTyper), not the Linux token.
         for entry in win.get("extraResources", []) or []:
             from_val = str(entry.get("from", ""))
             # Reject ONLY the exact Linux token "../dist/voice-typer-backend"
             # (the macOS token "../dist/voice-typer-backend.app" is already
-            # rejected above). rw-4's Windows path will look different.
+            # rejected above). Windows path will look different.
             assert from_val != "../dist/voice-typer-backend", (
-                "win: extraResources must NOT use the Linux RW-5 path "
-                "'../dist/voice-typer-backend' — that's RW-5's linux:-only "
+                "win: extraResources must NOT use the Linux path "
+                "'../dist/voice-typer-backend' — that's linux:-only "
                 "entry."
             )
 
@@ -344,7 +344,7 @@ class TestPythonArgsLooksUpEmbeddedBackend:
         embedded backend is not present (dev mode, missing bundle, etc.)."""
         src = self._index_ts()
         assert "venv" in src, "pythonArgs() must fall back to the dev venv in dev mode"
-        assert "computeConfigDir" in src, "venv fallback must use computeConfigDir() (RW-15)"
+        assert "computeConfigDir" in src, "venv fallback must use computeConfigDir()"
         # The -m voice_typer.server.ipc_server module invocation must remain
         # for the venv fallback path (PyInstaller bundle doesn't need it).
         assert "voice_typer.server.ipc_server" in src, (
@@ -374,7 +374,7 @@ class TestPythonArgsLooksUpEmbeddedBackend:
 
 
 class TestYamlStillParses:
-    """Both YAML files must still parse cleanly after RW-5's edits."""
+    """Both YAML files must still parse cleanly after edits."""
 
     def test_electron_builder_yml_parses(self):
         cfg = _load_yml(ELECTRON_BUILDER_YML)

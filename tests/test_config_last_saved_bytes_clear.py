@@ -1,9 +1,9 @@
-"""DJ-25 — ``Config._last_saved_bytes`` retains plaintext API keys after GDPR delete.
+"""``Config._last_saved_bytes`` retains plaintext API keys after GDPR delete.
 
 ``Config._last_saved_bytes`` is a serialized-JSON bytes cache stashed
 on the Config dataclass after every successful ``Config.save()``. When
 keyring is unavailable, ``Config.save()`` writes the REAL plaintext
-API keys to disk (RW-01 routing in ``Config._save_unlocked`` only
+API keys to disk (routing in ``Config._save_unlocked`` only
 replaces the value with a ``keyring://<provider>`` reference token
 when keyring is available), and stashes the serialized bytes on the
 long-lived Config instance.
@@ -14,7 +14,7 @@ PRE-clear plaintext JSON until the next successful save (which may be
 never if the user doesn't change settings again before closing the
 app).
 
-DJ-25 fix: in ``clear_in_memory_secrets(config)``, after the
+fix: in ``clear_in_memory_secrets(config)``, after the
 ``setattr`` loop, also call
 ``object.__setattr__(config, '_last_saved_bytes', None)`` to
 invalidate the byte cache. ``object.__setattr__`` bypasses any frozen-
@@ -65,7 +65,7 @@ def _isolated_config_dir(tmp_path, monkeypatch):
 def mock_keyring_unavailable(monkeypatch):
     """Mock keyring as unavailable (fail backend / D-Bus missing).
 
-    DJ-25 specifically affects the plaintext-fallback path — when
+    specifically affects the plaintext-fallback path — when
     keyring is available, plaintext API keys never reach
     ``Config._last_saved_bytes`` in the first place.
     """
@@ -132,7 +132,7 @@ class TestClearInMemorySecretsClearsLastSavedBytes:
     """``clear_in_memory_secrets(config)`` must set ``_last_saved_bytes = None``."""
 
     def test_last_saved_bytes_cleared_after_clear_in_memory_secrets(self):
-        """DJ-25: ``_last_saved_bytes`` (containing serialized plaintext
+        """``_last_saved_bytes`` (containing serialized plaintext
         API keys) must be ``None`` after ``clear_in_memory_secrets()``."""
         # Arrange: a Config with non-None _last_saved_bytes (simulating
         # a Config that was just saved with plaintext API keys because
@@ -146,13 +146,13 @@ class TestClearInMemorySecretsClearsLastSavedBytes:
 
         # Assert: the byte cache is invalidated ().
         assert object.__getattribute__(config, "_last_saved_bytes") is None, (
-            "DJ-25: _last_saved_bytes must be None after clear_in_memory_secrets() "
+            "_last_saved_bytes must be None after clear_in_memory_secrets() "
             "so a memory dump between the GDPR delete and the next app restart "
             "doesn't expose the serialized plaintext API keys"
         )
 
     def test_last_saved_bytes_cleared_even_if_already_none(self):
-        """DJ-25: the clear is idempotent — setting None to None is a no-op."""
+        """the clear is idempotent — setting None to None is a no-op."""
         config = _make_config_with_last_saved_bytes(plaintext_bytes=None)
         assert object.__getattribute__(config, "_last_saved_bytes") is None
 
@@ -162,7 +162,7 @@ class TestClearInMemorySecretsClearsLastSavedBytes:
         assert object.__getattribute__(config, "_last_saved_bytes") is None
 
     def test_last_saved_bytes_cleared_on_frozen_dataclass(self):
-        """DJ-25: the clear must work on a frozen dataclass, where
+        """the clear must work on a frozen dataclass, where
         regular ``setattr(config, '_last_saved_bytes', None)`` would
         raise ``FrozenInstanceError``. We use ``object.__setattr__`` to
         bypass the frozen-dataclass ``__setattr__`` override."""
@@ -193,7 +193,7 @@ class TestClearInMemorySecretsClearsLastSavedBytes:
 
         # Assert: _last_saved_bytes is None ().
         assert object.__getattribute__(config, "_last_saved_bytes") is None, (
-            "DJ-25: _last_saved_bytes must be None after clear_in_memory_secrets() "
+            "_last_saved_bytes must be None after clear_in_memory_secrets() "
             "even on a frozen dataclass (uses object.__setattr__)"
         )
         # The api_key fields are still set to their original values
@@ -204,7 +204,7 @@ class TestClearInMemorySecretsClearsLastSavedBytes:
         assert config.openai_api_key == "sk-openai"
 
     def test_last_saved_bytes_clear_is_best_effort(self):
-        """DJ-25: if ``object.__setattr__`` raises (e.g. a class with
+        """if ``object.__setattr__`` raises (e.g. a class with
         ``__slots__`` that doesn't declare ``_last_saved_bytes``), the
         failure is logged at debug and swallowed so the rest of
         clear_in_memory_secrets still completes. We verify by using a

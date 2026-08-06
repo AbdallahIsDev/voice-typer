@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import statistics
 import sys
 import time
@@ -197,7 +196,7 @@ def bench_model_load(model_size: str, device: str) -> dict:
     proc = _try_psutil()
     rss_before = _peak_rss_mb(proc)
     t0 = time.perf_counter()
-    engine = TranscriptionEngine(model_size=model_size, device=device)
+    _engine = TranscriptionEngine(model_size=model_size, device=device)
     elapsed = time.perf_counter() - t0
     rss_after = _peak_rss_mb(proc)
     return {
@@ -378,7 +377,11 @@ def main() -> int:
     print(f"  Max:    {stats['max']:.3f}s")
     print(f"  Words-per-second (median): {stats['wps']:.2f}")
     if stats["delta_rss_mb"] is not None:
-        print(f"  Peak RSS delta: {stats['delta_rss_mb']} MB (before={stats['peak_rss_mb_before']} after={stats['peak_rss_mb_after']})")
+        print(
+            f"  Peak RSS delta: {stats['delta_rss_mb']} MB "
+            f"(before={stats['peak_rss_mb_before']} "
+            f"after={stats['peak_rss_mb_after']})"
+        )
     return 0
 
 

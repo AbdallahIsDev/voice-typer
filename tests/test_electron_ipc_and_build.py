@@ -24,7 +24,7 @@ def _read(rel: str) -> str:
 class TestElectronExposesDataExportHandlers:
     """Electron exposes export handlers for templates + config.
 
-    RW-1 status: the renderer-side type/UX tests below are ported to
+    status: the renderer-side type/UX tests below are ported to
     vitest (see ``electron-ipc-build-behavior.test.tsx`` Sections 1–2).
     The 5 main/preload-source tests stay in Python — they assert on
     ``src/main/index.ts`` and ``src/preload/index.ts`` source strings,
@@ -512,7 +512,7 @@ class TestVadStderrRedirect:
 class TestMacOSAccessibilityCheck:
     """macOS accessibility permission check exists in the startup path.
 
-    RW-9 Phase 5: the body of ``_do_startup`` was extracted into
+    the body of ``_do_startup`` was extracted into
     :class:`voice_typer.server.startup_sequence.StartupSequence`. The
     macOS accessibility check now lives in ``StartupSequence.run``, so
     these source-string checks are retargeted there. Intent unchanged.

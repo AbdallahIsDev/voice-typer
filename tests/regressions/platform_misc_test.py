@@ -1,7 +1,7 @@
 """Regression tests split out of the former ``tests/test_bugfix_regressions.py``.
 
-This module is part of the ``tests/regressions/`` package created by
-REF-4. The class/method names, assertion logic, and imports below are
+This module is part of the ``tests/regressions/`` package.
+The class/method names, assertion logic, and imports below are
 preserved verbatim from the original 4446-line monolith — only file
 location has changed.
 
@@ -27,9 +27,7 @@ import pytest
 # decorator behind ``sys.platform == "win32"``, so the module imports
 # cleanly on Linux/macOS without any test-infrastructure shim.
 class TestPlatformUtilsDeadCodeRemoved:
-    """PLAT-008.
-
-    The finding: ``validate_env_vars`` in platform_utils.py was dead
+    """The finding: ``validate_env_vars`` in platform_utils.py was dead
     code (never called from production). Fix: deleted the dead
     function, ``_init_env_var_schema``, and ``_ENV_VAR_SCHEMA``.
     """
@@ -38,11 +36,11 @@ class TestPlatformUtilsDeadCodeRemoved:
         from voice_typer.server import platform_utils
 
         assert not hasattr(platform_utils, "validate_env_vars"), (
-            "PLAT-008: validate_env_vars must be removed from platform_utils "
+            "validate_env_vars must be removed from platform_utils "
             "(it was dead code duplicating app.py::_validate_env_vars)."
         )
-        assert not hasattr(platform_utils, "_init_env_var_schema"), "PLAT-008: _init_env_var_schema must be removed."
-        assert not hasattr(platform_utils, "_ENV_VAR_SCHEMA"), "PLAT-008: _ENV_VAR_SCHEMA must be removed."
+        assert not hasattr(platform_utils, "_init_env_var_schema"), "_init_env_var_schema must be removed."
+        assert not hasattr(platform_utils, "_ENV_VAR_SCHEMA"), "_ENV_VAR_SCHEMA must be removed."
 
     def test_app_validate_env_vars_still_exists(self):
         from voice_typer.server import app
@@ -50,7 +48,7 @@ class TestPlatformUtilsDeadCodeRemoved:
         # The canonical implementation must still exist in app.py
         # (it's a module-level function, not a method)
         assert hasattr(app, "_validate_env_vars"), (
-            "PLAT-008: app.py must still have _validate_env_vars as the single source of truth for env-var validation."
+            "app.py must still have _validate_env_vars as the single source of truth for env-var validation."
         )
 
     def test_platform_utils_still_exports_platform_helpers(self):
@@ -71,9 +69,7 @@ class TestPlatformUtilsDeadCodeRemoved:
 
 
 class TestDuplicateDiskSpaceCheckRemoved:
-    """PROD-005.
-
-    The finding: two disk-space check implementations coexisted with
+    """The finding: two disk-space check implementations coexisted with
     different APIs and size tables. Fix: deleted the local
     ``_check_disk_space`` and ``_ESTIMATED_MODEL_SIZES`` from
     asr_setup.py; the canonical ``_check_disk_space_for_download`` in
@@ -84,11 +80,11 @@ class TestDuplicateDiskSpaceCheckRemoved:
         from voice_typer.server import asr_setup
 
         assert not hasattr(asr_setup, "_check_disk_space"), (
-            "PROD-005: _check_disk_space must be removed from asr_setup "
+            "_check_disk_space must be removed from asr_setup "
             "(duplicate of transcription.py::_check_disk_space_for_download)."
         )
         assert not hasattr(asr_setup, "_ESTIMATED_MODEL_SIZES"), (
-            "PROD-005: _ESTIMATED_MODEL_SIZES must be removed from asr_setup."
+            "_ESTIMATED_MODEL_SIZES must be removed from asr_setup."
         )
 
     def test_canonical_check_disk_space_still_exists(self):
@@ -97,13 +93,13 @@ class TestDuplicateDiskSpaceCheckRemoved:
         assert callable(_check_disk_space_for_download)
 
     def test_asr_setup_delegates_to_canonical(self):
-        """PROD-005: ``asr_setup.download_parakeet_weights`` must delegate
+        """``asr_setup.download_parakeet_weights`` must delegate
         disk-space checking to the canonical
         ``_check_disk_space_for_download`` from ``transcription.py``
         (rather than a local duplicate that previously diverged in size
         tables and return semantics).
 
-        RW-8: ported from a source-string meta-test (which inspected
+        ported from a source-string meta-test (which inspected
         ``download_parakeet_weights`` source for the substring
         ``_check_disk_space_for_download``) to a behavioral test that
         mocks the canonical function and verifies it is invoked. The
@@ -147,28 +143,26 @@ class TestDuplicateDiskSpaceCheckRemoved:
         # ``success`` is False and ``reason`` is
         # ``"disk_space_insufficient"``.
         assert isinstance(result, tuple) and len(result) == 3, (
-            "PROD-005 / G4-M-46: download_parakeet_weights must return a 3-tuple (success, reason, exc_info)."
+            "download_parakeet_weights must return a 3-tuple (success, reason, exc_info)."
         )
         assert result[0] is False, (
-            "PROD-005: download_parakeet_weights should return success=False "
+            "download_parakeet_weights should return success=False "
             "when the canonical disk-space check raises RuntimeError."
         )
         assert result[1] == "disk_space_insufficient", (
-            "PROD-005: download_parakeet_weights should return "
+            "download_parakeet_weights should return "
             "reason='disk_space_insufficient' when the canonical disk-space "
             f"check raises RuntimeError. Got reason={result[1]!r}."
         )
         # The canonical check must have been invoked.
         assert mock_check.call_count == 1, (
-            "PROD-005: download_parakeet_weights must delegate disk-space "
+            "download_parakeet_weights must delegate disk-space "
             "checking to _check_disk_space_for_download from transcription.py."
         )
 
 
 class TestDaemonThreadRationaleDocumented:
-    """RACE-008.
-
-    The finding: 9+ manual Thread(daemon=True) sites without rationale
+    """The finding: 9+ manual Thread(daemon=True) sites without rationale
     comments. Fix: added ``# RACE-008`` rationale comments to each
     undocumented site explaining why daemon=True is acceptable.
     """
@@ -239,7 +233,7 @@ class TestDaemonThreadRationaleDocumented:
 
 
 class TestSystemdUserUnitForMainApp:
-    """PLAT-019: systemd user unit for the main app."""
+    """systemd user unit for the main app."""
 
     def test_register_linux_app_service_exists(self):
         from voice_typer.server import prewarm_scheduler_posix as psp
@@ -260,7 +254,7 @@ class TestSystemdUserUnitForMainApp:
 
 
 class TestContainerEnvironmentDetection:
-    """PLAT-021: Detect container/cgroup environments."""
+    """Detect container/cgroup environments."""
 
     def test_is_in_container_exists(self):
         from voice_typer.server.container_detect import is_in_container
@@ -306,7 +300,7 @@ class TestContainerEnvironmentDetection:
 
 
 class TestPlatContentContentEditable:
-    """PLAT-CONTENT: Detect contentEditable elements via UI Automation."""
+    """Detect contentEditable elements via UI Automation."""
 
     def test_is_content_editable_exists(self):
         from voice_typer.server.clipboard import _is_content_editable
@@ -324,12 +318,12 @@ class TestPlatContentContentEditable:
 
 
 class TestPlatMacBlocked:
-    """PLAT-MAC: macOS code exists but requires macOS CI runner."""
+    """macOS code exists but requires macOS CI runner."""
 
     def test_macos_code_exists(self):
         """macOS-specific code must exist in the codebase.
 
-        RW-8: KEEP — pins PLAT-MAC (app.py contains darwin or is_macos
+        KEEP — pins PLAT-MAC (app.py contains darwin or is_macos
         references). A behavioral test would need to run on macOS and
         observe the macOS code path, which is heavy (platform-specific);
         the source-string check catches removal of all macOS branches.
@@ -340,12 +334,12 @@ class TestPlatMacBlocked:
         assert "darwin" in src or "is_macos" in src
 
     def test_macos_ci_runner_exists(self):
-        """PLAT-MAC: A macOS CI runner IS configured in build.yml.
+        """A macOS CI runner IS configured in build.yml.
         This test pins that state — if the runner is removed, this
         test will fail and alert maintainers that macOS code is
         no longer being tested in CI.
 
-        RW-8: KEEP — pins PLAT-MAC (macOS CI runner in build.yml).
+        KEEP — pins (macOS CI runner in build.yml).
         # A behavioral test would need to run the workflow and verify the
         # runner executes, which is heavy (CI-only); the file-content
         # check catches removal of the macOS runner directly.
@@ -354,5 +348,5 @@ class TestPlatMacBlocked:
         if build_yml.exists():
             src = build_yml.read_text(encoding="utf-8")
             assert "macos-latest" in src or "macos" in src.lower(), (
-                "PLAT-MAC: No macOS CI runner found — macOS code is untested."
+                "No macOS CI runner found — macOS code is untested."
             )

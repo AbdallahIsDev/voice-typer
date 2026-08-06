@@ -32,6 +32,7 @@ import, this module's TOP-OF-FILE imports only touch leaf modules
 initialized, so the late import succeeds.
 """
 
+import itertools
 import json
 import logging
 import os
@@ -53,6 +54,16 @@ if TYPE_CHECKING:  # pragma: no cover — typing-only, never imported at runtime
     from voice_typer.server.config import Config
 
 log = logging.getLogger("voice_typer.server.config")
+
+# Monotonic counter mixed into the ``config.json.corrupt-<ts>-<pid>-<ns>``
+# suffix (mirrors ``secure_file_io._QUARANTINE_SUFFIX_SEQ``). On Windows
+# ``time.time_ns()`` can return the SAME value for rapid back-to-back
+# calls inside the same coarse system-timer tick, so the microsecond
+# fraction alone does NOT disambiguate two corrupt loads in the same
+# process (two ``Path.replace`` calls would pick the identical filename
+# and the second would silently overwrite the first's forensic backup).
+# ``itertools.count`` is GIL-atomic; ``next()`` needs no lock.
+_CONFIG_QUARANTINE_SUFFIX_SEQ: "itertools.count" = itertools.count()
 
 # NOTE: ``_config_dir`` and ``_secure_read_text`` are NOT imported at the
 # top of this module. They are re-exported by ``config/__init__.py`` and
@@ -530,9 +541,10 @@ def _load_config(cls) -> "Config":
             # call, so the worst case if the suffix collides is
             # the previous-behavior overwrite (no corruption,
             # just lost-forensics — strictly better than before).
+            _ns = (time.time_ns() % 1_000_000 + next(_CONFIG_QUARANTINE_SUFFIX_SEQ)) % 1_000_000
             corrupt_backup = (
                 config_file.parent
-                / f"config.json.corrupt-{int(time.time())}-{os.getpid()}-{time.time_ns() % 1_000_000}"
+                / f"config.json.corrupt-{int(time.time())}-{os.getpid()}-{_ns}"
             )
             config_file.replace(corrupt_backup)
             log.warning(

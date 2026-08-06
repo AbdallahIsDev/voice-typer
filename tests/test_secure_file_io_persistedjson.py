@@ -1,7 +1,7 @@
-"""FR-7 + FR-51: regression tests for ``PersistedJSON`` symlink-
+"""regression tests for ``PersistedJSON`` symlink-
 following and Windows-rename bugs.
 
-FR-7 (High):
+(High):
     Pre-fix, ``PersistedJSON.save`` used ``Path.read_bytes()`` and
     ``Path.write_bytes()`` for the ``.bak`` comparison + write — both
     follow symlinks.  An attacker who planted symlinks at BOTH
@@ -23,7 +23,7 @@ FR-7 (High):
         ``os.replace`` semantics ensure we never write THROUGH a
         symlink).
 
-FR-51 (Low):
+(Low):
     Pre-fix, ``_quarantine_corrupt`` used ``Path.rename`` (a.k.a.
     ``os.rename``) which FAILS on Windows if the destination exists.
     Even though the ``while corrupt_path.exists()`` loop tries to
@@ -87,7 +87,7 @@ _POSIX_ONLY = pytest.mark.skipif(
 
 @_POSIX_ONLY
 class TestPersistedJSONSaveSymlinkDefense:
-    """FR-7: ``PersistedJSON.save`` must refuse to follow symlinks on
+    """``PersistedJSON.save`` must refuse to follow symlinks on
     EITHER ``self._path`` (read side) or ``self._bak_path`` (write
     side).  Pre-fix, both used ``Path.read_bytes`` / ``write_bytes``
     which follow symlinks — a read-from-arbitrary-file + write-to-
@@ -131,7 +131,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         # previous-config bytes (the .bak write was skipped because
         # the .bak path is a symlink).
         assert attacker_target.read_text() == "attacker-controlled content", (
-            "FR-7 regression: attacker_target.json was OVERWRITTEN with "
+            "regression: attacker_target.json was OVERWRITTEN with "
             "the previous config bytes via the .bak symlink. Pre-fix "
             "Path.write_bytes() followed the symlink and wrote the "
             "exfiltrated config (containing the API key) to the "
@@ -181,7 +181,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         # bytes (the backup was skipped because self._path is a
         # symlink).
         assert bak_path.read_text() == "previous bak content", (
-            "FR-7 regression: the .bak file was OVERWRITTEN with the "
+            "regression: the .bak file was OVERWRITTEN with the "
             "sensitive file's bytes (read through the self._path "
             "symlink). Pre-fix Path.read_bytes() followed the symlink "
             "and exfiltrated the sensitive content into the .bak."
@@ -209,7 +209,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         # regular file (os.replace does not follow the destination
         # symlink — it replaces the symlink itself).
         assert not config_path.is_symlink(), (
-            "FR-7: the symlink at self._path should have been replaced "
+            "the symlink at self._path should have been replaced "
             "by a regular file via os.replace (which does NOT follow "
             "the destination symlink)."
         )
@@ -220,7 +220,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         # The sensitive file must NOT have been overwritten.
         sensitive_data = json.loads(sensitive.read_text(encoding="utf-8"))
         assert sensitive_data == {"secret": "do-not-overwrite"}, (
-            "FR-7 regression: the sensitive file (symlink target) was "
+            "regression: the sensitive file (symlink target) was "
             "overwritten with the new config content. os.replace should "
             "have replaced the SYMLINK ITSELF, not the symlink target."
         )
@@ -241,7 +241,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         bak_path = tmp_path / "config.json.bak"
         assert bak_path.exists()
         bak_data = json.loads(bak_path.read_text(encoding="utf-8"))
-        assert bak_data == {"v": 1}, f"FR-7 regression: .bak should contain previous content {{'v': 1}}, got {bak_data}"
+        assert bak_data == {"v": 1}, f"regression: .bak should contain previous content {{'v': 1}}, got {bak_data}"
         # The main file must contain the new content.
         data = json.loads(config_path.read_text(encoding="utf-8"))
         assert data == {"v": 2}
@@ -274,7 +274,7 @@ class TestPersistedJSONSaveSymlinkDefense:
         # The .bak must NOT have been overwritten (identical content
         # is a no-op for the backup slot).
         assert bak_path.read_text() == "sentinel-bak-content", (
-            "FR-7 regression: the .bak was overwritten even though "
+            "regression: the .bak was overwritten even though "
             "the save content was byte-identical to the existing "
             "file. The 'no churn on identical content' invariant "
             "was broken."
@@ -287,7 +287,7 @@ class TestPersistedJSONSaveSymlinkDefense:
 
 
 class TestPersistedJSONSaveUsesSecureHelpers:
-    """FR-7: source-level check that ``PersistedJSON.save`` uses
+    """source-level check that ``PersistedJSON.save`` uses
     ``_secure_read_text`` (not ``read_bytes``) and
     ``_secure_atomic_write`` (not ``write_bytes``) for the .bak
     path.  Pins the fix against a regression that reintroduces the
@@ -337,7 +337,7 @@ class TestPersistedJSONSaveUsesSecureHelpers:
     def test_save_does_not_call_read_bytes(self):
         calls = self._method_calls_in_save()
         assert "read_bytes" not in calls, (
-            f"FR-7 regression: PersistedJSON.save calls .read_bytes() "
+            f"regression: PersistedJSON.save calls .read_bytes() "
             f"which follows symlinks. The fix routes the read through "
             f"_secure_read_text (POSIX O_NOFOLLOW) instead. "
             f"(All method calls in save(): {sorted(calls)})"
@@ -346,7 +346,7 @@ class TestPersistedJSONSaveUsesSecureHelpers:
     def test_save_does_not_call_write_bytes(self):
         calls = self._method_calls_in_save()
         assert "write_bytes" not in calls, (
-            f"FR-7 regression: PersistedJSON.save calls .write_bytes() "
+            f"regression: PersistedJSON.save calls .write_bytes() "
             f"which follows symlinks. The fix routes the write through "
             f"_secure_atomic_write (os.replace, no symlink follow) "
             f"instead. (All method calls in save(): {sorted(calls)})"
@@ -355,7 +355,7 @@ class TestPersistedJSONSaveUsesSecureHelpers:
     def test_save_uses_secure_read_text(self):
         calls = self._method_calls_in_save()
         assert "_secure_read_text" in calls, (
-            "FR-7 regression: PersistedJSON.save does not call "
+            "regression: PersistedJSON.save does not call "
             "_secure_read_text for the existing-file read. The fix "
             "routes the read through _secure_read_text (POSIX "
             "O_NOFOLLOW + inode re-verification). "
@@ -365,7 +365,7 @@ class TestPersistedJSONSaveUsesSecureHelpers:
     def test_save_uses_is_symlink_check(self):
         calls = self._method_calls_in_save()
         assert "is_symlink" in calls, (
-            "FR-7 regression: PersistedJSON.save does not check "
+            "regression: PersistedJSON.save does not check "
             "is_symlink() on self._path / self._bak_path. The fix "
             "explicitly refuses to back up if either path is a "
             "symlink (defense-in-depth on top of _secure_read_text's "
@@ -489,7 +489,16 @@ class TestQuarantineCorruptUsesOsReplace:
 
         # Mock time.time, time.time_ns and os.getpid to fixed values
         # so we can predict the EXACT dst filename the new
-        # implementation will produce.
+        # implementation will produce. The module-level
+        # ``_QUARANTINE_SUFFIX_SEQ`` counter must be reset to a fresh
+        # ``itertools.count()`` so this test's first call consumes
+        # seq=0 (other tests in this module may already have advanced
+        # the real module counter).
+        import itertools
+
+        from voice_typer.server import secure_file_io as _sfio
+
+        monkeypatch.setattr(_sfio, "_QUARANTINE_SUFFIX_SEQ", itertools.count())
         fixed_ts = 12345
         fixed_pid = 99999
         fixed_ns = 777777
@@ -541,10 +550,18 @@ class TestQuarantineCorruptUsesOsReplace:
 
         config_path = tmp_path / "config.json"
 
-        fixed_ts = 12345
         fixed_pid = 99999
+        fixed_ts = 1234567890
         ns_values = iter([111111, 222222])  # distinct ns for each call
 
+        # Reset the module-level suffix counter so this test's first
+        # call consumes seq=0 (a fresh ``itertools.count()`` starts at
+        # 0); the second call then consumes seq=1.
+        import itertools
+
+        from voice_typer.server import secure_file_io as _sfio
+
+        monkeypatch.setattr(_sfio, "_QUARANTINE_SUFFIX_SEQ", itertools.count())
         monkeypatch.setattr(time, "time", lambda: fixed_ts)
         monkeypatch.setattr(time, "time_ns", lambda: next(ns_values))
         monkeypatch.setattr(os, "getpid", lambda: fixed_pid)
@@ -564,7 +581,9 @@ class TestQuarantineCorruptUsesOsReplace:
         # filename — no clobber, no overwrite.
         config_path.write_text("second corrupt content", encoding="utf-8")
         pj._quarantine_corrupt()
-        dst2 = tmp_path / f"config.json.corrupt-{fixed_ts}-{fixed_pid}-222222"
+        # Second call consumes seq=1, so the suffix is ns+1 (222223),
+        # keeping the two filenames DISTINCT.
+        dst2 = tmp_path / f"config.json.corrupt-{fixed_ts}-{fixed_pid}-222223"
         assert dst2.exists()
         assert dst2.read_text() == "second corrupt content"
 
@@ -594,7 +613,7 @@ class TestQuarantineCorruptUsesOsReplace:
         assert not config_path.exists()
 
     def test_quarantine_source_is_symlink_handles_gracefully(self, tmp_path):
-        """FR-51 + FR-7 interaction: if the source file is a symlink,
+        """FR-51 + interaction: if the source file is a symlink,
         ``_quarantine_corrupt`` must still move it aside (via
         ``os.replace`` which does NOT follow the source symlink —
         it moves the symlink itself).  This is the correct behaviour:

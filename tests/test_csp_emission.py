@@ -462,10 +462,23 @@ class TestBuiltHtmlHasStrictCsp:
         Vite should have replaced them with external script tags.
         """
         for html in built_html_files:
+            # Strip HTML comments before matching — otherwise a comment
+            # that literally mentions `<script type="module">` (e.g. the
+            # PVT-018 FOUC comment in index.html that explains the
+            # theme-bootstrap module's ordering) gets matched by the
+            # regex and produces a false positive. The regex itself
+            # can't distinguish "inside a comment" from "real tag"
+            # without a full HTML parser, so we strip comments first
+            # and then look for actual non-src <script> blocks.
+            html_no_comments = re.sub(r"<!--.*?-->", "", html, flags=re.DOTALL)
             # Inline <script> blocks (without src attribute) would need
             # 'unsafe-inline' in script-src. Allow empty <script></script>
             # (unusual but harmless) and JSON-LD blocks (we don't use those).
-            inline_scripts = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>.*?</script>", html, flags=re.DOTALL)
+            inline_scripts = re.findall(
+                r"<script(?![^>]*\bsrc=)[^>]*>.*?</script>",
+                html_no_comments,
+                flags=re.DOTALL,
+            )
             # Filter out truly empty <script></script>.
             non_empty_inline = [s for s in inline_scripts if re.sub(r"<[^>]+>", "", s).strip()]
             assert not non_empty_inline, (

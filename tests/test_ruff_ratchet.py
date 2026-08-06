@@ -1,4 +1,4 @@
-"""Tests for the RW-11 ruff ratchet mechanism.
+"""Tests for the ruff ratchet mechanism.
 
 These tests verify:
 
@@ -174,7 +174,7 @@ class TestBaselineSchema:
 def _pick_representative_rule(baseline: dict) -> tuple[str, int]:
     """Pick a rule with count > 1 from the baseline for use in compare tests.
 
-    WR-14: the tests previously hardcoded N806 with fallback 27, but N806
+    the tests previously hardcoded N806 with fallback 27, but N806
     dropped to 0 after parallel agents cleaned up naming violations.
     Hardcoding any specific rule makes the tests brittle to baseline
     regeneration. Instead, we pick a rule with count > 1 (so shrink-by-1
@@ -200,7 +200,7 @@ class TestCompareLogic:
     def _synthetic_baseline(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         """Seed a known baseline into tmp_path; never touch the real repo file.
 
-        ZR-40: the repo's actual ``ruff-baseline.json`` was reset to
+        the repo's actual ``ruff-baseline.json`` was reset to
         ``total_count: 0`` after parallel-agent cleanup, which broke
         several tests in this class that assumed a non-empty baseline
         (``_pick_representative_rule`` falls back to the synthetic
@@ -341,7 +341,7 @@ class TestRegenerateLogic:
     idempotent and does not leave the baseline in a broken state if
     a test fails.
 
-    ZR-40: the ``_restore_baseline`` fixture now ALSO seeds a
+    the ``_restore_baseline`` fixture now ALSO seeds a
     synthetic non-empty baseline before each test (in addition to
     restoring the original after). The previous version only
     restored, which left the test exposed to the actual repo
@@ -357,7 +357,7 @@ class TestRegenerateLogic:
     def _restore_baseline(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
         """Seed a known baseline into tmp_path; never touch the real repo file.
 
-        ZR-40: the regenerate tests seed a synthetic non-empty baseline
+        the regenerate tests seed a synthetic non-empty baseline
         so they are deterministic and independent of the repo baseline
         state. The synthetic file now lives in ``tmp_path`` and the
         script is redirected there via ``RUFF_BASELINE_PATH`` — the

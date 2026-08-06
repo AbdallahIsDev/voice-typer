@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from voice_typer.server.config import _CURRENT_SCHEMA_VERSION, Config, _default_hotkey_for_platform
 
-# NATIVE-001: the default hotkey is now platform-aware
+# the default hotkey is now platform-aware
 # (Fn on macOS, Caps Lock on Windows/Linux, F2 on unknown platforms).
 # Tests that assert the default hotkey use this helper instead of
 # hard-coding "<f2>".
@@ -79,12 +79,12 @@ class TestConfigLoadSave:
         assert c.hotkey == "<f9>"
         assert c.microphone == "WO Mic"
         assert c.autostart is True
-        # P1 fix: User values are now preserved (no longer overridden)
+        # User values are now preserved (no longer overridden)
         assert c.paste_on_stop is False
         assert c.show_notifications is False
 
     def test_load_preserves_user_device_and_paste_settings(self, tmp_path, tmp_config_dir):
-        """P1 fix: User's device, paste_on_stop, and streaming_transcription
+        """fix: User's device, paste_on_stop, and streaming_transcription
         values in config.json must survive load() without being overridden."""
         config_file = tmp_path / "config.json"
         config_file.write_text(
@@ -168,9 +168,9 @@ class TestConfigLoadSave:
         assert c.hotkey == EXPECTED_DEFAULT_HOTKEY  # defaults
 
     def test_load_logs_error_on_corrupt_file(self, tmp_path, tmp_config_dir, caplog):
-        """P1 fix: Config.load() must log instead of silently swallowing failures.
+        """fix: Config.load() must log instead of silently swallowing failures.
 
-        RW-9: the level was lowered from ERROR to WARNING (recovery to
+        the level was lowered from ERROR to WARNING (recovery to
         defaults is a recoverable event, not a fatal error) and the
         message now includes the exception class name and file path so
         the user can see *why* their settings were reset.
@@ -230,7 +230,7 @@ class TestConfigLoadSave:
 
 
 class TestConfigPathValidation:
-    """P5 fix: qwen_model_path and corrections_path are validated on load."""
+    """qwen_model_path and corrections_path are validated on load."""
 
     def test_qwen_model_path_invalid_resets_to_none(self, tmp_path, tmp_config_dir):
         """If qwen_model_path points to a non-existent directory, reset to None."""
@@ -344,7 +344,7 @@ class TestConfigPathValidation:
 
 
 class TestAtomicConfigSave:
-    """P0 fix: Config.save() must be atomic to prevent data loss on crash."""
+    """fix: Config.save() must be atomic to prevent data loss on crash."""
 
     def test_save_uses_tmp_file_then_replace(self, tmp_path, tmp_config_dir):
         """save() writes to .tmp first then atomically replaces config.json."""
@@ -393,7 +393,7 @@ class TestAtomicConfigSave:
 
 
 class TestNonNumericFieldValidation:
-    """H1: No type validation on loaded JSON config values."""
+    """No type validation on loaded JSON config values."""
 
     def test_bool_field_coerces_truthy_string(self, tmp_path, tmp_config_dir):
         """Non-bool truthy value for bool field should be coerced."""
@@ -431,7 +431,7 @@ class TestNonNumericFieldValidation:
         assert c.language == "fr"
 
     def test_silence_warning_seconds_default(self):
-        """H12 config fields should have correct defaults."""
+        """config fields should have correct defaults."""
         c = Config()
         assert c.silence_warning_seconds == 20.0
         assert c.stop_on_silence_seconds == 60.0
@@ -472,7 +472,7 @@ class TestNonNumericFieldValidation:
 
 
 class TestConfigSchemaVersion:
-    """M3: No config schema versioning."""
+    """No config schema versioning."""
 
     def test_config_has_schema_version_field(self):
         from voice_typer.server.config import Config
@@ -502,7 +502,7 @@ class TestConfigSchemaVersion:
 
 
 class TestSaveErrorHandling:
-    """M4: save() has no error handling."""
+    """save() has no error handling."""
 
     def test_save_returns_false_on_permission_error(self, tmp_path, monkeypatch, tmp_config_dir):
         from voice_typer.server.config import Config
@@ -527,11 +527,11 @@ class TestSaveErrorHandling:
         assert result is True
 
 
-# ── SEC-007: config file permissions ─────────────────────────────────────
+# ── config file permissions ─────────────────────────────────────
 
 
 class TestConfigSaveEnforcesPosixFilePermissions:
-    """SEC-007: on POSIX, the config file must be 0o600 and the
+    """on POSIX, the config file must be 0o600 and the
     config directory 0o700 so API keys and other settings are not
     world-readable.  On Windows these checks are skipped (NTFS ACLs
     are the relevant control, and the config dir is already under
@@ -591,7 +591,7 @@ class TestConfigSaveEnforcesPosixFilePermissions:
 
 
 class TestConfigParametrized:
-    """TEST-032: Use @pytest.mark.parametrize for multiple config values."""
+    """Use @pytest.mark.parametrize for multiple config values."""
 
     @pytest.mark.parametrize(
         "field,value",
@@ -688,7 +688,7 @@ class TestConfigParametrized:
 
 
 class TestCfg5AccumulateAllErrors:
-    """CFG-5 (Low): ``validate_config_update`` previously stopped at the
+    """``validate_config_update`` previously stopped at the
     first invalid field (``break``), forcing the user to fix-and-resubmit
     N times to discover N problems.  The fix accumulates ALL errors so
     the renderer can surface every problem in a single round-trip.
@@ -810,7 +810,7 @@ class TestCfg5AccumulateAllErrors:
 
 
 class TestCfg6ControlCharRejection:
-    """CFG-6 (Low): ``_make_str_validator`` and
+    """``_make_str_validator`` and
     ``_make_optional_str_validator`` previously accepted any string
     under the length cap, including strings with embedded C0 control
     characters (newline, tab, NUL, etc.).  These are never part of a
@@ -902,7 +902,7 @@ class TestCfg6ControlCharRejection:
 
 
 class TestCfg7UrlCredentialsRejection:
-    """CFG-7 (Low): ``_make_url_validator`` previously accepted URLs
+    """``_make_url_validator`` previously accepted URLs
     with embedded credentials (``user:pass@host``).  Such URLs are a
     credentials-leak vector: the renderer would otherwise persist them
     to config.json on disk, echo them into logs, and potentially leak
@@ -958,7 +958,7 @@ class TestCfg7UrlCredentialsRejection:
         assert v("http://localhost:11434/v1/chat/completions") is None
 
     def test_rejects_credentials_on_loopback_too(self):
-        """CFG-7 applies even to loopback URLs — credentials are
+        """applies even to loopback URLs — credentials are
         rejected regardless of host.  (A local dev server shouldn't
         need embedded credentials either; use a separate header.)"""
         from voice_typer.server.config_validators import _make_url_validator
@@ -1007,7 +1007,7 @@ class TestCfg7UrlCredentialsRejection:
 
 
 class TestCfg8DeprecatedFieldsRemoved:
-    """CFG-8 (Low): the deprecated noise-filter and volume-duck fields
+    """the deprecated noise-filter and volume-duck fields
     were still in ``IPC_CONFIG_ALLOWLIST``, letting a malicious IPC
     client mutate dead Config fields.  The renderer's Settings UI
     never sends them via ``set_config`` (they were superseded by the
@@ -1125,7 +1125,7 @@ class TestCfg8DeprecatedFieldsRemoved:
 
 
 class TestDeprecatedFieldsScrubbedOnLoad:
-    """GT-58: existing ``config.json`` files written by older app versions
+    """existing ``config.json`` files written by older app versions
     that still carry the 7 now-removed deprecated fields MUST load without
     raising. The unknown-key filter in ``Config.load()`` (``data = {k: v
     for k, v in parsed.items() if k in cls.__dataclass_fields__}``) silently
@@ -1187,7 +1187,7 @@ class TestDeprecatedFieldsScrubbedOnLoad:
 
 
 class TestValidatorAndMigrationTypes:
-    """GT-D1-6 / GT-D1-7: the validator entry points and migration
+    """the validator entry points and migration
     functions are now typed with parameterised generics instead of bare
     ``dict``/``list``. These tests pin the new type contracts.
     """

@@ -780,6 +780,16 @@ def tmp_config_dir(tmp_path, monkeypatch):
     """
     monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
+    # ``_paths._config_dir`` memoizes the first resolved callable; if a
+    # previous test already triggered the lazy resolver, this module
+    # attribute points at the REAL (lru_cached) function, not the
+    # monkeypatched ``config._config_dir`` above. Patching it here
+    # (monkeypatch auto-undone after the test) keeps
+    # ``_paths.config_dir()`` consistent with this fixture's tmp_path
+    # AND prevents the patched lambda from leaking into later tests.
+    import voice_typer.server._paths as _paths_mod
+
+    monkeypatch.setattr(_paths_mod, "_config_dir", lambda: tmp_path)
     return tmp_path
 
 

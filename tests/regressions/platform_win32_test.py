@@ -1,7 +1,7 @@
 """Regression tests split out of the former ``tests/test_bugfix_regressions.py``.
 
-This module is part of the ``tests/regressions/`` package created by
-REF-4. The class/method names, assertion logic, and imports below are
+This module is part of the ``tests/regressions/`` package.
+The class/method names, assertion logic, and imports below are
 preserved verbatim from the original 4446-line monolith — only file
 location has changed.
 
@@ -53,16 +53,14 @@ class TestManifestInExists:
 
 
 class TestWindowsManifestAsInvoker:
-    """PLAT-037.
-
-    The finding: no requestedExecutionLevel manifest. Investigation:
+    """The finding: no requestedExecutionLevel manifest. Investigation:
     the manifest IS embedded via the .spec file, and a standalone
     voice-typer.manifest file exists with asInvoker. This test pins
     that state.
     """
 
     def test_manifest_source_is_embedded_in_spec(self):
-        # TX-36: the standalone scripts/build/voice-typer.manifest file
+        # the standalone scripts/build/voice-typer.manifest file
         # was REMOVED — its XML drifted from the .spec's copy. The .spec
         # now inlines the manifest XML as the single source of truth and
         # writes it to a temp file for PyInstaller. Verify the inlined
@@ -97,9 +95,7 @@ class TestWindowsManifestAsInvoker:
 
 
 class TestPlatRunAutostartTaskHashed:
-    """PLAT-RUN.
-
-    The finding: autostart task name was a fixed string
+    """The finding: autostart task name was a fixed string
     "VoiceTyperAutostart" — two installs would conflict. Fix: append
     the install-path hash suffix.
     """
@@ -113,12 +109,12 @@ class TestPlatRunAutostartTaskHashed:
         from voice_typer.server import server_platform as platform
 
         src = inspect.getsource(platform)
-        assert "_install_hash_suffix" in src, "PLAT-RUN: _install_hash_suffix helper must exist."
+        assert "_install_hash_suffix" in src, "_install_hash_suffix helper must exist."
         # The task name must be an f-string that includes the hash
         assert (
             'f"VoiceTyperAutostart{_install_hash_suffix()}"' in src
             or "f'VoiceTyperAutostart{_install_hash_suffix()}'" in src
-        ), "PLAT-RUN: _APP_AUTOSTART_TASK_NAME must include the hash suffix."
+        ), "_APP_AUTOSTART_TASK_NAME must include the hash suffix."
 
     def test_install_hash_suffix_returns_underscore_prefix(self):
         """The hash suffix must start with '_' so the task name reads
@@ -128,9 +124,9 @@ class TestPlatRunAutostartTaskHashed:
 
         suffix = _install_hash_suffix()
         # Must start with '_' (or be empty on failure)
-        assert suffix == "" or suffix.startswith("_"), f"PLAT-RUN: hash suffix must start with '_', got {suffix!r}"
+        assert suffix == "" or suffix.startswith("_"), f"hash suffix must start with '_', got {suffix!r}"
         # Must be 9 chars: '_' + 8 hex chars (or empty)
-        assert suffix == "" or len(suffix) == 9, f"PLAT-RUN: hash suffix must be '_XXXXXXXX' (9 chars), got {suffix!r}"
+        assert suffix == "" or len(suffix) == 9, f"hash suffix must be '_XXXXXXXX' (9 chars), got {suffix!r}"
 
     def test_two_different_executables_get_different_hashes(self):
         """Two different install paths must produce different hash suffixes."""
@@ -140,13 +136,11 @@ class TestPlatRunAutostartTaskHashed:
             hash1 = _install_hash_suffix()
         with patch("sys.executable", "/path/to/install2/voice-typer.exe"):
             hash2 = _install_hash_suffix()
-        assert hash1 != hash2, "PLAT-RUN: different install paths must produce different hashes"
+        assert hash1 != hash2, "different install paths must produce different hashes"
 
 
 class TestPlatWaylandSocketPermissions:
-    """PLAT-WAYLAND.
-
-    The finding: world-writable Unix socket (0o666) at
+    """The finding: world-writable Unix socket (0o666) at
     /tmp/voice-typer-hotkey.sock with no authentication. Fix: restrict
     to 0o600 (owner-only).
     """
@@ -171,12 +165,10 @@ class TestPlatWaylandSocketPermissions:
 
 
 class TestPlatHleakDeadCodeRemoved:
-    """PLAT-HLEAK.
-
-    The finding: ``_close_mutex_handle`` was defined but never called
+    """The finding: ``_close_mutex_handle`` was defined but never called
     (dead code). Fix: deleted the function.
 
-    PLAT-HLEAK (revised): ``_instance_hash`` was ALSO dead code — it
+    ``_instance_hash`` was ALSO dead code — it
     was kept initially under the claim that it was "used for PLAT-RUN",
     but verification showed it had zero call sites and used a different
     input (``os.path.dirname(os.path.abspath(__file__))``) than the
@@ -186,10 +178,10 @@ class TestPlatHleakDeadCodeRemoved:
     def test_close_mutex_handle_removed(self):
         from voice_typer.server import app
 
-        assert not hasattr(app, "_close_mutex_handle"), "PLAT-HLEAK: _close_mutex_handle must be removed (dead code)."
+        assert not hasattr(app, "_close_mutex_handle"), "_close_mutex_handle must be removed (dead code)."
 
     def test_instance_hash_removed(self):
-        """PLAT-HLEAK: ``_instance_hash`` was also dead code (zero call
+        """``_instance_hash`` was also dead code (zero call
         sites, different input than the actual mutex hash). It must be
         removed to avoid the maintenance hazard of a helper that looks
         like it's used but isn't.
@@ -197,7 +189,7 @@ class TestPlatHleakDeadCodeRemoved:
         from voice_typer.server import app
 
         assert not hasattr(app, "_instance_hash"), (
-            "PLAT-HLEAK: _instance_hash must be removed — it was dead code "
+            "_instance_hash must be removed — it was dead code "
             "(zero call sites) and used a different input than the actual "
             "mutex hash (os.path.dirname(__file__) vs sys.executable)."
         )
@@ -205,7 +197,7 @@ class TestPlatHleakDeadCodeRemoved:
     def test_mutex_name_is_fixed_string(self):
         """Mutex name is fixed (not sys.executable hash).
 
-        RW-8: KEEP — pins PLAT-HLEAK (mutex name is a fixed string,
+        KEEP — pins PLAT-HLEAK (mutex name is a fixed string,
         not derived from sys.executable hash). A behavioral test would
         need to spawn two processes with different sys.executable and
         observe the mutex collision, which is heavy; the source-string
@@ -225,9 +217,7 @@ class TestPlatHleakDeadCodeRemoved:
 
 
 class TestPlatPumpImportHoisted:
-    """PLAT-PUMP.
-
-    The finding: ``import win32gui`` ran on every 1ms iteration of the
+    """The finding: ``import win32gui`` ran on every 1ms iteration of the
     polling loop. Fix: hoist the import to before the loop, store
     ``PumpWaitingMessages`` in a local variable.
     """
@@ -246,7 +236,7 @@ class TestPlatPumpImportHoisted:
         assert while_idx >= 0
         assert import_idx >= 0
         assert import_idx < while_idx, (
-            "PLAT-PUMP: 'import win32gui' must be hoisted BEFORE the while loop, not inside it."
+            "'import win32gui' must be hoisted BEFORE the while loop, not inside it."
         )
 
     def test_pump_messages_stored_in_local(self):
@@ -254,24 +244,22 @@ class TestPlatPumpImportHoisted:
         variable (``_pump_messages``) and called via that variable
         inside the loop — not re-imported each iteration.
 
-        RW-8: KEEP — pins PLAT-PUMP (PumpWaitingMessages cached in a
+        KEEP — pins PLAT-PUMP (PumpWaitingMessages cached in a
         # local). Same rationale as test_import_hoisted_out_of_loop.
         """
         from voice_typer.server.hotkeys import WindowsNativeHotkey
 
         src = inspect.getsource(WindowsNativeHotkey._run_polling_loop)
         assert "_pump_messages = win32gui.PumpWaitingMessages" in src or "_pump_messages = None" in src, (
-            "PLAT-PUMP: PumpWaitingMessages must be stored in _pump_messages local."
+            "PumpWaitingMessages must be stored in _pump_messages local."
         )
         # Inside the loop, must call _pump_messages(), not win32gui.PumpWaitingMessages()
         loop_body = src[src.find("while not self._stop_event") :]
-        assert "_pump_messages()" in loop_body, "PLAT-PUMP: loop body must call _pump_messages(), not re-import."
+        assert "_pump_messages()" in loop_body, "loop body must call _pump_messages(), not re-import."
 
 
 class TestWindowsPathMigrationCoverage:
-    """PLAT-005.
-
-    The finding: Windows path migration tests incomplete (only source-
+    """The finding: Windows path migration tests incomplete (only source-
     inspection tests existed). Fix: add a functional test that creates
     files in the legacy location and verifies migration.
     """
@@ -310,7 +298,7 @@ class TestWindowsPathMigrationCoverage:
         """_config_dir must check VOICE_TYPER_CONFIG_DIR env var first,
         then fall back to platform-specific paths.
 
-        RW-8: KEEP — pins PLAT-005 (env var override). A behavioral
+        KEEP — pins PLAT-005 (env var override). A behavioral
         # test would set VOICE_TYPER_CONFIG_DIR and verify the function
         # returns the env-var path, but the source-string check is
         # simpler and catches removal of the env var check directly.
@@ -322,9 +310,7 @@ class TestWindowsPathMigrationCoverage:
 
 
 class TestWslDetectionLogic:
-    """PLAT-020.
-
-    The finding: no WSL-specific tests. Fix: add a test that verifies
+    """The finding: no WSL-specific tests. Fix: add a test that verifies
     the IME composition check (used in the polling loop) doesn't crash
     on WSL where win32 APIs aren't available.
     """
@@ -348,7 +334,7 @@ class TestWslDetectionLogic:
         """The polling loop must not crash if win32gui is unavailable
         (e.g., on WSL where pywin32 isn't installed).
 
-        RW-8: KEEP — pins PLAT-020 (win32gui import guarded by
+        KEEP — pins PLAT-020 (win32gui import guarded by
         try/except ImportError, _pump_messages defaults to None).
         A behavioral test would need to run on WSL (heavy, platform-
         specific); the source-string check catches removal of the guard.
@@ -358,7 +344,7 @@ class TestWslDetectionLogic:
         src = inspect.getsource(WindowsNativeHotkey._run_polling_loop)
         # The import must be guarded by try/except ImportError
         assert "except ImportError" in src, (
-            "PLAT-PUMP/PLAT-020: win32gui import must be guarded by "
+            "win32gui import must be guarded by "
             "try/except ImportError so the loop doesn't crash on WSL."
         )
         # _pump_messages must default to None (no crash when win32gui missing)

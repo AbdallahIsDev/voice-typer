@@ -1,7 +1,7 @@
 """Regression tests split out of the former ``tests/test_bugfix_regressions.py``.
 
-This module is part of the ``tests/regressions/`` package created by
-REF-4. The class/method names, assertion logic, and imports below are
+This module is part of the ``tests/regressions/`` package.
+The class/method names, assertion logic, and imports below are
 preserved verbatim from the original 4446-line monolith — only file
 location has changed.
 
@@ -33,7 +33,7 @@ class TestTrayIconBaseIcoLookup:
     def test_generate_icons_mjs_emits_tray_ico(self):
         """generate-icons.mjs must call generateIco for tray-mic.ico.
 
-        RW-8: KEEP — pins PLAT-024 fix in the JS icon-generation script.
+        KEEP — pins PLAT-024 fix in the JS icon-generation script.
         Cannot easily test behaviorally (would need to execute the .mjs
         script and inspect emitted files); source-string check is the
         most direct way to catch removal of the .ico emission.
@@ -45,8 +45,8 @@ class TestTrayIconBaseIcoLookup:
         )
         with open(mjs_path) as f:
             src = f.read()
-        assert "tray-mic.ico" in src, "PLAT-024: generate-icons.mjs must emit tray-mic.ico."
-        assert "PLAT-024" in src, "PLAT-024: generate-icons.mjs must reference PLAT-024 in a comment."
+        assert "tray-mic.ico" in src, "generate-icons.mjs must emit tray-mic.ico."
+        assert "PLAT-024" in src, "generate-icons.mjs must reference PLAT-024 in a comment."
 
 
 class TestTrayRecordingColorIsGreen:
@@ -101,7 +101,7 @@ class TestTrayRecordingColorIsGreen:
 
 
 class TestTrayIconHasAccessibleName:
-    """PLAT-010: title serves as accessible name (pystray limitation)."""
+    """title serves as accessible name (pystray limitation)."""
 
     def test_tray_icon_has_non_empty_title(self):
         # KEEP — pins  (TrayIcon.start passes a non-empty
@@ -120,7 +120,7 @@ class TestTrayIconHasAccessibleName:
 
 
 class TestDesktopEnvironmentSpecificTray:
-    """PLAT-015: Test tray behavior under different XDG_CURRENT_DESKTOP values."""
+    """Test tray behavior under different XDG_CURRENT_DESKTOP values."""
 
     def test_wayland_detection_exists(self):
         from voice_typer.server.tray import TrayIcon
@@ -157,7 +157,7 @@ class TestDesktopEnvironmentSpecificTray:
 
 
 class TestTextSizeConfigWiredToCssScale:
-    """PLAT-017: text_size config wired to CSS --font-scale variable."""
+    """text_size config wired to CSS --font-scale variable."""
 
     def test_app_tsx_sets_font_scale(self):
         # KEEP — pins  (--font-scale / text_size application

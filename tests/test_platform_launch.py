@@ -18,7 +18,8 @@ Tests pin:
   return semantics (``None`` on failure or null ``hProcess``), and
   argtypes/restype ABI assignment.
 * ``_windows_wait_for_process_exit`` — ``WaitForSingleObject(handle,
-  INFINITE)`` dispatch with INFINITE = ``0xFFFFFFFF``.
+  finite-timeout)`` dispatch (30-minute bounded timeout, NOT ``INFINITE``,
+  so a hung editor doesn't wedge the IPC thread forever).
 * ``_windows_close_process_handle`` — ``CloseHandle(handle)`` dispatch.
 * The full ``open → wait → close`` lifecycle used by
   ``VoiceTyperApp._open_config_file``.
@@ -50,6 +51,12 @@ from voice_typer.server.platform_launch import (
 _SEE_MASK_NOCLOSEPROCESS = 0x40
 _SW_SHOWNORMAL = 1
 _INFINITE = 0xFFFFFFFF
+
+# DE-68: the production code uses a FINITE 30-minute timeout (NOT
+# ``INFINITE``) for ``WaitForSingleObject`` so a hung editor doesn't
+# wedge the IPC thread forever. Mirrors ``_WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS``
+# in ``platform_launch.py``.
+_WAIT_TIMEOUT_MS = 30 * 60 * 1000  # 30 minutes
 
 
 # ---------------------------------------------------------------------------
@@ -379,21 +386,22 @@ class TestWindowsOpenWithDefaultApp:
 
 
 class TestWindowsWaitForProcessExit:
-    """Pin ``WaitForSingleObject(handle, INFINITE)`` dispatch.
+    """Pin ``WaitForSingleObject(handle, finite-timeout)`` dispatch.
 
     Contract: never raises (failures are silently swallowed so the
     editor flow doesn't crash on edge cases).
     """
 
     def test_calls_wait_for_single_object_with_infinite(self, monkeypatch):
-        """``WaitForSingleObject`` must be called with the handle and
-        ``INFINITE`` (``0xFFFFFFFF``) timeout."""
+        """``WaitForSingleObject`` must be called with the handle and a
+        finite 30-minute timeout (NOT ``INFINITE`` — a hung editor must
+        not wedge the IPC thread forever; see DE-68 in platform_launch.py)."""
         mock_kernel32 = MagicMock()
         mock_kernel32.WaitForSingleObject.return_value = 0  # WAIT_OBJECT_0
         _install_fake_windll(monkeypatch, kernel32=mock_kernel32)
 
         _windows_wait_for_process_exit(0x1234)
-        mock_kernel32.WaitForSingleObject.assert_called_once_with(0x1234, _INFINITE)
+        mock_kernel32.WaitForSingleObject.assert_called_once_with(0x1234, _WAIT_TIMEOUT_MS)
 
     def test_assigns_argtypes_and_restype(self, monkeypatch):
         """``argtypes``/``restype`` must be set on
@@ -514,7 +522,7 @@ class TestOpenWaitCloseLifecycle:
             _windows_close_process_handle(handle)
 
         mock_shell32.ShellExecuteExW.assert_called_once()
-        mock_kernel32.WaitForSingleObject.assert_called_once_with(0xCAFE, _INFINITE)
+        mock_kernel32.WaitForSingleObject.assert_called_once_with(0xCAFE, _WAIT_TIMEOUT_MS)
         mock_kernel32.CloseHandle.assert_called_once_with(0xCAFE)
 
     def test_null_handle_skips_wait_and_close_per_contract(self, monkeypatch):

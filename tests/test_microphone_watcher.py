@@ -19,11 +19,12 @@ import logging
 import os
 import sys
 import threading
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 from voice_typer.server.microphone_watcher import MicrophoneDeviceWatcher
+
+from tests.fixtures.wait_for import wait_for
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -72,14 +73,13 @@ class TestMicrophoneDeviceWatcher:
         ):
             watcher.start()
             try:
-                # Let the watcher read the initial state — poll until at
+                # Let the watcher read the initial state — wait until at
                 # least one listdir call has occurred (confirms the
-                # baseline was captured).
-                deadline = time.monotonic() + 2.0
-                while time.monotonic() < deadline:
-                    if callback_event.is_set():
-                        break
-                    time.sleep(0.02)
+                # baseline was captured). The watcher's on_change sets
+                # callback_event on the first device change.
+                # The first poll captures the baseline (one entry) and
+                # sets callback_event once the change is detected.
+                wait_for(lambda: callback_event.is_set(), timeout=2.0)
                 # Simulate a device plug — entries change.
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 # The next poll (within 50ms) should fire the callback.
@@ -97,9 +97,12 @@ class TestMicrophoneDeviceWatcher:
 
         with patch("os.path.isdir", return_value=False):
             watcher.start()
-            # Give the thread time to run _run_linux and hit the
-            # isdir() == False early return.
-            time.sleep(0.2)
+            # Wait for the worker thread to enter _run_linux, see
+            # isdir() == False, and return. join() returns once the
+            # thread has terminated; the early return in _run_linux
+            # makes this happen almost immediately.
+            assert watcher._thread is not None
+            watcher._thread.join(timeout=2.0)
             watcher.stop()
 
         # No callback should have fired (no /dev/snd to watch).
@@ -196,7 +199,6 @@ class TestMicrophoneDeviceWatcher:
         ):
             watcher.start()
             try:
-                deadline = time.monotonic() + 2.0
 
                 def _warning_seen() -> bool:
                     return any(
@@ -212,8 +214,7 @@ class TestMicrophoneDeviceWatcher:
                 # and never detect a diff. The original test used a
                 # fixed ``time.sleep(0.15)``; we poll for the actual
                 # observable (listdir call count) instead.
-                while time.monotonic() < deadline and listdir_calls["count"] < 1:
-                    time.sleep(0.01)
+                wait_for(lambda: listdir_calls["count"] >= 1, timeout=2.0)
 
                 # Step 2: trigger a state change so the next poll
                 # detects the diff and invokes the (raising) callback.
@@ -223,8 +224,7 @@ class TestMicrophoneDeviceWatcher:
                 # in caplog — returns as soon as the watcher fires
                 # the callback, logs the warning, and continues. No
                 # fixed wall-clock budget.
-                while time.monotonic() < deadline and not _warning_seen():
-                    time.sleep(0.01)
+                wait_for(_warning_seen, timeout=2.0)
             finally:
                 watcher.stop()
 
@@ -250,12 +250,12 @@ class TestMicrophoneDeviceWatcher:
         ):
             watcher.start()
             # Wait for the thread to enter _run and crash. Poll until
-            # the thread is no longer alive.
-            deadline = time.monotonic() + 2.0
-            while time.monotonic() < deadline:
-                if watcher._thread is not None and not watcher._thread.is_alive():
-                    break
-                time.sleep(0.02)
+            # the thread is no longer alive (returns as soon as the
+            # thread exits, instead of a fixed 2s wall-clock wait).
+            wait_for(
+                lambda: watcher._thread is not None and not watcher._thread.is_alive(),
+                timeout=2.0,
+            )
             # Thread should have exited (not alive).
             assert watcher._thread is not None
             watcher._thread.join(timeout=1.0)
@@ -403,13 +403,9 @@ class TestMicrophoneDeviceWatcherMacOS:
         with patch.dict(sys.modules, {"sounddevice": mock_sd}):
             watcher.start()
             try:
-                # Let the watcher capture the baseline (2 devices). Poll
+                # Let the watcher capture the baseline (2 devices). Wait
                 # until at least one query_devices call has occurred.
-                deadline = time.monotonic() + 2.0
-                while time.monotonic() < deadline:
-                    if mock_sd.query_devices.called:
-                        break
-                    time.sleep(0.02)
+                wait_for(lambda: mock_sd.query_devices.called, timeout=2.0)
                 # Simulate a device plug — count changes to 3.
                 mock_sd.query_devices.return_value = [
                     {"name": "dev1"},
@@ -437,12 +433,10 @@ class TestMicrophoneDeviceWatcherMacOS:
         with patch.dict(sys.modules, {"sounddevice": mock_sd}):
             watcher.start()
             # Let several poll cycles pass with a STABLE device count.
-            # Poll for ~3 poll intervals (150ms) then assert no fire.
-            deadline = time.monotonic() + 0.6
-            while time.monotonic() < deadline:
-                if callback_event.is_set():
-                    break
-                time.sleep(0.02)
+            # Wait for ~3 poll intervals (150ms) and verify the callback
+            # does NOT fire (count never changed). wait() returns False
+            # on timeout — that's the expected outcome here.
+            callback_event.wait(timeout=0.6)
             watcher.stop()
 
         # No callback should have fired — count never changed.
@@ -460,12 +454,13 @@ class TestMicrophoneDeviceWatcherMacOS:
         with patch.dict(sys.modules, {"sounddevice": None}):
             watcher.start()
             # Wait for the thread to run _run_macos and hit the
-            # ImportError early return. Poll until thread has exited.
-            deadline = time.monotonic() + 2.0
-            while time.monotonic() < deadline:
-                if watcher._thread is None:
-                    break
-                time.sleep(0.02)
+            # ImportError early return. Poll until thread has exited
+            # (returns as soon as the thread terminates, instead of a
+            # fixed 2s wall-clock wait).
+            wait_for(
+                lambda: watcher._thread is not None and not watcher._thread.is_alive(),
+                timeout=2.0,
+            )
             watcher.stop()
 
         # No callback should have fired — the watcher exited early.
@@ -495,14 +490,11 @@ class TestMicrophoneDeviceWatcherMacOS:
         with patch.dict(sys.modules, {"sounddevice": mock_sd}):
             watcher.start()
             # Let several poll cycles pass — the watcher should
-            # recover from the transient errors and NOT crash. Poll
+            # recover from the transient errors and NOT crash. Wait
             # until call_count > 2 (past the flaky calls) and the
-            # thread is still alive.
-            deadline = time.monotonic() + 2.0
-            while time.monotonic() < deadline:
-                if call_count["n"] > 2:
-                    break
-                time.sleep(0.02)
+            # thread is still alive (returns as soon as the watcher
+            # has completed the flaky calls, instead of a fixed 2s wait).
+            wait_for(lambda: call_count["n"] > 2, timeout=2.0)
             watcher.stop()
 
         # No callback should have fired (count went from None-baseline
@@ -743,13 +735,9 @@ class TestMicrophoneDeviceWatcherWindows:
         # Default mocks: RegisterClassExW → 1, CreateWindowExW → 0x20000,
         # GetMessageW → 0 (WM_QUIT, pump exits on first call).
         watcher.start()
-        # Let the pump enter the message loop. Poll until GetMessageW
+        # Let the pump enter the message loop. Wait until GetMessageW
         # has been called (confirms the pump ran at least once).
-        deadline = time.monotonic() + 2.0
-        while time.monotonic() < deadline:
-            if fake_windows_windll["user32"].GetMessageW.called:
-                break
-            time.sleep(0.02)
+        wait_for(lambda: fake_windows_windll["user32"].GetMessageW.called, timeout=2.0)
         watcher.stop()
 
         user32 = fake_windows_windll["user32"]
@@ -865,13 +853,10 @@ class TestMicrophoneWatcherActiveMicLost:
         ):
             watcher.start()
             try:
-                # Let the watcher read the initial state. Poll until at
-                # least one listdir call has occurred.
-                deadline = time.monotonic() + 2.0
-                while time.monotonic() < deadline:
-                    if change_event.is_set():
-                        break
-                    time.sleep(0.02)
+                # Let the watcher read the initial state. Wait until
+                # the baseline is captured (the on_change event will
+                # fire on the first device change after this wait).
+                wait_for(lambda: change_event.is_set(), timeout=2.0)
                 # Simulate a device change — entries change.  This
                 # triggers _invoke_callback, which (after on_change)
                 # calls _check_active_mic_lost.  The provider still
@@ -914,20 +899,16 @@ class TestMicrophoneWatcherActiveMicLost:
         ):
             watcher.start()
             try:
-                # Poll until baseline is captured.
-                deadline = time.monotonic() + 2.0
-                while time.monotonic() < deadline:
-                    if change_event.is_set():
-                        break
-                    time.sleep(0.02)
+                # Wait for the baseline to be captured (the on_change
+                # event will fire on the next device change after this).
+                wait_for(lambda: change_event.is_set(), timeout=2.0)
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 assert change_event.wait(timeout=2.0), "on_change should still fire on device change"
-                # Give the watcher a moment to (not) fire the lost cb.
-                deadline = time.monotonic() + 1.0
-                while time.monotonic() < deadline:
-                    if lost_event.is_set():
-                        break
-                    time.sleep(0.02)
+                # Give the watcher up to 1s to (not) fire the lost cb.
+                # wait() returns False on timeout — that's the expected
+                # outcome here (the lost callback must NOT fire when
+                # the active mic is still in the device list).
+                lost_event.wait(timeout=1.0)
                 assert not lost_event.is_set(), (
                     "on_active_mic_lost must NOT fire when the active mic is still in the device list (false positive)"
                 )
@@ -952,12 +933,8 @@ class TestMicrophoneWatcherActiveMicLost:
         ):
             watcher.start()
             try:
-                # Poll until baseline is captured.
-                deadline = time.monotonic() + 2.0
-                while time.monotonic() < deadline:
-                    if change_event.is_set():
-                        break
-                    time.sleep(0.02)
+                # Wait for the baseline to be captured.
+                wait_for(lambda: change_event.is_set(), timeout=2.0)
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 assert change_event.wait(timeout=2.0), "on_change should fire even without active-mic-lost hooks"
                 # The check method must be a no-op without the hooks.
@@ -989,20 +966,15 @@ class TestMicrophoneWatcherActiveMicLost:
         ):
             watcher.start()
             try:
-                # Poll until baseline is captured.
-                deadline = time.monotonic() + 2.0
-                while time.monotonic() < deadline:
-                    if change_event.is_set():
-                        break
-                    time.sleep(0.02)
+                # Wait for the baseline to be captured.
+                wait_for(lambda: change_event.is_set(), timeout=2.0)
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 assert change_event.wait(timeout=2.0)
-                # Poll for the lost_event (should NOT fire).
-                deadline = time.monotonic() + 1.0
-                while time.monotonic() < deadline:
-                    if lost_event.is_set():
-                        break
-                    time.sleep(0.02)
+                # Wait up to 1s for the lost_event (should NOT fire).
+                # wait() returns False on timeout — that's the expected
+                # outcome here (the lost callback must NOT fire after
+                # set_active_mic_id(None) — recording stopped).
+                lost_event.wait(timeout=1.0)
                 assert not lost_event.is_set(), (
                     "on_active_mic_lost must NOT fire after set_active_mic_id(None) (recording stopped)"
                 )
@@ -1035,26 +1007,23 @@ class TestMicrophoneWatcherActiveMicLost:
         ):
             watcher.start()
             try:
-                # Poll until baseline is captured.
-                deadline = time.monotonic() + 2.0
-                while time.monotonic() < deadline:
-                    if change_event.is_set():
-                        break
-                    time.sleep(0.02)
+                # Wait for the baseline to be captured.
+                wait_for(lambda: change_event.is_set(), timeout=2.0)
                 state["entries"] = ["controlC0", "pcmC0D0c"]
                 # Wait for the on_change callback to fire (prereq).
                 assert change_event.wait(timeout=2.0)
-                # Give the watcher time to call _check_active_mic_lost
-                # and run the raising callback. Poll for the warning log.
-                deadline = time.monotonic() + 2.0
-                while time.monotonic() < deadline:
-                    if any(
+                # Wait for the watcher to call _check_active_mic_lost
+                # and run the raising callback. Poll for the warning log
+                # (returns as soon as the warning appears, instead of a
+                # fixed 2s wall-clock wait).
+                wait_for(
+                    lambda: any(
                         "on_active_mic_lost callback raised" in r.message
                         for r in caplog.records
                         if r.levelno >= logging.WARNING
-                    ):
-                        break
-                    time.sleep(0.02)
+                    ),
+                    timeout=2.0,
+                )
             finally:
                 watcher.stop()
 

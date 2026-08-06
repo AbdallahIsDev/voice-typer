@@ -1,4 +1,4 @@
-"""RW-9 regression tests for the ``TimerCoordinator`` extraction.
+"""regression tests for the ``TimerCoordinator`` extraction.
 
 The two timer-lifecycle methods (``_schedule_timer`` and
 ``_cancel_pending_timers``) were extracted from ``VoiceTyperApp`` to

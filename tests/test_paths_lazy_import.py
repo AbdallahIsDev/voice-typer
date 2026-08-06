@@ -117,7 +117,10 @@ def test_paths_module_initial_config_dir_is_none() -> None:
     # Debug: print state for diagnosis
     import sys
     print(f"\nDEBUG: _paths id={id(_paths)}, _config_dir={_paths._config_dir!r}")
-    print(f"DEBUG: voice_typer.server._paths attr = {getattr(sys.modules.get('voice_typer.server'), '_paths', 'MISSING')}")
+    print(
+        "DEBUG: voice_typer.server._paths attr = "
+        f"{getattr(sys.modules.get('voice_typer.server'), '_paths', 'MISSING')}"
+    )
     print(f"DEBUG: voice_typer.server._paths in sys.modules = {'voice_typer.server._paths' in sys.modules}")
     if 'voice_typer.server._paths' in sys.modules:
         cached = sys.modules['voice_typer.server._paths']

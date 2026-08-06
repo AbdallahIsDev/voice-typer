@@ -95,6 +95,19 @@ from unittest.mock import MagicMock
 import numpy as np
 import pytest
 
+# Hint for xdist schedulers that respect ``xdist_group`` (loadgroup /
+# loadscope): pin every test in this module onto a single worker so the
+# monkeypatched ``platform_utils.is_macos/is_windows`` + ``Path.home`` +
+# ``_reset_config_dir_cache()`` state in
+# ``test_model_path_resolves_to_xdg_data_home_on_linux`` doesn't interleave
+# with sibling modules that monkeypatch ``voice_typer.server.config._config_dir``
+# or ``_paths._config_dir`` under ``pytest -n auto``. xdist's default ``load``
+# scheduler does NOT strictly honor this marker (verified on xdist 3.8.0),
+# so it's a best-effort hint — when it IS honored (e.g. CI runs with
+# ``--dist=loadscope``) it eliminates the cross-module config-cache leak
+# seen in the baseline. No-op when xdist isn't active. (C-TEST-5: test isolation.)
+pytestmark = pytest.mark.xdist_group("faster_whisper_linux")
+
 # ─── Project root + build-script path ─────────────────────────────────────────
 # parents[0]=mig17, [1]=tauri, [2]=tests, [3]=voice-typer (project root).
 PROJECT_ROOT = Path(__file__).resolve().parents[3]

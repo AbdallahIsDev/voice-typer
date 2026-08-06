@@ -21,8 +21,10 @@ import os
 import struct
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
+import filelock
 import pytest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
@@ -30,6 +32,21 @@ SCRIPT = PROJECT_ROOT / "scripts" / "gen_tauri_icons_stub.py"
 SRC_TAURI = PROJECT_ROOT / "src-tauri"
 
 PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
+# Hint for xdist schedulers that DO respect ``xdist_group`` (loadgroup /
+# loadscope). The hard cross-process serialization is the file lock in
+# ``_serialize_and_cleanup`` below — xdist's default ``load`` scheduler
+# does NOT strictly honor ``xdist_group`` (verified on xdist 3.8.0), so
+# the marker alone is insufficient. Both are kept: the marker is a no-op
+# when xdist isn't active, and the file lock covers every scheduler mode.
+# (C-TEST-5: test isolation; C-STYLE-1: minimal, documented change.)
+pytestmark = pytest.mark.xdist_group("gen_tauri_icons_stub")
+
+# Cross-process lock file — lives in the per-user temp dir so concurrent
+# CI runs by different users don't contend. Acquired by every test in
+# this module via the autouse ``_serialize_and_cleanup`` fixture so the
+# generate→read→clean cycle is atomic across xdist workers.
+_LOCK_PATH = Path(tempfile.gettempdir()) / "voice-typer-gen-tauri-icons-stub.test.lock"
 
 # Target triples (mirrors the script's SIDECAR_TRIPLES).
 TRIPLES = [
@@ -78,10 +95,34 @@ def _stub_paths() -> list[Path]:
 
 
 @pytest.fixture(autouse=True)
-def _cleanup_stubs_after_test():
-    """Ensure stubs are cleaned up after each test (don't pollute the repo)."""
-    yield
-    _run("--clean")
+def _serialize_and_cleanup():
+    """Acquire a cross-process file lock for the duration of each test, then
+    clean up the generated stub files.
+
+    WHY THE LOCK: every test in this module generates + verifies stub files
+    in the shared on-disk ``src-tauri/`` tree, and the post-test cleanup
+    runs ``scripts/gen_tauri_icons_stub.py --clean``. Under ``pytest -n
+    auto`` (xdist) parallel workers race — one worker's ``--clean`` deletes
+    a PNG another worker is mid-read, surfacing as intermittent
+    ``FileNotFoundError`` on the icon / sidecar / prewarm paths.
+
+    xdist's default ``load`` scheduler does NOT strictly honor
+    ``@pytest.mark.xdist_group`` (verified on xdist 3.8.0 — tests with the
+    same group still landed on different workers). The module-level
+    ``pytestmark = pytest.mark.xdist_group(...)`` is kept as a hint for
+    schedulers that DO respect it (``loadgroup`` / ``loadscope``), but the
+    file lock is the actual cross-process guarantee. It serializes every
+    test in this module so the generate → read → clean cycle is atomic.
+
+    The lock lives in the per-user temp dir, so concurrent CI runs by
+    different users don't contend. ``timeout=60`` bounds the wait so a
+    crashed worker can't hang the suite forever. (C-TEST-5: test isolation.)
+    """
+    lock = filelock.FileLock(str(_LOCK_PATH), timeout=60)
+    with lock:
+        yield
+        # Ensure stubs are cleaned up after each test (don't pollute the repo).
+        _run("--clean")
 
 
 def test_generate_creates_all_expected_stubs():

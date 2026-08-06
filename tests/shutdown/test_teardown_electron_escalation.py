@@ -316,10 +316,10 @@ class TestPosixSigkillEscalation:
         # ``signal.SIGKILL`` is absent on Windows Python — the source
         # uses ``getattr(signal, "SIGKILL", 9)`` (the POSIX value);
         # mirror that here so the assertion is portable.
-        _SIGKILL = getattr(signal, "SIGKILL", 9)
-        sigkill_calls = [(pid, sig) for (pid, sig) in kill_calls if sig == _SIGKILL]
+        sigkill = getattr(signal, "SIGKILL", 9)
+        sigkill_calls = [(pid, sig) for (pid, sig) in kill_calls if sig == sigkill]
         assert sigkill_calls, (
-            f"os.kill must be called with SIGKILL ({_SIGKILL}) "
+            f"os.kill must be called with SIGKILL ({sigkill}) "
             f"on the escalation path; got signals {[sig for _, sig in kill_calls]}"
         )
 

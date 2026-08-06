@@ -1,6 +1,6 @@
-"""RW-9: test matrix for ``Config.load()`` corrupt-config scenarios.
+"""test matrix for ``Config.load()`` corrupt-config scenarios.
 
-Prior to RW-9, ``Config.load()`` wrapped its body in a broad
+Prior to ``Config.load()`` wrapped its body in a broad
 ``except Exception`` that silently returned defaults.  This file pins
 the new contract:
 
@@ -47,12 +47,12 @@ def _loading_warning_records(caplog) -> list[logging.LogRecord]:
     """Return only the per-field 'invalid ... resetting to default' or
     'loading config ... Using defaults' warning records.
 
-    G4-H-10 adds a second warning ('moved corrupt config ... for forensic
+    adds a second warning ('moved corrupt config ... for forensic
     recovery') when a corrupt config is moved aside.  Tests that assert
     on the load-failure warning specifically should use this helper to
     filter out the move-aside warning.
 
-    G4-M-11/M-13: per-field coercion warnings now use the format
+    per-field coercion warnings now use the format
     'invalid <field> value ... resetting to default' rather than the
     old generic 'loading config ... Using defaults' message.
     """
@@ -116,7 +116,7 @@ class TestConfigLoadCaughtFailureModes:
     def test_json_non_dict_returns_defaults_and_logs_warning(self, tmp_path, monkeypatch, caplog, bad_root):
         """Valid JSON but not a dict → TypeError → defaults.
 
-        RW-9: ``load()`` now explicitly checks ``isinstance(parsed, dict)``
+        ``load()`` now explicitly checks ``isinstance(parsed, dict)``
         and raises ``TypeError`` with a clear message.  Previously this
         case raised ``AttributeError`` from ``parsed.items()``, which was
         caught by the broad ``except Exception``.  The new behavior
@@ -137,7 +137,7 @@ class TestConfigLoadCaughtFailureModes:
     def test_field_with_uncoercible_string_returns_defaults_and_logs_warning(self, tmp_path, monkeypatch, caplog):
         """A float field set to a non-numeric string → per-field reset + warning.
 
-        MED-K / VALID-1: ``float("abc")`` raises ``ValueError`` — the
+        ``float("abc")`` raises ``ValueError`` — the
         field cannot be coerced.  Previously this reset the ENTIRE config
         to defaults; now only the bad field is reset and a warning is
         logged so the user knows which field was bad.
@@ -149,7 +149,7 @@ class TestConfigLoadCaughtFailureModes:
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
         recs = _loading_warning_records(caplog)
         assert len(recs) == 1
-        # MED-K / VALID-1: new message format names the field and value.
+        # new message format names the field and value.
         assert "streaming_chunk_seconds" in recs[0].message
         assert "abc" in recs[0].message
         assert "resetting to default" in recs[0].message
@@ -159,7 +159,7 @@ class TestConfigLoadCaughtFailureModes:
     def test_field_with_null_for_float_returns_defaults_and_logs_warning(self, tmp_path, monkeypatch, caplog):
         """A float field set to ``null`` → per-field reset + warning.
 
-        MED-K / VALID-1: ``float(None)`` raises ``TypeError``.  Previously
+        ``float(None)`` raises ``TypeError``.  Previously
         this reset the ENTIRE config; now only the bad field is reset.
         """
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
@@ -179,7 +179,7 @@ class TestConfigLoadCaughtFailureModes:
     ):
         """A float field set to a list → per-field reset + warning.
 
-        MED-K / VALID-1: ``float([1, 2])`` raises ``TypeError``.  Previously
+        ``float([1, 2])`` raises ``TypeError``.  Previously
         this reset the ENTIRE config; now only the bad field is reset.
         """
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
@@ -342,7 +342,7 @@ class TestConfigLoadPropagatedFailureModes:
     def test_memoryerror_propagates(self, tmp_path, monkeypatch):
         """``MemoryError`` is system-level — must not be silently swallowed.
 
-        Pre-RW-9 the broad ``except Exception`` caught ``MemoryError``
+        the broad ``except Exception`` caught ``MemoryError``
         (it's a subclass of ``Exception``) and silently returned
         defaults, masking an OOM condition.
         """
@@ -359,7 +359,7 @@ class TestConfigLoadPropagatedFailureModes:
     def test_keyboardinterrupt_propagates(self, tmp_path, monkeypatch):
         """``KeyboardInterrupt`` must always propagate (user hit Ctrl-C).
 
-        Pre-RW-9 ``except Exception`` did NOT catch ``KeyboardInterrupt``
+        ``except Exception`` did NOT catch ``KeyboardInterrupt``
         (it's a ``BaseException``, not ``Exception``), but we add this
         test to pin that behavior — if someone later widens the catch
         to ``except BaseException`` it would break Ctrl-C handling.
@@ -409,7 +409,7 @@ class TestConfigLoadPropagatedFailureModes:
 
 
 class TestConfigLoadLegitimateCasesPreserved:
-    """RW-9 must not break any legitimate config-loading path."""
+    """must not break any legitimate config-loading path."""
 
     def test_valid_config_loads_normally(self, tmp_path, monkeypatch):
         """A well-formed config dict loads with the user's values."""
@@ -459,7 +459,7 @@ class TestConfigLoadLegitimateCasesPreserved:
 
 
 class TestConfigLoadWarningMessageQuality:
-    """RW-9: the warning must include enough context to be actionable."""
+    """the warning must include enough context to be actionable."""
 
     def test_warning_includes_exception_class_name(self, tmp_path, monkeypatch, caplog):
         """The exception class name (e.g. ``JSONDecodeError``) is the
@@ -500,7 +500,7 @@ class TestConfigLoadWarningMessageQuality:
         assert "column" in recs[0].message
 
     def test_warning_level_is_warning_not_error(self, tmp_path, monkeypatch, caplog):
-        """RW-9: level is WARNING (recoverable), not ERROR (fatal).
+        """level is WARNING (recoverable), not ERROR (fatal).
 
         Recovering to defaults is a normal, recoverable event — using
         ERROR would flood monitoring dashboards with false positives.
@@ -518,7 +518,7 @@ class TestConfigLoadWarningMessageQuality:
 
 
 class TestCoercionHelpers:
-    """S2-CR-44: ``_warn_and_reset`` and ``_warn_and_coerce`` extract
+    """``_warn_and_reset`` and ``_warn_and_coerce`` extract
     the duplicated 5-line "build msg → log → append → reset" pattern
     that appeared 6 times in the original
     ``_validate_non_numeric_fields``.
@@ -633,7 +633,7 @@ class TestCoercionHelpers:
         assert recs[0].levelno == logging.WARNING
 
     def test_validate_non_numeric_fields_uses_helpers_for_bool_coercion(self, caplog):
-        """S2-CR-44 regression: bool coercion routes through
+        """regression: bool coercion routes through
         ``_warn_and_coerce`` so the warning message format stays
         consistent with int/float coercion.
         """
@@ -650,7 +650,7 @@ class TestCoercionHelpers:
         assert "coerced to" in recs[0].message
 
     def test_validate_non_numeric_fields_uses_helpers_for_int_reset(self, caplog):
-        """S2-CR-44 regression: int field reset routes through
+        """regression: int field reset routes through
         ``_warn_and_reset``.
         """
         # An int field with a non-numeric string value → reset to default.

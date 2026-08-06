@@ -372,6 +372,18 @@ class TestVadAutoCalibrationBehavior:
         # backend path to exercise the calibration logic under test.
         rec._vad._silero_available = False
         rec._vad._use_silero_vad = False
+        # VAD-GATE / PERF-02: ``Recorder._vad_auto_calibrate`` short-circuits
+        # on the cached ``_cached_vad_enabled`` scalar (hot-path optimization
+        # for the 16 Hz audio worker), and ``VadProcessor.auto_calibrate``
+        # gates on ``self.vad_enabled`` (which reads
+        # ``_vad_enabled_cached`` and falls back to computing from config
+        # noise-filter flags — all False by default). A direct unit-test
+        # invocation must populate BOTH caches so the calibration body
+        # actually runs. ``Recorder._refresh_vad_caches()`` would populate
+        # ``_cached_vad_enabled`` from ``_vad.vad_enabled`` (still False
+        # with default config), so we set both scalars directly.
+        rec._cached_vad_enabled = True
+        rec._vad._vad_enabled_cached = True
         # Reset calibration state
         rec._vad_calibration_rms_values = []
         rec._vad_calibrated = False

@@ -1,4 +1,4 @@
-"""H-20 (IMPROVE-2026-07-19): regression guard for requirements-lock.txt completeness.
+"""regression guard for requirements-lock.txt completeness.
 
 Prior bug: ``websockets`` and ``keyring`` were declared in
 ``pyproject.toml`` [project.dependencies] but MISSING from
@@ -45,9 +45,9 @@ LOCKFILE = REPO_ROOT / "requirements-lock.txt"
 
 
 def _normalize(name: str) -> str:
-    """PEP 503 normalisation: ``keyring-foo`` → ``keyring-foo`` (already canonical).
+    """normalisation: ``keyring-foo`` → ``keyring-foo`` (already canonical).
 
-    PEP 503 says ``re.sub(r"[-_.]+", "-", name).lower()`` but pip's
+    says ``re.sub(r"[-_.]+", "-", name).lower()`` but pip's
     lockfile uses the canonical name already, so we just lowercase + dash.
     """
     return re.sub(r"[-_.]+", "-", name).lower()
@@ -56,7 +56,7 @@ def _normalize(name: str) -> str:
 def _marker_applies_current_platform(marker_str: str) -> bool:
     """Return True if a PEP 508 environment marker matches the running platform.
 
-    WR-20: ``requirements-lock.txt`` is generated on Linux via
+    ``requirements-lock.txt`` is generated on Linux via
     ``uv pip compile``, so platform-conditional deps (pycaw, comtypes,
     pyobjc-*) are correctly excluded by pip-tools. We skip the
     lockfile-completeness check for deps whose ``sys_platform`` marker
@@ -107,7 +107,7 @@ def _direct_deps() -> set[str]:
 def _direct_deps_for_current_platform() -> set[str]:
     """Return direct deps whose environment marker matches the current platform.
 
-    WR-20: filters out deps with ``sys_platform`` markers that don't
+    filters out deps with ``sys_platform`` markers that don't
     match the current platform (e.g. ``pycaw`` on Linux, ``pyobjc-*``
     on Windows). The lockfile is generated on Linux via pip-tools, so
     these platform-conditional deps are correctly absent from
@@ -148,7 +148,7 @@ def _lockfile_pinned_names() -> set[str]:
 def test_every_direct_dep_is_pinned_in_lockfile() -> None:
     """Every dep declared in pyproject.toml MUST have a pinned entry in the lockfile.
 
-    WR-20: platform-conditional deps (``sys_platform == 'win32'`` /
+    platform-conditional deps (``sys_platform == 'win32'`` /
     ``sys_platform == 'darwin'``) are skipped when the lockfile is
     generated on a non-matching platform. ``requirements-lock.txt``
     is generated on Linux via ``uv pip compile``, so pycaw, comtypes,
@@ -160,7 +160,7 @@ def test_every_direct_dep_is_pinned_in_lockfile() -> None:
     pinned = _lockfile_pinned_names()
     missing = direct - pinned
     assert not missing, (
-        "H-20 regression: these pyproject.toml direct dependencies are MISSING from "
+        "regression: these pyproject.toml direct dependencies are MISSING from "
         "requirements-lock.txt (the `pip install --require-hashes` flow would install "
         "successfully but the runtime would crash with ModuleNotFoundError):\n  "
         + "\n  ".join(sorted(missing))
@@ -182,12 +182,12 @@ def test_known_critical_deps_are_pinned() -> None:
     """
     pinned = _lockfile_pinned_names()
     assert "websockets" in pinned, (
-        "H-20 regression: `websockets` is missing from requirements-lock.txt. "
+        "regression: `websockets` is missing from requirements-lock.txt. "
         "sidecar_ws.py imports it for the Tauri WS transport (ADR-0020 §14)."
     )
     assert "keyring" in pinned, (
-        "H-20 regression: `keyring` is missing from requirements-lock.txt. "
-        "credential_store.py imports it for OS-native credential storage (RW-01)."
+        "regression: `keyring` is missing from requirements-lock.txt. "
+        "credential_store.py imports it for OS-native credential storage."
     )
 
 

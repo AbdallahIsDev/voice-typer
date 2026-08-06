@@ -1,4 +1,4 @@
-"""RW-8 behavioral tests ported from source-string meta-tests.
+"""behavioral tests ported from source-string meta-tests.
 
 Each test class here replaces a meta-test in ``tests/test_bugfix_regressions.py``
 that read production source as text and asserted on string patterns. The
@@ -39,7 +39,7 @@ import pytest
 
 
 class TestElectronLogFilesBehavioral:
-    """RW-8 PORT of ``test_electron_launch_sites_use_log_files_not_devnull``.
+    """PORT of ``test_electron_launch_sites_use_log_files_not_devnull``.
 
     The meta-test counted occurrences of ``_electron_log_files()`` in the
     autostart_launcher module source (>= 3). That count is brittle: if
@@ -126,17 +126,17 @@ class TestElectronLogFilesBehavioral:
         # which is heavy to drive; we rely on the file-content check in
         # the original meta-test (kept as KEEP) for that site.
         assert len(call_log) >= 2, (
-            "RACE-009: each Electron launch entry point must call "
+            "each Electron launch entry point must call "
             f"_electron_log_files() (expected >= 2 calls, got {len(call_log)}). "
             "Sites tested: _launch_electron_built, _spawn_npm_run_dev."
         )
 
 
-# ─── PORT 2: _get_icon_path returns .ico when available ──────────────────
+# ─── _get_icon_path returns .ico when available ──────────────────
 
 
 class TestTrayIconBaseIcoBehavioral:
-    """RW-8 PORT of ``test_get_icon_path_looks_for_base_ico``.
+    """PORT of ``test_get_icon_path_looks_for_base_ico``.
 
     The meta-test checked that ``_get_icon_path``'s source contains the
     substring ``tray-mic.ico``. That check is brittle: production may
@@ -179,7 +179,7 @@ class TestTrayIconBaseIcoBehavioral:
 
 
 class TestAccessibilityIpcBehavioral:
-    """RW-8 PORT of ``test_check_accessibility_ipc_handler_exists``.
+    """PORT of ``test_check_accessibility_ipc_handler_exists``.
 
     The meta-test checked that the handler source contains the substrings
     ``accessibility_status`` and ``AXIsProcessTrusted``. Those checks are
@@ -203,7 +203,7 @@ class TestAccessibilityIpcBehavioral:
     """
 
     _SKIP_REASON = (
-        "ZR-45: check_accessibility moved from Python IPC to Tauri Rust host; "
+        "check_accessibility moved from Python IPC to Tauri Rust host; "
         "Python handler was dead code (Tauri never bridged the call). Coverage "
         "now lives in src-tauri Rust tests."
     )
@@ -307,7 +307,7 @@ class TestAccessibilityIpcBehavioral:
 
 
 class TestTcpLineIoOversizedBehavioral:
-    """RW-8 PORT of ``test_readline_caps_oversized_messages``.
+    """PORT of ``test_readline_caps_oversized_messages``.
 
     The meta-test checked that ``_TCPLineIO.readline`` source contains
     one of ``_MAX_LINE_BYTES`` / ``_MAX_LINE_CHARS`` / ``_max_line_bytes``

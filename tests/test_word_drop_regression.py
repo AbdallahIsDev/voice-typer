@@ -1,4 +1,4 @@
-"""Regression tests for RW-T1: transcription word-drop bug for long recordings.
+"""Regression tests: transcription word-drop bug for long recordings.
 
 Root causes fixed:
 1. parakeet_engine._transcribe_segment had max_new_tokens=256 which silently

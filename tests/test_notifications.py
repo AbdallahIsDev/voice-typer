@@ -22,7 +22,7 @@ def _read_ux018(path: Path) -> str:
 class TestCriticalNotificationsBypassToggle:
     """Each critical notification uses tray.notify_safety() to bypass the toggle.
 
-    RW-9 Phase 5 extracted the startup flow (including the critical
+    Phase 5 extracted the startup flow (including the critical
     notifications for onboarding failure, corrections error, crash
     recovery, Wayland hotkeys, macOS accessibility) to
     ``startup_sequence.py``. The tests now read from the correct file.
@@ -76,7 +76,7 @@ class TestCriticalNotificationsBypassToggle:
     def test_recording_stop_failure_uses_notify_safety(self):
         rc_py = REPO_ROOT / "voice_typer" / "server" / "recording_controller.py"
         src = rc_py.read_text(encoding="utf-8")
-        # Fix-B ( / i18n extraction): the English notification
+        # Fix-B (i18n extraction): the English notification
         # string was moved from the call site to ``i18n.py`` under the
         # key ``notify.recording_controller.stop_failed``. The source
         # file now references the i18n key (not the literal English
@@ -89,7 +89,7 @@ class TestCriticalNotificationsBypassToggle:
 
     def test_model_load_failure_uses_notify_safety(self):
         src = _read_ux018(MODEL_MANAGER_PY)
-        # Fix-B ( / i18n extraction): the English notification
+        # Fix-B (i18n extraction): the English notification
         # string was moved from the call site to ``i18n.py`` under the
         # key ``notify.model_manager.load_failed``.
         assert "notify.model_manager.load_failed" in src
@@ -109,7 +109,7 @@ class TestNonCriticalNotificationsRespectToggle:
     )
     def test_repaste_feedback_uses_notify(self):
         src = _read_ux018(APP_PY)
-        # Fix-B ( / i18n extraction): the English notification
+        # Fix-B (i18n extraction): the English notification
         # string was moved from the call site to ``i18n.py`` under the
         # key ``notify.app.repaste_done``. The call site still uses
         # ``notify(...)`` (not ``notify_safety``) so the toggle-respect

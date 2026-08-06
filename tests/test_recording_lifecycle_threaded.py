@@ -141,10 +141,13 @@ class TestGQ27FastF2ReturnDuringModelReload:
 
         # Call ``_start_impl`` on the F2 thread and measure return time.
         # ``_start_impl`` is called under ``_toggle_lock`` by ``start()``;
-        # we call it directly to avoid the ``with`` block (the lifecycle's
-        # ``start`` method acquires the lock).
+        # we acquire the lock here to mirror that contract — the production
+        # code releases/re-acquires the lock around the bounded worker join
+        # (IN-20), so calling ``_start_impl`` without holding the lock would
+        # trigger a ``RuntimeError: cannot release un-acquired lock``.
         start_time = time.monotonic()
-        controller._lifecycle._start_impl(controller)
+        with controller._toggle_lock:
+            controller._lifecycle._start_impl(controller)
         elapsed = time.monotonic() - start_time
 
         # The F2 thread must return within 200ms.
@@ -195,7 +198,8 @@ class TestGQ27FastF2ReturnDuringModelReload:
 
         app.models.ensure_active_engine_loaded = MagicMock(side_effect=_slow_load)
 
-        controller._lifecycle._start_impl(controller)
+        with controller._toggle_lock:
+            controller._lifecycle._start_impl(controller)
 
         # recording must be True immediately after _start_impl returns.
         assert app.recorder.recording is True, (
@@ -216,7 +220,8 @@ class TestGQ27FastF2ReturnDuringModelReload:
         controller = _make_controller_with_lifecycle(app)
 
         # Fast model load (already loaded).
-        controller._lifecycle._start_impl(controller)
+        with controller._toggle_lock:
+            controller._lifecycle._start_impl(controller)
 
         # The event must exist on the controller.
         event = getattr(controller, "_start_complete_event", None)
@@ -245,7 +250,8 @@ class TestGQ27FastF2ReturnDuringModelReload:
 
         app.models.ensure_active_engine_loaded = MagicMock(side_effect=_slow_load)
 
-        controller._lifecycle._start_impl(controller)
+        with controller._toggle_lock:
+            controller._lifecycle._start_impl(controller)
 
         worker = getattr(controller, "_start_worker_thread", None)
         assert worker is not None, (
@@ -269,7 +275,8 @@ class TestGQ27FastF2ReturnDuringModelReload:
         controller = _make_controller_with_lifecycle(app)
         app.config.streaming_transcription = True
 
-        controller._lifecycle._start_impl(controller)
+        with controller._toggle_lock:
+            controller._lifecycle._start_impl(controller)
 
         # Wait for the worker.
         event = getattr(controller, "_start_complete_event", None)
@@ -295,7 +302,8 @@ class TestGQ27FastF2ReturnDuringModelReload:
         # fallback_to_whisper doesn't change is_loaded (still False).
         app.models.fallback_to_whisper = MagicMock()
 
-        controller._lifecycle._start_impl(controller)
+        with controller._toggle_lock:
+            controller._lifecycle._start_impl(controller)
 
         # Wait for the worker.
         event = getattr(controller, "_start_complete_event", None)
@@ -318,7 +326,8 @@ class TestGQ27FastF2ReturnDuringModelReload:
 
         # Model already loaded — ensure_active_engine_loaded is a no-op.
         start_time = time.monotonic()
-        controller._lifecycle._start_impl(controller)
+        with controller._toggle_lock:
+            controller._lifecycle._start_impl(controller)
         elapsed = time.monotonic() - start_time
 
         # F2 thread returns within 200ms.

@@ -179,8 +179,10 @@ class TestWaitForRelaunchAckTimeout:
 
         assert result is False, "Expected False when the ack event is never signalled."
         # Must wait at least ~timeout seconds (not short-circuit to 0)
-        # and at most ~timeout + a small slack (not block forever).
-        assert elapsed >= timeout, (
+        # and at most ~timeout + a small slack (not block forever). The
+        # lower bound is tolerant of Windows timer granularity
+        # (``Event.wait`` may return a few ms early).
+        assert elapsed >= timeout - 0.05, (
             f"_wait_for_relaunch_ack returned too quickly: elapsed={elapsed:.3f}s, "
             f"expected to wait at least {timeout}s for the ack."
         )
@@ -208,7 +210,10 @@ class TestWaitForRelaunchAckTimeout:
         elapsed = time.monotonic() - start
 
         assert result is False
-        assert elapsed >= timeout, f"Legacy fallback path returned too quickly: {elapsed:.3f}s"
+        # Tolerant lower bound: ``Event.wait`` may return a few ms early
+        # on Windows (timer granularity); the intent is that the legacy
+        # path waited the full window rather than short-circuiting.
+        assert elapsed >= timeout - 0.05, f"Legacy fallback path returned too quickly: {elapsed:.3f}s"
 
 
 # ── (c) restart_app on non-main thread skips sys.exit, arms watchdog ──

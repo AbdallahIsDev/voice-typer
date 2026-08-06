@@ -1,4 +1,4 @@
-"""Tests for the RW-01 encrypted credential store.
+"""Tests for the encrypted credential store.
 
 These tests verify:
 

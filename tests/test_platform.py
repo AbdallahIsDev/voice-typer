@@ -36,8 +36,21 @@ class TestAutostartCommand:
         # in quotes (per the freedesktop Desktop Entry Spec).  We just
         # verify the executable appears in the command and the
         # launcher is present.
+        #
+        # PLAT-VENV: when running inside a virtualenv, the production
+        # code (server_platform.autostart._autostart_command) may swap
+        # ``sys.executable`` for the system Python (found via
+        # ``shutil.which("python3")``) if the system Python can import
+        # the launcher.  So we cannot hard-assert ``sys.executable`` is
+        # in the command; instead we verify the first token is a real
+        # executable on disk and the launcher is referenced.
         cmd = _autostart_command()
-        assert sys.executable in cmd, f"Expected sys.executable ({sys.executable}) in cmd: {cmd}"
+        tokens = cmd.split()
+        assert len(tokens) >= 2, f"expected at least 2 tokens (python + launcher), got: {cmd}"
+        exe = tokens[0].strip('"')
+        assert Path(exe).exists(), (
+            f"first token must be an existing executable on disk, got: {exe!r} (cmd: {cmd})"
+        )
         assert "autostart_launcher.py" in cmd
 
 

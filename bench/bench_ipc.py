@@ -40,7 +40,6 @@ import argparse
 import json
 import statistics
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -204,7 +203,6 @@ def bench_streaming_round_trip(iterations: int) -> dict:
 
     event = {"type": "transcription_final", "data": {"text": "partial text"}}
     latencies: list[float] = []
-    barrier = threading.Barrier(2)  # publisher + subscriber
 
     def subscriber(_msg: dict) -> None:
         # Record the latency from publish time to callback time.
@@ -339,12 +337,13 @@ def main() -> int:
     print(f"  Warm p50 / p99 / max: {hs['warm']['p50_us']} / {hs['warm']['p99_us']} / {hs['warm']['max_us']} µs")
 
     pt = results["push_throughput"]
-    print(f"\n## Push Throughput ({pt['iterations'] if 'iterations' in pt else ''} iters per N)")
+    print(f"\n## Push Throughput ({pt.get('iterations', '')} iters per N)")
     print(f"  {'subscribers':<12} {'p50 (µs)':<12} {'p99 (µs)':<12} {'max (µs)':<12} {'ops/s':<12}")
     for r in pt["results_per_n"]:
         s = r["publish_latency"]
         print(
-            f"  {r['subscribers']:<12} {s['p50_us']:<12} {s['p99_us']:<12} {s['max_us']:<12} {r['throughput_ops_per_s']:<12}"
+            f"  {r['subscribers']:<12} {s['p50_us']:<12} {s['p99_us']:<12} "
+            f"{s['max_us']:<12} {r['throughput_ops_per_s']:<12}"
         )
 
     rt = results["streaming_round_trip"]
@@ -352,7 +351,7 @@ def main() -> int:
     print(f"  p50 / p99 / max: {rt['latency']['p50_us']} / {rt['latency']['p99_us']} / {rt['latency']['max_us']} µs")
 
     rl = results["rate_limiter_saturation"]
-    print(f"\n## Rate Limiter Saturation")
+    print("\n## Rate Limiter Saturation")
     print(f"  heartbeat (bypass)  : p50={rl['heartbeat_allow']['p50_us']} p99={rl['heartbeat_allow']['p99_us']} µs")
     print(f"  set_config (cost=2) : p50={rl['set_config_allow']['p50_us']} p99={rl['set_config_allow']['p99_us']} µs")
     return 0

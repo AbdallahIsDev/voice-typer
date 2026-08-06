@@ -1,4 +1,4 @@
-"""CR-9 regression: heartbeat watchdog force-exits if ``tray.stop()`` hangs.
+"""regression: heartbeat watchdog force-exits if ``tray.stop()`` hangs.
 
 Before CR-9, the heartbeat watchdog called ``self.app.quit()`` and
 returned — relying entirely on ``tray.stop()`` (called inside
@@ -14,7 +14,7 @@ thread is still stuck in ``tray.run()`` — so the process never exits.
 The mic stays open, the single-instance mutex stays held, and the
 next launch hits ``ERROR_ALREADY_EXISTS``.
 
-CR-9 fix: after calling ``app.quit()``, the watchdog schedules a daemon
+fix: after calling ``app.quit()``, the watchdog schedules a daemon
 thread that sleeps ``_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS`` (default
 10s) and then calls ``os._exit(1)``. If ``quit()`` succeeded, the
 process is already gone before the grace period expires. If
@@ -91,7 +91,7 @@ def test_force_exit_thread_scheduled_after_quit(server: IPCServer) -> None:
 
     The thread is what actually calls ``os._exit(1)`` after the grace
     period. If the scheduling itself fails (e.g., ``threading.Thread``
-    raises), the watchdog silently degrades to the pre-CR-9 behavior —
+    raises), the watchdog silently degrades to the behavior —
     so we want a positive assertion that the thread IS created.
     """
     # Arm the watchdog with a heartbeat, then advance time past the
@@ -179,7 +179,7 @@ def test_force_exit_thread_NOT_scheduled_before_first_heartbeat(  # noqa: N802
 ) -> None:
     """No force-exit thread before Electron's first heartbeat (slow cold-start guard).
 
-    Mirrors the existing RW-10 guard: ``_last_heartbeat_at`` is ``None``
+    Mirrors the existing guard: ``_last_heartbeat_at`` is ``None``
     until the first heartbeat lands. The watchdog refuses to fire — and
     therefore refuses to schedule the force-exit thread — so a slow
     Electron cold start doesn't cause a spurious process exit.
@@ -390,14 +390,14 @@ def test_force_exit_thread_scheduling_failure_is_swallowed(
 
 
 def test_default_grace_period_is_10_seconds() -> None:
-    """The default grace period is 10 seconds (per the CR-9 spec).
+    """The default grace period is 10 seconds (per the spec).
 
     Production must use 10s — long enough for graceful ``app.quit()``
     to complete, short enough to bound the worst-case hang. Tests
     patch it down; production must not.
     """
     assert _HEARTBEAT_FORCE_EXIT_GRACE_SECONDS == 10.0, (
-        "default grace period must be 10s per CR-9 spec — if this is "
-        "changed, update the comment in ipc_server.py and the CR-9 "
+        "default grace period must be 10s per spec — if this is "
+        "changed, update the comment in ipc_server.py and the "
         "rationale in review.md"
     )

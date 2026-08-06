@@ -151,12 +151,27 @@ def test_prune_fallback_when_scan_cache_dir_raises_importerror(tmp_path, monkeyp
     # Replace scan_cache_dir with a callable that raises ImportError
     # when invoked. The helper's ``except ImportError`` clause catches
     # this and runs the fallback path.
+    #
+    # ``raising=False`` is required because earlier tests in the suite
+    # (notably ``tests/test_asr_setup.py::_install_hf_stub``) install a
+    # bare ``huggingface_hub`` stub module into ``sys.modules`` that does
+    # NOT expose ``scan_cache_dir`` (only ``snapshot_download``). The
+    # stub persists for the remainder of the session because
+    # ``_install_hf_stub`` mutates ``sys.modules`` directly (no
+    # monkeypatch teardown). With the real ``huggingface_hub`` 1.x
+    # module the attribute exists, but with the asr_setup stub it
+    # doesn't — so ``monkeypatch.setattr`` with the default
+    # ``raising=True`` raises ``AttributeError`` before the test body
+    # can run. ``raising=False`` makes the setattr succeed in both
+    # cases, which is exactly the contract this test exercises: the
+    # production code's ``except ImportError`` fallback must run whether
+    # ``scan_cache_dir`` was originally present or not.
     import huggingface_hub
 
     def _boom(*_args, **_kwargs):
         raise ImportError("simulated: scan_cache_dir unavailable")
 
-    monkeypatch.setattr(huggingface_hub, "scan_cache_dir", _boom)
+    monkeypatch.setattr(huggingface_hub, "scan_cache_dir", _boom, raising=False)
 
     pruned = asr_utils.prune_model_cache(cache_dir, max_bytes=4 * 1024 * 1024)
 

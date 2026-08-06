@@ -731,6 +731,12 @@ class TestWireProtocol:
 
         # V alone — no fire.
         backend._handle_line("KEY_DOWN:V")
+        # Release V (the OS always emits KEY_UP between two distinct
+        # KEY_DOWN events for the same key — the auto-repeat filter in
+        # ``_on_key_event`` suppresses a second KEY_DOWN while the main
+        # key is still tracked as down, so we must explicitly release V
+        # before pressing it again with the modifiers held).
+        backend._handle_line("KEY_UP:V")
         assert fired == []
 
         # Hold Ctrl+Alt, then press V — fire.

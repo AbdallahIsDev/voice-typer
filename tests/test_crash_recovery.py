@@ -192,7 +192,7 @@ class TestCrashRecoveryAsyncWrites:
 
 
 class TestCrashRecoveryFlushTimeout:
-    """RW-4: ``flush(timeout=...)`` must actually enforce the timeout.
+    """``flush(timeout=...)`` must actually enforce the timeout.
 
     Previously ``flush()`` called ``Queue.join()``, which has no
     ``timeout`` parameter in the stdlib — the ``timeout`` argument was
@@ -203,7 +203,7 @@ class TestCrashRecoveryFlushTimeout:
     """
 
     def test_flush_returns_false_when_worker_stalled(self, cr):
-        """RW-4: ``flush(timeout=0.1)`` returns ``False`` when the worker
+        """``flush(timeout=0.1)`` returns ``False`` when the worker
         can't drain the queue within the timeout.
 
         We patch ``_save_sync`` to sleep 0.5s per save and enqueue 5
@@ -227,7 +227,7 @@ class TestCrashRecoveryFlushTimeout:
             assert cr._save_thread.is_alive(), "worker thread must survive a flush timeout"
 
     def test_flush_returns_true_when_queue_drains_quickly(self, cr):
-        """RW-4: ``flush(timeout=5.0)`` returns ``True`` when all saves
+        """``flush(timeout=5.0)`` returns ``True`` when all saves
         complete within the timeout (the normal case)."""
         # Enqueue several saves via the public add() API.
         for i in range(10):
@@ -240,7 +240,7 @@ class TestCrashRecoveryFlushTimeout:
         assert cr._save_thread.is_alive()
 
     def test_flush_sentinel_not_processed_as_save(self, cr, recovery_dir):
-        """RW-4: the flush sentinel must NOT be processed as a real save
+        """the flush sentinel must NOT be processed as a real save
         item — i.e., the worker must NOT call ``_save_sync()`` for it.
 
         We count ``_save_sync`` calls; after 2 ``add()`` calls + 1
@@ -270,7 +270,7 @@ class TestCrashRecoveryFlushTimeout:
             )
 
     def test_flush_does_not_break_subsequent_saves(self, cr):
-        """RW-4: after a timed-out flush(), the worker must still process
+        """after a timed-out flush(), the worker must still process
         new saves normally.  The sentinel left in the queue must not
         corrupt subsequent operations."""
         import time

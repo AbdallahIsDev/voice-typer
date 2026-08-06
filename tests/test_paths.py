@@ -1,4 +1,4 @@
-"""RW-7: regression tests for the unified path helpers.
+"""regression tests for the unified path helpers.
 
 Verifies:
 1. Every helper in :mod:`voice_typer.server._paths` returns a path that
@@ -36,7 +36,7 @@ SERVER_DIR = REPO_ROOT / "voice_typer" / "server"
 
 class TestHelpersReturnPathsUnderConfigDir:
     """Every helper in ``_paths.py`` returns a path that is exactly
-    :func:`_config_dir` or a descendant of it.
+    func:`_config_dir` or a descendant of it.
 
     The fixture pins ``_paths._config_dir`` (the imported reference) to
     a tmp path so the assertions are deterministic and don't depend on
@@ -165,7 +165,7 @@ _LEGACY_PATH_PATTERN = re.compile(r'Path\.home\(\)\s*/\s*"\.voice-typer"')
 
 
 class TestNoHardcodedVoiceTyperPaths:
-    """RW-7: no module in ``voice_typer/server/`` (except
+    """no module in ``voice_typer/server/`` (except
     ``config/__init__.py`` for the legacy migration probe and
     ``_paths.py`` itself, which is the canonical home for the
     legacy-path literal) still contains the pattern
@@ -209,7 +209,7 @@ class TestNoHardcodedVoiceTyperPaths:
         )
         for required in required_basenames:
             assert required in examined_names, (
-                f"RW-7 test setup error: {required} not found under "
+                f"test setup error: {required} not found under "
                 f"{SERVER_DIR} — the test cannot verify the regression "
                 "without examining the refactored modules"
             )
@@ -221,7 +221,7 @@ class TestNoHardcodedVoiceTyperPaths:
         # public surface) — assert that file is present so the
         # regression test can examine it.
         assert "config/__init__.py" in examined_rel, (
-            "RW-7 test setup error: config/__init__.py not found under "
+            "test setup error: config/__init__.py not found under "
             f"{SERVER_DIR} — the test cannot verify the legacy migration "
             "probe without examining the refactored config package"
         )
@@ -239,7 +239,7 @@ class TestNoHardcodedVoiceTyperPaths:
             "server_platform/desktop_shortcut.py",
         ):
             assert required_pkg_file in examined_rel, (
-                f"RW-7 test setup error: {required_pkg_file} not found "
+                f"test setup error: {required_pkg_file} not found "
                 f"under {SERVER_DIR} — rglob did not descend into the "
                 "prewarm/ or server_platform/ packages where the legacy "
                 "path-literal refactor lives"
@@ -269,7 +269,7 @@ class TestNoHardcodedVoiceTyperPaths:
                 if _LEGACY_PATH_PATTERN.search(line):
                     offenders.append(f"{py_file.relative_to(REPO_ROOT)}:{line_num}: {line.rstrip()}")
         assert not offenders, (
-            "RW-7 regression: hardcoded Path.home() / '.voice-typer' "
+            "regression: hardcoded Path.home() / '.voice-typer' "
             "found in executable code. Use voice_typer.server._paths "
             "helpers instead (config_dir, prewarm_launchagent_log, "
             "autostart_log, venv_pythonw, legacy_hf_cache_dir):\n" + "\n".join(offenders)
@@ -293,7 +293,7 @@ class TestNoHardcodedVoiceTyperPaths:
                 found = True
                 break
         assert found, (
-            "RW-7: config/__init__.py must retain its legacy migration "
+            "config/__init__.py must retain its legacy migration "
             "probe ('legacy = Path.home() / \".voice-typer\"') — "
             "removing it would break migration for existing "
             "~/.voice-typer installs"
@@ -305,7 +305,6 @@ class TestNoHardcodedVoiceTyperPaths:
         / "huggingface"``) so prewarm.py has somewhere to delegate its
         last-resort fallback to."""
         assert hasattr(_paths, "legacy_hf_cache_dir"), (
-            "RW-7: _paths.legacy_hf_cache_dir must exist (prewarm.py "
-            "delegates its BootTrigger defensive fallback to it)"
+            "_paths.legacy_hf_cache_dir must exist (prewarm.py delegates its BootTrigger defensive fallback to it)"
         )
         assert _paths.legacy_hf_cache_dir() == (Path.home() / ".voice-typer" / "huggingface")

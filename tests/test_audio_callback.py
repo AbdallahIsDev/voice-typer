@@ -1,13 +1,13 @@
-"""RW-7 / RW-8 regression tests for the audio callback hot path.
+"""regression tests for the audio callback hot path.
 
-RW-7: Audio-callback thread-spawn storm on silent (zero-filled) input.
+Audio-callback thread-spawn storm on silent (zero-filled) input.
   The device-disconnect handler was spawned once per zero-filled chunk
   after the warmup window, causing a thread-spawn storm on a truly
   silent (or disconnected) microphone. The fix is a re-entrancy guard
   on ``_device_disconnected`` at the top of the disconnect-detection
   block in ``_process_audio_chunk``.
 
-RW-8: Audio callback blocks on IPC push + module imports.
+Audio callback blocks on IPC push + module imports.
   The ``event_bus.publish`` call and the ``vad`` / ``event_bus``
   imports were inline in ``_process_audio_chunk`` (the audio worker
   hot path). The publish call blocked the worker on the IPC transport
@@ -115,7 +115,7 @@ def _patch_count_disconnect_handler_spawns(monkeypatch):
 
 
 class TestSilentInputThreadStorm:
-    """RW-7: zero-filled indata must not spawn a thread-per-chunk storm."""
+    """zero-filled indata must not spawn a thread-per-chunk storm."""
 
     def test_zero_filled_indata_does_not_spawn_disconnect_handler_storm(self, monkeypatch):
         """100 zero-filled callbacks must spawn at most 1 disconnect handler.
@@ -158,7 +158,7 @@ class TestSilentInputThreadStorm:
 
             assert len(r._ring_buffer) == 0, "audio worker should drain all 100 zero-filled chunks"
             assert spawn_count["n"] <= 1, (
-                f"RW-7 regression: 100 zero-filled callbacks spawned "
+                f"regression: 100 zero-filled callbacks spawned "
                 f"{spawn_count['n']} device-disconnect-handler threads "
                 f"(expected at most 1). The re-entrancy guard on "
                 f"_device_disconnected in _process_audio_chunk is "
@@ -272,7 +272,7 @@ class TestSilentInputThreadStorm:
 
 
 class TestEventWorkerLifecycle:
-    """RW-8: the IPC event worker thread starts on start(), joins on
+    """the IPC event worker thread starts on start(), joins on
     stop()/discard(). Mirrors the ``TestAudioWorkerThreadLifecycle``
     suite (RT-SAFE-001) so the two workers are held to the same
     contract."""
@@ -369,18 +369,18 @@ class TestEventWorkerLifecycle:
 
 
 class TestNonBlockingCallback:
-    """RW-8: the audio worker must not block on event_bus.publish."""
+    """the audio worker must not block on event_bus.publish."""
 
     def test_audio_worker_does_not_block_on_slow_publish(self, monkeypatch):
         """Mock event_bus.publish to sleep 1 second; the audio worker
         must still drain the ring buffer within milliseconds.
 
-        Pre-RW-8, ``event_bus.publish`` was called synchronously from
+        ``event_bus.publish`` was called synchronously from
         ``_process_audio_chunk``. With a slow subscriber (mocked here
         to sleep 1s), the worker would block for 1s per clipping chunk,
         causing the ring buffer to overflow.
 
-        Post-RW-8, the publish is routed through ``_event_queue`` and
+        the publish is routed through ``_event_queue`` and
         drained by the event worker thread. The audio worker's
         ``_process_audio_chunk`` just does ``queue.put`` (non-blocking),
         so it returns in milliseconds even when publish is slow.
@@ -429,7 +429,7 @@ class TestNonBlockingCallback:
                 "audio worker should drain the ring buffer promptly even when event_bus.publish is slow"
             )
             assert elapsed_ms < 500, (
-                f"RW-8 regression: audio worker took {elapsed_ms:.1f}ms "
+                f"regression: audio worker took {elapsed_ms:.1f}ms "
                 f"to process a clipping chunk with a 1s-slow publish. "
                 f"The worker is blocking on event_bus.publish instead "
                 f"of offloading to the event queue."
@@ -452,7 +452,7 @@ class TestNonBlockingCallback:
 
 
 class TestAllEventsPublished:
-    """RW-8: all events pushed to the queue are eventually published."""
+    """all events pushed to the queue are eventually published."""
 
     def test_all_queued_events_are_eventually_published_on_stop(self, monkeypatch):
         """Multiple clipping chunks enqueue multiple events; stop()
@@ -541,7 +541,7 @@ class TestAllEventsPublished:
 
 
 class TestHoistedImports:
-    """RW-8: event_bus and compute_vad_prob are hoisted to module top,
+    """event_bus and compute_vad_prob are hoisted to module top,
     removing the per-chunk inline import from _process_audio_chunk.
 
     Behavioral equivalents of the original source-string tests:
@@ -566,7 +566,7 @@ class TestHoistedImports:
         from voice_typer.server import event_bus
 
         assert recording.event_bus is event_bus, (
-            "RW-8: event_bus must be imported at module top of the recording "
+            "event_bus must be imported at module top of the recording "
             "package (accessible as a module-level attribute, not inline)."
         )
 
@@ -578,7 +578,7 @@ class TestHoistedImports:
         from voice_typer.server.vad import compute_vad_prob
 
         assert recording.compute_vad_prob is compute_vad_prob, (
-            "RW-8: compute_vad_prob must be imported at module top of the "
+            "compute_vad_prob must be imported at module top of the "
             "recording package (accessible as a module-level attribute, not "
             "inline in _process_audio_chunk)."
         )
@@ -588,7 +588,7 @@ class TestHoistedImports:
         trigger a fresh ``__import__`` of ``voice_typer.server.event_bus``.
         If the import were inline in ``_process_audio_chunk`` (the audio
         hot path), every chunk would re-enter the import system — defeating
-        the RW-8 hot-path optimization. We spy on ``builtins.__import__``
+        the hot-path optimization. We spy on ``builtins.__import__``
         during one chunk's processing and assert no event_bus import fires.
 
         The init-time imports (``VadProcessor.__init__``, etc.) happen
@@ -631,7 +631,7 @@ class TestHoistedImports:
                 time.sleep(0.005)
 
             assert event_bus_imports == [], (
-                "RW-8: _process_audio_chunk triggered an inline import of "
+                "_process_audio_chunk triggered an inline import of "
                 f"event_bus ({event_bus_imports}). event_bus must be imported "
                 "at module top so the audio hot path doesn't pay per-chunk "
                 "import overhead."
@@ -689,7 +689,7 @@ class TestHoistedImports:
                 time.sleep(0.005)
 
             assert vad_imports == [], (
-                "RW-8: _process_audio_chunk triggered an inline import of "
+                "_process_audio_chunk triggered an inline import of "
                 f"vad ({vad_imports}). compute_vad_prob must be imported at "
                 "module top so the audio hot path doesn't pay per-chunk "
                 "import overhead."
@@ -750,12 +750,12 @@ class TestHoistedImports:
 
             # event_bus.publish must NOT have been called from the
             # audio-worker thread. Any call from "audio-worker" means
-            # _process_audio_chunk called publish directly (the RW-8
-            # regression). Publishes from "event-worker" are expected.
+            # _process_audio_chunk called publish directly (the regression).
+            # Publishes from "event-worker" are expected.
             with publish_lock:
                 audio_worker_publishes = [c for c in publish_calls if c[0] == "audio-worker"]
             assert audio_worker_publishes == [], (
-                "RW-8: _process_audio_chunk called event_bus.publish "
+                "_process_audio_chunk called event_bus.publish "
                 f"directly on the audio-worker thread ({len(audio_worker_publishes)} "
                 f"calls: {audio_worker_publishes}). It must route via "
                 "self._event_queue.put instead, so a slow IPC subscriber "
@@ -797,7 +797,7 @@ class TestHoistedImports:
             r._event_worker_loop()
 
             assert test_event in published, (
-                "RW-8: _event_worker_loop must call event_bus.publish for "
+                "_event_worker_loop must call event_bus.publish for "
                 "each queued event. The publish call lives here (not in "
                 "_process_audio_chunk) so a slow IPC subscriber cannot "
                 "stall the audio worker thread."

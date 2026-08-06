@@ -47,6 +47,16 @@ CACHES_TO_CLEAR: tuple[tuple[str, str], ...] = (
         "get_native_binary_path",
     ),
     (
+        # ``_config_dir`` is memoized with ``functools.lru_cache(maxsize=1)``
+        # for the process lifetime. Many tests monkeypatch ``APPDATA`` /
+        # ``Path.home`` / ``_config_dir`` and expect re-resolution; without
+        # a per-test clear, whichever test calls ``_config_dir()`` first
+        # freezes the directory for the whole worker, making later tests
+        # order-dependent (they fail only in the full suite).
+        "voice_typer.server.config_internals.paths",
+        "_config_dir",
+    ),
+    (
         "voice_typer.server.clipboard.linux",
         "_shutil_which_cached",
     ),

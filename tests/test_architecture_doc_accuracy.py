@@ -378,7 +378,12 @@ def test_gp97_audio_quality_controller_entry_points_match_code():
             f"audio_quality_controller.md must document {name}."
         )
     # Stale entry-point names must be gone.
-    for stale in ["`accumulate_chunk(level_data)`", "`reconfigure(changed_fields)`", "`finalize_report()`", "`reset()`"]:
+    for stale in [
+        "`accumulate_chunk(level_data)`",
+        "`reconfigure(changed_fields)`",
+        "`finalize_report()`",
+        "`reset()`",
+    ]:
         assert stale not in doc, (
             f"stale entry point {stale} must be removed from doc."
         )

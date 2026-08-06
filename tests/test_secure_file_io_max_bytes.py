@@ -310,14 +310,26 @@ class TestSecureReadTextChunkedAbort:
             f"the whole 10 MiB was loaded into RAM before the cap "
             f"check could fire."
         )
-        # And at least 16 chunks (the cap is 1 MiB / 64 KiB = 16
-        # chunks before the 17th triggers the abort).
-        assert len(read_calls) >= 16, (
-            f"FR-53 regression: read() was called only {len(read_calls)} "
-            f"times — expected at least 16 chunks to exceed the 1 MiB "
-            f"cap. The helper may be passing too large a chunk size to "
-            f"read(), which would defeat the chunked-abort purpose."
-        )
+        # The lower bound depends on the platform branch:
+        #  - POSIX: the chunked read aborts after ~17 chunks (1 MiB /
+        #    64 KiB = 16 chunks before the 17th triggers the abort).
+        #  - Windows: the size pre-check (``st_size > max_bytes``)
+        #    rejects the oversized file BEFORE any ``read()`` call, so
+        #    zero reads occur — the cap is enforced without touching
+        #    the file data at all (even better than chunked abort).
+        if os.name == "nt":
+            assert len(read_calls) == 0, (
+                "FR-53: the Windows size pre-check must reject the "
+                f"oversized file before any read(); got {len(read_calls)} "
+                f"read calls"
+            )
+        else:
+            assert len(read_calls) >= 16, (
+                f"FR-53 regression: read() was called only {len(read_calls)} "
+                f"times — expected at least 16 chunks to exceed the 1 MiB "
+                f"cap. The helper may be passing too large a chunk size to "
+                f"read(), which would defeat the chunked-abort purpose."
+            )
 
 
 # ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""Comprehensive i18n completeness tests (I18N-COMPLETE-001).
+"""Comprehensive i18n completeness tests.
 
 These tests verify that every non-English locale file has:
   1. Key-structure parity with en.json (every key in en.json exists in the locale).
@@ -60,7 +60,7 @@ ALLOWED_UNTRANSLATED = {
     "about.unknown",  # "—"
     # Version number format — "v{version}" is universally identical.
     "about.versionValue",  # "v{version}"
-    # AUDIO-TERM: audio engineering terms that are genuinely
+    # audio engineering terms that are genuinely
     # identical cognates in de/es/fr — "Equalizer", "Limiter" are
     # standard technical vocabulary used untranslated in German, Spanish,
     # and French audio engineering contexts. Adding them here avoids
@@ -71,7 +71,7 @@ ALLOWED_UNTRANSLATED = {
     "settings.audioEnhancement.limiterAria",  # "Limiter"
     # "Variables: {vars}" — "Variables" is identical in EN/ES (cognate).
     "templates.variablesTooltip",  # "Variables: {vars}"
-    # IMPL-C: keyboard shortcut values that are universal key-combo notation
+    # keyboard shortcut values that are universal key-combo notation
     # (no natural translation — "Ctrl+B", "Tab / Shift+Tab", "Esc" stay
     # identical across locales that use the Latin keyboard layout).
     "about.toggleSidebarValue",  # "Ctrl+B"
@@ -83,14 +83,14 @@ ALLOWED_UNTRANSLATED = {
     # names will not match how users see them on their physical keyboards.
     "about.openDropdownsValue",  # "Enter or Space"
     "about.toggleSwitchesValue",  # "Space"
-    # IMPL-C: "Auto" is a universal abbreviation for automatic mode — kept
+    # "Auto" is a universal abbreviation for automatic mode — kept
     # identical across Latin-script locales.
     "analytics.auto",  # "Auto"
     # Theme switch labels: "System" in German is the standard German word for
     # the system-following theme mode — identical to English by coincidence,
     # not a translation gap.
     "theme.system",  # "System"
-    # IMPL-C: universal technical placeholders that have no natural
+    # universal technical placeholders that have no natural
     # translation in any locale. URLs and model identifiers are protocol-level
     # strings — translating them would break the API endpoint or model lookup.
     # The hotkeyPicker.customLabel value is "{label}" only — a pure template
@@ -204,7 +204,7 @@ ALLOWED_UNTRANSLATED = {
 # completeness test doesn't block on them, but they ARE tracked for future
 # translation work.  See worklog.md §"Known Limitations".
 #
-# I18N-PARTIAL: the models.* snack/test/benchmark/hfConsent/card/cloud/download
+# the models.* snack/test/benchmark/hfConsent/card/cloud/download
 # keys are fully translated for ar and es, but only partially translated for
 # de/fr/hi/ru/zh (the highest-visibility status/button labels are translated;
 # the longer snack messages and consent descriptions are pending).  These are
@@ -661,7 +661,7 @@ class Test8nCompleteness:
         Keys in ALLOWED_UNTRANSLATED (brand names, technical acronyms),
         PRE_EXISTING_UNTRANSLATED (settings keys documented as a known gap in
         the directive), and RW2_BACKFILLED_PENDING_TRANSLATION (keys
-        backfilled by RW-2 as English-fallback pending native translation)
+        backfilled by as English-fallback pending native translation)
         are excluded from this check.
         """
         loc_file = TRANSLATIONS_DIR / f"{locale}.json"
@@ -741,7 +741,7 @@ class TestEnJson:
 
 
 class TestBackfillSetIsMinimal:
-    """RW-2 ratchet: ensure RW2_BACKFILLED_PENDING_TRANSLATION only shrinks.
+    """ratchet: ensure RW2_BACKFILLED_PENDING_TRANSLATION only shrinks.
 
     Every key in the set must currently be English-fallback in at least one
     non-English locale. If a key has been properly translated in EVERY
@@ -794,7 +794,7 @@ class TestBackfillSetIsMinimal:
         )
 
     def test_set_size_documented(self) -> None:
-        """Smoke test: the set is non-empty (RW-2 stopgap is in effect).
+        """Smoke test: the set is non-empty (stopgap is in effect).
 
         When this test starts failing because the set is empty, that means
         every backfilled key has been properly translated — delete the set
@@ -817,7 +817,7 @@ class TestBackfillSetIsMinimal:
 
 
 class Test8nGateSummary:
-    """RW-2: per-locale missing-key count summary.
+    """per-locale missing-key count summary.
 
     This is a meta-test that fails loudly if any locale has even a single
     missing key. It complements the parametrized test_key_parity_with_en

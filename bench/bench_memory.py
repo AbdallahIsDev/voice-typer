@@ -235,10 +235,7 @@ def bench_sustained_transcription(duration_seconds: float) -> dict:
             cfg = Config()
             try:
                 import scipy  # noqa: F401
-
-                scipy_available = True
             except ImportError:
-                scipy_available = False
                 for flag in (
                     "noise_filter_highpass",
                     "noise_filter_notch",

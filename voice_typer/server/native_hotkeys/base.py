@@ -31,7 +31,7 @@ import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from pathlib import Path
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
 
@@ -128,6 +128,31 @@ class SubprocessHotkeyBackend(ABC):
         self._ready_event = threading.Event()
         self._failed = False
         self._error_message: str | None = None
+        # Multi-spec pooling: extra matchers share this backend's
+        # subprocess and event stream. Each entry is a dict with keys:
+        # ``role`` (str), ``parsed`` (parsed spec dict | None),
+        # ``callback`` (Callable | None), ``on_release_callback``
+        # (Callable | None), ``toggle_on_keyup`` (bool).
+        # The primary spec (``self.hotkey_str`` / ``self._parsed`` /
+        # ``self._callback``) is role "dictation" and is always tried
+        # first; extra matchers are tried in registration order.
+        # This lets ``HotkeyDispatcher`` collapse the dictation / ESC /
+        # repaste backends into ONE subprocess on platforms where the
+        # native binary emits ALL keystroke events (Linux evdev,
+        # Windows LL hook, macOS CGEventTap) — the binary takes the
+        # dictation spec as argv[1] for its own validation /
+        # suppression decisions, and the Python side dispatches each
+        # wire event to the matching role's callback.
+        self._extra_matchers: list[dict[str, Any]] = []
+        # Delegation flag: when True, ``start()`` skips spawning a
+        # subprocess and ``stop()`` / ``is_alive()`` short-circuit.
+        # Set by ``HotkeyDispatcher`` on the ESC / repaste backends
+        # when a shared backend's extra matcher handles their role.
+        # The backend object still exists (for API compatibility with
+        # code that expects a separate backend per role, and so the
+        # test suite's ``_esc_backend is mock_backend`` assertions
+        # keep working), but it does NOT spawn its own subprocess.
+        self._delegated: bool = False
         # accept an explicit ``binary_path`` from the
         # factory so the SHA-256-verified binary discovered by
         # ``create_native_backend`` is the one we actually spawn —
@@ -280,8 +305,131 @@ class SubprocessHotkeyBackend(ABC):
         """Register the ``WARN:`` line handler invoked from ``_handle_line``."""
         self._on_warn_callback = callback
 
+    # ── Multi-spec pooling API ─────────────────────────────────────────
+    #
+    # The methods below let ``HotkeyDispatcher`` register additional
+    # hotkey specs (ESC, repaste) against the SAME subprocess, so the
+    # app spawns ONE native binary instead of three. The binary emits
+    # ALL keystroke events on its stdout; the Python side runs each
+    # registered matcher against the event stream and dispatches to
+    # the matching role's callback. The primary spec
+    # (``self.hotkey_str``) is role "dictation" and uses the existing
+    # ``self._callback`` / ``self._on_release_callback`` /
+    # ``self._toggle_on_keyup`` slots; extra matchers have their own
+    # per-role slots stored in ``self._extra_matchers``.
+    #
+    # Known limitation (macOS / Windows suppression): the native binary
+    # uses argv[1] (the primary dictation spec) to decide which
+    # keystrokes to suppress via the CGEventTap (macOS) /
+    # WH_KEYBOARD_LL hook (Windows). Extra matchers' specs are NOT
+    # known to the binary, so their keystrokes are NOT suppressed.
+    # On Linux this is a non-issue (evdev is read-only, no
+    # suppression). On macOS / Windows, the keystroke for an extra
+    # matcher (e.g. ESC, repaste combo) will reach the foreground
+    # app. This is acceptable for ESC (foreground apps handle ESC
+    # themselves) but may cause double-paste for repaste combos
+    # (the foreground app sees the combo AND the Python-side
+    # repaste fires). A future session can extend the binary's
+    # command-line surface to accept multiple specs for suppression.
+
+    def add_extra_matcher(self, role: str, spec: str) -> None:
+        """Register an additional ``(role, spec)`` pair to be matched
+        against the same event stream as the primary spec.
+
+        The ``role`` is an opaque string (e.g. ``"esc"``,
+        ``"repaste"``) used to address the matcher in
+        :meth:`set_role_callback` / :meth:`set_role_on_release` /
+        :meth:`set_role_toggle_on_keyup`. Calling this with a
+        ``role`` that already exists replaces the existing matcher's
+        parsed spec (callbacks are preserved).
+
+        Raises ``ValueError`` if ``spec`` cannot be parsed — the
+        caller is expected to validate the spec before registering
+        (mirroring the primary spec's parse-at-construction pattern).
+        """
+        parsed = parse_hotkey_spec(spec)
+        if parsed is None:
+            raise ValueError(f"Cannot parse hotkey spec: {spec!r}")
+        for existing in self._extra_matchers:
+            if existing["role"] == role:
+                existing["parsed"] = parsed
+                return
+        self._extra_matchers.append(
+            {
+                "role": role,
+                "parsed": parsed,
+                "callback": None,
+                "on_release_callback": None,
+                "toggle_on_keyup": False,
+            }
+        )
+
+    def remove_extra_matcher(self, role: str) -> None:
+        """Remove the extra matcher registered for ``role`` (no-op if
+        no matcher exists for that role)."""
+        self._extra_matchers = [m for m in self._extra_matchers if m["role"] != role]
+
+    def set_role_callback(self, role: str, callback: Callable[[], None] | None) -> None:
+        """Set the press callback for ``role``. The primary spec's
+        callback (role ``"dictation"``) is set via :meth:`start`."""
+        if role == "dictation":
+            self._callback = callback
+            return
+        for m in self._extra_matchers:
+            if m["role"] == role:
+                m["callback"] = callback
+                return
+        raise KeyError(f"Unknown role: {role!r} (register it via add_extra_matcher first)")
+
+    def set_role_on_release(self, role: str, callback: Callable[[], None] | None) -> None:
+        """Set the release callback for ``role``. The primary spec's
+        release callback is set via :meth:`set_on_release`."""
+        if role == "dictation":
+            self._on_release_callback = callback
+            return
+        for m in self._extra_matchers:
+            if m["role"] == role:
+                m["on_release_callback"] = callback
+                return
+        raise KeyError(f"Unknown role: {role!r} (register it via add_extra_matcher first)")
+
+    def set_role_toggle_on_keyup(self, role: str, value: bool) -> None:
+        """Set the ``toggle_on_keyup`` flag for ``role``. The primary
+        spec's flag is set via :meth:`set_toggle_on_keyup`."""
+        if role == "dictation":
+            self._toggle_on_keyup = value
+            return
+        for m in self._extra_matchers:
+            if m["role"] == role:
+                m["toggle_on_keyup"] = value
+                return
+        raise KeyError(f"Unknown role: {role!r} (register it via add_extra_matcher first)")
+
     def start(self, callback: Callable[[], None]) -> None:
-        """Spawn the native binary and start parsing its stdout."""
+        """Spawn the native binary and start parsing its stdout.
+
+        Delegated backends (``_delegated = True``) skip the spawn
+        entirely — they exist only for API compatibility with code
+        that expects a separate backend per role. The actual matching
+        for a delegated role happens via an extra matcher on the
+        shared (dictation) backend. The callback is still recorded
+        so :meth:`is_alive` and the watchdog's respawn path see a
+        "started" backend, but it is NEVER invoked (the shared
+        backend's extra matcher handles dispatch).
+        """
+        if self._delegated:
+            self._callback = callback
+            # Mark as ready so is_alive() reports True and callers
+            # (e.g. ``register_esc``'s post-start checks) see a
+            # healthy backend. We do NOT set ``_process`` — the
+            # delegated backend owns no subprocess.
+            self._ready_event.set()
+            log.info(
+                "[NATIVE-HOTKEY] %s backend is delegated (no subprocess); "
+                "matching handled by the shared backend's extra matcher",
+                self.platform_name,
+            )
+            return
         if self._parsed is None:
             raise ValueError(f"Cannot parse hotkey spec: {self.hotkey_str!r}")
 
@@ -369,6 +517,12 @@ class SubprocessHotkeyBackend(ABC):
         log.info("[NATIVE-HOTKEY] Stopping %s backend", self.platform_name)
         self._stop_event.set()
 
+        # Delegated backends own no subprocess / reader / watchdog —
+        # short-circuit after setting ``_stop_event`` so ``is_alive``
+        # reports False and callers see a clean shutdown.
+        if self._delegated:
+            return
+
         # signal the watchdog to exit BEFORE we kill the
         # process so it doesn't try to write PING to a dead stdin or
         # race the reader thread's restart logic.  The watchdog is a
@@ -407,7 +561,15 @@ class SubprocessHotkeyBackend(ABC):
             self._reader_thread = None
 
     def is_alive(self) -> bool:
-        """Return True if the binary is running and READY was received."""
+        """Return True if the backend is ready and not stopped.
+
+        For delegated backends (no subprocess), this returns True iff
+        ``_ready_event`` is set and ``_stop_event`` is not — mirroring
+        the contract callers expect from ``register_esc`` /
+        ``register_repaste``'s post-start health check.
+        """
+        if self._delegated:
+            return self._ready_event.is_set() and not self._stop_event.is_set()
         return (
             self._process is not None
             and self._process.poll() is None
@@ -1270,7 +1432,7 @@ class SubprocessHotkeyBackend(ABC):
         """
         with self._match_lock:
             if down:
-                # auto-repeat filter: auto-repeat filter — if the main key is
+                # auto-repeat filter — if the main key is
                 # already tracked as down, this KEY_DOWN is an OS
                 # auto-repeat. Skip the state update (no-op anyway)
                 # AND skip the ``_try_match`` call so the hotkey
@@ -1283,9 +1445,18 @@ class SubprocessHotkeyBackend(ABC):
         self._try_match(down, key_name=key_name)
 
     def _try_match(self, down: bool, *, key_name: str | None = None) -> None:
-        """Check if the current event matches the registered hotkey.
+        """Check if the current event matches any registered hotkey spec.
 
-        Matching rules:
+        The primary spec (``self._parsed``, role "dictation") is tried
+        first; extra matchers (``self._extra_matchers``) are tried in
+        registration order. The first matcher whose spec matches the
+        current event fires its callback and short-circuits — at most
+        ONE role fires per event. This prevents double-firing when two
+        specs could both match (e.g. ``<ctrl>+v`` and ``<ctrl>+<shift>+v``
+        would both match a Ctrl+Shift+V press if we didn't short-circuit;
+        the more-specific matcher is whichever was registered first).
+
+        Matching rules (per spec):
         - ``<fn>`` alone: matches FN_DOWN/FN_UP events
         - ``<modifier>`` alone (e.g. ``<alt>``): matches MOD_DOWN/MOD_UP of
           that modifier, with no other modifiers held
@@ -1295,24 +1466,61 @@ class SubprocessHotkeyBackend(ABC):
         - ``<modifier>+<key>`` (e.g. ``<ctrl>+<alt>+v``): matches KEY_DOWN/
           KEY_UP of the main key when ALL modifiers are currently held
         """
-        if self._parsed is None:
+        # Primary matcher (role "dictation"). Uses the legacy
+        # ``self._parsed`` / ``self._callback`` / etc. slots so existing
+        # single-spec tests and the ``_NativeBackendAdapter`` are
+        # unaffected.
+        primary = {
+            "role": "dictation",
+            "parsed": self._parsed,
+            "callback": getattr(self, "_callback", None),
+            "on_release_callback": self._on_release_callback,
+            "toggle_on_keyup": getattr(self, "_toggle_on_keyup", False),
+        }
+        if self._try_match_one(primary, down, key_name=key_name):
             return
-        parsed = self._parsed
+        # Extra matchers (roles "esc", "repaste", etc.). Each is
+        # independent — if the primary already fired, we skip them.
+        for matcher in self._extra_matchers:
+            if self._try_match_one(matcher, down, key_name=key_name):
+                return
+
+    def _try_match_one(
+        self,
+        matcher: dict[str, Any],
+        down: bool,
+        *,
+        key_name: str | None = None,
+    ) -> bool:
+        """Try a single matcher against the current event.
+
+        Returns True if the matcher matched (and fired its callback or
+        deferred it to key-up via ``toggle_on_keyup``); False if the
+        matcher did not match. The caller uses the return value to
+        short-circuit further matchers (at most ONE role fires per
+        event).
+
+        ``matcher`` is a dict with keys: ``role``, ``parsed``,
+        ``callback``, ``on_release_callback``, ``toggle_on_keyup``.
+        """
+        parsed = matcher["parsed"]
+        if parsed is None:
+            return False
 
         # FN-only hotkey
         if parsed["is_fn_only"]:
             if down:
-                self._fire_callback()
+                self._fire_callback_for(matcher)
             else:
-                self._fire_on_release()
-            return
+                self._fire_on_release_for(matcher)
+            return True
 
         # Modifier-only hotkey (e.g. <alt>, or <ctrl>+<alt>)
         if parsed["is_modifier_only"]:
             required = parsed["modifiers"]
             if "fn" in required:
                 # Already handled by FN_DOWN/FN_UP above
-                return
+                return False
             # Convert spec tokens to canonical modifier names
             required_canonical = set()
             for token in required:
@@ -1320,22 +1528,22 @@ class SubprocessHotkeyBackend(ABC):
                 if c is not None:
                     required_canonical.add(c)
             if not required_canonical:
-                return
+                return False
             with self._match_lock:
                 held = set(self._held_modifiers)
             # The hotkey is "these exact modifiers and no others"
             if held != required_canonical:
-                return
+                return False
             if down:
-                self._fire_callback()
+                self._fire_callback_for(matcher)
             else:
-                self._fire_on_release()
-            return
+                self._fire_on_release_for(matcher)
+            return True
 
         # Regular hotkey (single key or combo)
         main_key = parsed["main_key"]
         if key_name != main_key:
-            return
+            return False
 
         required_mods = parsed["modifiers"]
         with self._match_lock:
@@ -1346,58 +1554,96 @@ class SubprocessHotkeyBackend(ABC):
 
         # All required modifiers must be held
         if not required_mods.issubset(held_mods):
-            return
+            return False
 
         # No extra modifiers should be held (unless they're required)
         # This prevents <ctrl>+v from firing when <ctrl>+<alt>+v is held
         extra = held_mods - required_mods
         if extra:
-            return
+            return False
 
+        toggle_on_keyup = bool(matcher.get("toggle_on_keyup", False))
+        on_release = matcher.get("on_release_callback")
         if down:
-            if self._on_release_callback is not None:
+            if on_release is not None:
                 # Push-to-talk: start recording on press.
-                self._fire_callback()
-            elif getattr(self, "_toggle_on_keyup", False):
+                self._fire_callback_for(matcher)
+            elif toggle_on_keyup:
                 # Toggle mode with toggle_on_keyup: defer the toggle to
                 # key-up so holding the key cannot start-then-stop
                 # recording. Do nothing here.
                 pass
             else:
                 # Legacy toggle (e.g. ESC, repaste): fire on press.
-                self._fire_callback()
+                self._fire_callback_for(matcher)
         else:
-            if self._on_release_callback is not None:
+            if on_release is not None:
                 # Push-to-talk: stop recording on release.
-                self._fire_on_release()
-            elif getattr(self, "_toggle_on_keyup", False):
+                self._fire_on_release_for(matcher)
+            elif toggle_on_keyup:
                 # Toggle mode: fire the toggle exactly once on key-up.
-                # Holding the key (no key-up) never toggles, so a
-                # press-and-hold cannot start-then-stop recording.
-                self._fire_callback()
+                self._fire_callback_for(matcher)
             # else: legacy toggle-on-keydown -> nothing to do on key-up.
+        return True
 
     def _fire_callback(self) -> None:
-        """Invoke the press callback (with exception shielding)."""
-        cb = getattr(self, "_callback", None)
+        """Invoke the press callback (with exception shielding).
+
+        Backwards-compat shim for the primary (dictation) role —
+        delegates to :meth:`_fire_callback_for` with a primary-role
+        matcher dict so the exception-shielding and log-message logic
+        is shared between the primary and extra matchers.
+        """
+        primary = {
+            "role": "dictation",
+            "callback": getattr(self, "_callback", None),
+        }
+        self._fire_callback_for(primary)
+
+    def _fire_callback_for(self, matcher: dict[str, Any]) -> None:
+        """Invoke ``matcher["callback"]`` with exception shielding.
+
+        Shared by the primary matcher (via :meth:`_fire_callback`) and
+        the extra matchers. Logs the role so operators can attribute
+        the callback invocation in the unified log.
+        """
+        cb = matcher.get("callback")
         if cb is None:
             return
+        role = matcher.get("role", "dictation")
         try:
             cb()
         except Exception:
             log.exception(
-                "[NATIVE-HOTKEY] Press callback raised in %s backend",
+                "[NATIVE-HOTKEY] Press callback raised in %s backend (role=%s)",
                 self.platform_name,
+                role,
             )
 
     def _fire_on_release(self) -> None:
-        """Invoke the release callback (push-to-talk mode)."""
-        if self._on_release_callback is None:
+        """Invoke the release callback (push-to-talk mode).
+
+        Backwards-compat shim for the primary (dictation) role —
+        delegates to :meth:`_fire_on_release_for`.
+        """
+        primary = {
+            "role": "dictation",
+            "on_release_callback": self._on_release_callback,
+        }
+        self._fire_on_release_for(primary)
+
+    def _fire_on_release_for(self, matcher: dict[str, Any]) -> None:
+        """Invoke ``matcher["on_release_callback"]`` with exception
+        shielding. Shared by the primary and extra matchers."""
+        cb = matcher.get("on_release_callback")
+        if cb is None:
             return
+        role = matcher.get("role", "dictation")
         try:
-            self._on_release_callback()
+            cb()
         except Exception:
             log.exception(
-                "[NATIVE-HOTKEY] Release callback raised in %s backend",
+                "[NATIVE-HOTKEY] Release callback raised in %s backend (role=%s)",
                 self.platform_name,
+                role,
             )

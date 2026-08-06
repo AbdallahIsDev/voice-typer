@@ -22,11 +22,41 @@ the package — hence the ``_pkg.NAME`` access pattern.
 
 from __future__ import annotations
 
+import atexit
+import contextlib
+
 # ``_pkg`` is bound at module load time to the partial package object
 # (``__init__.py`` is still executing when this submodule is loaded).
 # Attribute lookups on ``_pkg`` happen at CALL TIME, by which point
 # ``__init__.py`` has finished and all names are defined.
 import voice_typer.server.clipboard_target_safety as _pkg
+
+
+def _release_uia_resources_at_exit() -> None:
+    """Release the cached UIA COM references before interpreter teardown.
+
+    The IUIAutomation COM singleton (``_UIA_SINGLETON``) is cached for
+    the process lifetime so pastes don't pay CoCreateInstance per call.
+    If the comtypes proxy is only released by Python's GC during
+    interpreter finalization, the COM ``Release()`` can fire AFTER the
+    UIAutomationCore RPC server has begun shutting down, raising
+    ``Windows fatal exception: code 0x80010108`` (RPC_E_DISCONNECTED)
+    that terminates the process. In the test suite this kills pytest
+    xdist workers ("node down: Not properly terminated") and aborts the
+    run mid-suite; in production it is a crash at app exit. atexit
+    handlers execute while COM is still initialized, so dropping the
+    references here releases the COM proxies safely.
+    """
+    # Narrow suppression only (XS-36): the assignments cannot raise in
+    # normal operation, but guard against an exotic atexit-time module
+    # teardown race where ``_pkg`` is already partially torn down.
+    with contextlib.suppress(AttributeError):
+        _pkg._UIA_SINGLETON = None
+    with contextlib.suppress(AttributeError):
+        _pkg._UIA_MODULE = None
+
+
+atexit.register(_release_uia_resources_at_exit)
 
 
 def _get_uia_singleton():

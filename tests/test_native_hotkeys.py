@@ -15,6 +15,8 @@ import contextlib
 import sys
 from pathlib import Path
 
+import pytest
+
 # ─── parse_hotkey_spec ─────────────────────────────────────────────────────
 
 
@@ -1022,3 +1024,432 @@ class TestWatchdogRespawnRace:
             "FR-21 negative control: watchdog must still call start(cb) "
             f"when _shutdown_requested is False; got start_calls={start_calls}"
         )
+
+
+# ─── Multi-spec pooling ──────────────────────────────────────────────────
+
+
+class TestMultiSpecPooling:
+    """Verify the multi-spec matcher API on ``SubprocessHotkeyBackend``.
+
+    These tests pin the contract that one backend instance can match
+    multiple hotkey specs against a single event stream (the primary
+    spec passed to ``__init__`` plus any number of extra matchers
+    registered via :meth:`add_extra_matcher`). This is the building
+    block ``HotkeyDispatcher`` uses to pool the dictation / ESC /
+    repaste backends into ONE subprocess.
+    """
+
+    def test_add_extra_matcher_parses_spec(self, monkeypatch):
+        """``add_extra_matcher`` parses the spec and stores it. The
+        primary spec (``__init__`` arg) is unaffected."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<f2>")
+        assert b._extra_matchers == []
+        b.add_extra_matcher("esc", "<esc>")
+        assert len(b._extra_matchers) == 1
+        m = b._extra_matchers[0]
+        assert m["role"] == "esc"
+        assert m["parsed"] is not None
+        assert m["parsed"]["main_key"] == "Esc"
+        # Primary spec is unaffected.
+        assert b._parsed is not None
+        assert b._parsed["main_key"] == "F2"
+
+    def test_add_extra_matcher_idempotent_on_role(self, monkeypatch):
+        """Calling ``add_extra_matcher`` twice with the same role
+        replaces the parsed spec (callbacks preserved). This lets
+        ``HotkeyDispatcher._repool_aux_into_shared`` re-register an
+        existing role against a fresh shared backend without
+        duplicating matchers."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<f2>")
+        b.add_extra_matcher("esc", "<esc>")
+        b.set_role_callback("esc", lambda: None)
+        # Re-register with a different spec (shouldn't normally happen
+        # for ESC, but the API must handle it).
+        b.add_extra_matcher("esc", "<f4>")
+        assert len(b._extra_matchers) == 1, (
+            f"add_extra_matcher must not duplicate entries for the same role; "
+            f"got {b._extra_matchers}"
+        )
+        # Callback preserved across the spec replacement.
+        assert b._extra_matchers[0]["callback"] is not None
+        assert b._extra_matchers[0]["parsed"]["main_key"] == "F4"
+
+    def test_add_extra_matcher_rejects_unparseable_spec(self, monkeypatch):
+        """An unparseable spec raises ``ValueError`` so the caller
+        sees the error at registration time, not at match time."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<f2>")
+        with pytest.raises(ValueError):
+            b.add_extra_matcher("esc", "")
+
+    def test_set_role_callback_routes_to_extra_matcher(self, monkeypatch):
+        """``set_role_callback`` for a non-dictation role sets the
+        callback on the matching extra matcher, NOT on the primary
+        ``self._callback`` slot."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<f2>")
+        esc_cb = lambda: None  # noqa: E731
+        b.add_extra_matcher("esc", "<esc>")
+        b.set_role_callback("esc", esc_cb)
+        assert b._extra_matchers[0]["callback"] is esc_cb
+        # Primary callback slot is unaffected.
+        assert getattr(b, "_callback", None) is not esc_cb
+
+    def test_set_role_callback_dictation_sets_primary(self, monkeypatch):
+        """``set_role_callback("dictation", cb)`` sets the primary
+        ``self._callback`` (same as the legacy path via ``start()``)."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<f2>")
+        cb = lambda: None  # noqa: E731
+        b.set_role_callback("dictation", cb)
+        assert b._callback is cb
+
+    def test_set_role_callback_unknown_role_raises(self, monkeypatch):
+        """``set_role_callback`` for a role that wasn't registered via
+        ``add_extra_matcher`` raises ``KeyError`` so callers see the
+        bug immediately rather than silently dropping the callback."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<f2>")
+        with pytest.raises(KeyError):
+            b.set_role_callback("esc", lambda: None)
+
+    def test_remove_extra_matcher(self, monkeypatch):
+        """``remove_extra_matcher`` drops the matcher for the given
+        role (no-op if the role isn't registered)."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<f2>")
+        b.add_extra_matcher("esc", "<esc>")
+        b.add_extra_matcher("repaste", "<ctrl>+<shift>+v")
+        assert len(b._extra_matchers) == 2
+        b.remove_extra_matcher("esc")
+        assert len(b._extra_matchers) == 1
+        assert b._extra_matchers[0]["role"] == "repaste"
+        # Removing a non-existent role is a no-op.
+        b.remove_extra_matcher("nonexistent")
+        assert len(b._extra_matchers) == 1
+
+    def test_extra_matcher_fires_on_matching_event(self, monkeypatch):
+        """When the event stream matches an extra matcher's spec, the
+        extra matcher's callback fires — independently of the primary
+        spec's callback."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<f2>")
+        dictation_fired: list[str] = []
+        esc_fired: list[str] = []
+        b._callback = lambda: dictation_fired.append("press")
+        b.add_extra_matcher("esc", "<esc>")
+        b.set_role_callback("esc", lambda: esc_fired.append("press"))
+
+        # Pressing ESC should fire the ESC extra matcher only.
+        b._handle_line("KEY_DOWN:Esc")
+        assert esc_fired == ["press"]
+        assert dictation_fired == [], "Primary matcher must NOT fire for ESC"
+
+    def test_primary_matcher_fires_for_primary_spec(self, monkeypatch):
+        """When the event stream matches the primary spec, the
+        primary callback fires — extra matchers do not interfere."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<f2>")
+        dictation_fired: list[str] = []
+        esc_fired: list[str] = []
+        b._callback = lambda: dictation_fired.append("press")
+        b.add_extra_matcher("esc", "<esc>")
+        b.set_role_callback("esc", lambda: esc_fired.append("press"))
+
+        # Pressing F2 should fire the primary (dictation) matcher only.
+        b._handle_line("KEY_DOWN:F2")
+        assert dictation_fired == ["press"]
+        assert esc_fired == [], "ESC extra matcher must NOT fire for F2"
+
+    def test_no_double_fire_when_both_specs_could_match(self, monkeypatch):
+        """At most ONE matcher fires per event. If the primary spec
+        matches, extra matchers are not tried (short-circuit)."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        # Both primary and extra matcher use the same spec.
+        b = LinuxEvdevHotkey("<f2>")
+        primary_fired: list[str] = []
+        extra_fired: list[str] = []
+        b._callback = lambda: primary_fired.append("press")
+        b.add_extra_matcher("extra", "<f2>")
+        b.set_role_callback("extra", lambda: extra_fired.append("press"))
+
+        b._handle_line("KEY_DOWN:F2")
+        # Primary fires first (it's tried first in _try_match), extra
+        # is short-circuited.
+        assert primary_fired == ["press"]
+        assert extra_fired == [], (
+            "Extra matcher must NOT fire when primary already matched (short-circuit)"
+        )
+
+    def test_delegated_start_skips_spawn(self, monkeypatch):
+        """A delegated backend's ``start()`` records the callback and
+        marks itself ready, but does NOT spawn a subprocess. This is
+        the mechanism ``HotkeyDispatcher`` uses to suppress the
+        per-role subprocess when pooling is active."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<esc>")
+        b._delegated = True
+        cb = lambda: None  # noqa: E731
+        b.start(cb)
+        # Callback recorded, ready_event set, but no process spawned.
+        assert b._callback is cb
+        assert b._ready_event.is_set()
+        assert b._process is None
+        assert b._reader_thread is None
+        # is_alive reports True (ready + not stopped).
+        assert b.is_alive() is True
+
+    def test_delegated_stop_is_noop_for_subprocess(self, monkeypatch):
+        """A delegated backend's ``stop()`` sets ``_stop_event`` but
+        does not attempt to kill a subprocess (there is none) or join
+        a reader thread (there is none)."""
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<esc>")
+        b._delegated = True
+        b.start(lambda: None)
+        # stop() must not raise even though no subprocess exists.
+        b.stop()
+        assert b._stop_event.is_set()
+        assert b.is_alive() is False
+
+    def test_delegated_backend_callback_never_invoked(self, monkeypatch):
+        """Even if a delegated backend's ``_handle_line`` is called
+        directly (e.g. by a stray reader thread), the callback must
+        not fire — the shared backend's extra matcher handles dispatch.
+        This is a defense-in-depth: the delegated backend's reader
+        thread doesn't exist in normal operation, but if it did
+        (e.g. a race during start/stop), the callback would fire
+        TWICE (once from the shared backend, once from the delegated
+        backend). Suppressing the delegated backend's callback
+        prevents that."""
+        # Actually, the delegated backend has no reader thread, so
+        # _handle_line is never called. This test documents that
+        # invariant: the callback slot is set (for is_alive) but
+        # is unreachable via the normal wire-protocol path.
+        from voice_typer.server import native_hotkeys
+
+        monkeypatch.setattr(native_hotkeys, "is_linux", lambda: True)
+        monkeypatch.setattr(native_hotkeys, "is_macos", lambda: False)
+        monkeypatch.setattr(native_hotkeys, "is_windows", lambda: False)
+        monkeypatch.setattr(sys, "platform", "linux")
+        from voice_typer.server.native_hotkeys import LinuxEvdevHotkey
+
+        b = LinuxEvdevHotkey("<esc>")
+        b._delegated = True
+        fired: list[str] = []
+        b.start(lambda: fired.append("press"))
+        # No reader thread exists to call _handle_line.
+        assert b._reader_thread is None
+        # The callback IS set (is_alive relies on _ready_event, not
+        # the callback, but the callback slot is populated so a
+        # hypothetical direct _try_match call would find it).
+        assert b._callback is not None
+
+
+class TestHotkeyDispatcherPooling:
+    """Verify ``HotkeyDispatcher`` pools ESC + repaste into the shared
+    (dictation) backend's extra matchers, reducing the subprocess
+    count from 3 to 1 on platforms that select the native
+    ``SubprocessHotkeyBackend``."""
+
+    def test_shared_backend_set_after_register(self, monkeypatch):
+        """After ``register()`` succeeds, ``_shared_backend`` is the
+        dictation backend (same object as ``_hotkey_backend``)."""
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
+
+        app = SimpleNamespace()
+        app.config = SimpleNamespace(
+            hotkey="<f2>",
+            recording_mode="toggle",
+            esc_cancel_enabled=False,
+            repaste_hotkey=None,
+            save=MagicMock(return_value=True),
+        )
+        app.tray = MagicMock()
+        app._stop_dictation = MagicMock()
+        app.toggle_dictation = MagicMock()
+        app._cancel_dictation = MagicMock()
+        app.repaste_last = MagicMock()
+        dispatcher = HotkeyDispatcher(app)
+
+        new_backend = MagicMock()
+        new_backend.is_alive.return_value = True
+        monkeypatch.setattr(
+            "voice_typer.server.hotkey_dispatcher.create_hotkey_backend",
+            MagicMock(return_value=new_backend),
+        )
+        result = dispatcher.register()
+        assert result is True
+        assert dispatcher._shared_backend is new_backend
+        assert dispatcher._hotkey_backend is new_backend
+
+    def test_shared_backend_cleared_on_stop_all(self):
+        """``stop_all`` clears ``_shared_backend`` so a post-shutdown
+        ``register()`` starts from a clean slate."""
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
+
+        app = SimpleNamespace()
+        app.config = SimpleNamespace(
+            hotkey="<f2>",
+            recording_mode="toggle",
+            esc_cancel_enabled=False,
+            repaste_hotkey=None,
+            save=MagicMock(return_value=True),
+        )
+        app.tray = MagicMock()
+        dispatcher = HotkeyDispatcher(app)
+        dispatcher._hotkey_backend = MagicMock()
+        dispatcher._shared_backend = dispatcher._hotkey_backend
+        dispatcher.stop_all()
+        assert dispatcher._shared_backend is None
+
+    def test_native_of_returns_native_for_adapter(self, monkeypatch):
+        """``_native_of`` returns the wrapped ``SubprocessHotkeyBackend``
+        when the backend is a ``_NativeBackendAdapter`` with a native
+        that supports ``add_extra_matcher``."""
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
+
+        app = SimpleNamespace()
+        app.config = SimpleNamespace(
+            hotkey="<f2>",
+            recording_mode="toggle",
+            esc_cancel_enabled=False,
+            repaste_hotkey=None,
+            save=MagicMock(return_value=True),
+        )
+        app.tray = MagicMock()
+        dispatcher = HotkeyDispatcher(app)
+
+        # A non-adapter backend returns None.
+        assert dispatcher._native_of(MagicMock(spec=[])) is None
+        assert dispatcher._native_of(None) is None
+
+        # An adapter wrapping a native with add_extra_matcher returns
+        # the native.
+        native = MagicMock()
+        adapter = MagicMock()
+        adapter._native = native
+        # MagicMock auto-has add_extra_matcher, so _native_of returns it.
+        assert dispatcher._native_of(adapter) is native
+
+    def test_pool_aux_into_shared_returns_false_when_no_shared(self):
+        """When no shared backend is set (or the shared backend is a
+        legacy backend without ``add_extra_matcher``),
+        ``_pool_aux_into_shared`` returns False so the caller falls
+        back to the per-role subprocess model."""
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock
+
+        from voice_typer.server.hotkey_dispatcher import HotkeyDispatcher
+
+        app = SimpleNamespace()
+        app.config = SimpleNamespace(
+            hotkey="<f2>",
+            recording_mode="toggle",
+            esc_cancel_enabled=False,
+            repaste_hotkey=None,
+            save=MagicMock(return_value=True),
+        )
+        app.tray = MagicMock()
+        dispatcher = HotkeyDispatcher(app)
+        # No shared backend set.
+        assert dispatcher._shared_backend is None
+        result = dispatcher._pool_aux_into_shared("esc", "<esc>", lambda: None, None)
+        assert result is False
+

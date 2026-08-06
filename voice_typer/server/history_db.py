@@ -376,9 +376,12 @@ def _secure_copy_db_file(src: Path, dst: Path) -> None:
 # monkeypatch should target ``history_db_internals.search`` directly.
 # (No existing test monkeypatches these helpers at the module level;
 # they only call them directly, which works through the re-export.)
-from voice_typer.server.history_db_internals.search import (  # noqa: E402,F401 — backward-compat re-export
-    is_fts_compatible_query as _is_fts_compatible_query,
-)
+import voice_typer.server.history_db_internals.search as _search_helpers  # noqa: E402,F401 — backward-compat re-export
+
+_is_fts_compatible_query = _search_helpers.is_fts_compatible_query
+_prepare_like_search_pattern = _search_helpers.prepare_like_search_pattern
+_project_text_row = _search_helpers.project_text_row
+_sanitize_fts_query = _search_helpers.sanitize_fts_query
 
 
 def _wrap_write(failure_value, fail_verb, writer_label):

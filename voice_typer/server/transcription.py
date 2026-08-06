@@ -25,13 +25,28 @@ from typing import Any
 # proxy ``_resolve()`` overhead. They shadow the lazy proxy for the
 # duration of the function.
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE as _WHISPER_SAMPLE_RATE
+
+# ``cleanup_hf_cache_dir`` (formerly ``_cleanup_failed_whisper_cache``)
+# is imported from the dedicated ``_hf_cache_cleanup`` facade module —
+# the canonical entry point for HF cache-dir cleanup (previously the
+# body was duplicated 3x across ``transcription.py``, ``asr_setup.py``,
+# ``parakeet_engine.py``).
+# ``_hf_cache_cleanup`` in turn delegates to ``asr_utils.cleanup_hf_cache_dir``
+# where the actual implementation lives.  Re-exported here (``# noqa: F401``)
+# for backward compatibility with tests that patch
+# ``voice_typer.server.transcription.cleanup_hf_cache_dir``.
+from voice_typer.server._hf_cache_cleanup import (  # noqa: F401
+    cleanup_failed_cache as _cleanup_failed_cache,
+)
+from voice_typer.server._hf_cache_cleanup import (
+    cleanup_hf_cache_dir,
+)
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.asr_errors import ConsentRequiredError
 from voice_typer.server.asr_utils import (  # noqa: F401
     _check_disk_space_for_download,
     _download_with_retry,
     _require_huggingface_consent,
-    cleanup_hf_cache_dir,
     release_gpu_memory,
 )
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
@@ -60,11 +75,14 @@ _nvidia_dll_path_handles: list[object] = []
 
 # ``_MODEL_SIZE_MB`` + ``_DISK_SPACE_MARGIN_MB``,
 # ``release_gpu_memory()``, ``_download_with_retry()``,
-# ``_check_disk_space_for_download()``, and
-# ``cleanup_hf_cache_dir()`` (formerly ``_cleanup_failed_whisper_cache``)
-# were extracted to ``voice_typer.server.asr_utils`` as the canonical
-# home for shared ASR helpers.  See the re-export block at the top of
-# this module for the backward-compat imports.
+# ``_check_disk_space_for_download()`` were extracted to
+# ``voice_typer.server.asr_utils`` as the canonical home for shared ASR
+# helpers.  ``cleanup_hf_cache_dir()`` (formerly
+# ``_cleanup_failed_whisper_cache``) is now imported from the dedicated
+# ``voice_typer.server._hf_cache_cleanup`` facade module which itself
+# delegates to ``asr_utils.cleanup_hf_cache_dir``
+# where the implementation body lives.  See the re-export block at the
+# top of this module for the backward-compat imports.
 
 
 # NVIDIA CUDA DLL path setup (Windows-only, gated by ``is_windows()``

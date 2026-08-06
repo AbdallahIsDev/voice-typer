@@ -1,4 +1,4 @@
-"""RW-9 regression tests for the ``AudioQualityController`` extraction.
+"""regression tests for the ``AudioQualityController`` extraction.
 
 The three audio-quality methods (``_on_audio_quality_chunk``,
 ``_rebuild_audio_processor``, ``_finalize_audio_quality_report``) were
@@ -149,7 +149,7 @@ class TestRebuildAudioProcessor:
         app._audio_processor.rebuild_from_config.assert_called_once_with(app.config)
 
     def test_calls_recorder_on_config_changed(self):
-        """PERF-02 (R8): recorder's ``_vad_enabled`` cache is refreshed
+        """recorder's ``_vad_enabled`` cache is refreshed
         immediately after a chain rebuild so the next chunk sees the new
         VAD config without waiting for the 5s TTL."""
         ctrl, app = _make_controller()
@@ -268,7 +268,7 @@ class TestFinalizeAudioQualityReport:
         mock_aq.reset.assert_called_once()
 
     def test_never_calls_tray_notify_even_with_issues(self):
-        """FIX-HOTKEY-AND-NOTIFICATION: the tray notification that used
+        """the tray notification that used
         to fire here was deemed annoying. Even when
         ``audio_quality_warnings=True`` AND issues are detected, we
         MUST NOT call ``app.tray.notify``. Analysis runs for internal
@@ -307,7 +307,7 @@ class TestFinalizeAudioQualityReport:
 
     def test_reset_not_called_when_analyze_raises(self):
         """If analyze_full_audio raises, reset() MUST still be called
-        (ER-44: reset is in the ``finally:`` block so it ALWAYS runs,
+        (reset is in the ``finally:`` block so it ALWAYS runs,
         even on exception — preventing state leakage across sessions
         when the analyzer crashes)."""
         ctrl, app = _make_controller()
@@ -326,14 +326,14 @@ class TestFinalizeAudioQualityReport:
 
 
 class TestOnAudioQualityChunkRmsEma:
-    """AUDIO-8: the per-chunk ``rms`` value passed to
+    """the per-chunk ``rms`` value passed to
     ``_on_audio_quality_chunk`` must be fed into the analyzer's
     ``update_live_rms`` EMA accumulator. When the EMA stays below
     ``LOW_VOLUME_THRESHOLD`` for ``LOW_VOLUME_SUSTAINED_CHUNKS``
     consecutive chunks, a single WARNING is logged."""
 
     def test_live_rms_ema_advances_per_chunk(self):
-        """AUDIO-8: each call to _on_audio_quality_chunk must advance
+        """each call to _on_audio_quality_chunk must advance
         the analyzer's ``_rms_ema`` by the EMA formula."""
         ctrl, app = _make_controller()
         aq = app._audio_quality
@@ -348,7 +348,7 @@ class TestOnAudioQualityChunkRmsEma:
         assert aq.rms_ema == pytest.approx(0.00975, rel=1e-6)
 
     def test_normal_rms_does_not_log_warning(self, caplog):
-        """AUDIO-8: normal RMS (above LOW_VOLUME_THRESHOLD) must NOT
+        """normal RMS (above LOW_VOLUME_THRESHOLD) must NOT
         log a low-volume warning, even after many chunks."""
         ctrl, app = _make_controller()
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.audio_quality_controller"):
@@ -358,7 +358,7 @@ class TestOnAudioQualityChunkRmsEma:
         assert warn_msgs == [], f"Normal RMS must not fire low-volume warning, got: {warn_msgs}"
 
     def test_sustained_low_rms_logs_single_warning(self, caplog):
-        """AUDIO-8: sustained low RMS for LOW_VOLUME_SUSTAINED_CHUNKS
+        """sustained low RMS for LOW_VOLUME_SUSTAINED_CHUNKS
         consecutive chunks logs exactly ONE WARNING containing
         'low input level — increase mic gain'."""
         ctrl, app = _make_controller()
@@ -376,7 +376,7 @@ class TestOnAudioQualityChunkRmsEma:
         assert "rms_ema=" in msg, f"Warning must include rms_ema diagnostic: {msg}"
 
     def test_warning_resets_on_recovery(self, caplog):
-        """AUDIO-8: after EMA recovers above threshold, a future
+        """after EMA recovers above threshold, a future
         low-volume episode must fire the warning again."""
         ctrl, app = _make_controller()
         aq = app._audio_quality
@@ -396,26 +396,26 @@ class TestOnAudioQualityChunkRmsEma:
         assert len(warn_records) == 2, f"Expected 2 warnings (one per episode), got {len(warn_records)}"
 
     def test_rms_ema_update_does_not_block_callback(self):
-        """AUDIO-8: the EMA update must remain non-blocking — 10k calls
+        """the EMA update must remain non-blocking — 10k calls
         must complete well under 2s."""
         ctrl, app = _make_controller()
         start = time.perf_counter()
         for _ in range(10_000):
             ctrl._on_audio_quality_chunk(rms=0.05, peak=0.3)
         elapsed = time.perf_counter() - start
-        assert elapsed < 2.0, f"AUDIO-8: EMA update must not block the audio callback; 10k calls took {elapsed:.3f}s"
+        assert elapsed < 2.0, f"EMA update must not block the audio callback; 10k calls took {elapsed:.3f}s"
 
 
 # + : force_sr parameter ────────────────────────────
 
 
 class TestRebuildAudioProcessorForceSr:
-    """AUDIO-6 (High) + AUDIO-9 (Medium): ``_rebuild_audio_processor``
+    """``_rebuild_audio_processor``
     accepts an optional ``force_sr`` parameter that rebuilds the chain
     at a specific sample rate before applying config changes."""
 
     def test_force_sr_calls_set_sample_rate(self):
-        """AUDIO-6: when force_sr is provided, the controller calls
+        """when force_sr is provided, the controller calls
         ``set_sample_rate`` BEFORE the config-driven rebuild."""
         ctrl, app = _make_controller()
         ctrl._rebuild_audio_processor(force_sr=48000)
@@ -423,7 +423,7 @@ class TestRebuildAudioProcessorForceSr:
         app._audio_processor.rebuild_from_config.assert_called_once_with(app.config)
 
     def test_force_sr_none_does_not_call_set_sample_rate(self):
-        """AUDIO-6: when force_sr is None (the default), set_sample_rate
+        """when force_sr is None (the default), set_sample_rate
         must NOT be called — preserves backward compatibility."""
         ctrl, app = _make_controller()
         ctrl._rebuild_audio_processor()
@@ -469,10 +469,10 @@ class TestRebuildAudioProcessorForceSr:
         assert app._audio_processor.sample_rate == 16000
 
         ctrl._rebuild_audio_processor(force_sr=48000)
-        assert app._audio_processor.sample_rate == 48000, "AUDIO-6: force_sr must rebuild the chain at the new rate"
+        assert app._audio_processor.sample_rate == 48000, "force_sr must rebuild the chain at the new rate"
 
     def test_force_sr_skips_set_sample_rate_when_processor_lacks_it(self, caplog):
-        """AUDIO-6: if the audio processor lacks ``set_sample_rate``,
+        """if the audio processor lacks ``set_sample_rate``,
         the controller must skip gracefully and still run the rebuild."""
         ctrl, app = _make_controller()
         app._audio_processor = MagicMock(spec=["rebuild_from_config", "filter_names"])

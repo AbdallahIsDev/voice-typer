@@ -257,8 +257,10 @@ class TestManagerSlimmed:
     def test_restore_and_safety_modules_substantive(self):
         """The extracted modules must carry real implementation, not be
         empty stubs."""
-        restore_loc = sum(1 for _ in Path(restore.__file__).open(encoding="utf-8"))
-        safety_loc = sum(1 for _ in Path(safety.__file__).open(encoding="utf-8"))
+        with Path(restore.__file__).open(encoding="utf-8") as _rf:
+            restore_loc = sum(1 for _ in _rf)
+        with Path(safety.__file__).open(encoding="utf-8") as _sf:
+            safety_loc = sum(1 for _ in _sf)
         assert restore_loc >= 200, f"restore.py too small ({restore_loc} LOC) — extraction incomplete?"
         assert safety_loc >= 200, f"safety.py too small ({safety_loc} LOC) — extraction incomplete?"
 

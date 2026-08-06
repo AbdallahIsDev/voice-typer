@@ -1,23 +1,31 @@
-"""B-4: Config editor mutation lock regression tests.
+"""SEC-audit-011: Config editor mutation lock regression tests.
 
-The Windows notepad path in ``VoiceTyperApp._open_config_file`` (now
-delegated to :class:`voice_typer.server.config_editor.ConfigEditorLauncher`)
-has always acquired ``_config_mutation_lock`` for the full editor
-session so a concurrent IPC ``set_config`` call can't atomically
-overwrite ``config.json`` while Notepad is mid-edit (SEC-audit-011).
+``VoiceTyperApp._open_config_file`` (now delegated to
+:class:`voice_typer.server.config_editor.ConfigEditorLauncher`) acquires
+``_config_mutation_lock`` for the FULL editor session — not just the
+save/reload phases — so a concurrent IPC ``set_config`` call cannot
+atomically overwrite ``config.json`` while the user's editor is
+mid-edit (SEC-audit-011 TOCTOU race).
 
-B-4 fixes the same TOCTOU race on the macOS (``open``) and Linux
-(``xdg-open``) paths: they previously used non-blocking
-``subprocess.Popen`` and did NOT acquire the lock, so a concurrent IPC
-``set_config`` call (which goes through ``service.apply_config`` →
-``with app._config_mutation_lock``) could silently overwrite the user's
-manual edits while the editor was still open.
+History: the macOS (``open``) and Linux (``xdg-open``) paths previously
+used non-blocking ``subprocess.Popen`` and did NOT acquire the lock, so
+a concurrent IPC ``set_config`` call (which goes through
+``service.apply_config`` → ``with app._config_mutation_lock``) could
+silently overwrite the user's manual edits. The Windows notepad path
+had a brief "split-lock" relaxation that released the lock during the
+editor wait. Both downgrades re-opened the TOCTOU window; the
+SEC-audit-011 fix holds the lock continuously from the pre-editor save
+through the editor wait through the post-editor reload.
 
 These tests pin the fix BEHAVIORALLY (no ``inspect.getsource``):
 
-1. For every platform branch: when the editor is open, a concurrent
-   ``set_config`` call (mimicked by trying to acquire the same lock from
-   another thread) blocks until the editor closes, then proceeds.
+1. For every platform branch: while the editor is open, the lock IS
+   held by the open-config thread (verified inline at the moment
+   ``subprocess.run`` / ``subprocess.Popen`` is called) AND a
+   concurrent ``set_config`` call (mimicked by a second thread
+   acquiring the same lock) BLOCKS until the editor closes, then
+   proceeds — mirrors
+   ``tests/regressions/concurrency_test.py::test_open_config_file_holds_config_mutation_lock``.
 
 2. ``config.save()`` happens INSIDE ``_config_mutation_lock`` (the lock
    is held when save is called) — pins CR-015.
@@ -411,17 +419,20 @@ def _run_open_config_in_thread(app):
     return thread, errors
 
 
-def _assert_concurrent_set_config_succeeds(app, editor, timeout=5.0):
-    """Mimic a concurrent IPC ``set_config`` call.
+def _assert_concurrent_set_config_blocks_then_proceeds(app, editor):
+    """Mimic a concurrent IPC ``set_config`` call (SEC-audit-011).
 
     Spawns a thread that tries to acquire ``app._config_mutation_lock``
     (exactly what ``service.apply_config`` does on the IPC set_config
-    path). Verifies the thread ACQUIRES the lock immediately while the
-    editor is open — the lock was split so the editor wait no
-    longer holds it. (An earlier fix held the lock for the full
-    editor session; the split reverted that to keep the tray thread
-    + IPC handlers responsive.)
+    path). Verifies the thread CANNOT acquire the lock while the editor
+    is open — the lock is held for the FULL editor session — and then
+    DOES acquire it shortly after the editor closes.
+
+    Mirrors the assertion style of
+    ``tests/regressions/concurrency_test.py::test_open_config_file_holds_config_mutation_lock``.
     """
+    import time as _time
+
     acquired = threading.Event()
 
     def _acquire_lock():
@@ -431,33 +442,44 @@ def _assert_concurrent_set_config_succeeds(app, editor, timeout=5.0):
     setter_thread = threading.Thread(target=_acquire_lock, daemon=True)
     setter_thread.start()
 
-    # The setter thread must acquire the lock almost immediately — the
-    # editor wait does NOT hold the lock.
-    assert acquired.wait(timeout=2.0), (
-        "A concurrent set_config call (acquiring "
-        "_config_mutation_lock) must succeed WHILE the config editor is "
-        "open — but the lock was not acquired within 2s, which means "
-        "_open_config_file is still holding the lock for the full "
-        "editor session (the pre-split behavior)."
+    # Give the setter thread a moment to attempt the acquire. The lock
+    # is held by the open-config thread for the full editor session, so
+    # the setter MUST still be blocked here.
+    _time.sleep(0.15)
+    assert not acquired.is_set(), (
+        "SEC-audit-011: a concurrent set_config call (acquiring "
+        "_config_mutation_lock) must BLOCK while the config editor is "
+        "open — but the lock was acquired within 0.15s, which means "
+        "_open_config_file is NOT holding the lock for the full editor "
+        "session (the pre-SEC-audit-011 'split-lock' relaxation)."
+    )
+
+    # Closing the editor lets the open-config thread release the lock,
+    # unblocking the setter.
+    editor.close_event.set()
+
+    assert acquired.wait(timeout=5.0), (
+        "after the editor closes, the blocked set_config call must "
+        "proceed and acquire _config_mutation_lock (the lock is "
+        "released once the editor exits and the reload completes)."
     )
     setter_thread.join(timeout=2.0)
     assert not setter_thread.is_alive(), "setter thread should have exited"
 
-    editor.close_event.set()
-
 
 class TestMacosRuntime:
-    """Runtime test for the macOS ``open -W`` branch.
+    """Runtime test for the macOS ``open -W`` branch (SEC-audit-011).
 
-    The lock is NOT held during the editor wait — only during the
-    brief save (Phase 1) and reload (Phase 3). An earlier fix held
-    the lock for the full editor session, which blocked the tray thread
-    + every IPC handler that touched the config for the entire editor
-    session. The split reverted that to keep the app responsive while the
-    user edits the file.
+    The lock IS held for the full editor session — from the pre-editor
+    save through the ``subprocess.run(['open', '-W', ...])`` wait through
+    the post-editor reload — so a concurrent IPC ``set_config`` call
+    (which goes through ``service.apply_config`` →
+    ``_config_mutation_lock``) blocks until the editor exits. This
+    closes the TOCTOU window where a set_config could silently
+    overwrite the user's manual edits mid-session.
     """
 
-    def test_lock_not_held_during_editor_session(self, tmp_config_dir, monkeypatch):
+    def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
         app = _make_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, "macos")
 
@@ -470,13 +492,14 @@ class TestMacosRuntime:
                 # Pass through non-editor subprocess calls (icacls) to
                 # the real subprocess.run captured before patching.
                 return original_run(args, **kwargs)
-            assert not _lock_owned(app), (
-                "_config_mutation_lock must NOT be held by the "
-                "current thread when subprocess.run is called on macOS — "
-                "the lock is released after the save (Phase 1) and not "
-                "re-acquired until the reload (Phase 3). Holding the lock "
-                "during the editor wait blocks the tray thread + every "
-                "IPC handler that touches the config."
+            assert _lock_owned(app), (
+                "SEC-audit-011: _config_mutation_lock must be HELD by "
+                "the current thread when subprocess.run is called on "
+                "macOS — the lock is acquired before the pre-editor "
+                "save and held continuously through the editor wait and "
+                "post-editor reload. Releasing it during the editor "
+                "wait (the XV-3 'split-lock' relaxation) re-opens the "
+                "TOCTOU race with a concurrent IPC set_config."
             )
             return editor.run(args, **kwargs)
 
@@ -488,7 +511,7 @@ class TestMacosRuntime:
 
         assert editor.opened.wait(timeout=5.0), "Editor should have been launched (subprocess.run called) within 5s."
 
-        _assert_concurrent_set_config_succeeds(app, editor)
+        _assert_concurrent_set_config_blocks_then_proceeds(app, editor)
 
         thread.join(timeout=5.0)
         assert not thread.is_alive(), "_open_config_file should have returned after the editor closed."
@@ -502,13 +525,13 @@ class TestMacosRuntime:
 
 
 class TestLinuxRuntime:
-    """Runtime test for the Linux ``xdg-open`` branch.
+    """Runtime test for the Linux ``xdg-open`` branch (SEC-audit-011).
 
-    The lock is NOT held during the editor wait — see
+    The lock IS held for the full editor session — see
     ``TestMacosRuntime`` for the full rationale.
     """
 
-    def test_lock_not_held_during_editor_session(self, tmp_config_dir, monkeypatch):
+    def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
         app = _make_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, "linux")
 
@@ -521,11 +544,12 @@ class TestLinuxRuntime:
                 # Pass through non-editor subprocess calls (icacls) to
                 # the real subprocess.run captured before patching.
                 return original_run(args, **kwargs)
-            assert not _lock_owned(app), (
-                "_config_mutation_lock must NOT be held by the "
-                "current thread when subprocess.run is called on Linux — "
-                "the lock is released after the save (Phase 1) and not "
-                "re-acquired until the reload (Phase 3)."
+            assert _lock_owned(app), (
+                "SEC-audit-011: _config_mutation_lock must be HELD by "
+                "the current thread when subprocess.run is called on "
+                "Linux — the lock is acquired before the pre-editor "
+                "save and held continuously through the editor wait and "
+                "post-editor reload."
             )
             return editor.run(args, **kwargs)
 
@@ -537,7 +561,7 @@ class TestLinuxRuntime:
 
         assert editor.opened.wait(timeout=5.0), "Editor should have been launched (subprocess.run called) within 5s."
 
-        _assert_concurrent_set_config_succeeds(app, editor)
+        _assert_concurrent_set_config_blocks_then_proceeds(app, editor)
 
         thread.join(timeout=5.0)
         assert not thread.is_alive(), "_open_config_file should have returned after the editor closed."
@@ -548,15 +572,17 @@ class TestLinuxRuntime:
 
 
 class TestWindowsRuntime:
-    """Runtime test for the Windows notepad branch (parity check).
+    """Runtime test for the Windows notepad branch (SEC-audit-011).
 
-    The lock is NOT held during the editor wait — see
-    ``TestMacosRuntime`` for the full rationale. The Windows branch had
-    held the lock previously; the split reverts that to keep the
-    tray thread + IPC handlers responsive.
+    The lock IS held for the full editor session — see
+    ``TestMacosRuntime`` for the full rationale. The Windows branch
+    had a brief "split-lock" relaxation that released the lock during
+    the editor wait; SEC-audit-011 restores the full-session hold so
+    a concurrent IPC ``set_config`` cannot atomically replace
+    ``config.json`` while Notepad is mid-edit.
     """
 
-    def test_lock_not_held_during_editor_session(self, tmp_config_dir, monkeypatch):
+    def test_lock_held_during_editor_session(self, tmp_config_dir, monkeypatch):
         app = _make_app(tmp_config_dir, monkeypatch)
         _force_platform(monkeypatch, "windows")
         monkeypatch.setattr(
@@ -579,11 +605,12 @@ class TestWindowsRuntime:
         import subprocess as _subprocess
 
         def _popen(args, **kwargs):
-            assert not _lock_owned(app), (
-                "_config_mutation_lock must NOT be held when "
-                "subprocess.Popen is called on Windows — the lock is "
-                "released after the save (Phase 1) and not re-acquired "
-                "until the reload (Phase 3)."
+            assert _lock_owned(app), (
+                "SEC-audit-011: _config_mutation_lock must be HELD by "
+                "the current thread when subprocess.Popen is called on "
+                "Windows — the lock is acquired before the pre-editor "
+                "save and held continuously through the editor wait and "
+                "post-editor reload."
             )
             return _FakeProc(args)
 
@@ -593,7 +620,7 @@ class TestWindowsRuntime:
 
         assert editor.opened.wait(timeout=5.0), "Editor should have been launched (subprocess.Popen called) within 5s."
 
-        _assert_concurrent_set_config_succeeds(app, editor)
+        _assert_concurrent_set_config_blocks_then_proceeds(app, editor)
 
         thread.join(timeout=5.0)
         assert not thread.is_alive(), "_open_config_file should have returned after the editor closed."

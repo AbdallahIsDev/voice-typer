@@ -227,7 +227,10 @@ class TestRelaunchAckCoordination:
         acked = server.wait_for_relaunch_ack(timeout=0.1)
         elapsed = time.monotonic() - start
         assert acked is False
-        assert elapsed >= 0.1
+        # Tolerant lower bound: ``Event.wait`` may return a few ms early
+        # on Windows (timer granularity), so require at least half the
+        # timeout — enough to prove the wait did NOT short-circuit.
+        assert elapsed >= 0.05, f"waited only {elapsed:.3f}s for the 0.1s timeout"
 
     def test_wait_for_relaunch_ack_clears_event_before_waiting(self) -> None:
         """The wait clears the event before waiting so a stale ack from
@@ -241,7 +244,10 @@ class TestRelaunchAckCoordination:
         elapsed = time.monotonic() - start
         # The stale event was cleared; no fresh ack arrived → timeout.
         assert acked is False
-        assert elapsed >= 0.1
+        # Tolerant lower bound: ``Event.wait`` may return a few ms early
+        # on Windows (timer granularity), so require at least half the
+        # timeout — enough to prove the stale event was NOT served.
+        assert elapsed >= 0.05, f"waited only {elapsed:.3f}s for the 0.1s timeout"
 
     def test_relaunch_ack_arrives_after_shutdown_started_is_safe(
         self,

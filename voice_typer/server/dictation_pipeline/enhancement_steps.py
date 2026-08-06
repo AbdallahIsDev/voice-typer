@@ -259,7 +259,7 @@ class _EnhancementStepsMixin:
                     log.warning(
                         "[LLM_POLISH] redact_pii not importable (security module broken) "
                         "AND templates were applied this cycle — skipping LLM polish to "
-                        "prevent potential clipboard-content exfiltration (S3-CR-10 fail-closed). "
+                        "prevent potential clipboard-content exfiltration (fail-closed). "
                         "(cycle=%s)",
                         self._cycle_id,
                     )

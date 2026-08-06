@@ -1,6 +1,6 @@
 """Tests for ``_recorder_split.stop_recording``.
 
-S3-CR-17 / Phase 4.5 — pin the extraction contract for the body of
+Phase 4.5 — pin the extraction contract for the body of
 ``Recorder.stop`` that was moved (verbatim, with ``self.X`` rewritten
 to ``recorder.X``) into a free function in
 ``voice_typer/server/recording/_recorder_split.py``. The

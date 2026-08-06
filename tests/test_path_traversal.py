@@ -1,4 +1,4 @@
-"""Tests for SEC-005: Path traversal validation."""
+"""Tests: Path traversal validation."""
 
 import sys
 from pathlib import Path
@@ -35,7 +35,7 @@ def test_validate_path_safety_traversal():
 
 
 class TestIsPathWithin:
-    """Tests for ``_is_path_within`` (RW-5) — the robust
+    """Tests for ``_is_path_within`` — the robust
     ``os.path.commonpath`` containment check used by ``_validate_import_path``.
 
     These edge cases were previously only exercised transitively through

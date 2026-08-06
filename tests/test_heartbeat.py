@@ -310,6 +310,22 @@ class TestHeartbeatWatchdog:
 class TestHeartbeatThreadLifecycle:
     """RW-10: the watchdog thread must be a daemon and exit on stop()."""
 
+    @pytest.fixture(autouse=True)
+    def _clear_tauri_sidecar_env(self, monkeypatch) -> typing.Iterator[None]:
+        """Ensure ``TAURI_SIDECAR`` is unset so ``start()`` spawns the watchdog.
+
+        When ``TAURI_SIDECAR=1`` is in the environment, ``IPCServer.start()``
+        intentionally skips spawning the heartbeat-watchdog thread (the Tauri
+        Rust host owns liveness via WS-close + heartbeat dispatch). Other
+        tests in the suite set this env var, and the test runner may also
+        inherit it — without an explicit ``delenv`` the four lifecycle tests
+        below would observe the skip path (``_heartbeat_thread is None``) and
+        fail with "0 threads spawned" / "0 calls". Mirrors the same ``delenv``
+        pattern used in ``tests/test_ipc_server_lifecycle_fixes.py``.
+        """
+        monkeypatch.delenv("TAURI_SIDECAR", raising=False)
+        yield
+
     def test_start_spawns_daemon_thread(self) -> None:
         """``start()`` must spawn the heartbeat thread as a daemon.
 

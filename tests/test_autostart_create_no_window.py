@@ -200,10 +200,34 @@ class TestUnregisterAllTasksCreateNoWindow:
 
         # Stub task_scheduler.is_supported() → True so the function
         # proceeds to the PowerShell call.
+        #
+        # We must patch BOTH ``sys.modules`` AND the attribute on the
+        # ``voice_typer.server`` package: production code does
+        # ``from voice_typer.server import task_scheduler`` which — per
+        # Python's import system — resolves ``task_scheduler`` as an
+        # attribute of the already-imported ``voice_typer.server`` package
+        # BEFORE consulting ``sys.modules["voice_typer.server.task_scheduler"]``.
+        # If a prior test (e.g. ``test_e2e_regression.py``) imported the
+        # real ``task_scheduler`` module, the attribute is already set on
+        # ``voice_typer.server`` and replacing only ``sys.modules`` leaves
+        # the production code reaching the real module — whose
+        # ``is_supported()`` returns False on Linux (no schtasks.exe),
+        # causing the function to early-return ``[]``.
         fake_task_scheduler = types.ModuleType("task_scheduler")
         fake_task_scheduler.is_supported = lambda: True
         monkeypatch.setitem(
             sys.modules, "voice_typer.server.task_scheduler", fake_task_scheduler
+        )
+        # ``raising=False`` so the patch succeeds whether or not a prior
+        # test has imported the real ``task_scheduler`` module (which
+        # would have set the attribute on the ``voice_typer.server``
+        # package). Without this, running this test in isolation
+        # (before any other test imports task_scheduler) raises
+        # ``AttributeError`` because the attribute doesn't exist yet.
+        monkeypatch.setattr(
+            "voice_typer.server.task_scheduler",
+            fake_task_scheduler,
+            raising=False,
         )
 
         captured: dict = {}

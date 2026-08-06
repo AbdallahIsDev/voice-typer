@@ -1,6 +1,6 @@
 """Shared security helpers for cloud-style HTTP clients.
 
-RELIABILITY-004 / SEC-002 follow-up: centralized helpers for
+follow-up: centralized helpers for
 - redacting API keys from log messages and exception strings
 - asserting that a caller-supplied URL matches an allowlist of trusted
   cloud providers (defense against SEC-002 endpoint-swap attacks)
@@ -21,6 +21,7 @@ import socket
 from collections.abc import Iterable
 from urllib.parse import urlparse
 
+from voice_typer.server._paths import IPC_TOKEN_ENV_VAR as _IPC_TOKEN_ENV_VAR
 from voice_typer.server._paths import LOOPBACK_HOSTS as _LOOPBACK_HOSTS
 
 log = logging.getLogger(__name__)
@@ -77,7 +78,81 @@ _KEY_PATTERNS = [
     re.compile(r"(?<![/\\])\b[A-Za-z0-9_\-]{20,}\b(?![/\\])"),
 ]
 
-# SEC-9: explicit flag / key=value forms for secret-bearing keywords.
+# ── Public env-var name whitelist ────────────────────────────────────────
+#
+# Env-var NAMES are public (documented in docs, ADRs, source code, and
+# ``spawn.rs``). Redacting them provides ZERO security benefit and HURTS
+# operability — operators can't tell which env var is misconfigured from a
+# log line like ``[ENV] Invalid value for ***=<redacted>``. Only VALUES
+# should be redacted; the name must survive.
+#
+# This whitelist is the PRIMARY guard: any token that exactly matches a
+# name in this set is left untouched by the generic 20+ char alphanumeric
+# pattern (the last entry in ``_KEY_PATTERNS``). The Bearer/Token/sk-/gsk_
+# prefix patterns are unaffected because env-var names never carry those
+# prefixes.
+#
+# Keep this list in sync with:
+#   - ``voice_typer/server/env_validation.py`` (validated env vars)
+#   - ``voice_typer/server/_paths.py`` (``IPC_TOKEN_ENV_VAR``)
+#   - ``voice_typer/server/_secrets.py`` (``_ENV_TRUSTED_HOSTS_VAR``)
+#   - ``src-tauri/src/sidecar/spawn.rs`` (Tauri host → Python sidecar env)
+#   - ``voice_typer/server/logging_setup.py`` / ``log/__init__.py``
+# A drift-detection guard is provided by the
+# ``test_public_env_var_names_not_redacted`` regression test in
+# ``tests/test_secrets.py``.
+_PUBLIC_ENV_VAR_NAMES: frozenset[str] = frozenset(
+    {
+        # Voice Typer config / runtime
+        "VOICE_TYPER_CONFIG_DIR",
+        _IPC_TOKEN_ENV_VAR,  # imported from _paths to avoid bare literal
+        "VOICE_TYPER_NATIVE_DIR",
+        "VOICE_TYPER_PREWARM_EXE",
+        "VOICE_TYPER_RESTART",
+        "VOICE_TYPER_QUIET",
+        "VOICE_TYPER_DEBUG",
+        "VOICE_TYPER_NO_TRAY",
+        "VOICE_TYPER_STREAMING",
+        "VOICE_TYPER_TRUSTED_HOSTS",
+        "VOICE_TYPER_DEBUG_EVENTS",
+        "VOICE_TYPER_LOG_JSON",
+        "VOICE_TYPER_LOG_LEVEL_MODULES",
+        "VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK",
+        # Hugging Face
+        "HUGGING_FACE_HUB_TOKEN",
+        "HF_HOME",
+        "HF_ENDPOINT",
+        "HF_TOKEN",
+        # Tauri host contract
+        "TAURI_SIDECAR",
+        # Cloud-provider API key env-var names (the NAMES are public —
+        # the VALUES are stripped from os.environ at startup by
+        # ``env_validation._SENSITIVE_ENV_NAMES``; logging the NAME in a
+        # "stripped because it was set" warning is the documented
+        # operator diagnostic).
+        "OPENAI_API_KEY",
+        "ANTHROPIC_API_KEY",
+        "GEMINI_API_KEY",
+        "DEEPGRAM_API_KEY",
+        "GROQ_API_KEY",
+    }
+)
+
+# a previous defense-in-depth heuristic
+# (``_ENV_VAR_NAME_RE``) treated ANY 20+ char UPPERCASE_WITH_UNDERSCORES
+# token as an env-var NAME and left it un-redacted, even when it wasn't
+# in the explicit whitelist. That introduced a silent redaction
+# downgrade: real all-caps base64-style secret VALUES (e.g.
+# ``SECRET_TOKEN_LIKE_THING_0123456789``) also match the env-var NAME
+# shape and leaked into logs / diagnostic bundles verbatim.
+#
+# There is NO safe syntactic name-vs-value discriminator — the shapes
+# are identical. Only the explicit ``_PUBLIC_ENV_VAR_NAMES`` whitelist
+# above exempts a token from redaction. A non-whitelisted env var that
+# gets logged IS masked, which is the correct failure direction for a
+# redaction helper.
+
+# explicit flag / key=value forms for secret-bearing keywords.
 #
 # These patterns are deliberately more specific than the catch-all
 # 32+ char pattern: they require an explicit secret-bearing keyword
@@ -345,8 +420,31 @@ def redact_api_keys(text: str, *, replacement: str = "***") -> str:
         # No prefix group — redact the whole match.
         return replacement
 
-    for pat in _KEY_PATTERNS:
+    # Generic 20+ char alphanumeric pattern (last entry in
+    # ``_KEY_PATTERNS``): skip redaction for tokens that are PUBLIC
+    # env-var NAMES. Env-var names are documented in docs / ADRs /
+    # source code and carry zero secret value; redacting them
+    # destroys operability (operators can't tell which env var is
+    # misconfigured from ``[ENV] Invalid value for ***=<redacted>``).
+    # Only the VALUES are redacted (via the call-site ``=<redacted>``
+    # convention in ``env_validation.py`` and via the
+    # ``_FLAG_KEY_PATTERNS`` / Bearer / Token / sk- / gsk_ patterns
+    # here when a value follows a secret-bearing keyword).
+    #
+    # The prefix patterns (Bearer / Token / sk- / gsk_) are
+    # unaffected — env-var names never carry those prefixes, so they
+    # can be applied with the plain ``_sub`` callback.
+    generic_pat = _KEY_PATTERNS[-1]
+
+    def _generic_sub(m: re.Match[str]) -> str:
+        token = m.group()
+        if token in _PUBLIC_ENV_VAR_NAMES:
+            return token
+        return replacement
+
+    for pat in _KEY_PATTERNS[:-1]:
         text = pat.sub(_sub, text)
+    text = generic_pat.sub(_generic_sub, text)
     return text
 
 

@@ -486,7 +486,12 @@ class TestUninstallRestore:
     def test_gnome_restore_uses_set_with_saved_value(self, ip_module, monkeypatch):
         """``_restore_gnome_xkb_options`` calls ``gsettings set`` with the saved value."""
         captured: list[list[str]] = []
-        monkeypatch.setattr(ip_module, "run", lambda cmd, check=True: captured.append(cmd) or subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr=""))
+        monkeypatch.setattr(
+            ip_module,
+            "run",
+            lambda cmd, check=True: captured.append(cmd)
+            or subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr=""),
+        )
 
         manifest = {
             "target_user": "alice",
@@ -503,7 +508,12 @@ class TestUninstallRestore:
     def test_gnome_restore_falls_back_to_reset_when_no_saved_value(self, ip_module, monkeypatch):
         """When no original was saved, falls back to ``gsettings reset``."""
         captured: list[list[str]] = []
-        monkeypatch.setattr(ip_module, "run", lambda cmd, check=True: captured.append(cmd) or subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr=""))
+        monkeypatch.setattr(
+            ip_module,
+            "run",
+            lambda cmd, check=True: captured.append(cmd)
+            or subprocess.CompletedProcess(args=cmd, returncode=0, stdout="", stderr=""),
+        )
 
         manifest = {
             "target_user": "alice",

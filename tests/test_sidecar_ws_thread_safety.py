@@ -64,6 +64,27 @@ from voice_typer.server import event_bus, sidecar_ws  # noqa: E402
 
 from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server  # noqa: E402
 
+
+@pytest.fixture(autouse=True)
+def _reset_event_bus_subscribers():
+    """Clear leaked global ``event_bus`` subscribers before each test.
+
+    ``sidecar_ws._install_subscriber`` registers a per-connection
+    ``_push_to_ws`` closure on the GLOBAL ``event_bus``. When a prior
+    test leaves a connection task pending (never cancelled), the
+    asyncio loop teardown destroys the task WITHOUT running its
+    ``finally`` block, so the closure (stored as a strong ref in
+    ``event_bus._subscribers``) leaks forever. A leaked subscriber
+    makes ``_subscriber_count() >= 1`` immediately, so these tests
+    skip their auth-wait and publish before their own ``_push_to_ws``
+    is installed — 0 events delivered (order-dependent failure that
+    only shows in the full suite).
+    """
+    event_bus._subscribers = event_bus._SubscriberSet()
+    yield
+    event_bus._subscribers = event_bus._SubscriberSet()
+
+
 # ─── Helpers ───────────────────────────────────────────────────────────
 
 

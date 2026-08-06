@@ -353,12 +353,10 @@ class TestSubprocessEarlyExitTriggersRestart:
         native._on_permanent_failure_callback = lambda: permanent_failure_called.append(True)
 
         with popen_patch:
-            try:
-                # start() will raise RuntimeError because the process exits
-                # before READY. The adapter catches it and swaps to legacy.
+            # start() will raise RuntimeError because the process exits
+            # before READY. The adapter catches it and swaps to legacy.
+            with contextlib.suppress(RuntimeError):
                 adapter.start(lambda: None)
-            except RuntimeError:
-                pass
             # Give the reader thread a moment to detect the exit and
             # attempt restarts.
             time.sleep(0.3)

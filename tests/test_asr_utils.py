@@ -90,7 +90,7 @@ class TestSplitAudio:
             sample_rate=SR,
         )
         assert len(chunks_default) == len(chunks_explicit)
-        for a, b in zip(chunks_default, chunks_explicit):
+        for a, b in zip(chunks_default, chunks_explicit, strict=True):
             np.testing.assert_array_equal(a, b)
 
     def test_custom_sample_rate_scales_chunk_lengths(self):
@@ -153,7 +153,7 @@ class TestSplitAudioDelegationFromEngines:
             sample_rate=SR,
         )
         assert len(chunks_method) == len(chunks_helper)
-        for a, b in zip(chunks_method, chunks_helper):
+        for a, b in zip(chunks_method, chunks_helper, strict=True):
             np.testing.assert_array_equal(a, b)
 
     def test_qwen_delegates_to_split_audio(self):
@@ -169,5 +169,5 @@ class TestSplitAudioDelegationFromEngines:
             sample_rate=SR,
         )
         assert len(chunks_method) == len(chunks_helper)
-        for a, b in zip(chunks_method, chunks_helper):
+        for a, b in zip(chunks_method, chunks_helper, strict=True):
             np.testing.assert_array_equal(a, b)

@@ -1,4 +1,4 @@
-"""NEW-CONC-002: lock-order contract regression tests.
+"""lock-order contract regression tests.
 
 This file enforces the contract documented in
 ``docs/architecture/lock-order-contract.md``:
@@ -115,11 +115,11 @@ def _read_source(path: Path) -> str:
 def _strip_comments_and_docstrings(source: str) -> str:
     """Strip ``#`` comments and triple-quoted strings before regex matching.
 
-    SI-5: the previous ``_LOCK_DECL_RE`` matched a COMMENT in
+    the previous ``_LOCK_DECL_RE`` matched a COMMENT in
     ``app.py:465`` (``# pins app.py source for `` ``self._pending_timers_lock
     = threading.Lock()`` ``)``) rather than the real declaration. The real
     ``threading.Lock()`` construction for ``_pending_timers_lock`` lives in
-    ``timer_coordinator.py`` (RW-9 Phase 7); ``app.py:469`` is only a
+    ``timer_coordinator.py``; ``app.py:469`` is only a
     shadow assignment (``self._pending_timers_lock =
     self.timers._pending_timers_lock``). Without comment stripping the test
     passed on a comment — a false green that gave no real coverage.
@@ -249,7 +249,7 @@ class TestLockInventory:
             tc_declarations[m.group(1)] = m.group(2)
         assert "_pending_timers_lock" in tc_declarations, (
             "app._pending_timers_lock (threading.Lock) must be declared in "
-            "timer_coordinator.py (RW-9 Phase 7 migrated the timer state "
+            "timer_coordinator.py (Phase 7 migrated the timer state "
             "to TimerCoordinator; app.py only keeps a shadow attribute "
             "pointing at the coordinator's lock) — see "
             "docs/architecture/lock-order-contract.md §1"
@@ -272,7 +272,7 @@ class TestLockInventory:
 
 
 class TestNoLockNesting:
-    """NEW-CONC-002 primary invariant: the three app-level locks must
+    """primary invariant: the three app-level locks must
     NEVER be acquired nested within one another. See contract §2 Rule 1."""
 
     @pytest.mark.parametrize(
@@ -380,7 +380,7 @@ def app_shell():
     container. The lock-using methods under test (``_schedule_timer`` /
     ``_cancel_pending_timers``) only touch ``self.timers._pending_timers_lock``,
     ``self.timers._pending_timers``, and ``self.timers._timer_generation``
-    (RW-9 Phase 7: TimerCoordinator owns the state; VoiceTyperApp keeps
+    (Phase 7: TimerCoordinator owns the state; VoiceTyperApp keeps
     thin shadow attributes that point at the coordinator's state, mirroring
     production), so we initialise just those attributes plus the three
     contract locks.
@@ -408,7 +408,7 @@ def app_shell():
 
 
 class TestConcurrentLockUseNoDeadlock:
-    """NEW-CONC-002: spawn N threads through the production lock-using
+    """spawn N threads through the production lock-using
     paths and assert no thread hangs within 2 s."""
 
     def test_concurrent_schedule_and_cancel_timers_no_deadlock(self, app_shell):
@@ -570,7 +570,7 @@ class TestConcurrentLockUseNoDeadlock:
 
 
 class TestReverseOrderAcquisitionNoDeadlock:
-    """NEW-CONC-002 sanity: prove the three app locks are *independent*
+    """sanity: prove the three app locks are *independent*
     (i.e., acquiring them in any order from any thread does not deadlock).
 
     The contract requires NO nesting — so reverse-order acquisition is a

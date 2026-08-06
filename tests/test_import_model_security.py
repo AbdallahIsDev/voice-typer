@@ -1,4 +1,4 @@
-"""RW-5: regression tests for import_model path validation + symlink rejection.
+"""regression tests for import_model path validation + symlink rejection.
 
 Verifies that:
 
@@ -63,7 +63,7 @@ def service():
 
 
 class TestImportPathValidation:
-    """RW-5: ``_validate_import_path`` rejects paths outside allowed roots."""
+    """``_validate_import_path`` rejects paths outside allowed roots."""
 
     def test_rejects_path_outside_allowed_roots(self, tmp_path, monkeypatch):
         """A path outside home, temp, and the HF cache is rejected.
@@ -227,7 +227,7 @@ class TestImportPathValidation:
 
 
 class TestImportPathValidationHandler:
-    """RW-5: the IPC handler returns an error response for bad paths.
+    """the IPC handler returns an error response for bad paths.
 
     These tests import ``ModelHandlersMixin`` via ``ipc_server`` (rather
     than directly via the ``handlers`` package) to avoid a pre-existing
@@ -331,7 +331,7 @@ class TestImportPathValidationHandler:
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX symlink tests")
 class TestImportModelSymlinkRejection:
-    """RW-5: ``import_model`` refuses to copy a model cache that contains
+    """``import_model`` refuses to copy a model cache that contains
     symlinks."""
 
     def test_rejects_model_dir_with_symlinked_file(self, service, tmp_path, monkeypatch):
@@ -405,7 +405,7 @@ class TestImportModelSymlinkRejection:
         assert "symlink" in result["errors"][0]["error"].lower()
 
     def test_rejects_symlink_to_etc_hostname(self, service, tmp_path, monkeypatch):
-        """The exact attack scenario from the RW-5 brief: a symlink to
+        """The exact attack scenario from the brief: a symlink to
         ``/etc/hostname`` (a canonical "sensitive file" target).  The
         import must be rejected, and the destination must not contain a
         copy of /etc/hostname's contents."""
@@ -521,7 +521,7 @@ class TestImportModelSymlinkRejection:
 
 
 class TestIsPathWithin:
-    """RW-5: the path-containment helper correctly respects directory
+    """the path-containment helper correctly respects directory
     boundaries (no prefix-collision false positives)."""
 
     def test_descendant_is_within(self, tmp_path):

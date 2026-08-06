@@ -1,4 +1,4 @@
-"""RW-3: regression tests for shared cleanup between quit() and restart_app().
+"""regression tests for shared cleanup between quit() and restart_app().
 
 These tests verify that ``restart_app()`` runs the SAME critical cleanup
 that ``quit()`` does — flushing ``history_db``, stopping the recorder /
@@ -8,7 +8,7 @@ timers + stop hotkey backends + stop tray) and skipped the rest,
 silently losing pending DB writes and leaking PortAudio streams + the
 Win32 mutex on EVERY restart.
 
-The fix (RW-3) extracts the shared cleanup body into ``_do_cleanup()``
+The fix extracts the shared cleanup body into ``_do_cleanup()``
 so ``quit()``, ``restart_app()``, and ``_atexit_cleanup()`` all run the
 SAME audited shutdown path.  ``_do_cleanup()`` is idempotent (guarded
 by ``_cleanup_done``) so the atexit safety net can call it
@@ -116,7 +116,7 @@ def _stub_restart_environment(app, monkeypatch):
 
 
 class TestRestartAppSharedCleanup:
-    """RW-3: restart_app() must run the same critical cleanup as quit().
+    """restart_app() must run the same critical cleanup as quit().
 
     Each test asserts that a specific cleanup operation — previously
     SKIPPED by restart_app() — is now invoked via the shared
@@ -128,7 +128,7 @@ class TestRestartAppSharedCleanup:
         fire-and-forget INSERTs are not silently lost when the daemon
         writer thread is killed by sys.exit.
 
-        Regression: before RW-3, restart_app() skipped this call,
+        Regression: restart_app() skipped this call,
         losing any transcription history writes that hadn't been
         drained from the writer-thread queue at exit time.
         """
@@ -144,7 +144,7 @@ class TestRestartAppSharedCleanup:
         restart so the PortAudio stream is closed before the new
         instance tries to claim the microphone.
 
-        Regression: before RW-3, restart_app() left the PortAudio
+        Regression: restart_app() left the PortAudio
         stream open, and on Windows the next instance could fail to
         open the mic because the OS still considered it in use.
         """
@@ -165,7 +165,7 @@ class TestRestartAppSharedCleanup:
         """_clear_backend_pid_file() must be called on restart so the
         PID file doesn't claim a stale PID when the new instance starts.
 
-        Regression: before RW-3, restart_app() skipped this call,
+        Regression: restart_app() skipped this call,
         leaving a stale backend.pid pointing at the dying process. The
         next launch's _ensure_single_instance check would then think
         the old instance was still alive (race during the kill window)
@@ -191,7 +191,7 @@ class TestRestartAppSharedCleanup:
         restart so the latest recovery state is persisted before the
         process exits.
 
-        Regression: before RW-3, restart_app() skipped these calls,
+        Regression: restart_app() skipped these calls,
         losing the in-flight crash recovery snapshot. If the new
         instance then crashed before writing its own snapshot, the
         user could be presented with a stale "did you mean to paste
@@ -210,7 +210,7 @@ class TestRestartAppSharedCleanup:
         so the OS-event device watcher daemon thread exits cleanly
         before the process tears down.
 
-        Regression: before RW-3, restart_app() skipped this call. The
+        Regression: restart_app() skipped this call. The
         watcher thread is a daemon and would die on process exit
         anyway, but explicit stop() avoids a 2s join race during GC
         that could log spurious "device changed" events as the
@@ -226,7 +226,7 @@ class TestRestartAppSharedCleanup:
     def test_restart_app_stops_all_three_hotkey_backends(self, app, monkeypatch):
         """Sanity: restart_app must still stop _hotkey_backend,
         _esc_backend, and _repaste_backend (RELIABILITY-003) after the
-        RW-3 refactor extracts them into _do_cleanup()."""
+        refactor extracts them into _do_cleanup()."""
         _stub_restart_environment(app, monkeypatch)
         # _do_cleanup nulls the backend refs after stop() (so a second
         # cleanup pass doesn't re-enter a torn-down backend) — capture
@@ -245,7 +245,7 @@ class TestRestartAppSharedCleanup:
 
     def test_restart_app_calls_tray_stop(self, app, monkeypatch):
         """Sanity: restart_app must still call tray.stop() (to break
-        the pystray loop) after the RW-3 refactor moves it into
+        the pystray loop) after the refactor moves it into
         _do_cleanup()."""
         _stub_restart_environment(app, monkeypatch)
 
@@ -255,11 +255,11 @@ class TestRestartAppSharedCleanup:
         app.tray.stop.assert_called_once()
 
     def test_restart_app_sets_shutting_down_before_cleanup(self, app, monkeypatch):
-        """RW-3: restart_app must set _shutting_down=True BEFORE calling
+        """restart_app must set _shutting_down=True BEFORE calling
         _do_cleanup(), so the atexit safety net's _shutting_down guard
         short-circuits instead of double-cleaning up.
 
-        This invariant was already present pre-RW-3 (RELIABILITY-006);
+        This invariant was already present;
         the test guards against a future regression that reorders the
         flag-set relative to the cleanup call.
         """
@@ -290,7 +290,7 @@ class TestRestartAppSharedCleanup:
 
 
 class TestDoCleanupIdempotency:
-    """RW-3: _do_cleanup() must be safe to call multiple times.
+    """_do_cleanup() must be safe to call multiple times.
 
     The _cleanup_done flag is the hard guarantee — once True, every
     subsequent call returns immediately without re-running any cleanup
@@ -358,7 +358,7 @@ class TestDoCleanupIdempotency:
 
 
 class TestAtexitCleanupSafetyNet:
-    """RW-3: _atexit_cleanup() must delegate to _do_cleanup() so the
+    """_atexit_cleanup() must delegate to _do_cleanup() so the
     safety net runs the SAME audited path as quit()/restart_app().
 
     The _shutting_down guard is preserved (early-return when
@@ -400,7 +400,7 @@ class TestAtexitCleanupSafetyNet:
         cleanup (volume restore, hotkey release, DB flush, recorder
         stop, PID file clear) happens even on a forced exit.
 
-        Regression: before RW-3, _atexit_cleanup() ran an ad-hoc
+        Regression: _atexit_cleanup() ran an ad-hoc
         SUBSET of cleanup (volume restore + hotkey stop + crash
         recovery flush) that diverged from quit(). It skipped
         history_db.flush, recorder.stop, mic watcher shutdown, bubble
@@ -443,13 +443,13 @@ class TestAtexitCleanupSafetyNet:
 
 
 class TestQuitAppUsesSharedCleanup:
-    """RW-3: quit() must use _do_cleanup() (the shared path) and still
+    """quit() must use _do_cleanup() (the shared path) and still
     exit via sys.exit(0). These are sanity tests guarding against a
     future regression that removes the _do_cleanup() call from quit().
     """
 
     def test_quit_flushes_history_db(self, app, monkeypatch):
-        """Sanity: quit() (which already did this inline pre-RW-3) must
+        """Sanity: quit() (which already did this inline) must
         still flush history_db after the refactor extracts cleanup
         into _do_cleanup()."""
         _stub_restart_environment(app, monkeypatch)
@@ -487,7 +487,7 @@ class TestQuitAppUsesSharedCleanup:
     def test_quit_calls_do_cleanup(self, app, monkeypatch):
         """Sanity: quit() must delegate to _do_cleanup() (rather than
         inlining the cleanup body, which would re-introduce the
-        divergence bug that RW-3 fixes)."""
+        divergence bug that fixes)."""
         _stub_restart_environment(app, monkeypatch)
         do_cleanup_calls = []
         original = app._do_cleanup
@@ -504,11 +504,11 @@ class TestQuitAppUsesSharedCleanup:
         assert do_cleanup_calls == [True], "quit() must call _do_cleanup() exactly once"
 
 
-# ── PERF-005: event-driven relaunch ack (no fixed 300ms tray block) ────
+# ── event-driven relaunch ack (no fixed 300ms tray block) ────
 
 
 class TestRelaunchAckEventDriven:
-    """PERF-005: restart_app must wait on the ``relaunch_ack`` event from
+    """restart_app must wait on the ``relaunch_ack`` event from
     Electron (bounded by a 2s timeout) instead of a fixed ``time.sleep(0.3)``
     that always blocks the tray thread for 300ms.
     """

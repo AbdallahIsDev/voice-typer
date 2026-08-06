@@ -331,8 +331,16 @@ class TestCoalescing30Hz:
         lm._push_mic_level(0.5, 0.7, True)
         assert len(lm._mic_level_queue) == 1, "TY-18: second call within coalesce window must be suppressed"
 
-        # Sleep past the 30 Hz window (33.3ms) + margin.
-        time.sleep(lm._MIC_LEVEL_COALESCE_SEC + 0.005)
+        # Sleep past the 30 Hz window (33.3ms) + margin. NOTE: a fixed
+        # ``time.sleep`` is NOT reliable here — on Windows the waitable
+        # timer can fire up to one tick (~15.6ms) EARLY, so a sleep with
+        # a small margin may return before the coalesce window has truly
+        # elapsed (32ms < 33.3ms), suppressing the third call. Busy-wait
+        # on ``time.monotonic()`` until the window has definitively
+        # passed, regardless of sleep granularity.
+        deadline = time.monotonic() + lm._MIC_LEVEL_COALESCE_SEC + 0.005
+        while time.monotonic() < deadline:
+            time.sleep(0.001)
 
         # Third call passes the gate again.
         lm._push_mic_level(0.5, 0.7, True)

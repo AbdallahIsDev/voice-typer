@@ -143,13 +143,14 @@ class TestLRUModelEviction:
         mm._model_lru_lock.__enter__ = MagicMock(return_value=None)
         mm._model_lru_lock.__exit__ = MagicMock(return_value=False)
 
-        mock_engine = MagicMock()
+        # GQ-7: eviction unloads via the registry (so the busy-check in
+        # ``AsrBackendRegistry.unload`` is honoured) and then unregisters
+        # the backend + drops it from the LRU tracking.
         mm._registry = MagicMock()
-        mm._registry.get.return_value = mock_engine
 
         mm._evict_lru_model()
-        # Should have called unload on the oldest (whisper)
-        mock_engine.unload.assert_called_once()
+        # Should have unloaded the oldest (whisper) through the registry.
+        mm._registry.unload.assert_called_once_with("whisper")
         # Should have removed the oldest from access times
         assert "whisper" not in mm._model_access_times
 

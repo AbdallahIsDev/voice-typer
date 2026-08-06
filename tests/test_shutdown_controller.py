@@ -1,4 +1,4 @@
-"""RW-9 Phase 7 regression tests for the ``ShutdownController`` extraction.
+"""Phase 7 regression tests for the ``ShutdownController`` extraction.
 
 The 7 shutdown/cleanup methods (``_do_cleanup``, ``quit``,
 ``_atexit_log``, ``_atexit_cleanup``, ``_install_signal_handlers``,
@@ -135,7 +135,7 @@ def controller(fake_app):
 class TestShutdownControllerWiring:
     """Verify ``VoiceTyperApp.__init__`` wires up ``ShutdownController``.
 
-    XS-51 (2026-07-21): the wiring has landed — ``VoiceTyperApp.__init__``
+    the wiring has landed — ``VoiceTyperApp.__init__``
     constructs ``self.shutdown = ShutdownController(self)`` (see
     ``voice_typer/server/app.py:228``). These tests now run unmarked.
     """
@@ -534,7 +534,7 @@ class TestDoCleanupSubsystemCoverage:
 
     def test_stops_bubble_level_worker_when_present(self, controller, fake_app):
         """When the bubble level worker is wired, ``_do_cleanup`` must
-        delegate to ``app.waveform_wiring.stop()`` (RW-9 Phase 7: the
+        delegate to ``app.waveform_wiring.stop()`` (Phase 7: the
         worker / queue / stop_event now live on WaveformBubbleWiring)."""
         waveform_wiring = MagicMock()
         fake_app.waveform_wiring = waveform_wiring

@@ -67,6 +67,17 @@ def bring_electron_to_front() -> bool:
         import ctypes
         from ctypes import wintypes
 
+        # Winlogon / UAC secure desktop: GetForegroundWindow returns 0
+        # (NULL). Foreground manipulation is blocked there, so skip the
+        # window enumeration + focus dance entirely and report that no
+        # window was brought to front.
+        fg_hwnd = ctypes.windll.user32.GetForegroundWindow()
+        if not fg_hwnd:
+            log.info(
+                "[TRAY] No foreground window (secure desktop / Winlogon active) — skipping bring-to-front"
+            )
+            return False
+
         found_hwnd = None
 
         def _enum_cb(hwnd, _):
@@ -97,7 +108,6 @@ def bring_electron_to_front() -> bool:
 
         our_tid = ctypes.windll.kernel32.GetCurrentThreadId()
         target_tid = ctypes.windll.user32.GetWindowThreadProcessId(found_hwnd, None)
-        fg_hwnd = ctypes.windll.user32.GetForegroundWindow()
 
         if target_tid != our_tid:
             ctypes.windll.user32.AttachThreadInput(our_tid, target_tid, True)

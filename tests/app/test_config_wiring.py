@@ -215,7 +215,7 @@ class TestExternalCorrectionsWiring:
     def test_configure_corrections_called_at_startup(self, app, monkeypatch):
         """StartupSequence.run should call configure_corrections with config_dir.
 
-        RW-9 Phase 5: the call moved from ``VoiceTyperApp._do_startup`` to
+        Phase 5: the call moved from ``VoiceTyperApp._do_startup`` to
         ``StartupSequence.run`` (in ``startup_sequence.py``). The monkeypatch
         target must follow the call site — patch the name in
         ``startup_sequence``'s namespace, not ``app``'s.
@@ -296,6 +296,31 @@ class TestSettingsWindowIntegration:
         asserted on the subprocess args that are no longer produced.
         """
         import subprocess as _sp
+
+        # Pre-warm the keyring probe cache so ``app.config.save()``
+        # (called inside ``restart_app``) doesn't trigger subprocess
+        # spawns via ``ctypes.util.find_library``. The keyring library
+        # loads ALL backend plugins (including the macOS plugin, which
+        # is unconditionally loaded even on Linux) the first time
+        # ``keyring.get_keyring()`` is called; the macOS plugin does
+        # ``ctypes.CDLL(find_library('Security'))`` which on Linux
+        # spawns ``/sbin/ldconfig -p``, ``gcc -Wl,-t``, and ``ld -t``
+        # as library-probing side effects.
+        #
+        # In production these subprocess calls happen exactly ONCE
+        # (the first ``config.save()`` during ``apply_config`` at
+        # startup, well before any restart); the cache is then
+        # populated for the process lifetime and ``restart_app``'s
+        # ``config.save()`` hits the cache without spawning. The
+        # ``app`` fixture here doesn't trigger that path, so we
+        # pre-warm the cache BEFORE mocking ``subprocess.Popen`` so
+        # the probe's library-probing subprocess calls aren't captured
+        # by the assertion below. These are benign OS library probes,
+        # NOT replacement backend/Electron spawns.
+        from voice_typer.server import credential_store
+
+        with contextlib.suppress(Exception):
+            credential_store.is_keyring_available()
 
         popen_calls = []
         monkeypatch.setattr(_sp, "Popen", lambda *a, **kw: popen_calls.append((a, kw)))

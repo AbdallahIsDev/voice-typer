@@ -164,11 +164,15 @@ class TestLaunchPortOpenPath:
 class TestLaunchPortClosedPath:
     """When the backend port is closed, launch starts a fresh instance."""
 
-    def test_fails_gracefully_without_client_dir(self, monkeypatch):
+    def test_fails_gracefully_without_client_dir(self, monkeypatch, tmp_path):
         """If the client directory doesn't exist, should return 1."""
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._is_port_open",
             lambda h, p: False,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.app._backend_pid_file",
+            lambda: tmp_path / "nonexistent.pid",
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._client_dir_exists",
@@ -186,6 +190,10 @@ class TestLaunchPortClosedPath:
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._is_port_open",
             lambda h, p: False,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.app._backend_pid_file",
+            lambda: Path("/nonexistent.pid"),
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._client_dir_exists",
@@ -221,6 +229,10 @@ class TestLaunchPortClosedPath:
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._is_port_open",
             lambda h, p: False,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.app._backend_pid_file",
+            lambda: Path("/nonexistent.pid"),
         )
         monkeypatch.setattr(
             "voice_typer.server.autostart_launcher._client_dir_exists",

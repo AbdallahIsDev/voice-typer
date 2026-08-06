@@ -1161,7 +1161,7 @@ def test_event_contract_is_frozen_all_24_events_present():
 def test_adr_0020_states_61_command_contract():
     """ADR-0020 §2 + §16 MUST state the frozen command count as 61.
 
-    S3-CR-3 reconciliation (2026-07-26): the prior 68-command baseline
+    reconciliation (2026-07-26): the prior 68-command baseline
     was stale. The actual ``_COMMAND_REGISTRY`` was reduced to 61
     commands during the Tauri/Rust allowlist narrowing (17 commands
     were deliberately REMOVED — see ``EXPECTED_COMMANDS`` comments +
@@ -1187,8 +1187,8 @@ def test_adr_0020_states_61_command_contract():
 
 def test_adr_0020_states_24_event_contract():
     """ADR-0020 §event table + §16 MUST state the frozen event count
-    as 24 (was 21; +3 events added in the RT-FIX-9 / 2026-07-24
-    reconciliation). Same guard as the command-count test above."""
+    as 24 (was 21; +3 events added in the reconciliation).
+    Same guard as the command-count test above."""
     text = ADR_0020.read_text(encoding="utf-8")
     assert re.search(r"\b24\s+events?\b", text), (
         "ADR-0020 must state the frozen event count as '24 events' "

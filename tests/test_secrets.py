@@ -244,6 +244,128 @@ class TestRedactApiKeys:
         assert redact_secret(s) == redact_api_keys(s)
 
 
+class TestPublicEnvVarNamesNotRedacted:
+    """T-1-PYTEST-ENV-REDACT-V2: env-var NAMES are public (documented
+    in docs / ADRs / source code) and must NOT be redacted. Only their
+    VALUES should be redacted. Redacting the name destroys operability
+    (operators can't tell which env var is misconfigured from a log
+    line like ``[ENV] Invalid value for ***=<redacted>``).
+
+    The generic 20+ char alphanumeric pattern in ``_KEY_PATTERNS`` was
+    matching env-var names like ``VOICE_TYPER_CONFIG_DIR`` (21 chars,
+    all caps + underscores) and replacing them with ``***``. The fix
+    adds a whitelist (``_PUBLIC_ENV_VAR_NAMES``) that skips redaction
+    for known names. Real API keys are still redacted.
+    """
+
+    @pytest.mark.parametrize(
+        "name",
+        sorted(_secrets._PUBLIC_ENV_VAR_NAMES),
+    )
+    def test_whitelisted_env_var_name_survives_redact_secret(self, name):
+        """Every name in ``_PUBLIC_ENV_VAR_NAMES`` must survive
+        ``redact_secret`` unchanged, both bare and in a typical
+        ``[ENV] Invalid value for <NAME>=<redacted>`` log line."""
+        # Bare name.
+        assert redact_secret(name) == name, (
+            f"env var name {name!r} was redacted by redact_secret; "
+            f"got {redact_secret(name)!r}"
+        )
+        # Inside a realistic log line (mirrors env_validation.py).
+        line = f"[ENV] Invalid value for {name}=<redacted> -- expected valid path."
+        out = redact_secret(line)
+        assert name in out, (
+            f"env var name {name!r} was redacted inside a log line; got {out!r}"
+        )
+
+    def test_whitelisted_env_var_name_survives_redact_api_keys(self):
+        """``redact_api_keys`` (the lower-level helper) also preserves
+        env-var names — the whitelist lives in the shared code path."""
+        for name in _secrets._PUBLIC_ENV_VAR_NAMES:
+            assert redact_api_keys(name) == name
+            assert redact_api_keys(name, replacement="[redacted]") == name
+
+    def test_unlisted_env_var_shaped_token_is_redacted(self):
+        """SEC-003 REGRESSION GUARD: the defense-in-depth
+        ``_ENV_VAR_NAME_RE`` heuristic was REMOVED because it also
+        exempted real all-caps base64-style secret VALUES (e.g.
+        ``SECRET_TOKEN_LIKE_THING_0123456789``), silently downgrading
+        redaction. Only names in the explicit ``_PUBLIC_ENV_VAR_NAMES``
+        whitelist survive; any other 20+ char uppercase-with-underscore
+        token must be redacted."""
+        # 24-char all-caps-with-underscore token, NOT in the whitelist.
+        unlisted = "UNLISTED_TOKEN_LIKE_THING_0123456789"
+        assert redact_secret(unlisted) == "***"
+        assert redact_api_keys(unlisted) == "***"
+        # A real all-caps base64-style secret VALUE must be masked too.
+        token = "SECRET_TOKEN_LIKE_THING_0123456789"
+        assert len(token) >= 20
+        assert redact_secret(f"value={token}") == "value=***"
+        assert len(unlisted) >= 20
+        assert unlisted not in _secrets._PUBLIC_ENV_VAR_NAMES
+        assert redact_secret(unlisted) == "***"
+
+    def test_real_api_key_still_redacted(self):
+        """REGRESSION GUARD: real API keys (sk-…, Bearer …, Token …,
+        bare 20+ char alphanumerics) MUST still be redacted. The fix
+        narrows the generic pattern's scope; it does NOT disable
+        redaction."""
+        # OpenAI-style sk- key (mixed case + digits, has hyphen).
+        assert redact_secret("sk-abc123def456ghi789jkl") == "***"
+        # Bare 20+ char lowercase hex token.
+        bare_hex = "0123456789abcdef0123"  # 20 chars
+        assert len(bare_hex) == 20
+        assert redact_secret(bare_hex) == "***"
+        # Bare 20+ char all-caps token WITHOUT underscore (not env-var-
+        # like) — must still be redacted.
+        bare_caps = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"  # 26 chars, no underscore
+        assert len(bare_caps) == 26
+        assert redact_secret(bare_caps) == "***"
+        # Bearer prefix + secret.
+        out = redact_secret("Authorization: Bearer sk-abc123def456ghi789jkl")
+        assert "sk-abc123def456ghi789jkl" not in out
+        assert "Bearer" in out
+
+    def test_env_validation_log_lines_preserve_names(self):
+        """End-to-end: the exact log lines emitted by
+        ``env_validation._validate_env_vars`` survive ``redact_secret``
+        with the env-var name intact. This is the regression that
+        broke the env_validation pytest suite when the PIIRedactionFilter
+        was attached during the full test run."""
+        cases = [
+            (
+                "[ENV] Invalid value for VOICE_TYPER_CONFIG_DIR=<redacted> "
+                "-- expected valid path. Resetting to empty.",
+                "VOICE_TYPER_CONFIG_DIR",
+            ),
+            (
+                "[SIDECAR-ENV] expected env var VOICE_TYPER_IPC_TOKEN is unset "
+                "(expected <non-empty>)",
+                "VOICE_TYPER_IPC_TOKEN",
+            ),
+            (
+                "[ENV] Sensitive env var HUGGING_FACE_HUB_TOKEN was set in the "
+                "parent shell — Voice Typer does not read it from env.",
+                "HUGGING_FACE_HUB_TOKEN",
+            ),
+            (
+                "[ENV] Invalid value for HF_HOME=<redacted> -- expected valid "
+                "path. Resetting to empty.",
+                "HF_HOME",
+            ),
+            (
+                "[ENV] HF_ENDPOINT=<redacted> rejected — must use https:// scheme.",
+                "HF_ENDPOINT",
+            ),
+        ]
+        for line, name in cases:
+            out = redact_secret(line)
+            assert name in out, (
+                f"env var name {name!r} was redacted from log line; "
+                f"input={line!r}; output={out!r}"
+            )
+
+
 class TestRedactUrl:
     def test_strips_userinfo(self):
         url = "https://user:pass@api.example.com/v1/audio"

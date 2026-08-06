@@ -1,7 +1,7 @@
 """Focused unit tests for :mod:`voice_typer.server.recording.stream_lifecycle`.
 
-S3-CR-17 / Phase 4.5 — extracted from the 3772-LOC ``Recorder`` god class
-(see S3-CR-17 in ``review.md``). These tests exercise the public API of
+Phase 4.5 — extracted from the 3772-LOC ``Recorder`` god class.
+These tests exercise the public API of
 :class:`StreamLifecycle` (the collaborator extracted from ``Recorder``)
 without instantiating a real :class:`Recorder` and without touching real
 audio hardware / subprocess.
@@ -293,7 +293,7 @@ class TestOpenStreamForCandidates:
         assert second_stream is None
 
     def test_bluetooth_hfp_profile_detected(self, monkeypatch):
-        """AUDIO-BT: when the opened stream reports an 8/16 kHz actual
+        """when the opened stream reports an 8/16 kHz actual
         sample rate that differs from the requested rate, the body logs
         an INFO message (no exception). The body must not raise."""
         recorder = _make_recorder_stub()
@@ -436,7 +436,7 @@ class TestOpenStreamFallback:
         assert any("USB Headset" in rec.getMessage() for rec in caplog.records)
 
     def test_fallback_succeeds_with_unknown_dev_info(self, monkeypatch, caplog):
-        """RW-6: when ``dev_info_extra`` is None after a SUCCESSFUL open,
+        """when ``dev_info_extra`` is None after a SUCCESSFUL open,
         the post-success log must use the ``(unknown)`` placeholder
         instead of raising ``TypeError`` on ``None["name"]``."""
         recorder = _make_recorder_stub()
@@ -497,7 +497,7 @@ class TestTeardownStreamBody:
         assert recorder._stream is None
 
     def test_polls_in_flight_callback_until_clear(self, monkeypatch):
-        """AUDIO-009/AUDIO-015: when the in-flight callback flag is set,
+        """when the in-flight callback flag is set,
         ``teardown_stream_body`` polls ``_is_in_audio_callback`` until it
         clears, then closes the stream. This test simulates the flag
         being cleared after one poll iteration (via a side-effect on

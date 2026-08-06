@@ -1,8 +1,8 @@
-"""CR-069: split from tests/test_feature_hardening_regressions.py (L445-650).
+"""split from tests/test_feature_hardening_regressions.py (L445-650).
 
 Source marker: ``tests/test_new_cq030_parakeet_merge.py``.
 
-Regression tests for NEW-CQ-030 / RW-T1: parakeet_engine._merge_chunks.
+Regression tests for NEW-CQ-030 / parakeet_engine._merge_chunks.
 
 Old behaviour skipped ``int(len(words) * 0.12)`` words at every chunk
 boundary — silently dropping up to 3 legitimate words per 25-word chunk
@@ -12,7 +12,7 @@ New behaviour:
 - Skips at most ``_MAX_BOUNDARY_SKIP_WORDS`` (2) words at a boundary.
 - Only skips a multi-word run when those words actually appear at the
   tail of the previous chunk (true overlap duplicate).
-- RW-T1: When no overlap duplicate is detected, skip is 0 — no words
+- When no overlap duplicate is detected, skip is 0 — no words
   from the new chunk's head are dropped.  Boundary hallucinations are
   filtered upstream by ``should_reject_low_audio_hallucination``.
 - Never scales skip with chunk length.
@@ -22,7 +22,7 @@ verbatim from the original monolith — only file location has changed.
 
 NOTE: ``TestSourceCheck`` (which statically inspects ``recording.py``
 for the NEW-CONC-004 RMS suppression logic) is included here per the
-CR-069 split plan — it was originally placed between
+split plan — it was originally placed between
 ``TestRmsCallbackErrorSuppression`` and ``TestMergeChunksRegression``
 in the monolith, and the split assigns it to this file.
 """
@@ -84,7 +84,7 @@ class TestSourceCheck:
 
 
 class TestMergeChunksRegression:
-    """NEW-CQ-030: the merge must not silently drop legitimate words."""
+    """the merge must not silently drop legitimate words."""
 
     def test_single_chunk_returned_as_is(self, engine_no_model):
         result = engine_no_model._merge_chunks(["hello world"])
@@ -98,7 +98,7 @@ class TestMergeChunksRegression:
         via the old 12% ratio.  Previously this dropped 3 words from a
         25-word second chunk.
 
-        RW-T1: with the allowance removed, NO words from chunk_b's head
+        with the allowance removed, NO words from chunk_b's head
         may be dropped.
         """
         chunk_a = "the quick brown fox jumps over the lazy dog"
@@ -201,7 +201,7 @@ class TestComputeOverlapSkip:
     def test_no_overlap_returns_zero_skip(self, engine_no_model):
         """When no overlap is detected, skip MUST be 0 — do not drop legitimate words.
 
-        Regression for RW-T1: the previous 'allowance' of 1 word per
+        Regression for the previous 'allowance' of 1 word per
         boundary silently dropped up to 14 words per 5-minute recording
         (one per chunk boundary) even when the model did not re-transcribe
         any overlap text.  Boundary hallucinations are filtered upstream

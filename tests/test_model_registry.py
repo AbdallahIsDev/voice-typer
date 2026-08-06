@@ -193,9 +193,10 @@ class TestTurboModelHasCorrectMetadata:
 
     def test_turbo_size_matches_model_size_mb(self):
         """The registry's download_size_mb must match the
-        ``_MODEL_SIZE_MB`` table in transcription.py so the disk-space
-        pre-check and the renderer's UI agree."""
-        from voice_typer.server.transcription import _MODEL_SIZE_MB
+        ``_MODEL_SIZE_MB`` table in asr_utils.py (the canonical home
+        after the extraction) so the disk-space pre-check and the
+        renderer's UI agree."""
+        from voice_typer.server.asr_utils import _MODEL_SIZE_MB
 
         for name in ("large-v3-turbo", "turbo"):
             meta = get_model_metadata(name)

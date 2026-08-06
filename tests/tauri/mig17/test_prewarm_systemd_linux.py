@@ -739,8 +739,12 @@ def test_prewarm_run_writes_pid_file_and_signals_completion_event(monkeypatch):
     from voice_typer.server import prewarm
 
     # Mock all the side-effecting functions called by run().
-    monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
-    monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
+    # ``_setup_logging`` is called with ``prewarm_only=True`` by ``run()``
+    # (so the prewarm subprocess's logger attaches the dedicated
+    # ``voice_typer.server.prewarm`` handler instead of the main app's);
+    # the lambda must accept that kwarg.
+    monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
+    monkeypatch.setattr(prewarm, "_lower_io_priority", lambda *a, **kw: None)
     # Mock the warming pipeline to succeed without doing real work.
     monkeypatch.setattr(prewarm, "_run_warming_pipeline", lambda *a, **kw: prewarm.EXIT_OK)
 

@@ -113,7 +113,10 @@ class TestOsExitOnStuckWsDrain:
         # occurrence in the method body — the actual code — so the
         # comment doesn't shadow it.
         drain_timeout_idx = body.rfind("if join_thread.is_alive():")
-        assert drain_timeout_idx > -1, "the ws-drain timeout branch (if join_thread.is_alive():) must exist in _drain_ws_dispatch_pool"
+        assert drain_timeout_idx > -1, (
+           "the ws-drain timeout branch (if join_thread.is_alive():) must exist "
+           "in _drain_ws_dispatch_pool"
+        )
         # Slice a generous window for the block.
         block = body[drain_timeout_idx : drain_timeout_idx + 800]
         assert "log.warning" in block, (

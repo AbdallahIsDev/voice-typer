@@ -1,4 +1,4 @@
-"""RW-13: structured (JSON) logging + correlation-id propagation.
+"""structured (JSON) logging + correlation-id propagation.
 
 Covers:
 * ``_JsonFormatter`` emits a flat, stable JSON schema with
@@ -93,7 +93,7 @@ def test_json_formatter_unicode_preserved() -> None:
 
 
 def test_json_formatter_pii_redacted() -> None:
-    """RW-13: the PII filter runs before the formatter, so JSON is scrubbed too."""
+    """the PII filter runs before the formatter, so JSON is scrubbed too."""
     from voice_typer.server.security import PIIRedactionFilter
 
     rec = _record("User test@example.com logged in")
@@ -106,7 +106,7 @@ def test_json_formatter_pii_redacted() -> None:
 
 
 def test_json_formatter_api_key_redacted() -> None:
-    """RW-13: API-key redaction survives the JSON path."""
+    """API-key redaction survives the JSON path."""
     from voice_typer.server.security import PIIRedactionFilter
 
     rec = _record("Using sk-abcdefghijklmnopqrstuvwxyz123456 in call")

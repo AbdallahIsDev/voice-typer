@@ -3,21 +3,21 @@
 This module is the single source of truth for three interrelated
 constants that the IPC dispatcher consults at runtime:
 
-- :data:`_COMMAND_REGISTRY` — ``{command_name: handler_method_name}``
+- data:`_COMMAND_REGISTRY` — ``{command_name: handler_method_name}``
   mapping. :class:`voice_typer.server.ipc_server.IPCServer._dispatch`
   looks up the handler-method-name string here and resolves it via
   ``getattr(self, handler_name)`` at dispatch time. The
   ``__init__``-time typo-validation loop iterates over this dict to
   assert every entry resolves to a callable bound method on
-class:`IPCServer` ( / ).
-- :data:`_READONLY_COMMANDS` — frozenset of command names whose
+  class:`IPCServer` ( / ).
+- data:`_READONLY_COMMANDS` — frozenset of command names whose
   handlers do NOT mutate shared app/service state. The dispatcher
   bypasses the per-server ``_dispatch_lock`` for these so a
   long-running state-mutating handler (e.g. ``download_model``) does
   not block a quick status poll from a second authenticated connection
 ().
-- :data:`_PYTHON_ONLY_COMMANDS` — frozenset of commands that are
-intentionally absent from the TS / Rust allowlists (). These
+- data:`_PYTHON_ONLY_COMMANDS` — frozenset of commands that are
+  intentionally absent from the TS / Rust allowlists (). These
   commands are registered in :data:`_COMMAND_REGISTRY` (so the
   dispatcher recognizes them) but are NEVER invoked by the renderer —
   they are server-internal or host-internal (e.g. ``shutdown`` is
@@ -254,7 +254,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "get_model_catalog": "_handle_get_model_catalog",
     "delete_model": "_handle_delete_model",
     "set_tray_locale": "_handle_set_tray_locale",
-    # Cloud-provider "Test Connection" probe (S3-CR-3). The renderer's
+    # Cloud-provider "Test Connection" probe. The renderer's
     # ``useCloudProviders.testConnection`` action dispatches this command
     # instead of issuing a cross-origin fetch directly (which would leak
     # the API key through browser dev-tools observability and violate
@@ -291,7 +291,7 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # are missed (45s timeout) so a crashed/force-killed Electron
     # doesn't strand the backend with the mic open + mutex held.
     "heartbeat": "_handle_heartbeat",
-    # PERF-005: Electron acks receipt/processing of ``relaunch_electron``
+    # Electron acks receipt/processing of ``relaunch_electron``
     # so restart_app can drop its fixed 300ms sleep in favour of an
     # event-driven wait (bounded by a 2s timeout).
     "relaunch_ack": "_handle_relaunch_ack",

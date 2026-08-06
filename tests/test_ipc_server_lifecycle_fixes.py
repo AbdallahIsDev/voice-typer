@@ -1,20 +1,18 @@
-"""Fix-O: UE-13 (stdin gate) + UE-18 (shutdown race) + UE-32 (registry extraction).
-
-Test coverage
+"""Test coverage
 -------------
-- UE-13 (High):   ``IPCServer.start()`` refuses to spawn the stdin
+- (High):         ``IPCServer.start()`` refuses to spawn the stdin
                   listener when ``_tcp_mode`` is False AND the
                   ``VOICE_TYPER_ALLOW_STDIN_IPC`` env var is not set
                   to ``"1"``. A WARNING is logged and ``_stdin_thread``
                   is set to ``None``. The ``--allow-stdin`` CLI flag in
                   ``parse_ipc_args()`` is the alternative gate — it
                   sets the env var.
-- UE-18 (Medium): ``_handle_shutdown`` checks ``_shutdown_started``
+- (Medium):       ``_handle_shutdown`` checks ``_shutdown_started``
                   (a per-instance ``threading.Event``) at the top and
                   no-ops the second invocation. The cleanup thread is
                   registered on ``self.app._thread_registry`` (when
                   available) so ``shutdown_all()`` can join it.
-- UE-32 (Medium): ``_COMMAND_REGISTRY`` + ``_READONLY_COMMANDS`` +
+- (Medium):       ``_COMMAND_REGISTRY`` + ``_READONLY_COMMANDS`` +
                   ``_PYTHON_ONLY_COMMANDS`` are canonical to
                   :mod:`voice_typer.server.ipc.registry`.
                   ``ipc_server.py`` re-exports them and
@@ -45,7 +43,7 @@ def _make_server() -> IPCServer:
     The MagicMock app exposes ``_shutting_down`` as an explicit bool
     (False) so the dispatch gate exercises the dispatch path instead of
     short-circuiting. ``_thread_registry`` is a MagicMock by default
-    (so the UE-18 thread-registration path can be observed); tests
+    (so the thread-registration path can be observed); tests
     that want to disable the registry set it to ``None``.
     """
     from voice_typer.server.ipc_server import IPCServer
@@ -60,10 +58,10 @@ def _make_server() -> IPCServer:
 
 
 class TestStdinGate:
-    """UE-13 (High): the unauthenticated stdin/stdout IPC listener is
+    """the unauthenticated stdin/stdout IPC listener is
     gated behind ``VOICE_TYPER_ALLOW_STDIN_IPC=1``.
 
-    Pre-UE-13, ``IPCServer.start()`` would spawn the stdin listener
+    ``IPCServer.start()`` would spawn the stdin listener
     thread whenever ``_tcp_mode`` was False — exposing an
     unauthenticated command channel on the user's terminal (Linux
     TIOCSTI injection is possible; an accidental JSON paste triggers
@@ -77,23 +75,23 @@ class TestStdinGate:
     """
 
     def test_stdin_ipc_env_var_module_constant_exists(self) -> None:
-        """UE-13: ``_STDIN_IPC_ENV_VAR`` module-level constant exists
+        """``_STDIN_IPC_ENV_VAR`` module-level constant exists
         and is the documented string."""
         import voice_typer.server.ipc_server as ipc_server_mod
 
         assert hasattr(ipc_server_mod, "_STDIN_IPC_ENV_VAR"), (
-            "UE-13: ipc_server.py must expose a module-level "
+            "ipc_server.py must expose a module-level "
             "_STDIN_IPC_ENV_VAR constant naming the env var that gates "
             "the stdin listener."
         )
         assert ipc_server_mod._STDIN_IPC_ENV_VAR == "VOICE_TYPER_ALLOW_STDIN_IPC", (
-            f"UE-13: _STDIN_IPC_ENV_VAR must be "
+            f"_STDIN_IPC_ENV_VAR must be "
             f"'VOICE_TYPER_ALLOW_STDIN_IPC'; got "
             f"{ipc_server_mod._STDIN_IPC_ENV_VAR!r}."
         )
 
     def test_start_gates_stdin_listener_when_env_var_unset(self, monkeypatch) -> None:
-        """UE-13: when ``_tcp_mode`` is False AND the env var is unset,
+        """when ``_tcp_mode`` is False AND the env var is unset,
         ``start()`` must NOT spawn the stdin listener. ``_stdin_thread``
         is ``None`` and a WARNING is logged.
 
@@ -107,15 +105,15 @@ class TestStdinGate:
         # Source-level pin: the gate must be present.
         src = inspect.getsource(__import__("voice_typer.server.ipc_server", fromlist=["IPCServer"]).IPCServer.start)
         assert "_STDIN_IPC_ENV_VAR" in src, (
-            "UE-13: start() must reference _STDIN_IPC_ENV_VAR so the "
+            "start() must reference _STDIN_IPC_ENV_VAR so the "
             "stdin listener is gated behind VOICE_TYPER_ALLOW_STDIN_IPC=1."
         )
         assert 'os.environ.get(_STDIN_IPC_ENV_VAR) == "1"' in src, (
-            'UE-13: start() must check os.environ.get(_STDIN_IPC_ENV_VAR) == "1" before spawning the stdin listener.'
+            'start() must check os.environ.get(_STDIN_IPC_ENV_VAR) == "1" before spawning the stdin listener.'
         )
 
     def test_stdin_thread_none_when_gate_refuses(self, monkeypatch) -> None:
-        """UE-13: end-to-end behavior — ``start()`` with ``_tcp_mode``
+        """end-to-end behavior — ``start()`` with ``_tcp_mode``
         False AND env var unset must leave ``_stdin_thread`` as None.
 
         We exercise the full ``start()`` path (minus the heavy
@@ -171,18 +169,18 @@ class TestStdinGate:
             # from being created. ``ipc-server`` must NOT be in the
             # created_threads list (only ``heartbeat-watchdog`` is).
             assert "ipc-server" not in created_threads, (
-                "UE-13: stdin listener 'ipc-server' thread was spawned "
+                "stdin listener 'ipc-server' thread was spawned "
                 "even though VOICE_TYPER_ALLOW_STDIN_IPC is unset — the "
                 "gate failed to refuse the unauthenticated stdin path."
             )
             assert server._stdin_thread is None, (
-                "UE-13: _stdin_thread must be None when the gate refuses to spawn the stdin listener."
+                "_stdin_thread must be None when the gate refuses to spawn the stdin listener."
             )
         finally:
             server.stop()
 
     def test_stdin_thread_spawned_when_env_var_set(self, monkeypatch) -> None:
-        """UE-13: when ``_tcp_mode`` is False AND the env var IS set to
+        """when ``_tcp_mode`` is False AND the env var IS set to
         ``"1"``, ``start()`` must spawn the stdin listener thread.
 
         This is the explicit-opt-in path for development / testing.
@@ -222,20 +220,20 @@ class TestStdinGate:
         server.start()
         try:
             assert "ipc-server" in created_threads, (
-                "UE-13: stdin listener 'ipc-server' thread was NOT "
+                "stdin listener 'ipc-server' thread was NOT "
                 "spawned even though VOICE_TYPER_ALLOW_STDIN_IPC=1 — "
                 "the gate must allow explicit opt-in for dev/testing."
             )
             # ``_stdin_thread`` is a FakeThread instance (not a real
             # Thread); just assert it's not None.
             assert server._stdin_thread is not None, (
-                "UE-13: _stdin_thread must be set when the gate allows the stdin listener (env var is '1')."
+                "_stdin_thread must be set when the gate allows the stdin listener (env var is '1')."
             )
         finally:
             server.stop()
 
     def test_allow_stdin_cli_flag_sets_env_var(self, monkeypatch) -> None:
-        """UE-13: ``--allow-stdin`` CLI flag in ``parse_ipc_args()``
+        """``--allow-stdin`` CLI flag in ``parse_ipc_args()``
         sets ``VOICE_TYPER_ALLOW_STDIN_IPC=1`` so the gate at
         ``start()`` allows the stdin listener."""
         import sys
@@ -247,7 +245,7 @@ class TestStdinGate:
         try:
             port, ws_mode = parse_ipc_args()
             assert os.environ.get("VOICE_TYPER_ALLOW_STDIN_IPC") == "1", (
-                "UE-13: --allow-stdin CLI flag must set "
+                "--allow-stdin CLI flag must set "
                 "VOICE_TYPER_ALLOW_STDIN_IPC=1 so the gate at start() "
                 "allows the stdin listener."
             )
@@ -257,7 +255,7 @@ class TestStdinGate:
             monkeypatch.delenv("VOICE_TYPER_ALLOW_STDIN_IPC", raising=False)
 
     def test_no_allow_stdin_flag_does_not_set_env_var(self, monkeypatch) -> None:
-        """UE-13: without ``--allow-stdin``, the env var is NOT set by
+        """without ``--allow-stdin``, the env var is NOT set by
         ``parse_ipc_args()`` (the gate at ``start()`` would refuse)."""
         import sys
 
@@ -268,7 +266,7 @@ class TestStdinGate:
         try:
             parse_ipc_args()
             assert os.environ.get("VOICE_TYPER_ALLOW_STDIN_IPC") is None, (
-                "UE-13: parse_ipc_args() must NOT set "
+                "parse_ipc_args() must NOT set "
                 "VOICE_TYPER_ALLOW_STDIN_IPC when --allow-stdin is not "
                 "passed (the gate at start() must refuse)."
             )
@@ -280,9 +278,9 @@ class TestStdinGate:
 
 
 class TestShutdownGate:
-    """UE-18 (Medium): ``_handle_shutdown`` is idempotent.
+    """``_handle_shutdown`` is idempotent.
 
-    Pre-UE-18, a double-``shutdown`` (e.g. the Tauri host's WS
+    a double-``shutdown`` (e.g. the Tauri host's WS
     transport retrying after a slow ack) spawned a SECOND untracked
     ``ipc-shutdown-cleanup`` daemon thread — both threads would race
     into ``service.quit()`` / ``_do_cleanup()`` and double-free the
@@ -297,24 +295,24 @@ class TestShutdownGate:
     """
 
     def test_shutdown_started_event_initialized_in_init(self) -> None:
-        """UE-18: ``__init__`` must declare a per-instance
+        """``__init__`` must declare a per-instance
         ``_shutdown_started: threading.Event`` so ``_handle_shutdown``
         can no-op the second invocation."""
         server = _make_server()
         assert hasattr(server, "_shutdown_started"), (
-            "UE-18: IPCServer.__init__ must declare _shutdown_started "
+            "IPCServer.__init__ must declare _shutdown_started "
             "(a threading.Event) so _handle_shutdown can no-op the "
             "second invocation (double-shutdown race)."
         )
         assert isinstance(server._shutdown_started, threading.Event), (
-            f"UE-18: _shutdown_started must be a threading.Event; got {type(server._shutdown_started)!r}."
+            f"_shutdown_started must be a threading.Event; got {type(server._shutdown_started)!r}."
         )
         assert not server._shutdown_started.is_set(), (
-            "UE-18: _shutdown_started must start unset (no shutdown has been requested yet)."
+            "_shutdown_started must start unset (no shutdown has been requested yet)."
         )
 
     def test_double_handle_shutdown_no_ops_second_invocation(self) -> None:
-        """UE-18: calling ``_handle_shutdown`` twice must NOT spawn two
+        """calling ``_handle_shutdown`` twice must NOT spawn two
         cleanup threads. ``service.quit()`` is called exactly once."""
         server = _make_server()
         # Stub service.quit so it returns immediately (no real cleanup).
@@ -335,13 +333,13 @@ class TestShutdownGate:
         # service.quit is called EXACTLY ONCE — the second
         # invocation's no-op path doesn't spawn a second cleanup thread.
         assert server.service.quit.call_count == 1, (
-            f"UE-18: service.quit was called "
+            f"service.quit was called "
             f"{server.service.quit.call_count} times; expected exactly 1. "
             f"The double-shutdown race spawned a second cleanup thread."
         )
 
     def test_shutdown_started_event_set_after_first_invocation(self) -> None:
-        """UE-18: after the first ``_handle_shutdown`` call, the
+        """after the first ``_handle_shutdown`` call, the
         ``_shutdown_started`` event must be set so the second
         invocation's no-op gate fires."""
         server = _make_server()
@@ -349,12 +347,12 @@ class TestShutdownGate:
         assert not server._shutdown_started.is_set()
         server._handle_shutdown(data=None, resp={"id": 1})
         assert server._shutdown_started.is_set(), (
-            "UE-18: _shutdown_started must be set after the first "
+            "_shutdown_started must be set after the first "
             "_handle_shutdown call so the second invocation no-ops."
         )
 
     def test_cleanup_thread_registered_on_thread_registry(self) -> None:
-        """UE-18: the cleanup thread must be registered on
+        """the cleanup thread must be registered on
         ``self.app._thread_registry`` (when the app provides one) so
         ``shutdown_all()`` can join it during ``VoiceTyperApp.quit()``."""
         server = _make_server()
@@ -376,14 +374,14 @@ class TestShutdownGate:
                 break
             time.sleep(0.005)
         assert "ipc-shutdown-cleanup" in registered_names, (
-            "UE-18: the cleanup thread must be registered on "
+            "the cleanup thread must be registered on "
             "self.app._thread_registry under the name "
             "'ipc-shutdown-cleanup' so shutdown_all() can join it. "
             f"Observed register() calls: {registered_names!r}."
         )
 
     def test_cleanup_thread_not_registered_when_registry_none(self) -> None:
-        """UE-18: when ``self.app._thread_registry`` is None (e.g. a
+        """when ``self.app._thread_registry`` is None (e.g. a
         test bypass that doesn't wire the central registry), the
         cleanup thread is still spawned but NOT registered. The
         ``getattr(self.app, '_thread_registry', None)`` defensive
@@ -397,19 +395,19 @@ class TestShutdownGate:
         assert result is not None and result["data"] == {"ack": True}
 
     def test_handle_shutdown_source_contains_shutdown_started_gate(self) -> None:
-        """UE-18: source-level pin — ``_handle_shutdown`` must check
+        """source-level pin — ``_handle_shutdown`` must check
         ``_shutdown_started`` at the top before any side effect."""
         from voice_typer.server.ipc_server import IPCServer
 
         src = inspect.getsource(IPCServer._handle_shutdown)
         assert "_shutdown_started" in src, (
-            "UE-18: _handle_shutdown must reference _shutdown_started so the double-shutdown race is closed."
+            "_handle_shutdown must reference _shutdown_started so the double-shutdown race is closed."
         )
         assert "self._shutdown_started.is_set()" in src, (
-            "UE-18: _handle_shutdown must call self._shutdown_started.is_set() to detect the second invocation."
+            "_handle_shutdown must call self._shutdown_started.is_set() to detect the second invocation."
         )
         assert "self._shutdown_started.set()" in src, (
-            "UE-18: _handle_shutdown must call "
+            "_handle_shutdown must call "
             "self._shutdown_started.set() before spawning the cleanup "
             "thread so the second invocation's no-op is atomic with "
             "the first's thread-spawn decision."
@@ -420,11 +418,11 @@ class TestShutdownGate:
 
 
 class TestRegistryExtraction:
-    """UE-32 (Medium): ``_COMMAND_REGISTRY`` + ``_READONLY_COMMANDS`` +
+    """``_COMMAND_REGISTRY`` + ``_READONLY_COMMANDS`` +
     ``_PYTHON_ONLY_COMMANDS`` are canonical to
     :mod:`voice_typer.server.ipc.registry`.
 
-    Pre-UE-32, ``_COMMAND_REGISTRY`` + ``_PYTHON_ONLY_COMMANDS`` were
+    ``_COMMAND_REGISTRY`` + ``_PYTHON_ONLY_COMMANDS`` were
     class attributes on :class:`IPCServer` (in the 2,100-line
     ``ipc_server.py`` god-module) and ``_READONLY_COMMANDS`` lived in
     ``ipc._helpers.py``; the split made the three-layers-must-agree
@@ -438,33 +436,33 @@ class TestRegistryExtraction:
     """
 
     def test_registry_module_is_importable(self) -> None:
-        """UE-32: the new ``voice_typer.server.ipc.registry`` module
+        """the new ``voice_typer.server.ipc.registry`` module
         is importable and exposes the three canonical constants."""
         from voice_typer.server.ipc import registry
 
         assert hasattr(registry, "_COMMAND_REGISTRY"), (
-            "UE-32: ipc.registry must expose _COMMAND_REGISTRY (module-level dict — the canonical source of truth)."
+            "ipc.registry must expose _COMMAND_REGISTRY (module-level dict — the canonical source of truth)."
         )
-        assert hasattr(registry, "_READONLY_COMMANDS"), "UE-32: ipc.registry must expose _READONLY_COMMANDS."
-        assert hasattr(registry, "_PYTHON_ONLY_COMMANDS"), "UE-32: ipc.registry must expose _PYTHON_ONLY_COMMANDS."
+        assert hasattr(registry, "_READONLY_COMMANDS"), "ipc.registry must expose _READONLY_COMMANDS."
+        assert hasattr(registry, "_PYTHON_ONLY_COMMANDS"), "ipc.registry must expose _PYTHON_ONLY_COMMANDS."
 
     def test_registry_module_constants_are_correct_types(self) -> None:
-        """UE-32: the registry module's constants have the documented
+        """the registry module's constants have the documented
         types (dict / frozenset / frozenset)."""
         from voice_typer.server.ipc import registry
 
         assert isinstance(registry._COMMAND_REGISTRY, dict), (
-            f"UE-32: registry._COMMAND_REGISTRY must be a dict; got {type(registry._COMMAND_REGISTRY)!r}."
+            f"registry._COMMAND_REGISTRY must be a dict; got {type(registry._COMMAND_REGISTRY)!r}."
         )
         assert isinstance(registry._READONLY_COMMANDS, frozenset), (
-            f"UE-32: registry._READONLY_COMMANDS must be a frozenset; got {type(registry._READONLY_COMMANDS)!r}."
+            f"registry._READONLY_COMMANDS must be a frozenset; got {type(registry._READONLY_COMMANDS)!r}."
         )
         assert isinstance(registry._PYTHON_ONLY_COMMANDS, frozenset), (
-            f"UE-32: registry._PYTHON_ONLY_COMMANDS must be a frozenset; got {type(registry._PYTHON_ONLY_COMMANDS)!r}."
+            f"registry._PYTHON_ONLY_COMMANDS must be a frozenset; got {type(registry._PYTHON_ONLY_COMMANDS)!r}."
         )
 
     def test_ipc_server_re_exports_registry_constants(self) -> None:
-        """UE-32: ``ipc_server.py`` must re-export ``_COMMAND_REGISTRY``,
+        """``ipc_server.py`` must re-export ``_COMMAND_REGISTRY``,
         ``_READONLY_COMMANDS``, and ``_PYTHON_ONLY_COMMANDS`` at module
         level so existing ``from voice_typer.server.ipc_server import
         _COMMAND_REGISTRY`` callers keep working unchanged."""
@@ -474,19 +472,19 @@ class TestRegistryExtraction:
         # Object identity: the module-level name must be the SAME object
         # as the registry module's constant (single source of truth).
         assert ipc_server_mod._COMMAND_REGISTRY is registry._COMMAND_REGISTRY, (
-            "UE-32: ipc_server._COMMAND_REGISTRY must be the SAME object "
+            "ipc_server._COMMAND_REGISTRY must be the SAME object "
             "as registry._COMMAND_REGISTRY (single source of truth — "
             "not a parallel copy)."
         )
         assert ipc_server_mod._READONLY_COMMANDS is registry._READONLY_COMMANDS, (
-            "UE-32: ipc_server._READONLY_COMMANDS must be the SAME object as registry._READONLY_COMMANDS."
+            "ipc_server._READONLY_COMMANDS must be the SAME object as registry._READONLY_COMMANDS."
         )
         assert ipc_server_mod._PYTHON_ONLY_COMMANDS is registry._PYTHON_ONLY_COMMANDS, (
-            "UE-32: ipc_server._PYTHON_ONLY_COMMANDS must be the SAME object as registry._PYTHON_ONLY_COMMANDS."
+            "ipc_server._PYTHON_ONLY_COMMANDS must be the SAME object as registry._PYTHON_ONLY_COMMANDS."
         )
 
     def test_ipc_server_class_re_aliases_registry_constants(self) -> None:
-        """UE-32: :class:`IPCServer` must re-alias ``_COMMAND_REGISTRY``
+        """class:`IPCServer` must re-alias ``_COMMAND_REGISTRY``
         and ``_PYTHON_ONLY_COMMANDS`` as class attributes so every
         existing ``IPCServer._COMMAND_REGISTRY`` /
         ``IPCServer._PYTHON_ONLY_COMMANDS`` call site (pinned by
@@ -496,17 +494,17 @@ class TestRegistryExtraction:
         from voice_typer.server.ipc_server import IPCServer
 
         assert IPCServer._COMMAND_REGISTRY is registry._COMMAND_REGISTRY, (
-            "UE-32: IPCServer._COMMAND_REGISTRY must be the SAME object "
+            "IPCServer._COMMAND_REGISTRY must be the SAME object "
             "as registry._COMMAND_REGISTRY (class-level re-alias for "
             "backward compat with every IPCServer._COMMAND_REGISTRY "
             "call site)."
         )
         assert IPCServer._PYTHON_ONLY_COMMANDS is registry._PYTHON_ONLY_COMMANDS, (
-            "UE-32: IPCServer._PYTHON_ONLY_COMMANDS must be the SAME object as registry._PYTHON_ONLY_COMMANDS."
+            "IPCServer._PYTHON_ONLY_COMMANDS must be the SAME object as registry._PYTHON_ONLY_COMMANDS."
         )
 
     def test_registry_dict_same_keys_and_values_as_before(self) -> None:
-        """UE-32: behavior-preserving extraction — same dict, same keys,
+        """behavior-preserving extraction — same dict, same keys,
         same values. Spot-check the critical entries (shutdown,
         tray_click, heartbeat) plus the overall key count."""
         from voice_typer.server.ipc import registry
@@ -517,44 +515,44 @@ class TestRegistryExtraction:
         assert registry._COMMAND_REGISTRY["shutdown"] == "_handle_shutdown"
         assert registry._COMMAND_REGISTRY["tray_click"] == "_handle_tray_click"
         assert registry._COMMAND_REGISTRY["heartbeat"] == "_handle_heartbeat"
-        # IPC-1 reconciliation documented 64 commands; S3-CR-3
+        # reconciliation documented 64 commands;
         # (test_cloud_connection) + XZ-SEC-05 (add_trusted_endpoint)
         # brought it to 65. The count is deliberately pinned here and in
         # SECURITY.md — update all sources of truth together.
         assert len(registry._COMMAND_REGISTRY) == 65, (
-            f"UE-32: registry._COMMAND_REGISTRY must contain 65 entries "
-            f"(64 IPC-1 baseline + test_cloud_connection + "
+            f"registry._COMMAND_REGISTRY must contain 65 entries "
+            f"(64 baseline + test_cloud_connection + "
             f"add_trusted_endpoint); got {len(registry._COMMAND_REGISTRY)}. "
             f"If the count drifted, update this test together with the "
             f"registry + the TS/Rust allowlists."
         )
 
     def test_python_only_commands_unchanged(self) -> None:
-        """UE-32: ``_PYTHON_ONLY_COMMANDS`` is the documented
+        """``_PYTHON_ONLY_COMMANDS`` is the documented
         ``{"shutdown", "tray_click"}`` frozenset (EC-4 exception set)."""
         from voice_typer.server.ipc import registry
 
         assert frozenset({"shutdown", "tray_click"}) == registry._PYTHON_ONLY_COMMANDS, (
-            f"UE-32: registry._PYTHON_ONLY_COMMANDS must be "
+            f"registry._PYTHON_ONLY_COMMANDS must be "
             f"frozenset({{'shutdown', 'tray_click'}}); got "
             f"{registry._PYTHON_ONLY_COMMANDS!r}."
         )
 
     def test_readonly_commands_unchanged(self) -> None:
-        """UE-32: ``_READONLY_COMMANDS`` is the documented 4-element
+        """``_READONLY_COMMANDS`` is the documented 4-element
         frozenset (GT-25)."""
         from voice_typer.server.ipc import registry
 
         assert (
             frozenset({"get_status", "get_config", "get_model_catalog", "heartbeat"}) == registry._READONLY_COMMANDS
         ), (
-            f"UE-32: registry._READONLY_COMMANDS must be the 4-element "
+            f"registry._READONLY_COMMANDS must be the 4-element "
             f"frozenset {{'get_status', 'get_config', 'get_model_catalog', "
             f"'heartbeat'}}; got {registry._READONLY_COMMANDS!r}."
         )
 
     def test_registry_history_comment_block_present(self) -> None:
-        """UE-32: the ~30 "REMOVED" historical comments were
+        """the ~30 "REMOVED" historical comments were
         consolidated into a ``# Registry history`` block at the top of
         ``ipc/registry.py`` (the regression guard in
         ``test_dead_code_stays_removed.py`` already pins the removals
@@ -563,14 +561,14 @@ class TestRegistryExtraction:
 
         src = inspect.getsource(registry)
         assert "Registry history" in src, (
-            "UE-32: ipc/registry.py must contain a '# Registry history' "
+            "ipc/registry.py must contain a '# Registry history' "
             "comment block at the top consolidating the ~30 'REMOVED' "
             "comments that previously lived inline next to the dict "
             "literal in ipc_server.py."
         )
 
     def test_ipc_server_no_longer_defines_inline_dict_literal(self) -> None:
-        """UE-32: ``ipc_server.py`` must NOT contain the inline
+        """``ipc_server.py`` must NOT contain the inline
         ``_COMMAND_REGISTRY: dict[str, str] = {`` dict literal — the
         dict was extracted to ``ipc.registry`` and ``ipc_server.py``
         only re-aliases it as a class attribute.
@@ -588,7 +586,7 @@ class TestRegistryExtraction:
         # ``_COMMAND_REGISTRY: dict[str, str] = {`` followed by the
         # dict body. We must NOT find the literal form.
         assert "_COMMAND_REGISTRY: dict[str, str] = {" not in src, (
-            "UE-32: ipc_server.py must NOT define the inline "
+            "ipc_server.py must NOT define the inline "
             "_COMMAND_REGISTRY dict literal — it has been extracted to "
             "ipc.registry. The class-level alias "
             "(``_COMMAND_REGISTRY: dict[str, str] = _COMMAND_REGISTRY``) "

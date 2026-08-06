@@ -1,4 +1,4 @@
-"""Unit tests for the extracted VadProcessor class (RW-04).
+"""Unit tests for the extracted VadProcessor class.
 
 These tests exercise the state machine, auto-calibration, and VAD-enabled
 cache in isolation — without instantiating a full ``Recorder`` (which

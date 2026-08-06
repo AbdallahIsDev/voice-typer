@@ -1,8 +1,8 @@
-"""RW-1: cross-parser parity tests for the unified hotkey parser.
+"""cross-parser parity tests for the unified hotkey parser.
 
 The backend previously had four independent hotkey parsers that
 diverged on modifier-alias handling, key-name normalisation, and
-multi-key handling. RW-1 (Hotkey parser unification) introduced
+multi-key handling. (Hotkey parser unification) introduced
 ``voice_typer/server/hotkey_spec.py`` as the SINGLE CANONICAL parser
 and updated the four legacy parsers to delegate to it:
 
@@ -789,7 +789,7 @@ class TestEdgeCaseParity:
         assert d["main_key"] == "A"  # wire-protocol name
 
     def test_no_other_module_has_its_own_alias_table(self) -> None:
-        """RW-1 constraint: MODIFIER_ALIASES in hotkey_spec.py is the
+        """constraint: MODIFIER_ALIASES in hotkey_spec.py is the
         single source of truth for SPEC-PARSING alias resolution. No
         other server module should duplicate the alias-resolution dict
         (i.e. a dict whose keys are alias names like ``"control"``,
@@ -861,7 +861,7 @@ class TestEdgeCaseParity:
                         offenders.append(f"{py.name}: dict with {len(overlap)} alias-like keys ({sorted(overlap)})")
 
         assert not offenders, (
-            "RW-1 violation: found spec-parsing alias dict(s) outside "
+            "violation: found spec-parsing alias dict(s) outside "
             "hotkey_spec.py (the single source of truth): " + "; ".join(offenders)
         )
 

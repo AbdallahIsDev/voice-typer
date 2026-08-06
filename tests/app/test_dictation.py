@@ -133,6 +133,18 @@ class TestStreamingIntegration:
         app.config.streaming_transcription = True
         app.recorder = MagicMock()
         app.recorder.recording = False
+        # ``RecordingLifecycle._start_impl`` spawns a daemon worker that
+        # re-checks ``app.recorder.recording`` AFTER ``app.recorder.start()``
+        # returns (the re-check guards against a concurrent stop/cancel
+        # during the model-load window). A bare MagicMock ``recorder.start()``
+        # does not flip ``recording`` to True, so the worker would
+        # short-circuit and never reach ``_start_streaming_session_if_enabled``.
+        # Wire ``start`` to set ``recording = True`` so the worker proceeds
+        # to the streaming-session setup path the test exercises.
+        def _flip_recording_on_start():
+            app.recorder.recording = True
+
+        app.recorder.start.side_effect = _flip_recording_on_start
         app.models.transcriber = MagicMock()
         app.models.transcriber.is_loaded = True
         app.tray = MagicMock()
@@ -140,15 +152,31 @@ class TestStreamingIntegration:
 
         session = MagicMock()
         session_cls = MagicMock(return_value=session)
-        # #2 streaming session now lives in RecordingController,
-        # so monkeypatch the module where it's actually imported.
+        # Phase 4.5 split: the streaming session is instantiated inside
+        # ``StreamingSessionCoordinator.start_streaming_session_if_enabled``
+        # (in ``streaming_session_coordinator.py``), which imports
+        # ``StreamingTranscriptionSession`` at module level. The historical
+        # target ``voice_typer.server.recording_controller.StreamingTranscriptionSession``
+        # is a re-export only — patching it does not affect the
+        # coordinator's bound reference. Patch the module where the
+        # instantiation actually happens.
         monkeypatch.setattr(
-            "voice_typer.server.recording_controller.StreamingTranscriptionSession",
+            "voice_typer.server.streaming_session_coordinator.StreamingTranscriptionSession",
             session_cls,
             raising=False,
         )
 
         app._start_dictation()
+
+        # The streaming session is started on a daemon worker thread
+        # (``DictationStart``) so the F2 dispatch thread is not blocked
+        # for the model-load window. Wait for the worker's
+        # ``_start_complete_event`` (signalled in the worker's ``finally``
+        # block) before asserting — without this wait the assertions race
+        # the worker and flake.
+        start_event = getattr(app.recording, "_start_complete_event", None)
+        if start_event is not None:
+            start_event.wait(timeout=5.0)
 
         session_cls.assert_called_once()
         session.start.assert_called_once()

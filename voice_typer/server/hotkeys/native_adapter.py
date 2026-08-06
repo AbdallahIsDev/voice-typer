@@ -160,6 +160,13 @@ class _NativeBackendAdapter(HotkeyBackend):
         self._on_release_callback: Callable[[], None] | None = None
         self._callback: Callable[[], None] | None = None
         self._legacy: HotkeyBackend | None = None
+        # state-change hook for the dispatcher. The
+        # ``HotkeyDispatcher`` sets this to its
+        # ``_handle_shared_native_state_changed`` method so the pooled
+        # ESC / repaste extra matchers can be re-synced when the native
+        # permanently fails (swap to legacy) or recovers (swap back).
+        # ``None`` when no dispatcher is wired (e.g. in tests).
+        self._on_state_change_callback: Callable[[str], None] | None = None
         self._state = self._STATE_NATIVE
         self._swap_lock = threading.Lock()
         self._native_retry_timer: threading.Timer | None = None
@@ -381,6 +388,9 @@ class _NativeBackendAdapter(HotkeyBackend):
                     self._native.set_on_release(self._on_release_callback)
                 log.info("[HOTKEY] Native backend restarted after permission grant")
                 self._permission_notification_shown = False
+                # same re-pool signal as native recovery
+                # (see ``_retry_native``).
+                self._notify_state_change(self._STATE_NATIVE)
                 return
         except Exception:
             log.exception("[HOTKEY] Native restart after permission grant failed")
@@ -399,6 +409,18 @@ class _NativeBackendAdapter(HotkeyBackend):
         # logged, and the HotkeyDispatcher can override this by setting
         # ``adapter._tray = app.tray`` after construction.
         return getattr(self, "_tray", None)
+
+    def _notify_state_change(self, state: str) -> None:
+        """notify the dispatcher (if wired) that the active
+        backend changed (native ↔ legacy swap). Best-effort — a
+        misbehaving consumer must not break the swap state machine."""
+        cb = getattr(self, "_on_state_change_callback", None)
+        if cb is None:
+            return
+        try:
+            cb(state)
+        except Exception:
+            log.debug("[HOTKEY] state-change callback (%s) raised", state, exc_info=True)
 
     # runtime fallback chain ───────────────────────────────────
 
@@ -456,6 +478,9 @@ class _NativeBackendAdapter(HotkeyBackend):
                 self._state = self._STATE_FALLBACK
             log.info("[HOTKEY] Successfully swapped to legacy backend")
             self._show_fallback_notification()
+            # let the dispatcher un-pool the aux roles so they
+            # don't stay delegated onto the now-dead native subprocess.
+            self._notify_state_change(self._STATE_FALLBACK)
             # Schedule a periodic retry of the native backend
             self._schedule_native_retry()
         except Exception as exc:
@@ -551,6 +576,11 @@ class _NativeBackendAdapter(HotkeyBackend):
                 log.info("[HOTKEY] Native backend recovered — swapped back from legacy")
                 self._show_recovery_notification()
                 self._permission_notification_shown = False
+                # let the dispatcher re-pool the aux roles
+                # (the recovered native now matches the extra matchers
+                # again — per-role subprocesses must be stopped to
+                # avoid double-fire).
+                self._notify_state_change(self._STATE_NATIVE)
                 return
         except Exception as exc:
             log.warning("[HOTKEY] Native retry failed: %s — staying on legacy", exc)

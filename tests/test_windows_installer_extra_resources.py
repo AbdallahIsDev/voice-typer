@@ -1,4 +1,4 @@
-"""RW-4: regression tests for the Windows Electron installer PyInstaller bundling.
+"""regression tests for the Windows Electron installer PyInstaller bundling.
 
 The d-review found that CI builds the Python backend (PyInstaller) for
 Windows but NOT the Electron UI — the Windows installer contained only
@@ -52,7 +52,7 @@ def _extra_resources_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
 
     electron-builder accepts ``extraResources`` either at the top level
     (applies to all platforms) or per-platform under ``win:``/``mac:``/
-    ``linux:``. RW-4 puts it under ``win:`` so the PyInstaller backend
+    ``linux:``. puts it under ``win:`` so the PyInstaller backend
     is bundled only for the Windows installer (macOS/Linux have their
     own sub-agents), but we accept either form for robustness.
     """
@@ -69,7 +69,7 @@ def _extra_resources_entries(config: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def test_electron_builder_yml_has_win_section() -> None:
-    """RW-4: the win: section must exist (electron-builder needs it)."""
+    """the win: section must exist (electron-builder needs it)."""
     config = _load_yaml(ELECTRON_BUILDER_YML)
     assert "win" in config, (
         "electron-builder.yml is missing the `win:` section. The Windows NSIS target cannot be built without it."
@@ -81,14 +81,14 @@ def test_electron_builder_yml_has_win_section() -> None:
 
 
 def test_win_section_has_extra_resources_for_backend() -> None:
-    """RW-4 / Wave 3: win.extraResources must bundle the PyInstaller backend dir."""
+    """win.extraResources must bundle the PyInstaller backend dir."""
     config = _load_yaml(ELECTRON_BUILDER_YML)
     entries = _extra_resources_entries(config)
     assert entries, (
         "electron-builder.yml must define `extraResources` (top-level or "
         "under `win:`) to bundle the PyInstaller backend in the Windows "
         "installer. Without it, the installer ships Electron only with no "
-        "Python backend — ship-blocker for Windows users. See RW-4."
+        "Python backend — ship-blocker for Windows users."
     )
     # At least one entry must point at the PyInstaller backend output dir.
     # CI runs `pyinstaller --distpath voice_typer/dist` from the repo root
@@ -114,7 +114,7 @@ def test_win_section_has_extra_resources_for_backend() -> None:
 
 
 def test_win_section_keeps_nsis_target() -> None:
-    """RW-4: the win: target must remain nsis (we did not change it)."""
+    """the win: target must remain nsis (we did not change it)."""
     config = _load_yaml(ELECTRON_BUILDER_YML)
     win = config.get("win") or {}
     targets = win.get("target") or []
@@ -133,7 +133,7 @@ def test_win_section_keeps_nsis_target() -> None:
 
 
 def test_index_ts_pythonargs_looks_up_embedded_backend() -> None:
-    """RW-4: pythonArgs() must check resourcesPath/voice-typer-backend.
+    """pythonArgs() must check resourcesPath/voice-typer-backend.
 
     REF-2 extracted ``pythonArgs()`` from ``index.ts`` into
     ``main/python/python-args.ts`` (re-exported from the ``python``
@@ -171,7 +171,7 @@ def test_index_ts_pythonargs_looks_up_embedded_backend() -> None:
     # `platform === "win32"` branch — the helper's platform param).
     assert 'case "win32"' in src or 'platform === "win32"' in src, (
         "pythonArgs() packaged-mode lookup must be Windows-gated so "
-        "macOS/Linux branches (owned by rw-5) are not affected."
+        "macOS/Linux branches are not affected."
     )
     # Must spawn the bundled exe with --port (no -m flag — the frozen
     # exe is already the IPC server entry point).
@@ -183,7 +183,7 @@ def test_index_ts_pythonargs_looks_up_embedded_backend() -> None:
 
 
 def test_build_windows_job_runs_electron_builder_win_after_pyinstaller() -> None:
-    """RW-4: build-windows must run `electron-builder --win` after PyInstaller."""
+    """build-windows must run `electron-builder --win` after PyInstaller."""
     config = _load_yaml(BUILD_YML)
     jobs = config.get("jobs") or {}
     build_windows = jobs.get("build-windows")
@@ -228,7 +228,7 @@ def test_build_windows_job_runs_electron_builder_win_after_pyinstaller() -> None
 
 
 def test_build_windows_job_uploads_electron_installer_artifact() -> None:
-    """RW-4: build-windows must upload the NSIS installer as an artifact."""
+    """build-windows must upload the NSIS installer as an artifact."""
     config = _load_yaml(BUILD_YML)
     jobs = config.get("jobs") or {}
     build_windows = jobs.get("build-windows") or {}
@@ -260,7 +260,7 @@ def test_build_windows_job_uploads_electron_installer_artifact() -> None:
         "build-windows job must upload the electron-builder NSIS installer "
         "as an artifact (expected an `actions/upload-artifact` step with "
         "`path: voice_typer/client/dist/*-setup.exe` or similar). Without "
-        "this, CI builds the installer but never publishes it. See RW-4."
+        "this, CI builds the installer but never publishes it."
     )
 
 

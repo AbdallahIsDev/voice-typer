@@ -279,19 +279,31 @@ def test_model_path_resolves_to_appdata_on_windows(monkeypatch, tmp_path):
     monkeypatch.delenv("VOICE_TYPER_CONFIG_DIR", raising=False)
 
     from voice_typer.server import _paths
+    from voice_typer.server.config import _reset_config_dir_cache
 
-    models_dir = _paths.config_dir() / "models"
+    # _config_dir is lru_cached for process lifetime; clear it so the
+    # patched APPDATA / Path.home above take effect even when an
+    # earlier test in the same process already resolved the dir.
+    _reset_config_dir_cache()
 
-    # Normalize to forward-slashes for cross-platform comparison.
-    expected = Path(fake_appdata) / "voice-typer" / "models"
-    assert models_dir == expected, (
-        f"model path on Windows must resolve to "
-        f"%APPDATA%\\voice-typer\\models (got: {models_dir}, "
-        f"expected: {expected})"
-    )
-    # And the string form should contain the AppData literal so it's
-    # visible to log greps (the runbook §6.3 references this path).
-    assert "voice-typer" in str(models_dir)
+    try:
+        models_dir = _paths.config_dir() / "models"
+
+        # Normalize to forward-slashes for cross-platform comparison.
+        expected = Path(fake_appdata) / "voice-typer" / "models"
+        assert models_dir == expected, (
+            f"model path on Windows must resolve to "
+            f"%APPDATA%\\voice-typer\\models (got: {models_dir}, "
+            f"expected: {expected})"
+        )
+        # And the string form should contain the AppData literal so it's
+        # visible to log greps (the runbook §6.3 references this path).
+        assert "voice-typer" in str(models_dir)
+    finally:
+        # Un-poison the cache: the resolved value embeds this test's
+        # tmp_path, which must not leak into later tests in the same
+        # process (mirrors the ``_reset_config_dir_cache`` pattern).
+        _reset_config_dir_cache()
 
 
 # ─── Tests: compute_type=int8 CPU default ─────────────────────────────────────

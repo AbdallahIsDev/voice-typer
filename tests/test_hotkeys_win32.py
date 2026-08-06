@@ -6,10 +6,11 @@ failure modes and success scenarios without requiring a Windows host.
 
 import ctypes
 import ctypes.wintypes
-import time
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from tests.fixtures.wait_for import wait_for
 
 
 def _flip(backend):
@@ -25,13 +26,13 @@ def _wait_until(predicate, timeout: float = 3.0, msg: str = "condition not met")
     ``_using_polling`` are assigned asynchronously after ``start()``
     returns. Immediate asserts race the thread; a bounded poll makes
     the tests deterministic.
+
+    Thin wrapper around :func:`tests.fixtures.wait_for.wait_for` that
+    raises ``AssertionError`` on timeout (wait_for returns bool — this
+    helper converts False to an assertion failure with a message).
     """
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(0.01)
-    raise AssertionError(f"{msg} (waited {timeout}s)")
+    if not wait_for(predicate, timeout=timeout):
+        raise AssertionError(f"{msg} (waited {timeout}s)")
 
 
 # ─── Fixture ─────────────────────────────────────────────────────────────────
@@ -137,6 +138,7 @@ class TestRegisterHotKeyFailure:
 
         backend = WindowsNativeHotkey("<f2>")
         try:
+            import time
             start_time = time.monotonic()
             backend.start(MagicMock())
             elapsed = time.monotonic() - start_time
@@ -419,19 +421,26 @@ class TestModifierOnlyHotkeys:
         callback = MagicMock()
         try:
             backend.start(callback)
-            import time as _time
 
-            # Phase 1: nothing pressed — callback must not fire.
-            _time.sleep(0.03)
-            assert callback.call_count == 0, "Callback fired before Alt was pressed"
+            # Phase 1: nothing pressed — callback must not fire. Wait
+            # 30ms and verify (wait_for returns True if the predicate
+            # became truthy — we expect False here).
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.03), (
+                "Callback fired before Alt was pressed"
+            )
             # Phase 2: press Alt (held). Toggle mode defers the fire to
             # release, so the callback still must not fire while held.
             state["value"] = 1
-            _time.sleep(0.05)
-            assert callback.call_count == 0, "Callback fired while modifier held (toggle mode defers to release)"
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.05), (
+                "Callback fired while modifier held (toggle mode defers to release)"
+            )
             # Phase 3: release Alt. Now the callback should fire exactly once.
             state["value"] = 2
-            _time.sleep(0.05)
+            _wait_until(
+                lambda: callback.call_count >= 1,
+                timeout=2.0,
+                msg="Callback did not fire on release-alone",
+            )
             assert callback.call_count == 1, (
                 f"Expected callback to fire exactly once on release-alone, got {callback.call_count}"
             )
@@ -461,14 +470,14 @@ class TestModifierOnlyHotkeys:
         callback = MagicMock()
         try:
             backend.start(callback)
-            import time as _time
 
             # Hold for 200ms — far longer than the polling interval.
-            _time.sleep(0.2)
-            # Toggle mode defers to release, so callback must NOT fire
-            # while the key is held.
-            assert callback.call_count == 0, (
-                f"Callback fired {callback.call_count} times while Alt held — toggle mode must defer to release"
+            # Wait_for returns True if the predicate became truthy —
+            # we expect False (toggle mode defers to release, so the
+            # callback must NOT fire while the key is held).
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.2), (
+                f"Callback fired {callback.call_count} times while Alt held — "
+                "toggle mode must defer to release"
             )
         finally:
             backend.stop()
@@ -507,19 +516,21 @@ class TestModifierOnlyHotkeys:
         callback = MagicMock()
         try:
             backend.start(callback)
-            import time as _time
 
-            # Phase 1: press Alt+Ctrl (held).
+            # Phase 1: press Alt+Ctrl (held). Wait 50ms and verify
+            # no fire (wait_for returns True if predicate became
+            # truthy — we expect False here).
             state["value"] = 1
-            _time.sleep(0.05)
-            assert callback.call_count == 0, "Callback fired while Alt+Ctrl held"
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.05), (
+                "Callback fired while Alt+Ctrl held"
+            )
             # Phase 2: release Alt but keep Ctrl held.
             state["value"] = 2
-            _time.sleep(0.05)
             # Per the FIX-HOTKEY-AND-NOTIFICATION behavior, toggle mode
             # checks _other_modifiers_pressed() at release time. Since
-            # Ctrl is still held, the toggle fire is suppressed.
-            assert callback.call_count == 0, (
+            # Ctrl is still held, the toggle fire is suppressed. Wait
+            # 50ms and verify no fire.
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.05), (
                 "Callback fired on Alt release while Ctrl still held — should be suppressed (combo)"
             )
         finally:
@@ -565,22 +576,19 @@ class TestModifierOnlyHotkeys:
         callback = MagicMock()
         try:
             backend.start(callback)
-            import time as _time
 
-            # Phase 1: press Alt.
+            # Phase 1: press Alt. Wait 80ms and verify no fire
+            # (toggle mode defers to release).
             state["value"] = 1
-            _time.sleep(0.08)
-            assert callback.call_count == 0  # toggle mode defers
-            # Phase 2: press C while Alt held (Alt+C combo).
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.08)
+            # Phase 2: press C while Alt held (Alt+C combo). Wait 80ms
+            # and verify still no fire.
             state["value"] = 2
-            _time.sleep(0.08)
-            assert callback.call_count == 0  # still no fire while held
-            # Phase 3: release everything.
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.08)
+            # Phase 3: release everything. Wait 120ms and verify no fire
+            # (the non-modifier key during the hold suppresses the toggle).
             state["value"] = 3
-            _time.sleep(0.12)
-            # The non-modifier key (C) was pressed during the hold, so
-            # the toggle fire on release must be suppressed.
-            assert callback.call_count == 0, (
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.12), (
                 f"Callback fired {callback.call_count} times after Alt+C "
                 f"combo — should be suppressed (user was doing Alt+C, not "
                 f"invoking bare Alt hotkey)"
@@ -615,27 +623,39 @@ class TestModifierOnlyHotkeys:
         backend.set_on_release(release_callback)
         try:
             backend.start(press_callback)
-            import time as _time
 
-            # Phase 1: nothing pressed.
-            _time.sleep(0.03)
-            assert press_callback.call_count == 0
-            assert release_callback.call_count == 0
+            # Phase 1: nothing pressed. Wait 30ms and verify no fire.
+            assert not wait_for(lambda: press_callback.call_count > 0, timeout=0.03)
+            assert not wait_for(lambda: release_callback.call_count > 0, timeout=0.03)
             # Phase 2: press Alt. PTT mode fires press immediately.
             state["value"] = 1
-            _time.sleep(0.05)
+            _wait_until(
+                lambda: press_callback.call_count >= 1,
+                timeout=2.0,
+                msg="PTT press callback did not fire on press",
+            )
             assert press_callback.call_count == 1, (
                 f"PTT press callback should fire once on press, got {press_callback.call_count}"
             )
             assert release_callback.call_count == 0
             # Hold for an extended period — must NOT fire press repeatedly.
-            _time.sleep(0.1)
-            assert press_callback.call_count == 1, (
+            # Wait 100ms and verify press_callback.call_count stays at 1
+            # (wait_for returns True if the predicate became truthy —
+            # we expect False here, meaning no additional fire).
+            _press_count_after_hold_start = press_callback.call_count
+            assert not wait_for(
+                lambda: press_callback.call_count > _press_count_after_hold_start,
+                timeout=0.1,
+            ), (
                 f"PTT press callback fired {press_callback.call_count} times during hold — must fire exactly once"
             )
             # Phase 3: release Alt. PTT fires on_release.
             state["value"] = 0
-            _time.sleep(0.05)
+            _wait_until(
+                lambda: release_callback.call_count >= 1,
+                timeout=2.0,
+                msg="PTT on_release did not fire on release",
+            )
             assert release_callback.call_count == 1, (
                 f"PTT on_release should fire once on release, got {release_callback.call_count}"
             )
@@ -690,17 +710,21 @@ class TestToggleFiresOnKeyUp:
         callback = MagicMock()
         try:
             backend.start(callback)
-            import time as _time
 
-            # Phase 1: press and HOLD. Must NOT fire while held.
+            # Phase 1: press and HOLD. Must NOT fire while held. Wait
+            # 150ms and verify (wait_for returns True if predicate
+            # became truthy — we expect False here).
             state["value"] = 1
-            _time.sleep(0.15)
-            assert callback.call_count == 0, (
+            assert not wait_for(lambda: callback.call_count > 0, timeout=0.15), (
                 "Toggle callback fired while the key was held — must defer to key-up (release)"
             )
             # Phase 2: release. Must fire exactly once.
             state["value"] = 0
-            _time.sleep(0.05)
+            _wait_until(
+                lambda: callback.call_count >= 1,
+                timeout=2.0,
+                msg="Toggle callback did not fire on release",
+            )
             assert callback.call_count == 1, (
                 f"Expected toggle callback to fire exactly once on release, got {callback.call_count}"
             )
@@ -731,13 +755,28 @@ class TestToggleFiresOnKeyUp:
         callback = MagicMock()
         try:
             backend.start(callback)
-            import time as _time
 
-            for _ in range(2):
+            for i in range(1, 3):
                 state["value"] = 1
-                _time.sleep(0.05)
+                # Wait for the polling loop to observe the press (no fire
+                # expected in toggle_on_keyup mode). We track
+                # GetAsyncKeyState call count and wait for it to advance,
+                # confirming the loop has polled at least once since the
+                # press — this avoids the race where we release before
+                # the loop sees the press.
+                _calls_before_press = mock_user32.GetAsyncKeyState.call_count
+                _wait_until(
+                   lambda _calls=_calls_before_press: mock_user32.GetAsyncKeyState.call_count > _calls,
+                   timeout=0.5,
+                   msg="Polling loop did not observe the press",
+               )
                 state["value"] = 0
-                _time.sleep(0.05)
+                # Wait for the callback to fire on release.
+                _wait_until(
+                   lambda _i=i: callback.call_count == _i,
+                   timeout=2.0,
+                   msg=f"Callback did not fire on release (cycle {i})",
+               )
             assert callback.call_count == 2, f"Expected 2 fires (one per release), got {callback.call_count}"
         finally:
             backend.stop()
@@ -787,12 +826,16 @@ class TestCapsLockSuppression:
         callback = MagicMock()
         try:
             backend.start(callback)
-            import time as _time
 
-            _time.sleep(0.05)
-            # keybd_event should have been called for the synthetic
-            # keydown + keyup (2 calls per suppression cycle).
-            assert mock_user32.keybd_event.call_count >= 2
+            # Wait for the polling loop to observe the press and call
+            # keybd_event (the suppression path fires on the not-held →
+            # held transition). keybd_event should be called for the
+            # synthetic keydown + keyup (2 calls per suppression cycle).
+            _wait_until(
+                lambda: mock_user32.keybd_event.call_count >= 2,
+                timeout=2.0,
+                msg="keybd_event was not called for caps-lock suppression",
+            )
         finally:
             backend.stop()
 

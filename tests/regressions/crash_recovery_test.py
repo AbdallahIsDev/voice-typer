@@ -1,7 +1,7 @@
 """Regression tests split out of the former ``tests/test_bugfix_regressions.py``.
 
-This module is part of the ``tests/regressions/`` package created by
-REF-4. The class/method names, assertion logic, and imports below are
+This module is part of the ``tests/regressions/`` package.
+The class/method names, assertion logic, and imports below are
 preserved verbatim from the original 4446-line monolith — only file
 location has changed.
 
@@ -38,20 +38,20 @@ import pytest
 
 
 class TestSubprocessCrashRecoveryHandler:
-    """PLAT-012: Test the Python exit handler logic."""
+    """Test the Python exit handler logic."""
 
     def test_exit_handler_logic_exists(self):
         """Electron main process must handle Python subprocess exit.
 
-        RW-8: KEEP — pins PLAT-012 (Electron main has pythonProcess.on('exit')
+        KEEP — pins (Electron main has pythonProcess.on('exit')
         # handler that calls app.quit). A behavioral test would need to run
         # the Electron main process and kill the Python subprocess, which
         # is heavy (requires a running Electron app); the file-content
         # check catches removal of the handler directly.
 
-        REF-2 update: the pythonProcess.on('exit') handler was extracted from
+        update: the pythonProcess.on('exit') handler was extracted from
         ``src/main/index.ts`` into ``src/main/python/start-python.ts`` as
-        part of the REF-2 main-entry refactor. The handler still exists with
+        part of the main-entry refactor. The handler still exists with
         the same behavior — we now look in the new module location.
         """
         # REF-2: handler now lives in start-python.ts (extracted from index.ts)
@@ -68,14 +68,14 @@ class TestSubprocessCrashRecoveryHandler:
             Path(__file__).resolve().parent.parent.parent / "voice_typer" / "client" / "src" / "main" / "index.ts"
         )
         # Search both locations — the handler may be in either depending on
-        # whether the REF-2 refactor is in place.
+        # whether the refactor is in place.
         src = ""
         if start_python_path.exists():
             src += start_python_path.read_text(encoding="utf-8")
         if main_path.exists():
             src += "\n" + main_path.read_text(encoding="utf-8")
         assert src, "neither start-python.ts nor index.ts found"
-        # REF-2 update: the variable was renamed `pythonProcess` → `proc`
+        # update: the variable was renamed `pythonProcess` → `proc`
         # (stored in `state.pythonProcess`). Either form satisfies the
         # invariant — "the python subprocess has an exit handler that
         # calls app.quit". Look for either.
@@ -89,7 +89,7 @@ class TestSubprocessCrashRecoveryHandler:
 
 
 class TestCrashRecoveryLoadsStaleState:
-    """NEW-CQ-014: Test cleanup on abnormal termination."""
+    """Test cleanup on abnormal termination."""
 
     def test_crash_recovery_loads_stale_state(self, tmp_path):
         """CrashRecovery must load stale state after abnormal termination."""
@@ -108,7 +108,7 @@ class TestCrashRecoveryLoadsStaleState:
 
 
 class TestSidecarCrashDetectionBehavioral:
-    """GT-40: behavioral test of sidecar crash detection.
+    """behavioral test of sidecar crash detection.
 
     The pre-existing ``test_exit_handler_logic_exists`` above is a
     source-string check — it asserts the literal ``proc.on('exit'``
@@ -136,7 +136,7 @@ class TestSidecarCrashDetectionBehavioral:
         reason="signal.pause() is POSIX-only — the sidecar subprocess script cannot run on Windows",
     )
     def test_parent_detects_sigkilled_sidecar_within_bounded_time(self, tmp_path):
-        """GT-40: When a sidecar subprocess is SIGKILLed, the parent's
+        """When a sidecar subprocess is SIGKILLed, the parent's
         ``Popen.poll()`` must return the (negative) signal within a
         bounded time (≤ 2s on Linux). This is the contract
         ``pythonProcess.on('exit')`` relies on — if the OS took
@@ -182,7 +182,7 @@ class TestSidecarCrashDetectionBehavioral:
                 if proc.poll() is not None:
                     # Sidecar exited prematurely — fail with stderr.
                     stderr = proc.stderr.read().decode("utf-8", "replace") if proc.stderr else ""
-                    pytest.fail(f"GT-40: sidecar exited prematurely before binding port. stderr: {stderr}")
+                    pytest.fail(f"sidecar exited prematurely before binding port. stderr: {stderr}")
                 # Check if the sidecar wrote READY.
                 if proc.stdout:
                     line = proc.stdout.readline()
@@ -190,7 +190,7 @@ class TestSidecarCrashDetectionBehavioral:
                         ready = True
                         break
                 time.sleep(0.05)
-            assert ready, "GT-40: sidecar did not signal readiness within 5s — cannot proceed with crash-detection test"
+            assert ready, "sidecar did not signal readiness within 5s — cannot proceed with crash-detection test"
 
             # Verify the port is actually bound (the sidecar is
             # listening, mimicking the real IPC server).
@@ -199,7 +199,7 @@ class TestSidecarCrashDetectionBehavioral:
             try:
                 test_sock.connect(("127.0.0.1", port))
             except (TimeoutError, ConnectionRefusedError, OSError) as e:
-                pytest.fail(f"GT-40: sidecar did not bind port {port} — crash-detection test cannot proceed: {e}")
+                pytest.fail(f"sidecar did not bind port {port} — crash-detection test cannot proceed: {e}")
             finally:
                 test_sock.close()
 
@@ -218,13 +218,13 @@ class TestSidecarCrashDetectionBehavioral:
                 time.sleep(0.02)
 
             assert exit_code is not None, (
-                "GT-40: parent did not detect sidecar exit within 2s "
+                "parent did not detect sidecar exit within 2s "
                 "of SIGKILL — the restart/quit path would never fire. "
                 "This indicates a regression in subprocess exit detection."
             )
             # SIGKILL = signal 9; Popen.poll() returns -9.
             assert exit_code == -9, (
-                f"GT-40: expected exit code -9 (SIGKILL), got {exit_code}. "
+                f"expected exit code -9 (SIGKILL), got {exit_code}. "
                 f"The sidecar was killed by a different signal — "
                 f"crash-detection contract is unexpected."
             )

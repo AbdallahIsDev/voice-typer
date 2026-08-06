@@ -380,7 +380,7 @@ def regenerate(current_violations: list[dict[str, Any]], *, force: bool = False)
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="RW-11: ruff ratchet comparison script.",
+        description="ruff ratchet comparison script.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

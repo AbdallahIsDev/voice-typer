@@ -367,6 +367,11 @@ def _make_tauri_tray(*, controller=None, icon=None, hotkey="<f2>"):
             self._queue_lock = threading.Lock()
             self._pending_states = []
             self._pending_notifications = []
+            # ``_publish_tray_state`` acquires ``_publish_lock`` to
+            # serialize the check-then-publish-then-cache sequence;
+            # bypassing the real __init__ means we must set it manually
+            # so set_state/refresh_config/set_hotkey don't AttributeError.
+            self._publish_lock = threading.Lock()
 
     return _FakeTray()
 
@@ -467,11 +472,12 @@ def test_set_state_publishes_tray_state_under_tauri(monkeypatch):
 
 
 def test_set_state_publishes_tray_menu_only_on_transcribing_change(monkeypatch):
-    """TRANSCRIBING ⇄ non-TRANSCRIBING transitions publish tray_menu (Force Cancel item).
-
-    RECORDING ⇄ IDLE transitions only publish tray_state (icon/tooltip) —
-    publishing the full menu model on every state change would waste
-    work because the menu structure doesn't change.
+    """Menu publishes fire on {RECORDING, TRANSCRIBING} membership changes
+    (the ``record_or_transcribe_changed`` predicate in ``set_state``) —
+    the "Stop Dictation" label flips on entry/exit — but NOT on
+    within-set transitions (RECORDING → TRANSCRIBING) or message-only
+    changes. Mirrors the per-transition matrix in
+    ``test_tray_state_transitions.py::TestRecordingTransitionInvalidatesMenuCache``.
     """
     from voice_typer.server.tray_types import AppState
 
@@ -490,23 +496,34 @@ def test_set_state_publishes_tray_menu_only_on_transcribing_change(monkeypatch):
     try:
         monkeypatch.setenv("TAURI_SIDECAR", "1")
 
-        # IDLE → RECORDING: no menu publish (only state).
+        # IDLE → RECORDING: membership change — menu publish (the
+        # "Stop Dictation" label flips on the host's tray).
         tray.set_state(AppState.RECORDING)
         menu_after_recording = len(menu_events)
-        assert menu_after_recording == 0, "IDLE→RECORDING must NOT publish tray_menu (no menu structure change)"
+        assert menu_after_recording == 1, (
+            "IDLE→RECORDING must publish tray_menu (Stop Dictation label flips)"
+        )
         assert len(state_events) == 1
 
-        # RECORDING → TRANSCRIBING: menu publish (Force Cancel item appears).
+        # RECORDING → TRANSCRIBING: stays inside {RECORDING, TRANSCRIBING}
+        # — no menu publish (membership unchanged).
         tray.set_state(AppState.TRANSCRIBING)
-        assert len(menu_events) == 1, "RECORDING→TRANSCRIBING must publish tray_menu (Force Cancel item appears)"
+        assert len(menu_events) == 1, (
+            "RECORDING→TRANSCRIBING must NOT publish tray_menu (stays in membership set)"
+        )
 
-        # TRANSCRIBING → TRANSCRIBING: no menu publish (no structure change).
+        # TRANSCRIBING → TRANSCRIBING: message-only change — no menu publish.
         tray.set_state(AppState.TRANSCRIBING, "still transcribing")
-        assert len(menu_events) == 1, "TRANSCRIBING→TRANSCRIBING must NOT publish tray_menu"
+        assert len(menu_events) == 1, (
+            "TRANSCRIBING→TRANSCRIBING (msg change) must NOT publish tray_menu"
+        )
 
-        # TRANSCRIBING → IDLE: menu publish (Force Cancel item disappears).
+        # TRANSCRIBING → IDLE: membership change — menu publish (label
+        # flips back to "Toggle Dictation").
         tray.set_state(AppState.IDLE)
-        assert len(menu_events) == 2, "TRANSCRIBING→IDLE must publish tray_menu (Force Cancel item disappears)"
+        assert len(menu_events) == 2, (
+            "TRANSCRIBING→IDLE must publish tray_menu (membership change)"
+        )
     finally:
         event_bus.unsubscribe(_on_event)
         monkeypatch.delenv("TAURI_SIDECAR", raising=False)

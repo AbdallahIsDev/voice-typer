@@ -1,4 +1,4 @@
-"""RW-9 regression tests for the ``StartupSequence`` extraction.
+"""regression tests for the ``StartupSequence`` extraction.
 
 ``VoiceTyperApp._do_startup`` is now a 1-line delegate that constructs a
 ``StartupSequence`` and calls ``.run()``. The full boot orchestration
@@ -69,7 +69,7 @@ class TestStartupSequenceDelegate:
     def test_do_startup_invokes_startup_sequence_run(self, app_for_startup, monkeypatch):
         """``_do_startup`` must construct a StartupSequence and call .run().
 
-        RW-9 Phase 5 contract: the body of ``_do_startup`` is now a
+        Phase 5 contract: the body of ``_do_startup`` is now a
         1-line delegate. The actual logic lives in
         ``StartupSequence(self).run()`` — verified by patching
         ``StartupSequence.run`` to a sentinel and asserting it was called.

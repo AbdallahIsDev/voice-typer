@@ -1,9 +1,9 @@
-"""XS-71: Python-side guard that no blanket ``ignore::ResourceWarning``
+"""Python-side guard that no blanket ``ignore::ResourceWarning``
 filter is added to ``pyproject.toml``.
 
 Mirrors the TS assertion at
 ``voice_typer/client/src/renderer/src/__tests__/behavior-rewrite/electron-ipc-build-behavior.test.tsx:1051``
-(RW-1 rewrite of TestNoBlanketResourceWarningFilter). The TS test runs
+(rewrite of TestNoBlanketResourceWarningFilter). The TS test runs
 only under ``vitest``; this Python guard runs under ``pytest`` so a
 contributor who only runs the Python suite still catches the regression.
 
@@ -84,11 +84,7 @@ def test_norecursedirs_includes_hypothesis() -> None:
     # array in this project, but be defensive: scan for any line that
     # starts with ``norecursedirs`` (after stripping leading whitespace)
     # and contains the array literal.
-    norecursedirs_lines = [
-        (idx + 1, raw)
-        for idx, raw in enumerate(lines)
-        if raw.lstrip().startswith("norecursedirs")
-    ]
+    norecursedirs_lines = [(idx + 1, raw) for idx, raw in enumerate(lines) if raw.lstrip().startswith("norecursedirs")]
     assert norecursedirs_lines, "norecursedirs key missing from pyproject.toml"
     lineno, line = norecursedirs_lines[0]
     assert ".hypothesis" in line, (

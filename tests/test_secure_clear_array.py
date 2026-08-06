@@ -1,4 +1,4 @@
-""" regression tests: ``_secure_clear_array`` is reachable from
+"""regression tests: ``_secure_clear_array`` is reachable from
 ``recorder.py`` and actually zeros cached audio arrays on session start.
 
 Before the  fix, ``recorder.py`` called ``_secure_clear_array(...)``
@@ -236,7 +236,7 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
     broken.  Post-the ``except`` is narrowed so a future
     ``NameError``-class import bug surfaces immediately.
 
-    RW-8 / ARCH-12: this is a source-string check (not a behavioral
+    this is a source-string check (not a behavioral
     test) because the only way to deterministically catch a regression
     that re-broadens the ``except`` is to inspect the source.  A
     behavioral test would need to delete ``_secure_clear_array`` from
@@ -244,7 +244,7 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
     exactly the regression this test pins, so the source-string check
     is the most direct detection.
 
-    ZR-60: the secure-clear call sites were extracted from
+    the secure-clear call sites were extracted from
     ``Recorder.start`` into ``Recorder._secure_clear_session_caches``
     (the orchestrator just delegates). The source-string check now
     inspects the helper method — the regression it pins (broad
@@ -324,7 +324,7 @@ def test_secure_clear_array_import_statement_present_in_recorder_source():
     """Source-string check: ``recorder.py`` must import ``_secure_clear_array``
     at module top ( fix).
 
-    RW-8 / ARCH-12: source-string check is the most direct way to catch
+    source-string check is the most direct way to catch
     a future regression where the import is removed (which would
     reintroduce the silent NameError-swallowing bug).
     """
@@ -370,17 +370,17 @@ def test_secure_clear_array_idempotent_across_sessions(iteration: int):
 
 
 def test_stop_clears_cached_arrays():
-    """G4-H-06: ``stop()`` must securely zero ``_cached_resampled`` and
+    """``stop()`` must securely zero ``_cached_resampled`` and
     ``_cached_no_resample_arr`` IN-PLACE before replacing them.
 
-    Pre-G4-H-06: ``stop()`` reassigned both caches to fresh empty arrays
+    Pre-``stop()`` reassigned both caches to fresh empty arrays
     / ``None`` without first zeroing the underlying numpy buffers.  The
     cached arrays can hold up to ~30 min of 16 kHz float32 audio (~115 MB)
     of the user's voice, so simply dropping the reference left that data
     in process memory until the numpy allocator reused the block —
     defeating SEC-audit-008's intent.
 
-    Post-G4-H-06: ``stop()`` calls ``_secure_clear_caches()`` which
+    Post-``stop()`` calls ``_secure_clear_caches()`` which
     invokes ``_secure_clear_array`` (``arr.fill(0)``) on each non-empty
     cache BEFORE reassignment, so the underlying numpy buffer is zeroed
     in-place.  This test keeps a separate reference to each cached
@@ -434,7 +434,7 @@ def test_stop_clears_cached_arrays():
 
 
 def test_stop_clears_cached_arrays_on_main_path():
-    """G4-H-06 (companion): the MAIN stop() path (when ``_buffer`` is
+    """the MAIN stop() path (when ``_buffer`` is
     non-empty and audio is concatenated) must also zero the cached
     arrays in-place.
 
@@ -464,7 +464,7 @@ def test_stop_clears_cached_arrays_on_main_path():
 
 
 def test_discard_clears_cached_arrays():
-    """G4-H-06 (companion): ``discard()`` must also zero the cached
+    """``discard()`` must also zero the cached
     arrays in-place via ``_secure_clear_caches()``."""
     rec = _make_recorder()
 
@@ -500,7 +500,7 @@ def _assert_array_memory_zeroed(arr: np.ndarray, *, ctx: str = "") -> None:
     (e.g. via ``arr[:] = 0`` on a view) without zeroing the underlying
     buffer that forensic recovery would target.
 
-    Used by the XE-6-1 regression tests to verify that the segment
+    Used by the regression tests to verify that the segment
     arrays' memory is genuinely zeroed — not just that the Python-level
     array reads as zero.
     """
@@ -518,7 +518,7 @@ def _assert_array_memory_zeroed(arr: np.ndarray, *, ctx: str = "") -> None:
         f"{ctx}: underlying numpy buffer is NOT zeroed byte-for-byte. "
         f"Expected {nbytes} zero bytes, got non-zero bytes at offsets: "
         f"{[i for i, b in enumerate(raw_bytes) if b != 0][:10]}. "
-        "XE-6-1 regression: the segment array's memory must be zeroed "
+        "regression: the segment array's memory must be zeroed "
         "in-place via _secure_clear_array before the list reference is "
         "dropped — otherwise up to ~115 MB of dictated float32 audio "
         "lingers in process memory until the numpy allocator reuses the block."
@@ -526,11 +526,11 @@ def _assert_array_memory_zeroed(arr: np.ndarray, *, ctx: str = "") -> None:
 
 
 def test_stop_zeros_cached_resampled_segments_in_place():
-    """XE-6-1 (High): ``stop()`` must securely zero each segment in
+    """(High): ``stop()`` must securely zero each segment in
     ``_cached_resampled_segments`` IN-PLACE before replacing the list
     reference.
 
-    Pre-XE-6-1: ``secure_clear_caches`` only zeroed ``_cached_resampled``
+    ``secure_clear_caches`` only zeroed ``_cached_resampled``
     and ``_cached_no_resample_arr``. The segment list
     (``_cached_resampled_segments``) — the primary storage for the
     resampled prefix in the snapshot path (see
@@ -553,7 +553,7 @@ def test_stop_zeros_cached_resampled_segments_in_place():
 
     rec.stop()
 
-    assert rec._cached_resampled_segments == [], "XE-6-1: Recorder.stop() must reset _cached_resampled_segments to []."
+    assert rec._cached_resampled_segments == [], "Recorder.stop() must reset _cached_resampled_segments to []."
     assert rec._cached_resampled_concat_dirty is False
     _assert_array_memory_zeroed(segment_a, ctx="segment_a after stop()")
     _assert_array_memory_zeroed(segment_b, ctx="segment_b after stop()")
@@ -561,7 +561,7 @@ def test_stop_zeros_cached_resampled_segments_in_place():
 
 
 def test_discard_zeros_cached_resampled_segments_in_place(monkeypatch):
-    """XE-6-1 (companion): ``discard()`` must also zero the segment list
+    """(companion): ``discard()`` must also zero the segment list
     in-place via ``_secure_clear_caches()``.
 
     ``monkeypatch`` is used to neutralize
@@ -592,7 +592,7 @@ def test_discard_zeros_cached_resampled_segments_in_place(monkeypatch):
     rec.discard()
 
     assert rec._cached_resampled_segments == [], (
-        "XE-6-1: Recorder.discard() must reset _cached_resampled_segments to []."
+        "Recorder.discard() must reset _cached_resampled_segments to []."
     )
     assert rec._cached_resampled_concat_dirty is False
     _assert_array_memory_zeroed(segment_a, ctx="segment_a after discard()")
@@ -600,7 +600,7 @@ def test_discard_zeros_cached_resampled_segments_in_place(monkeypatch):
 
 
 def test_start_zeros_cached_resampled_segments_in_place():
-    """XE-6-1 (companion): ``start()`` must zero the segment list in-place
+    """(companion): ``start()`` must zero the segment list in-place
     via ``_secure_clear_session_caches()`` — the helper called from
     ``start_recording`` (mirrors the ``stop()``/``discard()`` path).
     """
@@ -615,14 +615,14 @@ def test_start_zeros_cached_resampled_segments_in_place():
     with contextlib.suppress(Exception):
         rec.start()
 
-    assert rec._cached_resampled_segments == [], "XE-6-1: Recorder.start() must reset _cached_resampled_segments to []."
+    assert rec._cached_resampled_segments == [], "Recorder.start() must reset _cached_resampled_segments to []."
     assert rec._cached_resampled_concat_dirty is False
     _assert_array_memory_zeroed(segment_a, ctx="segment_a after start()")
     _assert_array_memory_zeroed(segment_b, ctx="segment_b after start()")
 
 
 def test_secure_clear_caches_handles_empty_segment_list_without_raising():
-    """XE-6-1: ``secure_clear_caches`` must handle an empty segment list
+    """``secure_clear_caches`` must handle an empty segment list
     (the common case at session start) without raising — the size guard
     (``seg.size > 0``) skips the zeroing pass."""
     rec = _make_recorder()
@@ -637,7 +637,7 @@ def test_secure_clear_caches_handles_empty_segment_list_without_raising():
 
 
 def test_secure_clear_caches_handles_none_entries_in_segment_list():
-    """XE-6-1: ``secure_clear_caches`` must skip ``None`` entries in the
+    """``secure_clear_caches`` must skip ``None`` entries in the
     segment list (defensive — the production code path never appends
     ``None``, but the loop guard ``if seg is not None and seg.size > 0``
     must not raise ``AttributeError`` on a stray ``None``)."""
