@@ -1,6 +1,6 @@
 # =============================================================================
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
-#   actions/checkout@v5 — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/checkout@v7 — Node 24 runtime (v4 = Node 20, deprecated)
 # See build.yml header for full rationale + breaking-change analysis.
 # =============================================================================
 
@@ -59,7 +59,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
