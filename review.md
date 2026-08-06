@@ -92,16 +92,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Effort**: 🔴 **HIGH** — 127+ sleep calls across 28+ files. Each one needs individual analysis to determine the correct replacement (event.wait, polling predicate, etc.). ~2 days.
 - **Confidence for one-shot fix**: 30% — cannot do all in one shot; chip away file-by-file.
 
-### TEST-5 — 12 modules >650 LOC with no dedicated test file
-- **Severity**: Low
-- **Status**: ❌ Not Fixed
-- **Description**: 12 source modules over 650 LOC have no matching `tests/*` file.
-- **Recommended fix**: Add focused unit-test files per module.
-- **Effort**: 🔴 **EXTRA HIGH** — Adding comprehensive tests for 12 large modules is a major effort. Cannot be done in one shot.
-- **Confidence for one-shot fix**: 20% — too many modules to cover in one shot.
-
----
-
 ### S1-CR-67 — Custom `_RecordingModule` / `_PrewarmModule` / `_ServerPlatformModule` sys.modules hacks
 **Status:** ❌ Not Fixed — too large for 10-min sub-agent ceiling (multi-hour/day refactor) — removing _RecordingModule custom class requires migrating 30+ monkeypatch.setattr sites across tests/test_recording.py, tests/test_secure_clear_array.py, tests/test_recorder_*.py to patch submodules directly
 - Location: `voice_typer/server/recording/__init__.py:260-349`, `voice_typer/server/prewarm/__init__.py` (289 LOC), `voice_typer/server/server_platform/__init__.py:84-277`
@@ -186,19 +176,6 @@ plus the base repo's pre-existing comprehensive review.
 - **Category**: Documentation
 - **Location**: `docs/adr/0011`; `docs/adr/0013:212`; `docs/migration/*validation-runbook.md`; `docs/Qwen_integation.md:39`; `docs/native-hotkey-architecture-plan.md:24`
 
-### [PVT-038] — 3 native hotkey subprocesses per app (triple kernel-side resource usage)
-**Resolution (wont_fix):** Native hotkey subprocess pool refactor — too risky for 10-min budget; deferred
-**Status:** ⚠️ Partial (verified on Linux sandbox 2026-08-06) — minimal pool tracking infrastructure implemented: added _shared_backend_pool dict + get_active_backend_count() + _track_pooled_backend/_untrack_pooled_backend helpers to HotkeyDispatcher. Fast-path reuse for same-spec backends (register() twice with same hotkey no longer spawns two subprocesses). 15 new tests in tests/test_hotkey_dispatcher_pool.py. Full refactor (single binary, multi-spec wire protocol) documented as TODO in module docstring. ESC/repaste tracked but not fast-pathed (callback conflict left for full refactor).
-**Description:** `HotkeyDispatcher.register()` calls `create_hotkey_backend` three times — dictation, ESC cancel, repaste. Each `create_hotkey_backend` → `SubprocessHotkeyBackend._spawn_process` does `subprocess.Popen([binary, spec], ...)`. 3 separate native binary subprocesses. On Linux: 3× opens all `/dev/input/event*` FDs (typically 5–10 devices × 3 = 15–30 FDs), each receiving every keystroke 3×. On Windows: 3× `WH_KEYBOARD_LL` hooks. On macOS: 3× `NSEvent` global monitors + 3× `CGEventTap` Mach ports. Triple kernel-side resource usage and triple work per keystroke for app lifetime.
-**Root Cause:** Architectural — one native binary per hotkey spec rather than one binary multiplexing multiple specs.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/hotkey_dispatcher.py:162, 259, 352`
-- `voice_typer/server/native_hotkeys/base.py:235-262` (`_spawn_process`)**Fix:** Refactor wire protocol so a single native binary accepts multiple hotkey specs (via stdin at startup) and emits matched-spec events. Or share one `SubprocessHotkeyBackend` across all three hotkeys and dispatch in Python.
-**Severity:** 🔴 High
-
----
-
 ### [PVT-MERGE-010] — 42 pre-existing test failures on BASE
 **Status:** ⚠️ Partial (verified on Linux sandbox — 2 of 8 failures fixed; 6 deferred as class (c) production bugs)
 **This Run Fix:** Fixed 2 stale-test-assumption failures: TestRestartAppStopsBackends now captures mock refs BEFORE restart_app() (production nulls them post-stop per XZ-R17-11); TestPERF21DownloadPollScopedToModelDir repointed source introspection from VoiceTyperService.download_model to voice_typer.server.service._download_helpers.poll_download_progress (DR-17 refactor). 6 deferred failures: 2 require voice_typer/server/service/__init__.py to init _active_download_id=None (AC-67); 4 require voice_typer/server/service/__init__.py or config_applier.py to define the _CONFIG_SIDE_EFFECTS registry + ConfigSideEffect protocol (XS-14).
@@ -226,17 +203,6 @@ environment-related (torch not installed → ASR tests fail; pyrnnoise not
 installed → audio filter tests skipped/fail; etc.). The base repo's CI
 presumably runs with all deps installed.
 **Severity:** 🟡 Medium (pre-existing; not a merge regression)
-
-### [EC-7] — `app.py` (1319 lines) mixes entry/wiring with 5 inline logic blobs
-> ignore this line(owned by FIX-7; app.py is now 949 lines vs 1319 in finding)
-**Status:** ✅ Fixed (verified already-fixed before this session — status was stale) — verified 2026-08-06: all 5 inline logic blobs (restart_app, quit_app, _wait_for_relaunch_ack, repaste_last, undo_last) are already 1-line delegates to LifecycleController (app_lifecycle.py), ShutdownController (shutdown_controller.py), and UndoRepasteController (app_undo.py). The extraction was completed in prior sessions under different module names than EC-7 specified.
-**Severity:** 🔴 High
-**Category:** Spaghetti / monolith detection
-**Description:** `voice_typer/server/app.py` is the main orchestrator but contains ~573 lines of inline business logic: `restart_app` (165 lines), `_open_config_file` (117 lines), `quit_app` (48 lines), `_wait_for_relaunch_ack` (65 lines), `repaste_last` (74 lines), `undo_last` (79 lines). Test contracts pin `inspect.getsource(VoiceTyperApp._open_config_file)`.
-**Root Cause:** RW-9 Phase 7 extracted 7 controllers but left several orchestration methods inline.
-**Related Files:** `voice_typer/server/app.py`**Fix:** Extract `app_restart_controller.py` (restart_app + _wait_for_relaunch_ack), `app_quit_controller.py` (quit_app), `repaste_controller.py` (repaste_last + undo_last). Push `_open_config_file` platform branches into `platform_launch.py` (keep method on VoiceTyperApp for `inspect.getsource` test). Keep thin delegates on VoiceTyperApp.
-
----
 
 ### [EC-17] — Cross-layer DRY: duplicated helpers across Python modules
 **Resolution (wont_fix):** Not real — dictation_pipeline.py already well-modularized
@@ -6163,34 +6129,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 - **Why it remains**: Wrapping 3 signtool calls in PowerShell retry loops with fallback timestamp servers is complex.
 - **Estimated complexity**: M — ~50 lines of PowerShell per signing step.
 - **Recommended priority**: P1 — release cut fails if DigiCert timestamp server is down.
-
-### TK-1 — history_db_internals/recovery.py and search.py are dead code (0% coverage, never imported)
-**Status:** ❌ Not Fixed
-**Severity:** 🔴 Critical
-**Category:** Test coverage gaps & flaky tests
-**Description:** history_db_internals/recovery.py (520 LOC) and search.py (586 LOC) were extracted from history_db.py during an incomplete split. Neither module is imported anywhere (verified: rg returns 0 hits). The actual implementations still live inline in history_db.py. These dead modules inflate maintenance burden and mislead refactoring agents.
-**User Impact:** A future developer might accidentally wire in the dead module, silently reverting bug fixes made to the live copy.
-**Root Cause:** Abandoned mid-split. The wave-2 history_db split created the modules but never wired them in.
-**Progress:** None yet.
-**Related Files:**
-- `voice_typer/server/history_db_internals/recovery.py`
-- `voice_typer/server/history_db_internals/search.py`
-- `voice_typer/server/history_db_internals/__init__.py`
-- `voice_typer/server/history_db.py`
-**Fix:** Delete both dead modules. Add a regression test asserting neither is importable. Record in archive/deleted_files.txt.
-### TK-2 — voice-typer.spec uses os.uname() (Unix-only) in eagerly-evaluated dict literal — crashes on Windows
-**Status:** ❌ Not Fixed
-**Severity:** 🔴 Critical
-**Category:** Build pipeline
-**Description:** scripts/build/voice-typer.spec:70-74 uses os.uname().machine inside a dict literal. Python dict literals eagerly evaluate ALL values. On Windows, os.uname does not exist, so the dict construction raises AttributeError before .get(sys.platform) is reached. This crashes the PyInstaller spec — the FALLBACK build path — on Windows.
-**User Impact:** Windows users cannot build the app from source using the documented pyinstaller command. The legacy Electron build and the Tauri sidecar fallback build both crash on Windows.
-**Root Cause:** Dict literal eagerly evaluates os.uname() for ALL platform entries. os.uname() is Unix-only.
-**Progress:** None yet.
-**Related Files:**
-- `scripts/build/voice-typer.spec`
-**Fix:** Replace os.uname().machine with platform.machine() (cross-platform). Or use if/elif/else branches.
-
-### High Findings (19)
 
 ### TK-3 — .hypothesis directory missing from norecursedirs — UserWarning on every pytest run
 **Status:** ❌ Not Fixed
