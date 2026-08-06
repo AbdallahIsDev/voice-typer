@@ -45,8 +45,9 @@
  * remain as a fallback until CI verifies the vitest versions pass on
  * all platforms.
  */
-import { TooltipProvider } from "@/components/ui/tooltip";
+
 import { cleanup, render } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
  * Page-level render helper. Pages like Settings mount Radix Tooltip
@@ -59,13 +60,13 @@ const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
 import {
-    afterEach,
-    beforeAll,
-    beforeEach,
-    describe,
-    expect,
-    it,
-    vi,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
 } from "vitest";
 
 // ── HotkeyPicker mock ──────────────────────────────────────────────────────
@@ -137,10 +138,10 @@ vi.mock("@/lib/sound-manager", () => ({
 }));
 
 import {
-    formatHotkeyLabel,
-    KEY_CODE_TO_PYNPUT,
-    MODIFIER_KEYS,
-    validateHotkey,
+	formatHotkeyLabel,
+	KEY_CODE_TO_PYNPUT,
+	MODIFIER_KEYS,
+	validateHotkey,
 } from "@/components/hotkey/hotkey-utils";
 import { RecordingSettingsSection } from "@/components/settings/RecordingSettingsSection";
 import type { VoiceTyperConfig } from "@/types/config";

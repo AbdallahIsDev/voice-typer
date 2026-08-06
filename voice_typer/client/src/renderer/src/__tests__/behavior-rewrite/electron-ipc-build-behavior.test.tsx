@@ -140,15 +140,15 @@
  *     it is a follow-up.
  */
 
-import { TooltipProvider } from "@/components/ui/tooltip";
 import {
-    cleanup,
-    fireEvent,
-    render,
-    screen,
-    waitFor,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
  * Page-level render helper. Pages like Settings mount Radix Tooltip
@@ -160,8 +160,8 @@ import userEvent from "@testing-library/user-event";
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-import type { PythonRequest, WindowBridge } from "@/types/ipc";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { PythonRequest, WindowBridge } from "@/types/ipc";
 
 // ────────────────────────────────────────────────────────────────────
 // Section 1: Type-level guards for `types/ipc.ts`

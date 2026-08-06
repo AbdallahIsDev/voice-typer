@@ -22,15 +22,16 @@
  * The corresponding Python tests are skipped via `@pytest.mark.skip`
  * with a pointer back to this file.  They are NOT deleted.
  */
-import { TooltipProvider } from "@/components/ui/tooltip";
+
 import {
-    cleanup,
-    fireEvent,
-    render,
-    renderHook,
-    screen,
-    waitFor,
+	cleanup,
+	fireEvent,
+	render,
+	renderHook,
+	screen,
+	waitFor,
 } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
  * Page-level render helper. Pages like Settings mount Radix Tooltip

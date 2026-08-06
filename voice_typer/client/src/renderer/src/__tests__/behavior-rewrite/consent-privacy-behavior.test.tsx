@@ -60,14 +60,15 @@
  * available as a fallback until CI verifies the vitest versions pass on
  * all platforms.
  */
-import { TooltipProvider } from "@/components/ui/tooltip";
+
 import {
-    cleanup,
-    fireEvent,
-    render,
-    screen,
-    waitFor,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
 } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
  * Page-level render helper. Pages like Settings mount Radix Tooltip

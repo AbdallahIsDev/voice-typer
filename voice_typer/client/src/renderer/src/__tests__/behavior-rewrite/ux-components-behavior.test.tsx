@@ -89,15 +89,16 @@
  * don't affect the Settings/Vocabulary/Templates/About direct-mount
  * tests).
  */
-import { TooltipProvider } from "@/components/ui/tooltip";
+
 import {
-    act,
-    cleanup,
-    fireEvent,
-    render,
-    screen,
-    waitFor,
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
 } from "@testing-library/react";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
  * Page-level render helper. Pages like Settings mount Radix Tooltip
