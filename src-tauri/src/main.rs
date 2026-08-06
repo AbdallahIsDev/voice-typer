@@ -39,6 +39,14 @@ mod state;
 mod tray;
 mod util;
 
+// C-TEST-5: inline `#[cfg(test)] mod tests` block in `state.rs` moved
+// to the sibling `state_tests.rs` file, mirroring the existing pattern
+// at `commands/bubble/mod.rs` and `migrate/mod.rs`. Declared here (not
+// inside `state.rs`) so the sibling-file path resolves without a
+// `#[path]` attribute.
+#[cfg(test)]
+mod state_tests;
+
 use std::sync::Arc;
 
 // `Listener` for `app.listen("relaunch_app", ...)`, `Manager` for

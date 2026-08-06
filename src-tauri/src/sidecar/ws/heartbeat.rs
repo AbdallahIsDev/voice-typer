@@ -255,7 +255,7 @@ pub(super) async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartb
                         missed += 1;
                         log::error!(
                             "[HEARTBEAT] dispatch_inner panicked (miss #{}/{}) — \
-                             task staying alive (AC-98)",
+                             task staying alive",
                             missed,
                             HEARTBEAT_MAX_MISSES
                         );

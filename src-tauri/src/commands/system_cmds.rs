@@ -204,25 +204,49 @@ pub async fn open_logs(
 ) -> Result<Value, String> {
     require_main_window(&window)?;
     let log_dir = config_dir();
-    //capture mkdir failure rather than silently discarding it
-    // with `let _ = ...`. If the config_dir is unwritable (permission
-    // denied, read-only mount, etc.), the prior implementation
-    // returned `{"success": true}` based solely on whether
-    // `Command::spawn()` later succeeded — the OS file manager would
-    // then pop a "path not found" dialog to the user while the UI
-    // showed "logs opened". We now surface the mkdir failure as a
-    // structured error string so the renderer can display it.
-    if let Err(e) = std::fs::create_dir_all(&log_dir) {
-        return Ok(json!({
+    // Offload the synchronous fs mkdir + the OS file-manager spawn to
+    // the dedicated blocking-thread pool so this `async fn` does not
+    // hold a Tauri async-runtime worker thread for the duration of the
+    // mkdir syscall (which can stall >100ms under a contended disk /
+    // antivirus scan on Windows). Mirrors the pattern already used by
+    // `migrate::mod::migrate_electron_userdata` (line ~143) and
+    // `sidecar::supervisor::restart_loop` (line ~277). `spawn_blocking`
+    // moves the closure to the cached blocking pool; `.await` yields
+    // the calling task until the closure completes.
+    //
+    // `open_path_in_file_manager` is also moved into the closure
+    // because it does its own `path.exists()` syscall + spawns an
+    // OS-binary child (explorer.exe / open / xdg-open) — both are
+    // blocking work that should NOT run on the async worker pool.
+    // The closure returns a single `Result<(), String>` so we can
+    // uniformly shape both the mkdir failure and the open failure into
+    // the same `{"success": false, "error": "<msg>"}` envelope.
+    let blocking_result = tauri::async_runtime::spawn_blocking(move || {
+        // Capture mkdir failure rather than silently discarding it
+        // with `let _ = ...`. If the config_dir is unwritable
+        // (permission denied, read-only mount, etc.), returning
+        // `Ok(())` based solely on whether `Command::spawn()` later
+        // succeeded would let the OS file manager pop a "path not
+        // found" dialog to the user while the UI showed "logs opened".
+        // We surface the mkdir failure as a structured error string so
+        // the renderer can display it.
+        if let Err(e) = std::fs::create_dir_all(&log_dir) {
+            return Err(format!(
+                "create_dir_all({}) failed: {}",
+                log_dir.display(),
+                e
+            ));
+        }
+        open_path_in_file_manager(&log_dir)
+    })
+    .await;
+    match blocking_result {
+        Ok(Ok(())) => Ok(json!({"success": true})),
+        Ok(Err(e)) => Ok(json!({"success": false, "error": e})),
+        Err(join_err) => Ok(json!({
             "success": false,
-            "error": format!("create_dir_all({}) failed: {}", log_dir.display(), e)
-        }));
-    }
-
-    let open_result = open_path_in_file_manager(&log_dir);
-    match open_result {
-        Ok(()) => Ok(json!({"success": true})),
-        Err(e) => Ok(json!({"success": false, "error": e})),
+            "error": format!("open_logs blocking task failed: {join_err}")
+        })),
     }
 }
 
@@ -396,194 +420,12 @@ pub async fn export_config(
     export_data(data, "json".to_string(), app, "voice-typer-config", "Export Config").await
 }
 
+// Unit tests for `is_sensitive_key` + `redact_config_secrets` live in
+// the sibling `system_cmds_tests.rs` file (C-TEST-5 — keeps production
+// source free of inline test code, matching the `commands/bubble/tests.rs`
+// pattern). The module is wired as a child of `system_cmds` so the test
+// file can use `use super::{...}` to access `pub(crate)` items
+// (`is_sensitive_key`, `redact_config_secrets`, `REDACTED_MARKER`).
 #[cfg(test)]
-mod tests {
-    use super::*;
+mod system_cmds_tests;
 
-    //is_sensitive_key ───────────────────────────────────────
-    //
-    // Pins the key-matching pattern: `(?i)(api[_-]?key|secret|token|
-    // password|passwd|pwd|credential|auth)` as a case-insensitive
-    // substring match.
-
-    #[test]
-    fn test_is_sensitive_key_api_key_variants() {
-        // `api[_-]?key` matches all three spellings (and any key
-        // containing them as a substring).
-        assert!(is_sensitive_key("api_key"));
-        assert!(is_sensitive_key("api-key"));
-        assert!(is_sensitive_key("apikey"));
-        assert!(is_sensitive_key("openai_api_key"));
-        assert!(is_sensitive_key("OPENAI_API_KEY"));
-        assert!(is_sensitive_key("X-Api-Key"));
-        assert!(is_sensitive_key("provider_apikey_v2"));
-    }
-
-    #[test]
-    fn test_is_sensitive_key_secret_token_password() {
-        assert!(is_sensitive_key("secret"));
-        assert!(is_sensitive_key("client_secret"));
-        assert!(is_sensitive_key("CLIENT_SECRET"));
-        assert!(is_sensitive_key("token"));
-        assert!(is_sensitive_key("auth_token"));
-        assert!(is_sensitive_key("bearer_token"));
-        assert!(is_sensitive_key("password"));
-        assert!(is_sensitive_key("PASSWORD"));
-        assert!(is_sensitive_key("user_password"));
-        assert!(is_sensitive_key("passwd"));
-        assert!(is_sensitive_key("pwd"));
-        assert!(is_sensitive_key("credential"));
-        assert!(is_sensitive_key("auth"));
-        assert!(is_sensitive_key("authorization"));
-        assert!(is_sensitive_key("X-Auth-Token"));
-    }
-
-    #[test]
-    fn test_is_sensitive_key_negatives() {
-        // Keys that look sensitive but aren't (no substring match).
-        assert!(!is_sensitive_key("api"));
-        assert!(!is_sensitive_key("model"));
-        assert!(!is_sensitive_key("language"));
-        assert!(!is_sensitive_key("vocabulary"));
-        assert!(!is_sensitive_key("backend"));
-        assert!(!is_sensitive_key("history"));
-        assert!(!is_sensitive_key("auto_punctuate"));
-        assert!(!is_sensitive_key("tray_icon"));
-        assert!(!is_sensitive_key(""));
-    }
-
-    //redact_config_secrets ──────────────────────────────────
-
-    #[test]
-    fn test_redact_config_secrets_flat_object() {
-        let mut v = json!({
-            "model": "small.en",
-            "api_key": "sk-abc123",
-            "language": "en",
-            "password": "hunter2"
-        });
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 2);
-        assert_eq!(v["model"], "small.en");
-        assert_eq!(v["api_key"], REDACTED_MARKER);
-        assert_eq!(v["language"], "en");
-        assert_eq!(v["password"], REDACTED_MARKER);
-    }
-
-    #[test]
-    fn test_redact_config_secrets_nested_object() {
-        let mut v = json!({
-            "providers": {
-                "openai": {
-                    "api_key": "sk-abc123",
-                    "model": "gpt-4"
-                },
-                "anthropic": {
-                    "api_key": "sk-ant-xyz",
-                    "auth_token": "Bearer abc"
-                }
-            },
-            "version": 2
-        });
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 3);
-        assert_eq!(v["providers"]["openai"]["api_key"], REDACTED_MARKER);
-        assert_eq!(v["providers"]["openai"]["model"], "gpt-4");
-        assert_eq!(v["providers"]["anthropic"]["api_key"], REDACTED_MARKER);
-        assert_eq!(v["providers"]["anthropic"]["auth_token"], REDACTED_MARKER);
-        assert_eq!(v["version"], 2);
-    }
-
-    #[test]
-    fn test_redact_config_secrets_array_of_objects() {
-        let mut v = json!([
-            {"id": 1, "api_key": "sk-1"},
-            {"id": 2, "token": "tok-2"},
-            {"id": 3, "name": "no secret here"}
-        ]);
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 2);
-        assert_eq!(v[0]["id"], 1);
-        assert_eq!(v[0]["api_key"], REDACTED_MARKER);
-        assert_eq!(v[1]["id"], 2);
-        assert_eq!(v[1]["token"], REDACTED_MARKER);
-        assert_eq!(v[2]["name"], "no secret here");
-    }
-
-    #[test]
-    fn test_redact_config_secrets_skips_null_values() {
-        // A sensitive key with a null value is not a leak — don't
-        // redact (and don't log a warn).
-        let mut v = json!({
-            "api_key": null,
-            "secret": null,
-            "model": "small.en"
-        });
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 0, "null values should not be redacted");
-        assert!(v["api_key"].is_null());
-        assert!(v["secret"].is_null());
-    }
-
-    #[test]
-    fn test_redact_config_secrets_redacts_non_string_values() {
-        // A secret could be a number (e.g. a numeric PIN) or bool —
-        // redact regardless of type.
-        let mut v = json!({
-            "password": 12345,
-            "pwd": true,
-            "credential": ["nested", "array"]
-        });
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 3);
-        assert_eq!(v["password"], REDACTED_MARKER);
-        assert_eq!(v["pwd"], REDACTED_MARKER);
-        assert_eq!(v["credential"], REDACTED_MARKER);
-    }
-
-    #[test]
-    fn test_redact_config_secrets_case_insensitive_keys() {
-        let mut v = json!({
-            "API_KEY": "sk-1",
-            "ApiKey": "sk-2",
-            "PASSWORD": "pw"
-        });
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 3);
-        assert_eq!(v["API_KEY"], REDACTED_MARKER);
-        assert_eq!(v["ApiKey"], REDACTED_MARKER);
-        assert_eq!(v["PASSWORD"], REDACTED_MARKER);
-    }
-
-    #[test]
-    fn test_redact_config_secrets_empty_object() {
-        let mut v = json!({});
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 0);
-    }
-
-    #[test]
-    fn test_redact_config_secrets_no_secrets() {
-        let mut v = json!({
-            "model": "small.en",
-            "language": "en",
-            "vocabulary": ["hello", "world"]
-        });
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 0);
-        // Verify the data is untouched.
-        assert_eq!(v["model"], "small.en");
-        assert_eq!(v["vocabulary"][0], "hello");
-    }
-
-    #[test]
-    fn test_redact_config_secrets_non_object_root() {
-        // The root itself is not under any key — redaction only
-        // applies to values whose parent KEY is sensitive. A bare
-        // scalar root has nothing to redact.
-        let mut v = json!("just a string");
-        let count = redact_config_secrets(&mut v);
-        assert_eq!(count, 0);
-        assert_eq!(v, "just a string");
-    }
-}

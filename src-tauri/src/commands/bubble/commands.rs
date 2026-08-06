@@ -208,33 +208,60 @@ pub async fn bubble_set_draggable(
 /// with no diagnostic. The fix uses [`super::math::compute_move_by_new_pos`],
 /// which `checked_add`s each axis and returns a descriptive error
 /// naming the offending operands so the renderer can surface it.
+///
+/// ** (perf):** the body runs inside `tauri::async_runtime::spawn_blocking`
+/// so the two OS-IPC calls per mousemove (`outer_position` + `set_position`)
+/// run on the cached blocking-thread pool instead of holding an async
+/// worker thread. The bubble drag handler fires `bubble_move_by` on every
+/// `mousemove` event (~60 Hz during an active drag), and each OS-IPC
+/// round-trip can take 1-10ms under a busy compositor — without
+/// `spawn_blocking`, a sustained drag could pin a Tauri async worker
+/// thread for the duration of the drag, starving other futures
+/// (sidecar WS reader, status poll, etc.). The blocking pool absorbs
+/// the IPC latency without contending with the async runtime.
 #[tauri::command]
 pub async fn bubble_move_by(
     dx: f64,
     dy: f64,
     app: tauri::AppHandle,
 ) -> Result<Value, String> {
-    let window = app
-        .get_webview_window("bubble")
-        .ok_or("bubble window not found")?;
-    let pos = window.outer_position().map_err(|e| e.to_string())?;
-    //the TS bridge forwards renderer-supplied numbers (the
-    // `moveBy(deltaX: number, deltaY: number)` signature is `(number,
-    // number)`). Accept `f64` at the FFI boundary and round to `i32` with
-    // a saturating cast so a NaN / ±inf / out-of-range delta is defined
-    // behavior instead of the silent wrap / UB-adjacent saturation of
-    // `as i32` on `f64` (see `round_f64_to_i32_saturating` doc for the
-    // per-input behavior).
-    let dx_i32 = round_f64_to_i32_saturating(dx);
-    let dy_i32 = round_f64_to_i32_saturating(dy);
-    //use checked arithmetic so a renderer-supplied dx/dy that
-    // would overflow i32::MAX surfaces a descriptive error instead of
-    // silently wrapping the bubble to a wrapped-negative pixel.
-    let (new_x, new_y) = compute_move_by_new_pos(pos.x, dx_i32, pos.y, dy_i32)?;
-    window
-        .set_position(PhysicalPosition::new(new_x, new_y))
-        .map_err(|e| e.to_string())?;
-    Ok(json!({"x": new_x, "y": new_y}))
+    // Wrap the OS-IPC body in `spawn_blocking` so the async runtime's
+    // worker pool is not held for the duration of `outer_position` +
+    // `set_position` (two blocking OS-IPC syscalls per mousemove). The
+    // closure captures `app` (cheaply clonable — it's `Arc`-backed) and
+    // returns the same `Result<Value, String>` shape the synchronous
+    // body returned, so the only outer change is the `JoinError`-shaped
+    // fallback (which surfaces as a descriptive Rust error string).
+    let join_result = tauri::async_runtime::spawn_blocking(move || -> Result<Value, String> {
+        let window = app
+            .get_webview_window("bubble")
+            .ok_or("bubble window not found")?;
+        let pos = window.outer_position().map_err(|e| e.to_string())?;
+        //the TS bridge forwards renderer-supplied numbers (the
+        // `moveBy(deltaX: number, deltaY: number)` signature is `(number,
+        // number)`). Accept `f64` at the FFI boundary and round to `i32` with
+        // a saturating cast so a NaN / ±inf / out-of-range delta is defined
+        // behavior instead of the silent wrap / UB-adjacent saturation of
+        // `as i32` on `f64` (see `round_f64_to_i32_saturating` doc for the
+        // per-input behavior).
+        let dx_i32 = round_f64_to_i32_saturating(dx);
+        let dy_i32 = round_f64_to_i32_saturating(dy);
+        //use checked arithmetic so a renderer-supplied dx/dy that
+        // would overflow i32::MAX surfaces a descriptive error instead of
+        // silently wrapping the bubble to a wrapped-negative pixel.
+        let (new_x, new_y) = compute_move_by_new_pos(pos.x, dx_i32, pos.y, dy_i32)?;
+        window
+            .set_position(PhysicalPosition::new(new_x, new_y))
+            .map_err(|e| e.to_string())?;
+        Ok(json!({"x": new_x, "y": new_y}))
+    })
+    .await;
+    match join_result {
+        Ok(inner) => inner,
+        Err(join_err) => Err(format!(
+            "bubble_move_by blocking task failed: {join_err}"
+        )),
+    }
 }
 
 // A Tauri command that emitted bubble-state events (previously declared

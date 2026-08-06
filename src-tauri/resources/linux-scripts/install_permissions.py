@@ -39,23 +39,45 @@ permission" in the onboarding flow.
 Exit codes:
   0 = success
   1 = not running as root
-  2 = no target user detected (SUDO_USER / PKEXEC_UID both empty)
+  2 = (reserved — historical "no target user" code, now unified with 5)
   3 = udev rule installation failed
   4 = usermod failed
-  5 = XKB / session config failed (non-fatal in some cases)
+  5 = no target user detected (run via sudo -E / pkexec) OR XKB / session config failed
+
+Note: when this script is invoked via pkexec, polkit caches the
+authentication for ~5 minutes (``auth_admin_keep`` default in
+``voice-typer.polkit``). Re-running within that window will not re-prompt
+for a password — this is expected polkit behavior, not a bug.
 """
 
 from __future__ import annotations
 
-import grp
+import ast
+import configparser
 import json
 import os
-import pwd
 import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+# ``grp`` / ``pwd`` are POSIX-only stdlib modules. This script is
+# Linux-only at runtime, but tests import it on all platforms (the
+# module is exercised with mocked subprocess / paths on Windows CI
+# hosts too), so a bare ``import grp`` would hard-fail collection
+# with ModuleNotFoundError on Windows. Guard both imports; every
+# function that touches ``grp`` / ``pwd`` is only reachable on
+# Linux at runtime (``is_root()`` fails closed on Windows).
+try:
+    import grp
+except ImportError:  # pragma: no cover - POSIX-only module
+    grp = None  # type: ignore[assignment]
+
+try:
+    import pwd
+except ImportError:  # pragma: no cover - POSIX-only module
+    pwd = None  # type: ignore[assignment]
 
 # ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -180,7 +202,10 @@ def _is_running_from_appimage() -> bool:
         resolved = Path(__file__).resolve()
     except OSError:
         return False
-    return str(resolved).startswith(_APPIMAGE_MOUNT_PREFIX)
+    # as_posix() so the prefix match is path-separator agnostic — on
+    # Windows (tests / cross-dev) Path('/tmp/.mount_...') stringifies
+    # with backslashes and would never match the POSIX prefix.
+    return resolved.as_posix().startswith(_APPIMAGE_MOUNT_PREFIX)
 
 
 def _install_polkit_policy() -> None:
@@ -307,6 +332,92 @@ def setup_polkit_stable_path() -> None:
 
     # Install / refresh the polkit policy file alongside the symlink.
     _install_polkit_policy()
+
+
+# ─── Option-merge helpers ───────────────────────────────────────────────────
+#
+# These helpers read the existing Caps Lock XKB options for GNOME / KDE /
+# Sway, merge ``caps:none`` in (deduped, order-preserving), and capture
+# the original value so the uninstaller can restore it (instead of
+# resetting to factory defaults, which would clobber user customization
+# like ``altwin:swap_alt_win``).
+
+
+def _parse_gsettings_array(raw: str) -> list[str]:
+    """Parse the output of ``gsettings get`` for an array-of-strings setting.
+
+    ``gsettings get`` returns values in a GVariant-style literal, e.g.:
+    - ``@as []`` (empty array of type ``as``)
+    - ``['caps:none']``
+    - ``['caps:none', 'altwin:swap_alt_win']``
+
+    Returns a plain Python list of strings. Empty / unparseable input
+    returns ``[]`` (so the caller can treat "no value" and "empty value"
+    identically when merging).
+    """
+    raw = raw.strip()
+    if not raw or raw.startswith("@as"):
+        return []
+    # GVariant array literals are syntactically compatible with Python
+    # list literals — use ast.literal_eval for safe parsing.
+    try:
+        parsed = ast.literal_eval(raw)
+        if isinstance(parsed, (list, tuple)):
+            return [str(x) for x in parsed]
+    except (ValueError, SyntaxError):
+        pass
+    # Fallback: tokenize on commas and strip quotes.
+    body = raw
+    if body.startswith("[") and body.endswith("]"):
+        body = body[1:-1]
+    items: list[str] = []
+    for token in body.split(","):
+        token = token.strip().strip("'\"")
+        if token:
+            items.append(token)
+    return items
+
+
+def _format_gsettings_array(items: list[str]) -> str:
+    """Format a list as a GVariant-style array literal for ``gsettings set``."""
+    quoted = ", ".join(f"'{item}'" for item in items)
+    return f"[{quoted}]"
+
+
+def _parse_comma_options(value: str) -> list[str]:
+    """Parse a comma-separated XKB options string (kxkbrc / sway)."""
+    return [token.strip() for token in value.split(",") if token.strip()]
+
+
+def _format_comma_options(items: list[str]) -> str:
+    """Format a list as a comma-separated XKB options string."""
+    return ",".join(items)
+
+
+def _merge_option(existing: list[str], new: str) -> list[str]:
+    """Append ``new`` to ``existing`` (deduped, order-preserving)."""
+    result = list(existing)
+    if new not in result:
+        result.append(new)
+    return result
+
+
+def _find_sway_xkb_options_lines(lines: list[str]) -> list[int]:
+    """Return indices of non-commented lines that set ``input * xkb_options``."""
+    indices: list[int] = []
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        tokens = stripped.split()
+        if (
+            len(tokens) >= 4
+            and tokens[0] == "input"
+            and tokens[1] == "*"
+            and tokens[2] == "xkb_options"
+        ):
+            indices.append(idx)
+    return indices
 
 
 # ─── Install operations ────────────────────────────────────────────────────
@@ -448,22 +559,37 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
     # GNOME (X11 or Wayland): use gsettings
     if session_type == "gnome":
         try:
-            # Run gsettings as the target user
+            # Read the existing xkb-options value via ``gsettings get``
+            # so we can merge caps:none in (deduped) instead of clobbering
+            # the user's other XKB options (e.g. altwin:swap_alt_win).
+            # Capture the raw original in the manifest so uninstall can
+            # restore it via ``gsettings set`` instead of ``gsettings reset``
+            # (which would lose user customization that predated Voice Typer).
+            get_proc = subprocess.run(
+                [
+                    "sudo", "-u", username, "gsettings", "get",
+                    "org.gnome.desktop.input-sources", "xkb-options",
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=10,
+            )
+            original_raw = get_proc.stdout.strip() if get_proc.returncode == 0 else ""
+            original_options = _parse_gsettings_array(original_raw)
+            merged_options = _merge_option(original_options, "caps:none")
+            merged_value = _format_gsettings_array(merged_options)
             run(
                 [
-                    "sudo",
-                    "-u",
-                    username,
-                    "gsettings",
-                    "set",
-                    "org.gnome.desktop.input-sources",
-                    "xkb-options",
-                    "['caps:none']",
+                    "sudo", "-u", username, "gsettings", "set",
+                    "org.gnome.desktop.input-sources", "xkb-options", merged_value,
                 ],
                 check=False,
             )
-            log(f"Set GNOME xkb-options to caps:none for user '{username}'")
+            log(f"Set GNOME xkb-options to {merged_value} for user '{username}'")
             result["gnome_settings_modified"] = True
+            # Raw string preserved for round-trip restore via ``gsettings set``.
+            result["gnome_xkb_options_original"] = original_raw
         except (FileNotFoundError, subprocess.CalledProcessError) as exc:
             log(f"WARNING: gsettings failed (non-fatal): {exc}")
 
@@ -473,42 +599,95 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
             user_pw = pwd.getpwnam(username)
             kxkbrc = Path(user_pw.pw_dir) / ".config" / "kxkbrc"
             kxkbrc.parent.mkdir(parents=True, exist_ok=True)
-            # KDE's kxkbrc uses an INI-like format. The Layout Options
-            # key is a comma-separated list.
-            existing = kxkbrc.read_text() if kxkbrc.exists() else ""
-            if "caps:none" not in existing:
-                with kxkbrc.open("a") as f:
-                    if existing and not existing.endswith("\n"):
-                        f.write("\n")
-                    f.write("[Layout]\nOptions=caps:none\n")
-                log(f"Appended caps:none to {kxkbrc}")
-                result["kde_config_modified"] = True
-            else:
-                log(f"caps:none already in {kxkbrc}")
-                result["kde_config_modified"] = True
-            # Fix ownership
+            # Parse the existing kxkbrc with configparser so we can
+            # merge caps:none into the existing ``Options=`` value (deduped)
+            # instead of appending a duplicate ``[Layout]`` section. Capture
+            # the original Options= string in the manifest so uninstall can
+            # restore it (instead of dropping the key entirely).
+            existing_text = kxkbrc.read_text() if kxkbrc.exists() else ""
+            parser = configparser.ConfigParser(interpolation=None, strict=False)
+            parser.optionxform = str  # preserve case (KDE uses Options=, not options=)
+            original_options_str = ""
+            try:
+                parser.read_string(existing_text)
+                if parser.has_section("Layout") and parser.has_option("Layout", "Options"):
+                    original_options_str = parser.get("Layout", "Options") or ""
+            except (configparser.Error, ValueError):
+                # File is missing section headers or is otherwise malformed —
+                # treat as empty (we'll create a clean [Layout] section).
+                if not parser.has_section("Layout"):
+                    parser.add_section("Layout")
+            existing_options = _parse_comma_options(original_options_str)
+            merged_options = _merge_option(existing_options, "caps:none")
+            merged_options_str = _format_comma_options(merged_options)
+            if not parser.has_section("Layout"):
+                parser.add_section("Layout")
+            parser.set("Layout", "Options", merged_options_str)
+            # Write back merged INI (``space_around_delimiters=False`` matches
+            # KDE's ``Options=caps:none`` convention — no spaces around ``=``).
+            with kxkbrc.open("w") as f:
+                parser.write(f, space_around_delimiters=False)
             shutil.chown(kxkbrc, user_pw.pw_uid, user_pw.pw_gid)
+            log(f"Set KDE kxkbrc Options to '{merged_options_str}' at {kxkbrc}")
+            result["kde_config_modified"] = True
+            result["kde_xkb_options_original"] = original_options_str
         except (KeyError, OSError) as exc:
             log(f"WARNING: KDE config failed (non-fatal): {exc}")
 
-    # Sway: append to ~/.config/sway/config (idempotent)
+    # Sway: scan ~/.config/sway/config for ``input * xkb_options`` directives
+    # and merge caps:none into the existing options (deduped)
+    # if found. Replace the line (leaving a commented-out backup of the original).
+    # If not found, append a new block. Capture the original line in the
+    # manifest so uninstall can restore it.
     if session_type == "sway":
         try:
             user_pw = pwd.getpwnam(username)
             sway_config = Path(user_pw.pw_dir) / ".config" / "sway" / "config"
             sway_config.parent.mkdir(parents=True, exist_ok=True)
             existing = sway_config.read_text() if sway_config.exists() else ""
+            lines = existing.splitlines(keepends=True)
+            match_indices = _find_sway_xkb_options_lines(lines)
             marker = "# Voice Typer — Caps Lock neutralization"
-            if marker not in existing:
+            restore_marker = "# Voice Typer (original, preserved for restore):"
+            if match_indices:
+                # Merge caps:none into the FIRST matched line's options.
+                first_idx = match_indices[0]
+                original_line = lines[first_idx].rstrip()
+                # Extract the option-value tail (everything after the third token).
+                tail_split = original_line.split(None, 3)
+                tail = tail_split[3] if len(tail_split) >= 4 else ""
+                existing_options = _parse_comma_options(tail.strip())
+                merged_options = _merge_option(existing_options, "caps:none")
+                merged_value = _format_comma_options(merged_options)
+                new_line = f"input * xkb_options {merged_value}\n"
+                # Replace the matched line with a commented-out backup of the
+                # original (so the user can see what Voice Typer changed) plus
+                # the new merged line.
+                lines[first_idx] = (
+                    f"{restore_marker} {original_line}\n"
+                    f"{new_line}"
+                )
+                # Drop subsequent duplicate ``input * xkb_options`` lines
+                # (Voice Typer consolidates them into the first).
+                for idx in reversed(match_indices[1:]):
+                    del lines[idx]
+                sway_config.write_text("".join(lines))
+                log(f"Updated existing sway xkb_options line at {sway_config}")
+                result["sway_config_modified"] = True
+                result["sway_xkb_options_original"] = original_line
+            elif marker not in existing:
+                # No existing xkb_options line — append Voice Typer's marker block.
                 with sway_config.open("a") as f:
                     if existing and not existing.endswith("\n"):
                         f.write("\n")
                     f.write(f"\n{marker}\ninput * xkb_options caps:none\n")
                 log(f"Appended caps:none to {sway_config}")
                 result["sway_config_modified"] = True
+                result["sway_xkb_options_original"] = ""
             else:
                 log(f"caps:none already in {sway_config}")
                 result["sway_config_modified"] = True
+                result["sway_xkb_options_original"] = ""
             shutil.chown(sway_config, user_pw.pw_uid, user_pw.pw_gid)
         except (KeyError, OSError) as exc:
             log(f"WARNING: Sway config failed (non-fatal): {exc}")
@@ -531,7 +710,10 @@ def write_manifest(
     """Write the manifest file tracking what was installed."""
     MANIFEST_DIR.mkdir(parents=True, exist_ok=True)
     manifest = {
-        "version": 1,
+        # Manifest version bumped 1 → 2 when caps-lock originals were added:
+        # ``caps_lock_originals`` so the uninstaller can restore the
+        # user's prior XKB options instead of resetting them.
+        "version": 2,
         "installed_at": datetime.now(timezone.utc).isoformat(),
         "target_user": username,
         "udev_rule": str(UDEV_RULE_PATH),
@@ -543,6 +725,17 @@ def write_manifest(
         "gnome_settings_modified": session_info.get("gnome_settings_modified", False),
         "kde_config_modified": session_info.get("kde_config_modified", False),
         "sway_config_modified": session_info.get("sway_config_modified", False),
+        # Caps Lock XKB-option originals. The uninstaller
+        # restores these via ``gsettings set`` / kxkbrc rewrite / sway
+        # config rewrite — instead of ``gsettings reset`` (which would lose
+        # the user's other XKB options) or "remove the line manually" (which
+        # leaves the user to clean up). Empty string = no prior value (the
+        # uninstaller removes Voice Typer's added line / key entirely).
+        "caps_lock_originals": {
+            "gnome_xkb_options": session_info.get("gnome_xkb_options_original", ""),
+            "kde_xkb_options": session_info.get("kde_xkb_options_original", ""),
+            "sway_xkb_options_line": session_info.get("sway_xkb_options_original", ""),
+        },
     }
     MANIFEST_PATH.write_text(json.dumps(manifest, indent=2))
     log(f"Wrote manifest to {MANIFEST_PATH}")
@@ -562,13 +755,23 @@ def install() -> None:
 
     username = get_target_user()
     if not username:
-        # If running as root directly (no SUDO_USER), skip usermod
-        # but still install udev rule + XKB config
-        log(
-            "WARNING: no target user detected (SUDO_USER / PKEXEC_UID empty) — "
-            "skipping usermod. Run 'sudo usermod -aG input <username>' manually."
+        # Instead of silently continuing with username="root"
+        # (which would configure the wrong home dir and skip usermod),
+        # fail fast with a clear message explaining the correct
+        # invocation. Exit code 5 per the platform exit-code table.
+        fail(
+            5,
+            "no target user detected — run as: sudo -E env PKEXEC_UID=$(id -u) "
+            "pkexec /usr/share/voice-typer/scripts/install_permissions.py",
         )
-        username = "root"
+        return  # unreachable — fail() exits; explicit return for type narrowing
+
+    # Explain the polkit auth_admin_keep caching window so users
+    # aren't surprised when subsequent pkexec invocations don't re-prompt.
+    log(
+        "NOTE: when invoked via pkexec, polkit caches authentication for ~5 minutes "
+        "(auth_admin_keep). Re-running within that window will not re-prompt for a password."
+    )
 
     log(f"Installing Voice Typer keyboard permissions for user '{username}'...")
 
@@ -576,9 +779,10 @@ def install() -> None:
     udev_backup = backup_if_exists(UDEV_RULE_PATH)
     install_udev_rule()
 
-    # 2. Add user to input group (skip if root)
-    if username != "root":
-        add_user_to_input_group(username)
+    # 2. Add user to input group.
+    #    The no-user branch fails fast — username is
+    #    guaranteed to be a real user here (never "root").
+    add_user_to_input_group(username)
 
     # 3. Caps Lock neutralization
     session_type = detect_session_type()
@@ -589,8 +793,9 @@ def install() -> None:
 
     log("")
     log("Voice Typer keyboard permissions installed successfully.")
-    if username != "root":
-        log(f"IMPORTANT: user '{username}' must log out and log back in for the 'input' group change to take effect.")
+    log(
+        f"IMPORTANT: user '{username}' must log out and log back in for the 'input' group change to take effect."
+    )
     log("")
 
 
@@ -682,6 +887,183 @@ def _remove_autostart_desktop(target_user: str) -> None:
 # ─── Uninstall ─────────────────────────────────────────────────────────────
 
 
+def _restore_gnome_xkb_options(manifest: dict) -> None:
+    """Restore the user's original GNOME xkb-options.
+
+    At install time we captured the raw ``gsettings get`` output in
+    ``manifest["caps_lock_originals"]["gnome_xkb_options"]``. This helper
+    re-applies that value via ``gsettings set`` (round-trip restore) —
+    instead of ``gsettings reset``, which would lose user customization
+    that predated Voice Typer (e.g. ``altwin:swap_alt_win``).
+
+    If no prior value was saved (empty string), falls back to
+    ``gsettings reset`` (returns the setting to its factory default).
+    """
+    username = manifest.get("target_user", "")
+    if not username or username == "root":
+        return
+    originals = manifest.get("caps_lock_originals", {}) or {}
+    original_raw = originals.get("gnome_xkb_options", "")
+    try:
+        if original_raw:
+            run(
+                [
+                    "sudo", "-u", username, "gsettings", "set",
+                    "org.gnome.desktop.input-sources", "xkb-options", original_raw,
+                ],
+                check=False,
+            )
+            log(f"Restored GNOME xkb-options to '{original_raw}' for user '{username}'")
+        else:
+            run(
+                [
+                    "sudo", "-u", username, "gsettings", "reset",
+                    "org.gnome.desktop.input-sources", "xkb-options",
+                ],
+                check=False,
+            )
+            log(f"Reset GNOME xkb-options for user '{username}' (no prior value saved)")
+    except (FileNotFoundError, subprocess.CalledProcessError) as exc:
+        log(f"WARNING: GNOME gsettings restore failed (non-fatal): {exc}")
+
+
+def _restore_kde_kxkbrc_options(manifest: dict) -> None:
+    """Restore the user's original KDE kxkbrc ``Options=`` value.
+
+    Re-writes the ``[Layout]`` section's ``Options`` key back to the
+    saved value (or removes the key entirely if no prior value was saved).
+    """
+    username = manifest.get("target_user", "")
+    if not username or username == "root":
+        return
+    originals = manifest.get("caps_lock_originals", {}) or {}
+    original_options_str = originals.get("kde_xkb_options", "")
+    try:
+        user_pw = pwd.getpwnam(username)
+    except KeyError:
+        log(f"WARNING: cannot resolve home dir for user '{username}' — skipping KDE kxkbrc restore")
+        return
+    kxkbrc = Path(user_pw.pw_dir) / ".config" / "kxkbrc"
+    if not kxkbrc.exists():
+        log(f"NOTE: {kxkbrc} no longer exists — skipping KDE kxkbrc restore")
+        return
+    try:
+        existing_text = kxkbrc.read_text()
+        parser = configparser.ConfigParser(interpolation=None, strict=False)
+        parser.optionxform = str
+        try:
+            parser.read_string(existing_text)
+        except configparser.Error:
+            if not parser.has_section("Layout"):
+                parser.add_section("Layout")
+        if not parser.has_section("Layout"):
+            parser.add_section("Layout")
+        if original_options_str:
+            parser.set("Layout", "Options", original_options_str)
+            log(f"Restored KDE kxkbrc Options to '{original_options_str}' for user '{username}'")
+        else:
+            if parser.has_option("Layout", "Options"):
+                parser.remove_option("Layout", "Options")
+                log(f"Removed KDE kxkbrc Options key for user '{username}' (no prior value)")
+            else:
+                log(f"NOTE: KDE kxkbrc Options key already absent for user '{username}'")
+        with kxkbrc.open("w") as f:
+            parser.write(f, space_around_delimiters=False)
+        shutil.chown(kxkbrc, user_pw.pw_uid, user_pw.pw_gid)
+    except OSError as exc:
+        log(f"WARNING: KDE kxkbrc restore failed (non-fatal): {exc}")
+
+
+def _restore_sway_config_options(manifest: dict) -> None:
+    """Restore the user's original sway ``input * xkb_options`` line.
+
+    At install time we either:
+    1. **Replaced** an existing ``input * xkb_options`` line (saving the
+       original to the manifest) and wrote a restore-marker comment above
+       the new merged line, OR
+    2. **Appended** a new ``# Voice Typer — Caps Lock neutralization``
+       marker block + ``input * xkb_options caps:none`` line (no prior
+       line existed).
+
+    This helper reverses both:
+    - In the replace case, drops the restore-marker comment and replaces
+      the merged line with the saved original.
+    - In the append case, removes the entire marker block.
+    """
+    username = manifest.get("target_user", "")
+    if not username or username == "root":
+        return
+    originals = manifest.get("caps_lock_originals", {}) or {}
+    original_line = originals.get("sway_xkb_options_line", "")
+    try:
+        user_pw = pwd.getpwnam(username)
+    except KeyError:
+        log(f"WARNING: cannot resolve home dir for user '{username}' — skipping sway config restore")
+        return
+    sway_config = Path(user_pw.pw_dir) / ".config" / "sway" / "config"
+    if not sway_config.exists():
+        log(f"NOTE: {sway_config} no longer exists — skipping sway config restore")
+        return
+    try:
+        existing = sway_config.read_text()
+        lines = existing.splitlines(keepends=True)
+        marker = "# Voice Typer — Caps Lock neutralization"
+        restore_marker = "# Voice Typer (original, preserved for restore):"
+        new_lines: list[str] = []
+        i = 0
+        restored = False
+        while i < len(lines):
+            line = lines[i]
+            stripped = line.strip()
+            # Drop the restore-marker backup comment we wrote at install time.
+            if stripped.startswith(restore_marker):
+                i += 1
+                continue
+            # Drop Voice Typer's append-mode marker block (marker + the
+            # ``input * xkb_options`` line that follows it).
+            if stripped == marker:
+                i += 1
+                if i < len(lines):
+                    nxt = lines[i].split()
+                    if (
+                        len(nxt) >= 3
+                        and nxt[0] == "input"
+                        and nxt[1] == "*"
+                        and nxt[2] == "xkb_options"
+                    ):
+                        i += 1
+                if original_line and not restored:
+                    new_lines.append(original_line + "\n")
+                    restored = True
+                continue
+            # Replace Voice Typer's rewritten ``input * xkb_options`` line
+            # with the saved original (replace-mode case — no marker, just
+            # the merged line we wrote below the restore-marker comment).
+            if (
+                not restored
+                and len(stripped.split()) >= 3
+                and stripped.split()[0] == "input"
+                and stripped.split()[1] == "*"
+                and stripped.split()[2] == "xkb_options"
+            ):
+                if original_line:
+                    new_lines.append(original_line + "\n")
+                # Skip the modified line either way (replaced above or dropped).
+                i += 1
+                restored = True
+                continue
+            new_lines.append(line)
+            i += 1
+        sway_config.write_text("".join(new_lines))
+        shutil.chown(sway_config, user_pw.pw_uid, user_pw.pw_gid)
+        if original_line:
+            log(f"Restored sway xkb_options line for user '{username}'")
+        else:
+            log(f"Removed Voice Typer sway xkb_options block for user '{username}'")
+    except OSError as exc:
+        log(f"WARNING: sway config restore failed (non-fatal): {exc}")
+
+
 def uninstall() -> None:
     """Remove all Voice Typer system modifications."""
     if not is_root():
@@ -735,40 +1117,23 @@ def uninstall() -> None:
             shutil.move(xkb_backup, XKB_CONF_PATH)
             log(f"Restored XKB config backup from {xkb_backup}")
 
-        # Revert GNOME gsettings
+        # Revert GNOME gsettings: restore the saved original value
+        # via ``gsettings set`` instead of ``gsettings reset`` (which would
+        # lose user customization that predated Voice Typer).
         if manifest.get("gnome_settings_modified"):
-            username = manifest.get("target_user", "")
-            if username and username != "root":
-                try:
-                    run(
-                        [
-                            "sudo",
-                            "-u",
-                            username,
-                            "gsettings",
-                            "reset",
-                            "org.gnome.desktop.input-sources",
-                            "xkb-options",
-                        ],
-                        check=False,
-                    )
-                    log(f"Reset GNOME xkb-options for user '{username}'")
-                except (FileNotFoundError, subprocess.CalledProcessError):
-                    pass
+            _restore_gnome_xkb_options(manifest)
 
-        # Note: we don't auto-revert KDE / Sway configs because we'd have
-        # to parse them. The user can manually remove the "Voice Typer"
-        # marker block. We log a message instead.
+        # Revert KDE kxkbrc Options=: restore the saved original
+        # value via configparser rewrite (instead of telling the user to
+        # remove the line manually).
         if manifest.get("kde_config_modified"):
-            log(
-                "NOTE: KDE config (~/.config/kxkbrc) was modified — "
-                "remove the 'Options=caps:none' line manually if desired."
-            )
+            _restore_kde_kxkbrc_options(manifest)
+
+        # Revert sway config: restore the saved original line via
+        # config rewrite (instead of telling the user to remove the
+        # ``# Voice Typer`` block manually).
         if manifest.get("sway_config_modified"):
-            log(
-                "NOTE: Sway config (~/.config/sway/config) was modified — "
-                "remove the '# Voice Typer' block manually if desired."
-            )
+            _restore_sway_config_options(manifest)
 
         # Note: we do NOT remove the user from the input group. Other
         # apps may rely on it, and removing group membership is more

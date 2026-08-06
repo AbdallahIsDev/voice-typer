@@ -1,0 +1,11 @@
+# clippy.toml — project-level clippy configuration.
+#
+# This file did not previously exist. Without it, clippy cannot
+# apply MSRV-aware lints (e.g. `clippy::manual_strip`, `clippy::mem_forget`
+# gating on `str::strip_prefix` availability) because it has no way to
+# know which Rust version the crate targets. The crate declares
+# `rust-version = "1.77"` in `Cargo.toml`; mirroring that here lets clippy
+# pick the correct lint version gates.
+#
+# Reference: https://doc.rust-lang.org/clippy/configuration.html
+msrv = "1.77"

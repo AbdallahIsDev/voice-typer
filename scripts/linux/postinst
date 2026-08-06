@@ -72,14 +72,20 @@ case "$1" in
         echo "IMPORTANT: You must log out and log back in for the 'input' group"
         echo "change to take effect. After that, Voice Typer will work automatically."
         echo ""
+
+        # Refresh the desktop database + icon cache so the launcher
+        # entry + hicolor icon appear in application menus immediately
+        # after install (otherwise the .desktop file ships but isn't
+        # indexed until the next manual refresh or reboot). These calls
+        # are non-fatal — if the helpers are missing (minimal container
+        # installs), the script still exits 0.
+        if [ -x /usr/bin/update-desktop-database ]; then
+            update-desktop-database -q /usr/share/applications 2>/dev/null || true
+        fi
+        gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
     ;;
     abort-upgrade|abort-remove|abort-deconfigure)
     ;;
 esac
-
-# Trigger desktop database update if we installed any .desktop files
-if [ -x /usr/bin/update-desktop-database ]; then
-    update-desktop-database -q /usr/share/applications 2>/dev/null || true
-fi
 
 exit 0

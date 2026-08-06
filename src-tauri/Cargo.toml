@@ -137,4 +137,4 @@ dev = ["tauri/devtools"]
 all = "warn"
 cast_possible_truncation = "warn"
 unwrap_used = "warn"
-expect_used = "allow"
+expect_used = "warn"

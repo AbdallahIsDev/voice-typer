@@ -1,4 +1,4 @@
-//! Log-rotation policy extracted from `platform/logging.rs` (AC-138).
+//! Log-rotation policy extracted from `platform/logging.rs`.
 //!
 //! Owns the *policy* — when to rotate and how to shuffle the rename
 //! chain — while `platform::log_file` owns the file-handle management

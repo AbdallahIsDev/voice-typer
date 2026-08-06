@@ -12,3 +12,6 @@ pub(crate) mod logging;
 pub(crate) mod open_path;
 pub(crate) mod paths;
 pub(crate) mod process;
+
+#[cfg(test)]
+mod logging_tests;

@@ -59,6 +59,24 @@ struct MenuItemData {
     checked: Option<bool>,
     #[serde(default)]
     submenu: Option<Vec<MenuItemData>>,
+    // Optional keyboard accelerator (e.g. "Cmd+Q",
+    // "Ctrl+Shift+R", "F5"). Populated by the Python sidecar's
+    // `build_tray_menu_model` (Fix-6) when an item has a shortcut. When
+    // present, the native menu item is built with `.accelerator(...)` so
+    // the OS renders the platform-correct keyboard equivalent hint next
+    // to the label (e.g. "⌘Q" on macOS, "Ctrl+Q" on Windows/Linux) AND
+    // wires the global shortcut so the user can trigger the item without
+    // opening the tray menu.
+    //
+    // The string format is Tauri's accelerator grammar (NOT Qt or GTK):
+    //   - Modifiers: "Control" / "Ctrl", "Shift", "Alt" / "Option",
+    //     "Super" / "Cmd" / "Command"
+    //   - Key: a single key name ("A", "F5", "Space", "Enter", etc.)
+    //   - Joined with "+" — e.g. "Cmd+Shift+R"
+    // Tauri validates the string at build time; an invalid accelerator
+    // surfaces as a `tauri::Error` from `MenuItemBuilder::build`.
+    #[serde(default)]
+    accelerator: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -114,7 +132,30 @@ const TRAY_ID: &str = "voice-typer-tray";
 // decoded `Image` is dropped (cheap, just an `Arc` decrement).
 static TRAY_ICON_CACHE: OnceLock<Mutex<HashMap<String, Image<'static>>>> = OnceLock::new();
 
-//map a logical icon name (`"idle"`, `"recording"`,
+/// Predicate that returns `true` iff `name` is one of the four
+/// whitelisted tray icon logical names (`idle`, `recording`,
+/// `transcribing`, `error`). Used by `load_tray_icon` to defend against
+/// a compromised sidecar trying to read an arbitrary file via the tray
+/// icon path (e.g. `icon: "../../../etc/passwd"` would otherwise be
+/// joined to `resource_dir/tray/../../../etc/passwd.png` and read).
+///
+/// Extracted from `load_tray_icon` so the whitelist is unit-testable in
+/// isolation (calling `load_tray_icon` directly would require a live
+/// `AppHandle` + the bundled resource dir — both unavailable in `cargo
+/// test`). The test module asserts `is_allowed_icon_name` agrees with
+/// the `ALLOWED_ICON_NAMES` test constant below.
+///
+/// The four names here MUST exactly match the filenames
+/// emitted by `voice_typer/client/scripts/generate-icons.mjs` under
+/// `src-tauri/icons/tray/` (the icon-generation script writes
+/// `{idle,recording,transcribing,error}.png`). A mismatch surfaces as a
+/// "tray_state icon not available" warning at runtime — non-fatal but
+/// the tray icon stops updating.
+fn is_allowed_icon_name(name: &str) -> bool {
+    matches!(name, "idle" | "recording" | "transcribing" | "error")
+}
+
+/// Map a logical icon name (`"idle"`, `"recording"`,
 /// `"transcribing"`, `"error"`) emitted by the Python sidecar to a
 /// bundled Tauri image resource. Returns `None` if the name is unknown
 /// (caller logs and skips the icon update — non-fatal).
@@ -136,13 +177,11 @@ fn load_tray_icon(app: &AppHandle, name: &str) -> Option<Image<'static>> {
     // Whitelist the logical names — never load an arbitrary path from
     // the sidecar (defense against a compromised sidecar trying to read
     // an arbitrary file via the tray icon path).
-    let allowed = match name {
-        "idle" | "recording" | "transcribing" | "error" => name,
-        _ => {
-            log::warn!("[TRAY] ignoring unknown tray_state icon name: {:?}", name);
-            return None;
-        }
-    };
+    if !is_allowed_icon_name(name) {
+        log::warn!("[TRAY] ignoring unknown tray_state icon name: {:?}", name);
+        return None;
+    }
+    let allowed = name;
 
     // Fast path: cache hit. The cache is initialized on first use and
     // populated lazily as each icon name is requested for the first
@@ -225,15 +264,31 @@ fn build_item_refs(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<Vec
         // `event.id()`, which is identical for both kinds, so click
         // dispatch is unchanged.
         if let Some(checked) = item.checked {
-            let mi = CheckMenuItemBuilder::with_id(item.id.clone(), &item.label)
+            let mut mi = CheckMenuItemBuilder::with_id(item.id.clone(), &item.label)
                 .enabled(!item.disabled)
-                .checked(checked)
-                .build(app)?;
+                .checked(checked);
+            // Forward the optional accelerator to the
+            // native menu item. `CheckMenuItemBuilder::accelerator` takes
+            // `S: AsRef<str>` — `&String` satisfies that. Tauri validates
+            // the accelerator string at `build` time; an invalid string
+            // (e.g. "Cmd+XYZ") surfaces as a `tauri::Error` from `.build()`
+            // below, which the caller (`build_menu` → `rebuild_tray_menu`)
+            // logs and propagates.
+            if let Some(acc) = &item.accelerator {
+                mi = mi.accelerator(acc);
+            }
+            let mi = mi.build(app)?;
             out.push(Box::new(mi));
         } else {
-            let mi = MenuItemBuilder::with_id(item.id.clone(), &item.label)
-                .enabled(!item.disabled)
-                .build(app)?;
+            let mut mi = MenuItemBuilder::with_id(item.id.clone(), &item.label)
+                .enabled(!item.disabled);
+            // Same accelerator forwarding as the
+            // `CheckMenuItemBuilder` branch above. `MenuItemBuilder::
+            // accelerator` is the same `S: AsRef<str>` signature.
+            if let Some(acc) = &item.accelerator {
+                mi = mi.accelerator(acc);
+            }
+            let mi = mi.build(app)?;
             out.push(Box::new(mi));
         }
     }
@@ -293,10 +348,19 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
     let icon = app.default_window_icon().cloned();
     let menu = empty_menu(app)?;
 
+    // macOS opens the tray menu on LEFT-click by
+    // convention (the menubar is the primary interaction surface —
+    // right-click has no standard meaning). Windows/Linux use RIGHT-click
+    // to open the context menu and reserve LEFT-click for our
+    // show+focus-main-window handler (see `on_tray_icon_event` below).
+    // `cfg!(target_os = ...)` returns a `const bool` so the branch is
+    // resolved at compile time — no runtime cost on either platform.
+    let show_menu_on_left_click = cfg!(target_os = "macos");
+
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .tooltip(TRAY_TOOLTIP)
         .menu(&menu)
-        .show_menu_on_left_click(false)
+        .show_menu_on_left_click(show_menu_on_left_click)
         .on_menu_event(|app, event| {
             //invoke the `tray_click` command on the Python
             // sidecar DIRECTLY via `dispatch_inner` — the previous
@@ -339,6 +403,24 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             //log the raw event at debug so a future regression
             // in tray click handling surfaces in the rotating log.
             log::debug!("[TRAY] icon click event: {:?}", event);
+            // On macOS, `show_menu_on_left_click(true)` is
+            // set above, so the OS opens the menu on left-click. If we
+            // ALSO showed+focused the main window here, the window would
+            // steal focus from the just-opened menu (the menu would flash
+            // and disappear). We therefore skip the show+focus path
+            // entirely on macOS — macOS users open the menu by clicking
+            // the tray icon and focus the main window via the dock or
+            // cmd+tab (the conventional macOS flow). On Windows/Linux,
+            // `show_menu_on_left_click(false)` means left-click does NOT
+            // open the menu, so we own the left-click behavior — the
+            // existing show+focus path runs as before.
+            //
+            // `cfg!(target_os = "macos")` is a `const bool`, so the
+            // branch is compile-time-resolved and the dead arm is elided
+            // by the optimizer — zero runtime cost on either platform.
+            if cfg!(target_os = "macos") {
+                return;
+            }
             //fix: only show + focus the main window on LEFT
             // click. The previous `TrayIconEvent::Click { .. }` pattern
             // matched left, right, AND middle click without filtering,
@@ -354,9 +436,7 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
             // (extracted for unit-testability) so the show/focus path
             // only fires for left-clicks. Right-click falls through to
             // the OS default (Tauri v2 opens the bound `.menu(...)`
-            // automatically on right-click on Windows + Linux; on macOS
-            // the menu opens on left-click by default, so this branch
-            // is a no-op there but harmless).
+            // automatically on right-click on Windows + Linux).
             if is_focus_main_window_event(&event) {
                 if let Some(window) = tray.app_handle().get_webview_window("main") {
                     if let Err(e) = window.show() {
@@ -373,6 +453,28 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
 
     if let Some(icon) = icon {
         builder = builder.icon(icon);
+    }
+
+    // On macOS, mark the tray icon as a [template
+    // image](https://developer.apple.com/documentation/appkit/nsimage/1520017-template)
+    // so the OS renders it as a single-color alpha mask — black on the
+    // light menubar, white on the dark menubar. This is the conventional
+    // macOS behavior for menubar icons: full-color icons look out of
+    // place next to the system's monochrome SF Symbol-style icons. The
+    // per-state colors (idle=gray, recording=green, transcribing=blue,
+    // error=red) emitted by `generate-icons.mjs` are only visible on
+    // Windows/Linux; on macOS the state is communicated via the tooltip
+    // ("Voice Typer — Recording") and the bar SHAPE (which is identical
+    // across states — only the alpha mask matters).
+    //
+    // `TrayIconBuilder::icon_as_template` is a no-op on Windows/Linux
+    // (the underlying `set_icon_as_template` call is `#[cfg(target_os =
+    // "macos")]` in Tauri's source), but we gate the call with
+    // `cfg!(target_os = "macos")` anyway so the builder chain reads as
+    // macOS-specific at a glance (and to avoid relying on the no-op
+    // behavior in case Tauri ever changes it).
+    if cfg!(target_os = "macos") {
+        builder = builder.icon_as_template(true);
     }
 
     let _tray = builder.build(app)?;
@@ -489,257 +591,9 @@ fn rebuild_tray_menu(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<(
 }
 
 
+
+// Sibling test module — tests live in `tray_tests.rs` (per C-TEST-5:
+// no inline `#[cfg(test)] mod tests` blocks in production source).
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use serde_json::json;
-
-    //TrayStatePayload parsing ───────────────────────────────
-
-    #[test]
-    fn test_tray_state_payload_parses_icon_only() {
-        let p: TrayStatePayload =
-            serde_json::from_str(r#"{"icon":"recording"}"#).expect("parse");
-        assert_eq!(p.icon.as_deref(), Some("recording"));
-        assert!(p.tooltip.is_none());
-    }
-
-    #[test]
-    fn test_tray_state_payload_parses_tooltip_only() {
-        let p: TrayStatePayload =
-            serde_json::from_str(r#"{"tooltip":"Voice Typer — Recording"}"#).expect("parse");
-        assert!(p.icon.is_none());
-        assert_eq!(p.tooltip.as_deref(), Some("Voice Typer — Recording"));
-    }
-
-    #[test]
-    fn test_tray_state_payload_parses_both_fields() {
-        let p: TrayStatePayload =
-            serde_json::from_str(r#"{"icon":"error","tooltip":"Voice Typer — Error"}"#)
-                .expect("parse");
-        assert_eq!(p.icon.as_deref(), Some("error"));
-        assert_eq!(p.tooltip.as_deref(), Some("Voice Typer — Error"));
-    }
-
-    #[test]
-    fn test_tray_state_payload_parses_empty_object() {
-        let p: TrayStatePayload = serde_json::from_str(r#"{}"#).expect("parse");
-        assert!(p.icon.is_none());
-        assert!(p.tooltip.is_none());
-    }
-
-    #[test]
-    fn test_tray_state_payload_ignores_unknown_fields() {
-        let p: TrayStatePayload =
-            serde_json::from_str(r#"{"icon":"idle","tooltip":"ok","future_field":42}"#)
-                .expect("parse");
-        assert_eq!(p.icon.as_deref(), Some("idle"));
-        assert_eq!(p.tooltip.as_deref(), Some("ok"));
-    }
-
-    //TrayMenuPayload still parses (regression guard) ────────
-
-    #[test]
-    fn test_tray_menu_payload_parses_items() {
-        let p: TrayMenuPayload =
-            serde_json::from_str(r#"{"items":[{"id":"quit","label":"Quit"}]}"#).expect("parse");
-        assert_eq!(p.items.len(), 1);
-        assert_eq!(p.items[0].id, "quit");
-        assert_eq!(p.items[0].label, "Quit");
-    }
-
-    #[test]
-    fn test_tray_menu_payload_parses_empty_items() {
-        let p: TrayMenuPayload = serde_json::from_str(r#"{"items":[]}"#).expect("parse");
-        assert!(p.items.is_empty());
-    }
-
-    #[test]
-    fn test_tray_menu_payload_parses_missing_items_default_empty() {
-        let p: TrayMenuPayload = serde_json::from_str(r#"{}"#).expect("parse");
-        assert!(p.items.is_empty(), "items defaults to empty vec");
-    }
-
-    #[test]
-    fn test_tray_menu_payload_parses_separator() {
-        let p: TrayMenuPayload = serde_json::from_str(
-            r#"{"items":[{"id":"a","label":"A"},{"separator":true},{"id":"b","label":"B"}]}"#,
-        )
-        .expect("parse");
-        assert_eq!(p.items.len(), 3);
-        assert!(!p.items[0].separator);
-        assert!(p.items[1].separator);
-        assert!(!p.items[2].separator);
-    }
-
-    #[test]
-    fn test_tray_menu_payload_parses_checked_state() {
-        let p: TrayMenuPayload = serde_json::from_str(
-            r#"{"items":[{"id":"x","label":"X","checked":true},{"id":"y","label":"Y","checked":false}]}"#,
-        )
-        .expect("parse");
-        assert_eq!(p.items[0].checked, Some(true));
-        assert_eq!(p.items[1].checked, Some(false));
-    }
-
-    #[test]
-    fn test_tray_menu_payload_parses_submenu() {
-        let p: TrayMenuPayload = serde_json::from_str(
-            r#"{"items":[{"id":"models","label":"Models","submenu":[{"id":"m1","label":"M1"}]}]}"#,
-        )
-        .expect("parse");
-        assert_eq!(p.items.len(), 1);
-        let sub = p.items[0].submenu.as_ref().expect("submenu present");
-        assert_eq!(sub.len(), 1);
-        assert_eq!(sub[0].id, "m1");
-    }
-
-    //load_tray_icon name whitelist (defense in depth) ──────
-
-    const ALLOWED_ICON_NAMES: &[&str] = &["idle", "recording", "transcribing", "error"];
-
-    #[test]
-    fn test_allowed_icon_names_are_stable() {
-        assert_eq!(
-            ALLOWED_ICON_NAMES,
-            &["idle", "recording", "transcribing", "error"],
-            "ALLOWED_ICON_NAMES changed — update src-tauri/icons/tray/ + bundle.resources too"
-        );
-    }
-
-    #[test]
-    fn test_allowed_icon_names_rejects_arbitrary_path() {
-        let bad_names = [
-            "",
-            ".",
-            "..",
-            "../etc/passwd",
-            "/etc/passwd",
-            "idle.png",
-            "IDLE",
-            "recording ",
-            "recording\x00.png",
-            "arbitrary_name",
-        ];
-        for bad in bad_names {
-            assert!(
-                !ALLOWED_ICON_NAMES.contains(&bad),
-                "sentinel {:?} should NOT be in ALLOWED_ICON_NAMES",
-                bad
-            );
-        }
-    }
-
-    //DispatchArgs construction shape (regression guard) ────
-
-    #[test]
-    fn test_dispatch_args_tray_click_shape() {
-        let args = DispatchArgs {
-            cmd: "tray_click".to_string(),
-            data: Some(json!({ "id": "toggle_dictation" })),
-        };
-        assert_eq!(args.cmd, "tray_click");
-        assert_eq!(
-            args.data,
-            Some(json!({ "id": "toggle_dictation" }))
-        );
-    }
-
-    #[test]
-    fn test_dispatch_args_tray_click_shape_with_empty_id() {
-        let args = DispatchArgs {
-            cmd: "tray_click".to_string(),
-            data: Some(json!({ "id": "" })),
-        };
-        let serialized = serde_json::to_string(&args).expect("serialize");
-        assert!(serialized.contains("\"cmd\":\"tray_click\""));
-        assert!(serialized.contains("\"id\":\"\""));
-    }
-
-    //tray click button filter (left-click only) ──────────
-    //
-    // The `on_tray_icon_event` closure delegates to
-    // `is_focus_main_window_event` to decide whether to show + focus
-    // the main window. These tests construct synthetic
-    // `TrayIconEvent::Click` variants with each `MouseButton` value and
-    // assert the predicate is true ONLY for `Left`. The test
-    // construction mirrors the upstream Tauri test at
-    // `tauri-2.11.5/src/tray/mod.rs::tray_event_json_serialization`.
-
-    /// Build a minimal `TrayIconEvent::Click` with the given button.
-    /// All other fields use defaults (zero position, zero rect, Down
-    /// button_state, "test" id) — the predicate only inspects `button`,
-    /// so the other fields' values don't affect the test outcome.
-    fn make_click_event(button: MouseButton) -> TrayIconEvent {
-        use tauri::tray::MouseButtonState;
-        use tauri::{PhysicalPosition, Rect};
-        TrayIconEvent::Click {
-            button,
-            button_state: MouseButtonState::Down,
-            id: tauri::tray::TrayIconId::new("test"),
-            position: PhysicalPosition::default(),
-            rect: Rect::default(),
-        }
-    }
-
-    #[test]
-    fn test_focus_predicate_true_for_left_click() {
-        let event = make_click_event(MouseButton::Left);
-        assert!(
-            is_focus_main_window_event(&event),
-            "left-click on tray icon must trigger show+focus main window (S3-CR-8)"
-        );
-    }
-
-    #[test]
-    fn test_focus_predicate_false_for_right_click() {
-        let event = make_click_event(MouseButton::Right);
-        assert!(
-            !is_focus_main_window_event(&event),
-            "right-click must NOT trigger show+focus — it opens the context menu (S3-CR-8)"
-        );
-    }
-
-    #[test]
-    fn test_focus_predicate_false_for_middle_click() {
-        let event = make_click_event(MouseButton::Middle);
-        assert!(
-            !is_focus_main_window_event(&event),
-            "middle-click must NOT trigger show+focus — no binding for it (S3-CR-8)"
-        );
-    }
-
-    #[test]
-    fn test_focus_predicate_false_for_double_click() {
-        // Even a left-button DoubleClick must NOT trigger the show+focus
-        // path — only single left-click does. Double-clicking the tray
-        // icon is reserved for future use (no current binding); treating
-        // it as a focus trigger would fire show+focus twice in rapid
-        // succession (once for Click, once for DoubleClick).
-        use tauri::{PhysicalPosition, Rect};
-        let event = TrayIconEvent::DoubleClick {
-            button: MouseButton::Left,
-            id: tauri::tray::TrayIconId::new("test"),
-            position: PhysicalPosition::default(),
-            rect: Rect::default(),
-        };
-        assert!(
-            !is_focus_main_window_event(&event),
-            "double-click must NOT trigger show+focus — only single left-click (S3-CR-8)"
-        );
-    }
-
-    #[test]
-    fn test_focus_predicate_false_for_enter_event() {
-        use tauri::{PhysicalPosition, Rect};
-        let event = TrayIconEvent::Enter {
-            id: tauri::tray::TrayIconId::new("test"),
-            position: PhysicalPosition::default(),
-            rect: Rect::default(),
-        };
-        assert!(
-            !is_focus_main_window_event(&event),
-            "mouse-enter must NOT trigger show+focus (S3-CR-8)"
-        );
-    }
-}
+#[path = "tray_tests.rs"]
+mod tray_tests;

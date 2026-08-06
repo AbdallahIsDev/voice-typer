@@ -1,4 +1,4 @@
-//! Rotating file-writer extracted from `platform/logging.rs` (AC-138).
+//! Rotating file-writer extracted from `platform/logging.rs`.
 //!
 //! Owns the **file-handle management** — lazy open, append-write,
 //! flush, and the in-memory byte counter — while

@@ -35,6 +35,59 @@ case "$1" in
             echo "[voice-typer] uninstall_permissions.py not found — skipping keyboard-permission cleanup"
         fi
 
+        # Terminate any running voice-typer processes BEFORE removing the
+        # autostart .desktop / prewarm systemd unit files. If the app is
+        # still running during file removal, it may re-create the files
+        # (the prewarm scheduler periodically re-arms its systemd timer)
+        # which would leave a stale launcher pointing at the now-deleted
+        # binary on next login. We:
+        #   1. Read each user's backend PID lockfile
+        #      (~/.local/share/voice-typer/backend.pid — written by
+        #      single_instance.py) and send a targeted SIGTERM so the
+        #      app can run its shutdown teardown (flush history DB,
+        #      release the audio device, clear the PID file).
+        #   2. pkill -TERM -x voice-typer-tauri — catches the Tauri
+        #      host binary even if the backend PID file is missing
+        #      (e.g. crashed hard and never wrote it).
+        #   3. pkill -TERM -f 'python-sidecar' — catches the frozen
+        #      Python sidecar binary by command-line substring match.
+        #   4. sleep 1 — gives the SIGTERM'd processes time to actually
+        #      exit and release file handles before we rm their unit
+        #      files. 1s is enough on every desktop we've tested; the
+        #      teardown is well under 200ms (see shutdown_controller.py).
+        terminate_voice_typer_processes() {
+            while IFS=: read -r _ _ uid _ _ home_dir _; do
+                [ -n "$home_dir" ] || continue
+                [ "$uid" -ge 1000 ] 2>/dev/null || continue
+                local pid_file="$home_dir/.local/share/voice-typer/backend.pid"
+                if [ -f "$pid_file" ]; then
+                    local pid
+                    pid="$(cat "$pid_file" 2>/dev/null | tr -d '[:space:]' || true)"
+                    if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+                        kill -TERM "$pid" 2>/dev/null || true
+                    fi
+                fi
+            done < <(getent passwd 2>/dev/null || true)
+            # /root may also have a backend.pid (rare, but possible if the
+            # user ever ran voice-typer via sudo -E).
+            local root_pid_file="/root/.local/share/voice-typer/backend.pid"
+            if [ -f "$root_pid_file" ]; then
+                local root_pid
+                root_pid="$(cat "$root_pid_file" 2>/dev/null | tr -d '[:space:]' || true)"
+                if [ -n "$root_pid" ] && kill -0 "$root_pid" 2>/dev/null; then
+                    kill -TERM "$root_pid" 2>/dev/null || true
+                fi
+            fi
+            # Catch-all for any voice-typer-tauri / python-sidecar processes
+            # that the targeted PID lookup missed (stale lockfile, hard
+            # crash, manually-launched dev instance, etc.).
+            pkill -TERM -x voice-typer-tauri 2>/dev/null || true
+            pkill -TERM -f 'python-sidecar' 2>/dev/null || true
+            sleep 1
+        }
+
+        terminate_voice_typer_processes
+
         # Remove the per-user autostart .desktop entry for every non-system
         # user. The .desktop file is created by autostart_launcher.py and
         # would otherwise respawn Voice Typer on next login after uninstall.
@@ -86,6 +139,15 @@ case "$1" in
         done < <(getent passwd 2>/dev/null || true)
         remove_autostart_for_home /root
         remove_prewarm_for_home /root
+
+        # Refresh the desktop database + icon cache so the launcher
+        # entry + hicolor icon disappear from application menus
+        # immediately after removal (otherwise stale entries linger
+        # until the next manual refresh or reboot).
+        if [ -x /usr/bin/update-desktop-database ]; then
+            update-desktop-database -q /usr/share/applications 2>/dev/null || true
+        fi
+        gtk-update-icon-cache -q /usr/share/icons/hicolor 2>/dev/null || true
     ;;
     upgrade|failed-upgrade)
     ;;

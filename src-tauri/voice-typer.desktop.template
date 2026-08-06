@@ -1,4 +1,4 @@
-# CR-145: This template is the BUNDLED MENU ENTRY shipped inside the .deb
+# This template is the BUNDLED MENU ENTRY shipped inside the .deb
 # (referenced from src-tauri/tauri.conf.json -> bundle -> linux ->
 # desktopTemplate). It is NOT the runtime autostart .desktop file written
 # by voice_typer/server/server_platform/autostart_linux.py
@@ -14,7 +14,7 @@
 #     hidden-at-login behavior (no --hidden / --delay flags, no Python
 #     backend supervision).
 # Both files share `Icon=voice-typer` so the same icon shows up in the
-# menu and the autostart/login sequence. See the CR-145 comment block in
+# menu and the autostart/login sequence. See the comment block in
 # autostart_linux.py for the reverse-direction cross-reference; keep
 # both comments in sync if this changes.
 [Desktop Entry]
