@@ -1,4 +1,4 @@
-# Ruff Ratchet (RW-11)
+# Ruff Ratchet
 
 This document explains the **ruff ratchet** — the CI mechanism that
 prevents new ruff violations from being introduced without breaking the
@@ -174,7 +174,7 @@ ruff check voice_typer/server/ --output-format=json \
 
 ```jsonc
 {
-  "_comment": "RW-11: ruff ratchet baseline. ...",   // optional metadata
+  "_comment": "ruff ratchet baseline. ...",   // optional metadata
   "_schema_version": 1,                              // optional metadata
   "_target": "voice_typer/server/",                  // optional metadata
   "total_count": 3,                                  // REQUIRED: non-negative int

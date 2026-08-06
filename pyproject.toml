@@ -694,6 +694,11 @@ ignore = []
 # This is a targeted per-file override, not a global rule disable.
 [tool.ruff.lint.per-file-ignores]
 "voice_typer/server/model_hashes.json" = ["ALL"]
+# scripts/append_review_findings.py is a one-off Phase-3 review-compilation
+# tool whose FINDINGS tuples embed multi-hundred-char prose strings (the
+# script body is data, not style-governed code). E501 on those lines is
+# noise; the ratchet baseline (ruff-baseline.json) predates this file.
+"scripts/append_review_findings.py" = ["E501"]
 # tests/server/*.py: pytest fixtures (server, mock_app, etc.) are used
 # as test-method parameters, which shadow the explicit imports kept
 # for IDE type hints. F811 (redefinition) is a false positive for this

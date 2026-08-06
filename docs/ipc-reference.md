@@ -62,7 +62,7 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `get_config` | `_handle_get_config` | ✓ |  |
 | `get_defaults` | `_handle_get_defaults` | ✓ |  |
 | `get_status` | `_handle_get_status` | ✓ |  |
-| `heartbeat` | `_handle_heartbeat` | ✓ | RW-10 watchdog tick — coalesces repeated ticks so a stalled backend doesn't strand the mic open + mutex held. |
+| `heartbeat` | `_handle_heartbeat` | ✓ | watchdog tick — coalesces repeated ticks so a stalled backend doesn't strand the mic open + mutex held. |
 | `relaunch_ack` | `_handle_relaunch_ack` | ✓ | PERF-005 relaunch ack — event-driven wait bounded by a 2s timeout. |
 | `set_config` | `_handle_set_config` | ✓ |  |
 

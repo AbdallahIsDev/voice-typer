@@ -10,6 +10,21 @@
 #   dtolnay/rust-toolchain@v1           — Node 24 runtime (@stable = untagged, may resolve to Node 20)
 # See build.yml header for full rationale + breaking-change analysis.
 # -----------------------------------------------------------------------------
+# PINNED NUITKA VERSION — DO NOT DOWNGRADE (NU-105, 2026-08-06):
+#   nuitka==2.8.10 in BOTH install steps (uv dev env at :334 AND PYBS
+#   frozen env at :378). Nuitka <2.8.0 CRASHES compiling numpy>=2.5 (see
+#   requirements-lock.txt → numpy==2.5.1): numpy 2.5 ships PEP 695
+#   type-generic aliases (`type NDArray[ScalarT: np.generic] = ...` in
+#   numpy/_typing/_array_like.py) which trip Nuitka 2.5.x's
+#   `buildTypeAliasNode assert not node.type_params` — Nuitka issues
+#   #3469 (generic type aliases) + #3392/#3561 (PEP 695 generic classes).
+#   The 2.8 line is the first release supporting both.
+#   Do NOT revert this pin to 2.5.x, and do NOT "fix" a future build
+#   failure by downgrading numpy below 2.5 in the lockfile instead —
+#   bump the Nuitka pin forward. Inline NU-105 comments mark both
+#   install steps; docs/migration/windows-validation-runbook.md §0.8
+#   tracks the same version for the on-host validation procedure.
+# -----------------------------------------------------------------------------
 # Tauri Windows Build (ADR-0020 Phase 0-W / Phase 1-W packaging).
 #
 # This workflow builds a complete Tauri installer for Windows via:
@@ -320,12 +335,18 @@ jobs:
         working-directory: voice_typer/client
         run: npm ci
 
+      # do NOT downgrade below 2.8.10. numpy 2.5.x ships PEP 695
+      # type-generic aliases in numpy/_typing/_array_like.py
+      # (`type NDArray[ScalarT: np.generic] = ...`), which crash Nuitka 2.5.x
+      # with "buildTypeAliasNode assert not node.type_params" (Nuitka issue
+      # #3469; generic PEP 695 classes also segfaulted — issue #3392). The
+      # type-alias + generic-class support landed in the 2.8 line.
       - name: Install Python dev deps (uv)
         shell: pwsh
         run: |
           $env:UV_LINK_MODE = "copy"
           uv pip install --system ".[dev,test]"
-          uv pip install --system nuitka==2.5.4 zstandard ordered-set
+          uv pip install --system nuitka==2.8.10 zstandard ordered-set
           pip list
 
       - name: Download + verify python-build-standalone
@@ -366,8 +387,10 @@ jobs:
           # actually gets frozen). --no-warn-script-location suppresses
           # pip noise about Scripts/ not being on PATH (PYBS python is
           # invoked by full path, not via PATH).
+          # keep nuitka>=2.8.10 (same rationale as the uv install
+          # step above — numpy 2.5.x PEP 695 type aliases crash Nuitka <2.8).
           C:\tools\pybs\python\python.exe -m pip install --upgrade --no-warn-script-location pip
-          C:\tools\pybs\python\python.exe -m pip install --no-warn-script-location nuitka==2.5.4 zstandard ordered-set
+          C:\tools\pybs\python\python.exe -m pip install --no-warn-script-location nuitka==2.8.10 zstandard ordered-set
           C:\tools\pybs\python\python.exe -m pip install --no-warn-script-location -e ".[dev,test]"
           C:\tools\pybs\python\python.exe -c "import faster_whisper, ctranslate2; print('ctranslate2', ctranslate2.__version__)"
 

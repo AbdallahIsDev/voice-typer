@@ -1,6 +1,6 @@
-# Credential Store (RW-01)
+# Credential Store
 
-> **Status**: Implemented (RW-01). Encrypted at rest via the OS keychain
+> **Status**: Implemented. Encrypted at rest via the OS keychain
 > on Windows / macOS / Linux. Plaintext fallback with `0o600` perms
 > when no keyring backend is available.
 
@@ -177,7 +177,7 @@ def get_keyring_status() -> dict:
 
 2. **Secret values are never echoed over IPC.** The existing
    `_sanitize_config_for_ipc` in `ipc_server.py` replaces secret
-   fields with `"<redacted>"` in `get_config` responses. RW-01 doesn't
+   fields with `"<redacted>"` in `get_config` responses. doesn't
    change this — the renderer still sees `"<redacted>"` for any set
    key, regardless of whether it's in keyring or plaintext fallback.
 
@@ -187,7 +187,7 @@ def get_keyring_status() -> dict:
    OneDrive, etc.) won't leak the secrets.
 
 4. **The plaintext fallback uses `0o600` perms on POSIX.** This is
-   enforced by `_secure_atomic_write` (existing pre-RW-01 behavior).
+   enforced by `_secure_atomic_write`.
    The file is owner-read/write only — not world-readable.
 
 5. **Migration is one-shot.** The `secrets_migrated` flag in
@@ -354,13 +354,13 @@ without a desktop environment.
 5. Verify the renderer shows the amber "Plaintext" warning badge next
    to the API key input (not the green "Secure" lock icon).
 
-## Migration from pre-RW-01 config files
+## Migration from config files
 
 Existing `config.json` files with plaintext API keys are
 auto-migrated on the next app launch:
 
 1. `Config.load()` reads `config.json`.
-2. If `secrets_migrated` is `false` (or absent — pre-RW-01 files),
+2. If `secrets_migrated` is `false` (or absent files),
    `credential_store.migrate_secrets_to_keyring()` is called.
 3. For each `*_api_key` field with a non-empty, non-`keyring://`
    value:
@@ -382,16 +382,16 @@ or re-migrate already-migrated keys (verified by
 - **Threat model**: a co-located user on a multi-user POSIX system, or
   an attacker who gains read access to the user's home directory
   (e.g. via a stolen laptop with an unencrypted home partition, or a
-  cloud-synced `~/.config` folder). Pre-RW-01, `config.json` had
+  cloud-synced `~/.config` folder).`config.json` had
   `0o600` perms but was still plaintext — a backup or snapshot would
-  leak all API keys. RW-01 ensures the plaintext is only in the
+  leak all API keys. ensures the plaintext is only in the
   keychain, which is encrypted at rest by the OS.
 
-- **What RW-01 does NOT protect against**: an attacker with arbitrary
+- **What does NOT protect against**: an attacker with arbitrary
   code execution as the user. The keyring is unlocked when the user
   is logged in, so any process running as the user can read the
   secrets via `keyring.get_password`. This is the same threat model
-  as the pre-RW-01 plaintext `config.json` — no regression.
+  as the plaintext `config.json` — no regression.
 
 - **Keychain lock / unlock**: on macOS and Linux (with
   `gnome-keyring-daemon`), the keychain is unlocked at login. If the

@@ -73,8 +73,8 @@ the top noting whether its action items are still live.
 
 | File | Purpose |
 |------|---------|
-| [rw04-recording-decomposition.md](rw04-recording-decomposition.md) | RW-4 — recording-lifecycle decomposition notes (RecordingController extraction). |
-| [rw8-meta-tests-triage.md](rw8-meta-tests-triage.md) | RW-8 — triage of the now-deleted `tests/test_bugfix_regressions.py` meta-tests. Historical; the source file has been removed and the surviving behavioral ports live in `tests/test_bugfix_regressions_behavioral.py`. |
-| [rw9-god-class-decomposition.md](rw9-god-class-decomposition.md) | RW-9 — `VoiceTyperApp` god-class decomposition tracker (controller extractions, `app.py` line-count history). |
-| [vitest-rewrite-progress.md](vitest-rewrite-progress.md) | RW-0 — vitest rewrite progress tracker for the 87 string-pattern Python tests. Historical; `tests/test_feature_hardening_regressions.py` was deleted post-rewrite. |
+| [rw04-recording-decomposition.md](rw04-recording-decomposition.md) | recording-lifecycle decomposition notes (RecordingController extraction). |
+| [rw8-meta-tests-triage.md](rw8-meta-tests-triage.md) | triage of the now-deleted `tests/test_bugfix_regressions.py` meta-tests. Historical; the source file has been removed and the surviving behavioral ports live in `tests/test_bugfix_regressions_behavioral.py`. |
+| [rw9-god-class-decomposition.md](rw9-god-class-decomposition.md) | `VoiceTyperApp` god-class decomposition tracker (controller extractions, `app.py` line-count history). |
+| [vitest-rewrite-progress.md](vitest-rewrite-progress.md) | vitest rewrite progress tracker for the 87 string-pattern Python tests. Historical; `tests/test_feature_hardening_regressions.py` was deleted post-rewrite. |
 | [native-hotkey-architecture-plan.md](native-hotkey-architecture-plan.md) | Historical plan for the cross-platform native-hotkey rewrite. See ADR-0007 for what shipped. |

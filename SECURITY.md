@@ -65,7 +65,7 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 
 > **TS-only exceptions (`_TS_ONLY_EXCEPTIONS`):** Two commands are present
 > in the renderer TS `ALLOWED_COMMANDS` but intentionally absent from the
-> Rust host's `allowed_commands()` literal: `heartbeat` (RW-10 watchdog
+> Rust host's `allowed_commands()` literal: `heartbeat` (watchdog
 > tick — the Rust WS-reader task sends this directly to the Python
 > backend; the renderer never dispatches it) and `relaunch_ack` (PERF-005
 > relaunch ack — the `relaunch_app` Tauri command sends this directly to

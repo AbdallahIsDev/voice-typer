@@ -26,24 +26,24 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
-  # NEW-CI-001: also run on PRs so lint/coverage/audit gates are enforced.
+  # also run on PRs so lint/coverage/audit gates are enforced.
   pull_request:
     branches: [main, master]
-    # CI-02: skip the entire workflow for docs-only / markdown-only PRs
+    # skip the entire workflow for docs-only / markdown-only PRs
     # (no code to build or test). Frontend code (.ts/.tsx) still triggers
     # because client-build covers it.
     paths-ignore:
       - "**/*.md"
       - "docs/**"
-  # S-2: weekly schedule for the pip-audit-weekly job (runs full audit
+  # weekly schedule for the pip-audit-weekly job (runs full audit
   # without the accepted-findings ignore list, opens an issue if new
   # findings appear).
   schedule:
     # 09:00 UTC every Monday — start of week triage.
     - cron: "0 9 * * 1"
 
-# GAP-1: prevent two releases from racing on the same tag.
-# CI-08: add a separate concurrency group for PRs so that two pushes to
+# prevent two releases from racing on the same tag.
+# add a separate concurrency group for PRs so that two pushes to
 # the same PR cancel each other (saves CI minutes). Releases keep
 # cancel-in-progress: false because a release build should never be
 # cancelled mid-flight.
@@ -51,7 +51,7 @@ concurrency:
   group: ${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || format('release-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# XS-54: top-level permissions default — least-privilege. Per-job
+# top-level permissions default — least-privilege. Per-job
 # overrides widen where needed (release jobs need contents: write,
 # pip-audit-weekly / slow-tests need issues: write).
 permissions:
@@ -60,7 +60,7 @@ permissions:
 
 jobs:
   test:
-    # XS-REVIEW: skip the full test matrix on weekly schedule runs —
+    # skip the full test matrix on weekly schedule runs —
     # only pip-audit-weekly should run on schedule.
     if: github.event_name != 'schedule'
     runs-on: ${{ matrix.os }}
@@ -68,7 +68,7 @@ jobs:
     # runner for 6h (the GitHub default).
     timeout-minutes: 30
     strategy:
-      # CI-02: PRs run a reduced matrix (one Python per OS) to save CI
+      # PRs run a reduced matrix (one Python per OS) to save CI
       # minutes; the full 4×3 matrix runs on push (branches/tags) where we
       # want maximum coverage before release.
       # BUILD-N03: GitHub deprecated the macos-13 Intel runner in favor
@@ -77,7 +77,7 @@ jobs:
       # `architecture: x64` so the x86_64-only tests (win32 ABI parity,
       # ctypes.windll, pywin32 stub paths) keep running on an Intel
       # Python interpreter under Rosetta 2 on the arm64 host.
-      # XS-24: the PR matrix keeps `architecture: x64` on the macOS-14
+      # the PR matrix keeps `architecture: x64` on the macOS-14
       # entry to preserve Intel-parity coverage. The PUSH matrix no
       # longer forces x64 globally — each OS uses its native arch
       # (macOS-14 → arm64, ubuntu/windows → x64), so Apple Silicon now
@@ -105,7 +105,7 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
-          # BUILD-N03 / XS-24: when running on macos-14 (Apple Silicon),
+          # when running on macos-14 (Apple Silicon),
           # setup-python defaults to arm64. The PR matrix's macOS-14
           # entry explicitly sets architecture=x64 to keep testing the
           # Intel interpreter (Rosetta 2 on the runner). The push matrix
@@ -123,8 +123,8 @@ jobs:
       - name: Install dependencies
         run: |
           uv pip install --system ".[test]"
-          # NEW-CI-001: install lint + audit tools.
-          # TX-41: pin ruff to the exact 0.16.0 release that the
+          # install lint + audit tools.
+          # pin ruff to the exact 0.16.0 release that the
           # pre-commit hook (`.pre-commit-config.yaml` →
           # `astral-sh/ruff-pre-commit` rev `v0.16.0`) uses, so CI and
           # local pre-commit runs lint against identical rule
@@ -134,18 +134,18 @@ jobs:
           # change ruff's rule output vs. the pre-commit hook. Bump only
           # as an atomic coordinated change across all three surfaces.
           uv pip install --system ruff==0.16.0 pip-audit
-          # XS-84: pytest-xdist enables `-n auto --dist=loadgroup` in
+          # pytest-xdist enables `-n auto --dist=loadgroup` in
           # the pytest invocation below — parallelises the 331-file
           # suite across cores for ~2-3x CI speedup per matrix leg.
           uv pip install --system pytest-xdist
           pip list
 
-      # ── RW-11: ruff ratchet ────────────────────────────────────────
+      # ── ruff ratchet ────────────────────────────────────────
       # The previous step was `ruff check voice_typer/server/ --select E501`
       # which bypassed ~99% of the rules configured in pyproject.toml's
       # [tool.ruff.lint] select = ["E","F","W","I","N","UP","B","A","SIM"].
       # Removing --select E501 would have surfaced ~729 errors at the
-      # time RW-11 was filed; the codebase has since been driven down to
+      # time was filed; the codebase has since been driven down to
       # a handful of remaining violations. Rather than re-tighten to a
       # blanket hard-fail (which breaks CI on the first new style nit),
       # we use a ratchet:
@@ -199,7 +199,7 @@ jobs:
       #      translation).
       # See tests/test_i18n_completeness.py for the ratchet that ensures
       # RW2_BACKFILLED_PENDING_TRANSLATION only shrinks over time.
-      - name: i18n key-completeness gate (RW-2)
+      - name: i18n key-completeness gate
         run: |
           python -m pytest tests/test_i18n_completeness.py --timeout=30 --no-cov -q
 
@@ -749,7 +749,7 @@ jobs:
           fi
           echo "Binary compiled successfully:"
           ls -la "${{ matrix.binary }}"
-          # RW-12: record the architecture for the universal-binary merge.
+          # record the architecture for the universal-binary merge.
           file "${{ matrix.binary }}" || true
 
       # smoke test improvements. Each platform has a different
@@ -1012,7 +1012,7 @@ jobs:
         run: |
           pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath voice_typer/dist --workpath voice_typer/build
 
-      # RW-4: build the Electron UI installer (NSIS) via electron-builder.
+      # build the Electron UI installer (NSIS) via electron-builder.
       # The PyInstaller backend produced above
       # (voice_typer/dist/VoiceTyper.exe) is embedded into the installer
       # via the `win.extraResources` section of
@@ -1045,7 +1045,7 @@ jobs:
         working-directory: voice_typer/client
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # RW-4 / Wave 3: code-signing env vars (passed through from
+          # code-signing env vars (passed through from
           # GitHub Actions secrets). When the secrets are empty (PR builds,
           # forks without secrets configured), electron-builder skips
           # signing — the installer is still produced, just unsigned.
@@ -1115,7 +1115,7 @@ jobs:
 
   # GAP-1: build-macos. Downloads the macOS native binary, runs
   # PyInstaller + electron-builder for .dmg.
-  # RW-12: depends on build-macos-universal (which merges x64 + arm64
+  # depends on build-macos-universal (which merges x64 + arm64
   # into a universal binary). CI-04: migrated from the deprecated
   # macos-13 Intel runner to macos-14 (Apple Silicon). The PyInstaller
   # x64 bundle is produced by an x64 Python interpreter installed below
@@ -1215,14 +1215,14 @@ jobs:
         run: npm run build:main
 
       - name: Build with PyInstaller
-        # RW-5: output to voice_typer/dist so the mac.extraResources
+        # output to voice_typer/dist so the mac.extraResources
         # entry in electron-builder.yml (from: ../dist/voice-typer-backend.app)
         # resolves correctly relative to voice_typer/client/.
         run: |
           pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath voice_typer/dist --workpath voice_typer/build
 
       - name: Stage PyInstaller backend for embedding (macOS)
-        # RW-5: PyInstaller spec produces "VoiceTyper" as the output name.
+        # PyInstaller spec produces "VoiceTyper" as the output name.
         # electron-builder.yml's mac.extraResources expects the path
         # voice-typer-backend.app/Contents/MacOS/voice-typer. Stage the
         # rename here so the embedded-backend lookup in pythonArgs()
@@ -1256,7 +1256,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MAC_SIGNING_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        # RW-5: --config electron-builder.yml explicit (the file is picked
+        # --config electron-builder.yml explicit (the file is picked
         # up by default, but being explicit documents the dependency on
         # the mac.extraResources entry that embeds the PyInstaller backend).
         run: npx electron-builder --mac --config electron-builder.yml --publish never
@@ -1378,14 +1378,14 @@ jobs:
         run: npm run build:main
 
       - name: Build with PyInstaller
-        # RW-5: output to voice_typer/dist so the linux.extraResources
+        # output to voice_typer/dist so the linux.extraResources
         # entry in electron-builder.yml (from: ../dist/voice-typer-backend)
         # resolves correctly relative to voice_typer/client/.
         run: |
           pyinstaller scripts/build/voice-typer.spec --noconfirm --distpath voice_typer/dist --workpath voice_typer/build
 
       - name: Stage PyInstaller backend for embedding (Linux)
-        # RW-5: PyInstaller spec produces "VoiceTyper" as the output name.
+        # PyInstaller spec produces "VoiceTyper" as the output name.
         # electron-builder.yml's linux.extraResources expects the path
         # voice-typer-backend/voice-typer. Stage the rename here so the
         # embedded-backend lookup in pythonArgs() (src/main/index.ts)
@@ -1425,7 +1425,7 @@ jobs:
         working-directory: voice_typer/client
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # RW-5: --config electron-builder.yml explicit (the file is picked
+        # --config electron-builder.yml explicit (the file is picked
         # up by default, but being explicit documents the dependency on
         # the linux.extraResources entry that embeds the PyInstaller backend).
         run: npx electron-builder --linux --config electron-builder.yml --publish never
