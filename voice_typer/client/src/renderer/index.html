@@ -5,7 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <!--
-      BG-19 / BG-R19 finding 12: set <html lang> from the saved UI locale
+      set <html lang> from the saved UI locale
       BEFORE React mounts so screen readers announce content in the
       correct language on first paint.  Without this, the hardcoded
       lang="en" above means a user who switched the UI to (e.g.) French
@@ -42,7 +42,7 @@
         locale = localStorage.getItem("voice-typer-ui-locale");
         if (typeof locale !== "string" || locale === "") return;
         // Map our 8 supported locale codes (ar, de, en, es, fr, hi, ru, zh)
-        // to BCP-47 language tags.  We don't add a region subtag because
+        // to language tags.  We don't add a region subtag because
         // the app's translations are region-neutral (e.g. "fr" not
         // "fr-FR"); screen readers will use the user's OS-level region
         // for date/number formatting anyway.
@@ -57,7 +57,7 @@
   </script>
 
   <!--
-      SEC-012 / RW-3: Content Security Policy.  Restricts resource loading
+      Content Security Policy.  Restricts resource loading
       to the app's own origin (Electron's file:// or http://localhost:5173
       in dev).  No remote scripts, no remote styles.
 
@@ -92,7 +92,7 @@
     content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; form-action 'none'; base-uri 'self';" />
 
   <!--
-      PVT-018 FOUC fix: apply the cached theme BEFORE React mounts.
+      apply the cached theme BEFORE React mounts.
       This is the FIRST <script type="module"> in the document so it
       executes before main.tsx → ReactDOM.createRoot().render().
       The bootstrap reads localStorage for the last-known theme_mode /

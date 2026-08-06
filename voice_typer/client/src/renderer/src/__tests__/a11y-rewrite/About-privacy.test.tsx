@@ -50,7 +50,7 @@ vi.mock("sonner", () => ({
 
 import AboutPage from "@/pages/About";
 
-describe("About privacy disclosure — RW-0 rewrite of test_about_page_has_privacy_section", () => {
+describe("About privacy disclosure — rewrite of test_about_page_has_privacy_section", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		// Make every IPC call return a minimal shape so About

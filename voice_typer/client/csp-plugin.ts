@@ -39,13 +39,6 @@
 import type { Plugin } from "vite";
 
 /**
- * Production `connect-src` directive. `'self'` only — no external
- * origins. C-DATA-1 (offline guarantee): no network call may leave
- * the renderer in any code path.
- */
-const CONNECT_SRC = "connect-src 'self'";
-
-/**
  * Production CSP for the MAIN window (index.html). Strict `'self'`-only
  * `connect-src` — C-DATA-1 forbids any network call from the renderer,
  * including the previous "Check for Updates" fetch to api.github.com
@@ -57,6 +50,16 @@ const CONNECT_SRC = "connect-src 'self'";
  * gating), so blocking them is a strict hardening with no functional
  * loss. Defense-in-depth against a future compromised renderer trying
  * to load a Flash/Java/PDF plugin as an exfiltration channel.
+ *
+ * NOTE: `connect-src 'self'` is inlined as a string literal (rather than
+ * referenced via a shared `CONNECT_SRC` const) so static extractors —
+ * including the pytest harness in `tests/test_csp_emission.py` —
+ * can recover the full CSP string by reading the array's string-literal
+ * elements. The previous `CONNECT_SRC` indirection caused the extracted
+ * `CSP_PROD` to silently drop `connect-src 'self'`, which then failed
+ * to match the built HTML's CSP (the JS runtime evaluates the const
+ * substitution; the static extractor cannot). Inlining is lossless
+ * because the value is the same in both windows.
  */
 export const CSP_PROD_MAIN = [
 	"default-src 'self'",
@@ -65,7 +68,7 @@ export const CSP_PROD_MAIN = [
 	"img-src 'self' data:",
 	"font-src 'self' data:",
 	"media-src 'self' data:",
-	CONNECT_SRC,
+	"connect-src 'self'",
 	"object-src 'none'",
 	"frame-ancestors 'none'",
 	"form-action 'none'",
@@ -90,7 +93,7 @@ export const CSP_PROD_BUBBLE = [
 	"img-src 'self' data:",
 	"font-src 'self' data:",
 	"media-src 'self' data:",
-	CONNECT_SRC,
+	"connect-src 'self'",
 	"object-src 'none'",
 	"frame-ancestors 'none'",
 	"form-action 'none'",
@@ -152,12 +155,67 @@ export function pickProdCsp(filePath: string): string {
 }
 
 /**
+ * Virtual-module IDs for the externalized locale-bootstrap script.
+ *
+ * WHY: index.html and bubble.html each ship an inline `<script>` that
+ * reads `localStorage["voice-typer-ui-locale"]` and sets
+ * `document.documentElement.lang` (and, for bubble.html, `.dir`) BEFORE
+ * React mounts — so screen readers announce first-paint content in the
+ * correct language. The strict production CSP (`script-src 'self'`)
+ * forbids inline scripts, so the inline block would either need
+ * 'unsafe-inline' (a downgrade we refuse — Hard Rule 4) or a per-block
+ * SHA-256 hash in the CSP (which would make the built CSP diverge from
+ * `CSP_PROD`, breaking the equality assertion in `test_built_*_html_csp_matches_csp_prod`).
+ *
+ * The clean fix is to externalize the inline script at build time:
+ * `transformIndexHtml` (prod only) replaces the inline `<script>` with
+ * `<script type="module" src="virtual:...">`, stashes the original code
+ * in `extractedLocaleCode`, and Vite's `resolveId` + `load` hooks serve
+ * the stashed code as a virtual module. The built HTML ends up with a
+ * hashed `<script type="module" src="./assets/locale-bootstrap-*.js">`
+ * reference and zero inline scripts — the strict CSP is satisfied
+ * without any downgrade.
+ *
+ * Two virtual IDs (one per window) are used because bubble.html's
+ * bootstrap additionally sets `document.documentElement.dir` for RTL
+ * locales. The HTML is the single source of truth — the plugin extracts
+ * the verbatim inline-script body and serves it back via `load`, so a
+ * future edit to the inline script (e.g. adding a 9th locale) is picked
+ * up automatically with no plugin change.
+ *
+ * In dev, the inline script is left in place — `CSP_DEV` allows
+ * `'unsafe-inline'` for script-src so it runs as-is.
+ */
+const LOCALE_VIRTUAL_ID_MAIN = "virtual:voice-typer-locale-bootstrap-main";
+const LOCALE_VIRTUAL_ID_BUBBLE = "virtual:voice-typer-locale-bootstrap-bubble";
+const LOCALE_RESOLVED_MAIN = `\0${LOCALE_VIRTUAL_ID_MAIN}`;
+const LOCALE_RESOLVED_BUBBLE = `\0${LOCALE_VIRTUAL_ID_BUBBLE}`;
+
+/**
+ * Match the inline locale-detection `<script>` block in index.html /
+ * bubble.html. The block is identified by the `voice-typer-ui-locale`
+ * localStorage key (which is unique to this script in the HTML) inside
+ * a bare `<script>` tag (no `src`, no `type` — so we don't accidentally
+ * match the `<script type="module">` blocks that Vite processes
+ * separately). Non-greedy capture so we stop at the first `</script>`.
+ */
+const INLINE_LOCALE_SCRIPT_RE =
+	/<script>([\s\S]*?voice-typer-ui-locale[\s\S]*?)<\/script>/;
+
+/**
  * Vite plugin that rewrites the CSP meta tag in index.html / bubble.html
  * based on the current mode (dev vs prod) and which file is being
- * transformed.
+ * transformed. In production, it also externalizes the inline
+ * locale-detection `<script>` block as a virtual module so the strict
+ * CSP (`script-src 'self'`) is satisfied without 'unsafe-inline'.
  */
 export function cspEmissionPlugin(): Plugin {
 	let isProduction = false;
+	// Stash the verbatim inline-script body keyed by resolved virtual
+	// ID. Populated by `transformIndexHtml` (prod only) and read by
+	// `load`. Module-scoped to the plugin instance so concurrent
+	// builds of index.html + bubble.html don't clobber each other.
+	const extractedLocaleCode = new Map<string, string>();
 	return {
 		name: "voice-typer:csp-emission",
 		// Run in both serve and build so dev gets the permissive CSP and prod
@@ -168,6 +226,27 @@ export function cspEmissionPlugin(): Plugin {
 			// mode='production' for `electron-vite build`, and command='serve'
 			// and mode='development' for `electron-vite dev`.
 			isProduction = config.command === "build" && config.mode === "production";
+		},
+		resolveId(id) {
+			// Intercept the virtual locale-bootstrap module specifiers
+			// emitted into the HTML by `transformIndexHtml`. Returning
+			// a `\0`-prefixed ID tells Vite this is a virtual module
+			// (not a file on disk) — Vite then calls our `load` hook
+			// for the source.
+			if (id === LOCALE_VIRTUAL_ID_MAIN) return LOCALE_RESOLVED_MAIN;
+			if (id === LOCALE_VIRTUAL_ID_BUBBLE) return LOCALE_RESOLVED_BUBBLE;
+			return null;
+		},
+		load(id) {
+			// Serve the stashed inline-script body as the virtual
+			// module's source. The body is the original IIFE from the
+			// HTML — a valid ESM module (an expression statement that
+			// runs once on first import). Vite bundles it as a hashed
+			// asset and rewrites the `<script src="...">` URL to point
+			// at the hashed file.
+			const code = extractedLocaleCode.get(id);
+			if (code !== undefined) return code;
+			return null;
 		},
 		transformIndexHtml: {
 			// Run before Vite injects its HMR client + React Refresh preamble
@@ -188,9 +267,41 @@ export function cspEmissionPlugin(): Plugin {
 				const cspRegex =
 					/<meta\s+http-equiv=["']Content-Security-Policy["'][^>]*?\/?>/i;
 				if (cspRegex.test(html)) {
-					return html.replace(cspRegex, metaTag);
+					html = html.replace(cspRegex, metaTag);
+				} else {
+					html = html.replace("</head>", `  ${metaTag}\n</head>`);
 				}
-				return html.replace("</head>", `  ${metaTag}\n</head>`);
+
+				// In production, externalize the inline locale-detection
+				// `<script>` block as a virtual module so the strict CSP
+				// (`script-src 'self'`) is satisfied without 'unsafe-inline'.
+				// In dev, leave the inline script in place — CSP_DEV allows
+				// 'unsafe-inline' for script-src (Vite HMR + React Refresh
+				// preamble already need it).
+				if (isProduction) {
+					const isBubble =
+						(filePath.split(/[\\/]/).pop() ?? "") === "bubble.html";
+					const virtualId = isBubble
+						? LOCALE_VIRTUAL_ID_BUBBLE
+						: LOCALE_VIRTUAL_ID_MAIN;
+					const resolvedId = isBubble
+						? LOCALE_RESOLVED_BUBBLE
+						: LOCALE_RESOLVED_MAIN;
+					const match = html.match(INLINE_LOCALE_SCRIPT_RE);
+					if (match) {
+						// Stash the verbatim inline-script body so `load`
+						// can return it when Vite resolves the virtual
+						// module. The body is the IIFE between `<script>`
+						// and `</script>` (capture group 1).
+						extractedLocaleCode.set(resolvedId, match[1] ?? "");
+						html = html.replace(
+							match[0] ?? "",
+							`<script type="module" src="${virtualId}"></script>`,
+						);
+					}
+				}
+
+				return html;
 			},
 		},
 	};

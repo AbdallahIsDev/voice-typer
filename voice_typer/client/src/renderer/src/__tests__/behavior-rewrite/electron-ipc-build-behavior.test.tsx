@@ -140,15 +140,15 @@
  *     it is a follow-up.
  */
 
+import { TooltipProvider } from "@/components/ui/tooltip";
 import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	waitFor,
+    cleanup,
+    fireEvent,
+    render,
+    screen,
+    waitFor,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { TooltipProvider } from "@/components/ui/tooltip";
 
 /**
  * Page-level render helper. Pages like Settings mount Radix Tooltip
@@ -160,8 +160,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PythonRequest, WindowBridge } from "@/types/ipc";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // ────────────────────────────────────────────────────────────────────
 // Section 1: Type-level guards for `types/ipc.ts`
@@ -193,7 +193,7 @@ type WouldBeRestartRequest = { type: "restart" };
 type RestartGuard = WouldBeRestartRequest extends PythonRequest ? true : false;
 const _noRestartRequest: RestartGuard = false;
 
-describe("RW-1: WindowBridge type includes export methods (rewrite of test_window_bridge_type_includes_export_methods)", () => {
+describe("WindowBridge type includes export methods (rewrite of test_window_bridge_type_includes_export_methods)", () => {
 	it("WindowBridge declares exportTemplates", () => {
 		// Compile-time guard above; runtime assertion is a tautology
 		// that ensures the test actually runs and shows up in CI.
@@ -205,7 +205,7 @@ describe("RW-1: WindowBridge type includes export methods (rewrite of test_windo
 	});
 });
 
-describe("RW-1: RestartRequest dead-type removal (rewrite of test_restart_request_not_in_types)", () => {
+describe("RestartRequest dead-type removal (rewrite of test_restart_request_not_in_types)", () => {
 	it("PythonRequest union does NOT include a `restart` variant", () => {
 		// Compile-time guard above; if `RestartRequest` is re-added
 		// with `type: "restart"`, the file fails to compile.
@@ -430,7 +430,7 @@ const alwaysVisible = () => true;
 //   3. Clicking each button invokes the corresponding
 //      `window.window_.exportTemplates` / `exportConfig` bridge method.
 
-describe("RW-1: PrivacySettingsSection export buttons (rewrite of test_settings_has_export_buttons)", () => {
+describe("PrivacySettingsSection export buttons (rewrite of test_settings_has_export_buttons)", () => {
 	beforeEach(() => {
 		cleanup();
 		mockCall.mockReset();
@@ -540,7 +540,7 @@ describe("RW-1: PrivacySettingsSection export buttons (rewrite of test_settings_
 //   2. The success toast fires with the fallback "untitled" filename
 //      (proving the `path ?? ""` + `|| "untitled"` chain works).
 
-describe("RW-1: History export null-safe path handling (rewrite of test_history_no_non_null_assertion_on_path)", () => {
+describe("History export null-safe path handling (rewrite of test_history_no_non_null_assertion_on_path)", () => {
 	beforeEach(() => {
 		cleanup();
 		mockCall.mockReset();
@@ -627,7 +627,7 @@ describe("RW-1: History export null-safe path handling (rewrite of test_history_
 	});
 });
 
-describe("RW-1: Vocabulary export null-safe path handling (rewrite of test_vocabulary_no_non_null_assertion_on_path)", () => {
+describe("Vocabulary export null-safe path handling (rewrite of test_vocabulary_no_non_null_assertion_on_path)", () => {
 	beforeEach(() => {
 		cleanup();
 		mockCall.mockReset();
@@ -702,7 +702,7 @@ describe("RW-1: Vocabulary export null-safe path handling (rewrite of test_vocab
 // bootstrap-import tests — the RTL-based component tests above keep
 // using the real react-dom/client.
 
-describe("RW-1: main.tsx null-check (rewrite of test_main_tsx_no_non_null_assertion)", () => {
+describe("main.tsx null-check (rewrite of test_main_tsx_no_non_null_assertion)", () => {
 	beforeEach(() => {
 		vi.resetModules();
 		// Stub react-dom/client so createRoot().render() is a no-op.
@@ -767,7 +767,7 @@ describe("RW-1: main.tsx null-check (rewrite of test_main_tsx_no_non_null_assert
 	});
 });
 
-describe("RW-1: bubble-main.tsx null-check (rewrite of test_bubble_main_tsx_no_non_null_assertion)", () => {
+describe("bubble-main.tsx null-check (rewrite of test_bubble_main_tsx_no_non_null_assertion)", () => {
 	beforeEach(() => {
 		vi.resetModules();
 		const createRootMock = vi.fn(() => ({ render: vi.fn() }));
@@ -846,7 +846,7 @@ function readPkgJson(): Record<string, unknown> {
 	>;
 }
 
-describe("RW-1: package.json typecheck scripts (rewrite of TestTypeScriptWebConfigClean)", () => {
+describe("package.json typecheck scripts (rewrite of TestTypeScriptWebConfigClean)", () => {
 	it("typecheck script includes both tsconfig.web.json and tsconfig.node.json", () => {
 		const pkg = readPkgJson();
 		const typecheck = String(
@@ -863,7 +863,7 @@ describe("RW-1: package.json typecheck scripts (rewrite of TestTypeScriptWebConf
 	});
 });
 
-describe("RW-1: package.json declares keywords + engines (rewrite of TestPackageJsonDeclaresKeywords)", () => {
+describe("package.json declares keywords + engines (rewrite of TestPackageJsonDeclaresKeywords)", () => {
 	it("declares a non-empty keywords array", () => {
 		const pkg = readPkgJson();
 		const keywords = pkg.keywords;
@@ -879,7 +879,7 @@ describe("RW-1: package.json declares keywords + engines (rewrite of TestPackage
 	});
 });
 
-describe("RW-1: package.json drops undeclared biome + cross-platform python:dev (rewrite of TestPackageJsonDropsUndeclaredBiome)", () => {
+describe("package.json drops undeclared biome + cross-platform python:dev (rewrite of TestPackageJsonDropsUndeclaredBiome)", () => {
 	it("does NOT declare biome:check or biome:write scripts", () => {
 		const pkg = readPkgJson();
 		const scripts = (pkg.scripts as Record<string, unknown> | undefined) ?? {};
@@ -920,7 +920,7 @@ function readIconsScript(): string {
 	return readFileSync(ICONS_SCRIPT_PATH, "utf-8");
 }
 
-describe("RW-1: generate-icons.mjs puts project venv first (rewrite of TestIconsScriptPutsProjectVenvFirst)", () => {
+describe("generate-icons.mjs puts project venv first (rewrite of TestIconsScriptPutsProjectVenvFirst)", () => {
 	it("references projectVenvPython and .venv", () => {
 		const src = readIconsScript();
 		expect(src).toContain("projectVenvPython");
@@ -937,7 +937,7 @@ describe("RW-1: generate-icons.mjs puts project venv first (rewrite of TestIcons
 	});
 });
 
-describe("RW-1: generate-icons.mjs falls back across Python paths (rewrite of TestIconScriptFallsBackAcrossPythonPaths)", () => {
+describe("generate-icons.mjs falls back across Python paths (rewrite of TestIconScriptFallsBackAcrossPythonPaths)", () => {
 	it("declares a candidates array that tries python3 and python", () => {
 		const src = readIconsScript();
 		expect(src).toContain("candidates");
@@ -946,7 +946,7 @@ describe("RW-1: generate-icons.mjs falls back across Python paths (rewrite of Te
 	});
 });
 
-describe("RW-1: generate-icons.mjs renames root → clientDir (rewrite of TestIconScriptRenamesRootToClientDir)", () => {
+describe("generate-icons.mjs renames root → clientDir (rewrite of TestIconScriptRenamesRootToClientDir)", () => {
 	it("declares `const clientDir` and does NOT declare `const root =`", () => {
 		const src = readIconsScript();
 		expect(src).toContain("const clientDir");
@@ -971,7 +971,7 @@ function readElectronBuilderYml(): string {
 	return readFileSync(ELECTRON_BUILDER_PATH, "utf-8");
 }
 
-describe("RW-1: electron-builder.yml has signing + publish (rewrite of TestElectronBuilderConfigHasSigningAndPublish)", () => {
+describe("electron-builder.yml has signing + publish (rewrite of TestElectronBuilderConfigHasSigningAndPublish)", () => {
 	it("does NOT declare a live GitHub publish provider (dead config removed)", () => {
 		// S1-CR-148 / S5-CR-51 deliberately removed the `publish: github`
 		// block from electron-builder.yml: it was dead config — no
@@ -1012,7 +1012,7 @@ function readPyinstallerSpec(): string {
 	return readFileSync(SPEC_PATH, "utf-8");
 }
 
-describe("RW-1: voice-typer.spec declares ASR hiddenimports (rewrite of TestPyinstallerSpecHasAsrHiddenImports)", () => {
+describe("voice-typer.spec declares ASR hiddenimports (rewrite of TestPyinstallerSpecHasAsrHiddenImports)", () => {
 	it("includes parakeet_engine", () => {
 		expect(readPyinstallerSpec()).toContain("parakeet_engine");
 	});
@@ -1034,7 +1034,7 @@ describe("RW-1: voice-typer.spec declares ASR hiddenimports (rewrite of TestPyin
 	});
 });
 
-describe("RW-1: voice-typer.spec excludes tkinter (rewrite of TestPyinstallerSpecExcludesTkinter)", () => {
+describe("voice-typer.spec excludes tkinter (rewrite of TestPyinstallerSpecExcludesTkinter)", () => {
 	it('lists "tkinter" in the excludes array', () => {
 		expect(readPyinstallerSpec()).toContain('"tkinter"');
 	});
@@ -1055,7 +1055,7 @@ function readPyproject(): string {
 	return readFileSync(PYPROJECT_PATH, "utf-8");
 }
 
-describe("RW-1: pyproject.toml declares standard metadata (rewrite of TestPyprojectHasStandardMetadataFields)", () => {
+describe("pyproject.toml declares standard metadata (rewrite of TestPyprojectHasStandardMetadataFields)", () => {
 	it("declares a license field", () => {
 		expect(readPyproject()).toContain("license = ");
 	});
@@ -1073,7 +1073,7 @@ describe("RW-1: pyproject.toml declares standard metadata (rewrite of TestPyproj
 	});
 });
 
-describe("RW-1: pyproject.toml does not blanket-ignore ResourceWarning (rewrite of TestNoBlanketResourceWarningFilter)", () => {
+describe("pyproject.toml does not blanket-ignore ResourceWarning (rewrite of TestNoBlanketResourceWarningFilter)", () => {
 	it('no line starts with "ignore::ResourceWarning" filter', () => {
 		const lines = readPyproject().split(/\r?\n/);
 		for (const line of lines) {
@@ -1087,7 +1087,7 @@ describe("RW-1: pyproject.toml does not blanket-ignore ResourceWarning (rewrite 
 	});
 });
 
-describe("RW-1: pyproject.toml entry-point points to ipc_server:main (rewrite of test_pyproject_entry_point_points_to_ipc_server)", () => {
+describe("pyproject.toml entry-point points to ipc_server:main (rewrite of test_pyproject_entry_point_points_to_ipc_server)", () => {
 	it('declares voice-typer = "voice_typer.server.ipc_server:main"', () => {
 		expect(readPyproject()).toContain(
 			'voice-typer = "voice_typer.server.ipc_server:main"',
@@ -1114,7 +1114,7 @@ function readCiWorkflow(): string {
 	return readFileSync(CI_WORKFLOW_PATH, "utf-8");
 }
 
-describe("RW-1: CI runs ruff + coverage + pip-audit across Python versions (rewrite of TestCiRunsRuffCoverageAndPipAudit)", () => {
+describe("CI runs ruff + coverage + pip-audit across Python versions (rewrite of TestCiRunsRuffCoverageAndPipAudit)", () => {
 	it("runs ruff", () => {
 		expect(readCiWorkflow()).toContain("ruff");
 	});
@@ -1135,7 +1135,7 @@ describe("RW-1: CI runs ruff + coverage + pip-audit across Python versions (rewr
 	});
 });
 
-describe("RW-1: CI verifies version sync (rewrite of TestCiVerifiesVersionSync)", () => {
+describe("CI verifies version sync (rewrite of TestCiVerifiesVersionSync)", () => {
 	it("has a version-check job", () => {
 		expect(readCiWorkflow()).toContain("version-check");
 	});
@@ -1164,7 +1164,7 @@ describe("RW-1: CI verifies version sync (rewrite of TestCiVerifiesVersionSync)"
 //
 // Pure file-existence checks; vitest uses Node.js `fs.existsSync`.
 
-describe("RW-1: standard project files exist (rewrite of TestStandardProjectFilesExist)", () => {
+describe("standard project files exist (rewrite of TestStandardProjectFilesExist)", () => {
 	it("LICENSE exists at repo root", () => {
 		expect(existsSync(resolve(REPO_ROOT, "LICENSE"))).toBe(true);
 	});
@@ -1219,7 +1219,7 @@ const SYNC_VERSIONS_PATH = resolve(
 );
 const CHANGELOG_PATH = resolve(REPO_ROOT, "CHANGELOG.md");
 
-describe("RW-1: __version__ reads from package metadata (rewrite of test_init_py_uses_importlib)", () => {
+describe("__version__ reads from package metadata (rewrite of test_init_py_uses_importlib)", () => {
 	it("voice_typer/__init__.py imports importlib.metadata and uses _pkg_version or version()", () => {
 		const src = readFileSync(INIT_PY_PATH, "utf-8");
 		expect(src).toContain("importlib.metadata");
@@ -1227,13 +1227,13 @@ describe("RW-1: __version__ reads from package metadata (rewrite of test_init_py
 	});
 });
 
-describe("RW-1: sync_versions.py exists (rewrite of test_sync_versions_script_exists)", () => {
+describe("sync_versions.py exists (rewrite of test_sync_versions_script_exists)", () => {
 	it("scripts/build/sync_versions.py exists", () => {
 		expect(existsSync(SYNC_VERSIONS_PATH)).toBe(true);
 	});
 });
 
-describe("RW-1: CHANGELOG test count is current (rewrite of test_changelog_has_current_count)", () => {
+describe("CHANGELOG test count is current (rewrite of test_changelog_has_current_count)", () => {
 	it("CHANGELOG.md does NOT contain the stale '1127 tests passing' line", () => {
 		const src = readFileSync(CHANGELOG_PATH, "utf-8");
 		expect(src).not.toContain("1127 tests passing");
@@ -1298,7 +1298,7 @@ function readAllowlistEntries(): Set<string> {
 	return entries;
 }
 
-describe("RW-1: ALLOWED_COMMANDS in src/main/allowed-commands.ts (rewrite of TestAllowlistCorrectness — 8 of 9 tests)", () => {
+describe("ALLOWED_COMMANDS in src/main/allowed-commands.ts (rewrite of TestAllowlistCorrectness — 8 of 9 tests)", () => {
 	it("includes quit_app (rewrite of test_quit_app_in_allowlist)", () => {
 		expect(readAllowlistEntries().has("quit_app")).toBe(true);
 	});

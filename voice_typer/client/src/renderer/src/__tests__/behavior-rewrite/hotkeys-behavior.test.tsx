@@ -45,8 +45,8 @@
  * remain as a fallback until CI verifies the vitest versions pass on
  * all platforms.
  */
-import { cleanup, render } from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { cleanup, render } from "@testing-library/react";
 
 /**
  * Page-level render helper. Pages like Settings mount Radix Tooltip
@@ -59,13 +59,13 @@ const renderWithProviders = (ui: React.ReactElement) =>
 	render(<TooltipProvider delayDuration={200}>{ui}</TooltipProvider>);
 
 import {
-	afterEach,
-	beforeAll,
-	beforeEach,
-	describe,
-	expect,
-	it,
-	vi,
+    afterEach,
+    beforeAll,
+    beforeEach,
+    describe,
+    expect,
+    it,
+    vi,
 } from "vitest";
 
 // ── HotkeyPicker mock ──────────────────────────────────────────────────────
@@ -137,10 +137,10 @@ vi.mock("@/lib/sound-manager", () => ({
 }));
 
 import {
-	formatHotkeyLabel,
-	KEY_CODE_TO_PYNPUT,
-	MODIFIER_KEYS,
-	validateHotkey,
+    formatHotkeyLabel,
+    KEY_CODE_TO_PYNPUT,
+    MODIFIER_KEYS,
+    validateHotkey,
 } from "@/components/hotkey/hotkey-utils";
 import { RecordingSettingsSection } from "@/components/settings/RecordingSettingsSection";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -275,7 +275,7 @@ afterEach(() => {
 
 // ── test_validate_function_exists ──────────────────────────────────────────
 
-describe("RW-1: validateHotkey is exported and callable (rewrite of test_validate_function_exists)", () => {
+describe("validateHotkey is exported and callable (rewrite of test_validate_function_exists)", () => {
 	it("exports validateHotkey as a function", () => {
 		// Original Python invariant: `hotkey-utils.ts` source contains
 		// the literal string `"function validateHotkey"`.  That passes
@@ -307,7 +307,7 @@ describe("RW-1: validateHotkey is exported and callable (rewrite of test_validat
 
 // ── test_dictation_key_uses_hotkey_picker_single_mode ──────────────────────
 
-describe('RW-1: dictation key HotkeyPicker uses mode="single" with raw single-key presets (rewrite of test_dictation_key_uses_hotkey_picker_combo_mode)', () => {
+describe('dictation key HotkeyPicker uses mode="single" with raw single-key presets (rewrite of test_dictation_key_uses_hotkey_picker_combo_mode)', () => {
 	it('renders the dictation-key HotkeyPicker with mode="single"', () => {
 		renderWithProviders(
 			<RecordingSettingsSection
@@ -394,7 +394,7 @@ describe('RW-1: dictation key HotkeyPicker uses mode="single" with raw single-ke
 
 // ── test_old_f2_f12_dropdown_removed ───────────────────────────────────────
 
-describe("RW-1: old F2–F12 dropdown is removed (rewrite of test_old_f2_f12_dropdown_removed)", () => {
+describe("old F2–F12 dropdown is removed (rewrite of test_old_f2_f12_dropdown_removed)", () => {
 	it("does NOT offer F2–F12 as dictation-key preset values", () => {
 		renderWithProviders(
 			<RecordingSettingsSection
@@ -469,7 +469,7 @@ describe("RW-1: old F2–F12 dropdown is removed (rewrite of test_old_f2_f12_dro
 
 // ── test_no_free_text_input_for_repaste ────────────────────────────────────
 
-describe("RW-1: repaste hotkey is NOT editable via a free-text <input> (rewrite of test_no_free_text_input_for_repaste)", () => {
+describe("repaste hotkey is NOT editable via a free-text <input> (rewrite of test_no_free_text_input_for_repaste)", () => {
 	it("does NOT render a free-text <input> whose value equals config.repaste_hotkey", () => {
 		// Original Python invariant: regex
 		// `<Input[^>]*value=\{config\.repaste_hotkey` does NOT match
@@ -530,7 +530,7 @@ describe("RW-1: repaste hotkey is NOT editable via a free-text <input> (rewrite 
 
 // ── additional defense-in-depth tests for the same invariants ─────────────
 
-describe("RW-1: hotkey-utils exports (defense-in-depth for test_validate_function_exists)", () => {
+describe("hotkey-utils exports (defense-in-depth for test_validate_function_exists)", () => {
 	it("exports formatHotkeyLabel as a function", () => {
 		// If the module's named exports were ever accidentally dropped
 		// (e.g. by switching to default export), validateHotkey's
@@ -558,7 +558,7 @@ describe("RW-1: hotkey-utils exports (defense-in-depth for test_validate_functio
 	});
 });
 
-describe("RW-1: RecordingSettingsSection HotkeyPicker wiring (defense-in-depth)", () => {
+describe("RecordingSettingsSection HotkeyPicker wiring (defense-in-depth)", () => {
 	it("does NOT render a <textarea> bound to repaste_hotkey either", () => {
 		// The Python test only checked for <Input>; a refactor that
 		// swapped <Input> for <textarea> would slip past.  Behavioural

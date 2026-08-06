@@ -89,15 +89,15 @@
  * don't affect the Settings/Vocabulary/Templates/About direct-mount
  * tests).
  */
-import {
-	act,
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	waitFor,
-} from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+    act,
+    cleanup,
+    fireEvent,
+    render,
+    screen,
+    waitFor,
+} from "@testing-library/react";
 
 /**
  * Page-level render helper. Pages like Settings mount Radix Tooltip
@@ -463,7 +463,7 @@ const baseConfig: VoiceTyperConfig = {
 // Settings page — save toasts + 3-state save indicator
 // ────────────────────────────────────────────────────────────────────
 
-describe("Settings — RW-1 rewrite of save-toast + auto-save indicator tests", () => {
+describe("Settings — rewrite of save-toast + auto-save indicator tests", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
@@ -667,7 +667,7 @@ describe("Settings — RW-1 rewrite of save-toast + auto-save indicator tests", 
 // Settings onNavigate prop — TypeScript compile-time check
 // ────────────────────────────────────────────────────────────────────
 
-describe("Settings onNavigate prop — RW-1 rewrite of Page-type tests", () => {
+describe("Settings onNavigate prop — rewrite of Page-type tests", () => {
 	// Replaces test_settings_imports_page_type,
 	// test_settings_onnavigate_typed_as_page, and
 	// test_app_passes_navigate_without_type_error.
@@ -733,7 +733,7 @@ describe("Settings onNavigate prop — RW-1 rewrite of Page-type tests", () => {
 // NumberInputStepper — Omit<"onInvalid"> + custom onInvalid callback
 // ────────────────────────────────────────────────────────────────────
 
-describe("NumberInputStepper onInvalid — RW-1 rewrite of Omit + custom-callback tests", () => {
+describe("NumberInputStepper onInvalid — rewrite of Omit + custom-callback tests", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -882,7 +882,7 @@ beforeAll(async () => {
 // default in the globals, so import it explicitly).
 import { beforeAll } from "vitest";
 
-describe("useNavigation — RW-1 rewrite of localStorage persistence tests", () => {
+describe("useNavigation — rewrite of localStorage persistence tests", () => {
 	beforeEach(() => {
 		localStorage.clear();
 		// Shared store: reset the module-level nav state so the
@@ -1020,7 +1020,7 @@ describe("useNavigation — RW-1 rewrite of localStorage persistence tests", () 
 // Sidebar — About nav button exists
 // ────────────────────────────────────────────────────────────────────
 
-describe("Sidebar — RW-1 rewrite of About-nav tests", () => {
+describe("Sidebar — rewrite of About-nav tests", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -1055,7 +1055,7 @@ describe("Sidebar — RW-1 rewrite of About-nav tests", () => {
 // About — loaded_via from get_status
 // ────────────────────────────────────────────────────────────────────
 
-describe("About — RW-1 rewrite of loaded_via tests", () => {
+describe("About — rewrite of loaded_via tests", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 	});
@@ -1171,7 +1171,7 @@ describe("About — RW-1 rewrite of loaded_via tests", () => {
 // Vocabulary — help text + category picker
 // ────────────────────────────────────────────────────────────────────
 
-describe("Vocabulary — RW-1 rewrite of help-text + category-picker tests", () => {
+describe("Vocabulary — rewrite of help-text + category-picker tests", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
@@ -1313,7 +1313,7 @@ describe("Vocabulary — RW-1 rewrite of help-text + category-picker tests", () 
 // Templates — help text + variables + tooltip
 // ────────────────────────────────────────────────────────────────────
 
-describe("Templates — RW-1 rewrite of help-text + variable-tooltip tests", () => {
+describe("Templates — rewrite of help-text + variable-tooltip tests", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
@@ -1430,7 +1430,7 @@ describe("Templates — RW-1 rewrite of help-text + variable-tooltip tests", () 
 // TitleBar — isMaximized prop + subscription skip
 // ────────────────────────────────────────────────────────────────────
 
-describe("TitleBar — RW-1 rewrite of isMaximized prop tests", () => {
+describe("TitleBar — rewrite of isMaximized prop tests", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -1589,7 +1589,7 @@ async function registerAppPageStubs() {
 	}));
 }
 
-describe("App routing + chrome — RW-1 rewrite of routing + ErrorBoundary tests", () => {
+describe("App routing + chrome — rewrite of routing + ErrorBoundary tests", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
@@ -1712,7 +1712,7 @@ describe("App routing + chrome — RW-1 rewrite of routing + ErrorBoundary tests
 	});
 });
 
-describe("App help overlay content — RW-1 rewrite of shortcut-list + input-gate tests", () => {
+describe("App help overlay content — rewrite of shortcut-list + input-gate tests", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();

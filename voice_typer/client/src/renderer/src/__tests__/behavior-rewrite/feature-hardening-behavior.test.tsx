@@ -22,15 +22,15 @@
  * The corresponding Python tests are skipped via `@pytest.mark.skip`
  * with a pointer back to this file.  They are NOT deleted.
  */
-import {
-	cleanup,
-	fireEvent,
-	render,
-	renderHook,
-	screen,
-	waitFor,
-} from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+    cleanup,
+    fireEvent,
+    render,
+    renderHook,
+    screen,
+    waitFor,
+} from "@testing-library/react";
 
 /**
  * Page-level render helper. Pages like Settings mount Radix Tooltip
@@ -424,7 +424,7 @@ function removePythonBridgeMock() {
 //    Python: TestUsePythonOmitsMisleadingIsReadyFlag::test_use_python_does_not_return_is_ready
 // ────────────────────────────────────────────────────────────────────
 
-describe("usePython — RW-1 rewrite of test_use_python_does_not_return_is_ready", () => {
+describe("usePython — rewrite of test_use_python_does_not_return_is_ready", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		installPythonBridgeMock();
@@ -458,7 +458,7 @@ describe("usePython — RW-1 rewrite of test_use_python_does_not_return_is_ready
 //    "<Snackbar" not in src and "const { showSnack } = useSnackbar()" in src).
 // ────────────────────────────────────────────────────────────────────
 
-describe("useSnackbar — RW-1 rewrite (DX-013: no Snackbar component returned)", () => {
+describe("useSnackbar — rewrite (DX-013: no Snackbar component returned)", () => {
 	afterEach(() => {
 		cleanup();
 		toastMock.success.mockClear();
@@ -507,7 +507,7 @@ describe("useSnackbar — RW-1 rewrite (DX-013: no Snackbar component returned)"
 //    Python: TestPagesUseSharedSnackbarHook::test_settings_uses_shared_hook
 // ────────────────────────────────────────────────────────────────────
 
-describe("Settings — RW-1 rewrite of test_settings_uses_shared_hook", () => {
+describe("Settings — rewrite of test_settings_uses_shared_hook", () => {
 	let originalWindow_: unknown;
 
 	beforeEach(() => {
@@ -584,7 +584,7 @@ describe("Settings — RW-1 rewrite of test_settings_uses_shared_hook", () => {
 //    Python: TestPagesUseSharedSnackbarHook::test_microphone_uses_shared_snackbar_hook
 // ────────────────────────────────────────────────────────────────────
 
-describe("Microphone — RW-1 rewrite of test_microphone_uses_shared_snackbar_hook", () => {
+describe("Microphone — rewrite of test_microphone_uses_shared_snackbar_hook", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		installPythonBridgeMock();
@@ -661,7 +661,7 @@ describe("Microphone — RW-1 rewrite of test_microphone_uses_shared_snackbar_ho
 //    Python: TestUsePythonOmitsMisleadingIsReadyFlag::test_app_does_not_use_is_ready
 // ────────────────────────────────────────────────────────────────────
 
-describe("App — RW-1 rewrite of test_app_does_not_use_is_ready", () => {
+describe("App — rewrite of test_app_does_not_use_is_ready", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		installPythonBridgeMock();
@@ -701,7 +701,7 @@ describe("App — RW-1 rewrite of test_app_does_not_use_is_ready", () => {
 //            TestAppValidatesRecordingStateBeforeCast::test_runtime_validator_exists
 // ────────────────────────────────────────────────────────────────────
 
-describe("App recording state — RW-1 rewrite of test_no_unvalidated_as_recording_state_cast + test_runtime_validator_exists", () => {
+describe("App recording state — rewrite of test_no_unvalidated_as_recording_state_cast + test_runtime_validator_exists", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		installPythonBridgeMock();

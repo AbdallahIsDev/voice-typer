@@ -60,14 +60,14 @@
  * available as a fallback until CI verifies the vitest versions pass on
  * all platforms.
  */
-import {
-	cleanup,
-	fireEvent,
-	render,
-	screen,
-	waitFor,
-} from "@testing-library/react";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+    cleanup,
+    fireEvent,
+    render,
+    screen,
+    waitFor,
+} from "@testing-library/react";
 
 /**
  * Page-level render helper. Pages like Settings mount Radix Tooltip
@@ -340,7 +340,7 @@ function lastSetConfigPayload(): Record<string, unknown> | null {
 // Group 1: TestAboutPageHasPrivacyDisclosure (3 PORT tests)
 // =====================================================================
 
-describe("About page — updates / help / feedback sections (RW-1 port)", () => {
+describe("About page — updates / help / feedback sections", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		// Minimal IPC mock: get_config, get_status, get_prewarm_status
@@ -492,7 +492,7 @@ describe("About page — updates / help / feedback sections (RW-1 port)", () => 
 // Group 2: TestSettingsTroubleshootHasDiagnosticActions (2 PORT tests)
 // =====================================================================
 
-describe("Settings page — Troubleshooting section (RW-1 port)", () => {
+describe("Settings page — Troubleshooting section", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
@@ -605,7 +605,7 @@ describe("Settings page — Troubleshooting section (RW-1 port)", () => {
 // Group 3: TestAboutAndSettingsShowVoiceBiometricConsent (3 PORT tests)
 // =====================================================================
 
-describe("About & Settings — voice biometric consent disclosure (RW-1 port)", () => {
+describe("About & Settings — voice biometric consent disclosure", () => {
 	afterEach(() => {
 		cleanup();
 	});
@@ -788,7 +788,7 @@ describe("About & Settings — voice biometric consent disclosure (RW-1 port)", 
 // `keyof VoiceTyperConfig`, which catches the case where a field is
 // renamed but the rename isn't propagated to consumers.
 
-describe("VoiceTyperConfig type — consent flags (RW-1 port)", () => {
+describe("VoiceTyperConfig type — consent flags", () => {
 	it("declares sound_feedback_enabled as a key of VoiceTyperConfig", () => {
 		// Python invariant (test_sound_feedback_enabled_in_type):
 		//   "sound_feedback_enabled" in types/config.ts source.
@@ -840,7 +840,7 @@ describe("VoiceTyperConfig type — consent flags (RW-1 port)", () => {
 // Group 5: TestModelsPageExposesCloudConsentToggles (6 PORT tests)
 // =====================================================================
 
-describe("Models page — cloud consent toggles (RW-1 port)", () => {
+describe("Models page — cloud consent toggles", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();

@@ -59,13 +59,13 @@
   </script>
 
   <!--
-      SEC-012 / RW-3: Content Security Policy for the bubble window.
+      Content Security Policy for the bubble window.
       Same hardening as index.html.  This meta tag is the STRICT production
       CSP — cspEmissionPlugin (electron.vite.config.ts) rewrites it at serve
       time to add 'unsafe-eval' + 'unsafe-inline' for Vite HMR.  The bubble
       renders waveform data only; no remote resources are ever needed.
 
-      C-DATA-1: connect-src is 'self' only — the bubble has no update-check
+      connect-src is 'self' only — the bubble has no update-check
       surface, so granting `https://api.github.com` would be dead attack
       surface AND a latent C-DATA-1 violation. The previous grant was
       removed for strict offline compliance.
