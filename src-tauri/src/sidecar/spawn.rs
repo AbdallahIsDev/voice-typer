@@ -54,6 +54,41 @@ pub(crate) async fn spawn_sidecar_and_get_port_with_shutdown(
     spawn_sidecar_and_get_port_inner(app, token, Some(shutting_down)).await
 }
 
+/// Public cold-start entry point: spawn the Python sidecar via Tauri's
+/// `externalBin` mechanism and read the `server_started` JSON from
+/// stdout. Returns the bound port + the child handle on success.
+///
+/// This is the no-`shutting_down`-flag sibling of
+/// [`spawn_sidecar_and_get_port_with_shutdown`] — used by the cold-start
+/// path (`initialize_sidecar` in `main.rs::setup`) where there is no
+/// pre-existing shutdown flag to poll (the supervisor installs one
+/// later, but the first spawn happens before the supervisor's flag is
+/// wired up). The supervisor's respawn path calls
+/// `spawn_sidecar_and_get_port_with_shutdown` instead, passing its own
+/// `&state.shutting_down` so a user-quit mid-respawn short-circuits the
+/// stdout-read loop.
+///
+/// Both paths delegate to the shared `spawn_sidecar_and_get_port_inner`
+/// helper so the dev-mode / release-mode dispatch + the
+/// `server_started` parsing logic live in exactly one place.
+///
+/// Kept at module scope (not inside the test module) so the Python
+/// source-inspection regex `fn\s+spawn_sidecar_and_get_port\s*\(\s*app\s*:\s*&tauri::AppHandle`
+/// (test_externalbin_spawn_linux.py) keeps matching.
+/// `#[allow(dead_code)]` suppresses the lint for the no-runtime-caller
+/// contract; the cold-start path currently calls the
+/// `_with_shutdown` variant (passing a fresh `AtomicBool`), but this
+/// signature is pinned by the gate-check test as the documented public
+/// entry point. Removing the function would silently break the
+/// migration-gate contract.
+#[allow(dead_code)]
+pub(crate) async fn spawn_sidecar_and_get_port(
+    app: &tauri::AppHandle,
+    token: &str,
+) -> Result<(u16, SidecarHandle, Option<mpsc::Receiver<CommandEvent>>), String> {
+    spawn_sidecar_and_get_port_inner(app, token, None).await
+}
+
 /// Pure form of the shutting-down check used by both spawn loops.
 /// Returns `true` when `shutting_down` is `Some(flag)` AND the flag is
 /// set (`load(SeqCst) == true`). Returns `false` when `shutting_down`

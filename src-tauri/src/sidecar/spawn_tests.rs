@@ -109,7 +109,7 @@ fn test_passthrough_env_allowlist_keeps_existing_linux_gui_vars() {
 }
 
 // ── Pre-existing parse_server_started + is_shutting_down tests ────
-// (Moved verbatim from the legacy inline 
+// (Moved verbatim from the legacy inline
 //  block to comply with C-TEST-5.)
 
     use super::*;
@@ -427,4 +427,3 @@ fn test_passthrough_env_allowlist_keeps_existing_linux_gui_vars() {
         // would short-circuit.
         assert!(is_shutting_down(Some(&flag)));
     }
-}

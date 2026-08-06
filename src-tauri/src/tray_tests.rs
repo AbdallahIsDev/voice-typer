@@ -398,4 +398,3 @@ use serde_json::json;
             "mouse-enter must NOT trigger show+focus (S3-CR-8)"
         );
     }
-}

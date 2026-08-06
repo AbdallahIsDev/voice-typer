@@ -41,6 +41,15 @@ pub(crate) const SUPERVISOR_MAX_RETRIES: u32 = 5;
 /// [`EXIT_SHUTDOWN_ACK_TIMEOUT_MS`] instead — see its doc comment.
 pub(crate) const SHUTDOWN_ACK_TIMEOUT_MS: u64 = 2000;
 
+/// ADR-0020 §10: cooperative-shutdown poll interval (dev-mode fallback
+/// step). While waiting for the sidecar to ack `{"type":"shutdown"}` and
+/// exit, the host polls the child's `CommandEvent::Terminated` stream at
+/// this cadence (the dev-mode fallback path — the release path uses the
+/// async event stream directly, with no polling). 100ms balances
+/// responsiveness (the sidecar acks in ~10-50ms) against CPU cost (10ms
+/// would burn a core for the full 2s graceful window).
+pub(crate) const SHUTDOWN_POLL_INTERVAL_MS: u64 = 100;
+
 /// Cooperative shutdown timeout for the EXIT path only
 /// (`RunEvent::Exit` / `ExitRequested` → `on_host_exit` →
 /// `shutdown_sidecar_for_exit`). This is the LAST-RESORT teardown

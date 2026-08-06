@@ -468,6 +468,12 @@ def add_user_to_input_group(username: str) -> None:
         pass
 
     try:
+        # Equivalent shell form: `usermod -aG input <username>` — append
+        # the user to the `input` group so they have read access to the
+        # /dev/input/event* devices (per the 99-voice-typer.rules udev
+        # rule, owned by root:input mode 0660). The list form is used so
+        # subprocess.run doesn't shell-escape `username` (which could
+        # contain spaces or shell metachars on some systems).
         run(["usermod", "-aG", INPUT_GROUP, username])
         log(f"Added user '{username}' to '{INPUT_GROUP}' group")
     except FileNotFoundError:

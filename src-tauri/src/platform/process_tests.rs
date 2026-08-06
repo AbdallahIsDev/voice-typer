@@ -154,7 +154,7 @@ fn test_kill_process_tree_pid_zero_is_noop() {
 }
 
 // ── Pre-existing kill-tree + register_kill_on_parent_exit tests ────
-// (Moved verbatim from the legacy inline 
+// (Moved verbatim from the legacy inline
 //  block to comply with C-TEST-5.)
 
     // Unit tests for this module are limited because the actual
@@ -416,4 +416,3 @@ fn test_kill_process_tree_pid_zero_is_noop() {
             assert!(result.is_ok());
         }
     }
-}
