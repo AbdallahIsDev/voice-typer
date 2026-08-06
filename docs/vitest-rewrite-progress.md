@@ -1,5 +1,15 @@
 # RW-0 — Vitest Rewrite Progress Tracker
 
+> **STATUS: Historical.** The source file
+> `tests/test_feature_hardening_regressions.py` (covered by rows 19–21
+> below) has been **deleted** post-rewrite — the vitest replacements
+> proved stable in CI and the now-redundant Python source-string tests
+> were pruned. The vitest files referenced in rows 19–21 still exist and
+> continue to run; they own the invariants those Python tests used to
+> pin. The per-file stats table below is preserved unchanged for
+> historical context (the row for `test_feature_hardening_regressions.py`
+> reflects the pre-deletion snapshot).
+
 This document tracks the rewrite of the 87 string-pattern Python tests
 across 5 test files as behavioral vitest unit tests.
 
@@ -24,7 +34,7 @@ so the test only passes when the contract is honored at runtime.
 | `tests/test_hotkeys.py` | 20 | 8 | 8 | 12 | All `TestHotkeyUtilsFormatLabel` / `TestHotkeyUtilsValidate` / `TestRepasteKeySettingUsesHotkeyPicker` / `TestDictationKeySupportsExpandedPresets::test_single_key_presets_include_beyond_f12` rewritten. The 12 remaining are mostly Python-side behavioral tests (`PynputHotkey`, `_VK_MAP`, `_init_vk_map`) that don't assert on TS source strings. |
 | `tests/test_ux_components.py` | 62 | 8 | 8 | 54 | All `TestAppHasHelpOverlayForShortcuts::test_app_has_question_mark_keydown_handler` + `test_help_overlay_closes_on_escape`, `TestBubbleSupportsKeyboardArrowMove::test_bubble_calls_move_by` + `test_bubble_respects_draggable_gate`, `TestAppHasSkipToMainContentLink::test_app_has_skip_link`, `TestAppAnnouncesRecordingStartStopWithAriaLive::test_app_has_aria_live`, `TestSidebarHasAriaCurrentPage::test_sidebar_has_aria_current`, `TestHistorySearchHasClearButton::test_history_has_clear_button` rewritten. The 54 remaining include CSS-string checks, type-only assertions, and many behavioral Python tests. |
 | `tests/test_consent_and_privacy.py` | 40 | 2 | 2 | 38 | `TestAboutPageHasPrivacyDisclosure::test_about_page_has_privacy_section` and `TestAboutAndSettingsShowVoiceBiometricConsent::test_settings_has_all_consent_toggles_consolidated` rewritten. The 38 remaining are mostly Python-behavioral (Config dataclass, CloudEngine, TranscriptionEngine) — not TS-string tests. |
-| `tests/test_feature_hardening_regressions.py` | 61 | 3 | 3 | 58 | `TestHomeRegistersSingleTranscriptionFinalListener::test_only_one_transcription_final_listener`, `TestRecordingStateEnumHasSixBackendStates::test_only_six_states` + `test_dead_states_removed` rewritten. The 58 remaining are mostly Python-behavioral (TCP auth, GPU release, RMS callback, offline mode) — not TS-string tests. |
+| `tests/test_feature_hardening_regressions.py` *(deleted post-rewrite)* | 61 | 3 | 3 | 58 | `TestHomeRegistersSingleTranscriptionFinalListener::test_only_one_transcription_final_listener`, `TestRecordingStateEnumHasSixBackendStates::test_only_six_states` + `test_dead_states_removed` rewritten. The 58 remaining were mostly Python-behavioral (TCP auth, GPU release, RMS callback, offline mode) — not TS-string tests. **The source file itself was deleted in a follow-up pruning round** once the vitest replacements (rows 19–21 below) proved stable in CI; the invariants the deleted tests pinned are now owned entirely by those vitest files. |
 | `tests/test_electron_ipc_and_build.py` | 90 | 0 | 0 | 90 | No rewrites done — most tests assert on Python source, `package.json`, `electron-builder.yml`, `.github/workflows/build.yml`, or `voice-typer.spec` (build infrastructure, not renderer behavior). The TS-string tests in this file (e.g. `TestElectronExposesDataExportHandlers`, `TestAllowlistCorrectness`, `TestRestartRequestRemoved`, `TestTypeScriptNonNullAssertions`) target `main/index.ts` / `preload/index.ts` which require an Electron runtime to test behaviorally — out of scope for vitest (which runs in jsdom). Tech debt: deferred to a future Electron-focused test pass. |
 | **TOTAL** | **273** | **21** | **21** | **252** | (Note: the directive said "87 TS-string tests across 5 files"; the actual count is 273 total tests, of which ~87 are TS-string. 21 of those 87 are rewritten as vitest in this pass.) |
 
@@ -55,9 +65,9 @@ all platforms.
 | 16 | `test_ux_components.py::TestHistorySearchHasClearButton::test_history_has_clear_button` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/SearchField-clear-button.test.tsx` |
 | 17 | `test_consent_and_privacy.py::TestAboutPageHasPrivacyDisclosure::test_about_page_has_privacy_section` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/About-privacy.test.tsx` |
 | 18 | `test_consent_and_privacy.py::TestAboutAndSettingsShowVoiceBiometricConsent::test_settings_has_all_consent_toggles_consolidated` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/PrivacySettings-consent.test.tsx` |
-| 19 | `test_feature_hardening_regressions.py::TestHomeRegistersSingleTranscriptionFinalListener::test_only_one_transcription_final_listener` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/Home-transcription-final.test.tsx` |
-| 20 | `test_feature_hardening_regressions.py::TestRecordingStateEnumHasSixBackendStates::test_only_six_states` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/RecordingState-types.test.ts` |
-| 21 | `test_feature_hardening_regressions.py::TestRecordingStateEnumHasSixBackendStates::test_dead_states_removed` | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/RecordingState-types.test.ts` |
+| 19 | `test_feature_hardening_regressions.py::TestHomeRegistersSingleTranscriptionFinalListener::test_only_one_transcription_final_listener` *(source file deleted)* | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/Home-transcription-final.test.tsx` |
+| 20 | `test_feature_hardening_regressions.py::TestRecordingStateEnumHasSixBackendStates::test_only_six_states` *(source file deleted)* | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/RecordingState-types.test.ts` |
+| 21 | `test_feature_hardening_regressions.py::TestRecordingStateEnumHasSixBackendStates::test_dead_states_removed` *(source file deleted)* | `voice_typer/client/src/renderer/src/__tests__/a11y-rewrite/RecordingState-types.test.ts` |
 
 ## Vitest Files Created
 

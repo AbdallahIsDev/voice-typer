@@ -2,9 +2,7 @@
 
 ## Status
 
-**Superseded by [ADR-0020](0020-desktop-runtime-migration-analysis.md).** The migration analysis below is preserved for historical context; the current authoritative migration ADR is ADR-0020 (cross-platform rewrite).
-
-Accepted — migration in progress. Electron is retained intact as a reversible fallback until Tauri + Sidecar is proven and cut over.
+Superseded by [ADR-0020](0020-desktop-runtime-migration-analysis.md) — see ADR-0020 for the current authoritative migration analysis.
 
 ## Date
 
@@ -200,7 +198,7 @@ Electron code is untouched throughout the migration. The Tauri + Sidecar build i
 
 ## References
 
-- ADR-0002 (Electron + Python Architecture, Accepted) — current architecture, retained as the reversible fallback.
+- ADR-0003 (Electron + Python Architecture, Accepted) — current architecture, retained as the reversible fallback. ADR-0002 was the initial design, superseded by ADR-0003.
 - ADR-0011 (Prewarm & Autostart Architecture) — prewarm / BootTrigger design preserved by this ADR.
 - Tauri v2 sidecar guide (v2.tauri.app/develop/sidecar) — first-class `externalBin` sidecar feature.
 - Tauri discussion #1645 (github.com/tauri-apps/tauri/discussions/1645) — sidecar trade-offs.

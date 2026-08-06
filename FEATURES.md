@@ -40,7 +40,7 @@ Last updated: 2026-06-22
 │  │  · Single-instance lock                          │   │
 │  │  · Spawns Python backend via pythonw             │   │
 │  │  · TCP IPC bridge (port 9876)                    │   │
-│  │  · 61 allowed IPC commands (allowlist)           │   │
+│  │  · 63 allowed IPC commands (allowlist)           │   │
 │  │  · Periodic health check (60s)                   │   │
 │  │  · Per-session auth token                        │   │
 │  │  · Event nonce verification                      │   │
@@ -105,7 +105,7 @@ Last updated: 2026-06-22
 
 | # | Feature | Status | Notes |
 |---|---|---|---|
-| 1 | Global hotkey dictation (F2–F12) | ✅ | Win32 `RegisterHotKey` + `GetAsyncKeyState` polling; pynput fallback |
+| 1 | Global hotkey dictation (Caps Lock default on all platforms; remappable) | ✅ | Win32 `RegisterHotKey` + `GetAsyncKeyState` polling; pynput fallback |
 | 2 | Toggle mode (press-on/press-off) | ✅ | Configurable in Settings |
 | 3 | Push-to-talk mode (hold to record) | ✅ | Release callback wired in both hotkey backends |
 | 4 | Streaming transcription (chunk-by-chunk during recording) | ✅ | `StreamingTranscriptionSession` with overlapping windows, guard regions, word timings |
@@ -237,7 +237,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | Volume ducking enabled | Audio & Recovery | Toggle |
 | Duck level (%) | Audio & Recovery | Number |
 | Smart duck enabled | Audio & Recovery | Toggle |
-| Dictation hotkey (F2–F12) | Hotkey | Select |
+| Dictation hotkey (Caps Lock default; customizable) | Hotkey | Select |
 | Recording mode (toggle / push-to-talk) | Recording | Select |
 | Auto-stop silence seconds (1/2/3/5) | Recording | Select |
 | ESC to cancel | Recording | Toggle |
@@ -269,9 +269,9 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | 76 | Python backend bundled as pip package | ✅ | setuptools, installed via pip |
 | 77 | CI build pipeline (GitHub Actions) | ✅ | `.github/workflows/build.yml` |
 | 78 | Diagnostics scripts | ✅ | F2 hotkey test, CUDA fallback, runtime proof |
-| 79 | Test suite (~280 pytest files, ~230 vitest test files; 2800+ Python tests) | ✅ | All major subsystems covered (counts grow over time — see `pytest --collect-only` and `npm run test` for the current totals) |
+| 79 | Test suite (700+ pytest files, 250+ vitest files; 2800+ Python tests) | ✅ | All major subsystems covered (counts grow over time — see `pytest --collect-only` and `npm run test` for the current totals) |
 | 80 | Ruff linting + mypy type checking | ✅ | Configured in pyproject.toml |
-| 81 | IPC command allowlist | ✅ | 61 allowed commands whitelisted in the Electron main process `ALLOWED_COMMANDS` set (`voice_typer/client/src/main/allowed-commands.ts`); the Python `_COMMAND_REGISTRY` registers 63 commands total. Two of those are intentionally absent from the renderer allowlist — `tray_click` (Rust-only, routed via `dispatch_inner` from the tray handler) and `shutdown` (cooperative shutdown is sent via `shutdown_sidecar` directly, not via the generic dispatch path) — so the renderer-callable count is 61 (== the renderer allowlist count). The +2 host-only delta is asserted by `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py`. CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 (S4-CR-18 follow-up: 78/59 stale counts across CHANGELOG/FEATURES/SECURITY/CONTRIBUTING reconciled to 61/61/63). Count is enforced by `tests/test_security_doc_command_count.py` + `tests/test_rust_allowlist_parity.py` + `tests/test_electron_ipc_and_build.py`. |
+| 81 | IPC command allowlist | ✅ | 63 allowed commands whitelisted in the Electron main process `ALLOWED_COMMANDS` set (`voice_typer/client/src/main/allowed-commands.ts`); the Python `_COMMAND_REGISTRY` registers 65 commands total. Two of those are intentionally absent from the renderer allowlist — `tray_click` (Rust-only, routed via `dispatch_inner` from the tray handler) and `shutdown` (cooperative shutdown is sent via `shutdown_sidecar` directly, not via the generic dispatch path) — so the renderer-callable count is 63 (== the renderer allowlist count). The +2 host-only delta is asserted by `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py`. CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 (S4-CR-18 follow-up: 78/59 stale counts across CHANGELOG/FEATURES/SECURITY/CONTRIBUTING reconciled to 63/61/65). Count is enforced by `tests/test_security_doc_command_count.py` + `tests/test_rust_allowlist_parity.py` + `tests/test_electron_ipc_and_build.py`. |
 | 82 | IPC rate limiter | ✅ | Sliding window: 60 msg/s sustained, 200 burst |
 | 83 | IPC auth token | ✅ | Per-launch random 256-bit token exchanged on TCP connect |
 | 84 | Config secret redaction | ✅ | API keys replaced with `<redacted>` sentinel in IPC responses |
@@ -283,7 +283,7 @@ Pipeline order: Transcribe → Text Cleanup → Vocabulary → Templates → LLM
 | # | Feature | Status | Notes |
 |---|---|---|---|
 | 85 | Help overlay (`?` shortcut) | ✅ | Press `?` anywhere in the app to open a modal listing every keyboard shortcut (dictation hotkey, `Esc`, `Ctrl+Alt+V` repaste, `Ctrl+B` sidebar, `Ctrl+,` settings, `Ctrl+H` home, `Tab`/`Shift+Tab` navigate, `Space` toggle, `Enter` activate, `Ctrl+Plus`/`Ctrl+Minus` zoom, `?` open help, `Alt+Left`/`Alt+Right` navigate back/forward). Rendered by `App.tsx:showHelpOverlay` state in a `Modal`. |
-| 86 | Punctuation cheat sheet | ✅ | Embedded in the help overlay (`PunctuationCheatSheet.tsx`). Lists the spoken-form → character mappings Voice Typer recognizes: comma, period, question mark, exclamation point, semicolon, colon, apostrophe, open/close quote, new line (↵), new paragraph (¶). Source of truth: `voice_typer/server/text_cleanup.py:374`. |
+| 86 | Punctuation cheat sheet | ✅ | Embedded in the help overlay (`PunctuationCheatSheet.tsx`). Lists the spoken-form → character mappings Voice Typer recognizes: comma, period, question mark, exclamation point, semicolon, colon, apostrophe, open/close quote, new line (↵), new paragraph (¶). Source of truth: `voice_typer/client/src/renderer/src/components/help/PunctuationCheatSheet.tsx`. |
 
 ---
 

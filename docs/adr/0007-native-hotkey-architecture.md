@@ -1,5 +1,20 @@
 # ADR 0007: Native subprocess hotkey architecture
 
+> **Path-note (post-ADR decomposition):** the hotkey backends have since
+> been split from a single `voice_typer/server/hotkeys.py` module into the
+> `voice_typer/server/hotkeys/` package (`base.py`, `factory.py`,
+> `native_adapter.py`, `pynput_backend.py`, `wayland.py`,
+> `windows_native.py`, `win32_vk.py`). The native-binary subprocess glue
+> has likewise been split from `voice_typer/server/native_hotkeys.py` into
+> the `voice_typer/server/native_hotkeys/` package (`base.py`,
+> `binary_path.py`, `factory.py`, `linux_backend.py`, `mac_backend.py`,
+> `modifiers.py`, `recorder.py`, `spec_parser.py`, `windows_backend.py`).
+> The prose and code-block comments below retain the historical
+> `hotkeys.py` / `native_hotkeys.py` references for traceability against
+> the original implementation analysis — read each `hotkeys.py::symbol`
+> as `hotkeys/<module>.py::symbol` (and similarly for `native_hotkeys/`)
+> per the package splits.
+
 ## Status
 
 Accepted
@@ -109,7 +124,8 @@ The binary is spawned with the hotkey spec as `argv[1]`. The Python side
 parses lines and matches against the registered hotkey. The same binary
 is reused in record mode for the Settings capture dialog.
 
-The `create_hotkey_backend()` factory in `voice_typer/server/hotkeys.py`
+The `create_hotkey_backend()` factory in `voice_typer/server/hotkeys/`
+(`hotkeys/factory.py` — historically `hotkeys.py`)
 prefers the native backend for the current platform and falls back to the
 legacy in-process backends (`PynputHotkey`, `WindowsNativeHotkey`,
 `WaylandHotkey`) when the native binary is missing or fails to start.
@@ -150,7 +166,8 @@ is not supported and is delegated to per-platform CI runners.
   runners (one per OS) or a cross-compilation pipeline we don't have.
 - **More code to maintain** — roughly 1,500 lines of C and Swift across
   the three binary sources, plus the matching wire-protocol parsing on
-  the Python side (`native_hotkeys.py`). The three binaries must stay
+  the Python side (`native_hotkeys/` package — historically
+  `native_hotkeys.py`). The three binaries must stay
   byte-for-byte compatible on the wire protocol, which is an ongoing
   discipline burden.
 - **macOS code-signing gotchas** — the Swift binary must be ad-hoc

@@ -18,7 +18,7 @@ Tooling note: `adr-tools` and similar expect unique `NNNN-*.md` names; this dire
 | 0010 | `0010-dependency-injection-boundary.md` | Dependency Injection Boundary for IPCServer | Accepted |
 | 0011 | `0011-prewarm-architecture-analysis.md` | Voice Typer — Prewarm & Autostart Architecture | Accepted |
 | 0012 | `0012-clipboard-borrow-restore-architecture.md` | Clipboard Borrow/Restore Architecture | Accepted |
-| 0013 | `0013-desktop-runtime-migration-analysis.md` | Desktop Runtime Migration to Tauri v2 + Python Sidecar (Original — Windows-only) | Superseded by [ADR 0020](0020-desktop-runtime-migration-analysis.md). The migration analysis below is preserved for historical context; the current authoritative migration ADR is ADR-0020 (cross-platform rewrite). Electron is retained intact as a reversible fallback until Tauri + Sidecar is proven and cut over. |
+| 0013 | `0013-desktop-runtime-migration-analysis.md` | Desktop Runtime Migration to Tauri v2 + Python Sidecar (Original — Windows-only) | Superseded by [ADR 0020](0020-desktop-runtime-migration-analysis.md) — see ADR-0020 for the current authoritative migration analysis. |
 | 0014 | `0014-tcp-ipc-session-token-auth.md` | TCP IPC Session Token Authentication (SEC-018) | Accepted — implemented in `ipc_server.py:_accept_tcp` / `_handle_tcp_connection` and `client/src/main/index.ts`. |
 | 0015 | `0015-electron-command-allowlist.md` | Electron-Side Command Allowlist (SEC-019) | Accepted — implemented in `client/src/main/allowed-commands.ts` (ALLOWED_COMMANDS, ≈ lines 70–206; was `index.ts:532-627` before the allowlist was extracted into its own module). |
 | 0016 | `0016-granular-consent-flags.md` | Granular Privacy Consent Flags (PRIV-005, PRIV-006, PRIV-009) | Accepted — implemented in `voice_typer/server/config.py` as typed boolean fields on the `Config` dataclass. |
@@ -26,6 +26,7 @@ Tooling note: `adr-tools` and similar expect unique `NNNN-*.md` names; this dire
 | 0018 | `0018-heartbeat-watchdog.md` | Electron-Alive Heartbeat Watchdog (RW-10) | Accepted — implemented in `voice_typer/server/ipc_server.py:_heartbeat_loop`, `_check_heartbeat_timeout`, `_handle_heartbeat`, and `client/src/main/index.ts` heartbeat interval. |
 | 0019 | `0019-per-connection-rate-limiter.md` | Per-Connection Rate Limiter (RELIABILITY-006) | Accepted — implemented in `voice_typer/server/ipc_server.py` as the `_RateLimiter` class, instantiated per TCP connection in `_handle_tcp_connection`. |
 | 0020 | `0020-desktop-runtime-migration-analysis.md` | Desktop Runtime Migration to Tauri v2 + Python Sidecar (Cross-Platform Edition) | Accepted — migration in progress. Cross-platform rewrite of ADR-0013: covers Windows + macOS + Linux + Wayland + Apple Silicon + Linux ARM64. Electron is retained intact as a reversible fallback until Tauri + Sidecar is proven and cut over on all three supported platforms. Cutover is per-platform (Windows first → macOS → Linux). |
+| 0021 | `0021-at-rest-encryption.md` | At-Rest Encryption for User Data (Design-Gated) | Proposed (design-only — no production code changes; implementation tracked under the "Phased rollout" section of the ADR). |
 
 ## Template
 

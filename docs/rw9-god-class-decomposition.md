@@ -14,7 +14,7 @@ liability in the codebase. The pre-RW-9 baseline (per the task directive):
 
 | Metric                | Pre-RW-9 (directive) | Round-6 start (actual) | Round-6 end (this round) | Current (post-round-6 follow-ups) |
 | --------------------- | -------------------- | ---------------------- | ------------------------ | --------------------------------- |
-| `app.py` line count   | 2352                 | 2321                   | 2314                     | **949** (`wc -l voice_typer/server/app.py` as of S1-CR-131 reconciliation) |
+| `app.py` line count   | 2352                 | 2321                   | 2314                     | **1676** (`wc -l voice_typer/server/app.py`, as of 2026-08-05) |
 | `VoiceTyperApp` methods | 61                 | 35                     | 35                       | 35 (unchanged — follow-ups moved whole controllers out, not methods) |
 | `self.models` / `self.recording` / `self.hotkeys` / `self.tray` calls | ~82 | (not recounted) | (not recounted) | (not recounted) |
 
@@ -27,8 +27,10 @@ liability in the codebase. The pre-RW-9 baseline (per the task directive):
 > vocabulary, templates, dictation, model, microphone, status,
 > onboarding, privacy, system, level_monitor sub-services). Each
 > extraction moved real method bodies out of `VoiceTyperApp` into a
-> dedicated module, dropping `app.py` from 2314 → 949 lines (−59%
-> from Round-6-end, −60% from the pre-RW-9 directive baseline). The
+> dedicated module. The line-count figure above is captured as of
+> **2026-08-05** so future drift is detectable — re-run
+> `wc -l voice_typer/server/app.py` and update this row (and the
+> surrounding prose) when comparing future RW-9 follow-ups. The
 > ASCII-art snapshot in §8 below still shows the Round-6-end shape and
 > is preserved unchanged for historical context.
 

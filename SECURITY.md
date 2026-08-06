@@ -52,15 +52,15 @@ entry-level parity is asserted by `tests/test_rust_allowlist_parity.py`.
 > directly, NOT via the generic dispatch path). The remaining **63**
 > handlers are renderer-callable. The +2 host-only delta is asserted by
 > the `_HOST_ONLY_COMMANDS` frozenset in
-> `tests/test_security_doc_command_count.py`. (S4-CR-18 reconciliation
+> `tests/test_security_doc_command_count.py`. (reconciliation
 > 2026-07-24: an earlier draft of this blockquote mentioned "78
 > handlers" + "17 stale entries" + "19 of the 78 handlers" — that
-> framing was a leftover from the pre-CR-18 78-entry registry. The 17
+> framing was a leftover from the 78-entry registry. The 17
 > stale entries were deleted from all three sources of truth — the
 > Python `_COMMAND_REGISTRY`, the TS `ALLOWED_COMMANDS` set, and the
-> Rust `allowed_commands()` literal — in lockstep during CR-18, so
-> they no longer exist in any layer. The current counts are 64 Python
-> ↔ 62 TS ↔ 60 Rust, with the +2 host-only delta as the only
+> Rust `allowed_commands()` literal — in lockstep during, so
+> they no longer exist in any layer. The current counts are 65 Python
+> ↔ 63 TS ↔ 61 Rust, with the +2 host-only delta as the only
 > intentional divergence.)
 
 > **TS-only exceptions (`_TS_ONLY_EXCEPTIONS`):** Two commands are present
@@ -120,8 +120,8 @@ SEC-018 model:
    `_authenticate()` (`voice_typer/server/sidecar_ws.py:177`) compares
    the supplied token against the expected value with
    `hmac.compare_digest` (constant-time comparison — no early-exit
-   timing leak). A 5-second auth-frame timeout (matching the TCP path's
-   PR-3-FIX-1 bound) closes unauthenticated connections before they hold
+   timing leak). A 5-second auth-frame timeout matching the TCP path's
+   closes unauthenticated connections before they hold
    resources.
 4. **Reject.** On mismatch or timeout the sidecar closes the WS with
    code `1008` (policy violation) and logs `[SIDECAR-WS] auth token

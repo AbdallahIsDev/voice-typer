@@ -361,7 +361,7 @@ cargo tauri build
 | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries + 6 prewarm binaries) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
 | `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | Least-privilege capability split (CR-5 / SEC-026): `main-runtime` grants the privileged main window scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`, and `core:tray:*`; `bubble-runtime` is minimal (`core:event:default` + `core:window:allow-start-dragging`) so a compromised bubble renderer cannot spawn, write clipboard, or touch the tray. (The legacy `migrate-runtime.json` file was split into these two scopes.) |
 | `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Auto-installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API when Tauri is detected; no-op under Electron (the preload already installed the namespaces). |
-| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake (ZR-56 reconciliation 2026-07-24: the implementation has always been a constant-time bearer-token literal match via `hmac.compare_digest`, not a keyed HMAC — historical "HMAC" wording has been reconciled across docs), dispatches WS frames via `IPCServer._dispatch` (reuses the 63-command registry unchanged — CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18, see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
+| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake (ZR-56 reconciliation 2026-07-24: the implementation has always been a constant-time bearer-token literal match via `hmac.compare_digest`, not a keyed HMAC — historical "HMAC" wording has been reconciled across docs), dispatches WS frames via `IPCServer._dispatch` (reuses the 65-command registry unchanged — CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18, see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
 | `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. Electron path unchanged. |
 
 #### Cutover status
@@ -385,7 +385,7 @@ voice-typer/
 │   ├── server/                       # Python backend (the "real" app)
 │   │   ├── ipc_server.py             # TCP JSON-lines server, SEC-018 token auth
 │   │   ├── app.py                    # VoiceTyperApp — orchestrator
-│   │   ├── config.py                 # SEC-002 allowlist, SEC-003 redaction
+│   │   ├── config/                 # SEC-002 allowlist, SEC-003 redaction (package: __init__.py + loader.py + sanitization.py + coercion.py)
 │   │   ├── security.py               # token / URL / file-perm helpers
 │   │   ├── tray.py / tray_menu.py    # pystray tray icon + menu
 │   │   ├── recording/                # PortAudio capture → deque (package; see docs/rw04-recording-decomposition.md)
@@ -599,7 +599,7 @@ untrusted-by-default: each inbound message is size-capped at 1 MB
 (SEC-009), rate-limited at 200 burst / 60 sustained messages per second
 (RELIABILITY-006), and dispatched through a per-method allowlist
 (`set_config` enforces the SEC-002 allowlist (`IPC_CONFIG_ALLOWLIST` in
-``voice_typer/server/config_validators.py``) with type/range/
+``voice_typer/server/config_validators/__init__.py``) with type/range/
 enum/URL validation; `get_config` redacts API keys via SEC-003).
 
 The Python **backend** is a long-running tray app. `VoiceTyperApp`
@@ -654,7 +654,7 @@ subscription. See `docs/ARCHITECTURE.md` for the full diagram and
   ``.pre-commit-config.yaml`` for the rationale).
 - **Use `log.exception(...)`** for error paths, not bare `print()` or
   `logging.error(...)` without a traceback. The exception is
-  automatically attached. See `voice_typer/server/log.py` for the
+  automatically attached. See `voice_typer/server/log/__init__.py` for the
   shared logger setup.
 - **Never use `# type: ignore`** to silence a real type error — fix
   the type or add a per-module override in `pyproject.toml` (the list
@@ -760,7 +760,7 @@ are updated together.
 #### The 11 touchpoints (in update order)
 
 1. **Python `_COMMAND_REGISTRY`** — add `"<cmd>": "_handle_<cmd>"` to the
-   `_COMMAND_REGISTRY` dict in `voice_typer/server/ipc_server.py`. This is
+   `_COMMAND_REGISTRY` dict in `voice_typer/server/ipc/registry.py`. This is
    what actually routes the inbound `{"type": "…"}` message to a handler.
 2. **Python handler method** — implement `def _handle_<cmd>(self, data, resp)`
    in `voice_typer/server/handlers/<domain>_handlers.py` (preferred) or
@@ -886,7 +886,7 @@ Adding a new **ASR engine** has its own touchpoint set: see
   in `tests/test_benchmarks.py` (CI runs them but does not fail on
   regression — that's a manual decision).
 - **Mutation testing:** `mutmut` is configured (see `[tool.mutmut]`
-  in `pyproject.toml`) for `text_cleanup.py`, `config.py`, `tray.py`,
+  in `pyproject.toml`) for `text_cleanup.py`, `config/__init__.py`, `tray.py`,
   and `tray_menu.py`. Run it locally before merging changes to those
   modules — `mutmut run` then `mutmut results`. **Local-only — see
   §4.5** for why it's not in CI and the exact commands.

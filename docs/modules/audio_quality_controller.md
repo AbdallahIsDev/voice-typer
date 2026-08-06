@@ -14,15 +14,6 @@ Key responsibilities:
 
 ## Entry Points
 
-- **`accumulate_chunk(level_data)`** — called by the recording pipeline after each audio chunk is processed. Updates running quality metrics.
-- **`reconfigure(changed_fields)`** — called when audio-related config fields change mid-recording. Rebuilds the filter chain for the new settings.
-- **`finalize_report()`** — called at the end of a recording session. Returns a `QualityReport` dict with warnings, suggestions, and per-metric summaries.
-- **`reset()`** — clears all accumulated state for a new recording session.
-
-## IPC Surface
-
-The `AudioQualityController` does not expose a direct IPC surface. Quality metrics are surfaced to the renderer via:
-- **Push event** `"recording_quality"` — emitted periodically during recording with intermediate quality data.
-- **Push event** `"recording_complete"` — emitted at the end of a recording, includes the final quality report.
-
-Both events are published via the `event_bus` and forwarded to the Electron/Tauri renderer through the heartbeat or WS bridge.
+- **`_on_audio_quality_chunk(rms: float, peak: float)`** — called by the recording pipeline after each audio chunk is processed. Updates running quality metrics (RMS, peak, clipping counter, SNR estimate, silence ratio) for the live `bubble_level` event and the post-recording report.
+- **`_rebuild_audio_processor(force_sr: int | None = None)`** — called when audio-related config fields change mid-recording (or when the device's reported sample rate disagrees with the configured one). Tears down the existing filter chain and rebuilds it for the new settings without breaking the in-flight recording session. `force_sr` lets the caller pin the rebuild to a specific sample rate (used by the device-swap path).
+- **`_finalize_audio_quality_report(audio: np.ndarray)`** — called at the end of a recording session with the final captured audio buffer. Computes the post-recording quality summary (peak, RMS, clipping samples, silence ratio, recommended gain), attaches it to the outgoing `recording_complete` event payload, and resets the per-session accumulators.

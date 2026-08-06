@@ -3,7 +3,7 @@
 All notable changes to Voice Typer are documented here.
 This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 
-## [Unreleased] - 2026-07-21
+## [Unreleased]
 
 ### Architecture — post-2026-06-30 review round
 
@@ -62,7 +62,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   - `voice_typer/client/src/main/allowed-commands.ts` (TS renderer allowlist)
   - `src-tauri/src/commands/sidecar_cmds.rs` `allowed_commands()` literal
     (Rust host defense-in-depth allowlist)
-  - `voice_typer/server/ipc_server.py` `_COMMAND_REGISTRY` dict (Python
+  - `voice_typer/server/ipc/registry.py` `_COMMAND_REGISTRY` dict (Python
     server-side dispatch table)
 
   Removed commands: `apply_vocabulary_suggestion`, `check_accessibility`,
@@ -75,8 +75,8 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 
   The Python-side `_handle_*` methods are retained (tests still call them
   directly via `ipc_server._handle_*`), but they are no longer reachable
-  via IPC dispatch. The new counts: TS allowlist = 61, Rust allowlist = 61,
-  Python registry = 63 (the +2 are `tray_click` and `shutdown`, which are
+  via IPC dispatch. The new counts: TS allowlist = 63, Rust allowlist = 61,
+  Python registry = 65 (the +2 are `tray_click` and `shutdown`, which are
   host-only commands the renderer never sends — see the `_HOST_ONLY_COMMANDS`
   frozenset in `tests/test_security_doc_command_count.py`). The 4-way parity
   test (`tests/test_security_doc_command_count.py` +
@@ -108,7 +108,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   `bash scripts/check-new-command.sh <cmd>`.
 
 ### Modified files
-- `voice_typer/server/ipc_server.py` — `_COMMAND_REGISTRY` dict narrowed
+- `voice_typer/server/ipc/registry.py` — `_COMMAND_REGISTRY` dict narrowed
   from 78 → 61 entries (17 stale entries removed). The 17
   `_handle_*` methods are retained (tests call them directly).
 - `src-tauri/src/commands/sidecar_cmds.rs` — `allowed_commands()` literal
@@ -177,7 +177,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   allowlist narrowing; the 17 removed commands didn't emit any error
   codes that the registry test guards).
 
-## [Unreleased] - 2026-06-30
+## [Unreleased — historical 2026-06-30]
 
 ### Added — Zero-Command Hotkey Architecture (ADR 0008)
 
@@ -203,7 +203,10 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
   retry timer auto-recovers the native backend when it comes back.
 
 ### New files
-- `voice_typer/server/permissions.py` — OS permission detection + onboarding
+- `voice_typer/server/permissions/` package — OS permission detection + onboarding
+  (split into `permissions/__init__.py`, `permissions/mic.py`,
+  `permissions/accessibility.py`, `permissions/filesystem.py`,
+  `permissions/checker.py`)
 - `scripts/linux/install_permissions.py` — Linux udev/group/Caps Lock installer
 - `scripts/linux/uninstall_permissions.py` — Linux uninstaller
 - `scripts/linux/99-voice-typer.rules` — udev rule
@@ -222,19 +225,12 @@ This project follows [Keep a Changelog](https://keepachangelog.com/) format.
 - `scripts/build/voice-typer.spec` — bundles Linux scripts + permissions module
 - `.github/workflows/build.yml` — added build-native matrix + build-macos + build-linux jobs
 
-## [Unreleased - earlier native-hotkey work] - 2026-06-30
-
-The entries below describe the earlier NATIVE-001 work that the
-Zero-Command Hotkey Architecture (ADR 0008) section above builds on.
-Both roll up into the same unreleased release; the section heading is
-distinct to avoid duplicating the `## [Unreleased]` header.
-
-### Added
+### Added — earlier NATIVE-001 work
 - Cross-platform native hotkey architecture (NATIVE-001)
   - macOS: native Swift binary supports the Fn key via NSEvent.modifierFlags.function
   - Windows: native C binary uses WH_KEYBOARD_LL (lower CPU, supports key suppression)
   - Linux: native C binary uses evdev (/dev/input/event*) — works on both X11 and Wayland
-- Platform-aware default hotkey: Fn (macOS), Caps Lock (Windows/Linux)
+- Default hotkey: `Caps Lock` on ALL platforms (Windows, macOS, Linux); `Fn`/Globe key remains an alternative on macOS via the Settings dropdown
 - Settings UI: dropdown trimmed to universally-present keys (Caps Lock, Alt, Ctrl, Shift, Win/Cmd, Fn on macOS)
 - Modifier-only hotkeys (Alt, Ctrl, Shift, Win/Cmd, Fn) now supported as single-key triggers
 - FN key support on macOS (firmware-only on Windows/Linux — rejected at validation)

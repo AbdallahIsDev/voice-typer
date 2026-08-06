@@ -20,7 +20,7 @@ audiences: [`README.md`](../README.md), [`CONTRIBUTING.md`](../CONTRIBUTING.md),
 |------|---------|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | High-level architecture: renderer ↔ Electron main ↔ Python backend ↔ Rust host. Start here. |
 | [python-api.md](python-api.md) | Python class API reference (`VoiceTyperApp`, `Recorder`, `TranscriptionEngine`, `Config`, etc.). Kept in sync with the code by `tests/test_api_doc_accuracy.py`. |
-| [ipc-reference.md](ipc-reference.md) | IPC message reference — 63 commands + 24 push events grouped by namespace, with allowlist + per-command notes. |
+| [ipc-reference.md](ipc-reference.md) | IPC message reference — 65 commands (63 renderer-reachable + 2 host-only) + 36 push events grouped by namespace, with the four-allowlist contract (server registry + Electron allowlist + renderer types + Rust host) and per-command notes. |
 | [API.md](API.md) | **Deprecated.** Retained only for inbound-link compat — see `python-api.md` + `ipc-reference.md` instead. |
 | [debugging.md](debugging.md) | How to read the logs, attach a debugger, and reproduce common failure modes. |
 | [ruff-ratchet.md](ruff-ratchet.md) | How the ruff lint ratchet works (`ruff-baseline.json` + `scripts/ruff_ratchet_check.py`). |
@@ -65,6 +65,16 @@ process and [adr/template.md](adr/template.md) when adding a new ADR.
 
 ## Historical documents
 
+The following historical planning + progress trackers live at the top
+level of `docs/` (there is no `docs/history/` subdirectory — they are
+sibling files). They are retained for design rationale; they are NOT
+authoritative for current state. Each file carries a STATUS header at
+the top noting whether its action items are still live.
+
 | File | Purpose |
 |------|---------|
-| [history/](history/) | Superseded planning + progress trackers (rw*.md work-stream notes). Retained for design rationale; not authoritative for current state. |
+| [rw04-recording-decomposition.md](rw04-recording-decomposition.md) | RW-4 — recording-lifecycle decomposition notes (RecordingController extraction). |
+| [rw8-meta-tests-triage.md](rw8-meta-tests-triage.md) | RW-8 — triage of the now-deleted `tests/test_bugfix_regressions.py` meta-tests. Historical; the source file has been removed and the surviving behavioral ports live in `tests/test_bugfix_regressions_behavioral.py`. |
+| [rw9-god-class-decomposition.md](rw9-god-class-decomposition.md) | RW-9 — `VoiceTyperApp` god-class decomposition tracker (controller extractions, `app.py` line-count history). |
+| [vitest-rewrite-progress.md](vitest-rewrite-progress.md) | RW-0 — vitest rewrite progress tracker for the 87 string-pattern Python tests. Historical; `tests/test_feature_hardening_regressions.py` was deleted post-rewrite. |
+| [native-hotkey-architecture-plan.md](native-hotkey-architecture-plan.md) | Historical plan for the cross-platform native-hotkey rewrite. See ADR-0007 for what shipped. |

@@ -4,6 +4,11 @@
 
 Accepted — implemented in `voice_typer/server/ipc_server.py:_heartbeat_loop`, `_check_heartbeat_timeout`, `_handle_heartbeat`, and `client/src/main/index.ts` heartbeat interval.
 
+> **Note (ADR-0020):** under the Tauri build path (`TAURI_SIDECAR=1`), the
+> `_heartbeat_loop` thread is **NOT** started — the Rust supervisor
+> replaces this watchdog via WS-close / process-exit detection. This ADR
+> remains in force only for the Electron fallback path.
+
 ## Date
 
 2026-07-14

@@ -1,5 +1,14 @@
 # RW-8 Meta-Tests Triage — `tests/test_bugfix_regressions.py`
 
+**STATUS: Historical — the meta-tests in `tests/test_bugfix_regressions.py`
+were removed after the PORT-candidates' behavioral replacements proved
+stable.** See `tests/test_bugfix_regressions_behavioral.py` for the
+current test file (the 5 behavioral ports survive). The triage tables
+and validation commands below are preserved unchanged for design
+rationale and historical context; do not treat the `KEEP` / `PORT` /
+`DELETE` action items as live TODOs — they have all been resolved
+(KEEP/PORT/DELETE-classified tests were deleted along with the file).
+
 **Task ID**: `rw-8-meta-tests-batch`
 **Scope**: Triage all source-string meta-tests in `tests/test_bugfix_regressions.py` (tests that read production source / config / test files as text and assert on string patterns).
 

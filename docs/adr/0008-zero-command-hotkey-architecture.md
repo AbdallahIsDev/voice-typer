@@ -1,9 +1,27 @@
 # ADR 0008: Voice Typer — Zero-Command Hotkey Architecture Design
 
+> **Path-note (post-ADR decomposition):** the hotkey backends have since
+> been split from a single `voice_typer/server/hotkeys.py` module into the
+> `voice_typer/server/hotkeys/` package (`base.py`, `factory.py`,
+> `native_adapter.py`, `pynput_backend.py`, `wayland.py`,
+> `windows_native.py`, `win32_vk.py`). The native-binary subprocess glue
+> has likewise been split from `voice_typer/server/native_hotkeys.py` into
+> the `voice_typer/server/native_hotkeys/` package (`base.py`,
+> `binary_path.py`, `factory.py`, `linux_backend.py`, `mac_backend.py`,
+> `modifiers.py`, `recorder.py`, `spec_parser.py`, `windows_backend.py`).
+> The prose, file-inventory, and code-block comments below retain the
+> historical `hotkeys.py` / `native_hotkeys.py` references for
+> traceability against the original implementation analysis — read each
+> `hotkeys.py::symbol` as `hotkeys/<module>.py::symbol` (and similarly
+> for `native_hotkeys/`) per the package splits.
+
+## Status
+
+Accepted — all 4 gaps closed (status normalized to the template enum from the prior "Implemented — all 4 gaps closed" inline value).
+
 **Document version**: 1.0
 **Date**: 2026-06-30
 **Scope**: Closes four identified gaps in the native hotkey architecture
-**Status**: Implemented — all 4 gaps closed
 
 ---
 
@@ -1025,8 +1043,8 @@ All four gaps are "done" when:
 
 | Path | Changes | Approx LOC delta |
 |---|---|---|
-| `voice_typer/server/native_hotkeys.py` | Add `_on_error_callback`, `_on_permanent_failure_callback`; signal adapter on failure | +30 |
-| `voice_typer/server/hotkeys.py` | Extend `_NativeBackendAdapter` with state machine, swap logic, retry timer | +120 |
+| `voice_typer/server/native_hotkeys/` package (historically `native_hotkeys.py`) | Add `_on_error_callback`, `_on_permanent_failure_callback`; signal adapter on failure | +30 |
+| `voice_typer/server/hotkeys/` package (historically `hotkeys.py`) | Extend `_NativeBackendAdapter` with state machine, swap logic, retry timer | +120 |
 | `voice_typer/client/electron-builder.yml` | Add Linux targets (deb, rpm, AppImage) + afterInstall/afterRemove hooks | +40 |
 | `README.md` | Document zero-command setup per platform | +50 |
 | `docs/PLATFORM_STATUS.md` | Update Linux/macOS status | +20 |

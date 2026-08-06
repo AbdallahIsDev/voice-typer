@@ -226,7 +226,7 @@ See `docs/home-directory.md` for the full per-platform layout.
 Use Settings for normal changes. Use the advanced settings button to open the raw config file only when troubleshooting.
 
 All configurable fields, their defaults, and descriptions are defined in
-`voice_typer/server/config.py` — that file is the canonical source of truth
+`voice_typer/server/config/__init__.py` — that file is the canonical source of truth
 for every setting. Key categories:
 
 | Category | Settings |
@@ -261,15 +261,7 @@ respectively.
 
 ### Hotkey
 
-The dictation hotkey defaults to a **platform-aware** value chosen for ergonomic, single-key triggering:
-
-| Platform | Default hotkey | Notes |
-|---|---|---|
-| **macOS** | `Fn` (the Globe/Fn key on modern Macs) | Requires Accessibility permission. The Fn key is firmware-routed to a software-visible modifier on macOS only. |
-| **Windows** | `Caps Lock` | Requires OS-level remap to neutralize caps-toggling (see [Troubleshooting](#troubleshooting)). |
-| **Linux** | `Caps Lock` | Requires `setxkbmap -option caps:none` so Caps Lock doesn't also toggle caps state. |
-
-The legacy `<f2>` default from older releases is preserved as a fallback — existing users with `<f2>` in their config keep it untouched, and new installs that can't use the platform default (e.g. binary missing) fall back to `<f2>`.
+The dictation hotkey defaults to `Caps Lock` on **ALL platforms** (Windows, macOS, Linux). This is universally present, rarely used in shortcuts, and easy to remap. The `Fn`/Globe key remains available as an alternative on macOS via the Settings dropdown.
 
 You can pick any key or combination via the Settings capture dialog (the **Hotkey** field's **Capture** button). The dialog accepts modifier-only releases as single-key hotkeys — press `Alt` alone and release, and the hotkey becomes `<alt>`.
 
@@ -455,7 +447,7 @@ voice_typer/
 │   ├── app.py          # VoiceTyperApp orchestrator — startup, state machine, thread safety
 │   ├── asr_setup.py    # ASR auto-setup: GPU detection, dependency checking, weight downloading
 │   ├── asr_registry.py # Registry of ASR backends (whisper/qwen/parakeet)
-│   ├── config.py       # Configuration with platform-aware paths, validation, schema versioning
+│   ├── config/        # Configuration package (platform-aware paths, validation, schema versioning) — see config/__init__.py
 │   ├── recording/     # Session-based audio recording (package: recorder, buffer, resampling, exceptions)
 │   ├── transcription.py  # faster-whisper engine with GPU→CPU fallback chain
 │   ├── qwen_engine.py  # Optional Qwen3-ASR-0.6B backend
@@ -526,7 +518,7 @@ Voice Typer writes **two** log files (one per process). The Python
 backend log lives directly under the data directory; the Tauri Rust
 host log lives under a `logs/` subdir. Both rotate at 5 MiB with 5
 backups kept (`RotatingFileHandler(maxBytes=5_242_880, backupCount=5)`
-in `voice_typer/server/log.py:915-922`; ADR-0020 §11 specifies the
+in `voice_typer/server/log/__init__.py:531-532`; ADR-0020 §11 specifies the
 5 MiB × 5 cap).
 
 | Platform | Python backend log | Tauri Rust host log |

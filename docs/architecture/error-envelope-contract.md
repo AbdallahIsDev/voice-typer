@@ -22,7 +22,7 @@ The `id` field is omitted when the error pre-dates request parsing (e.g. malform
 
 ## Both paths are generic
 
-There is **no** per-transport divergence. Both the TCP path (`ipc_server.py:_handle_tcp_connection`) and the WS path (`sidecar_ws.py:_handle_connection`) emit the same generic envelope for unhandled exceptions:
+There is **no** per-transport divergence. Both the TCP path (`ipc/transport_tcp.py:_handle_tcp_connection` on `TCPTransportMixin`, inherited by `IPCServer`) and the WS path (`sidecar_ws.py:_handle_connection`) emit the same generic envelope for unhandled exceptions:
 
 ```json
 {"type": "error", "data": {"code": "server.internal_error", "message": "internal error"}}
@@ -88,7 +88,7 @@ Both transports return the SAME per-command validation error envelopes (e.g. `{"
 
 ## Wire-side behavior
 
-- **TCP path (Electron host)** — `ipc_server._handle_tcp_connection`'s ERR-018 block constructs the `{"type": "error", "data": {"code": "server.internal_error", "message": "internal error"}}` envelope for any unhandled dispatch exception, attaches the originating request `id` if available, and sends it back on the same socket. Validation errors from `_validate_dict_payload` are returned by the handler itself and flow back through the same `_send` path. Rate-limit rejections and invalid-JSON errors emit the namespaced `client.rate_limited` / `client.invalid_payload` codes with a transitional `legacy_code` alias (PI-23).
+- **TCP path (Electron host)** — `ipc/transport_tcp.py:_handle_tcp_connection` (on `TCPTransportMixin`, inherited by `IPCServer`)'s ERR-018 block constructs the `{"type": "error", "data": {"code": "server.internal_error", "message": "internal error"}}` envelope for any unhandled dispatch exception, attaches the originating request `id` if available, and sends it back on the same socket. Validation errors from `_validate_dict_payload` are returned by the handler itself and flow back through the same `_send` path. Rate-limit rejections and invalid-JSON errors emit the namespaced `client.rate_limited` / `client.invalid_payload` codes with a transitional `legacy_code` alias (PI-23).
 - **WS path (Tauri host)** — `sidecar_ws._handle_connection` reuses `IPCServer._dispatch` for inbound frames, so validation errors come back verbatim. For dispatch-loop exceptions, the WS path's catch-all (see the IPC-5 / 2026-07-18 reconciliation comment in `sidecar_ws.py`) returns the **same** `{"type": "error", "data": {"code": "server.internal_error", "message": "internal error"}}` envelope as the TCP path — same `code`, same `message`, no leakage of `str(exception)`. The two paths are byte-identical on the wire (modulo the optional `id` correlation field).
 
 ## Client-side handling

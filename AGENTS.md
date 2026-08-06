@@ -45,13 +45,13 @@ rationale lives in `CONTRIBUTING.md`:
 
 - **§6.3 Security** (`CONTRIBUTING.md` §6.3) — non-negotiable rules:
   the `set_config` SEC-002 allowlist (`IPC_CONFIG_ALLOWLIST` in
-  `voice_typer/server/config.py`), redaction (SEC-003), the
+  `voice_typer/server/config_validators/__init__.py`), redaction (SEC-003), the
   per-renderer IPC rate limiter (SEC-019), and the TCP auth token
   boundary. Do NOT add fields to `set_config` outside the SEC-002
   allowlist; do NOT bypass the renderer→main→backend allowlist chain.
 - **§6.4 IPC command parity** (`CONTRIBUTING.md` §6.4) — the THREE
   allowlists must stay in lockstep:
-  1. Server: `_COMMAND_REGISTRY` in `voice_typer/server/ipc_server.py`.
+  1. Server: `_COMMAND_REGISTRY` in `voice_typer/server/ipc/registry.py`.
   2. Electron main: `ALLOWED_COMMANDS` in
      `voice_typer/client/src/main/allowed-commands.ts`.
   3. Renderer types: `PythonRequest` / `PythonPushEvent` unions in
@@ -111,7 +111,7 @@ over reinventing mocks:
   `(ipc_server, fake_app, fake_service)` wired together with all
   heavy imports mocked), plus assertion helpers for response
   envelopes. The `mock_heavy_imports` autouse fixture (see
-  `tests/conftest.py:232`) stubs `pystray`, `pynput`, `sounddevice`,
+  `tests/conftest.py:434`) stubs `pystray`, `pynput`, `sounddevice`,
   `whisper`, and other platform/audio deps so tests run headless on
   Linux CI without those packages installed.
 - **Renderer test helpers:** `voice_typer/client/src/renderer/src/__tests__/helpers/renderApp.tsx`

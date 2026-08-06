@@ -1,6 +1,9 @@
 # ADR 0012: Clipboard Borrow/Restore Architecture
 
-**Status**: Final
+## Status
+
+Accepted (status normalized to the template enum from the prior inline "Final" value).
+
 **Date**: 2026-07-13
 **Revised**: 2026-07-13 (wired `refresh_config()` to correct file `service.apply_config()`; added required `IPC_CONFIG_ALLOWLIST` entries; hardened `get_latest_text()` ordering; synced `paste_enabled` from `paste_on_stop` in `refresh_config()` and added `paste_on_stop` trigger; added `force` bypass so repaste is independent of auto-paste; added redundant-clipboard-cycle optimization)
 **Supersedes**: Dead code at `clipboard.py:812` (`schedule_clipboard_clear`), `clipboard.py:543` (`_saved_clipboard`), `clipboard.py:541` (`_clear_thread`)

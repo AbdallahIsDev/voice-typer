@@ -20,10 +20,10 @@ model management, and IPC server.
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
 | `__init__()` | — | — | Initializes app state, does NOT start services. |
-| `start()` | — | `None` | Starts the tray icon, IPC server, and main event loop. Blocks until `quit()`. (Renamed from the historical `run()` — see `def start` in `voice_typer/server/app.py`. The IPC command is also `start`.) |
+| `start()` | — | `None` | Starts the tray icon, IPC server, and main event loop. Blocks until `quit()`. (Renamed from the historical `run()` — see `def start` in `voice_typer/server/app.py`.) |
 | `quit()` | — | `None` | Graceful shutdown: stops recording, restores volume, closes IPC, releases mutex. |
 | `toggle_dictation()` | — | `None` | Toggle dictation on/off. Thread-safe (serialized via `_toggle_lock`). |
-| `restart_app()` | — | `None` | Spawns a new process and quits the current one. Uses restart token for mutex bypass. (Renamed from the historical `restart()` — see `def restart_app` in `voice_typer/server/app.py:792`. The IPC command is also `restart_app`.) |
+| `restart_app()` | — | `None` | Spawns a new process and quits the current one. Uses restart token for mutex bypass. (Renamed from the historical `restart()` — locate by `def restart_app` in `voice_typer/server/app.py`.) |
 
 ### Key Properties
 
@@ -72,8 +72,8 @@ Wraps faster-whisper CTranslate2 models for speech-to-text transcription.
 
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
-| `load(progress_callback=None)` | `progress_callback: Callable[[float], None] \| None` | `None` | Load the model into memory. The optional callback receives a 0.0–1.0 progress fraction (used by the Models page progress bar). See `def load` in `voice_typer/server/transcription.py:308`. |
-| `transcribe(audio, audio_stats=None)` | `audio: np.ndarray`, `audio_stats: tuple[float, float, float] \| None` | `str` | Transcribe audio to text. `audio_stats` is the `(rms_db, peak_db, snr_db)` tuple from the recorder's level monitor — passed through so the engine can log quality telemetry alongside the transcription. See `def transcribe` in `voice_typer/server/transcription.py:798`. (The historical `transcribe(audio, sample_rate)` signature was removed when sample-rate normalization moved into `AudioBuffer` — the recorder now hands the engine an already-resampled array plus its `effective_sample_rate`.) |
+| `load(progress_callback=None)` | `progress_callback: Callable[[float], None] \| None` | `None` | Load the model into memory. The optional callback receives a 0.0–1.0 progress fraction (used by the Models page progress bar). Locate by `def load` in `voice_typer/server/transcription.py`. |
+| `transcribe(audio, audio_stats=None)` | `audio: np.ndarray`, `audio_stats: tuple[float, float, float] \| None` | `str` | Transcribe audio to text. `audio_stats` is the `(rms_db, peak_db, snr_db)` tuple from the recorder's level monitor — passed through so the engine can log quality telemetry alongside the transcription. Locate by `def transcribe` in `voice_typer/server/transcription.py`. (The historical `transcribe(audio, sample_rate)` signature was removed when sample-rate normalization moved into `AudioBuffer` — the recorder now hands the engine an already-resampled array plus its `effective_sample_rate`.) |
 | `is_loaded` | — | `bool` | Whether a model is currently loaded in memory. |
 | `unload()` | — | `None` | Release the model from memory. |
 
@@ -89,14 +89,15 @@ Application configuration with type-safe access and atomic persistence.
 
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
-| `Config.load()` | — | `Config` | Class method. Load config from disk (secure read) and return a populated `Config` instance. See `def load` in `voice_typer/server/config.py:1528`. |
-| `Config.save()` | — | `bool` | Persist this `Config` instance to disk (atomic write). Returns `True` on success, `False` on failure. See `def save` in `voice_typer/server/config.py:1351`. |
-| `Config.save_strict()` | — | `None` | Like `save()` but raises on failure instead of returning `False`. Used by callers that need fail-fast semantics (e.g. config wizards, schema migrations). See `def save_strict` in `voice_typer/server/config.py:1500`. |
+| `Config.load()` | — | `Config` | Class method. Load config from disk (secure read) and return a populated `Config` instance. Locate by `def load` in `voice_typer/server/config/__init__.py`. |
+| `Config.save()` | — | `bool` | Persist this `Config` instance to disk (atomic write). Returns `True` on success, `False` on failure. Locate by `def save` in `voice_typer/server/config/__init__.py`. |
+| `Config.save_strict()` | — | `None` | Like `save()` but raises on failure instead of returning `False`. Used by callers that need fail-fast semantics (e.g. config wizards, schema migrations). Locate by `def save_strict` in `voice_typer/server/config/__init__.py`. |
 
 > **Note on `get` / `set` methods (removed).** Earlier drafts of this
 > document listed `Config.get(key, default)` and `Config.set(key, value)`.
 > Those methods **never existed** on the current `Config` class —
-> `Config` is a `@dataclass` (see `voice_typer/server/config.py:770`),
+> `Config` is a `@dataclass` (locate by `class Config` in
+> `voice_typer/server/config/__init__.py`),
 > so callers read and write fields via ordinary attribute access
 > (`config.model_size`, `config.paste_on_stop = True`). To mutate a
 > field and persist, set the attribute then call `config.save()`
@@ -149,8 +150,8 @@ Handles copying text to clipboard and pasting into the focused application.
 
 | Method | Parameters | Returns | Description |
 |--------|-----------|---------|-------------|
-| `copy(text)` | `text: str` | `None` | Copy text to system clipboard. On Windows, empties clipboard first. |
-| `paste()` | — | `None` | Send paste keystroke (Ctrl+V or Shift+Insert for terminals). |
+| `copy(text)` | `text: str` | `ClipboardSnapshot \| None` | Copy text to system clipboard and return a `ClipboardSnapshot` capturing the previously-held clipboard contents (used by the borrow/restore path). On Windows, empties clipboard first. Returns `None` when the snapshot could not be captured (e.g. clipboard service unavailable). |
+| `paste(snapshot?, restore_delay?, pasted_text?, force?, pasted_seq?)` | `snapshot: ClipboardSnapshot \| None = None`, `restore_delay: float \| None = None`, `pasted_text: str \| None = None`, `force: bool = False`, `pasted_seq: int \| None = None` | `bool` | Send paste keystroke (Ctrl+V or Shift+Insert for terminals) into the focused window. The restore is ALWAYS scheduled on a daemon thread (ADR-0010 DP1/DP2) even when the keystroke is skipped. `force=True` bypasses the `paste_enabled` gate (used by `repaste_last`). Returns `True` if a keystroke was sent, `False` if paste is disabled, rate-limited, or blocked by the safety check. |
 
 ### Security Features
 
@@ -203,7 +204,7 @@ Qwen, Parakeet).
 |--------|-----------|---------|-------------|
 | `ensure_active_engine_loaded()` | — | `None` | Load the active engine if not already loaded. |
 | `start_background_load()` | — | `None` | Start background model loading (non-blocking). |
-| `unload_all()` | — | `None` | Unload all models from memory. |
+| `force_unload_active()` | — | `None` | Force-unload the currently active backend (replaces the historical `unload_all()` — the latter never had a real caller because the model manager only tracks one active backend at a time; the active-backend teardown path is what the IPC `force_cancel_transcription` and ASR-backend-failure recovery code paths invoke). Locate by `def force_unload_active` in `voice_typer/server/model_manager.py`. |
 
 ---
 
@@ -211,17 +212,27 @@ Qwen, Parakeet).
 
 **Module:** `voice_typer.server.security`
 
-Security utilities including restart token verification, PII redaction,
-and model integrity checking.
+Security utilities including PII redaction and model integrity
+checking. (The historical SEC-001 restart-token machinery —
+`generate_restart_token` / `verify_restart_token` /
+`consume_restart_token` — was dead code and has been removed; the
+`VOICE_TYPER_RESTART` env var is still honored as a hint that a restart
+is in progress, but no token file is created or verified.)
 
 ### Key Functions
 
 | Function | Parameters | Returns | Description |
 |----------|-----------|---------|-------------|
-| `generate_restart_token()` | — | `str` | Generate and persist a restart token. |
-| `verify_restart_token()` | — | `bool` | Verify the VOICE_TYPER_RESTART env var against the stored token. |
-| `compute_file_sha256(path)` | `path: Path` | `str` | Compute SHA-256 hash of a file. |
-| `verify_model_integrity(dir, repo_id)` | `dir: str`, `repo_id: str` | `bool` | Verify model files against the hash manifest. |
+| `compute_file_sha256(path)` | `path: Path` | `str` | Compute SHA-256 hash of a file. Locate by `def compute_file_sha256` in `voice_typer/server/security.py`. |
+| `verify_model_integrity(local_dir, repo_id)` | `local_dir: str`, `repo_id: str` | `bool` | Verify model files against the hash manifest. Locate by `def verify_model_integrity` in `voice_typer/server/security.py`. |
+
+> **Removed functions (documented for searchability — do NOT re-add):**
+> `generate_restart_token()` and `verify_restart_token()` were removed
+> from this module because the single-instance enforcement path relies
+> on the old process releasing the mutex/flock before the new process
+> acquires it, not on a time-limited token file. See the module-level
+> docstring in `voice_typer/server/security.py` for the full historical
+> note.
 
 ### PIIRedactionFilter
 

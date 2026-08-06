@@ -1,6 +1,6 @@
 # PrewarmResolver
 
-**File**: `voice_typer/server/prewarm_resolver.py` (213 lines)
+**File**: `voice_typer/server/prewarm_resolver.py` (241 lines)
 
 ## Responsibility
 

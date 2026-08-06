@@ -8,8 +8,9 @@
 >   Kept in sync with the actual class signatures by
 >   `tests/test_api_doc_accuracy.py`.
 > - **[`docs/ipc-reference.md`](ipc-reference.md)** — IPC message reference
->   (the 63-command / 24-event surface, grouped by namespace, with allowlist
->   + per-command notes).
+>   (the 65-command / 36-event surface — 63 renderer-reachable + 2 host-only
+>   commands; 36 typed push events — grouped by namespace, with the
+>   four-allowlist contract + per-command notes).
 >
 > New content MUST go in `docs/python-api.md` or `docs/ipc-reference.md`,
 > not here. Inbound links should be updated to point at those two files

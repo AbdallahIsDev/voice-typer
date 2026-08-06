@@ -4,8 +4,8 @@
 
 Accepted — implemented in `voice_typer/server/ipc_server.py` (canonical;
 duplicate leaf copy at `voice_typer/server/ipc/rate_limiter.py` retained
-per CR-14) as the `_RateLimiter` class, instantiated per
-`IPCServer` process via `_get_rate_limiter(server)` (CR-11 fix) and
+as the `_RateLimiter` class, instantiated per
+`IPCServer` process via `_get_rate_limiter(server)` and
 shared across all TCP / WS connections within that process.
 
 ## Date
@@ -70,7 +70,7 @@ exists.
 
 ### IPC-4 Dual-Window Revision (2026-07-18)
 
-The original RELIABILITY-006-FIX-10 comment claimed "burst is the hard
+The original comment claimed "burst is the hard
 per-second cap" but the implementation used a SINGLE deque for both
 checks, with the same `window` (10 s). With `burst=200` and
 `sustained=600` over the same 10 s deque, the burst check (`>= 200`)
@@ -82,7 +82,7 @@ slow-drip attacker sending 100 msgs/s for 10 s (1000 msgs total, well
 above the 600 sustained cap) was throttled at the 201st msg by the
 burst check, NOT at the 601st msg by the sustained check — but the
 throttle was the same either way (a `rate_limited` response). The real
-regression was that a slow-drip attacker sending 50 msgs/s (under the
+regression was that a slow-drip attacker sending 50 msgs/s under the
 200/s burst, but 500 msgs in 10 s — also under sustained because 500 <
 600) was NOT throttled at all, when the design intent was that 60
 msgs/s average should be the sustainable ceiling.
@@ -130,7 +130,7 @@ The constants live in both `voice_typer/server/ipc_server.py` (the
 canonical implementation; imported by tests as
 `from voice_typer.server.ipc_server import _RATE_LIMIT_BURST`) and the
 parallel leaf copy `voice_typer/server/ipc/rate_limiter.py` (retained
-per CR-14 — the duplicate `ipc/` package was NOT deleted in this
+the duplicate `ipc/` package was NOT deleted in this
 IMPROVE-mode run because the reviewer cycle for a package delete is too
 risky without a full test sweep). The two copies MUST stay in sync; a
 drift would surface as a test failure in
@@ -139,7 +139,7 @@ drift would surface as a test failure in
 
 ### Granularity
 
-**CR-11 fix (2026-07-15):** the limiter is now **per-process**, not
+**(2026-07-15) fix:** the limiter is now **per-process**, not
 per-connection. A single `_RateLimiter` instance is lazily created
 and stored on the `IPCServer` instance via `_get_rate_limiter(server)`.
 All TCP reconnects and WS reconnects within the same server process

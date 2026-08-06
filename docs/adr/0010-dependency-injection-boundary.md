@@ -1,6 +1,9 @@
 # ADR 0010: Dependency Injection Boundary for IPCServer
 
-**Status**: Accepted
+## Status
+
+Accepted
+
 **Date**: 2026-07-03
 **Related**: ARCH-REFAC-004 section in `docs/ARCHITECTURE.md`, ADR 0009 (audio filter chain architecture — unrelated domain but shares the "thin seam + protocol" approach)
 
@@ -44,7 +47,7 @@ seam here. The reasoning, recorded in the verification findings, was:
   improvement.
 - **Other priorities ranked higher.** Test renaming, CI tooling
   migration, microphone polling, and the audio filter chain (ADR
-  0007) all scored higher on the impact/effort axis.
+  0009) all scored higher on the impact/effort axis.
 
 By Round 2 the calculus changed: the test suite had grown further,
 IPC handler coverage was actively being expanded, and the need to

@@ -47,9 +47,9 @@ Implement **per-launch session token authentication** for the TCP/WS IPC channel
 
    **Note (YJ-FIX-D2):** the canonical `ERROR_CODES` registry in `voice_typer/server/ipc/validation.py` lists `client.auth_failed` as the target namespaced code; the emitter currently uses the legacy `auth_failed` alias per the `LEGACY_ERROR_CODES` backward-compat mapping (`validation.py:129-148`). The `id` field is omitted because auth-fail happens BEFORE request dispatch (no request id exists to correlate).
 
-5. **Auth timeout (PR-3-FIX-1):** A 5-second `settimeout` is applied to the socket before the auth read to prevent a "connect-and-stall" DoS attack (where a malicious client opens a TCP connection but never sends the auth line, holding the dispatcher thread indefinitely).
+5. **Auth timeout:** A 5-second `settimeout` is applied to the socket before the auth read to prevent a "connect-and-stall" DoS attack (where a malicious client opens a TCP connection but never sends the auth line, holding the dispatcher thread indefinitely).
 
-6. **Lock-free auth:** The auth handshake is performed **outside** `self._lock` (the IPC server's main lock). This prevents a stalled auth read from blocking `push()` events and other IPC dispatch threads (PR-3-FIX-1).
+6. **Lock-free auth:** The auth handshake is performed **outside** `self._lock` (the IPC server's main lock). This prevents a stalled auth read from blocking `push()` events and other IPC dispatch threads.
 
 7. **Fallback mode:** When `VOICE_TYPER_IPC_TOKEN` is not set (e.g., running `python -m voice_typer.server.ipc_server` from a terminal for debugging), the server emits a warning and accepts unauthenticated connections. This preserves the developer workflow without breaking security for production use.
 

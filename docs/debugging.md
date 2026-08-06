@@ -30,7 +30,13 @@ the app.
 | `VOICE_TYPER_PREWARM_EXE` | path | Override the prewarm binary path (frozen `prewarm-<triple>[.exe]`). Bypasses `resolve_prewarm_exe()`. |
 | `TAURI_SIDECAR` | `1` | Marks the process as running under the Tauri host. Skips ADR-0018 heartbeat-watchdog thread (supervisor owns liveness instead) and the Win32 single-instance mutex (Tauri `single-instance` plugin owns it). |
 
-### Frontend (Electron host)
+### Frontend (Electron host — legacy default)
+
+> **Note:** these env vars are read by the Electron main process and
+> are **ignored under the Tauri v2 host** (ADR-0020). Under Tauri,
+> window lifecycle + DevTools gating is controlled by the Rust host's
+> `tauri.conf.json` and capability files, not by these env vars. They
+> are documented here for the legacy Electron build path only.
 
 | Env var | Values | Effect |
 |---|---|---|
@@ -174,7 +180,12 @@ give you a `send(cmd)` / `recv()` pair.
 4. Run `tests/manual/runtime_proof.py` to verify the engine end-to-end
    with a known-good fixture.
 
-### "App won't start" (Electron host)
+### "App won't start"
+
+Two distinct host paths can produce an "app won't start" symptom.
+ Pick the sub-path that matches the host you're running.
+
+#### Sub-path A — Electron host (legacy default)
 
 1. Check the Electron main-process log
    (`<DATA_DIR>/logs/electron-main.log` — see [`docs/home-directory.md`](home-directory.md)
@@ -190,7 +201,7 @@ give you a `send(cmd)` / `recv()` pair.
    `tasklist | findstr voice-typer` — if a ghost process is holding
    the Win32 mutex, `taskkill /F /PID <pid>` it.
 
-### "App won't start" (Tauri host)
+#### Sub-path B — Tauri host (ADR-0020)
 
 1. Check `<DATA_DIR>/logs/voice-typer.log` for
    `{"event":"server_started","port":N}` — if absent, the sidecar

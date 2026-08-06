@@ -1,5 +1,9 @@
 # ADR 0011: Voice Typer — Prewarm & Autostart Architecture
 
+## Status
+
+Accepted
+
 **Repository:** `https://github.com/AbdallahIsDev/voice-typer`
 **Document Type:** Architecture Specification for Implementation
 **Date:** 2026-07-08
