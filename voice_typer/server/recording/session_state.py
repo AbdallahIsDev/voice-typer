@@ -60,10 +60,9 @@ import os
 import time
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 from voice_typer.server import recording as _recording_pkg
 from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
+from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.vad_processor import (
     DEFAULT_VAD_SILENCE_THRESHOLD_DB,
     DEFAULT_VAD_SPEECH_THRESHOLD_DB,
@@ -136,19 +135,19 @@ class SessionState:
         # checked AFTER pruning; if it's met, the deque is cleared).
         # The max in-memory size is therefore ``_flapping_max_restarts``
         # entries (3 by default) — negligible.
-        recorder._restart_timestamps: collections.deque = collections.deque()
+        recorder._restart_timestamps = collections.deque()
         # Default: 3 restarts within the window triggers on_device_lost.
         # Tuned for BT HFP/HSP flapping (typical flap cadence is 5-30s
         # between disconnect+reconnect cycles; 3 in 60s catches a real
         # flap while a single disconnect+reconnect cycle leaves the
         # deque with 1 entry — well below the threshold).
-        recorder._flapping_max_restarts: int = 3
+        recorder._flapping_max_restarts = 3
         # Default: 60s sliding window. Long enough to catch a slow flap
         # (one cycle every ~20s), short enough that a user who
         # physically unplugs + replugs their mic 3 times in quick
         # succession (a legitimate troubleshooting step) doesn't trip
         # a false positive an hour later.
-        recorder._flapping_window_seconds: float = 60.0
+        recorder._flapping_window_seconds = 60.0
 
     # ── Per-session state reset ──────────────────────────────────────────
 
@@ -705,3 +704,6 @@ class SessionState:
                     if isinstance(_chunk, np.ndarray):
                         _chunk.fill(0)
                 recorder._preroll_buffer.clear()
+
+
+np = lazy_module("numpy")

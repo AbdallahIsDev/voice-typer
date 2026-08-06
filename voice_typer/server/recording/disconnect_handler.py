@@ -44,8 +44,6 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
-import numpy as np
-
 from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
 from voice_typer.server._lazy_import import lazy_module
 
@@ -563,3 +561,6 @@ class DisconnectHandler:
             # successful restart or max-retries reached) so the retry
             # budget still degrades across consecutive failures.
             recorder._device_disconnected = False
+
+
+np = lazy_module("numpy")

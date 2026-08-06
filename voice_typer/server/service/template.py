@@ -52,7 +52,7 @@ class TemplateMixin(ServiceMixinBase):
             from voice_typer.server.templates import TemplateManager
 
             tm = TemplateManager()
-            app._template_manager = tm
+            setattr(app, "_template_manager", tm)  # noqa: B010 — attr not on AppProtocol; direct assignment fails pyrefly
         return tm
 
     def get_templates(self) -> list[dict]:

@@ -50,13 +50,12 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 # ``_AUDIO_BLOCKSIZE`` is used in ``start_recording`` to scale
 # the SPSC ring buffer capacity to ~2s of headroom at the device's
 # effective sample rate. Imported from ``_audio_constants`` (single
 # source of truth, no circular import).
 from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
+from voice_typer.server._lazy_import import lazy_module
 
 # Segment-list compaction threshold for the snapshot cache.
 # Both ``_cached_resampled_segments`` and ``_cached_no_resample_segments``
@@ -1243,3 +1242,6 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         pass
 
     return audio
+
+
+np = lazy_module("numpy")

@@ -27,7 +27,9 @@ import threading
 import time
 from typing import Any
 
-import numpy as np
+from voice_typer.server._lazy_import import lazy_module
+
+np = lazy_module("numpy")
 
 # All submodules use the package-level logger so log records propagate
 # to ``caplog.at_level(..., logger="voice_typer.server.recording")`` in

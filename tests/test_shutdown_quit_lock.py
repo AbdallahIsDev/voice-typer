@@ -77,11 +77,20 @@ def _patch_quit_to_skip_sysexit(controller):
     return original_exit
 
 
-def test_concurrent_quit_calls_dont_both_enter_shutdown_all() -> None:
+def test_concurrent_quit_calls_dont_both_enter_shutdown_all(monkeypatch) -> None:
     """CR-51: when two threads call ``quit()`` concurrently, only ONE
     should enter ``shutdown_all()`` (the other should observe
     ``_shutting_down=True`` and bail early)."""
     from voice_typer.server.shutdown_controller import ShutdownController
+
+    # These tests run quit() on NON-main threads, which arms the real
+    # shutdown-watchdog daemon thread (os._exit(0) after 2s). Stub the
+    # arming so the watchdog can't kill the pytest process mid-suite.
+    monkeypatch.setattr(
+        ShutdownController,
+        "_arm_shutdown_watchdog",
+        lambda self, timeout_s: None,
+    )
 
     app, shutdown_calls, cleanup_calls, event = _make_app_with_quit_lock()
     controller = ShutdownController(app)
@@ -115,9 +124,16 @@ def test_concurrent_quit_calls_dont_both_enter_shutdown_all() -> None:
     )
 
 
-def test_concurrent_quit_calls_cleanup_at_most_once() -> None:
+def test_concurrent_quit_calls_cleanup_at_most_once(monkeypatch) -> None:
     """The cleanup body should also run at most once."""
     from voice_typer.server.shutdown_controller import ShutdownController
+
+    # Same watchdog guard as test_concurrent_quit_calls_dont_both_enter_shutdown_all.
+    monkeypatch.setattr(
+        ShutdownController,
+        "_arm_shutdown_watchdog",
+        lambda self, timeout_s: None,
+    )
 
     app, shutdown_calls, cleanup_calls, event = _make_app_with_quit_lock()
     controller = ShutdownController(app)

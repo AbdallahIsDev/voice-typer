@@ -256,7 +256,7 @@ class ConfigMutationMixin(ServiceMixinBase):
         # ``providers.py`` for the full rationale). ``getattr`` returns
         # ``Any`` to the type checker and is functionally equivalent at
         # runtime.
-        with app._config_mutation_lock:
+        with getattr(app, "_config_mutation_lock"):  # noqa: B009 — ADR-0008-§3.1 excludes this attr from AppProtocol; direct access fails pyrefly
             config_dir = _config_dir()
             config_file = config_dir / "config.json"
             backup_path = config_dir / "config.json.bak"
@@ -339,9 +339,9 @@ class ConfigMutationMixin(ServiceMixinBase):
             # Use ``setattr`` (see the GDPR-delete path above for the
             # full rationale).
             with contextlib.suppress(Exception):
-                app._llm_polisher = None
+                setattr(app, "_llm_polisher", None)  # noqa: B010 — attr deliberately not on AppProtocol (ADR-0008-§3.1); direct assignment fails pyrefly
             with contextlib.suppress(Exception):
-                app._cloud_engine = None
+                setattr(app, "_cloud_engine", None)  # noqa: B010 — attr deliberately not on AppProtocol (ADR-0008-§3.1); direct assignment fails pyrefly
 
             log.info(
                 "[SERVICE] reset_config_to_defaults: reset to defaults, backup at %s, preserved %d API key(s)",

@@ -275,9 +275,10 @@ def load_microphones(app: AppProtocol, shutdown_event: threading.Event | None = 
         # changed (USB mic plugged/unplugged), notify the UI via
         # IPC push event so the Electron renderer can refresh its
         # microphone dropdown without a manual "Refresh" click.
-        old_ids = {m["id"] for m in app._microphones} if app._microphones else set()
+        app_mics = getattr(app, "_microphones", [])
+        old_ids = {m["id"] for m in app_mics} if app_mics else set()
         new_ids = {m["id"] for m in mics}
-        app._microphones = mics
+        setattr(app, "_microphones", mics)  # noqa: B010 — attr not on AppProtocol; direct assignment fails pyrefly
         app.tray.set_microphones(mics)
         # Log INFO on first load or when device count changes.
         # Routine polls where nothing changed log nothing — the

@@ -6,6 +6,7 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 import contextlib
+from typing import cast
 
 from voice_typer.server import event_bus
 from voice_typer.server.config import validate_config_update
@@ -357,7 +358,7 @@ class ConfigHandlersMixin(HandlerBase):
                         from voice_typer.server._secrets import extend_url_allowlist
 
                         extend_url_allowlist(
-                            to_persist["trusted_extra_hosts"],
+                            cast(list[str], to_persist["trusted_extra_hosts"]),
                             caller="set_config.trusted_extra_hosts",
                         )
                     except Exception:

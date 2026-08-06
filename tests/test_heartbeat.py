@@ -1,4 +1,4 @@
-"""RW-10: regression tests for the Electron-alive heartbeat watchdog.
+"""regression tests for the Electron-alive heartbeat watchdog.
 
 If Electron crashes or is force-killed, the Python backend would
 otherwise keep running with the mic stream open, hotkeys registered,
@@ -6,7 +6,7 @@ volume ducked, and the single-instance mutex held.  The next launch
 hits ``ERROR_ALREADY_EXISTS`` and surfaces "Only one instance can
 run", forcing the user to manually kill ``python.exe``.
 
-The fix (RW-10) adds:
+The fix adds:
 
   1. A ``heartbeat`` IPC handler in ``ipc_server.py`` that updates
      ``self._last_heartbeat_at = time.monotonic()``.
@@ -96,7 +96,7 @@ def server() -> typing.Iterator[IPCServer]:
 
 
 class TestHeartbeatHandler:
-    """RW-10: the ``heartbeat`` IPC handler updates the timestamp."""
+    """the ``heartbeat`` IPC handler updates the timestamp."""
 
     def test_handler_updates_last_heartbeat_at(self, server: IPCServer) -> None:
         """Calling ``_handle_heartbeat`` records ``time.monotonic()``.
@@ -161,7 +161,26 @@ class TestHeartbeatHandler:
 
 
 class TestHeartbeatWatchdog:
-    """RW-10: the watchdog fires only when the heartbeat is overdue."""
+    """the watchdog fires only when the heartbeat is overdue."""
+
+    @pytest.fixture(autouse=True)
+    def _park_force_exit_thread(self, monkeypatch) -> typing.Iterator[None]:
+        """Park the ``heartbeat-force-exit`` daemon thread so it can't
+        kill the pytest process.
+
+        ``_check_heartbeat_timeout`` spawns a real daemon thread
+        (``_force_exit_after_grace``) that sleeps
+        ``_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS`` (10s) then calls
+        ``os._exit(1)``. The tests below fire the watchdog on a mocked
+        ``app.quit()``, so the thread survives the test and would
+        hard-exit pytest ~10s later, mid-suite. Park the grace period
+        at a value far beyond any suite runtime (mirrors the same
+        guard in ``tests/server/test_ipc_lifecycle.py``).
+        """
+        import voice_typer.server.ipc.lifecycle as lifecycle_mod
+
+        monkeypatch.setattr(lifecycle_mod, "_HEARTBEAT_FORCE_EXIT_GRACE_SECONDS", 10000)
+        yield
 
     def test_does_not_fire_before_first_heartbeat(self, server: IPCServer) -> None:
         """The watchdog must NOT fire before Electron's first heartbeat.
@@ -308,7 +327,7 @@ class TestHeartbeatWatchdog:
 
 
 class TestHeartbeatThreadLifecycle:
-    """RW-10: the watchdog thread must be a daemon and exit on stop()."""
+    """the watchdog thread must be a daemon and exit on stop()."""
 
     @pytest.fixture(autouse=True)
     def _clear_tauri_sidecar_env(self, monkeypatch) -> typing.Iterator[None]:
@@ -490,7 +509,7 @@ def test_heartbeat_over_real_tcp_socket_updates_timestamp(monkeypatch) -> None:
     path that production uses.  Electron's ``sendToPython({type:
     "heartbeat"})`` lands here.
 
-    SEC-2 / IPC-10 (2026-07-18): the handler now refuses connections
+    the handler now refuses connections
     when ``expected_token`` is empty (SEC-2 hardening) and reads the
     token from the ``VOICE_TYPER_IPC_TOKEN`` env var when the
     ``expected_token`` parameter is ``None`` (IPC-10 fix).  The test

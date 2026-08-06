@@ -182,7 +182,7 @@ class OnboardingMixin(ServiceMixinBase):
             # in a torn state). Now run inside the lock, BEFORE save,
             # matching apply_config's pattern (so any Config mutations
             # performed by side-effects are persisted to disk).
-            with app._config_mutation_lock:
+            with getattr(app, "_config_mutation_lock"):  # noqa: B009 — ADR-0008-§3.1 excludes this attr from AppProtocol; direct access fails pyrefly
                 ctrl.apply_settings(app.config)
                 app.config.onboarding_completed = True
                 # Apply side effects inside the lock so any Config

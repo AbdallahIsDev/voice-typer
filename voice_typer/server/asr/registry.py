@@ -116,7 +116,7 @@ class RegistryCore:
             self._backends[name] = backend
         log.debug("[ASR_REGISTRY] registered backend: %s (loaded=%s)", name, getattr(backend, "is_loaded", True))
 
-    def get(self, name: str) -> AsrBackend | None:
+    def get(self, name: str | None) -> AsrBackend | None:
         """Get a specific backend by name."""
         with self._lock:
             return self._backends.get(name)

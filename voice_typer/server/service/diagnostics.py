@@ -76,7 +76,7 @@ class DiagnosticsMixin(ServiceMixinBase):
             # composed into ``VoiceTyperService`` whose ``self._app`` is
             # the concrete ``VoiceTyperApp``, not the narrow
             # ``AppProtocol``).
-            recovery = self._app._crash_recovery
+            recovery = getattr(self._app, "_crash_recovery")  # noqa: B009 — attr deliberately not on AppProtocol (ADR-0008-§3.1); direct access fails pyrefly
             if recovery is None:
                 # Refuse to export rather than silently producing
                 # an empty bundle from a fresh ``CrashRecovery()``. The

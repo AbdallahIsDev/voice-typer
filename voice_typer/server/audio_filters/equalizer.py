@@ -160,6 +160,11 @@ class Equalizer(AudioFilter):
         # elements. d3[0..2] = (delay3, delay2, delay1); d3[3..n] = x[0..n-3].
         # For n < 3 (rare; only at startup / end-of-stream), fall back to
         # the original concatenate path — it's correct and cheap at small n.
+        # ``extended`` is (re)built on the ``n < 3`` path in the ``else``
+        # below; the default keeps pyrefly's definite-assignment analysis
+        # happy for the delay-carry block that reads ``extended[-1..-3]``
+        # under the same ``n < 3`` branch.
+        extended = x
         if n >= 3:
             if self._delay_buf is None or self._delay_buf.shape[0] < n:
                 cap = max(n, 1024)

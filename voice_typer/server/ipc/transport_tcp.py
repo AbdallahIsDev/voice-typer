@@ -69,6 +69,15 @@ class TCPTransportMixin:
     ``_tcp_server_socket``, ``_pending_tcp``, ``_lock``, etc.).
     """
 
+    # Declare the lazily-created worker pools so the mixin's method
+    # bodies type-check (pyrefly types ``self`` as ``TCPTransportMixin``
+    # here). Without a declaration, the first assignment infers
+    # ``Never``, rejecting both the pre-creation ``None`` state and the
+    # ``ThreadPoolExecutor`` assignment. Mirrors the host's
+    # ``IPCServer.__init__`` declarations.
+    _tcp_worker_pool: ThreadPoolExecutor | None
+    _tcp_dispatch_pool: ThreadPoolExecutor | None
+
     def start_tcp(self, port) -> None:
         """Start a TCP server that accepts one Electron connection.
 

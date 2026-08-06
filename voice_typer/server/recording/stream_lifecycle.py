@@ -40,8 +40,6 @@ import logging
 import time
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 from voice_typer.server._audio_constants import (
     _AUDIO_BLOCKSIZE,
     _TEARDOWN_CALLBACK_DRAIN_BUDGET_S,
@@ -511,3 +509,6 @@ class StreamLifecycle:
                 time.sleep(min(_TEARDOWN_CALLBACK_POLL_INTERVAL_S, remaining))
         recorder._stream.close()
         recorder._stream = None
+
+
+np = lazy_module("numpy")

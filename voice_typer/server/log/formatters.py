@@ -498,7 +498,7 @@ class _JsonFormatter(logging.Formatter):
         # Topic prefix (e.g. "[HOTKEY]") — purely structural convenience.
         # ``payload["message"]`` is already a ``str`` (from
         # ``record.getMessage()``), so no coercion is needed.
-        topic, _ = _extract_topic(payload["message"])
+        topic, _ = _extract_topic(str(payload["message"]))
         if topic:
             payload["topic"] = topic
         # Correlation id from the execution context (IPC request id /

@@ -44,7 +44,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
 
     def get_microphones(self) -> list[dict]:
         """Return available microphones."""
-        return self._app._microphones
+        return getattr(self._app, "_microphones")  # noqa: B009 — attr not on AppProtocol; getattr returns Any (see providers.py)
 
     # AUDIO-MIC: refresh the microphone list by re-querying PortAudio.
     def refresh_microphones(self, force: bool = False) -> list[dict]:
@@ -89,7 +89,7 @@ class MicrophoneTestMixin(ServiceMixinBase):
             return mics
         except Exception as e:
             log.error("[SERVICE] refresh_microphones failed: %s", e)
-            return self._app._microphones
+            return getattr(self._app, "_microphones")  # noqa: B009 — attr not on AppProtocol; getattr returns Any (see providers.py)
 
     # AUDIO-RMS: IPC endpoint for real-time RMS level.
     def get_rms_level(self) -> dict[str, object]:

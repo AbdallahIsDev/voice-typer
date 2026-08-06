@@ -109,7 +109,7 @@ class TrayIcon:
         self._notifications_enabled = True
         self._microphones: list[dict] = []  # mics submenu cache
         self._recording_started_at: float | None = None
-        self._elapsed_timer: threading.Timer | None = None
+        self._elapsed_timer: threading.Thread | None = None
         self._elapsed_timer_helper = ElapsedTimer(
             tick_callback=self._on_elapsed_tick,
             is_active=lambda: self._state == AppState.RECORDING,
@@ -776,7 +776,7 @@ class TrayIcon:
             self._apply_state(self._state, self._message)
         self._publish_tray_state()
 
-    def _set_elapsed_timer_ref(self, timer: threading.Timer | None) -> None:
+    def _set_elapsed_timer_ref(self, timer: threading.Thread | None) -> None:
         """Sync self._elapsed_timer with the helper's Timer."""
         self._elapsed_timer = timer
 

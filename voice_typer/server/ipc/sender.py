@@ -322,7 +322,7 @@ class OutputMixin:
         message: str,
         *,
         msg: dict | None = None,
-        _client: object | None = None,
+        _client: _TCPLineIO | None = None,
         _out: TextIO | None = None,
     ) -> None:
         """Build + send a structured error envelope (ZR-76 DRY helper).

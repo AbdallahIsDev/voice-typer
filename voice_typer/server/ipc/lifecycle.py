@@ -61,6 +61,18 @@ class LifecycleMixin:
     ``_last_heartbeat_at``, ``_ready_emitted``, ``_shutdown_started``).
     """
 
+    # Declare the lifecycle attributes the host normally initializes in
+    # ``IPCServer.__init__`` so the mixin's own method bodies type-check
+    # (pyrefly types ``self`` as ``LifecycleMixin`` here). The nullable
+    # unions mirror the host's declarations: the heartbeat watchdog's
+    # ``_last_heartbeat_at`` starts ``None`` until the first heartbeat,
+    # and ``_stdin_thread`` may be ``None`` (gated-off stdin listener).
+    _stdin_thread: threading.Thread | None
+    _heartbeat_thread: threading.Thread | None
+    _heartbeat_stop_event: threading.Event
+    _relaunch_ack_event: threading.Event
+    _last_heartbeat_at: float | None
+
     def _reset_ready_emitted(self) -> None:
         """Test-only: reset the per-instance ``_ready_emitted`` flag.
 

@@ -223,6 +223,11 @@ class TestSecureClearArrayBehavior:
         with contextlib.suppress(Exception):
             r.start()
 
+        # Clean up any worker threads spawned by start() so they don't
+        # trip the "no leaked worker threads" checks in later tests.
+        with contextlib.suppress(Exception):
+            r.stop()
+
         # Pre-fix: this assertion would fail because the bare-name call
         # raised NameError, which was swallowed by ``try/except: pass``,
         # so ``call_log`` stayed empty.

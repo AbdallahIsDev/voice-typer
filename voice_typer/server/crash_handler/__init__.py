@@ -66,6 +66,7 @@ import logging
 import sys
 import threading
 from pathlib import Path
+from typing import Any
 
 log = logging.getLogger(__name__)
 
@@ -162,15 +163,15 @@ _original_threading_excepthook = None
 # (Windows-only). None on Linux/macOS — ``install_crash_handler``
 # short-circuits on ``sys.platform != "win32"`` and never dereferences
 # it. Set at module-load time by ``_veh_callback`` (on Windows).
-_vectored_handler = None
+_vectored_handler: Any = None
 
 # In-memory log ring buffer (MemoryHandler) + its target
 # RotatingFileHandler. Both None until ``install_memory_buffer`` is
 # called from ``set_crash_handler_config_dir``. The VEH callback
 # flushes the buffer to ``<config_dir>/voice-typer-crash-buffer.log``
 # after writing the crash-diagnostics body. See ``_memory_buffer``.
-_memory_handler = None
-_crash_buffer_handler = None
+_memory_handler: logging.handlers.MemoryHandler | None = None
+_crash_buffer_handler: logging.Handler | None = None
 
 # cached active ASR backend name. Populated at install time by
 # ``_refresh_cached_asr_backend`` (a single ``Config.load()`` disk

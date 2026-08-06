@@ -420,6 +420,16 @@ class Recorder(VadShimMixin, RecorderInitMixin):
         "Could not retrieve device info",
     )
 
+    # Session-state attributes (initialized by
+    # ``SessionState.init_session_state``): flapping-BT-mic detection
+    # state. Declared here so pyrefly sees their types on ``Recorder``
+    # instances — the SessionState helper assigns them via
+    # ``recorder.<attr> = ...`` (annotated assignments on a parameter
+    # are rejected, so the class is the declaration site).
+    _restart_timestamps: collections.deque
+    _flapping_max_restarts: int
+    _flapping_window_seconds: float
+
     def __init__(
         self,
         config: Config,

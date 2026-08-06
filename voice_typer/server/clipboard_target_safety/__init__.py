@@ -142,7 +142,7 @@ _PASTE_SAFETY_WARNED: set[str] = set()
 # first use and reused for the lifetime of the process.
 _UIA_SINGLETON = None
 _UIA_MODULE = None
-_UIA_SINGLETON_INIT_ATTEMPTED = False
+_UIA_SINGLETON_INIT_ATTEMPTED: bool = False
 
 # Guards the ``_UIA_SINGLETON`` init race. The
 # ``_UIA_SINGLETON_INIT_ATTEMPTED`` flag is itself a check-then-act

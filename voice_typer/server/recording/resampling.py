@@ -40,9 +40,8 @@ import math
 import threading
 import time
 
-import numpy as np
-
 from voice_typer.server import recording as _recording_pkg
+from voice_typer.server._lazy_import import lazy_module
 
 from .exceptions import ResampleError, ResampleUnavailableError
 
@@ -576,3 +575,6 @@ def resample_audio(
             f"Cannot resample audio from {effective_sr} Hz to {target_sr} Hz (last error: {last_error!r})"
         )
     return audio
+
+
+np = lazy_module("numpy")

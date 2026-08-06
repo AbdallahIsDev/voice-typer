@@ -349,7 +349,7 @@ Schema = dict[str, FieldRule]
 # schemas (which get a fresh ``id`` each call) cannot grow it without
 # limit.
 _MAX_PAYLOAD_BYTES_CACHE_MAX = 1024
-_MAX_PAYLOAD_BYTES_CACHE: dict[int, tuple[tuple[str, ...], int | None]] = {}
+_MAX_PAYLOAD_BYTES_CACHE: dict[int, tuple[tuple[int, tuple[str, ...]], int | None]] = {}
 _MAX_PAYLOAD_BYTES_CACHE_SEEN: set[int] = set()
 
 

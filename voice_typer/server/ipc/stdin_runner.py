@@ -98,6 +98,12 @@ class StdinRunnerMixin:
                 line = line.strip()
                 if not line:
                     continue
+                # ``msg`` is (re)assigned below. The pre-init guarantees
+                # the ``except Exception`` dispatch-failure handler (which
+                # reads ``msg.get("type", ...)``) never hits an unbound
+                # name if a non-JSONDecodeError exception escapes the
+                # parse step.
+                msg: dict | None = None
                 try:
                     msg = json.loads(line)
                     # validate that the parsed JSON is a dict

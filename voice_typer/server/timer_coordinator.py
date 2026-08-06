@@ -219,7 +219,7 @@ class TimerCoordinator:
                     # timer). For the XV-134 zero-delay fast path,
                     # ``timer`` is NOT in ``_pending_timers`` so this
                     # ``in`` check is False — no-op, no harm.
-                    if timer in self._pending_timers:
+                    if isinstance(timer, threading.Timer) and timer in self._pending_timers:
                         self._pending_timers.remove(timer)
                 func()
 

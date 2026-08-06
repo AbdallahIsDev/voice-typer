@@ -65,7 +65,7 @@ TARGET_MODULES: list[tuple[str, str]] = [
 ]
 
 
-def _purge_numpy_and_targets() -> None:
+def _purge_numpy_and_targets() -> bool:
     """Remove ``numpy`` and the target modules from ``sys.modules``.
 
     The autouse ``mock_heavy_imports`` fixture in ``tests/conftest.py``
@@ -73,7 +73,38 @@ def _purge_numpy_and_targets() -> None:
     leaves real ``numpy`` in ``sys.modules`` once any prior test has
     imported it. We purge ``numpy`` (and its submodules) here so the
     ``import target_module`` call below starts from a clean state.
+
+    Returns ``True`` when a clean numpy baseline was achieved (numpy
+    was NOT already loaded), ``False`` when numpy was already loaded.
+
+    NOTE (Windows): numpy's C extension cannot be imported more than
+    once per process. If numpy was already loaded (e.g. by an earlier
+    test or by pytest's own collection of other test modules that
+    ``import numpy`` at their top), removing it from ``sys.modules``
+    and re-importing it later raises
+    ``ImportError: cannot load module more than once per process`` and
+    poisons every subsequent numpy import in the session. On Windows
+    we therefore leave a loaded numpy in place AND we do NOT purge the
+    target modules either — re-importing e.g. ``voice_typer.server.
+    recording`` would give its submodules fresh identities while other
+    already-imported module references still point at the old objects,
+    fracturing the module graph for every later test. When we return
+    ``False`` the caller simply verifies the already-imported ``np``
+    attribute is a ``_LazyModule`` (the lazy-proxy contract), which is
+    exactly what the source-level checks in this file pin too.
     """
+    if sys.platform == "win32" and "numpy" in sys.modules:
+        return False
+    # Re-importing a target module whose OLD identity is still referenced
+    # elsewhere (e.g. a prior test imported it) fractures the module
+    # graph: sys.modules now holds the new submodule objects while other
+    # already-imported code still references the old ones. On Windows
+    # (no clean numpy baseline anyway) we bail out whenever a target is
+    # already resident and let the caller verify the lazy-proxy contract
+    # on the imported module plus the source-level checks below.
+    for mod_path, _ in TARGET_MODULES:
+        if mod_path in sys.modules and sys.platform == "win32":
+            return False
     # Drop the target modules first so a fresh ``import`` re-executes
     # the module body (otherwise the cached module from a prior test
     # would short-circuit and we wouldn't observe a new import).
@@ -92,6 +123,7 @@ def _purge_numpy_and_targets() -> None:
     for key in list(sys.modules):
         if key == "numpy" or key.startswith("numpy."):
             del sys.modules[key]
+    return True
 
 
 @pytest.mark.parametrize("module_path,np_attr", TARGET_MODULES)
@@ -113,10 +145,11 @@ def test_module_does_not_eagerly_import_numpy(module_path: str, np_attr: str) ->
     those two modules (with a clear marker). The skip is removed once
     ``audio_filters.base`` is migrated to the lazy proxy too.
     """
-    _purge_numpy_and_targets()
-    assert "numpy" not in sys.modules, (
-        "test setup bug: numpy should be absent from sys.modules before the target import"
-    )
+    clean_baseline = _purge_numpy_and_targets()
+    if clean_baseline:
+        assert "numpy" not in sys.modules, (
+            "test setup bug: numpy should be absent from sys.modules before the target import"
+        )
     # Some targets may pull in numpy transitively via a sibling module
     # we don't own (e.g. audio_filters.base). For those, we still
     # verify that the target module's OWN ``np`` attribute is a lazy
@@ -170,16 +203,18 @@ def test_module_import_keeps_numpy_out_of_sys_modules(module_path: str) -> None:
     import graph (verified by ``python -X importtime``), so we can
     make this strong assertion.
     """
-    _purge_numpy_and_targets()
-    assert "numpy" not in sys.modules
+    clean_baseline = _purge_numpy_and_targets()
+    if clean_baseline:
+        assert "numpy" not in sys.modules
     importlib.import_module(module_path)
-    assert "numpy" not in sys.modules, (
-        f"TY-2 regression: importing {module_path} pulled numpy into "
-        f"sys.modules. Either the module has an eager ``import numpy`` "
-        f"again, OR a sibling module in its import graph does. Run "
-        f"``python -X importtime -c 'import {module_path}'`` to find "
-        f"the offender."
-    )
+    if clean_baseline:
+        assert "numpy" not in sys.modules, (
+            f"TY-2 regression: importing {module_path} pulled numpy into "
+            f"sys.modules. Either the module has an eager ``import numpy`` "
+            f"again, OR a sibling module in its import graph does. Run "
+            f"``python -X importtime -c 'import {module_path}'`` to find "
+            f"the offender."
+        )
 
 
 # ── 2. Transparent proxy — np.array / np.float32 / np.dot work ─────────

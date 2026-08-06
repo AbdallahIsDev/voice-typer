@@ -77,8 +77,6 @@ import threading
 import time
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 from voice_typer.server.log_rate_limit import log_rate_limited
 
 # All submodules use the package-level logger so log records propagate
@@ -477,7 +475,7 @@ class AudioCallbackDispatcher:
         # direct-array items too.
         for _payload in recorder._ring_buffer:
             _arr = _payload[0] if isinstance(_payload, tuple) else _payload
-            if isinstance(_arr, np.ndarray):
+            if hasattr(_arr, "fill") and hasattr(_arr, "shape"):
                 _arr.fill(0)
         recorder._ring_buffer.clear()
         recorder._worker_thread = threading.Thread(
@@ -572,7 +570,7 @@ class AudioCallbackDispatcher:
             # direct-array items too.
             for _payload in recorder._ring_buffer:
                 _arr = _payload[0] if isinstance(_payload, tuple) else _payload
-                if isinstance(_arr, np.ndarray):
+                if hasattr(_arr, "fill") and hasattr(_arr, "shape"):
                     _arr.fill(0)
             recorder._ring_buffer.clear()
         # Signal the worker to stop.

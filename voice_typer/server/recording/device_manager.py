@@ -127,6 +127,11 @@ class DeviceManager:
         self._device_health_checker_thread: threading.Thread | None = None
         self._device_health_stop_event: threading.Event = threading.Event()
         self._device_check_interval_s: float = 30.0  # seconds between probes
+        # BT-narrowband devices get a shorter health-check interval (5 s)
+        # so a flapping BT mic is re-probed promptly —
+        # ``_effective_device_check_interval_s`` returns this for
+        # BT-classified devices (see the retry-policy path).
+        self._device_check_interval_s_bt: float = 5.0
         # counter for periodic OS-level microphone-permission
         # re-probe. The health-checker loop wakes every
         # ``_device_check_interval_s`` (30 s default); every

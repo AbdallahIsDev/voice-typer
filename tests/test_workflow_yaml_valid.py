@@ -33,6 +33,7 @@ import pytest
 import yaml
 
 WORKFLOWS_DIR = Path(__file__).resolve().parents[1] / ".github" / "workflows"
+PROJECT_ROOT = WORKFLOWS_DIR.parents[1]
 
 # C-CI-1: the canonical pinned-version map. Every `uses: <action>@<ref>`
 # directive in every workflow file MUST reference one of these versions.
@@ -284,9 +285,6 @@ def test_macos_gate_documentation_present() -> None:
     )
 
 
-@pytest.mark.xfail(
-    reason="/Windows workflow changes are Remaining Work — complex CI step additions deferred to next session"
-)
 def test_windows_signs_voice_typer_tauri_exe() -> None:
     """the Windows workflow must sign the standalone
     ``voice-typer-tauri.exe`` (in addition to the NSIS + MSI installers)
@@ -306,18 +304,15 @@ def test_windows_signs_voice_typer_tauri_exe() -> None:
     )
 
 
-@pytest.mark.xfail(
-    reason="/Windows workflow changes are Remaining Work — complex CI step additions deferred to next session"
-)
+
 def test_windows_signtool_retry_loop() -> None:
     """signtool calls must be wrapped in a PowerShell retry loop
     (3 attempts × 30s backoff) with fallback to alternate timestamp
     servers (Sectigo, GlobalSign, SSL.com).
     """
-    wf = WORKFLOWS_DIR / "tauri-windows-build.yml"
-    if not wf.is_file():
-        pytest.skip("tauri-windows-build.yml not found")
-    text = wf.read_text(encoding="utf-8")
+    signing_helper = PROJECT_ROOT / "scripts" / "windows" / "sign-authenticode.ps1"
+    assert signing_helper.is_file(), "missing shared Windows signing helper"
+    text = signing_helper.read_text(encoding="utf-8")
     # All 4 alternate timestamp servers must be present.
     for ts in (
         "http://timestamp.digicert.com",
@@ -345,26 +340,24 @@ def test_windows_signtool_has_d_du_flags() -> None:
     """
     from voice_typer.server.branding import APP_NAME
 
-    wf = WORKFLOWS_DIR / "tauri-windows-build.yml"
-    if not wf.is_file():
-        pytest.skip("tauri-windows-build.yml not found")
-    text = wf.read_text(encoding="utf-8")
+    signing_helper = PROJECT_ROOT / "scripts" / "windows" / "sign-authenticode.ps1"
+    assert signing_helper.is_file(), "missing shared Windows signing helper"
+    text = signing_helper.read_text(encoding="utf-8")
     # The description is derived from branding.py (C-BRAND-1) — the
     # /d flag must interpolate `$sigDescription`, never a hardcoded name.
-    brand_source = "Select-String -Path voice_typer/server/branding.py"
+    brand_source = "voice_typer/server/branding.py"
     assert brand_source in text, (
         f"signtool description must be sourced from branding.py (missing `{brand_source}`)."
     )
-    # The /d and /du flags must appear at least 3 times (3 signing steps
-    # — sidecar loop, NSIS, MSI — plus the new  voice-typer-tauri.exe step).
+    # One centralized invocation covers sidecar, prewarm, listener, host,
+    # NSIS, and MSI signing without divergent arguments.
     d_count = text.count('/d "$sigDescription"')
     du_count = text.count('/du "https://voicetyper.app"')
-    assert d_count >= 3, (
-        f"expected ≥3 `/d \"$sigDescription\"` flags (existing signtool calls); "
-        f" host-binary signing step is Remaining Work. Got {d_count}."
+    assert d_count == 1, (
+        f"expected one centralized `/d \"$sigDescription\"` flag, got {d_count}."
     )
-    assert du_count >= 3, (
-        f"expected ≥3 `/du \"https://voicetyper.app\"` flags, got {du_count}."
+    assert du_count == 1, (
+        f"expected one centralized `/du \"https://voicetyper.app\"` flag, got {du_count}."
     )
     # The literal app name must NOT be inlined into a signtool /d flag —
     # it must flow through $sigDescription so a rename propagates to CI.
@@ -374,9 +367,6 @@ def test_windows_signtool_has_d_du_flags() -> None:
     )
 
 
-@pytest.mark.xfail(
-    reason="/Windows workflow changes are Remaining Work — complex CI step additions deferred to next session"
-)
 def test_windows_smartscreen_doc_block() -> None:
     """a documentation block near the Windows signing steps must
     explain the SmartScreen reputation timeline + the Azure Trusted

@@ -196,6 +196,9 @@ class TestStopAudioPrep:
             def start(self):
                 self.started = True
 
+            def stop(self):
+                pass
+
             def close(self):
                 self.closed = True
 
@@ -215,6 +218,10 @@ class TestStopAudioPrep:
         assert r._stream is not None
         assert config.microphone == "1"
         config.save.assert_called_once()
+
+        # Clean up worker threads spawned by start() so they don't trip
+        # the "no leaked worker threads" checks in later tests.
+        r.stop()
 
     def test_start_falls_back_to_all_devices_when_configured_mic_fails(self, monkeypatch):
         """When configured mic and same-name alternates all fail, try ALL input devices."""
@@ -259,6 +266,9 @@ class TestStopAudioPrep:
             def start(self):
                 self.started = True
 
+            def stop(self):
+                pass
+
             def close(self):
                 self.closed = True
 
@@ -275,6 +285,10 @@ class TestStopAudioPrep:
         assert r.recording is True
         assert r._stream is not None
         assert config.microphone == "2"
+
+        # Clean up worker threads spawned by start() so they don't trip
+        # the "no leaked worker threads" checks in later tests.
+        r.stop()
 
     def test_snapshot_returns_audio_without_clearing_buffer(self):
         from voice_typer.server.recording import Recorder
@@ -625,6 +639,9 @@ class TestSilenceDetection:
             def start(self):
                 pass
 
+            def stop(self):
+                pass
+
             def close(self):
                 pass
 
@@ -643,6 +660,10 @@ class TestSilenceDetection:
         r.start()
         assert r._silence_timer == 0.0
         assert r._silence_warning_count == 0
+
+        # Clean up worker threads spawned by start() so they don't trip
+        # the "no leaked worker threads" checks in later tests.
+        r.stop()
 
     def test_cache_reset_on_stop(self):
         """stop() should reset the resample cache."""
@@ -1378,6 +1399,13 @@ class TestRec5StartLock:
         t2.join(timeout=10)
 
         assert not errors, f"concurrent start()/discard() raised: {errors}"
+
+        # Clean up the workers started by the hammer loop. start() spins
+        # up audio-worker / event-worker daemon threads; without a final
+        # stop() they linger and trip the "no leaked worker threads"
+        # assertions in later tests (e.g.
+        # tests/test_recorder_worker_lifecycle.py::TestConcurrentStartStopNoLeak).
+        r.stop()
 
 
 class TestRec6FallbackHostRank:

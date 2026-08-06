@@ -50,10 +50,9 @@ import os
 import time
 from typing import TYPE_CHECKING, Any
 
-import numpy as np
-
 from voice_typer.server import recording as _recording_pkg
 from voice_typer.server._audio_constants import SILERO_VAD_SAMPLE_RATES, WHISPER_SAMPLE_RATE
+from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.recording import resampling as _resampling_mod
 from voice_typer.server.vad import compute_vad_prob
 from voice_typer.server.vad_processor import VadState
@@ -382,13 +381,18 @@ class AudioPipeline:
             if _maxlen is not None and len(_buf) >= _maxlen:
                 try:
                     _evicted = _buf[0]
-                    recorder._total_buffered_samples -= int(_evicted.shape[0])
-                except (AttributeError, IndexError, TypeError):
-                    # Defensive: a malformed evicted chunk (rare)
-                    # shouldn't corrupt the counter. Fall back to
-                    # ``len(_evicted)`` which works for any sequence.
-                    with contextlib.suppress(TypeError):
-                        recorder._total_buffered_samples -= len(_evicted)
+                except IndexError:
+                    # Empty-buffer race (rare) — nothing was evicted.
+                    _evicted = None
+                if _evicted is not None:
+                    try:
+                        recorder._total_buffered_samples -= int(_evicted.shape[0])
+                    except (AttributeError, TypeError):
+                        # Defensive: a malformed evicted chunk (rare)
+                        # shouldn't corrupt the counter. Fall back to
+                        # ``len(_evicted)`` which works for any sequence.
+                        with contextlib.suppress(TypeError):
+                            recorder._total_buffered_samples -= len(_evicted)
             _buf.append(filtered)
             recorder._chunk_count += 1
             # ``filtered.shape[0]`` is the number of samples in the
@@ -876,3 +880,6 @@ class AudioPipeline:
                         "[RECORDING] on_rms_level callback raised (occurrence #%d, traceback suppressed)",
                         recorder._rms_callback_error_count,
                     )
+
+
+np = lazy_module("numpy")

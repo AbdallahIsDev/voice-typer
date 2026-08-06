@@ -1137,7 +1137,7 @@ class VoiceTyperApp:
     # thin delegates so existing callers (and tests that monkeypatch
     # app._schedule_timer / app._cancel_pending_timers) keep working.
 
-    def _schedule_timer(self, delay: float, func) -> threading.Timer:
+    def _schedule_timer(self, delay: float, func) -> threading.Thread:
         """Phase 7: delegate to TimerCoordinator."""
         return self.timers._schedule_timer(delay, func)
 
