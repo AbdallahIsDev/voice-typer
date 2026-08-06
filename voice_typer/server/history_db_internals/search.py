@@ -140,8 +140,16 @@ def get_recent(
     Keyset pagination: when ``before_timestamp`` AND ``before_id`` are
     both supplied, the WHERE clause restricts to rows strictly older
     than ``(before_timestamp, before_id)`` in (timestamp DESC, id DESC)
-    order. This is O(log N) per page via ``idx_timestamp``, whereas
+    order. This is O(log N) per page via ``idx_timestamp_id``, whereas
     OFFSET is O(offset).
+
+    OFFSET guard: ``offset`` must be < 1000. Deep OFFSET pagination is
+    O(offset) on SQLite (it scans and discards ``offset`` rows before
+    returning the first result), so callers paginating past the first
+    ~1000 rows MUST switch to cursor pagination
+    (``before_timestamp`` + ``before_id``). The assert is intentional —
+    it surfaces deep-OFFSET callers loudly so they migrate rather than
+    silently degrading on large DBs.
     """
     from voice_typer.server import history_db as _hd
 
@@ -178,6 +186,16 @@ def get_recent(
                 ),
             )
         else:
+            # Guard against deep-OFFSET pagination. SQLite must scan and
+            # discard ``offset`` rows before returning the first result;
+            # at offset=10K on a 500K-row DB this was measured at ~594ms.
+            # Callers needing deeper pagination must use cursor
+            # pagination (before_timestamp + before_id), which is
+            # O(log N) per page via idx_timestamp_id.
+            assert offset < 1000, (
+                f"OFFSET pagination requires offset < 1000 (got {offset}); "
+                "use cursor pagination (before_timestamp + before_id) for deeper pages"
+            )
             cursor.execute(
                 """
                 SELECT
@@ -237,6 +255,21 @@ def search(
     queries consisting solely of separator characters (e.g. ``%`` or
     ``_``), we fall back to the pre-FTS5 LIKE path so literal wildcards
     still match.
+
+    FTS5 LIMIT push-down: on the no-cursor path, the ``LIMIT`` (and
+    ``OFFSET`` when present) is pushed INTO the FTS5 subquery so FTS5
+    only materialises the rowids that will actually be returned, rather
+    than the full match set. On a query with many matches this cuts the
+    JOIN+sort working set from N_matches to ``limit + offset``. The
+    cursor path cannot use push-down because the cursor WHERE clause
+    filters by ``(timestamp, id)``, not rowid — pushing LIMIT into FTS
+    there could starve the cursor filter and return fewer than
+    ``limit`` rows.
+
+    OFFSET guard: ``offset`` must be < 1000 on the OFFSET (non-cursor)
+    branch, matching :func:`get_recent`. This bounds the FTS subquery
+    LIMIT to ``limit + offset <= 500 + 999 = 1499`` so the push-down
+    stays effective.
     """
     from voice_typer.server import history_db as _hd
 
@@ -248,6 +281,8 @@ def search(
         if capped and is_fts_compatible_query(capped):
             fts_query = sanitize_fts_query(capped)
             if use_cursor:
+                # Cursor path: cannot push LIMIT into FTS because the
+                # cursor WHERE filters by (timestamp, id), not rowid.
                 cursor.execute(
                     """
                     SELECT
@@ -279,6 +314,19 @@ def search(
                     ),
                 )
             else:
+                # No-cursor path: push LIMIT (+ OFFSET) into the FTS
+                # subquery so FTS5 only materialises the rowids that
+                # will actually be returned. The outer ORDER BY
+                # re-sorts by (timestamp DESC, id DESC) — rowid DESC is
+                # a close approximation since id is autoincrement and
+                # timestamp defaults to CURRENT_TIMESTAMP, but not
+                # identical for same-second ties, so the outer sort is
+                # still required.
+                assert offset < 1000, (
+                    f"OFFSET pagination requires offset < 1000 (got {offset}); "
+                    "use cursor pagination (before_timestamp + before_id) for deeper pages"
+                )
+                fts_subquery_limit = limit + offset
                 cursor.execute(
                     """
                     SELECT
@@ -293,13 +341,24 @@ def search(
                         t.char_count,
                         t.favorite,
                         t.language
-                    FROM transcriptions t
-                    JOIN transcriptions_fts AS f ON f.rowid = t.id
-                    WHERE transcriptions_fts MATCH ?
+                    FROM (
+                        SELECT rowid
+                        FROM transcriptions_fts
+                        WHERE transcriptions_fts MATCH ?
+                        ORDER BY rowid DESC
+                        LIMIT ?
+                    ) AS f
+                    JOIN transcriptions t ON t.id = f.rowid
                     ORDER BY t.timestamp DESC, t.id DESC
                     LIMIT ? OFFSET ?
                 """,
-                    (_hd._HISTORY_TEXT_PREVIEW_LENGTH, fts_query, limit, offset),
+                    (
+                        _hd._HISTORY_TEXT_PREVIEW_LENGTH,
+                        fts_query,
+                        fts_subquery_limit,
+                        limit,
+                        offset,
+                    ),
                 )
         else:
             # LIKE fallback.
@@ -438,6 +497,16 @@ def get_today_stats(db: HistoryDB) -> dict:
     re-scan on every refresh. The cache is invalidated by EVERY mutation
     that could change today's stats. The returned dict is a shallow copy
     so callers can mutate it without corrupting the cached value.
+
+    Timezone handling: ``timestamp`` is stored as UTC
+    (``CURRENT_TIMESTAMP``). The boundaries are computed in LOCAL time
+    (``DATETIME('now', 'localtime', 'start of day')`` — the user's
+    calendar midnight) and then converted back to UTC via the trailing
+    ``'utc'`` modifier so the lexicographic comparison against the
+    UTC-stored ``timestamp`` column is correct. Without the local→UTC
+    round-trip, a user in UTC+8 dictating at 9pm local (1pm UTC) would
+    see "today" stats roll over at midnight UTC (4am local) instead of
+    local midnight.
     """
     from voice_typer.server import history_db as _hd
 
@@ -453,7 +522,8 @@ def get_today_stats(db: HistoryDB) -> dict:
         # Sargable predicate. ``DATE(timestamp) = DATE('now')`` applies
         # a function to every row's ``timestamp`` column, so SQLite
         # cannot use ``idx_timestamp``. The range form lets the query
-        # planner use the index.
+        # planner use the index. Boundaries are computed in LOCAL time
+        # then converted to UTC (see docstring).
         cursor.execute("""
             SELECT
                 COUNT(*) as count,
@@ -461,8 +531,8 @@ def get_today_stats(db: HistoryDB) -> dict:
                 SUM(word_count) as word_count,
                 SUM(duration) as duration
             FROM transcriptions
-            WHERE timestamp >= DATE('now')
-              AND timestamp < DATE('now', '+1 day')
+            WHERE timestamp >= DATETIME('now', 'localtime', 'start of day', 'utc')
+              AND timestamp < DATETIME('now', 'localtime', 'start of day', '+1 day', 'utc')
         """)
         row = cursor.fetchone()
     result = {

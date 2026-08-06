@@ -80,20 +80,30 @@ class TestConfigDirTraversalRejected:
         assert "VOICE_TYPER_CONFIG_DIR" not in os.environ
 
     def test_traversal_path_rejected_under_chdir(self, monkeypatch, tmp_path):
-        """The classic ``../../etc/passwd`` traversal pattern is
-        rejected when ``cwd`` is a tmp dir under ``/tmp`` (so the
-        resolved path escapes ``Path.home()``).
+        r"""The classic ``../../etc/passwd`` traversal pattern is
+        rejected when the resolved path escapes ``Path.home()``.
 
         This mirrors the documented test case in the XZ-14-07 fix
         brief: "Write a test that verifies VOICE_TYPER_CONFIG_DIR with
         a traversal path (e.g., '../../etc/passwd') is rejected."
 
-        From ``tmp_path`` (under ``/tmp/pytest-of-<user>/...``),
-        ``Path('../../etc/passwd').resolve()`` lands under ``/tmp/...``
-        which is NOT under ``Path.home()`` (``/home/<user>``), so
-        ``_validate_path_safety`` raises ``ValueError``.
+        The home directory is isolated to a fake ``tmp_path/home`` and
+        cwd to ``tmp_path/work`` so the test is platform-independent:
+        on POSIX, ``Path.home()`` is under ``/home/<user>`` while
+        pytest's tmp dir lives under ``/tmp`` (so ``../../etc/passwd``
+        escapes home); on Windows, pytest's tmp dir lives INSIDE
+        ``Path.home()`` (``%LOCALAPPDATA%\Temp``), so the same relative
+        traversal would resolve back inside home and NOT be rejected.
+        With the isolated home, ``../../etc/passwd`` from ``work``
+        resolves to ``tmp_path/etc/passwd`` — outside ``tmp_path/home``
+        on every platform.
         """
-        monkeypatch.chdir(tmp_path)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir(exist_ok=True)
+        work = tmp_path / "work"
+        work.mkdir(exist_ok=True)
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+        monkeypatch.chdir(work)
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", "../../etc/passwd")
         _validate_env_vars()
         assert "VOICE_TYPER_CONFIG_DIR" not in os.environ
@@ -102,7 +112,12 @@ class TestConfigDirTraversalRejected:
         """When the traversal is rejected, a WARNING is logged that
         mentions ``VOICE_TYPER_CONFIG_DIR`` and the path-safety rule
         (so the operator can diagnose without grepping source)."""
-        monkeypatch.chdir(tmp_path)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir(exist_ok=True)
+        work = tmp_path / "work"
+        work.mkdir(exist_ok=True)
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+        monkeypatch.chdir(work)
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", "../../etc/passwd")
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()
@@ -131,7 +146,12 @@ class TestConfigDirTraversalRejected:
         site is verified separately via a mocked predicate in
         :class:`TestConfigDirPathSafetyExceptionType`.
         """
-        monkeypatch.chdir(tmp_path)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir(exist_ok=True)
+        work = tmp_path / "work"
+        work.mkdir(exist_ok=True)
+        monkeypatch.setattr(Path, "home", staticmethod(lambda: fake_home))
+        monkeypatch.chdir(work)
         monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR", "../../etc/passwd")
         with caplog.at_level(logging.WARNING):
             _validate_env_vars()

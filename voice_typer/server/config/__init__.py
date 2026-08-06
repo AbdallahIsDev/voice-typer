@@ -225,6 +225,18 @@ from voice_typer.server.config_validators import (  # noqa: E402,F401 — re-exp
 
 log = logging.getLogger("voice_typer.server.config")
 
+# Module-level flag recording whether
+# :meth:`Config._warmup_keyring_probe` has been called. The classmethod
+# probes ``credential_store.is_keyring_available()`` once at app startup
+# (via ``VoiceTyperApp.__init__`` or an equivalent early-init hook) so
+# the FIRST :meth:`Config.save` call does not pay the ~164ms cold-probe
+# cost (D-Bus / Keychain / Credential Manager round-trip). The flag is
+# informational — :meth:`Config._warmup_keyring_probe` is idempotent
+# (calling it twice is a no-op after the first call populates the
+# ``credential_store._keyring_available_cache``), but tests assert on it
+# to verify the warmup was wired by the caller.
+_warmup_called: bool = False
+
 
 def _default_hotkey_for_platform() -> str:
     """NATIVE-001: Return the platform-appropriate default hotkey.
@@ -521,8 +533,8 @@ def purge_all_user_data(*, remove_models: bool = True) -> dict[str, list[str]]:
 # file.  They are kept here purely to minimize the diff of the
 # split; ``volume_ducker.py`` is grouped alongside for symmetry (it
 # has no dependency on ``config`` either way).
+from voice_typer.server._audio_constants import _DEFAULT_SMART_DUCK_POLL_MS  # noqa: E402
 from voice_typer.server._paths import DEFAULT_LLM_API_URL, DEFAULT_LLM_MODEL  # noqa: E402
-from voice_typer.server.volume_ducker import _DEFAULT_SMART_DUCK_POLL_MS  # noqa: E402
 
 
 def _legacy_voice_typer_dir() -> Path:
@@ -1273,6 +1285,48 @@ class Config:
         # don't change any persisted field, and for ``heartbeat`` /
         # ``get_config``-style calls that round-trip through ``save``).
         object.__setattr__(self, "_last_saved_bytes", None)
+        # Dirty flag — True when a persisted field has been
+        # mutated since the last successful save (or since construction).
+        # Checked at the TOP of ``_save_unlocked`` to short-circuit the
+        # entire save (before the expensive ``asdict(self)`` +
+        # ``json.dumps``) when nothing has changed. Set to True by the
+        # ``__setattr__`` override on every user-facing field mutation;
+        # set to False after a successful save. Using
+        # ``object.__setattr__`` here so the ``__setattr__`` override
+        # does not fire during ``__post_init__`` (which would set it
+        # to True redundantly — harmless, but the explicit init makes
+        # the intent clear).
+        object.__setattr__(self, "_dirty", True)
+        # Flag set to True by ``_save_unlocked`` after it
+        # routes API-key fields through ``credential_store``. Readers
+        # (e.g. ``config_applier.apply_config``) check this flag to
+        # decide whether to run a redundant ``store_secret`` loop.
+        # Default False (not yet routed); set True after routing.
+        object.__setattr__(self, "_secrets_routed_in_save", False)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        """Track mutations to persisted dataclass fields via the
+        ``_dirty`` flag.
+
+        ``_dirty`` is set to True on every assignment to a persisted
+        field (any attribute whose name does NOT start with ``_`` and
+        is not the transient ``last_load_warnings`` attribute). Internal
+        bookkeeping attributes (``_last_saved_bytes``, ``_dirty`` itself,
+        ``_secrets_routed_in_save``, ``_mutation_lock``,
+        ``last_load_warnings``) bypass the flag via ``object.__setattr__``
+        at their call sites, so this override only fires for genuine
+        user-facing field mutations (e.g. ``cfg.hotkey = "<f2>"`` or
+        ``setattr(app.config, k, v)`` in ``apply_config``).
+
+        The flag is checked at the top of ``_save_unlocked`` to skip
+        the entire save (including ``asdict(self)`` + ``json.dumps``)
+        when nothing has changed since the last successful save — the
+        common case for ``set_config`` IPC round-trips that echo back
+        the same config the server already has.
+        """
+        object.__setattr__(self, name, value)
+        if not name.startswith("_") and name != "last_load_warnings":
+            object.__setattr__(self, "_dirty", True)
 
     # class-level reference to an in-process mutation lock.
     # When set (via :meth:`set_mutation_lock`), :meth:`save` acquires
@@ -1315,6 +1369,67 @@ class Config:
         # per-instance (rather than mutating the class attribute, which
         # would leak across instances).
         self.__dict__["_mutation_lock"] = lock
+
+    @classmethod
+    def _warmup_keyring_probe(cls) -> None:
+        """Eagerly probe ``credential_store.is_keyring_available()``
+        once at app startup so the FIRST :meth:`save` call does not pay
+        the ~164ms cold-probe cost (D-Bus / Keychain / Credential
+        Manager round-trip on Linux / macOS / Windows respectively).
+
+        The probe is idempotent: ``credential_store.is_keyring_available``
+        caches its result at module level
+        (``credential_store._keyring_available_cache``), so subsequent
+        calls — including the first :meth:`save` — read the cached
+        value in O(1). Calling this classmethod more than once is a
+        no-op after the first call (the module-level
+        ``_warmup_called`` flag records the first invocation; tests
+        assert on it to verify the warmup was wired by the caller).
+
+        Callers should invoke this once during app startup, ideally in
+        ``VoiceTyperApp.__init__`` (or an equivalent early-init hook
+        that runs BEFORE the first :meth:`Config.save` call — e.g.
+        before ``Config.load()`` if load routes secrets). The probe
+        touches the OS keyring backend and may take up to
+        ``credential_store._KEYRING_TIMEOUT_SECONDS`` on a hung backend,
+        so callers that need to avoid blocking the main thread should
+        spawn a background thread::
+
+            import threading
+            threading.Thread(
+                target=Config._warmup_keyring_probe,
+                name="keyring-warmup",
+                daemon=True,
+            ).start()
+
+        The probe is wrapped in ``credential_store.is_keyring_available``'s
+        own broad ``except Exception`` (which catches D-Bus connection
+        errors, missing pyobjc / pywin32, etc.) — this classmethod does
+        NOT add its own try/except so a genuine import error in
+        ``credential_store`` surfaces at the call site rather than
+        being silently swallowed. The module-level ``_warmup_called``
+        flag is set to True even if the probe itself returns False
+        (keyring unavailable) — the WARMUP happened; the unavailability
+        is the cached result, not a warmup failure.
+        """
+        global _warmup_called
+        if _warmup_called:
+            # Idempotent: a prior call already populated the
+            # ``credential_store._keyring_available_cache``. Skip the
+            # re-probe (which would be a no-op anyway thanks to the
+            # cache, but the flag check avoids the function-call
+            # overhead and the global-statement side effect).
+            return
+        from voice_typer.server import credential_store
+
+        # Touch the probe — the result is cached inside
+        # ``credential_store`` (``_keyring_available_cache``) for the
+        # process lifetime (positive) or until the re-probe interval
+        # (negative). The return value is intentionally ignored here:
+        # the caller does not need to know whether keyring is
+        # available; the cache is what matters.
+        credential_store.is_keyring_available()
+        _warmup_called = True
 
     def save(self) -> bool:
         """Save config to disk atomically via temp file + os.replace.
@@ -1416,7 +1531,32 @@ class Config:
         ``config.json.bak`` write, no ``os.chmod``.  This is the common
         case for ``set_config`` round-trips that don't change any
         persisted field.
+
+        A ``_dirty`` flag (set True by ``__setattr__`` on every
+        persisted-field mutation, set False after a successful save)
+        is checked at the TOP of this method. When False AND
+        ``_last_saved_bytes`` is populated, the entire save is
+        short-circuited BEFORE the expensive ``asdict(self)`` +
+        ``json.dumps`` calls — the common case for back-to-back
+        ``save()`` calls with no intervening mutation (e.g. a
+        ``set_config`` IPC round-trip whose ``updates`` dict was a
+        no-op after the per-key dirty-check in ``apply_config``).
         """
+        # Dirty-flag short-circuit. If no persisted field has
+        # been mutated since the last successful save (and we have in
+        # fact saved at least once), there is nothing to do — skip the
+        # entire save including ``asdict(self)`` + ``json.dumps`` +
+        # ``_secure_atomic_write`` + ``.bak`` write. The ``_dirty`` flag
+        # is set True by ``__setattr__`` on every persisted-field
+        # mutation and set False at the bottom of this method after a
+        # successful write. The ``_last_saved_bytes is not None`` guard
+        # ensures a fresh ``Config()`` (which has ``_dirty=True`` from
+        # ``__post_init__``) always falls through to the real write on
+        # its first save — even if ``_dirty`` were manually cleared,
+        # the cache would still be ``None`` and the guard below would
+        # fall through. Belt-and-suspenders.
+        if not self._dirty and self._last_saved_bytes is not None:
+            return True
         path = _config_dir()
         path.mkdir(parents=True, exist_ok=True)
         if not is_windows():
@@ -1433,6 +1573,18 @@ class Config:
             _enforce_windows_owner_only_acl(path)
         config_file = path / "config.json"
         data = asdict(self)
+        # Reset the ``_secrets_routed_in_save`` flag at the
+        # start of the routing block. Set to True below ONLY if the
+        # routing try-block completes (whether keyring was available
+        # or not — the routing was "attempted" and the secret is
+        # either in keyring or persisted as plaintext in config.json
+        # by the final ``_secure_atomic_write``). Readers
+        # (``config_applier.apply_config``) check this flag to decide
+        # whether to run a redundant ``store_secret`` loop after
+        # ``save_strict`` succeeds; the loop only runs when routing
+        # did NOT happen (e.g. ``Config.save`` was mocked to skip
+        # routing in a test).
+        object.__setattr__(self, "_secrets_routed_in_save", False)
         # route API key fields through credential_store.
         try:
             from voice_typer.server import credential_store
@@ -1509,6 +1661,13 @@ class Config:
                             data[field_name] = f"{credential_store.KEYRING_REF_PREFIX}{provider}"
                         # else: leave data[field_name] as the plaintext value —
                         # the final _secure_atomic_write will persist it.
+            # Routing was attempted (keyring available OR not —
+            # if not available, the plaintext value is persisted by
+            # the final ``_secure_atomic_write`` below, which is the
+            # equivalent "routing" for the no-keyring path). Signal
+            # ``config_applier.apply_config`` that its redundant
+            # ``store_secret`` loop can be skipped.
+            object.__setattr__(self, "_secrets_routed_in_save", True)
         except Exception as e:
             # log only the exception TYPE (not the message) —
             # credential_store exceptions can echo the secret value
@@ -1517,6 +1676,9 @@ class Config:
                 "[CONFIG] credential_store routing failed: %s — writing config with current api_key values",
                 type(e).__name__,
             )
+            # Leave ``_secrets_routed_in_save`` at False (set
+            # above before the try-block) so ``apply_config``'s
+            # redundant ``store_secret`` loop runs as a safety net.
         content = json.dumps(data, indent=2)
         content_bytes = content.encode("utf-8")
 
@@ -1539,31 +1701,68 @@ class Config:
         # instance (cache never populated) always falls through to the
         # real write, so the first save after construction/load is
         # never skipped.
+        #
+        # Note: the ``_dirty`` short-circuit at the top of this
+        # method already handles the common case (no mutation since
+        # last save). This byte-level check is a SECOND layer of
+        # defense: it catches the rare case where ``_dirty`` is True
+        # (a field was mutated) but the mutation is a no-op (e.g.
+        # ``cfg.hotkey = cfg.hotkey``) or the field was mutated and
+        # then mutated back. Without this check, those no-op
+        # mutations would trigger a full write unnecessarily.
         if self._last_saved_bytes is not None and self._last_saved_bytes == content_bytes:
+            # Clear the dirty flag here too — the content
+            # matches what's on disk, so the in-memory state is
+            # effectively "clean" relative to disk.
+            object.__setattr__(self, "_dirty", False)
             return True
 
-        # short-circuit the entire backup block when the new
+        # Short-circuit the entire backup block when the new
         # content matches the previously-persisted bytes. The cached
         # bytes are only updated after a successful write below, so a
         # previous failed save (or a fresh Config() that has never
         # saved) falls through to the full backup path.
+        #
+        # When ``_last_saved_bytes`` is populated, use it directly as
+        # ``existing_bytes`` instead of re-reading ``config.json`` via
+        # ``_secure_read_text``. The cache reflects the exact bytes we
+        # wrote on the last successful save, which (barring external
+        # modification) equals the current on-disk content. This skips
+        # one filesystem read (the ``_secure_read_text`` open + read +
+        # inode-verify) per modified save — the .bak WRITE still
+        # happens (the content has changed, so the backup is needed),
+        # but the READ is eliminated. The ``_secure_read_text`` path
+        # is retained as a fallback for the first save (cache is
+        # ``None``) so the symlink-TOCTOU-safe read is still used
+        # when we have no cached bytes to compare against.
         if self._last_saved_bytes != content_bytes and config_file.exists():
             # best-effort backup before overwrite.
             try:
-                # read the existing config.json via
-                # ``_secure_read_text`` (O_NOFOLLOW + inode re-verify)
-                # instead of ``config_file.read_bytes()`` which calls
-                # ``open()`` internally and FOLLOWS SYMLINKS. A local
-                # attacker who replaces config.json with a symlink to
-                # ~/.bashrc between saves would otherwise get ~/.bashrc
-                # content copied into config.json.bak (info disclosure
-                # via the .bak). The subsequent ``_secure_atomic_write``
-                # uses ``os.replace`` which replaces the SYMLINK itself
-                # (safe), so the actual config.json write is fine — but
-                # the .bak was already poisoned. This mirrors the
-                #  fix prescribed for the .bak WRITE.
-                existing_text = _secure_read_text(config_file)
-                existing_bytes = existing_text.encode("utf-8")
+                if self._last_saved_bytes is not None:
+                    # Use the cached bytes from the last
+                    # successful save. This is the bytes-identical
+                    # content we wrote last time; barring external
+                    # modification it equals the current on-disk
+                    # content. Skips the ``_secure_read_text`` open +
+                    # read + inode-verify.
+                    existing_bytes = self._last_saved_bytes
+                    existing_text = existing_bytes.decode("utf-8")
+                else:
+                    # Fallback: first save (cache is None) —
+                    # read the existing config.json via
+                    # ``_secure_read_text`` (O_NOFOLLOW + inode
+                    # re-verify) instead of ``config_file.read_bytes()``
+                    # which calls ``open()`` internally and FOLLOWS
+                    # SYMLINKS. A local attacker who replaces
+                    # config.json with a symlink to ~/.bashrc between
+                    # saves would otherwise get ~/.bashrc content
+                    # copied into config.json.bak (info disclosure via
+                    # the .bak). The subsequent ``_secure_atomic_write``
+                    # uses ``os.replace`` which replaces the SYMLINK
+                    # itself (safe), so the actual config.json write
+                    # is fine — but the .bak was already poisoned.
+                    existing_text = _secure_read_text(config_file)
+                    existing_bytes = existing_text.encode("utf-8")
                 if existing_bytes != content_bytes:
                     bak_path = path / "config.json.bak"
                     #  (cont.): also route the .bak WRITE through
@@ -1606,6 +1805,11 @@ class Config:
         # leaves the cache stale, which forces the next save through
         # the full backup path (safe-but-slower fallback).
         object.__setattr__(self, "_last_saved_bytes", content_bytes)
+        # Clear the dirty flag — the in-memory state now
+        # matches the on-disk state. The next ``save()`` call (with no
+        # intervening mutation) will short-circuit at the top of this
+        # method via the ``not self._dirty`` check.
+        object.__setattr__(self, "_dirty", False)
         return True
 
     #  back-compat alias: the original pre-refactor name was
@@ -1741,7 +1945,7 @@ class Config:
     def _backup_before_migration(cls, config_file, loaded_version: Any) -> None:
         """Best-effort backup of ``config.json`` BEFORE any migration runs.
 
-        S5-CR-28: implementation extracted to
+        S5-implementation extracted to
         :func:`voice_typer.server.config_internals.migrations._backup_before_migration_impl`
         to chip away at this module's monolith. This classmethod is now
         a thin delegating wrapper so existing callers (and tests that

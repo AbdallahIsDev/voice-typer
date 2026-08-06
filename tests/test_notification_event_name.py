@@ -58,7 +58,17 @@ def _make_ipc_server():
 
 
 class TestShowNotificationEventName:
-    """CR-8: ``_handle_show_electron_notification`` publishes ``notification``."""
+    """``_handle_show_electron_notification`` publishes ``notification``.
+
+    NOTE: ``show_electron_notification`` was deliberately de-registered
+    from ``_COMMAND_REGISTRY`` (it is not in the TS / Rust renderer
+    allowlists) — the Python-side handler is retained for direct tests
+    per the CHANGELOG convention ("The Python-side ``_handle_*`` methods
+    are retained (tests still call them directly)"). These tests
+    therefore invoke the handler directly rather than routing through
+    ``IPCServer._dispatch``, which would return an unknown-command
+    error.
+    """
 
     def test_published_event_type_is_notification(self):
         """A well-formed payload must publish ``type == "notification"``.
@@ -72,30 +82,26 @@ class TestShowNotificationEventName:
         """
         server = _make_ipc_server()
         captured: dict = {}
+        resp: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            resp = server._dispatch(
+            server._handle_show_electron_notification(
                 {
-                    "type": "show_electron_notification",
-                    "data": {
-                        "title": "Hello",
-                        "message": "World",
-                        "duration_ms": 5000,
-                        "critical": True,
-                    },
-                    "id": "cr8-1",
-                }
+                    "title": "Hello",
+                    "message": "World",
+                    "duration_ms": 5000,
+                    "critical": True,
+                },
+                resp,
             )
         assert resp["type"] == "ack", f"handler should ack a well-formed payload, got {resp!r}"
         assert captured.get("type") == "notification", (
-            f"CR-8: event_bus.publish must be called with type='notification' (got {captured.get('type')!r})"
+            f"event_bus.publish must be called with type='notification' (got {captured.get('type')!r})"
         )
         # the legacy name must NOT appear in the published event.
-        assert captured.get("type") != "electron_notification", (
-            "CR-8: legacy 'electron_notification' name must not be used"
-        )
+        assert captured.get("type") != "electron_notification", "legacy 'electron_notification' name must not be used"
 
     def test_published_payload_carries_no_legacy_event_name(self):
         """The legacy ``electron_notification`` string must NOT appear
@@ -109,21 +115,19 @@ class TestShowNotificationEventName:
         """
         server = _make_ipc_server()
         captured: dict = {}
+        resp: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
+            server._handle_show_electron_notification(
                 {
-                    "type": "show_electron_notification",
-                    "data": {
-                        "title": "Title",
-                        "message": "Body",
-                        "duration_ms": 1000,
-                        "critical": False,
-                    },
-                    "id": "cr8-2",
-                }
+                    "title": "Title",
+                    "message": "Body",
+                    "duration_ms": 1000,
+                    "critical": False,
+                },
+                resp,
             )
         assert captured["type"] == "notification"
         assert set(captured["data"].keys()) == {
@@ -143,17 +147,12 @@ class TestShowNotificationEventName:
         """Empty ``data: {}`` must still publish under ``notification``."""
         server = _make_ipc_server()
         captured: dict = {}
+        resp: dict = {}
         with patch(
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {},
-                    "id": "cr8-3",
-                }
-            )
+            server._handle_show_electron_notification({}, resp)
         assert captured["type"] == "notification"
         assert captured["data"]["title"] == "Voice Typer"
         assert captured["data"]["message"] == ""
@@ -165,7 +164,7 @@ class TestShowNotificationEventName:
 
 
 class TestStartupSequenceCrashNotificationEventName:
-    """CR-8: the crash-recovery startup branch publishes ``notification``."""
+    """the crash-recovery startup branch publishes ``notification``."""
 
     def _make_app_with_crash_summary(self, crash_summary: str):
         """Build a mock VoiceTyperApp sufficient for ``StartupSequence.run``
@@ -213,9 +212,9 @@ class TestStartupSequenceCrashNotificationEventName:
         assert len(captured) == 1, f"expected 1 event from crash branch, got {len(captured)}: {captured!r}"
         evt = captured[0]
         assert evt["type"] == "notification", (
-            f"CR-8: startup_sequence crash branch must publish type='notification' (got {evt['type']!r})"
+            f"startup_sequence crash branch must publish type='notification' (got {evt['type']!r})"
         )
-        assert evt["type"] != "electron_notification", "CR-8: legacy 'electron_notification' name must not be used"
+        assert evt["type"] != "electron_notification", "legacy 'electron_notification' name must not be used"
         assert evt["data"]["critical"] is True
         assert evt["data"]["duration_ms"] == 15000
         assert "heap corruption" in evt["data"]["message"]
@@ -274,12 +273,12 @@ class TestNoLegacyEventNameInSource:
 
         src = inspect.getsource(system_handlers)
         # The publish call site must use the new name.
-        assert '"type": "notification"' in src, "CR-8: system_handlers.py must publish with type='notification'"
+        assert '"type": "notification"' in src, "system_handlers.py must publish with type='notification'"
         # The legacy name must NOT be used as the event type. Allow it
         # in comments/docstrings (prefixed by # or inside triple-quotes),
         # but forbid ``"type": "electron_notification"`` outright.
         assert '"type": "electron_notification"' not in src, (
-            "CR-8: system_handlers.py must not publish with the legacy 'electron_notification' event name"
+            "system_handlers.py must not publish with the legacy 'electron_notification' event name"
         )
 
     def test_startup_sequence_does_not_publish_legacy_event_name(self):
@@ -288,9 +287,9 @@ class TestNoLegacyEventNameInSource:
         from voice_typer.server import startup_sequence
 
         src = inspect.getsource(startup_sequence)
-        assert '"type": "notification"' in src, "CR-8: startup_sequence.py must publish with type='notification'"
+        assert '"type": "notification"' in src, "startup_sequence.py must publish with type='notification'"
         assert '"type": "electron_notification"' not in src, (
-            "CR-8: startup_sequence.py must not publish with the legacy 'electron_notification' event name"
+            "startup_sequence.py must not publish with the legacy 'electron_notification' event name"
         )
 
 

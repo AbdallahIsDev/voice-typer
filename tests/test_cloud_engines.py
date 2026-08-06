@@ -931,3 +931,205 @@ class TestCloudEngineTestConnectionErrorBranches:
             f"expected timeout=42.0 (the sentinel), got {captured.get('timeout')!r} "
             "— test_connection is not reading self._REQUEST_TIMEOUT_SECONDS"
         )
+
+
+# ── cloud_engines test_connection branch coverage ────────────────
+
+
+class TestCloudEngineTestConnectionBranches:
+    """branch coverage for ``CloudEngine.test_connection``.
+
+    The three observable branches of ``test_connection`` not previously
+    pinned by named regression tests:
+
+      1. Deepgram provider path — builds a ``audio/wav`` POST request
+         (vs. the OpenAI-compatible multipart path) and asserts a 200
+         response surfaces as ``success=True``.
+      2. HTTP 401 — the API key was rejected at the auth layer.
+         ``test_connection`` returns ``success=False`` with a message
+         naming the rejection so the renderer can prompt for a new key.
+      3. HTTP 5xx — the server is reachable but failing. The connection
+         itself succeeded (``success=True``) but the message carries a
+         "temporarily unavailable" warning so the user knows their
+         transcriptions will fail until the provider recovers.
+
+    All three tests patch ``_opener.open`` so no real network egress
+    occurs.
+    """
+
+    def test_test_connection_deepgram_path(self):
+        """#1: provider="deepgram" must use the Deepgram branch
+        at line 960-972 — POSTing ``audio/wav`` bytes (NOT multipart)
+        with an ``Authorization: Token …`` header.
+
+        A 200 response from the patched opener must surface as
+        ``success=True`` with a message naming Deepgram and the status.
+
+        Pre-fix the Deepgram branch of ``test_connection`` was
+        completely untested — a refactor that swapped the
+        ``audio/wav`` content-type for ``multipart/form-data`` (or
+        dropped the ``Token`` auth scheme in favor of ``Bearer``) would
+        silently break Deepgram users without a test failure.
+        """
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(
+            provider="deepgram",
+            api_key="test-token",
+            api_url="https://api.deepgram.com/v1/listen",
+            model="nova-2",
+            consent_given=True,
+        )
+
+        captured: dict = {}
+
+        class _FakeResp:
+            status = 200
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        def _capture(req, timeout=None, **kwargs):
+            captured["req"] = req
+            captured["timeout"] = timeout
+            return _FakeResp()
+
+        with patch(
+            "voice_typer.server.cloud_engines._opener.open",
+            side_effect=_capture,
+        ):
+            success, msg = engine.test_connection()
+
+        assert success is True, (
+            f"a 200 response on the Deepgram path must report success=True "
+            f"(got success={success!r}, msg={msg!r})"
+        )
+        assert "deepgram" in msg.lower()
+        assert "200" in msg, f"message must name the HTTP 200 status: {msg!r}"
+        # The request must be a POST with the Deepgram ``Token`` auth
+        # scheme (NOT ``Bearer``) and ``audio/wav`` content-type —
+        # proving the Deepgram branch fired, not the OpenAI-compatible
+        # multipart branch.
+        req = captured["req"]
+        assert req.get_method() == "POST"
+        auth_header = req.headers.get("Authorization", "")
+        assert auth_header.startswith("Token "), (
+            f"Deepgram test_connection must use 'Token <key>' auth scheme, "
+            f"got {auth_header!r}"
+        )
+        content_type = req.headers.get("Content-type", "") or req.headers.get(
+            "Content-Type", ""
+        )
+        assert "audio/wav" in content_type, (
+            f"Deepgram test_connection must send audio/wav Content-Type, "
+            f"got {content_type!r}"
+        )
+
+    def test_test_connection_401_returns_key_rejected(self):
+        """#2: an HTTP 401 from the provider must return
+        ``success=False`` with a message that names the rejection.
+
+        The 401/403 branch at line 1013-1014 is the user-facing
+        diagnostic for a revoked / typo'd API key — without it the user
+        would see a generic "Connection failed" message and have no
+        way to tell their key was the problem (vs. a network outage).
+
+        Pre-fix the only 401 test was ``test_cloud_engine_raises_auth_error_on_401``
+        which exercises the ``transcribe()`` path (not
+        ``test_connection()``) — the test_connection 401 branch was
+        untested.
+        """
+        import io
+        from urllib.error import HTTPError
+
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(
+            provider="openai",
+            api_key="revoked-key",
+            api_url="https://api.openai.com/v1/audio/transcriptions",
+            consent_given=True,
+        )
+        http_err = HTTPError(
+            url="https://api.openai.com/v1/audio/transcriptions",
+            code=401,
+            msg="Unauthorized",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error": "invalid_api_key"}'),
+        )
+        with patch(
+            "voice_typer.server.cloud_engines._opener.open",
+            side_effect=http_err,
+        ):
+            success, msg = engine.test_connection()
+
+        assert success is False, (
+            f"HTTP 401 must report success=False (key rejected), got "
+            f"success={success!r}"
+        )
+        assert "401" in msg, f"message must name the HTTP 401 status: {msg!r}"
+        assert "rejected" in msg.lower() or "api key" in msg.lower(), (
+            f"message must surface the key-rejection diagnostic, got {msg!r}"
+        )
+        # The API key must NOT leak into the returned message — even
+        # though the HTTPError carries the request URL / headers in
+        # some Python versions.
+        assert "revoked-key" not in msg
+
+    def test_test_connection_5xx_returns_success_with_warning(self):
+        """#3: an HTTP 5xx must return ``success=True`` (the
+        connection itself succeeded) WITH a warning message naming
+        the status and the "temporarily unavailable" hint.
+
+        The 5xx branch at line 1024-1028 surfaces a diagnostic that
+        names the status and hints at the cause while still reporting
+        ``success=True`` — the connection itself DID succeed; the
+        provider is the problem, not our config. The user's
+        transcriptions will fail until the provider recovers, so the
+        warning is critical context.
+
+        Pre-fix this branch was tested by
+        ``test_5xx_http_error_returns_temporarily_unavailable_diagnostic``
+        in ``TestCloudEngineTestConnectionErrorBranches`` — this test
+        is a focused regression guard that pins the success=True
+        contract and the warning wording explicitly.
+        """
+        import io
+        from urllib.error import HTTPError
+
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(
+            provider="openai",
+            api_key="sk-test",
+            api_url="https://api.openai.com/v1/audio/transcriptions",
+            consent_given=True,
+        )
+        http_err = HTTPError(
+            url="https://api.openai.com/v1/audio/transcriptions",
+            code=503,
+            msg="Service Unavailable",
+            hdrs=None,
+            fp=io.BytesIO(b'{"error": "server_error"}'),
+        )
+        with patch(
+            "voice_typer.server.cloud_engines._opener.open",
+            side_effect=http_err,
+        ):
+            success, msg = engine.test_connection()
+
+        # Connection itself succeeded — server answered.
+        assert success is True, (
+            f"HTTP 503 must report success=True (connection itself succeeded), "
+            f"got success={success!r}"
+        )
+        # Warning surface: status code + "temporarily unavailable" hint.
+        assert "503" in msg, f"message must name the HTTP 503 status: {msg!r}"
+        assert "temporarily unavailable" in msg.lower(), (
+            f"message must include the 'temporarily unavailable' warning so "
+            f"the user knows transcriptions will fail until the provider "
+            f"recovers — got {msg!r}"
+        )

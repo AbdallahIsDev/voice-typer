@@ -201,13 +201,22 @@ class TestRelaunchAckCoordination:
             time.sleep(0.05)
             server._handle_relaunch_ack(data=None, resp={"id": 1})
 
-        threading.Thread(target=_ack_after_short_delay, daemon=True).start()
+        # capture the thread handle and join it after the wait
+        # returns so we don't leak a daemon Thread-without-join (the
+        # thread has already fired _handle_relaunch_ack by the time
+        # wait_for_relaunch_ack returns True, so the join is
+        # near-instant).
+        ack_thread = threading.Thread(target=_ack_after_short_delay, daemon=True)
+        ack_thread.start()
         start = time.monotonic()
         acked = server.wait_for_relaunch_ack(timeout=2.0)
         elapsed = time.monotonic() - start
         assert acked is True
         # Returned well before the 2s deadline (ack arrived at ~50ms).
         assert elapsed < 1.0, f"wait_for_relaunch_ack should return as soon as the ack arrives; waited {elapsed:.3f}s"
+        # Best-effort join so the daemon thread doesn't linger past
+        # the test (it should have exited within ~50ms of start).
+        ack_thread.join(timeout=1.0)
 
     def test_wait_for_relaunch_ack_returns_false_on_timeout(self) -> None:
         """When no ack arrives within the timeout, the wait returns

@@ -121,6 +121,42 @@ def generate_test_audio(num_samples: int) -> np.ndarray:
     return sine + noise
 
 
+def _peak_rss_mb() -> int | None:
+    """Return current peak RSS in MB, or ``None`` if unavailable.
+
+    Peak RSS is captured at the end of the bench loop so the CI
+    ratchet can detect memory regressions in the audio filter chain.
+    On Linux, ``psutil`` does not expose ``peak_rss`` directly — we
+    parse ``VmHWM`` from ``/proc/<pid>/status``. On Windows / macOS,
+    ``memory_info().peak_rss`` is used directly.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return None
+    try:
+        proc = psutil.Process()
+        mi = proc.memory_info()
+        if hasattr(mi, "peak_rss"):
+            return int(mi.peak_rss / (1024 * 1024))
+    except Exception:  # noqa: BLE001 — best-effort
+        pass
+    # Linux fallback: parse VmHWM from /proc/<pid>/status.
+    try:
+        status_path = Path(f"/proc/{proc.pid}/status")
+        if status_path.is_file():
+            for line in status_path.read_text(encoding="utf-8").splitlines():
+                if line.startswith("VmHWM:"):
+                    return int(line.split()[1]) // 1024
+    except Exception:  # noqa: BLE001 — best-effort
+        pass
+    # Last-resort: instantaneous RSS.
+    try:
+        return int(proc.memory_info().rss / (1024 * 1024))
+    except Exception:  # noqa: BLE001 — best-effort
+        return None
+
+
 def bench_filter_chain(
     sample_rate: int,
     duration_seconds: float,
@@ -168,6 +204,12 @@ def bench_filter_chain(
     p50 = per_chunk_us[len(per_chunk_us) // 2]
     p99 = per_chunk_us[min(len(per_chunk_us) - 1, int(len(per_chunk_us) * 0.99))]
     p99_9 = per_chunk_us[min(len(per_chunk_us) - 1, int(len(per_chunk_us) * 0.999))]
+    # Capture peak RSS so the bench can detect memory regressions
+    # in the audio filter chain (e.g. a filter that allocates an
+    # unbounded buffer per chunk).  See ``bench/bench_memory.py`` for
+    # the dedicated memory-peak bench that exercises cold import + model
+    # load + sustained transcription.
+    peak_rss_mb = _peak_rss_mb()
     return {
         "sample_rate": sample_rate,
         "chunk_samples": chunk_samples,
@@ -181,6 +223,7 @@ def bench_filter_chain(
         "p99_per_chunk_us": round(p99, 1),
         "p99_9_per_chunk_us": round(p99_9, 1),
         "realtime_margin_pct": round((chunk_duration_us - p99) / chunk_duration_us * 100.0, 1),
+        "peak_rss_mb": peak_rss_mb,
     }
 
 

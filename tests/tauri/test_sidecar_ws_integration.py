@@ -35,8 +35,19 @@ async def test_sidecar_round_trip_auth_dispatch_response(monkeypatch):
     server._dispatch = MagicMock(return_value={"type": "result", "data": {"status": "idle"}})
     server.app = MagicMock()
     server.app.quit = MagicMock()
+    # The dispatch gate at sidecar_ws.py:1064 rejects every new request
+    # once app._shutting_down is truthy. A bare MagicMock attribute is
+    # truthy, so pin it to False explicitly (same as the canonical
+    # helper in tests/fixtures/sidecar_ws_test_helpers.py).
+    server.app._shutting_down = False
     # push is called by start() — make it a no-op.
     server.push = MagicMock()
+    # Skip the post-auth `ready` emission and the initial `state_changed`
+    # emission (the latter would publish a MagicMock status value that
+    # fails JSON serialization in the writer task — see
+    # tests/fixtures/sidecar_ws_test_helpers.py for the canonical list).
+    server._ready_emitted = True
+    server.app.tray._state = None
     # ``dispatch`` increments / decrements the in-flight counter (and
     # compares it to ints), so the mock must carry a real int, not a
     # MagicMock (which would fail the ``<= 0`` comparison).
@@ -93,7 +104,7 @@ async def test_sidecar_rejects_bad_token(monkeypatch):
 
     RT-FIX-9 / EC-11 (cross-transport parity, 2026-07-24): the WS path
     now mirrors the TCP path's ``auth_failed`` error frame BEFORE
-    closing the WS with code 1008. Pre-EC-FIX-3 the WS path closed with
+    closing the WS with code 1008. the WS path closed with
     1008 and sent NO error frame; now both transports emit the same
     ``{"type":"error","data":{"code":"auth_failed",...}}`` frame before
     closing so clients can branch on the error code without sniffing
@@ -149,6 +160,15 @@ async def test_sidecar_handles_malformed_frame_without_crashing(monkeypatch):
     server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
     server.app = MagicMock()
     server.push = MagicMock()
+    # The dispatch gate at sidecar_ws.py:1064 rejects every new request
+    # once app._shutting_down is truthy. A bare MagicMock attribute is
+    # truthy, so pin it to False explicitly.
+    server.app._shutting_down = False
+    # Skip the post-auth `ready` emission and the initial `state_changed`
+    # emission (the latter would publish a MagicMock status value that
+    # fails JSON serialization in the writer task).
+    server._ready_emitted = True
+    server.app.tray._state = None
     # ``dispatch`` increments / decrements the in-flight counter (and
     # compares it to ints), so the mock must carry a real int, not a
     # MagicMock (which would fail the ``<= 0`` comparison).

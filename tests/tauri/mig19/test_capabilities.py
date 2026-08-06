@@ -287,7 +287,7 @@ def test_capabilities_file_exists_and_is_valid_json(
     main_runtime_capability: dict,
     bubble_runtime_capability: dict,
 ) -> None:
-    """ADR-0020 §7 + CR-5: ``main-runtime.json`` + ``bubble-runtime.json`` parse as JSON."""
+    """ADR-0020 §7 + ``main-runtime.json`` + ``bubble-runtime.json`` parse as JSON."""
     for cap, label in (
         (main_runtime_capability, "main-runtime.json"),
         (bubble_runtime_capability, "bubble-runtime.json"),
@@ -304,7 +304,7 @@ def test_capabilities_file_exists_and_is_valid_json(
 def test_tauri_conf_references_migrate_runtime_capability(
     tauri_conf: dict,
 ) -> None:
-    """ADR-0020 §7 + CR-5: ``app.security.capabilities`` lists both
+    """ADR-0020 §7 + ``app.security.capabilities`` lists both
     ``main-runtime`` and ``bubble-runtime`` (the original migrate-runtime
     was deleted)."""
     security = tauri_conf.get("app", {}).get("security", {})
@@ -332,7 +332,7 @@ def test_capability_identifier_matches_filename(
     main_runtime_capability: dict,
     bubble_runtime_capability: dict,
 ) -> None:
-    """ADR-0020 §7 + CR-5: ``identifier`` field matches the filename stem."""
+    """ADR-0020 §7 + ``identifier`` field matches the filename stem."""
     for cap, expected_id, path in (
         (main_runtime_capability, EXPECTED_MAIN_CAPABILITY_IDENTIFIER, _MAIN_RUNTIME_CAPABILITY),
         (bubble_runtime_capability, EXPECTED_BUBBLE_CAPABILITY_IDENTIFIER, _BUBBLE_RUNTIME_CAPABILITY),

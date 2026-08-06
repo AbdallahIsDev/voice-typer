@@ -1927,9 +1927,9 @@
   {
     "ordinal": 276,
     "line": 7666,
-    "raw": "### SI-26 — `migrate.rs` 1249 LOC monolith split deferred (extends AC-138)",
+    "raw": "### SI-26 — `migrate.rs` 1249 LOC monolith split deferred",
     "id": "SI-26",
-    "title": "`migrate.rs` 1249 LOC monolith split deferred (extends AC-138)"
+    "title": "`migrate.rs` 1249 LOC monolith split deferred"
   },
   {
     "ordinal": 277,

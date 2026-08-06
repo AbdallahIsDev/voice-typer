@@ -6,7 +6,7 @@ Scope
 This file pins three fixes performed by sub-agent SA-5 in the
 Fix-Existing mode session:
 
-- **Finding #53 (S2-CR-19, High)** — per-sample Python for-loops in 4
+- **Finding #53 (High)** — per-sample Python for-loops in 4
   dynamics audio filters. The fix vectorized the equalizer, compressor,
   limiter, and noise_gate via ``scipy.signal.lfilter`` /
   ``np.maximum.accumulate``. These tests verify the vectorized path is
@@ -495,12 +495,12 @@ class TestResampleFallbackDegraded:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Finding #53 (High): vectorized dynamics filters — regression guard
+# vectorized dynamics filters — regression guard
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 class TestVectorizedDynamicsFilters:
-    """S2-CR-19 (High): the 4 dynamics filters (equalizer, compressor,
+    """the 4 dynamics filters (equalizer, compressor,
     limiter, noise_gate) must NOT use per-sample Python loops with
     transcendental calls (abs/log10/exp/power) on the RT thread.
 
@@ -636,7 +636,7 @@ class TestVectorizedDynamicsFilters:
         assert call_count["n"] == 2, f"vectorized Limiter must use exactly 2 lfilter calls; got {call_count['n']}"
 
     def test_noise_gate_uses_maximum_accumulate_for_peak_hold(self, small_audio):
-        """S2-CR-19: the noise gate's peak-hold level estimator must use
+        """the noise gate's peak-hold level estimator must use
         ``np.maximum.accumulate`` (vectorized running-maximum), not a
         per-sample Python ``max()`` loop. The state-machine loop
         (open/close + attack/hold/release) is allowed to remain a
@@ -680,7 +680,7 @@ class TestVectorizedDynamicsFilters:
             "NoiseGate.process must use np.maximum.accumulate for the "
             "peak-hold level estimator (vectorized). If this assertion "
             "fails, the vectorization was reverted to a per-sample max() "
-            "loop — see S2-CR-19 for the CPU-cost rationale."
+            "loop — for the CPU-cost rationale."
         )
         # The state-machine loop is allowed (inherently sequential), but
         # the loop body must NOT call np.abs() — abs must be pre-computed
@@ -688,11 +688,11 @@ class TestVectorizedDynamicsFilters:
         assert "abs_x = np.abs(samples)" in source, (
             "NoiseGate.process must pre-compute abs_x outside the state-machine "
             "loop (vectorized) — the per-sample abs() call was the original "
-            "S2-CR-19 hot-path cost."
+            "hot-path cost."
         )
 
     def test_compressor_log10_receives_array_not_scalar(self, small_audio, monkeypatch: pytest.MonkeyPatch):
-        """S2-CR-19: ``np.log10`` must be called with an ARRAY argument
+        """``np.log10`` must be called with an ARRAY argument
         (vectorized gain computation), not a scalar (per-sample loop).
 
         If the original per-sample loop were restored, ``np.log10`` would

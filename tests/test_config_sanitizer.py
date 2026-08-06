@@ -1,6 +1,6 @@
 """Tests for the transport-neutral config sanitizer.
 
-EC-FIX-15 / EC-22: ``sanitize_config_for_ipc`` is the canonical
+``sanitize_config_for_ipc`` is the canonical
 implementation that both :mod:`voice_typer.server.service` and
 :mod:`voice_typer.server.ipc_server` import.  These tests pin its
 contract (SEC-003: never echo secret values back to the IPC client) so

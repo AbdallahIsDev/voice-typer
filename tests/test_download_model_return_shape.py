@@ -1,4 +1,4 @@
-"""AC-63: ``download_model`` return-shape contract test.
+"""``download_model`` return-shape contract test.
 
 The original ``download_model`` returned 6+ distinct dict shapes across
 8 return paths. Four paths (unknown-model, generic-exception,
@@ -44,7 +44,7 @@ def test_unknown_model_return_includes_model_field() -> None:
     assert result["success"] is False
     assert "Unknown model" in result["error"]
     assert result["model"] == "nonexistent-model", (
-        "AC-63: unknown-model return must include `model` so consumers "
+        "unknown-model return must include `model` so consumers "
         "don't have to thread the input through the IPC layer."
     )
 
@@ -59,7 +59,7 @@ def test_qwen_unconfigured_return_includes_model_field() -> None:
     result = service.download_model("qwen")
     assert result["success"] is False
     assert "Qwen model path not configured" in result["error"]
-    assert result["model"] == "qwen", "AC-63: qwen-unconfigured return must include `model`."
+    assert result["model"] == "qwen", "qwen-unconfigured return must include `model`."
 
 
 # ── Generic-exception return path ─────────────────────────────────────
@@ -71,7 +71,7 @@ def test_generic_exception_return_includes_model_field(monkeypatch) -> None:
 
     We force the model-registry import to raise so the failure happens
     before any branch method runs — exercising the exact path the
-    original AC-63 finding cited (the bare
+    original finding cited (the bare
     ``return {"success": False, "error": str(exc)}`` at the bottom of
     ``download_model``).
     """
@@ -87,7 +87,7 @@ def test_generic_exception_return_includes_model_field(monkeypatch) -> None:
     result = service.download_model("tiny.en")
     assert result["success"] is False
     assert "synthetic registry failure" in result["error"]
-    assert result["model"] == "tiny.en", "AC-63: generic-exception return must include `model`."
+    assert result["model"] == "tiny.en", "generic-exception return must include `model`."
 
 
 # ── Cancelled return path ─────────────────────────────────────────────
@@ -135,7 +135,7 @@ def test_all_download_model_return_paths_include_model() -> None:
         for d in return_dicts:
             keys = {k.value if isinstance(k, ast.Constant) else None for k in d.keys}
             assert "model" in keys, (
-                f"AC-63: {method_name} has a return dict literal without "
+                f"{method_name} has a return dict literal without "
                 f"a ``model`` key. Keys present: {sorted(k for k in keys if k)}. "
                 "Every return path must populate `model` so the IPC layer "
                 "and TS renderer can rely on the field."

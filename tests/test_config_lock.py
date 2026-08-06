@@ -1,4 +1,4 @@
-"""Regression test for CR-25: ``Config.save()`` must acquire the
+"""Regression test for ``Config.save()`` must acquire the
 mutation lock when one is registered via :meth:`set_mutation_lock`.
 
 Context
@@ -20,7 +20,7 @@ snapshot is torn — half the fields from the IPC request, half from the
 prior state.  The mic-fallback save then persists that torn snapshot to
 disk, overwriting the user's intended change.
 
-The fix (CR-25) moves the lock acquisition INSIDE ``Config.save()`` by
+The fix  moves the lock acquisition INSIDE ``Config.save()`` by
 giving ``Config`` a class-level ``_mutation_lock`` reference (set via
 :meth:`set_mutation_lock` after :meth:`Config.load`).  When set,
 :meth:`save` wraps the actual save work (:meth:`_save_unlocked`) in the
@@ -53,7 +53,7 @@ from voice_typer.server.config import Config
 
 
 class TestConfigMutationLock:
-    """CR-25: ``Config.save()`` must acquire ``_mutation_lock`` when set."""
+    """``Config.save()`` must acquire ``_mutation_lock`` when set."""
 
     def test_default_mutation_lock_is_none(self):
         """A freshly-constructed ``Config()`` has ``_mutation_lock = None``.
@@ -80,16 +80,14 @@ class TestConfigMutationLock:
         cfg.set_mutation_lock(lock)
         assert cfg._mutation_lock is lock
 
-    def test_save_acquires_lock_when_set(self, tmp_path, monkeypatch):
+    def test_save_acquires_lock_when_set(self, tmp_path, tmp_config_dir):
         """``Config.save()`` MUST acquire the mutation lock if one is set.
 
-        This is the core CR-25 regression test.  We spy on
+        This is the core  regression test.  We spy on
         ``_save_unlocked`` and assert that the lock IS held when the
         spy runs — if ``save()`` forgot to acquire the lock, the spy
         would see the lock as not-held and the assertion would fail.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-
         lock = threading.RLock()
         cfg = Config()
         cfg.set_mutation_lock(lock)
@@ -121,20 +119,18 @@ class TestConfigMutationLock:
 
         assert any(acquired_state), (
             "Config.save() did not acquire the mutation lock — "
-            "the spy saw the lock as not-held.  CR-25 regression: "
+            "the spy saw the lock as not-held.   regression: "
             "save() must wrap _save_unlocked() in 'with self._mutation_lock:' "
             "when _mutation_lock is set."
         )
 
-    def test_save_works_without_lock(self, tmp_path, monkeypatch):
+    def test_save_works_without_lock(self, tmp_path, tmp_config_dir):
         """``Config.save()`` MUST work without a lock set (backward compat).
 
         Tests that construct ``Config()`` directly (without an app)
         must still be able to save — the save path must not raise
         ``AttributeError`` or similar when ``_mutation_lock is None``.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-
         cfg = Config()
         assert cfg._mutation_lock is None
 
@@ -143,7 +139,7 @@ class TestConfigMutationLock:
             mock_write.return_value = None
             assert cfg.save() is True
 
-    def test_save_reentrant_lock_does_not_deadlock(self, tmp_path, monkeypatch):
+    def test_save_reentrant_lock_does_not_deadlock(self, tmp_path, tmp_config_dir):
         """``save()`` must not self-deadlock when called by a thread
         that already holds the lock.
 
@@ -159,8 +155,6 @@ class TestConfigMutationLock:
         calling ``save()``.  If ``save()`` used a non-reentrant lock,
         this test would hang (and pytest's --timeout would kill it).
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-
         lock = threading.RLock()
         cfg = Config()
         cfg.set_mutation_lock(lock)
@@ -171,11 +165,11 @@ class TestConfigMutationLock:
             mock_write.return_value = None
             assert cfg.save() is True
 
-    def test_concurrent_saves_are_serialized(self, tmp_path, monkeypatch):
+    def test_concurrent_saves_are_serialized(self, tmp_path, tmp_config_dir):
         """Two concurrent ``save()`` calls must not interleave their
         ``asdict(self)`` + ``_secure_atomic_write`` sequences.
 
-        CR-25 regression: without the lock, two threads could
+         regression: without the lock, two threads could
         simultaneously call ``save()``, and the ``asdict(self)`` of
         one could race with attribute writes from the other — producing
         a torn snapshot that gets persisted to disk.  With the lock,
@@ -190,8 +184,6 @@ class TestConfigMutationLock:
         ``_save_unlocked`` at a time and the barrier never reaches 2
         (the second thread is blocked on the lock).
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-
         lock = threading.RLock()
         cfg = Config()
         cfg.set_mutation_lock(lock)
@@ -249,11 +241,11 @@ class TestConfigMutationLock:
         assert max_concurrent == 1, (
             f"Config.save() did not serialize concurrent calls — "
             f"max_concurrent={max_concurrent} (expected 1).  "
-            f"CR-25 regression: the mutation lock must ensure only "
+            f" regression: the mutation lock must ensure only "
             f"one thread is inside _save_unlocked() at a time."
         )
 
-    def test_mutation_lock_is_classvar_not_dataclass_field(self, tmp_path, monkeypatch):
+    def test_mutation_lock_is_classvar_not_dataclass_field(self, tmp_path, tmp_config_dir):
         """``_mutation_lock`` MUST be a ``ClassVar``, not a regular dataclass field.
 
         If it were a regular dataclass field, ``asdict(self)`` (used by
@@ -269,8 +261,6 @@ class TestConfigMutationLock:
         resulting ``config.json`` does NOT contain a ``_mutation_lock`` key.
         """
         import dataclasses
-
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
 
         # _mutation_lock MUST be marked as _FIELD_CLASSVAR (i.e. a
         # ClassVar annotation).  If it's marked _FIELD (regular field),
@@ -297,7 +287,7 @@ class TestConfigMutationLock:
             "ClassVar annotation must exclude it from asdict() output."
         )
 
-    def test_save_unlocked_bypasses_lock(self, tmp_path, monkeypatch):
+    def test_save_unlocked_bypasses_lock(self, tmp_path, tmp_config_dir):
         """``_save_unlocked`` is the lock-free entry point for tests.
 
         Direct callers of ``_save_unlocked`` (rare — only tests that
@@ -312,8 +302,6 @@ class TestConfigMutationLock:
         the lock at all, the sentinel records it and the assertion
         fails.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-
         cfg = Config()
 
         # Set a sentinel object as the lock; _save_unlocked must NOT
@@ -346,7 +334,7 @@ class TestConfigMutationLock:
             f"should acquire the lock."
         )
 
-    def test_save_strict_also_acquires_lock(self, tmp_path, monkeypatch):
+    def test_save_strict_also_acquires_lock(self, tmp_path, tmp_config_dir):
         """``save_strict`` MUST also acquire the lock (it delegates to save).
 
         ``save_strict`` is the raising variant of ``save`` — it wraps
@@ -356,8 +344,6 @@ class TestConfigMutationLock:
         contract so a future refactor that makes ``save_strict`` call
         ``_save_unlocked`` directly doesn't silently bypass the lock.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-
         lock = threading.RLock()
         cfg = Config()
         cfg.set_mutation_lock(lock)
@@ -383,15 +369,13 @@ class TestConfigMutationLock:
             "rather than calling _save_unlocked() directly."
         )
 
-    def test_save_strict_raises_on_failure_even_with_lock(self, tmp_path, monkeypatch):
+    def test_save_strict_raises_on_failure_even_with_lock(self, tmp_path, tmp_config_dir):
         """``save_strict`` must still raise on failure when the lock is set.
 
         The lock acquisition must not swallow the failure path — if
         ``_save_unlocked`` returns ``False`` (e.g. disk full), the
         lock is released and ``save_strict`` raises ``RuntimeError``.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-
         lock = threading.RLock()
         cfg = Config()
         cfg.set_mutation_lock(lock)
@@ -406,7 +390,7 @@ class TestConfigMutationLock:
         ):
             cfg.save_strict()
 
-    def test_lock_can_be_cleared(self, tmp_path, monkeypatch):
+    def test_lock_can_be_cleared(self, tmp_path, tmp_config_dir):
         """``set_mutation_lock(None)`` should disable locking.
 
         This isn't currently a documented use case, but it's a natural
@@ -416,8 +400,6 @@ class TestConfigMutationLock:
         no-locking behavior.  We pin this so future refactors don't
         break the symmetric set/clear contract.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-
         cfg = Config()
         cfg.set_mutation_lock(threading.RLock())
         assert cfg._mutation_lock is not None

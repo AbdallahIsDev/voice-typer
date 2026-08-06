@@ -1,6 +1,6 @@
-"""S2-CR-46 regression test: ``_send_ctrl_v_win32`` returns bool, ``paste()`` returns True on success.
+"""S2- regression test: ``_send_ctrl_v_win32`` returns bool, ``paste()`` returns True on success.
 
-Bug (review.md S2-CR-46, severity High):
+Bug (review.md S2-, severity High):
     ``_send_ctrl_v_win32`` was annotated ``-> None`` (never returned a
     bool), but the caller in ``paste()`` assigned its result and checked
     ``if not paste_succeeded:``. Since the function always returned
@@ -47,13 +47,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Heavy-import mocking: ensure voice_typer.server.clipboard imports cleanly
-# without pynput/pyperclip installed (mirrors the pattern in
-# tests/test_clipboard_win32_coverage.py lines 45-49).
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-sys.modules.setdefault("pyperclip", MagicMock())
-
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 
@@ -90,7 +85,7 @@ def fake_win32_for_return_value():
 
 
 class TestSendCtrlVWin32ReturnValue:
-    """S2-CR-46: assert ``_send_ctrl_v_win32`` returns an explicit bool."""
+    """S2-assert ``_send_ctrl_v_win32`` returns an explicit bool."""
 
     def _make_cm(self):
         cm = ClipboardManager.__new__(ClipboardManager)
@@ -98,7 +93,7 @@ class TestSendCtrlVWin32ReturnValue:
         return cm
 
     def test_returns_true_on_full_success(self, fake_win32_for_return_value):
-        """S2-CR-46: SendInput returning 4 → _send_ctrl_v_win32 returns True.
+        """S2-SendInput returning 4 → _send_ctrl_v_win32 returns True.
 
         Before the fix, the function returned ``None`` (falsy) — the
         caller's ``if not paste_succeeded:`` then ALWAYS fired the
@@ -110,12 +105,12 @@ class TestSendCtrlVWin32ReturnValue:
             mock_key.ctrl = "ctrl_key"
             result = cm._send_ctrl_v_win32()
         assert result is True, (
-            "S2-CR-46 regression: _send_ctrl_v_win32() must return True when "
+            "S2- regression: _send_ctrl_v_win32() must return True when "
             f"SendInput returns 4 (full success); got {result!r}."
         )
 
     def test_returns_false_on_partial_success(self, fake_win32_for_return_value):
-        """S2-CR-46: SendInput returning 1..3 → _send_ctrl_v_win32 returns False.
+        """S2-SendInput returning 1..3 → _send_ctrl_v_win32 returns False.
 
         The function MUST return an explicit bool — never None — so the
         caller's ``if not paste_succeeded:`` branch fires correctly only
@@ -129,12 +124,12 @@ class TestSendCtrlVWin32ReturnValue:
             mock_key.ctrl = "ctrl_key"
             result = cm._send_ctrl_v_win32()
         assert result is False, (
-            "S2-CR-46 regression: _send_ctrl_v_win32() must return False on "
+            "S2- regression: _send_ctrl_v_win32() must return False on "
             f"partial success (SendInput returned 1..3); got {result!r}."
         )
 
     def test_returns_true_on_zero_with_fallback(self, fake_win32_for_return_value):
-        """S2-CR-46: SendInput returning 0 → fallback invoked, return True.
+        """S2-SendInput returning 0 → fallback invoked, return True.
 
         The function returns True (best-effort success) when the pynput
         fallback is invoked. This path must not return None.
@@ -145,7 +140,7 @@ class TestSendCtrlVWin32ReturnValue:
             mock_key.ctrl = "ctrl_key"
             result = cm._send_ctrl_v_win32()
         assert result is True, (
-            "S2-CR-46 regression: _send_ctrl_v_win32() must return True when "
+            "S2- regression: _send_ctrl_v_win32() must return True when "
             "the pynput fallback is invoked (SendInput returned 0); got "
             f"{result!r}."
         )
@@ -157,7 +152,7 @@ class TestSendCtrlVWin32ReturnValue:
 
 
 class TestPasteReturnsTrueOnFullSuccess:
-    """S2-CR-46: ``paste()`` returns True (not False) on full success.
+    """S2-``paste()`` returns True (not False) on full success.
 
     Before the fix, ``paste()`` ALWAYS returned False on Windows because
     ``_send_ctrl_v_win32()`` returned ``None`` (falsy) →
@@ -176,7 +171,7 @@ class TestPasteReturnsTrueOnFullSuccess:
         return cm
 
     def test_paste_returns_true_on_sendinput_full_success(self, fake_win32_for_return_value):
-        """S2-CR-46: paste() returns True when SendInput returns 4.
+        """S2-paste() returns True when SendInput returns 4.
 
         After the fix, ``_send_ctrl_v_win32()`` returns True on full
         success → ``if not paste_succeeded:`` does NOT fire → ``paste()``
@@ -197,20 +192,20 @@ class TestPasteReturnsTrueOnFullSuccess:
             mock_key.ctrl = "ctrl_key"
             result = cm.paste()
         assert result is True, (
-            f"S2-CR-46 regression: paste() must return True when SendInput returns 4 (full success); got {result!r}."
+            f"S2- regression: paste() must return True when SendInput returns 4 (full success); got {result!r}."
         )
         # specifically: NO spurious "Auto-paste failed" warning
         # should fire on full success.
         warning_msgs = [str(c) for c in mock_log.warning.call_args_list]
         spurious = [m for m in warning_msgs if "Auto-paste failed" in m and "partial success" in m]
         assert not spurious, (
-            "S2-CR-46 regression: paste() logged spurious 'Auto-paste failed' "
+            "S2- regression: paste() logged spurious 'Auto-paste failed' "
             "warning on full success (should only fire on partial success): "
             f"{spurious}"
         )
 
     def test_paste_returns_false_on_partial_success(self, fake_win32_for_return_value):
-        """S2-CR-46: paste() returns False on partial success (1..3).
+        """S2-paste() returns False on partial success (1..3).
 
         After the fix, ``_send_ctrl_v_win32()`` returns False on partial
         success → ``if not paste_succeeded:`` fires → log warning +
@@ -233,7 +228,7 @@ class TestPasteReturnsTrueOnFullSuccess:
             mock_key.ctrl = "ctrl_key"
             result = cm.paste()
         assert result is False, (
-            "S2-CR-46 regression: paste() must return False on partial "
+            "S2- regression: paste() must return False on partial "
             f"success (SendInput returned 1..3); got {result!r}."
         )
         # The "Auto-paste failed (SendInput partial success)" warning
@@ -242,7 +237,7 @@ class TestPasteReturnsTrueOnFullSuccess:
         warning_msgs = [str(c) for c in mock_log.warning.call_args_list]
         expected_warning = [m for m in warning_msgs if "Auto-paste failed" in m and "partial success" in m]
         assert expected_warning, (
-            "S2-CR-46: paste() should log 'Auto-paste failed (SendInput "
+            "S2-paste() should log 'Auto-paste failed (SendInput "
             "partial success)' warning on partial success; got warnings: "
             f"{warning_msgs}"
         )
@@ -261,10 +256,10 @@ class TestPasteReturnsTrueOnFullSuccess:
 
 @pytest.mark.skipif(
     sys.platform != "win32",
-    reason="S2-CR-46 sentinel: requires real ctypes.windll.user32 (Windows-only).",
+    reason="S2- sentinel: requires real ctypes.windll.user32 (Windows-only).",
 )
 def test_paste_returns_true_on_sendinput_full_success_win32():
-    """S2-CR-46 Windows-only sentinel: paste() returns True on full success.
+    """S2- Windows-only sentinel: paste() returns True on full success.
 
     Mocks the real ``ctypes.windll.user32.SendInput`` function pointer
     (only available on Windows) to return 4 — full Ctrl+V sequence
@@ -301,4 +296,4 @@ def test_paste_returns_true_on_sendinput_full_success_win32():
     assert result is True
     warning_msgs = [str(c) for c in mock_log.warning.call_args_list]
     spurious = [m for m in warning_msgs if "Auto-paste failed" in m and "partial success" in m]
-    assert not spurious, f"S2-CR-46 regression on Windows: paste() logged spurious warning: {spurious}"
+    assert not spurious, f"S2- regression on Windows: paste() logged spurious warning: {spurious}"

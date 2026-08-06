@@ -539,3 +539,145 @@ def _is_password_field_linux() -> bool:
             exc,
         )
         return False
+
+
+# Once-only warning guard for the macOS secure-input check below. Lives
+# in the package's mutable-global namespace (set / read via
+# ``_pkg._MACOS_SECURE_INPUT_WARNED`` — defined in the package's
+# ``__init__.py``) so test patches / resets on
+# ``voice_typer.server.clipboard_target_safety._MACOS_SECURE_INPUT_WARNED``
+# propagate to this function. ``False`` is the initial state — the
+# first detection of secure-input-enabled mode emits the WARNING /
+# toast; subsequent detections during the same session log at DEBUG so
+# the log is not flooded at paste rate when the user has secure input
+# enabled persistently (e.g. password entry into a locked keychain
+# dialog that stays open).
+#
+# (Note: the variable is defined in ``__init__.py`` and accessed via
+# ``_pkg._MACOS_SECURE_INPUT_WARNED`` — NOT bound at module level here.
+# This mirrors the pattern used by ``_PYATSPI_STATE_FOCUSED`` /
+# ``_PYOBJC_UNAVAILABLE_WARNED`` etc., keeping a single source of
+# truth at the package level so test patches on the package propagate
+# to the submodules.)
+
+
+def _is_secure_input_enabled() -> bool:
+    """Detect macOS "Secure Input" mode (Medium, Security).
+
+    On macOS, an application can call ``EnableSecureEventInput()`` to
+    put the system into Secure Input mode while a password field is
+    focused. While Secure Input is active, the keyboard input stream
+    is encrypted end-to-end (Kernel → event taps are disabled, HID
+    monitors cannot observe keystrokes, and **synthesized keystrokes
+    via ``CGEventPost`` / AppleScript / pynput are silently dropped**).
+    A paste keystroke sent via pynput's Controller (the macOS backend
+    posts CGEvents) is therefore lost — the user sees nothing happen
+    and the dictated text never reaches the target.
+
+    Detection options considered:
+
+      1. ``proc_pidinfo(getpid(), PROC_PIDT_SHORTINFO, ...)`` and
+         inspect ``P_SHORTINFO_SECUREINPUT``. This is the canonical
+         per-process query but requires declaring the
+         ``proc_bsdshortinfo`` struct via ``ctypes`` (8 fields, careful
+         padding) — fragile against macOS SDK changes.
+      2. ``ioreg -l -w 0 | grep SecureInput``. ``ioreg`` reports the
+         IORegistry's ``kIOUserClientClass`` entries; when Secure Input
+         is active, the IOHIKeyboard instance reports
+         ``SecureInput`` = ``true`` in its properties. This is the
+         user-space observable shell-out the Apple docs recommend and
+         is robust against SDK churn.
+
+    We use option 2 (shell-out to ``ioreg``) for robustness. The
+    command is invoked via ``subprocess.run`` with a 2-second timeout
+    so a wedged ``ioreg`` cannot block the paste path. The output is
+    grepped for ``SecureInput`` (case-sensitive — the IORegistry key
+    is camelCased); a non-empty match means Secure Input is active.
+
+    Returns ``True`` if Secure Input is active (paste should be
+    skipped — the keystroke would be dropped). Returns ``False`` on
+    non-macOS, on subprocess failure, or when Secure Input is not
+    active. The first positive detection in a session logs a WARNING
+    (deduped via ``_pkg._MACOS_SECURE_INPUT_WARNED``) and publishes a
+    ``paste_deferred`` event via ``event_bus`` so the renderer can
+    surface a tray toast; subsequent detections during the same
+    session log at DEBUG (so the log is not flooded at paste rate
+    when the user keeps a password dialog open).
+    """
+    if not _pkg.is_macos():
+        # ``ioreg`` is a macOS-only binary; on Linux / Windows the
+        # check is meaningless and would always return False anyway
+        # (subprocess would raise FileNotFoundError). Short-circuit.
+        return False
+    import subprocess
+
+    try:
+        # ``-l`` = show properties; ``-w 0`` = no line wrapping (so
+        # the grep pattern matches reliably even on long lines).
+        proc = subprocess.run(
+            ["ioreg", "-l", "-w", "0"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            check=False,
+            timeout=2,
+        )
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        # FileNotFoundError: ``ioreg`` missing (sandboxed / stripped
+        # build). TimeoutExpired: ``ioreg`` wedged (rare — IORegistry
+        # is a kernel service). OSError: spawn failure. All are
+        # non-fatal — fail open (no Secure Input detected) and log at
+        # DEBUG so the operator has forensic value without the log
+        # being flooded at paste rate.
+        _pkg._log().debug(
+            "[CLIPBOARD] ioreg probe for Secure Input failed — failing open",
+            exc_info=True,
+        )
+        return False
+
+    if proc.returncode != 0:
+        _pkg._log().debug(
+            "[CLIPBOARD] ioreg returned %d — cannot determine Secure Input state",
+            proc.returncode,
+        )
+        return False
+
+    # The IORegistry key is camelCased ``SecureInput``. Match
+    # case-sensitively to avoid false positives on unrelated
+    # properties (e.g. ``SecureInputEnabler``).
+    stdout = proc.stdout.decode("utf-8", errors="replace")
+    if "SecureInput" not in stdout:
+        return False
+
+    # Secure Input is active. Log WARNING once per session (deduped)
+    # and publish a tray-toast event so the user understands why their
+    # paste keystroke was dropped.
+    if not _pkg._MACOS_SECURE_INPUT_WARNED:
+        _pkg._MACOS_SECURE_INPUT_WARNED = True
+        _pkg._log().warning(
+            "[CLIPBOARD] Paste target has Secure Input enabled — "
+            "synthesized keystroke was dropped"
+        )
+        try:
+            from voice_typer.server import event_bus
+
+            event_bus.publish(
+                {
+                    "type": "paste_deferred",
+                    "data": {
+                        "reason": "secure_input",
+                        "message": "Paste target has secure input enabled — "
+                        "keystroke was dropped",
+                    },
+                }
+            )
+        except Exception:
+            _pkg._log().debug(
+                "[CLIPBOARD] could not publish paste_deferred (secure_input) event",
+                exc_info=True,
+            )
+    else:
+        _pkg._log().debug(
+            "[CLIPBOARD] Paste target has Secure Input enabled — "
+            "keystroke dropped (already warned this session)"
+        )
+    return True

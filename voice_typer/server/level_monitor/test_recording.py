@@ -1,4 +1,4 @@
-"""Test-recording public API for the level_monitor package (AC-129).
+"""Test-recording public API for the level_monitor package.
 
 Contains the ad-hoc microphone-test recording API (``start_test_recording``,
 ``stop_test_recording``, ``cancel_test_recording``, ``is_test_active``,
@@ -13,7 +13,7 @@ same device triggers a Windows MME device-conflict error. When
 ``_test_mode`` is True, the level worker (see :mod:`.worker`) also
 appends each chunk to ``_test_raw_chunks`` (RAW audio — "before" WAV)
 and, when a live filter processor is active, to ``_test_filtered_chunks``
-(FILTERED audio — "after" WAV, PVT-013).
+(FILTERED audio — "after" WAV).
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ log = logging.getLogger("voice_typer.server.level_monitor")
 
 
 def _secure_clear_test_chunks(*deques: collections.deque) -> None:
-    """XZ-PRIV-03: securely zero the np.ndarray chunks in the test
+    """securely zero the np.ndarray chunks in the test
     deques on the background worker thread.
 
     Wraps :func:`voice_typer.server.recording._secure_clear_array_background`
@@ -89,7 +89,7 @@ def _secure_clear_test_chunks(*deques: collections.deque) -> None:
 
 
 def _reset_test_chunks(locked: bool) -> None:
-    """(Re)create the bounded test-chunk deques under the right capacity.
+    """(Re) create the bounded test-chunk deques under the right capacity.
 
     The maxlen is computed from the CURRENT device sample rate
     (``_monitor_sample_rate`` — NOT a constant, because the stream runs

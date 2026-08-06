@@ -65,6 +65,18 @@ class Limiter(AudioFilter):
         # largest chunk seen so the first call allocates and subsequent
         # calls reuse. Eliminates 3 fresh array allocations per chunk.
         self._env_db_buf: np.ndarray | None = None
+        # pre-allocated float64 gain buffer + float64/float32 output
+        # buffers for the final gain stage (mirror compressor). Before
+        # this, the gain stage allocated ~7 fresh arrays per chunk
+        # (``gain_db / 20.0``, ``np.power(...)``, ``np.where(...)``,
+        # ``samples.astype(float64)``, ``* gain``, ``.astype(float32)``).
+        # The limiter has no ``output_gain`` (brick-wall gain is 1.0), so
+        # the ``np.copyto(gain, 1.0, where=~above_floor)`` replaces the
+        # ``np.where(above_floor, gain, 1.0)``. Lazy-resized to the largest
+        # chunk seen (mirror ``_env_db_buf``).
+        self._gain_buf: np.ndarray | None = None
+        self._output_f64_buf: np.ndarray | None = None
+        self._output_f32_buf: np.ndarray | None = None
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         # Debug-only guard: the envelope-follower coefficients
@@ -129,10 +141,36 @@ class Limiter(AudioFilter):
         env_db += self._slope * self._threshold_db
         np.minimum(env_db, 0.0, out=env_db)
         gain_db = env_db
-        gain = np.power(10.0, gain_db / 20.0)
-        gain = np.where(above_floor, gain, 1.0)
+        # gain = np.power(10.0, gain_db / 20.0), computed in-place into
+        # the pre-allocated ``_gain_buf``. Replaces 2 fresh allocations
+        # (divide, power) with in-place ufuncs. The limiter has no
+        # ``output_gain`` scalar multiply (brick-wall gain is 1.0).
+        if self._gain_buf is None or self._gain_buf.shape[0] < n:
+            cap = max(n, 1024)
+            self._gain_buf = np.empty(cap, dtype=np.float64)
+            self._output_f64_buf = np.empty(cap, dtype=np.float64)
+            self._output_f32_buf = np.empty(cap, dtype=np.float32)
+        gain = self._gain_buf[:n]
+        np.divide(gain_db, 20.0, out=gain)
+        np.power(10.0, gain, out=gain)
+        # np.where(above_floor, gain, 1.0) — np.where has no out= kwarg
+        # and allocates a fresh array. ``np.copyto`` with a ``where=`` mask
+        # overwrites the below-floor slots in-place, producing the same
+        # result without the allocation. Above-floor slots retain the
+        # computed gain; below-floor slots are set to 1.0 (passthrough).
+        np.copyto(gain, 1.0, where=~above_floor)
 
-        output = (samples.astype(np.float64) * gain).astype(np.float32)
+        # output = (samples.astype(float64) * gain).astype(float32),
+        # computed in-place via the pre-allocated f64 + f32 buffers
+        # (mirror compressor). ``np.multiply(float32, float64, out=float64,
+        # casting='same_kind')`` promotes the float32 input to float64
+        # internally (exact upcast) and writes the float64 product into
+        # ``_output_f64_buf``. Then ``np.copyto(float32, float64,
+        # casting='same_kind')`` rounds to float32 (same as ``.astype``).
+        output_f64 = self._output_f64_buf[:n]
+        np.multiply(samples, gain, out=output_f64, casting="same_kind")
+        output = self._output_f32_buf[:n]
+        np.copyto(output, output_f64, casting="same_kind")
         self._envelope = float(env[-1])
         return output.reshape(original_shape)
 
@@ -145,3 +183,11 @@ class Limiter(AudioFilter):
         # ``process()`` call.
         if self._env_db_buf is not None:
             self._env_db_buf.fill(0)
+        # zero the gain + output buffers for the same privacy rationale
+        # (mirror compressor). ``_gain_buf`` holds the per-sample limiter
+        # gain; ``_output_f64_buf`` / ``_output_f32_buf`` hold the filtered
+        # audio output. Guarded for None because they are lazy-allocated
+        # on the first ``process()`` call.
+        for buf in (self._gain_buf, self._output_f64_buf, self._output_f32_buf):
+            if buf is not None:
+                buf.fill(0)

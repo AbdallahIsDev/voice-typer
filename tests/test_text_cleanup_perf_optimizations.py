@@ -185,127 +185,95 @@ class TestCombinedRegexPhraseCorrections:
         text before applying substitutions — a substitution cannot
         affect another match within the same ``re.sub`` call.
         """
-        saved = (
-            text_cleanup._active_phrases,
-            text_cleanup._active_phrase_patterns,
-        )
+        saved = text_cleanup._active_phrases
+        # The combined-regex cache (``_phrases_re_cache``) is keyed on
+        # the list object's identity (``cached_list is _active_phrases``),
+        # so replacing the module attribute invalidates the cache and
+        # forces a rebuild on the next ``_correct_whisper_phrases`` call.
         try:
             # 'foo' → 'bar' (introduces 'bar'); 'bar' → 'SHOULD_NOT_APPEAR'.
             # The second phrase must NOT match because 'bar' wasn't in
-            # the original text 'foo'.
+            # the original text 'foo' — ``re.sub`` finds all matches in
+            # the ORIGINAL text before applying substitutions.
             text_cleanup._active_phrases = [
                 ("foo", "bar"),
                 ("bar", "SHOULD_NOT_APPEAR"),
-            ]
-            text_cleanup._active_phrase_patterns = [
-                text_cleanup.re.compile(text_cleanup.re.escape("foo"), text_cleanup.re.IGNORECASE),
-                text_cleanup.re.compile(text_cleanup.re.escape("bar"), text_cleanup.re.IGNORECASE),
             ]
             out = _correct_whisper_phrases("foo")
             assert out == "bar", f"expected 'bar', got {out!r}"
             assert "SHOULD_NOT_APPEAR" not in out
         finally:
-            text_cleanup._active_phrases = saved[0]
-            text_cleanup._active_phrase_patterns = saved[1]
+            text_cleanup._active_phrases = saved
 
     def test_multiple_distinct_phrases_applied_in_one_pass(self):
         """Multiple non-overlapping phrase matches are all applied in a
         single ``re.sub`` pass."""
-        saved = (
-            text_cleanup._active_phrases,
-            text_cleanup._active_phrase_patterns,
-        )
+        saved = text_cleanup._active_phrases
         try:
             text_cleanup._active_phrases = [
                 ("foo", "X"),
                 ("bar", "Y"),
             ]
-            text_cleanup._active_phrase_patterns = [
-                text_cleanup.re.compile(text_cleanup.re.escape("foo"), text_cleanup.re.IGNORECASE),
-                text_cleanup.re.compile(text_cleanup.re.escape("bar"), text_cleanup.re.IGNORECASE),
-            ]
             out = _correct_whisper_phrases("foo and bar")
             assert out == "X and Y", f"expected 'X and Y', got {out!r}"
         finally:
-            text_cleanup._active_phrases = saved[0]
-            text_cleanup._active_phrase_patterns = saved[1]
+            text_cleanup._active_phrases = saved
 
     def test_extra_words_removal_plain_substitution(self):
         """_remove_extra_words uses plain (non-case-preserving) substitution
         — the replacement is the literal ``good`` string regardless of
         matched casing (preserving the original ``pattern.sub(good, text)``
         behaviour)."""
-        saved = (
-            text_cleanup._active_extra_words,
-            text_cleanup._active_extra_word_patterns,
-        )
+        saved = text_cleanup._active_extra_words
         try:
             text_cleanup._active_extra_words = [
                 ("didn't and ", "didn't "),
-            ]
-            text_cleanup._active_extra_word_patterns = [
-                text_cleanup.re.compile(text_cleanup.re.escape("didn't and "), text_cleanup.re.IGNORECASE),
             ]
             # Lowercase input → lowercase replacement.
             assert _remove_extra_words("didn't and catch") == "didn't catch"
             # UPPERCASE input → still lowercase replacement (plain sub).
             assert _remove_extra_words("DIDN'T AND CATCH") == "didn't CATCH"
         finally:
-            text_cleanup._active_extra_words = saved[0]
-            text_cleanup._active_extra_word_patterns = saved[1]
+            text_cleanup._active_extra_words = saved
 
     def test_empty_phrase_list_returns_unchanged(self):
         """When no phrases are configured, both functions return text unchanged."""
         saved = (
             text_cleanup._active_phrases,
-            text_cleanup._active_phrase_patterns,
             text_cleanup._active_extra_words,
-            text_cleanup._active_extra_word_patterns,
         )
         try:
             text_cleanup._active_phrases = []
-            text_cleanup._active_phrase_patterns = []
             text_cleanup._active_extra_words = []
-            text_cleanup._active_extra_word_patterns = []
             assert _correct_whisper_phrases("anything") == "anything"
             assert _remove_extra_words("anything") == "anything"
         finally:
             (
                 text_cleanup._active_phrases,
-                text_cleanup._active_phrase_patterns,
                 text_cleanup._active_extra_words,
-                text_cleanup._active_extra_word_patterns,
             ) = saved
 
     def test_combined_regex_cache_invalidates_on_list_replace(self):
-        """The combined-regex cache is keyed on ``id(_active_phrases)``;
-        replacing the list (as configure_corrections does) must invalidate
-        the cache and rebuild on the next call."""
-        saved = (
-            text_cleanup._active_phrases,
-            text_cleanup._active_phrase_patterns,
-        )
+        """The combined-regex cache is keyed on the ``_active_phrases``
+        list object's IDENTITY (``cached_list is _active_phrases`` —
+        not ``id()``, which has an address-reuse hazard); replacing the
+        list (as ``configure_corrections`` does) must invalidate the
+        cache and rebuild on the next call."""
+        saved = text_cleanup._active_phrases
         try:
             # First configuration: 'foo' → 'X'.
             text_cleanup._active_phrases = [("foo", "X")]
-            text_cleanup._active_phrase_patterns = [
-                text_cleanup.re.compile(text_cleanup.re.escape("foo"), text_cleanup.re.IGNORECASE),
-            ]
             assert _correct_whisper_phrases("foo") == "X"
 
             # Replace with a NEW list object: 'bar' → 'Y'.
-            # The id() changes, so the cache must rebuild.
+            # The identity check fails, so the cache must rebuild.
             text_cleanup._active_phrases = [("bar", "Y")]
-            text_cleanup._active_phrase_patterns = [
-                text_cleanup.re.compile(text_cleanup.re.escape("bar"), text_cleanup.re.IGNORECASE),
-            ]
             # 'foo' is no longer in the active phrases — must not be replaced.
             assert _correct_whisper_phrases("foo") == "foo"
             # 'bar' is now active — must be replaced.
             assert _correct_whisper_phrases("bar") == "Y"
         finally:
-            text_cleanup._active_phrases = saved[0]
-            text_cleanup._active_phrase_patterns = saved[1]
+            text_cleanup._active_phrases = saved
 
 
 # ─── end-to-end smoke through clean_transcribed_text ────────────────────

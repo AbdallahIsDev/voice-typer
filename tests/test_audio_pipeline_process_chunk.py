@@ -1,4 +1,4 @@
-"""S3-CR-17 / Phase 4.5: focused unit tests for
+"""Phase 4.5: focused unit tests for
 ``AudioPipeline.process_audio_chunk``.
 
 These tests exercise the *orchestration body* of the former

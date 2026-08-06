@@ -306,7 +306,14 @@ class TestHistoryDBMultiRowInsertBatching:
                 # statement) and the single-row INSERT (one statement)
                 # are both detectable. Compare uppercased SQL against
                 # an uppercase marker so mixed-case SQL is caught.
-                if "INSERT INTO TRANSCRIPTIONS" in sql_str.upper():
+                #
+                # The marker requires the space + paren after
+                # ``TRANSCRIPTIONS`` so the schema-init FTS-rebuild
+                # statement (``INSERT INTO transcriptions_fts(
+                # transcriptions_fts) VALUES('rebuild')``) is NOT
+                # counted — it targets the FTS shadow table, not the
+                # transcriptions rows.
+                if "INSERT INTO TRANSCRIPTIONS (" in sql_str.upper():
                     insert_calls.append(sql_str)
                 return self._real.execute(sql, parameters)
 
@@ -340,7 +347,9 @@ class TestHistoryDBMultiRowInsertBatching:
 
             def execute(self, sql, parameters=()):
                 sql_str = str(sql).strip()
-                if "INSERT INTO TRANSCRIPTIONS" in sql_str.upper():
+                # See ExecuteCountingProxy.execute — the space+paren
+                # marker excludes the FTS-rebuild shadow-table insert.
+                if "INSERT INTO TRANSCRIPTIONS (" in sql_str.upper():
                     self._insert_calls.append(sql_str)
                 return self._real.execute(sql, parameters)
 

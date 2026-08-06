@@ -521,56 +521,62 @@ class TestIn20ToggleLockReleasedDuringModelLoad:
     F2 hotkey backend's single dispatch thread is not blocked."""
 
     def test_release_acquire_around_ensure_active_engine_loaded(self) -> None:
-        """The source must contain ``_toggle_lock.release()`` BEFORE
-        ``ensure_active_engine_loaded()`` (the actual call site, not a
-        docstring mention) and ``_toggle_lock.acquire()`` AFTER (in a
-        finally).
+        """The model load runs on the daemon worker thread
+        (``_start_dictation_worker_entry``) WITHOUT ``_toggle_lock``, and
+        ``_start_impl`` RELEASES the lock for the duration of the
+        bounded worker join (re-acquiring in a finally) — so neither the
+        F2 dispatch thread nor any other lock contender is blocked for
+        the 5-30s idle-unload reload.
 
         extraction: the ``_start_impl`` body now lives in
         :mod:`voice_typer.server.recording_lifecycle` (the
         ``RecordingController._start_impl`` is a 1-line delegator), and
         the lock methods are invoked on ``controller`` (the shared
-        state owner), e.g. ``controller._toggle_lock.release()``.
+        state owner), e.g. ``controller._toggle_lock.release()``. The
+        actual ``ensure_active_engine_loaded()`` call lives on the
+        worker entry (``_start_dictation_worker_entry``), which runs
+        without the lock.
         """
         s = _recording_lifecycle_src()
-        # Find the actual CALL to ensure_active_engine_loaded() in
-        # _start_impl. Skip the docstring mentions by anchoring on
-        # ``_start_impl`` and slicing forward.
+        # The actual model-load call must live on the worker entry
+        # (not inline in _start_impl — the F2 thread must not run the
+        # 5-30s reload).
+        worker_idx = s.find("def _start_dictation_worker_entry(")
+        assert worker_idx > -1, "could not find _start_dictation_worker_entry in recording_lifecycle"
+        worker_next = s.find("\n    def ", worker_idx + 1)
+        worker_body = s[worker_idx:worker_next]
+        assert "app.models.ensure_active_engine_loaded()" in worker_body, (
+            "IN-20: ensure_active_engine_loaded() must be called on the "
+            "daemon worker thread (the F2 dispatch thread must not run "
+            "the 5-30s model load)"
+        )
+        # _start_impl releases the lock around the bounded worker join.
         start_impl_idx = s.find("def _start_impl(self, controller)")
         assert start_impl_idx > -1, "could not find _start_impl in recording_lifecycle"
-        # Slice from _start_impl to the end of the next method.
         next_def = s.find("\n    def ", start_impl_idx + 1)
-        start_impl_body = s[start_impl_idx:next_def]
-        # Find the actual call (indented, not inside a comment).
-        call_marker = "app.models.ensure_active_engine_loaded()"
-        # Find the LAST occurrence in _start_impl body — the actual
-        # call site. (Earlier occurrences are in docstring comments.)
-        ensure_idx = start_impl_body.rfind(call_marker)
-        assert ensure_idx > -1, "could not find ensure_active_engine_loaded() call in _start_impl"
-        # Look at the surrounding context (release before, acquire after).
-        ctx_start = max(0, ensure_idx - 1200)
-        ctx_end = min(len(start_impl_body), ensure_idx + 400)
-        ctx = start_impl_body[ctx_start:ctx_end]
-        assert "controller._toggle_lock.release()" in ctx, (
-            "IN-20: _toggle_lock.release() must appear before ensure_active_engine_loaded()"
+        body = s[start_impl_idx:next_def]
+        assert "controller._toggle_lock.release()" in body, (
+            "IN-20: _toggle_lock.release() must appear in _start_impl "
+            "(released for the duration of the worker join)"
         )
-        assert "controller._toggle_lock.acquire()" in ctx, (
-            "IN-20: _toggle_lock.acquire() must appear after ensure_active_engine_loaded()"
+        assert "worker.join(timeout=" in body, (
+            "IN-20: _start_impl must bounded-join the worker "
+            "(worker.join(timeout=...))"
+        )
+        assert "controller._toggle_lock.acquire()" in body, (
+            "IN-20: _toggle_lock.acquire() must re-acquire the lock in _start_impl"
+        )
+        release_idx = body.find("controller._toggle_lock.release()")
+        join_idx = body.find("worker.join(timeout=")
+        acquire_idx = body.find("controller._toggle_lock.acquire()")
+        assert release_idx < join_idx < acquire_idx, (
+            "IN-20: release must come BEFORE the worker join and acquire AFTER it"
         )
         # The acquire must be in a finally block.
-        finally_idx = ctx.find("finally:")
-        acquire_idx = ctx.find("controller._toggle_lock.acquire()")
-        ensure_idx_local = ctx.find(call_marker)
-        release_idx = ctx.find("controller._toggle_lock.release()")
-        assert release_idx < ensure_idx_local, (
-            "IN-20: _toggle_lock.release() must come BEFORE ensure_active_engine_loaded()"
-        )
-        assert ensure_idx_local < acquire_idx, (
-            "IN-20: _toggle_lock.acquire() must come AFTER ensure_active_engine_loaded()"
-        )
+        finally_idx = body.find("finally:")
         assert finally_idx > -1 and finally_idx < acquire_idx, (
             "IN-20: _toggle_lock.acquire() must be in a finally block "
-            "(so the lock is re-acquired even if the load raises)"
+            "(so the lock is re-acquired even if the join raises)"
         )
 
     def test_release_acquire_in_try_finally(self) -> None:
@@ -582,7 +588,7 @@ class TestIn20ToggleLockReleasedDuringModelLoad:
         # Slice forward to verify the try/finally structure
         ctx = s[idx : idx + 400]
         assert "try:" in ctx, "IN-20: release must be followed by try:"
-        assert "app.models.ensure_active_engine_loaded()" in ctx
+        assert "worker.join(timeout=" in ctx, "IN-20: the try must contain the bounded worker join"
         assert "finally:" in ctx, "IN-20: try must have a finally block"
         assert "controller._toggle_lock.acquire()" in ctx, "IN-20: finally must re-acquire the lock"
 

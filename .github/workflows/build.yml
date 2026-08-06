@@ -91,7 +91,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          # RT-FIX-12: fetch-depth 2 so the pyrefly baseline audit step
+          # fetch-depth 2 so the pyrefly baseline audit step
           # can resolve HEAD~1 (the previous main commit) for push events.
           # The default shallow checkout (depth 1) has no parent commit,
           # so `git show HEAD~1:pyrefly-baseline.json` fails and the
@@ -160,23 +160,23 @@ jobs:
       #
       # See docs/ruff-ratchet.md for the developer workflow.
       - name: Ruff (F-rules hard-fail)
-        # CR-187: scope expanded from `voice_typer/server/` only to
+        # scope expanded from `voice_typer/server/` only to
         # `voice_typer/ tests/ scripts/ conftest.py` so F-rule
         # violations (unused imports, undefined names, redefinitions)
         # in tests/ and scripts/ no longer accumulate without a CI
         # signal. As of 2026-07-21 this step reports 22 F-rule
         # violations across the expanded scope (4 in voice_typer/,
         # 18 in tests/scripts/conftest.py) — those need to be fixed
-        # before this gate can pass. The pre-CR-187 scope
+        # before this gate can pass. The scope
         # (voice_typer/server/) reported 4 violations, so CI was
-        # already failing on this step; CR-187 just makes the
+        # already failing on this step; just makes the
         # failure cover the full surface area.
         run: python -m ruff check voice_typer/ tests/ scripts/ conftest.py --select F --no-fix
 
       - name: Ruff (ratchet compare against baseline)
-        # CR-187: scope expanded to match the F-rules hard-fail above.
+        # scope expanded to match the F-rules hard-fail above.
         # The ruff-baseline.json `_target` field was updated to match.
-        # Per-rule and total counts were bumped from the pre-CR-187
+        # Per-rule and total counts were bumped from the
         # server/-only baseline (45 total / 6 rules) to the expanded
         # scope (159 total / 19 rules) so the ratchet catches future
         # growth across the full codebase.
@@ -184,7 +184,7 @@ jobs:
           python -m ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json > ruff-current.json || true
           python scripts/ruff_ratchet_check.py
 
-      # RW-2: i18n key-completeness gate. Runs the i18n completeness suite
+      # i18n key-completeness gate. Runs the i18n completeness suite
       # explicitly BEFORE the full pytest sweep so a missing-key regression
       # fails the build fast (the full test step also runs this file, but
       # surfacing it as its own step makes the failure obvious in CI logs
@@ -203,7 +203,7 @@ jobs:
         run: |
           python -m pytest tests/test_i18n_completeness.py --timeout=30 --no-cov -q
 
-      # TEST-036: pyrefly is a fast Rust-based Python type checker.
+      # pyrefly is a fast Rust-based Python type checker.
       # It runs after ruff (cheap) and before pytest (expensive) so a
       # type regression can fail the build before we spend time on the
       # full test suite. Targets voice_typer/ only — tests/ already
@@ -211,7 +211,7 @@ jobs:
       # locally via `pyrefly check` (uses project-includes in
       # pyproject.toml).
       #
-      # XS-1: pyrefly 1.1.1's `check` command exits 0 even when it
+      # pyrefly 1.1.1's `check` command exits 0 even when it
       # reports unsuppressed type errors, so the previous bare
       # `pyrefly check voice_typer/` invocation was theatre (116 type
       # errors silently passed on every PR) AND the audit step
@@ -219,8 +219,8 @@ jobs:
       # vs base ref), so any PR that introduced new errors but didn't
       # touch the baseline passed silently.
       #
-      # RT-FIX-11 (2026-07-25) applied the ratchet fix (option (b)
-      # from the XS-1 finding):
+      # applied the ratchet fix (option (b)
+      # from the finding):
       #   1. This step writes the FULL live pyrefly output to
       #      pyrefly-current.json using an empty `--baseline` override
       #      so no errors are suppressed. The `|| true` is intentional
@@ -240,12 +240,12 @@ jobs:
       # PR (which option (a) — hard-fail on any error — would do).
       - name: Run pyrefly type check
         run: |
-          # S1-CR-30: pin pyrefly==1.1.1 so error counts don't drift
+          # pin pyrefly==1.1.1 so error counts don't drift
           # between releases. Previously unpinned (`uv pip install
           # --system pyrefly`), which caused CI breakage when a new
           # pyrefly release added different heuristics.
           uv pip install --system pyrefly==1.1.1
-          # S1-CR-30: pyrefly 1.1.1 exits 0 even when it reports errors
+          # pyrefly 1.1.1 exits 0 even when it reports errors
           # (known behavior — see XS-1 comment above). The REAL gate is
           # the baseline audit step below, which fails only when the
           # error count GROWS. This step just generates the JSON output
@@ -269,7 +269,7 @@ jobs:
             cp pyrefly-current.json pyrefly-baseline.json
           fi
 
-      # S-12: pyrefly baseline audit.  The baseline file tracks
+      # pyrefly baseline audit.  The baseline file tracks
       # intentionally-suppressed platform-specific false positives.
       # This step compares the LIVE pyrefly output (pyrefly-current.json,
       # generated by the previous "Run pyrefly type check" step) against
@@ -299,7 +299,7 @@ jobs:
             BASE_REF="HEAD~1"
           fi
           git fetch origin ${{ github.base_ref || '' }} 2>/dev/null || true
-          # CR-010: pyrefly-baseline.json's top-level key is `errors`
+          # pyrefly-baseline.json's top-level key is `errors`
           # (pyrefly's native output schema). Pre-CR-010 this read
           # `d.get('suppressed', [])` — a key that does not exist in
           # the baseline — so OLD_BASELINE and NEW_BASELINE were both
@@ -324,15 +324,15 @@ jobs:
           echo "Baseline audit passed: $NEW_COUNT live errors ≤ $OLD_COUNT baseline floor"
 
       - name: Run tests with coverage
-        # XS-9: --cov-fail-under=65 moved here from pyproject.toml addopts
+        # --cov-fail-under=65 moved here from pyproject.toml addopts
         # so local subset runs (e.g. `pytest tests/test_foo.py`) no
         # longer trigger the coverage threshold (the conftest.py
         # --cov-strip shim was dead code that gave a false sense of
         # robustness — see XS-9).
-        # XS-84: -n auto --dist=loadgroup parallelises via pytest-xdist.
-        # XS-85: --junitxml emits pytest-results.xml consumed by the
+        # -n auto --dist=loadgroup parallelises via pytest-xdist.
+        # --junitxml emits pytest-results.xml consumed by the
         # mikepenz/action-junit-report step below for PR annotations.
-        # WR-15: explicit --timeout / --strict-* on the CI invocation too
+        # explicit --timeout / --strict-* on the CI invocation too
         # (pyproject.toml addopts already sets them via WR-1, but defense-
         # in-depth — a future edit that drops addopts would silently lose
         # these guards if they lived only in pyproject.toml).
@@ -344,7 +344,7 @@ jobs:
             --timeout=120 --timeout-method=thread \
             --strict-markers --strict-config
 
-      # XS-85: publish test results as PR annotations so a single
+      # publish test results as PR annotations so a single
       # failing test among 331 files is surfaced directly on the diff
       # instead of buried in -v --tb=short log output. `if: always()` so
       # the report still publishes when the pytest step above fails.
@@ -357,19 +357,19 @@ jobs:
           require_tests: false
 
       - name: Upload coverage to Codecov
-        # WR-15: `if: always()` so coverage is uploaded EVEN WHEN pytest
+        # `if: always()` so coverage is uploaded EVEN WHEN pytest
         # fails — the delta vs. main is the most useful signal on a red
         # run, and Codecov PR comments rely on the upload landing. Without
         # `always()` a single failing test would silently suppress the
         # coverage diff for the entire PR.
-        # S5-CR-71: only the Linux × Python 3.12 leg uploads coverage. The
+        # only the Linux × Python 3.12 leg uploads coverage. The
         # Windows + macOS legs run pytest with --cov but DO NOT upload —
         # their coverage.xml is per-OS noisy (different stub paths, different
         # optional deps installable) and Codecov's per-OS coverage deltas
         # would drown the canonical Linux signal. Documenting here so future
         # maintainers don't try to "fix" the asymmetry by removing the
         # `matrix.os == 'ubuntu-22.04'` filter.
-        # S5-CR-71: fail_ci_if_error flipped to `true` now that
+        # fail_ci_if_error flipped to `true` now that
         # CODECOV_TOKEN is wired. Pre-fix the `false` value meant a broken
         # upload (e.g. 401 from a missing token on a fork PR, 502 from
         # Codecov outage, malformed coverage.xml) silently passed — the
@@ -387,7 +387,7 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: true
 
-      # XS-86: coverage ratchet. The fixed --cov-fail-under=65 floor
+      # coverage ratchet. The fixed --cov-fail-under=65 floor
       # only catches catastrophic drops below 65%; this step catches
       # silent erosion (e.g. 70% → 65.01%). Compares the current total
       # coverage % against coverage-baseline.json and fails if current <
@@ -401,7 +401,7 @@ jobs:
         if: always() && matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
         run: python scripts/coverage_ratchet_check.py
 
-      # S-2: pip-audit two-tier policy.
+      # pip-audit two-tier policy.
       #
       # Previously this step ran `pip-audit --strict` with
       # `continue-on-error: true`, which meant vulnerability findings in
@@ -423,7 +423,7 @@ jobs:
       #   - "block everything" (removing continue-on-error without a
       #     triaged ignore list would break CI on every upstream CVE)
       #
-      # CI-01 / XS-56: the per-PR gate now HARD-FAILS on any finding.
+      # the per-PR gate now HARD-FAILS on any finding.
       # The previous `continue-on-error: true` meant vulnerabilities NEVER
       # failed the build — pure security theatre. Accepted findings MUST
       # be listed below as `--ignore-vuln <GHSA>` with a justification
@@ -444,14 +444,14 @@ jobs:
           #   --ignore-vuln GHSA-xxxx-xxxx-xxxx
           pip-audit --strict
 
-  # S-2: weekly pip-audit sweep — runs the FULL audit (no ignore list)
+  # weekly pip-audit sweep — runs the FULL audit (no ignore list)
   # on a schedule so we can re-triage new findings before they become
   # blockers. Posts a GitHub issue if any findings appear.
   pip-audit-weekly:
     if: github.event_name == 'schedule'
-    # CI-10: pinned to match build-linux runner
+    # pinned to match build-linux runner
     runs-on: ubuntu-22.04
-    # XS-25: cap weekly audit runtime.
+    # cap weekly audit runtime.
     timeout-minutes: 30
     permissions:
       contents: read
@@ -492,7 +492,7 @@ jobs:
           content-filepath: /tmp/audit.txt
           labels: security,dependencies
 
-  # TASK-013: optional slow-tests job. Runs the @pytest.mark.slow
+  # optional slow-tests job. Runs the @pytest.mark.slow
   # wrappers around the manual diagnostic scripts in tests/manual/.
   # This is best-effort — failures here do NOT block the build
   # (continue-on-error: true) and the job only runs on main-branch
@@ -502,12 +502,12 @@ jobs:
   # releases.
   slow-tests:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    # CI-10: pinned to match build-linux runner
+    # pinned to match build-linux runner
     runs-on: ubuntu-22.04
-    # XS-25: cap slow-test runtime (these are the manual-script wrappers
+    # cap slow-test runtime (these are the manual-script wrappers
     # — slower than the main suite).
     timeout-minutes: 60
-    # XS-57: removed job-level `continue-on-error: true`. Slow-test
+    # removed job-level `continue-on-error: true`. Slow-test
     # regressions now surface in CI check status. A failure opens a
     # tracking issue (see the issue-on-failure step below) so regressions
     # in tests/manual/ scripts no longer rot invisibly in main-branch
@@ -537,7 +537,7 @@ jobs:
       - name: Run slow manual-script wrappers
         # --no-cov: coverage is already collected by the main test job;
         # we only care whether the slow wrappers pass here.
-        # XS-57: capture stdout/stderr to /tmp/slow-tests-failure.txt so
+        # capture stdout/stderr to /tmp/slow-tests-failure.txt so
         # the issue-on-failure step below can attach the failure log.
         run: |
           set +e
@@ -546,7 +546,7 @@ jobs:
           cat /tmp/slow-tests-failure.txt
           exit $rc
 
-      # XS-57: open a tracking issue on failure so slow-test regressions
+      # open a tracking issue on failure so slow-test regressions
       # are not buried in CI logs. Mirrors the pip-audit-weekly pattern.
       - name: Open issue on slow-test failure
         if: failure()
@@ -556,12 +556,12 @@ jobs:
           content-filepath: /tmp/slow-tests-failure.txt
           labels: testing,regression
 
-  # NEW-CI-002: version sync check
+  # version sync check
   version-check:
     if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
-    # CI-10: pinned to match build-linux runner
+    # pinned to match build-linux runner
     runs-on: ubuntu-22.04
-    # XS-25: cap version-check runtime.
+    # cap version-check runtime.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -577,7 +577,7 @@ jobs:
           cache-dependency-glob: "**/pyproject.toml"
 
       - name: Check version sync
-        # XS-8: pass --check so version drift across pyproject.toml,
+        # pass --check so version drift across pyproject.toml,
         # voice_typer/client/package.json, src-tauri/Cargo.toml, and
         # src-tauri/tauri.conf.json FAILS CI instead of silently
         # syncing (the previous bare invocation made the gate a no-op).
@@ -586,12 +586,12 @@ jobs:
           python scripts/build/sync_versions.py --check
           python -c "from voice_typer import __version__; print(__version__)"
 
-  # BRAND-001: branding consistency check
+  # branding consistency check
   branding-check:
     if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
-    # CI-10: pinned to match build-linux runner
+    # pinned to match build-linux runner
     runs-on: ubuntu-22.04
-    # XS-25: cap branding-check runtime.
+    # cap branding-check runtime.
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -605,12 +605,12 @@ jobs:
         run: |
           python scripts/check_branding.py
 
-  # BUILD-N08: client-build job
+  # client-build job
   client-build:
     if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
-    # CI-10: pinned to match build-linux runner
+    # pinned to match build-linux runner
     runs-on: ubuntu-22.04
-    # XS-25: cap client-build runtime (npm ci + typecheck + lint + test +
+    # cap client-build runtime (npm ci + typecheck + lint + test +
     # build:renderer).
     timeout-minutes: 30
     steps:
@@ -661,7 +661,7 @@ jobs:
         working-directory: voice_typer/client
         run: npm run format:check
 
-      # CI-05: build renderer only (platform-independent). The main +
+      # build renderer only (platform-independent). The main +
       # preload parts are built in each platform job since they may be
       # platform-specific. Sharing the renderer artifact saves ~30s per
       # platform build.
@@ -675,13 +675,13 @@ jobs:
           name: voice-typer-renderer-dist
           path: voice_typer/client/out/renderer/
 
-  # GAP-1: build-native matrix job. Compiles each native key-listener
+  # build-native matrix job. Compiles each native key-listener
   # binary on its native platform (Swift on macOS, MSVC on Windows, gcc
   # on Linux). The binaries are uploaded as artifacts so the per-platform
   # installer jobs (build-windows, build-macos, build-linux) can download
   # them and bundle them into PyInstaller/electron-builder packages.
   #
-  # CR-011: the two macOS legs pass `--arch x86_64` / `--arch arm64`
+  # the two macOS legs pass `--arch x86_64` / `--arch arm64`
   # explicitly so `compile_native.sh` invokes `swiftc -target
   # <arch>-apple-macos11.0` for each leg — previously both legs ran
   # plain `swiftc` which produced an arm64 binary on the Apple-Silicon
@@ -694,10 +694,10 @@ jobs:
     strategy:
       matrix:
         include:
-          # RW-12: macOS x64 build (macos-14 = Apple Silicon runner running
+          # macOS x64 build (macos-14 = Apple Silicon runner running
           # the x64 compile under Rosetta). CI-04: migrated from the
           # deprecated macos-13 Intel runner.
-          # CR-011: `--arch x86_64` forces `swiftc -target
+          # `--arch x86_64` forces `swiftc -target
           # x86_64-apple-macos11.0` so the resulting slice is actually
           # x86_64 (without it, swiftc on the arm64 runner would emit
           # an arm64 binary and the universal merge would silently
@@ -707,10 +707,10 @@ jobs:
             script: bash scripts/build/compile_native.sh --arch x86_64
             binary: voice_typer/server/native/macos-key-listener
             artifact_name: macos-key-listener-x64
-          # RW-12: macOS arm64 build (macos-14 = Apple Silicon).
+          # macOS arm64 build (macos-14 = Apple Silicon).
           # The two macOS builds are merged into a universal binary by
           # the build-macos-universal job below (lipo -create).
-          # CR-011: `--arch arm64` is redundant on the Apple-Silicon
+          # `--arch arm64` is redundant on the Apple-Silicon
           # runner (swiftc's default target is arm64) but is passed
           # explicitly so the matrix leg is self-documenting and a
           # future switch to an x86 runner doesn't silently break the
@@ -732,7 +732,7 @@ jobs:
             artifact_name: linux-key-listener
       fail-fast: false
     runs-on: ${{ matrix.os }}
-    # XS-25: cap native-binary compile runtime (Swift / MSVC / gcc).
+    # cap native-binary compile runtime (Swift / MSVC / gcc).
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
@@ -752,7 +752,7 @@ jobs:
           # RW-12: record the architecture for the universal-binary merge.
           file "${{ matrix.binary }}" || true
 
-      # CI-06: smoke test improvements. Each platform has a different
+      # smoke test improvements. Each platform has a different
       # expected behavior in CI (no GUI, no input devices, no
       # Accessibility). We verify the binary can start and produce the
       # expected output with the expected exit code.
@@ -776,13 +776,13 @@ jobs:
           fi
           echo "Smoke test PASSED (binary emitted ERROR: and exited 1)"
 
-      # CI-06: improved macOS smoke test. Sets VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK
+      # improved macOS smoke test. Sets VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK
       # to bypass the Accessibility permission check (which always fails on CI)
       # and verify the binary emits READY within 2s (proving the event tap
       # installed and the run loop started).
       # Uses timeout (3s) to kill the binary after the run loop starts since
       # macOS CI has no real keyboard events to drive the main loop.
-      # CI-06: VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1 skips the CGEventTap
+      # VOICE_TYPER_SKIP_ACCESSIBILITY_CHECK=1 skips the CGEventTap
       # (which requires Accessibility permission unavailable on CI) so the
       # binary can reach the NSEvent monitors and emit READY.
       - name: Smoke test (macOS)
@@ -801,7 +801,7 @@ jobs:
             exit 1
           fi
 
-      # CI-06: improved Windows smoke test. Starts the binary, waits for
+      # improved Windows smoke test. Starts the binary, waits for
       # READY (proving WH_KEYBOARD_LL hook installed), then sends a
       # synthetic CapsLock keystroke via SendInput and verifies the
       # binary's hook callback fires (KEY_DOWN:CapsLock in stdout).
@@ -812,8 +812,8 @@ jobs:
         run: |
           pwsh scripts/build/smoke_test_windows.ps1 ".\${{ matrix.binary }}" '<caps_lock>'
 
-      # GAP-1: ad-hoc sign the macOS binary so it can be granted Accessibility.
-      # RW-12: applies to both macos-x64 and macos-arm64 builds.
+      # ad-hoc sign the macOS binary so it can be granted Accessibility.
+      # applies to both macos-x64 and macos-arm64 builds.
       - name: Codesign (macOS only)
         if: startsWith(matrix.platform, 'macos')
         run: |
@@ -827,7 +827,7 @@ jobs:
           path: ${{ matrix.binary }}
           if-no-files-found: error
 
-  # RW-12: merge the x64 and arm64 macOS binaries into a universal
+  # merge the x64 and arm64 macOS binaries into a universal
   # binary. The universal binary is what build-macos downloads and
   # bundles into the .dmg. This avoids shipping two separate .dmgs
   # (one per architecture) and matches Apple's universal-binary
@@ -836,7 +836,7 @@ jobs:
     if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
     needs: [build-native]
     runs-on: macos-14
-    # XS-25: cap universal-binary merge runtime (lipo is fast).
+    # cap universal-binary merge runtime (lipo is fast).
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v5
@@ -856,7 +856,7 @@ jobs:
       - name: Merge with lipo
         run: |
           mkdir -p voice_typer/server/native
-          # CR-011: verify the two input slices are DIFFERENT arches
+          # verify the two input slices are DIFFERENT arches
           # before merging. Pre-CR-011, both matrix legs ran plain
           # `swiftc` on the arm64 runner and produced identical arm64
           # binaries — `lipo -create` on two identical arm64 slices
@@ -911,16 +911,16 @@ jobs:
           path: voice_typer/server/native/macos-key-listener
           if-no-files-found: error
 
-  # GAP-1: build-windows (renamed from "build"). Downloads the Windows
+  # build-windows (renamed from "build"). Downloads the Windows
   # native binary from build-native, runs PyInstaller + Inno Setup.
   build-windows:
     if: github.event_name != 'schedule'  # XS-REVIEW: skip on weekly schedule
     needs: [test, client-build, version-check, build-native]
     runs-on: windows-2022
-    # XS-25: cap Windows build runtime (PyInstaller + electron-builder
+    # cap Windows build runtime (PyInstaller + electron-builder
     # NSIS are the slowest steps in the matrix).
     timeout-minutes: 60
-    # XS-55: gate signing-secret exposure behind the `release` environment
+    # gate signing-secret exposure behind the `release` environment
     # when triggered by a tag push. PRs / branches get '' (no environment),
     # so WIN_CSC_LINK etc. are not exposed to non-release runs. The
     # `release` environment should be configured with required reviewers
@@ -928,13 +928,13 @@ jobs:
     environment: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && 'release' || '' }}
     permissions:
       contents: write
-      # CI-09: required for actions/attest-build-provenance to generate signed attestations
+      # required for actions/attest-build-provenance to generate signed attestations
       id-token: write
       attestations: write
     steps:
       - uses: actions/checkout@v5
 
-      # CI-03: cache electron-builder download cache (~200MB of Electron
+      # cache electron-builder download cache (~200MB of Electron
       # binaries) so it isn't re-fetched on every run.
       - name: Cache electron-builder cache (Windows)
         uses: actions/cache@v5
@@ -944,7 +944,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-electron-builder-
 
-      # CI-03: cache PyInstaller bundle cache.
+      # cache PyInstaller bundle cache.
       - name: Cache PyInstaller cache (Windows)
         uses: actions/cache@v5
         with:
@@ -968,7 +968,7 @@ jobs:
           uv pip install --system .
           pip list
 
-      # GAP-1: download the Windows native binary compiled by build-native
+      # download the Windows native binary compiled by build-native
       - name: Download Windows native binary
         uses: actions/download-artifact@v5
         with:
@@ -1003,7 +1003,7 @@ jobs:
         run: python scripts/build/generate_icon.py scripts/build/voice-typer.ico
 
       - name: Build with PyInstaller
-        # Wave 3: --distpath voice_typer/dist (CONSISTENT with build-macos
+        # --distpath voice_typer/dist (CONSISTENT with build-macos
         # and build-linux) so the win.extraResources `from: ../dist` in
         # voice_typer/client/electron-builder.yml resolves to
         # <repo>/voice_typer/dist/. Previously this used `--distpath dist`
@@ -1476,7 +1476,7 @@ jobs:
   # (e.g. SLACK_WEBHOOK_URL). The current implementation intentionally
   # ships without a third-party action so the workflow stays usable in
   # air-gapped / sandboxed CI environments.
-  # S1-CR-118: pre-commit hygiene job — runs ONLY the 7 hygiene hooks from
+  # pre-commit hygiene job — runs ONLY the 7 hygiene hooks from
   # pre-commit/pre-commit-hooks repo (trailing-whitespace, end-of-file-fixer,
   # check-yaml, check-json, check-merge-conflict, check-added-large-files,
   # mixed-line-ending). Ruff/mypy/biome intentionally skipped (already in CI

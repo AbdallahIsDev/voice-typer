@@ -207,17 +207,23 @@ def vad_auto_calibrate(recorder: Any, chunk_rms: float, chunk_duration: float) -
     above. Matches the pattern already used at
     ``audio_pipeline.py:475`` on the same per-chunk hot path.
 
-    Fallback: when the cache is ``False`` we fall back to the dynamic
-    ``_vad_enabled`` property. This keeps direct callers that never
-    went through ``start()``/``refresh_vad_caches()`` (e.g. the
-    ``audio_test.py`` regression suite, which feeds ``_vad_auto_calibrate``
-    directly after forcing the RMS backend) behaviorally identical to
-    the pre-cache check. On the 16 Hz hot path the cache is primed to
-    ``True`` by ``refresh_vad_caches`` before the first chunk, so the
-    dynamic lookup is only reached when VAD is disabled (a 5 s TTL
-    flat-line, matching the pre-PERF behavior).
+    Cached-scalar gate: the gate previously read BOTH
+    ``_cached_vad_enabled`` AND ``_vad_enabled`` via ``and not ...``,
+    which DEFEATED the cached-scalar optimization. When the cache was
+    ``False`` (the default cold-start value) and the dynamic property
+    returned ``True`` (the post-config-change real value), the gate
+    fell through to the dynamic lookup on EVERY chunk — re-introducing
+    the ``time.perf_counter()`` cost the cache was meant to eliminate,
+    and breaking the contract that the cached scalar is the sole
+    arbiter of the VAD gate on the 16 Hz hot path. Fix: gate on the
+    cached scalar ONLY. ``refresh_vad_caches`` always sets the scalar
+    before chunks arrive (called by ``Recorder.start()`` /
+    ``on_config_changed()``), so the dynamic ``_vad_enabled`` property
+    is no longer needed as a fallback on the per-chunk path. The
+    property remains the source of truth for ``refresh_vad_caches``'s
+    own refresh.
     """
-    if not recorder._cached_vad_enabled and not recorder._vad_enabled:
+    if not recorder._cached_vad_enabled:
         return
     elapsed = time.perf_counter() - recorder._recording_start_time
     recorder._vad.auto_calibrate(chunk_rms, elapsed, chunk_duration)

@@ -20,7 +20,16 @@ def _force_supported(monkeypatch):
     STARTUP-5: register_prewarm_task now branches on sys.platform to
     delegate to prewarm_scheduler_posix on macOS/Linux. Force sys.platform
     to "win32" so the Windows path is exercised even on POSIX test hosts.
+
+    Also clears the config-dir resolution cache: ``_config_dir()`` is
+    memoized for the process lifetime (config_internals/paths.py), so a
+    ``Path.home`` monkeypatch in one test would otherwise leak into the
+    next (the cached path wins over the fresh ``Path.home()``). The
+    documented reset hook is ``_reset_config_dir_cache``.
     """
+    from voice_typer.server.config import _reset_config_dir_cache
+
+    _reset_config_dir_cache()
     monkeypatch.setattr(task_scheduler, "is_supported", lambda: True)
     monkeypatch.setattr(task_scheduler.sys, "platform", "win32")
 

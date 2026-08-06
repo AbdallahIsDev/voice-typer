@@ -11,7 +11,7 @@ sprinkled across the test tree (``tests/tauri/test_sidecar_ws_unit.py``,
 ``tests/test_sidecar_ws_thread_safety.py``). Three of those copies had
 diverged from the canonical shape and were missing the
 ``_ws_dispatch_pool = None`` fix — a stale copy that re-introduces the
-RT-FIX-9 / EC-FIX-3 ``wrap_future`` assertion failure anytime a new
+``wrap_future`` assertion failure anytime a new
 test copies the wrong helper.
 
 Centralising the factory here means future additions to
@@ -36,7 +36,7 @@ from unittest.mock import MagicMock
 def _make_fake_server() -> MagicMock:
     """Build a fake IPCServer with the attributes _make_dispatch / _handle_connection need.
 
-    RT-FIX-9 / EC-FIX-3 (2026-07-24): ``_make_dispatch`` now uses
+    ``_make_dispatch`` now uses
     ``loop.run_in_executor(server._ws_dispatch_pool, ...)`` (G4-H-30 —
     dedicated thread pool for WS dispatch, separate from the default
     executor). A MagicMock attribute access auto-vivifies a child
@@ -90,7 +90,7 @@ def _make_fake_server() -> MagicMock:
     server._dispatch = MagicMock(return_value={"type": "result", "data": {"ok": True}})
     server.app = MagicMock()
     server.app.quit = MagicMock()
-    # RT-FIX-9 / EC-FIX-3: force the lazy-create branches in
+    # force the lazy-create branches in
     # ``_make_dispatch`` to run (they create a real ThreadPoolExecutor,
     # threading.Lock, threading.Event, and int counter). If we leave
     # any of these unset, MagicMock auto-vivifies a child mock that

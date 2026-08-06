@@ -98,6 +98,58 @@ class SessionState:
         # doesn't want the explicit parameter form.
         self._recorder = recorder
 
+        # Sliding-window flap detection: the disconnect-handler
+        # flap-detection state. Lives on the Recorder (via this
+        # collaborator's ``__init__`` mutation) because:
+        #
+        #   1. ``recorder.py`` / ``recorder_init.py`` are OUTSIDE this
+        #      fix's owned files, so adding the attrs to
+        #      ``Recorder.__init__`` (or
+        #      ``RecorderInitMixin._setup_device_state_and_collaborators``)
+        #      directly is not an option. ``SessionState`` IS an owned
+        #      file and is constructed by ``Recorder.__init__`` (via
+        #      ``_setup_device_state_and_collaborators``) right after
+        #      ``DeviceManager`` / ``DisconnectHandler``, so it is the
+        #      earliest "owned" hook where the recorder is fully
+        #      initialized and can accept new attrs.
+        #
+        #   2. The state semantically belongs to "session state" — it
+        #      tracks per-session restart timestamps and is cleared by
+        #      ``reset_session_state`` on every ``start()``. Placing it
+        #      here keeps the reset logic next to the declaration.
+        #
+        # The deque holds ``time.monotonic()`` timestamps of recent
+        # successful restarts. ``DisconnectHandler.restart_stream``
+        # appends a timestamp after every successful stream-open, prunes
+        # entries older than ``_flapping_window_seconds`` (default 60.0),
+        # and if ``len(_restart_timestamps) >= _flapping_max_restarts``
+        # (default 3), fires ``on_device_lost`` and clears the deque.
+        # This catches a flapping BT mic that disconnects + reconnects
+        # 3+ times in 60s — a real user-facing regression where the
+        # per-attempt retry counter was reset on every successful
+        # restart so the threshold was never reached and the user never
+        # saw "Microphone disconnected".
+        #
+        # ``collections.deque`` (no maxlen) is intentional: the prune
+        # step in ``DisconnectHandler.restart_stream`` bounds the size
+        # to ``_flapping_max_restarts - 1`` entries (the threshold is
+        # checked AFTER pruning; if it's met, the deque is cleared).
+        # The max in-memory size is therefore ``_flapping_max_restarts``
+        # entries (3 by default) — negligible.
+        recorder._restart_timestamps: collections.deque = collections.deque()
+        # Default: 3 restarts within the window triggers on_device_lost.
+        # Tuned for BT HFP/HSP flapping (typical flap cadence is 5-30s
+        # between disconnect+reconnect cycles; 3 in 60s catches a real
+        # flap while a single disconnect+reconnect cycle leaves the
+        # deque with 1 entry — well below the threshold).
+        recorder._flapping_max_restarts: int = 3
+        # Default: 60s sliding window. Long enough to catch a slow flap
+        # (one cycle every ~20s), short enough that a user who
+        # physically unplugs + replugs their mic 3 times in quick
+        # succession (a legitimate troubleshooting step) doesn't trip
+        # a false positive an hour later.
+        recorder._flapping_window_seconds: float = 60.0
+
     # ── Per-session state reset ──────────────────────────────────────────
 
     def reset_session_state(self, recorder: Any) -> None:
@@ -255,6 +307,17 @@ class SessionState:
         # AUDIO-HOT: reset disconnect state
         recorder._device_disconnected = False
         recorder._device_disconnect_retries = 0
+        # Sliding-window flap detection: clear the restart-
+        # timestamp deque so a fresh session doesn't inherit a stale
+        # flap-detection window from the prior session. ``stop()``
+        # does NOT clear the deque (only ``start()`` does) — this
+        # preserves the in-flight flap state across a stop+restart
+        # cycle within the same session (e.g. when the user pauses
+        # and resumes the same recording). ``start()`` is the explicit
+        # "begin a new session" boundary, so it's the right place to
+        # reset the flap window. Mirrors the existing pattern where
+        # ``_device_disconnect_retries`` is also reset here.
+        recorder._restart_timestamps.clear()
         # reset ring buffer drop counter for the new session
         recorder._dropped_ring_chunks = 0
         # AUDIO-HOT: reset periodic device check counter

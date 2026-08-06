@@ -1242,21 +1242,37 @@ class ConfigApplier:
                 # safety net for the no-keyring-available plaintext
                 # fallback path and for callers whose ``Config.save()``
                 # was patched to skip routing (e.g. test mocks).
-                try:
-                    from voice_typer.server import credential_store
+                #
+                # Gate the redundant loop behind
+                # ``app.config._secrets_routed_in_save`` (set True by
+                # ``Config._save_unlocked`` after it runs the routing
+                # block). When the flag is True (or missing — the
+                # ``getattr`` default of True is the safe assumption for
+                # Config instances from before this change), the loop is
+                # SKIPPED because ``Config.save()`` already routed the
+                # secret. The loop only runs when the flag is explicitly
+                # False — i.e. ``Config.save()`` was mocked to skip
+                # routing (test scenario) or the routing block raised
+                # an exception (logged at WARNING inside
+                # ``_save_unlocked``). This eliminates the redundant
+                # ``store_secret`` call (and its lock re-acquisition
+                # dance) on every successful ``apply_config`` IPC call.
+                if not getattr(app.config, "_secrets_routed_in_save", True):
+                    try:
+                        from voice_typer.server import credential_store
 
-                    for k, v in list(updates.items()):
-                        provider = credential_store.CONFIG_FIELD_TO_PROVIDER.get(k)
-                        if provider is None:
-                            continue
-                        credential_store.store_secret(provider, v)
-                except Exception as exc:
-                    log.warning(
-                        "[SERVICE] RW-01: credential_store post-save route "
-                        "failed: %s — secret may not be in keychain (will "
-                        "fall back to plaintext in config.json on next save)",
-                        exc,
-                    )
+                        for k, v in list(updates.items()):
+                            provider = credential_store.CONFIG_FIELD_TO_PROVIDER.get(k)
+                            if provider is None:
+                                continue
+                            credential_store.store_secret(provider, v)
+                    except Exception as exc:
+                        log.warning(
+                            "[SERVICE] RW-01: credential_store post-save route "
+                            "failed: %s — secret may not be in keychain (will "
+                            "fall back to plaintext in config.json on next save)",
+                            exc,
+                        )
 
             # ADR-0010 §8.3b: propagate clipboard config changes to the
             # live ClipboardManager (DP7). Without this, runtime changes

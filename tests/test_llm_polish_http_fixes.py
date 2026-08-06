@@ -417,3 +417,163 @@ class TestRedactPiiFailClosed:
         assert result == original
         assert result != "SHOULD NOT BE REACHED"
         mock_open.assert_not_called()
+
+
+# HTTPError / URLError / generic-exception branch coverage ───────
+
+
+class TestCallApiHttpErrorBranches:
+    """``_call_api`` HTTPError / URLError / generic-exception
+    branches (llm_polish.py:368-394). All 4 ``raise`` statements in
+    the ``except`` blocks must map to the correct typed exception so
+    the IPC layer can ``isinstance``-narrow and surface a distinct
+    error code to the renderer (``server.cloud_server_error`` /
+    ``server.cloud_engine_error`` / ``server.cloud_network_error``).
+
+    Mapping (llm_polish.py:368-394):
+      HTTPError(5xx)   → CloudServerError  (lines 379-380)
+      HTTPError(other) → CloudEngineError  (lines 381)  — includes 4xx
+      URLError         → CloudNetworkError (lines 382-388)
+      Exception (any)  → CloudEngineError  (lines 389-394)
+
+    NOTE: ``HTTPError`` is a subclass of ``URLError``, so the
+    ``except HTTPError`` branch MUST appear before ``except URLError``
+    in the source — these tests guard that ordering invariant.
+    """
+
+    def test_call_api_http_500_raises_cloud_server_error(self, polisher):
+        """5xx → ``CloudServerError`` (llm_polish.py:379-380).
+
+        The renderer surfaces "Cloud provider server error" and may
+        retry with exponential backoff. Distinct from the 4xx mapping
+        so the user sees an actionable message ("the LLM provider is
+        having issues, try again") rather than "your API key is
+        invalid" for a 5xx.
+        """
+        from urllib.error import HTTPError
+
+        from voice_typer.server.asr_errors import CloudServerError
+
+        err = HTTPError(
+            url="https://api.openai.com/v1/chat/completions",
+            code=500,
+            msg="Internal Server Error",
+            hdrs=None,
+            fp=None,
+        )
+        with patch("voice_typer.server.llm_polish._opener.open", side_effect=err), pytest.raises(
+            CloudServerError, match=r"HTTP 500"
+        ):
+            polisher._call_api("Hello world test", "You are a text editor.")
+
+    def test_call_api_http_401_raises_cloud_engine_error(self, polisher):
+        """4xx (401) → ``CloudEngineError`` (llm_polish.py:381).
+
+        The LLM polish path does NOT map 4xx to ``CloudAuthError``
+        (unlike ``cloud_engines``); it uses the base ``CloudEngineError``
+        for all non-5xx HTTP errors. The LLM polish path is best-effort
+        (``polish()`` swallows exceptions and returns the original
+        text), so a finer-grained auth code is unnecessary here —
+        ``test_connection`` surfaces the message to the user.
+
+        This test also guards the ``HTTPError``-before-``URLError``
+        ordering invariant: ``HTTPError`` IS a subclass of
+        ``URLError``, so if the order were swapped the 401 would be
+        mis-mapped to ``CloudNetworkError``.
+        """
+        from urllib.error import HTTPError
+
+        from voice_typer.server.asr_errors import (
+            CloudEngineError,
+            CloudNetworkError,
+            CloudServerError,
+        )
+
+        err = HTTPError(
+            url="https://api.openai.com/v1/chat/completions",
+            code=401,
+            msg="Unauthorized",
+            hdrs=None,
+            fp=None,
+        )
+        with patch("voice_typer.server.llm_polish._opener.open", side_effect=err), pytest.raises(
+            CloudEngineError, match=r"HTTP 401"
+        ) as exc_info:
+            polisher._call_api("Hello world test", "You are a text editor.")
+
+        # CloudServerError is a subclass of CloudEngineError; assert
+        # we got the BASE class, not the 5xx-specific subclass.
+        assert not isinstance(exc_info.value, CloudServerError), (
+            "HTTP 401 must raise the base CloudEngineError, NOT CloudServerError "
+            "(CloudServerError is reserved for 5xx). A regression here would "
+            "cause the renderer to show 'server error, retry' for an auth "
+            "failure, hiding the real cause (invalid API key)."
+        )
+        # And it must NOT be mis-mapped to CloudNetworkError (which
+        # would happen if the except URLError branch caught HTTPError
+        # first — HTTPError is a subclass of URLError).
+        assert not isinstance(exc_info.value, CloudNetworkError), (
+            "HTTP 401 (HTTPError) must NOT be caught by the except URLError "
+            "branch — the except HTTPError branch MUST appear first in the "
+            "source. A regression here would mis-map 4xx HTTP errors to "
+            "CloudNetworkError (network error) instead of CloudEngineError."
+        )
+
+    def test_call_api_url_error_raises_cloud_network_error(self, polisher):
+        """URLError → ``CloudNetworkError`` (llm_polish.py:382-388).
+
+        URLError covers timeouts, DNS failures, connection resets —
+        the renderer surfaces "Network error contacting cloud provider"
+        and may retry (the cloud engine itself already retries 3× with
+        exponential backoff before raising, so by the time this
+        reaches the IPC layer the retry budget is exhausted).
+        """
+        from urllib.error import URLError
+
+        from voice_typer.server.asr_errors import CloudNetworkError
+
+        err = URLError("getaddrinfo failed")
+        with patch("voice_typer.server.llm_polish._opener.open", side_effect=err), pytest.raises(
+            CloudNetworkError, match=r"LLM API error"
+        ):
+            polisher._call_api("Hello world test", "You are a text editor.")
+
+    def test_call_api_generic_exception_raises_cloud_engine_error(self, polisher):
+        """Generic ``Exception`` → ``CloudEngineError``
+        (llm_polish.py:389-394).
+
+        Any exception that is NOT ``HTTPError`` / ``URLError`` (e.g.
+        ``ValueError`` from a JSON decode failure, ``AttributeError``
+        from a malformed response object, ``TypeError`` from a None
+        where a dict was expected) must be re-raised as
+        ``CloudEngineError`` so the IPC layer still maps to a
+        cloud-specific code rather than the generic
+        ``server.internal_error``. Without this branch, a JSON decode
+        bug in the LLM response would surface as a generic internal
+        error instead of "LLM API error".
+        """
+        from voice_typer.server.asr_errors import (
+            CloudEngineError,
+            CloudNetworkError,
+            CloudServerError,
+        )
+
+        with patch(
+            "voice_typer.server.llm_polish._opener.open",
+            side_effect=ValueError("unexpected decode error"),
+        ), pytest.raises(CloudEngineError, match=r"LLM API error") as exc_info:
+            polisher._call_api("Hello world test", "You are a text editor.")
+
+        # The generic exception must NOT be mis-mapped to a more
+        # specific subclass — CloudNetworkError and CloudServerError
+        # both have distinct IPC codes and renderer UX, and a generic
+        # exception (ValueError, AttributeError, etc.) is by
+        # definition NOT a network or 5xx-server error.
+        assert not isinstance(exc_info.value, CloudServerError), (
+            "A generic ValueError must be mapped to the base CloudEngineError, "
+            "not CloudServerError (which is reserved for HTTP 5xx)."
+        )
+        assert not isinstance(exc_info.value, CloudNetworkError), (
+            "A generic ValueError must be mapped to the base CloudEngineError, "
+            "not CloudNetworkError (which is reserved for URLError)."
+        )

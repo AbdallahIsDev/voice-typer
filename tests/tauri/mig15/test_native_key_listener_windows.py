@@ -553,6 +553,11 @@ class TestWireProtocol:
         # V alone — no fire.
         backend._handle_line("KEY_DOWN:V")
         assert fired == []
+        # Release V so the next KEY_DOWN is a fresh press (the
+        # auto-repeat filter treats a second KEY_DOWN while
+        # `_main_key_down` is still True as an OS repeat and
+        # suppresses it).
+        backend._handle_line("KEY_UP:V")
 
         # Hold Ctrl+Alt, then press V — fire.
         backend._handle_line("MOD_DOWN:Ctrl")

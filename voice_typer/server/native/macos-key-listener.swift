@@ -29,6 +29,39 @@
 
 import Cocoa
 import CoreGraphics
+import Foundation
+
+// MARK: - Constants
+
+/// Wire protocol version reported via ``VERSION:<x.y.z>`` immediately
+/// after READY. The Python side records this and the factory compares
+/// it against the manifest's ``version`` field.
+private let nativeBinaryVersion = "1.0.0"
+
+// MARK: - Diagnostic logger
+
+/// Optional diagnostic log file handle. Opened when ``--log-file <path>``
+/// is passed. nil when no log file was specified (diagnostics go to
+/// stderr only, which the Python parent merges into stdout).
+private var diagLogHandle: FileHandle? = nil
+
+/// Write a timestamped diagnostic line to ``diagLogHandle`` (if set)
+/// AND echo to stderr. Uses the emit queue so writes are serialized.
+private func logDiag(_ message: String) {
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let ts = formatter.string(from: Date())
+    let pid = ProcessInfo.processInfo.processIdentifier
+    let line = "\(ts) [\(pid)] \(message)\n"
+    emitQueue.sync {
+        if let h = diagLogHandle {
+            if let data = line.data(using: .utf8) {
+                h.write(data)
+            }
+        }
+        FileHandle.standardError.write(line.data(using: .utf8) ?? Data())
+    }
+}
 
 // MARK: - Wire protocol emitter
 
@@ -418,10 +451,43 @@ guard CommandLine.arguments.count >= 2 else {
     exit(1)
 }
 let specArg = CommandLine.arguments[1]
+
+// parse optional ``--log-file <path>`` argument. Also accept a
+// bare positional argv[2] as the log path for forward compatibility.
+var logFilePath: String? = nil
+let args = CommandLine.arguments
+var i = 2
+while i < args.count {
+    if args[i] == "--log-file" && i + 1 < args.count {
+        logFilePath = args[i + 1]
+        i += 2
+    } else if !args[i].hasPrefix("-") && logFilePath == nil {
+        logFilePath = args[i]
+        i += 1
+    } else {
+        i += 1
+    }
+}
+if let path = logFilePath, !path.isEmpty {
+    let fm = FileManager.default
+    if !fm.fileExists(atPath: path) {
+        fm.createFile(atPath: path, contents: nil, attributes: nil)
+    }
+    if let h = FileHandle(forWritingAtPath: path) {
+        h.seekToEndOfFile()
+        diagLogHandle = h
+    } else {
+        emit("WARN:Failed to open --log-file: \(path)")
+    }
+}
+logDiag("macos-key-listener starting; spec=\(specArg); log_file=\(logFilePath ?? "<none>")")
+
 guard let parsedHotkey = parseHotkeySpec(specArg) else {
     emit("ERROR:Invalid hotkey spec: \(specArg)")
+    logDiag("ERROR: invalid hotkey spec: \(specArg)")
     exit(1)
 }
+logDiag("hotkey spec validated")
 
 // (1) Set up the application. .accessory policy = no Dock icon, no menu bar
 // takeover — we run as a faceless background helper.
@@ -515,4 +581,33 @@ sigtermSource.resume()
 // (4) All set — announce readiness and enter the run loop. The run loop
 //     services the NSEvent monitors and the CGEventTap source.
 emit("READY")
+// immediately announce our wire-protocol version so the Python
+//     side can compare against the manifest's ``version`` field.
+emit("VERSION:\(nativeBinaryVersion)")
+logDiag("READY emitted; version=\(nativeBinaryVersion)")
+
+// start a stdin reader thread that responds to PING with PONG.
+//     The Python parent writes ``PING\n`` to our stdin every 30s as a
+//     liveness check; without this thread the parent's PING writes would
+//     buffer in the stdin pipe and we'd never see them.
+DispatchQueue.global(qos: .utility).async {
+    let stdin = FileHandle.standardInput
+    var buffer = Data()
+    while true {
+        let chunk = stdin.availableData
+        if chunk.isEmpty { return }  // EOF — parent closed stdin
+        buffer.append(chunk)
+        while let nlIdx = buffer.firstIndex(of: 0x0A) {
+            let lineData = buffer.prefix(upTo: nlIdx)
+            buffer = Data(buffer[(buffer.index(after: nlIdx))...])
+            let line = String(data: lineData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if line == "PING" {
+                emit("PONG")
+            }
+        }
+    }
+}
+logDiag("stdin reader thread started (PING/PONG enabled)")
+
 app.run()

@@ -43,6 +43,20 @@ Run from the project root.
    ::
 
        python scripts/coverage_ratchet_check.py --coverage-xml path/to/coverage.xml
+
+4. Strict mode (CI policy for gating on data availability):
+   ::
+
+       python scripts/coverage_ratchet_check.py --strict
+
+   By default, when ``coverage.xml`` is missing AND ``coverage report
+   --format=json`` cannot produce a total (e.g. no ``.coverage`` data
+   file), the script prints a NOTE and exits 0 (skip — the ratchet is
+   gated on data availability, so missing data is treated as "not our
+   problem"). ``--strict`` flips this to exit 1 so CI can fail a job
+   that was supposed to have coverage data but lost it (e.g. the
+   pytest --cov step crashed before emitting ``coverage.xml``). Use
+   ``--strict`` in CI; keep the default skip behavior for local dev.
 """
 
 from __future__ import annotations
@@ -295,6 +309,14 @@ def main(argv: list[str] | None = None) -> int:
         default=COVERAGE_XML_PATH,
         help=f"Path to coverage.xml (default: {COVERAGE_XML_PATH.name}).",
     )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit 1 (instead of 0) when coverage data is unavailable. "
+        "Use in CI to catch jobs that lost their coverage.xml / .coverage "
+        "file before the ratchet step. Default (without --strict) keeps "
+        "the historical skip-with-exit-0 behavior for local dev.",
+    )
     args = parser.parse_args(argv)
 
     # If a non-default coverage.xml path was provided, prefer it.
@@ -310,6 +332,10 @@ def main(argv: list[str] | None = None) -> int:
             print("NOTE: could not determine current coverage % — skipping ratchet check.")
             print("      Run pytest with --cov-report=xml first, OR install coverage")
             print("      and re-run this script (it will invoke `coverage report`).")
+            if args.strict:
+                print("FAIL (--strict): coverage data is unavailable; CI requires it.")
+                print("      The default (non-strict) behavior is to PASS (skip) here.")
+                return 1
             print("      PASS (skip) — the ratchet is gated on data availability.")
             return 0
 

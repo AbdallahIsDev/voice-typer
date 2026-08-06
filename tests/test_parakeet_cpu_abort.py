@@ -17,6 +17,18 @@ take effect, instead of the documented "stop after the current chunk".
 The fix adds the same abort gate at the top of the chunk loop that the
 GPU batched path (``_transcribe_chunks_batched``) already has.
 
+ refactor: ``_transcribe_impl`` now delegates the chunked path
+to ``_transcribe_chunks_batched`` (which already had the abort gate
++ OOM fallback). The OI-14 contract is therefore preserved — the
+gate now lives in ``_transcribe_chunks_batched`` rather than inline in
+``_transcribe_impl``, but the user-visible behaviour (ESC stops the
+chunk loop with bounded latency) is unchanged. These tests now patch
+``_transcribe_segment`` (which the batched path calls when
+``_INFERENCE_BATCH_SIZE <= 1``) and force ``_INFERENCE_BATCH_SIZE = 1``
+so the sequential branch is exercised (the same branch the pre-
+``_transcribe_impl`` used). The batched branch's abort gate is the
+same code, just inside a ``while`` loop instead of a ``for`` loop.
+
 These tests pin the contract:
 
 1. When ``_abort_event`` is set BEFORE the loop starts, NO chunks are
@@ -90,17 +102,25 @@ def _make_long_audio(seconds: float = 60.0) -> np.ndarray:
 
 class TestParakeetCpuFallbackAbortGate:
     """The CPU-fallback chunk loop must check ``_abort_event`` at the
-    top of each iteration so ESC stops remaining chunks."""
+    top of each iteration so ESC stops remaining chunks.
+
+    ``_transcribe_impl`` now delegates to
+    ``_transcribe_chunks_batched``, which owns the abort gate. These
+    tests force ``_INFERENCE_BATCH_SIZE = 1`` so the sequential branch
+    is exercised (matching the pre- path) — the batched branch's
+    abort gate is the same code, just inside a ``while`` loop.
+    """
 
     def test_abort_set_before_loop_skips_all_chunks(self):
         """When ``_abort_event`` is set BEFORE the loop starts, NO chunks
         are decoded. Pre-fix, the loop decoded every chunk regardless."""
         engine = _make_engine()
+        engine._INFERENCE_BATCH_SIZE = 1  # exercise the sequential branch
         engine._model = MagicMock()
         engine._processor = MagicMock()
         engine._abort_event.set()
 
-        with patch.object(engine, "_transcribe_segment_unlocked") as mock_segment:
+        with patch.object(engine, "_transcribe_segment") as mock_segment:
             result = engine._transcribe_impl(_make_long_audio())
 
         assert mock_segment.call_count == 0, (
@@ -117,6 +137,7 @@ class TestParakeetCpuFallbackAbortGate:
         chunk 3 must NOT be decoded. Pre-fix, the loop decoded all
         remaining chunks before returning."""
         engine = _make_engine()
+        engine._INFERENCE_BATCH_SIZE = 1  # exercise the sequential branch
         engine._model = MagicMock()
         engine._processor = MagicMock()
 
@@ -124,7 +145,7 @@ class TestParakeetCpuFallbackAbortGate:
         # chunk 0: [0:25s], chunk 1: [22s:47s], chunk 2: [44s:60s].
         call_log: list[int] = []
 
-        def _spy_segment(audio):
+        def _spy_segment(audio, *args, **kwargs):
             call_log.append(len(call_log))
             # After decoding chunk 2 (the 2nd call), simulate the
             # dictation pipeline's ESC setting the abort event. The
@@ -133,7 +154,7 @@ class TestParakeetCpuFallbackAbortGate:
                 engine._abort_event.set()
             return f"chunk{len(call_log)}"
 
-        with patch.object(engine, "_transcribe_segment_unlocked", side_effect=_spy_segment):
+        with patch.object(engine, "_transcribe_segment", side_effect=_spy_segment):
             engine._transcribe_impl(_make_long_audio())
 
         assert len(call_log) == 2, (
@@ -146,12 +167,13 @@ class TestParakeetCpuFallbackAbortGate:
         why transcription stopped early (observability — without this,
         ESC-during-CPU-fallback looks like a silent truncation)."""
         engine = _make_engine()
+        engine._INFERENCE_BATCH_SIZE = 1  # exercise the sequential branch
         engine._model = MagicMock()
         engine._processor = MagicMock()
         engine._abort_event.set()
 
         with (
-            patch.object(engine, "_transcribe_segment_unlocked"),
+            patch.object(engine, "_transcribe_segment"),
             patch("voice_typer.server.parakeet_engine.log") as mock_log,
         ):
             engine._transcribe_impl(_make_long_audio())
@@ -169,17 +191,18 @@ class TestParakeetCpuFallbackAbortGate:
         be decoded and merged. This guards against the fix accidentally
         breaking normal (non-aborted) CPU transcription."""
         engine = _make_engine()
+        engine._INFERENCE_BATCH_SIZE = 1  # exercise the sequential branch
         engine._model = MagicMock()
         engine._processor = MagicMock()
         # Abort NOT set — normal transcription.
 
         call_count = {"n": 0}
 
-        def _spy_segment(audio):
+        def _spy_segment(audio, *args, **kwargs):
             call_count["n"] += 1
             return f"chunk{call_count['n']}"
 
-        with patch.object(engine, "_transcribe_segment_unlocked", side_effect=_spy_segment):
+        with patch.object(engine, "_transcribe_segment", side_effect=_spy_segment):
             result = engine._transcribe_impl(_make_long_audio())
 
         # 60s audio → 3 chunks (see test_abort_set_mid_loop_stops_remaining_chunks).
@@ -195,10 +218,11 @@ class TestParakeetCpuFallbackAbortGate:
 
     def test_abort_check_is_at_loop_top_not_bottom(self):
         """The abort check must be at the TOP of the loop (before
-        ``_transcribe_segment_unlocked``), not at the bottom. A
+        ``_transcribe_segment``), not at the bottom. A
         bottom-of-loop check would decode one extra chunk after ESC
         before breaking — defeating the bounded-latency contract."""
         engine = _make_engine()
+        engine._INFERENCE_BATCH_SIZE = 1  # exercise the sequential branch
         engine._model = MagicMock()
         engine._processor = MagicMock()
 
@@ -208,31 +232,78 @@ class TestParakeetCpuFallbackAbortGate:
         # which is what we're trying to prevent).
         engine._abort_event.set()
 
-        with patch.object(engine, "_transcribe_segment_unlocked") as mock_segment:
+        with patch.object(engine, "_transcribe_segment") as mock_segment:
             engine._transcribe_impl(_make_long_audio())
 
         assert mock_segment.call_count == 0, (
             "OI-14: the abort check must be at the TOP of the chunk loop "
-            "(before _transcribe_segment_unlocked), not the bottom. A "
+            "(before _transcribe_segment), not the bottom. A "
             "bottom check would decode one extra chunk after ESC — "
             "defeating the bounded-latency contract."
         )
 
     def test_abort_gate_present_in_source(self):
-        """Source-level guard: ``_transcribe_impl`` must contain the
-        abort gate (``_abort_event.is_set()`` + ``break``). This catches
-        a future refactor that accidentally removes the gate."""
+        """Source-level guard: ``_transcribe_chunks_batched`` (which
+        ``_transcribe_impl`` delegates to) must contain the abort gate
+        (``_abort_event.is_set()`` + ``break``). This catches a future
+        refactor that accidentally removes the gate.
+
+        the gate moved from ``_transcribe_impl`` to
+        ``_transcribe_chunks_batched`` (the delegation target). The
+        source guard now inspects ``_transcribe_chunks_batched``.
+        """
+        import inspect
+
+        from voice_typer.server.parakeet_engine import ParakeetEngine
+
+        src = inspect.getsource(ParakeetEngine._transcribe_chunks_batched)
+        assert "_abort_event.is_set()" in src, (
+            "OI-14: _transcribe_chunks_batched must check _abort_event.is_set() "
+            "in the chunk loop. The gate appears to have been removed."
+        )
+        assert "break" in src, (
+            "OI-14: _transcribe_chunks_batched must `break` out of the chunk loop "
+            "when _abort_event is set. The break appears to have been "
+            "removed."
+        )
+
+    def test_transcribe_impl_delegates_to_batched_path(self):
+        """``_transcribe_impl`` (the CPU-fallback path) must
+        delegate the chunked loop to ``_transcribe_chunks_batched``
+        rather than running a sequential inline loop. The batched path
+        respects ``_INFERENCE_BATCH_SIZE`` and has the OOM-fallback —
+        bypassing it (the pre- bug) meant a CUDA OOM during CPU
+        fallback crashed the whole transcription instead of degrading
+        to per-chunk sequential, and the CPU path couldn't benefit
+        from batching on machines where it's safe."""
         import inspect
 
         from voice_typer.server.parakeet_engine import ParakeetEngine
 
         src = inspect.getsource(ParakeetEngine._transcribe_impl)
-        assert "_abort_event.is_set()" in src, (
-            "OI-14: _transcribe_impl must check _abort_event.is_set() "
-            "in the chunk loop. The gate appears to have been removed."
+        assert "_transcribe_chunks_batched" in src, (
+            "_transcribe_impl must delegate to "
+            "_transcribe_chunks_batched for the chunked path. The "
+            "inline sequential loop appears to have been restored."
         )
-        assert "break" in src, (
-            "OI-14: _transcribe_impl must `break` out of the chunk loop "
-            "when _abort_event is set. The break appears to have been "
-            "removed."
+        assert "_merge_chunks" in src, (
+            "_transcribe_impl must call _merge_chunks on the "
+            "batched results."
+        )
+
+    def test_batched_path_has_oom_fallback(self):
+        """``_transcribe_chunks_batched`` must fall back to
+        per-chunk sequential inference on a CUDA OOM. Pre-, the
+        CPU-fallback path (which used ``_transcribe_segment_unlocked``
+        in an inline loop) had no OOM-fallback — a CUDA OOM during CPU
+        fallback crashed the whole transcription."""
+        import inspect
+
+        from voice_typer.server.parakeet_engine import ParakeetEngine
+
+        src = inspect.getsource(ParakeetEngine._transcribe_chunks_batched)
+        assert "out of memory" in src, (
+            "_transcribe_chunks_batched must check for 'out of "
+            "memory' in the exception string and fall back to "
+            "sequential per-chunk inference on OOM."
         )

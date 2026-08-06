@@ -32,18 +32,14 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Mock pynput / pyperclip at import time so the clipboard module loads
-# cleanly on a headless Linux box.
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-sys.modules.setdefault("pyperclip", MagicMock())
-
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server import clipboard_target_safety as safety_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Display-env isolation ()
+# Display-env isolation
 # ---------------------------------------------------------------------------
 # Previously this module mutated the process environment at import time
 # (setting DISPLAY=":99" and removing WAYLAND_DISPLAY) to keep clipboard

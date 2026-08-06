@@ -60,7 +60,7 @@ on:
         required: false
         default: false
         type: boolean
-  # S2-CR-12 / S4-CR-20: enable push/PR triggers ONLY for the smoke-cargo-check
+  # enable push/PR triggers ONLY for the smoke-cargo-check
   # job below (gated by `if:` on that job). The full bundle build job remains
   # `if: false` until Phase 0-L host validation passes. This gives us
   # continuous CI verification that the Tauri Rust host still compiles on
@@ -83,16 +83,16 @@ on:
       - ".github/workflows/tauri-linux-build.yml"
       - "scripts/build/**"
 
-# CI-08-style concurrency: cancel in-flight PR builds, keep release builds running.
+# concurrency: cancel in-flight PR builds, keep release builds running.
 concurrency:
   group: tauri-linux-${{ github.event_name == 'pull_request' && format('pr-{0}', github.ref) || format('release-{0}', github.ref) }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
-  contents: read   # XS-28: explicit least-privilege top-level default
+  contents: read   # explicit least-privilege top-level default
 
 jobs:
-  # S2-CR-12 / S4-CR-20: lightweight smoke job that runs `cargo check` on the
+  # lightweight smoke job that runs `cargo check` on the
   # Tauri Rust host for x86_64-unknown-linux-gnu. Runs on EVERY push to main +
   # every PR (gated by the push/PR triggers above with path filters). The full
   # bundle build job (`build` below) stays `if: false` until Phase 0-L host
@@ -103,7 +103,7 @@ jobs:
   smoke-cargo-check:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
-    # TX-22: 15m was too tight once cargo test was added. The first run on a
+    # 15m was too tight once cargo test was added. The first run on a
     # cold cache (no prior successful run ever saved the actions/cache blob)
     # compiles the full Tauri dep tree for BOTH `cargo check --all-targets`
     # and the `cargo test` build — that alone can exceed 15 minutes. Bumped
@@ -151,7 +151,7 @@ jobs:
             librsvg2-dev \
             pkg-config libssl-dev
 
-      # S2-CR-1 / S4-CR-20: tauri_build::build() validates externalBin AND
+      # tauri_build::build() validates externalBin AND
       # resources paths exist at compile time. Neither the sidecar binary
       # (needs Nuitka + python-build-standalone) nor the per-OS native
       # key-listeners / prewarm binaries (need MSVC / clang / the host OS)
@@ -285,7 +285,7 @@ jobs:
     if: false
     runs-on: ubuntu-22.04
     timeout-minutes: 90
-    # WR-17: job-level permissions widen the top-level `contents: read`
+    # job-level permissions widen the top-level `contents: read`
     # default (:71-72) with the two scopes required for SLSA build
     # provenance attestation via actions/attest-build-provenance@v4 —
     # mirrors tauri-windows-build.yml:88-91 and tauri-macos-build.yml:254-257.
@@ -318,7 +318,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
-      # TX-23: honor the `sign` workflow_call input. Linux bundles are
+      # honor the `sign` workflow_call input. Linux bundles are
       # unsigned by design (ADR-0020 §13.3 — no Linux signing secrets
       # exist), so sign=true is a misconfiguration and must fail fast
       # rather than silently producing an unsigned "release" build.
@@ -336,7 +336,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
-          # CI-5 / BUILD-N08: enable uv's own dependency cache so a warm
+          # enable uv's own dependency cache so a warm
           # runner re-uses the wheel cache across runs (saves ~2-3 min
           # on the Nuitka-free install step).
           enable-cache: true
@@ -348,7 +348,7 @@ jobs:
           toolchain: stable
           targets: ${{ env.BUILD_ARCH == 'aarch64' && 'aarch64-unknown-linux-gnu' || 'x86_64-unknown-linux-gnu' }}
 
-      # CI-5 / BUILD-N07: cache the cargo registry + src-tauri/target
+      # cache the cargo registry + src-tauri/target
       # tree so a warm runner skips re-fetching crates and re-compiling
       # unchanged dependencies. Keyed on arch + Cargo.lock hash so any
       # dep bump cleanly invalidates the cache.
@@ -467,7 +467,7 @@ jobs:
         run: bash scripts/build/build_native_listener_linux.sh
 
       - name: Cross-compile native key-listener (Linux, aarch64)
-        # S2-CR-67: aarch64 linux-key-listener is now cross-compiled on the
+        # aarch64 linux-key-listener is now cross-compiled on the
         # x86_64 runner using gcc-aarch64-linux-gnu (installed above). This
         # gives aarch64 users native evdev-based hotkeys (modifier-only
         # hotkeys like bare Caps Lock) instead of falling back to the
@@ -534,7 +534,7 @@ jobs:
             fi
           done
 
-      # S1-CR-100: smoke test the bundled sidecar binary AFTER the static
+      # smoke test the bundled sidecar binary AFTER the static
       # `ldd` / `objdump` checks above. Pre-fix the Tauri Linux workflow
       # never executed the sidecar — a Nuitka flag change that broke the
       # `--version` exit path (argparse exits 0 without acquiring the
@@ -573,7 +573,7 @@ jobs:
           npm ci
           npm run build:renderer
 
-      # WR-17: generate placeholder Tauri icons + binary stubs if they
+      # generate placeholder Tauri icons + binary stubs if they
       # don't already exist. cargo tauri build reads the icon list from
       # tauri.conf.json and hard-fails on the first missing icon. The
       # `--check` flag exits 0 if all stubs are present (no-op on a warm
@@ -585,7 +585,7 @@ jobs:
         run: |
           python3 scripts/gen_tauri_icons_stub.py --check || python3 scripts/gen_tauri_icons_stub.py
 
-      # WR-17: install tauri-cli explicitly. The runner's pre-installed
+      # install tauri-cli explicitly. The runner's pre-installed
       # `cargo-tauri` is unversioned and lags upstream by months; on
       # ubuntu-22.04 it has historically been missing entirely (the
       # `cargo tauri build` step below would fail with `no such command`).
@@ -602,7 +602,7 @@ jobs:
         # Smoke tests that need a display are documented in the runbook
         # (docs/migration/linux-validation-runbook.md) and run manually.
         #
-        # XPLAT-17 fix: the base `tauri.conf.json` `bundle.resources` lists every
+        # fix: the base `tauri.conf.json` `bundle.resources` lists every
         # platform's native binaries PLUS both prewarm arches (a documented
         # superset — required so the Windows/macOS source-inspection tests under
         # tests/tauri/mig15 + mig16 keep passing). On a Linux runner those
@@ -612,9 +612,11 @@ jobs:
         # lib.rs copy_resources). We override `resources` PER-ARCH with a
         # `--config` file whose `bundle.resources` array REPLACES the base's
         # (Tauri deep-merges objects but overwrites conflicting values,
-        # including arrays — verified against tauri-cli 2.11.4). x86_64 ships
-        # linux-key-listener; aarch64 does NOT (compile_native.sh can't
-        # cross-compile it — ADR-0020).
+        # including arrays — verified against tauri-cli 2.11.4). Both x86_64
+        # and aarch64 ship linux-key-listener (x86_64 built natively via
+        # compile_native.sh; aarch64 cross-compiled via aarch64-linux-gnu-gcc
+        # in the compile step above). Both arches include linux-key-listener
+        # in tauri.linux-<arch>.conf.json bundle.resources.
         run: |
           TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
           cd src-tauri
@@ -626,7 +628,7 @@ jobs:
           find "src-tauri/target/$TRIPLE/release/bundle" -type f 2>/dev/null | sort
           find "src-tauri/target/release/bundle" -type f 2>/dev/null | sort
 
-      # CI-7: the orchestrator (tauri-build.yml::aggregate) downloads the
+      # the orchestrator (tauri-build.yml::aggregate) downloads the
       # artifact named `tauri-linux-installer`. The .deb is the primary
       # installer for Debian/Ubuntu (the largest Linux install base); we
       # also upload .AppImage and .rpm as separate artifacts for users on
@@ -649,7 +651,7 @@ jobs:
             src-tauri/target/release/bundle/appimage/*.AppImage
           if-no-files-found: warn
 
-      # CI-3: previously only .deb + .AppImage were uploaded; .rpm was
+      # previously only .deb + .AppImage were uploaded; .rpm was
       # silently dropped. Fedora/RHEL/openSUSE users couldn't download a
       # native package. Upload it as its own artifact so the Fedora
       # subgraph of Linux users can grab the .rpm without rebuilding.
@@ -673,7 +675,7 @@ jobs:
             src-tauri/target/*/release/.frozen/Cargo.lock
           if-no-files-found: warn
 
-      # WR-17: generate SHA-256 checksums for the .deb + .AppImage + .rpm
+      # generate SHA-256 checksums for the .deb + .AppImage + .rpm
       # installers, mirroring tauri-windows-build.yml:368-393. Linux uses
       # GNU `sha256sum`. The matrix fans out per arch (x86_64, aarch64)
       # so each arch leg produces its own SHA256SUMS.txt — the artifact
@@ -715,7 +717,7 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # TX-24: gate SLSA attestation on a manual signed release build
+      # gate SLSA attestation on a manual signed release build
       # (workflow_dispatch + sign=true) instead of tag pushes — the tag
       # push trigger is commented out, so the old
       # ``startsWith(github.ref, 'refs/tags/v')`` gate never fired.

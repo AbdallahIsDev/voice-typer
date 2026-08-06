@@ -2,28 +2,28 @@
 
 Covers four review.md entries:
 
-* **AC-80** — the ``__import__("threading").Lock()`` anti-pattern at
+* - the ``__import__("threading").Lock()`` anti-pattern at
   module load was replaced with a top-of-module ``import threading`` +
   ``threading.Lock()``. The 6 module-level mutable globals are
   intentionally retained (the deeper ``TextCleanupService`` instance
   refactor is explicitly deferred per the in-code comment) — only the
   ``__import__`` antipattern is fixed here.
 
-* **AC-81** — ``_correct_whisper_phrases`` and ``_remove_extra_words``
+* - ``_correct_whisper_phrases`` and ``_remove_extra_words``
   were near-identical (same ``get_regex`` → ``pattern is None`` short-
   circuit → ``pattern.sub`` shape). Both now delegate to a shared
   :func:`_apply_phrase_substitutions` helper; the only per-call-site
   difference is the replacer callback (case-preserving for phrases,
   plain literal for extra-word removal).
 
-* **AC-82** — ``_load_external_corrections`` was 163 lines mixing 4
+* - ``_load_external_corrections`` was 163 lines mixing 4
   phases (load bundled → merge user → truncate → filter). The truncate
   and filter phases were already extracted to helpers; the load-bundled
   and merge-user phases are now also extracted
   (:func:`_load_bundled_corrections`, :func:`_load_user_corrections`),
   leaving the orchestrator as ~50 lines of phase composition.
 
-* **AC-84** — the O(N²) per-match substring slicing in
+* — the O(N²) per-match substring slicing in
   ``_capitalize_pronoun_i`` was already replaced with bounded scans.
   The culturally-biased hardcoded proper-noun set (``"henry"``,
   ``"louis"``, ``"richard"`` — no ``"george"``, ``"edward"``,
@@ -56,10 +56,10 @@ def _configure_corrections():
     """Reset corrections state from the bundled corrections.json before
     each test (mirrors the autouse fixture in ``test_text_cleanup.py``).
 
-    Also resets the AC-84 user-extension state so a prior test's
+    Also resets the user-extension state so a prior test's
     extensions don't leak into the next test.
     """
-    # Reset AC-84 state BEFORE configure_corrections (configure_corrections
+    # Reset state BEFORE configure_corrections (configure_corrections
     # calls _load_external_corrections which resets it to empty for the
     # bundled-only path; this is a defensive belt-and-braces reset).
     text_cleanup._user_roman_numeral_context_extensions = set()
@@ -67,11 +67,11 @@ def _configure_corrections():
     configure_corrections()
 
 
-# ─── AC-80: __import__("threading") antipattern removed ─────────────────
+# ─── __import__("threading") antipattern removed ─────────────────
 
 
 class TestAc80ThreadingImportAntipattern:
-    """AC-80: ``_active_state_lock`` is now ``threading.Lock()``,
+    """ ``_active_state_lock`` is now ``threading.Lock()``,
     not ``__import__("threading").Lock()``. The lock object itself is
     functionally identical (both produce a ``threading.Lock`` instance);
     the difference is purely stylistic — a top-of-module ``import
@@ -104,15 +104,15 @@ class TestAc80ThreadingImportAntipattern:
 
         source = inspect.getsource(text_cleanup)
         assert '__import__("threading")' not in source, (
-            'AC-80 regression: ``__import__("threading")`` is back in the source'
+            'regression: ``__import__("threading")`` is back in the source'
         )
 
 
-# ─── AC-81: _apply_phrase_substitutions unifies the two functions ──────
+# ─── _apply_phrase_substitutions unifies the two functions ──────
 
 
 class TestAc81UnifiedPhraseSubstitutionsHelper:
-    """AC-81: ``_correct_whisper_phrases`` and ``_remove_extra_words``
+    """``_correct_whisper_phrases`` and ``_remove_extra_words``
     delegate to a shared :func:`_apply_phrase_substitutions` helper.
     """
 
@@ -238,14 +238,14 @@ class TestAc81UnifiedPhraseSubstitutionsHelper:
                 ):
                     has_inline_pattern_sub = True
                     break
-            assert not has_inline_pattern_sub, f"{fn.__name__} still inlines pattern.sub (AC-81 regression)"
+            assert not has_inline_pattern_sub, f"{fn.__name__} still inlines pattern.sub (regression)"
 
 
-# ─── AC-82: _load_external_corrections decomposed into phase helpers ──
+# ─── _load_external_corrections decomposed into phase helpers ──
 
 
 class TestAc82LoadExternalCorrectionsHelpers:
-    """AC-82: ``_load_external_corrections`` orchestrates 4 phases via
+    """``_load_external_corrections`` orchestrates 4 phases via
     focused helpers instead of 163 lines of inline copy-paste.
     """
 
@@ -290,7 +290,7 @@ class TestAc82LoadExternalCorrectionsHelpers:
         assert len(result) == 8
 
     def test_load_user_corrections_no_file_returns_empty_extensions(self, tmp_path, monkeypatch):
-        """When no user file exists, the AC-84 extension sets are empty."""
+        """When no user file exists, the extension sets are empty."""
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         result = _load_user_corrections(config_dir=tmp_path)
         path, _m, _p, _e, roman_ctx, roman_fol, loaded_any, _errs = result
@@ -334,7 +334,7 @@ class TestAc82LoadExternalCorrectionsHelpers:
     def test_load_external_corrections_signature_unchanged(self, tmp_path, monkeypatch):
         """The orchestrator still returns the 3-tuple
         ``(misspellings, phrase_corrections, extra_word_patterns)``
-        (or ``None``) — the AC-82 refactor preserved the public
+        (or ``None``) — the refactor preserved the public
         signature so existing callers / tests aren't broken."""
         monkeypatch.setattr(text_cleanup, "_BUNDLED_CORRECTIONS_PATH", tmp_path / "nonexistent.json")
         result = _load_external_corrections(config_dir=tmp_path)
@@ -350,18 +350,18 @@ class TestAc82LoadExternalCorrectionsHelpers:
         assert "teh" in misspellings
 
 
-# ─── AC-84: extensibility for the Roman-numeral word sets ─────────────
+# ─── extensibility for the Roman-numeral word sets ─────────────
 
 
 class TestAc84RomanNumeralWordSetExtensibility:
-    """AC-84: users can extend the hardcoded Roman-numeral context and
+    """users can extend the hardcoded Roman-numeral context and
     following word sets via their corrections file. The extensions are
     ADDITIVE to the bundled defaults.
     """
 
     def test_bundled_defaults_unchanged(self):
         """The bundled defaults are still present and include the
-        original entries (no regression from the AC-84 refactor)."""
+        original entries (no regression from the refactor)."""
         assert "henry" in text_cleanup._ROMAN_NUMERAL_CONTEXT_WORDS
         assert "chapter" in text_cleanup._ROMAN_NUMERAL_CONTEXT_WORDS
         assert "through" in text_cleanup._ROMAN_NUMERAL_FOLLOWING_WORDS
@@ -387,7 +387,7 @@ class TestAc84RomanNumeralWordSetExtensibility:
     def test_user_extensions_make_i_lowercase(self, tmp_path):
         """A user-provided extension word makes a following standalone
         ``'i'`` stay lowercase — even when the word is NOT in the
-        bundled defaults (the cultural-bias gap from AC-84:
+        bundled defaults (the cultural-bias gap from
         ``"george"``, ``"edward"``, ``"charles"`` were missing)."""
         user_file = tmp_path / "voice-typer-corrections.json"
         user_file.write_text(

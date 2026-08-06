@@ -30,6 +30,12 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
+
+if TYPE_CHECKING:
+    import numpy as np
 
 log = logging.getLogger(__name__)
 
@@ -523,3 +529,72 @@ def prune_model_cache(cache_dir, max_bytes: int = _MAX_MODEL_CACHE_BYTES) -> int
     except OSError:
         return 0
     return _prune_oldest_repos(repos, max_bytes, shutil)
+
+
+# ─── Audio chunking ────────────────────────────────────────────────────────
+
+
+def split_audio(
+    audio: np.ndarray,
+    chunk_duration: float,
+    overlap_duration: float,
+    sample_rate: int = WHISPER_SAMPLE_RATE,
+) -> list[np.ndarray]:
+    """Split a 1-D audio array into overlapping chunks.
+
+    Single source of truth for the chunking loop previously duplicated
+    verbatim across ``ParakeetEngine._split_audio`` (instance method) and
+    ``QwenEngine._split_audio`` (``@staticmethod``). Both engine methods
+    now delegate to this function; their original method signatures are
+    preserved so existing call sites (``engine._split_audio(audio,
+    chunk_sec, overlap_sec)``) and tests
+    (``tests/test_parakeet_engine.py::TestSplitAudio``,
+    ``tests/test_word_drop_regression.py::test_qwen_split_audio_covers_full_array``)
+    keep passing unchanged.
+
+    Parameters
+    ----------
+    audio : np.ndarray
+        1-D audio samples (any dtype that supports slicing — the body
+        only uses ``len()`` and ``audio[start:end]``).
+    chunk_duration : float
+        Target chunk length in seconds.
+        ``chunk_len = int(chunk_duration * sample_rate)``.
+    overlap_duration : float
+        Overlap between successive chunks in seconds.
+        ``overlap_len = int(overlap_duration * sample_rate)``.
+        ``step = chunk_len - overlap_len``.
+    sample_rate : int
+        Sample rate in Hz. Defaults to :data:`WHISPER_SAMPLE_RATE`
+        (16000) — the rate every ASR engine in this project resamples to
+        before inference, so callers can usually omit it.
+
+    Returns
+    -------
+    list[np.ndarray]
+        Overlapping slices of ``audio``. Each slice is at most
+        ``chunk_len`` samples long; the last slice is truncated to the
+        remaining audio (may be shorter than ``chunk_len``). Returns a
+        single chunk covering the whole array when
+        ``len(audio) <= chunk_len``. Returns an empty list when
+        ``len(audio) == 0``.
+
+    Notes
+    -----
+    The loop terminates as soon as a chunk reaches the end of the audio
+    (``end == len(audio)``), so the last chunk always contains the final
+    sample of ``audio`` — no tail is silently dropped. This invariant is
+    pinned by ``tests/test_word_drop_regression.py::test_qwen_split_audio_covers_full_array``.
+    """
+    chunk_len = int(chunk_duration * sample_rate)
+    overlap_len = int(overlap_duration * sample_rate)
+    step = chunk_len - overlap_len
+    chunks: list[np.ndarray] = []
+    start = 0
+    while start < len(audio):
+        end = min(start + chunk_len, len(audio))
+        chunks.append(audio[start:end])
+        if end == len(audio):
+            break
+        start += step
+    return chunks

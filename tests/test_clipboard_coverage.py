@@ -36,13 +36,8 @@ from unittest.mock import MagicMock, PropertyMock, patch
 
 import pytest
 
-# Ensure heavy imports are mocked before the module loads
-mock_pynput = MagicMock()
-mock_pynput_kb = MagicMock()
-sys.modules.setdefault("pynput", mock_pynput)
-sys.modules.setdefault("pynput.keyboard", mock_pynput_kb)
-sys.modules.setdefault("pyperclip", MagicMock())
-
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import (  # noqa: E402
     ClipboardCopyError,

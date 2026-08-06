@@ -1745,14 +1745,61 @@ class ModelManager:
                 self._MAX_LOADED_MODELS,
             )
 
-            # Unload the engine
-            engine = self._registry.get(oldest_backend)
-            if engine is not None:
-                try:
-                    if hasattr(engine, "unload"):
-                        engine.unload()
-                except Exception as exc:
-                    log.warning("[PERF-015] Failed to unload '%s': %s", oldest_backend, exc)
+            # Unload the engine via the registry so the busy-check
+            # (``AsrBackendRegistry.unload`` refuses to unload a backend
+            # currently inside ``transcribe_with_fallback``) is honoured.
+            # Mirrors ``_do_idle_unload`` (lines ~1972-1979): if the
+            # backend is busy, log + skip eviction rather than tearing
+            # down a backend mid-transcription (which would crash the
+            # C-level ctranslate2 / torch call with a use-after-free).
+            try:
+                self._registry.unload(oldest_backend)
+            except RuntimeError as busy_exc:
+                log.warning(
+                    "[PERF-015] Skipping LRU eviction of busy backend '%s': %s",
+                    oldest_backend,
+                    busy_exc,
+                )
+                return
+            except Exception as exc:
+                log.warning(
+                    "[PERF-015] registry.unload('%s') failed (non-fatal): %s",
+                    oldest_backend,
+                    exc,
+                    exc_info=True,
+                )
+            # Unregister the backend so a subsequent ``_ensure_engine``
+            # actually constructs a fresh one. Previously this path
+            # called ``engine.unload()`` directly and left the backend
+            # in the registry, so ``_ensure_engine``'s
+            # "if registry.get(name) is not None: return" short-circuited
+            # and a stale (unloaded) handle was returned. Mirrors
+            # ``_change_model_unload_phase`` (lines ~990-996).
+            try:
+                self._registry.unregister(oldest_backend)
+            except Exception as exc:
+                log.warning(
+                    "[PERF-015] registry.unregister('%s') failed (non-fatal): %s",
+                    oldest_backend,
+                    exc,
+                    exc_info=True,
+                )
+            # Release GPU memory (CUDA caching allocator blocks).
+            # Defense in depth — mirrors ``_do_idle_unload``
+            # (lines ~1996-1998) and ``force_unload_active``
+            # (lines ~2115-2117): without this, the freed CUDA tensors
+            # stay in PyTorch's caching allocator and the VRAM is not
+            # actually returned to the OS, defeating the eviction's
+            # goal of preventing GPU OOM.
+            try:
+                from voice_typer.server.asr_utils import release_gpu_memory
+
+                release_gpu_memory()
+            except Exception:
+                log.debug(
+                    "[PERF-015] release_gpu_memory() failed (non-fatal)",
+                    exc_info=True,
+                )
 
             # Remove from tracking
             del self._model_access_times[oldest_backend]

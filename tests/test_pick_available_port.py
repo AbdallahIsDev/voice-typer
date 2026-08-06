@@ -57,13 +57,23 @@ class TestPickAvailablePortReturnsBoundSocket:
             sock.close()
 
     def test_returned_socket_has_reuseaddr(self):
-        """The returned socket has SO_REUSEADDR set (matches legacy behavior)."""
+        """The returned socket has SO_REUSEADDR set (matches legacy behavior)
+        on POSIX; on Windows the option is deliberately NOT set (its
+        semantics are inverted there — it would let a second socket
+        hijack the port), so we assert the socket is usable instead."""
+        import os
+
         from voice_typer.server.ipc_server import _pick_available_port
 
         port, sock = _pick_available_port(0, max_tries=1)
         try:
-            reuse = sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR)
-            assert reuse != 0  # 1 = enabled
+            if os.name == "nt":
+                # Windows: SO_REUSEADDR would enable port hijacking, so
+                # the probe skips it. The socket must still be usable.
+                sock.listen(1)
+            else:
+                reuse = sock.getsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR)
+                assert reuse != 0  # 1 = enabled
         finally:
             sock.close()
 

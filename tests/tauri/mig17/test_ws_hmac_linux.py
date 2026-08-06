@@ -46,7 +46,7 @@ What this gate proves
 - The 1 MiB WS frame cap is enforced (``max_size`` on ``serve()``).
 - The ADR-0019 rate limiter is applied to every inbound WS frame,
   shared across all connections to the same server process (CR-11).
-- The auth handshake timeout is 5.0s (matches TCP path PR-3-FIX-1).
+- The auth handshake timeout is 5.0s (matches TCP path).
 - There is NO platform branch in the auth path — Linux behaves
   identically to macOS/Windows.
 - There is NO display-server branch in the auth path — X11 behaves
@@ -754,7 +754,7 @@ async def test_rate_limiter_applied_to_ws_frames():
 
 
 async def test_rate_limiter_is_shared_across_connections():
-    """CR-11: the rate limiter is per-PROCESS (shared), not per-connection.
+    """the rate limiter is per-PROCESS (shared), not per-connection.
 
     A per-connection limiter would let a local attacker reset the 200-
     message burst budget by dropping the WS and reconnecting. The CR-11
@@ -1179,7 +1179,7 @@ async def test_os_environ_manipulation_does_not_leak_between_tests(monkeypatch):
 
 async def test_auth_frame_timeout_is_5_seconds():
     """ADR-0020 §3: a client that connects but never sends the auth frame
-    is dropped after 5s (matches the TCP path's PR-3-FIX-1 timeout).
+    is dropped after 5s (matches the TCP path's timeout).
 
     The same 5s timeout applies on both Linux arches AND both display
     servers — it's a Python-float constant, not OS- / arch- / session-

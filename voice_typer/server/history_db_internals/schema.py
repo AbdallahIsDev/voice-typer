@@ -539,6 +539,18 @@ def init_schema(
         CREATE INDEX IF NOT EXISTS idx_timestamp
         ON transcriptions(timestamp DESC)
     """)
+    # Composite covering index for the (timestamp DESC, id DESC) ordering
+    # used by get_recent / search / get_favorites. The single-column
+    # ``idx_timestamp`` cannot satisfy the secondary ``id DESC`` tie-break
+    # without a sort pass; on a 500K-row DB this pushed the OFFSET
+    # pagination path to ~594ms because SQLite still had to sort the
+    # tie-group per timestamp value. The composite index makes both the
+    # ORDER BY and the keyset WHERE clause ``timestamp < ? OR
+    # (timestamp = ? AND id < ?)`` index-served (O(log N) per page).
+    cursor.execute("""
+        CREATE INDEX IF NOT EXISTS idx_timestamp_id
+        ON transcriptions(timestamp DESC, id DESC)
+    """)
     if "favorite" in existing_columns:
         cursor.execute("""
             CREATE INDEX IF NOT EXISTS idx_favorite

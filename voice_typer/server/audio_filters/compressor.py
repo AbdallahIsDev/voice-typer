@@ -79,6 +79,22 @@ class Compressor(AudioFilter):
         # largest chunk seen so the first call allocates and subsequent
         # calls reuse. Eliminates 3 fresh array allocations per chunk.
         self._env_db_buf: np.ndarray | None = None
+        # pre-allocated float64 gain buffer + float64/float32 output
+        # buffers for the final gain stage. Before this, the gain stage
+        # allocated ~7 fresh arrays per chunk (``gain_db / 20.0``,
+        # ``np.power(...)``, ``* output_gain``, ``np.where(...)``,
+        # ``samples.astype(float64)``, ``* gain``, ``.astype(float32)``).
+        # Now computed in-place: ``_gain_buf = gain_db / 20``;
+        # ``np.power(10, _gain_buf, out=_gain_buf)``;
+        # ``_gain_buf *= output_gain``; ``np.copyto(_gain_buf,
+        # output_gain, where=~above_floor)`` (replaces ``np.where``);
+        # ``np.multiply(samples, _gain_buf, out=_output_f64_buf,
+        # casting='same_kind')``; ``np.copyto(_output_f32_buf,
+        # _output_f64_buf, casting='same_kind')``. Lazy-resized to the
+        # largest chunk seen (mirror ``_env_db_buf``).
+        self._gain_buf: np.ndarray | None = None
+        self._output_f64_buf: np.ndarray | None = None
+        self._output_f32_buf: np.ndarray | None = None
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         # Debug-only guard: the envelope-follower coefficients
@@ -152,10 +168,37 @@ class Compressor(AudioFilter):
         env_db += self._slope * self._threshold_db
         np.minimum(env_db, 0.0, out=env_db)
         gain_db = env_db
-        gain = np.power(10.0, gain_db / 20.0) * self._output_gain
-        gain = np.where(above_floor, gain, self._output_gain)
+        # gain = np.power(10.0, gain_db / 20.0) * output_gain, computed
+        # in-place into the pre-allocated ``_gain_buf``. Replaces 3 fresh
+        # allocations (divide, power, scalar multiply) with in-place ufuncs.
+        if self._gain_buf is None or self._gain_buf.shape[0] < n:
+            cap = max(n, 1024)
+            self._gain_buf = np.empty(cap, dtype=np.float64)
+            self._output_f64_buf = np.empty(cap, dtype=np.float64)
+            self._output_f32_buf = np.empty(cap, dtype=np.float32)
+        gain = self._gain_buf[:n]
+        np.divide(gain_db, 20.0, out=gain)
+        np.power(10.0, gain, out=gain)
+        gain *= self._output_gain
+        # np.where(above_floor, gain, output_gain) — np.where has no out=
+        # kwarg and allocates a fresh array. ``np.copyto`` with a ``where=``
+        # mask overwrites the below-floor slots in-place, producing the
+        # same result without the allocation. Above-floor slots retain the
+        # computed gain; below-floor slots are set to ``output_gain``.
+        np.copyto(gain, self._output_gain, where=~above_floor)
 
-        output = (samples.astype(np.float64) * gain).astype(np.float32)
+        # output = (samples.astype(float64) * gain).astype(float32),
+        # computed in-place via the pre-allocated f64 + f32 buffers.
+        # ``np.multiply(float32, float64, out=float64, casting='same_kind')``
+        # promotes the float32 input to float64 internally (exact upcast)
+        # and writes the float64 product into ``_output_f64_buf``. Then
+        # ``np.copyto(float32, float64, casting='same_kind')`` rounds the
+        # float64 product to float32 (IEEE-754 round-to-nearest-even, same
+        # as ``.astype(np.float32)``).
+        output_f64 = self._output_f64_buf[:n]
+        np.multiply(samples, gain, out=output_f64, casting="same_kind")
+        output = self._output_f32_buf[:n]
+        np.copyto(output, output_f64, casting="same_kind")
         self._envelope = float(env[-1])
         return output.reshape(original_shape)
 
@@ -168,3 +211,11 @@ class Compressor(AudioFilter):
         # ``process()`` call.
         if self._env_db_buf is not None:
             self._env_db_buf.fill(0)
+        # zero the gain + output buffers for the same privacy rationale.
+        # ``_gain_buf`` holds the per-sample gain (derived from the envelope
+        # of the user's voice); ``_output_f64_buf`` / ``_output_f32_buf``
+        # hold the filtered audio output. Guarded for None because they
+        # are lazy-allocated on the first ``process()`` call.
+        for buf in (self._gain_buf, self._output_f64_buf, self._output_f32_buf):
+            if buf is not None:
+                buf.fill(0)

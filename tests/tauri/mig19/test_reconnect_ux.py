@@ -424,7 +424,7 @@ def test_bridge_subscribes_to_supervisor_relaunching_event(
       - ``supervisor.rs:52``  — supervisor exhausted retries (full-app
                           relaunch path).
       - ``supervisor.rs:113`` — backoff schedule exhausted (same path).
-      - ``ws.rs:193``  — CR-5: emit IMMEDIATELY at disconnect start so
+      - ``ws.rs:193``  — emit IMMEDIATELY at disconnect start so
                           the UI can show a "reconnecting…" banner
                           BEFORE the backoff schedule runs.
 
@@ -502,7 +502,7 @@ def test_bridge_subscribes_to_supervisor_relaunching_event(
 
 
 def test_ws_rs_emits_supervisor_relaunching_on_disconnect(ws_rs_source: str) -> None:
-    """ADR-0020 §10 CR-5: the WS reader task must emit ``supervisor_relaunching``
+    """ADR-0020 §10 the WS reader task must emit ``supervisor_relaunching``
     IMMEDIATELY when the sidecar closes the WebSocket, BEFORE the
     backoff schedule runs.
 

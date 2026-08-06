@@ -17,7 +17,7 @@ def bubble():
 def _reset_ipc_hook():
     """Make sure the module-level IPC push hook doesn't leak between tests.
 
-    B-1 FIX-12: the global ``_push_event`` was replaced by the
+    the global ``_push_event`` was replaced by the
     in-process ``event_bus`` (``_subscribers`` set + ``_lock`` RLock).
     Each test that wants a clean slate must clear the registry; we
     snapshot/restore it here so other tests aren't affected.
@@ -470,8 +470,18 @@ class TestAppMainWiresIpcHook:
         # (it's the one that was actually used by the monkeypatch
         # below, so behavior is unchanged).
         class FakeServer:
+            # ``event_bus._SubscriberSet`` stores bound-method
+            # subscribers via WEAK references (a leak fix) — if the
+            # server instance is garbage-collected after ``main()``
+            # returns (nothing else holds a ref to the local ``server``
+            # inside ``main``), its subscription is evicted before the
+            # assertion below runs. Keep every constructed instance
+            # alive on the class so the weak ref survives.
+            instances: list = []
+
             def __init__(self, app):
                 self.app = app
+                FakeServer.instances.append(self)
 
             def start(self):
                 calls["ipc_started"] += 1

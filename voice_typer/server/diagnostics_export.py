@@ -506,6 +506,81 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                         ),
                     )
 
+                # ─── 6b. Permission state ────────────────────
+                # Bundle the OS-level keyboard + microphone permission
+                # state, the pyobjc availability flag, and on Linux the
+                # contents of ``/var/lib/voice-typer/permissions-manifest.json``
+                # (written by ``scripts/linux/install_permissions.py``
+                # after a successful pkexec install) plus a ground-truth
+                # ``os.access("/dev/input/event0", os.R_OK)`` check.
+                # Pre-fix, support engineers had to ask the user to run
+                # ``--status`` manually to gather this information; the
+                # diagnostic bundle now includes it so a bug report
+                # contains the full permission picture without a
+                # back-and-forth. All probes are best-effort — a probe
+                # failure populates an ``error`` key but never aborts
+                # the bundle creation.
+                try:
+                    from voice_typer.server.permissions import (
+                        _is_pyobjc_available,
+                        check_keyboard_permission,
+                        check_microphone_permission,
+                    )
+
+                    permissions_data: dict = {
+                        "keyboard_permission_state": check_keyboard_permission().value,
+                        "microphone_permission_state": check_microphone_permission().value,
+                        "pyobjc_available": bool(_is_pyobjc_available()),
+                    }
+                    # Linux-only: bundle the install-manifest JSON
+                    # (written by ``install_permissions.py`` after a
+                    # successful pkexec install) and the ground-truth
+                    # ``/dev/input/event0`` readability check. On
+                    # macOS/Windows these keys are absent (the
+                    # renderer / support engineer infers "not
+                    # applicable" from the platform field in
+                    # ``system_info.txt``).
+                    if sys.platform.startswith("linux"):
+                        manifest_path = Path("/var/lib/voice-typer/permissions-manifest.json")
+                        if manifest_path.is_file():
+                            try:
+                                permissions_data["install_manifest"] = _json.loads(
+                                    manifest_path.read_text(encoding="utf-8", errors="replace")
+                                )
+                            except Exception as manifest_exc:
+                                permissions_data["install_manifest"] = {
+                                    "error": f"failed to parse {manifest_path}: {manifest_exc}",
+                                }
+                        else:
+                            permissions_data["install_manifest"] = None
+                        # Ground-truth readability check for the first
+                        # evdev device. This is the SAME check the
+                        # ``_check_linux_input_access`` probe performs
+                        # internally, but here we expose the raw boolean
+                        # so support engineers can correlate "denied"
+                        # (from the permission probe) against the actual
+                        # filesystem state without re-running the probe.
+                        permissions_data["dev_input_event0_readable"] = os.access(
+                            "/dev/input/event0", os.R_OK
+                        )
+                    zf.writestr(
+                        "permissions.json",
+                        _json.dumps(permissions_data, indent=2, default=str),
+                    )
+                except Exception as perms_exc:
+                    # Defensive: never let a permission probe failure
+                    # abort the entire diagnostics export. Include the
+                    # error so support engineers know why permission
+                    # data is missing.
+                    zf.writestr(
+                        "permissions.json",
+                        _json.dumps(
+                            {"error": str(perms_exc)},
+                            indent=2,
+                            default=str,
+                        ),
+                    )
+
                 # ─── 7. Crash diagnostics archive ────────────────────
                 # ``crash_handler.report_pending_crash`` archives each
                 # processed crash_diagnostics / python_crash file to

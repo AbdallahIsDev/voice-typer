@@ -1,6 +1,6 @@
-"""R4-F18: ``_get_rate_limiter`` lazy-init race condition tests.
+"""``_get_rate_limiter`` lazy-init race condition tests.
 
-The CR-11 fix moved the IPC rate limiter from per-connection to
+The fix moved the IPC rate limiter from per-connection to
 per-process: a single ``_RateLimiter`` instance is lazily created and
 stored on the ``IPCServer`` instance via ``_get_rate_limiter(server)``.
 All TCP reconnects and WS reconnects within the same server process
@@ -296,11 +296,11 @@ class TestConcurrentInit:
     def test_leaf_copy_also_has_init_lock(self):
         """R4-F18: the parallel leaf copy at
         ``voice_typer/server/ipc/rate_limiter.py`` must ALSO have the
-        init lock, since CR-14 (delete ``ipc/`` package) was deferred.
+        init lock, since (delete ``ipc/`` package) was deferred.
 
         The leaf copy is currently a duplicate of the canonical
         implementation in ``ipc_server.py``; both must stay in sync.
-        If a future refactor deletes the leaf copy (CR-14), this test
+        If a future refactor deletes the leaf copy, this test
         should be removed alongside it.
         """
         # Import as a constant name (the symbol is module-level

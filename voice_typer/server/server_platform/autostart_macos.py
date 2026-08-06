@@ -174,25 +174,38 @@ def _enable_autostart_macos() -> bool:
         # return code) was swallowed and the renderer showed "Autostart
         # enabled" even though the LaunchAgent was NOT loaded. The user
         # rebooted and Voice Typer didn't start, with no diagnostic.
+        #
+        # prefer the modern ``launchctl bootstrap`` (macOS 10.10+,
+        # 2014) — the documented replacement for the deprecated
+        # ``launchctl load`` verb. ``bootstrap`` accepts the same plist
+        # path but takes a ``gui/<uid>`` domain target, mirroring the
+        # disable path's ``launchctl bootout gui/<uid>/<label>`` call
+        # (see ``_disable_autostart_macos`` below). If ``bootstrap``
+        # fails (non-zero rc, "Loader.Error" / "exited with" in stderr,
+        # or TimeoutExpired), we fall back to the legacy ``load`` verb
+        # so the function keeps working on pre-10.10 macOS (extremely
+        # rare in 2025 but cheap insurance) and on edge cases where
+        # bootstrap returns a confusing non-zero exit on an otherwise
+        # loadable plist.
         completed = subprocess.run(
-            ["launchctl", "load", str(plist_path)],
+            ["launchctl", "bootstrap", f"gui/{_pkg._os_uid()}", str(plist_path)],
             check=False,
             capture_output=True,
             timeout=5.0,
         )
     except subprocess.TimeoutExpired:
-        log.warning("[CONFIG] launchctl load timed out after 5s — launchd may be unresponsive")
+        log.warning("[CONFIG] launchctl bootstrap timed out after 5s — launchd may be unresponsive")
         # surface the timeout to the caller so the renderer can
-        # show "Autostart failed: launchctl load timed out" instead of
-        # the misleading success toast.
-        log.error("[CONFIG] Autostart enable FAILED: launchctl load timed out")
+        # show "Autostart failed: launchctl bootstrap timed out" instead
+        # of the misleading success toast.
+        log.error("[CONFIG] Autostart enable FAILED: launchctl bootstrap timed out")
         return False
     except Exception as e:
-        log.warning("[CONFIG] launchctl load failed: %s", e)
+        log.warning("[CONFIG] launchctl bootstrap failed: %s", e)
         log.error("[CONFIG] Autostart enable FAILED: %s", e)
         return False
 
-    # inspect returncode + stderr. ``launchctl load`` exits 0 on
+    # inspect returncode + stderr. ``launchctl bootstrap`` exits 0 on
     # success and non-zero on failure. The stderr text contains hints
     # like "Loader.Error: ... exited with" for plist-syntax / path /
     # permission errors. We treat BOTH a non-zero returncode AND the
@@ -209,6 +222,56 @@ def _enable_autostart_macos() -> bool:
     except Exception:
         stderr_text = ""
     stderr_lower = stderr_text.lower()
+
+    bootstrap_succeeded = (
+        completed.returncode == 0
+        and "loader.error" not in stderr_lower
+        and "exited with" not in stderr_lower
+    )
+
+    if not bootstrap_succeeded:
+        # fall back to the legacy ``launchctl load`` for older
+        # macOS (pre-10.10) or any case where bootstrap returns
+        # non-zero / stderr-error. ``load`` is deprecated as of macOS
+        # 10.10 but still works on every shipping macOS; it's the
+        # safe fallback that mirrors the disable path's dual-call
+        # pattern (bootout + remove). We log the bootstrap failure at
+        # INFO (not WARNING) because the load fallback is the expected
+        # path on pre-10.10 systems — only the final load result
+        # determines success / failure.
+        log.info(
+            "[CONFIG] launchctl bootstrap rc=%s stderr=%r — falling back to legacy launchctl load",
+            completed.returncode,
+            stderr_text.strip(),
+        )
+        try:
+            completed = subprocess.run(
+                ["launchctl", "load", str(plist_path)],
+                check=False,
+                capture_output=True,
+                timeout=5.0,
+            )
+        except subprocess.TimeoutExpired:
+            log.warning("[CONFIG] launchctl load timed out after 5s — launchd may be unresponsive")
+            log.error("[CONFIG] Autostart enable FAILED: launchctl load timed out")
+            return False
+        except Exception as e:
+            log.warning("[CONFIG] launchctl load failed: %s", e)
+            log.error("[CONFIG] Autostart enable FAILED: %s", e)
+            return False
+        # Re-read stderr from the load call so the failure inspection
+        # below reflects the legacy call's output (not bootstrap's).
+        stderr_text = ""
+        try:
+            if completed.stderr is not None:
+                stderr_text = (
+                    completed.stderr.decode("utf-8", errors="replace")
+                    if isinstance(completed.stderr, (bytes, bytearray))
+                    else str(completed.stderr)
+                )
+        except Exception:
+            stderr_text = ""
+        stderr_lower = stderr_text.lower()
 
     if completed.returncode != 0:
         err_msg = f"launchctl load exit {completed.returncode}: {stderr_text.strip() or '(no stderr)'}"

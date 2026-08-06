@@ -22,6 +22,7 @@ this helper; the other three modules retain their own variants for now
 """
 
 import contextlib
+import itertools
 import json
 import logging
 import os
@@ -222,10 +223,22 @@ def _secure_atomic_write(
         # closes the fd on any exception, but we can't set ``owned_fd
         # = -1`` between ``os.fdopen(fd)`` and the body of the
         # with-block.
-        f = os.fdopen(fd, "w", encoding="utf-8")
+        # Write in BINARY mode: text-mode ``os.fdopen(fd, "w")`` applies
+        # the platform newline translation (LF -> CRLF on Windows), which
+        # corrupts byte-exact content contracts (e.g. ``config.json.bak``
+        # must be byte-for-byte identical to the config.json it backs up —
+        # a forensic-recovery contract asserted by
+        # ``tests/test_config_service_secure_backup.py``). Binary mode
+        # preserves the exact bytes on every platform. ``str`` content is
+        # UTF-8-encoded explicitly (same bytes text mode produced on
+        # POSIX).
+        f = os.fdopen(fd, "wb")
         owned_fd = -1  # fd is now owned by f; sentinel prevents double-close
         try:
-            f.write(content)
+            if isinstance(content, str):
+                f.write(content.encode("utf-8"))
+            else:
+                f.write(content)
             f.flush()
             # skip fsync of the file data when durability=False.
             if durability:
@@ -300,6 +313,12 @@ def _secure_atomic_write(
 # explicit ``max_bytes`` (e.g. ``max_bytes=64 * 1024 * 1024`` for a 64
 # MiB cap).
 _DEFAULT_MAX_READ_BYTES = 16 * 1024 * 1024
+
+# Monotonic counter mixed into the ``.corrupt-<ts>-<pid>-<ns>`` quarantine
+# suffix so rapid back-to-back / concurrent quarantine events never collide
+# (see ``PersistedJSON._quarantine_corrupt``). GIL-atomic ``next()`` — no
+# lock needed.
+_QUARANTINE_SUFFIX_SEQ: "itertools.count" = itertools.count()
 
 
 def _read_with_byte_limit(f, max_bytes: int | None) -> str:
@@ -681,9 +700,20 @@ class PersistedJSON(Generic[T]):
             # Mirrors the suffix scheme already used by
             # ``config.py:_backup_before_migration`` and
             # ``config.py:_backup_before_downgrade``.
+            #
+            # A module-level monotonic counter is mixed into the
+            # nanosecond component: on Windows ``time.time_ns()`` can
+            # return the SAME value for rapid back-to-back / concurrent
+            # calls inside the same millisecond (coarse system-timer
+            # granularity), which would make two quarantine events pick
+            # the identical suffix and ``os.replace`` would silently
+            # overwrite one quarantine file. ``itertools.count`` is
+            # GIL-atomic so no lock is needed; the counter only
+            # disambiguates calls within the same ms window (wrapping
+            # would require 1M calls inside one ms — impossible).
             ts = int(time.time())
             pid = os.getpid()
-            ts_ns = time.time_ns() % 1_000_000
+            ts_ns = (time.time_ns() % 1_000_000 + next(_QUARANTINE_SUFFIX_SEQ)) % 1_000_000
             corrupt_path = self._path.with_name(f"{self._path.name}.corrupt-{ts}-{pid}-{ts_ns}")
             # os.replace is atomic AND overwrites the destination
             # on both POSIX and Windows (Path.rename / os.rename would

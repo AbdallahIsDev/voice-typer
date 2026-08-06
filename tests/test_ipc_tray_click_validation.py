@@ -1,4 +1,4 @@
-"""CR-12 regression tests: ``_handle_tray_click`` uses
+"""regression tests: ``_handle_tray_click`` uses
 ``_validate_dict_payload`` for input validation.
 
 The bug
@@ -55,7 +55,7 @@ def _base_resp():
 
 
 class TestTrayClickUsesValidateDictPayload:
-    """CR-12: ``_handle_tray_click`` must use ``_validate_dict_payload``."""
+    """``_handle_tray_click`` must use ``_validate_dict_payload``."""
 
     def test_handler_source_uses_validate_dict_payload(self):
         """The source of ``_handle_tray_click`` must call
@@ -64,7 +64,7 @@ class TestTrayClickUsesValidateDictPayload:
         src = inspect.getsource(IPCServer._handle_tray_click)
         assert "_validate_dict_payload" in src, (
             "_handle_tray_click must delegate validation to "
-            "_validate_dict_payload (CR-12). Found inline isinstance check "
+            "_validate_dict_payload. Found inline isinstance check "
             "instead — this bypasses the shared error envelope."
         )
         # The old inline check must NOT be present.
@@ -81,12 +81,12 @@ class TestTrayClickUsesValidateDictPayload:
         """
         src = inspect.getsource(IPCServer._handle_tray_click)
         assert '"id": {"type": str, "required": True}' in src or ('"id": {"type": str, "required": True,}' in src), (
-            "_handle_tray_click schema must declare id as a required str (CR-12 contract)."
+            "_handle_tray_click schema must declare id as a required str."
         )
 
 
 class TestTrayClickErrorEnvelopes:
-    """CR-12: each bad-input case must return the correct error envelope."""
+    """each bad-input case must return the correct error envelope."""
 
     def test_non_dict_data_returns_invalid_payload(self, server):
         """When ``data`` is not a dict (e.g. a string), the response must
@@ -147,7 +147,7 @@ class TestTrayClickErrorEnvelopes:
 
 
 class TestTrayClickHappyPath:
-    """CR-12: a valid ``id`` must still reach ``tray.dispatch_tray_action``."""
+    """a valid ``id`` must still reach ``tray.dispatch_tray_action``."""
 
     def test_valid_id_dispatches_to_tray(self, server):
         """When ``data == {"id": "show_window"}`` and the tray

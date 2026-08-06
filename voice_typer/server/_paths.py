@@ -36,18 +36,16 @@ from pathlib import Path
 # previously duplicated across `_http_safety.py`, `_secrets.py`,
 # `sidecar_ws.py`, `llm_polish.py`, and `config.py`.
 #
-# IMPORTANT: these assignments MUST precede the
-# ``from voice_typer.server.config import _config_dir`` line below.
+# Historical note: this block previously HAD to precede an eager
+# ``from voice_typer.server.config import _config_dir`` line, because
 # ``config.py`` imports ``DEFAULT_LLM_API_URL`` / ``DEFAULT_LLM_MODEL``
-# from this module at class-definition time, and ``llm_polish.py``
-# transitively pulls this module in via ``_http_safety.py`` — so when
-# ``config.py`` is being loaded (and reaches its
-# ``from voice_typer.server._paths import DEFAULT_LLM_API_URL, ...``
-# line), this module is only *partially* loaded (up to the
-# ``_config_dir`` import). Defining the constants BEFORE that import
-# guarantees they exist in the partial module dict and breaks what
-# would otherwise be a circular import:
-#   config → llm_polish → _http_safety → _paths → config.
+# from this module at class-definition time and the eager import would
+# otherwise have created a circular load
+# (config → llm_polish → _http_safety → _paths → config). The eager
+# import has been replaced by the lazy :func:`_resolve_config_dir`
+# resolver below, so the constants block no longer has a positional
+# constraint — but it stays at the top of the module because that is
+# the conventional layout and makes the public surface easy to scan.
 LOOPBACK_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"})
 LOOPBACK_HOST: str = "127.0.0.1"
 DEFAULT_LLM_API_URL: str = "https://api.openai.com/v1/chat/completions"
@@ -83,7 +81,52 @@ IPC_PORT: int = 9876
 # update + this constant change.
 IPC_TOKEN_ENV_VAR: str = "VOICE_TYPER_IPC_TOKEN"
 
-from voice_typer.server.config import _config_dir  # noqa: E402
+# Lazy resolver for :func:`voice_typer.server.config._config_dir`.
+#
+# Previously this module eagerly did ``from voice_typer.server.config
+# import _config_dir`` at module load. That eager import pulled in the
+# heavy ``config`` package (validators, secure_file_io, volume_ducker,
+# duck_crash_recovery, etc.) — measured cold-start cost: ~54ms. The
+# import is now deferred to first use via :func:`_resolve_config_dir`
+# so this module imports in <5ms (only ``sys`` + ``pathlib`` at the
+# top). The first call to any helper that needs the config dir pays
+# the one-time import cost (~54ms), then the resolved function is
+# cached on this module's ``_config_dir`` attribute and subsequent
+# calls are a single dict lookup + function call (~0.5µs).
+#
+# Tests override the resolver by setting ``_paths._config_dir``
+# directly (the existing ``monkeypatch.setattr(_paths, "_config_dir",
+# lambda: tmp_path)`` pattern in ``tests/test_paths.py`` and
+# ``tests/test_app_cleanup.py``). When the override is in place the
+# lazy import is skipped (the resolver sees a non-None value and
+# returns it immediately), so tests don't pay the heavy-import cost
+# and don't touch the real filesystem.
+_config_dir = None  # type: ignore[assignment]
+
+
+def _resolve_config_dir():
+    """Return the cached ``_config_dir`` callable, importing on first use.
+
+    Resolves to :func:`voice_typer.server.config._config_dir` on the
+    first call (paying the one-time ~54ms ``config`` package import
+    cost) and caches the function reference on this module's
+    ``_config_dir`` attribute. Subsequent calls are a single attribute
+    read + callable invocation.
+
+    Test fixtures that monkeypatch ``_paths._config_dir`` to a custom
+    callable short-circuit this resolver (the patched value is not
+    ``None``), so the heavy ``config`` import never fires under test.
+    """
+    global _config_dir
+    if _config_dir is None:
+        # Imported lazily to keep ``_paths`` cold-import cheap. The
+        # ``config`` package re-exports ``_config_dir`` from
+        # ``config_internals.paths`` (it is the canonical public
+        # surface; the internal module is an implementation detail).
+        from voice_typer.server.config import _config_dir as _impl
+
+        _config_dir = _impl
+    return _config_dir
 
 
 def config_dir() -> Path:
@@ -92,7 +135,7 @@ def config_dir() -> Path:
     Thin wrapper around :func:`voice_typer.server.config._config_dir`
     so callers don't need to reach into ``config.py`` directly.
     """
-    return _config_dir()
+    return _resolve_config_dir()()
 
 
 def prewarm_launchagent_log() -> Path:
@@ -103,7 +146,7 @@ def prewarm_launchagent_log() -> Path:
     plist, so launchd's prewarm output is captured to a known file
     rather than the system log.
     """
-    return _config_dir() / "prewarm-launchagent.log"
+    return _resolve_config_dir()() / "prewarm-launchagent.log"
 
 
 def autostart_log() -> Path:
@@ -114,7 +157,7 @@ def autostart_log() -> Path:
     ``com.voicetyper.plist`` LaunchAgent, so launchd's autostart output
     is captured to a known file rather than the system log.
     """
-    return _config_dir() / "autostart.log"
+    return _resolve_config_dir()() / "autostart.log"
 
 
 def venv_pythonw() -> Path:
@@ -132,8 +175,8 @@ def venv_pythonw() -> Path:
     so tests that pin ``sys.platform = "win32"`` continue to work.
     """
     if sys.platform == "win32":
-        return _config_dir() / "venv" / "Scripts" / "pythonw.exe"
-    return _config_dir() / "venv" / "bin" / "python"
+        return _resolve_config_dir()() / "venv" / "Scripts" / "pythonw.exe"
+    return _resolve_config_dir()() / "venv" / "bin" / "python"
 
 
 def legacy_hf_cache_dir() -> Path:
@@ -174,7 +217,7 @@ def hf_cache_dir() -> Path:
         See :func:`legacy_hf_cache_dir` for the defensive fallback used
         when ``_config_dir()`` itself raises.
     """
-    return _config_dir() / "huggingface"
+    return _resolve_config_dir()() / "huggingface"
 
 
 def user_data_dir() -> Path:
@@ -205,7 +248,7 @@ def user_data_dir() -> Path:
         user data lives" (they happen to be the same path today, but the
         conceptual distinction matters for future migrations).
     """
-    return _config_dir()
+    return _resolve_config_dir()()
 
 
 def user_data_subpaths_for_purge() -> list[Path]:

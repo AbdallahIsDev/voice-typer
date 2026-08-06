@@ -1,4 +1,4 @@
-"""TC-FIX-10 (review.md TC-10): direct unit tests for
+"""direct unit tests for
 ``voice_typer/server/diagnostics_export.py`` — the
 ``create_diagnostic_bundle`` function extracted from
 ``CrashRecovery.create_diagnostic_bundle`` (Phase 4.5 spaghetti

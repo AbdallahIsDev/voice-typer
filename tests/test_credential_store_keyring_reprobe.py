@@ -16,7 +16,7 @@ The fix introduces a rate-limited on-demand re-probe:
 * When the cache says **available** (True), the result is cached for the
   process lifetime — a working backend doesn't suddenly disappear.
 * When the cache says **unavailable** (False), the result is cached only
-  for :data:`_KEYRING_REPROBE_INTERVAL_S` seconds. The next call after
+  for :data:`_KEYRING_REPROBE_INTERVAL_SECONDS` seconds. The next call after
   that interval re-probes.
 
 These tests pin both branches plus the rate-limit (no back-to-back probes
@@ -158,19 +158,21 @@ class TestUnavailableResultReprobedAfterInterval:
 
         # Move the probe timestamp far into the past so the interval gate
         # opens. (We don't sleep — just rewrite the timestamp.)
-        credential_store._keyring_last_probe_ts = time.time() - (credential_store._KEYRING_REPROBE_INTERVAL_S + 1.0)
+        credential_store._keyring_last_probe_ts = time.time() - (
+            credential_store._KEYRING_REPROBE_INTERVAL_SECONDS + 1.0
+        )
 
         # Next call must re-probe and pick up the now-available backend.
         assert credential_store.is_keyring_available() is True
         assert len(calls) == 2
 
     def test_reprobe_interval_is_configurable(self, monkeypatch):
-        """``_KEYRING_REPROBE_INTERVAL_S`` is a module-level constant that
+        """``_KEYRING_REPROBE_INTERVAL_SECONDS`` is a module-level constant that
         tests / operators can tune. Sanity-check that lowering it shortens
         the cache window."""
-        original = credential_store._KEYRING_REPROBE_INTERVAL_S
+        original = credential_store._KEYRING_REPROBE_INTERVAL_SECONDS
         try:
-            credential_store._KEYRING_REPROBE_INTERVAL_S = 0.0  # always re-probe
+            credential_store._KEYRING_REPROBE_INTERVAL_SECONDS = 0.0  # always re-probe
             calls: list[int] = []
 
             def _probe():
@@ -184,7 +186,7 @@ class TestUnavailableResultReprobedAfterInterval:
             # Interval=0 means every call re-probes.
             assert len(calls) == 2
         finally:
-            credential_store._KEYRING_REPROBE_INTERVAL_S = original
+            credential_store._KEYRING_REPROBE_INTERVAL_SECONDS = original
 
     def test_reprobe_records_probe_timestamp(self, monkeypatch):
         """The interval gate records a float timestamp close to ``time.time``.

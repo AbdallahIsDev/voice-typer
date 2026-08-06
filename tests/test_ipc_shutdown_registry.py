@@ -21,7 +21,7 @@ directly and bypassing the service layer. As a result:
 EC-FIX-2 (this review) registers ``shutdown`` in the shared dispatch
 table and routes it through :meth:`IPCServer._handle_shutdown`, which
 delegates to ``self.service.quit()`` (the same path ``quit_app``
-already takes). The WS transport (owned by EC-FIX-3) is updated
+already takes). The WS transport is updated
 separately to drop its special-case intercept.
 
 These tests pin the registry-level contract so a future regression

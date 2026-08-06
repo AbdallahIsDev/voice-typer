@@ -255,51 +255,58 @@ class TestCapabilitiesGrantNotificationPermission:
 
 
 class TestWsRsRenamesElectronNotificationToNotification:
-    """Gate 4: the WS reader has a CR-8 backward-compat alias that re-emits
-    incoming ``electron_notification`` events under the canonical
-    ``notification`` name.
+    """Gate 4: the WS reader emits the canonical ``notification`` event
+    to the webview.
+
+    CR-8 reconciliation: the ``electron_notification`` →
+    ``notification`` rename was moved INTO the Python sidecar (it now
+    publishes ``notification`` directly), so the Rust-side alias branch
+    was REMOVED from ``ws.rs`` — see the removal comment in the reader
+    task. The canonical event reaches the webview through the generic
+    specific-event emit (``translate_event_name`` passes unknown events
+    — including ``notification`` — through unchanged).
 
     Source-inspection test: we read ``ws.rs`` as a string and assert the
-    alias branch exists. We don't compile/run the Rust code (the Linux
+    current wiring. We don't compile/run the Rust code (the Linux
     sandbox can't build the Tauri app — that's the whole point of the
     Phase 0-W gate).
     """
 
-    def test_ws_rs_has_electron_notification_alias_branch(self):
-        """``ws.rs`` MUST contain a branch that detects
-        ``event_type == "electron_notification"`` and emits the payload
-        under the ``notification`` name.
+    def test_ws_rs_uses_translate_event_name_for_specific_events(self):
+        """``ws.rs`` MUST derive the emitted event name via
+        ``translate_event_name(event_type)`` — the generic rename
+        helper whose ``other => other`` arm passes ``notification``
+        through unchanged (the Python sidecar publishes the canonical
+        name directly per CR-8).
 
-        This is the CR-8 backward-compat alias: a new UI subscribing to
-        ``notification`` keeps working even if an old Python sidecar
-        (still emitting ``electron_notification``) is rolling-upgraded
-        in.
+        This is the current wiring: no special-case alias branch for
+        ``electron_notification`` exists anymore (it was removed with
+        the CR-8 source-side rename), so the canonical event relies on
+        the generic pass-through.
         """
         src = _read(WS_RS)
-        # The exact branch form (from ws.rs:143-145):
-        #   if event_type == "electron_notification" {
-        #       let _ = app_for_reader.emit("notification", payload.clone());
-        #   }
-        assert 'event_type == "electron_notification"' in src, (
-            "ws.rs must have a backward-compat alias branch that detects "
-            "'electron_notification' and re-emits under 'notification'."
+        assert "let emit_name = translate_event_name(event_type);" in src, (
+            "ws.rs must derive the emitted name via `translate_event_name(event_type)` "
+            "— the generic rename helper that passes the canonical 'notification' "
+            "name through unchanged (CR-8 source-side rename)."
         )
-        assert 'emit("notification"' in src, (
-            "ws.rs must emit under the canonical 'notification' name in the electron_notification alias branch."
+        assert "emit(emit_name, payload.clone())" in src, (
+            "ws.rs must emit the specific event with `emit(emit_name, payload.clone())` "
+            "so the webview's direct listener receives the payload."
         )
 
-    def test_ws_rs_alias_branch_emits_notification_with_payload(self):
-        """The alias branch must emit ``notification`` WITH the payload
+    def test_ws_rs_emits_specific_event_with_payload(self):
+        """The specific-event emit must carry the payload
         (``payload.clone()``), not just an empty event. Otherwise the
         webview's notification handler receives no title/body and the
         toast renders blank."""
         src = _read(WS_RS)
-        # Confirm the alias emits with payload.clone() — the canonical
-        # form per ws.rs:144.
-        assert 'emit("notification", payload.clone())' in src or 'emit("notification", payload)' in src, (
-            "ws.rs alias branch must emit 'notification' WITH the payload "
-            "(payload.clone()), not just an empty event — otherwise the "
-            "toast renders blank."
+        # The current emit form (from the reader task):
+        #   let _ = app_for_reader.emit(emit_name, payload.clone());
+        assert "emit(emit_name, payload.clone())" in src, (
+            "ws.rs must emit the specific event WITH the payload "
+            "(emit(emit_name, payload.clone())) — otherwise the toast "
+            "renders blank."
         )
 
 
@@ -311,27 +318,27 @@ class TestWsRsEmitsLegacyElectronNotificationForBackwardCompat:
     event unchanged (so old UI listeners keep working during the rolling
     upgrade)."""
 
-    def test_ws_rs_passes_through_electron_notification_via_other_arm(self):
-        """The match arm ``other => other`` in ``ws.rs`` passes through
-        ANY unrecognized event type unchanged — including the legacy
-        ``electron_notification``. The specific-event emit (line 130)
-        then emits ``electron_notification`` to the webview.
+    def test_ws_rs_passes_through_event_types_via_translate_arm(self):
+        """``translate_event_name``'s ``other => other`` arm passes ANY
+        unrecognized event type through unchanged — including the
+        canonical ``notification`` name the Python sidecar publishes
+        directly (per CR-8). The specific-event emit then carries that
+        name to the webview.
 
-        This is the second half of the CR-8 backward-compat guarantee:
-        new UI gets ``notification``, old UI keeps getting
-        ``electron_notification``. Both names are emitted for one
-        release cycle, then the alias is dropped.
+        This is the current wiring: the ``relaunch_electron`` →
+        ``relaunch_app`` rename arm was REMOVED (Python publishes
+        ``relaunch_app`` directly) and the ``electron_notification`` →
+        ``notification`` alias branch was REMOVED for the same reason —
+        unknown events pass through ``translate_event_name`` unchanged.
         """
         src = _read(WS_RS)
-        # cleanup: the relaunch_electron → relaunch_app rename arm
-        # was REMOVED (the Python side now publishes relaunch_app directly,
-        # and main.rs has a listener for it). The match arm was replaced
-        # with a direct assignment:
-        #   let emit_name = event_type;
-        assert "let emit_name = event_type;" in src, (
-            "ws.rs must assign `let emit_name = event_type;` directly (PVT-2 "
-            "cleanup removed the relaunch_electron → relaunch_app rename arm). "
-            "The electron_notification → notification alias is handled separately."
+        # The current form (from the reader task):
+        #   let emit_name = translate_event_name(event_type);
+        assert "let emit_name = translate_event_name(event_type);" in src, (
+            "ws.rs must derive the emit name via `translate_event_name(event_type)` "
+            "(the `other => other` arm passes canonical names like 'notification' "
+            "through unchanged — the Python sidecar publishes the canonical name "
+            "directly per CR-8)."
         )
 
     def test_ws_rs_emits_specific_event_with_emit_name(self):
@@ -470,14 +477,19 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
     """
 
     def test_ipc_handler_publishes_notification_event_via_event_bus(self):
-        """Dispatching ``show_electron_notification`` MUST result in
+        """``_handle_show_electron_notification`` MUST result in
         ``event_bus.publish`` being called with ``type == "notification"``.
 
-        This is the canonical Python-side toast path: the renderer calls
-        ``invoke('show_electron_notification', {title, message, ...})``
-        via the WS bridge, the IPC handler validates the input and
-        publishes a ``notification`` event, which the WS bridge ferries
-        back to the webview, which then calls the notification plugin.
+        This is the canonical Python-side toast path: the handler
+        validates the input and publishes a ``notification`` event, which
+        the WS bridge ferries back to the webview, which then calls the
+        notification plugin.
+
+        NOTE: the ``show_electron_notification`` IPC command was REMOVED
+        from the dispatch registry (it is handled directly by dedicated
+        Tauri/Rust commands), so this test invokes the retained handler
+        directly — the same pattern used by
+        ``tests/handlers/test_handler_group_b_fixes.py``.
         """
         server = _make_ipc_server()
         captured: dict = {}
@@ -485,17 +497,14 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            resp = server._dispatch(
+            resp = server._handle_show_electron_notification(
                 {
-                    "type": "show_electron_notification",
-                    "data": {
-                        "title": "Hello",
-                        "message": "World",
-                        "duration_ms": 5000,
-                        "critical": True,
-                    },
-                    "id": "mig15-toast-1",
-                }
+                    "title": "Hello",
+                    "message": "World",
+                    "duration_ms": 5000,
+                    "critical": True,
+                },
+                {},
             )
         assert resp["type"] == "ack", f"handler should ack a well-formed payload, got {resp!r}"
         assert captured.get("type") == "notification", (
@@ -516,15 +525,12 @@ class TestIpcHandlerPublishesNotificationViaEventBus:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {"title": "T", "message": "B"},
-                    "id": "mig15-toast-2",
-                }
+            server._handle_show_electron_notification(
+                {"title": "T", "message": "B"},
+                {},
             )
         assert captured.get("type") != "electron_notification", (
-            "CR-8: Python sidecar must publish with type='notification', NOT the legacy 'electron_notification' name."
+            "Python sidecar must publish with type='notification', NOT the legacy 'electron_notification' name."
         )
 
 
@@ -583,17 +589,14 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
+            server._handle_show_electron_notification(
                 {
-                    "type": "show_electron_notification",
-                    "data": {
-                        "title": "Transcription complete",
-                        "message": "Inserted 42 words.",
-                        "duration_ms": 4000,
-                        "critical": False,
-                    },
-                    "id": "mig15-toast-shape",
-                }
+                    "title": "Transcription complete",
+                    "message": "Inserted 42 words.",
+                    "duration_ms": 4000,
+                    "critical": False,
+                },
+                {},
             )
         # Top-level shape.
         assert set(captured.keys()) == {"type", "data"}, (
@@ -624,12 +627,9 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {"title": "T", "message": "M"},
-                    "id": "mig15-toast-field-name",
-                }
+            server._handle_show_electron_notification(
+                {"title": "T", "message": "M"},
+                {},
             )
         assert "message" in captured["data"], (
             "payload data must have a 'message' field (the actual "
@@ -653,13 +653,7 @@ class TestNotificationPayloadShape:
             "voice_typer.server.event_bus.publish",
             lambda msg: captured.update(msg),
         ):
-            server._dispatch(
-                {
-                    "type": "show_electron_notification",
-                    "data": {},
-                    "id": "mig15-toast-defaults",
-                }
-            )
+            server._handle_show_electron_notification({}, {})
         assert captured["type"] == "notification"
         # APP_NAME is "Voice Typer" per voice_typer/server/branding.py.
         assert captured["data"]["title"] == "Voice Typer"

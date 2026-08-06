@@ -743,9 +743,12 @@ def test_spawn_rs_uses_app_handle_not_concrete_process(spawn_rs_source) -> None:
         "first arg (mockable plugin boundary, not a concrete process)"
     )
     assert re.search(
-        r"fn\s+spawn_sidecar_and_get_port\s*\(\s*app\s*:\s*&tauri::AppHandle",
+        r"fn\s+spawn_sidecar_and_get_port(?:_with_shutdown)?\s*\(\s*app\s*:\s*&tauri::AppHandle",
         spawn_rs_source,
-    ), "spawn_sidecar_and_get_port must take `app: &tauri::AppHandle` (the public entry point)"
+    ), (
+        "spawn_sidecar_and_get_port(_with_shutdown) must take "
+        "`app: &tauri::AppHandle` (the public entry point)"
+    )
 
 
 # ─── Test 8 (bonus): dev-mode fallback path is wired (ADR-0020 §14) ───

@@ -73,7 +73,7 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
 
-      # XS-FIX-4: explicit setup-python@v7 for parity with build.yml /
+      # explicit setup-python@v7 for parity with build.yml /
       # tauri-*-build.yml. The `uv pip install --system` step below
       # writes into the system Python, so we need a known Python version
       # pinned (3.12 = the project's target). Without this, the runner's
@@ -149,7 +149,7 @@ jobs:
           name: model-hashes-patch
           path: ${{ github.workspace }}/model-hashes.patch
           if-no-files-found: error
-          # XS-FIX-4: default 90-day retention is overkill for a patch
+          # default 90-day retention is overkill for a patch
           # artifact that's meant to be downloaded + applied within a
           # day of the workflow run. 30 days covers the longest realistic
           # maintainer-review lag and reduces Actions storage billing.

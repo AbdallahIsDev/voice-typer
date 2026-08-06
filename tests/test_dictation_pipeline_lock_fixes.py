@@ -1,4 +1,4 @@
-"""Tests for the H-17 and S3-CR-10 fixes in ``dictation_pipeline.py``.
+"""Tests for the H-17 and fixes in ``dictation_pipeline.py``.
 
 H-17 — ``app._lock`` acquired on one side only (zero protection)
 -----------------------------------------------------------------
@@ -16,9 +16,9 @@ constructed reference.
 The fix changes the clear to acquire ``recording._watchdog_lock`` —
 the SAME lock used by the write/read in ``recording_controller.py``.
 
-S3-CR-10 — templates ``{clipboard}`` substitution → LLM exfiltration
+templates ``{clipboard}`` substitution → LLM exfiltration
 ----------------------------------------------------------------------
-The CR-10 fix in ``llm_polish._call_api`` (out of this agent's
+The fix in ``llm_polish._call_api`` (out of this agent's
 scope) applies ``redact_pii`` to the user-content before the LLM API
 send. This file adds defense-in-depth observability + a fail-closed
 sanity check at the ``DictationPipeline._apply_llm_polish`` layer:
@@ -29,13 +29,12 @@ sanity check at the ``DictationPipeline._apply_llm_polish`` layer:
      passwords, 2FA codes, private messages.)
   2. ``_apply_llm_polish`` logs a privacy NOTICE when templates were
      applied and LLM polish is enabled, so operators can audit when
-     template-substituted content is flowing toward the CR-10
-     redaction gate.
+     template-substituted content is flowing toward the redaction gate.
   3. ``_apply_llm_polish`` performs a sanity check that
      ``redact_pii`` is importable BEFORE calling ``polish()``. If the
      import fails AND templates were applied this cycle, polish is
      SKIPPED entirely (fail-closed) — without ``redact_pii``, the
-     CR-10 gate inside ``_call_api`` would also fail open, sending
+     gate inside ``_call_api`` would also fail open, sending
      the un-redacted clipboard-substituted text to the LLM API. When
      templates were NOT applied, the sanity check is skipped (the
      text is the user's own dictation, lower privacy risk).
@@ -331,7 +330,7 @@ class TestTranscriptionThreadClearUsesWatchdogLock:
 
 
 class TestTemplatesAppliedFlag:
-    """S3-CR-10 (defense-in-depth observability): ``_apply_templates``
+    """(defense-in-depth observability): ``_apply_templates``
     sets ``self._templates_applied = True`` when a template match
     modifies the text. The downstream ``_apply_llm_polish`` uses this
     flag to log a privacy NOTICE and to gate the fail-closed sanity
@@ -349,7 +348,7 @@ class TestTemplatesAppliedFlag:
         pipeline._apply_templates("trigger phrase")
 
         assert pipeline._templates_applied is True, (
-            "S3-CR-10: _apply_templates must set _templates_applied=True when a template match modifies the text"
+            "_apply_templates must set _templates_applied=True when a template match modifies the text"
         )
 
     def test_flag_not_set_when_no_template_match(self):
@@ -363,7 +362,7 @@ class TestTemplatesAppliedFlag:
         pipeline._apply_templates("no matching trigger")
 
         assert pipeline._templates_applied is False, (
-            "S3-CR-10: _apply_templates must NOT set _templates_applied when no template matched"
+            "_apply_templates must NOT set _templates_applied when no template matched"
         )
 
     def test_flag_not_set_when_templates_disabled(self):
@@ -377,7 +376,7 @@ class TestTemplatesAppliedFlag:
         pipeline._apply_templates("trigger phrase")
 
         assert pipeline._templates_applied is False, (
-            "S3-CR-10: _apply_templates must NOT set _templates_applied when templates_enabled is False"
+            "_apply_templates must NOT set _templates_applied when templates_enabled is False"
         )
 
     def test_flag_not_set_when_template_manager_raises(self):
@@ -391,7 +390,7 @@ class TestTemplatesAppliedFlag:
         pipeline._apply_templates("trigger phrase")
 
         assert pipeline._templates_applied is False, (
-            "S3-CR-10: _apply_templates must NOT set _templates_applied "
+            "_apply_templates must NOT set _templates_applied "
             "when template_manager.match raised (we don't know if a "
             "match would have occurred)"
         )
@@ -420,11 +419,11 @@ def _make_app_with_template_manager(
 
 
 class TestPolishPrivacyNotice:
-    """S3-CR-10 (defense-in-depth observability): when templates were
+    """(defense-in-depth observability): when templates were
     applied AND LLM polish is enabled (with consent + API key),
     ``_apply_llm_polish`` logs a privacy NOTICE so operators can
     audit when template-substituted content is flowing toward the
-    CR-10 redaction gate in ``llm_polish._call_api``.
+    redaction gate in ``llm_polish._call_api``.
     """
 
     def _make_app_with_llm_polish_enabled(self) -> _TestApp:
@@ -459,13 +458,13 @@ class TestPolishPrivacyNotice:
             if r.levelno == logging.INFO and "Templates were applied before LLM polish" in r.getMessage()
         ]
         assert notices, (
-            "S3-CR-10: _apply_llm_polish must log a privacy NOTICE when "
+            "_apply_llm_polish must log a privacy NOTICE when "
             "templates were applied and LLM polish is enabled"
         )
         # The notice must mention  / redact_pii so operators can
         # trace the defense-in-depth chain.
         assert "CR-10" in notices[0].getMessage() or "redact_pii" in notices[0].getMessage(), (
-            "S3-CR-10: privacy NOTICE must reference CR-10 / redact_pii "
+            "privacy NOTICE must reference / redact_pii "
             "so operators can trace the defense-in-depth chain"
         )
 
@@ -485,7 +484,7 @@ class TestPolishPrivacyNotice:
             for r in caplog.records
             if r.levelno == logging.INFO and "Templates were applied before LLM polish" in r.getMessage()
         ]
-        assert not notices, "S3-CR-10: privacy NOTICE must NOT fire when templates were not applied"
+        assert not notices, "privacy NOTICE must NOT fire when templates were not applied"
 
     def test_no_notice_when_polish_disabled(self, caplog):
         """Privacy NOTICE must NOT fire when LLM polish is disabled
@@ -500,7 +499,7 @@ class TestPolishPrivacyNotice:
             pipeline._apply_llm_polish("hello world")
 
         notices = [r for r in caplog.records if "Templates were applied before LLM polish" in r.getMessage()]
-        assert not notices, "S3-CR-10: privacy NOTICE must NOT fire when LLM polish is disabled"
+        assert not notices, "privacy NOTICE must NOT fire when LLM polish is disabled"
 
     def test_no_notice_when_consent_not_given(self, caplog):
         """Privacy NOTICE must NOT fire when LLM polish consent is False
@@ -517,17 +516,17 @@ class TestPolishPrivacyNotice:
             pipeline._apply_llm_polish("hello world")
 
         notices = [r for r in caplog.records if "Templates were applied before LLM polish" in r.getMessage()]
-        assert not notices, "S3-CR-10: privacy NOTICE must NOT fire when llm_polish_consent is False"
+        assert not notices, "privacy NOTICE must NOT fire when llm_polish_consent is False"
 
 
 # fail-closed when redact_pii is unimportable ─────────────
 
 
 class TestFailClosedOnRedactPiiUnavailable:
-    """S3-CR-10 (defense-in-depth fail-closed): when templates were
+    """(defense-in-depth fail-closed): when templates were
     applied AND ``redact_pii`` cannot be imported (broken
     ``security`` module), ``_apply_llm_polish`` SKIPS polish entirely
-    (returns the original text). Without ``redact_pii``, the CR-10
+    (returns the original text). Without ``redact_pii``, the
     gate inside ``_call_api`` would also fail open (its try/except
     falls through to sending the original text). Skipping polish
     preserves the original text on the paste path — the user sees
@@ -595,7 +594,7 @@ class TestFailClosedOnRedactPiiUnavailable:
 
         # Fail-closed: polish was skipped, original text returned.
         assert result == "hello world", (
-            "S3-CR-10 fail-closed: when redact_pii is unimportable AND "
+            "fail-closed: when redact_pii is unimportable AND "
             "templates were applied, polish must be skipped (return "
             f"original text). Got: {result!r}"
         )
@@ -607,17 +606,17 @@ class TestFailClosedOnRedactPiiUnavailable:
             for r in caplog.records
             if r.levelno == logging.WARNING
             and "redact_pii not importable" in r.getMessage()
-            and "S3-CR-10 fail-closed" in r.getMessage()
+            and "fail-closed" in r.getMessage()
         ]
         assert warnings, (
-            "S3-CR-10 fail-closed: a WARNING must be logged explaining "
+            "fail-closed: a WARNING must be logged explaining "
             "why polish was skipped (redact_pii unimportable + templates applied)"
         )
 
     def test_polish_not_skipped_when_redact_pii_unimportable_but_no_templates(self, caplog, monkeypatch):
         """When ``redact_pii`` is unimportable but templates were NOT
         applied, polish proceeds normally. The text is the user's own
-        dictation (lower privacy risk) — the CR-10 fail-open in
+        dictation (lower privacy risk) — the fail-open in
         ``_call_api`` is acceptable in this case.
         """
         app = self._make_app_with_llm_polish_enabled()
@@ -644,14 +643,14 @@ class TestFailClosedOnRedactPiiUnavailable:
 
         # Polish proceeded normally — the polisher was called.
         assert result == "polished text", (
-            "S3-CR-10: when redact_pii is unimportable but templates were NOT applied, polish must proceed normally"
+            "when redact_pii is unimportable but templates were NOT applied, polish must proceed normally"
         )
         app._llm_polisher.polish.assert_called_once_with("hello world")
 
     def test_polish_proceeds_when_redact_pii_importable_and_templates_applied(self):
         """When ``redact_pii`` IS importable AND templates were applied,
         polish proceeds normally. The sanity check passes, and the
-        CR-10 redaction gate inside ``_call_api`` handles the actual
+        redaction gate inside ``_call_api`` handles the actual
         PII stripping.
         """
         app = self._make_app_with_llm_polish_enabled()
@@ -708,4 +707,4 @@ class TestEndToEndTemplateThenLLMPolish:
             for r in caplog.records
             if r.levelno == logging.INFO and "Templates were applied before LLM polish" in r.getMessage()
         ]
-        assert notices, "S3-CR-10 end-to-end: privacy NOTICE must fire after a template match followed by LLM polish"
+        assert notices, "end-to-end: privacy NOTICE must fire after a template match followed by LLM polish"

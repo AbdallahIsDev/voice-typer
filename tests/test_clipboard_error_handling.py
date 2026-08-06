@@ -37,26 +37,14 @@ from __future__ import annotations
 
 import logging
 import subprocess
-import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 # ---------------------------------------------------------------------------
-# Module-level heavy-import mocking.
-#
-# These setdefault() calls run at *collection* time — before
-# voice_typer.server.clipboard is imported — so the module's
-# ``import pyperclip`` and ``import pynput`` lines resolve to mocks.
-# This mirrors the pattern in ``tests/test_clipboard_win32_coverage.py``
-# and ``tests/test_clipboard.py``.
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 # ---------------------------------------------------------------------------
-mock_pynput = MagicMock()
-mock_pynput_kb = MagicMock()
-sys.modules.setdefault("pynput", mock_pynput)
-sys.modules.setdefault("pynput.keyboard", mock_pynput_kb)
-sys.modules.setdefault("pyperclip", MagicMock())
-
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import (  # noqa: E402
     Win32Clipboard,

@@ -174,11 +174,11 @@ async def test_authenticate_accepts_bytes_or_str(monkeypatch):
 
 async def test_dispatch_shutdown_returns_ack_and_schedules_quit(monkeypatch):
     """``{"type":"shutdown"}`` flows through ``server._dispatch`` like
-    every other command (post-EC-FIX-3).
+    every other command.
 
-    RT-FIX-9 / EC-FIX-3 (2026-07-24): the WS path used to special-case
+    the WS path used to special-case
     ``shutdown`` here — it acked immediately with ``{"ack": True}`` and
-    scheduled ``app.quit()`` on a background thread. EC-FIX-3 relocated
+    scheduled ``app.quit()`` on a background thread. relocated
     the shutdown handler to the shared ``_COMMAND_REGISTRY`` entry
     ``"shutdown": "_handle_shutdown"`` (registered in ipc_server.py),
     which delegates to ``service.quit()`` — the SAME path the TCP
@@ -189,7 +189,7 @@ async def test_dispatch_shutdown_returns_ack_and_schedules_quit(monkeypatch):
     ``server._dispatch`` is called with the shutdown message, and the
     result is whatever ``server._dispatch`` returns (in this fake, the
     default ``{"type": "result", "data": {"ok": True}}`` return value).
-    The pre-EC-FIX-3 ack shape (``{"ack": True}``) is gone.
+    The ack shape (``{"ack": True}``) is gone.
     """
     sw = _import_sidecar_ws()
     server = _make_fake_server()

@@ -1,0 +1,222 @@
+# =============================================================================
+# PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
+#   actions/checkout@v5             — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/setup-python@v7         — Node 24 runtime; removed `pip-install` input (v5/v6 = Node 20)
+#   astral-sh/setup-uv@v6            — Node 24 runtime (v3 = Node 20, deprecated)
+# See build.yml header for the full rationale + breaking-change analysis.
+# C-CI-1: ALL actions in this file are pinned to specific Node-24-runtime
+# versions. Do NOT unpin — supply-chain risk via tag re-pointing.
+# =============================================================================
+
+name: Perf regression
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "voice_typer/**"
+      - "bench/**"
+      - "scripts/profile_imports.py"
+      - "Makefile"
+      - ".github/workflows/perf.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "voice_typer/**"
+      - "bench/**"
+      - "scripts/profile_imports.py"
+      - "Makefile"
+      - ".github/workflows/perf.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    # Pin to ubuntu-22.04 (NOT ubuntu-latest) so the runner image
+    # is deterministic. Perf benchmarks are sensitive to CPU model, OS
+    # kernel version, and page-cache state — `ubuntu-latest` flips
+    # images mid-quarter and would silently shift the baseline. This
+    # matches the client-ci.yml runner pin (XS-69).
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
+
+      - name: Install dependencies (test extras + psutil for memory bench)
+        run: |
+          uv pip install --system ".[test]"
+          uv pip install --system psutil
+          pip list | head -20
+
+      - name: Run all benches (`make bench`)
+        # Produces bench-current.json with one entry per bench script.
+        # Skipped benches (e.g. transcription without a downloaded model)
+        # are recorded as {"skipped": true, "error": "..."} and excluded
+        # from the ratchet comparison below.
+        run: make bench
+
+      - name: Run cold-start import gate (profile_imports.py --max-self-us)
+        # Wire scripts/profile_imports.py --runs 3 --max-self-us 50000
+        # as a hard CI gate. Exits 2 if ANY module's max self_us exceeds
+        # 50ms — catches cold-start regressions introduced by a new heavy
+        # import in the tray module's dependency graph.
+        run: python scripts/profile_imports.py --runs 3 --max-self-us 50000 voice_typer.server.tray
+
+      - name: Compare bench-current.json against bench/bench-baseline.json
+        # Ratchet comparison mirroring scripts/ruff_ratchet_check.py.
+        # For each metric in bench/bench-baseline.json:
+        #   - Look up the current value in bench-current.json (dotted path).
+        #   - For direction="lower" (latency, memory): FAIL if current > baseline * (1 + tol/100).
+        #   - For direction="higher" (throughput, WPS): FAIL if current < baseline * (1 - tol/100).
+        #   - Skip metrics whose current value is missing (e.g. transcription
+        #     bench skipped because the model isn't downloaded on this runner).
+        # Exit 1 if any metric regressed.
+        run: |
+          python - <<'PYEOF'
+          import json, sys, os
+          from pathlib import Path
+
+          ROOT = Path.cwd()
+          baseline_path = ROOT / "bench" / "bench-baseline.json"
+          current_path = ROOT / "bench-current.json"
+
+          if not baseline_path.is_file():
+              print(f"ERROR: baseline file not found: {baseline_path}")
+              sys.exit(2)
+          if not current_path.is_file():
+              print(f"ERROR: current file not found: {current_path}")
+              print("Did `make bench` fail before producing bench-current.json?")
+              sys.exit(2)
+
+          baseline = json.loads(baseline_path.read_text(encoding="utf-8"))
+          current = json.loads(current_path.read_text(encoding="utf-8"))
+
+          def lookup(dotted_path, root):
+              """Traverse a dotted path through dicts and lists.
+
+              Numeric segments index into lists; string segments index
+              into dicts. Returns (found, value).
+              """
+              cur = root
+              for part in dotted_path.split("."):
+                  if part.isdigit() and isinstance(cur, list):
+                      idx = int(part)
+                      if idx >= len(cur):
+                          return False, None
+                      cur = cur[idx]
+                  elif isinstance(cur, dict):
+                      if part not in cur:
+                          return False, None
+                      cur = cur[part]
+                  else:
+                      return False, None
+              return True, cur
+
+          # The bench-current.json top level is:
+          #   {"version": 1, "generated_at": "...", "results": {<bench_name>: <bench_output>}}
+          # The baseline metric keys are of the form:
+          #   "<bench_name>.<dotted_path_inside_bench_output>"
+          # So we look up against current["results"] as the root.
+          results_root = current.get("results", {})
+
+          regressions = []
+          skipped = []
+          passed = []
+          default_tol = baseline.get("_tolerance_default_pct", 50)
+          for metric, spec in baseline.get("metrics", {}).items():
+              if not isinstance(spec, dict) or "value" not in spec:
+                  continue
+              base_val = spec["value"]
+              direction = spec.get("direction", "lower")
+              tol_pct = spec.get("tolerance_pct", default_tol)
+              found, curr_val = lookup(metric, results_root)
+              if not found or curr_val is None:
+                  skipped.append(metric)
+                  continue
+              # Skip metrics where the bench returned a "skipped" marker.
+              if isinstance(curr_val, dict) and curr_val.get("skipped"):
+                  skipped.append(metric)
+                  continue
+              if not isinstance(curr_val, (int, float)):
+                  skipped.append(f"{metric} (non-numeric: {type(curr_val).__name__})")
+                  continue
+              if direction == "lower":
+                  threshold = base_val * (1 + tol_pct / 100.0)
+                  if curr_val > threshold:
+                      regressions.append(
+                          f"  {metric}: current={curr_val:.2f} > baseline={base_val:.2f} * (1+{tol_pct}%) = {threshold:.2f}"
+                      )
+                  else:
+                      passed.append(f"  {metric}: {curr_val:.2f} <= {threshold:.2f} (baseline {base_val:.2f})")
+              elif direction == "higher":
+                  threshold = base_val * (1 - tol_pct / 100.0)
+                  if curr_val < threshold:
+                      regressions.append(
+                          f"  {metric}: current={curr_val:.2f} < baseline={base_val:.2f} * (1-{tol_pct}%) = {threshold:.2f}"
+                      )
+                  else:
+                      passed.append(f"  {metric}: {curr_val:.2f} >= {threshold:.2f} (baseline {base_val:.2f})")
+
+          print("=" * 72)
+          print("Perf ratchet comparison")
+          print("=" * 72)
+          print(f"  Baseline: {baseline_path.relative_to(ROOT)}")
+          print(f"  Current:  {current_path.relative_to(ROOT)}")
+          print()
+          if passed:
+              print(f"PASSED ({len(passed)} metrics):")
+              for line in passed:
+                  print(line)
+              print()
+          if skipped:
+              print(f"SKIPPED ({len(skipped)} metrics — bench not run on this runner):")
+              for line in skipped:
+                  print(f"  {line}")
+              print()
+          if regressions:
+              print(f"REGRESSIONS ({len(regressions)} metrics):")
+              for line in regressions:
+                  print(line)
+              print()
+              print("FAIL: perf ratchet regressed.")
+              print("Either:")
+              print("  1. Fix the regression introduced in this change, OR")
+              print("  2. If the regression is intentional (e.g. a new feature")
+              print("     adds a cold-import cost), document why in the PR and")
+              print("     regenerate the baseline by running `make bench` on a")
+              print("     dedicated runner and updating bench/bench-baseline.json.")
+              sys.exit(1)
+          print(f"PASS: perf ratchet holds ({len(passed)} metrics OK, {len(skipped)} skipped).")
+          PYEOF
+
+      - name: Upload bench-current.json
+        # Always upload the current bench output (even on regression) so
+        # contributors can inspect the exact numbers that triggered the
+        # failure. Retained for 14 days (the default for non-release runs).
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: bench-current-${{ github.run_id }}
+          path: bench-current.json
+          retention-days: 14

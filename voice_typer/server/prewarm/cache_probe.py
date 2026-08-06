@@ -437,9 +437,22 @@ def _resolve_hf_cache_dir() -> Path:
         home = os.environ.get("USERPROFILE") if is_windows() else os.environ.get("HOME")
         if home:
             cache = Path(home) / ".voice-typer" / "huggingface"
-            if cache.is_absolute() and cache.exists():
-                return cache
             if cache.is_absolute():
+                try:
+                    if cache.exists():
+                        return cache
+                except OSError:
+                    # An inaccessible cache path (e.g. a dangling
+                    # junction / broken symlink with restrictive ACLs)
+                    # must NOT abort prewarm resolution — on Windows
+                    # Path.exists() can raise PermissionError for such
+                    # paths instead of returning False. Fall through to
+                    # the remaining fallbacks and remember the absolute
+                    # candidate for the final best-effort return.
+                    log.debug(
+                        "[PREWARM] HF cache path %s inaccessible — skipping fallback",
+                        cache,
+                    )
                 primary_candidate = cache
 
     # Fallback 2: Windows registry (needed when BootTrigger fires before

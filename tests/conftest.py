@@ -181,6 +181,36 @@ def pytest_configure(config):
     also register the ``real_torch`` marker for tests that
     genuinely need real ``torch.backends.mps`` semantics (mirrors the
     existing ``real_pynput`` / ``real_pil`` pattern).
+
+    also register a project-wide hypothesis profile named ``ci`` with
+    ``deadline=None`` and load it unconditionally. Hypothesis's default
+    ``deadline`` is 200ms per test case; on a loaded CI runner (or even
+    a busy local machine) the 22 ``@settings``-decorated tests across
+    ``tests/test_property_based.py``,
+    ``tests/test_text_cleanup_hypothesis.py`` and
+    ``tests/test_streaming_hypothesis.py`` can exceed 200ms and fail
+    with ``FlakyFailure(DeadlineExceeded)``. Registering ``deadline=None``
+    as the parent profile means every ``@settings(max_examples=N)``
+    decorator inherits ``deadline=None`` from the loaded profile, so
+    the deadline is disabled project-wide without touching each of the
+    22 call sites. See:
+    https://hypothesis.readthedocs.io/en/latest/settings.html#hypothesis.settings.register_profile
+
+    The profile is loaded unconditionally (not just under CI) because
+    a developer running ``pytest tests/test_property_based.py`` locally
+    on a busy laptop hits the same ``DeadlineExceeded`` failures as CI.
+    ``deadline=None`` is the hypothesis-recommended default for test
+    suites that aren't doing real-time performance work; the only
+    downside of disabling it is that a pathological slowdown (e.g. an
+    accidental O(n²) inner loop) is no longer surfaced by hypothesis —
+    but pytest-timeout (``--timeout=60``) still catches hangs.
+
+    Hypothesis is an optional dependency (declared in
+    ``[project.optional-dependencies].test``); the import is wrapped in
+    ``try/except ImportError`` so a minimal install without ``[test]``
+    extras still collects successfully (the hypothesis test files have
+    their own ``pytestmark = pytest.mark.skipif(not HAS_HYPOTHESIS, ...)``
+    guard and skip cleanly).
     """
     config.addinivalue_line(
         "markers",
@@ -198,6 +228,39 @@ def pytest_configure(config):
         "markers",
         "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     )
+
+    # Register + load a project-wide hypothesis profile with
+    # ``deadline=None``. See the docstring above for the full rationale.
+    # The import is lazy (inside pytest_configure, not at module load)
+    # so a minimal install without hypothesis can still collect tests.
+    try:
+        from hypothesis import HealthCheck, settings
+    except ImportError:
+        # hypothesis is optional — skip profile registration. The
+        # hypothesis test files skip themselves via their own
+        # ``pytestmark = pytest.mark.skipif(not HAS_HYPOTHESIS, ...)``.
+        return
+
+    # ``suppress_health_check=[HealthCheck.too_slow]`` mirrors the
+    # per-test ``@settings(suppress_health_check=[HealthCheck.too_slow])``
+    # decorators already present in the hypothesis test files — setting
+    # it at the profile level makes the suppression project-wide so a
+    # future ``@given`` test that forgets the decorator is still safe.
+    # ``print_blob=True`` makes hypothesis include a reproducible
+    # base64 blob in failure messages so a CI failure can be reproduced
+    # locally with ``--hypothesis-seed=...`` or by pasting the blob.
+    settings.register_profile(
+        "ci",
+        deadline=None,
+        suppress_health_check=[HealthCheck.too_slow],
+        print_blob=True,
+    )
+    # ``load_profile`` is idempotent and safe to call multiple times
+    # across nested conftest.py files. Loading here (rather than relying
+    # on the ``HYPOTHESIS_PROFILE=ci`` env var) means the profile is
+    # active for every pytest invocation, including local ``pytest
+    # tests/test_foo.py`` runs that don't go through CI.
+    settings.load_profile("ci")
 
 
 def pytest_addoption(parser):
@@ -304,22 +367,43 @@ def winfunctype_alias(monkeypatch):
 #
 # The per-test fixture name is intentionally kept as ``mock_heavy_imports``
 # (NOT renamed to ``mock_heavy_imports_per_test`` as a strict reading of
-# the task spec might suggest) because four test files override the
+# the task spec might suggest) because EIGHT test files override the
 # conftest fixture by redefining their own ``mock_heavy_imports`` at
-# function scope:
+# function scope (run ``rg '^def mock_heavy_imports\b' tests/`` to
+# re-verify the list when adding or removing an override):
 #
-#   - tests/test_recorder_double_resample.py (custom sounddevice mock)
-#   - tests/test_tray.py (custom pystray/PIL mocks)
-#   - tests/test_shutdown_plan_zr17.py (no-op override to avoid
-#     importing ``voice_typer.server.app``)
-#   - tests/test_volume_lifecycle.py (custom create_hotkey_backend patch)
+#   - tests/test_recorder_double_resample.py (custom sounddevice mock —
+#     stubs ``query_devices`` per-test to simulate a 48 kHz native-rate
+#     microphone, the  double-resample failure scenario)
+#   - tests/test_recording_audio_processor.py (custom sounddevice mock
+#     with a ``FakeInputStream`` that captures the callback for direct
+#     chunk-push invocation from the test)
+#   - tests/test_tray.py (custom pystray/PIL mocks — installs a
+#     ``_FakeIcon`` / ``_FakeMenu`` / ``_FakeMenuItem`` so the tray
+#     menu builder runs headless without invoking real GTK/Cocoa/Win32)
+#   - tests/test_volume_lifecycle.py (full hardware/GUI mock set +
+#     custom ``create_hotkey_backend`` patch that forces PynputHotkey so
+#     the test can mock ``pynput.keyboard.GlobalHotKeys``; this is a
+#     near-complete replacement of the conftest fixture, not just the
+#     hotkey patch)
+#   - tests/test_shutdown_parallel.py (no-op override to avoid
+#     importing ``voice_typer.server.app`` — uses a ``_FakeApp`` and
+#     injects mock modules into ``sys.modules`` directly)
+#   - tests/test_shutdown_deadline.py (no-op override — same rationale
+#     as test_shutdown_parallel.py; uses a ``_FakeApp``)
+#   - tests/test_shutdown_race_fixes.py (no-op override — same rationale;
+#     exercises ``_do_fast_cleanup`` against a ``_FakeApp``)
+#   - tests/test_shutdown_plan_zr17.py (no-op override — same rationale;
+#     exercises the ZR-17 shutdown plan against a ``_FakeApp``)
 #
 # Renaming the conftest fixture would silently break those overrides:
 # the local ``mock_heavy_imports`` would no longer shadow the conftest
 # autouse fixture, and the conftest version would run alongside the
-# local one — for ``test_shutdown_plan_zr17.py`` this would re-introduce
-# the ``voice_typer.server.app`` import that the override deliberately
-# avoids. Keeping the original name preserves the shadow semantics.
+# local one — for the four ``test_shutdown_*`` files this would
+# re-introduce the ``voice_typer.server.app`` import that the override
+# deliberately avoids (the real app module can be in a parallel agent's
+# WIP state during incremental development). Keeping the original name
+# preserves the shadow semantics.
 # The session-scoped fixture uses a distinct name
 # (``mock_heavy_imports_session``) so there is no collision.
 

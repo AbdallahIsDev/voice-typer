@@ -93,6 +93,51 @@ class NoiseGate(AudioFilter):
         if not self._adaptive:
             self._calibrated = True
 
+        # pre-allocated per-chunk working buffers for the peak-hold
+        # level estimator + state-machine + output gain stage. Lazy-
+        # resized to the largest chunk seen (mirror compressor._env_db_buf)
+        # so the first call allocates and subsequent calls reuse. Before
+        # this pre-allocation, process() allocated ~10 fresh float64
+        # arrays per chunk (abs_x, i_arr, y, y_with_init, z,
+        # level_arr, attenuation_arr, output_f64, output_f32) on the
+        # PortAudio RT thread. All buffers are sliced to ``[:n]`` per
+        # call so a larger chunk allocates once and subsequent same-or-
+        # smaller chunks reuse without reallocation.
+        self._abs_buf: np.ndarray | None = None
+        self._i_arr_buf: np.ndarray | None = None  # cached np.arange, sliced
+        self._y_buf: np.ndarray | None = None  # size n+1 (carries _level prefix)
+        self._level_arr_buf: np.ndarray | None = None  # also reused as i_arr*decay temp
+        self._attenuation_buf: np.ndarray | None = None
+        self._output_f64_buf: np.ndarray | None = None
+        self._output_f32_buf: np.ndarray | None = None
+
+    def _ensure_buffers(self, n: int) -> None:
+        """Lazy-resize the per-chunk working buffers to at least ``n`` samples.
+
+        Each buffer is checked independently and grown to ``max(n, 1024)``
+        on the first call or when a larger chunk arrives. ``_i_arr_buf``
+        caches ``np.arange(cap)`` because ``np.arange`` has no ``out=``
+        kwarg — it is regenerated only when the capacity grows, then sliced
+        to ``[:n]`` on every call (values ``[0, 1, ..., n-1]`` are correct
+        for any ``n <= cap``).
+        """
+        cap = max(n, 1024)
+        if self._abs_buf is None or self._abs_buf.shape[0] < n:
+            self._abs_buf = np.empty(cap, dtype=np.float64)
+        if self._i_arr_buf is None or self._i_arr_buf.shape[0] < n:
+            # np.arange has no out= kwarg — regenerate when capacity grows.
+            self._i_arr_buf = np.arange(cap, dtype=np.float64)
+        if self._y_buf is None or self._y_buf.shape[0] < n + 1:
+            self._y_buf = np.empty(cap + 1, dtype=np.float64)
+        if self._level_arr_buf is None or self._level_arr_buf.shape[0] < n:
+            self._level_arr_buf = np.empty(cap, dtype=np.float64)
+        if self._attenuation_buf is None or self._attenuation_buf.shape[0] < n:
+            self._attenuation_buf = np.empty(cap, dtype=np.float64)
+        if self._output_f64_buf is None or self._output_f64_buf.shape[0] < n:
+            self._output_f64_buf = np.empty(cap, dtype=np.float64)
+        if self._output_f32_buf is None or self._output_f32_buf.shape[0] < n:
+            self._output_f32_buf = np.empty(cap, dtype=np.float32)
+
     def _consume_calibration_chunk(self, samples: np.ndarray) -> None:
         """accumulate samples toward the noise-floor estimate."""
         remaining = self._calibration_target - self._calibration_count
@@ -163,19 +208,46 @@ class NoiseGate(AudioFilter):
         # which is a running maximum -- vectorizable with
         # ``np.maximum.accumulate``. The carried ``self._level`` is the
         # value of ``z[-1]`` from the previous chunk.
-        abs_x = np.abs(samples).astype(np.float64)
-        i_arr = np.arange(n, dtype=np.float64)
-        y = abs_x + i_arr * decay
-        y_with_init = np.empty(n + 1, dtype=np.float64)
-        y_with_init[0] = self._level
-        y_with_init[1:] = y
-        z = np.maximum.accumulate(y_with_init)[1:]
-        level_arr = np.maximum(z - i_arr * decay, 0.0)
+        #
+        # All intermediate arrays reuse the pre-allocated lazy-resized
+        # buffers (``_abs_buf`` / ``_i_arr_buf`` / ``_y_buf`` /
+        # ``_level_arr_buf``) instead of allocating ~6 fresh float64
+        # arrays per chunk. ``_i_arr_buf`` caches ``np.arange(cap)`` and
+        # is sliced to ``[:n]`` (values are correct for any ``n <= cap``).
+        # ``_level_arr_buf`` is dual-used: first as the ``i_arr * decay``
+        # temp, then overwritten with the final ``level_arr`` — safe because
+        # the temp value is fully consumed before the overwrite.
+        self._ensure_buffers(n)
+        # Pre-compute abs outside the state-machine loop (vectorized, S2-CR-19).
+        # ``np.abs(samples)`` returns a float32 array (1 allocation); copy it
+        # into the pre-allocated float64 buffer to avoid the original
+        # ``.astype(np.float64)`` second allocation. The float32 -> float64
+        # upcast is exact (no precision loss), so the result is byte-identical
+        # to ``np.abs(samples).astype(np.float64)``.
+        abs_x = np.abs(samples)
+        abs_buf = self._abs_buf[:n]
+        np.copyto(abs_buf, abs_x, casting="same_kind")
+        abs_x = abs_buf
+        i_arr = self._i_arr_buf[:n]
+        y_buf = self._y_buf[: n + 1]  # slice to exact size for in-place ops
+        y_buf[0] = self._level
+        # y_buf[1:] = abs_x + i_arr * decay, computed in-place via the
+        # level_arr_buf temp (overwritten below with the final level_arr).
+        tmp = self._level_arr_buf[:n]
+        np.multiply(i_arr, decay, out=tmp)
+        np.add(abs_x, tmp, out=y_buf[1:])
+        # In-place cumulative max into y_buf itself; y_buf[1:] is then z.
+        np.maximum.accumulate(y_buf, out=y_buf)
+        # level_arr = max(z - i_arr*decay, 0.0), in-place into level_arr_buf.
+        np.multiply(i_arr, decay, out=tmp)
+        np.subtract(y_buf[1:], tmp, out=tmp)
+        np.maximum(tmp, 0.0, out=tmp)
+        level_arr = tmp
 
         # State machine (sequential -- inherently stateful). Operates on
         # the pre-computed ``level_arr`` so the inner loop is cheap (a few
         # float comparisons + arithmetic, no abs/max calls).
-        attenuation_arr = np.empty(n, dtype=np.float64)
+        attenuation_arr = self._attenuation_buf[:n]
         is_open = self._is_open
         attenuation = self._attenuation
         held_time = self._held_time
@@ -201,7 +273,14 @@ class NoiseGate(AudioFilter):
 
             attenuation_arr[i] = attenuation
 
-        output = (samples.astype(np.float64) * attenuation_arr).astype(np.float32)
+        # output = (samples.astype(float64) * attenuation_arr).astype(float32)
+        # computed in-place via the pre-allocated f64 + f32 buffers.
+        output_f64 = self._output_f64_buf[:n]
+        np.copyto(output_f64, samples, casting="same_kind")
+        np.multiply(output_f64, attenuation_arr, out=output_f64)
+        output_f32 = self._output_f32_buf[:n]
+        np.copyto(output_f32, output_f64, casting="same_kind")
+        output = output_f32
 
         self._level = float(level_arr[-1])
         self._is_open = is_open
@@ -226,3 +305,24 @@ class NoiseGate(AudioFilter):
             self._calibration_sumsq = 0.0
             self._calibration_count = 0
             self._calibrated = False
+        # zero the pre-allocated working buffers so the last chunk's
+        # raw-audio-derived samples (abs, level, attenuation, output)
+        # do not linger in process memory until the numpy allocator
+        # reuses the blocks. Mirrors the compressor/limiter/equalizer
+        # reset-zero pattern. Guarded for None because the buffers are
+        # lazy-allocated on the first ``process()`` call.
+        for buf in (
+            self._abs_buf,
+            self._y_buf,
+            self._level_arr_buf,
+            self._attenuation_buf,
+            self._output_f64_buf,
+            self._output_f32_buf,
+        ):
+            if buf is not None:
+                buf.fill(0)
+        # _i_arr_buf holds [0, 1, 2, ...] (not audio-derived) — no PII,
+        # but zero for consistency and so a stale arange doesn't leak
+        # the previous chunk size.
+        if self._i_arr_buf is not None:
+            self._i_arr_buf.fill(0)

@@ -36,18 +36,9 @@ from unittest.mock import MagicMock, PropertyMock, patch
 import pytest
 
 # ---------------------------------------------------------------------------
-# Module-level heavy-import mocking.
-#
-# These setdefault() calls run at *collection* time — before
-# voice_typer.server.clipboard is imported — so the module's
-# ``import pyperclip`` and ``import pynput`` lines resolve to mocks.
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 # ---------------------------------------------------------------------------
-mock_pynput = MagicMock()
-mock_pynput_kb = MagicMock()
-sys.modules.setdefault("pynput", mock_pynput)
-sys.modules.setdefault("pynput.keyboard", mock_pynput_kb)
-sys.modules.setdefault("pyperclip", MagicMock())
-
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 
 # UIA singleton moved to clipboard_target_safety; reset it there.
@@ -1900,7 +1891,7 @@ class TestModifierReleaseExceptBranches:
             cm._release_stuck_modifiers()
 
     # NOTE: ``_send_keystroke_sequence`` was DELETED as dead production
-    # code () — the live keystroke path uses ``_safe_key_press``.
+    # code  — the live keystroke path uses ``_safe_key_press``.
     # The former ``test_send_keystroke_sequence_finally_catches_release_exception``
     # case only exercised the deleted method's double-release finally
     # block (``_safe_key_press`` doesn't have a double-release — it

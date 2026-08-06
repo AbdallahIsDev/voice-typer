@@ -20,7 +20,7 @@ import os
 class TestCancelModelDownloadMechanism:
     """Verify the cancel mechanism works at the Python service level.
 
-    EC-FIX-15 / EC-24: the legacy single-instance ``_download_cancel_event``
+    the legacy single-instance ``_download_cancel_event``
     attribute has been removed.  These tests now exercise the per-download
     API (``_register_download`` / ``_download_cancel_events`` /
     ``_unregister_download``) that production code uses.

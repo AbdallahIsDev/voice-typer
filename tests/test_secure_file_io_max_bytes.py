@@ -260,15 +260,36 @@ class TestSecureReadTextChunkedAbort:
             def close(self):
                 return self._real.close()
 
-        # The POSIX branch of _secure_read_text uses os.fdopen, not
-        # open.  So we patch os.fdopen instead.
+            # The Windows branch of _secure_read_text reads via
+            # ``with open(p, encoding=...) as f:`` — the wrapper must
+            # support the context-manager protocol (dunder methods are
+            # looked up on the type, not via __getattr__).
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc_info):
+                return self._real.__exit__(*exc_info)
+
+        # The POSIX branch of _secure_read_text uses os.fdopen; the
+        # Windows branch uses the high-level builtin open(). Patch BOTH
+        # so the read-count spy fires on whichever platform the test
+        # runs on (a plain os.fdopen patch silently misses the Windows
+        # branch, leaving read_calls empty).
+        import builtins
+
         real_fdopen = os.fdopen
+        real_open = builtins.open
 
         def counting_fdopen(fd, *args, **kwargs):
             real_f = real_fdopen(fd, *args, **kwargs)
             return CountingFileWrapper(real_f)
 
+        def counting_open(file, *args, **kwargs):
+            real_f = real_open(file, *args, **kwargs)
+            return CountingFileWrapper(real_f)
+
         monkeypatch.setattr(os, "fdopen", counting_fdopen)
+        monkeypatch.setattr(builtins, "open", counting_open)
 
         with pytest.raises(ValueError, match="max_bytes"):
             secure_file_io._secure_read_text(big_file, max_bytes=1024 * 1024)

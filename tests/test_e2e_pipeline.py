@@ -588,7 +588,7 @@ class TestAuthEnforcement:
     def test_stalled_auth_connection_times_out(self, e2e_server, monkeypatch):
         """A 'connect-and-stall' client should be disconnected by the auth timeout.
 
-        PR-3-FIX-1 added a 5-second ``settimeout`` on the TCP socket
+        added a 5-second ``settimeout`` on the TCP socket
         BEFORE the auth ``readline()``, so a malicious client that
         opens a connection but never sends the auth line will be
         disconnected rather than holding the dispatcher thread

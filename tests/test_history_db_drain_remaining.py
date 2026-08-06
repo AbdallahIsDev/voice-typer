@@ -21,7 +21,7 @@ suppress wrapper, that exception:
    now dead and the remaining items are never persisted.
 
 The fix routes the shutdown drain through ``_execute_write_item``, the
-same helper ``_writer_loop`` uses (AC-68 / DRY). This guarantees the
+same helper ``_writer_loop`` uses (DRY). This guarantees the
 PVT-005 ``InvalidStateError`` suppression is shared between both call
 sites, so a pre-resolved future is gracefully tolerated instead of
 killing the drain.

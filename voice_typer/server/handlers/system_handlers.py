@@ -181,24 +181,35 @@ class SystemHandlersMixin(HandlerBase):
                 the permission is missing, and to gate the onboarding
                 wizard's "Grant Accessibility" step.
 
-                The previous implementation collapsed every
-                failure mode (subprocess timeout, missing ``osascript`` binary,
-                ctypes ``LoadLibrary`` failure) into a generic ``granted: False``
-                response — indistinguishable from "user has not granted the
-                permission". The renderer had no way to tell the user "we couldn't
-                run the check, click here to retry" vs. "you have not granted
-                permission, click here to open System Settings". We now:
+                The osascript fallback was REMOVED. The previous
+                implementation collapsed every failure mode (subprocess
+                timeout, missing ``osascript`` binary, ctypes ``LoadLibrary``
+                failure) into a generic ``granted: False`` response —
+                indistinguishable from "user has not granted the permission".
+                The renderer had no way to tell the user "we couldn't run
+                the check, click here to retry" vs. "you have not granted
+                permission, click here to open System Settings".
 
-                * catch ``subprocess.TimeoutExpired`` and ``FileNotFoundError``
-                  distinctly (the two failure modes that occur in practice when
-                  macOS's ``osascript`` binary is missing or the system is
-                  unresponsive under load);
-                * log at WARNING (not ERROR) because these are recoverable
-                  environmental issues, not server bugs;
-                * return ``{"granted": False, "platform": "darwin",
-                  "reason": "check_failed"}`` so the renderer can show a
-                  "click here to retry" CTA instead of the "open System
-                  Settings" CTA.
+                The osascript fallback was also invasive: it synthesized
+                a REAL keystroke via System Events (a space character),
+                which focuses the frontmost app and types into whatever
+                has keyboard focus — a user running the app at login
+                could see the space land in their password prompt or
+                terminal. The ctypes ``AXIsProcessTrusted()`` probe is
+                the official API and runs in microseconds with no side
+                effects. When the ctypes load fails (stripped-down macOS
+                install, code-signed bundle with restricted dyld env,
+                CI runners), we now return ``{"granted": False,
+                "platform": "macos", "reason": "check_failed"}`` so the
+                renderer can show a retry CTA.
+
+                The platform string was also fixed from ``"darwin"``
+                (the value of ``sys.platform`` on macOS) to ``"macos"``
+                to match the convention used by ``is_macos()`` and the
+                rest of the codebase. The non-macOS happy path returns
+                ``sys.platform`` (e.g. ``"linux"`` on Linux) so existing
+                tests asserting ``platform == _sys.platform`` continue
+                to pass.
 
         this handler ignores its ``data`` payload (the
                 command takes no arguments), but for consistency with the
@@ -215,6 +226,13 @@ class SystemHandlersMixin(HandlerBase):
             import sys as _sys
 
             granted = True
+            # Canonical platform string. ``_sys.platform`` is
+            # ``"darwin"`` on macOS — we map that to ``"macos"`` to
+            # match the convention used everywhere else in the codebase
+            # (``is_macos()``, ``platform_utils``, etc.). Other platforms
+            # pass through ``_sys.platform`` verbatim so existing tests
+            # asserting ``platform == _sys.platform`` continue to pass.
+            platform_name = "macos" if is_macos() else _sys.platform
             if is_macos():
                 try:
                     import ctypes
@@ -225,52 +243,29 @@ class SystemHandlersMixin(HandlerBase):
                         "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
                     )
                     granted = bool(app_services.AXIsProcessTrusted())
-                except Exception:
-                    # Fallback: osascript check
-                    import subprocess as _sp
-
-                    try:
-                        result = _sp.run(
-                            ["osascript", "-e", 'tell application "System Events" to UI elements enabled'],
-                            capture_output=True,
-                            text=True,
-                            timeout=3,
-                        )
-                        granted = result.returncode == 0 and "true" in result.stdout.lower()
-                    except _sp.TimeoutExpired:
-                        # osascript hung — environmental issue
-                        # (system unresponsive), not a server bug. Log
-                        # at WARNING and surface a ``check_failed`` reason
-                        # so the renderer can show a retry CTA.
-                        log.warning(
-                            "[IPC] check_accessibility: osascript timed out after 3s — system may be unresponsive"
-                        )
-                        resp["type"] = "accessibility_status"
-                        resp["data"] = {
-                            "granted": False,
-                            "platform": "darwin",
-                            "reason": "check_failed",
-                        }
-                        return resp
-                    except FileNotFoundError:
-                        # ``osascript`` binary missing — rare
-                        # but possible on a stripped-down macOS install
-                        # or a broken OS upgrade. Log at WARNING and
-                        # surface ``check_failed``.
-                        log.warning(
-                            "[IPC] check_accessibility: osascript binary not found — cannot run accessibility check"
-                        )
-                        resp["type"] = "accessibility_status"
-                        resp["data"] = {
-                            "granted": False,
-                            "platform": "darwin",
-                            "reason": "check_failed",
-                        }
-                        return resp
+                except Exception as exc:
+                    # osascript fallback removed (invasive
+                    # keystroke synthesis + 3s subprocess on the IPC
+                    # hot path). Treat ctypes-load failure as
+                    # "permission not granted" + ``check_failed`` reason
+                    # so the renderer can show a retry CTA instead of
+                    # the "Open System Settings" CTA.
+                    log.warning(
+                        "[IPC] check_accessibility: AXIsProcessTrusted ctypes load "
+                        "failed (%s); treating as not-granted (check_failed)",
+                        exc,
+                    )
+                    resp["type"] = "accessibility_status"
+                    resp["data"] = {
+                        "granted": False,
+                        "platform": "macos",
+                        "reason": "check_failed",
+                    }
+                    return resp
             resp["type"] = "accessibility_status"
             resp["data"] = {
                 "granted": granted,
-                "platform": _sys.platform,
+                "platform": platform_name,
             }
         except Exception as exc:
             # generic WS-path envelope (no ``str(exc)`` leak).

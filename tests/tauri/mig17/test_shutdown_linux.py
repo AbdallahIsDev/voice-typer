@@ -265,7 +265,7 @@ class TestShutdownSidecarSource:
         """Step 3: waits for ``CommandEvent::Terminated`` with
         ``SHUTDOWN_ACK_TIMEOUT_MS`` deadline via ``tokio::time::timeout``.
 
-        CR-2: the host polls the sidecar's exit event stream (captured
+        the host polls the sidecar's exit event stream (captured
         at spawn time) and returns as soon as ``Terminated`` arrives
         (~50ms typical), instead of sleeping the full 2s unconditionally.
         """
@@ -950,7 +950,7 @@ class TestSupervisorSource:
         )
 
     def test_rotates_child_exit_rx_on_respawn(self):
-        """CR-2: each respawn rotates ``state.child_exit_rx`` so the next
+        """each respawn rotates ``state.child_exit_rx`` so the next
         ``shutdown_sidecar`` call polls the NEW sidecar's exit event
         stream (not the dead one's)."""
         src = _read(_SUPERVISOR_RS)
@@ -1071,7 +1071,7 @@ class TestPythonShutdownHandler:
         Returns ``(dispatch, server)`` so tests can assert on the
         server mock after invoking the handler.
 
-        EC-FIX-3: the shutdown handler moved from
+        the shutdown handler moved from
         ``sidecar_ws._make_dispatch`` (inline ``server.app.quit()``
         call) to ``ipc_server.IPCServer._handle_shutdown`` (registered
         in ``_COMMAND_REGISTRY``, delegates to ``self.service.quit()``
@@ -1153,7 +1153,7 @@ class TestPythonShutdownHandler:
         hard timeout is 2.0s; if quit blocked the WS reader, the host
         would force-kill before the ack landed).
 
-        EC-FIX-3: the thread is created inside
+        the thread is created inside
         ``IPCServer._handle_shutdown`` (NOT ``sidecar_ws._make_dispatch``)
         with name ``"ipc-shutdown-cleanup"`` (was ``"sidecar-shutdown"``).
         The thread target calls ``self.service.quit()`` (was
@@ -1230,7 +1230,7 @@ class TestPythonShutdownHandler:
         exception (not swallow it silently) so the operator can
         diagnose a stuck shutdown.
 
-        EC-FIX-3: the exception is now logged via ``log.error`` in
+        the exception is now logged via ``log.error`` in
         ``ipc_server._handle_shutdown``'s ``_bg_cleanup`` inner function
         (was ``sw.log.exception`` in the old ``sidecar_ws._make_dispatch``
         inline branch). The patch target is the ``ipc_server`` module's
@@ -1356,7 +1356,7 @@ class TestPythonShutdownReleasesMic:
         """The WS shutdown handler must call ``server.service.quit()`` —
         the entrypoint to the mic-release + socket-close + exit path.
 
-        EC-FIX-3: the handler delegates to ``self.service.quit()`` (NOT
+        the handler delegates to ``self.service.quit()`` (NOT
         ``self.app.quit()``) so shutdown side-effects added to
         ``VoiceTyperService.quit`` run identically across TCP/stdin/WS
         transports.
@@ -1376,7 +1376,7 @@ class TestPythonShutdownReleasesMic:
         synchronously (so we can assert on ``server.service.quit()``
         calls without racing the thread).
 
-        EC-FIX-3: uses a real IPCServer (via ``__new__``) so
+        uses a real IPCServer (via ``__new__``) so
         ``server._dispatch`` routes ``shutdown`` to the REAL
         ``_handle_shutdown`` method. Sets ``server.service.quit`` as a
         MagicMock so the call is recorded.

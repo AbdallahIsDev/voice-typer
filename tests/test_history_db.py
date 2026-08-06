@@ -17,6 +17,7 @@ import logging
 import threading
 import time
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -605,7 +606,14 @@ class TestWriterThreadArchitecture:
             )
             msg = warnings[0].getMessage()
             assert "delete" in msg, f"Warning should mention the actual mode ('delete'); got: {msg}"
-            assert str(tmp_path / "wal_check.db") in msg, f"Warning should mention the DB path; got: {msg}"
+            db_path_str = str(tmp_path / "wal_check.db")
+            # SEC-009: the PII log filter replaces the home-dir prefix
+            # with ``~`` in rendered messages, so accept both the full
+            # path and the home-shortened form (the filename is always
+            # preserved).
+            assert db_path_str in msg or db_path_str.replace(str(Path.home()), "~") in msg, (
+                f"Warning should mention the DB path; got: {msg}"
+            )
         finally:
             db.close()
 

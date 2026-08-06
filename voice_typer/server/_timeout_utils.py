@@ -390,10 +390,32 @@ def _run_parallel_with_timeout(
         max_workers=min(len(items), 8),
         thread_name_prefix="cleanup-parallel",
     ) as pool:
-        future_map: dict = {
-            pool.submit(_run_with_timeout, desc, func, timeout): (desc, func, timeout)
-            for (desc, func, timeout) in items
-        }
+        future_map: dict = {}
+        for (desc, func, timeout) in items:
+            # RACE: ``pool.submit`` can raise ``RuntimeError('cannot
+            # schedule new futures after interpreter shutdown')`` when
+            # the main thread is tearing down concurrently (e.g. a
+            # FATAL tray-crash path exits the interpreter while a
+            # background startup thread is still in this helper -
+            # observed in the ``voice-typer`` terminal run). The same
+            # race was already guarded in ``transport_tcp.py``'
+            # accept loop; here we record the failure as the item's
+            # result tuple (``(desc, RuntimeError)``) instead of
+            # letting it kill the calling thread with an unhandled
+            # exception. Callers already treat ``BaseException``
+            # results as per-item failures (log + continue), so no
+            # caller change is needed.
+            try:
+                fut = pool.submit(_run_with_timeout, desc, func, timeout)
+            except RuntimeError as exc:
+                log.debug(
+                    "[TIMEOUT-UTILS] %s: pool.submit rejected during interpreter shutdown (%s) - recording failure",
+                    desc,
+                    exc,
+                )
+                results.append((desc, exc))
+                continue
+            future_map[fut] = (desc, func, timeout)
         for fut in concurrent.futures.as_completed(future_map):
             desc, _func, _timeout = future_map[fut]
             try:

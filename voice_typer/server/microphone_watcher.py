@@ -174,6 +174,48 @@ class MicrophoneDeviceWatcher:
         # current default without firing a spurious change event.
         self._last_default_input_index = None
 
+    def set_idle(self, is_idle: bool) -> None:
+        """Toggle the idle-recording gate that selects the polling cadence.
+
+        Contract — ``RecordingController`` (or any caller that tracks
+        recording state) MUST call this so the watcher's macOS sounddevice
+        poll and Linux secondary ``sd.query_devices()`` poll widen their
+        cadence when no recording is in flight:
+
+        - ``set_idle(False)`` — recording is starting / in-flight. The
+          macOS poll cadence tightens to ``_active_poll_interval_s``
+          (default 3 s) so a hot-plug event is detected within one
+          active poll of starting the recording. The Linux secondary
+          poll likewise runs every 3 s.
+        - ``set_idle(True)`` — recording stopped / no recording is
+          active. The macOS poll cadence widens to
+          ``_idle_poll_interval_s`` (default 12 s) — at idle, 10–15 s
+          of hot-plug detection latency is acceptable, and the 10–50 ms
+          CoreAudio round trip per poll is wasted CPU when no recording
+          is in flight.
+
+        The default state is ``True`` (the app launches idle). If a
+        caller never invokes this method, the watcher degrades to the
+        idle cadence everywhere — the same behaviour as a constant 12 s
+        poll, which is correct (just slower to detect hot-plugs during
+        the brief windows when a recording is active).
+
+        Thread-safety: a single bool assignment is GIL-atomic in
+        CPython, and the watcher thread reads ``self._is_idle`` without
+        a lock — the worst case is a single stale read on the next poll
+        cycle (12 s of extra idle cadence after ``set_idle(False)``
+        lands, or one extra 3 s active poll after ``set_idle(True)``
+        lands). Both are safe and self-correcting. No lock is taken so
+        the recording-start hot path is never blocked by the watcher
+        thread (which may be inside a 10–50 ms CoreAudio round trip).
+        """
+        self._is_idle = bool(is_idle)
+        log.debug(
+            "[MIC-WATCHER] set_idle(%s) — poll cadence now %ss",
+            is_idle,
+            self._idle_poll_interval_s if is_idle else self._active_poll_interval_s,
+        )
+
     # ── platform detection ────────────────────────────────────────────
 
     def _detect_platform(self) -> str:
@@ -397,10 +439,12 @@ class MicrophoneDeviceWatcher:
     # ALSA kernel devices. ``sd.query_devices()`` (a 10–50 ms
     # PortAudio round trip on Linux PulseAudio/PipeWire) sees BT
     # headsets and virtual sources that never touch ``/dev/snd``. We
-    # throttle the secondary poll to once per 5 s regardless of the
-    # primary poll cadence so the test-suite's small ``poll_interval``
-    # values (e.g. 0.05 s) don't multiply the PortAudio cost.
-    _LINUX_SD_QUERY_INTERVAL_S: float = 5.0
+    # throttle the secondary poll to the idle/active cadence
+    # (selected via ``self._is_idle`` — see :meth:`set_idle`) so the
+    # test-suite's small ``poll_interval`` values (e.g. 0.05 s) don't
+    # multiply the PortAudio cost AND so the secondary poll widens to
+    # 12 s at idle / tightens to 3 s during a recording (mirroring
+    # ``_run_macos``'s cadence selection).
 
     def _run_linux(self) -> None:
         """Watch ``/dev/snd`` for changes by polling directory listing.
@@ -419,11 +463,13 @@ class MicrophoneDeviceWatcher:
         ``bluez_source.XX_XX_XX_XX_XX_XX`` without touching
         ``/dev/snd``. To catch these, a secondary
         ``sd.query_devices()`` poll runs every
-        ``_LINUX_SD_QUERY_INTERVAL_S`` seconds (default 5 s) and
-        diffs the device signature set (mirroring ``_run_macos``'s
-        approach). The ``/dev/snd`` poll catches ALSA-level events
-        with low CPU; the ``sd.query_devices()`` poll catches
-        PulseAudio/PipeWire-level events with ~10–50 ms CPU every 5 s.
+        ``_active_poll_interval_s`` (default 3 s) during a recording
+        or every ``_idle_poll_interval_s`` (default 12 s) at idle —
+        selected via :meth:`set_idle`. It diffs the device signature
+        set (mirroring ``_run_macos``'s approach). The ``/dev/snd``
+        poll catches ALSA-level events with low CPU; the
+        ``sd.query_devices()`` poll catches PulseAudio/PipeWire-level
+        events with ~10–50 ms CPU every 3–12 s.
 
         Also runs ``_check_default_device_changed()`` each cycle so
         the OS default input device change is detected when
@@ -454,11 +500,12 @@ class MicrophoneDeviceWatcher:
         # installed), the secondary poll is silently skipped — the
         # ``/dev/snd`` poll still catches ALSA-level events.
         # ``last_sd_query_monotonic`` is initialized to ``time.monotonic()``
-        # so the first secondary poll happens at
-        # ``_LINUX_SD_QUERY_INTERVAL_S`` (5 s) after start — not on
-        # the very first iteration (which would burn a 10–50 ms
-        # PortAudio round trip at startup for no benefit, since the
-        # baseline would be captured anyway).
+        # so the first secondary poll happens at the idle/active
+        # cadence (3 s during a recording, 12 s at idle — selected via
+        # ``self._is_idle``) after start — not on the very first
+        # iteration (which would burn a 10–50 ms PortAudio round trip
+        # at startup for no benefit, since the baseline would be
+        # captured anyway).
         last_sd_sig: set | None = None
         last_sd_query_monotonic: float = time.monotonic()
         try:
@@ -494,11 +541,17 @@ class MicrophoneDeviceWatcher:
                 self._invoke_callback()
 
             # Secondary PulseAudio/PipeWire-level poll. Throttled to
-            # ``_LINUX_SD_QUERY_INTERVAL_S`` so the test-suite's small
-            # ``poll_interval`` values don't multiply the PortAudio
-            # cost. Best-effort — any exception is logged and skipped.
+            # the idle/active cadence (selected via ``self._is_idle``)
+            # so the test-suite's small ``poll_interval`` values don't
+            # multiply the PortAudio cost AND so the secondary poll
+            # widens to 12 s at idle / tightens to 3 s during a
+            # recording (mirroring ``_run_macos``'s cadence selection).
+            # Best-effort — any exception is logged and skipped.
             now = time.monotonic()
-            if sd_available and (now - last_sd_query_monotonic) >= self._LINUX_SD_QUERY_INTERVAL_S:
+            sd_query_interval = (
+                self._idle_poll_interval_s if self._is_idle else self._active_poll_interval_s
+            )
+            if sd_available and (now - last_sd_query_monotonic) >= sd_query_interval:
                 last_sd_query_monotonic = now
                 try:
                     import sounddevice as _sd
@@ -652,15 +705,27 @@ class MicrophoneDeviceWatcher:
         # Linux). The default 1 s ``poll_interval`` is fine for the
         # Linux directory-polling path but wasteful here — it spends
         # 10–50 ms of CPU per second just to detect device changes
-        # that are rare in practice. Bump the macOS cadence to 3 s
-        # when the caller accepted the default (>=1.0 s). Tests that
-        # explicitly pass a smaller value (e.g. 0.05 s) keep their
-        # fast cadence so macOS polling tests stay deterministic.
-        effective_poll = self._poll_interval if self._poll_interval < 1.0 else 3.0
+        # that are rare in practice. Select between the active and
+        # idle cadences via ``self._is_idle`` (toggled by
+        # :meth:`set_idle`): when a recording is in flight
+        # (``_is_idle=False``), poll every ``_active_poll_interval_s``
+        # (default 3 s) so a hot-plug is detected within one active
+        # poll; when idle, widen to ``_idle_poll_interval_s``
+        # (default 12 s) to cut constant CoreAudio round-trip CPU.
+        # Tests that explicitly pass a smaller ``poll_interval``
+        # (e.g. 0.05 s) keep their fast cadence so macOS polling tests
+        # stay deterministic.
+        if self._poll_interval < 1.0:
+            effective_poll = self._poll_interval
+        else:
+            effective_poll = (
+                self._idle_poll_interval_s if self._is_idle else self._active_poll_interval_s
+            )
         log.debug(
-            "[MIC-WATCHER] watching macOS device count (initial=%s, poll=%.1fs)",
+            "[MIC-WATCHER] watching macOS device count (initial=%s, poll=%.1fs, idle=%s)",
             last_count,
             effective_poll,
+            self._is_idle,
         )
         while not self._stop_event.wait(effective_poll):
             try:

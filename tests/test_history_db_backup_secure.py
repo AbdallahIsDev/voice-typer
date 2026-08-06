@@ -155,7 +155,10 @@ class TestBackupBeforeMigrationSecure:
     def test_backup_handles_missing_source_gracefully(self, db, tmp_path):
         """If the source DB file is missing, the backup is skipped (no crash)."""
         # The DB file exists (HistoryDB.__init__ created it). Remove
-        # it to simulate the missing-file case.
+        # it to simulate the missing-file case. On Windows an open
+        # SQLite handle locks the file, so close the DB first (the
+        # fixture re-closes after the test — close() is idempotent).
+        db.close()
         db.db_path.unlink()
         # Should not raise.
         db._backup_before_migration(current_version=2)

@@ -303,7 +303,16 @@ class TestForceRecoveryGcCollect:
         ctrl._transcription_thread.is_alive.return_value = True
         ctrl._watchdog_firings = ctrl._watchdog_max_firings
 
-        with patch("voice_typer.server.recording_controller.gc.collect") as gc_collect:
+        # The ``gc.collect()`` call lives in
+        # ``transcription_watchdog.TranscriptionWatchdog.force_recover``
+        # (transcription_watchdog.py:300). ``recording_controller``'s
+        # 1-line delegator forwards to that helper, so the patch target
+        # is the watchdog module's ``gc.collect`` attribute (``gc`` is a
+        # stdlib singleton, so patching it here intercepts the helper's
+        # call). The legacy ``recording_controller.gc.collect`` path
+        # stopped resolving once ``recording_controller`` dropped its
+        # ``import gc`` (the helper now owns it).
+        with patch("voice_typer.server.transcription_watchdog.gc.collect") as gc_collect:
             ctrl._force_recover_from_stuck_transcription(force=True)
 
         assert gc_collect.called, (

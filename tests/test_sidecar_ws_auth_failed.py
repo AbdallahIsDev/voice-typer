@@ -1,7 +1,7 @@
-"""EC-FIX-3 (EC-11) regression: WS path must send an ``auth_failed`` error
+"""regression: WS path must send an ``auth_failed`` error
 frame BEFORE closing the socket with code 1008.
 
-Before EC-FIX-3 the WebSocket transport's auth-failure path diverged from
+Before the WebSocket transport's auth-failure path diverged from
 the TCP transport:
 
 - TCP path (``ipc_server._handle_tcp_connection``, ~L925): on a bad
@@ -20,7 +20,7 @@ the TCP transport:
   failure from any other transport-level close without sniffing the
   close reason string.
 
-EC-FIX-3 aligns the two transports: the WS path now sends the same
+aligns the two transports: the WS path now sends the same
 ``auth_failed`` error frame the TCP path sends, BEFORE the
 ``websocket.close(code=1008)`` call. Both frames are wrapped in
 ``contextlib.suppress(Exception)`` so a half-closed socket (e.g. the
@@ -214,7 +214,7 @@ async def test_non_auth_first_frame_emits_auth_failed_before_close(
     """First frame is not ``{"type":"auth",...}`` → auth_failed + close.
 
     A client that sends a ``get_status`` frame before auth is
-    rejected. Pre-EC-FIX-3 the close was opaque; now the envelope is
+    rejected. Pre-the close was opaque; now the envelope is
     sent so the client can log the cause.
     """
     monkeypatch.setenv("VOICE_TYPER_IPC_TOKEN", "tok")

@@ -55,7 +55,7 @@ def server():
 
 
 class TestNoClientLogRedaction:
-    """CR-8: the no-client push log must not include the message body."""
+    """the no-client push log must not include the message body."""
 
     def test_send_source_does_not_log_msg_body(self):
         """The source of ``_send`` must NOT format ``msg`` into the

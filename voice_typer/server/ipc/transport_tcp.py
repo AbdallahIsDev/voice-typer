@@ -546,14 +546,36 @@ class TCPTransportMixin:
 
         # Flush the snapshot OUTSIDE the lock — a slow Electron
         # renderer can stall here without blocking other dispatchers.
+        # Write ALL pending entries with a SINGLE ``flush()``
+        # after the loop, rather than one ``flush()`` per entry. The
+        # per-entry flush fired a syscall (``fsync`` / ``write`` +
+        # ``TCP_NODELAY`` flush) for every backlog frame on every
+        # connect, adding N-1 redundant syscalls when N frames were
+        # queued (e.g. 50 pending ``state_changed`` events on a slow
+        # reconnect = 50 flushes instead of 1). A single flush after
+        # the loop lets the kernel coalesce the writes into one TCP
+        # segment burst. The ``break`` on a write failure is preserved
+        # — if the client's socket buffer is full mid-flush, the
+        # remaining entries are dropped (they'll be re-sent on the
+        # next state_changed push, which re-snapshots the queue).
         if pending_flush:
             for p in pending_flush:
                 try:
                     auth_client.write(p + "\n")
-                    auth_client.flush()
                 except Exception:
                     log.debug("[TCP] pending flush write failed on connect")
                     break
+            else:
+                # Single flush after the loop completed without
+                # ``break``. If a write raised, the ``break`` skips
+                # this flush — the partially-written buffer is left
+                # for the kernel / socket layer to drain (or drop on
+                # close), matching the pre-fix behavior for the
+                # failure path.
+                try:
+                    auth_client.flush()
+                except Exception:
+                    log.debug("[TCP] pending flush final flush failed on connect")
 
         # emit a state_changed event on connect so the
         # renderer immediately knows the current app state (was

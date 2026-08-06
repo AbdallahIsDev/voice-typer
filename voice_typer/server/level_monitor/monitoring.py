@@ -201,9 +201,22 @@ def get_level_diagnostics() -> dict:
 
     Exposes ``_dropped_level_chunks`` (chunks dropped because the worker
     thread couldn't keep up with the PortAudio callback rate) plus ring
-    buffer fill state, for telemetry / debugging. The counter is reset
-    every 5s by ``_level_worker_loop`` after logging, so this snapshot
-    is point-in-time (drops since the last 5s log emission).
+    buffer fill state, for telemetry / debugging. The per-burst
+    ``dropped_level_chunks`` counter is reset every 5s by
+    ``_level_worker_loop`` after logging, so this snapshot is
+    point-in-time (drops since the last 5s log emission).
+
+    ALSO exposes ``total_dropped_level_chunks`` — the CUMULATIVE
+    counter that NEVER resets in production. The per-burst counter
+    flakes under sustained overload (a test that snapshots it
+    before/after a single overflow can see 0 if the worker drained it
+    between the snapshot and the check); the cumulative counter is the
+    stable field for "drops since ``start_monitoring`` first ran"
+    telemetry. Lives on ``worker.py`` as a module-level global (NOT on
+    ``_state`` — see ``worker.py``'s cumulative-counter comment block
+    for the rationale); read here via deferred import so ``monitoring.py``
+    does not take a top-level dependency on ``worker.py`` (which would
+    short-circuit the package's lazy-import benefits).
 
     No existing IPC handler wires this through to the frontend (the
     ``level_monitor_*`` IPC family is start/stop/status only); the
@@ -214,7 +227,11 @@ def get_level_diagnostics() -> dict:
     Returns:
         dict with keys:
             - ``dropped_level_chunks`` (int): chunks dropped since the
-              last 5s throttled log.
+              last 5s throttled log (per-burst delta; resets on each
+              log emission).
+            - ``total_dropped_level_chunks`` (int): cumulative drops
+              since ``start_monitoring`` first ran (NEVER reset in
+              production).
             - ``ring_buffer_capacity`` (int): configured max capacity.
             - ``ring_buffer_len`` (int): current fill level.
             - ``monitor_active`` (bool): whether the monitor stream is
@@ -224,8 +241,23 @@ def get_level_diagnostics() -> dict:
     # (RT thread) and reset in the worker thread (here, via the 5s log);
     # ``int`` read is atomic under CPython's GIL, so no lock is needed
     # for a point-in-time snapshot.
+    #
+    # Deferred import of ``worker`` to read the cumulative
+    # counter. ``int`` read is GIL-atomic; the worker is the ONLY
+    # writer in production. Deferred (not top-level) because
+    # ``monitoring.py`` already imports from ``_state`` at module top,
+    # and adding a top-level ``from . import worker`` would create a
+    # circular load dependency at package import time (``__init__.py``
+    # imports both submodules in sequence; ``worker`` reads
+    # ``_state._level_worker_*`` etc., so it must load AFTER
+    # ``_state``). Deferred import inside the function body side-steps
+    # the ordering constraint and only pays the (cached) import lookup
+    # cost when diagnostics are actually requested.
+    from . import worker as _worker_mod
+
     return {
         "dropped_level_chunks": _state._dropped_level_chunks,
+        "total_dropped_level_chunks": _worker_mod._total_dropped_level_chunks,
         "ring_buffer_capacity": _state._LEVEL_RING_BUFFER_CAPACITY,
         "ring_buffer_len": len(_state._level_ring_buffer),
         "monitor_active": _state._monitor_active,

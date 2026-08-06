@@ -40,7 +40,7 @@ from typing import TYPE_CHECKING
 from voice_typer.server import crash_handler as _crash_handler
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.config import _config_dir
-from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
+from voice_typer.server.platform_utils import is_linux, is_macos, is_wayland_session, is_windows
 from voice_typer.server.server_platform import is_autostart_enabled
 from voice_typer.server.text_cleanup import configure_corrections
 
@@ -71,6 +71,27 @@ _ONBOARDING_FAIL_COUNTER_FILENAME = ".onboarding_fail_count"
 # failure. 7 days matches the onboarding wizard's "won't bother the
 # user again" cadence.
 _ONBOARDING_FAIL_COUNTER_TTL_SECONDS: float = 7 * 24 * 60 * 60.0
+
+
+# Wayland warning state: module-level state holder for the Wayland warning
+# structured-dict + last-warned-version. Implemented as a tiny class
+# (rather than bare module globals) so tests can ``setattr`` a fresh
+# instance on ``startup_sequence._MODULE_STATE`` to reset the state
+# between test cases without polluting the module namespace.
+# ``wayland_warning_state`` is a dict with the keys
+# ``{session_type, wtype_available, ydotool_available, warned_at}``;
+# ``wayland_warned_version`` is the ``voice_typer.__version__`` string
+# captured the last time the warning fired. Both default to ``None``
+# (no previous state → first-run always re-warns).
+class _ModuleState:
+    """Container for module-level mutable state (Wayland warning etc)."""
+
+    wayland_warning_state: dict | None = None
+    wayland_warned_version: str | None = None
+
+
+_MODULE_STATE = _ModuleState()
+
 
 # Stale backup file retention: files older than this are swept at startup.
 # 30 days matches the log-rotation sweep and crash-diagnostics sweep cadence.
@@ -670,33 +691,109 @@ class StartupSequence:
 
         # PLAT-WAYLAND: Warn if running on Wayland and
         # suggest wtype/ydotool as fallback for global hotkeys.
-        if is_linux() and os.environ.get("XDG_SESSION_TYPE") == "wayland" and not app.config.wayland_warned:
+        #
+        # Wayland warning state: the previous ``app.config.wayland_warned`` boolean
+        # was a one-shot latch — once set, the warning NEVER re-fired,
+        # even if the user uninstalled wtype/ydotool after the first
+        # warning. We now use a structured ``wayland_warning_state``
+        # dict (stored as a module-level attribute on
+        # ``startup_sequence`` so we don't require a new config field
+        # — config is owned by another agent) and re-emit the warning
+        # whenever any field changes (session type changed, wtype
+        # availability changed, ydotool availability changed). The
+        # module-level state is reset on every app restart, so a
+        # version upgrade (where the user runs a new build) re-warns
+        # by default — matching the "alternatively" approach from the
+        # finding (re-warn once per app version). The boolean
+        # ``app.config.wayland_warned`` is still set for backwards
+        # compat with older configs that may already have it set.
+        #
+        # Delegate Wayland detection to platform_utils.is_wayland_session
+        # (single source of truth — handles XDG_SESSION_TYPE +
+        # WAYLAND_DISPLAY, case-insensitive).
+        if is_linux() and is_wayland_session():
             log.warning("[STARTUP] Wayland detected -- global hotkeys may not work")
             # check if wtype or ydotool is available as a fallback
             import shutil
 
             wtype_available = shutil.which("wtype") is not None
             ydotool_available = shutil.which("ydotool") is not None
-            if not wtype_available and not ydotool_available:
-                log.warning(
-                    "[STARTUP] Neither wtype nor ydotool found. "
-                    "Install one for hotkey support on Wayland: "
-                    "'sudo apt install wtype' or 'sudo apt install ydotool'"
-                )
-                # critical — bypass toggle (hotkeys broken).
-                app.tray.notify_safety(
-                    f"{APP_NAME} — Wayland Hotkeys",
-                    "Global hotkeys may not work on Wayland. "
-                    "Install 'wtype' or 'ydotool' for hotkey support, "
-                    "or use the tray menu's Toggle Dictation option.",
-                )
-            else:
-                log.info(
-                    "[STARTUP] Wayland hotkey fallback available: %s",
-                    "wtype" if wtype_available else "ydotool",
-                )
-            app.config.wayland_warned = True
-            app.config.save()
+
+            # Wayland warning state: structured state — re-warn whenever any field
+            # changes vs. the previous run. ``_wayland_warning_state``
+            # is a module-level dict on ``startup_sequence`` (NOT on
+            # ``app.config``) because config is owned by another
+            # agent. The state survives across calls within the same
+            # process but is reset on app restart — matching the
+            # finding's "alternatively" approach (re-warn once per
+            # app version, since the version changes per restart
+            # only when the user upgrades).
+            from datetime import datetime
+
+            current_state = {
+                "session_type": os.environ.get("XDG_SESSION_TYPE", ""),
+                "wtype_available": wtype_available,
+                "ydotool_available": ydotool_available,
+            }
+            previous_state = getattr(_MODULE_STATE, "wayland_warning_state", None)
+            state_changed = (
+                previous_state is None
+                or previous_state.get("session_type") != current_state["session_type"]
+                or previous_state.get("wtype_available") != current_state["wtype_available"]
+                or previous_state.get("ydotool_available") != current_state["ydotool_available"]
+            )
+            # Also re-warn if the app version changed since the last
+            # warning (``wayland_warned_version`` stored alongside the
+            # structured state — uses ``getattr`` so it's forward-
+            # compatible if a future config field with the same name
+            # is added).
+            try:
+                import voice_typer as _vt
+
+                _current_vt_version = getattr(_vt, "__version__", None)
+            except Exception:
+                _current_vt_version = None
+            _last_warned_version = getattr(_MODULE_STATE, "wayland_warned_version", None)
+            version_changed = (
+                _current_vt_version is not None
+                and _last_warned_version != _current_vt_version
+            )
+            should_warn = (
+                not app.config.wayland_warned
+                or state_changed
+                or version_changed
+            )
+            if should_warn:
+                if not wtype_available and not ydotool_available:
+                    log.warning(
+                        "[STARTUP] Neither wtype nor ydotool found. "
+                        "Install one for hotkey support on Wayland: "
+                        "'sudo apt install wtype' or 'sudo apt install ydotool'"
+                    )
+                    # critical — bypass toggle (hotkeys broken).
+                    app.tray.notify_safety(
+                        f"{APP_NAME} — Wayland Hotkeys",
+                        "Global hotkeys may not work on Wayland. "
+                        "Install 'wtype' or 'ydotool' for hotkey support, "
+                        "or use the tray menu's Toggle Dictation option.",
+                    )
+                else:
+                    log.info(
+                        "[STARTUP] Wayland hotkey fallback available: %s",
+                        "wtype" if wtype_available else "ydotool",
+                    )
+                # Persist the structured state + version for the next
+                # run's diff check.
+                _MODULE_STATE.wayland_warning_state = {
+                    **current_state,
+                    "warned_at": datetime.now().isoformat(),
+                }
+                if _current_vt_version is not None:
+                    _MODULE_STATE.wayland_warned_version = _current_vt_version
+                # Backwards compat: keep setting the legacy boolean so
+                # older configs that read it still see "warned".
+                app.config.wayland_warned = True
+                app.config.save()
 
         # macOS accessibility permission check.
         # On macOS, global hotkeys require Accessibility permission.

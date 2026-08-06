@@ -95,7 +95,7 @@ def _drain_ring_buffer(rec, timeout=3.0):
 
 
 class TestStartLockRuntime:
-    """CR-16: ``_start_lock`` serializes start()/discard() at runtime.
+    """``_start_lock`` serializes start()/discard() at runtime.
 
     The source-string + threading.Lock type assertions live in
     ``tests/test_recording.py::TestRec5StartLock``; these tests cover the
@@ -219,7 +219,7 @@ class TestStartLockRuntime:
         # The lock must NEVER have had 2 concurrent holders (
         # serialization guarantee).
         assert counting._max_concurrent <= 1, (
-            f"CR-16: _start_lock must serialize start()/discard() — "
+            f"_start_lock must serialize start()/discard() — "
             f"saw {counting._max_concurrent} concurrent holders (must "
             f"be ≤ 1)"
         )

@@ -43,7 +43,7 @@ class TestMacOSIoPriority:
         monkeypatch.setattr(logging_setup, "is_windows", lambda: False)
         # os.nice must not actually run (it would lower the test
         # runner's priority).
-        monkeypatch.setattr(logging_setup.os, "nice", lambda n: 0)
+        monkeypatch.setattr(logging_setup.os, "nice", lambda n: 0, raising=False)
 
         setiopolicy_calls: list[tuple] = []
 
@@ -71,7 +71,7 @@ class TestMacOSIoPriority:
         monkeypatch.setattr(logging_setup, "is_macos", lambda: True)
         monkeypatch.setattr(logging_setup, "is_linux", lambda: False)
         monkeypatch.setattr(logging_setup, "is_windows", lambda: False)
-        monkeypatch.setattr(logging_setup.os, "nice", lambda n: 0)
+        monkeypatch.setattr(logging_setup.os, "nice", lambda n: 0, raising=False)
 
         cdll_paths: list[str] = []
         fake_libsystem = MagicMock()
@@ -102,7 +102,7 @@ class TestMacOSIoPriority:
         monkeypatch.setattr(logging_setup, "is_macos", lambda: True)
         monkeypatch.setattr(logging_setup, "is_linux", lambda: False)
         monkeypatch.setattr(logging_setup, "is_windows", lambda: False)
-        monkeypatch.setattr(logging_setup.os, "nice", lambda n: 0)
+        monkeypatch.setattr(logging_setup.os, "nice", lambda n: 0, raising=False)
 
         fake_libsystem = MagicMock()
         # setiopolicy_np returns -1 on error (errno set).
@@ -123,7 +123,7 @@ class TestMacOSIoPriority:
         monkeypatch.setattr(logging_setup, "is_macos", lambda: True)
         monkeypatch.setattr(logging_setup, "is_linux", lambda: False)
         monkeypatch.setattr(logging_setup, "is_windows", lambda: False)
-        monkeypatch.setattr(logging_setup.os, "nice", lambda n: 0)
+        monkeypatch.setattr(logging_setup.os, "nice", lambda n: 0, raising=False)
 
         def _raising_cdll(path, *args, **kwargs):
             raise OSError("simulated dylib load failure")

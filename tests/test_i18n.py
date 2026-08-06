@@ -1,4 +1,4 @@
-"""Unit tests for ``voice_typer/server/i18n.py`` (XS-96).
+"""Unit tests for ``voice_typer/server/i18n.py``.
 
 Server-side i18n module providing ``t(key, **fmt)`` translation with
 locale switching, English fallback, format interpolation failure
@@ -10,7 +10,7 @@ server-side notification / state-message translator. The pre-existing
 files at ``voice_typer/client/src/renderer/src/i18n/translations/en.json``
 (a different module).
 
-Test cases (per XS-96):
+Test cases:
 - (a) ``t(key, **fmt)`` with a valid key + placeholders.
 - (b) ``register_locale`` + ``set_locale`` + ``get_locale`` round-trip.
 - (c) Fallback chain: missing key in active locale → English → raw key.
@@ -230,7 +230,7 @@ class TestFormatInterpolationFailure:
         assert result == "idle"
 
     def test_bad_format_spec_returns_unformatted_text(self):
-        """AC-22 — a translation whose format spec is invalid (e.g.
+        """a translation whose format spec is invalid (e.g.
         ``{name:bad}``) must NOT raise ``ValueError``. The previous
         ``except (KeyError, IndexError)`` only caught missing-
         placeholder / index errors, not bad-format-spec errors —

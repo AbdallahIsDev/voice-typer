@@ -1,4 +1,4 @@
-"""SI-14 / SI-fix-11 regression tests: ``tray_fallback_notification`` allowlist.
+"""regression tests: ``tray_fallback_notification`` allowlist.
 
 When the tray is unavailable (Linux Wayland without StatusNotifierItem,
 ``VOICE_TYPER_NO_TRAY=1``, headless, or pystray ``OSError``), the
@@ -14,9 +14,9 @@ DROPS any inbound frame whose ``type`` is not in that slice (logged at
 the renderer alone is therefore insufficient — the frame is dropped at
 the Rust layer before it ever reaches the renderer.
 
-SI-fix-11 (this file's owner) edits ONLY the Python side (tray.py +
+(this file's owner) edits ONLY the Python side (tray.py +
 tray_elapsed_timer.py). The actual ``ws.rs`` ``ALLOWED_EVENT_TYPES``
-edit is owned by SI-fix-13. This test file pins the contract from the
+This test file pins the contract from the
 Python side:
 
   1. ``tray.py`` MUST publish the literal event name
@@ -30,12 +30,12 @@ Python side:
      line in the renderer".
   3. The event name ``tray_fallback_notification`` MUST appear in the
      ws.rs source file in SOME form — either in the
-     ``ALLOWED_EVENT_TYPES`` slice (post-SI-fix-13) OR in a comment
-     near the slice acknowledging the pending allowlist. Pre-SI-fix-13
+     ``ALLOWED_EVENT_TYPES`` slice OR in a comment
+     near the slice acknowledging the pending allowlist.
      this assertion fails on the slice check but passes on the
-     "file mentions the literal" check; post-SI-fix-13 both pass.
+     "file mentions the literal" check; both pass.
      The test is intentionally written to PASS in both states so the
-     SI-fix-11 / SI-fix-13 ordering doesn't create a CI race.
+     ordering doesn't create a CI race.
 
 These tests are HEADLESS and SIDE-EFFECT-FREE: they perform no IPC,
 spawn no process, touch no sockets, and don't import pystray. They
@@ -94,7 +94,7 @@ def _ws_rs_source() -> str:
     """
     p = _ws_rs_path()
     assert p.is_file(), (
-        f"SI-14: expected Tauri WS reader at {p} — file not found. "
+        f"expected Tauri WS reader at {p} — file not found. "
         "The ws.rs path is the canonical gate for server-initiated "
         "event types (ALLOWED_EVENT_TYPES)."
     )
@@ -114,7 +114,7 @@ def _tray_source() -> str:
 
 
 class TestTrayPublishesCanonicalEventName:
-    """SI-14: tray.py MUST publish the literal ``tray_fallback_notification``."""
+    """tray.py MUST publish the literal ``tray_fallback_notification``."""
 
     def test_event_name_literal_appears_in_tray_source(self) -> None:
         """The literal ``"tray_fallback_notification"`` MUST appear in
@@ -128,7 +128,7 @@ class TestTrayPublishesCanonicalEventName:
         """
         src = _tray_source()
         assert EXPECTED_EVENT_NAME in src, (
-            f"SI-14: tray.py must publish the literal "
+            f"tray.py must publish the literal "
             f"{EXPECTED_EVENT_NAME!r} via event_bus.publish in "
             f"``_drain_pending``. The event name is the wire-protocol "
             f"contract with the Tauri WS reader's "
@@ -156,7 +156,7 @@ class TestTrayPublishesCanonicalEventName:
         executable_src = "\n".join(executable_lines)
         quoted = f'"{EXPECTED_EVENT_NAME}"'
         assert quoted in executable_src, (
-            f"SI-14: the quoted literal {quoted} must appear in "
+            f"the quoted literal {quoted} must appear in "
             f"executable code in tray.py (the ``_event_bus.publish`` "
             f"call site in ``_drain_pending``). A docstring-only "
             f"mention is insufficient — the event must actually be "
@@ -168,7 +168,7 @@ class TestTrayPublishesCanonicalEventName:
 
 
 class TestDrainPendingDocumentsWsRsGate:
-    """SI-14: the ``_drain_pending`` docstring MUST reference the actual
+    """the ``_drain_pending`` docstring MUST reference the actual
     Tauri ``ALLOWED_EVENT_TYPES`` gate at ``ws.rs``, not just "a single
     line in the renderer".
 
@@ -186,7 +186,7 @@ class TestDrainPendingDocumentsWsRsGate:
         """
         src = inspect.getsource(TrayIcon._drain_pending)
         assert "ALLOWED_EVENT_TYPES" in src, (
-            "SI-14: TrayIcon._drain_pending docstring must reference "
+            "TrayIcon._drain_pending docstring must reference "
             "``ALLOWED_EVENT_TYPES`` — the actual gate is the Tauri "
             "WS reader's allowlist slice at ws.rs:80-150, NOT 'a "
             "single line in the renderer' (the old, inaccurate framing)."
@@ -198,7 +198,7 @@ class TestDrainPendingDocumentsWsRsGate:
         """
         src = inspect.getsource(TrayIcon._drain_pending)
         assert "ws.rs" in src, (
-            "SI-14: TrayIcon._drain_pending docstring must reference "
+            "TrayIcon._drain_pending docstring must reference "
             "``ws.rs`` (the file containing ``ALLOWED_EVENT_TYPES``) "
             "so a contributor reading the Python side can locate the "
             "actual gate."
@@ -212,28 +212,28 @@ class TestWsRsAllowlistStatus:
     """SI-14 cross-layer awareness check (informational, NOT a hard gate).
 
     The actual ws.rs ``ALLOWED_EVENT_TYPES`` slice edit is owned by
-    SI-fix-13 (a parallel fix sub-agent). This test class is
-    INTENTIONALLY written to PASS in both the pre-SI-fix-13 and
-    post-SI-fix-13 states so the SI-fix-11 / SI-fix-13 ordering
+    (a parallel fix sub-agent). This test class is
+    INTENTIONALLY written to PASS in both the pre-and
+    post-states so the / ordering
     doesn't create a CI race:
 
-      - PRE-SI-fix-13 (slice edit NOT yet landed): ws.rs does not
+      - PRE-(slice edit NOT yet landed): ws.rs does not
         mention the literal in the ``ALLOWED_EVENT_TYPES`` slice.
-        The test SKIPS with a clear reason pointing at SI-fix-13.
-      - POST-SI-fix-13 (slice edit landed): ws.rs contains the
+        The test SKIPS with a clear reason pointing at.
+      - POST-(slice edit landed): ws.rs contains the
         literal in the slice. The test PASSES — the cross-layer gap
         is closed.
-      - MID-FIX (SI-fix-13 added a Rust test that ASSERTS the slice
+      - MID-FIX (added a Rust test that ASSERTS the slice
         membership but hasn't yet added the slice entry — observed
         2024 in the work-in-progress state): ws.rs mentions the
         literal in test code / comments but NOT in the slice. The
         test SKIPS — the gap is documented in ws.rs itself via
-        SI-fix-13's Rust test, so the SI-fix-11 Python-side test
+        Rust test, so the Python-side test
         doesn't need to hard-fail.
 
-    A hard assertion here would either (a) fail pre-SI-fix-13 (blocking
-    SI-fix-11 from landing independently) or (b) fail mid-fix (creating
-    a CI flake window while SI-fix-13 is in progress). The skip-based
+    A hard assertion here would either (a) fail pre-(blocking
+    from landing independently) or (b) fail mid-fix (creating
+    a CI flake window while is in progress). The skip-based
     approach gives us a CI signal in ALL states without creating an
     ordering dependency.
     """
@@ -241,7 +241,7 @@ class TestWsRsAllowlistStatus:
     def test_ws_rs_allowlist_eventually_includes_event_name(self) -> None:
         """If ws.rs already has ``tray_fallback_notification`` in the
         ``ALLOWED_EVENT_TYPES`` slice literal, PASS. Otherwise SKIP —
-        the actual allowlist edit is owned by SI-fix-13 (which may
+        the actual allowlist edit is owned by (which may
         also have added a Rust-side test in ws.rs asserting the slice
         membership; that test is the canonical gate for the slice
         entry, not this Python-side test).
@@ -264,7 +264,7 @@ class TestWsRsAllowlistStatus:
             # gate; this Python-side test is a cross-layer sanity
             # check only. Skip rather than fail.
             pytest.skip(
-                "SI-14: ws.rs ``ALLOWED_EVENT_TYPES`` slice declaration "
+                "ws.rs ``ALLOWED_EVENT_TYPES`` slice declaration "
                 "not found (or shape changed) — the canonical gate is "
                 "the Rust-side test in ws.rs, not this Python-side "
                 "sanity check. Skipping."
@@ -275,8 +275,8 @@ class TestWsRsAllowlistStatus:
             pytest.skip(
                 f"SI-14 pending: ws.rs ``ALLOWED_EVENT_TYPES`` slice does "
                 f"not yet contain the quoted literal {quoted!r}. The "
-                f"actual slice edit is owned by SI-fix-13 (a parallel "
-                f"fix sub-agent). If SI-fix-13 has added a Rust-side "
+                f"actual slice edit is owned by (a parallel "
+                f"fix sub-agent). If has added a Rust-side "
                 f"test in ws.rs asserting slice membership, that test is "
                 f"the canonical gate for the slice entry — this "
                 f"Python-side test skips until the slice edit lands."
@@ -291,7 +291,7 @@ class TestWsRsAllowlistStatus:
 
 
 class TestPublishCallSiteShape:
-    """SI-14: the publish call site in ``_drain_pending`` MUST use the
+    """the publish call site in ``_drain_pending`` MUST use the
     canonical ``{"type": "tray_fallback_notification", ...}`` shape so
     the Tauri WS reader's allowlist lookup (which keys on the
     ``type`` field) matches.
@@ -308,12 +308,12 @@ class TestPublishCallSiteShape:
         # — assert both tokens appear together (within a reasonable
         # window) in the drain method.
         assert '"type"' in src, (
-            "SI-14: the publish call in _drain_pending must use the "
+            "the publish call in _drain_pending must use the "
             '``"type"`` field to carry the event name (the Tauri WS '
             "reader's allowlist lookup keys on ``type``)."
         )
         assert EXPECTED_EVENT_NAME in src, (
-            f"SI-14: the publish call in _drain_pending must publish "
+            f"the publish call in _drain_pending must publish "
             f"the event name {EXPECTED_EVENT_NAME!r} (matched against "
             f"the ws.rs ``ALLOWED_EVENT_TYPES`` slice)."
         )

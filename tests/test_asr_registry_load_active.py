@@ -1,4 +1,4 @@
-"""AC-6 regression tests: ``AsrBackendRegistry.load_active`` exception
+"""regression tests: ``AsrBackendRegistry.load_active`` exception
 path mirrors :meth:`load_with_fallback` (circuit breaker + unload-on-failure).
 
 Pre-fix: ``load_active``'s ``except Exception`` branch caught the
@@ -40,7 +40,7 @@ def _make_registry_with_failing_backend(*, backend_name: str = "parakeet") -> tu
 
 
 class TestLoadActiveCircuitBreaker:
-    """AC-6: ``load_active`` exception path must increment the failure
+    """``load_active`` exception path must increment the failure
     counter (circuit breaker), mirroring ``load_with_fallback``."""
 
     def test_load_active_increments_failure_counter_on_exception(self):
@@ -53,7 +53,7 @@ class TestLoadActiveCircuitBreaker:
         assert registry.failure_count("parakeet") == 0
         registry.load_active(progress_callback=lambda msg: None)
         assert registry.failure_count("parakeet") == 1, (
-            "AC-6: load_active must increment the failure counter on "
+            "load_active must increment the failure counter on "
             "exception (mirror load_with_fallback). Pre-fix, the counter "
             "never incremented so the circuit breaker never tripped on "
             "repeated load_active failures."
@@ -70,7 +70,7 @@ class TestLoadActiveCircuitBreaker:
             registry.load_active(progress_callback=lambda msg: None)
 
         assert registry._is_disabled("parakeet"), (
-            "AC-6: load_active must trip the circuit breaker after "
+            "load_active must trip the circuit breaker after "
             "_MAX_CONSECUTIVE_FAILURES consecutive failures (mirror "
             "load_with_fallback). Pre-fix, load_active never disabled "
             "a persistently-failing backend."
@@ -108,14 +108,14 @@ class TestLoadActiveCircuitBreaker:
 
         registry.load_active(progress_callback=lambda msg: None)
         assert registry.failure_count("parakeet") == 0, (
-            "AC-6: load_active must reset the failure counter to 0 on "
+            "load_active must reset the failure counter to 0 on "
             "successful load (mirror load_with_fallback's _record_success "
             "call)."
         )
 
 
 class TestLoadActiveUnloadOnFailure:
-    """AC-6 / MEM-01: ``load_active`` exception path must call
+    """``load_active`` exception path must call
     ``backend.unload()`` (resource cleanup), mirroring
     ``load_with_fallback``."""
 
@@ -130,7 +130,7 @@ class TestLoadActiveUnloadOnFailure:
         (
             engine.unload.assert_called_once(),
             (
-                "AC-6 / MEM-01: load_active must call backend.unload() on "
+                "load_active must call backend.unload() on "
                 "exception to release partially-allocated resources (mirror "
                 "load_with_fallback). Pre-fix, partially-allocated torch "
                 "tensors from each failed from_pretrained were never released "
@@ -149,7 +149,7 @@ class TestLoadActiveUnloadOnFailure:
         # Must NOT raise — load_active should swallow the unload exception.
         result = registry.load_active(progress_callback=lambda msg: None)
         assert result is None, (
-            "AC-6: load_active must return None (not raise) when both "
+            "load_active must return None (not raise) when both "
             "load() and unload() fail. The unload failure must be logged "
             "but not propagated."
         )

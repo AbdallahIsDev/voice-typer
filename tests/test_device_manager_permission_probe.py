@@ -316,8 +316,14 @@ class TestHealthCheckerLoopPeriodicProbe:
             time.sleep(0.05)
             dm._device_health_stop_event.set()
 
-        threading.Thread(target=_set_stop_after_delay, daemon=True).start()
+        # capture the thread handle and join it after the loop
+        # returns so we don't leak a daemon Thread-without-join (the
+        # thread has already set the stop event by the time the loop
+        # returns, so the join is near-instant).
+        stop_thread = threading.Thread(target=_set_stop_after_delay, daemon=True)
+        stop_thread.start()
         dm._device_health_checker_loop()
+        stop_thread.join(timeout=1.0)
         assert len(probe_calls) >= 1, (
             "FR-17: health-checker loop must call the permission probe on "
             "the first wake when _permission_check_interval=1"
@@ -367,8 +373,12 @@ class TestHealthCheckerLoopPeriodicProbe:
             time.sleep(0.05)
             dm._device_health_stop_event.set()
 
-        threading.Thread(target=_set_stop_after_delay, daemon=True).start()
+        # capture the thread handle and join it after the loop
+        # returns so we don't leak a daemon Thread-without-join.
+        stop_thread = threading.Thread(target=_set_stop_after_delay, daemon=True)
+        stop_thread.start()
         dm._device_health_checker_loop()
+        stop_thread.join(timeout=1.0)
         # After 1 wake with interval=2: counter went 0→1, did NOT
         # reach the threshold of 2 → probe NOT called.
         assert len(probe_calls) == 0, (

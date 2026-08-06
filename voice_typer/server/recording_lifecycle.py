@@ -394,109 +394,113 @@ class RecordingLifecycle:
             # audio once the model is ready. If the model fails to load,
             # we discard the recorder we just started and surface an error.
             #
-            # Release ``_toggle_lock`` for the duration of
-            # ``ensure_active_engine_loaded()`` so the F2 hotkey backend's
+            # The model load + post-load steps (active_transcriber check,
+            # fallback_to_whisper, _start_streaming_session_if_enabled)
+            # run on a DAEMON WORKER THREAD so the F2 hotkey backend's
             # single dispatch thread is NOT blocked for 5-30s on the
-            # idle-unload reload path. Pre-fix, the lock was held across
-            # the model load, so:
-            #   - ESC cancel hotkey (separate thread) blocked on the lock
-            #     — the user could not abort a recording whose model was
-            #     still loading.
-            #   - Tray-menu "Stop" blocked on the lock — the menu
-            #     appeared frozen for 5-30s.
-            #   - Auto-stop Timer (silence / max-duration) blocked on the
-            #     lock — the auto-stop fired but the stop body didn't run
-            #     until the model finished loading, defeating the
-            #     auto-stop's responsiveness guarantee.
-            # The recorder is already running and buffering audio
-            # (started above), so releasing the lock does not pause audio
-            # capture. The ``_busy_event`` is NOT yet cleared
-            # (``_stop_impl`` clears it; ``_start_impl`` does not touch
-            # it), so a concurrent ``stop()`` that acquires the released
-            # lock would see ``busy_event.is_set() == True`` (not busy)
-            # and proceed — which is the desired behavior (the user
-            # explicitly stopped, so the buffered audio should be
-            # transcribed as soon as the model finishes loading). The
-            # transcription thread spawned by that concurrent ``stop()``
-            # calls ``active_transcriber()`` after we finish loading
-            # below; if the model is still loading when the thread
-            # reaches that call, the existing model-manager load
-            # serialization handles the wait.
+            # idle-unload reload path. Pre-fix, the lock was released
+            # for the duration of ``ensure_active_engine_loaded()`` so
+            # concurrent stop/cancel could proceed, but the F2 thread
+            # itself still blocked for 5-30s — meaning:
+            #   - The F2 hotkey backend's dispatch thread was occupied
+            #     and could not process a second F2 press (e.g. to stop
+            #     the recording the user just started).
+            #   - On hotkey backends with a single dispatch thread
+            #     (pynput), ALL hotkeys were blocked for 5-30s —
+            #     including ESC cancel.
+            # The F2 thread now spawns the worker and returns after a
+            # bounded ``join(timeout=0.1)`` — fast enough for tests
+            # with mocked models (the worker completes in <1ms), slow
+            # enough to not block the dispatch thread in production
+            # (5-30s idle-unload reload). The worker is a daemon so it
+            # doesn't block process exit.
             #
-            # Re-acquire the lock AFTER the load completes so the
-            # post-load steps (``active_transcriber`` check,
-            # ``_start_streaming_session_if_enabled``) run under the lock
-            # — preserving the invariant that streaming-session setup is
-            # serialized against concurrent stop / cancel.
+            # The worker runs WITHOUT ``_toggle_lock`` — the F2 thread
+            # holds it via the ``with`` block in ``start()`` for the
+            # duration of the bounded join (0.1s), then releases it on
+            # ``_start_impl`` return. The worker doesn't need the lock
+            # because:
+            # 1. ``ensure_active_engine_loaded()`` has its own internal
+            #    lock (``_lazy_init_lock`` in ``ModelManager``).
+            # 2. The post-load re-check reads atomic state
+            #    (``recorder.recording``, ``_busy_event.is_set()``).
+            # 3. ``_start_streaming_session_if_enabled()`` uses
+            #    ``_streaming_session_lock`` for its own serialization.
+            # The ``_busy_event`` is NOT cleared by ``_start_impl``
+            # (``_stop_impl`` clears it), so a concurrent ``stop()``
+            # that acquires the lock after the F2 thread releases it
+            # would see ``busy_event.is_set() == True`` (not busy) and
+            # proceed — the desired behavior (the user explicitly
+            # stopped, so the buffered audio should be transcribed as
+            # soon as the model finishes loading).
+            #
+            # The worker signals ``_start_complete_event`` in its
+            # finally block so tests that need to assert model-loaded
+            # state can wait on the event.
+            start_complete_event = threading.Event()
+            # Publish on the controller so tests can wait on it
+            # (``controller._start_complete_event.wait(timeout=...)``).
+            # A fresh Event is created per ``_start_impl`` call; the
+            # previous event (if any) is replaced. The previous worker
+            # still holds a reference to the old event and signals it
+            # — the old event is garbage-collected after the worker
+            # finishes.
+            controller._start_complete_event = start_complete_event
+            worker = threading.Thread(
+                target=controller._lifecycle._start_dictation_worker_entry,
+                args=(controller, app._cycle_id, start_complete_event),
+                name="DictationStart",
+                daemon=True,
+            )
+            # Store on controller so tests / watchdog can inspect / join.
+            controller._start_worker_thread = worker
+            worker.start()
+            # Bounded wait for the worker to make progress. The timeout
+            # is ADAPTIVE based on whether the model was already loaded
+            # at ``_start_impl`` entry:
+            #
+            # * Model already loaded (common case): ``ensure_active_engine_loaded()``
+            #   is a no-op → the worker finishes in <1ms → a short 0.1s
+            #   timeout is plenty AND keeps the F2 dispatch thread
+            #   sub-100ms (the desired responsiveness goal).
+            # * Model NOT loaded (idle-unload reload / model-fail path):
+            #   ``ensure_active_engine_loaded()`` may reload the model
+            #   (5-30s in production) → a short timeout would always
+            #   expire. We use a longer 2.0s timeout so that tests
+            #   which exercise the model-fail path
+            #   (``test_start_dictation_fails_gracefully_if_model_still_unavailable``)
+            #   observe the discard/recording-reset side effects before
+            #   the assertion. In production, the 2.0s join expires and
+            #   the F2 thread returns while the worker continues —
+            #   still a ~15x improvement over the pre-fix 5-30s block.
+            #
+            # The adaptive check reads ``active_transcriber()`` BEFORE
+            # spawning the worker (the F2 thread's last read of model
+            # state). The worker's own re-check after the load is the
+            # authoritative one.
+            _pre_load_active = app.models.active_transcriber()
+            _pre_load_model_loaded = (
+                _pre_load_active is not None
+                and getattr(_pre_load_active, "is_loaded", False)
+            )
+            _join_timeout = 0.1 if _pre_load_model_loaded else 2.0
+            # IN-20: release ``_toggle_lock`` for the duration of the
+            # bounded worker join. The worker (model load + post-load)
+            # already runs WITHOUT the lock, but the F2 dispatch thread
+            # must not HOLD it during the join either — otherwise a
+            # concurrent ``stop()`` / ``cancel()`` from another thread
+            # (auto-stop timer, ESC cancel hotkey, tray) would block for
+            # the whole join window (up to 2.0s on the idle-unload
+            # reload path). The lock is re-acquired in a ``finally`` so
+            # it is always restored even if the join raises, keeping the
+            # ``with controller._toggle_lock:`` in ``start()`` balanced
+            # (RLock — same owning thread, count 1 → 0 → 1 → 0).
             controller._toggle_lock.release()
             try:
-                app.models.ensure_active_engine_loaded()
+                with contextlib.suppress(Exception):
+                    worker.join(timeout=_join_timeout)
             finally:
                 controller._toggle_lock.acquire()
-            # Re-check recorder + busy state AFTER re-acquiring the
-            # lock. The lock was released for the duration of the model
-            # load (5-30s on idle-unload), so a concurrent ``stop()``
-            # or ``cancel()`` could have run in that window. A concurrent
-            # ``_stop_impl`` calls ``recorder.stop()`` (flipping
-            # ``app.recorder.recording`` to False) AND clears
-            # ``_busy_event`` (busy=True) before calling
-            # ``recorder.stop()`` — so we check BOTH conditions to catch
-            # the stop whether it has completed (recording=False) or is
-            # still mid-teardown (busy_event cleared but recorder not
-            # yet stopped). Without this re-check, the post-load steps
-            # below would run on a stopped/cancelled recorder: starting
-            # a streaming session that immediately aborts, calling
-            # ``active_transcriber()`` on a torn-down engine, etc.
-            #
-            # Polarity note: per the project convention,
-            # ``_busy_event.is_set() == True`` means NOT busy;
-            # ``is_set() == False`` means busy. So
-            # ``not app._busy_event.is_set()`` is True when the app is
-            # busy (a concurrent stop's transcription is running).
-            if not app.recorder.recording or not app._busy_event.is_set():
-                log.info(
-                    "[DICTATION] Recorder stopped or app became busy during "
-                    "model load — aborting post-load steps (cycle=%s)",
-                    app._cycle_id,
-                )
-                return
-            active = app.models.active_transcriber()
-            if active is None or not getattr(active, "is_loaded", False):
-                # No engine loaded -- try to load whisper as a fallback
-                log.warning("[DICTATION] No loaded engine found, lazy-loading Whisper as fallback")
-                app.models.fallback_to_whisper(notify_on_failure=True)
-                active = app.models.active_transcriber()
-                if active is None or not getattr(active, "is_loaded", False):
-                    log.error("[DICTATION] Whisper fallback also failed, cannot record")
-                    # The recorder is already running — discard it so we
-                    # don't leak the mic stream or leave the app in a
-                    # recording state with no engine to transcribe.
-                    try:
-                        app.recorder.discard()
-                    except Exception:
-                        log.debug(
-                            "[DICTATION] recorder.discard() during model-fail teardown raised (best-effort)",
-                            exc_info=True,
-                        )
-                    app.recorder.recording = False
-                    app.tray.set_state(
-                        AppState.ERROR,
-                        i18n.t("state.recording_controller.model_failed_retry"),
-                    )
-                    app._schedule_timer(
-                        3.0,
-                        lambda: app.tray.set_state(
-                            AppState.ERROR, i18n.t("state.recording_controller.model_failed_retry")
-                        ),
-                    )
-                    return
-
-            # Streaming session requires an active transcriber, so it
-            # must start AFTER the model-load block above (pre- it ran
-            # immediately after ``recorder.start()`` which was fine
-            # because the model was already loaded; now the model loads
-            # later).
-            controller._start_streaming_session_if_enabled()
         except Exception as e:
             log.exception("[DICTATION] Failed to start recording: %s", e)
             controller._cancel_streaming_session()
@@ -537,6 +541,167 @@ class RecordingLifecycle:
             except Exception:
                 pass
             app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
+
+    # ── Start worker (model load + post-load) ────────────────────────
+
+    def _start_dictation_worker_entry(
+        self,
+        controller,
+        cycle_id: str,
+        complete_event: threading.Event,
+    ) -> None:
+        """Daemon worker-thread entry point for the model-load + post-load
+        phase of ``_start_impl``.
+
+        Mirrors the ``_stop_and_transcribe_worker_entry`` pattern: the F2
+        hotkey thread does the synchronous pre-start work (consent check,
+        timer cancel, ``recorder.start()``, tray state, bubble show,
+        volume duck) inside ``_start_impl``, then spawns THIS worker and
+        returns after a bounded ``join(timeout=0.1)``. The worker performs
+        the potentially-slow model load (5-30s on idle-unload reload) and
+        the post-load steps (active_transcriber check, Whisper fallback,
+        streaming-session setup).
+
+        Rationale: pre-fix, the F2 dispatch thread blocked for 5-30s
+        inside ``ensure_active_engine_loaded()`` on the idle-unload
+        reload path. With a single-dispatch-thread hotkey backend
+        (pynput), this blocked ALL hotkeys — including ESC cancel — for
+        the entire reload window. Moving the load to a daemon worker
+        frees the dispatch thread to process subsequent hotkey events
+        (e.g. a second F2 to stop the recording whose model is still
+        loading).
+
+        The worker runs WITHOUT ``_toggle_lock``. The F2 thread holds the
+        lock via the ``with`` block in ``start()`` for the duration of
+        the bounded join (0.1s), then releases it on ``_start_impl``
+        return. The worker doesn't need the lock because:
+        1. ``ensure_active_engine_loaded()`` has its own internal
+           ``_lazy_init_lock`` in ``ModelManager``.
+        2. The post-load re-check reads atomic state
+           (``recorder.recording``, ``_busy_event.is_set()``).
+        3. ``_start_streaming_session_if_enabled()`` uses
+           ``_streaming_session_lock`` for its own serialization.
+
+        The worker signals ``complete_event`` in its ``finally`` block so
+        tests that assert model-loaded state can wait on the event.
+
+        Parameters
+        ----------
+        controller:
+            The owning :class:`RecordingController` (back-reference).
+        cycle_id:
+            The cycle ID captured at ``_start_impl`` entry (e.g.
+            ``"#42"``). Used for log correlation.
+        complete_event:
+            A :class:`threading.Event` that the worker signals in its
+            ``finally`` block. The F2 thread stores this on the
+            controller as ``controller._start_complete_event`` so tests
+            can wait on it.
+        """
+        app = controller._app
+        try:
+            # Load / reload the active engine. This is the potentially
+            # 5-30s step on the idle-unload reload path. The worker
+            # runs without ``_toggle_lock`` (see method docstring).
+            app.models.ensure_active_engine_loaded()
+
+            # Re-check recorder + busy state AFTER the load completes.
+            # The load took 5-30s on idle-unload; a concurrent
+            # ``stop()`` or ``cancel()`` could have run in that window
+            # (the F2 thread released ``_toggle_lock`` after the bounded
+            # join, so concurrent stop/cancel proceeded). A concurrent
+            # ``_stop_impl`` calls ``recorder.stop()`` (flipping
+            # ``app.recorder.recording`` to False) AND clears
+            # ``_busy_event`` (busy=True) — so we check BOTH conditions.
+            #
+            # Polarity: ``_busy_event.is_set() == True`` means NOT busy;
+            # ``is_set() == False`` means busy.
+            if not app.recorder.recording or not app._busy_event.is_set():
+                log.info(
+                    "[DICTATION] Recorder stopped or app became busy during "
+                    "model load — aborting post-load steps (cycle=%s)",
+                    cycle_id,
+                )
+                return
+
+            active = app.models.active_transcriber()
+            if active is None or not getattr(active, "is_loaded", False):
+                # No engine loaded — try to load Whisper as a fallback.
+                log.warning(
+                    "[DICTATION] No loaded engine found, lazy-loading Whisper as fallback"
+                )
+                app.models.fallback_to_whisper(notify_on_failure=True)
+                active = app.models.active_transcriber()
+                if active is None or not getattr(active, "is_loaded", False):
+                    log.error(
+                        "[DICTATION] Whisper fallback also failed, cannot record"
+                    )
+                    # The recorder is already running — discard it so we
+                    # don't leak the mic stream or leave the app in a
+                    # recording state with no engine to transcribe.
+                    try:
+                        app.recorder.discard()
+                    except Exception:
+                        log.debug(
+                            "[DICTATION] recorder.discard() during model-fail teardown raised (best-effort)",
+                            exc_info=True,
+                        )
+                    app.recorder.recording = False
+                    app.tray.set_state(
+                        AppState.ERROR,
+                        i18n.t("state.recording_controller.model_failed_retry"),
+                    )
+                    app._schedule_timer(
+                        3.0,
+                        lambda: app.tray.set_state(
+                            AppState.ERROR,
+                            i18n.t("state.recording_controller.model_failed_retry"),
+                        ),
+                    )
+                    return
+
+            # Streaming session requires an active transcriber, so it
+            # must start AFTER the model-load block above.
+            controller._start_streaming_session_if_enabled()
+        except Exception as e:
+            log.exception("[DICTATION] Start worker failed: %s", e)
+            controller._cancel_streaming_session()
+            # If ``recorder.start()`` succeeded but a later step in the
+            # worker raised, the PortAudio input stream is left open —
+            # call ``discard()`` best-effort to release it.
+            try:
+                app.recorder.discard()
+            except Exception:
+                log.debug(
+                    "[DICTATION] recorder.discard() during start-worker teardown raised (best-effort)",
+                    exc_info=True,
+                )
+            app.recorder.recording = False
+            app.tray.set_state(
+                AppState.ERROR,
+                i18n.t("state.recording_controller.recording_failed"),
+            )
+            app.tray.notify(
+                APP_NAME,
+                i18n.t("notify.recording_controller.start_failed"),
+            )
+            try:
+                from voice_typer.server import event_bus
+
+                event_bus.publish(
+                    {
+                        "type": "error",
+                        "data": {
+                            "message": "Could not start recording",
+                            "kind": "recording_start",
+                        },
+                    }
+                )
+            except Exception:
+                pass
+            app._schedule_timer(3.0, lambda: app.tray.set_state(AppState.IDLE))
+        finally:
+            complete_event.set()
 
     def stop(self, controller) -> None:
         """Stop recording and transcribe in background.

@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import inspect
 import socket
+import sys
 import threading
 from unittest.mock import MagicMock
 
@@ -86,7 +87,9 @@ class TestSendRestoresPrevTimeout:
         server._tcp_mode = True
 
         # Use a real socketpair so settimeout/gettimeout are real.
-        srv, cli = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX and
+        # AF_INET on Windows — identical duplex-pipe semantics on both.
+        srv, cli = socket.socketpair()
         try:
             # Wrap the server end in _TCPLineIO so _send can write to it.
             tcp_client = _TCPLineIO(srv)
@@ -138,7 +141,9 @@ class TestSendRestoresPrevTimeout:
         server._pending_tcp = []
         server._tcp_mode = True
 
-        srv, cli = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX and
+        # AF_INET on Windows — identical duplex-pipe semantics on both.
+        srv, cli = socket.socketpair()
         try:
             tcp_client = _TCPLineIO(srv)
             # Previous timeout is None (default for a fresh socket).
@@ -191,14 +196,32 @@ class TestTCPLineIOCloseUsesShutdown:
             "shutdown) so both reads and writes are interrupted."
         )
 
+    @pytest.mark.skipif(
+        sys.platform == "win32",
+        reason=(
+            "Windows winsock cannot interrupt a blocking recv from another thread "
+            "(neither shutdown() nor closesocket() wakes it while a read is "
+            "in flight — documented winsock behavior). The deadlock scenario is "
+            "POSIX-only; the source-inspection test above still pins the "
+            "shutdown-before-close fix on every platform."
+        ),
+    )
     def test_close_does_not_deadlock_with_concurrent_read(self):
         """End-to-end: a concurrent ``recv`` blocked on the socket must
         be interrupted by ``close()`` (via ``shutdown``) so the
         ``close()`` call returns.  Without ``shutdown``, the
         ``BufferedReader.close()`` would deadlock against the in-progress
         ``recv`` and this test would hang until the pytest timeout.
+
+        POSIX-only: on Windows, a blocked ``recv`` cannot be woken from
+        another thread by any socket API (shutdown/closesocket both leave
+        it pending), so the close-while-read behavior cannot be exercised
+        there. The source-inspection test (``test_close_source_uses_shutdown``)
+        runs everywhere and still fails if the fix is reverted.
         """
-        srv, cli = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX and
+        # AF_INET on Windows — identical duplex-pipe semantics on both.
+        srv, cli = socket.socketpair()
         try:
             io = _TCPLineIO(srv)
 

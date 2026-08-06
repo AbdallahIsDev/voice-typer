@@ -519,18 +519,35 @@ class TestCorrectionsLimits:
             misspellings, _, _ = result
             assert long_pattern not in misspellings
 
-    def test_phrase_pattern_cache_has_lru_eviction(self):
-        """SEC-011: _phrase_pattern_cache evicts oldest entries when full."""
-        from voice_typer.server.text_cleanup import (
-            _PHRASE_PATTERN_CACHE_MAXSIZE,
-            _get_compiled_phrase_pattern,
-        )
+    def test_phrase_pattern_cache_is_bounded_via_combined_regex(self):
+        """SEC-011 (revised): the former per-phrase LRU
+        ``_phrase_pattern_cache`` was dead on the production hot path and
+        has been removed. The live path is ``_get_phrases_regex``, which
+        builds ONE combined-alternation regex per active-phrase list and
+        caches it by list identity — so memory grows with the number of
+        distinct ``configure_corrections`` calls, not with the number of
+        distinct phrases ever seen. This test pins that the live cache
+        contract holds: a single call returns a compiled regex + lookup
+        dict for the active phrases, and a fresh call returns the same
+        cached objects.
+        """
+        import re
 
-        # The cache should have a maximum size
-        assert _PHRASE_PATTERN_CACHE_MAXSIZE > 0
-        # The function should work for basic patterns
-        pattern = _get_compiled_phrase_pattern("test phrase")
-        assert pattern is not None
+        from voice_typer.server import text_cleanup
+
+        saved = text_cleanup._active_phrases
+        try:
+            text_cleanup._active_phrases = [("test phrase", "T")]
+            text_cleanup._phrases_re_cache = (None, None, {})
+            pattern1, lookup1 = text_cleanup._get_phrases_regex()
+            pattern2, lookup2 = text_cleanup._get_phrases_regex()
+            assert pattern1 is pattern2
+            assert lookup1 is lookup2
+            assert isinstance(pattern1, re.Pattern)
+            assert lookup1 == {"test phrase": "T"}
+        finally:
+            text_cleanup._active_phrases = saved
+            text_cleanup._phrases_re_cache = (None, None, {})
 
 
 # ─── SEC-audit-011: SystemRoot Validation ──────────────────────────────────

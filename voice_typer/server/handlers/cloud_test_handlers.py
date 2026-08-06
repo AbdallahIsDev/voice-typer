@@ -44,8 +44,6 @@ they just entered). The consent gate remains on the dictation path.
 from __future__ import annotations
 
 import contextlib
-import json
-from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.request import Request
 
@@ -331,5 +329,3 @@ __all__: list[str] = ["CloudTestHandlersMixin", "_http_error_message"]
 # Silence unused-import warning for ``json`` (kept for future
 # response-body parsing if a provider's test endpoint ever returns a
 # payload we need to surface to the renderer).
-_ = json  # type: ignore[unused-ignore]
-_ = Any  # type: ignore[unused-ignore]

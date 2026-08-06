@@ -470,7 +470,13 @@ class TestStartupBanner:  # noqa: N801
         _flush_all()
         banner = self._banner_lines(config_dir)
         expected_file = str(config_dir / "voice-typer.log")
-        assert f"file={expected_file}" in banner, f"GT-B1-15: banner missing file path; got: {banner!r}"
+        # SEC-009: the PII log filter replaces the home-dir prefix with
+        # ``~`` in rendered messages, so accept both the full path and
+        # the home-shortened form.
+        expected_variants = {expected_file, expected_file.replace(str(Path.home()), "~")}
+        assert any(f"file={v}" in banner for v in expected_variants), (
+            f"GT-B1-15: banner missing file path; got: {banner!r}"
+        )
 
     def test_banner_includes_level_name(self, config_dir, clean_env, stub_side_effects):
         """The banner includes the root logger level NAME (``DEBUG``,

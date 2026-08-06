@@ -39,12 +39,8 @@ from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 from voice_typer.server.clipboard import manager as manager_mod  # noqa: E402
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 
-# Mock pynput / pyperclip at import time so the clipboard module loads
-# cleanly on a headless Linux box. (Same pattern as
-# test_clipboard_borrow_restore.py.)
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-sys.modules.setdefault("pyperclip", MagicMock())
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 
 # ── Fixtures ────────────────────────────────────────────────────────────
 

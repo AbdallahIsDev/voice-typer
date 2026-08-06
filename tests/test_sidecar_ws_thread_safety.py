@@ -143,7 +143,7 @@ def test_push_to_ws_does_not_touch_queue_directly() -> None:
     src = inspect.getsource(sidecar_ws._install_subscriber)
     # The marshal pattern is in place.
     assert "loop.call_soon_threadsafe" in src, (
-        "_push_to_ws must marshal the enqueue via loop.call_soon_threadsafe (CR-4: asyncio.Queue is not thread-safe)"
+        "_push_to_ws must marshal the enqueue via loop.call_soon_threadsafe (asyncio.Queue is not thread-safe)"
     )
     assert "_enqueue_safe" in src, "_push_to_ws must delegate to _enqueue_safe (the loop-thread helper)"
     # The cross-thread mutations are gone from _push_to_ws. We isolate
@@ -430,7 +430,7 @@ async def test_concurrent_publish_writer_alive_under_overflow(monkeypatch) -> No
 
 
 async def test_push_to_ws_swallows_runtime_error_on_closed_loop(monkeypatch) -> None:
-    """CR-4: publishing during loop shutdown must not raise.
+    """publishing during loop shutdown must not raise.
 
     When the sidecar is shutting down (respawn, host kill), the
     event loop is closed. ``loop.call_soon_threadsafe`` raises

@@ -29,7 +29,6 @@ that introspects a backend before wiring it up doesn't blow up.
 from __future__ import annotations
 
 import os
-import sys
 
 import pytest
 from voice_typer.server.hotkeys.base import HotkeyBackend
@@ -39,7 +38,7 @@ from voice_typer.server.hotkeys.windows_native import WindowsNativeHotkey
 
 
 # --------------------------------------------------------------------------- #
-# PynputHotkey ()
+# PynputHotkey
 # --------------------------------------------------------------------------- #
 class TestPynputHotkeyInitAttrs:
     """``PynputHotkey.__init__`` must set ``self._fallback`` to False."""
@@ -113,7 +112,7 @@ class TestWaylandHotkeyInitAttrs:
 
 
 # --------------------------------------------------------------------------- #
-# base.py docstring ()
+# base.py docstring
 # --------------------------------------------------------------------------- #
 class TestBaseSetTrayDocstring:
     """``HotkeyBackend.set_tray`` docstring must reference
@@ -152,8 +151,3 @@ def inspect_getsource(module) -> str:
 def _ensure_xdg_runtime_dir(monkeypatch: pytest.MonkeyPatch) -> None:
     if "XDG_RUNTIME_DIR" not in os.environ:
         monkeypatch.setenv("XDG_RUNTIME_DIR", "/tmp")
-
-
-# Skip on non-Linux platforms — the orchestrator's acceptance criteria
-# explicitly require this suite to pass on LINUX.
-pytestmark = pytest.mark.skipif(sys.platform != "linux", reason="acceptance: LINUX-only")

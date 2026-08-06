@@ -76,6 +76,26 @@ class WindowsNativeHotkey(HotkeyBackend):
       native ``windows-key-listener.exe`` binary performs via its
       ``WH_KEYBOARD_LL`` hook (see ``should_suppress_keydown`` in
       ``native/windows-key-listener.c``).
+
+    (UAC / Secure Desktop limitation): global hotkeys registered
+    via ``RegisterHotKey`` or a ``WH_KEYBOARD_LL`` hook do NOT fire
+    while the active desktop is the Secure Desktop (UAC prompt, logon
+    screen, or any desktop created by ``CreateDesktop``). The hook is
+    desktop-relative: it only sees keystrokes delivered to the desktop
+    that owns the hooking thread. When the user elevates via UAC, Windows
+    switches to the Secure Desktop, our hooks stop receiving events, and
+    the user has no way to trigger dictation (or cancel it) until they
+    return. Detecting the switch via ``SetWinEventHook`` with
+    ``EVENT_SYSTEM_DESKTOPSWITCH`` would let us notify the user, but the
+    callback runs on a dedicated thread and integrating it into the
+    existing message-loop architecture is non-trivial.
+
+    TODOinstall a ``SetWinEventHook(EVENT_SYSTEM_DESKTOPSWITCH)``
+    listener on a dedicated thread and, when the user returns to the
+    interactive desktop, emit a tray notification: "Hotkey paused during
+    UAC elevation". For now, this is a documented limitation — the user
+    simply re-presses the hotkey after the UAC prompt closes. See
+    ``docs/native-hotkey-architecture-plan.md`` for the full plan.
     """
 
     def __init__(self, hotkey_str: str):
@@ -147,12 +167,24 @@ class WindowsNativeHotkey(HotkeyBackend):
         # the registration attempt so the per-run semantics are unchanged.
         self._last_error: int | None = None
         self._is_caps_lock_hotkey: bool = False
+        # True when RegisterHotKey failed AND the low-level hook
+        # had to step in to keep the hotkey functional. Set in ``start()``
+        # on the registration thread; readable via the
+        # ``_registration_degraded`` property so ``_NativeBackendAdapter``
+        # (and other callers) can surface a tray notification without
+        # reaching into private attrs. The hook keeps the hotkey working,
+        # but the OS-level exclusive claim failed — usually because another
+        # app (Snipping Tool, GeForce Overlay, etc.) already claimed it.
+        # The adapter owns the tray surface; this class only records the
+        # state so it can be polled later (Fix-9 owns this file;
+        # native_adapter.py and is left untouched).
+        self._degraded_registration: bool = False
         # Dedicated worker thread + queue for LL hook callbacks.
         # The hook proc MUST return within ~1ms or Windows marks it
         # unresponsive and bypasses it. Previously callback() ran inline
         # (10-100ms of recorder/IPC work). Now the hook proc enqueues
         # and returns immediately; the worker drains the queue.
-        self._hook_callback_queue: queue.Queue[Callable[[], None] | None] = queue.Queue(maxsize=64)
+        self._hook_callback_queue: queue.Queue[Callable[[], None] | None] = queue.Queue(maxsize=256)
         self._hook_callback_thread: threading.Thread | None = None
         # VK codes the LL hook matches when _vk is None
         # (modifier-only hotkeys). Populated in start().
@@ -204,6 +236,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         self._stop_event.clear()
         self._ready_event.clear()
         self._success = False
+        self._degraded_registration = False
         self._last_error = None  # captured GetLastError() on failure
 
         # ── Set proper argtypes BEFORE any Win32 call ──
@@ -235,12 +268,31 @@ class WindowsNativeHotkey(HotkeyBackend):
                     if not result:
                         err = self._kernel32.GetLastError()
                         self._last_error = err
-                        log.warning(
-                            "RegisterHotKey failed for VK=0x%X, GetLastError=%d (0x%X) — polling fallback still works",
-                            self._vk,
-                            err,
-                            err,
-                        )
+                        # ERROR_HOTKEY_ALREADY_REGISTERED (1409) is
+                        # by far the most common cause of RegisterHotKey
+                        # failure on a multi-app desktop. Log it explicitly
+                        # so the user can identify the conflicting app
+                        # (Snipping Tool, GeForce Overlay, AutoHotkey, etc.)
+                        # and either close it or rebind to a different hotkey
+                        # in Settings.
+                        if err == 1409:
+                            log.warning(
+                                "[HOTKEY] RegisterHotKey FAILED for VK=0x%X — "
+                                "ERROR_HOTKEY_ALREADY_REGISTERED (1409). Another "
+                                "app has claimed this hotkey. Check for: Snipping "
+                                "Tool (Win+Shift+S), GeForce Overlay, AutoHotkey, "
+                                "or other global-hotkey apps, OR rebind to a "
+                                "different hotkey in Settings.",
+                                self._vk,
+                            )
+                        else:
+                            log.warning(
+                                "RegisterHotKey failed for VK=0x%X, GetLastError=%d (0x%X) — "
+                                "polling fallback still works",
+                                self._vk,
+                                err,
+                                err,
+                            )
                     else:
                         self._registered = True
                         log.info(
@@ -250,6 +302,17 @@ class WindowsNativeHotkey(HotkeyBackend):
                             self._hotkey_id,
                         )
 
+                # ``_success`` is set to True here as a transient
+                # because the main thread checks it immediately after
+                # ``_ready_event.wait()`` returns, BEFORE the detection
+                # branch below has a chance to install the LL hook. The
+                # polling fallback (the ``else`` branch below) ALWAYS
+                # engages as the last resort, so reaching this point means
+                # at least one detection path will run. Each detection
+                # branch below sets the authoritative
+                # ``_degraded_registration`` flag based on the actual path
+                # engaged. The ``_registration_degraded`` property is the
+                # authoritative signal for the adapter.
                 self._success = True
                 self._ready_event.set()
 
@@ -340,6 +403,24 @@ class WindowsNativeHotkey(HotkeyBackend):
                         self._vk,
                     )
                     self._using_polling = False
+                    # re-evaluate ``_success`` now that the LL hook
+                    # is installed. The hook is a fully functional delivery
+                    # path, so ``start()`` must NOT raise even if
+                    # RegisterHotKey failed. Also flip
+                    # ``_degraded_registration`` when RegisterHotKey failed
+                    # but the LL hook stepped in to keep the hotkey working
+                    # — the adapter reads this via the property below and
+                    # surfaces a tray notification.
+                    self._success = True
+                    if not self._registered:
+                        self._degraded_registration = True
+                        log.warning(
+                            "[HOTKEY] Operating in degraded mode: RegisterHotKey "
+                            "failed but WH_KEYBOARD_LL hook is keeping the hotkey "
+                            "(vk=0x%X) functional. ``_NativeBackendAdapter`` should "
+                            "surface a tray safety notification.",
+                            self._vk,
+                        )
                     self._run_message_loop(callback, low_level_hook=True)
                 elif self._registered and not is_caps_lock_hotkey:
                     # RegisterHotKey succeeded (and not caps-lock) → WM_HOTKEY
@@ -363,6 +444,19 @@ class WindowsNativeHotkey(HotkeyBackend):
                     # rationale and the regression test that pins this invariant.
                     log.info("[HOTKEY] Starting hotkey detection via GetAsyncKeyState polling")
                     self._using_polling = True
+                    # polling is also a valid delivery path, so
+                    # ``_success`` is True here too — but flag degraded
+                    # mode if RegisterHotKey failed AND the LL hook also
+                    # couldn't be installed (worst-case fallback).
+                    self._success = True
+                    if not self._registered and not self._is_modifier_only:
+                        self._degraded_registration = True
+                        log.warning(
+                            "[HOTKEY] Operating in degraded mode: RegisterHotKey "
+                            "failed and WH_KEYBOARD_LL hook unavailable — relying on "
+                            "GetAsyncKeyState polling (vk=0x%X).",
+                            self._vk if self._vk is not None else -1,
+                        )
                     self._run_polling_loop(callback)
 
             except Exception:
@@ -394,6 +488,18 @@ class WindowsNativeHotkey(HotkeyBackend):
                 f"Failed to register hotkey {self.hotkey_str!r} "
                 f"(Win32 error {err}, 0x{(err if err and err >= 0 else 0):X})"
             )
+
+    @property
+    def _registration_degraded(self) -> bool:
+        """True when RegisterHotKey failed but the backend kept the
+        hotkey functional via a fallback path (low-level hook or polling).
+
+        Read by ``_NativeBackendAdapter`` (in native_adapter.py, so this file
+        only exposes the property) so the adapter can surface a tray safety
+        notification. The adapter is responsible for the user-facing surface;
+        this class only records the state.
+        """
+        return self._degraded_registration
 
     def stop(self) -> None:
         """Stop the hotkey listener.

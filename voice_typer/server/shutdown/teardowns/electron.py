@@ -108,8 +108,15 @@ def teardown_electron(controller) -> None:
                     else:
                         import signal as _sig_kill
 
+                        # ``signal.SIGKILL`` is absent on Windows Python;
+                        # the POSIX branch only runs when
+                        # ``is_windows()`` is False, but the constant
+                        # itself is still resolved on every platform —
+                        # fall back to the POSIX value (9) so the branch
+                        # works even when executed on a Windows host
+                        # (e.g. unit tests forcing the POSIX path).
                         with contextlib.suppress(OSError, ProcessLookupError):
-                            os.kill(launched_pid, _sig_kill.SIGKILL)
+                            os.kill(launched_pid, getattr(_sig_kill, "SIGKILL", 9))
                 app._electron_pid = None
             else:
                 from voice_typer.server.tray_window import get_electron_pid
@@ -167,7 +174,7 @@ def teardown_electron(controller) -> None:
                             reaped = True
                     if not reaped and not is_windows():
                         with contextlib.suppress(OSError, ProcessLookupError):
-                            os.kill(electron_pid, _sig.SIGKILL)
+                            os.kill(electron_pid, getattr(_sig, "SIGKILL", 9))
     except Exception:
         log.debug("[SHUTDOWN] Electron subprocess termination failed", exc_info=True)
 

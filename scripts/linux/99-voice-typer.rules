@@ -8,13 +8,19 @@
 # gets rw, others get nothing. This is the standard pattern for /dev/input
 # access (same as the docker group for /var/run/docker.sock).
 #
-# Why udevadm trigger on add: when a USB keyboard is plugged in, the new
-# /dev/input/eventN device is created. The rule applies automatically,
-# but udevadm trigger ensures the permission change takes effect
-# immediately without needing udevadm control --reload.
+# Why ENV{ID_INPUT_KEYBOARD}=="?*": narrows the rule to
+# keyboard-class devices only (set by udev's input_id builtin). Without
+# this guard, the rule would also relax permissions on mice, joysticks,
+# touchscreens and other non-keyboard event devices — a privilege
+# escalation surface unrelated to Voice Typer's needs.
+#
+# Why no RUN+="...udevadm trigger...": modern udev (systemd ≥ 183)
+# applies rules at device-creation time automatically — an explicit
+# ``udevadm trigger`` on ``ACTION=="add"`` is redundant and causes a
+# recursive trigger storm on some kernels. The ``udevadm control
+# --reload-rules && udevadm trigger --subsystem-match=input`` run by
+# install_permissions.py after copying this file is sufficient for both
+# already-plugged-in devices and future hotplugs.
 
-# Match all input event devices (keyboards, mice, etc.)
-KERNEL=="event[0-9]*", SUBSYSTEM=="input", GROUP="input", MODE="0660"
-
-# Reload rule on add (handles hotplugged keyboards)
-ACTION=="add", SUBSYSTEM=="input", RUN+="/usr/bin/udevadm trigger --subsystem-match=input"
+# Match keyboard-class input event devices only.
+KERNEL=="event[0-9]*", SUBSYSTEM=="input", ENV{ID_INPUT_KEYBOARD}=="?*", GROUP="input", MODE="0660"

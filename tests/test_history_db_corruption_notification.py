@@ -393,6 +393,17 @@ class TestIterdumpDataRecovery:
 
         # Don't patch _open_write_conn — let it open a real fresh DB
         # after the rename moves the existing db_path aside.
+        #
+        # Stop db2's writer thread + close its connections BEFORE
+        # invoking recovery: on Windows an open SQLite handle (the
+        # writer thread's connection) locks the file, so the corrupt-DB
+        # rename would silently fail with WinError 32 and iterdump
+        # would find no renamed file (recovered_count=0). Recovery
+        # re-opens fresh connections from db_path itself (which is
+        # only renamed after close releases the lock), so closing
+        # first is safe. ``close()`` is idempotent — the test's
+        # ``finally`` still calls it again.
+        db2.close()
         try:
             result = db2._maybe_recover_from_corruption(fake_conn)
 

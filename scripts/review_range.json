@@ -61,7 +61,7 @@
     "line_end": 8037,
     "id": "TX-26",
     "title": "`_make_fake_server` duplicated 6× with drift (DRY)",
-    "raw_block": "### TX-26 — `_make_fake_server` duplicated 6× with drift (DRY)\n**Status:** ❌ Not Fixed\n**Description:** `_make_fake_server` duplicated 6× — 3 copies lack the `_ws_dispatch_pool = None` fix. Stale copies would re-introduce the RT-FIX-9/EC-FIX-3 bug.\n**User Impact:** Latent bug — stale copies mask the WS dispatch pool fix.\n**Root Cause:** DRY violation.\n**Progress:** None yet.\n**Related Files:**\n- `tests/tauri/mig15/test_ws_hmac_windows.py`\n- `tests/tauri/mig16/test_ws_hmac_macos.py`\n- `tests/tauri/mig17/test_ws_hmac_linux.py`\n- `tests/tauri/test_sidecar_ws_unit.py`\n- `tests/test_ipc5_error_envelope_parity.py`\n- `tests/test_sidecar_ws_thread_safety.py`\n**Fix:** Promote to `tests/fixtures/sidecar_ws_test_helpers.py`; delete 5 inline copies.\n**Severity:** 🟡 Medium"
+    "raw_block": "### TX-26 — `_make_fake_server` duplicated 6× with drift (DRY)\n**Status:** ❌ Not Fixed\n**Description:** `_make_fake_server` duplicated 6× — 3 copies lack the `_ws_dispatch_pool = None` fix. Stale copies would re-introduce the bug.\n**User Impact:** Latent bug — stale copies mask the WS dispatch pool fix.\n**Root Cause:** DRY violation.\n**Progress:** None yet.\n**Related Files:**\n- `tests/tauri/mig15/test_ws_hmac_windows.py`\n- `tests/tauri/mig16/test_ws_hmac_macos.py`\n- `tests/tauri/mig17/test_ws_hmac_linux.py`\n- `tests/tauri/test_sidecar_ws_unit.py`\n- `tests/test_ipc5_error_envelope_parity.py`\n- `tests/test_sidecar_ws_thread_safety.py`\n**Fix:** Promote to `tests/fixtures/sidecar_ws_test_helpers.py`; delete 5 inline copies.\n**Severity:** 🟡 Medium"
   },
   {
     "ordinal": 308,

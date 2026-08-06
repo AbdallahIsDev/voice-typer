@@ -34,6 +34,10 @@ REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 ELECTRON_BUILDER_YML = REPO_ROOT / "voice_typer" / "client" / "electron-builder.yml"
 BUILD_YML = REPO_ROOT / ".github" / "workflows" / "build.yml"
 INDEX_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "index.ts"
+# REF-2 extracted pythonArgs() from index.ts into main/python/python-args.ts
+# (re-exported from the `python` module); the packaged-mode lookup lives in
+# its resolveBundledBackend helper.
+PYTHON_ARGS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "python" / "python-args.ts"
 
 
 def _load_yaml(path: pathlib.Path) -> dict[str, Any]:
@@ -129,39 +133,49 @@ def test_win_section_keeps_nsis_target() -> None:
 
 
 def test_index_ts_pythonargs_looks_up_embedded_backend() -> None:
-    """RW-4: pythonArgs() must check resourcesPath/voice-typer-backend."""
-    src = INDEX_TS.read_text(encoding="utf-8")
-    # Extract the pythonArgs() function body (from `function pythonArgs()`
-    # to the next top-level `function ` at column 0).
+    """RW-4: pythonArgs() must check resourcesPath/voice-typer-backend.
+
+    REF-2 extracted ``pythonArgs()`` from ``index.ts`` into
+    ``main/python/python-args.ts`` (re-exported from the ``python``
+    module) — the packaged-mode lookup lives in its
+    ``resolveBundledBackend`` helper. This test therefore reads the
+    extracted module.
+    """
+    src = PYTHON_ARGS_TS.read_text(encoding="utf-8")
+    # pythonArgs() must exist and delegate the packaged-mode lookup to
+    # resolveBundledBackend.
     m = re.search(
-        r"^function pythonArgs\(\).*?\n(.*?)\nfunction ",
+        r"^export function pythonArgs\(\).*?^}$",
         src,
         re.DOTALL | re.MULTILINE,
     )
-    assert m, "pythonArgs() function not found in index.ts"
-    body = m.group(1)
+    assert m, "pythonArgs() function not found in python-args.ts"
+    assert "resolveBundledBackend" in m.group(0), (
+        "pythonArgs() must delegate the packaged-mode lookup to resolveBundledBackend"
+    )
 
     # Must reference process.resourcesPath (the Electron packaged-resources
-    # dir where electron-builder's extraResources lands).
-    assert "process.resourcesPath" in body, (
+    # dir where electron-builder's extraResources lands) — inside the
+    # resolveBundledBackend helper.
+    assert "process.resourcesPath" in src, (
         "pythonArgs() must check process.resourcesPath for the embedded PyInstaller backend (packaged mode)."
     )
     # Must reference the voice-typer-backend subdirectory (matches the
     # `to: voice-typer-backend` in electron-builder.yml's extraResources).
-    assert "voice-typer-backend" in body, (
+    assert "voice-typer-backend" in src, (
         "pythonArgs() must look for the backend under the "
         "`voice-typer-backend` subdirectory of process.resourcesPath "
         "(matches electron-builder.yml's `extraResources.to`)."
     )
-    # Must be Windows-gated (either `case "win32":` or
-    # `process.platform === "win32"`).
-    assert 'case "win32"' in body or 'process.platform === "win32"' in body, (
+    # Must be Windows-gated (either `case "win32":` or a
+    # `platform === "win32"` branch — the helper's platform param).
+    assert 'case "win32"' in src or 'platform === "win32"' in src, (
         "pythonArgs() packaged-mode lookup must be Windows-gated so "
         "macOS/Linux branches (owned by rw-5) are not affected."
     )
     # Must spawn the bundled exe with --port (no -m flag — the frozen
     # exe is already the IPC server entry point).
-    assert '"--port"' in body or "'--port'" in body, (
+    assert '"--port"' in src or "'--port'" in src, (
         "pythonArgs() must pass `--port <N>` to the bundled backend so "
         "ipc_server.main() binds the TCP listener (no `-m` flag — the "
         "frozen exe already imports voice_typer.server.ipc_server)."

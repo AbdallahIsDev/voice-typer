@@ -1,5 +1,5 @@
 {
-  "_comment": "Native binary integrity manifest. Each entry maps a binary file name (as produced by scripts/build/compile_native.sh and discovered by voice_typer.server.native_hotkeys.binary_path._BINARY_NAMES) to its expected SHA-256, build version, and minimum wire-protocol version. The keys include the arch-suffixed names (linux-key-listener-x86_64, linux-key-listener-aarch64, windows-key-listener-x86_64.exe, windows-key-listener-aarch64.exe, macos-key-listener). The manifest ALSO includes legacy non-arch-suffixed entries (linux-key-listener, windows-key-listener.exe) as ALIASES, because scripts/build/compile_native.sh still emits those legacy names on Linux/Windows (the build script was not retrofitted to emit arch-suffixed names — the chosen fix was to widen the manifest rather than rename the build outputs). The legacy entries carry the SAME sha256 as their arch-suffixed x86_64 counterparts (where the binary exists), so verify_native_binary_or_skip works regardless of which name form is on disk. Additionally, binary_path.get_expected_sha256 falls back to equivalent names (legacy <-> arch-suffixed x86_64 only — aarch64 has NO legacy equivalent because aarch64 builds are new) if the direct lookup misses; see _LEGACY_TO_ARCH_SUFFIX / _ARCH_SUFFIX_TO_LEGACY in binary_path.py. At runtime, binary_path.verify_native_binary() hashes the discovered binary with hashlib.sha256 and compares against the sha256 field here. On mismatch (or on a missing/empty manifest entry — fail-closed), the factory logs an error and falls back to the legacy backend (pynput / WindowsNativeHotkey / WaylandHotkey). Entries with an empty sha256 (binaries not built in this Linux dev tree) cause verify_native_binary_or_skip to FAIL CLOSED (return False + log ERROR) — production builds MUST populate all sha256 fields via scripts/build/update_native_manifests.py (run by CI after compile_native.sh). The min_proto_version field is reserved for future wire-protocol version gating (a follow-up); the loader does not yet enforce it.",
+  "_comment": "Native binary integrity manifest. Each entry maps a binary file name (as produced by scripts/build/compile_native.sh and discovered by voice_typer.server.native_hotkeys.binary_path._BINARY_NAMES) to its expected SHA-256, build version, and minimum wire-protocol version. The keys include the arch-suffixed names (linux-key-listener-x86_64, linux-key-listener-aarch64, windows-key-listener-x86_64.exe, windows-key-listener-aarch64.exe, macos-key-listener). The manifest ALSO includes legacy non-arch-suffixed entries (linux-key-listener, windows-key-listener.exe) as ALIASES, because scripts/build/compile_native.sh still emits those legacy names on Linux/Windows (the build script was not retrofitted to emit arch-suffixed names — the chosen fix was to widen the manifest rather than rename the build outputs). (2026-10): the legacy entries now ALSO carry a per-arch `sha256_by_arch` dict (`{\"x86_64\": \"...\", \"aarch64\": \"...\"}`) so the manifest can disambiguate the same legacy file name across architectures. The flat `sha256` string field is retained on legacy entries as a backward-compat default (the x86_64 sha256) until binary_path.get_expected_sha256 is made arch-aware by (passes `platform.machine()` to the lookup and consults `sha256_by_arch` first). For arch-suffixed entries (linux-key-listener-x86_64 etc.) the arch is already encoded in the file name, so they keep the flat `sha256` string field only. Additionally, binary_path.get_expected_sha256 falls back to equivalent names (legacy <-> arch-suffixed x86_64 only — aarch64 has NO legacy equivalent because aarch64 builds are new) if the direct lookup misses; see _LEGACY_TO_ARCH_SUFFIX / _ARCH_SUFFIX_TO_LEGACY in binary_path.py. At runtime, binary_path.verify_native_binary() hashes the discovered binary with hashlib.sha256 and compares against the sha256 field here. On mismatch (or on a missing/empty manifest entry — fail-closed), the factory logs an error and falls back to the legacy backend (pynput / WindowsNativeHotkey / WaylandHotkey). Entries with an empty sha256 (binaries not built in this Linux dev tree) cause verify_native_binary_or_skip to FAIL CLOSED (return False + log ERROR) — production builds MUST populate all per-arch sha256 fields via scripts/build/update_native_manifests.py (run by CI after compile_native.sh). The min_proto_version field is reserved for future wire-protocol version gating (a follow-up); the loader does not yet enforce it.",
   "version": 1,
   "binaries": {
     "linux-key-listener-x86_64": {
@@ -13,7 +13,7 @@
       "min_proto_version": 1
     },
     "windows-key-listener-x86_64.exe": {
-      "sha256": "",
+      "sha256": "f4552b30baeeefdf951411d2c24aca16057669e4ca49ff23a0c261bbc2631ee9",
       "version": "1.0.0",
       "min_proto_version": 1
     },
@@ -29,13 +29,23 @@
     },
     "linux-key-listener": {
       "sha256": "4e39df2bd257df99b47c7e566c1f91bd9252053bb4eee881504e6fd1c461fc4d",
+      "sha256_by_arch": {
+        "x86_64": "4e39df2bd257df99b47c7e566c1f91bd9252053bb4eee881504e6fd1c461fc4d",
+        "aarch64": ""
+      },
       "version": "1.0.0",
-      "min_proto_version": 1
+      "min_proto_version": 1,
+      "_note": "legacy alias (compile_native.sh emits this name on Linux). sha256_by_arch is the canonical per-arch field; the flat sha256 field is a backward-compat default (x86_64 sha256) retained until binary_path.get_expected_sha256 is made arch-aware. aarch64 sha256 is left empty pending the update_native_manifests.py script from aarch64 builds are new)."
     },
     "windows-key-listener.exe": {
-      "sha256": "",
+      "sha256": "f4552b30baeeefdf951411d2c24aca16057669e4ca49ff23a0c261bbc2631ee9",
+      "sha256_by_arch": {
+        "x86_64": "f4552b30baeeefdf951411d2c24aca16057669e4ca49ff23a0c261bbc2631ee9",
+        "aarch64": ""
+      },
       "version": "1.0.0",
-      "min_proto_version": 1
+      "min_proto_version": 1,
+      "_note": "legacy alias (compile_native.sh emits this name on Windows). sha256_by_arch is the canonical per-arch field; the flat sha256 field is a backward-compat default (x86_64 sha256) retained until binary_path.get_expected_sha256 is made arch-aware. aarch64 sha256 is left empty pending the update_native_manifests.py script."
     }
   }
 }

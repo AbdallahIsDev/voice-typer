@@ -1,18 +1,17 @@
-"""CR-17 regression tests: ``_validate_path_safety`` prefix-match bug fix.
+"""regression tests: ``_validate_path_safety`` prefix-match bug fix.
 
 The previous implementation used ``str(resolved).startswith(str(parent_resolved))``
 which is the classic prefix-match bug: ``/home/userX/secret`` would be
 considered "within" ``/home/user`` because the string
 ``"/home/userX/secret"`` starts with ``"/home/user"``.
 
-The CR-17 fix delegates to ``_is_path_within`` which uses
+Thefix delegates to ``_is_path_within`` which uses
 ``os.path.commonpath`` to respect directory boundaries and handles
 cross-drive Windows paths.
 
 See:
 - ``voice_typer/server/config.py:_validate_path_safety``
 - ``voice_typer/server/config.py:_is_path_within``
-- ``review.md`` finding CR-17
 """
 
 import sys
@@ -22,12 +21,12 @@ import pytest
 
 
 class TestValidatePathSafetyCr17:
-    """Pin the CR-17 fix: prefix-match bug must not regress."""
+    """Pin the fix: prefix-match bug must not regress."""
 
     def test_sibling_prefix_is_rejected(self):
         """``/home/userX/secret`` is NOT within ``/home/user``.
 
-        This is the canonical CR-17 regression case.  The naive
+        This is the canonical regression case.  The naive
         ``str.startswith`` check would accept this path because
         ``"/home/userX/secret".startswith("/home/user")`` is True;
         the ``commonpath``-based check correctly rejects it because
@@ -107,7 +106,7 @@ class TestValidatePathSafetyCr17:
 
 
 class TestIsPathWithinCrossDrive:
-    """``_is_path_within`` (the helper CR-17 delegates to) must
+    """``_is_path_within`` (the helper delegates to) must
     return ``False`` (not raise) for cross-drive Windows paths.
     """
 

@@ -342,19 +342,23 @@ def _get_ws_encode_pool(server: IPCServer | None = None) -> ThreadPoolExecutor:
     used. The first call WITH a server seeds the singleton; subsequent
     calls without a server reuse it.
 
-    ``max_workers=2`` is enough for the encode workload: even with
-    two concurrent connections each pushing near-cap frames at 1-5 Hz,
-    the encode itself is ~50-100 ms — two workers drain faster than
-    the queue fills. More workers would just contend with the
-    dispatch pool (4 workers) for CPU during heavy ``transcribe``
-    dispatches.
+    ``max_workers=4`` matches the WS dispatch pool size
+    (``_ws_dispatch_pool``, also 4). The encode workload (~50-100 ms
+    per near-cap frame) can saturate 2 workers under concurrent
+    connections each pushing near-cap frames at 1-5 Hz — a third
+    in-flight encode would queue behind the two workers, stalling the
+    writer task's outbound drain and back-pressuring the dispatch
+    path's response serialization. Aligning the encode pool to 4
+    workers gives headroom for 3-4 concurrent near-cap encodes without
+    contending with the dispatch pool (which spends its CPU on
+    handler work, not encode work).
     """
     global _ws_encode_pool_singleton
     if server is not None:
         pool = getattr(server, "_ws_encode_pool", None)
         if pool is None:
             pool = ThreadPoolExecutor(
-                max_workers=2,
+                max_workers=4,
                 thread_name_prefix="sidecar-ws-encode",
             )
             # ``setattr`` on a real IPCServer stores the attribute; on
@@ -375,7 +379,7 @@ def _get_ws_encode_pool(server: IPCServer | None = None) -> ThreadPoolExecutor:
     # ``_writer`` is started).
     if _ws_encode_pool_singleton is None:
         _ws_encode_pool_singleton = ThreadPoolExecutor(
-            max_workers=2,
+            max_workers=4,
             thread_name_prefix="sidecar-ws-encode",
         )
     return _ws_encode_pool_singleton
@@ -790,10 +794,13 @@ def _emit_server_started(port: int, protocol: int | None = None) -> None:
     codebase today, but the default keeps the function safe to call
     without forcing the caller to know the current protocol integer).
     """
-    payload: dict[str, int | str] = {"event": "server_started", "port": int(port)}
     if protocol is not None:
-        payload["protocol"] = int(protocol)
-    print(json.dumps(payload), flush=True)
+        print(
+            json.dumps({"event": "server_started", "port": int(port), "protocol": int(protocol)}),
+            flush=True,
+        )
+    else:
+        print(json.dumps({"event": "server_started", "port": int(port)}), flush=True)
 
 
 async def _authenticate(websocket) -> bool:
@@ -1078,7 +1085,14 @@ def _make_dispatch(server: IPCServer):
         # the pre- cost-1 behavior. The legacy
         # ``rate_limiter.allow()`` form (no ``command`` kwarg) is still
         # supported and treats the call as cost 1.
-        if not rate_limiter.allow(command=msg_type):
+        #
+        # ``shutdown`` is a CONTROL frame, not a dispatch frame — it
+        # must bypass the rate limiter so a sidecar being spammed with
+        # frames (over the 200-burst budget) can still shut down
+        # cleanly (ADR-0020 §10). The TCP path's read loop applies the
+        # same exemption (``shutdown`` skips its rate-limit gate); the
+        # WS path must stay in parity.
+        if msg_type != "shutdown" and not rate_limiter.allow(command=msg_type):
             # allow() already increments _rejected atomically when
             # it returns False — the separate .reject() call was removed
             # to eliminate the benign race where two threads could both

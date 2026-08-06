@@ -131,6 +131,18 @@ _PARAKEET_REVISION = _MODEL_HASHES.get(_PARAKERT_MODEL_ID, {}).get("revision", "
 _CHUNK_SECONDS = 25
 _CHUNK_OVERLAP_SECONDS = 3
 
+# CUDA-retry thresholds for the post-CUDA-fallback CPU-stuck case.
+# After a CUDA error pushes the model onto CPU, ``transcribe_with_fallback``
+# attempts ONE ``self._model.to("cuda", dtype=float16)`` retry once either
+# threshold is met. Many CUDA errors are transient (brief VRAM pressure
+# from another process, a driver hiccup, a brief CUDA-context loss) —
+# permanently parking on CPU until a manual "Reload model" click is
+# user-hostile. The values are conservative so a non-transient fault
+# (driver crash, hardware fault) doesn't waste seconds of user time
+# per transcribe on a retry that will keep failing.
+_CPU_RETRY_TRANSCRIBE_THRESHOLD = 10
+_CPU_RETRY_SECONDS_THRESHOLD = 5 * 60  # 5 minutes
+
 #  Maximum words to skip at a chunk boundary.
 
 # Previously the merge step used ``skip = int(len(words) * 0.12)`` which
@@ -207,6 +219,14 @@ class ParakeetEngine:
     # the multi-second torch/transformers import in parallel. Class-
     # level because the import state it guards is class-level.
     _imports_lock: threading.Lock = threading.Lock()
+    # Class-level CUDA-retry state fallbacks. ``__init__`` normally sets
+    # these per instance, but some unit tests construct the engine via
+    # ``__new__`` (skipping ``__init__``) — mirrors the
+    # ``_INFERENCE_BATCH_SIZE`` fallback pattern below so
+    # ``_maybe_retry_cuda`` / ``transcribe_with_fallback`` never hit an
+    # AttributeError on those instances.
+    _cpu_fallback_since: float | None = None
+    _cpu_transcribe_count: int = 0
 
     def __init__(
         self,
@@ -238,6 +258,18 @@ class ParakeetEngine:
         # re-notifies the user (the user may have restarted their GPU
         # driver / freed VRAM in the meantime).
         self._cpu_fallback_notified: bool = False
+        # Time / count-based CUDA-retry tracking. After a CUDA error
+        # pushes the model onto CPU (see ``transcribe_with_fallback``),
+        # the model stays on CPU until either a fresh ``load()`` OR a
+        # one-shot retry fired by these counters / timer.
+        # ``_cpu_fallback_since`` is the ``time.monotonic()`` timestamp
+        # of the most recent fallback (``None`` when no fallback has
+        # occurred in this loaded session — also reset to ``None`` on a
+        # successful retry / at the top of ``load()``).
+        # ``_cpu_transcribe_count`` is the number of CPU transcribes
+        # since the most recent fallback. See ``_maybe_retry_cuda``.
+        self._cpu_fallback_since: float | None = None
+        self._cpu_transcribe_count: int = 0
         self._lock = threading.RLock()
         # counter + Condition so transcribe() can release the model
         # lock during the (potentially long) chunk-inference loop while
@@ -260,13 +292,15 @@ class ParakeetEngine:
         # current chunk rather than decoding all remaining ones.
         self._abort_event = threading.Event()
         self._ensure_hf_env()
-        # batch 2-4 chunks per ``processor()`` + ``generate()`` call.
-        # Default batch size is 1 (sequential) so the existing test contract
-        # that pins ``mock_model.generate.call_count == 2`` for a 2-chunk
-        # transcription keeps passing. Operators who want the batching
-        # speedup can set ``PARAKEET_BATCH_SIZE=2`` (or 3/4) in the
-        # environment; on OOM we fall back to per-chunk sequential inference
-        # for the remaining chunks so the user still gets a transcription.
+        # Batch 2 chunks per ``processor()`` + ``generate()`` call.
+        # Default batch size is 2 (rather than 1) so the batched path
+        # is exercised on a default install — the per-call overhead of
+        # ``processor()`` + ``generate()`` setup is non-trivial on CPU
+        # and small GPUs, so 2 chunks per call halves that overhead for
+        # the common 2-chunk (≤ 50s) dictation case. On a CUDA OOM the
+        # batched path falls back to per-chunk sequential inference for
+        # the remaining chunks (see ``_transcribe_chunks_batched``), so
+        # a small default is safe even on tight-VRAM cards.
         #
         # Read at construction time (NOT import time) so changes to the
         # env var between engine constructions take effect — previously
@@ -278,7 +312,7 @@ class ParakeetEngine:
         # see the new value, because the class attribute was already
         # frozen). Setting it as an instance attribute here re-reads the
         # env var on every ``ParakeetEngine()`` construction.
-        self._INFERENCE_BATCH_SIZE: int = max(1, int(os.environ.get("PARAKEET_BATCH_SIZE", "1")))
+        self._INFERENCE_BATCH_SIZE: int = max(1, int(os.environ.get("PARAKEET_BATCH_SIZE", "2")))
 
     @classmethod
     def _ensure_hf_env(cls):
@@ -505,6 +539,13 @@ class ParakeetEngine:
             # restarted their GPU driver or freed VRAM in the meantime,
             # so the next fallback is fresh information worth surfacing.
             self._cpu_fallback_notified = False
+            # Reset the CUDA-retry tracking too — a fresh ``load()``
+            # re-attempts CUDA from scratch, so any prior CPU-fallback
+            # state is stale. Without this, a load() immediately after
+            # a fallback would inherit a stale ``_cpu_fallback_since``
+            # and could fire a redundant retry on the next transcribe.
+            self._cpu_fallback_since = None
+            self._cpu_transcribe_count = 0
 
             # Quick cache check — avoids calling snapshot_download entirely
             # when model is already on disk.
@@ -892,20 +933,22 @@ class ParakeetEngine:
         return text
 
     def _split_audio(self, audio: np.ndarray, chunk_sec: float, overlap_sec: float) -> list[np.ndarray]:
-        """Split audio into overlapping chunks."""
-        sr = WHISPER_SAMPLE_RATE
-        chunk_len = int(chunk_sec * sr)
-        overlap_len = int(overlap_sec * sr)
-        step = chunk_len - overlap_len
-        chunks: list[np.ndarray] = []
-        start = 0
-        while start < len(audio):
-            end = min(start + chunk_len, len(audio))
-            chunks.append(audio[start:end])
-            if end == len(audio):
-                break
-            start += step
-        return chunks
+        """Split audio into overlapping chunks.
+
+        Delegates to :func:`voice_typer.server.asr_utils.split_audio`
+        (single source of truth shared with ``QwenEngine._split_audio``).
+        The method signature is preserved for backward compatibility with
+        existing call sites and tests that invoke
+        ``engine._split_audio(audio, chunk_sec, overlap_sec)`` directly.
+        """
+        from voice_typer.server.asr_utils import split_audio
+
+        return split_audio(
+            audio,
+            chunk_duration=chunk_sec,
+            overlap_duration=overlap_sec,
+            sample_rate=WHISPER_SAMPLE_RATE,
+        )
 
     # batch 2-4 chunks per ``processor()`` + ``generate()`` call.
     # Default batch size is 1 (sequential) so the existing test contract
@@ -1179,6 +1222,92 @@ class ParakeetEngine:
         # in `_transcribe_segment`.
         return 0
 
+    def _maybe_retry_cuda(self) -> None:
+        """Time/count-based one-shot CUDA retry after a CPU fallback.
+
+        After a CUDA error pushes the model onto CPU (see
+        ``transcribe_with_fallback``), the model stays on CPU until
+        either a fresh ``load()`` OR a one-shot retry fired by this
+        method. Once either:
+
+        * ``_cpu_transcribe_count`` reaches
+          ``_CPU_RETRY_TRANSCRIBE_THRESHOLD`` (10), OR
+        * ``time.monotonic() - _cpu_fallback_since`` reaches
+          ``_CPU_RETRY_SECONDS_THRESHOLD`` (5 minutes),
+
+        this method attempts ONE
+        ``self._model.to(device="cuda", dtype=self._torch.float16)``
+        call. On success: clears ``_cpu_fallback_notified`` so a
+        future fallback re-notifies the user, and resets the tracking
+        state. On failure: resets ``_cpu_fallback_since`` to ``now``
+        and ``_cpu_transcribe_count`` to ``0`` so we wait another full
+        window before re-attempting (otherwise the threshold conditions
+        remain true and the retry would fire on every subsequent
+        transcribe, wasting 1-5 s of user time per call on a
+        persistent CUDA fault).
+
+        Best-effort: swallows all exceptions from the ``.to()`` call
+        (the model may be concurrently torn down by ``unload()`` or
+        the GPU may be in a wedged state) — the next transcribe will
+        run on CPU as before.
+        """
+        if self._cpu_fallback_since is None:
+            # No prior fallback in this loaded session — nothing to retry.
+            return
+        # Count this transcribe toward the threshold. We increment
+        # BEFORE the threshold check so the very first CPU transcribe
+        # after a fallback (count=1) doesn't immediately trigger a
+        # retry (we want at least 10 CPU transcribes before retrying,
+        # not 9). The first transcribe that INITIATED the fallback
+        # is NOT counted here — it ran on GPU then fell back to CPU,
+        # and we set ``_cpu_transcribe_count = 0`` at that point.
+        self._cpu_transcribe_count += 1
+        elapsed = time.monotonic() - self._cpu_fallback_since
+        if (
+            self._cpu_transcribe_count < _CPU_RETRY_TRANSCRIBE_THRESHOLD
+            and elapsed < _CPU_RETRY_SECONDS_THRESHOLD
+        ):
+            return  # not yet time to retry
+        # Threshold met — attempt a one-shot CUDA retry.
+        try:
+            # Acquire the lock briefly so a concurrent ``unload()``
+            # doesn't null ``self._model`` between the None-check and
+            # the ``.to()`` call.
+            with self._lock:
+                if self._model is None:
+                    return
+                # ``self._torch`` is populated lazily by ``_ensure_imports``;
+                # we only reach this path after a successful ``load()`` + a
+                # CUDA error, so torch is guaranteed to be available.
+                self._model.to(device="cuda", dtype=self._torch.float16)
+        except Exception as exc:
+            log.info(
+                "[PARAKEET] CUDA retry failed (count=%d, elapsed=%.1fs) — "
+                "staying on CPU, resetting retry window: %s",
+                self._cpu_transcribe_count,
+                elapsed,
+                exc,
+            )
+            # Reset the timer so we wait another full window before
+            # re-attempting. Without this, the threshold conditions
+            # remain true and the retry fires on every subsequent
+            # transcribe.
+            self._cpu_fallback_since = time.monotonic()
+            self._cpu_transcribe_count = 0
+            return
+        log.info(
+            "[PARAKEET] CUDA retry succeeded — switching back to GPU after "
+            "%d CPU transcribes (%.1fs elapsed)",
+            self._cpu_transcribe_count,
+            elapsed,
+        )
+        self._cpu_fallback_since = None
+        self._cpu_transcribe_count = 0
+        # Clear the notification flag so a future fallback re-notifies
+        # the user (the GPU was healthy enough to recover, so the next
+        # fallback is fresh information worth surfacing).
+        self._cpu_fallback_notified = False
+
     def transcribe_with_fallback(
         self,
         audio: np.ndarray,
@@ -1202,6 +1331,16 @@ class ParakeetEngine:
 
             if len(audio) == 0:
                 return ""
+
+        # If a prior CUDA error pushed the model onto CPU, attempt a
+        # one-shot CUDA retry once either the transcribe-count or the
+        # elapsed-time threshold is met (see ``_maybe_retry_cuda``).
+        # Many CUDA errors are transient (brief VRAM pressure, driver
+        # hiccup) and never re-attempting CUDA leaves the user stuck on
+        # slow CPU until they manually reload. The retry is best-effort:
+        # on failure the timer resets and we stay on CPU for another
+        # window.
+        self._maybe_retry_cuda()
 
         try:
             return self.transcribe(audio, audio_stats=audio_stats)
@@ -1257,21 +1396,25 @@ class ParakeetEngine:
                     #
                     # Snapshot-and-restore (saving the original
                     # device/dtype before the ``.to("cpu")`` call
-                    # and restoring them in a ``finally`` block)
-                    # would re-attempt CUDA on every subsequent
-                    # transcribe, but it is intentionally NOT done
-                    # here: if the CUDA error was non-transient
-                    # (e.g. driver crash, persistent OOM, hardware
-                    # fault), re-attempting CUDA on every transcribe
-                    # would re-trigger the same error and waste 1-5 s
-                    # of user time per call.  The current
-                    # "permanent-until-reload" behaviour is pinned by
-                    # ``test_fallback_retries_on_cpu_after_cuda_error``
-                    # (``mock_model.to.assert_called_once()``), which
-                    # would fail if a restore ``.to()`` call were
-                    # added.  A fresh ``load()`` (e.g. via the tray
-                    # "Reload model" action) re-attempts CUDA from
-                    # scratch.
+                    # and restoring them in a ``finally`` block) is
+                    # intentionally NOT done here: if the CUDA error
+                    # was non-transient (e.g. driver crash, persistent
+                    # OOM, hardware fault), re-attempting CUDA on every
+                    # transcribe would re-trigger the same error and
+                    # waste 1-5 s of user time per call. Instead,
+                    # ``_maybe_retry_cuda`` (called at the top of
+                    # ``transcribe_with_fallback``) re-attempts CUDA on
+                    # a time/count basis — after 10 CPU transcribes OR
+                    # 5 minutes, whichever comes first. A fresh
+                    # ``load()`` (e.g. via the tray "Reload model"
+                    # action) re-attempts CUDA from scratch.
+                    #
+                    # Record the fallback start so the retry timer /
+                    # counter have a reference point. Without this,
+                    # ``_maybe_retry_cuda`` would have no way to know
+                    # a fallback occurred.
+                    self._cpu_fallback_since = time.monotonic()
+                    self._cpu_transcribe_count = 0
                     #
                     # The ``_cpu_fallback_notified`` flag is reset to
                     # ``False`` at the top of ``load()`` so a
@@ -1328,37 +1471,31 @@ class ParakeetEngine:
     def _transcribe_impl(self, audio: np.ndarray) -> str:
         """Core transcription without lock or error handling for fallback.
 
-        NOT a duplicate of transcribe(). This method uses
-        _transcribe_segment_unlocked() (no lock) while transcribe()
-        uses _transcribe_segment() (with lock). The fallback path
-        calls this after releasing the lock for CPU retry.
+        NOT a duplicate of transcribe(). This method delegates to
+        ``_transcribe_chunks_batched`` (which respects
+        ``_INFERENCE_BATCH_SIZE``, abort-checks between chunks, and
+        falls back to sequential on OOM) for long audio — previously
+        the CPU-fallback path ran a sequential ``for chunk in chunks:
+        _transcribe_segment_unlocked(chunk)`` loop that bypassed the
+        batching speedup AND the per-batch OOM-fallback, so a CUDA OOM
+        during CPU fallback crashed the whole transcription instead of
+        degrading to per-chunk sequential. The single-chunk case still
+        uses ``_transcribe_segment_unlocked`` (no lock, matching the
+        fallback path's contract).
+
+        ``_transcribe_chunks_batched`` calls ``_transcribe_segment``
+        (NOT the ``_unlocked`` variant). Both methods are lock-free at
+        the segment level — ``transcribe()`` / the fallback path
+        acquire the lock only to bump ``_active_inference`` and release
+        it before invoking the chunk loop (see ``transcribe`` docstring
+        at L784-L792) — so swapping the loop is safe.
         """
         duration = len(audio) / WHISPER_SAMPLE_RATE
         if duration <= _CHUNK_SECONDS:
             return self._transcribe_segment_unlocked(audio)
 
         chunks = self._split_audio(audio, _CHUNK_SECONDS, _CHUNK_OVERLAP_SECONDS)
-        results = []
-        for i, chunk in enumerate(chunks):
-            # OI-14: abort gate at the TOP of the CPU-fallback chunk
-            # loop, mirroring the batched path in
-            # ``_transcribe_chunks_batched``. The ``_AbortStoppingCriteria``
-            # passed to ``model.generate()`` only stops the CURRENT
-            # chunk's token stream; without this check the loop would
-            # decode every remaining chunk after ESC / watchdog, so a
-            # 2-minute audio split into 5 CPU chunks could take 2-5
-            # minutes to honour the abort instead of the documented
-            # "stop after the current chunk" bound.
-            if self._abort_event.is_set():
-                log.info(
-                    "[PARAKEET] Abort requested — stopping CPU-fallback chunk loop early (completed %d/%d chunks)",
-                    i,
-                    len(chunks),
-                )
-                break
-            text = self._transcribe_segment_unlocked(chunk)
-            if text:
-                results.append(text)
+        results = self._transcribe_chunks_batched(chunks)
         if not results:
             return ""
         return self._merge_chunks(results)

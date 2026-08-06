@@ -1,4 +1,4 @@
-"""S3-CR-17 / Phase 4.5 — focused unit tests for the four worker-
+"""Phase 4.5 — focused unit tests for the four worker-
 lifecycle body methods on
 ``voice_typer.server.recording.capture.AudioCallbackDispatcher``.
 
@@ -618,7 +618,7 @@ class TestCaptureModuleSourceContracts:
         assert "with recorder._lock:" not in src
 
     def test_removed_unused_imports(self):
-        """The unused imports removed by S3-CR-17 are gone."""
+        """The unused imports are gone."""
         from voice_typer.server.recording import capture
 
         src = inspect.getsource(capture)
@@ -648,7 +648,7 @@ class TestCaptureModuleSourceContracts:
 
     def test_module_docstring_mentions_worker_lifecycle_bodies(self):
         """The module docstring mentions the four new worker-lifecycle
-        body methods so the S3-CR-17 extraction is documented at the
+        body methods so the extraction is documented at the
         module level."""
         from voice_typer.server.recording import capture
 

@@ -1,4 +1,4 @@
-"""AC-5 regression test: ``available_backends`` @property must NOT be
+"""regression test: ``available_backends`` @property must NOT be
 called with parens.
 
 Pre-fix bug: ``model_manager.py:363`` called
@@ -65,7 +65,7 @@ def _make_mm_with_failing_registry() -> tuple[ModelManager, MagicMock]:
 
 
 class TestAvailableBackendsPropertyNoParens:
-    """AC-5: ``available_backends`` is a @property — must be accessed
+    """``available_backends`` is a @property — must be accessed
     WITHOUT parens."""
 
     def test_source_does_not_call_available_backends_with_parens(self):
@@ -79,7 +79,7 @@ class TestAvailableBackendsPropertyNoParens:
         # parens. We strip whitespace inside the parens to be robust
         # against formatting.
         assert "available_backends()" not in src, (
-            "AC-5 regression: load_background calls "
+            "regression: load_background calls "
             "self._registry.available_backends() with parens — but "
             "available_backends is a @property. Calling it with parens "
             "raises TypeError: 'list' object is not callable, masking "
@@ -87,7 +87,7 @@ class TestAvailableBackendsPropertyNoParens:
         )
         # The fixed form: property access without parens.
         assert "available_backends" in src, (
-            "AC-5: load_background must access "
+            "load_background must access "
             "self._registry.available_backends (no parens) to list "
             "attempted backends in the diagnostic log.warning."
         )
@@ -118,7 +118,7 @@ class TestAvailableBackendsPropertyNoParens:
             if r.levelno == logging.WARNING and "All backends failed to load" in r.getMessage()
         ]
         assert diagnostic_warnings, (
-            "AC-5: when all backends fail to load, load_background must "
+            "when all backends fail to load, load_background must "
             "emit a log.warning listing the attempted backends + primary. "
             "Pre-fix, this warning was masked by a TypeError raised when "
             "calling available_backends() (a @property) with parens."
@@ -127,16 +127,16 @@ class TestAvailableBackendsPropertyNoParens:
         # (mocked) ``available_backends`` property.
         warning_msg = diagnostic_warnings[0].getMessage()
         assert "whisper" in warning_msg and "parakeet" in warning_msg, (
-            f"AC-5: the diagnostic log.warning must list the attempted "
+            f"the diagnostic log.warning must list the attempted "
             f"backends (whisper, parakeet). Got: {warning_msg!r}"
         )
         # The primary backend name must also be present.
         assert "primary=whisper" in warning_msg, (
-            f"AC-5: the diagnostic log.warning must include the primary backend name. Got: {warning_msg!r}"
+            f"the diagnostic log.warning must include the primary backend name. Got: {warning_msg!r}"
         )
 
     def test_all_backends_fail_does_not_raise_typeerror(self, caplog):
-        """AC-5: the all-backends-fail path must NOT raise
+        """the all-backends-fail path must NOT raise
         ``TypeError: 'list' object is not callable`` (the pre-fix bug
         from calling ``available_backends()`` with parens)."""
         mm, app = _make_mm_with_failing_registry()
@@ -149,7 +149,7 @@ class TestAvailableBackendsPropertyNoParens:
 
         crashed_logs = [r for r in caplog.records if "Background model load crashed" in r.getMessage()]
         assert not crashed_logs, (
-            "AC-5: load_background's outer ``except Exception`` caught "
+            "load_background's outer ``except Exception`` caught "
             "an exception (logged as 'Background model load crashed'). "
             "Pre-fix, this was a TypeError from calling available_backends() "
             "with parens. The fixed code must reach the diagnostic "
@@ -490,7 +490,16 @@ class TestLRUEviction:
 
     def test_evicts_oldest_backend_when_over_max(self):
         """When ``len(_model_access_times) > _MAX_LOADED_MODELS``, the
-        entry with the OLDEST timestamp is unloaded + removed."""
+        entry with the OLDEST timestamp is unloaded + unregistered +
+        removed from tracking.
+
+        Previously this path called ``engine.unload()`` directly and
+        left the backend in the registry (so a subsequent
+        ``_ensure_engine`` returned a stale, unloaded handle). Now it
+        goes through ``self._registry.unload(name)`` (busy-check
+        honoured) + ``self._registry.unregister(name)`` (so the stale
+        slot is cleared), mirroring ``_change_model_unload_phase``.
+        """
         import time
         from unittest.mock import MagicMock
 
@@ -503,25 +512,78 @@ class TestLRUEviction:
             "parakeet": now - 10.0,
             "qwen": now,
         }
-        oldest_engine = MagicMock(name="oldest-engine")
-        mm._registry.get = MagicMock(return_value=oldest_engine)
+        # registry is a MagicMock — registry.unload / unregister both
+        # succeed by default. We assert on the call args below.
+        mm._registry.get = MagicMock(return_value=MagicMock(name="oldest-engine"))
 
         mm._evict_lru_model()
 
-        # Oldest backend was looked up + unloaded.
-        mm._registry.get.assert_called_once_with("whisper")
-        oldest_engine.unload.assert_called_once()
+        # Oldest backend was unloaded + unregistered via the registry.
+        mm._registry.unload.assert_called_once_with("whisper")
+        mm._registry.unregister.assert_called_once_with("whisper")
         # Oldest backend removed from tracking.
         assert "whisper" not in mm._model_access_times
         assert "parakeet" in mm._model_access_times
         assert "qwen" in mm._model_access_times
 
-    def test_eviction_survives_engine_without_unload_method(self):
-        """If the engine for the oldest backend doesn't expose
-        ``unload()`` (e.g. a stub backend in tests), eviction still
-        removes it from tracking — the missing method is not fatal."""
+    def test_eviction_respects_busy_check(self):
+        """If the registry reports the oldest backend as busy
+        (``registry.unload`` raises ``RuntimeError``), eviction MUST
+        skip the backend rather than tearing it down mid-transcription.
+
+        Pre-fix: ``_evict_lru_model`` called ``engine.unload()``
+        directly, bypassing ``registry.unload``'s busy-check — a
+        concurrent transcription would have its model freed
+        mid-flight, crashing the C-level ctranslate2 / torch call.
+        """
         import time
-        from unittest.mock import MagicMock
+
+        mm, _app = _make_mm_with_mock_registry()
+        del mm._evict_lru_model  # restore real method
+        now = time.monotonic()
+        mm._model_access_times = {
+            "whisper": now - 100.0,  # oldest, but busy
+            "parakeet": now - 10.0,
+            "qwen": now,
+        }
+        # registry.unload raises RuntimeError (busy-check refused).
+        mm._registry.unload.side_effect = RuntimeError("cannot unload busy backend: whisper")
+
+        mm._evict_lru_model()
+
+        # The busy backend was NOT torn down — unload raised, so
+        # ``unregister`` MUST NOT be called (otherwise we'd leave a
+        # half-torn-down backend in the registry).
+        mm._registry.unload.assert_called_once_with("whisper")
+        mm._registry.unregister.assert_not_called()
+        # Tracking dict is unchanged — eviction was skipped, NOT
+        # partially applied. (The del happens AFTER the unload block
+        # in the implementation, so a RuntimeError return leaves the
+        # entry in place.)
+        assert "whisper" in mm._model_access_times
+        assert "parakeet" in mm._model_access_times
+        assert "qwen" in mm._model_access_times
+
+    def test_eviction_survives_engine_without_unload_method(self):
+        """Eviction must not raise even if ``registry.unload`` /
+        ``registry.unregister`` / ``release_gpu_memory`` encounter
+        non-busy errors. The implementation wraps each step in
+        try/except so a partial failure (e.g. a backend whose
+        ``unload()`` raised a non-RuntimeError) doesn't leak an
+        exception to the caller (``load_background`` /
+        ``change_model``) which would mask the success of the load
+        itself, AND still removes the entry from the LRU tracking so
+        a subsequent ``_ensure_engine`` constructs a fresh engine.
+
+        Previously this test set up an engine without ``unload()`` to
+        exercise the ``hasattr`` guard in the direct-call path. With
+        the registry-mediated unload, ``registry.unload`` (a MagicMock
+        by default) swallows backend errors internally, so we
+        explicitly make it raise a non-RuntimeError to exercise the
+        new ``except Exception`` branch (RuntimeError is reserved for
+        the busy-check skip path — see ``test_eviction_respects_busy_check``).
+        """
+        import time
 
         mm, _app = _make_mm_with_mock_registry()
         del mm._evict_lru_model  # restore real method (helper stubs it)
@@ -531,11 +593,18 @@ class TestLRUEviction:
             "parakeet": now - 10.0,
             "qwen": now,
         }
-        # Engine with no ``unload`` attribute.
-        bare_engine = MagicMock(spec=[])  # spec=[] -> no attributes
-        mm._registry.get = MagicMock(return_value=bare_engine)
+        # Make registry.unload raise a NON-RuntimeError (e.g. backend's
+        # unload() raised ValueError). Eviction must NOT raise — it
+        # logs + continues to unregister + remove from tracking.
+        # (RuntimeError is the busy-check skip path — not exercised
+        # here.)
+        mm._registry.unload.side_effect = ValueError("backend unload crashed")
 
-        # Must NOT raise AttributeError.
+        # Must NOT raise.
         mm._evict_lru_model()
 
+        # Tracking still cleared — eviction is best-effort, a
+        # backend-unload crash doesn't leave the entry pinned forever
+        # (the registry unregister + tracking removal still happen so
+        # a subsequent _ensure_engine constructs a fresh engine).
         assert "whisper" not in mm._model_access_times

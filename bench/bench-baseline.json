@@ -1,0 +1,105 @@
+{
+  "_comment": "Perf ratchet baseline for `make bench`. CI (.github/workflows/perf.yml) runs `make bench` to produce bench-current.json, then compares each metric below against the current value. A metric REGRESSES if current > baseline * (1 + tolerance_pct/100) for direction='lower' (latency, memory), or if current < baseline * (1 - tolerance_pct/100) for direction='higher' (throughput, WPS). To regenerate after a deliberate perf improvement, run `make bench` on the canonical CI runner and copy the resulting bench-current.json values into this file (only the metric values that improved — never grow a baseline value without justification).",
+  "_schema_version": 1,
+  "_generated_at": "2026-08-02T00:00:00Z",
+  "_runner": "ubuntu-22.04 (sandbox baseline — regenerate on dedicated CI runner for production use)",
+  "_tolerance_default_pct": 50,
+  "metrics": {
+    "bench_startup.cold_import.first_run_ms": {
+      "value": 800.0,
+      "direction": "lower",
+      "tolerance_pct": 50,
+      "notes": "TRUE cold start (page cache cold). Sandbox observed 100-700ms (very noisy); CI runner should be 100-300ms."
+    },
+    "bench_startup.cold_import.median_ms": {
+      "value": 300.0,
+      "direction": "lower",
+      "tolerance_pct": 50,
+      "notes": "Page-cache-warm cold start. Sandbox observed 100-200ms."
+    },
+    "bench_startup.cold_import.p99_ms": {
+      "value": 800.0,
+      "direction": "lower",
+      "tolerance_pct": 50,
+      "notes": "Worst observed import time. Sandbox observed 150-700ms."
+    },
+    "bench_audio_filter_chain.0.p99_per_chunk_us": {
+      "value": 50000.0,
+      "direction": "lower",
+      "tolerance_pct": 100,
+      "notes": "16kHz path p99 per-chunk processing time. Sandbox observed 37-50ms (noisy). ADR-0009 budget: <32ms (chunk_duration_us)."
+    },
+    "bench_audio_filter_chain.1.p99_per_chunk_us": {
+      "value": 60000.0,
+      "direction": "lower",
+      "tolerance_pct": 100,
+      "notes": "48kHz path p99 per-chunk processing time. Sandbox observed 46-55ms (noisy). ADR-0009 budget: <10.6ms (chunk_duration_us)."
+    },
+    "bench_streaming.0.add_words_p99_us": {
+      "value": 20000.0,
+      "direction": "lower",
+      "tolerance_pct": 100,
+      "notes": "Streaming assembler add_words p99. Sandbox observed ~13ms."
+    },
+    "bench_streaming.0.committed_text_p99_us": {
+      "value": 60000.0,
+      "direction": "lower",
+      "tolerance_pct": 100,
+      "notes": "Streaming committed_text read p99. Sandbox observed ~40ms."
+    },
+    "bench_vad.0.p99_us": {
+      "value": 5.0,
+      "direction": "lower",
+      "tolerance_pct": 200,
+      "notes": "VAD update_frame p99. Sandbox observed 0.4µs."
+    },
+    "bench_ipc.auth_handshake.warm.p99_us": {
+      "value": 10.0,
+      "direction": "lower",
+      "tolerance_pct": 200,
+      "notes": "IPC payload validation p99. Sandbox observed 1.85µs."
+    },
+    "bench_ipc.push_throughput.results_per_n.0.publish_latency.p99_us": {
+      "value": 5.0,
+      "direction": "lower",
+      "tolerance_pct": 200,
+      "notes": "event_bus.publish p99 with 1 subscriber. Sandbox observed 0.78µs."
+    },
+    "bench_ipc.push_throughput.results_per_n.3.publish_latency.p99_us": {
+      "value": 50.0,
+      "direction": "lower",
+      "tolerance_pct": 200,
+      "notes": "event_bus.publish p99 with 64 subscribers. Sandbox observed 14µs."
+    },
+    "bench_ipc.streaming_round_trip.latency.p99_us": {
+      "value": 10.0,
+      "direction": "lower",
+      "tolerance_pct": 200,
+      "notes": "Publish→subscriber round-trip p99. Sandbox observed 0.71µs."
+    },
+    "bench_ipc.rate_limiter_saturation.heartbeat_allow.p99_us": {
+      "value": 5.0,
+      "direction": "lower",
+      "tolerance_pct": 200,
+      "notes": "Rate limiter heartbeat bypass p99. Sandbox observed 0.3µs."
+    },
+    "bench_ipc.rate_limiter_saturation.set_config_allow.p99_us": {
+      "value": 10.0,
+      "direction": "lower",
+      "tolerance_pct": 200,
+      "notes": "Rate limiter cost-weighted path p99. Sandbox observed 1.04µs."
+    },
+    "bench_memory.cold_import.peak_rss_mb": {
+      "value": 100.0,
+      "direction": "lower",
+      "tolerance_pct": 100,
+      "notes": "Cold import peak RSS (subprocess). Sandbox observed 21MB."
+    },
+    "bench_memory.sustained_load.delta_rss_mb": {
+      "value": 200.0,
+      "direction": "lower",
+      "tolerance_pct": 100,
+      "notes": "Sustained load RSS delta. Sandbox observed 82MB (filter_chain_fallback)."
+    }
+  }
+}

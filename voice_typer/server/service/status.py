@@ -37,6 +37,31 @@ class StatusMixin(ServiceMixinBase):
     # WARNING, subsequent at DEBUG.
     _volume_ducker_init_warned: bool = False
 
+    # Per-instance cache for :meth:`get_volume_backend_status`.
+    #
+    # The status endpoint is polled every ~2s by the renderer; the
+    # previous implementation called ``ducker.initialize()`` on every
+    # poll. ``initialize()`` is idempotent (it short-circuits on
+    # ``self._initialized``), but each call still acquires the ducker's
+    # internal lock and re-reads ``self._backend`` / ``self._ready`` /
+    # ``self.supports_per_session`` — wasted work that adds up across
+    # thousands of polls. We now compute the status dict ONCE (on the
+    # first call), cache it here, and return the cached value on
+    # subsequent polls. The cache is invalidated only on an explicit
+    # ``_force_refresh=True`` call (the UI's "Refresh" button) — see
+    # :meth:`get_volume_backend_status` for the invalidation contract.
+    #
+    # ``None`` means "no cache yet" (the very first poll); a dict
+    # value means "cached status from a previous successful poll". The
+    # cache is per-instance (each :class:`VoiceTyperService` gets its
+    # own) because the underlying ``_volume_ducker`` is also
+    # per-instance. Class-level default of ``None`` is safe — it is
+    # an immutable singleton, so the class-attribute fallback doesn't
+    # leak state across instances (the first ``self.X = {...}``
+    # assignment shadows the class attribute with an instance
+    # attribute on the same ``self``).
+    _volume_backend_status_cache: dict[str, object] | None = None
+
     # ── Status ──────────────────────────────────────────────────
 
     def get_status(self) -> "StatusResponse":  # noqa: F821 (forward ref resolved in __init__)
@@ -72,8 +97,48 @@ class StatusMixin(ServiceMixinBase):
 
     # Volume / Model status () ────────────────────────
 
-    def get_volume_backend_status(self) -> dict[str, object]:
-        """Return the volume ducking backend status."""
+    def get_volume_backend_status(self, *, _force_refresh: bool = False) -> dict[str, object]:
+        """Return the volume ducking backend status.
+
+        Performance contract: the renderer polls this method every ~2s.
+        ``ducker.initialize()`` is invoked at most ONCE per instance
+        (on the first call, when the cache is empty); subsequent polls
+        return the cached status dict without re-running
+        ``initialize()``. ``initialize()`` is idempotent on
+        :class:`VolumeDucker` (it short-circuits on
+        ``self._initialized``), but the call still acquires the ducker's
+        internal lock and re-reads backend attributes — wasted work
+        across thousands of polls.
+
+        Cache invalidation: the cached ``backend_name`` /
+        ``is_available`` / ``supports_per_session`` / ``backend`` values
+        are invalidated ONLY on an explicit ``_force_refresh=True``
+        call. Pass ``_force_refresh=True`` from the UI's "Refresh
+        Volume Backend" button (or any caller that knows the underlying
+        platform state has changed — e.g. after the user installs
+        ``pyobjc-framework-CoreAudio`` mid-session, which switches the
+        macOS backend from osascript to CoreAudio). The default
+        ``_force_refresh=False`` is for the 2s status poll path.
+
+        Note: ``_force_refresh`` is prefixed with an underscore because
+        it is NOT yet wired through the IPC ``get_volume_backend_status``
+        handler (the handler calls this method with no arguments, so the
+        default ``False`` applies — preserving the poll-path caching
+        contract). A separate task will add a ``refresh_volume_backend``
+        IPC command that passes ``_force_refresh=True`` through.
+
+        Args:
+            _force_refresh: When ``True``, bypass the cache, re-run
+                ``ducker.initialize()``, and refresh the cached status.
+                Default ``False`` (use cache).
+
+        Returns:
+            A dict with ``available``, ``name``,
+            ``supports_per_session``, and ``backend`` keys (plus a
+            ``reason`` key on failure). The returned dict is a shallow
+            copy of the cache so callers can freely mutate it without
+            corrupting the cached state.
+        """
         ducker = getattr(self._app, "_volume_ducker", None)
         if ducker is None:
             return {
@@ -81,14 +146,31 @@ class StatusMixin(ServiceMixinBase):
                 "name": "disabled",
                 "supports_per_session": False,
             }
+
+        # Fast path: serve from cache when available and the caller
+        # didn't ask for a refresh. Returning a copy so callers can't
+        # mutate our cached dict (the IPC handler adds ``is_windows``
+        # to the returned dict — without a copy that would leak into
+        # the cache and show up on the next poll).
+        cache = self._volume_backend_status_cache
+        if cache is not None and not _force_refresh:
+            return dict(cache)
+
         try:
             # Trigger initialize() so the backend name reflects
             # the actual platform backend (not "disabled"
             # merely because nothing has ducked yet).
+            #
+            # On the default poll path this branch runs at most ONCE
+            # per instance (the cache is populated below and the next
+            # poll takes the fast path above). With _force_refresh=True
+            # the cache is bypassed and initialize() is re-invoked.
+            init_ok = False
             try:
                 ducker.initialize()
                 # reset notify-once guard on success.
                 StatusMixin._volume_ducker_init_warned = False
+                init_ok = True
             except Exception:
                 # notify-once — log first failure at WARNING,
                 # subsequent at DEBUG (status endpoint polled ~every 2s).
@@ -103,12 +185,25 @@ class StatusMixin(ServiceMixinBase):
                         "[SERVICE] volume_ducker.initialize failed (repeat)",
                         exc_info=True,
                     )
-            return {
+            status = {
                 "available": bool(ducker.is_available),
                 "name": ducker.backend_name,
                 "supports_per_session": bool(ducker.supports_per_session),
                 "backend": type(ducker).__name__,
             }
+            # Cache the status only when initialize() succeeded OR
+            # the caller explicitly asked for a refresh. On the default
+            # poll path with a failed initialize(), we DON'T cache so
+            # the next poll retries initialize() — this preserves the
+            # previous "retry every poll until init succeeds" behaviour
+            # for users who install a missing dependency mid-session
+            # without clicking the Refresh button. When the caller
+            # passes _force_refresh=True, we cache the best-effort
+            # status regardless of init outcome (the user explicitly
+            # asked for the current state).
+            if init_ok or _force_refresh:
+                self._volume_backend_status_cache = status
+            return dict(status)
         except Exception as exc:
             # redact exc string before returning to IPC layer.
             # Sister methods (delete_model, test_llm_connection, etc.) all

@@ -8,6 +8,8 @@ Merges:
 - tests/test_new_dead_015_llm_test_connection.py
 """
 
+# NOTE: search.py is now LIVE (history_db.py delegates to it). Only recovery.py remains deleted.
+
 # === Common imports (deduplicated from all source files) ===
 
 from __future__ import annotations
@@ -313,7 +315,7 @@ class TestPttWiring:
 
         The PTT wiring lives in ``_create_and_start_main_backend`` (a
         helper extracted from ``register`` for the atomic-swap
-        refactor, CR-15). Both methods' source is inspected so a
+        refactor, ). Both methods' source is inspected so a
         future refactor that moves the wiring again doesn't break this
         regression guard.
         """
@@ -627,7 +629,7 @@ if __name__ == "__main__":
 
 # === Source:  — ipc/ subpackage dead-code removal ===
 
-"""Regression tests for CR-1: ``voice_typer/server/ipc/`` subpackage is
+"""Regression tests for ``voice_typer/server/ipc/`` subpackage is
 NOT a parallel implementation of ``ipc_server.py``.
 
 Phase 4.5 / ARCH-045 began a split of the original ``ipc_server.py``
@@ -644,7 +646,7 @@ submodules that the handler mixins actually import (``validation``,
 
 
 class TestIpcDeadCodeStaysRemoved:
-    """CR-1: the four dead parallel-implementation modules must stay gone."""
+    """the four dead parallel-implementation modules must stay gone."""
 
     @pytest.mark.parametrize(
         "rel_path",
@@ -659,7 +661,7 @@ class TestIpcDeadCodeStaysRemoved:
         """Each deleted parallel-implementation module must not exist on disk."""
         repo_root = Path(__file__).resolve().parent.parent
         assert not (repo_root / rel_path).exists(), (
-            f"CR-1 regression: {rel_path} was deleted as dead-code parallel of "
+            f" regression: {rel_path} was deleted as dead-code parallel of "
             "ipc_server.py — do NOT re-create it. The canonical implementation "
             "lives in voice_typer/server/ipc_server.py."
         )
@@ -691,12 +693,12 @@ class TestIpcDeadCodeStaysRemoved:
         assert not hasattr(ipc_pkg, "IPCServer"), (
             "ipc/__init__.py must not re-export IPCServer — it lives in "
             "voice_typer.server.ipc_server. Re-exporting it re-creates the "
-            "parallel-system surface that CR-1 removed."
+            "parallel-system surface that  removed."
         )
         assert not hasattr(ipc_pkg, "main"), (
             "ipc/__init__.py must not re-export main — it lives in "
             "voice_typer.server.ipc_server. Re-exporting it re-creates the "
-            "parallel-system surface that CR-1 removed."
+            "parallel-system surface that  removed."
         )
 
     def test_ipc_init_does_not_re_export_push_event_now_or_process_meta(self):
@@ -729,7 +731,7 @@ class TestIpcDeadCodeStaysRemoved:
             importlib.import_module(mod_path)
 
     def test_ipc_server_imports_TCPLineIO_from_transport(self):  # noqa: N802
-        """CR-2: ``ipc_server.py`` must import ``_TCPLineIO`` from
+        """``ipc_server.py`` must import ``_TCPLineIO`` from
         ``voice_typer.server.ipc.transport`` (the canonical location with
         the deadlock fix in ``close``), not define a parallel copy.
         """
@@ -742,7 +744,7 @@ class TestIpcDeadCodeStaysRemoved:
         assert ipc_server._TCPLineIO is ipc_transport._TCPLineIO, (
             "ipc_server._TCPLineIO must be the SAME class object as "
             "ipc.transport._TCPLineIO (single source of truth for the "
-            "CR-2 close()-deadlock fix). A parallel copy would let the "
+            " close()-deadlock fix). A parallel copy would let the "
             "bugged close() resurface."
         )
         # The source file must be transport.py, not ipc_server.py.
@@ -752,7 +754,7 @@ class TestIpcDeadCodeStaysRemoved:
         )
 
     def test_ipc_server_TCPLineIO_close_uses_shutdown(self):  # noqa: N802
-        """CR-2: ``_TCPLineIO.close`` must call ``shutdown(SHUT_RDWR)``
+        """``_TCPLineIO.close`` must call ``shutdown(SHUT_RDWR)``
         BEFORE ``close()`` so an in-progress ``recv`` on another thread
         is interrupted and the ``BufferedReader.close()`` doesn't
         deadlock.
@@ -764,7 +766,7 @@ class TestIpcDeadCodeStaysRemoved:
         src = inspect.getsource(_TCPLineIO.close)
         assert "shutdown" in src, (
             "_TCPLineIO.close must call self.conn.shutdown(SHUT_RDWR) to "
-            "interrupt in-progress reads (CR-2 deadlock fix)."
+            "interrupt in-progress reads ( deadlock fix)."
         )
         assert "SHUT_RDWR" in src, (
             "_TCPLineIO.close must use socket.SHUT_RDWR (full duplex shutdown) to interrupt both reads and writes."
@@ -834,7 +836,10 @@ class TestExtendUrlAllowlistIsWired:
                         and func.id == "extend_url_allowlist"
                         or (isinstance(func, ast.Attribute) and func.attr == "extend_url_allowlist")
                     ):
-                        offender_files.add(str(py_file.relative_to(repo_root)))
+                        # Normalize to forward slashes so the comparison
+                        # against _EXPECTED_CALLERS matches on Windows
+                        # (where str(Path) uses backslashes).
+                        offender_files.add(str(py_file.relative_to(repo_root)).replace("\\", "/"))
 
         unexpected = offender_files - self._EXPECTED_CALLERS
         missing = self._EXPECTED_CALLERS - offender_files
@@ -859,4 +864,131 @@ class TestExtendUrlAllowlistIsWired:
             "`extend_url_allowlist` is back in `_secrets.py`, but the "
             "function is live (Config.load + add_trusted_endpoint IPC + "
             "env-var bootstrap). Remove the marker again."
+        )
+
+
+# === Source: dead history_db_internals/recovery.py ===
+
+
+class TestHistoryDbInternalsRecoveryModuleStaysRemoved:
+    """``voice_typer.server.history_db_internals.recovery`` was 519 LOC of
+    dead code — 0% coverage, 0 actual importers.
+
+    The ``HistoryDB`` class methods that handle corruption recovery
+    (``_maybe_recover_from_corruption``, ``_backup_before_migration``,
+    ``_try_iterdump_recovery``) all live in
+    :mod:`voice_typer.server.history_db` itself — the standalone
+    functions in ``recovery.py`` (``backup_before_migration``,
+    ``maybe_recover_from_corruption``, ``try_iterdump_recovery``,
+    ``apply_recovered_inserts``, ``notify_corruption_recovered``,
+    ``secure_copy_db_file_impl``) were an unused extraction that never
+    got wired in.
+
+    Note: ``history_db_internals/search.py`` is now LIVE — session-2
+    promoted it to the canonical search implementation and
+    ``history_db.py`` delegates to it. Only ``recovery.py`` stays
+    deleted; this test guards against accidental re-creation
+    (e.g. a cherry-pick from an old branch restoring the file).
+    """
+
+    _DEAD_MODULES = (
+        "voice_typer.server.history_db_internals.recovery",
+    )
+
+    def test_recovery_module_stays_removed(self) -> None:
+        """``voice_typer.server.history_db_internals.recovery`` must
+        NOT be importable — the module was deleted as dead code.
+        If this test fails, someone restored the file (e.g. by
+        cherry-picking an old commit). Re-delete it.
+        """
+        import importlib
+
+        try:
+            importlib.import_module(
+                "voice_typer.server.history_db_internals.recovery"
+            )
+        except ModuleNotFoundError:
+            return  # expected — the module is gone
+        raise AssertionError(
+            "regression: voice_typer.server.history_db_internals.recovery "
+            "is importable again. This module was deleted as 519 LOC of dead code "
+            "(0 importers, 0% coverage). The HistoryDB corruption-recovery methods "
+            "(_maybe_recover_from_corruption, _backup_before_migration, "
+            "_try_iterdump_recovery) all live in voice_typer.server.history_db "
+            "itself — recovery.py was an unused extraction. Re-delete the file."
+        )
+
+    def test_recovery_file_does_not_exist_on_disk(self) -> None:
+        """Belt-and-braces: the actual ``.py`` file must not exist on
+        disk. The import-not-importable test above is the primary
+        guard, but this catches a scenario where the file is present
+        but has a syntax error preventing import (which would mask
+        the regression from the import test).
+        """
+        repo_root = Path(__file__).resolve().parent.parent
+        pkg_dir = (
+            repo_root
+            / "voice_typer"
+            / "server"
+            / "history_db_internals"
+        )
+        recovery_py = pkg_dir / "recovery.py"
+        assert not recovery_py.exists(), (
+            "regression: voice_typer/server/history_db_internals/"
+            "recovery.py exists on disk. This file was deleted as 519 LOC "
+            "of dead code. Re-delete it (and check the archive/"
+            "deleted_files.txt entry)."
+        )
+
+    def test_no_source_file_imports_the_recovery_module(self) -> None:
+        """No ``.py`` file under ``voice_typer/`` or ``tests/`` may
+        import the dead ``recovery`` module. This guards against a
+        regression where someone restores the file AND wires it back
+        in (the file-existence guard above would catch the file
+        restore, but this test catches the wiring restore too).
+
+        We allow the module to be MENTIONED in comments / docstrings
+        (e.g. an explanatory comment in ``privacy.py`` referencing
+        the historical path) — only actual ``from ... import`` /
+        ``import ...`` statements are forbidden.
+        """
+        repo_root = Path(__file__).resolve().parent.parent
+        offender_files: set[str] = set()
+        for sub in ("voice_typer", "tests"):
+            root = repo_root / sub
+            if not root.is_dir():
+                continue
+            for py_file in root.rglob("*.py"):
+                try:
+                    source = py_file.read_text(encoding="utf-8")
+                except (OSError, UnicodeDecodeError):
+                    continue
+                try:
+                    tree = ast.parse(source, filename=str(py_file))
+                except SyntaxError:
+                    continue
+                for node in ast.walk(tree):
+                    # ``from voice_typer.server.history_db_internals.recovery import ...``
+                    if isinstance(node, ast.ImportFrom) and node.module and (
+                        node.module
+                        == "voice_typer.server.history_db_internals.recovery"
+                    ):
+                        offender_files.add(str(py_file.relative_to(repo_root)))
+                    # ``import voice_typer.server.history_db_internals.recovery``
+                    # (also catches dotted ``import ... as ...``)
+                    if isinstance(node, ast.Import):
+                        for alias in node.names:
+                            if alias.name in (
+                                "voice_typer.server.history_db_internals.recovery",
+                            ):
+                                offender_files.add(
+                                    str(py_file.relative_to(repo_root))
+                                )
+
+        assert not offender_files, (
+            "regression: the following file(s) import the dead "
+            "module `history_db_internals.recovery`. "
+            f"Offenders: {sorted(offender_files)!r}. This module was deleted "
+            "as dead code; restore the deletion (and re-route any caller to the "
+            "live `HistoryDB` methods on `voice_typer.server.history_db`)."
         )

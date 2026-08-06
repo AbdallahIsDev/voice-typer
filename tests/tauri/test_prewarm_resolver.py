@@ -6,6 +6,7 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
 from voice_typer.server import prewarm_resolver
 
 
@@ -72,15 +73,31 @@ def test_resolve_returns_none_if_sys_executable_empty(monkeypatch):
     assert result is None
 
 
-def test_target_triple_matches_platform():
-    """The triple must match Tauri's externalBin naming convention."""
+@pytest.mark.skipif(sys.platform != "linux", reason="linux-only target triple")
+def test_target_triple_linux():
+    """The triple ends with '-unknown-linux-gnu' on Linux.
+
+    Replaces the previous EC-26 silent ``if sys.platform == ...`` guard
+    with an explicit per-platform test so a non-Linux run reports a
+    SKIP (not a silent PASS) — the orchestrator's acceptance criteria
+    require visibility into which platform branches actually executed.
+    """
     triple = prewarm_resolver._target_triple()
-    if sys.platform == "win32":
-        assert triple.endswith("-pc-windows-msvc")
-    elif sys.platform == "darwin":
-        assert triple.endswith("-apple-darwin")
-    else:
-        assert triple.endswith("-unknown-linux-gnu")
+    assert triple.endswith("-unknown-linux-gnu")
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="windows-only target triple")
+def test_target_triple_windows():
+    """The triple ends with '-pc-windows-msvc' on Windows."""
+    triple = prewarm_resolver._target_triple()
+    assert triple.endswith("-pc-windows-msvc")
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macos-only target triple")
+def test_target_triple_macos():
+    """The triple ends with '-apple-darwin' on macOS."""
+    triple = prewarm_resolver._target_triple()
+    assert triple.endswith("-apple-darwin")
 
 
 def test_target_triple_aarch64_linux_uses_rust_convention(monkeypatch):
@@ -221,13 +238,30 @@ def test_target_triple_windows_x86_64(monkeypatch):
     assert triple == "x86_64-pc-windows-msvc"
 
 
-def test_exe_suffix_correct_for_platform():
-    """Windows gets .exe; POSIX gets no suffix."""
+@pytest.mark.skipif(sys.platform != "linux", reason="linux-only exe suffix")
+def test_exe_suffix_correct_for_platform_linux():
+    """Linux gets no suffix.
+
+    Replaces the EC-26 silent ``if sys.platform == "win32":`` guard with
+    an explicit per-platform test so non-Linux runs report SKIP (not
+    silent PASS).
+    """
     suffix = prewarm_resolver._exe_suffix()
-    if sys.platform == "win32":
-        assert suffix == ".exe"
-    else:
-        assert suffix == ""
+    assert suffix == ""
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="windows-only exe suffix")
+def test_exe_suffix_correct_for_platform_windows():
+    """Windows gets '.exe'."""
+    suffix = prewarm_resolver._exe_suffix()
+    assert suffix == ".exe"
+
+
+@pytest.mark.skipif(sys.platform != "darwin", reason="macos-only exe suffix")
+def test_exe_suffix_correct_for_platform_macos():
+    """macOS gets no suffix."""
+    suffix = prewarm_resolver._exe_suffix()
+    assert suffix == ""
 
 
 def test_candidate_paths_includes_env_override_first(monkeypatch, tmp_path):

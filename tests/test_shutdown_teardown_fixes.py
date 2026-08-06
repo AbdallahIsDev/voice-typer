@@ -389,9 +389,16 @@ class TestWindowsTerminateProcessFallback:  # noqa: N801
         assert "CloseHandle" in body, (
             "UE-1-F6: _teardown_electron must close the handle after TerminateProcess to avoid handle leaks"
         )
-        # The Windows branch must be guarded by ``sys.platform == "win32"``.
-        assert 'sys.platform == "win32"' in body, (
-            'UE-1-F6: the TerminateProcess fallback must be guarded by ``sys.platform == "win32"`` (POSIX uses SIGKILL)'
+        # The Windows branch must be platform-guarded (POSIX uses
+        # SIGKILL). The canonical codebase guard is the
+        # ``platform_utils.is_windows()`` helper (the historical
+        # ``sys.platform == "win32"`` literal was replaced by it when
+        # the extracted module adopted the shared helper); accept either
+        # form.
+        assert ('sys.platform == "win32"' in body) or ("is_windows()" in body), (
+            "UE-1-F6: the TerminateProcess fallback must be guarded by "
+            "``sys.platform == \"win32\"`` (or the canonical "
+            "``platform_utils.is_windows()`` guard) — POSIX uses SIGKILL"
         )
         # marker must be present for traceability.
         assert "UE-1-F6" in body, (

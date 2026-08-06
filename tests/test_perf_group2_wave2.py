@@ -27,18 +27,13 @@ suites).
 from __future__ import annotations
 
 import json as _json
-import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Mock pynput / pyperclip at import time so the clipboard module loads
-# cleanly on a headless Linux box (same pattern as
-# test_clipboard_paste_restore.py).
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-sys.modules.setdefault("pyperclip", MagicMock())
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 
 
 # ===========================================================================
@@ -329,16 +324,14 @@ def test_pending_restores_no_leak_warning_logged() -> None:
         exits.append(p)
     try:
         mock_log = MagicMock()
-        # ``manager.py`` has its OWN ``log = logging.getLogger(...)`` at
-        # module level (it does NOT import ``log`` from ``clipboard``),
-        # so patching ``clip_mod.log`` alone is insufficient — the
-        # warning is emitted from ``manager._paste_delayed_restore``
-        # via the manager-module-local ``log`` reference. Patch both
-        # so the call is intercepted regardless of which reference
-        # the production code uses.
+        # ``manager.py`` does NOT define its own module-level ``log`` —
+        # it uses ``_cb.log`` (the ``voice_typer.server.clipboard``
+        # package logger, module alias ``_cb``), which is the same
+        # object as ``clip_mod.log``. So patching ``clip_mod.log`` is
+        # sufficient; patching ``mgr_mod.log`` would fail because that
+        # attribute does not exist on the manager module.
         with (
             patch.object(clip_mod, "log", mock_log),
-            patch.object(mgr_mod, "log", mock_log),
             patch.object(mgr_mod.threading, "Thread", FakeThread),
         ):
             cm.paste(snapshot=snap, pasted_text="text")

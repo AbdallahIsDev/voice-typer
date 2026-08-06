@@ -29,7 +29,7 @@ def is_linux() -> bool:
 
 
 def is_wayland_session() -> bool:
-    """Return True if running under a Wayland session (Linux/macOS only).
+    """Return True if running under a Wayland session (Linux only).
 
     replaces four inconsistent Wayland-session detectors that
         were scattered across ``tray.py``, ``clipboard_snapshot.py`` and
@@ -39,11 +39,15 @@ def is_wayland_session() -> bool:
         var without setting ``XDG_SESSION_TYPE`` (e.g. some wlroots setups
         launched from a TTY).
 
-        Returns ``False`` on Windows (which can never be Wayland) and on
-        non-Linux/macOS platforms where the Wayland protocol isn't a thing.
+        Returns ``False`` on Windows AND macOS (neither runs Wayland;
+        macOS uses Quartz/Aqua, Windows uses the Desktop Window Manager).
+        previously this also accepted ``darwin`` as a Wayland-capable
+        platform — that was a copy-paste artefact from the broader
+        ``is_linux() or is_macos()`` Unix-flavoured branch. Wayland is a
+        Linux display-server protocol; macOS does not run it.
     """
-    if sys.platform not in ("linux", "darwin"):
-        return False  # Windows can't be Wayland
+    if sys.platform != "linux":
+        return False  # Windows + macOS can never be Wayland
     import os
 
     xdg_session = os.environ.get("XDG_SESSION_TYPE", "")

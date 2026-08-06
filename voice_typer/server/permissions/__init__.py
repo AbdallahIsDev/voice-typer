@@ -161,6 +161,19 @@ _retry_lock = threading.RLock()
 # read. Reset via ``reset_pyobjc_cache()`` (tests / hot-reload).
 _PYOBJC_AVAILABLE: bool | None = None
 
+# module-level de-dup flag for the macOS Accessibility TCC
+# consent-prompt trigger (``_trigger_macos_accessibility_consent_prompt``).
+# ``AXIsProcessTrustedWithOptions(kAXTrustedCheckOptionPrompt=True)`` is
+# the only sanctioned programmatic way to surface the native TCC dialog
+# on macOS 14+. macOS itself de-duplicates the on-screen dialog, but
+# the python-level flag avoids re-paying the CoreFoundation call cost
+# on every ``request_keyboard_permission`` invocation (which the hotkey
+# adapter can call on every binary error). ``False`` = not yet shown
+# this process; flipped to ``True`` after the first prompt trigger.
+# Reset only by process restart (matching the OS's own per-process
+# TCC dialog de-duplication semantics).
+_a11y_prompt_shown: bool = False
+
 
 # ─── Tray notification i18n keys ───────────────────────────────────────────
 # i18n keys for the permission notification. The English
@@ -195,6 +208,7 @@ _PERMISSION_NOTIFY_LINUX_BODY_KEY = "notify.permissions.linux_body"
 from voice_typer.server.permissions.accessibility import (  # noqa: E402,F401
     _check_macos_accessibility,
     _open_macos_accessibility_settings,
+    _trigger_macos_accessibility_consent_prompt,
 )
 from voice_typer.server.permissions.checker import (  # noqa: E402,F401
     PERMISSION_RETRY_INTERVAL_SECONDS,

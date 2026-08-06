@@ -11,12 +11,12 @@ original ``hotkeys.py`` god-file in Phase 4.5 ().
 # columns that intentionally exceed the 120-char line limit.
 
 import contextlib
-import os
 import threading
 from collections.abc import Callable
 
 from voice_typer.server import hotkeys as _hotkeys_pkg
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.platform_utils import is_wayland_session
 
 from .base import HotkeyBackend, log
 from .pynput_backend import PynputHotkey
@@ -472,13 +472,10 @@ class _NativeBackendAdapter(HotkeyBackend):
         """
         if is_windows():
             return WindowsNativeHotkey(self.hotkey_str)
-        if is_linux():
-            wayland_display = os.environ.get("WAYLAND_DISPLAY", "")
-            xdg_session = os.environ.get("XDG_SESSION_TYPE", "")
-            if wayland_display or xdg_session == "wayland":
-                # IN-24: pass ``self._role`` so the legacy fallback on a
-                # Wayland session doesn't collide with other backends.
-                return WaylandHotkey(self.hotkey_str, role=self._role)
+        if is_linux() and is_wayland_session():
+            # IN-24: pass ``self._role`` so the legacy fallback on a
+            # Wayland session doesn't collide with other backends.
+            return WaylandHotkey(self.hotkey_str, role=self._role)
         return PynputHotkey(self.hotkey_str)
 
     def _schedule_native_retry(self) -> None:

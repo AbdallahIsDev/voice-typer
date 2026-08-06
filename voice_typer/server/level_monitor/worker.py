@@ -63,6 +63,39 @@ _level_worker_error_window_start: float = 0.0
 _LEVEL_WORKER_ERROR_LOG_THROTTLE_SEC: float = 5.0
 _LEVEL_WORKER_ERROR_RATE_THRESHOLD: float = 10.0
 
+# ─── cumulative dropped-chunks counter ──────────────────────
+# ``_state._dropped_level_chunks`` is a per-burst delta: the RT callback
+# increments it on ring-buffer overflow, and the worker thread drains it
+# to 0 every 5s after logging. That makes it useless for cumulative
+# telemetry — a test that snapshots it before/after a single overflow
+# can flake if the worker drains between the snapshot and the check
+# (exactly the regression in
+# ``test_dropped_chunks_counter_incremented_on_ring_buffer_overflow``).
+#
+# This counter is the cumulative sibling: it is incremented by the
+# worker (NEVER by the RT callback) at the same time it drains the
+# per-burst counter, and it is NEVER reset in production. It survives
+# the 5s throttle and the worker's drain cycle, so it's the correct
+# field for "how many chunks has this process dropped since
+# ``start_monitoring`` was first called" telemetry.
+#
+# Module-level global (NOT on ``_state``) for two reasons:
+#   1. ``_state.py`` is outside this fix's owned files, so adding a new
+#      field to ``_State.__init__`` would require editing it. A worker.py
+#      global mirrors the existing ``_level_worker_errors`` pattern.
+#   2. ``_state.reset_for_tests`` wipes ``_state.__dict__`` (via
+#      ``__dict__.clear()``), which would silently evict any attribute
+#      added externally. A worker.py module-level global survives
+#      ``reset_for_tests`` and is reset explicitly by
+#      ``_reset_worker_error_state_for_tests`` (extended below) so test
+#      isolation is preserved.
+#
+# Tests access it via ``worker._total_dropped_level_chunks`` (mirroring
+# ``worker._level_worker_errors``). It is ALSO surfaced via
+# ``get_level_diagnostics()["total_dropped_level_chunks"]`` for any IPC
+# caller that wants the cumulative count alongside the per-burst delta.
+_total_dropped_level_chunks: int = 0
+
 
 def _reset_worker_error_state_for_tests() -> None:
     """Reset the  per-burst error counter to its post-import defaults.
@@ -71,11 +104,18 @@ def _reset_worker_error_state_for_tests() -> None:
     Test fixtures call this between tests so a sustained-error test
     doesn't leak its counter into a later test. Safe to call from any
     thread (GIL-atomic int/float writes).
+
+    Also resets the cumulative ``_total_dropped_level_chunks``
+    counter so a drop-heavy test doesn't leak its total into the next
+    test's assertions. Production code NEVER resets this counter — only
+    this test-only helper does.
     """
     global _level_worker_errors, _last_worker_error_log_time, _level_worker_error_window_start
+    global _total_dropped_level_chunks
     _level_worker_errors = 0
     _last_worker_error_log_time = 0.0
     _level_worker_error_window_start = 0.0
+    _total_dropped_level_chunks = 0
 
 
 def _ensure_level_worker_running() -> None:
@@ -200,7 +240,11 @@ def _level_worker_loop() -> None:
     # (defined at module top). Hoisted to the function header for
     # readability — Python treats ``global`` as function-scoped
     # regardless of where in the function the statement appears.
+    # ``_total_dropped_level_chunks`` is also declared global so
+    # the drain-block below can ``+=`` it (the worker is the ONLY
+    # writer in production; ``int +=`` is GIL-atomic on CPython).
     global _level_worker_errors, _last_worker_error_log_time, _level_worker_error_window_start
+    global _total_dropped_level_chunks
     while True:
         # Wait for work or stop signal. : raised from 50 ms to
         # 250 ms — the timeout only governs the missed-wakeup recovery
@@ -260,6 +304,17 @@ def _level_worker_loop() -> None:
                 dropped = _state._dropped_level_chunks
                 _state._dropped_level_chunks = 0
                 _state._last_drop_log_time = now
+                # Accumulate the per-burst drop count into the
+                # cumulative counter BEFORE resetting the per-burst
+                # delta. The cumulative counter is NEVER reset in
+                # production (only by the test-only
+                # ``_reset_worker_error_state_for_tests`` helper), so
+                # it gives IPC callers a stable "drops since
+                # ``start_monitoring`` first ran" total — independent
+                # of the 5s throttle cycle that resets the per-burst
+                # delta. ``int += int`` is GIL-atomic on CPython, so
+                # no lock is needed (the worker is the ONLY writer).
+                _total_dropped_level_chunks += dropped
                 # R3-F6: re-arm the RT-callback one-shot latch so the
                 # next burst of drops surfaces its first-drop warning.
                 _state._first_drop_warning_emitted = False

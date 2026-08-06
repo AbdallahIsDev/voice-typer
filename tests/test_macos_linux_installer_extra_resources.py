@@ -15,9 +15,10 @@ This module verifies the three wiring points that close the gap:
    ``electron-builder --mac``/``--linux`` step, so the backend is actually built
    and packaged into the installer.
 
-3. ``voice_typer/client/src/main/index.ts`` — ``pythonArgs()`` looks up the
-   embedded backend under ``process.resourcesPath`` for macOS and Linux before
-   falling back to the dev-mode venv.
+3. ``voice_typer/client/src/main/python/python-args.ts`` — ``pythonArgs()``
+   (extracted from ``index.ts`` during REF-2) looks up the embedded backend
+   under ``process.resourcesPath`` for macOS and Linux before falling back
+   to the dev-mode venv.
 """
 
 from __future__ import annotations
@@ -29,7 +30,10 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 ELECTRON_BUILDER_YML = REPO_ROOT / "voice_typer" / "client" / "electron-builder.yml"
 BUILD_YML = REPO_ROOT / ".github" / "workflows" / "build.yml"
-INDEX_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "index.ts"
+# pythonArgs() was extracted from index.ts into python/python-args.ts
+# during the REF-2 wiring-only split; the contract (embedded backend
+# lookup under process.resourcesPath + dev-venv fallback) is unchanged.
+INDEX_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "python" / "python-args.ts"
 
 
 def _load_yml(path: Path):
@@ -285,7 +289,7 @@ class TestBuildYmlLinuxJobEmbedsBackend:
 
 
 class TestPythonArgsLooksUpEmbeddedBackend:
-    """index.ts pythonArgs() has macOS + Linux embedded-backend branches."""
+    """pythonArgs() (python/python-args.ts) has macOS + Linux embedded-backend branches."""
 
     @staticmethod
     def _index_ts() -> str:
@@ -302,13 +306,13 @@ class TestPythonArgsLooksUpEmbeddedBackend:
     def test_python_args_uses_platform_switch(self):
         src = self._index_ts()
         assert "process.platform" in src
-        # coordination: use a switch on process.platform so each
-        # platform's branch is independent (rw-4 adds win32,  adds
-        # darwin + linux).
-        assert "switch" in src, (
-            "pythonArgs() should use a switch on process.platform for "
-            "platform-specific embedded-backend lookup (RW-5 + rw-4 coord)"
-        )
+        # coordination: each platform must have its OWN guarded branch
+        # (independent, so adding a platform can't clobber the others).
+        # The REF-2 implementation uses per-platform if/else-if guards in
+        # resolveBundledBackend rather than a literal ``switch``.
+        assert 'platform === "darwin"' in src, "pythonArgs() must have an independent darwin branch"
+        assert 'platform === "linux"' in src, "pythonArgs() must have an independent linux branch"
+        assert 'platform === "win32"' in src, "pythonArgs() must have an independent win32 branch"
 
     def test_python_args_has_macos_branch(self):
         """macOS: checks process.resourcesPath/voice-typer-backend.app/

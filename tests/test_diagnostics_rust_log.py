@@ -98,8 +98,10 @@ class TestExportCollectsRustLog:
         logs_dir = config_dir / "logs"
         logs_dir.mkdir()
         (logs_dir / "voice-typer.log").write_text("current\n", encoding="utf-8")
-        (logs_dir / "voice-typer.log.1").write_text("rotated-1\n", encoding="utf-8")
-        (logs_dir / "voice-typer.log.2").write_text("rotated-2\n", encoding="utf-8")
+        # newline="" writes the exact bytes (no \n → \r\n translation
+        # on Windows) so the zip content comparison stays byte-exact.
+        (logs_dir / "voice-typer.log.1").write_text("rotated-1\n", encoding="utf-8", newline="")
+        (logs_dir / "voice-typer.log.2").write_text("rotated-2\n", encoding="utf-8", newline="")
 
         zip_path = _make_bundle(tmp_path, monkeypatch, config_dir)
 

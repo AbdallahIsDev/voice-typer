@@ -36,7 +36,7 @@ def _mock_faster_whisper(monkeypatch):
     monkeypatch.setitem(sys.modules, "ctranslate2", mock_ct2)
 
 
-# ─── _NvidiaDllPathManager (AC-79) ────────────────────────────────────
+# ─── _NvidiaDllPathManager ────────────────────────────────────
 
 
 class TestNvidiaDllPathManagerIsolation:
@@ -110,7 +110,7 @@ class TestNvidiaDllPathManagerIsolation:
             mod._nvidia_dll_path_handles = orig_handles
 
 
-# ─── _with_lock_and_deferred_gc (AC-77) ───────────────────────────────
+# ─── _with_lock_and_deferred_gc ───────────────────────────────
 
 
 class TestWithLockAndDeferredGc:
@@ -166,7 +166,7 @@ class TestWithLockAndDeferredGc:
         engine._lock.release()
 
 
-# ─── _with_gpu_fallback (AC-76) ───────────────────────────────────────
+# ─── _with_gpu_fallback ───────────────────────────────────────
 
 
 class TestWithGpuFallback:
@@ -243,7 +243,7 @@ class TestWithGpuFallback:
         assert engine._pending_gc_collect is False
 
 
-# ─── _pre_download_model phase helpers (AC-75) ────────────────────────
+# ─── _pre_download_model phase helpers ────────────────────────
 
 
 class TestPreDownloadPhaseHelpers:

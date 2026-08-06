@@ -81,12 +81,32 @@ RUST_BRANDING_FILE = Path("src-tauri/src/branding.rs")
 # the same way Python/TS literals are. The Tauri host's branding.rs is
 # exempt (see BRANDING_FILES); other Rust files using the literal would
 # be flagged with a hint to `use crate::branding::APP_NAME;`.
+#
+# The two build-config files (tauri.conf.json, electron-builder.yml)
+# are listed individually rather than via their parent directories so
+# the scanner does not pick up unrelated noise (Cargo.toml, package.json,
+# vite configs, capabilities JSON, icons dir, etc.). These files
+# LEGITIMATELY need literal "Voice Typer" strings in their
+# productName/title fields — see BUILD_CONFIG_FILES + the
+# _is_build_config_literal allowlist below for the documented
+# "build-config literal" exception to C-BRAND-1.
 SCAN_DIRS = [
     "voice_typer/server",
     "voice_typer/client/src",
     "src-tauri/src",
     "voice_typer/__init__.py",
     "voice_typer/__main__.py",
+    "src-tauri/tauri.conf.json",
+    "voice_typer/client/electron-builder.yml",
+    # C-BRAND-1: scan the GitHub Actions workflows (`.github/workflows/*.yml`)
+    # so a future hardcoded app name in CI (tray toast titles, signtool
+    # descriptions, artifact names) is caught the same way Python/TS/Rust
+    # literals are. Build-artifact paths inside the macOS workflow are
+    # allowlisted below (see _is_workflow_build_artifact) because the
+    # bundled `.app` / `.dmg` filenames are derived from
+    # `productName` at Tauri-build time — the same narrow exception as
+    # the tauri.conf.json / electron-builder.yml `productName` field.
+    ".github/workflows",
 ]
 
 # ── File extensions to check ─────────────────────────────────────────
@@ -94,7 +114,8 @@ SCAN_DIRS = [
 # main-process locale files (i18n/locales/*.json) cannot smuggle in a
 # hardcoded app name (they must use the `{appName}` placeholder, which
 # `_withAppName` in main/i18n.ts substitutes with APP_NAME).
-EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".html", ".rs", ".json"})
+# `.yml` / `.yaml` are included so electron-builder.yml is scanned.
+EXTENSIONS = frozenset({".py", ".ts", ".tsx", ".html", ".rs", ".json", ".yml", ".yaml"})
 
 # ── Skip binary/exempt dirs ──────────────────────────────────────────
 SKIP_DIRS = frozenset(
@@ -118,6 +139,34 @@ SKIP_DIRS = frozenset(
 # they must use the `{appName}` placeholder.
 RENDERER_TRANSLATIONS_PREFIX = "voice_typer/client/src/renderer/src/i18n/translations"
 
+# ── Build-config files (documented "build-config literal" exception) ──
+# tauri.conf.json and electron-builder.yml are read by Tauri /
+# electron-builder BEFORE the app boots — at that point no JS / Python /
+# Rust code runs, so the branding constant (APP_NAME) is NOT yet
+# available. These two files therefore LEGITIMATELY require literal
+# "Voice Typer" strings in their `productName` and `title` fields
+# (Tauri uses productName for the bundle name + window titles;
+# electron-builder uses productName for the artifact / installer name).
+#
+# This is a narrow, documented exception to C-BRAND-1 — it applies ONLY
+# to the `productName` and `title` keys in these two files. Every other
+# literal "Voice Typer" reference in these files (descriptions, paths,
+# identifier fields, comments) is still flagged. Adding a new build-
+# config file to this allowlist requires updating the audit trail in
+# worklog.md citing the field that legitimately needs the literal.
+BUILD_CONFIG_FILES = frozenset(
+    {
+        "src-tauri/tauri.conf.json",
+        "voice_typer/client/electron-builder.yml",
+    }
+)
+
+# The set of JSON / YAML keys whose value is allowlisted as a build-
+# config literal. Both productName (Tauri + electron-builder) and
+# title (Tauri window titles) are required by the bundler / window
+# manager at config-parse time, before any branding constant can run.
+_BUILD_CONFIG_LITERAL_KEYS = ("productName", "title")
+
 
 def _skip_dir(segments: list[str]) -> bool:
     """Return True if any segment is in SKIP_DIRS."""
@@ -139,6 +188,9 @@ def _is_comment_line(line: str, ext: str) -> bool:
         # Rust line comments: `//` or `//!` (inner doc) or `///` (outer doc).
         # Block comments start with `/*` (rare in this codebase).
         return stripped.startswith("//") or stripped.startswith("/*")
+    if ext in (".yml", ".yaml"):
+        # YAML comments start with `#`.
+        return stripped.startswith("#")
     return False
 
 
@@ -149,6 +201,68 @@ def _to_rel_str(filepath: Path) -> str:
         return str(rel).replace("\\", "/")
     except ValueError:
         return str(filepath).replace("\\", "/")
+
+
+def _is_build_config_literal(rel_str: str, line: str) -> bool:
+    """Return True if a line is an allowlisted build-config literal.
+
+    Build-config files (``tauri.conf.json``, ``electron-builder.yml``)
+    require literal ``APP_NAME`` strings in their ``productName`` and
+    ``title`` fields because these values are read by the bundler /
+    window-manager BEFORE the app boots — the branding constant is not
+    yet available at config-parse time. This is the documented
+    "build-config literal" exception to C-BRAND-1.
+
+    Matches both JSON (``"productName": "Voice Typer"``) and YAML
+    (``productName: Voice Typer`` or ``productName: "Voice Typer"``)
+    forms. The optional surrounding quotes on the value handle both
+    styles; the optional surrounding quotes on the key handle the JSON
+    form (YAML keys are unquoted but the regex still matches because
+    the quote is optional).
+
+    Only the keys in ``_BUILD_CONFIG_LITERAL_KEYS`` (``productName``,
+    ``title``) are allowlisted — every other literal reference in these
+    files (descriptions, identifiers, paths, comments) is still flagged.
+    """
+    if rel_str not in BUILD_CONFIG_FILES:
+        return False
+    for key in _BUILD_CONFIG_LITERAL_KEYS:
+        # Allow optional quotes around the key (JSON form) and around
+        # the value (JSON or quoted-YAML form). The unquoted YAML form
+        # (``productName: Voice Typer``) is also matched because the
+        # closing quote / end-of-line both satisfy the optional quote.
+        pattern = (
+            rf'["\']?{re.escape(key)}["\']?\s*:\s*["\']?{re.escape(APP_NAME)}["\']?'
+        )
+        if re.search(pattern, line):
+            return True
+    return False
+
+
+def _is_workflow_build_artifact(rel_str: str, line: str) -> bool:
+    """Return True for a build-artifact literal inside a workflow YAML.
+
+    The Tauri bundler names its output artifacts after ``productName``
+    (the ``.app`` bundle directory and the ``.dmg`` disk image in
+    ``tauri-macos-build.yml``). Those filenames are generated by
+    ``cargo tauri build`` — a script cannot read ``branding.py`` and
+    substitute ``APP_NAME`` into them. This is the same narrow
+    "build-config literal" exception as ``productName`` in
+    ``tauri.conf.json`` (see ``BUILD_CONFIG_FILES``).
+
+    The pattern is anchored to the current ``APP_NAME`` value so a
+    future rename keeps working (the artifact filenames are kept in
+    lockstep with ``productName``). Every OTHER ``Voice Typer``
+    reference in a workflow (toast titles, signtool descriptions,
+    env values) is still flagged.
+    """
+    if not rel_str.startswith(".github/workflows/"):
+        return False
+    if "bundle/" not in line:
+        return False
+    return bool(
+        re.search(rf"bundle/(?:[a-z]+/)?{re.escape(APP_NAME)}(?:_[^\"/]*)?\.(?:app|dmg)", line)
+    )
 
 
 def check_file(filepath: Path) -> list[tuple[int, str]]:
@@ -191,6 +305,19 @@ def check_file(filepath: Path) -> list[tuple[int, str]]:
         # `use` line that mentions `branding` as the equivalent
         # exemption.
         if ext == ".rs" and re.search(r"\buse\s+.*branding\b", line):
+            continue
+
+        # Build-config literal exception: productName / title in
+        # tauri.conf.json + electron-builder.yml legitimately need the
+        # literal brand (see BUILD_CONFIG_FILES docstring).
+        if _is_build_config_literal(rel_str, line):
+            continue
+
+        # Workflow build-artifact exception: .app / .dmg filenames in
+        # the CI workflows are generated by the Tauri bundler from
+        # productName and cannot read the branding constant at build
+        # time (see _is_workflow_build_artifact).
+        if _is_workflow_build_artifact(rel_str, line):
             continue
 
         # Check if the app name appears inside a string literal

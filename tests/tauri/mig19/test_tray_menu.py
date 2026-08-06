@@ -101,8 +101,8 @@ VALIDATE ON HOST (Linux — after building the Tauri app):
        The "Cancel Transcription" item appears ONLY while a
        transcription is in flight — start a dictation, then re-open
        the menu to verify it surfaces.
-    5. Verify the Models ▸ submenu lists each downloaded model with a
-       "•" prefix on the active one and a "More models..." entry at
+    5. Verify the Models ▸ submenu lists each downloaded model with the
+       native checkmark on the active one and a "More models..." entry at
        the bottom that opens the app on the Models page.
     6. Locale — open the app → Settings → Language → switch to
        Español. Re-open the tray menu and verify the labels changed
@@ -650,7 +650,7 @@ def test_dynamic_microphone_list_api_present_but_noop(
 
     Originally added in NEW-CQ-008 as a no-op (the write-only cache
     had been removed). RT-FIX-9: the API was re-activated in UX-2
-    (FIX-10) — it now caches the microphone device list (accepting
+    it now caches the microphone device list (accepting
     ``list[dict] | None``) and invalidates the menu cache so the
     Microphones ▸ submenu reflects the new device set. The signature
     was widened to accept ``None`` (normalized to ``[]``) so callers
@@ -666,7 +666,7 @@ def test_dynamic_microphone_list_api_present_but_noop(
     assert set_mics_match, (
         "TrayIcon must define set_microphones(mics: list[dict] | None) -> None "
         "— the API is preserved for IPC parity (NEW-CQ-008) and was "
-        "re-activated in UX-2 / FIX-10 to cache the mic list + invalidate "
+        "re-activated to cache the mic list + invalidate "
         "the menu cache."
     )
 
@@ -771,7 +771,9 @@ def test_dynamic_model_submenu_items_builder_present(
     """ADR-0020 §6.5: ``build_models_menu_items`` produces pystray items.
 
     The item builder wraps the data tuples in pystray.MenuItem
-    instances, marks the active one with "• ", and appends a
+    instances, marks the active one via pystray's ``checked`` callable
+    (native platform checkmark — the accessibility-preserving
+    alternative to a manual "• " label prefix), and appends a
     "More models..." item that opens the app's Models page.
     """
     assert "def build_models_menu_items(" in tray_models_py_source, (
@@ -783,10 +785,15 @@ def test_dynamic_model_submenu_items_builder_present(
         "tray_models.py must append a 'More models...' menu item that "
         "opens the app's Models page — this is the deep-link contract."
     )
-    # Active models are prefixed with "• ".
-    assert "'• '" in tray_models_py_source, (
-        "tray_models.py must prefix the active model with '• ' so the "
-        "user can see at a glance which model is currently selected."
+    # Active models are marked with the native checkmark via pystray's
+    # ``checked`` callable (Win32 MF_CHECKED / macOS NSControlStateValueOn
+    # / GTK RadioMenuItem). This replaced the old manual "• " label
+    # prefix, which bypassed the native checkmark and broke
+    # screen-reader semantics — see the comment in the builder.
+    assert "checked=" in tray_models_py_source, (
+        "tray_models.py must mark the active model via pystray's "
+        "checked= callable (native checkmark) so the user can see at "
+        "a glance which model is currently selected."
     )
 
 

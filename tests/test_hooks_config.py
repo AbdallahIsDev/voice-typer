@@ -106,7 +106,9 @@ def test_contributing_tldr_does_not_recommend_pre_commit_install() -> None:
     husky hooks via the ``prepare`` script; ``pre-commit install`` is a
     misleading no-op (its output is ignored because
     ``core.hooksPath = .husky/_/``)."""
-    text = CONTRIBUTING.read_text()
+    # CONTRIBUTING.md is UTF-8; the default locale encoding on Windows
+    # (cp1252) would raise UnicodeDecodeError on non-ASCII chars.
+    text = CONTRIBUTING.read_text(encoding="utf-8")
     # The TL;DR is the first blockquote. Use MULTILINE so ^ matches at
     # the start of each line, and DOTALL so . matches newlines inside
     # the blockquote.
@@ -134,7 +136,9 @@ def test_contribing_warns_against_pre_commit_install() -> None:
     """CONTRIBUTING.md must contain an explicit "Do NOT run
     ``pre-commit install``" warning so contributors understand the
     single-installer architecture (XS-34)."""
-    text = CONTRIBUTING.read_text()
+    # CONTRIBUTING.md is UTF-8; the default locale encoding on Windows
+    # (cp1252) would raise UnicodeDecodeError on non-ASCII chars.
+    text = CONTRIBUTING.read_text(encoding="utf-8")
     assert "Do NOT run `pre-commit install`" in text or ("Do NOT run\n`pre-commit install`" in text), (
         "CONTRIBUTING.md must contain an explicit 'Do NOT run `pre-commit install`' warning (XS-34)."
     )
@@ -144,7 +148,9 @@ def test_contributing_documents_mypy_local_hook() -> None:
     """CONTRIBUTING.md must document that mypy is now a LOCAL hook with
     ``language: system`` so contributors know to activate the project
     venv before running ``pre-commit run mypy`` (XS-35)."""
-    text = CONTRIBUTING.read_text()
+    # CONTRIBUTING.md is UTF-8; the default locale encoding on Windows
+    # (cp1252) would raise UnicodeDecodeError on non-ASCII chars.
+    text = CONTRIBUTING.read_text(encoding="utf-8")
     assert "language: system" in text, (
         "CONTRIBUTING.md should mention that mypy uses `language: system` to reuse the project venv (XS-35)."
     )

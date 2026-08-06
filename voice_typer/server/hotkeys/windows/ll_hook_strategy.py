@@ -66,8 +66,15 @@ def enqueue_hook_callback(self, fn: Callable[[], None] | None) -> None:
     try:
         self._hook_callback_queue.put_nowait(fn)
     except queue.Full:
-        log.warning(
-            "[HOTKEY] LL hook callback queue full (size=%d) — dropping callback.",
+        # raised maxsize from 64 to 256 (4× headroom) so a
+        # brief worker stall doesn't drop callbacks. When we DO overflow,
+        # log at ERROR (not WARNING) — a dropped hotkey callback means
+        # the user pressed the hotkey and nothing happened, which is a
+        # user-visible failure worth surfacing in error-level metrics.
+        log.error(
+            "[HOTKEY] LL hook callback queue full (size=%d) — dropping callback. "
+            "The hook worker thread may be stuck; hotkey presses will be missed "
+            "until it recovers.",
             self._hook_callback_queue.maxsize,
         )
 

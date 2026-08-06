@@ -1,4 +1,4 @@
-"""Contract test for the IPC error-code registry (EC-FIX-4 / EC-10).
+"""Contract test for the IPC error-code registry.
 
 EC-10 found that the G4-M-22 namespacing migration was partial:
 
@@ -9,7 +9,7 @@ EC-10 found that the G4-M-22 namespacing migration was partial:
   narrowing — clients branching on ``code`` silently fell through to a
   generic "unknown error" path for handler exceptions.
 
-EC-FIX-4 closed those gaps:
+closed those gaps:
 
 1. ``handlers/_base.py`` now stamps ``"server.internal_error"`` (the
    namespaced form).
@@ -21,11 +21,11 @@ EC-FIX-4 closed those gaps:
 
 This file is the regression guard. It asserts:
 
-A. **Required namespaced codes** — every code listed in the EC-FIX-4
+A. **Required namespaced codes** — every code listed in the
    spec is present in :data:`ERROR_CODES`.
 B. **Every emitted ``"code": "<value>"`` literal** in the Python server
    source tree is either a registered namespaced code OR a documented
-   legacy alias. This is the contract test requested by EC-FIX-4: if a
+   legacy alias. This is the contract test requested: if a
    future change introduces a new error code WITHOUT registering it
    (or without documenting it as a legacy alias), this test will fail.
 C. **Behavioural guard** — calling
@@ -191,7 +191,7 @@ class TestErrorCodesRegistryContents:
 
     @pytest.mark.parametrize("code", sorted(REQUIRED_NAMESPACED_CODES))
     def test_required_namespaced_code_is_registered(self, code: str):
-        """Every code listed in the EC-FIX-4 spec MUST be in the
+        """Every code listed in the spec MUST be in the
         registry. If this fails, expand ``ERROR_CODES`` in
         ``voice_typer/server/ipc/validation.py``."""
         assert code in ERROR_CODES, (
@@ -216,7 +216,7 @@ class TestEmittedCodesAreRegisteredOrLegacy:
     """Every ``"code": "<value>"`` literal in the server tree is either
     a registered namespaced code OR a documented legacy alias.
 
-    This is the EC-10 regression guard requested by EC-FIX-4: prevents
+    This is the EC-10 regression guard requested: prevents
     new error codes from being emitted without registering them.
     """
 
@@ -311,7 +311,7 @@ class TestRespondWithErrorEmitsNamespacedCode:
     stamps the namespaced ``"server.internal_error"`` code (not the
     legacy ``"internal_error"``).
 
-    EC-FIX-4's primary fix is changing the literal in
+    primary fix is changing the literal in
     ``handlers/_base.py``. This test guards against a future regression
     that re-introduces the bare legacy form (e.g. a careless find /
     replace that reverts the change)."""
@@ -329,7 +329,7 @@ class TestRespondWithErrorEmitsNamespacedCode:
         assert result["data"]["code"] == "server.internal_error", (
             f"Expected 'server.internal_error' (namespaced form), got "
             f"{result['data']['code']!r}. The handler catch-all MUST "
-            f"emit the namespaced form per EC-FIX-4 / G4-M-22."
+            f"emit the namespaced."
         )
         assert result["data"]["message"] == "internal error"
 
@@ -343,7 +343,7 @@ class TestRespondWithErrorEmitsNamespacedCode:
         result = handler._respond_with_error(resp, RuntimeError("boom"), "test_cmd")
         assert result["data"]["code"] != "internal_error", (
             "_respond_with_error is emitting the LEGACY bare "
-            "'internal_error' code. EC-FIX-4 changed this to "
+            "'internal_error' code."
             "'server.internal_error' — the regression must be reverted."
         )
 
@@ -358,8 +358,8 @@ class TestErrorResponseDefaultCode:
         code_param = sig.parameters["code"]
         assert code_param.default == "server.handler_error", (
             f"_error_response's default `code` parameter must be "
-            f"'server.handler_error' (namespaced), got "
-            f"{code_param.default!r}. EC-FIX-4 / G4-M-22 requires "
+            f"'server.handler_error' (namespaced). "
+            f"{code_param.default!r}."
             f"the namespaced form."
         )
 
@@ -390,7 +390,7 @@ _TS_UNION_MEMBER_RE = re.compile(
 def _find_ts_error_codes_file() -> Path:
     """Return the path to the TS file that declares the ``ErrorCodes`` union.
 
-    AC-16: tries the post-DT-31 split path (``types/ipc/enums.ts``) first
+    tries the split path (``types/ipc/enums.ts``) first
     and falls back to the original monolithic ``types/ipc.ts`` so the
     test keeps working under either layout.
     """
@@ -433,7 +433,7 @@ def _parse_ts_error_codes_union(text: str) -> set[str]:
 
 
 class TestTsErrorCodesParity:
-    """AC-16: cross-layer parity between Python ``ERROR_CODES`` and the
+    """cross-layer parity between Python ``ERROR_CODES`` and the
     renderer's TS ``ErrorCodes`` union.
 
     The Python ``ERROR_CODES`` frozenset (in
@@ -467,7 +467,7 @@ class TestTsErrorCodesParity:
     def test_python_error_codes_are_subset_of_ts_union(self):
         """Every Python namespaced code MUST be present in the TS union.
 
-        This is the core AC-16 parity guard. If a new code is added to
+        This is the core parity guard. If a new code is added to
         the Python ``ErrorCodes`` class without a matching entry in the
         TS ``ErrorCodes`` union, the renderer's ``switch (code)`` block
         won't have a case for it and will fall through to the generic
@@ -489,7 +489,7 @@ class TestTsErrorCodesParity:
         )
 
     def test_ts_union_includes_rust_host_only_codes(self):
-        """AC-16: the TS union MUST include the two Rust-host-only codes
+        """the TS union MUST include the two Rust-host-only codes
         (``disallowed_window`` and ``disallowed_command``) so the
         renderer can branch on them when a ``#[tauri::command]``
         function rejects before dispatch reaches the Python sidecar.

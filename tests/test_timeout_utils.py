@@ -166,13 +166,20 @@ class TestJoinLeakedWorkers:
             time.sleep(0.1)
             blocker.set()
 
-        threading.Thread(target=_unblock, daemon=True).start()
+        # capture the thread handle and join it after the
+        # leaked-worker drain returns so we don't leak a daemon
+        # Thread-without-join (the unblock thread has already set
+        # ``blocker`` by the time join_leaked_workers returns, so the
+        # join is near-instant).
+        unblock_thread = threading.Thread(target=_unblock, daemon=True)
+        unblock_thread.start()
 
         remaining = join_leaked_workers(timeout=2.0)
         assert remaining == 0, f"worker should have been joined + pruned; remaining={remaining}"
         with _tu._LEAKED_WORKERS_LOCK:
             assert _tu._LEAKED_WORKERS == [], "joined worker must be pruned"
         assert not t.is_alive(), "worker must have exited"
+        unblock_thread.join(timeout=1.0)
 
     def test_join_leaked_workers_returns_count_of_still_alive(self):
         """A worker that doesn't exit within the timeout stays in the
@@ -481,3 +488,79 @@ class TestAllCleanup:
         # The aliases are accessible via getattr but NOT in __all__.
         assert hasattr(_tu, "_TIMEOUT"), "alias must still be getattr-able"
         assert hasattr(_tu, "_DE11_GRACE_PERIOD_SECONDS"), "alias must still be getattr-able"
+
+
+class TestRunParallelSubmitShutdownRace:
+    """VT-1: ``_run_parallel_with_timeout`` must survive a
+    ``RuntimeError('cannot schedule new futures after interpreter
+    shutdown')`` from ``pool.submit``.
+
+    Observed in the ``voice-typer`` terminal run: when the tray
+    crashed at runtime, the main thread began interpreter teardown
+    while the background startup thread was still inside
+    ``_run_parallel_with_timeout`` -> ``pool.submit`` raised and
+    killed the startup thread with an unhandled exception. The same
+    race was already guarded in ``ipc/transport_tcp.py``; this pins
+    the equivalent guard here: a rejected submit is recorded as the
+    item's result tuple (``(desc, RuntimeError)``) instead of
+    propagating.
+    """
+
+    def test_submit_runtime_error_recorded_as_item_failure(self, monkeypatch):
+        """When ``pool.submit`` raises ``RuntimeError`` (interpreter
+        shutdown), the item's result must be the exception instance
+        (matching the "captured per-call failures" contract) and the
+        call must NOT raise.
+        """
+        import concurrent.futures
+
+        real_submit = concurrent.futures.ThreadPoolExecutor.submit
+
+        def _rejecting_submit(self, fn, *args, **kwargs):
+            raise RuntimeError("cannot schedule new futures after interpreter shutdown")
+
+        # Patch the class method directly: ``_run_parallel_with_timeout``
+        # does ``import concurrent.futures`` inside the function body,
+        # so it resolves to the same module object as the top-level
+        # import below.
+        monkeypatch.setattr(concurrent.futures.ThreadPoolExecutor, "submit", _rejecting_submit)
+        try:
+            items = [
+                ("a", lambda: 1, 1.0),
+                ("b", lambda: 2, 1.0),
+            ]
+            results = _run_parallel_with_timeout(items)
+        finally:
+            monkeypatch.setattr(concurrent.futures.ThreadPoolExecutor, "submit", real_submit)
+        by_desc = dict(results)
+        assert isinstance(by_desc["a"], RuntimeError), f"expected RuntimeError result; got {by_desc['a']!r}"
+        assert isinstance(by_desc["b"], RuntimeError), f"expected RuntimeError result; got {by_desc['b']!r}"
+        assert "interpreter shutdown" in str(by_desc["a"])
+
+    def test_partial_submit_failure_records_only_failed_items(self, monkeypatch):
+        """If only SOME submits are rejected (mixed race), the
+        successful items run normally while rejected ones carry the
+        exception - order is preserved."""
+        import concurrent.futures
+
+        real_submit = concurrent.futures.ThreadPoolExecutor.submit
+        calls = {"n": 0}
+
+        def _flaky_submit(self, fn, *args, **kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise RuntimeError("cannot schedule new futures after interpreter shutdown")
+            return real_submit(self, fn, *args, **kwargs)
+
+        monkeypatch.setattr(concurrent.futures.ThreadPoolExecutor, "submit", _flaky_submit)
+        try:
+            items = [
+                ("ok", lambda: "done", 1.0),
+                ("rejected", lambda: "never", 1.0),
+            ]
+            results = _run_parallel_with_timeout(items)
+        finally:
+            monkeypatch.setattr(concurrent.futures.ThreadPoolExecutor, "submit", real_submit)
+        by_desc = dict(results)
+        assert by_desc["ok"] == "done"
+        assert isinstance(by_desc["rejected"], RuntimeError)

@@ -5,10 +5,10 @@ Split out from the original ``hotkeys.py`` god-file in Phase 4.5
 ().
 """
 
-import os
 import sys
 
 from voice_typer.server import hotkeys as _hotkeys_pkg
+from voice_typer.server.platform_utils import is_wayland_session
 
 from .base import HotkeyBackend, log
 from .native_adapter import _NativeBackendAdapter
@@ -109,17 +109,47 @@ def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBac
         )
         return WindowsNativeHotkey(hotkey_str)
 
-    # #4 PLAT-WAYLAND: detect Wayland and use Unix socket fallback
-    if is_linux():
-        wayland_display = os.environ.get("WAYLAND_DISPLAY", "")
-        xdg_session = os.environ.get("XDG_SESSION_TYPE", "")
-        if wayland_display or xdg_session == "wayland":
-            log.info(
-                "[HOTKEY] Wayland detected -> using WaylandHotkey (Unix socket, legacy, role=%r)",
-                role,
+    # #4 PLAT-WAYLAND: detect Wayland and use Unix socket fallback.
+    # Delegate env-var detection to platform_utils.is_wayland_session
+    # (single source of truth — handles XDG_SESSION_TYPE + WAYLAND_DISPLAY,
+    # case-insensitive). The is_linux() gate is retained so tests that
+    # mock is_linux can still control the platform branch.
+    if is_linux() and is_wayland_session():
+        # Wayland compositors do NOT expose a standard global-hotkey
+        # portal (the xdg-desktop-portal GlobalShortcuts interface is
+        # opt-in and not all compositors implement it). The
+        # ``WaylandHotkey`` backend listens on a Unix socket — it only
+        # fires when an external tool (wlr-which-key, a shell script,
+        # etc.) connects and sends commands. Without that external tool,
+        # the hotkey is effectively dead. Surface this at register time
+        # so the user knows to either install the external tool or
+        # switch to the evdev backend (which requires the ``input``
+        # group).
+        log.warning(
+            "[HOTKEY] Wayland detected — global hotkeys may not work. "
+            "Consider installing wlr-which-key or using the evdev backend "
+            "(requires input group)."
+        )
+        # Caps Lock on Wayland CANNOT be suppressed — ``WaylandHotkey``
+        # has no key-suppression mechanism (the Unix socket backend just
+        # receives commands, it doesn't intercept keystrokes). The OS
+        # will toggle caps state on every press, so the user's dictated
+        # text will be capitalized. Warn the user at register time and
+        # suggest alternatives (Alt, a function key, or remapping Caps
+        # Lock via the compositor's settings).
+        if hotkey_str and "caps_lock" in hotkey_str.lower():
+            log.warning(
+                "[HOTKEY] On Wayland, Caps Lock cannot be suppressed — "
+                "your text will be capitalized. Bind Alt or a function "
+                "key instead, or remap Caps Lock via your compositor's "
+                "settings."
             )
-            # pass ``role`` so the socket filename is per-backend.
-            return WaylandHotkey(hotkey_str, role=role)
+        log.info(
+            "[HOTKEY] Wayland detected -> using WaylandHotkey (Unix socket, legacy, role=%r)",
+            role,
+        )
+        # pass ``role`` so the socket filename is per-backend.
+        return WaylandHotkey(hotkey_str, role=role)
 
     log.info("[HOTKEY] Platform is %s -> using PynputHotkey (legacy)", sys.platform)
     return PynputHotkey(hotkey_str)

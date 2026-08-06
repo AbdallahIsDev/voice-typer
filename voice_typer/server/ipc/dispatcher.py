@@ -33,7 +33,6 @@ import typing
 
 from voice_typer.server.asr_errors import ConsentRequiredError
 from voice_typer.server.handlers._log import log
-from voice_typer.server.ipc.rate_limiter import _get_rate_limiter
 from voice_typer.server.ipc.registry import _READONLY_COMMANDS
 from voice_typer.server.ipc.validation import (
     CommandHandler,
@@ -125,37 +124,23 @@ class DispatcherMixin:
         if getattr(self, "_cached_shutting_down", False) is True:
             return self._shutting_down_error(msg)
 
-        # Rate-limit check at the TOP of ``_dispatch`` (before handler
-        # resolution). Pre-this-chokepoint, only the TCP read loop
-        # (``transport_tcp.py:665``) and the WS dispatch wrapper
-        # (``sidecar_ws._make_dispatch``) enforced the per-process
-        # ``_RateLimiter``; the stdin path (``stdin_runner._run``) had
-        # NO rate-limit check, so a buggy/loopy stdin client could
-        # dispatch unbounded ``download_model`` / ``set_config`` /
-        # ``shutdown`` commands without ever being throttled. Moving
-        # the check here makes the limiter apply to ALL three
-        # transports via a single chokepoint — future transports
-        # inherit the limiter for free. The heartbeat command
-        # bypasses the limiter (``_RateLimiter.allow`` short-circuits
-        # to ``True`` for ``command == "heartbeat"``) so the heartbeat
-        # watchdog's 5 s / 15 s keep-alive is unaffected. The error
-        # envelope mirrors the TCP path's
-        # (``transport_tcp.py:689-694``) so a client branching on
-        # ``code`` sees ``client.rate_limited`` + the same message
-        # across all three transports.
-        if not _get_rate_limiter(self).allow(command=msg.get("type", "")):
-            # ErrorEnvelope contract — see validation.py
-            rl_err: ResponseEnvelope = {
-                "type": "error",
-                "data": {
-                    "code": ErrorCodes.RATE_LIMITED,
-                    "message": "rate limit exceeded; backing off",
-                },
-            }
-            if "id" in msg:
-                rl_err["id"] = msg["id"]
-            return rl_err
-
+        # NOTE: the per-process rate limiter is NO LONGER enforced
+        # here. Each transport chokepoint applies the limiter BEFORE
+        # calling ``_dispatch`` — TCP at ``transport_tcp.py`` (the
+        # ``rate_limiter.allow(command=msg_type)`` gate inside
+        # ``_handle_tcp_connection``'s read loop) and WS at
+        # ``sidecar_ws._make_dispatch`` (the closure-captured
+        # ``rate_limiter.allow(command=msg_type)`` gate). The stdin
+        # path applies the limiter in ``stdin_runner._run`` before
+        # the ``self._dispatch(msg)`` call. Enforcing the limiter here
+        # AS WELL would double-charge every accepted command against
+        # the burst/sustained budget: each dispatched command
+        # would consume its cost twice, halving the effective burst
+        # budget and tripping the sustained cap in half the expected
+        # time. The transport-side gates are the single chokepoint —
+        # a future transport that forgets its own gate is uncovered
+        # until a follow-up adds the gate at the new transport's read
+        # loop (mirroring the TCP/WS/stdin pattern).
         cmd = msg.get("type")
         data = msg.get("data")
         resp: ResponseEnvelope = {"id": msg.get("id")} if "id" in msg else {}
@@ -516,6 +501,13 @@ class DispatcherMixin:
             resp["data"] = {"ack": True}
             return resp
         self._shutdown_started.set()
+
+        # Runbook §6.6 / ADR-0020 §10: log the cooperative-shutdown
+        # reception so operators can grep the sidecar log for
+        # "[SIDECAR-WS] shutdown received" (the Windows validation
+        # runbook's §6.6 pass criterion). The handler is shared across
+        # transports; the message keeps the historical runbook text.
+        log.info("[SIDECAR-WS] shutdown received — releasing mic and exiting")
 
         # build the ack envelope FIRST and return it. The dispatch
         # loop flushes the wire frame before the background cleanup

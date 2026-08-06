@@ -1,7 +1,7 @@
-"""CR-21 regression tests: ``_secure_clear_array`` is reachable from
+""" regression tests: ``_secure_clear_array`` is reachable from
 ``recorder.py`` and actually zeros cached audio arrays on session start.
 
-Before the CR-21 fix, ``recorder.py`` called ``_secure_clear_array(...)``
+Before the  fix, ``recorder.py`` called ``_secure_clear_array(...)``
 as a bare name (no import).  The function is defined in
 ``voice_typer/server/recording/buffer.py`` and re-exported by the
 package ``__init__.py``, but ``recorder.py`` never imported it.  The
@@ -40,8 +40,8 @@ import pytest
 def test_secure_clear_array_importable_from_recording_package():
     """``_secure_clear_array`` must be importable from the package.
 
-    Pre-CR-21: ``recorder.py`` used a bare-name lookup that raised
-    ``NameError``.  Post-CR-21: the name is imported at module top.
+    Pre-``recorder.py`` used a bare-name lookup that raised
+    ``NameError``.  Post-the name is imported at module top.
     """
     from voice_typer.server.recording import _secure_clear_array
 
@@ -51,7 +51,7 @@ def test_secure_clear_array_importable_from_recording_package():
 def test_secure_clear_array_bound_in_recorder_module():
     """``recorder.py``'s module namespace must bind ``_secure_clear_array``.
 
-    This is the direct regression check for the CR-21 ``NameError``: if
+    This is the direct regression check for the  ``NameError``: if
     the import is removed, ``getattr(recorder_module, ...)`` raises
     ``AttributeError`` (rather than the much-later ``NameError`` that
     used to be swallowed by ``except Exception: pass``).
@@ -60,7 +60,7 @@ def test_secure_clear_array_bound_in_recorder_module():
 
     assert hasattr(recorder_mod, "_secure_clear_array"), (
         "recorder.py must import _secure_clear_array at module top "
-        "(CR-21 fix). Without the import, the SEC-audit-008 secure-clear "
+        "( fix). Without the import, the SEC-audit-008 secure-clear "
         "path silently no-ops via the surrounding try/except."
     )
     assert callable(recorder_mod._secure_clear_array)
@@ -70,7 +70,7 @@ def test_secure_clear_array_source_file_lives_in_buffer_submodule():
     """Pin the actual definition location so future refactors don't
     re-introduce a bare-name lookup.
 
-    Pre-CR-21 docstring claimed the function lived at ``recording.py:78``
+    Pre- docstring claimed the function lived at ``recording.py:78``
     (a file that doesn't exist post-ARCH-045 split).  The actual
     definition lives in ``recording/buffer.py``.
     """
@@ -86,8 +86,8 @@ def test_secure_clear_array_source_file_lives_in_buffer_submodule():
 def test_secure_clear_array_zeros_non_zero_array():
     """Calling ``_secure_clear_array(arr)`` must zero ``arr`` in-place.
 
-    Pre-CR-21: the call raised ``NameError`` before reaching this
-    function, so the array was never zeroed.  Post-CR-21: the call
+    Pre-the call raised ``NameError`` before reaching this
+    function, so the array was never zeroed.  Post-the call
     succeeds and the array's contents are all 0.0 after the call.
     """
     from voice_typer.server.recording import _secure_clear_array
@@ -156,12 +156,12 @@ def test_recorder_start_zeros_cached_resampled_array():
     """``Recorder.start()`` must zero ``_cached_resampled`` before
     clearing it.
 
-    Pre-CR-21: the secure-clear call raised ``NameError`` and was
+    Pre-the secure-clear call raised ``NameError`` and was
     swallowed by ``except Exception: pass``.  The cached array
     reference was then replaced with a fresh empty array, but the
     underlying numpy buffer (with the previous session's audio) was
     not zeroed — it lingered in process memory until GC.
-    Post-CR-21: the array is zeroed in-place before being replaced.
+    Post-the array is zeroed in-place before being replaced.
     """
     rec = _make_recorder()
 
@@ -177,7 +177,7 @@ def test_recorder_start_zeros_cached_resampled_array():
     # SEC-audit-008: the original buffer must be zeroed in-place.
     assert np.all(previous_audio == 0), (
         "Recorder.start() must zero _cached_resampled in-place via "
-        "_secure_clear_array before replacing it (CR-21 / SEC-audit-008). "
+        "_secure_clear_array before replacing it ( / SEC-audit-008). "
         "Pre-fix: the NameError was swallowed by except Exception: pass, "
         "leaving the previous session's audio in process memory."
     )
@@ -195,7 +195,7 @@ def test_recorder_start_zeros_cached_no_resample_array():
 
     assert np.all(previous_audio == 0), (
         "Recorder.start() must zero _cached_no_resample_arr in-place via "
-        "_secure_clear_array before replacing it (CR-21 / SEC-audit-008)."
+        "_secure_clear_array before replacing it ( / SEC-audit-008)."
     )
 
 
@@ -231,9 +231,9 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
     """Source-string check: the secure-clear ``except`` clause must be
     tightened to ``(OSError, ValueError)`` (or a similarly narrow tuple).
 
-    Pre-CR-21: ``except Exception: pass`` swallowed the ``NameError``
+    Pre-``except Exception: pass`` swallowed the ``NameError``
     from the missing import, leaving the secure-clear path silently
-    broken.  Post-CR-21: the ``except`` is narrowed so a future
+    broken.  Post-the ``except`` is narrowed so a future
     ``NameError``-class import bug surfaces immediately.
 
     RW-8 / ARCH-12: this is a source-string check (not a behavioral
@@ -309,20 +309,20 @@ def test_recorder_start_except_clause_does_not_swallow_nameerror():
     assert "except Exception:" not in block_src, (
         "Recorder._secure_clear_session_caches must NOT use bare ``except Exception:`` around the "
         "_secure_clear_array calls — that swallows NameError-class import "
-        "bugs (CR-21 regression). Use a narrowed clause like "
+        "bugs ( regression). Use a narrowed clause like "
         "``except (OSError, ValueError):``.\n"
         f"secure-clear block:\n{block_src}"
     )
     assert "except (OSError, ValueError):" in block_src, (
         "Recorder._secure_clear_session_caches must narrow the secure-clear except clause to "
-        "``(OSError, ValueError)`` (CR-21 fix).\n"
+        "``(OSError, ValueError)`` ( fix).\n"
         f"secure-clear block:\n{block_src}"
     )
 
 
 def test_secure_clear_array_import_statement_present_in_recorder_source():
     """Source-string check: ``recorder.py`` must import ``_secure_clear_array``
-    at module top (CR-21 fix).
+    at module top ( fix).
 
     RW-8 / ARCH-12: source-string check is the most direct way to catch
     a future regression where the import is removed (which would
@@ -333,7 +333,7 @@ def test_secure_clear_array_import_statement_present_in_recorder_source():
     src = inspect.getsource(recorder_mod)
     assert "from voice_typer.server.recording import _secure_clear_array" in src, (
         "recorder.py must import _secure_clear_array at module top "
-        "(CR-21 fix). Without this import, the SEC-audit-008 secure-clear "
+        "( fix). Without this import, the SEC-audit-008 secure-clear "
         "path silently no-ops via the surrounding try/except."
     )
 
@@ -345,9 +345,9 @@ def test_secure_clear_array_import_statement_present_in_recorder_source():
 def test_secure_clear_array_idempotent_across_sessions(iteration: int):
     """The secure-clear path must work across multiple sessions.
 
-    Pre-CR-21: the silent NameError meant the secure-clear NEVER ran,
+    Pre-the silent NameError meant the secure-clear NEVER ran,
     so the second session's cached array pointed to the same underlying
-    buffer as the first (no zeroing happened).  Post-CR-21: each call
+    buffer as the first (no zeroing happened).  Post-each call
     to ``start()`` zeros the previous cache before replacing it.
     """
     rec = _make_recorder()
@@ -473,7 +473,13 @@ def test_discard_clears_cached_arrays():
     rec._cached_resampled = cached_resampled
     rec._cached_no_resample_arr = cached_no_resample
 
-    # discard() doesn't check _recording_event — it just clears it.
+    # ``discard()`` has an idle fast-path (recorder.py:2855) that
+    # returns early when ``_recording_event`` is NOT set — this guards
+    # against a start()/discard() race that previously left the
+    # recorder in a "recording" state with no live stream. Set the
+    # event so ``discard()`` proceeds to its full body (which calls
+    # ``_secure_clear_caches()`` and zeroes the cached arrays).
+    rec._recording_event.set()
     rec.discard()
 
     assert np.all(cached_resampled == 0), "Recorder.discard() must zero _cached_resampled in-place (G4-H-06)."
@@ -578,6 +584,11 @@ def test_discard_zeros_cached_resampled_segments_in_place(monkeypatch):
     rec._cached_resampled_segments = [segment_a, segment_b]
     rec._cached_resampled_concat_dirty = True
 
+    # ``discard()`` has an idle fast-path (recorder.py:2855) that
+    # returns early when ``_recording_event`` is NOT set. Set the
+    # event so ``discard()`` proceeds to ``_secure_clear_caches()``
+    # (which zeroes the segment list in-place).
+    rec._recording_event.set()
     rec.discard()
 
     assert rec._cached_resampled_segments == [], (

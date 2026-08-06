@@ -382,6 +382,13 @@ class TestLineHandling:
         b._handle_line("KEY_DOWN:V")
         assert fired == []
 
+        # release V before pressing it again so the next KEY_DOWN
+        # is a fresh press (not an OS auto-repeat). The auto-repeat filter
+        # in _on_key_event suppresses duplicate KEY_DOWN events while the
+        # key is held; without this KEY_UP the second KEY_DOWN:V below
+        # would be treated as auto-repeat and the callback would not fire.
+        b._handle_line("KEY_UP:V")
+
         # Hold Ctrl+Alt, then press V — should fire
         b._handle_line("MOD_DOWN:Ctrl")
         b._handle_line("MOD_DOWN:Alt")

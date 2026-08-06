@@ -27,12 +27,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-# ClipboardManager is heavy — pynput must be mocked at import time so
-# the module loads cleanly on a headless Linux box.
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-sys.modules.setdefault("pyperclip", MagicMock())
-
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 from voice_typer.server import clipboard_snapshot as snap_mod  # noqa: E402
 from voice_typer.server.clipboard_snapshot import (  # noqa: E402
     _BUILTIN_FORMAT_NAMES,

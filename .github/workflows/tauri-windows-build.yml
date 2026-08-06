@@ -33,7 +33,7 @@
 name: Tauri Windows Build (Phase 0-W / Phase 1-W)
 
 # =============================================================================
-# TX-40 GATE STATUS — VALIDATE ON WINDOWS HOST (aarch64)
+# GATE STATUS — VALIDATE ON WINDOWS HOST (aarch64)
 # -----------------------------------------------------------------------------
 # This workflow runs end-to-end on x86_64 Windows (windows-2022 runner, a
 # public GitHub-hosted image). The aarch64-pc-windows-msvc build path is
@@ -91,7 +91,7 @@ on:
         required: false
         default: false
         type: boolean
-      # S5-CR-74: surface PYBS pin as a workflow_call input so the
+      # surface PYBS pin as a workflow_call input so the
       # tauri-build.yml orchestrator can pass through pybs_date / pybs_version
       # from its own workflow_dispatch inputs (allowing per-dispatch PYBS bump
       # without editing the workflow file). Defaults match the runbook's pinned
@@ -116,7 +116,7 @@ on:
         description: "CPython version (e.g. 3.12.8)"
         required: false
         default: "3.12.8"
-      # TX-23: surface the sign flag on direct dispatch too (the
+      # surface the sign flag on direct dispatch too (the
       # tauri-build.yml orchestrator already passes it through as a
       # workflow_call input) so a maintainer dispatching this workflow
       # directly from the Actions UI can opt into signing.
@@ -537,6 +537,13 @@ jobs:
           [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:WIN_CSC_LINK))
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1 -ExpandProperty FullName
           Write-Host "Using signtool: $signtool"
+          # C-BRAND-1: derive the Authenticode description from the branding
+          # source of truth instead of hardcoding the app name here. No
+          # workflow-level env value can read branding.py, so read it once
+          # per step and interpolate into signtool's --description.
+          $sigDescMatch = Select-String -Path voice_typer/server/branding.py -Pattern '^APP_NAME\s*=\s*"([^"]+)"' -ErrorAction SilentlyContinue
+          if (-not $sigDescMatch) { Write-Error "branding.py APP_NAME not found in workspace"; exit 1 }
+          $sigDescription = $sigDescMatch.Matches[0].Groups[1].Value
           # TX-40: signing targets use matrix.target so the aarch64 leg
           # (when enabled) signs its own binaries, not the x86_64 ones.
           foreach ($exe in @(
@@ -548,13 +555,13 @@ jobs:
               Write-Error "Cannot sign missing binary: $exe"; exit 1
             }
             & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
-                /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $exe
+                /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://voicetyper.app" $exe
             if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for $exe"; exit 1 }
             & $signtool verify /pa /v $exe
           }
           Remove-Item $pfxPath -Force
 
-      # WR-17: generate placeholder Tauri icons + binary stubs if they
+      # generate placeholder Tauri icons + binary stubs if they
       # don't already exist. cargo tauri build reads the icon list from
       # tauri.conf.json and hard-fails on the first missing icon. The
       # `--check` flag exits 0 if all stubs are present (no-op on a warm
@@ -567,7 +574,7 @@ jobs:
         run: |
           python scripts/gen_tauri_icons_stub.py --check || python scripts/gen_tauri_icons_stub.py
 
-      # WR-17: install tauri-cli explicitly. The runner's pre-installed
+      # install tauri-cli explicitly. The runner's pre-installed
       # `cargo-tauri` is unversioned and lags upstream by months; on
       # windows-2022 it has historically been missing entirely (the
       # `cargo tauri build` step below would fail with `no such command`).
@@ -664,8 +671,13 @@ jobs:
           $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
           [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:WIN_CSC_LINK))
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1 -ExpandProperty FullName
+          # C-BRAND-1: derive the Authenticode description from branding.py
+          # (see the Sign sidecar step for the full rationale).
+          $sigDescMatch = Select-String -Path voice_typer/server/branding.py -Pattern '^APP_NAME\s*=\s*"([^"]+)"' -ErrorAction SilentlyContinue
+          if (-not $sigDescMatch) { Write-Error "branding.py APP_NAME not found in workspace"; exit 1 }
+          $sigDescription = $sigDescMatch.Matches[0].Groups[1].Value
           & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
-              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://voicetyper.app" `
               "${{ steps.artifacts.outputs.nsis_path }}"
           & $signtool verify /pa /v "${{ steps.artifacts.outputs.nsis_path }}"
           Remove-Item $pfxPath -Force
@@ -690,13 +702,18 @@ jobs:
           $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
           [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:WIN_CSC_LINK))
           $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1 -ExpandProperty FullName
+          # C-BRAND-1: derive the Authenticode description from branding.py
+          # (see the Sign sidecar step for the full rationale).
+          $sigDescMatch = Select-String -Path voice_typer/server/branding.py -Pattern '^APP_NAME\s*=\s*"([^"]+)"' -ErrorAction SilentlyContinue
+          if (-not $sigDescMatch) { Write-Error "branding.py APP_NAME not found in workspace"; exit 1 }
+          $sigDescription = $sigDescMatch.Matches[0].Groups[1].Value
           & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
-              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 $msi
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://voicetyper.app" $msi
           if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for MSI: $msi"; exit 1 }
           & $signtool verify /pa /v $msi
           Remove-Item $pfxPath -Force
 
-      # S1-CR-100: smoke test the bundled sidecar binary after `cargo tauri build`.
+      # smoke test the bundled sidecar binary after `cargo tauri build`.
       # Pre-fix the Tauri workflows only ran `objdump -p` / `ldd` static checks on
       # the sidecar — no execution. A Nuitka flag change or Cargo dep bump that
       # broke the sidecar's `--version` flag (argparse exit path) would only

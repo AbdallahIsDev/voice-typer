@@ -1,11 +1,11 @@
-"""SU-23 / SU-24 / SU-26: parallel pool drain, ASR unload inner
+"""parallel pool drain, ASR unload inner
 timeout, and ``join_leaked_workers`` wired into the shutdown
 watchdog.
 
 These tests pin the three fixes applied to
-``voice_typer/server/shutdown_controller.py`` in task SU-FIX-14:
+``voice_typer/server/shutdown_controller.py`` in task:
 
-* **SU-23 (Medium)** — ``_do_cleanup``'s early bookend runs
+* **(Medium)** — ``_do_cleanup``'s early bookend runs
   ``ipc_server.stop`` (TCP pool drain) and the WS dispatch pool
   drain CONCURRENTLY in a 2-item ``_run_parallel_with_timeout``
   batch (instead of sequentially). They touch disjoint pools, so
@@ -13,14 +13,14 @@ These tests pin the three fixes applied to
   still gates the parallel subsystem batch. Cuts early-bookend
   worst case from 12s to ~7s.
 
-* **SU-24 (Medium)** — ``_teardown_asr_models`` wraps
+* **(Medium)** — ``_teardown_asr_models`` wraps
   ``registry.unload()`` in ``_run_with_timeout("asr_registry.unload",
   registry.unload, timeout=8.0)``. If it returns ``TIMEOUT``, logs
   at WARNING and still proceeds to ``release_gpu_memory()``. The 8s
   inner timeout leaves 2s slack within the 10s parallel-batch
   deadline.
 
-* **SU-26 (Low)** — ``_watchdog`` calls
+* **(Low)** — ``_watchdog`` calls
   ``join_leaked_workers(total_budget=1.0)`` just before ``os._exit(0)``.
   The function was defined in ``_timeout_utils.py`` but never called
   — the ``_LEAKED_WORKERS`` registry accumulated without being
@@ -131,12 +131,12 @@ def _stub_shutdown_environment(tmp_path, monkeypatch):
 
 
 class TestParallelPoolDrain:
-    """SU-23: ``ipc_server.stop`` and the WS dispatch pool drain must
+    """``ipc_server.stop`` and the WS dispatch pool drain must
     run concurrently (not sequentially) via
     ``_run_parallel_with_timeout``."""
 
     def test_ipc_stop_and_ws_drain_run_concurrently(self, _stub_shutdown_environment):
-        """SU-23: both ``ipc_server.stop`` and the WS dispatch pool drain
+        """both ``ipc_server.stop`` and the WS dispatch pool drain
         must run concurrently in a 2-item ``_run_parallel_with_timeout``
         batch.
 
@@ -213,16 +213,16 @@ class TestParallelPoolDrain:
         # to 2.0s — still < the ~5s a fully-sequential implementation
         # would take (sum of 14 teardown helpers each ≥0.1s).
         assert elapsed < 2.0, (
-            f"SU-23: ipc_server.stop + WS drain should run CONCURRENTLY "
+            f"ipc_server.stop + WS drain should run CONCURRENTLY "
             f"(parallel ~0.5s, not sequential ~0.8s); elapsed={elapsed:.2f}s"
         )
 
         # (c)(2) Both must have been called.
         assert len(ipc_stop_start) == 1, (
-            f"SU-23: ipc_server.stop must be called exactly once; got {len(ipc_stop_start)} calls"
+            f"ipc_server.stop must be called exactly once; got {len(ipc_stop_start)} calls"
         )
         assert len(ws_drain_start) == 1, (
-            f"SU-23: ws_dispatch_pool shutdown(wait=True) must be called exactly once; got {len(ws_drain_start)} calls"
+            f"ws_dispatch_pool shutdown(wait=True) must be called exactly once; got {len(ws_drain_start)} calls"
         )
 
         # They must overlap: the two start times must be within 1.0s of
@@ -235,7 +235,7 @@ class TestParallelPoolDrain:
         # other modulo thread-scheduling latency).
         gap = abs(ipc_stop_start[0] - ws_drain_start[0])
         assert gap < 1.0, (
-            f"SU-23: ipc_server.stop and WS pool drain must start "
+            f"ipc_server.stop and WS pool drain must start "
             f"concurrently (within 0.15s of each other); gap={gap:.2f}s "
             f"(ipc_stop_start={ipc_stop_start[0]:.3f}, "
             f"ws_drain_start={ws_drain_start[0]:.3f}) — they appear to "
@@ -243,7 +243,7 @@ class TestParallelPoolDrain:
         )
 
     def test_uses_run_parallel_with_timeout_with_two_items(self, _stub_shutdown_environment, monkeypatch):
-        """SU-23: the early bookend must delegate to
+        """the early bookend must delegate to
         ``_run_parallel_with_timeout`` with a 2-item list (one for
         ``ipc_server.stop``, one for the WS pool drain).
 
@@ -286,31 +286,31 @@ class TestParallelPoolDrain:
                 break
 
         assert early_bookend is not None, (
-            "SU-23: _run_parallel_with_timeout must be called with a batch containing 'ipc_server.stop'"
+            "_run_parallel_with_timeout must be called with a batch containing 'ipc_server.stop'"
         )
         descs = [item[0] for item in early_bookend]
         assert len(early_bookend) == 2, (
-            f"SU-23: early-bookend batch must have exactly 2 items; got {len(early_bookend)} ({descs})"
+            f"early-bookend batch must have exactly 2 items; got {len(early_bookend)} ({descs})"
         )
-        assert "ipc_server.stop" in descs, f"SU-23: early-bookend batch must contain 'ipc_server.stop'; got {descs}"
+        assert "ipc_server.stop" in descs, f"early-bookend batch must contain 'ipc_server.stop'; got {descs}"
         assert "ws_dispatch_pool.drain" in descs, (
-            f"SU-23: early-bookend batch must contain 'ws_dispatch_pool.drain'; got {descs}"
+            f"early-bookend batch must contain 'ws_dispatch_pool.drain'; got {descs}"
         )
         # Both items must have a 5.0s timeout.
         for desc, _func, timeout in early_bookend:
-            assert timeout == 5.0, f"SU-23: early-bookend item '{desc}' must have timeout=5.0; got {timeout}"
+            assert timeout == 5.0, f"early-bookend item '{desc}' must have timeout=5.0; got {timeout}"
 
 
 # _teardown_asr_models inner timeout ──────────────────────────
 
 
 class TestAsrUnloadInnerTimeout:
-    """SU-24: ``_teardown_asr_models`` wraps ``registry.unload()`` in
+    """``_teardown_asr_models`` wraps ``registry.unload()`` in
     ``_run_with_timeout("asr_registry.unload", registry.unload,
     timeout=8.0)``."""
 
     def test_teardown_asr_models_calls_run_with_timeout_with_8s_timeout(self, monkeypatch):
-        """SU-24: ``_teardown_asr_models`` must call ``_run_with_timeout``
+        """``_teardown_asr_models`` must call ``_run_with_timeout``
         with ``description="asr_registry.unload"`` and ``timeout=8.0``
         on ``registry.unload()``."""
         fake_app = _FakeApp()
@@ -345,22 +345,22 @@ class TestAsrUnloadInnerTimeout:
         # Find the asr_registry.unload call.
         asr_calls = [c for c in captured_calls if c["description"] == "asr_registry.unload"]
         assert len(asr_calls) == 1, (
-            f"SU-24: _run_with_timeout must be called exactly once with "
+            f"_run_with_timeout must be called exactly once with "
             f"description='asr_registry.unload'; got {len(asr_calls)} calls. "
             f"All captured: {captured_calls}"
         )
         assert asr_calls[0]["timeout"] == 8.0, (
-            f"SU-24: _run_with_timeout must be called with timeout=8.0; got {asr_calls[0]['timeout']}"
+            f"_run_with_timeout must be called with timeout=8.0; got {asr_calls[0]['timeout']}"
         )
         assert asr_calls[0]["func"] == registry.unload, (
-            "SU-24: _run_with_timeout must be called with registry.unload as the func"
+            "_run_with_timeout must be called with registry.unload as the func"
         )
         # The unload must actually have been invoked (via the real
         # _run_with_timeout call).
         registry.unload.assert_called_once_with()
 
     def test_teardown_asr_models_still_calls_release_gpu_memory_on_timeout(self, monkeypatch):
-        """SU-24: when ``registry.unload()`` times out (returns
+        """when ``registry.unload()`` times out (returns
         ``TIMEOUT``), ``_teardown_asr_models`` must STILL call
         ``release_gpu_memory()`` — the GPU cache clear is independent of
         the model unload and is safe to run even if the unload hung."""
@@ -393,7 +393,7 @@ class TestAsrUnloadInnerTimeout:
         ctrl._teardown_asr_models()
 
         assert len(gpu_release_calls) == 1, (
-            f"SU-24: release_gpu_memory must be called even when "
+            f"release_gpu_memory must be called even when "
             f"registry.unload() times out; got {len(gpu_release_calls)} calls"
         )
         # registry.unload must NOT have been called directly (it was
@@ -403,7 +403,7 @@ class TestAsrUnloadInnerTimeout:
         registry.unload.assert_not_called()
 
     def test_teardown_asr_models_logs_warning_on_timeout(self, caplog):
-        """SU-24: when ``registry.unload()`` times out, a WARNING must
+        """when ``registry.unload()`` times out, a WARNING must
         be logged (not DEBUG) so the user knows the GPU memory may not
         be fully released."""
         fake_app = _FakeApp()
@@ -440,7 +440,7 @@ class TestAsrUnloadInnerTimeout:
             and "asr_registry.unload() did not finish" in r.message
         ]
         assert len(warning_records) == 1, (
-            f"SU-24: expected exactly one WARNING log record for the "
+            f"expected exactly one WARNING log record for the "
             f"asr_registry.unload timeout; got {len(warning_records)}. "
             f"All WARNING records: "
             f"{[(r.name, r.message) for r in caplog.records if r.levelno == logging.WARNING]}"

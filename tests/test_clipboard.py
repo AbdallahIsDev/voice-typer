@@ -1,16 +1,11 @@
 """Tests for clipboard copy and paste logic."""
 
-import sys
 from unittest.mock import MagicMock
 
 import pytest
 
-mock_pynput = MagicMock()
-mock_pynput_kb = MagicMock()
-sys.modules.setdefault("pynput", mock_pynput)
-sys.modules.setdefault("pynput.keyboard", mock_pynput_kb)
-sys.modules.setdefault("pyperclip", MagicMock())
-
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 
 

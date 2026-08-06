@@ -3,7 +3,7 @@
 This file is the regression home for two IPC-layer fixes plus a CI
 sync gate that the original review proposed but no test file pinned:
 
-1. **S3-CR-27** — ``_dispatch`` now stamps the inbound request ``id``
+1. **** — ``_dispatch`` now stamps the inbound request ``id``
    onto the response envelope so clients using id-based request/response
    correlation (the standard JSON-RPC-like pattern in ``usePython.ts``)
    can match the response back to the originating request. Pre-fix,
@@ -13,13 +13,13 @@ sync gate that the original review proposed but no test file pinned:
    validation rejections orphaned the pending request and the renderer
    would time out instead of resolving the rejection.
 
-2. **S1-CR-80** — ``IPCServer._accept_tcp`` now wraps
+2. **S1-** — ``IPCServer._accept_tcp`` now wraps
    ``pool.submit(...)`` in ``try/except RuntimeError`` so a concurrent
    ``stop()`` shutdown of the TCP worker pool no longer kills the
    accept thread + leaks the just-accepted socket. The accept loop
    gracefully closes the conn and breaks out.
 
-3. **S2-CR-73 / S4-CR-35** — every command in
+3. **S2- / ** — every command in
    ``IPCServer._COMMAND_REGISTRY`` (minus the explicitly-documented
    ``_PYTHON_ONLY_COMMANDS`` exception set) MUST be present in the
    Electron ``ALLOWED_COMMANDS`` set so the renderer can invoke them.
@@ -74,7 +74,7 @@ def _make_server() -> IPCServer:
 
 
 class TestRequestIdPreservedOnValidationErrors:
-    """S3-CR-27: ``_dispatch`` stamps the inbound request ``id`` on
+    """``_dispatch`` stamps the inbound request ``id`` on
     every response — including validation-error responses that bypass
     the ``resp`` dict pre-populated with ``id``.
 
@@ -101,9 +101,9 @@ class TestRequestIdPreservedOnValidationErrors:
             "data": {"mic_id": 12345},  # int → validation rejection
         }
         result = server._dispatch(msg)
-        assert result is not None, "S3-CR-27: _dispatch must return a response dict"
+        assert result is not None, ": _dispatch must return a response dict"
         assert result.get("id") == 4242, (
-            "S3-CR-27: validation-error response MUST carry the inbound "
+            ": validation-error response MUST carry the inbound "
             "request id so the renderer can correlate the rejection. "
             f"Got: {result!r}"
         )
@@ -138,7 +138,7 @@ class TestRequestIdPreservedOnValidationErrors:
         result = server._dispatch(msg)
         assert result is not None
         assert "id" not in result, (
-            "S3-CR-27: when the inbound message has no id, the response must not synthesize one either."
+            ": when the inbound message has no id, the response must not synthesize one either."
         )
 
     def test_successful_response_preserves_request_id(self) -> None:
@@ -160,7 +160,7 @@ class TestRequestIdPreservedOnValidationErrors:
 
 
 class TestAcceptTcpPoolSubmitRace:
-    """S1-CR-80: ``_accept_tcp`` must gracefully handle the race where
+    """S1-``_accept_tcp`` must gracefully handle the race where
     ``stop()`` shuts down the TCP worker pool between the read of
     ``self._tcp_worker_pool`` and the ``pool.submit(...)`` call.
 
@@ -183,7 +183,7 @@ class TestAcceptTcpPoolSubmitRace:
         src = inspect.getsource(IPCServer._accept_tcp)
         # Find the ``pool.submit`` call.
         assert "pool.submit(" in src, (
-            "S1-CR-80: _accept_tcp must still call pool.submit(...) to hand off connections to the worker pool."
+            "S1-_accept_tcp must still call pool.submit(...) to hand off connections to the worker pool."
         )
         # The submit call must be inside a try/except RuntimeError.
         # Look for the try block immediately preceding pool.submit and
@@ -193,7 +193,7 @@ class TestAcceptTcpPoolSubmitRace:
         preceding = src[:submit_idx]
         last_try = preceding.rfind("try:")
         assert last_try != -1, (
-            "S1-CR-80: pool.submit(...) must be inside a try/except RuntimeError block — no preceding ``try:`` found."
+            "S1-pool.submit(...) must be inside a try/except RuntimeError block — no preceding ``try:`` found."
         )
         # And the except RuntimeError must come AFTER the submit.
         following = src[submit_idx:]
@@ -202,7 +202,7 @@ class TestAcceptTcpPoolSubmitRace:
         # catch unrelated bugs in ``_run_tcp_handler_safely`` (which is
         # NOT what we want — that function already has its own try).
         assert "except RuntimeError" in following, (
-            "S1-CR-80: pool.submit(...) must be followed by an "
+            "S1-pool.submit(...) must be followed by an "
             "``except RuntimeError`` clause that closes the leaked conn "
             "and breaks the loop. ``except Exception`` is too broad — "
             "it would mask unrelated handler bugs."
@@ -225,12 +225,12 @@ class TestAcceptTcpPoolSubmitRace:
         # check we just assert ``conn.close()`` appears somewhere in
         # the except block before the next ``break`` or end of function.
         assert "conn.close()" in except_block, (
-            "S1-CR-80: the except RuntimeError handler must call "
+            "S1-the except RuntimeError handler must call "
             "``conn.close()`` to release the just-accepted socket — "
             "otherwise it leaks until process exit."
         )
         assert "break" in except_block, (
-            "S1-CR-80: the except RuntimeError handler must ``break`` "
+            "S1-the except RuntimeError handler must ``break`` "
             "out of the accept loop — the pool is gone, no more "
             "connections can be dispatched."
         )
@@ -248,7 +248,7 @@ class TestAcceptTcpPoolSubmitRace:
         server = IPCServer.__new__(IPCServer)
         server._running = False  # so the while loop won't enter
         # Set up a pool that's ALREADY shut down (simulating the race).
-        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="test-s1-cr-80")
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="test-thread-pool")
         pool.shutdown(wait=False, cancel_futures=True)
         server._tcp_worker_pool = pool
 
@@ -279,8 +279,8 @@ class TestAcceptTcpPoolSubmitRace:
                 conn.close()
             broke_out = True
 
-        assert broke_out, "S1-CR-80: wrapped submit must break the loop on RuntimeError"
-        assert leaked_conn_closed, "S1-CR-80: wrapped submit must close the leaked conn"
+        assert broke_out, "S1-wrapped submit must break the loop on RuntimeError"
+        assert leaked_conn_closed, "S1-wrapped submit must close the leaked conn"
 
 
 # ALLOWED_COMMANDS contains every renderer-callable command ──
@@ -316,7 +316,7 @@ def _ts_allowed_commands() -> set[str]:
 
 
 class TestAllowedCommandsCoversRegistry:
-    """S2-CR-73 / S4-CR-35: every command in the Python
+    """S2- / : every command in the Python
     ``_COMMAND_REGISTRY`` (minus the explicitly-documented
     ``_PYTHON_ONLY_COMMANDS`` exception set) MUST be present in the
     Electron ``ALLOWED_COMMANDS`` set so the renderer can invoke them
@@ -347,7 +347,7 @@ class TestAllowedCommandsCoversRegistry:
         intentional narrowing."""
         ts = _ts_allowed_commands()
         assert "onboarding_check_permissions" in ts, (
-            "S2-CR-73 / S4-CR-35: onboarding_check_permissions MUST be "
+            "S2- / : onboarding_check_permissions MUST be "
             "in ALLOWED_COMMANDS — the renderer's onboarding flow calls "
             "it to walk the user through macOS Accessibility / Linux "
             "input-group permission grants."
@@ -363,7 +363,7 @@ class TestAllowedCommandsCoversRegistry:
         renderer_callable = registry - python_only
         missing = renderer_callable - ts
         assert not missing, (
-            "S2-CR-73 / S4-CR-35: ALLOWED_COMMANDS is missing server "
+            "S2- / : ALLOWED_COMMANDS is missing server "
             f"commands (renderer calls would be silently rejected): "
             f"{sorted(missing)}. Either add them to ALLOWED_COMMANDS in "
             "voice_typer/client/src/main/allowed-commands.ts, OR add "
@@ -384,7 +384,7 @@ class TestAllowedCommandsCoversRegistry:
         # Every python-only command must be in the registry (otherwise
         # the exception set is itself stale).
         assert python_only <= registry, (
-            "S2-CR-73: _PYTHON_ONLY_COMMANDS contains commands not in "
+            "S2-_PYTHON_ONLY_COMMANDS contains commands not in "
             f"_COMMAND_REGISTRY: {sorted(python_only - registry)}"
         )
         # And none of the python-only commands should be in the TS
@@ -392,9 +392,67 @@ class TestAllowedCommandsCoversRegistry:
         # ``shutdown`` or spoof ``tray_click``).
         leaked = python_only & ts
         assert not leaked, (
-            "S2-CR-73: _PYTHON_ONLY_COMMANDS should NOT be in the "
+            "S2-_PYTHON_ONLY_COMMANDS should NOT be in the "
             f"renderer ALLOWED_COMMANDS (security: a compromised "
             f"renderer could invoke them): {sorted(leaked)}"
+        )
+
+    def test_check_accessibility_removed_from_registry(self) -> None:
+        """ (Low, registry side): ``check_accessibility`` MUST
+        NOT be in ``_COMMAND_REGISTRY`` — the renderer uses
+        ``onboarding_check_permissions`` instead, and the Tauri host
+        now handles ``check_accessibility`` via a dedicated Rust
+        command (with its own allowlist entry + consent prompt)
+        rather than bridging through Python IPC.
+
+        The Python-side ``_handle_check_accessibility`` method still
+        exists on the ``SystemHandlersMixin`` (in
+        ``voice_typer/server/handlers/system_handlers.py``) for the
+        legacy Electron path, but it MUST NOT be registered in
+        ``_COMMAND_REGISTRY`` — otherwise a compromised renderer
+        could ``invoke('dispatch', {cmd:'check_accessibility'})`` to
+        bypass the Rust-side consent prompt and reach the Python
+        subprocess directly. This test pins the removal so a future
+        contributor cannot silently re-register it.
+        """
+        registry = _python_registry_keys()
+        assert "check_accessibility" not in registry, (
+            "'check_accessibility' MUST NOT be in "
+            "_COMMAND_REGISTRY — the renderer uses "
+            "'onboarding_check_permissions' instead, and the Tauri "
+            "host routes check_accessibility through a dedicated Rust "
+            "command (with its own allowlist entry + consent prompt). "
+            "Re-adding it here would re-open the IPC dispatch route "
+            "that the cleanup pass deliberately closed."
+        )
+        # The handler method name string MUST also not appear as a
+        # value in the registry (paranoid check — catches a copy-paste
+        # typo that registers the command under a different key).
+        from voice_typer.server.ipc_server import IPCServer
+
+        handler_names = set(IPCServer._COMMAND_REGISTRY.values())
+        assert "_handle_check_accessibility" not in handler_names, (
+            "'_handle_check_accessibility' MUST NOT be a value "
+            "in _COMMAND_REGISTRY — even if the key was renamed, the "
+            "handler would still be dispatched and the regression "
+            "would silently re-open."
+        )
+
+    def test_check_accessibility_removed_from_renderer_allowlist(self) -> None:
+        """ (Low, renderer side): ``check_accessibility`` MUST
+        NOT be in the TS ``ALLOWED_COMMANDS`` set. The renderer's
+        permission flow now uses ``onboarding_check_permissions``;
+        the Tauri host handles the raw accessibility probe via a
+        dedicated Rust command.
+        """
+        ts = _ts_allowed_commands()
+        assert "check_accessibility" not in ts, (
+            "'check_accessibility' MUST NOT be in the renderer "
+            "ALLOWED_COMMANDS — the renderer uses "
+            "'onboarding_check_permissions' instead, and the Tauri "
+            "host routes check_accessibility through a dedicated Rust "
+            "command. Re-adding it here would re-open the IPC dispatch "
+            "route that the cleanup pass deliberately closed."
         )
 
 

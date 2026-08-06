@@ -184,10 +184,18 @@ class TestDocsADirectory:
         assert adr_dir.exists(), "docs/adr/ directory should exist"
 
     def test_template_exists(self):
-        """docs/adr/0000-template.md should exist."""
+        """docs/adr/template.md should exist.
+
+        renamed ``0000-template.md`` →
+        ``template.md`` (the ``0000-`` prefix collided with the ADR
+        numbering scheme — the template is not an ADR itself, so it
+        should not occupy an ADR number slot). This test was updated
+        in lockstep to assert the new name. Pre- it asserted
+        ``0000-template.md``.
+        """
         from pathlib import Path
 
-        template = Path(__file__).resolve().parent.parent / "docs" / "adr" / "0000-template.md"
+        template = Path(__file__).resolve().parent.parent / "docs" / "adr" / "template.md"
         assert template.exists(), "ADR template should exist"
 
     def test_first_adr_exists(self):
@@ -199,7 +207,7 @@ class TestDocsADirectory:
 
 
 class TestAPIDocs:
-    """DOC-008: Verify public API documentation exists."""
+    """Verify public API documentation exists."""
 
     def test_api_docs_exist(self):
         """docs/API.md should exist."""
@@ -219,7 +227,7 @@ class TestAPIDocs:
 
 
 class TestConsolidatedDiagnostics:
-    """CQ-016: Verify consolidated diagnostics script."""
+    """Verify consolidated diagnostics script."""
 
     def test_diagnostics_script_exists(self):
         """scripts/diagnostics.py should exist."""
@@ -239,7 +247,7 @@ class TestConsolidatedDiagnostics:
 
 
 class TestPlatformUtils:
-    """CQ-029: Verify centralized platform utilities."""
+    """Verify centralized platform utilities."""
 
     def test_platform_utils_module_exists(self):
         """voice_typer.server.platform_utils should exist."""

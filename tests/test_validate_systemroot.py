@@ -47,7 +47,7 @@ def windows_env(monkeypatch):
 
 
 class TestSystemRootPathTraversalFailClosed:
-    """CR-19: path-traversal in SystemRoot → ``sys.exit(1)`` (fail-closed)."""
+    """path-traversal in SystemRoot → ``sys.exit(1)`` (fail-closed)."""
 
     def test_traversal_in_systemroot_exits(self, windows_env):
         """A SystemRoot containing ``..`` must abort startup (fail-closed)."""
@@ -81,7 +81,7 @@ class TestSystemRootPathTraversalFailClosed:
 
 
 class TestSystemRootUnusualCharsFailClosed:
-    """CR-19: unusual characters in SystemRoot → ``sys.exit(1)`` (fail-closed)."""
+    """unusual characters in SystemRoot → ``sys.exit(1)`` (fail-closed)."""
 
     @pytest.mark.parametrize(
         "bad_char",
@@ -138,7 +138,7 @@ def _make_fake_path(user_root, user_root_is_dir=False, default_is_dir=True, note
 
 
 class TestSystemRootMissingDirResetToDefault:
-    """CR-19: missing directory → reset to ``C:\\Windows`` + continue."""
+    """missing directory → reset to ``C:\\Windows`` + continue."""
 
     def test_missing_dir_resets_to_default(self, windows_env, monkeypatch):
         """A SystemRoot pointing to a nonexistent directory should be
@@ -200,7 +200,7 @@ class TestSystemRootMissingDirResetToDefault:
 
 
 class TestSystemRootMissingNotepadContinues:
-    """CR-19: missing ``System32\\notepad.exe`` → log warning + continue."""
+    """missing ``System32\\notepad.exe`` → log warning + continue."""
 
     def test_missing_notepad_does_not_exit(self, windows_env, monkeypatch):
         """If SystemRoot exists but notepad.exe is missing, the
@@ -227,7 +227,7 @@ class TestSystemRootMissingNotepadContinues:
 
 
 class TestSystemRootNoopOnPosix:
-    """CR-19: ``_validate_systemroot`` is a no-op on non-Windows platforms.
+    """``_validate_systemroot`` is a no-op on non-Windows platforms.
 
     (Sanity check — the CR-19 fix preserves this behavior.)
     """
@@ -248,7 +248,7 @@ class TestSystemRootNoopOnPosix:
 
 
 class TestSystemRootEmptyValueContinues:
-    """CR-19: empty SystemRoot value → log warning + return (no exit)."""
+    """empty SystemRoot value → log warning + return (no exit)."""
 
     def test_empty_systemroot_continues(self, windows_env):
         """An empty SystemRoot env var is unusual but not a direct

@@ -1,4 +1,4 @@
-"""CR-17: regression tests for ``restart_app()`` thread-aware exit.
+"""regression tests for ``restart_app()`` thread-aware exit.
 
 ``restart_app()`` is invoked from the tray menu callback, which pystray
 dispatches on its own worker thread (NOT the main thread). The tray's
@@ -129,7 +129,7 @@ def _stub_restart_environment(app, monkeypatch, *, spy_sys_exit):
 
 
 class TestRestartAppThreadAwareExit:
-    """CR-17: ``restart_app()`` must only ``sys.exit(0)`` on the main
+    """``restart_app()`` must only ``sys.exit(0)`` on the main
     thread; on a non-main thread it must rely on ``tray.stop()``
     (called inside ``_do_cleanup()``) to break the pystray loop."""
 

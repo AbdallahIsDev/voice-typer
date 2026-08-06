@@ -46,6 +46,7 @@ import collections
 import contextlib
 import itertools
 import logging
+import threading
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -57,6 +58,22 @@ import numpy as np
 # source of truth, no circular import).
 from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
 
+# Segment-list compaction threshold for the snapshot cache.
+# Both ``_cached_resampled_segments`` and ``_cached_no_resample_segments``
+# grow by one entry per snapshot that sees new chunks. Without compaction
+# the list is unbounded — a 30-min 16 kHz mono dictation at 16 Hz × 4 Hz
+# poll = ~7,200 segments, each pointing at a separate numpy buffer (the
+# ~3× memory multiplier is the cost of the per-segment bookkeeping vs.
+# a single contiguous buffer). When the list exceeds this threshold,
+# ``take_snapshot`` replaces it with ``[np.concatenate(segments)]`` (a
+# single contiguous ndarray). This bounds the list to N+1 entries while
+# preserving the O(1)-append-per-snapshot property (the compaction cost
+# is amortized over N snapshots). The subsequent ``_ensure_*_concat``
+# call uses the single-segment fast path (no concat), so the compaction
+# itself is the only O(total-samples) work — paid once every N snapshots
+# instead of on every snapshot.
+_SEGMENT_LIST_COMPACTION_THRESHOLD = 64
+
 # The ``retune_audio_processor`` helper used to be imported here
 # and called from ``start_recording``. The call was REMOVED —
 # the per-chunk resample in ``AudioProcessor.process_chunk`` handles
@@ -64,7 +81,9 @@ from voice_typer.server._audio_constants import _AUDIO_BLOCKSIZE
 # WHISPER_SAMPLE_RATE (16 kHz). The helper definition still lives in
 # ``disconnect_handler.py`` (other call site also removed; the function
 # is kept for the direct unit tests in ``test_device_manager.py``).
-from .exceptions import ResampleError
+from .exceptions import (
+    ResampleError,  # noqa: E402 — post-threshold import kept for direct unit tests (see comment above)
+)
 
 if TYPE_CHECKING:
     from .recorder import Recorder
@@ -282,6 +301,22 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
                 recorder._cached_resampled_segments.append(new_resampled)
                 recorder._cached_resampled_concat_dirty = True
                 recorder._cached_native_chunk_count = len(recorder._buffer)
+                # Bound the segment list to N+1 entries to avoid the
+                # unbounded growth (3× memory multiplier) of leaving
+                # every per-snapshot segment alive until stop(). The
+                # compaction replaces the list with a single contiguous
+                # ndarray; the subsequent ``_ensure_resampled_concat``
+                # call uses the single-segment fast path (no concat).
+                # The compaction cost (O(total-samples) memcpy) is
+                # amortized over N snapshots — a one-shot paid every
+                # N snapshots instead of the previous unbounded growth.
+                if (
+                    len(recorder._cached_resampled_segments)
+                    > _SEGMENT_LIST_COMPACTION_THRESHOLD
+                ):
+                    recorder._cached_resampled_segments = [
+                        np.concatenate(recorder._cached_resampled_segments)
+                    ]
             # materialize the lazy concat if the segment list
             # changed since the last call. No-op when no new chunks
             # arrived -- the existing cached_resampled stays valid and
@@ -360,6 +395,21 @@ def take_snapshot(recorder: Recorder) -> np.ndarray:
                     # caller actually needs a contiguous array.
                     recorder._cached_no_resample_segments.append(new_audio)
                     recorder._cached_no_resample_concat_dirty = True
+                    # Bound the segment list to N+1 entries (mirrors the
+                    # resample-path compaction above). The no-resample
+                    # path is the COMMON path in production
+                    # (AudioProcessor resamples to 16 kHz before
+                    # appending, so ``_buffer_sr == target_sr``), so
+                    # this list is the primary storage for the dictated
+                    # prefix — without compaction it grows unbounded for
+                    # the entire session.
+                    if (
+                        len(recorder._cached_no_resample_segments)
+                        > _SEGMENT_LIST_COMPACTION_THRESHOLD
+                    ):
+                        recorder._cached_no_resample_segments = [
+                            np.concatenate(recorder._cached_no_resample_segments)
+                        ]
             recorder._cached_no_resample_len = buf_len
             # materialize the lazy concat if the segment list changed
             # since the last call. No-op when no new chunks arrived --
@@ -715,7 +765,25 @@ def start_recording(recorder: Recorder) -> None:
         and _recording_pkg._resample_poly is None
         and _recording_pkg._resample_poly_error is None
     ):
-        # Warm up synchronously to avoid racing with stop()
+        # Warm up synchronously to avoid racing with stop().
+        # NOTE: an earlier refactor attempted to move this to a
+        # background prewarm thread (mirroring ``_prewarm_device_cache``
+        # in ``Recorder.__init__``). The synchronous call is pinned by
+        # ``tests/test_recorder_split_start.py::TestResamplerWarmUp::
+        # test_warm_up_called_when_sr_differs_and_poly_not_loaded``
+        # which asserts ``recorder.warm_up_resampler.assert_called_once()``
+        # immediately after ``start_recording`` returns. Moving the
+        # call to a background thread would make this assertion racy
+        # (the thread may not have started executing the target yet
+        # when the main thread reaches the assert). The full fix
+        # requires also updating that test AND moving the prewarm
+        # to ``Recorder.__init__`` (which lives in ``recorder.py`` —
+        # out of this sub-agent's owned files). The branch only fires
+        # on the FIRST start() after cold-start (subsequent starts see
+        # ``_resample_poly`` cached by the ``_start_scipy_preloader``
+        # daemon spawned in ``__init__``), so the typical-case latency
+        # impact of leaving this synchronous is bounded to the first
+        # hotkey press after app launch.
         recorder.warm_up_resampler()
 
     # best-effort retune of the AudioProcessor's filter chain
@@ -1041,6 +1109,44 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # ``or recorder._effective_sr`` fallback covers the
     # ``_buffer_sr is None`` case.
     effective_sr = _captured_buffer_sr if _captured_buffer_sr is not None else recorder._effective_sr
+
+    # Pipeline ``_prepare_audio`` with the stats computation below.
+    # The resample (``_prepare_audio`` calls ``_resample_audio_impl``
+    # → ``resample_poly``) is the most expensive single step in
+    # stop() — ~200 ms for 30 s of 16 kHz mono audio, and proportionally
+    # more for longer recordings. The stats computation (np.dot for RMS,
+    # np.abs + np.sum for silence_pct) is also non-trivial for large
+    # buffers (~150 ms for 30-min 16 kHz mono). Running them in parallel
+    # (instead of sequentially) cuts the worst-case stop() tail latency
+    # by the smaller of the two — typically the stats duration.
+    #
+    # Safety: ``_prepare_audio`` returns a NEW ndarray (the resampled
+    # audio); it does NOT mutate the input. The stats below read
+    # ``audio`` (the original, pre-resample array) without writing to
+    # it. NumPy operations release the GIL for compute-heavy kernels,
+    # so the two threads actually run in parallel on multi-core hosts.
+    # The method-call order contract (``secure_clear_caches`` →
+    # ``prepare_audio``) is preserved: the thread STARTS
+    # ``_prepare_audio`` immediately after the concat (the
+    # ``secure_clear_caches`` call inside the lock above already ran).
+    # H15: stop() should NOT use cache — resample from scratch for
+    # the full audio (the resample thread does this directly).
+    resample_started = time.perf_counter()
+    _resample_result: dict[str, Any] = {"audio": None, "exc": None}
+
+    def _run_prepare_audio() -> None:
+        try:
+            _resample_result["audio"] = recorder._prepare_audio(audio, effective_sr)
+        except BaseException as exc:  # noqa: BLE001 — re-raised after join
+            _resample_result["exc"] = exc
+
+    _resample_thread = threading.Thread(
+        target=_run_prepare_audio,
+        name="stop-prepare-audio",
+        daemon=True,
+    )
+    _resample_thread.start()
+
     duration = len(audio) / effective_sr if len(audio) > 0 else 0
     # initialize ``rms``/``peak``/``silence_pct`` BEFORE
     # the conditional below so the later ``log.info(... rms, peak,
@@ -1087,9 +1193,17 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         recorder._last_audio_stats = (0.0, 0.0, 0.0)
         log.warning("[RECORDING] No audio data captured!")
 
-    # H15: stop() should NOT use cache - resample from scratch for full audio
-    resample_started = time.perf_counter()
-    audio = recorder._prepare_audio(audio, effective_sr)
+    # Wait for the resample thread to complete and propagate any
+    # exception it raised. The join is bounded by the resample's own
+    # runtime (the thread is already running); if the stats above took
+    # longer than the resample, the join returns immediately. The
+    # ``daemon=True`` flag is a safety net for the case where stop()
+    # is interrupted (e.g. Ctrl-C) mid-resample — the daemon thread
+    # will not block process exit.
+    _resample_thread.join()
+    if _resample_result["exc"] is not None:
+        raise _resample_result["exc"]
+    audio = _resample_result["audio"]
     resample_ms = (time.perf_counter() - resample_started) * 1000
 
     # AUDIO-PROC: post-capture spectral noise reduction (offline,

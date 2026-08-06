@@ -880,6 +880,13 @@ def _unregister_all_voicetyper_tasks() -> list[str]:
             text=True,
             timeout=60,
             check=False,
+            # CREATE_NO_WINDOW (0x08000000) prevents a console
+            # window from flashing on the user's screen during the
+            # uninstall sweep. The sweep runs at uninstall time, often
+            # from a UI-driven flow where a flashing console would look
+            # broken. ``getattr`` guard is defensive (the constant
+            # exists on every Python 3.x Windows build).
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
         )
         if result.returncode == 0:
             for line in (result.stdout or "").splitlines():

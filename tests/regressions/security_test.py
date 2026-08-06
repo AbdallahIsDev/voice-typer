@@ -622,7 +622,7 @@ class TestSystemRootValidationFunctional:
         with pytest.raises(SystemExit) as exc_info:
             _validate_systemroot()
         assert exc_info.value.code == 1, (
-            "REG-3 / CR-19: a malicious SystemRoot containing '..' must "
+            "a malicious SystemRoot containing '..' must "
             "sys.exit(1) (fail-closed), not log+reset (fail-open)."
         )
 

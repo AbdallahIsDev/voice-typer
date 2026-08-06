@@ -238,6 +238,7 @@ class TestFactoryRolePropagation:
         from voice_typer.server.hotkeys import factory as factory_mod
 
         # Simulate Linux + Wayland.
+        monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr(factory_mod, "is_linux", lambda: True)
         monkeypatch.setattr(factory_mod, "is_windows", lambda: False)
         monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
@@ -272,6 +273,7 @@ class TestFactoryRolePropagation:
         with ``role=None`` (historical path)."""
         from voice_typer.server.hotkeys import factory as factory_mod
 
+        monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr(factory_mod, "is_linux", lambda: True)
         monkeypatch.setattr(factory_mod, "is_windows", lambda: False)
         monkeypatch.setenv("WAYLAND_DISPLAY", "wayland-0")
@@ -333,6 +335,7 @@ class TestAdapterRolePropagation:
         from voice_typer.server.hotkeys import _NativeBackendAdapter, factory
 
         # Simulate Linux + Wayland.
+        monkeypatch.setattr(sys, "platform", "linux")
         monkeypatch.setattr(factory, "is_linux", lambda: True)
         monkeypatch.setattr(factory, "is_windows", lambda: False)
         # native_adapter imports is_linux from the package, not from factory.

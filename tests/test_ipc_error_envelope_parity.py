@@ -254,8 +254,20 @@ class TestTcpErrorEnvelopes:
 
     def test_tcp_dispatch_exception_returns_internal_error_code(self, authenticated_client, monkeypatch):
         """An uncaught handler exception on the TCP path must return
-        ``{"type":"error","data":{"code":"internal_error","message":
-        "internal error"}}`` — matching the WS path.
+        ``{"type":"error","data":{"code":"server.handler_error",
+        "message":"internal error"}}``.
+
+        The TCP path runs the REAL ``server._dispatch`` (only the
+        handler ``_handle_get_status`` is patched). When the handler
+        raises, ``_dispatch``'s top-level ``except Exception`` catch
+        (``ipc/dispatcher.py``) stamps ``code=ErrorCodes.HANDLER_ERROR``
+        (``"server.handler_error"``) via ``_error_response`` (R13-F3)
+        so clients branching on ``code`` see the namespaced
+        handler-fault signal — distinct from the
+        ``server.internal_error`` envelope that ``sidecar_ws._make_dispatch``'s
+        outer catch emits when ``_dispatch`` ITSELF raises (which the
+        WS parity test exercises by replacing ``_dispatch`` with a
+        MagicMock that raises directly).
         """
         client, server = authenticated_client
 
@@ -266,10 +278,14 @@ class TestTcpErrorEnvelopes:
         _send_line(client, {"id": 1, "type": "get_status"})
         resp = _read_response_line(client, timeout=2.0)
         assert resp["type"] == "error"
-        # production emits the namespaced form (per  /
-        # migration). The legacy bare ``internal_error`` is no
-        # longer emitted by the dispatch loop or handler catch-alls.
-        assert resp["data"]["code"] == "server.internal_error"
+        # production emits ``server.handler_error`` for handler-raised
+        # exceptions (the dispatcher's ``except Exception`` catch stamps
+        # ``ErrorCodes.HANDLER_ERROR`` via ``_error_response``). The
+        # legacy bare ``internal_error`` / namespaced ``server.internal_error``
+        # are emitted ONLY by the outer catch-alls (stdin runner /
+        # ``sidecar_ws._make_dispatch``) when ``_dispatch`` itself raises
+        # — a different scenario covered by the WS parity test below.
+        assert resp["data"]["code"] == "server.handler_error"
         assert resp["data"]["message"] == "internal error"
 
     def test_tcp_rate_limit_returns_rate_limited_code(self, authenticated_client, monkeypatch):
@@ -426,13 +442,38 @@ class TestTcpWsEnvelopeParity:
 
     @pytest.mark.parametrize("error_class", list(EXPECTED_ENVELOPES.keys()))
     def test_tcp_envelope_matches_expected(self, error_class, authenticated_client, monkeypatch):
-        """The TCP path emits the expected envelope for each error class."""
+        """The TCP path emits the expected envelope for each error class.
+
+        NOTE: for ``internal_error`` the TCP path patches a HANDLER
+        (``_handle_get_status``), so the real ``server._dispatch`` runs
+        and its top-level ``except Exception`` catch stamps
+        ``server.handler_error`` (via ``_error_response`` / R13-F3).
+        The WS parity test (``test_ws_envelope_matches_expected``)
+        instead REPLACES ``_dispatch`` with a MagicMock that raises
+        directly — that scenario bubbles up to
+        ``sidecar_ws._make_dispatch``'s outer catch and emits
+        ``server.internal_error``. The two parametrize cases exercise
+        DIFFERENT fault layers, so the TCP path overrides the shared
+        ``EXPECTED_ENVELOPES`` entry for ``internal_error`` below.
+        """
         client, server = authenticated_client
         expected = self.EXPECTED_ENVELOPES[error_class]
 
         if error_class == "invalid_json":
             _send_raw(client, "{not valid json")
         elif error_class == "internal_error":
+            # TCP-side override: the dispatcher catches the handler
+            # exception and stamps ``server.handler_error`` (NOT
+            # ``server.internal_error`` — that code is reserved for
+            # ``_dispatch`` itself raising, which the WS parity test
+            # covers by mocking ``_dispatch`` directly).
+            expected = {
+                "type": "error",
+                "data": {
+                    "code": "server.handler_error",
+                    "message": "internal error",
+                },
+            }
 
             def boom(data, resp):  # noqa: ARG001
                 raise RuntimeError("simulated handler crash")

@@ -12,6 +12,7 @@ line-based IO (``write()`` / ``flush()`` / ``readline()`` / ``__iter__``).
 import contextlib
 import io
 import logging
+import os
 import socket
 
 from voice_typer.server._paths import IPC_PORT
@@ -51,7 +52,16 @@ def _pick_available_port(start: int = IPC_PORT, max_tries: int = 100) -> tuple[i
     for offset in range(max_tries):
         candidate = start + offset
         s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # P1-1.4 (Windows parity): on Windows ``SO_REUSEADDR`` has the
+        # OPPOSITE semantics — it lets a second socket FORCIBLY bind a
+        # port already in use (the hijack behavior), so the busy-port
+        # probe below would spuriously "succeed" and return a port
+        # another process is actively listening on. Only set
+        # SO_REUSEADDR on POSIX (where it skips TIME_WAIT rebinds); on
+        # Windows the default exclusive-bind semantics are what make
+        # the EADDRINUSE probe reliable.
+        if os.name != "nt":
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
             s.bind(("127.0.0.1", candidate))
         except OSError:
@@ -67,7 +77,8 @@ def _pick_available_port(start: int = IPC_PORT, max_tries: int = 100) -> tuple[i
         return s.getsockname()[1], s
     # All ports in range are busy — let the OS assign an ephemeral one.
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    if os.name != "nt":
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(("127.0.0.1", 0))
     return s.getsockname()[1], s
 
@@ -232,8 +243,20 @@ class _TCPLineIO:
         # concurrent read and the caller (e.g. teardown / cleanup) hangs
         # forever.  ``shutdown`` + ``close`` raise on an already-closed
         # socket, so both are wrapped in suppress.
-        with contextlib.suppress(Exception):
-            self.conn.shutdown(socket.SHUT_RDWR)
+        #
+        # Platform ordering matters (the ``test_close_does_not_deadlock``
+        # regression suite covers both):
+        # - POSIX: ``shutdown()`` FIRST — it wakes a blocked ``recv``
+        #   cleanly (``close()`` alone from another thread is unreliable:
+        #   it may not interrupt the recv and can race fd reuse).
+        # - Windows: ``shutdown()`` called from another thread while a
+        #   ``recv`` is in flight can BLOCK until that I/O completes
+        #   (documented winsock behavior) — so the shutdown-first order
+        #   deadlocks. On Windows, ``close()`` alone is the correct
+        #   wake-up: the blocked ``recv`` fails with WSAENOTSOCK.
+        if os.name != "nt":
+            with contextlib.suppress(Exception):
+                self.conn.shutdown(socket.SHUT_RDWR)
         with contextlib.suppress(Exception):
             self.conn.close()
         with contextlib.suppress(Exception):

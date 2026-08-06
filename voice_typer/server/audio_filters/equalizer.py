@@ -69,6 +69,27 @@ class Equalizer(AudioFilter):
         # chunk for the 3-sample delay line. Lazy-resized to the largest
         # chunk seen.
         self._delay_buf: np.ndarray | None = None
+        # pre-allocated 1-element float64 zi state buffers for the two
+        # lfilter calls (mirror compressor._zi_buf at line 76). Before
+        # this, process() allocated two fresh ``np.array([state])`` arrays
+        # per chunk. The [0] slot is overwritten with the current band
+        # state before each lfilter call; lfilter reads but does not
+        # mutate the caller's zi array (it returns the final state as a
+        # new array via the second tuple element, which we discard).
+        self._low_zi_buf = np.zeros(1, dtype=np.float64)
+        self._high_zi_buf = np.zeros(1, dtype=np.float64)
+        # pre-allocated float64 working copy of the input + float64 band-
+        # sum output buffer. Lazy-resized to the largest chunk seen
+        # (mirror compressor._env_db_buf). Before this, process()
+        # allocated a fresh ``samples.astype(np.float64)`` copy per chunk
+        # plus 3-5 intermediate arrays for the ``low_s*low_gain +
+        # mid*mid_gain + high*high_gain`` band-sum expression. The band
+        # sum is now computed in-place: ``_output_buf = low_s*low_gain``;
+        # ``_tmp_buf = mid*mid_gain``; ``_output_buf += _tmp_buf`` (repeat
+        # for high band); then ``astype(np.float32)`` for the final output.
+        self._x_f64_buf: np.ndarray | None = None
+        self._output_buf: np.ndarray | None = None
+        self._tmp_buf: np.ndarray | None = None
 
     def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
         # Debug-only guard: the EQ crossover coefficients (``_lf``,
@@ -94,25 +115,40 @@ class Equalizer(AudioFilter):
         mid_gain = self._mid_gain
         high_gain = self._high_gain
 
-        x = samples.astype(np.float64)
+        # pre-allocate the float64 working copy of the input + the band-
+        # sum output buffer + a scratch temp. Lazy-resized to the largest
+        # chunk seen so the first call allocates and subsequent calls
+        # reuse. Eliminates ~5 fresh float64 arrays per chunk.
+        if self._x_f64_buf is None or self._x_f64_buf.shape[0] < n:
+            cap = max(n, 1024)
+            self._x_f64_buf = np.empty(cap, dtype=np.float64)
+            self._output_buf = np.empty(cap, dtype=np.float64)
+            self._tmp_buf = np.empty(cap, dtype=np.float64)
+        x = self._x_f64_buf[:n]
+        np.copyto(x, samples, casting="same_kind")  # float32 -> float64 (exact)
 
         # Low band: one-pole lowpass: low_s[i] = low_s[i-1] + lf * (x[i] - low_s[i-1])
         # Equivalent IIR form: low_s[i] = (1-lf) * low_s[i-1] + lf * x[i]
         # _get_lfilter()(b=[lf], a=[1, -(1-lf)]) computes exactly this.
 
+        # reuse the pre-allocated 1-element zi buffer — set [0] to the
+        # current low_state, then pass to lfilter. lfilter reads but does
+        # not mutate the caller's zi array.
+        self._low_zi_buf[0] = self._low_state
         low_s, _ = _get_lfilter()(
             [lf],
             [1.0, -(1.0 - lf)],
             x,
-            zi=np.array([self._low_state], dtype=np.float64),
+            zi=self._low_zi_buf,
         )
 
         # High state: one-pole lowpass on the input; high band = input - state.
+        self._high_zi_buf[0] = self._high_state
         high_s, _ = _get_lfilter()(
             [hf],
             [1.0, -(1.0 - hf)],
             x,
-            zi=np.array([self._high_state], dtype=np.float64),
+            zi=self._high_zi_buf,
         )
         high = x - high_s
 
@@ -143,7 +179,22 @@ class Equalizer(AudioFilter):
         # removed the `* 0.5` factor -- at unity gain (low_db=mid_db=high_db=0),
         # low_gain=mid_gain=high_gain=1.0 and low_s + mid + high = d3 (3-sample
         # delayed input), so the old `* 0.5` caused -6.02 dB attenuation at unity.
-        output = (low_s * low_gain + mid * mid_gain + high * high_gain).astype(np.float32)
+        #
+        # Band sum computed in-place via the pre-allocated output + temp
+        # buffers: ``output_buf = low_s * low_gain``; ``tmp = mid * mid_gain``;
+        # ``output_buf += tmp``; repeat for high band. The addition order
+        # matches the original ``(low_s*low_gain) + (mid*mid_gain) +
+        # (high*high_gain)`` left-to-right evaluation so IEEE-754 rounding
+        # is identical (verified byte-for-byte by
+        # ``test_audio_filters_lazy_imports.TestEqualizerByteIdentical``).
+        output_f64 = self._output_buf[:n]
+        tmp = self._tmp_buf[:n]
+        np.multiply(low_s, low_gain, out=output_f64)
+        np.multiply(mid, mid_gain, out=tmp)
+        np.add(output_f64, tmp, out=output_f64)
+        np.multiply(high, high_gain, out=tmp)
+        np.add(output_f64, tmp, out=output_f64)
+        output = output_f64.astype(np.float32)
 
         # Carry the last 3 input samples + final band states to the next chunk.
         # when n >= 3, the last 3 samples of x are the new delay
@@ -175,6 +226,16 @@ class Equalizer(AudioFilter):
         # the first ``process()`` call (and only when ``n >= 3``).
         if self._delay_buf is not None:
             self._delay_buf.fill(0)
+        # zero the float64 input-copy + band-sum + temp buffers for the
+        # same privacy rationale. Guarded for None because they are
+        # lazy-allocated on the first ``process()`` call.
+        for buf in (self._x_f64_buf, self._output_buf, self._tmp_buf):
+            if buf is not None:
+                buf.fill(0)
+        # the 1-element zi buffers hold only the carried band state
+        # (a single float, already reset above) — zero for consistency.
+        self._low_zi_buf.fill(0)
+        self._high_zi_buf.fill(0)
 
     @property
     def latency_ms(self) -> float:

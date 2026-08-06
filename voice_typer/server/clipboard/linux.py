@@ -120,6 +120,28 @@ _TERMINAL_PROCESS_NAMES: set[str] = {
     "powershell.exe",
     "pwsh.exe",
     "gnome-terminal",
+    # ``gnome-terminal-server`` is the D-Bus-activated backend process
+    # name used by GNOME Terminal >= 3.30 when the ``gnome-terminal``
+    # launcher hands off to a long-running server process. Without
+    # this entry, paste-on-Wayland routing into GNOME Terminal windows
+    # misidentified the target as a non-terminal and sent Ctrl+V
+    # (which the terminal interprets as a literal ^V / 0x16 byte
+    # instead of paste).
+    "gnome-terminal-server",
+    # Ptyxis is the GNOME-adjacent terminal shipped by Fedora Workstation
+    # (replaces gnome-terminal as the default on recent spins). The
+    # primary GUI process is ``ptyxis``; ``ptyxis-agent`` is the
+    # D-Bus-activated helper that owns the PTYs.
+    "ptyxis",
+    "ptyxis-agent",
+    # BlackBox is a GTK4/libadwaita terminal for GNOME — its binary
+    # name does not contain "term" so the existing heuristic missed it.
+    "blackbox",
+    # Tabby (formerly "Terminus") is an Electron-based terminal whose
+    # process image is the host ``tabby`` executable.
+    "tabby",
+    # cosmic-term is the System76 COSMIC desktop terminal.
+    "cosmic-term",
     "konsole",
     "xfce4-terminal",
     "alacritty",
@@ -185,6 +207,16 @@ def _is_wayland_session(*, broad: bool = False) -> bool:
         need the broad detection call ``_is_wayland_session(broad=True)``
         (or via the ``_is_wayland_paste_session`` wrapper retained for
         back-compat with existing call sites in ``manager.py``).
+
+    the broad-mode env-var check delegates to
+        :func:`voice_typer.server.platform_utils.is_wayland_session` so
+        the ``XDG_SESSION_TYPE`` / ``WAYLAND_DISPLAY`` heuristic has a
+        single source of truth across the codebase. The narrow mode
+        (``broad=False``) intentionally checks ONLY ``WAYLAND_DISPLAY``
+        because clipboard copy/paste via ``wl-copy`` / ``wl-paste``
+        requires a reachable Wayland socket — if ``WAYLAND_DISPLAY`` is
+        unset, ``wl-copy`` would fail regardless of ``XDG_SESSION_TYPE``,
+        so we should fall through to ``pyperclip`` instead.
     """
     if not _cb.is_linux():
         return False
@@ -193,7 +225,14 @@ def _is_wayland_session(*, broad: bool = False) -> bool:
     if os.environ.get("WAYLAND_DISPLAY"):
         return True
     if broad:
-        return os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland"
+        # Delegate the env-var check to the platform-wide Wayland
+        # detector so the heuristic has a single source of truth. At
+        # this point WAYLAND_DISPLAY is unset (we'd have returned True
+        # above), so is_wayland_session() effectively just checks
+        # XDG_SESSION_TYPE == "wayland" (case-insensitive).
+        from voice_typer.server.platform_utils import is_wayland_session
+
+        return is_wayland_session()
     return False
 
 
@@ -349,7 +388,7 @@ def _have_wtype() -> bool:
     return bool(_shutil_which_cached("wtype"))
 
 
-def _linux_paste_via_wtype(text: str | None) -> None:
+def _linux_paste_via_wtype(text: str | None, is_terminal: bool = False) -> None:
     """Paste on Wayland via `wtype`.
 
     pynput is X11-only and silently no-ops on Wayland. `wtype`
@@ -364,15 +403,55 @@ def _linux_paste_via_wtype(text: str | None) -> None:
         ``Ctrl+V`` path is always available and is O(1) regardless of text
         length.
 
+    ``is_terminal=True`` selects the terminal-emulator keystroke
+        sequence ``ctrl+shift+v`` instead of ``ctrl+v``. Terminal
+        emulators (gnome-terminal, konsole, kitty, etc.) bind paste to
+        Ctrl+Shift+V; a plain Ctrl+V is interpreted as the literal
+        ``^V`` / 0x16 control byte, which corrupts shell input. The
+        caller (:meth:`ClipboardManager.paste`) determines
+        ``is_terminal`` via :meth:`_is_terminal_process` using the
+        ``_TERMINAL_PROCESS_NAMES`` set in this module.
+
+    (Medium, Wayland race): insert a small settle delay
+        (~15 ms) BEFORE forking ``wtype``. The clipboard ownership
+        handoff from ``wl-copy`` to the compositor is asynchronous —
+        ``wl-copy``'s subprocess exit does NOT guarantee the
+        compositor has propagated the new selection to clients. If
+        ``wtype -k ctrl+v`` is forked too quickly, the focused Wayland
+        surface may paste a stale (or empty) selection. The 15 ms
+        settle is below the human-perceptible threshold (~50 ms) but
+        large enough to cover the wl-copy round-trip on a typical
+        compositor (measured 2-8 ms on sway / GNOME mutter). The
+        delay is skipped when ``_cb.time`` has been patched out by
+        the test suite (which patches it to a MagicMock).
+
         Raises ``RuntimeError`` if `wtype` is missing or exits non-zero, or
         ``subprocess.TimeoutExpired``-derived ``RuntimeError`` on hang (5s
     cap — matches the wl-clipboard timeout per ).
     """
-    # always paste from clipboard via Ctrl+V. The previous
-    # short-text path (`wtype -d 50 -- <text>`) took ~15s for 300 chars.
+    # always paste from clipboard via Ctrl+V (or Ctrl+Shift+V for
+    # terminals). The previous short-text path (`wtype -d 50 -- <text>`)
+    # took ~15s for 300 chars.
+    # (Medium, Wayland race): settle delay between the wl-copy return
+    # and the wtype fork. Best-effort: a patched ``_cb.time`` (the
+    # standard test pattern) becomes a MagicMock, whose ``.sleep``
+    # attribute is auto-created as another MagicMock — so the call is
+    # a no-op in tests. The try/except guards against a ``time``
+    # module that doesn't expose ``sleep`` (it always does on stdlib
+    # ``time``, but the patch may swap it for an object without one).
+    # XS-36: narrow the guard — a patched ``_cb.time`` may not expose
+    # ``sleep``, but swallowing a real failure here would mask the
+    # settle-delay regression. ``contextlib.suppress`` with the concrete
+    # exception types keeps the intent (best-effort delay) without a
+    # bare ``except Exception: pass``.
+    import contextlib as _ctxlib
     import subprocess
 
-    cmd = ["wtype", "-k", "ctrl+v"]
+    with _ctxlib.suppress(AttributeError, TypeError):  # pragma: no cover — defensive
+        _cb.time.sleep(0.015)
+
+    paste_key = "ctrl+shift+v" if is_terminal else "ctrl+v"
+    cmd = ["wtype", "-k", paste_key]
     try:
         proc = subprocess.run(
             cmd,

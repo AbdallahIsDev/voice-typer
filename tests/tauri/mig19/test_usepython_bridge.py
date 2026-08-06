@@ -890,20 +890,22 @@ def test_tauri_rust_unwraps_response_data_on_success(sidecar_cmds_rs_source) -> 
     """ADR-0020 §6.3 / Phase 3 + §2: Tauri Rust host returns
     ``response.data`` directly on success (not the full envelope).
 
-    The Rust ``dispatch`` command (sidecar_cmds.rs:66) returns
-    ``Ok(response.get("data").cloned().unwrap_or(json!({})))`` — so
-    the webview's ``invoke('dispatch')`` resolves with the inner
-    ``data`` field, NOT the full ``{type:'result', data:...}`` envelope.
-    This matches the Electron path's caller-facing shape (see
+    The Rust ``dispatch`` command (sidecar_cmds.rs ``dispatch_frame``)
+    returns ``Ok(response.get_mut("data").map(Value::take).unwrap_or(json!({})))``
+    — the PERF-optimized O(1) move instead of ``response.get("data").cloned()``
+    (deep clone). So the webview's ``invoke('dispatch')`` resolves with
+    the inner ``data`` field, NOT the full ``{type:'result', data:...}``
+    envelope. This matches the Electron path's caller-facing shape (see
     ``test_electron_use_python_returns_result_as_t``).
     """
     # The Rust source must reference `response.get("data")` on the
-    # success path. Look for `response.get("data").cloned()`.
-    unwrap_re = re.compile(r'response\.get\(\s*["\']data["\']\s*\)\.cloned\(\)')
+    # success path. Look for the current PERF-optimized form
+    # `response.get_mut("data").map(Value::take)`.
+    unwrap_re = re.compile(r'response\s*\.get_mut\(\s*["\']data["\']\s*\)\s*\.map\(Value::take\)')
     assert unwrap_re.search(sidecar_cmds_rs_source), (
         "Tauri path: sidecar_cmds.rs must return "
-        "`response.get('data').cloned().unwrap_or(json!({}))` on "
-        "success (sidecar_cmds.rs:66) — the webview's invoke('dispatch') "
+        "`response.get_mut('data').map(Value::take).unwrap_or(json!({}))` on "
+        "success — the webview's invoke('dispatch') "
         "resolves with the inner data field, NOT the full envelope."
     )
 
@@ -959,9 +961,12 @@ def test_success_shape_parity_tauri_vs_electron(
     Source-inspection: both paths must reference the `data` field on
     the success path.
     """
-    # Tauri path: Rust returns `response.get("data")`.
-    assert re.search(r'response\.get\(\s*["\']data["\']\s*\)', sidecar_cmds_rs_source), (
-        "Tauri path: sidecar_cmds.rs must return `response.get('data')` on success (the unwrapped inner data field)."
+    # Tauri path: Rust returns the unwrapped `data` field (currently via
+    # the PERF-optimized `response.get_mut("data").map(Value::take)`
+    # move — the semantic equivalent of `response.get("data")`).
+    assert re.search(r'response\s*\.(?:get|get_mut)\(\s*["\']data["\']\s*\)', sidecar_cmds_rs_source), (
+        "Tauri path: sidecar_cmds.rs must return the unwrapped inner data "
+        "field on success (currently `response.get_mut('data').map(Value::take)`)."
     )
     # Electron path: usePython.ts returns `result as T` (where `result`
     # is the resolved envelope after the error checks pass).
@@ -1294,7 +1299,7 @@ def test_tauri_bridge_installs_supervisor_event_synthesis(tauri_bridge_source) -
 
 
 def test_use_python_has_per_command_timeout(use_python_source) -> None:
-    """ADR-0020 §6.3 / Phase 3 + CR-18: ``usePython`` wraps the bridge
+    """ADR-0020 §6.3 / Phase 3 ``usePython`` wraps the bridge
     call in a per-command timeout.
 
     The underlying bridge promise (Tauri Rust ``dispatch`` / Electron
@@ -1315,7 +1320,7 @@ def test_use_python_has_per_command_timeout(use_python_source) -> None:
 def test_use_python_uses_use_sync_external_store_for_bridge_ready(
     use_python_source,
 ) -> None:
-    """ADR-2020 §6.3 / Phase 3 + CR-6: ``usePythonEvent`` re-subscribes
+    """ADR-2020 §6.3 / Phase 3 + ``usePythonEvent`` re-subscribes
     when the bridge becomes available post-mount.
 
     ``useBridgeReady`` uses ``useSyncExternalStore`` to poll

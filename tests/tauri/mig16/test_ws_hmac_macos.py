@@ -35,8 +35,8 @@ What this gate proves
   line on stdout (the host blocks reading stdout until it sees this).
 - The 1 MiB WS frame cap is enforced (``max_size`` on ``serve()``).
 - The ADR-0019 rate limiter is applied to every inbound WS frame,
-  shared across all connections to the same server process (CR-11).
-- The auth handshake timeout is 5.0s (matches TCP path PR-3-FIX-1).
+  shared across all connections to the same server process.
+- The auth handshake timeout is 5.0s (matches TCP path).
 - There is NO platform branch in the auth path — macOS behaves
   identically to Linux/Windows.
 - There is NO arch branch in the auth path — Apple Silicon behaves
@@ -654,7 +654,7 @@ async def test_rate_limiter_applied_to_ws_frames():
         if (
             isinstance(result, dict)
             and result.get("type") == "error"
-            and result.get("data", {}).get("code") == "rate_limited"
+            and result.get("data", {}).get("code") in ("client.rate_limited", "rate_limited")
         ):
             rejected += 1
 
@@ -665,7 +665,7 @@ async def test_rate_limiter_applied_to_ws_frames():
 
 
 async def test_rate_limiter_is_shared_across_connections():
-    """CR-11: the rate limiter is per-PROCESS (shared), not per-connection.
+    """the rate limiter is per-PROCESS (shared), not per-connection.
 
     A per-connection limiter would let a local attacker reset the 200-
     message burst budget by dropping the WS and reconnecting. The CR-11
@@ -711,7 +711,9 @@ async def test_rate_limiter_rejects_with_structured_error():
     # Next frame must be rate_limited.
     result = await dispatch({"type": "ping", "data": {}}, MagicMock())
     assert result["type"] == "error"
-    assert result["data"]["code"] == "rate_limited"
+    # Accept the canonical namespaced form (``client.rate_limited``)
+    # or the bare legacy alias (``rate_limited``).
+    assert result["data"]["code"] in ("client.rate_limited", "rate_limited")
     assert "message" in result["data"], "rate_limited error must include a message"
 
 
@@ -837,6 +839,7 @@ def test_auth_uses_only_standard_library_plus_websockets():
         "logging",
         "os",
         "sys",
+        "time",
         "typing",
     )
     for imp in top_level_imports:
@@ -1052,7 +1055,7 @@ async def test_os_environ_manipulation_does_not_leak_between_tests(monkeypatch):
 
 async def test_auth_frame_timeout_is_5_seconds():
     """ADR-0020 §3: a client that connects but never sends the auth frame
-    is dropped after 5s (matches the TCP path's PR-3-FIX-1 timeout).
+    is dropped after 5s (matches the TCP path's timeout).
 
     The same 5s timeout applies on both macOS arches — it's a
     Python-float constant, not arch-dependent.

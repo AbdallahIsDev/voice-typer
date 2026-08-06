@@ -110,7 +110,7 @@ class TestOnBatteryAndLowCharge:
     def test_pipeline_run_skips_with_exit_on_battery_when_low(self, monkeypatch):
         """ER-15: ``run()`` returns ``EXIT_ON_BATTERY`` (50) when the
         battery guard fires, before any warming work is done."""
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: True)
         monkeypatch.setattr(prewarm, "_already_warmed", lambda: False)
         # Plenty of RAM — the only reason to skip is the battery guard.
@@ -137,7 +137,7 @@ class TestOnBatteryAndLowCharge:
     def test_pipeline_run_force_bypasses_battery_guard(self, monkeypatch):
         """``--force`` bypasses the battery guard (matches the RAM guard
         semantics — force means run unconditionally)."""
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: True)
         monkeypatch.setattr(prewarm, "_already_warmed", lambda: False)
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: 99999)

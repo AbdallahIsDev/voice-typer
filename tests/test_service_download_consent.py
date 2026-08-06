@@ -69,7 +69,7 @@ def _build_service(*, consent: bool) -> VoiceTyperService:
 
 
 class TestWhisperBranchConsentGate:
-    """CR-11: Whisper-family download must be gated on huggingface_consent."""
+    """Whisper-family download must be gated on huggingface_consent."""
 
     def test_whisper_download_blocked_without_consent(self, captured_events, monkeypatch):
         """When consent=False, snapshot_download is never called and the
@@ -141,7 +141,7 @@ class TestWhisperBranchConsentGate:
 
 
 class TestParakeetBranchConsentGate:
-    """CR-11: Parakeet download must be gated on huggingface_consent."""
+    """Parakeet download must be gated on huggingface_consent."""
 
     def test_parakeet_download_blocked_without_consent(self, captured_events, monkeypatch):
         """When consent=False, download_parakeet_weights is never called."""
@@ -206,7 +206,7 @@ class TestParakeetBranchConsentGate:
 
 
 class TestConsentGateIsAdditive:
-    """CR-11: The consent gate must NOT break the existing Qwen /
+    """The consent gate must NOT break the existing Qwen /
     unknown-model branches (which don't phone home to HuggingFace)."""
 
     def test_unknown_model_still_returns_error(self, captured_events):
@@ -252,7 +252,7 @@ class TestConsentGateIsAdditive:
 
 
 class TestConsentGateDefensive:
-    """CR-11: if ``self._app.config`` is None (degenerate path), consent
+    """if ``self._app.config`` is None (degenerate path), consent
     defaults to False — safe default per GDPR Art. 6/13."""
 
     def test_missing_config_blocks_whisper_download(self, captured_events, monkeypatch):

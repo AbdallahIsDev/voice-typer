@@ -66,7 +66,10 @@ _EXEMPT_PATH_FRAGMENTS = (
 
 def _is_exempt(path: Path) -> bool:
     """Return True if the path is in the exempt list (constant def or stub)."""
-    as_str = str(path)
+    # Normalize to forward slashes so the exempt fragments
+    # (``voice_typer/server/_paths.py``) match on Windows, where
+    # ``str(path)`` uses backslashes (``voice_typer\\server\\_paths.py``).
+    as_str = str(path).replace("\\", "/")
     return any(frag in as_str for frag in _EXEMPT_PATH_FRAGMENTS)
 
 

@@ -282,14 +282,17 @@ async def test_in35_writer_offloads_json_dumps_to_executor() -> None:
 
     Uses a real ``asyncio.Queue`` and a fake websocket that records
     every sent frame. The recorded frame must equal
-    ``json.dumps(event, ensure_ascii=False)``.
+    ``json.dumps(event, ensure_ascii=False).encode("utf-8")`` (BYTES —
+    production ``_encode_ws_frame`` returns ``bytes`` so the asyncio
+    loop thread never pays the encode cost; pre-fix the comparison was
+    against the ``str`` form, which silently masked the type change).
     """
     outbound: asyncio.Queue = asyncio.Queue()
     event = {"type": "test_event", "data": {"nested": [1, 2, 3], "unicode": "héllo"}}
-    expected_raw = json.dumps(event, ensure_ascii=False)
+    expected_raw = json.dumps(event, ensure_ascii=False).encode("utf-8")
 
     ws = MagicMock()
-    sent: list[str] = []
+    sent: list[bytes] = []
 
     async def _send(payload):
         sent.append(payload)

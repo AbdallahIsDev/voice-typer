@@ -1,7 +1,5 @@
 """Lightweight cleanup for raw speech-to-text output."""
 
-import collections as _collections
-import contextlib
 import functools
 import json
 import logging
@@ -77,7 +75,7 @@ class CorrectionsLoadError(RuntimeError):
 def _load_bundled_corrections():
     """Load the bundled ``corrections.json`` shipped with the app.
 
-    AC-82 helper: factored out of :func:`_load_external_corrections`
+    helper: factored out of :func:`_load_external_corrections`
     so the orchestrator is left with phase composition (load bundled
     → load user → merge → truncate → filter) rather than 4 inline
     phases. Returns ``(misspellings, phrase_corrections,
@@ -128,7 +126,7 @@ def _load_user_corrections(
 ):
     """Load the user-provided corrections file (if present).
 
-    AC-82 helper: factored out of :func:`_load_external_corrections`.
+    helper: factored out of :func:`_load_external_corrections`.
     Returns ``(path, misspellings, phrase_corrections, extra_word_patterns,
     roman_context_ext, roman_following_ext, loaded_any, load_errors)``.
 
@@ -140,7 +138,7 @@ def _load_user_corrections(
     On success: returns the resolved path (for the success log),
     FRESH containers (NOT merged with bundled — the orchestrator
     merges them via ``dict.update`` / ``list.extend``), the
-    AC-84 Roman-numeral word-set extensions (lowercase strings,
+    Roman-numeral word-set extensions (lowercase strings,
     EMPTY sets if the user file doesn't include those keys),
     ``loaded_any=True``, ``load_errors=[]``.
 
@@ -164,7 +162,7 @@ def _load_user_corrections(
         return None, {}, [], [], set(), set(), False, []
 
     try:
-        # SEC-002: use _secure_read_text to prevent symlink-TOCTOU attacks
+        # use _secure_read_text to prevent symlink-TOCTOU attacks
         from voice_typer.server.config import _secure_read_text
 
         raw = _secure_read_text(path, encoding="utf-8")
@@ -182,7 +180,7 @@ def _load_user_corrections(
             extra_word_patterns = [
                 tuple(item) for item in data["extra_word_patterns"] if isinstance(item, list | tuple) and len(item) == 2
             ]
-        # AC-84: extract optional Roman-numeral word-set extensions.
+        # extract optional Roman-numeral word-set extensions.
         # Both keys default to empty sets when absent or wrongly typed
         # (silent skip — matches the strict isinstance pattern used for
         # the other correction fields). Strings are lowercased so the
@@ -222,7 +220,7 @@ def _load_external_corrections(
     raises ``CorrectionsLoadError`` when a file exists but
     could not be parsed (was previously a silent ``None`` return).
 
-    AC-82: the four phases (load bundled → load user → merge →
+    the four phases (load bundled → load user → merge →
     truncate → filter) are now composed from focused helpers
     (:func:`_load_bundled_corrections`, :func:`_load_user_corrections`,
     :func:`_truncate_corrections`, :func:`_filter_corrections_by_length`)
@@ -253,7 +251,7 @@ def _load_external_corrections(
     phrase_corrections: list[tuple[str, str]] = list(bundled_p) + list(user_p)
     extra_word_patterns: list[tuple[str, str]] = list(bundled_e) + list(user_e)
 
-    # AC-84: refresh the user-extension state for the Roman-numeral word
+    # refresh the user-extension state for the Roman-numeral word
     # sets on every load. The state is REPLACED (not extended) so removing
     # the keys from the user file reverts to bundled-only behaviour. The
     # bundled defaults themselves are constants and never mutated. The
@@ -394,9 +392,9 @@ def _filter_corrections_by_length(
     label: str,
 ) -> list[tuple[str, str]]:
     """drop corrections whose pattern OR replacement exceeds the
-    SEC-011 length limits.
+    length limits.
 
-    SEC-011 rationale: long patterns cause expensive regex backtracking
+    rationale: long patterns cause expensive regex backtracking
     (ReDoS vector); long replacements cause excessive memory/CPU during
     substitution. The limit is per-field — an entry is dropped if EITHER
     field exceeds its limit (the OR semantics unify the prior
@@ -447,13 +445,6 @@ def _active_corrections(
 _active_misspellings: dict[str, str] = {}
 _active_phrases: list[tuple[str, str]] = []
 _active_extra_words: list[tuple[str, str]] = []
-# eager-compiled patterns, kept in parallel with _active_phrases
-# _active_extra_words so each substitution step reuses a precompiled
-# Pattern instead of touching the LRU cache on every dictation. The LRU
-# cache (_phrase_pattern_cache / _get_compiled_phrase_pattern below) is
-# kept for backward compatibility with the test suite and as a fallback.
-_active_phrase_patterns: list["re.Pattern[str]"] = []
-_active_extra_word_patterns: list["re.Pattern[str]"] = []
 # guard the three module-level mutables with a lock so
 # concurrent dictations don't clobber each other. The proper fix is
 # to move these into a TextCleanupService instance; for now the lock
@@ -461,72 +452,6 @@ _active_extra_word_patterns: list["re.Pattern[str]"] = []
 # cleanup of the other). The instance refactor is deferred because
 # it touches ~20 call sites.
 _active_state_lock = threading.Lock()
-
-# cache of compiled regex patterns for phrase corrections.
-# Keyed on the (lowercased) phrase string; value is a compiled regex
-# with re.IGNORECASE.
-# SEC-011 (revised): The cache now uses collections.OrderedDict with
-# TRUE LRU eviction (move_to_end on cache hit) at a max size of 5000
-# to prevent unbounded memory growth if many distinct phrases are
-# processed over the lifetime of the process.
-#
-# The previous implementation used a plain dict and evicted the
-# oldest INSERTED entry on overflow (next(iter(dict))). That was
-# FIFO eviction, not LRU — a hot phrase inserted early would be
-# evicted even if it was accessed frequently. True LRU requires
-# moving the entry to the end of the insertion order on every cache
-# hit, which OrderedDict.move_to_end does in O(1).
-# See FORENSIC_REVIEW_COMPLETE.md → SEC-011.
-
-_PHRASE_PATTERN_CACHE_MAXSIZE = 5000
-_phrase_pattern_cache: "_collections.OrderedDict[str, re.Pattern[str]]" = _collections.OrderedDict()
-
-
-def _get_compiled_phrase_pattern(phrase: str) -> "re.Pattern[str]":
-    """Return a compiled, case-insensitive regex for matching ``phrase``.
-
-    Compiled once per phrase and cached. SEC-011: implements TRUE LRU
-    eviction (via OrderedDict.move_to_end on cache hit) when the cache
-    exceeds _PHRASE_PATTERN_CACHE_MAXSIZE entries, preventing unbounded
-    memory growth from a large or frequently-changing corrections file.
-    """
-    cached = _phrase_pattern_cache.get(phrase)
-    if cached is not None:
-        # SEC-011: mark as recently used so LRU eviction keeps it.
-        _phrase_pattern_cache.move_to_end(phrase)
-        return cached
-    compiled = re.compile(re.escape(phrase), re.IGNORECASE)
-    # SEC-011: Evict least-recently-used entry when cache exceeds max size.
-    # OrderedDict.popitem(last=False) removes the oldest entry (the one
-    # at the front of the insertion order, which is the LRU entry
-    # because every cache hit moves the entry to the back).
-    if len(_phrase_pattern_cache) >= _PHRASE_PATTERN_CACHE_MAXSIZE:
-        with contextlib.suppress(KeyError):
-            _phrase_pattern_cache.popitem(last=False)
-    _phrase_pattern_cache[phrase] = compiled
-    return compiled
-
-
-# helper that eagerly precompiles one Pattern per phrase at
-# configure_corrections time so the hot cleanup path never pays a
-# compile cost. The patterns are used by pattern.sub() during the
-# substitution step; the per-phrase membership test ("does this phrase
-# appear in the dictation?") uses Python's highly-optimised
-# ``bad.lower() in lower`` substring check instead of regex search,
-# which benchmarks ~10× faster than re.Pattern.search for the short
-# patterns in corrections.json.
-def _compile_phrase_patterns(
-    phrases: "list[tuple[str, str]]",
-) -> "list[re.Pattern[str]]":
-    """Eagerly compile one case-insensitive ``re.Pattern`` per phrase.
-
-    Each pattern is ``re.compile(re.escape(bad), re.IGNORECASE)``,
-    identical to what ``_get_compiled_phrase_pattern`` would produce
-    on a cache miss — but built once at corrections-load time instead
-    of lazily on first use.
-    """
-    return [re.compile(re.escape(bad), re.IGNORECASE) for bad, _ in phrases]
-
 
 # Combined-alternation regex cache. The prior implementation iterated
 # through the phrase list once per dictation, doing an O(M) ``bad.lower()
@@ -660,7 +585,6 @@ def configure_corrections(
     duplicated that resolution and was dead — removed.
     """
     global _active_misspellings, _active_phrases, _active_extra_words
-    global _active_phrase_patterns, _active_extra_word_patterns
 
     # previously this function did its OWN ``_secure_read_text`` +
     # ``json.loads(raw)`` parse to detect a malformed user file, and then
@@ -696,22 +620,13 @@ def configure_corrections(
         # are loaded — the user file is skipped entirely, which is
         # safe because we already know it's malformed.
         result = _active_corrections(config_dir=None, corrections_path=None)
-    # eagerly precompile per-phrase patterns while we hold the
-    # lock, so the hot cleanup path reuses precompiled Patterns for
-    # substitution and uses a cheap ``in`` substring check (instead of
-    # re.Pattern.search) for the per-phrase membership test.  Benchmarks
-    # show this is ~10× faster than the original per-phrase regex search.
     misspellings, phrases, extra_words = result
-    phrase_patterns = _compile_phrase_patterns(phrases)
-    extra_word_patterns = _compile_phrase_patterns(extra_words)
     # take the lock when replacing the module-level mutables so
     # a concurrent cleanup() call doesn't see a half-replaced state.
     with _active_state_lock:
         _active_misspellings = misspellings
         _active_phrases = phrases
         _active_extra_words = extra_words
-        _active_phrase_patterns = phrase_patterns
-        _active_extra_word_patterns = extra_word_patterns
     return error_msg
 
 
@@ -941,7 +856,7 @@ def _apply_phrase_substitutions(
     """Apply a combined-alternation regex substitution to ``text``.
 
     Unified core of :func:`_correct_whisper_phrases` and
-    :func:`_remove_extra_words` (AC-81 DRY fix). The two functions
+    :func:`_remove_extra_words` (DRY fix). The two functions
     previously each repeated the same shape:
 
         pattern, lookup = get_regex()
@@ -985,9 +900,9 @@ def _correct_whisper_phrases(text: str) -> str:
         for the per-phrase membership test (benchmarked ~10× faster than
         ``re.Pattern.search`` for the short patterns in corrections.json,
         because ``str.__contains__`` runs in C with the Two-Way algorithm
-        while regex search carries engine overhead per call) and reuse the
-        eagerly-precompiled ``_active_phrase_patterns`` for the actual
-        ``pattern.sub`` substitution.
+        while regex search carries engine overhead per call) and reuse
+        a combined-alternation regex (see ``_get_phrases_regex``) for the
+        actual ``pattern.sub`` substitution.
 
         This revision replaces the O(N×M) per-phrase membership loop with
         a single O(N+M) ``re.sub`` pass driven by a combined-alternation
@@ -1008,7 +923,7 @@ def _correct_whisper_phrases(text: str) -> str:
         corrections.json has no overlapping phrases, so this is
         theoretical.)
 
-    AC-81: the shared short-circuit + ``re.sub`` plumbing is
+    the shared short-circuit + ``re.sub`` plumbing is
         hoisted into :func:`_apply_phrase_substitutions`; this function
         passes the case-preserving replacer that re-applies the original
         casing to the looked-up replacement.
@@ -1064,16 +979,18 @@ def _remove_extra_words(text: str) -> str:
         as ``_correct_whisper_phrases`` (see its docstring for the rationale).
 
     mirror the  fix applied to ``_correct_whisper_phrases``.
-        Always resolve the pattern via the LRU-cached
-        ``_get_compiled_phrase_pattern(bad)`` keyed on the bad string itself,
-        instead of indexing ``_active_extra_word_patterns`` in parallel with
-        ``_active_extra_words``. The parallel-lists indexing reintroduced the
-    race here: if ``configure_corrections()`` ran between reading
+        Always resolve the pattern via the combined-alternation regex
+        built by ``_get_extra_words_regex`` (keyed on the bad string via
+        the lookup dict), instead of indexing a parallel list of
+        ``_active_extra_word_patterns`` alongside ``_active_extra_words``.
+        The parallel-lists indexing reintroduced the race here: if
+        ``configure_corrections()`` ran between reading
         ``_active_extra_words`` and ``_active_extra_word_patterns``,
         ``patterns[idx]`` could be a compiled regex for a DIFFERENT bad
-        string than ``phrases[idx]``, producing corrupted text. The LRU
-        cache keyed on the bad string itself guarantees the pattern always
-        matches the phrase, at O(1) cost after warmup.
+        string than ``phrases[idx]``, producing corrupted text. The
+        combined-regex cache keyed on the list object's identity
+        guarantees the pattern always matches the active phrase set,
+        at O(1) cost after warmup.
 
         This revision replaces the O(N×M) per-phrase membership loop with
         a single O(N+M) ``re.sub`` pass driven by a combined-alternation
@@ -1084,7 +1001,7 @@ def _remove_extra_words(text: str) -> str:
         ``pattern.sub(good, text)`` substituted the literal ``good``
         string regardless of matched casing, which we preserve).
 
-    AC-81: the shared short-circuit + ``re.sub`` plumbing is
+    the shared short-circuit + ``re.sub`` plumbing is
         hoisted into :func:`_apply_phrase_substitutions`; this function
         passes the plain-literal replacer (no case preservation — the
         original ``pattern.sub(good, text)`` behaviour).
@@ -1127,7 +1044,7 @@ def _capitalize_sentences(text: str) -> str:
 
 # Roman numeral context words that precede lowercase 'i'.
 #
-# AC-84: these remain the BUNDLED DEFAULTS. Users can extend them
+# these remain the BUNDLED DEFAULTS. Users can extend them
 # (e.g. with "george", "edward", "charles", "napoleon", "alexander"
 # — names the original hardcoded set was missing) by adding a
 # ``roman_numeral_context_words`` list (lowercase strings) to their
@@ -1182,7 +1099,7 @@ _ROMAN_NUMERAL_FOLLOWING_WORDS = {
     "x",
 }
 
-# AC-84: user-provided extensions to the bundled Roman-numeral word
+# user-provided extensions to the bundled Roman-numeral word
 # sets. Populated by :func:`_load_external_corrections` (via
 # :func:`_load_user_corrections`) when the user corrections file
 # includes ``roman_numeral_context_words`` /
@@ -1297,7 +1214,7 @@ def _capitalize_pronoun_i(text: str) -> str:
     # Mutate a mutable buffer in place — no per-match string allocation
     # beyond the O(k) word slices inside the helpers.
     chars = list(text)
-    # AC-84: check both the bundled defaults AND the user-provided
+    # check both the bundled defaults AND the user-provided
     # extension sets (additive — a word in EITHER set triggers the
     # Roman-numeral lowercase behaviour). The extension sets are
     # refreshed by ``_load_external_corrections`` on every

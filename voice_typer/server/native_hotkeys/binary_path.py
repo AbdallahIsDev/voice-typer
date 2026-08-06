@@ -138,21 +138,6 @@ def _windows_arch_suffix() -> str:
         return "aarch64"
     # Default: AMD64, x86_64, x64, EM64T, etc. — all map to x86_64 suffix.
     return "x86_64"
-
-
-def _platform_arch_key() -> str:
-    """Return the key into :data:`_BINARY_NAMES_BY_PLATFORM_ARCH`.
-
-    For Windows, combines the platform with the arch suffix returned
-    by :func:`_windows_arch_suffix` (e.g. ``"win32-x86_64"`` or
-    ``"win32-aarch64"``). For other platforms, returns the bare
-    ``sys.platform`` value.
-    """
-    if sys.platform == "win32":
-        return f"win32-{_windows_arch_suffix()}"
-    return sys.platform
-
-
 class _ArchAwareBinaryNameMap(dict):
     """Dict keyed by ``(platform, machine)`` with a legacy string-key shim.
 

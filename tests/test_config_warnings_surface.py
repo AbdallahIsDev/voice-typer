@@ -59,7 +59,7 @@ def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# AP-21: sanitize_config_for_ipc surfaces last_load_warnings
+# sanitize_config_for_ipc surfaces last_load_warnings
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -187,7 +187,7 @@ class TestSanitizeSurfacesLastLoadWarnings:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# AP-22: Config.load() resets invalid Literal enum fields to defaults
+# Config.load() resets invalid Literal enum fields to defaults
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -430,7 +430,7 @@ class TestLoadResetsInvalidEnumFields:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# AP-21 + AP-22 integration: warnings + reset surface together
+# integration: warnings + reset surface together
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -468,7 +468,7 @@ class TestWarningsSurfaceThroughSanitizer:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# AP-25: ConfigEditorLauncher.launch surfaces warnings via tray.notify
+# ConfigEditorLauncher.launch surfaces warnings via tray.notify
 # ──────────────────────────────────────────────────────────────────────────
 
 
@@ -685,3 +685,122 @@ class TestEditorReloadFeedback:
             "AP-25: the tray notification must truncate the first warning "
             f"to keep the message readable. Got len={len(message)}: {message!r}"
         )
+
+
+# -------------------------------------------------------------------------
+# optional numeric fields (int|None / float|None) must NOT produce
+# spurious "resetting to default None" warnings
+# -------------------------------------------------------------------------
+
+
+class TestOptionalNumericFieldsNoSpuriousWarnings:
+    """``bubble_x`` / ``bubble_y`` / ``bubble_scale`` /
+    ``test_duration_seconds`` are declared ``int | None`` /
+    ``float | None`` with default ``None`` - ``None`` is the
+    legitimate "unset" sentinel, NOT a corruption.
+
+    Pre-fix, ``_validate_non_numeric_fields`` unwrapped
+    ``Optional[int]`` / ``Optional[float]`` to ``int`` / ``float``
+    before checking, so the default-constructed ``None`` values
+    (and ``null`` on disk) hit the int/float coercion branches and
+    emitted ``had non-int value None, resetting to default None``
+    warnings on EVERY ``Config.load()`` - polluting
+    ``last_load_warnings`` and firing a spurious tray notification
+    via the ``ConfigEditorLauncher`` reload-feedback path (see
+    ``_set_valid_optional_numeric_fields`` above, which existed
+    purely as a workaround for this noise). Observed live in the
+    ``voice-typer`` terminal run (VT-1).
+    """
+
+    def test_default_config_produces_no_none_warnings(self, isolated_config_dir) -> None:
+        """A default-constructed Config saved + reloaded (with all
+        four optional numeric fields at their ``None`` defaults) must
+        produce ZERO "resetting to default None" warnings.
+        """
+        cfg = Config()
+        # Sanity: the four fields really default to None.
+        assert cfg.bubble_x is None
+        assert cfg.bubble_y is None
+        assert cfg.bubble_scale is None
+        assert cfg.test_duration_seconds is None
+        cfg.save()
+
+        reloaded = Config.load()
+
+        warnings = reloaded.last_load_warnings or []
+        none_reset_warnings = [w for w in warnings if "None" in w and "resetting to default" in w]
+        assert none_reset_warnings == [], (
+            "VT-1: optional numeric fields at their None defaults must not "
+            f"produce spurious None-reset warnings. Got: {none_reset_warnings!r}"
+        )
+        # The fields must survive reload unchanged (None stays None).
+        assert reloaded.bubble_x is None
+        assert reloaded.bubble_y is None
+        assert reloaded.bubble_scale is None
+        assert reloaded.test_duration_seconds is None
+
+    def test_null_on_disk_is_accepted(self, isolated_config_dir) -> None:
+        """A hand-edited ``config.json`` with explicit ``null`` for the
+        four optional numeric fields must load without warnings and
+        keep ``None``.
+        """
+        config_file = isolated_config_dir / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "schema_version": 3,
+                    "bubble_x": None,
+                    "bubble_y": None,
+                    "bubble_scale": None,
+                    "test_duration_seconds": None,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        cfg = Config.load()
+
+        warnings = cfg.last_load_warnings or []
+        none_reset_warnings = [w for w in warnings if "None" in w and "resetting to default" in w]
+        assert none_reset_warnings == [], (
+            "VT-1: null on disk for optional numeric fields must be accepted "
+            f"without a reset warning. Got: {none_reset_warnings!r}"
+        )
+        assert cfg.bubble_x is None
+        assert cfg.bubble_y is None
+        assert cfg.bubble_scale is None
+        assert cfg.test_duration_seconds is None
+
+    def test_invalid_numeric_value_still_warns(self, isolated_config_dir) -> None:
+        """The None-skip must NOT suppress warnings for genuinely
+        invalid values - a non-null garbage value for an optional
+        numeric field still resets + warns (the migration layer keeps
+        working for real corruption).
+        """
+        config_file = isolated_config_dir / "config.json"
+        config_file.write_text(
+            json.dumps(
+                {
+                    "schema_version": 3,
+                    "bubble_x": "not-a-number",
+                    "test_duration_seconds": [1, 2, 3],
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        cfg = Config.load()
+
+        warnings = cfg.last_load_warnings or []
+        bubble_warnings = [w for w in warnings if "bubble_x" in w and "resetting to default" in w]
+        assert bubble_warnings, (
+            "VT-1: a genuinely invalid bubble_x value must still warn + reset. "
+            f"Got warnings: {warnings!r}"
+        )
+        assert cfg.bubble_x is None  # reset to the dataclass default
+        duration_warnings = [w for w in warnings if "test_duration_seconds" in w and "resetting to default" in w]
+        assert duration_warnings, (
+            "VT-1: a genuinely invalid test_duration_seconds value must still "
+            f"warn + reset. Got warnings: {warnings!r}"
+        )
+        assert cfg.test_duration_seconds is None

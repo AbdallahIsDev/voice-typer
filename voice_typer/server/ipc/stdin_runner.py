@@ -30,6 +30,7 @@ import sys
 import typing
 
 from voice_typer.server.handlers._log import log
+from voice_typer.server.ipc.rate_limiter import _get_rate_limiter
 
 
 class StdinRunnerMixin:
@@ -118,6 +119,35 @@ class StdinRunnerMixin:
                         self._send_stdin_error_envelope(
                             message="message must be a JSON object",
                             code="client.invalid_payload",
+                            _out=stdout,
+                        )
+                        continue
+                    # Per-process rate limiter gate. The TCP
+                    # read loop (``transport_tcp.py``) and the WS
+                    # dispatch closure (``sidecar_ws._make_dispatch``)
+                    # each apply the shared ``_RateLimiter`` BEFORE
+                    # ``_dispatch``; the stdin path previously had NO
+                    # gate, so a buggy/loopy stdin client could
+                    # dispatch unbounded ``download_model`` /
+                    # ``set_config`` / ``shutdown`` commands without
+                    # ever being throttled. The limiter is the same
+                    # per-server instance used by the TCP / WS paths
+                    # (looked up via ``_get_rate_limiter(self)``) so
+                    # the burst (200/s) and sustained (600/10s) budgets
+                    # are shared across ALL transports to this server.
+                    # The heartbeat command bypasses the limiter
+                    # (``_RateLimiter.allow`` short-circuits to True
+                    # for ``command == "heartbeat"``) so the heartbeat
+                    # keep-alive is unaffected. The error envelope
+                    # mirrors the TCP path's (``transport_tcp.py``)
+                    # ``client.rate_limited`` shape so a client
+                    # branching on ``code`` sees the same value across
+                    # all three transports.
+                    msg_type = msg.get("type", "")
+                    if not _get_rate_limiter(self).allow(command=msg_type):
+                        self._send_stdin_error_envelope(
+                            message="rate limit exceeded; backing off",
+                            code="client.rate_limited",
                             _out=stdout,
                         )
                         continue

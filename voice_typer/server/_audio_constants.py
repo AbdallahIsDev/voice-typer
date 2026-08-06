@@ -68,3 +68,9 @@ _AUDIO_BLOCKSIZE: int = 512
 # 300 ms budget matches the original 6×50 ms worst-case backoff.
 _TEARDOWN_CALLBACK_DRAIN_BUDGET_S: float = 0.300
 _TEARDOWN_CALLBACK_POLL_INTERVAL_S: float = 0.005
+
+
+# Default smart-duck polling interval (ms). Moved here from volume_ducker.py to
+# avoid a layering inversion (config -> volume_ducker). Both config and
+# volume_ducker import from here.
+_DEFAULT_SMART_DUCK_POLL_MS: int = 500

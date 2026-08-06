@@ -1,4 +1,4 @@
-"""CR-12: dedicated unit tests for the 14 IPC handler mixins.
+"""dedicated unit tests for the 14 IPC handler mixins.
 
 Each ``test_<name>_handlers.py`` file in this package targets one
 handler mixin module from ``voice_typer/server/handlers/``.  The

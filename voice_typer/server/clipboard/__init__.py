@@ -175,6 +175,7 @@ from voice_typer.server.clipboard_target_safety import (  # noqa: E402,F401
     _is_password_field,
     _is_password_field_linux,
     _is_password_field_macos,
+    _is_secure_input_enabled,
     reset_platform_unavailable_warnings,
 )
 
@@ -183,7 +184,7 @@ from voice_typer.server.clipboard_target_safety import (  # noqa: E402,F401
 # of this module). Listed here for grep-ability:
 #   _PYATSPI_STATE_FOCUSED, _PYATSPI_UNAVAILABLE_WARNED,
 #   _PYOBJC_UNAVAILABLE_WARNED, _UIA_MODULE, _UIA_SINGLETON,
-#   _UIA_SINGLETON_INIT_ATTEMPTED, _WE_ELEVATED
+#   _UIA_SINGLETON_INIT_ATTEMPTED, _WE_ELEVATED, _MACOS_SECURE_INPUT_WARNED
 from .linux import (  # noqa: E402,F401
     _RICH_EDITOR_PROCESS_NAMES,
     _TERMINAL_PROCESS_NAMES,
@@ -211,7 +212,9 @@ from .manager import (  # noqa: E402,F401
 from .windows import (  # noqa: E402,F401
     Win32Clipboard,
     _send_ctrl_v_win32,
+    _send_shift_insert_win32,
     _win32_empty_clipboard,
+    _win32_exclude_clipboard_from_monitoring,
 )
 
 __all__ = [
@@ -237,7 +240,9 @@ __all__ = [
     "_paste_from_clipboard",
     # Win32 primitives
     "_send_ctrl_v_win32",
+    "_send_shift_insert_win32",
     "_win32_empty_clipboard",
+    "_win32_exclude_clipboard_from_monitoring",
     # atexit / pending-restores registry
     "_force_restore_pending_at_exit",
     "_pending_restores",
@@ -247,6 +252,7 @@ __all__ = [
     "_Key",
     # Target-safety re-exports ()
     "_CRED_DIALOG_CLASSES",
+    "_MACOS_SECURE_INPUT_WARNED",
     "_PYATSPI_UNAVAILABLE_WARNED",
     "_PYATSPI_STATE_FOCUSED",
     "_PYOBJC_UNAVAILABLE_WARNED",
@@ -264,6 +270,7 @@ __all__ = [
     "_is_password_field",
     "_is_password_field_linux",
     "_is_password_field_macos",
+    "_is_secure_input_enabled",
     "reset_platform_unavailable_warnings",
     # Platform utils (re-exported so tests can patch via clip_mod.is_windows etc.)
     "is_linux",
@@ -416,6 +423,7 @@ _DYNAMIC_REEXPORT_MUTABLE_GLOBALS = frozenset(
         "_UIA_SINGLETON",
         "_UIA_SINGLETON_INIT_ATTEMPTED",
         "_WE_ELEVATED",
+        "_MACOS_SECURE_INPUT_WARNED",
     }
 )
 

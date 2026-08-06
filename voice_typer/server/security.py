@@ -29,7 +29,7 @@ import traceback as _traceback
 from pathlib import Path
 from typing import Any
 
-from voice_typer.server._secrets import _redact_home_path, redact_secret, redact_url
+from voice_typer.server._secrets import _redact_home_path, _resolve_home_dirs, redact_secret, redact_url
 from voice_typer.server.secure_file_io import _secure_atomic_write, _secure_read_text
 
 log = logging.getLogger(__name__)
@@ -76,7 +76,7 @@ _FAST_TRIGGER = re.compile(r"[@+]|\d{3,}|Bearer|Token|sk-|key=|(?<![/\\])[A-Za-z
 # at call time (so tests that monkeypatch ``HOME`` / ``USERPROFILE`` see
 # the expected result); the cache is invalidated automatically when the
 # resolved home dir changes between calls.
-_HOME_PATH_RE_CACHE: tuple[str, "re.Pattern[str]"] | None = None
+_HOME_PATH_RE_CACHE: tuple[tuple[str, ...], list["re.Pattern[str]"]] | None = None
 
 
 def _redact_home_path_in_text(text: str) -> str:
@@ -97,26 +97,34 @@ def _redact_home_path_in_text(text: str) -> str:
     is compiled once per unique home dir and cached.
     """
     global _HOME_PATH_RE_CACHE
-    try:
-        home = os.path.expanduser("~")
-    except (KeyError, RuntimeError):
-        # expanduser can raise on platforms where the user DB is
-        # unreadable; treat as "home unknown" and return text verbatim.
+    # Candidate homes: the explicit ``HOME`` override first (honoured on
+    # every platform — ``ntpath.expanduser`` ignores ``HOME`` on Windows,
+    # so a simulated / Git-Bash ``HOME`` alone would silently defeat the
+    # redaction) plus the platform-resolved home (``USERPROFILE`` on
+    # Windows). Both are redacted so an override AND the real home are
+    # protected.
+    homes = _resolve_home_dirs()
+    if not homes:
         return text
-    if not home or home == "~":
-        return text
-    if _HOME_PATH_RE_CACHE is None or _HOME_PATH_RE_CACHE[0] != home:
+    key = tuple(homes)
+    if _HOME_PATH_RE_CACHE is None or _HOME_PATH_RE_CACHE[0] != key:
+        patterns: list[re.Pattern[str]] = []
         flags = re.IGNORECASE if os.name == "nt" else 0
-        # Match the home dir followed by a path separator and any
-        # subsequent non-whitespace characters.  The ``[/\\]`` after the
-        # home dir ensures we do not partially match a longer path
-        # (e.g. ``/home/alice`` inside ``/home/alice2``).  Trailing
-        # punctuation (commas, parens) may be included in the match but
-        # is preserved by ``_redact_home_path`` which only swaps the
-        # home prefix for ``~``.
-        pattern = re.compile(re.escape(home) + r"[/\\]\S*", flags)
-        _HOME_PATH_RE_CACHE = (home, pattern)
-    return _HOME_PATH_RE_CACHE[1].sub(lambda m: _redact_home_path(m.group()), text)
+        for home in homes:
+            if not home or home == "~":
+                continue
+            # Match the home dir followed by a path separator and any
+            # subsequent non-whitespace characters.  The ``[/\\]`` after
+            # the home dir ensures we do not partially match a longer
+            # path (e.g. ``/home/alice`` inside ``/home/alice2``).
+            # Trailing punctuation (commas, parens) may be included in
+            # the match but is preserved by ``_redact_home_path`` which
+            # only swaps the home prefix for ``~``.
+            patterns.append(re.compile(re.escape(home) + r"[/\\]\S*", flags))
+        _HOME_PATH_RE_CACHE = (key, patterns)
+    for pattern in _HOME_PATH_RE_CACHE[1]:
+        text = pattern.sub(lambda m: _redact_home_path(m.group()), text)
+    return text
 
 
 def _redact_text(text: str) -> str:

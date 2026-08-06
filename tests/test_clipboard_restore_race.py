@@ -1,6 +1,6 @@
 """SA-4 race-condition regression tests for clipboard restore / atexit.
 
-These tests target the concurrency bugs identified in finding S1-CR-84
+These tests target the concurrency bugs identified in finding S1-
 (sub-agent 4 / clipboard):
 
   1. **Atexit-vs-daemon race on the SAME snapshot.**
@@ -39,20 +39,14 @@ check is deterministic.
 
 from __future__ import annotations
 
-import sys
 import threading
 import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Mock pynput / pyperclip at import time so the clipboard module loads
-# cleanly on a headless Linux box. (Same pattern as
-# test_clipboard_borrow_restore.py.)
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-sys.modules.setdefault("pyperclip", MagicMock())
-
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 from voice_typer.server.clipboard.manager import (  # noqa: E402
@@ -66,7 +60,7 @@ from voice_typer.server.clipboard_snapshot import (  # noqa: E402
 )
 
 # ---------------------------------------------------------------------------
-# Display-env isolation () — mirrors test_clipboard_borrow_restore.py
+# Display-env isolation  — mirrors test_clipboard_borrow_restore.py
 # ---------------------------------------------------------------------------
 
 
@@ -750,7 +744,7 @@ class TestAtexitAndDaemonDifferentEntries:
         assert not overlap_detected.is_set(), (
             "Atexit's restore(snap_b) and the daemon's restore(snap_a) overlapped — "
             "_restore_lock failed to serialize two DIFFERENT snapshots' restores. "
-            "This is the SA-4 / S1-CR-84 race: atexit on main thread + daemon on "
+            "This is the SA-4 / S1- race: atexit on main thread + daemon on "
             "worker thread both inside the platform clipboard critical section."
         )
 

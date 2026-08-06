@@ -437,13 +437,18 @@ class StreamLifecycle:
             # The drain poll is moot after ``abort()`` (PortAudio
             # guarantees no further callback dispatch), but kept as a
             # safety net for any in-flight callback that started before
-            # ``abort()`` took effect.
-            _deadline = time.perf_counter() + _TEARDOWN_CALLBACK_DRAIN_BUDGET_S
-            while recorder._is_in_audio_callback.is_set():
-                remaining = _deadline - time.perf_counter()
-                if remaining <= 0:
-                    break
-                time.sleep(min(_TEARDOWN_CALLBACK_POLL_INTERVAL_S, remaining))
+            # ``abort()`` took effect. Fast-path: skip the deadline
+            # computation + poll loop entirely when the callback flag
+            # is already clear on the first check (the common case —
+            # the RT callback is ~10µs so the flag is almost always
+            # clear by the time teardown runs).
+            if recorder._is_in_audio_callback.is_set():
+                _deadline = time.perf_counter() + _TEARDOWN_CALLBACK_DRAIN_BUDGET_S
+                while recorder._is_in_audio_callback.is_set():
+                    remaining = _deadline - time.perf_counter()
+                    if remaining <= 0:
+                        break
+                    time.sleep(min(_TEARDOWN_CALLBACK_POLL_INTERVAL_S, remaining))
             with contextlib.suppress(Exception):
                 recorder._stream.close()
             recorder._stream = None
@@ -484,11 +489,25 @@ class StreamLifecycle:
         # (``_TEARDOWN_CALLBACK_DRAIN_BUDGET_S`` /
         # ``_TEARDOWN_CALLBACK_POLL_INTERVAL_S``) so they can be tuned /
         # referenced from tests without grep-and-replace.
-        _deadline = time.perf_counter() + _TEARDOWN_CALLBACK_DRAIN_BUDGET_S
-        while recorder._is_in_audio_callback.is_set():
-            remaining = _deadline - time.perf_counter()
-            if remaining <= 0:
-                break
-            time.sleep(min(_TEARDOWN_CALLBACK_POLL_INTERVAL_S, remaining))
+        #
+        # Fast-path: skip the deadline computation + poll loop entirely
+        # when the callback flag is already clear on the first check.
+        # The existing ``while`` loop already short-circuits on the
+        # first iteration (``is_set()`` returns False → body never
+        # runs), but the explicit ``if`` guard also skips the
+        # ``time.perf_counter()`` call + deadline arithmetic — a tiny
+        # but non-zero saving on every stop() (the common case is that
+        # the RT callback is ~10µs and has already returned by the time
+        # teardown runs). On a healthy system the fast-path fires
+        # ~100% of the time; the slow path only fires when the callback
+        # is genuinely in-flight (e.g. a slow driver callback past
+        # ``stream.stop()``).
+        if recorder._is_in_audio_callback.is_set():
+            _deadline = time.perf_counter() + _TEARDOWN_CALLBACK_DRAIN_BUDGET_S
+            while recorder._is_in_audio_callback.is_set():
+                remaining = _deadline - time.perf_counter()
+                if remaining <= 0:
+                    break
+                time.sleep(min(_TEARDOWN_CALLBACK_POLL_INTERVAL_S, remaining))
         recorder._stream.close()
         recorder._stream = None

@@ -354,8 +354,14 @@ class TestWriterEncodesOnce:
         assert 'return json.dumps(event, ensure_ascii=False).encode("utf-8")' in src, (
             "XV-84: _encode_ws_frame must encode ONCE via json.dumps(event, ensure_ascii=False).encode('utf-8')."
         )
-        assert "raw_bytes = await loop.run_in_executor(None, _encode_ws_frame, event)" in src, (
-            "XV-84: _writer must offload the encode to _encode_ws_frame and assign raw_bytes."
+        # XV-84 + IN-35: the encode is offloaded to a DEDICATED
+        # ``_get_ws_encode_pool()`` ThreadPoolExecutor (not the asyncio
+        # default executor ``None``) so the WS encode cost never stalls
+        # the loop thread AND the pool can be drained/cancelled by the
+        # shutdown path. Production at ``sidecar_ws.py:_start_writer``.
+        assert "raw_bytes = await loop.run_in_executor(_get_ws_encode_pool(), _encode_ws_frame, event)" in src, (
+            "XV-84: _writer must offload the encode to _encode_ws_frame via "
+            "loop.run_in_executor(_get_ws_encode_pool(), ...) and assign raw_bytes."
         )
         # The old re-encode pattern must be GONE.
         assert 'len(raw.encode("utf-8"))' not in src, (

@@ -55,15 +55,11 @@ from voice_typer.server import clipboard_snapshot as snap_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 
-# Mock pynput / pyperclip at import time so the clipboard module loads
-# cleanly on a headless Linux box. (Same pattern as
-# test_clipboard_borrow_restore.py.)
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-sys.modules.setdefault("pyperclip", MagicMock())
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 
 # ---------------------------------------------------------------------------
-# Display-env isolation () — autouse fixture mirroring the pattern
+# Display-env isolation  — autouse fixture mirroring the pattern
 # in test_clipboard_borrow_restore.py / test_clipboard_paste_restore.py.
 # ---------------------------------------------------------------------------
 
@@ -1003,7 +999,7 @@ class TestAtexitDoesNotRaceDaemonRestore:
         def _spy_restore(*args, **kwargs):
             snap_restore_call_count["count"] += 1
             # At the time snapshot.restore() is called, the entry must
-            # already be removed from _pending_restores ().
+            # already be removed from _pending_restores .
             with clip_mod._pending_restores_lock:
                 assert entry not in clip_mod._pending_restores, (
                     "DE-63: daemon must claim (remove) the pending_entry "

@@ -65,6 +65,7 @@ import ctypes
 import logging
 import sys
 import threading
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ _crash_header_bytes: bytes = b""
 # config_dir used by ``_crash_excepthook`` to write the
 # ``python_crash.<PID>.txt`` marker file.  Set in
 # ``set_crash_handler_config_dir``.
-_python_crash_dir = None  # type: ignore[assignment]
+_python_crash_dir: Path | None = None
 
 # Rate-limit flag for the VEH callback.  Set to True after a
 # successful ``_write_to_file`` call so cascading exceptions don't write

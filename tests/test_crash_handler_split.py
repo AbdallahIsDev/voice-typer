@@ -1,7 +1,7 @@
-"""TY-39: tests for the ``crash_handler`` package split.
+"""tests for the ``crash_handler`` package split.
 
 The original 1255-LOC ``crash_handler.py`` was split into a package
-with 6 submodules + a facade ``__init__.py`` (AC-86 / TY-39). These
+with 6 submodules + a facade ``__init__.py``. These
 tests verify:
 
 1. **Backward compatibility** — every name that tests previously
@@ -176,7 +176,7 @@ class TestBackwardCompatNames:
     def test_constants_have_correct_values(self):
         """The status codes must match the original values exactly.
 
-        YJ-42 extended ``_CRASH_CODES`` from 4 codes to 13 codes — the
+        extended ``_CRASH_CODES`` from 4 codes to 13 codes — the
         equality check on the original 4-code set is now a superset
         check (the original 4 are still present), and the extended codes
         are validated separately by ``test_extended_codes_present``.
@@ -197,11 +197,11 @@ class TestBackwardCompatNames:
             }
         )
         assert original_four <= crash_handler._CRASH_CODES, (
-            "YJ-42: original four codes must remain in _CRASH_CODES after the extension"
+            "original four codes must remain in _CRASH_CODES after the extension"
         )
 
     def test_extended_codes_present(self):
-        """YJ-42: the 9 extended fatal codes (added to ``_CRASH_CODES``)
+        """the 9 extended fatal codes (added to ``_CRASH_CODES``)
         are present and have the documented Windows NT status values."""
         from voice_typer.server import crash_handler
 
@@ -295,7 +295,7 @@ class TestPerPlatformGuard:
 
         # Assert ctypes.wintypes was NOT loaded.
         assert "ctypes.wintypes" not in sys.modules, (
-            "TY-39: importing voice_typer.server.crash_handler on Linux loaded "
+            "importing voice_typer.server.crash_handler on Linux loaded "
             "ctypes.wintypes — the per-platform guard is broken. Win32 ctypes "
             "must be guarded by ``if sys.platform == 'win32':`` at module-load "
             "time inside _win32_structs.py / _veh_kernel32.py / _veh_callback.py."
@@ -397,26 +397,29 @@ class TestStateProxying:
             for k, v in saved.items():
                 setattr(crash_handler, k, v)
 
-    def test_install_crash_handler_reads_facade_handler_handle(self):
+    def test_install_crash_handler_reads_facade_handler_handle(self, monkeypatch):
         """``install_crash_handler`` (in _python_excepthook) reads
         ``_ch._handler_handle`` — a test that sets
         ``crash_handler._handler_handle = None`` must be observed."""
         from voice_typer.server import crash_handler
 
+        # Force the non-Windows short-circuit so the test is
+        # platform-independent: on a real Windows host the function
+        # would genuinely install the VEH and return True. With the
+        # platform guard fired, install_crash_handler must still read
+        # ``_ch._handler_handle`` first (the ``if
+        # _ch._handler_handle is not None: return True`` check) and
+        # return False for the None reset.
+        monkeypatch.setattr(sys, "platform", "linux")
+
         saved = crash_handler._handler_handle
         try:
             crash_handler._handler_handle = None
-            # On Linux, install_crash_handler short-circuits on
-            # sys.platform != "win32" — but it still reads
-            # _ch._handler_handle first (the ``if _ch._handler_handle
-            # is not None: return True`` check). Verify the function
-            # returns False on Linux (not True, which would mean it
-            # didn't see the None reset).
             result = crash_handler.install_crash_handler()
             assert result is False, (
-                "install_crash_handler returned True on Linux — either the "
-                "platform guard is broken or _handler_handle was not read "
-                "from the facade."
+                "install_crash_handler returned True on a non-Windows "
+                "platform — either the platform guard is broken or "
+                "_handler_handle was not read from the facade."
             )
         finally:
             crash_handler._handler_handle = saved
@@ -427,7 +430,7 @@ class TestStateProxying:
 
 class TestPackageStructure:
     """The crash_handler package must have the 6 submodules specified in
-    the TY-39 split plan."""
+    the split plan."""
 
     EXPECTED_SUBMODULES = [
         "_constants",

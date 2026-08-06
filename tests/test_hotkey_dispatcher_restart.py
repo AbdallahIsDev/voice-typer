@@ -10,7 +10,7 @@ If the new backend fails to start (e.g. the hotkey spec is invalid,
 or the OS rejects it because another app already claimed it), the
 OLD hotkey spec is restored to ``app.config.hotkey`` and a fresh
 backend is created with the OLD spec so the user is never left
-without a working dictation hotkey. This preserves the CR-15 user-
+without a working dictation hotkey. This preserves the user-
 facing contract ("restart failure keeps the previous hotkey working")
 while eliminating the double-backend window.
 
@@ -319,7 +319,7 @@ def test_restart_with_failed_config_save_still_attempts_registration(dispatcher:
     """If ``config.save()`` returns False (e.g. disk full), restart
     shows a tray notification about the save failure but still
     attempts to register the new hotkey (in-memory config was already
-    updated). This is the pre-existing behavior; CR-15 doesn't change
+    updated). This is the pre-existing behavior; doesn't change
     it, but the test pins it so future refactors don't silently drop
     the notification or the registration attempt."""
     old_backend = MagicMock()
@@ -378,7 +378,7 @@ def test_restart_swallows_old_backend_stop_failure(dispatcher: HotkeyDispatcher,
 
 
 def test_register_failure_does_not_overwrite_existing_backend(dispatcher: HotkeyDispatcher, monkeypatch):
-    """CR-15 building block: register() must NOT overwrite
+    """building block: register() must NOT overwrite
     self._hotkey_backend with a broken new backend if start() fails.
     The OLD backend (if any) must remain in place so a subsequent
     restart() can detect failure via the return value."""
@@ -409,7 +409,7 @@ def test_register_failure_does_not_overwrite_existing_backend(dispatcher: Hotkey
 
 
 def test_register_success_returns_true_and_installs_new_backend(dispatcher: HotkeyDispatcher, monkeypatch):
-    """CR-15 building block: register() returns True on success and
+    """building block: register() returns True on success and
     assigns the new backend to _hotkey_backend."""
     new_backend = MagicMock()
     new_backend.is_alive.return_value = True
@@ -427,8 +427,8 @@ def test_register_success_returns_true_and_installs_new_backend(dispatcher: Hotk
 
 def test_register_failure_with_no_existing_backend_leaves_field_none(dispatcher: HotkeyDispatcher, monkeypatch):
     """First-time register() failure leaves _hotkey_backend as None
-    (no old backend to keep). This is the original pre-CR-15 behavior
-    for first-time registration; the CR-15 fix only changes the
+    (no old backend to keep). This is the original behavior
+    for first-time registration; the fix only changes the
     behavior when an OLD backend exists."""
     assert dispatcher._hotkey_backend is None
 

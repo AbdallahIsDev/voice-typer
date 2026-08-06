@@ -165,6 +165,16 @@ class TrayIcon:
         # change still emits. Only set on a successful publish — a
         # failed publish is NOT cached so the next call retries.
         self._last_published: tuple[str, str] | None = None
+        # serializes the check-then-publish-then-cache sequence in
+        # ``_publish_tray_state`` so two concurrent callers (the 1s
+        # elapsed-recording tick vs a state-change IPC) cannot both
+        # pass the cache check and both emit. Held ONLY across the
+        # tuple comparison + the event-bus publish, NOT across
+        # ``_compute_tooltip`` or the icon-name lookup. A dedicated
+        # Lock (not ``_icon_lock`` / ``_menu_lock``) so the publish
+        # path isn't over-serialized against the icon-teardown or
+        # menu-rebuild paths.
+        self._publish_lock = threading.Lock()
 
     # ─── Public API ─────────────────────────────────────────────────────
 
@@ -195,8 +205,17 @@ class TrayIcon:
         prev_state = self._state
         self._state = state
         self._message = message
-        transcribing_changed = (prev_state == AppState.TRANSCRIBING) != (state == AppState.TRANSCRIBING)
-        if transcribing_changed:
+        # RECORDING ⇄ non-RECORDING and TRANSCRIBING ⇄
+        # non-TRANSCRIBING both invalidate the menu cache + push the
+        # menu (the "Stop Dictation" label flips on RECORDING
+        # enter/exit, "Force Cancel" appears on TRANSCRIBING
+        # enter/exit). Transitions INSIDE the {RECORDING, TRANSCRIBING}
+        # membership set (RECORDING → TRANSCRIBING) change nothing
+        # label-visible, so no invalidation / publish fires.
+        record_or_transcribe_changed = (prev_state in (AppState.RECORDING, AppState.TRANSCRIBING)) != (
+            state in (AppState.RECORDING, AppState.TRANSCRIBING)
+        )
+        if record_or_transcribe_changed:
             self._menu_cache_valid = False
         if state == AppState.RECORDING and prev_state != AppState.RECORDING:
             self._recording_started_at = time.monotonic()
@@ -210,7 +229,7 @@ class TrayIcon:
             with self._queue_lock:
                 self._pending_states.append((state, message))
         self._publish_tray_state()
-        if transcribing_changed:
+        if record_or_transcribe_changed:
             self._maybe_publish_tray_menu()
 
     def set_microphones(self, mics: list[dict] | None) -> None:
@@ -416,7 +435,33 @@ class TrayIcon:
             self._pending_notifications.clear()
 
         log.info("[TRAY] Tray event loop starting (main thread)")
-        self._icon.run()
+        try:
+            self._icon.run()
+        except Exception:
+            # pystray can fail at RUNTIME even though ``start()``
+            # succeeded - e.g. ``PermissionError: [WinError 5] Access
+            # is denied`` when ``_create_window`` runs in a
+            # restricted / non-interactive session (observed in the
+            # ``voice-typer`` terminal run). ``start()`` only catches
+            # the ``OSError`` from ``pystray.Icon(...)`` construction,
+            # NOT failures inside the event loop, so the exception
+            # previously propagated up through ``app.start()`` to
+            # ``[FATAL] app.start() raised`` - the WHOLE backend (IPC
+            # server, hotkeys, recorder) crashed. Degrade to the
+            # tray-unavailable blocking path instead: the app stays
+            # usable via hotkey + IPC server + Electron window, and
+            # ``stop()`` releases the ``_run_event``.
+            log.warning(
+                "[TRAY] Tray event loop failed at runtime - degrading to "
+                "tray-unavailable mode. Hotkey, IPC server, and Electron "
+                "window continue to work; tray icon + notifications are "
+                "disabled.",
+                exc_info=True,
+            )
+            self._icon = None
+            self._tray_unavailable = True
+            while not self._run_event.wait(timeout=60):
+                self._drain_pending()
 
     def stop(self) -> None:
         """Stop the tray icon and exit the event loop (idempotent).
@@ -526,6 +571,14 @@ class TrayIcon:
         hotkey = self._display_hotkey()  # hotkey
         if hotkey:
             title += f" ({hotkey})"
+        # Win32 ``NOTIFYICONDATAW.szTip`` has a 128-char limit (127 +
+        # NUL) — truncate to 127 chars (with a trailing ``…`` if
+        # truncated) so the OS layer doesn't silently cut the tooltip.
+        # ``…`` is a single codepoint (U+2026), so ``title[:126] + "…"``
+        # is exactly 127 chars. Deterministic for the same input, so
+        # the ``_last_published`` dedup tuple stays stable.
+        if len(title) > 127:
+            title = title[:126] + "…"
         return title
 
     def _publish_tray_state(self) -> None:
@@ -541,27 +594,36 @@ class TrayIcon:
 
         icon_name = _APP_STATE_TO_ICON_NAME.get(self._state, "idle")
         tooltip = self._compute_tooltip(self._state, self._message)
-        # identical last-published state → skip the emit
-        # entirely (redundant tray_state events cause the Tauri host to
-        # re-run tray.set_icon / tray.set_tooltip, which on Windows is
-        # a DestroyIcon / LoadIcon round-trip per call).
-        if self._last_published == (icon_name, tooltip):
-            return
-        try:
-            ok = publish_tray_state(icon=icon_name, tooltip=tooltip)
-        except Exception:
-            log.debug(
-                "[TRAY] publish_tray_state failed (state=%s)",
-                self._state.value if hasattr(self._state, "value") else self._state,
-                exc_info=True,
-            )
-            # Do NOT cache a failed publish — the next call must retry.
-            return
-        # Only cache a successful publish (best-effort publish_tray_state
-        # returns False instead of raising on the sidecar-disconnected
-        # path — a False return must NOT suppress the next retry).
-        if ok:
-            self._last_published = (icon_name, tooltip)
+        # ``_publish_lock`` serializes the check-then-publish-then-cache
+        # sequence so two concurrent callers (the 1s elapsed-recording
+        # tick vs a state-change IPC) cannot both pass the cache check
+        # and both emit. Held ONLY across the tuple comparison + the
+        # publish (NOT across ``_compute_tooltip`` or the icon-name
+        # lookup, which are pure and may run concurrently).
+        with self._publish_lock:
+            # identical last-published state → skip the emit
+            # entirely (redundant tray_state events cause the Tauri
+            # host to re-run tray.set_icon / tray.set_tooltip, which on
+            # Windows is a DestroyIcon / LoadIcon round-trip per call).
+            if self._last_published == (icon_name, tooltip):
+                return
+            try:
+                ok = publish_tray_state(icon=icon_name, tooltip=tooltip)
+            except Exception:
+                log.debug(
+                    "[TRAY] publish_tray_state failed (state=%s)",
+                    self._state.value if hasattr(self._state, "value") else self._state,
+                    exc_info=True,
+                )
+                # Do NOT cache a failed publish — the next call must
+                # retry.
+                return
+            # Only cache a successful publish (best-effort
+            # publish_tray_state returns False instead of raising on
+            # the sidecar-disconnected path — a False return must NOT
+            # suppress the next retry).
+            if ok:
+                self._last_published = (icon_name, tooltip)
 
     def _apply_state(self, state: AppState, message: str) -> None:
         """Apply state to the live icon (safe from any thread).

@@ -57,7 +57,7 @@ def test_ready_emitted_is_false_on_fresh_instance() -> None:
     server = IPCServer(app, service=service)
 
     assert hasattr(server, "_ready_emitted"), (
-        "IPCServer must have a per-instance _ready_emitted attribute (CR-4: moved from module-level to instance-level)"
+        "IPCServer must have a per-instance _ready_emitted attribute (moved from module-level to instance-level)"
     )
     assert server._ready_emitted is False
 
@@ -129,7 +129,7 @@ def test_module_level_ready_emitted_is_gone() -> None:
 
     assert not hasattr(sidecar_ws, "_ready_emitted"), (
         "sidecar_ws._ready_emitted module-level global must be removed "
-        "(CR-4: moved to IPCServer._ready_emitted per-instance attribute)"
+        "(moved to IPCServer._ready_emitted per-instance attribute)"
     )
 
 

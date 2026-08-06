@@ -83,6 +83,36 @@ _NOTIFY_DEDUP_TTL_SECONDS: float = 5.0
 _notify_dedup_cache: dict[tuple[str, str], float] = {}
 
 
+# pystray Win32 NOTIFYICONDATAW field limits (ctypes WCHAR arrays):
+# ``szInfo`` is ``WCHAR * 256`` and ``szInfoTitle`` is ``WCHAR * 64``
+# (verified against pystray 0.19 ``_util/win32.py``). Assigning a longer
+# string raises ``ValueError: string too long (N, maximum length M)``,
+# which ``do_notify`` swallows - so a notification whose message exceeds
+# 256 chars is SILENTLY DROPPED on Windows (observed in the wild: the
+# "previous session crashed" notification carried a 466-char message).
+# macOS/Linux backends have their own limits; truncating at the Windows
+# limits is safe for all backends and guarantees the toast is delivered.
+_NOTIFY_MESSAGE_MAX_CHARS = 256
+_NOTIFY_TITLE_MAX_CHARS = 64
+
+
+def _truncate_notification(title: str, message: str) -> tuple[str, str]:
+    """Truncate a notification (title, message) to fit the pystray
+    Win32 NOTIFYICONDATAW struct limits.
+
+    The truncation preserves the tail (``...last``) rather than the
+    head so the most informative part of a long diagnostic message
+    (e.g. the crash summary that trails the boilerplate) survives. If
+    the message must be cut, an ellipsis is prepended so it is visible
+    that content was elided.
+    """
+    if len(title) > _NOTIFY_TITLE_MAX_CHARS:
+        title = "..." + title[-(_NOTIFY_TITLE_MAX_CHARS - 3):]
+    if len(message) > _NOTIFY_MESSAGE_MAX_CHARS:
+        message = "..." + message[-(_NOTIFY_MESSAGE_MAX_CHARS - 3):]
+    return title, message
+
+
 def _notify_dedup_seen(title: str, message: str) -> bool:
     """Return True if (title, message) was shown within the TTL window.
 
@@ -180,7 +210,14 @@ def do_notify(tray: TrayIcon, title: str, message: str) -> None:
     ``icon.notify`` — pystray can raise on Win32 toast failures
     (``WinError 1402`` stale handle, missing notify-icon area, etc.),
     and a notification failure must not crash the tray.
+
+    The message/title are truncated to the pystray Win32
+    ``NOTIFYICONDATAW`` limits (256 / 64 WCHARs) BEFORE the call so an
+    over-long message doesn't raise ``ValueError: string too long``
+    inside ``icon.notify`` and get silently dropped by the
+    ``except Exception`` below — the user never saw the toast at all.
     """
+    title, message = _truncate_notification(title, message)
     try:
         tray._icon.notify(message, title)
     except Exception as e:

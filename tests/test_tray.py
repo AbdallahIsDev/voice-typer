@@ -148,7 +148,7 @@ class _MockController:
     # set_max_recording_time_seconds, create_desktop_shortcut removed from
     # TrayController protocol — no caller existed.
 
-    # (): undo_last added to TrayController protocol so the
+    # : undo_last added to TrayController protocol so the
     # tray menu's new "Undo Last" item can call it.
     def undo_last(self) -> None:
         pass
@@ -239,7 +239,7 @@ class TestTrayMenuHasMinimalOptions:
         assert any("Models" in lb for lb in labels)
 
     def test_microphone_submenu_in_menu(self, tray):
-        """UX-2 (FIX-10): Microphone submenu is now in the tray menu.
+        """Microphone submenu is now in the tray menu.
 
         Previously (NEW-CQ-008) the mic list was a write-only no-op
         cache and there was no Microphone submenu. UX-2 re-adds the
@@ -249,7 +249,7 @@ class TestTrayMenuHasMinimalOptions:
         assert any("Microphone" in lb for lb in labels), "UX-2: tray menu should include a 'Microphones' submenu item"
 
     def test_undo_last_item_in_menu(self, tray):
-        """UX-1 (FIX-10): 'Undo Last' item is in the tray menu.
+        """'Undo Last' item is in the tray menu.
 
         Previously the ``undo_last`` IPC command was wired but
         unreachable from any UI. The tray menu's new "Undo Last"
@@ -259,20 +259,20 @@ class TestTrayMenuHasMinimalOptions:
         assert any("Undo Last" in lb for lb in labels), "UX-1: tray menu should include an 'Undo Last' item"
 
     def test_settings_history_help_items_in_menu(self, tray):
-        """UX-33 (FIX-10): Settings/History/Help quick shortcuts present."""
+        """Settings/History/Help quick shortcuts present."""
         labels = _menu_labels(tray)
         assert any("Settings" in lb for lb in labels), "UX-33: tray menu should include a 'Settings' item"
         assert any("History" in lb for lb in labels), "UX-33: tray menu should include a 'History' item"
         assert any("Help" in lb for lb in labels), "UX-33: tray menu should include a 'Help' item"
 
     def test_force_cancel_not_in_menu_when_idle(self, tray):
-        """UX-3 (FIX-10): the Force-cancel item is hidden when idle.
+        """the Force-cancel item is hidden when idle.
 
         Previously the item was always visible (cluttering the menu
         when nothing was stuck). Now it only renders when
         ``state == AppState.TRANSCRIBING``.
 
-        NH-17: the canonical tray label is now ``"Force cancel transcription"``
+        the canonical tray label is now ``"Force cancel transcription"``
         (lowercase 'c') — the legacy ``force_cancel_stuck_transcription`` key
         has been removed. We substring-match on the canonical phrase.
         """
@@ -431,9 +431,15 @@ class TestTrayUnavailableFallback:
             time.sleep(0.05)
             tray.stop()
 
-        _threading.Thread(target=_release_after, daemon=True).start()
+        # capture the thread handle and join it after run()
+        # returns so we don't leak a daemon Thread-without-join (the
+        # thread has already fired tray.stop() by the time run()
+        # returns, so the join is near-instant).
+        _release_thread = _threading.Thread(target=_release_after, daemon=True)
+        _release_thread.start()
         # Must not raise.
         tray.run()
+        _release_thread.join(timeout=1.0)
 
     def test_stop_releases_blocked_run(self, tray):
         """``stop()`` sets ``_run_event`` so a ``run()`` blocked on
@@ -487,6 +493,179 @@ class TestTrayUnavailableFallback:
         assert tray._tray_unavailable is False
         with pytest.raises(RuntimeError, match=r"call start\(\) before run\(\)"):
             tray.run()
+
+
+# ─── _drain_pending fallback notification path  ────────────────
+
+
+class TestDrainPending:
+    """``_drain_pending`` is the fallback notification path
+    invoked from ``run()`` every 60s when the tray is unavailable
+    (Linux Wayland without SNI, Windows-Server headless,
+    ``VOICE_TYPER_NO_TRAY=1``, or pystray.Icon() OSError fallback).
+
+    Pre-fix symptom: queued ``notify_safety`` / ``notify`` calls were
+    silently dropped on the tray-unavailable path — a 60s drain
+    cleared the queue without surfacing the notification, so a
+    critical notification (crash recovery failure, model load error)
+    would never reach the user.
+
+    The fixed path:
+    1. Logs each notification at WARNING level (Python rotating file
+       logger is always available — separate process from pystray).
+    2. Publishes a ``tray_fallback_notification`` event via the event
+       bus so the Electron renderer can surface it as a toast.
+    3. Clears the queue (notification preserved via logs + Tauri
+       channel — cannot be lost).
+    4. Wraps the publish in ``contextlib.suppress(Exception)`` so a
+       logging or event-bus failure cannot crash the tray's main loop.
+
+    These tests pin behavior directly on ``_drain_pending`` rather
+    than waiting 60s for ``run()`` to invoke it.
+    """
+
+    def test_drain_pending_empty_queue_is_noop(self, tray, monkeypatch):
+        """an empty ``_pending_notifications`` queue is a noop —
+        no log, no event-bus publish, no exception."""
+        published: list[dict] = []
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg, *a, **kw: published.append(msg) or True,
+        )
+        # Ensure queue is empty (fixture yields a fresh tray).
+        assert tray._pending_notifications == []
+        # Must not raise and must not publish anything.
+        tray._drain_pending()
+        assert published == [], (
+            f"_drain_pending with empty queue must not publish events; "
+            f"got: {published}"
+        )
+
+    def test_drain_pending_publishes_each_notification(self, tray, monkeypatch):
+        """each queued notification is published as a
+        ``tray_fallback_notification`` event with the original title +
+        message preserved."""
+        published: list[dict] = []
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg, *a, **kw: published.append(msg) or True,
+        )
+        # Seed the queue with two notifications (the production path
+        # appends (title, message) tuples under _queue_lock).
+        with tray._queue_lock:
+            tray._pending_notifications.append(("Crash Recovery", "Failed to recover"))
+            tray._pending_notifications.append(("Model Load", "Could not load small.en"))
+
+        tray._drain_pending()
+
+        assert len(published) == 2, (
+            f"_drain_pending must publish one event per queued notification; "
+            f"got {len(published)} events"
+        )
+        # Each event has the canonical envelope shape.
+        assert published[0] == {
+            "type": "tray_fallback_notification",
+            "title": "Crash Recovery",
+            "message": "Failed to recover",
+        }, f"first event envelope mismatch; got: {published[0]!r}"
+        assert published[1] == {
+            "type": "tray_fallback_notification",
+            "title": "Model Load",
+            "message": "Could not load small.en",
+        }, f"second event envelope mismatch; got: {published[1]!r}"
+        # The queue was cleared as part of the drain.
+        assert tray._pending_notifications == [], (
+            "_drain_pending must clear the queue after publishing"
+        )
+
+    def test_drain_pending_swallows_event_bus_failure(self, tray, monkeypatch):
+        """a failure inside ``event_bus.publish`` (or the log
+        call) must NOT crash the tray's main loop — the publish is
+        wrapped in ``contextlib.suppress(Exception)`` so the loop
+        continues to the next notification.
+
+        This is fail-safe: even if the event bus is broken, the
+        notification has already been preserved via the WARNING log
+        above (and the queue is cleared either way).
+        """
+        call_count = {"n": 0}
+
+        def _flaky_publish(msg, *a, **kw):
+            call_count["n"] += 1
+            raise RuntimeError("event bus exploded")
+
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            _flaky_publish,
+        )
+        # Seed the queue with multiple notifications so we can verify
+        # the loop continues past the first failure.
+        with tray._queue_lock:
+            tray._pending_notifications.append(("First", "msg1"))
+            tray._pending_notifications.append(("Second", "msg2"))
+            tray._pending_notifications.append(("Third", "msg3"))
+
+        # Must not raise — the suppress swallows every RuntimeError.
+        tray._drain_pending()
+        # Every notification was attempted (the loop didn't break
+        # after the first failure).
+        assert call_count["n"] == 3, (
+            f"_drain_pending must attempt to publish every notification "
+            f"even when event_bus.publish raises; only attempted "
+            f"{call_count['n']} of 3"
+        )
+        # Queue was still cleared (drain is fail-safe — the dropped
+        # notification has been preserved via the WARNING log).
+        assert tray._pending_notifications == []
+
+    def test_drain_pending_logs_warning_with_title_and_message(self, tray, monkeypatch):
+        """each notification is logged at WARNING level with
+        the full title + message so the user can grep their log file
+        for the notification after the fact (the Python rotating file
+        logger is always available — separate process from pystray)."""
+        # Replace event_bus.publish with a noop so the test only
+        # exercises the log path.
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg, *a, **kw: True,
+        )
+        # Capture log.warning calls on the tray module's logger.
+        import voice_typer.server.tray as tray_mod
+
+        warning_calls: list[tuple[str, object, object]] = []
+
+        def _capturing_warning(msg, *args, **kwargs):
+            warning_calls.append((msg, args, kwargs))
+            # Don't actually call the real logger — keep the test
+            # output clean.
+
+        monkeypatch.setattr(tray_mod.log, "warning", _capturing_warning)
+
+        with tray._queue_lock:
+            tray._pending_notifications.append(("Model Load Error", "tiny.en not found"))
+
+        tray._drain_pending()
+
+        assert len(warning_calls) == 1, (
+            f"_drain_pending must log one WARNING per notification; "
+            f"got {len(warning_calls)}"
+        )
+        msg_template, args, _kwargs = warning_calls[0]
+        # The log message template mentions the tray fallback path.
+        assert "TRAY" in msg_template or "tray" in msg_template.lower(), (
+            f"warning log template should mention the tray fallback path; "
+            f"got: {msg_template!r}"
+        )
+        # The title + message are passed as positional args so they
+        # appear in the formatted log line.
+        assert "Model Load Error" in args, (
+            f"warning log args should include the notification title; "
+            f"got: {args!r}"
+        )
+        assert "tiny.en not found" in args, (
+            f"warning log args should include the notification message; "
+            f"got: {args!r}"
+        )
 
 
 # ─── Notification safety ────────────────────────────────────────────────
@@ -680,11 +859,11 @@ class TestWrapSystemExitHandling:
             wrapper(icon=MagicMock(), item=MagicMock())
 
 
-# (): Undo Last tray menu item ───────────────────────────────
+# : Undo Last tray menu item ───────────────────────────────
 
 
 class TestUndoLastTrayItem:
-    """UX-1 (FIX-10): the ``undo_last`` IPC command was wired but
+    """the ``undo_last`` IPC command was wired but
     unreachable from any UI. The tray menu's new "Undo Last" item
     surfaces it via ``controller.undo_last()``.
     """
@@ -725,11 +904,11 @@ class TestUndoLastTrayItem:
         )
 
 
-# (): Microphone submenu + set_microphones cache ────────────
+# : Microphone submenu + set_microphones cache ────────────
 
 
 class TestMicrophoneSubmenu:
-    """UX-2 (FIX-10): tray menu now includes a Microphones ▸ submenu
+    """tray menu now includes a Microphones ▸ submenu
     that mirrors the Models ▸ submenu. ``set_microphones`` populates
     the cache and invalidates the menu cache so the next right-click
     reflects the current device set.
@@ -836,15 +1015,15 @@ class TestMicrophoneSubmenu:
         tray._controller.change_microphone.assert_called_once_with("7")
 
 
-# (): Force Cancel conditional on state == TRANSCRIBING ──────
+# : Force Cancel conditional on state == TRANSCRIBING ──────
 
 
 class TestForceCancelConditional:
-    """UX-3 (FIX-10): the Force-cancel transcription item is only
+    """the Force-cancel transcription item is only
     rendered when ``state == AppState.TRANSCRIBING``. Previously it
     was always visible, cluttering the menu when nothing was stuck.
 
-    NH-17: the canonical tray label is now ``"Force cancel transcription"``
+    the canonical tray label is now ``"Force cancel transcription"``
     (lowercase 'c'); the legacy ``force_cancel_stuck_transcription`` key
     (``"Force Cancel Stuck Transcription"``) was removed from
     ``tray_i18n.py`` so the tray menu and the renderer's
@@ -878,7 +1057,7 @@ class TestForceCancelConditional:
         )
 
     def test_force_cancel_label_renamed(self, tray):
-        """NH-17: the canonical tray label is 'Force cancel transcription'.
+        """the canonical tray label is 'Force cancel transcription'.
 
         The legacy ``force_cancel_stuck_transcription`` key ("Force Cancel
         Stuck Transcription") was removed from ``tray_i18n.py`` so the
@@ -899,11 +1078,11 @@ class TestForceCancelConditional:
         )
 
 
-# (): Elapsed recording time in tooltip ────────────────────
+# : Elapsed recording time in tooltip ────────────────────
 
 
 class TestElapsedRecordingTooltip:
-    """UX-11 (FIX-10): tray tooltip shows elapsed ``mm:ss`` when
+    """tray tooltip shows elapsed ``mm:ss`` when
     recording. A 1-second ``threading.Timer`` updates the tooltip.
     """
 
@@ -984,11 +1163,11 @@ class TestElapsedRecordingTooltip:
         assert ":" not in title, f"IDLE tooltip should NOT include elapsed mm:ss, got: {title!r}"
 
 
-# (): _open_page generalization ────────────────────────────
+# : _open_page generalization ────────────────────────────
 
 
 class TestOpenPageGeneralization:
-    """UX-33 (FIX-10): ``_open_models_page`` was generalized into
+    """``_open_models_page`` was generalized into
     ``_open_page(path)`` so any in-app route can be opened from the
     tray menu. Used by the new Settings/History/Help shortcuts.
     """
@@ -1045,11 +1224,11 @@ class TestOpenPageGeneralization:
         assert called_paths == ["/settings", "/history", "/about"]
 
 
-# I18N-2 (): Tray locale support for all 8 renderer locales ──────
+# I18N-2 : Tray locale support for all 8 renderer locales ──────
 
 
 class TestTrayLocaleFullCoverage:
-    """I18N-2 (FIX-10): tray i18n now supports all 8 renderer locales
+    """tray i18n now supports all 8 renderer locales
     (ar, de, en, es, fr, hi, ru, zh) — previously only en+es.
     """
 
@@ -1058,7 +1237,7 @@ class TestTrayLocaleFullCoverage:
         made active by set_tray_locale, even for a locale the server does
         not hard-code (en/es only by default).
 
-        S1-CR-47: de/fr/ru/zh/ar/hi are now pre-registered with full
+        S1-de/fr/ru/zh/ar/hi are now pre-registered with full
         translations, so this test uses a locale code ("xx") that is
         NOT in _TRAY_LABELS_LOCALES to verify the push-from-renderer
         path still works for locales the server doesn't know about.
@@ -1098,7 +1277,7 @@ class TestTrayLocaleFullCoverage:
         """The set_tray_locale IPC path accepts a `labels` dict and applies
         it: after the call, `_()` returns the pushed translation.
 
-        S1-CR-47: uses locale "yy" (not pre-registered) so the test
+        S1-uses locale "yy" (not pre-registered) so the test
         verifies the push path without interference from the 8
         pre-registered locales (en/es/ar/de/fr/hi/ru/zh).
         """
@@ -1114,9 +1293,9 @@ class TestTrayLocaleFullCoverage:
         tray_mod.set_tray_locale("en")
 
     def test_set_tray_locale_falls_back_to_en_for_unknown(self):
-        """Unknown locale falls back to English (existing TRAY-008 contract).
+        """Unknown locale falls back to English (existing contract).
 
-        S1-CR-47: uses "zz" which is guaranteed not in the pre-registered
+        S1-uses "zz" which is guaranteed not in the pre-registered
         locale set (en/es/ar/de/fr/hi/ru/zh) nor in any test-pushed locale.
         """
         from voice_typer.server.tray import _, get_tray_locale, set_tray_locale
@@ -1126,11 +1305,11 @@ class TestTrayLocaleFullCoverage:
         assert _("quit") == "Quit"
 
 
-# (): update_available_body uses localized template ─────────
+# : update_available_body uses localized template ─────────
 
 
 class TestUpdateAvailableBodyLocalized:
-    """UX-5 (FIX-10): the update-available notification body now uses
+    """the update-available notification body now uses
     the ``update_available_body`` localized template instead of an
     inline f-string. This makes the body translatable.
     """
@@ -1163,3 +1342,132 @@ class TestUpdateAvailableBodyLocalized:
         template = "{version} of {app} is available (current: {current})"
         body = template.format(app="Voice Typer", version="2.0.0", current="1.0.0")
         assert body == "2.0.0 of Voice Typer is available (current: 1.0.0)"
+
+
+# --- VT-1: run() must degrade gracefully when the tray event loop
+# fails at RUNTIME (e.g. pystray PermissionError creating the tray
+# window in a restricted / non-interactive session). Pre-fix the
+# exception propagated up through app.start() and crashed the WHOLE
+# backend. ---
+
+
+class TestRunDegradesOnRuntimeFailure:
+    """``run()`` must catch a runtime failure of ``_icon.run()`` and
+    degrade to the tray-unavailable blocking path instead of
+    propagating the exception (which crashed the entire backend via
+    ``app.start()`` -> ``[FATAL] app.start() raised``).
+
+    Observed in the ``voice-typer`` terminal run (VT-1): pystray
+    raised ``PermissionError: [WinError 5] Access is denied`` from
+    ``_create_window``; ``start()`` only catches construction-time
+    ``OSError``, so the runtime failure was unhandled.
+    """
+
+    def test_run_degrades_when_icon_run_raises(self, tray, monkeypatch):
+        """When ``_icon.run()`` raises, ``run()`` must NOT propagate;
+        it degrades to the tray-unavailable path (blocks on
+        ``_run_event``, drained every 60s) and ``stop()`` releases it.
+        """
+        tray.start(bg_work=None)
+        assert tray._icon is not None
+
+        def _boom():
+            raise PermissionError("[WinError 5] Access is denied")
+
+        monkeypatch.setattr(tray._icon, "run", _boom)
+
+        import threading as _threading
+
+        run_returned = _threading.Event()
+
+        def _run_thread():
+            tray.run()
+            run_returned.set()
+
+        t = _threading.Thread(target=_run_thread, daemon=True)
+        t.start()
+        # Give run() time to hit the exception + enter the wait loop.
+        time.sleep(0.1)
+        tray.stop()
+        assert run_returned.wait(timeout=1.0), (
+            "run() did not return within 1s after stop() - the runtime "
+            "failure must degrade to the _run_event blocking path"
+        )
+        # The tray must now be marked unavailable so downstream code
+        # treats it as headless (hotkey + IPC still active).
+        assert tray._tray_unavailable is True
+        assert tray._icon is None
+
+    def test_run_sets_unavailable_state_on_failure(self, tray, monkeypatch):
+        """After a runtime failure, ``_tray_unavailable`` must be True
+        and ``_icon`` None so a later ``stop()`` does not call
+        ``icon.stop()`` on a torn-down icon."""
+        tray.start(bg_work=None)
+
+        def _boom():
+            raise RuntimeError("event loop broke")
+
+        monkeypatch.setattr(tray._icon, "run", _boom)
+        tray.stop()  # stop() is idempotent and must not raise
+
+
+# --- VT-1: notification truncation. pystray's Win32
+# NOTIFYICONDATAW struct has szInfo=WCHAR*256 and szInfoTitle=WCHAR*64;
+# an over-long message raised "string too long (466, maximum length
+# 256)" and the toast was silently dropped. ---
+
+
+class TestNotificationTruncation:
+    """``_truncate_notification`` must cap the title at 64 chars and
+    the message at 256 chars (the pystray Win32 NOTIFYICONDATAW
+    limits), preserving the informative tail with a leading ellipsis.
+    """
+
+    def test_short_messages_unchanged(self):
+        from voice_typer.server.tray_notifications import _truncate_notification
+
+        title, message = _truncate_notification("Short title", "Short message")
+        assert title == "Short title"
+        assert message == "Short message"
+
+    def test_long_message_truncated_to_256(self):
+        from voice_typer.server.tray_notifications import _truncate_notification
+
+        long_message = "x" * 466  # the exact length seen in the wild
+        _, message = _truncate_notification("t", long_message)
+        assert len(message) <= 256, f"message must be capped at 256; got {len(message)}"
+        # The tail is preserved (the informative part) + ellipsis.
+        assert message.endswith("x")
+        assert message.startswith("...")
+
+    def test_long_title_truncated_to_64(self):
+        from voice_typer.server.tray_notifications import _truncate_notification
+
+        long_title = "y" * 200
+        title, _ = _truncate_notification(long_title, "m")
+        assert len(title) <= 64, f"title must be capped at 64; got {len(title)}"
+        assert title.endswith("y")
+        assert title.startswith("...")
+
+    def test_do_notify_passes_truncated_values_to_icon(self, tray, monkeypatch):
+        """``do_notify`` must truncate BEFORE calling
+        ``tray._icon.notify`` so a 466-char message no longer raises
+        inside pystray and gets silently dropped.
+        """
+        tray.start(bg_work=None)
+        captured = {}
+
+        def _record(message, title):
+            captured["message"] = message
+            captured["title"] = title
+
+        monkeypatch.setattr(tray._icon, "notify", _record)
+
+        from voice_typer.server.tray_notifications import do_notify
+
+        do_notify(tray, "Some title", "x" * 466)
+        assert captured["message"], "icon.notify must have been called"
+        assert len(captured["message"]) <= 256, (
+            f"message passed to icon.notify must be <= 256 chars; got {len(captured['message'])}"
+        )
+        assert len(captured["title"]) <= 64

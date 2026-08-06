@@ -14,11 +14,12 @@ This module owns:
 Patch-path compatibility: tests do
 ``monkeypatch.setattr(native_hotkeys, "is_macos", lambda: True)``
 (and is_windows / is_linux).  For the patch to take effect on calls
-made from *this* submodule, the bare ``is_macos()`` references must
-resolve to the package-level binding (which is what the patch
-replaces).  We therefore expose them as thin wrappers that delegate
-to the package's binding at call time, rather than capturing the
-function object at import time.
+made from *this* submodule, the references must resolve through the
+package binding at call time.  We therefore call the predicates as
+``_native_hotkeys_pkg.is_macos()`` etc. (where ``_native_hotkeys_pkg``
+is the ``voice_typer.server.native_hotkeys`` module itself) so the
+attribute lookup happens at call time and picks up the monkeypatched
+binding, rather than capturing the function object at import time.
 """
 
 import contextlib
@@ -37,20 +38,6 @@ from voice_typer.server import native_hotkeys as _native_hotkeys_pkg
 from .binary_path import get_native_binary_path
 from .modifiers import _canonical_modifier, _canonical_modifier_name_for_token
 from .spec_parser import log, parse_hotkey_spec
-
-
-# See factory.py / mac_backend.py / etc. for the rationale.
-def is_windows() -> bool:
-    return _native_hotkeys_pkg.is_windows()
-
-
-def is_macos() -> bool:
-    return _native_hotkeys_pkg.is_macos()
-
-
-def is_linux() -> bool:
-    return _native_hotkeys_pkg.is_linux()
-
 
 # ─── Constants ─────────────────────────────────────────────────────────────
 
@@ -121,6 +108,12 @@ class SubprocessHotkeyBackend(ABC):
         ("KEY_UP:", "_on_key_event", False),
         ("FN_DOWN", "_on_fn_event", True),
         ("FN_UP", "_on_fn_event", False),
+        # VERSION reporter: ``VERSION:<x.y.z>`` is emitted by the binary
+        # immediately after READY so the Python side can record the
+        # binary's reported wire-protocol version. The factory compares
+        # this against the manifest's ``version`` field and warns on
+        # mismatch (see _on_version_event + factory.create_native_backend).
+        ("VERSION:", "_on_version_event", None),
         ("ERROR:", "_on_error_event", None),
         ("WARN:", "_on_warn_event", None),
     ]
@@ -165,6 +158,29 @@ class SubprocessHotkeyBackend(ABC):
         self._fn_down: bool = False
         self._main_key_down: bool = False
         self._match_lock = threading.Lock()
+        # VERSION reporter: the binary's reported wire-protocol version (set by
+        # ``_on_version_event`` when a ``VERSION:<x.y.z>`` line arrives).
+        # ``None`` until the binary emits VERSION — the factory uses
+        # this to compare against the manifest's ``version`` field and
+        # warn on mismatch.
+        self._binary_version: str | None = None
+        # VERSION reporter: the manifest's expected version for this binary's
+        # filename, stashed by the factory so ``_on_version_event`` can
+        # compare it against the binary's runtime-reported VERSION.
+        # ``None`` means "manifest didn't have a version for this
+        # binary" (e.g. tests that bypass the factory) — the
+        # comparison is skipped in that case.
+        self._expected_version: str | None = None
+        # native log path: per-session diagnostic log path passed to the binary
+        # via ``--log-file <path>`` (or as positional argv[2]). The
+        # binary writes timestamped diagnostic lines (init steps,
+        # permission checks, device opens, hook installation, warnings)
+        # to this file so support bundles can include a native-side
+        # diagnostic trace alongside the Python-side log. None until
+        # ``_compute_native_log_path`` resolves it lazily on first
+        # spawn (so tests that construct backends without spawning
+        # don't create log files).
+        self._native_log_path: Path | None = None
         # Toggle-mode flag: when True (set by HotkeyDispatcher for the main
         # dictation hotkey in toggle mode), the toggle fires on key-UP
         # (release) instead of key-down. Prevents a press-and-hold from
@@ -368,7 +384,7 @@ class SubprocessHotkeyBackend(ABC):
                 if self._process.poll() is None:  # still running
                     # Try graceful shutdown first
                     try:
-                        if is_windows():
+                        if _native_hotkeys_pkg.is_windows():
                             self._process.terminate()
                         else:
                             self._process.send_signal(signal.SIGTERM)
@@ -422,6 +438,55 @@ class SubprocessHotkeyBackend(ABC):
         """Return an error message if the hotkey is invalid for this platform,
         or None if valid. Subclasses must implement."""
         ...
+
+    # ── Native log path ─────────────────────────────────────────
+
+    def _compute_native_log_path(self) -> Path | None:
+        """Resolve the per-session diagnostic log path passed to the
+        native binary via ``--log-file <path>``.
+
+        The path is ``~/.voice-typer/logs/native-<backend>-<pid>.log``
+        where ``<backend>`` is ``self.platform_name.lower()`` and
+        ``<pid>`` is the current process's PID. The directory is created
+        on first call (parents=True, exist_ok=True). The file itself is
+        NOT created here — the native binary opens it with fopen("a").
+
+        Returns ``None`` if the path can't be resolved (e.g. ``HOME``
+        unset on POSIX, or ``USERPROFILE`` unset on Windows). In that
+        case the binary is spawned without ``--log-file`` and its
+        diagnostics go to stderr only (which the Python parent merges
+        into stdout via STDERR=STDOUT).
+
+        Memoised in ``self._native_log_path`` so the same path is reused
+        across respawns (the binary appends, so all respawns of one
+        backend land in the same file).
+        """
+        if self._native_log_path is not None:
+            return self._native_log_path
+        # Resolve the user's home directory. On POSIX this is ``$HOME``;
+        # on Windows it's ``%USERPROFILE%`` (which ``Path.home`` reads
+        # via ``os.path.expanduser``). Fall back to None on failure so
+        # we don't crash the spawn just because logging can't be set up.
+        try:
+            home = Path.home()
+        except (RuntimeError, OSError):
+            return None
+        if not str(home) or str(home) == ".":
+            # ``Path.home()`` returns ``.`` when ``HOME`` is unset on
+            # some POSIX systems — treat that as "no home available".
+            return None
+        log_dir = home / ".voice-typer" / "logs"
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
+            # Can't create the log dir (read-only home, sandbox, etc.).
+            # Spawn without --log-file — the binary's stderr still goes
+            # to the parent's merged stdout pipe.
+            return None
+        backend = (self.platform_name or "native").lower()
+        path = log_dir / f"native-{backend}-{os.getpid()}.log"
+        self._native_log_path = path
+        return path
 
     # ── Process management ───────────────────────────────────────────────
 
@@ -523,14 +588,20 @@ class SubprocessHotkeyBackend(ABC):
         # a stat mismatch (path-stat vs fd-stat) just before Popen.
         # On Windows the fd-based check is skipped (see the docstring's
         # "Windows limitation" section).
-        on_posix = is_macos() or is_linux()
+        on_posix = _native_hotkeys_pkg.is_macos() or _native_hotkeys_pkg.is_linux()
         fd: int | None = None
         pinned_stat: tuple | None = None
         if on_posix:
             try:
+                # ``O_CLOEXEC`` does not exist on Windows (pre-Python
+                # 3.13); ``getattr`` resolves it to 0 there so tests
+                # that monkeypatch a POSIX platform while running on
+                # Windows take the fd-pinning path without raising
+                # AttributeError.
+                o_cloexec = getattr(os, "O_CLOEXEC", 0)
                 fd = os.open(
                     str(self._binary_path),
-                    os.O_RDONLY | os.O_CLOEXEC,
+                    os.O_RDONLY | o_cloexec,
                 )
             except OSError as exc:
                 self._failed = True
@@ -630,7 +701,10 @@ class SubprocessHotkeyBackend(ABC):
                 stdin=subprocess.PIPE,
                 # No console window on Windows
                 creationflags=(
-                    subprocess.CREATE_NO_WINDOW if is_windows() and hasattr(subprocess, "CREATE_NO_WINDOW") else 0
+                    subprocess.CREATE_NO_WINDOW
+                    if _native_hotkeys_pkg.is_windows()
+                    and hasattr(subprocess, "CREATE_NO_WINDOW")
+                    else 0
                 ),
                 # Reset signal handlers in child so SIGTERM works cleanly
                 start_new_session=on_posix,
@@ -874,6 +948,59 @@ class SubprocessHotkeyBackend(ABC):
         self._restart_attempts = 0
         log.info("[NATIVE-HOTKEY] %s binary is READY", self.platform_name)
 
+    def _on_version_event(self, payload: str) -> None:
+        """Handle a ``VERSION:<x.y.z>`` wire-protocol line (VERSION reporter).
+
+        Records the binary's reported wire-protocol version in
+        ``_binary_version`` and (if the factory stashed an
+        ``_expected_version`` from the manifest) compares the two,
+        logging a WARNING on mismatch. The comparison is deferred to
+        here (rather than done in the factory) because the binary only
+        emits VERSION after READY, which happens after ``start()`` —
+        the factory creates the backend but doesn't start it.
+
+        Older binaries that don't emit VERSION leave ``_binary_version``
+        as None; the factory's expected-version check is then a no-op
+        (no comparison possible). A mismatch is a diagnostic signal
+        only — the binary is still functional for the wire-protocol
+        events we care about, so we don't fail the backend.
+
+        ``payload`` is the version string (e.g. ``"1.0.0"``) with no
+        surrounding whitespace; we strip defensively in case a binary
+        emits ``VERSION: 1.0.0`` (with a space).
+        """
+        version = (payload or "").strip()
+        if not version:
+            log.debug(
+                "[NATIVE-HOTKEY] %s binary sent empty VERSION line",
+                self.platform_name,
+            )
+            return
+        self._binary_version = version
+        log.info(
+            "[NATIVE-HOTKEY] %s binary reported VERSION: %s",
+            self.platform_name,
+            version,
+        )
+        expected = getattr(self, "_expected_version", None)
+        if expected is None:
+            # No manifest entry for this binary — skip the comparison.
+            # This is the case for tests that construct backends
+            # directly without going through the factory, and for
+            # dev-tree binaries whose filename isn't in the manifest.
+            return
+        if version != expected:
+            log.warning(
+                "[NATIVE-HOTKEY] %s binary VERSION mismatch: binary "
+                "reported %s, manifest expected %s. The binary is still "
+                "functional but may be out of sync with the Python side. "
+                "Rebuild via scripts/build/compile_native.sh and re-run "
+                "scripts/build/update_native_manifests.py.",
+                self.platform_name,
+                version,
+                expected,
+            )
+
     def _on_error_event(self, payload: str) -> None:
         """Handle an ``ERROR:<message>`` wire-protocol line.
 
@@ -1100,6 +1227,13 @@ class SubprocessHotkeyBackend(ABC):
             return
         with self._match_lock:
             if down:
+                # auto-repeat filter: if the modifier is
+                # already tracked as held, this MOD_DOWN is an OS
+                # auto-repeat (not a fresh press). Skip the add (no-op
+                # for the set) AND skip the ``_try_match`` call so a
+                # modifier-only hotkey doesn't re-fire on every repeat.
+                if canonical in self._held_modifiers:
+                    return
                 self._held_modifiers.add(canonical)
             else:
                 self._held_modifiers.discard(canonical)
@@ -1109,9 +1243,40 @@ class SubprocessHotkeyBackend(ABC):
             self._try_match(down)
 
     def _on_key_event(self, key_name: str, *, down: bool) -> None:
-        """Handle KEY_DOWN / KEY_UP events."""
+        """Handle KEY_DOWN / KEY_UP events.
+
+        auto-repeat filter: the OS auto-repeats key-down
+        events while a key is held (Windows WM_KEYDOWN repeats,
+        Linux evdev emits value=2 repeats, macOS NSEvent .keyDown
+        repeats). Without filtering, each repeat would re-call
+        ``_try_match``, re-firing the hotkey callback on every repeat
+        — for a toggle-mode hotkey that means toggling on/off every
+        ~30ms while the key is held. We suppress the repeat by
+        checking ``self._main_key_down`` BEFORE updating state — if
+        the main key is already tracked as down, this KEY_DOWN is an
+        OS auto-repeat (not a fresh press) and we return early.
+        The not-down → down transition (the first KEY_DOWN after a
+        KEY_UP or after init) is the only one that fires ``_try_match``.
+
+        Known limitation: ``_main_key_down`` is a single boolean
+        shared across all keys, not a per-key set. This means a
+        KEY_DOWN:A followed by a KEY_DOWN:V (without KEY_UP:A) would
+        suppress the V press. In practice this never happens because
+        the OS only auto-repeats the most-recent key, and the wire
+        protocol doesn't emit a new KEY_DOWN for a different key
+        while the previous one is still held (the user must release
+        first). If this assumption ever breaks, the fix is to track
+        per-key down-state in a set, not a boolean.
+        """
         with self._match_lock:
             if down:
+                # auto-repeat filter: auto-repeat filter — if the main key is
+                # already tracked as down, this KEY_DOWN is an OS
+                # auto-repeat. Skip the state update (no-op anyway)
+                # AND skip the ``_try_match`` call so the hotkey
+                # doesn't re-fire on every repeat.
+                if self._main_key_down:
+                    return
                 self._main_key_down = True
             else:
                 self._main_key_down = False

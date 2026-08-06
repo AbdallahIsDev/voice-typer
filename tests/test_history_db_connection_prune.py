@@ -44,7 +44,7 @@ def test_prune_thread_started_on_init(db):
     assert db._read_conn_prune_thread.name == "HistoryDBReadConnPrune"
 
 
-def test_prune_thread_uses_event_wait_not_timer(monkeypatch):
+def test_prune_thread_uses_event_wait_not_timer(tmp_path, monkeypatch):
     """DJ-19 / DJ-37: the prune worker must NOT use ``threading.Timer``.
 
     The cascade pattern (``Timer(60, ...).start()`` re-scheduled from
@@ -67,7 +67,10 @@ def test_prune_thread_uses_event_wait_not_timer(monkeypatch):
     # the prune worker would pick it up if it used Timer.
     monkeypatch.setattr(history_db.threading, "Timer", tracking_timer)
 
-    db_path = history_db.Path(tempfile_mkdtemp()) / "test_prune_not_timer.db"
+    # use the pytest ``tmp_path`` fixture (auto-cleaned by
+    # pytest's tmp_path_factory) instead of tempfile.mkdtemp() (which
+    # leaks the dir on test failure / SIGTERM).
+    db_path = tmp_path / "test_prune_not_timer.db"
     db = history_db.HistoryDB(db_path=db_path)
     try:
         # Give the prune thread a moment to potentially schedule a Timer
@@ -181,13 +184,8 @@ def test_prune_worker_survives_transient_error(db, monkeypatch):
     assert db._read_conn_prune_thread.is_alive(), "prune worker thread should still be alive after a transient error"
 
 
-# ──────────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────────
-
-
-def tempfile_mkdtemp() -> str:
-    """Create a temp dir and return its path as a string."""
-    import tempfile
-
-    return tempfile.mkdtemp(prefix="history_db_prune_test_")
+# the ``tempfile_mkdtemp()`` helper was removed — the
+# ``test_prune_thread_uses_event_wait_not_timer`` test now uses the
+# pytest ``tmp_path`` fixture (auto-cleaned) instead of leaking a
+# temp dir on test failure / SIGTERM. No other test in this module
+# used the helper.

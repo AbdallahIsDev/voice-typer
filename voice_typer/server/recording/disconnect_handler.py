@@ -41,6 +41,7 @@ from __future__ import annotations
 import collections
 import contextlib
 import logging
+import time
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -446,6 +447,87 @@ class DisconnectHandler:
             # ``_effective_sr`` (used as fallback until the first chunk
             # sets ``_buffer_sr``).
             recorder._refresh_vad_caches()
+
+            # Sliding-window flap detection: we just completed a
+            # SUCCESSFUL restart. Append the restart timestamp to the
+            # sliding-window deque, prune entries older than the window,
+            # and if the threshold is met (default: 3 restarts in 60s),
+            # fire ``on_device_lost`` and clear the deque. This catches a
+            # flapping BT mic that disconnects + reconnects repeatedly
+            # within a short window — a real user-facing regression
+            # where the per-attempt ``_device_disconnect_retries``
+            # counter was reset to 0 on every successful restart (the
+            # ``recorder._device_disconnect_retries = 0`` line above),
+            # so the per-attempt threshold (3 or 6 retries) was NEVER
+            # reached and the user never saw "Microphone disconnected".
+            #
+            # The sliding window is the right shape: a single
+            # disconnect+restart cycle leaves the deque with 1 entry
+            # (well below the threshold), so the normal recovery flow
+            # is unaffected. Three restarts in 60s — indicative of a
+            # real flap (BT link-manager cycle is 5-30s) — triggers the
+            # callback so the UI can surface the disconnect.
+            #
+            # The pruning happens BEFORE the threshold check so old
+            # entries (outside the window) don't inflate the count. If
+            # the threshold is met, the deque is cleared so a
+            # subsequent restart within the window doesn't immediately
+            # re-trigger (the user has already been notified; the next
+            # ``start()`` from the UI is the explicit "reset" boundary).
+            #
+            # The deque + threshold constants live on the Recorder
+            # (initialized by ``SessionState.__init__`` — see
+            # ``session_state.py`` for the rationale on why they live
+            # there instead of in ``Recorder.__init__``). ``time`` is
+            # imported at module top (alongside ``collections`` /
+            # ``contextlib`` / ``logging``), so no deferred import is
+            # needed here.
+            _now = time.monotonic()
+            recorder._restart_timestamps.append(_now)
+            _window = recorder._flapping_window_seconds
+            # Prune entries older than the window. ``deque.popleft`` is
+            # O(1) and atomic under CPython's GIL; the worker thread /
+            # audio callback never touch this deque (only this method
+            # does, and it runs under ``_stream_lifecycle_lock``), so
+            # no lock is needed beyond the one already held.
+            while (
+                recorder._restart_timestamps
+                and recorder._restart_timestamps[0] < _now - _window
+            ):
+                recorder._restart_timestamps.popleft()
+            if (
+                len(recorder._restart_timestamps)
+                >= recorder._flapping_max_restarts
+            ):
+                log.error(
+                    "[RECORDING] Flapping device detected — %d restarts within "
+                    "the %.1fs flap-detection window. Firing on_device_lost so "
+                    "the UI surfaces the disconnect (the per-attempt retry "
+                    "counter resets on every successful restart, so the "
+                    "sliding-window flap detector is the only signal that "
+                    "catches this pattern).",
+                    len(recorder._restart_timestamps),
+                    _window,
+                )
+                # Clear the deque so the next restart within the window
+                # doesn't immediately re-trigger. The user has been
+                # notified; the next ``start()`` (from the UI's
+                # "reconnect" button) is the explicit reset boundary.
+                recorder._restart_timestamps.clear()
+                # Mirror the callback-resolution chain in
+                # ``Recorder._handle_device_disconnect``: prefer the
+                # dedicated ``on_device_lost`` callback (UI shows
+                # "Microphone disconnected"); fall back to
+                # ``on_silence_auto_stop`` only when ``on_device_lost``
+                # is not wired (preserves the pre-fix behavior for
+                # callers that haven't been updated).
+                _device_lost_cb = getattr(recorder, "on_device_lost", None)
+                if callable(_device_lost_cb):
+                    with contextlib.suppress(Exception):
+                        _device_lost_cb()
+                elif getattr(recorder, "on_silence_auto_stop", None) is not None:
+                    with contextlib.suppress(Exception):
+                        recorder.on_silence_auto_stop()  # type: ignore[attr-defined]
         except (AttributeError, TypeError, KeyError):
             # Programming bugs (missing attribute, wrong type, missing
             # dict key) must NOT be masked as "transient device

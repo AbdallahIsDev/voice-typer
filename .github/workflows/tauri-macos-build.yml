@@ -14,7 +14,7 @@
 name: Tauri macOS Build (Phase 0-M)
 
 # =============================================================================
-# TX-39 GATE STATUS — VALIDATE ON MACOS HOST
+# GATE STATUS — VALIDATE ON MACOS HOST (jobs remain gated by if: false until a macOS runner is available)
 # -----------------------------------------------------------------------------
 # This workflow contains ~603 lines of macOS signing + notarization logic that
 # has NEVER executed in CI. All 3 jobs (build-aarch64, build-x86_64,
@@ -486,7 +486,7 @@ jobs:
           cargo tauri build --target universal-apple-darwin --config tauri.macos.conf.json
           cd ..
 
-      # S1-CR-100: smoke test the bundled sidecar binary AFTER cargo tauri build.
+      # smoke test the bundled sidecar binary AFTER cargo tauri build.
       # Pre-fix the macOS Tauri workflow never executed the sidecar — a Nuitka
       # flag change that broke `--version` (argparse exits 0 without acquiring
       # the single-instance lock per ipc_server.py:2796-2815) would only
@@ -546,17 +546,26 @@ jobs:
           for bin in "${BINARIES[@]}"; do
             if [ -f "$bin" ]; then
               echo "[codesign] signing $bin"
-              codesign --force --options runtime --sign "$MAC_SIGNING_IDENTITY" \
+              codesign --force --options runtime --timestamp --sign "$MAC_SIGNING_IDENTITY" \
                 --entitlements src-tauri/entitlements.plist "$bin"
             else
-              echo "[codesign] SKIP (not found): $bin"
+              echo "::error::Expected binary missing from .app bundle: $bin"
+              echo "  The Tauri bundler did not copy this resource. Check tauri.macos.conf.json resources list."
+              exit 1
             fi
           done
           # CI-4: Sign top-level .app bundle leaf-to-root with entitlements after signing nested binaries,
           # BEFORE zipping and submitting to notarytool.
           echo "[codesign] signing top-level app bundle (CI-4)"
-          codesign --force --deep --options runtime --sign "$MAC_SIGNING_IDENTITY" \
+          codesign --force --options runtime --timestamp --sign "$MAC_SIGNING_IDENTITY" \
             --entitlements src-tauri/entitlements.plist "$APP_PATH"
+
+      - name: Verify codesign (before notarization)
+        if: ${{ inputs.sign == 'true' && env.MAC_SIGNING_IDENTITY != '' }}
+        run: |
+          APP_PATH="src-tauri/target/universal-apple-darwin/release/bundle/macos/Voice Typer.app"
+          codesign --verify --verbose=4 "$APP_PATH"
+          spctl --assess --verbose=4 "$APP_PATH"
 
       - name: Notarize + staple (if secrets present)
         if: ${{ inputs.sign == 'true' && env.MAC_SIGNING_IDENTITY != '' }}
@@ -572,7 +581,7 @@ jobs:
           xcrun stapler staple "$APP_PATH"
           xcrun stapler validate "$APP_PATH"
           # Sign + notarize + staple .dmg
-          codesign --force --sign "$MAC_SIGNING_IDENTITY" "$DMG_PATH"
+          codesign --force --timestamp --sign "$MAC_SIGNING_IDENTITY" "$DMG_PATH"
           xcrun notarytool submit "$DMG_PATH" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_SPECIFIC_PASSWORD" \

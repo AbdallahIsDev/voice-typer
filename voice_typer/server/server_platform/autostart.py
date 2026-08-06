@@ -265,17 +265,35 @@ def _system_python_can_import_launcher(system_python: str) -> bool:
     The probe is wrapped in ``subprocess.run`` with ``capture_output=True``
     so the import's stderr (e.g. ``ModuleNotFoundError``) doesn't leak
     into the autostart log.
+
+    on Windows the spawned ``python.exe`` subprocess would
+    otherwise flash a console window for the ~50 ms the import probe
+    runs. We pass ``creationflags=0x08000000`` (``CREATE_NO_WINDOW``)
+    guarded by ``is_windows()`` so the probe is silent on Windows and
+    a no-op on macOS/Linux (where ``creationflags`` isn't a valid
+    ``subprocess.run`` kwarg).
     """
     import subprocess
+
+    kwargs: dict = {
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.DEVNULL,
+        "stderr": subprocess.DEVNULL,
+        "timeout": 5.0,
+        "check": False,
+    }
+    if is_windows():
+        # CREATE_NO_WINDOW — prevents a console flash when probing
+        # python.exe on Windows. ``getattr`` guard is defensive: the
+        # constant exists on every Python 3.x Windows build, but the
+        # guard keeps the line safe under unusual test stubs that
+        # monkeypatch ``subprocess``.
+        kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
 
     try:
         result = subprocess.run(
             [system_python, "-c", "import voice_typer.server.autostart_launcher"],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=5.0,
-            check=False,
+            **kwargs,
         )
         return result.returncode == 0
     except (OSError, subprocess.TimeoutExpired):

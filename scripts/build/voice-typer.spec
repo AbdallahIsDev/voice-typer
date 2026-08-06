@@ -53,6 +53,7 @@ stdio handling.
 """
 
 import os
+import platform
 import sys
 from pathlib import Path
 
@@ -67,12 +68,17 @@ _TAURI_SIDECAR = os.environ.get("VOICE_TYPER_TAURI_SIDECAR", "") == "1"
 # Compute the Rust target triple for the current platform, mirroring
 # `target_triple_for` in src-tauri/src/sidecar/spawn.rs. This is the suffix
 # Tauri's externalBin expects on the binary name.
+# NOTE: ``platform.machine()`` is used (NOT ``os.uname().machine``) because
+# ``os.uname`` is Unix-only — it raises ``AttributeError`` on Windows when the
+# dict literal below is eagerly evaluated at spec-load time. ``platform.machine``
+# is cross-platform and returns the same string ("x86_64"/"aarch64"/"amd64")
+# on Linux, macOS, and Windows.
 _ARCH = {
     "win32": os.environ.get("PLATFORM", "x86_64"),  # default x86_64; override for aarch64 cross-build
-    "darwin": "x86_64" if sys.maxsize > 2**32 and os.uname().machine in ("x86_64", "amd64") else "aarch64",
-    "linux": os.uname().machine.replace("amd64", "x86_64").replace("arm64", "aarch64"),
+    "darwin": "x86_64" if sys.maxsize > 2**32 and platform.machine() in ("x86_64", "amd64") else "aarch64",
+    "linux": platform.machine().replace("amd64", "x86_64").replace("arm64", "aarch64"),
 }.get(sys.platform, "x86_64")
-# On macOS, uname().machine is the host arch; for cross-arch builds the caller
+# On macOS, platform.machine() is the host arch; for cross-arch builds the caller
 # sets VOICE_TYPER_TARGET_ARCH to override.
 _ARCH = os.environ.get("VOICE_TYPER_TARGET_ARCH", _ARCH)
 _TRIPLE = {
@@ -155,7 +161,7 @@ if _linux_scripts_dir.is_dir():
 # ensures the app runs with the user's normal privileges.
 # DRY: the manifest XML is the single source of truth. The
 # standalone voice-typer.manifest file (which duplicated this
-# XML verbatim) has been removed — see TX-36.
+# XML verbatim) has been removed.
 _manifest_xml = """\
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">

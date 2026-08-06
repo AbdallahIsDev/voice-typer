@@ -129,7 +129,7 @@ class TestModelDownloadSupportsCancel:
     def test_service_has_download_cancel_events(self):
         """service/model.py declares the per-download cancel Event dict.
 
-        EC-FIX-15 / EC-24: the legacy single-instance
+        the legacy single-instance
         ``_download_cancel_event`` attribute has been REMOVED; the
         per-download dict (``_download_cancel_events``) plus the
         ``_register_download`` helper are the production API.

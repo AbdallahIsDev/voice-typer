@@ -1,9 +1,12 @@
 {
-  "_comment": "Tauri binary integrity manifest. Mirrors the structure of voice_typer/server/native/binaries.json but for the Tauri host binary (voice-typer-tauri) that the autostart launcher spawns at login. Each entry maps a binary file name (as discovered by voice_typer.server.autostart_launcher._tauri_binary, which scans well-known install paths per OS) to its expected SHA-256, build version, and minimum protocol version. At runtime, the proposed verify_tauri_binary_or_skip(path) helper (to be added to autostart_launcher.py by the cross-file agent — see cross-file note) hashes the discovered binary with hashlib.sha256 and compares against the sha256 field here. On mismatch (or missing/empty manifest entry), the helper logs an error and the autostart launcher falls back to spawning the Electron dev binary instead of an untrusted Tauri binary. Entries with an empty sha256 (binaries not built in this Linux dev tree) cause verify_tauri_binary_or_skip to FAIL CLOSED (return False + log ERROR) — production builds MUST populate all five sha256 fields via a scripts/build/update_tauri_manifests.py helper (to be authored by the cross-file agent) run by CI after the Tauri build. The min_proto_version field is reserved for future IPC protocol-version gating (PVT-G5-063 follow-up); the loader does not yet enforce it. VT_TAURI_BINARY env-var override: when set, the autostart launcher uses that path UNCHANGED — the proposed verify_tauri_binary_or_skip(path) call MUST still verify it against this manifest so an attacker cannot use VT_TAURI_BINARY to bypass the integrity gate (the env var is the documented attack vector).",
+  "_comment": "Tauri binary integrity manifest. Mirrors the structure of voice_typer/server/native/binaries.json but for the Tauri host binary (voice-typer-tauri) that the autostart launcher spawns at login. (2026-10): each binary entry's `sha256` field is now a per-(platform, arch) dict (e.g. `{\"linux-x86_64\": \"...\", \"linux-aarch64\": \"...\"}`) so the manifest can disambiguate the same binary file name across architectures. macOS uses the single key `macos` because the .app bundle ships a universal Mach-O binary (x86_64 + arm64 slices). The legacy flat-string `sha256` field is replaced by this dict — the loader (verify_tauri_binary_or_skip, to be added to autostart_launcher.py) MUST consult the per-arch sub-key matching `platform.system().lower()` + '-' + `platform.machine()` (with macOS collapsed to `macos`). At runtime, the proposed verify_tauri_binary_or_skip(path) helper hashes the discovered binary with hashlib.sha256 and compares against the per-arch sha256 here. On mismatch (or missing/empty manifest entry for the running platform/arch), the helper logs an error and the autostart launcher falls back to spawning the Electron dev binary instead of an untrusted Tauri binary. Entries with an empty sha256 (binaries not built in this Linux dev tree) cause verify_tauri_binary_or_skip to FAIL CLOSED (return False + log ERROR) — production builds MUST populate all per-arch sha256 fields via a scripts/build/update_tauri_manifests.py helper (to be authored by the cross-file agent) run by CI after the Tauri build. The min_proto_version field is reserved for future IPC protocol-version gating (PVT-G5-063 follow-up); the loader does not yet enforce it. VT_TAURI_BINARY env-var override: when set, the autostart launcher uses that path UNCHANGED — the proposed verify_tauri_binary_or_skip(path) call MUST still verify it against this manifest so an attacker cannot use VT_TAURI_BINARY to bypass the integrity gate (the env var is the documented attack vector).",
   "version": 1,
   "binaries": {
     "voice-typer-tauri": {
-      "sha256": "",
+      "sha256": {
+        "linux-x86_64": "",
+        "linux-aarch64": ""
+      },
       "version": "1.0.0",
       "min_proto_version": 1,
       "_platforms": ["linux-x86_64", "linux-aarch64"],
@@ -14,7 +17,10 @@
       ]
     },
     "voice-typer-tauri.exe": {
-      "sha256": "",
+      "sha256": {
+        "windows-x86_64": "",
+        "windows-aarch64": ""
+      },
       "version": "1.0.0",
       "min_proto_version": 1,
       "_platforms": ["windows-x86_64", "windows-aarch64"],
@@ -24,17 +30,20 @@
       ]
     },
     "voice-typer-tauri.app": {
-      "sha256": "",
+      "sha256": {
+        "macos": ""
+      },
       "version": "1.0.0",
       "min_proto_version": 1,
-      "_platforms": ["macos-x86_64", "macos-aarch64"],
+      "_platforms": ["macos"],
       "_install_paths": [
         "/Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri",
         "~/Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri"
       ],
-      "_note": "The macOS bundle name is APP_NAME (Voice Typer); the inner executable is the Cargo binary name (voice-typer-tauri). The sha256 is computed over the inner executable, NOT the .app bundle."
+      "_note": "The macOS bundle name is APP_NAME (Voice Typer); the inner executable is the Cargo binary name (voice-typer-tauri). The sha256 is computed over the inner executable, NOT the .app bundle. macOS ships a universal Mach-O binary (x86_64 + arm64 slices) so the manifest uses a single `macos` key rather than separate `macos-x86_64` / `macos-aarch64` keys."
     }
   },
-  "_schema_version": 1,
-  "_manifest_loader_contract": "The loader (verify_tauri_binary_or_skip, to be implemented in autostart_launcher.py) MUST: (1) look up the binary by Path.name (matching one of the keys in 'binaries'); (2) read the sha256 field; (3) if the field is empty OR the entry is missing, FAIL CLOSED (log ERROR, return False) — production builds must populate every entry; (4) if the field is non-empty, compute hashlib.sha256(path.read_bytes()).hexdigest() and compare with hmac.compare_digest against the expected value; (5) on mismatch, log ERROR and return False. The loader MUST NOT silently trust a binary whose manifest entry is missing or has an empty sha256 (CR-002 fail-closed semantics, mirroring voice_typer/server/native_hotkeys/binary_path.py:517-562)."
+  "_schema_version": 2,
+  "_schema_changelog": "v1 (2026-09): flat `sha256: \"<hex>\"` string per binary entry. v2 (2026-10): `sha256` is now a per-(platform, arch) dict so the manifest can disambiguate the same binary file name across architectures. The loader (verify_tauri_binary_or_skip) MUST consult the per-arch sub-key matching the running platform/arch rather than the flat string.",
+  "_manifest_loader_contract": "The loader (verify_tauri_binary_or_skip, to be implemented in autostart_launcher.py) MUST: (1) look up the binary by Path.name (matching one of the keys in 'binaries'); (2) read the per-(platform, arch) sha256 dict — compute the lookup key as `<platform>-<arch>` where platform is platform.system().lower() (with 'darwin' collapsed to 'macos') and arch is platform.machine().lower() (with 'amd64' normalized to 'x86_64'); for macOS the key is just 'macos' (universal binary); (3) if the sub-key is missing OR the value is empty OR the entry is missing, FAIL CLOSED (log ERROR, return False) — production builds must populate every per-arch sub-key; (4) if the sub-key has a non-empty value, compute hashlib.sha256(path.read_bytes()).hexdigest() and compare with hmac.compare_digest against the expected value; (5) on mismatch, log ERROR and return False. The loader MUST NOT silently trust a binary whose manifest entry is missing or has an empty per-arch sha256 (CR-002 fail-closed semantics, mirroring voice_typer/server/native_hotkeys/binary_path.py:517-562)."
 }

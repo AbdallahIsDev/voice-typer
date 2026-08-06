@@ -290,37 +290,57 @@ class TestRateLimiterCommandCosts:
         )
 
 
-class TestRateLimiterIntegrationWithDispatch:
-    """Integration: the per-process ``_RateLimiter`` is now consulted
-    at the TOP of ``IPCServer._dispatch`` (the single chokepoint that
-    makes the limiter apply to ALL three transports — TCP, WS, stdin —
-    via one lookup). These tests flood ``server._dispatch`` with
-    expensive commands and verify only the expected few are accepted;
-    the rest are rejected with the ``client.rate_limited`` envelope."""
+class TestRateLimiterIntegrationWithTransports:
+    """Integration: the per-process ``_RateLimiter`` is enforced at the
+    three transport chokepoints (TCP read loop, WS dispatch closure,
+    stdin runner) BEFORE ``_dispatch`` is called — NOT inside
+    ``_dispatch`` itself. Enforcing it inside ``_dispatch`` as well
+    would charge every accepted command's cost against the
+    burst/sustained budget TWICE (once at the transport gate, once in
+    ``_dispatch``), halving the effective burst budget. The
+    single-call-per-transport contract is pinned by
+    ``tests/server/test_ipc_rate_limiter_chokepoints.py``.
 
-    def test_flood_of_download_model_rejected_by_rate_limit(self, server, mock_app):
-        """Flood 200 ``download_model`` commands via ``server._dispatch``.
-        Each consumes 50 burst units (burst=200), so exactly 4 are
-        accepted; the remaining 196 are rejected with the
-        ``client.rate_limited`` envelope (the same envelope shape the
-        TCP read loop emits at ``transport_tcp.py:689-694``).
+    This class floods the STDIN chokepoint (the in-process transport —
+    no sockets needed) with expensive commands and verifies only the
+    expected few are accepted; the rest are rejected with the
+    ``client.rate_limited`` envelope.
+    """
+
+    def test_flood_of_download_model_rejected_by_rate_limit(self, server):
+        """Flood 200 ``download_model`` commands through the stdin
+        transport chokepoint (``server._run``). Each consumes 50 burst
+        units (burst=200), so exactly 4 are accepted; the remaining
+        196 are rejected with the ``client.rate_limited`` envelope (the
+        same envelope shape the TCP read loop emits at
+        ``transport_tcp.py:689-694``).
         """
+        import io
+        import json
         from unittest.mock import MagicMock
 
         # Mock _handle_download_model so the test doesn't actually try
-        # to download a model — we're testing the rate-limit chokepoint
-        # in ``_dispatch``, not the handler body. The mock returns a
-        # success envelope so the accepted/rejected count cleanly
-        # reflects the limiter's decision.
+        # to download a model — we're testing the rate-limit chokepoint,
+        # not the handler body. The mock returns a success envelope so
+        # the accepted/rejected count cleanly reflects the limiter's
+        # decision.
         server._handle_download_model = MagicMock(return_value={"type": "result", "data": {"ok": True}})
+
+        stdin = io.StringIO()
+        for i in range(200):
+            stdin.write(json.dumps({"id": i, "type": "download_model"}) + "\n")
+        stdin.seek(0)
+        stdout = io.StringIO()
+        server._running = True
+        server._run(_stdin=stdin, _stdout=stdout)
 
         accepted = 0
         rejected = 0
-        for i in range(200):
-            result = server._dispatch({"id": i, "type": "download_model"})
-            data = result.get("data", {}) if isinstance(result, dict) else {}
-            code = data.get("code", "")
-            if code == "client.rate_limited":
+        for line in stdout.getvalue().strip().split("\n"):
+            if not line:
+                continue
+            msg = json.loads(line)
+            if msg.get("data", {}).get("code") == "client.rate_limited":
                 rejected += 1
             else:
                 accepted += 1
@@ -331,7 +351,7 @@ class TestRateLimiterIntegrationWithDispatch:
         assert accepted == 4, (
             "Expected exactly 4 download_model commands accepted "
             "(burst=200 / cost=50 = 4); got "
-            f"{accepted}. The per-command cost map and the dispatcher "
+            f"{accepted}. The per-command cost map and the stdin "
             "rate-limit chokepoint must agree on download_model=50."
         )
         assert rejected == 196, (

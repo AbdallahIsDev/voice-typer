@@ -124,11 +124,13 @@ class TestConstants:
 
     def test_polkit_stable_path_constant(self, ip_module):
         """``POLKIT_STABLE_PATH`` points at the canonical polkit-stable path."""
-        assert str(ip_module.POLKIT_STABLE_PATH) == ("/usr/share/voice-typer/scripts/install_permissions.py")
+        # as_posix() keeps the assertion path-separator agnostic: on
+        # Windows, str(Path('/usr/share/...')) renders with backslashes.
+        assert ip_module.POLKIT_STABLE_PATH.as_posix() == ("/usr/share/voice-typer/scripts/install_permissions.py")
 
     def test_polkit_policy_dest_constant(self, ip_module):
         """``POLKIT_POLICY_DEST`` points at the canonical polkit actions dir."""
-        assert str(ip_module.POLKIT_POLICY_DEST) == ("/usr/share/polkit-1/actions/org.voice-typer.policy")
+        assert ip_module.POLKIT_POLICY_DEST.as_posix() == ("/usr/share/polkit-1/actions/org.voice-typer.policy")
 
     def test_polkit_policy_source_exists(self, ip_module):
         """``POLKIT_POLICY_SOURCE`` (sibling voice-typer.polkit) exists.
@@ -190,6 +192,31 @@ class TestAppImageDetection:
 # ─── setup_polkit_stable_path ─────────────────────────────────────────────
 
 
+def _symlinks_supported() -> bool:
+    """Return True iff ``os.symlink`` works on this host.
+
+    Windows requires Developer Mode or an elevated shell to create
+    symlinks (WinError 1314 otherwise). The polkit-stable symlink is
+    a Linux-installer concern; on hosts without symlink privileges the
+    symlink-specific tests are skipped (the copy / no-clobber paths
+    are still exercised).
+    """
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        try:
+            os.symlink(td, os.path.join(td, "probe"))
+        except (OSError, NotImplementedError):
+            return False
+        return True
+
+
+_skip_no_symlink = pytest.mark.skipif(
+    not _symlinks_supported(),
+    reason="symlink creation not supported on this host (Windows without Developer Mode / admin)",
+)
+
+
 class TestSetupPolkitStablePath:
     """``setup_polkit_stable_path()`` behavior."""
 
@@ -227,6 +254,7 @@ class TestSetupPolkitStablePath:
         ip_module.setup_polkit_stable_path()
         assert len(polkit_calls) == 1, "Should call _install_polkit_policy exactly once"
 
+    @_skip_no_symlink
     def test_creates_symlink_for_stable_install(self, ip_module, monkeypatch, tmp_path):
         """For stable install paths (non-AppImage), creates a symlink."""
         monkeypatch.setattr(ip_module, "is_root", lambda: True)
@@ -311,6 +339,7 @@ class TestSetupPolkitStablePath:
         assert stable_path.read_text() == original_content
         assert not stable_path.is_symlink()
 
+    @_skip_no_symlink
     def test_idempotent_symlink_creation(self, ip_module, monkeypatch, tmp_path):
         """Re-running setup with an existing correct symlink is a no-op."""
         monkeypatch.setattr(ip_module, "is_root", lambda: True)

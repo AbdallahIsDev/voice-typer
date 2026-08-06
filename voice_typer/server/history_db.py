@@ -364,83 +364,21 @@ def _secure_copy_db_file(src: Path, dst: Path) -> None:
             os.fsync(f_dst.fileno())
 
 
-def _prepare_like_search_pattern(query: str) -> str:
-    """Build a bounded LIKE pattern where user wildcards stay literal."""
-    capped_query = query[:_MAX_SEARCH_QUERY_CHARS]
-    escaped_query = capped_query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return f"%{escaped_query}%"
-
-
-def _is_fts_compatible_query(query: str) -> bool:
-    """return True if the (capped) query can be served by the FTS5 index.
-
-    FTS5's ``unicode61`` tokenizer treats ``%``, ``_``, and most
-    punctuation as *separators*. A query consisting ONLY of separator
-    characters produces zero tokens and either raises a syntax error
-    (e.g. ``%``) or silently matches nothing (e.g. ``_``). For such
-    queries we fall back to LIKE so users can still find rows containing
-    literal ``%`` / ``_`` characters (matches the pre- behavior
-    pinned by ``test_search_treats_like_wildcards_as_literals``).
-
-    Heuristic: strip every non-word character (Unicode-aware) and check
-    if anything remains. If yes, FTS5 will produce at least one token
-    and can serve the query. If no, fall back to LIKE.
-    """
-    capped = query[:_MAX_SEARCH_QUERY_CHARS]
-    # \W matches [^a-zA-Z0-9_] in ASCII mode, but with re.UNICODE (the
-    # default in Py3) it matches any non-word character. We also
-    # explicitly strip ``_`` because ``\w`` includes underscore.
-    stripped = re.sub(r"[\W_]+", "", capped, flags=re.UNICODE)
-    return bool(stripped)
-
-
-def _sanitize_fts_query(query: str) -> str:
-    """escape FTS5 special characters so user input is treated as literals.
-
-    FTS5 MATCH syntax treats ``*``, ``"``, ``(``, ``)``, ``:``, ``^``,
-    ``{``, ``}`` and a few others as syntax. A user typing ``foo*``
-    expects a substring/literal match, not an FTS5 prefix query. We wrap
-    each whitespace-separated token in double quotes (FTS5 "phrase"
-    syntax) so the token is treated as a literal string. This means:
-
-    - ``foo`` → ``"foo"`` (exact-token match)
-    - ``foo*`` → ``"foo*"`` (literal ``foo*``, no prefix expansion)
-    - ``hello world`` → ``"hello" "world"`` (implicit AND of two tokens)
-    - ``100%`` → ``"100%"`` (but ``%`` is a separator, so the actual
-      token FTS5 sees is ``100``; the query still works)
-
-    The caller is responsible for checking ``_is_fts_compatible_query``
-    first — this function assumes the query has at least one
-    FTS5-tokenizable character.
-    """
-    capped = query[:_MAX_SEARCH_QUERY_CHARS]
-    tokens = capped.split()
-    if not tokens:
-        # Shouldn't happen (caller checks _is_fts_compatible_query), but
-        # guard anyway: an empty MATCH is a syntax error.
-        return '""'
-    # Wrap each token in double quotes. Escape any embedded double
-    # quotes by doubling them (SQL string-literal style).
-    quoted = []
-    for tok in tokens:
-        escaped_tok = tok.replace('"', '""')
-        quoted.append(f'"{escaped_tok}"')
-    return " ".join(quoted)
-
-
-def _project_text_row(row: sqlite3.Row | tuple) -> dict:
-    """post-process a SQLite row from get_recent/search/get_favorites."""
-    d = dict(row)
-    full_length = d.get("text_full_length")
-    if full_length is None:
-        full_length_int = 0
-        truncated = False
-    else:
-        full_length_int = int(full_length)
-        truncated = full_length_int > _HISTORY_TEXT_PREVIEW_LENGTH
-    d["text_truncated"] = truncated
-    d["text_full_length"] = full_length_int
-    return d
+# Search / LIKE / FTS5 helpers + row projection live in
+# ``voice_typer.server.history_db_internals.search``. They are
+# re-exported here under their original (underscore-prefixed) names so
+# existing callers (and tests that import ``history_db._is_fts_compatible_query``
+# etc.) keep working unchanged. The re-exported callables are the SAME
+# function objects that ``history_db_internals.search.search`` /
+# ``get_recent`` / ``get_favorites`` call internally, so monkeypatching
+# the module-level helper via ``history_db._is_fts_compatible_query`` is
+# NOT observed by the delegating methods — callers that need to
+# monkeypatch should target ``history_db_internals.search`` directly.
+# (No existing test monkeypatches these helpers at the module level;
+# they only call them directly, which works through the re-export.)
+from voice_typer.server.history_db_internals.search import (  # noqa: E402,F401 — backward-compat re-export
+    is_fts_compatible_query as _is_fts_compatible_query,
+)
 
 
 def _wrap_write(failure_value, fail_verb, writer_label):
@@ -805,9 +743,10 @@ class HistoryDB:
             if result is not None:
                 status, pages_checkpointed, total_pages = result
                 # Only log when a non-trivial checkpoint happens (>= 100
-                # pages) to avoid flooding the log every 300s. Tiny
-                # checkpoints (e.g. 20 pages) are silent — the WAL is
-                # healthy, no action needed.
+                # pages) to avoid flooding the log at the checkpoint
+                # cadence (_WAL_CHECKPOINT_INTERVAL). Tiny checkpoints
+                # (e.g. 20 pages) are silent — the WAL is healthy, no
+                # action needed.
                 # status: 0=ok, 1=partial(active readers), 2=full(needs restart)
                 if pages_checkpointed >= 100:
                     if status == 0:
@@ -825,8 +764,7 @@ class HistoryDB:
         except sqlite3.OperationalError as e:
             # This can happen when an external process (e.g. antivirus
             # scan) holds a lock on the WAL file. The next checkpoint
-            # attempt in 300s will retry (the constant is
-            # _WAL_CHECKPOINT_INTERVAL).
+            # attempt (after _WAL_CHECKPOINT_INTERVAL) will retry.
             log.debug(
                 "[HISTORY_DB] WAL checkpoint skipped (will retry in %.0fs): %s",
                 _WAL_CHECKPOINT_INTERVAL,
@@ -1191,28 +1129,20 @@ class HistoryDB:
         # state.
         with contextlib.suppress(sqlite3.Error):
             conn.close()
-        # Rename the corrupt DB and its WAL/SHM sidecar files.
-        timestamp = int(time.time())
-        corrupt_suffix = f".corrupt-{timestamp}"
-        corrupt_main = self.db_path.with_name(self.db_path.name + corrupt_suffix)
-        for sidecar in ("", "-wal", "-shm"):
-            src = self.db_path.with_name(self.db_path.name + sidecar)
-            if src.exists():
-                dst = corrupt_main.with_name(corrupt_main.name + sidecar)
-                with contextlib.suppress(OSError):
-                    src.rename(dst)
-        log.warning(
-            "[HISTORY_DB] Renamed corrupt DB to %s",
-            corrupt_main,
-        )
-        # invalidate all existing read connections. On POSIX,
-        # renaming the corrupt DB file doesn't affect already-open
-        # file descriptors — readers would keep reading stale/garbage
-        # data from the renamed file. Close every tracked read conn
-        # and bump the generation counter so each reader thread's
-        # next ``_get_read_conn`` call detects the mismatch, closes
-        # its stale thread-local conn, and reconnects to the fresh
-        # DB file. We can't clear other threads' ``_read_local.conn``
+        # invalidate all existing read connections BEFORE renaming.
+        # On POSIX, renaming the corrupt DB file doesn't affect
+        # already-open file descriptors — readers would keep reading
+        # stale/garbage data from the renamed file, so we close every
+        # tracked read conn and bump the generation counter so each
+        # reader thread's next ``_get_read_conn`` call detects the
+        # mismatch, closes its stale thread-local conn, and reconnects
+        # to the fresh DB file. On Windows, closing first is MANDATORY
+        # for a different reason: an open SQLite handle locks the file,
+        # so ``os.rename`` of the corrupt DB (below) silently fails
+        # with WinError 32 — the corrupt-renamed file never appears and
+        # ``_try_iterdump_recovery`` finds nothing (recovered_count=0).
+        # Closing readers before the rename makes recovery work on both
+        # platforms. We can't clear other threads' ``_read_local.conn``
         # directly, but the generation check handles it lazily.
         with self._connections_lock:
             for _ident, rconn in self._all_read_connections:
@@ -1227,6 +1157,20 @@ class HistoryDB:
                 self._read_local.conn.close()
             self._read_local.conn = None
             self._read_local.gen = self._read_conn_generation
+        # Rename the corrupt DB and its WAL/SHM sidecar files.
+        timestamp = int(time.time())
+        corrupt_suffix = f".corrupt-{timestamp}"
+        corrupt_main = self.db_path.with_name(self.db_path.name + corrupt_suffix)
+        for sidecar in ("", "-wal", "-shm"):
+            src = self.db_path.with_name(self.db_path.name + sidecar)
+            if src.exists():
+                dst = corrupt_main.with_name(corrupt_main.name + sidecar)
+                with contextlib.suppress(OSError):
+                    src.rename(dst)
+        log.warning(
+            "[HISTORY_DB] Renamed corrupt DB to %s",
+            corrupt_main,
+        )
         # BEFORE opening the fresh DB, attempt to recover
         # user-data INSERTs from the now-renamed corrupt file. The
         # corrupt file is at ``corrupt_main``; we open it read-only
@@ -2245,69 +2189,27 @@ class HistoryDB:
         are both supplied, the WHERE clause restricts to rows strictly
         older than ``(before_timestamp, before_id)`` in (timestamp DESC,
         id DESC) order — i.e. ``timestamp < ? OR (timestamp = ? AND
-        id < ?)``. This is O(log N) per page via ``idx_timestamp``,
+        id < ?)``. This is O(log N) per page via ``idx_timestamp_id``,
         whereas OFFSET is O(offset) (SQLite still scans & discards
         ``offset`` rows). Callers paginating past the first page
         should pass the (timestamp, id) of the last row of the
         previous page. When either cursor value is ``None`` the
         OFFSET fallback is used (backward-compatible with the
-        pre-cursor contract).
+        pre-cursor contract), but ``offset`` must be < 1000 — deeper
+        pagination requires cursor mode.
+
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.search.get_recent`.
         """
-        limit = min(max(limit, 1), _MAX_LIST_LIMIT)
-        conn = self._get_read_conn()
-        with contextlib.closing(conn.cursor()) as cursor:
-            use_cursor = before_timestamp is not None and before_id is not None
-            if use_cursor:
-                cursor.execute(
-                    """
-                    SELECT
-                        id,
-                        SUBSTR(text, 1, ?) AS text,
-                        LENGTH(text) AS text_full_length,
-                        timestamp,
-                        duration,
-                        model,
-                        device,
-                        word_count,
-                        char_count,
-                        favorite,
-                        language
-                    FROM transcriptions
-                    WHERE timestamp < ? OR (timestamp = ? AND id < ?)
-                    ORDER BY timestamp DESC, id DESC
-                    LIMIT ?
-                """,
-                    (
-                        _HISTORY_TEXT_PREVIEW_LENGTH,
-                        before_timestamp,
-                        before_timestamp,
-                        before_id,
-                        limit,
-                    ),
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT
-                        id,
-                        SUBSTR(text, 1, ?) AS text,
-                        LENGTH(text) AS text_full_length,
-                        timestamp,
-                        duration,
-                        model,
-                        device,
-                        word_count,
-                        char_count,
-                        favorite,
-                        language
-                    FROM transcriptions
-                    ORDER BY timestamp DESC, id DESC
-                    LIMIT ? OFFSET ?
-                """,
-                    (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
-                )
-            rows = cursor.fetchall()
-        return [_project_text_row(row) for row in rows]
+        from voice_typer.server.history_db_internals import search
+
+        return search.get_recent(
+            self,
+            limit,
+            offset,
+            before_timestamp=before_timestamp,
+            before_id=before_id,
+        )
 
     def get_latest_text(self) -> str:
         """Return the most recent transcription text, or ``""`` if DB is empty.
@@ -2327,16 +2229,13 @@ class HistoryDB:
         Note: if you just called ``add_transcription()``, call
         ``flush()`` first to guarantee the row is committed before this
         read.
+
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.search.get_latest_text`.
         """
-        try:
-            conn = self._get_read_conn()
-            with contextlib.closing(conn.cursor()) as cur:
-                cur.execute("SELECT text FROM transcriptions ORDER BY id DESC LIMIT 1")
-                row = cur.fetchone()
-            return row[0] if row else ""
-        except Exception as e:
-            log.error("[HISTORY] Failed to get latest transcription: %s", e)
-            return ""
+        from voice_typer.server.history_db_internals import search
+
+        return search.get_latest_text(self)
 
     @_wrap_read([], "search transcriptions")
     def search(
@@ -2365,125 +2264,26 @@ class HistoryDB:
         user's input is treated as a literal phrase rather than FTS5
         MATCH syntax (e.g. ``foo*`` matches the literal token ``foo*``,
         not a prefix query).
+
+        On the no-cursor path the FTS5 ``LIMIT`` is pushed INTO the FTS
+        subquery so FTS5 only materialises the rowids that will actually
+        be returned, rather than the full match set — see
+        :func:`voice_typer.server.history_db_internals.search.search`
+        for details.
+
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.search.search`.
         """
-        limit = min(max(limit, 1), _MAX_LIST_LIMIT)
-        conn = self._get_read_conn()
-        with contextlib.closing(conn.cursor()) as cursor:
-            capped = query[:_MAX_SEARCH_QUERY_CHARS]
-            use_cursor = before_timestamp is not None and before_id is not None
-            if capped and _is_fts_compatible_query(capped):
-                fts_query = _sanitize_fts_query(capped)
-                if use_cursor:
-                    cursor.execute(
-                        """
-                        SELECT
-                            t.id,
-                            SUBSTR(t.text, 1, ?) AS text,
-                            LENGTH(t.text) AS text_full_length,
-                            t.timestamp,
-                            t.duration,
-                            t.model,
-                            t.device,
-                            t.word_count,
-                            t.char_count,
-                            t.favorite,
-                            t.language
-                        FROM transcriptions t
-                        JOIN transcriptions_fts AS f ON f.rowid = t.id
-                        WHERE transcriptions_fts MATCH ?
-                          AND (t.timestamp < ? OR (t.timestamp = ? AND t.id < ?))
-                        ORDER BY t.timestamp DESC, t.id DESC
-                        LIMIT ?
-                    """,
-                        (
-                            _HISTORY_TEXT_PREVIEW_LENGTH,
-                            fts_query,
-                            before_timestamp,
-                            before_timestamp,
-                            before_id,
-                            limit,
-                        ),
-                    )
-                else:
-                    cursor.execute(
-                        """
-                        SELECT
-                            t.id,
-                            SUBSTR(t.text, 1, ?) AS text,
-                            LENGTH(t.text) AS text_full_length,
-                            t.timestamp,
-                            t.duration,
-                            t.model,
-                            t.device,
-                            t.word_count,
-                            t.char_count,
-                            t.favorite,
-                            t.language
-                        FROM transcriptions t
-                        JOIN transcriptions_fts AS f ON f.rowid = t.id
-                        WHERE transcriptions_fts MATCH ?
-                        ORDER BY t.timestamp DESC, t.id DESC
-                        LIMIT ? OFFSET ?
-                    """,
-                        (_HISTORY_TEXT_PREVIEW_LENGTH, fts_query, limit, offset),
-                    )
-            else:
-                # LIKE fallback.
-                pattern = _prepare_like_search_pattern(query)
-                if use_cursor:
-                    cursor.execute(
-                        """
-                        SELECT
-                            id,
-                            SUBSTR(text, 1, ?) AS text,
-                            LENGTH(text) AS text_full_length,
-                            timestamp,
-                            duration,
-                            model,
-                            device,
-                            word_count,
-                            char_count,
-                            favorite,
-                            language
-                        FROM transcriptions
-                        WHERE text LIKE ? ESCAPE '\\'
-                          AND (timestamp < ? OR (timestamp = ? AND id < ?))
-                        ORDER BY timestamp DESC, id DESC
-                        LIMIT ?
-                    """,
-                        (
-                            _HISTORY_TEXT_PREVIEW_LENGTH,
-                            pattern,
-                            before_timestamp,
-                            before_timestamp,
-                            before_id,
-                            limit,
-                        ),
-                    )
-                else:
-                    cursor.execute(
-                        """
-                        SELECT
-                            id,
-                            SUBSTR(text, 1, ?) AS text,
-                            LENGTH(text) AS text_full_length,
-                            timestamp,
-                            duration,
-                            model,
-                            device,
-                            word_count,
-                            char_count,
-                            favorite,
-                            language
-                        FROM transcriptions
-                        WHERE text LIKE ? ESCAPE '\\'
-                        ORDER BY timestamp DESC, id DESC
-                        LIMIT ? OFFSET ?
-                    """,
-                        (_HISTORY_TEXT_PREVIEW_LENGTH, pattern, limit, offset),
-                    )
-            rows = cursor.fetchall()
-        return [_project_text_row(row) for row in rows]
+        from voice_typer.server.history_db_internals import search
+
+        return search.search(
+            self,
+            query,
+            limit,
+            offset,
+            before_timestamp=before_timestamp,
+            before_id=before_id,
+        )
 
     @_wrap_read([], "get favorites")
     def get_favorites(
@@ -2499,64 +2299,19 @@ class HistoryDB:
 
         see ``get_recent`` for ``raise_on_error`` and cursor-pagination
         (``before_timestamp`` / ``before_id``) semantics.
+
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.search.get_favorites`.
         """
-        limit = min(max(limit, 1), _MAX_LIST_LIMIT)
-        conn = self._get_read_conn()
-        with contextlib.closing(conn.cursor()) as cursor:
-            use_cursor = before_timestamp is not None and before_id is not None
-            if use_cursor:
-                cursor.execute(
-                    """
-                    SELECT
-                        id,
-                        SUBSTR(text, 1, ?) AS text,
-                        LENGTH(text) AS text_full_length,
-                        timestamp,
-                        duration,
-                        model,
-                        device,
-                        word_count,
-                        char_count,
-                        favorite,
-                        language
-                    FROM transcriptions
-                    WHERE favorite = 1
-                      AND (timestamp < ? OR (timestamp = ? AND id < ?))
-                    ORDER BY timestamp DESC, id DESC
-                    LIMIT ?
-                """,
-                    (
-                        _HISTORY_TEXT_PREVIEW_LENGTH,
-                        before_timestamp,
-                        before_timestamp,
-                        before_id,
-                        limit,
-                    ),
-                )
-            else:
-                cursor.execute(
-                    """
-                    SELECT
-                        id,
-                        SUBSTR(text, 1, ?) AS text,
-                        LENGTH(text) AS text_full_length,
-                        timestamp,
-                        duration,
-                        model,
-                        device,
-                        word_count,
-                        char_count,
-                        favorite,
-                        language
-                    FROM transcriptions
-                    WHERE favorite = 1
-                    ORDER BY timestamp DESC, id DESC
-                    LIMIT ? OFFSET ?
-                """,
-                    (_HISTORY_TEXT_PREVIEW_LENGTH, limit, offset),
-                )
-            rows = cursor.fetchall()
-        return [_project_text_row(row) for row in rows]
+        from voice_typer.server.history_db_internals import search
+
+        return search.get_favorites(
+            self,
+            limit,
+            offset,
+            before_timestamp=before_timestamp,
+            before_id=before_id,
+        )
 
     @_wrap_read(lambda: {"count": 0, "chars": 0, "word_count": 0, "duration": 0}, "get today stats")
     def get_today_stats(self, *, raise_on_error: bool = False) -> dict:
@@ -2572,71 +2327,13 @@ class HistoryDB:
         (add/delete/clear/restore/retention), so a stale-by-N result is
         never served after a write. The returned dict is a shallow copy
         so callers can mutate it without corrupting the cached value.
+
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.search.get_today_stats`.
         """
-        # check the cache first.
-        now = time.monotonic()
-        with self._today_stats_cache_lock:
-            if self._today_stats_cache is not None and (now - self._today_stats_cache_ts) < _TODAY_STATS_CACHE_TTL_S:
-                # Return a shallow copy so callers can mutate the
-                # returned dict without corrupting the cached value
-                # (see ``test_cache_returns_independent_dict_copy``).
-                return dict(self._today_stats_cache)
-        conn = self._get_read_conn()
-        with contextlib.closing(conn.cursor()) as cursor:
-            # Sargable predicate. ``DATE(timestamp) = DATE('now')`` applies
-            # a function to every row's ``timestamp`` column, so SQLite
-            # cannot use ``idx_timestamp`` and falls back to a full table
-            # scan. The range form ``timestamp >= <lower> AND
-            # timestamp < <upper>`` lets the query planner use the index.
-            #
-            # ``timestamp`` is stored as an ISO-8601 string
-            # (``CURRENT_TIMESTAMP`` — UTC, NOT ``datetime.now().isoformat()``
-            # which would be local), so lexicographic comparison against
-            # the datetime boundaries is correct: any ISO-8601 timestamp
-            # from a given day sorts after that day's midnight string and
-            # before the next day's midnight string.
-            #
-            # Timezone fix (two-step): (1) the boundaries use
-            # ``DATETIME('now', 'localtime', 'start of day')`` so "today"
-            # tracks the user's LOCAL calendar day, not UTC — previously
-            # ``DATE('now')`` returned the UTC date, so for a user in
-            # UTC+8 dictating at 9pm local (1pm UTC) the "today" stats
-            # rolled over to a new UTC day showing 0 until midnight UTC.
-            # (2) the boundary values are then converted back to UTC via
-            # the trailing ``'utc'`` modifier, because the ``timestamp``
-            # column is stored as UTC (``CURRENT_TIMESTAMP``). Without
-            # the conversion, a UTC+X machine compared the UTC-stored
-            # ISO strings against *local* midnight strings — off by the
-            # timezone offset, so rows written after local midnight but
-            # before the UTC midnight of the same local day fell outside
-            # the window and were silently excluded from "today"
-            # (count=0 on the Dashboard until the clock caught up).
-            cursor.execute("""
-                SELECT
-                    COUNT(*) as count,
-                    SUM(char_count) as chars,
-                    SUM(word_count) as word_count,
-                    SUM(duration) as duration
-                FROM transcriptions
-                WHERE timestamp >= DATETIME('now', 'localtime', 'start of day', 'utc')
-                  AND timestamp < DATETIME('now', 'localtime', 'start of day', '+1 day', 'utc')
-            """)
-            row = cursor.fetchone()
-        result = {
-            "count": row[0] or 0,
-            "chars": row[1] or 0,
-            "word_count": row[2] or 0,
-            "duration": row[3] or 0,
-        }
-        # store the result in the cache (under the lock so a
-        # concurrent invalidator doesn't race the write). The cached
-        # value is the dict itself; callers receive a copy (above).
-        with self._today_stats_cache_lock:
-            self._today_stats_cache = result
-            self._today_stats_cache_ts = time.monotonic()
-        # Return a shallow copy on the cache-miss path too, so the
-        # caller's mutation can't reach the freshly-stored cache.
-        return dict(result)
+        from voice_typer.server.history_db_internals import search
+
+        return search.get_today_stats(self)
 
     def _invalidate_today_stats_cache(self) -> None:
         """drop the cached today-stats dict.
@@ -2649,10 +2346,13 @@ class HistoryDB:
         today-stats cache is invalidated on EVERY mutation — today's
         stats grow by 1 per dictation and the user wants to see them
         update live.
+
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.search.invalidate_today_stats_cache`.
         """
-        with self._today_stats_cache_lock:
-            self._today_stats_cache = None
-            self._today_stats_cache_ts = 0.0
+        from voice_typer.server.history_db_internals import search
+
+        search.invalidate_today_stats_cache(self)
 
     # ──────────────────────────────────────────────────────────────
     #  on-demand full-text + total-count accessors
@@ -2669,27 +2369,17 @@ class HistoryDB:
         Companion to the 500-char ``text`` preview returned by
         ``get_recent`` / ``search`` / ``get_favorites``.
         Returns ``{"id": int, "text": str}`` (empty string if not found).
+
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.search.get_transcription_text`.
         """
-        try:
-            conn = self._get_read_conn()
-            with contextlib.closing(conn.cursor()) as cursor:
-                cursor.execute(
-                    "SELECT text FROM transcriptions WHERE id = ?",
-                    (transcription_id,),
-                )
-                row = cursor.fetchone()
-            if row is None:
-                return {"id": transcription_id, "text": ""}
-            return {"id": transcription_id, "text": row[0] or ""}
-        except Exception as e:
-            log.error(
-                "[HISTORY] Failed to get transcription text for id=%s: %s",
-                transcription_id,
-                e,
-            )
-            if raise_on_error:
-                raise HistoryDBError(str(e)) from e
-            return {"id": transcription_id, "text": ""}
+        from voice_typer.server.history_db_internals import search
+
+        return search.get_transcription_text(
+            self,
+            transcription_id,
+            raise_on_error=raise_on_error,
+        )
 
     def get_history_count(self, *, raise_on_error: bool = False) -> int:
         """return the total number of transcription rows.
@@ -2702,35 +2392,23 @@ class HistoryDB:
         ``add_transcription`` does NOT invalidate — the count grows
         by 1 per dictation, and a 60s-stale-by-N count is fine for a
         "Total Dictations" stat card.
+
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.search.get_history_count`.
         """
-        now = time.monotonic()
-        with self._history_count_cache_lock:
-            if (
-                self._history_count_cache is not None
-                and (now - self._history_count_cache_ts) < _HISTORY_COUNT_CACHE_TTL_S
-            ):
-                return self._history_count_cache
-        try:
-            conn = self._get_read_conn()
-            with contextlib.closing(conn.cursor()) as cursor:
-                cursor.execute("SELECT COUNT(*) FROM transcriptions")
-                row = cursor.fetchone()
-            count = int(row[0]) if row is not None else 0
-            with self._history_count_cache_lock:
-                self._history_count_cache = count
-                self._history_count_cache_ts = time.monotonic()
-            return count
-        except Exception as e:
-            log.error("[HISTORY] Failed to get history count: %s", e)
-            if raise_on_error:
-                raise HistoryDBError(str(e)) from e
-            return 0
+        from voice_typer.server.history_db_internals import search
+
+        return search.get_history_count(self, raise_on_error=raise_on_error)
 
     def _invalidate_history_count_cache(self) -> None:
-        """drop the cached total-count int."""
-        with self._history_count_cache_lock:
-            self._history_count_cache = None
-            self._history_count_cache_ts = 0.0
+        """drop the cached total-count int.
+
+        Delegates to
+        :func:`voice_typer.server.history_db_internals.search.invalidate_history_count_cache`.
+        """
+        from voice_typer.server.history_db_internals import search
+
+        search.invalidate_history_count_cache(self)
 
     # ──────────────────────────────────────────────────────────────
     # Maintenance & diagnostics

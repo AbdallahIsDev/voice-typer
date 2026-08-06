@@ -197,7 +197,9 @@ class TestLiveRetryBehaviourPreserved:
         """
         call_count = 0
 
-        def always_fails(path, content):
+        def always_fails(path, content, **kwargs):
+            # ``_secure_atomic_write`` is invoked with a
+            # ``durability`` keyword (ER-80); the mock must accept it.
             nonlocal call_count
             call_count += 1
             raise PermissionError(f"simulated lock #{call_count}")
@@ -226,7 +228,8 @@ class TestLiveRetryBehaviourPreserved:
         """
         call_count = 0
 
-        def fails_with_oserror(path, content):
+        def fails_with_oserror(path, content, **kwargs):
+            # accepts ``durability`` kwarg — see always_fails above.
             nonlocal call_count
             call_count += 1
             raise OSError("disk full (simulated)")
@@ -247,7 +250,8 @@ class TestLiveRetryBehaviourPreserved:
         """
         call_count = 0
 
-        def fails_once_then_succeeds(path, content):
+        def fails_once_then_succeeds(path, content, **kwargs):
+            # accepts ``durability`` kwarg — see always_fails above.
             nonlocal call_count
             call_count += 1
             if call_count == 1:
@@ -308,38 +312,39 @@ class TestCheckpointIntervalDocs:
             "'every 300s' to match _WAL_CHECKPOINT_INTERVAL."
         )
 
-    def test_run_checkpoint_comment_says_300s_not_60s(self):
+    def test_run_checkpoint_comment_references_constant_not_hardcoded(self):
         """The comment above the ``log.debug`` call in
-        ``_run_checkpoint`` (about log-flood avoidance) must say
-        'every 300s', NOT 'every 60s'.
+        ``_run_checkpoint`` (about log-flood avoidance) must reference
+        ``_WAL_CHECKPOINT_INTERVAL`` (the constant) instead of a
+        hardcoded ``300s`` literal — drift-free documentation.
         """
         from voice_typer.server.history_db import HistoryDB
 
         src = inspect.getsource(HistoryDB._run_checkpoint)
-        assert "every 300s" in src, (
-            "_run_checkpoint comment must say 'every 300s' to match the actual checkpoint cadence."
+        assert "_WAL_CHECKPOINT_INTERVAL" in src, (
+            "_run_checkpoint comment must reference '_WAL_CHECKPOINT_INTERVAL' "
+            "(the constant) instead of a hardcoded literal — drift-free."
         )
         assert "every 60s" not in src, (
-            "_run_checkpoint comment still says 'every 60s' — the WAL checkpoint actually runs every 300s."
+            "_run_checkpoint comment still says 'every 60s' — the stale cadence."
         )
 
-    def test_run_checkpoint_retry_comment_says_300s_not_60s(self):
-        """The comment about 'next checkpoint attempt in Ns will
-        retry' (above the OperationalError log.debug) must say
-        '300s', NOT '60s'.
+    def test_run_checkpoint_retry_comment_references_constant_not_hardcoded(self):
+        """The comment about 'next checkpoint attempt will retry'
+        (above the OperationalError log.debug) must reference
+        ``_WAL_CHECKPOINT_INTERVAL`` (the constant) instead of a
+        hardcoded ``300s`` literal — drift-free documentation.
         """
         from voice_typer.server.history_db import HistoryDB
 
         src = inspect.getsource(HistoryDB._run_checkpoint)
-        assert "attempt in 300s will retry" in src, (
+        assert "_WAL_CHECKPOINT_INTERVAL" in src, (
             "_run_checkpoint OperationalError-handling comment must "
-            "say 'attempt in 300s will retry' to match the actual "
-            "interval."
+            "reference '_WAL_CHECKPOINT_INTERVAL' (the constant) instead of a hardcoded literal — drift-free."
         )
         assert "attempt in 60s will retry" not in src, (
             "_run_checkpoint OperationalError-handling comment still "
-            "says 'attempt in 60s will retry' — the next checkpoint "
-            "is in 300s, not 60s."
+            "says 'attempt in 60s will retry' — the stale cadence."
         )
 
     def test_checkpoint_skipped_log_uses_constant_not_hardcoded_60(self):

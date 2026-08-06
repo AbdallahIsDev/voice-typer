@@ -1,11 +1,11 @@
-"""Parity test for the i18n keys added by the ZU-FIX-14 translation pass.
+"""Parity test for the i18n keys added by the translation pass.
 
-This test asserts that every key introduced by the ZU-FIX-14 fix (covering
+This test asserts that every key introduced by the fix (covering
 review entries ZU-2, ZU-5, ZU-17, ZU-21, ZU-22, ZU-25, ZU-26, ZU-31, ZU-35,
 ZU-37, ZU-11) exists as a leaf in ALL 8 locale files (en/ar/de/es/fr/hi/ru/zh).
 
 It complements ``tests/test_i18n_completeness.py`` (which enforces structural
-parity against en.json as a whole) by pinning the specific ZU-FIX-14 additions
+parity against en.json as a whole) by pinning the specific additions
 so that future regressions (e.g. a locale file getting truncated) are caught
 with a focused failure message naming the missing key + locale.
 
@@ -134,15 +134,15 @@ def locale_flats() -> dict[str, dict[str, str]]:
 
 @pytest.mark.parametrize("locale", ALL_LOCALES)
 def test_zu_fix_14_keys_exist_in_locale(locale: str, locale_flats: dict[str, dict[str, str]]) -> None:
-    """Every ZU-FIX-14 key must be present as a leaf in every locale file."""
+    """Every key must be present as a leaf in every locale file."""
     flat = locale_flats[locale]
     missing = [k for k in ALL_NEW_KEYS if k not in flat]
-    assert not missing, f"{locale}.json is missing {len(missing)} ZU-FIX-14 keys: {missing}"
+    assert not missing, f"{locale}.json is missing {len(missing)} keys: {missing}"
 
 
 @pytest.mark.parametrize("locale", ALL_LOCALES)
 def test_zu_fix_14_no_english_fallback(locale: str, locale_flats: dict[str, dict[str, str]]) -> None:
-    """Non-English locales must NOT have English-fallback values for ZU-FIX-14 keys.
+    """Non-English locales must NOT have English-fallback values for keys.
 
     English is allowed to equal itself. This catches the case where a new key
     was added to en.json but the locale file was propagated with the English
@@ -159,14 +159,14 @@ def test_zu_fix_14_no_english_fallback(locale: str, locale_flats: dict[str, dict
         if loc_flat[key] == en_flat.get(key, ""):
             untranslated.append(f"  {key}: {en_flat.get(key)!r}")
     assert not untranslated, (
-        f"{locale}.json has {len(untranslated)} ZU-FIX-14 keys whose values are "
+        f"{locale}.json has {len(untranslated)} keys whose values are "
         f"identical to English (untranslated):\n" + "\n".join(untranslated)
     )
 
 
 @pytest.mark.parametrize("locale", ALL_LOCALES)
 def test_zu_fix_14_placeholder_parity(locale: str, locale_flats: dict[str, dict[str, str]]) -> None:
-    """Every {placeholder} in an en.json ZU-FIX-14 value must exist in the locale's value."""
+    """Every {placeholder} in an en.json value must exist in the locale's value."""
     en_flat = locale_flats["en"]
     loc_flat = locale_flats[locale]
     mismatches: list[str] = []
@@ -181,7 +181,7 @@ def test_zu_fix_14_placeholder_parity(locale: str, locale_flats: dict[str, dict[
                 + (f" missing={sorted(en_ph - loc_ph)}" if en_ph - loc_ph else "")
                 + (f" extra={sorted(loc_ph - en_ph)}" if loc_ph - en_ph else "")
             )
-    assert not mismatches, f"{locale}.json has ZU-FIX-14 placeholder mismatches:\n" + "\n".join(mismatches)
+    assert not mismatches, f"{locale}.json has placeholder mismatches:\n" + "\n".join(mismatches)
 
 
 @pytest.mark.parametrize(

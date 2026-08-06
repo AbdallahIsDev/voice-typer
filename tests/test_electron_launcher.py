@@ -475,39 +475,35 @@ class TestGenerateSessionToken:
 class TestBackendPidFile:
     """Backend PID file is written on startup and cleared on stale detection."""
 
-    def test_pid_file_written_on_startup(self, monkeypatch, tmp_path):
+    def test_pid_file_written_on_startup(self, tmp_config_dir):
         """``_write_backend_pid_file`` writes our PID to ``backend.pid``."""
-        monkeypatch.setattr(app_module, "_config_dir", lambda: tmp_path)
         # _secure_atomic_write is the production write path.
         # Just call our helper — it should produce the file with our PID.
         app_module._write_backend_pid_file()
-        pid_file = tmp_path / "backend.pid"
+        pid_file = tmp_config_dir / "backend.pid"
         assert pid_file.exists()
         content = pid_file.read_text().strip()
         assert int(content) == os.getpid()
 
-    def test_pid_file_cleared_on_shutdown(self, monkeypatch, tmp_path):
+    def test_pid_file_cleared_on_shutdown(self, tmp_config_dir):
         """``_clear_backend_pid_file`` removes the file if it exists."""
-        monkeypatch.setattr(app_module, "_config_dir", lambda: tmp_path)
-        pid_file = tmp_path / "backend.pid"
+        pid_file = tmp_config_dir / "backend.pid"
         pid_file.write_text(f"{os.getpid()}\n")
         assert pid_file.exists()
         app_module._clear_backend_pid_file()
         assert not pid_file.exists()
 
-    def test_clear_pid_file_noop_when_missing(self, monkeypatch, tmp_path):
+    def test_clear_pid_file_noop_when_missing(self, tmp_config_dir):
         """``_clear_backend_pid_file`` doesn't raise if the file is absent."""
-        monkeypatch.setattr(app_module, "_config_dir", lambda: tmp_path)
         # Should not raise.
         app_module._clear_backend_pid_file()
 
-    def test_stale_pid_file_detected_and_cleared(self, monkeypatch, tmp_path):
+    def test_stale_pid_file_detected_and_cleared(self, tmp_config_dir):
         """``_read_stale_backend_pid`` returns the PID when the process is dead."""
-        monkeypatch.setattr(app_module, "_config_dir", lambda: tmp_path)
         # Write a PID that is extremely unlikely to be alive.
         # Use a very high PID that the OS hasn't handed out yet.
         bogus_pid = 2_000_000
-        pid_file = tmp_path / "backend.pid"
+        pid_file = tmp_config_dir / "backend.pid"
         pid_file.write_text(f"{bogus_pid}\n")
 
         # _is_pid_alive should return False for the bogus PID.
@@ -523,26 +519,23 @@ class TestBackendPidFile:
         assert not pid_file.exists()
         assert app_module._read_stale_backend_pid() is None
 
-    def test_alive_pid_file_not_considered_stale(self, monkeypatch, tmp_path):
+    def test_alive_pid_file_not_considered_stale(self, tmp_config_dir):
         """When the PID is still alive, ``_read_stale_backend_pid`` returns None."""
-        monkeypatch.setattr(app_module, "_config_dir", lambda: tmp_path)
         # Write our own PID — we're definitely alive.
-        pid_file = tmp_path / "backend.pid"
+        pid_file = tmp_config_dir / "backend.pid"
         pid_file.write_text(f"{os.getpid()}\n")
         # _is_pid_alive should return True for our own PID.
         # (On Windows this calls OpenProcess on ourselves — should succeed.)
         assert app_module._is_pid_alive(os.getpid()) is True
         assert app_module._read_stale_backend_pid() is None
 
-    def test_read_stale_pid_returns_none_when_file_missing(self, monkeypatch, tmp_path):
+    def test_read_stale_pid_returns_none_when_file_missing(self, tmp_config_dir):
         """No PID file → None (no stale lock)."""
-        monkeypatch.setattr(app_module, "_config_dir", lambda: tmp_path)
         assert app_module._read_stale_backend_pid() is None
 
-    def test_read_stale_pid_returns_none_on_garbage(self, monkeypatch, tmp_path):
+    def test_read_stale_pid_returns_none_on_garbage(self, tmp_config_dir):
         """Garbage in the PID file → None (treated as no stale lock)."""
-        monkeypatch.setattr(app_module, "_config_dir", lambda: tmp_path)
-        pid_file = tmp_path / "backend.pid"
+        pid_file = tmp_config_dir / "backend.pid"
         pid_file.write_text("not-a-number\n")
         assert app_module._read_stale_backend_pid() is None
 
@@ -553,7 +546,7 @@ class TestBackendPidFile:
 class TestPickAvailablePort:
     """``_pick_available_port`` returns a free port starting from ``start``.
 
-    CR-7 fix: the function now returns a ``(port, bound_socket)`` tuple
+     fix: the function now returns a ``(port, bound_socket)`` tuple
     so callers can pass the pre-bound socket through to ``start_tcp``
     (eliminating the probe-then-bind race window).  Tests updated to
     unpack the tuple and close the returned socket.

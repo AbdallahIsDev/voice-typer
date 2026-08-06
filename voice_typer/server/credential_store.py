@@ -592,14 +592,7 @@ _keyring_last_probe_ts: float = 0.0
 # re-probe 5 times in a row. ``store_secret`` and ``load_secret`` both
 # check :func:`is_keyring_available`, so each provider lookup benefits
 # from a fresh probe if the interval has elapsed.
-_KEYRING_REPROBE_INTERVAL_S: float = 300.0
-# legacy / alternate-name alias. The regression suite in
-# ``tests/test_keyring_reprobe.py`` expects this exact name; we
-# keep both so the production code (which uses the
-# ``_KEYRING_REPROBE_INTERVAL_S`` name throughout) and the
-# regression test can both reference the same constant without
-# the test having to know the internal naming convention.
-_KEYRING_REPROBE_INTERVAL_SECONDS: float = _KEYRING_REPROBE_INTERVAL_S
+_KEYRING_REPROBE_INTERVAL_SECONDS: float = 300.0
 
 # Serializes re-probes so two concurrent ``load_secret`` calls (e.g.
 # multi-threaded IPC) don't each fire a probe. The lock is held only
@@ -635,7 +628,7 @@ def _probe_keyring() -> tuple[bool, str | None, str | None]:
     result. A *positive* result (backend available) is cached for the
     process lifetime — a working backend doesn't suddenly disappear.
     A *negative* result (backend unavailable) is cached only for
-    :data:`_KEYRING_REPROBE_INTERVAL_S` seconds; the next call after
+    :data:`_KEYRING_REPROBE_INTERVAL_SECONDS` seconds; the next call after
     that interval re-invokes this function. This picks up a backend
     that appears mid-session (e.g. ``gnome-keyring-daemon`` started
     after the app, Keychain unlocked on macOS) without requiring an
@@ -693,7 +686,7 @@ def is_keyring_available() -> bool:
       :func:`_run_keyring_call` timeout catches the failure and falls
       through to the plaintext fallback on the read/write path).
     - When the cache says **unavailable** (False), the result is
-      cached only until :data:`_KEYRING_REPROBE_INTERVAL_S` seconds
+      cached only until :data:`_KEYRING_REPROBE_INTERVAL_SECONDS` seconds
       have elapsed since the last probe. After that interval, the
       NEXT call to :func:`is_keyring_available` (typically from
       :func:`store_secret` or :func:`load_secret`) re-probes. This
@@ -717,7 +710,7 @@ def is_keyring_available() -> bool:
         return True
     if _keyring_available_cache is False and _keyring_last_probe_ts is not None:
         elapsed = time.time() - _keyring_last_probe_ts
-        if elapsed < _KEYRING_REPROBE_INTERVAL_S:
+        if elapsed < _KEYRING_REPROBE_INTERVAL_SECONDS:
             return False
     # Slow path: probe (or re-probe). Serialize so two concurrent
     # ``load_secret`` calls don't each fire a probe.
@@ -729,7 +722,7 @@ def is_keyring_available() -> bool:
         if (
             _keyring_available_cache is False
             and _keyring_last_probe_ts is not None
-            and (time.time() - _keyring_last_probe_ts) < _KEYRING_REPROBE_INTERVAL_S
+            and (time.time() - _keyring_last_probe_ts) < _KEYRING_REPROBE_INTERVAL_SECONDS
         ):
             return False
         available, backend_name, reason = _probe_keyring()

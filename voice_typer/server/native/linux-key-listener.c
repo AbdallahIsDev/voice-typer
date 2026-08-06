@@ -31,22 +31,62 @@
 #include <fcntl.h>
 #include <linux/input.h>
 #include <poll.h>
+#include <pthread.h>
 #include <signal.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/time.h>
+#include <time.h>
 #include <unistd.h>
 
 #define MAX_DEVICES 64
 #define EV_KEY_BITS_LEN ((KEY_MAX + 7) / 8)
 
+/* Wire protocol version reported via ``VERSION:<x.y.z>`` immediately
+ * after READY. The Python side records this and the factory
+ * compares it against the manifest's ``version`` field. */
+#define NATIVE_BINARY_VERSION "1.0.0"
+
+/* optional diagnostic log file. NULL when no --log-file was
+ * passed (diagnostics go to stderr only, which the Python parent
+ * merges into stdout via STDERR=STDOUT). */
+static FILE *g_log_file = NULL;
+
+/* Forward-declared here so the PING/PONG stdin reader thread can check
+ * it. The full definition lives in the Global state section below. */
+static volatile sig_atomic_t g_should_exit = 0;
+
+/* ─── Diagnostic logger ────────────────────────────────────────── */
+
+static void log_diag(const char *fmt, ...) {
+    char ts[32];
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    struct tm tm_buf;
+    gmtime_r(&tv.tv_sec, &tm_buf);
+    strftime(ts, sizeof(ts), "%Y-%m-%dT%H:%M:%S", &tm_buf);
+    char msg[512];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+    char line[640];
+    int n = snprintf(line, sizeof(line), "%s.%03ld [%d] %s\n",
+                     ts, (long)(tv.tv_usec / 1000), (int)getpid(), msg);
+    if (n > 0 && g_log_file != NULL) {
+        fputs(line, g_log_file);
+        fflush(g_log_file);
+    }
+    fputs(line, stderr);
+    fflush(stderr);
+}
+
 /* ─── Wire protocol emitter ──────────────────────────────────────────────── */
 
 static void emit(const char *line) {
-    /* Use a single fwrite + fflush so the Python parent sees a complete line.
-     * stdout is fully buffered when piped, so fflush is mandatory. */
     fputs(line, stdout);
     fputc('\n', stdout);
     fflush(stdout);
@@ -59,6 +99,30 @@ static void emitf(const char *fmt, ...) {
     vsnprintf(buf, sizeof(buf), fmt, ap);
     va_end(ap);
     emit(buf);
+}
+
+/* ─── PING/PONG stdin reader thread ────────────────────────────── */
+
+/* Reads ``PING\n`` from stdin and emits ``PONG\n`` so the Python parent's
+ * liveness watchdog can distinguish "alive and responsive" from "alive
+ * but stuck". Without this thread the parent's PING writes would buffer
+ * in the stdin pipe and we'd never see them. */
+static void *stdin_reader_thread(void *arg) {
+    (void)arg;
+    char line[64];
+    while (!g_should_exit) {
+        if (fgets(line, sizeof(line), stdin) == NULL) {
+            break;
+        }
+        size_t len = strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) {
+            line[--len] = '\0';
+        }
+        if (strcmp(line, "PING") == 0) {
+            emit("PONG");
+        }
+    }
+    return NULL;
 }
 
 /* ─── Key code → name table ──────────────────────────────────────────────── */
@@ -196,7 +260,8 @@ static const key_name_t *lookup_key(int code) {
 
 static int g_fds[MAX_DEVICES];
 static int g_num_fds = 0;
-static volatile sig_atomic_t g_should_exit = 0;
+/* g_should_exit is forward-declared above (near the stdin reader thread
+ * that uses it) so the PING/PONG thread can reference it. */
 
 /* ─── Cross-device evdev deduplication ────────────────────────────────────
  *
@@ -448,6 +513,10 @@ static int run_loop(void) {
 
     /* Emit READY after devices are open and we're ready to read events. */
     emit("READY");
+    /* immediately announce our wire-protocol version so the
+     * Python side can compare against the manifest's ``version`` field. */
+    emitf("VERSION:%s", NATIVE_BINARY_VERSION);
+    log_diag("READY emitted; version=%s; devices=%d", NATIVE_BINARY_VERSION, g_num_fds);
 
     while (!g_should_exit) {
         int n = poll(pfds, (nfds_t)g_num_fds, 500 /* ms */);
@@ -494,20 +563,45 @@ static int run_loop(void) {
 
 int main(int argc, char **argv) {
     if (argc < 2 || argv[1] == NULL || argv[1][0] == '\0') {
-        emit("ERROR:Missing hotkey spec argument. Usage: linux-key-listener <hotkey-spec>");
+        emit("ERROR:Missing hotkey spec argument. Usage: linux-key-listener <hotkey-spec> [--log-file <path>]");
         return 1;
     }
+
+    /* parse optional ``--log-file <path>`` argument. Also accept
+     * a bare positional argv[2] as the log path for forward compatibility. */
+    const char *log_file_path = NULL;
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--log-file") == 0 && i + 1 < argc) {
+            log_file_path = argv[++i];
+        } else if (argv[i][0] != '-' && log_file_path == NULL) {
+            log_file_path = argv[i];
+        }
+    }
+    if (log_file_path != NULL && log_file_path[0] != '\0') {
+        g_log_file = fopen(log_file_path, "a");
+        if (g_log_file == NULL) {
+            fputs("WARN:Failed to open --log-file: ", stderr);
+            fputs(strerror(errno), stderr);
+            fputc('\n', stderr);
+            fflush(stderr);
+        }
+    }
+    log_diag("linux-key-listener starting; spec=%s; log_file=%s",
+             argv[1], log_file_path ? log_file_path : "<none>");
 
     /* Validate the spec up front so we fail fast on bad input. */
     int v = validate_hotkey_spec(argv[1]);
     if (v == 0) {
         emitf("ERROR:Invalid hotkey spec: %s", argv[1]);
+        log_diag("ERROR: invalid hotkey spec: %s", argv[1]);
         return 1;
     }
     if (v == -1) {
         emitf("ERROR:Invalid hotkey spec: %s (FN key not supported on Linux — firmware-only)", argv[1]);
+        log_diag("ERROR: invalid hotkey spec (FN rejected): %s", argv[1]);
         return 1;
     }
+    log_diag("hotkey spec validated");
 
     /* Install signal handlers for clean shutdown. */
     struct sigaction sa;
@@ -520,15 +614,32 @@ int main(int argc, char **argv) {
     /* Set stdout to line-buffered (still helpful even though we fflush). */
     setvbuf(stdout, NULL, _IOLBF, 0);
 
+    /* start the stdin reader thread so we can respond to PING
+     * with PONG. Detached — exits on EOF or g_should_exit. */
+    pthread_t stdin_tid;
+    if (pthread_create(&stdin_tid, NULL, stdin_reader_thread, NULL) != 0) {
+        log_diag("WARN: failed to start stdin reader thread; PING/PONG disabled");
+    } else {
+        pthread_detach(stdin_tid);
+        log_diag("stdin reader thread started (PING/PONG enabled)");
+    }
+
     /* Open all keyboard devices. */
     if (discover_devices() < 0) {
+        log_diag("ERROR: discover_devices failed");
         return 1;
     }
+    log_diag("keyboard devices opened: %d", g_num_fds);
 
     /* Run the event loop until SIGINT/SIGTERM. */
     int rc = run_loop();
+    log_diag("event loop exited; rc=%d", rc);
 
     /* Cleanup. */
     close_devices();
+    if (g_log_file != NULL) {
+        fclose(g_log_file);
+        g_log_file = NULL;
+    }
     return rc;
 }

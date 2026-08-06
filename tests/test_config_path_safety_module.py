@@ -1,4 +1,4 @@
-"""S5-CR-28: regression tests for the ``config_path_safety`` module extraction.
+"""S5-regression tests for the ``config_path_safety`` module extraction.
 
 These tests pin the new module-extraction contract introduced by
 finding S5-CR-28 (partial — extract ONE module):
@@ -38,7 +38,7 @@ import pytest
 
 
 class TestConfigPathSafetyModuleExists:
-    """S5-CR-28: ``config_path_safety`` is a real, importable module."""
+    """S5-``config_path_safety`` is a real, importable module."""
 
     def test_module_is_importable(self):
         """``voice_typer.server.config_path_safety`` must be importable."""
@@ -70,7 +70,7 @@ class TestConfigPathSafetyModuleExists:
 
 
 class TestConfigReExportsPathSafety:
-    """S5-CR-28: ``config`` re-exports the path-safety helpers so the
+    """S5-``config`` re-exports the path-safety helpers so the
     public API is preserved (constraint #7)."""
 
     def test_validate_path_safety_importable_from_config(self):
@@ -114,7 +114,7 @@ class TestConfigReExportsPathSafety:
 
 
 class TestPathSafetyFunctionsStillWork:
-    """S5-CR-28: the extraction must not change the function
+    """S5-the extraction must not change the function
     behaviour. A few smoke tests pin the contract."""
 
     def test_validate_path_safety_accepts_child(self, tmp_path):
@@ -162,6 +162,6 @@ class TestPathSafetyFunctionsStillWork:
             pass  # Rejected — acceptable.
         else:
             assert isinstance(result, str), (
-                f"S5-CR-28: _validate_import_path must return a str or raise "
+                f"S5-_validate_import_path must return a str or raise "
                 f"ValueError; got {type(result).__name__}: {result!r}"
             )

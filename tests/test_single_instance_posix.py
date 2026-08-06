@@ -149,7 +149,7 @@ class TestFirstInstanceAcquiresLock:
             _cleanup_lock_fd(fd)
 
     def test_writes_backend_pid_file(self, isolated_config_dir):
-        """CR-16: ``backend.pid`` is also written (previously POSIX-only skipped this).
+        """``backend.pid`` is also written (previously POSIX-only skipped this).
 
         The autostart launcher's "backend running?" check reads this file.
         """
@@ -497,7 +497,7 @@ class TestSourceInvariants:
     def test_no_early_non_windows_return(self):
         """``_ensure_single_instance`` must NOT have a code-level ``if not is_windows(): return None``.
 
-        CR-16: this was the bug — the early return meant no single-instance
+        this was the bug — the early return meant no single-instance
         guard existed on macOS/Linux. We check the AST (not raw source) so
         that docstring mentions of the buggy pattern don't false-positive.
         """
@@ -536,7 +536,7 @@ class TestSourceInvariants:
             ret_val = stmt.value
             if ret_val is None or (isinstance(ret_val, ast.Constant) and ret_val.value is None):
                 pytest.fail(
-                    "CR-16: _ensure_single_instance must NOT contain "
+                    "_ensure_single_instance must NOT contain "
                     "`if not is_windows(): return None` — that disables "
                     "single-instance enforcement on POSIX. Use "
                     "`if is_windows(): ... else: _ensure_single_instance_posix(...)` instead."
@@ -545,7 +545,7 @@ class TestSourceInvariants:
     def test_posix_helper_exists(self):
         """The ``_ensure_single_instance_posix`` function must exist."""
         assert hasattr(si_mod, "_ensure_single_instance_posix"), (
-            "CR-16: _ensure_single_instance_posix must exist for POSIX single-instance enforcement."
+            "_ensure_single_instance_posix must exist for POSIX single-instance enforcement."
         )
 
     def test_posix_helper_uses_o_excl(self):
@@ -553,8 +553,8 @@ class TestSourceInvariants:
         import inspect
 
         src = inspect.getsource(si_mod._ensure_single_instance_posix)
-        assert "O_EXCL" in src, "CR-16: POSIX single-instance must use O_EXCL to atomically create the lockfile."
-        assert "O_CREAT" in src, "CR-16: POSIX single-instance must use O_CREAT to create the lockfile."
+        assert "O_EXCL" in src, "POSIX single-instance must use O_EXCL to atomically create the lockfile."
+        assert "O_CREAT" in src, "POSIX single-instance must use O_CREAT to create the lockfile."
 
     def test_posix_helper_writes_backend_pid_file(self):
         """The POSIX helper must call ``_write_backend_pid_file`` (CR-16 cross-platform fix)."""
@@ -562,7 +562,7 @@ class TestSourceInvariants:
 
         src = inspect.getsource(si_mod._ensure_single_instance_posix)
         assert "_write_backend_pid_file()" in src, (
-            "CR-16: POSIX helper must call _write_backend_pid_file() so the "
+            "POSIX helper must call _write_backend_pid_file() so the "
             "autostart launcher's 'backend running?' check works on macOS/Linux."
         )
 
@@ -572,7 +572,7 @@ class TestSourceInvariants:
 
         src = inspect.getsource(si_mod._ensure_single_instance_posix)
         assert "_is_pid_alive" in src, (
-            "CR-16: POSIX helper must call _is_pid_alive to distinguish "
+            "POSIX helper must call _is_pid_alive to distinguish "
             "stale lockfiles (dead PID) from genuine duplicates (alive PID)."
         )
 
@@ -581,9 +581,7 @@ class TestSourceInvariants:
         import inspect
 
         src = inspect.getsource(si_mod._ensure_single_instance_posix)
-        assert "unlink" in src, (
-            "CR-16: POSIX helper must unlink stale lockfiles (dead PID) before retrying the O_EXCL create."
-        )
+        assert "unlink" in src, "POSIX helper must unlink stale lockfiles (dead PID) before retrying the O_EXCL create."
 
     def test_ensure_single_instance_dispatches_on_is_windows(self):
         """``_ensure_single_instance`` must dispatch to the POSIX helper via ``is_windows()``."""
@@ -591,9 +589,8 @@ class TestSourceInvariants:
 
         src = inspect.getsource(si_mod._ensure_single_instance)
         assert "is_windows()" in src, (
-            "CR-16: _ensure_single_instance must use is_windows() to dispatch "
-            "between Windows mutex and POSIX lockfile paths."
+            "_ensure_single_instance must use is_windows() to dispatch between Windows mutex and POSIX lockfile paths."
         )
         assert "_ensure_single_instance_posix" in src, (
-            "CR-16: _ensure_single_instance must call _ensure_single_instance_posix on the non-Windows branch."
+            "_ensure_single_instance must call _ensure_single_instance_posix on the non-Windows branch."
         )

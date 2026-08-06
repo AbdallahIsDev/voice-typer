@@ -6,6 +6,10 @@ and config load/parse.
 
 from __future__ import annotations
 
+import importlib.util
+import os
+import warnings
+
 import numpy as np
 import pytest
 
@@ -17,7 +21,74 @@ import pytest
 # only if ``pytest_benchmark`` is genuinely missing.
 pytest.importorskip("pytest_benchmark")
 
-from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections
+# pytest-benchmark is unreliable under ``pytest-xdist`` when
+# there are >= 2 workers — the plugin emits
+# ``PytestBenchmarkWarning: Benchmarks are automatically disabled
+# because xdist plugin is active`` and the benchmarks become no-op
+# (the per-worker subprocess can't acquire the shared benchmark
+# storage lock, and the resulting timings are meaningless — workers
+# compete for CPU). Detect xdist via the ``PYTEST_XDIST_WORKER`` env
+# var (set by xdist on every worker process; absent on the
+# controller when ``-n 0``). Skip the whole module in that case —
+# the benchmarks still run in the default single-process invocation
+# (``-n auto`` with 1 worker on a 1-CPU box sets
+# ``PYTEST_XDIST_WORKER`` too, but that's fine: a single xdist
+# worker still hits the storage-lock warning path).
+#
+# NOTE: ``hasattr(pytest, "xdist")`` is ALWAYS ``False`` (xdist
+# doesn't set a ``pytest.xdist`` attribute — it registers as a
+# plugin via entry points). The reliable detection is
+# ``importlib.util.find_spec("xdist")`` (is xdist installed?) +
+# ``os.environ.get("PYTEST_XDIST_WORKER")`` (are we inside a
+# worker?). Both must be true: xdist installed + worker env var set
+# → we're inside an xdist worker process.
+_has_xdist_installed = importlib.util.find_spec("xdist") is not None
+_has_xdist_workers = _has_xdist_installed and bool(
+    os.environ.get("PYTEST_XDIST_WORKER")
+)
+pytestmark = [
+    pytest.mark.skipif(
+        _has_xdist_workers,
+        reason=(
+            "pytest-benchmark is unreliable under pytest-xdist workers "
+            "(emits PytestBenchmarkWarning + no-op timing); run without -n "
+            "or with -n 0 for real benchmark numbers"
+        ),
+    ),
+    # Belt-and-suspenders: also filter any PytestBenchmarkWarning that
+    # leaks through the plugin's own pytest_configure path so the test
+    # output stays clean. The plugin emits the warning once per worker
+    # process during pytest_configure (before this module is imported),
+    # so this filter only catches warnings emitted DURING test
+    # execution — but that's the only layer we can control from a test
+    # module without touching conftest.py / pyproject.toml.
+    pytest.mark.filterwarnings(
+        "ignore::pytest_benchmark.logger.PytestBenchmarkWarning"
+    ),
+]
+
+# Proactively install a process-wide warning filter for
+# PytestBenchmarkWarning so that IF this module is imported before the
+# plugin's warning fires (e.g. when run without xdist, or when collected
+# in the controller process), the filter is already in place. Under
+# xdist, each worker fires the warning during its own pytest_configure
+# (before this module is imported in the worker), so this filter is
+# belt-and-suspenders only — the authoritative suppression for the
+# under-xdist case is the ``skipif`` above (the tests don't run, so the
+# benchmark fixture is never invoked and no per-test warning is
+# emitted).
+try:
+    from pytest_benchmark.logger import PytestBenchmarkWarning as _PBW  # noqa: N814
+except ImportError:  # pragma: no cover — pytest_benchmark is importorskip'd
+    _PBW = None  # type: ignore[assignment]
+if _PBW is not None:
+    warnings.filterwarnings(
+        "ignore",
+        category=_PBW,
+        message=".*automatically disabled because xdist plugin is active.*",
+    )
+
+from voice_typer.server.text_cleanup import clean_transcribed_text, configure_corrections  # noqa: E402
 
 
 @pytest.fixture(autouse=True)

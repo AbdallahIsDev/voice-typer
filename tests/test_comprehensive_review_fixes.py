@@ -5,7 +5,7 @@ focused — they verify the specific behavior change introduced by the
 fix, not the full surface area (which is already covered by the
 existing test suite).
 
-CR-11: per-process IPC rate limiter (must persist across reconnects).
+per-process IPC rate limiter (must persist across reconnects).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import pytest
 
 
 class TestPerProcessRateLimiter:
-    """CR-11: the IPC rate limiter must NOT reset on reconnect.
+    """the IPC rate limiter must NOT reset on reconnect.
 
     Previously, ``_RateLimiter`` was instantiated fresh per TCP/WS
     connection. A local attacker could burst the 200-message budget,
@@ -56,7 +56,7 @@ class TestPerProcessRateLimiter:
 
     def test_budget_persists_across_simulated_reconnect(self):
         """The 200-message burst budget must NOT reset when the connection
-        drops and re-establishes (the CR-11 attack scenario)."""
+        drops and re-establishes (the attack scenario)."""
         from voice_typer.server.ipc_server import _get_rate_limiter
 
         class FakeServer:

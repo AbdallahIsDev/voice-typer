@@ -90,11 +90,18 @@ class TestRemergeOnWriteFailure:
         server._pending_tcp = list(pending_snapshot)
 
         # Use a closed socketpair so the first write raises OSError.
-        srv, cli = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX
+        # and AF_INET on Windows — identical duplex-pipe semantics.
+        srv, cli = socket.socketpair()
         try:
             tcp_client = _TCPLineIO(srv)
             server._tcp_client = tcp_client
-            # Close both ends so write fails immediately.
+            # Close both ends so write fails immediately. NOTE: release the
+            # makefile's io-ref FIRST — ``socket.close()`` is a no-op while
+            # ``makefile()`` still holds a reference (``_io_refs > 0``), so
+            # without this the fd stays open and the write silently succeeds
+            # (the socket only becomes an error on the second close).
+            tcp_client._reader.close()
             srv.close()
             cli.close()
 
@@ -162,7 +169,9 @@ class TestRemergeOnDrainCapOverflow:
         recent_entries = [f'{{"recent": {i}}}' for i in range(100)]
         server._pending_tcp = older_entries + recent_entries
 
-        srv, cli = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX
+        # and AF_INET on Windows — identical duplex-pipe semantics.
+        srv, cli = socket.socketpair()
         try:
             tcp_client = _TCPLineIO(srv)
             server._tcp_client = tcp_client
@@ -333,7 +342,9 @@ class TestRemergeOnShutdownShortCircuit:
         ]
         server._pending_tcp = list(pending_snapshot)
 
-        srv, cli = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+        # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX
+        # and AF_INET on Windows — identical duplex-pipe semantics.
+        srv, cli = socket.socketpair()
         try:
             tcp_client = _TCPLineIO(srv)
             server._tcp_client = tcp_client

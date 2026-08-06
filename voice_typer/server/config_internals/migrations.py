@@ -293,7 +293,7 @@ def _run_migrations(
 def _backup_before_migration_impl(config_file, loaded_version: Any) -> None:
     """Best-effort backup of ``config.json`` BEFORE any migration runs.
 
-    S5-CR-28: extracted verbatim from ``Config._backup_before_migration``
+    S5-extracted verbatim from ``Config._backup_before_migration``
     (config.py) to chip away at config.py's 2,698-LOC monolith. The
     classmethod on ``Config`` is now a thin wrapper that delegates here
     so callers that do ``Config._backup_before_migration(...)`` (and

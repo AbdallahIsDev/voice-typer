@@ -170,3 +170,98 @@ def test_streaming_resampler_reset_before_process_does_not_crash():
     assert rs._x_up_buf is None
     rs.reset()
     assert rs._x_up_buf is None
+
+
+# ─── NotchFilter (IIR zi state — ANTIDENORMAL_EPSILON guard) ──────────────
+
+
+def test_notch_reset_zeros_state():
+    """NotchFilter.reset() must zero the IIR ``zi`` carry state except
+    for ``zi[0]`` which is set to ``ANTIDENORMAL_EPSILON``.
+
+    Mirrors ``HighPassFilter.reset``: the notch IIR (scipy
+    ``iirnotch``, 2nd-order) carries a 2-element ``zi`` between
+    ``process()`` calls. ``reset()`` must clear the carried residue
+    of the previous audio so a mic swap / FilterChain.swap doesn't
+    leak the prior speaker's audio into the new session, AND must
+    re-apply ``ANTIDENORMAL_EPSILON`` to ``zi[0]`` so the IIR doesn't
+    fall into denormal-float territory on some CPUs (which burns
+    cycles in the audio callback — see base.py:ANTIDENORMAL_EPSILON).
+    """
+    from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON
+    from voice_typer.server.audio_filters.notch import NotchFilter
+
+    notch = NotchFilter(frequency_hz=60.0, sample_rate=_SR)
+    # Process a non-zero chunk so the IIR ``zi`` carry state is
+    # populated with non-zero values (a 440 Hz sine at 0.5 amplitude).
+    notch.process(_nonzero_chunk(1024), _SR)
+
+    # Sanity: ``zi`` is non-zero BEFORE reset (the IIR carry state
+    # has settled). If process() left zi at zero, the reset
+    # assertion below would be vacuously true.
+    _b, _a, zi_before = notch._state
+    assert zi_before is not None
+    assert not np.all(zi_before == 0), (
+        "zi must be non-zero BEFORE reset (else the test is vacuous)."
+    )
+
+    # Act: reset.
+    notch.reset()
+
+    # The state tuple is preserved (same b/a arrays, same zi array
+    # object reused — the production code zero-fills in place rather
+    # than allocating a fresh np.zeros block on every reset).
+    assert notch._state is not None
+    _b2, _a2, zi_after = notch._state
+    assert zi_after is not None
+    assert zi_after.size >= 1, "notch zi must have at least one element"
+
+    # zi[0] == ANTIDENORMAL_EPSILON (the anti-denormal guard). The
+    # comparison is via the numpy float32 dtype (the epsilon is
+    # exactly representable in float32, so the production code's
+    # ``zi[0] = ANTIDENORMAL_EPSILON`` reads back exactly).
+    assert zi_after[0] == np.float32(ANTIDENORMAL_EPSILON), (
+        f"zi[0] must equal ANTIDENORMAL_EPSILON ({ANTIDENORMAL_EPSILON}); "
+        f"got {zi_after[0]}."
+    )
+    # All other elements (zi[1:]) must be exactly zero.
+    if zi_after.size > 1:
+        assert np.all(zi_after[1:] == 0), (
+            f"zi[1:] must be all-zero after reset; got {zi_after[1:]}."
+        )
+
+
+def test_notch_reset_before_process_does_not_crash():
+    """reset() before process() must not crash — the IIR state is
+    initialized at construction (``_init_filter`` allocates a
+    zero-filled zi), so reset() on a fresh filter just re-zeros
+    zi and re-applies the epsilon."""
+    from voice_typer.server.audio_filters.notch import NotchFilter
+
+    notch = NotchFilter(frequency_hz=60.0, sample_rate=_SR)
+    # No process() call — zi is still the initial zero-filled array.
+    notch.reset()
+    # State must still be valid (filter not degraded).
+    assert notch._state is not None
+    assert notch.is_degraded is False
+
+
+def test_notch_reset_idempotent():
+    """Calling reset() twice must leave the filter in the same state
+    as calling it once (idempotent). The second reset re-zeros an
+    already-zeroed zi and re-applies epsilon — no accumulation."""
+    from voice_typer.server.audio_filters.base import ANTIDENORMAL_EPSILON
+    from voice_typer.server.audio_filters.notch import NotchFilter
+
+    notch = NotchFilter(frequency_hz=60.0, sample_rate=_SR)
+    notch.process(_nonzero_chunk(1024), _SR)
+    notch.reset()
+    _b1, _a1, zi_after_first = notch._state
+    assert zi_after_first[0] == np.float32(ANTIDENORMAL_EPSILON)
+
+    # Second reset — idempotent (no accumulation, no error).
+    notch.reset()
+    _b2, _a2, zi_after_second = notch._state
+    assert zi_after_second[0] == np.float32(ANTIDENORMAL_EPSILON)
+    if zi_after_second.size > 1:
+        assert np.all(zi_after_second[1:] == 0)

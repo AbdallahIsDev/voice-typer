@@ -11,6 +11,7 @@ import pytest
 from voice_typer.server.audio_chain_builder import build_chain_from_dict
 from voice_typer.server.audio_filters import (
     ANTIDENORMAL_EPSILON,
+    AudioFilter,
     Compressor,
     Equalizer,
     FilterChain,
@@ -596,3 +597,127 @@ class TestPresets:
         assert PRESET_NOISY_ROOM in values
         assert PRESET_OFF in values
         assert PRESET_CUSTOM in values
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# AudioFilter base-class default behavior
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class _MinimalFilter(AudioFilter):
+    """Minimal AudioFilter subclass for base-class default-behavior tests.
+
+    Implements the two abstract methods (``process`` / ``reset``) with
+    the simplest possible bodies so the base class's default property
+    implementations (``is_degraded`` / ``degraded_reason`` /
+    ``latency_ms``) can be exercised WITHOUT being shadowed by a
+    subclass override.
+
+    ``process`` is a passthrough (returns the input array unchanged) so
+    the base-class ``process`` contract (``np.ndarray | None`` return)
+    can be verified without coupling to a specific DSP implementation.
+    """
+
+    name = "MinimalFilter"
+
+    def process(self, audio: np.ndarray, sample_rate: int) -> np.ndarray | None:
+        return audio
+
+    def reset(self) -> None:
+        pass
+
+
+class TestAudioFilterBase:
+    """pin the base-class default behavior of
+    :class:`voice_typer.server.audio_filters.base.AudioFilter`.
+
+    The ABC declares ``process`` / ``reset`` as abstract, but provides
+    concrete default implementations for ``latency_ms``, ``is_degraded``,
+    and ``degraded_reason``. These defaults are the contract every
+    concrete filter inherits UNLESS it overrides them — so a future
+    refactor that accidentally changes the defaults (e.g. flipping
+    ``is_degraded`` to ``True``) would silently flip every filter's
+    degraded state. These tests pin the defaults via a minimal subclass
+    that does NOT override them.
+    """
+
+    def test_base_process_returns_input_unchanged(self) -> None:
+        """A minimal AudioFilter subclass whose ``process`` returns the
+        input array unchanged (passthrough) must return the SAME array
+        object (same identity) — the base class imposes no transformation.
+
+        This pins the base-class ``process`` contract: the return type
+        is ``np.ndarray | None``, and a passthrough implementation must
+        return the input verbatim (not a copy, not a view) so downstream
+        filters in the chain see the exact bytes the upstream filter
+        produced.
+        """
+        f = _MinimalFilter()
+        audio = np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32)
+        result = f.process(audio, 16000)
+        assert result is audio, (
+            "a passthrough AudioFilter.process must return the SAME "
+            "array object (identity), not a copy — downstream filters must "
+            "see the exact bytes the upstream filter produced"
+        )
+        np.testing.assert_array_equal(result, audio)
+
+    def test_base_reset_is_noop(self) -> None:
+        """The base-class ``reset`` is a no-op for stateless filters —
+        calling it must NOT raise. Concrete stateful filters override
+        ``reset`` to zero their state arrays; the base class itself
+        does nothing (the abstract method body is ``...``).
+
+        A minimal subclass whose ``reset`` body is ``pass`` must not
+        raise on invocation, and must be safe to call repeatedly.
+        """
+        f = _MinimalFilter()
+        # Must not raise.
+        f.reset()
+        # Safe to call repeatedly (idempotent — no state to clear).
+        f.reset()
+        f.reset()
+
+    def test_base_is_degraded_defaults_false(self) -> None:
+        """The base-class ``is_degraded`` property defaults to ``False``.
+
+        A filter that has NOT fallen back to a degraded mode (e.g.
+        missing library) reports ``is_degraded == False`` so the UI
+        doesn't show a spurious warning. A future refactor that flips
+        the default to ``True`` would mark EVERY filter as degraded
+        (since most don't override the property) — this test pins the
+        default against that regression.
+        """
+        f = _MinimalFilter()
+        assert f.is_degraded is False, (
+            "AudioFilter.is_degraded must default to False — a "
+            "filter that has not fallen back to a degraded mode must "
+            "report False so the UI doesn't show a spurious warning"
+        )
+
+    def test_base_degraded_reason_defaults_empty_string(self) -> None:
+        """The base-class ``degraded_reason`` property defaults to ``""``
+        (empty string). When ``is_degraded`` is ``False``, the reason
+        must be empty so the UI doesn't display a stale message from a
+        prior degraded state.
+        """
+        f = _MinimalFilter()
+        assert f.degraded_reason == "", (
+            "AudioFilter.degraded_reason must default to empty "
+            "string when is_degraded is False"
+        )
+
+    def test_base_latency_ms_defaults_zero(self) -> None:
+        """The base-class ``latency_ms`` property defaults to ``0.0``.
+
+        Sample-by-sample filters (HighPass, NoiseGate, Compressor,
+        Limiter) add zero latency — they process each sample as it
+        arrives. Only frame-buffered filters (NoiseSuppressor with
+        RNNoise) override this to report their frame latency (~10ms
+        for one 480-sample RNNoise frame).
+        """
+        f = _MinimalFilter()
+        assert f.latency_ms == 0.0, (
+            "AudioFilter.latency_ms must default to 0.0 — "
+            "sample-by-sample filters add zero latency"
+        )

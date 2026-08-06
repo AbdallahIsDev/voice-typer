@@ -150,15 +150,20 @@ _PYTHON_ONLY_COMMANDS: frozenset[str] = frozenset({"shutdown", "tray_click"})
 # Each handler takes (data, resp) and returns resp (to send) or None
 # (for commands that send their response internally, like restart_app).
 #
-# reconciliation (2026-07-18): the registry contains exactly 63
-# commands. The 61 "domain" handlers live in voice_typer/server/handlers/
-# (one mixin module per domain). The remaining two — `heartbeat` (,
-# ADR-0018 Electron-alive watchdog) and `relaunch_ack` (PERF-005, ack of
-# `relaunch_electron` so `restart_app` can drop its fixed 300 ms sleep) —
-# are resident on IPCServer itself because they touch IPC-server-owned
-# state (`_last_heartbeat_at`, `_relaunch_ack_event`) and don't belong to
-# any domain mixin. The earlier "68 commands" claim in ADR-0020 §2 was
-# stale; `relaunch_ack` was added by PERF-005 after the original count.
+# reconciliation (2026-07-18, updated 2026-10): the registry
+# contains exactly 65 commands. The 63 "domain" handlers live in
+# voice_typer/server/handlers/ (one mixin module per domain). The
+# remaining two — `heartbeat` (, ADR-0018 Electron-alive watchdog)
+# and `relaunch_ack` (PERF-005, ack of `relaunch_electron` so
+# `restart_app` can drop its fixed 300 ms sleep) — are resident on
+# IPCServer itself because they touch IPC-server-owned state
+# (`_last_heartbeat_at`, `_relaunch_ack_event`) and don't belong to
+# any domain mixin. The earlier "68 commands" claim in ADR-0020 §2
+# was stale; `relaunch_ack` was added by PERF-005 after the original
+# count. The count was bumped from 63 to 65 to reflect the two
+# `force_cancel_transcription` and `tray_click` handlers added since
+# the prior reconciliation (the `tray_click` host-only command was
+# already counted in `_PYTHON_ONLY_COMMANDS`).
 _COMMAND_REGISTRY: dict[str, str] = {
     "get_status": "_handle_get_status",
     "toggle_dictation": "_handle_toggle_dictation",

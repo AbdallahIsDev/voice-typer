@@ -9,7 +9,7 @@ name: "CodeQL"
 on:
   push:
     branches: [main, master]
-    # XS-FIX-4: skip doc-only pushes — CodeQL doesn't analyze Markdown,
+    # skip doc-only pushes — CodeQL doesn't analyze Markdown,
     # so a README typo fix should not queue a 20-min matrix build.
     paths-ignore:
       - "**/*.md"
@@ -25,7 +25,7 @@ on:
                           # daily run surfaces new alerts within 24h of a
                           # query-pack release instead of up to 7 days late.
 
-# XS-FIX-4: cancel superseded CodeQL runs on the same ref. CodeQL is
+# cancel superseded CodeQL runs on the same ref. CodeQL is
 # the longest single workflow in the repo (matrix of 3 languages, each
 # runs autobuild + analyze) so the savings are the largest here.
 concurrency:
@@ -36,7 +36,7 @@ jobs:
   analyze:
     name: Analyze
     runs-on: ubuntu-22.04
-    # XS-FIX-4: hard ceiling — if autobuild hangs on a broken language
+    # hard ceiling — if autobuild hangs on a broken language
     # matrix entry (Python autobuild has done this before when a
     # pyproject.toml was malformed), cancel the job after 60 minutes
     # instead of running for the full 6h Actions limit.

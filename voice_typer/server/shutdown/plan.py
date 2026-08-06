@@ -21,6 +21,7 @@ The controller keeps a thin ``_run_plan`` delegate so existing call sites
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal
@@ -31,6 +32,35 @@ if TYPE_CHECKING:
     from voice_typer.server.shutdown_controller import ShutdownController
 
 log = logging.getLogger(__name__)
+
+# Sequenced steps that contain data-loss-critical flushes. These MUST
+# run even when the 20s shutdown deadline is nearly exhausted, so the
+# inter-step deadline check in :func:`run_plan` exempts them from the
+# skip-non-critical-step branch. ``teardown_recorder`` joins the
+# transcription thread (whose final ``add_transcription()`` write must
+# reach the history DB); ``teardown_history_db`` flushes + closes the
+# DB; ``teardown_crash_recovery`` flushes + shuts down the crash-
+# recovery writer. Skipping any of these under a tight deadline would
+# silently lose user data.
+CRITICAL_STEPS: frozenset[str] = frozenset(
+    {
+        "teardown_recorder",
+        "teardown_history_db",
+        "teardown_crash_recovery",
+    }
+)
+"""Sequenced shutdown steps that MUST run regardless of deadline pressure.
+
+The inter-step deadline check in :func:`run_plan` skips non-critical
+steps when the remaining shutdown budget drops below 5s, but steps in
+this set are always executed because they contain data-loss-critical
+flushes.
+"""
+
+# The threshold (in seconds) below which the inter-step deadline check
+# starts skipping non-critical steps. Mirrors the
+# ``_shutdown_deadline_near`` helper in ``shutdown_controller``.
+_DEADLINE_NEAR_THRESHOLD: float = 5.0
 
 
 @dataclass(frozen=True)
@@ -159,6 +189,36 @@ def run_plan(
 
     if plan.phase == "sequenced":
         for step in plan.steps:
+            # Inter-step deadline check: when the 20s shutdown budget
+            # is nearly exhausted (< 5s remaining), skip NON-CRITICAL
+            # sequenced steps so the remaining budget goes to the
+            # flush-bearing critical steps (``teardown_recorder`` /
+            # ``teardown_history_db`` / ``teardown_crash_recovery``).
+            # The skip is logged at WARNING and recorded in
+            # ``controller._shutdown_skipped`` (when the controller
+            # published one) so the final summary WARNING in
+            # ``_do_cleanup`` lists every skipped step. The deadline
+            # is published on the controller by ``_do_cleanup`` (set
+            # to ``time.monotonic() + 20.0`` at entry, ``None`` outside
+            # an active cleanup). Direct ``run_plan`` invocations from
+            # tests use a fresh controller where the attribute is
+            # ``None`` — the check is skipped, preserving test
+            # behaviour.
+            deadline = getattr(controller, "_shutdown_deadline", None)
+            if deadline is not None and step.name not in CRITICAL_STEPS:
+                remaining = deadline - time.monotonic()
+                if remaining < _DEADLINE_NEAR_THRESHOLD:
+                    log.warning(
+                        "[SHUTDOWN] skipping non-critical step %s — "
+                        "shutdown deadline approaching (%.1fs remaining)",
+                        step.name,
+                        max(0.0, remaining),
+                    )
+                    skipped_list = getattr(controller, "_shutdown_skipped", None)
+                    if skipped_list is not None:
+                        skipped_list.append(step.name)
+                    degraded.append(f"{step.name} (skipped: deadline near)")
+                    continue
             if step.depends_on is not None and step.skip_if_dep_timed_out and step.depends_on in timed_out:
                 log.warning(
                     "[SHUTDOWN] skipping %s because dependency %s "
@@ -232,6 +292,7 @@ def run_plan(
 
 
 __all__ = [
+    "CRITICAL_STEPS",
     "ShutdownPlan",
     "ShutdownStep",
     "run_plan",

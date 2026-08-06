@@ -55,6 +55,7 @@ import logging
 import threading
 from collections.abc import Callable
 
+from voice_typer.server._audio_constants import _DEFAULT_SMART_DUCK_POLL_MS
 from voice_typer.server.duck_crash_recovery import DuckCrashRecovery
 from voice_typer.server.volume_backend_base import VolumeBackend, VolumeState
 from voice_typer.server.volume_ducker_monitor import SmartDuckMonitorMixin
@@ -77,9 +78,6 @@ _MANUAL_OVERRIDE_THRESHOLD = 0.05
 # in-process ``kAudioDevicePropertyDeviceIsRunning`` query is <1ms).
 # The user's explicit ``set_smart_duck_poll_interval()`` value is
 # respected if it is *faster* than the backend's recommendation.
-_DEFAULT_SMART_DUCK_POLL_MS = 500
-
-
 class VolumeDucker(SmartDuckMonitorMixin):
     """Manages system audio volume ducking during dictation.
 

@@ -18,7 +18,7 @@ All mutable state (``_retry_timer``, ``_retry_count``, ``_cancelled``,
 ``_PERMISSION_NOTIFY_*_KEY``, ``APP_NAME``) live on the facade
 :mod:`voice_typer.server.permissions` and are accessed via
 ``_p.<name>`` so test monkeypatches on the facade propagate (mirrors
-the crash_handler split pattern, AC-86 / TY-39).
+the crash_handler split pattern).
 """
 
 from __future__ import annotations
@@ -148,6 +148,14 @@ def request_keyboard_permission(
         for the retry mechanism).
     """
     if _p.is_macos():
+        # trigger the native macOS TCC consent dialog ONCE via
+        # ``AXIsProcessTrustedWithOptions(kAXTrustedCheckOptionPrompt=True)``
+        # (the only sanctioned programmatic path on macOS 14+). Then
+        # fall back to the deep-link for re-prompting after revocation
+        # (the TCC dialog won't re-appear if the user previously denied
+        # — the deep-link lands them on the Accessibility list so they
+        # can re-toggle manually).
+        _p._trigger_macos_accessibility_consent_prompt()
         _p._open_macos_accessibility_settings()
     elif _p.is_linux():
         _p._open_linux_pkexec_prompt()

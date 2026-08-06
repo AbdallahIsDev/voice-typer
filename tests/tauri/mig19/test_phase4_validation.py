@@ -1179,7 +1179,7 @@ def test_adr_0020_states_61_command_contract():
     assert re.search(r"\b61\s+commands?\b", text), (
         "ADR-0020 must state the frozen command count as '61 "
         "commands' (§2 table header + §16). If the contract grew, "
-        "update the ADR + EXPECTED_COMMANDS together. (S3-CR-3: the "
+        "update the ADR + EXPECTED_COMMANDS together. (the "
         "prior 68-command baseline was reduced to 61 during the "
         "Tauri/Rust allowlist narrowing.)"
     )

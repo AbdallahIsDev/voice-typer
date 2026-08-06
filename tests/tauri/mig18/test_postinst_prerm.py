@@ -254,8 +254,11 @@ def test_postinst_adds_user_to_input_group():
     )
     install_text = INSTALL_PERMISSIONS.read_text(encoding="utf-8")
 
-    # Accept either `usermod -aG input <user>` or `gpasswd -a <user> input`.
-    usermod_pattern = re.compile(r"usermod\s+-aG\s+input\b")
+    # Accept the literal shell form (`usermod -aG input <user>`), the
+    # `gpasswd -a <user> input` form, OR the list-built form used by
+    # install_permissions.py (`run(["usermod", "-aG", INPUT_GROUP, ...])`
+    # where INPUT_GROUP is the module-level constant equal to "input").
+    usermod_pattern = re.compile(r"usermod\s+-aG\s+input\b|usermod\"\s*,\s*\"-aG\"\s*,\s*INPUT_GROUP")
     gpasswd_pattern = re.compile(r"gpasswd\s+-a\s+\S+\s+input\b")
     assert usermod_pattern.search(install_text) or gpasswd_pattern.search(install_text), (
         "install_permissions.py must add the user to the 'input' group via "

@@ -26,19 +26,14 @@ suite.
 
 from __future__ import annotations
 
-import sys
 import threading
 import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Mock pynput / pyperclip at import time so the clipboard module loads
-# cleanly on a headless Linux box.
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-sys.modules.setdefault("pyperclip", MagicMock())
-
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import (  # noqa: E402
     ClipboardCopyError,
@@ -47,7 +42,7 @@ from voice_typer.server.clipboard import (  # noqa: E402
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Display-env isolation ()
+# Display-env isolation
 # ---------------------------------------------------------------------------
 # Previously this module mutated the process environment at import time
 # (setting DISPLAY=":99" and removing WAYLAND_DISPLAY) to keep clipboard
@@ -336,12 +331,12 @@ class TestDelayedRestore:
         mock_restore.assert_called_once()
 
     def test_delayed_restore_accepts_4_arg_pending_entry_from_paste_call_site(self):
-        """S4-CR-3 regression guard: ``paste()`` spawns the daemon thread
+        """ regression guard: ``paste()`` spawns the daemon thread
         with 4 positional args ``(snapshot, expected, delay, _pending_entry)``,
         so ``_delayed_restore`` MUST accept 4 positional args without
         raising ``TypeError``.
 
-        The original S4-CR-3 bug was that the production signature was
+        The original  bug was that the production signature was
         3-arg while the call site passed 4 — the daemon thread died
         immediately on every ``paste()`` invocation, silently breaking
         clipboard restore. The fix added ``pending_entry: Any = None``
@@ -370,7 +365,7 @@ class TestDelayedRestore:
             )
         ]
         assert len(positional_params) >= 4, (
-            "S4-CR-3 regression: _delayed_restore must accept 4 "
+            " regression: _delayed_restore must accept 4 "
             "positional args (self, snapshot, pasted_text, delay, "
             "pending_entry) — paste() spawns the thread with "
             "args=(snapshot, expected, delay, _pending_entry). "

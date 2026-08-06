@@ -1,4 +1,4 @@
-"""Regression test for CR-5: AudioProcessor active must NOT cause double-resampling in stop()/snapshot().
+"""Regression test for AudioProcessor active must NOT cause double-resampling in stop()/snapshot().
 
 Pre-fix bug (verified by code-flow in review.md):
   1. ``AudioProcessor.process_chunk`` resamples each chunk from the device's

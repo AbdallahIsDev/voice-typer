@@ -243,7 +243,7 @@ class TestShutdownSidecarSource:
         """Step 3: waits for `CommandEvent::Terminated` with
         `SHUTDOWN_ACK_TIMEOUT_MS` deadline via `tokio::time::timeout`.
 
-        CR-2: the host polls the sidecar's exit event stream (captured
+        the host polls the sidecar's exit event stream (captured
         at spawn time) and returns as soon as `Terminated` arrives
         (~50ms typical), instead of sleeping the full 2s unconditionally.
         """
@@ -767,7 +767,7 @@ class TestSupervisorSource:
         )
 
     def test_rotates_child_exit_rx_on_respawn(self):
-        """CR-2: each respawn rotates `state.child_exit_rx` so the next
+        """each respawn rotates `state.child_exit_rx` so the next
         `shutdown_sidecar` call polls the NEW sidecar's exit event
         stream (not the dead one's)."""
         src = _read(_SUPERVISOR_RS)

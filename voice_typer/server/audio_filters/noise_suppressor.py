@@ -191,6 +191,24 @@ class NoiseSuppressor(AudioFilter):
         # 48 RNNoise frames/sec that's ~240 allocations/sec saved.
         self._frame_f32_buf: np.ndarray = np.zeros(_RNNOISE_FRAME_SIZE, dtype=np.float32)
         self._frame_i16_buf: np.ndarray = np.zeros(_RNNOISE_FRAME_SIZE, dtype=np.int16)
+        # pre-allocated float64 output buffer for the concatenated RNNoise
+        # output (``result_48k``). Before this, ``np.concatenate(output_frames)``
+        # allocated a fresh float64 array per ``process()`` call. Now each
+        # frame's cleaned output is written directly into the appropriate
+        # 480-sample slice of this buffer (via ``np.copyto`` + in-place
+        # ``np.divide``), eliminating the per-frame ``astype(np.float32) /
+        # _FLOAT_TO_INT16_MAX`` allocations AND the final concatenate.
+        # float64 (not float32) preserves the original arithmetic precision
+        # (``int16.astype(float32) / float64_scalar`` promotes to float64;
+        # ``np.copyto(f64, int16)`` then ``f64 /= float64`` is byte-identical).
+        # Lazy-resized to the largest ``n_full * _RNNOISE_FRAME_SIZE`` seen.
+        self._result_48k_buf: np.ndarray | None = None
+        # pre-allocated float32 padding buffer for the length-match path
+        # (when the downsampler produces fewer samples than the input).
+        # Before this, ``np.zeros(target_len, dtype=np.float32)`` allocated
+        # a fresh array per call on that rare path. Lazy-resized to the
+        # largest ``target_len`` seen.
+        self._padded_buf: np.ndarray | None = None
 
         # streaming resamplers created lazily by
         # ``_ensure_resamplers``. At the native RNNoise rate (48kHz) both stay
@@ -441,10 +459,22 @@ class NoiseSuppressor(AudioFilter):
         # Set channel info once for pyrnnoise (mono).
         self._backend.channels = 1
 
-        output_frames = []
+        # pre-allocate the float64 output buffer for the concatenated
+        # RNNoise output. Each frame's cleaned output is written directly
+        # into the appropriate 480-sample slice — eliminates the
+        # ``output_frames`` list + final ``np.concatenate`` (which allocated
+        # a fresh float64 array per call) AND the per-frame
+        # ``cleaned_i16[0].astype(np.float32) / _FLOAT_TO_INT16_MAX``
+        # (which allocated a fresh float64 array per frame).
+        total_out = n_full * _RNNOISE_FRAME_SIZE
+        if self._result_48k_buf is None or self._result_48k_buf.shape[0] < total_out:
+            self._result_48k_buf = np.empty(max(total_out, 1024), dtype=np.float64)
+        result_48k = self._result_48k_buf[:total_out]
+
         for i in range(n_full):
             start = i * _RNNOISE_FRAME_SIZE
             frame = combined[start : start + _RNNOISE_FRAME_SIZE]
+            out_slice = result_48k[i * _RNNOISE_FRAME_SIZE : (i + 1) * _RNNOISE_FRAME_SIZE]
             try:
                 # clip float32 input to [-1, 1] BEFORE scaling to int16
                 # so out-of-range floats (e.g. from upstream gain stages) do not
@@ -460,18 +490,26 @@ class NoiseSuppressor(AudioFilter):
                 frame_i16[:] = frame_f32.astype(np.int16)
                 # pyrnnoise expects [num_channels, 480]; returns (speech_prob, cleaned) as int16
                 _, cleaned_i16 = self._backend.denoise_frame(frame_i16[np.newaxis, :])
-                output_frames.append(cleaned_i16[0].astype(np.float32) / _FLOAT_TO_INT16_MAX)
+                # write the cleaned frame directly into the result buffer
+                # slice: int16 -> float64 (exact, both fit in float64
+                # mantissa) then in-place divide by _FLOAT_TO_INT16_MAX.
+                # Byte-identical to ``cleaned_i16[0].astype(np.float32) /
+                # _FLOAT_TO_INT16_MAX`` because the float32 intermediate is
+                # exactly upcast to float64 before the float64 division.
+                np.copyto(out_slice, cleaned_i16[0], casting="same_kind")
+                np.divide(out_slice, _FLOAT_TO_INT16_MAX, out=out_slice)
             except Exception as exc:
                 log.debug("[NOISE-SUPPRESS] RNNoise frame failed: %s", exc)
-                output_frames.append(frame)
+                # fall back to the original frame (upcast float32 -> float64
+                # to match the success-path dtype so the downstream
+                # concatenate-free buffer is homogeneous float64).
+                np.copyto(out_slice, frame, casting="same_kind")
 
         # Save remainder for next call
         if remainder > 0:
             self._carry = combined[n_full * _RNNOISE_FRAME_SIZE :]
         else:
             self._carry = np.array([], dtype=np.float32)
-
-        result_48k = np.concatenate(output_frames)
 
         # Resample back to source rate (using streaming resamplers).
         result = self._downsampler.process(result_48k) if self._downsampler is not None else result_48k
@@ -482,8 +520,14 @@ class NoiseSuppressor(AudioFilter):
         if len(result) >= target_len:
             result = result[:target_len]
         else:
-            padded = np.zeros(target_len, dtype=np.float32)
+            # pre-allocated padding buffer (lazy-resized). The tail beyond
+            # ``len(result)`` is zeroed so stale data from a previous call
+            # (with a larger ``target_len``) does not leak into the output.
+            if self._padded_buf is None or self._padded_buf.shape[0] < target_len:
+                self._padded_buf = np.zeros(max(target_len, 1024), dtype=np.float32)
+            padded = self._padded_buf[:target_len]
             padded[: len(result)] = result
+            padded[len(result) :] = 0.0
             result = padded
 
         return result.astype(np.float32, copy=False).reshape(original_shape)
@@ -508,6 +552,15 @@ class NoiseSuppressor(AudioFilter):
         # ``.fill(0)`` is safe.
         self._frame_f32_buf.fill(0)
         self._frame_i16_buf.fill(0)
+        # zero the concatenated-output + padding buffers for the same
+        # privacy rationale. ``_result_48k_buf`` holds the cleaned RNNoise
+        # output (derived from the user's voice); ``_padded_buf`` holds the
+        # length-matched output. Guarded for None because they are
+        # lazy-allocated on the first ``process()`` call.
+        if self._result_48k_buf is not None:
+            self._result_48k_buf.fill(0)
+        if self._padded_buf is not None:
+            self._padded_buf.fill(0)
         #  also reset the streaming resamplers' filter state
         # so a stale tail from the previous session doesn't bleed into the
         # next processing window.

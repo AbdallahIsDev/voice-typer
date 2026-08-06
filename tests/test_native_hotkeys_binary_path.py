@@ -1,6 +1,6 @@
 """Regression tests for ``voice_typer.server.native_hotkeys.binary_path``.
 
-CR-32: per-arch native binaries. This test pins the new
+per-arch native binaries. This test pins the new
 ``(platform, machine)`` → binary-name lookup table and the legacy
 non-arch-suffixed fallback so:
 
@@ -13,7 +13,7 @@ non-arch-suffixed fallback so:
 4. The legacy non-arch-suffixed name is appended as a fallback so
    existing Tauri bundles (which still ship ``linux-key-listener``,
    ``windows-key-listener.exe``, ``macos-key-listener`` under the
-   pre-CR-32 names) keep working during the ``tauri.conf.json``
+   keep working during the ``tauri.conf.json``
    transition (owned by IMPL-4 / the primary agent).
 5. Unknown platforms (e.g. ``freebsd``) return ``None`` from
    :func:`get_native_binary_path` and an empty candidate-name list
@@ -73,7 +73,7 @@ class TestNormalizeMachine:
 
 
 class TestBinaryNamesTable:
-    """Pin the per-(platform, machine) binary filename map (CR-32)."""
+    """Pin the per-(platform, machine) binary filename map."""
 
     def test_linux_x86_64_uses_arch_suffix(self):
         assert binary_path._BINARY_NAMES[("linux", "x86_64")] == "linux-key-listener-x86_64"
@@ -116,7 +116,7 @@ class TestBinaryNamesTable:
 
 
 class TestLegacyBinaryNamesTable:
-    """Pin the pre-CR-32 fallback names (used during tauri.conf.json transition)."""
+    """Pin the fallback names (used during tauri.conf.json transition)."""
 
     def test_linux_legacy_is_unsuffixed(self):
         assert binary_path._LEGACY_BINARY_NAMES["linux"] == "linux-key-listener"
@@ -282,7 +282,7 @@ class TestGetNativeBinaryPathArchSuffix:
 class TestGetNativeBinaryPathLegacyFallback:
     """Verify the legacy non-arch-suffixed name is used as a fallback.
 
-    This pins the CR-32 transition behavior: existing bundles that
+    This pins the transition behavior: existing bundles that
     still ship ``linux-key-listener`` (no arch suffix) keep working
     until IMPL-4 / the primary agent updates tauri.conf.json to ship
     the arch-suffixed names exclusively.

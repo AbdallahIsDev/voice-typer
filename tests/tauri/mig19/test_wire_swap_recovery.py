@@ -169,13 +169,13 @@ References:
                                      + max_size frame cap).
 
 Gaps documented (report, do NOT fix — out of scope for MIG-1.9 check-3):
-  - GAP-1: ADR-0020 §10 says the backoff schedule is "500→1000→2000 ms,
+  - ADR-0020 §10 says the backoff schedule is "500→1000→2000 ms,
     cap 5 retries" — but the implemented schedule (``SUPERVISOR_BACKOFF_MS``)
     is 500→1000→2000→4000→8000 ms (5 entries, doubling). The ADR text
     is ambiguous (only 3 values shown but cap=5); the implementation's
     5-step doubling matches the *cap* but extends beyond the 3 values
     shown. This is a documentation/ADR wording gap, not a code bug.
-  - GAP-2: The supervisor uses a per-call ``attempt`` counter
+  - The supervisor uses a per-call ``attempt`` counter
     local to ``respawn_inner`` — there is NO persistent crash
     counter across ``respawn`` invocations. A flapping sidecar
     that recovers on attempt 0 every time will NEVER escalate to
@@ -183,13 +183,13 @@ Gaps documented (report, do NOT fix — out of scope for MIG-1.9 check-3):
     ADR-0020 §10 intends a sustained-flap detector that escalates
     across calls, it is NOT implemented. See
     test_gap_no_persistent_crash_counter_across_invocations.
-  - GAP-3: ADR-0020 §10 line 709 says "the existing limiter in
+  - ADR-0020 §10 line 709 says "the existing limiter in
     ``log_rate_limit.py``" — but the WS path actually reuses
     ``_RateLimiter`` from ``ipc_server.py`` (the TCP path's limiter).
     ``log_rate_limit.py`` is a *logging* rate-limiter helper, not the
     IPC rate-limiter. ADR wording bug; the implementation correctly
     reuses the IPC limiter.
-  - GAP-4: The Rust WS client (``reconnect_ws``) does NOT enforce a
+  - The Rust WS client (``reconnect_ws``) does NOT enforce a
     rate limit on outbound frames — only the Python WS server enforces
     the inbound limit. ADR-0020 §10 only mandates the server-side
     limiter, so this is by design, but a buggy Rust bridge could
@@ -212,7 +212,7 @@ SRC_TAURI_DIR = PROJECT_ROOT / "src-tauri" / "src"
 SUPERVISOR_RS = SRC_TAURI_DIR / "sidecar" / "supervisor.rs"
 WS_RS = SRC_TAURI_DIR / "sidecar" / "ws.rs"
 WS_EVENT_PROTOCOL_RS = SRC_TAURI_DIR / "sidecar" / "ws" / "event_protocol.rs"
-# ARCH-045 / RT-FIX-10: the ``std::thread`` spawn bridge for the
+# the ``std::thread`` spawn bridge for the
 # disconnect → supervisor trigger moved OUT of ``ws.rs`` into
 # ``ws/respawn_scheduler.rs`` (the reader's post-loop cleanup now calls
 # ``trigger_respawn_off_thread`` / ``cleanup_and_trigger_respawn``, which
@@ -261,7 +261,7 @@ def ws_respawn_scheduler_source() -> str:
     """Full text of src-tauri/src/sidecar/ws/respawn_scheduler.rs (read
     once per module).
 
-    ARCH-045 / RT-FIX-10: the ``std::thread`` spawn bridge that used to
+    the ``std::thread`` spawn bridge that used to
     live in ``ws.rs`` (the post-loop ``cleanup_and_trigger_respawn`` →
     ``trigger_respawn_off_thread`` path) moved here. The ``!Send`` WS
     stream-half still can't be ``tokio::spawn``ed directly, so the
@@ -564,7 +564,7 @@ def test_ws_reader_triggers_respawn_after_loop_exit(ws_source: str, ws_respawn_s
     assert "respawn(" in ws_source, (
         "WS reader must call respawn() after the reader loop exits — the disconnect → supervisor trigger is missing"
     )
-    # ARCH-045 / RT-FIX-10: the std::thread spawn bridge moved out of
+    # the std::thread spawn bridge moved out of
     # ws.rs into ws/respawn_scheduler.rs — the reader's post-loop
     # cleanup calls ``cleanup_and_trigger_respawn`` (ws.rs) which hands
     # the supervisor future to ``trigger_respawn_off_thread``
@@ -1066,7 +1066,7 @@ def test_sidecar_ws_returns_rate_limited_error(sidecar_ws_source: str) -> None:
 
 
 def test_rate_limiter_is_per_process(ipc_server_source: str) -> None:
-    """CR-11: the rate limiter must be PER-PROCESS (one
+    """the rate limiter must be PER-PROCESS (one
     ``_RateLimiter`` per ``IPCServer`` instance), NOT per-connection.
 
     A per-connection limiter would let a local attacker reset the
@@ -1086,7 +1086,7 @@ def test_rate_limiter_is_per_process(ipc_server_source: str) -> None:
 
 
 def test_rate_limiter_burst_is_200_sustained_600(ipc_server_source: str) -> None:
-    """ADR-0019 (RELIABILITY-006-FIX-10): burst = 200 messages,
+    """burst = 200 messages,
     sustained = 600 over a 10s window (= 60 msg/s average). These
     constants must match between the TCP and WS paths (both use the
     same ``_RateLimiter`` class)."""

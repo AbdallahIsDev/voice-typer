@@ -1,9 +1,9 @@
-"""AC-2 / AC-3 regression tests for ``TranscriptionEngine._is_gpu_runtime_error``
+"""regression tests for ``TranscriptionEngine._is_gpu_runtime_error``
 and the shared ``_GPU_ERROR_KEYWORDS`` constant.
 
-These tests pin the AC-2 fix (``RuntimeError`` removed from the
+These tests pin the fix (``RuntimeError`` removed from the
 ctranslate2 class-check loop — only ``CUDAError`` is checked) and the
-AC-3 fix (both ``_probe_cuda_runtime`` and ``_is_gpu_runtime_error``
+fix (both ``_probe_cuda_runtime`` and ``_is_gpu_runtime_error``
 reference the same module-level ``_GPU_ERROR_KEYWORDS`` constant so the
 load-time probe and transcribe-time classifier always agree).
 """
@@ -33,7 +33,7 @@ def mock_faster_whisper(monkeypatch):
 
 
 class TestRuntimeErrorNotMisclassified:
-    """AC-2: ``_is_gpu_runtime_error`` must NOT classify a plain
+    """``_is_gpu_runtime_error`` must NOT classify a plain
     ``RuntimeError`` as a GPU error.
 
     Pre-fix: the ctranslate2 class-check loop iterated
@@ -69,7 +69,7 @@ class TestRuntimeErrorNotMisclassified:
         "is now classified as a GPU error."
     )
     def test_plain_runtime_error_not_gpu(self, monkeypatch):
-        """(a) AC-2: a plain ``RuntimeError("model not loaded")`` must
+        """(a) a plain ``RuntimeError("model not loaded")`` must
         return False — even when ctranslate2 exposes ``RuntimeError``
         as a class attribute (the condition that triggered the OLD
         buggy fallback)."""
@@ -86,7 +86,7 @@ class TestRuntimeErrorNotMisclassified:
         engine = self._make_engine(device="cuda")
         result = engine._is_gpu_runtime_error(RuntimeError("model not loaded"))
         assert result is False, (
-            "AC-2 regression: a plain RuntimeError('model not loaded') was "
+            "regression: a plain RuntimeError('model not loaded') was "
             "classified as a GPU error. The ctranslate2 class-check loop must "
             "ONLY check CUDAError (NOT RuntimeError) — RuntimeError is the base "
             "class of nearly every C-extension error and matching it routes "
@@ -94,7 +94,7 @@ class TestRuntimeErrorNotMisclassified:
         )
 
     def test_runtime_error_with_cuda_substring_still_detected(self, monkeypatch):
-        """(b) AC-2: a ``RuntimeError("CUDA error: ...")`` must still
+        """(b) a ``RuntimeError("CUDA error: ...")`` must still
         return True via the substring-fallback strategy (strategy #4)
         — even though the class-check no longer matches RuntimeError,
         the substring match catches the literal 'cuda' in the
@@ -107,12 +107,12 @@ class TestRuntimeErrorNotMisclassified:
         engine = self._make_engine(device="cuda")
         result = engine._is_gpu_runtime_error(RuntimeError("CUDA error: out of memory"))
         assert result is True, (
-            "AC-2: a RuntimeError with 'CUDA' in the message must still be "
+            "a RuntimeError with 'CUDA' in the message must still be "
             "classified as a GPU error via the substring fallback."
         )
 
     def test_torch_cuda_oom_classified_as_gpu(self, monkeypatch):
-        """(c) AC-2: a ``torch.cuda.OutOfMemoryError`` instance must
+        """(c) a ``torch.cuda.OutOfMemoryError`` instance must
         return True via the strategy #1 isinstance check (class
         hierarchy). The conftest autouse torch mock installs a real
         ``_FakeOutOfMemoryError`` class at ``torch.cuda.OutOfMemoryError``
@@ -139,7 +139,7 @@ class TestRuntimeErrorNotMisclassified:
         oom_exc = oom_cls("CUDA out of memory")
         result = engine._is_gpu_runtime_error(oom_exc)
         assert result is True, (
-            "AC-2: torch.cuda.OutOfMemoryError must be classified as a GPU "
+            "torch.cuda.OutOfMemoryError must be classified as a GPU "
             "error via the strategy #1 isinstance check (class hierarchy)."
         )
 
@@ -164,7 +164,7 @@ class TestRuntimeErrorNotMisclassified:
     def test_source_does_not_check_runtime_error_class(self):
         """Source guard: the ctranslate2 class-check loop in
         ``_is_gpu_runtime_error`` must NOT mention RuntimeError as a
-        class to check (only CUDAError). This pins the AC-2 fix at the
+        class to check (only CUDAError). This pins the fix at the
         source level so a future refactor that re-adds RuntimeError
         trips this test."""
         import inspect
@@ -180,14 +180,14 @@ class TestRuntimeErrorNotMisclassified:
             not in src.replace("# ``RuntimeError`` is the base class", "").replace("# ``RuntimeError`` matched", "")
             or "for attr_name in" not in src
         ), (
-            "AC-2 regression: _is_gpu_runtime_error source still references "
+            "regression: _is_gpu_runtime_error source still references "
             "RuntimeError as a class to check. The ctranslate2 loop must "
             "ONLY check CUDAError."
         )
         # The NEW form: a single ``getattr(ctranslate2, "CUDAError", None)``
         # call (no loop, no RuntimeError).
         assert 'getattr(ctranslate2, "CUDAError", None)' in src, (
-            "AC-2: _is_gpu_runtime_error must use a single "
+            "_is_gpu_runtime_error must use a single "
             "``getattr(ctranslate2, 'CUDAError', None)`` check (not a "
             "loop over ('CUDAError', 'RuntimeError'))."
         )

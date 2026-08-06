@@ -1,6 +1,6 @@
-"""CR-18 / CR-65 regression guard — verify ``config_applier`` module extraction.
+"""regression guard — verify ``config_applier`` module extraction.
 
-Finding CR-65 (Medium): ``VoiceTyperService.apply_config_side_effects``
+Finding (Medium): ``VoiceTyperService.apply_config_side_effects``
 is a 215-line branching method that mixes autostart, prewarm, hotkey,
 tray, notifications, bubble, volume, audio-preset, and model-reload
 side effects in one body. Fix-D extracts it into a dedicated
@@ -75,7 +75,7 @@ def test_config_applier_module_exists() -> None:
     assert _has_module("voice_typer.server.config_applier"), (
         "voice_typer.server.config_applier module not found — "
         "Fix-D should extract apply_config_side_effects into this "
-        "module (CR-18 / CR-65)."
+        "module."
     )
 
 
@@ -125,7 +125,7 @@ def test_service_apply_config_delegates_to_module(fake_app) -> None:
     svc.apply_config_side_effects(updates)
     assert captured, (
         "Expected VoiceTyperService.apply_config_side_effects to delegate "
-        "to the extracted config_applier module (CR-18 / Fix-D)."
+        "to the extracted config_applier module."
     )
 
 

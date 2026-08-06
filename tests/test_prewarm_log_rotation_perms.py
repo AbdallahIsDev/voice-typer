@@ -108,7 +108,7 @@ def _prewarm_handlers() -> list[logging.Handler]:
 
 
 def test_prewarm_handler_is_secure_rotating_subclass(tmp_path, monkeypatch):
-    """the fix-4: ``prewarm.logging_setup._setup_logging`` installs a
+    """the ``prewarm.logging_setup._setup_logging`` installs a
     ``_SecureRotatingFileHandler`` for ``prewarm.log``, NOT the stock
     ``logging.handlers.RotatingFileHandler``. The subclass overrides
     ``doRollover`` to re-chmod the active log file to 0o600 after each
@@ -124,7 +124,7 @@ def test_prewarm_handler_is_secure_rotating_subclass(tmp_path, monkeypatch):
     )
     for h in prewarm_handlers:
         assert isinstance(h, vt_log._SecureRotatingFileHandler), (
-            "the fix-4: prewarm.log handler must be a _SecureRotatingFileHandler "
+            "the prewarm.log handler must be a _SecureRotatingFileHandler "
             "(subclass that re-chmods to 0o600 after each rotation AND acquires "
             "the inter-process rotation lock), not the stock "
             "logging.handlers.RotatingFileHandler. Pre-fix the stock handler "
@@ -133,7 +133,7 @@ def test_prewarm_handler_is_secure_rotating_subclass(tmp_path, monkeypatch):
 
 
 def test_prewarm_post_rotation_mode_is_0o600(tmp_path, monkeypatch):
-    """the fix-4: after a prewarm.log rotation fires, the new active
+    """the after a prewarm.log rotation fires, the new active
     ``prewarm.log`` is 0o600.
 
     Writes >5 MiB of records to a prewarm logger to force the rotation,
@@ -169,7 +169,7 @@ def test_prewarm_post_rotation_mode_is_0o600(tmp_path, monkeypatch):
     # The active prewarm.log must still be 0o600 after the rotation.
     mode = stat.S_IMODE(os.stat(prewarm_log).st_mode)
     assert oct(mode) == "0o600", (
-        f"the fix-4: post-rotation prewarm.log mode must be 0o600 on POSIX; got {oct(mode)}. "
+        f"the post-rotation prewarm.log mode must be 0o600 on POSIX; got {oct(mode)}. "
         "Pre-fix (stock RotatingFileHandler) this was 0o644 (world-readable) "
         "because the stock handler has no post-rotation chmod hook — the "
         "initial setup-time chmod did not survive the first 5 MiB rotation."
@@ -179,8 +179,6 @@ def test_prewarm_post_rotation_mode_is_0o600(tmp_path, monkeypatch):
     # it was renamed from the original active file (which was 0o600), so
     # the mode carries over via rename.
     backup = tmp_path / "prewarm.log.1"
-    assert backup.exists(), "the fix-4: expected a rotated backup file prewarm.log.1 after >5 MiB write"
+    assert backup.exists(), "the expected a rotated backup file prewarm.log.1 after >5 MiB write"
     backup_mode = stat.S_IMODE(os.stat(backup).st_mode)
-    assert oct(backup_mode) == "0o600", (
-        f"the fix-4: rotated prewarm.log.1 mode must be 0o600 on POSIX; got {oct(backup_mode)}"
-    )
+    assert oct(backup_mode) == "0o600", f"the rotated prewarm.log.1 mode must be 0o600 on POSIX; got {oct(backup_mode)}"

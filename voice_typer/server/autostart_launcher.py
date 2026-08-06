@@ -644,8 +644,8 @@ def _focus_running_app() -> bool:
     """
     # Tauri focus path: spawn the Tauri binary — the single-instance
     # plugin handles the focus + second-instance-quit dance.
-    tauri_mode = _is_tauri_mode()
-    if tauri_mode:
+    focus_tauri = _is_tauri_mode()
+    if focus_tauri:
         binary = _tauri_binary()
         if not binary:
             log.info("[AUTOSTART] tauri focus: binary missing; cannot focus existing instance")

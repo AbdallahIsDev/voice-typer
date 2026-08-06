@@ -1,4 +1,4 @@
-"""CR-10 regression tests: single long-lived buffer-clear worker thread.
+"""regression tests: single long-lived buffer-clear worker thread.
 
 Before the fix, ``_secure_clear_array_background`` spawned a fresh
 daemon ``threading.Thread`` on every call. Under rapid hotkey toggling
@@ -6,7 +6,7 @@ daemon ``threading.Thread`` on every call. Under rapid hotkey toggling
 unbounded thread churn. The fix replaces the per-call spawn with a
 single module-level daemon worker + bounded ``queue.Queue``.
 
-These tests assert the four guarantees spelled out in the CR-10 fix
+These tests assert the four guarantees spelled out in the fix
 task:
 
 1. Only ONE worker thread is spawned regardless of how many buffers
@@ -75,10 +75,10 @@ def _make_buffer(n_chunks: int = 3) -> collections.deque:
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Test 1: only ONE worker thread is spawned across many enqueues.
+# only ONE worker thread is spawned across many enqueues.
 # ────────────────────────────────────────────────────────────────────────────
 def test_single_worker_thread_spawned_across_many_enqueues():
-    """CR-10: 50 enqueues must not create more than 1 new worker thread."""
+    """50 enqueues must not create more than 1 new worker thread."""
     from voice_typer.server import recording
 
     initial = _count_buffer_clear_threads()
@@ -91,16 +91,16 @@ def test_single_worker_thread_spawned_across_many_enqueues():
     growth = final - initial
     assert growth <= 1, (
         f"expected at most 1 new buffer-clear-bg thread across 50 enqueues, "
-        f"got {growth} (initial={initial}, final={final}). Old CR-10 "
+        f"got {growth} (initial={initial}, final={final})."
         "behaviour would have spawned ~50."
     )
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Test 2: all enqueued buffers are eventually zeroed.
+# all enqueued buffers are eventually zeroed.
 # ────────────────────────────────────────────────────────────────────────────
 def test_all_enqueued_buffers_eventually_zeroed():
-    """CR-10: every enqueued deque's chunks end up zero-filled."""
+    """every enqueued deque's chunks end up zero-filled."""
     from voice_typer.server import recording
 
     buffers = [_make_buffer(n_chunks=4) for _ in range(20)]
@@ -115,10 +115,10 @@ def test_all_enqueued_buffers_eventually_zeroed():
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Test 3: the worker is a daemon thread.
+# the worker is a daemon thread.
 # ────────────────────────────────────────────────────────────────────────────
 def test_worker_is_daemon():
-    """CR-10: the buffer-clear worker must be a daemon (no process-exit block)."""
+    """the buffer-clear worker must be a daemon (no process-exit block)."""
     from voice_typer.server import recording
 
     # Trigger lazy start (or reuse existing singleton).
@@ -132,10 +132,10 @@ def test_worker_is_daemon():
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Test 4: rapid enqueues (1000 in a loop) don't spawn 1000 threads.
+# rapid enqueues (1000 in a loop) don't spawn 1000 threads.
 # ──────────────────────────────────────────────────────────────────────────
 def test_rapid_enqueues_do_not_explode_thread_count():
-    """CR-10: 1000 rapid enqueues must not spawn 1000 threads."""
+    """1000 rapid enqueues must not spawn 1000 threads."""
     from voice_typer.server import recording
 
     initial_worker_count = _count_buffer_clear_threads()
@@ -155,7 +155,7 @@ def test_rapid_enqueues_do_not_explode_thread_count():
     assert worker_growth <= 1, (
         f"expected at most 1 new buffer-clear-bg thread after 1000 enqueues, "
         f"got {worker_growth} (initial={initial_worker_count}, "
-        f"final={final_worker_count}). Old CR-10 behaviour would have "
+        f"final={final_worker_count}). Old behaviour would have "
         "spawned ~1000."
     )
     # Allow a small constant slack for pytest/fixture threads, but catch
@@ -168,10 +168,10 @@ def test_rapid_enqueues_do_not_explode_thread_count():
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Test 5: the cached worker singleton is reused across calls (not recreated).
+# the cached worker singleton is reused across calls (not recreated).
 # ──────────────────────────────────────────────────────────────────────────
 def test_worker_singleton_reused_across_calls():
-    """CR-10: ``_buffer_clear_worker`` is created once and then reused.
+    """``_buffer_clear_worker`` is created once and then reused.
 
     This is the lazy-start invariant: the cached module-level worker
     reference must NOT be replaced by a fresh thread on subsequent
@@ -197,10 +197,10 @@ def test_worker_singleton_reused_across_calls():
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Test 6: queue-full fallback still zeros the buffer synchronously.
+# queue-full fallback still zeros the buffer synchronously.
 # ────────────────────────────────────────────────────────────────────────────
 def test_queue_full_fallback_clears_synchronously(monkeypatch):
-    """CR-10: if the bounded queue is full, the caller thread zeros the buffer.
+    """if the bounded queue is full, the caller thread zeros the buffer.
 
     The fallback path must preserve the secure-clear guarantee (data is
     still zeroed) rather than dropping the clear silently. We force the
@@ -231,10 +231,10 @@ def test_queue_full_fallback_clears_synchronously(monkeypatch):
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Test 7: public API shape preserved — function accepts a deque and returns None.
+# public API shape preserved — function accepts a deque and returns None.
 # ────────────────────────────────────────────────────────────────────────────
 def test_public_api_signature_preserved():
-    """CR-10: the public callable ``_secure_clear_array_background(buf)``
+    """the public callable ``_secure_clear_array_background(buf)``
     must still accept a deque and return None (callers in ``stop()`` /
     ``discard()`` rely on this)."""
     from voice_typer.server import recording
@@ -246,10 +246,10 @@ def test_public_api_signature_preserved():
 
 
 # ────────────────────────────────────────────────────────────────────────────
-# Test 8: non-ndarray items in the deque are skipped without raising.
+# non-ndarray items in the deque are skipped without raising.
 # ──────────────────────────────────────────────────────────────────────────
 def test_non_ndarray_items_skipped_gracefully():
-    """CR-10: the worker iterates a heterogeneous deque without crashing.
+    """the worker iterates a heterogeneous deque without crashing.
 
     The original ``_zero_worker`` and the new worker loop both guard
     each chunk with ``isinstance(chunk, np.ndarray)``. A deque that

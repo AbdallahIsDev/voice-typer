@@ -166,60 +166,65 @@ class TestCancelTestLockedSecureClears:
 
 
 class TestDoAutoStopTestSecureClears:
-    """AP-14: ``_do_auto_stop_test`` must call ``_secure_clear_test_chunks``
-    and clear the deques after publishing the push event."""
+    """AP-14 / T-1: ``_do_auto_stop_test`` publishes the completion
+    event and leaves the test-chunk deques populated for the frontend
+    to retrieve.
 
-    def test_auto_stop_calls_secure_clear_after_publish(self):
+    The original AP-14 fix made auto-stop securely clear the deques,
+    but commit eee02942 (T-1) deliberately REVERSED that: the frontend's
+    ``stop_test_recording`` IPC handler runs AFTER auto-stop fires to
+    fetch the audio — if auto-stop cleared the chunks, the retrieval
+    would return an empty audio payload and the user would see a false
+    "test failed" toast despite the test completing. The deques are
+    bounded (``maxlen`` caps them at one test's worth of audio), so
+    leaving them populated until the retrieval (or the cancel /
+    manual-stop path, which DO secure-clear) is both privacy-safe and
+    functionally correct. These tests pin the T-1 contract.
+    """
+
+    def test_auto_stop_publishes_and_keeps_chunks_for_retrieval(self):
         """When the auto-stop timer fires (``_test_mode == True``), the
         function MUST publish the ``microphone_test_complete`` event
-        AND then securely clear + ``.clear()`` all three deques. This
-        covers the case where the frontend never calls
-        ``stop_test_recording()`` after auto-stop (e.g. IPC stop lost,
-        tab closed before the JS handler runs)."""
+        and MUST NOT clear the test-chunk deques — the frontend fetches
+        the audio via ``stop_test_recording`` AFTER the event."""
         _state._test_mode = True
         _populate_test_chunks()
 
         # Stub event_bus.publish so the test doesn't depend on the
-        # IPC layer being wired up. The publish is best-effort; even
-        # if it succeeds the secure-clear must still run.
+        # IPC layer being wired up.
         import voice_typer.server.event_bus as event_bus
 
         with patch.object(_tr, "_secure_clear_test_chunks") as spy, patch.object(event_bus, "publish") as pub:
             _tr._do_auto_stop_test()
 
         # Push event must have been published (frontend depends on it).
-        assert pub.called, "AP-14: _do_auto_stop_test did not publish microphone_test_complete event."
+        assert pub.called, "T-1: _do_auto_stop_test did not publish microphone_test_complete event."
         # Inspect the published event envelope.
         pub_args, _ = pub.call_args
         published_event = pub_args[0]
         assert published_event["type"] == "microphone_test_complete", (
-            f"AP-14: expected event type 'microphone_test_complete'; got {published_event.get('type')!r}."
+            f"T-1: expected event type 'microphone_test_complete'; got {published_event.get('type')!r}."
         )
-        # Secure clear MUST have been called once with all three deques.
-        assert spy.called, (
-            "AP-14: _do_auto_stop_test did NOT call "
-            "_secure_clear_test_chunks after publishing the push event — "
-            "if the frontend never calls stop_test_recording after "
-            "auto-stop, the test chunks linger indefinitely in process "
-            "memory (privacy regression)."
+        # T-1: auto-stop must NOT clear the chunks — the frontend
+        # retrieves the audio AFTER the event; clearing here would make
+        # stop_test_recording return an empty payload.
+        assert not spy.called, (
+            "T-1: _do_auto_stop_test called _secure_clear_test_chunks — "
+            "clearing on auto-stop breaks the frontend's audio "
+            "retrieval via stop_test_recording (eee02942 reversed the "
+            "original AP-14 clear-on-auto-stop behavior)."
         )
-        assert spy.call_count == 1, f"AP-14: expected exactly 1 _secure_clear_test_chunks call; got {spy.call_count}."
-        args, _ = spy.call_args
-        assert len(args) == 3
-        assert args[0] is _state._test_raw_chunks
-        assert args[1] is _state._test_filtered_chunks
-        assert args[2] is _state._test_chunks
-        # Deques must be empty after.
-        assert len(_state._test_chunks) == 0
-        assert len(_state._test_raw_chunks) == 0
-        assert len(_state._test_filtered_chunks) == 0
+        # Chunks remain available for retrieval (bounded by maxlen).
+        assert len(_state._test_chunks) == 1
+        assert len(_state._test_raw_chunks) == 1
+        assert len(_state._test_filtered_chunks) == 1
         # Test mode must be cleared (happens in the first lock block).
         assert _state._test_mode is False
 
-    def test_auto_stop_publish_failure_still_secure_clears(self):
-        """If ``event_bus.publish`` raises, the function must STILL
-        run the secure-clear block — the privacy guarantee cannot
-        depend on the IPC layer being healthy."""
+    def test_auto_stop_publish_failure_does_not_raise(self):
+        """If ``event_bus.publish`` raises, the function must swallow it
+        (log a warning) and still leave the chunks for retrieval — the
+        retrieval path must not depend on the IPC layer being healthy."""
         _state._test_mode = True
         _populate_test_chunks()
 
@@ -236,14 +241,15 @@ class TestDoAutoStopTestSecureClears:
             # Must not re-raise: the publish is wrapped in try/except.
             _tr._do_auto_stop_test()
 
-        assert spy.called, (
-            "AP-14: _do_auto_stop_test skipped _secure_clear_test_chunks "
-            "because event_bus.publish raised — the privacy guarantee "
-            "must not depend on the IPC layer being healthy."
+        # The publish failure must NOT trigger a clear (T-1) — the
+        # chunks stay for the frontend retrieval.
+        assert not spy.called, (
+            "T-1: _do_auto_stop_test cleared chunks after a publish "
+            "failure — chunks must remain for the frontend retrieval."
         )
-        assert len(_state._test_raw_chunks) == 0
-        assert len(_state._test_filtered_chunks) == 0
-        assert len(_state._test_chunks) == 0
+        assert len(_state._test_raw_chunks) == 1
+        assert len(_state._test_filtered_chunks) == 1
+        assert len(_state._test_chunks) == 1
 
     def test_auto_stop_short_circuits_when_inactive(self):
         """If ``_test_mode`` is already False (e.g. the timer fired

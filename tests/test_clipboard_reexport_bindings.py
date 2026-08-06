@@ -29,19 +29,10 @@ re-export-binding semantics).
 
 from __future__ import annotations
 
-import sys
-from unittest.mock import MagicMock
-
 import pytest
 
-# Make pynput optional — these tests don't exercise any keyboard path,
-# but the package's ``__init__`` runs ``import pyperclip`` and the
-# .linux/.windows/.manager submodules at first import. Mock both so the
-# import succeeds in headless CI sandboxes without the real packages.
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-sys.modules.setdefault("pyperclip", MagicMock())
-
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server import clipboard_target_safety as safety_mod  # noqa: E402
 

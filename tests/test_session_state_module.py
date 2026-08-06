@@ -142,6 +142,9 @@ def _make_recorder(
     rec._preroll_buffer = collections.deque(maxlen=64)
     rec._device_disconnected = True  # sentinel: reset to False
     rec._device_disconnect_retries = 999
+    # AUDIO-HOT flap-detection deque — reset_session_state clears it
+    # (start() is the "begin a new session" boundary).
+    rec._restart_timestamps = collections.deque([1.0, 2.0])
     rec._dropped_ring_chunks = 999
     rec._device_check_counter = 999
     rec._cached_target_sr = None

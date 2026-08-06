@@ -1,4 +1,4 @@
-"""S2-CR-71: stopgap regression test for pystray private ``_icon_handle``.
+"""S2-stopgap regression test for pystray private ``_icon_handle``.
 
 Voice Typer pins ``pystray>=0.19,<0.20`` in ``pyproject.toml`` because
 ``voice_typer/server/tray.py:_apply_state`` reaches into pystray's
@@ -10,7 +10,7 @@ the DestroyIcon workaround so that rapid icon updates on Windows
 start hitting ``OSError: WinError 1402`` again with no diagnostic
 surface.
 
-TODO S2-CR-16 / CR-16: file an upstream pystray issue asking for a
+TODO S2-file an upstream pystray issue asking for a
 public ``reset_icon_handle()`` API. Once upstream exposes it:
 
   1. Bump ``pystray>=0.20`` (or whichever release exposes the API).
@@ -47,7 +47,7 @@ Tests in this module
   belt-and-braces: when ``_icon_handle`` IS present and ``OSError``
   is raised, the workaround fires (``_icon_handle`` is set to
   ``None``) and no warning is logged. This guards the existing
-  CR-16 / GT-E1-8 workaround from regressing.
+   / GT-E1-8 workaround from regressing.
 """
 
 from __future__ import annotations
@@ -96,6 +96,15 @@ def _load_real_pystray():
 
     Returns the real pystray module, or ``None`` if it is not
     installed (in which case the caller should ``pytest.skip``).
+
+    NOTE: this catches ``Exception``, NOT just ``ImportError`` — on a
+    headless Linux box without a ``$DISPLAY``, importing ``pystray``
+    eagerly calls ``Xlib.display.Display()`` which raises
+    ``Xlib.error.DisplayNameError`` (NOT an ``ImportError`` subclass).
+    The old ``except ImportError`` clause let that exception surface
+    and crash the test; broadening to ``Exception`` makes the skip
+    path trigger cleanly so the test degrades to a SKIP on headless
+    CI instead of an ERROR.
     """
     saved = sys.modules.get("pystray")
     keys_to_evict = [k for k in list(sys.modules.keys()) if k == "pystray" or k.startswith("pystray.")]
@@ -103,7 +112,12 @@ def _load_real_pystray():
         del sys.modules[k]
     try:
         return importlib.import_module("pystray")
-    except ImportError:
+    except Exception:
+        # ImportError — pystray not installed.
+        # Xlib.error.DisplayNameError — pystray installed but headless
+        #   Linux box has no $DISPLAY (Xlib backend eagerly opens it).
+        # Xlib.error.XlibError — other Xlib failure during backend probe.
+        # Any other Exception — defensive: treat as "no usable pystray".
         return None
     finally:
         # Restore the autouse-mock so subsequent tests in this
@@ -121,7 +135,7 @@ def test_pystray_icon_class_exposes_icon_handle():
 
     If this test fails after a ``pystray`` version bump, the private
     ``_icon_handle`` attribute was renamed or removed. Action
-    items (see S2-CR-71 / TODO S2-CR-16):
+    items (see S2- / TODO S2-):
 
       * Replace the access in ``voice_typer/server/tray.py:_apply_state``
         with the new public API (file an upstream issue for
@@ -143,16 +157,26 @@ def test_pystray_icon_class_exposes_icon_handle():
         pytest.skip("real pystray not installed in this environment — cannot introspect pystray.Icon._icon_handle")
 
     # The DestroyIcon workaround in ``tray.py:_apply_state`` writes
-    # to ``self._icon._icon_handle = None`` on OSError. If pystray's
-    # ``Icon`` class no longer exposes ``_icon_handle`` (as a class
-    # attribute or via __init__ on instances), the workaround can't
-    # fire and Win32 WinError 1402 will surface to users on rapid
-    # icon updates.
-    assert hasattr(pystray.Icon, "_icon_handle"), (
-        "pystray.Icon no longer exposes the private `_icon_handle` "
+    # to ``self._icon._icon_handle = None`` on OSError — i.e. it
+    # touches the INSTANCE attribute. pystray's platform backends set
+    # ``_icon_handle`` in ``Icon.__init__`` (it is NOT a class
+    # attribute), so a ``hasattr(pystray.Icon, ...)`` class-level check
+    # is always False on current pystray. Construct a probe instance
+    # and verify the attribute exists at runtime instead. On a headless
+    # host where construction raises (Xlib backends open a display at
+    # construction time), skip cleanly — same philosophy as the
+    # import-failure skip above.
+    try:
+        probe_icon = pystray.Icon("probe")
+    except Exception:
+        import pytest as _pytest
+
+        _pytest.skip("cannot construct pystray.Icon in this environment — cannot verify _icon_handle")
+    assert hasattr(probe_icon, "_icon_handle"), (
+        "pystray.Icon instances no longer expose the private `_icon_handle` "
         "attribute. The DestroyIcon workaround in "
         "voice_typer/server/tray.py:_apply_state is broken. See "
-        "S2-CR-71 / TODO S2-CR-16: replace the private attribute "
+        "S2- / TODO S2-replace the private attribute "
         "access with a public `reset_icon_handle()` API and bump "
         "pystray to the release that exposes it."
     )
@@ -169,7 +193,7 @@ class _FakeIcon:
     Behavior:
 
       * ``icon = value`` (setter) always raises ``OSError`` —
-        simulates the WinError 1402 that triggers the CR-16
+        simulates the WinError 1402 that triggers the
         workaround branch in ``tray.py:_apply_state``.
       * ``_icon_handle`` is exposed as a property whose getter
         raises ``AttributeError`` when ``has_handle=False`` so
@@ -262,13 +286,13 @@ def test_apply_state_warns_when_icon_handle_missing(caplog):
       * NOT re-raise the OSError (the workaround must degrade
         gracefully, not crash the tray loop).
       * Log a WARNING so the silent workaround failure surfaces
-        in diagnostics (S2-CR-71 requirement: the failure mode
+        in diagnostics (S2- requirement: the failure mode
         must be visible to users / devs, not silently swallowed).
 
     The WARNING message must mention ``_icon_handle`` so a developer
     grepping logs for the symptom of a pystray-version-bump
-    regression can find the root cause via the S2-CR-71 /
-    TODO S2-CR-16 cross-reference.
+    regression can find the root cause via the S2- /
+    TODO S2- cross-reference.
     """
     icon = _FakeIcon(has_icon_handle=False)
     # Sanity check: the fake icon should report no ``_icon_handle``
@@ -297,7 +321,7 @@ def test_apply_state_warns_when_icon_handle_missing(caplog):
 def test_apply_state_clears_icon_handle_when_present(caplog):
     """Belt-and-braces: workaround fires when ``_icon_handle`` IS present.
 
-    Verifies the existing CR-16 / GT-E1-8 workaround still works:
+    Verifies the existing  / GT-E1-8 workaround still works:
     when ``OSError`` is raised on icon assignment AND
     ``_icon_handle`` IS present, the workaround sets it to ``None``
     so pystray re-creates the icon handle on the next call. No
@@ -318,7 +342,7 @@ def test_apply_state_clears_icon_handle_when_present(caplog):
     # The workaround must have cleared the handle.
     assert icon._icon_handle is None, (
         "Expected `_icon_handle` to be set to None after OSError "
-        "(CR-16 / GT-E1-8 workaround), but it is: " + repr(icon._icon_handle)
+        "( / GT-E1-8 workaround), but it is: " + repr(icon._icon_handle)
     )
     # And NO warning should have been logged (the workaround
     # functioned normally — the warning is reserved for the

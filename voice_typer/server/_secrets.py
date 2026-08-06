@@ -400,6 +400,36 @@ def redact_url(url: str) -> str:
     return redact_secret(url, aggressive=True)
 
 
+def _resolve_home_dirs() -> list[str]:
+    """Return candidate home directories, most-specific first.
+
+    Includes the explicit ``HOME`` env override (honoured on EVERY
+    platform — :func:`ntpath.expanduser` ignores ``HOME`` on Windows,
+    preferring ``USERPROFILE``, which silently defeats redaction when
+    ``HOME`` is explicitly overridden) plus the platform-resolved home
+    (``USERPROFILE`` on Windows). Redacting against BOTH candidates
+    means an explicit override AND the platform default are both
+    protected — e.g. under Git-Bash on Windows, ``HOME`` may be the
+    POSIX-style ``/c/Users/alice`` while real log paths are
+    ``C:\\Users\\alice\\…``; checking both covers that case.
+
+    Deduplicated, non-empty values only. Returns ``[]`` when no home
+    can be resolved (callers treat that as "home unknown" and return
+    the input unchanged).
+    """
+    homes: list[str] = []
+    env_home = os.environ.get("HOME")
+    if env_home:
+        homes.append(env_home)
+    try:
+        resolved = os.path.expanduser("~")
+    except (KeyError, RuntimeError):
+        resolved = ""
+    if resolved and resolved not in homes:
+        homes.append(resolved)
+    return homes
+
+
 def _redact_home_path(path: str | os.PathLike[str]) -> str:
     """Replace the user-home prefix in ``path`` with ``~``.
 
@@ -413,13 +443,11 @@ def _redact_home_path(path: str | os.PathLike[str]) -> str:
         dir", "this is a relative path", "this is on a different drive")
         without leaking the username.
 
-        The home directory is resolved via :func:`os.path.expanduser` at
-        call time (so a test that monkeypatches ``os.path.expanduser`` or
-        sets ``HOME`` / ``USERPROFILE`` sees the expected result). On
-        platforms where ``expanduser`` cannot determine the home dir it
-        returns the literal ``"~"`` — in that case the path is returned
-        unchanged (we never *introduce* a ``~`` that wasn't a real
-        prefix substitution).
+        The home directory is resolved at call time via
+        :func:`_resolve_home_dirs` (explicit ``HOME`` override + the
+        platform default). On platforms where no home can be determined,
+        the path is returned unchanged (we never *introduce* a ``~``
+        that wasn't a real prefix substitution).
 
         Comparison is case-insensitive on Windows (NTFS is case-
         insensitive; ``HOMEDRIVE`` / ``HOMEPATH`` / ``USERPROFILE`` can
@@ -435,33 +463,26 @@ def _redact_home_path(path: str | os.PathLike[str]) -> str:
         Returns
         -------
         str
-            ``path`` with the user-home prefix replaced by ``~``. If the
-            home dir cannot be resolved, or ``path`` does not start with
-            it, ``path`` is returned unchanged (stringified).
+            ``path`` with the user-home prefix replaced by ``~``. If no
+            home dir can be resolved, or ``path`` does not start with
+            one, ``path`` is returned unchanged (stringified).
     """
     s = os.fspath(path) if not isinstance(path, str) else path
-    try:
-        home = os.path.expanduser("~")
-    except (KeyError, RuntimeError):
-        # ``expanduser`` can raise on platforms where the user DB is
-        # unreadable; treat as "home unknown" and return the path
-        # verbatim (the leak is the username in the path, which we
-        # can't strip without knowing the home prefix).
-        return s
-    if not home or home == "~":
-        return s
-    home_norm = os.path.normpath(home)
     s_norm = os.path.normpath(s)
-    # ``os.path.normpath`` collapses ``//`` → ``/`` on POSIX and
-    # ``C:\\`` → ``C:\\`` on Windows, but does NOT change case. On
-    # Windows we compare case-insensitively because NTFS path
-    # components can vary by case (``Users`` vs ``users``).
-    if os.name == "nt":
-        if s_norm.lower().startswith(home_norm.lower()):
-            return "~" + s_norm[len(home_norm) :]
-    else:
-        if s_norm.startswith(home_norm):
-            return "~" + s_norm[len(home_norm) :]
+    for home in _resolve_home_dirs():
+        if not home or home == "~":
+            continue
+        home_norm = os.path.normpath(home)
+        # ``os.path.normpath`` collapses ``//`` → ``/`` on POSIX and
+        # ``C:\\`` → ``C:\\`` on Windows, but does NOT change case. On
+        # Windows we compare case-insensitively because NTFS path
+        # components can vary by case (``Users`` vs ``users``).
+        if os.name == "nt":
+            if s_norm.lower().startswith(home_norm.lower()):
+                return "~" + s_norm[len(home_norm) :]
+        else:
+            if s_norm.startswith(home_norm):
+                return "~" + s_norm[len(home_norm) :]
     return s
 
 

@@ -26,7 +26,7 @@ class TestGuards:
         downstream guards from the user's actual config (the same way
         the other tests in this class do).
         """
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: True)
         # ADR-0009 Issue 2: the sentinel check now runs BEFORE the RAM
         # check. Mock _already_warmed to return False so the test is
@@ -42,7 +42,7 @@ class TestGuards:
         """PW-3: when ``_fast_startup_enabled()`` returns False, ``run()``
         short-circuits with :data:`EXIT_DISABLED` — no prewarming attempted.
         """
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: False)
         # Force a high-RAM value so we know the only reason for skipping
         # is the fast_startup flag, not the RAM guard.
@@ -84,7 +84,7 @@ class TestGuards:
 
     def test_low_ram_returns_exit_low_ram(self, monkeypatch):
         """Free RAM below budget → EXIT_LOW_RAM, no prewarming attempted."""
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: True)
         # ADR-0009 Issue 2: sentinel check runs first. Mock it to return
         # False so the test reaches the RAM guard regardless of prior
@@ -113,7 +113,7 @@ class TestGuards:
         it, the reordered sentinel check would short-circuit on any
         machine where prewarm already ran this boot session.
         """
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: True)
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: None)
         monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
@@ -135,7 +135,7 @@ class TestGuards:
 
     def test_force_overrides_all_guards(self, monkeypatch):
         """--force skips both config and RAM checks."""
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         # Even with fast_startup=False and 0 free RAM, force proceeds.
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: False)
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: 0)
@@ -175,7 +175,7 @@ class TestSentinelBeforeRam:
         verify by making _free_ram_mb raise if called — if the sentinel
         wins, the raise never happens.
         """
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: True)
         monkeypatch.setattr(prewarm, "_already_warmed", lambda: True)
 
@@ -201,7 +201,7 @@ class TestSentinelBeforeRam:
         re-firing on session unlock; the sentinel caught it but the RAM
         check ran first and produced the misleading message.
         """
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: True)
         monkeypatch.setattr(prewarm, "_already_warmed", lambda: True)
         # RAM is below budget — if the check ran, we'd see EXIT_LOW_RAM.
@@ -805,7 +805,7 @@ class TestRunPidFileLifecycle:
         pid_file = tmp_path / ".prewarm.pid"
         monkeypatch.setattr(prewarm, "_sentinel_path", lambda: sentinel)
         monkeypatch.setattr(prewarm, "_pid_file_path", lambda: pid_file)
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: True)
         monkeypatch.setattr(prewarm, "_already_warmed", lambda: False)
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: None)
@@ -837,7 +837,7 @@ class TestRunPidFileLifecycle:
         pid_file = tmp_path / ".prewarm.pid"
         monkeypatch.setattr(prewarm, "_sentinel_path", lambda: sentinel)
         monkeypatch.setattr(prewarm, "_pid_file_path", lambda: pid_file)
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: True)
         monkeypatch.setattr(prewarm, "_already_warmed", lambda: False)
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: None)
@@ -866,7 +866,7 @@ class TestRunPidFileLifecycle:
         pid_file = tmp_path / ".prewarm.pid"
         monkeypatch.setattr(prewarm, "_sentinel_path", lambda: sentinel)
         monkeypatch.setattr(prewarm, "_pid_file_path", lambda: pid_file)
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_fast_startup_enabled", lambda: True)
         monkeypatch.setattr(prewarm, "_already_warmed", lambda: True)
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: 100)
@@ -1038,7 +1038,7 @@ class TestCli:
 
     def test_main_returns_exit_code(self, monkeypatch):
         """main() returns run()'s exit code (low RAM guard)."""
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: 100)
         monkeypatch.setattr(prewarm, "_already_warmed", lambda: False)
         monkeypatch.setattr(sys, "argv", ["prewarm"])
@@ -1144,7 +1144,7 @@ class TestCli:
         Task 3: --run is an alias for --force — both bypass the guards
         and run the warming pipeline inline.
         """
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_already_warmed", lambda: False)
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: None)
         monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
@@ -1242,7 +1242,7 @@ class TestCli:
         Task 3: --force is the legacy flag; it must still work exactly
         as before (run inline, no subprocess).
         """
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_already_warmed", lambda: False)
         monkeypatch.setattr(prewarm, "_free_ram_mb", lambda: None)
         monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
@@ -1449,7 +1449,7 @@ class TestPrewarmIntegration:
         # Mock ONLY _warm_imports (avoids importing torch — 4+ GB).
         # Everything else runs for real.
         monkeypatch.setattr(prewarm, "_warm_imports", lambda: None)
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
         # Force past all guards (sentinel, RAM, fast_startup).
         # Also mock _boot_time so the sentinel has a known value.
@@ -1505,7 +1505,7 @@ class TestPrewarmIntegration:
         sentinel, pid_file = self._mock_config(monkeypatch, tmp_path)
 
         monkeypatch.setattr(prewarm, "_warm_imports", lambda: None)
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
         monkeypatch.setattr(prewarm, "_boot_time", lambda: 1720000000)
 
@@ -1548,7 +1548,7 @@ class TestPrewarmIntegration:
 
         # First run: force=True, writes the sentinel.
         monkeypatch.setattr(prewarm, "_warm_imports", lambda: None)
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
         monkeypatch.setattr(prewarm, "_boot_time", lambda: 1720000000)
         exit_code_1 = prewarm.run(force=True)
@@ -1586,7 +1586,7 @@ class TestPrewarmIntegration:
         self._setup_fake_cache(tmp_path)
         sentinel, pid_file = self._mock_config(monkeypatch, tmp_path)
 
-        monkeypatch.setattr(prewarm, "_setup_logging", lambda: None)
+        monkeypatch.setattr(prewarm, "_setup_logging", lambda *a, **kw: None)
         monkeypatch.setattr(prewarm, "_lower_io_priority", lambda: None)
         monkeypatch.setattr(prewarm, "_boot_time", lambda: 1720000000)
         # Make _warm_imports raise ImportError (simulates missing torch).
@@ -1623,10 +1623,13 @@ class TestWarmPackageFiles:
         A regression back to ``import torch`` would drop ``torch`` (or the
         warmed package) into sys.modules; this asserts it never does.
         """
-        (tmp_path / "a.bin").write_bytes(b"x" * 1024)
+        # NOTE: use a warmable suffix (.json) — the production
+        # _WARM_PACKAGE_SUFFIXES set deliberately excludes .bin (no
+        # package reads raw .bin data at import time).
+        (tmp_path / "a.json").write_bytes(b"x" * 1024)
         sub = tmp_path / "sub"
         sub.mkdir()
-        (sub / "b.bin").write_bytes(b"y" * 2048)
+        (sub / "b.json").write_bytes(b"y" * 2048)
 
         class _FakeSpec:
             submodule_search_locations = [str(tmp_path)]
@@ -1640,7 +1643,7 @@ class TestWarmPackageFiles:
 
         assert "fakepkg" not in sys.modules
         assert total == 0  # fake _warm_file returns 0 bytes
-        assert set(reads) == {tmp_path / "a.bin", sub / "b.bin"}
+        assert set(reads) == {tmp_path / "a.json", sub / "b.json"}
 
     def test_missing_package_returns_zero_and_does_not_import(self, monkeypatch):
         """``find_spec`` returning None must be a safe no-op, not an import."""

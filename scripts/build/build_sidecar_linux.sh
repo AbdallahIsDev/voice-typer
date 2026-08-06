@@ -245,9 +245,22 @@ NUITKA_ENV=(
 # source path is missing, so guard it (mirrors build_sidecar_macos.sh and
 # build_prewarm_linux.sh — see ADR-0020 §4.4 + XPLAT-3).
 CT2_LIBS_DIR="$SITE/ctranslate2/libs"
+
+# Parallel C compilation: Nuitka invokes gcc/clang per Python module.
+# --jobs=N lets Nuitka fan those out (default: 1 = sequential).
+# Cap at the host CPU count via nproc(1); override with NUITKA_JOBS.
+# Note: each job forks a C compiler (~300-500 MB RSS) — on a 16 GB
+# machine, --jobs=4 is comfortable, --jobs=8 is borderline. Pair this
+# with build_tauri_all.sh --parallel cautiously: 3 Nuitka builds x
+# N jobs each can OOM-kill the box.
+if [[ -z "${NUITKA_JOBS:-}" ]]; then
+    NUITKA_JOBS="$(nproc 2>/dev/null || echo 1)"
+fi
+echo "[build_sidecar_linux] Nuitka --jobs=$NUITKA_JOBS"
 NUITKA_ARGS=(
     --standalone --onefile
     --assume-yes-for-downloads
+    --jobs="$NUITKA_JOBS"
     --enable-plugin=numpy
     --enable-plugin=anti-bloat
     --nofollow-import-to=torch._dynamo

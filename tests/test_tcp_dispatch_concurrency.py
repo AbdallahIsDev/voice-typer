@@ -1,4 +1,4 @@
-"""SU-19: TCP dispatch concurrency regression tests.
+"""TCP dispatch concurrency regression tests.
 
 Verifies the fix for the head-of-line blocking bug where
 ``self._dispatch(msg)`` was called INLINE in the TCP read loop
@@ -35,7 +35,7 @@ Test strategy
 3. Send two commands back-to-back: a slow one (dispatch sleeps 1s)
    then a fast one (instant). Assert the fast dispatch STARTS before
    the slow dispatch FINISHES — proving the read loop did not block.
-4. Verify the the fix-1 heartbeat fast-path still bypasses ``_dispatch``
+4. Verify the the heartbeat fast-path still bypasses ``_dispatch``
    (heartbeats are handled inline and are not delayed by an in-flight
    slow dispatch).
 """
@@ -129,7 +129,7 @@ def _read_lines(sock: socket.socket, timeout: float = 2.0, max_lines: int = 10) 
 
 
 class TestTCPDispatchConcurrency:
-    """SU-19: ``_dispatch`` must be offloaded to ``_tcp_dispatch_pool`` so
+    """``_dispatch`` must be offloaded to ``_tcp_dispatch_pool`` so
     the read loop continues reading while a slow handler runs."""
 
     def test_slow_dispatch_does_not_block_read_loop(self) -> None:
@@ -201,11 +201,11 @@ class TestTCPDispatchConcurrency:
 
             # (4) Both messages are eventually dispatched.
             assert len(starts) >= 2, (
-                f"SU-19: expected both messages to be dispatched, but only got "
+                f"expected both messages to be dispatched, but only got "
                 f"{len(starts)} dispatch_start events: {events!r}"
             )
             assert len(ends) >= 2, (
-                f"SU-19: expected both dispatches to complete, but only got {len(ends)} dispatch_end events: {events!r}"
+                f"expected both dispatches to complete, but only got {len(ends)} dispatch_end events: {events!r}"
             )
 
             slow_start = next(e for e in starts if e["type"] == "slow_command")
@@ -229,7 +229,7 @@ class TestTCPDispatchConcurrency:
             # the read loop waited for the slow dispatch to finish).
             gap = fast_start["ts"] - slow_start["ts"]
             assert gap < 0.5, (
-                f"SU-19: the fast dispatch started {gap:.3f}s after the slow "
+                f"the fast dispatch started {gap:.3f}s after the slow "
                 f"dispatch started — the read loop waited for the slow dispatch "
                 f"to finish before reading the next message (expected <0.5s "
                 f"for non-blocking read loop)."
@@ -241,12 +241,12 @@ class TestTCPDispatchConcurrency:
             handler_thread_name = handler_thread.name
             for e in starts:
                 assert e["thread"] != handler_thread_name, (
-                    f"SU-19: dispatch for {e['type']!r} ran on the handler "
+                    f"dispatch for {e['type']!r} ran on the handler "
                     f"thread {e['thread']!r} (same as the read loop) — it was "
                     f"NOT offloaded to the worker pool."
                 )
                 assert "tcp-dispatch" in e["thread"], (
-                    f"SU-19: dispatch ran on thread {e['thread']!r}, expected a 'tcp-dispatch' pool thread."
+                    f"dispatch ran on thread {e['thread']!r}, expected a 'tcp-dispatch' pool thread."
                 )
 
             # Drain any responses so the socket buffer doesn't fill.
@@ -255,11 +255,11 @@ class TestTCPDispatchConcurrency:
             with suppress(OSError):
                 client_sock.close()
             handler_thread.join(timeout=5.0)
-            assert not handler_thread.is_alive(), "SU-19: TCP handler thread did not exit after client close."
+            assert not handler_thread.is_alive(), "TCP handler thread did not exit after client close."
             server._tcp_dispatch_pool.shutdown(wait=False, cancel_futures=True)  # type: ignore[union-attr]
 
     def test_heartbeat_fast_path_bypasses_dispatch(self) -> None:
-        """the fix-1: the heartbeat fast-path must still bypass ``_dispatch``.
+        """the the heartbeat fast-path must still bypass ``_dispatch``.
 
         Sends a slow command (dispatch sleeps 1s), then a heartbeat
         while the slow dispatch is in-flight. The heartbeat_ack must
@@ -317,14 +317,14 @@ class TestTCPDispatchConcurrency:
             # until after the slow dispatch finished (1s+), and the
             # heartbeat_ack would either time out or arrive after the
             # slow response.
-            assert len(responses) >= 1, f"the fix-1: expected at least one response (heartbeat_ack), got {responses!r}"
+            assert len(responses) >= 1, f"the expected at least one response (heartbeat_ack), got {responses!r}"
             first = responses[0]
             assert first.get("type") == "heartbeat_ack", (
-                f"the fix-1 REGRESSION: the first response was {first!r}, expected "
+                f"the REGRESSION: the first response was {first!r}, expected "
                 f"heartbeat_ack. The heartbeat was not handled inline (it was "
                 f"either queued behind the slow dispatch or delayed by it)."
             )
-            assert first.get("id") == 2, f"the fix-1: heartbeat_ack id mismatch: {first!r}"
+            assert first.get("id") == 2, f"the heartbeat_ack id mismatch: {first!r}"
 
             # The heartbeat must NOT have gone through ``_dispatch``.
             # ``_dispatch`` should have been called exactly once (for
@@ -332,7 +332,7 @@ class TestTCPDispatchConcurrency:
             with dispatch_call_lock:
                 n = dispatch_call_count["n"]
             assert n == 1, (
-                f"the fix-1: ``_dispatch`` was called {n} times, expected exactly "
+                f"the ``_dispatch`` was called {n} times, expected exactly "
                 f"1 (for slow_command only). The heartbeat must bypass "
                 f"``_dispatch`` via the inline fast-path."
             )
@@ -340,14 +340,14 @@ class TestTCPDispatchConcurrency:
             with suppress(OSError):
                 client_sock.close()
             handler_thread.join(timeout=5.0)
-            assert not handler_thread.is_alive(), "the fix-1: TCP handler thread did not exit after client close."
+            assert not handler_thread.is_alive(), "the TCP handler thread did not exit after client close."
             server._tcp_dispatch_pool.shutdown(wait=False, cancel_futures=True)  # type: ignore[union-attr]
 
     def test_dispatch_exception_still_sends_error_response(self) -> None:
         """SU-19: the error-handling path must still work when dispatch
         is offloaded to the worker pool.
 
-        The B-6 / EC-error envelope
+        The EC-error envelope
         (``{"type":"error","data":{"code":"server.internal_error",
         "message":"internal error"}, "id": <id>}``) must be sent from
         within ``_tcp_dispatch_and_respond`` when ``_dispatch`` raises.
@@ -374,15 +374,15 @@ class TestTCPDispatchConcurrency:
             _send_line(client_sock, {"type": "get_status", "id": 42})
 
             responses = _read_lines(client_sock, timeout=2.0, max_lines=3)
-            assert len(responses) >= 1, f"SU-19: expected an error response for the raising dispatch, got {responses!r}"
+            assert len(responses) >= 1, f"expected an error response for the raising dispatch, got {responses!r}"
             err = responses[0]
-            assert err.get("type") == "error", f"SU-19: expected type='error', got {err!r}"
-            assert err.get("id") == 42, f"SU-19: error response must preserve the request id, got {err!r}"
+            assert err.get("type") == "error", f"expected type='error', got {err!r}"
+            assert err.get("id") == 42, f"error response must preserve the request id, got {err!r}"
             assert err["data"]["code"] == "server.internal_error", (
-                f"SU-19: error code must be 'server.internal_error', got {err!r}"
+                f"error code must be 'server.internal_error', got {err!r}"
             )
             assert err["data"]["message"] == "internal error", (
-                f"SU-19: error message must be 'internal error', got {err!r}"
+                f"error message must be 'internal error', got {err!r}"
             )
         finally:
             with suppress(OSError):

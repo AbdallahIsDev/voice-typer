@@ -289,6 +289,22 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
         "microphone",
         "corrections_path",
     }
+    # ``int | None`` / ``float | None`` fields where ``None`` is a
+    # meaningful sentinel (bubble position unset, bubble scale unset,
+    # no test-duration override). ``_derive_field_type_registry``
+    # unwraps ``Optional[int]`` / ``Optional[float]`` to ``int`` /
+    # ``float`` BEFORE the per-type branches run, so a ``null`` value
+    # on disk (or the default-constructed ``None``) would otherwise hit
+    # the int/float coercion branches and emit spurious
+    # "had non-int value None, resetting to default None" warnings on
+    # EVERY ``Config.load()``. Mirror the ``optional_str_fields``
+    # allowlist: ``None`` is accepted for these fields and skipped.
+    optional_numeric_fields = {
+        "bubble_x",
+        "bubble_y",
+        "bubble_scale",
+        "test_duration_seconds",
+    }
     registry = cls._derive_field_type_registry()
     defaults = cls()
 
@@ -350,6 +366,13 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
             )
 
         elif expected_type is int:
+            # ``int | None`` fields: ``None`` is a meaningful sentinel
+            # (see ``optional_numeric_fields``) - skip before the
+            # coercion branch so a ``null`` on disk (or the
+            # default-constructed ``None``) doesn't emit a spurious
+            # "had non-int value None" reset warning.
+            if val is None and field_name in optional_numeric_fields:
+                continue
             # VALID-3 (MED-L): int field coercion.  Accepts ints,
             # floats (truncated via int()), and numeric strings.
             # Rejects bools (bool is a subclass of int but almost
@@ -397,6 +420,13 @@ def _validate_non_numeric_fields(cls: type[Config], data: dict[str, Any]) -> dic
             )
 
         elif expected_type is float:
+            # ``float | None`` fields: ``None`` is a meaningful
+            # sentinel (see ``optional_numeric_fields``) - skip before
+            # the coercion branch so a ``null`` on disk (or the
+            # default-constructed ``None``) doesn't emit a spurious
+            # "had non-float value None" reset warning.
+            if val is None and field_name in optional_numeric_fields:
+                continue
             # VALID-3 (MED-L): float field coercion.  Accepts
             # floats, ints, and numeric strings.  Rejects bools
             # and anything float() can't parse.

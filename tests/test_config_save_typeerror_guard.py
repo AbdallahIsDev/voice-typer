@@ -156,11 +156,26 @@ class TestSaveCatchesJsonDumpsTypeError:
         ``json.dumps`` as ``ValueError``). We use a simpler approach:
         patch ``json.dumps`` directly to raise ``ValueError`` so we
         deterministically exercise the ValueError branch.
+
+        Note : ``Config._save_unlocked`` short-circuits at the
+        top when ``_dirty is False`` AND ``_last_saved_bytes`` is
+        populated (skipping ``asdict`` + ``json.dumps`` entirely). The
+        post-migration save inside ``Config.load()`` populates both, so
+        a bare ``cfg = Config.load(); cfg.save()`` would short-circuit
+        and never reach ``json.dumps``. Mutating a field (``cfg.hotkey =
+        "<f5>"``) sets ``_dirty = True`` via the ``__setattr__``
+        override, ensuring ``json.dumps`` is reached so the patch takes
+        effect. This mirrors the pattern in
+        ``test_save_happy_path_still_returns_true`` below.
         """
         config_file = _isolated_config_dir / "config.json"
         config_file.write_text(json.dumps({"hotkey": "<caps_lock>"}))
 
         cfg = Config.load()
+        # mutate a field so _dirty=True and the dirty-flag
+        # short-circuit at the top of _save_unlocked does NOT skip
+        # the json.dumps call (which is patched below).
+        cfg.hotkey = "<f5>"
 
         # Patch json.dumps in the config module to raise ValueError.
         import voice_typer.server.config as config_mod

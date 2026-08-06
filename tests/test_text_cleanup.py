@@ -746,18 +746,36 @@ class TestPhraseCorrectionPerformance:
     """
 
     def test_eager_compiled_patterns_parallel_to_phrases(self):
-        """configure_corrections eagerly builds one Pattern per phrase."""
+        """configure_corrections makes a combined-alternation regex
+        available via ``_get_phrases_regex`` / ``_get_extra_words_regex``,
+        replacing the former per-phrase eager-precompiled parallel lists.
+        """
         import re
 
         from voice_typer.server import text_cleanup
 
         text_cleanup.configure_corrections()
-        assert len(text_cleanup._active_phrase_patterns) == len(text_cleanup._active_phrases)
-        for p in text_cleanup._active_phrase_patterns:
-            assert isinstance(p, re.Pattern)
-        assert len(text_cleanup._active_extra_word_patterns) == len(text_cleanup._active_extra_words)
-        for p in text_cleanup._active_extra_word_patterns:
-            assert isinstance(p, re.Pattern)
+        # When active phrases exist, ``_get_phrases_regex`` must return
+        # a compiled ``re.Pattern`` (the combined alternation) plus a
+        # non-empty lookup dict whose size matches the active phrases
+        # (modulo first-wins dedup, which is a no-op for the bundled
+        # corrections.json — every bad phrase is unique).
+        phrase_re, phrase_lookup = text_cleanup._get_phrases_regex()
+        if text_cleanup._active_phrases:
+            assert isinstance(phrase_re, re.Pattern)
+            assert len(phrase_lookup) == len(text_cleanup._active_phrases)
+        else:
+            # Empty phrases list short-circuits to (None, {}).
+            assert phrase_re is None
+            assert phrase_lookup == {}
+        # Same contract for extra words.
+        extra_re, extra_lookup = text_cleanup._get_extra_words_regex()
+        if text_cleanup._active_extra_words:
+            assert isinstance(extra_re, re.Pattern)
+            assert len(extra_lookup) == len(text_cleanup._active_extra_words)
+        else:
+            assert extra_re is None
+            assert extra_lookup == {}
 
     def test_no_match_dictation_returns_unchanged_fast(self):
         """When no phrase is present, _correct_whisper_phrases returns the
@@ -843,25 +861,23 @@ class TestPhraseCorrectionPerformance:
         """
         from voice_typer.server import text_cleanup
 
-        saved = (
-            text_cleanup._active_phrases,
-            text_cleanup._active_phrase_patterns,
-        )
+        saved = text_cleanup._active_phrases
+        # The combined-regex cache (``_phrases_re_cache``) is keyed on
+        # the list object's identity (``cached_list is _active_phrases``),
+        # so replacing the module attribute invalidates the cache and
+        # forces a rebuild on the next ``_correct_whisper_phrases`` call.
         try:
             text_cleanup._active_phrases = [("foo", "bar"), ("bar", "SHOULD_NOT_APPEAR")]
-            text_cleanup._active_phrase_patterns = [
-                text_cleanup.re.compile(text_cleanup.re.escape("foo"), text_cleanup.re.IGNORECASE),
-                text_cleanup.re.compile(text_cleanup.re.escape("bar"), text_cleanup.re.IGNORECASE),
-            ]
             # 'foo' -> 'bar' (introduces 'bar'); 'bar' should NOT then
             # match because the membership test uses original lower 'foo',
-            # not the mutated 'bar'.
+            # not the mutated 'bar' — ``re.sub`` finds all matches in the
+            # ORIGINAL text before applying substitutions, so a
+            # substitution cannot trigger another match in the same pass.
             out = text_cleanup._correct_whisper_phrases("foo")
             assert out == "bar", f"expected 'bar', got {out!r}"
             assert "SHOULD_NOT_APPEAR" not in out
         finally:
-            text_cleanup._active_phrases = saved[0]
-            text_cleanup._active_phrase_patterns = saved[1]
+            text_cleanup._active_phrases = saved
 
 
 class TestSingleTokenization:

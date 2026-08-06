@@ -1,4 +1,4 @@
-"""S5-CR-28: verify the ``_backup_before_migration`` extraction.
+"""S5-verify the ``_backup_before_migration`` extraction.
 
 The implementation was extracted from ``Config._backup_before_migration``
 (config.py — 2,698-LOC monolith) to a module-level function
@@ -47,7 +47,7 @@ def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path
 
 
 class TestBackupBeforeMigrationExtraction:
-    """S5-CR-28: ``Config._backup_before_migration`` delegates to the
+    """S5-``Config._backup_before_migration`` delegates to the
     extracted ``_backup_before_migration_impl`` in
     ``config_internals.migrations``.
     """

@@ -56,6 +56,23 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <process.h>  /* _beginthreadex */
+
+/* Wire protocol version reported via ``VERSION:<x.y.z>`` immediately
+ * after READY. The Python side records this and the factory
+ * compares it against the manifest's ``version`` field. */
+#define NATIVE_BINARY_VERSION "1.0.0"
+
+/* optional diagnostic log file. NULL when no --log-file was
+ * passed (diagnostics go to stderr only). */
+static FILE* g_diag_log = NULL;
+
+/* stdout writes from the stdin-reader thread and the hook
+ * callback must be serialized. The hook callback runs on the main
+ * thread during the GetMessage pump; the stdin reader runs on its
+ * own thread. Initialize in main(). */
+static CRITICAL_SECTION g_emit_lock;
+static int g_emit_lock_inited = 0;
 
 /* ===========================================================================
  * Globals
@@ -63,6 +80,10 @@
 
 static HHOOK g_hook = NULL;   /* the low-level keyboard hook handle */
 static FILE* g_out   = NULL;  /* stdout, captured for emit() */
+
+/* signal the stdin reader thread to exit so we don't leak a
+ * thread hanging on ReadFile(stdin) when the parent closes the pipe. */
+static volatile LONG g_should_exit = 0;
 
 /* When we swallow a keyDown, we remember its VK so the matching keyUp is
  * also swallowed — otherwise the foreground app sees an orphan keyUp
@@ -219,9 +240,62 @@ static const char* name_for_event(int vk, DWORD flags) {
  * =========================================================================== */
 
 static void emit(const char* line) {
+    if (g_emit_lock_inited) EnterCriticalSection(&g_emit_lock);
     fputs(line, g_out);
     fputc('\n', g_out);
     fflush(g_out);
+    if (g_emit_lock_inited) LeaveCriticalSection(&g_emit_lock);
+}
+
+/* write a timestamped diagnostic line to g_diag_log (if set)
+ * AND echo to stderr. Mirrors the Linux log_diag helper. */
+static void log_diag(const char* fmt, ...) {
+    SYSTEMTIME st;
+    GetSystemTime(&st);
+    char msg[512];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof(msg), fmt, ap);
+    va_end(ap);
+    char line[640];
+    int n = snprintf(line, sizeof(line),
+                     "%04d-%02d-%02dT%02d:%02d:%02d.%03d [%lu] %s\n",
+                     st.wYear, st.wMonth, st.wDay,
+                     st.wHour, st.wMinute, st.wSecond, st.wMilliseconds,
+                     GetCurrentProcessId(), msg);
+    if (n > 0 && g_diag_log != NULL) {
+        if (g_emit_lock_inited) EnterCriticalSection(&g_emit_lock);
+        fputs(line, g_diag_log);
+        fflush(g_diag_log);
+        if (g_emit_lock_inited) LeaveCriticalSection(&g_emit_lock);
+    }
+    fputs(line, stderr);
+    fflush(stderr);
+}
+
+/* ===========================================================================
+ * PING/PONG stdin reader thread
+ *
+ * The Python parent writes ``PING\n`` to our stdin every 30s as a
+ * liveness check. We respond with ``PONG\n`` so the parent can tell
+ * "alive and responsive" from "alive but stuck in a tight loop".
+ * =========================================================================== */
+static unsigned __stdcall stdin_reader_thread(void* arg) {
+    (void)arg;
+    char line[64];
+    while (!g_should_exit) {
+        if (fgets(line, sizeof(line), stdin) == NULL) {
+            break;
+        }
+        size_t len = strlen(line);
+        while (len > 0 && (line[len-1] == '\n' || line[len-1] == '\r')) {
+            line[--len] = '\0';
+        }
+        if (strcmp(line, "PING") == 0) {
+            emit("PONG");
+        }
+    }
+    return 0;
 }
 
 /* ===========================================================================
@@ -587,6 +661,8 @@ static BOOL WINAPI console_handler(DWORD ctrl) {
         case CTRL_CLOSE_EVENT:
         case CTRL_LOGOFF_EVENT:
         case CTRL_SHUTDOWN_EVENT:
+            /* signal the stdin reader thread to exit. */
+            InterlockedExchange(&g_should_exit, 1);
             if (g_hook != NULL) {
                 UnhookWindowsHookEx(g_hook);
                 g_hook = NULL;
@@ -612,6 +688,12 @@ int main(int argc, char** argv) {
     setvbuf(stdout, NULL, _IONBF, 0);
     g_out = stdout;
 
+    /* initialize the emit critical section BEFORE any thread that
+     * calls emit() is started. The hook callback (main thread) and the
+     * stdin reader thread both call emit(). */
+    InitializeCriticalSection(&g_emit_lock);
+    g_emit_lock_inited = 1;
+
     /* (1) Parse argv[1] — the hotkey spec. We don't match against it (Python
      *     does), but we validate it so we can fail fast with ERROR on bad
      *     input, and we use it to drive suppression decisions in the hook. */
@@ -626,17 +708,36 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    /* (2) Install the low-level keyboard hook.
-     *
-     *     WH_KEYBOARD_LL hooks into the thread that installed them — no DLL
-     *     is injected into other processes. The hInstance parameter is
-     *     ignored for LL hooks (we pass NULL). The thread that installs the
-     *     hook MUST run a message pump, otherwise the callback is never
-     *     dispatched.
-     *
-     *     SetWindowsHookEx returns NULL on failure — typically because the
-     *     process lacks the necessary desktop access or because another LL
-     *     hook in the chain misbehaved. GetLastError() gives the reason. */
+    /* parse optional ``--log-file <path>`` argument. Also accept
+     *     a bare positional argv[2] as the log path for forward compatibility. */
+    const char* log_file_path = NULL;
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--log-file") == 0 && i + 1 < argc) {
+            log_file_path = argv[++i];
+        } else if (argv[i][0] != '-' && log_file_path == NULL) {
+            log_file_path = argv[i];
+        }
+    }
+    if (log_file_path != NULL && log_file_path[0] != '\0') {
+        g_diag_log = fopen(log_file_path, "a");
+        if (g_diag_log == NULL) {
+            log_diag("WARN: failed to open --log-file (errno=%d)", errno);
+        }
+    }
+    log_diag("windows-key-listener starting; spec=%s; log_file=%s",
+             argv[1], log_file_path ? log_file_path : "<none>");
+
+    /* start the stdin reader thread so we can respond to PING with
+     *     PONG. _beginthreadex returns 0 on failure. The thread is detached. */
+    uintptr_t stdin_tid = _beginthreadex(NULL, 0, stdin_reader_thread, NULL, 0, NULL);
+    if (stdin_tid == 0) {
+        log_diag("WARN: failed to start stdin reader thread; PING/PONG disabled");
+    } else {
+        log_diag("stdin reader thread started (PING/PONG enabled)");
+        CloseHandle((HANDLE)stdin_tid);
+    }
+
+    /* (2) Install the low-level keyboard hook. */
     g_hook = SetWindowsHookEx(WH_KEYBOARD_LL, LowLevelKeyboardProc, NULL, 0);
     if (g_hook == NULL) {
         DWORD err = GetLastError();
@@ -644,8 +745,10 @@ int main(int argc, char** argv) {
         snprintf(buf, sizeof(buf),
                  "ERROR:Failed to install keyboard hook (error=%lu)", err);
         emit(buf);
+        log_diag("ERROR: SetWindowsHookEx failed (error=%lu)", err);
         return 1;
     }
+    log_diag("keyboard hook installed");
 
     /* (3) Install the console control handler for clean shutdown on Ctrl-C,
      *     window-close, logoff, and shutdown. */
@@ -654,13 +757,16 @@ int main(int argc, char** argv) {
     /* (4) Announce readiness. Python waits for this line before considering
      *     the backend "up". */
     emit("READY");
+    /* immediately announce our wire-protocol version. */
+    {
+        char vbuf[32];
+        snprintf(vbuf, sizeof(vbuf), "VERSION:%s", NATIVE_BINARY_VERSION);
+        emit(vbuf);
+    }
+    log_diag("READY emitted; version=%s", NATIVE_BINARY_VERSION);
 
     /* (5) Message pump — runs until WM_QUIT is received or until the console
-     *     control handler calls exit(0) directly. The OS dispatches
-     *     LowLevelKeyboardProc synchronously inside GetMessage() whenever a
-     *     keyboard event arrives. Without this pump the hook callback would
-     *     never fire — WH_KEYBOARD_LL callbacks are dispatched by the thread's
-     *     message loop, not by the keyboard ISR. */
+     *     control handler calls exit(0) directly. */
     MSG msg;
     while (GetMessage(&msg, NULL, 0, 0) > 0) {
         TranslateMessage(&msg);
@@ -670,9 +776,14 @@ int main(int argc, char** argv) {
     /* (6) Cleanup — normally we exit() from the console handler before
      *     reaching here, but if the message pump returns (WM_QUIT without an
      *     exit()) we still unhook cleanly. */
+    InterlockedExchange(&g_should_exit, 1);
     if (g_hook != NULL) {
         UnhookWindowsHookEx(g_hook);
         g_hook = NULL;
+    }
+    if (g_diag_log != NULL) {
+        fclose(g_diag_log);
+        g_diag_log = NULL;
     }
     return 0;
 }

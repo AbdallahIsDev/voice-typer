@@ -303,13 +303,15 @@ def win32_console_handler(controller: ShutdownController, ctrl_type) -> bool:
             # Windows' 10,000 handle cap after ~250 RDP logout cycles).
             if getattr(app, "_devnull", None) is None or app._devnull.closed:
                 app._devnull = open(os.devnull, "w")  # noqa: SIM115
-                # Look up _register_devnull_file dynamically from the
-                # app module so tests that monkeypatch
-                # voice_typer.server.app._register_devnull_file
-                # still take effect.
-                from voice_typer.server import app as _app_module
+                # Register the devnull FD for shutdown cleanup directly
+                # via the canonical log helper. The previous indirection
+                # (``voice_typer.server.app._register_devnull_file``)
+                # referenced an attribute that does not exist on the app
+                # module — it raised AttributeError inside this Ctrl-Close
+                # handler, silently breaking devnull-file cleanup.
+                from voice_typer.server.log import register_devnull_file
 
-                _app_module._register_devnull_file(app._devnull)
+                register_devnull_file(app._devnull)
             sys.stdout = app._devnull
             sys.stderr = app._devnull
             log.info("[WIN32] Detached from console (FreeConsole)")

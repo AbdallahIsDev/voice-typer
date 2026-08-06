@@ -532,6 +532,7 @@ class OnboardingController:
         # tests would have to remember to patch separately.
         from voice_typer.server import permissions as perm_mod
         from voice_typer.server.permissions import (
+            LINUX_UDEV_RULE,
             PermissionState,
             check_keyboard_permission,
         )
@@ -578,7 +579,7 @@ class OnboardingController:
                     "commands": [
                         "sudo usermod -aG input $USER",
                         "# udev rule (installed by scripts/linux/install_permissions.py):",
-                        '# KERNEL=="event*", SUBSYSTEM=="input", GROUP="input", MODE="0640"',
+                        f"# {LINUX_UDEV_RULE}",
                     ],
                 }
                 if needed

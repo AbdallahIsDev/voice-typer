@@ -672,7 +672,7 @@ class TestReentrantPublish:
 class TestBackwardCompatShim:
     """Behavior preserved after the ipc_server ↔ event_bus shim was removed.
 
-    B-1 FIX-12: the ``_push_event_registry`` / ``_push_event_registry_lock``
+    the ``_push_event_registry`` / ``_push_event_registry_lock``
     aliases and the ``_set_push_event`` / ``_clear_push_event`` shims were
     deleted from ``ipc_server.py``.  Domain code (and tests) now call
     ``event_bus.subscribe`` / ``event_bus.unsubscribe`` directly.  These

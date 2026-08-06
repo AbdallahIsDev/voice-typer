@@ -197,13 +197,15 @@ class ShutdownController:
     - Read platform helpers (``is_windows``) dynamically from
       ``voice_typer.server.app`` so tests that monkeypatch
       ``voice_typer.server.app.is_windows`` still take effect.
-    - Read ``_clear_backend_pid_file`` / ``_close_devnull_files`` /
-      ``_register_devnull_file`` dynamically from
-      ``voice_typer.server.app`` so tests that monkeypatch those
-      re-exports still take effect.
+    - Read ``_clear_backend_pid_file`` dynamically from
+      ``voice_typer.server.app`` so tests that monkeypatch that
+      re-export still take effect. (``register_devnull_file`` /
+      ``close_devnull_files`` live on ``voice_typer.server.log`` and
+      are called directly from ``signal_handlers`` / the devnull
+      teardown — not via an app re-export.)
     """
 
-    # AC-87: the ordered list of every ``_teardown_*`` phase method that
+    # the ordered list of every ``_teardown_*`` phase method that
     # ``_do_cleanup`` invokes. The first FOUR entries are the sequenced
     # critical phase (timers/recording → recorder → history_db →
     # crash_recovery) whose flush-bearing helpers
@@ -323,6 +325,11 @@ class ShutdownController:
         # invocations from tests (which use a fresh controller or
         # ``__new__``) skip the inter-step check.
         self._shutdown_deadline: float | None = None
+        # Published by ``_do_cleanup`` alongside ``_shutdown_deadline``
+        # so the extracted ``run_plan`` driver (in ``shutdown/plan.py``)
+        # can append inter-step deadline-skip entries to the shared
+        # list. ``None`` outside an active ``_do_cleanup`` call.
+        self._shutdown_skipped: list[str] | None = None
 
     # ─── Shared cleanup body ───────────────────────────────────────────
 
@@ -428,6 +435,15 @@ class ShutdownController:
         # from tests use a fresh controller where the attribute is
         # ``None`` (initialised in ``__init__``).
         self._shutdown_deadline = _shutdown_deadline
+        # Publish the skipped-list on the instance so the extracted
+        # ``run_plan`` driver (in ``shutdown/plan.py``) can append
+        # inter-step deadline-skip entries to the SAME list that
+        # ``_build_sequenced_plan`` / ``_build_parallel_plan`` append
+        # to. The single shared list is then summarised in the
+        # ``if _shutdown_skipped:`` WARNING block below. ``None``
+        # outside an active ``_do_cleanup`` call (mirrors
+        # ``_shutdown_deadline``).
+        self._shutdown_skipped = _shutdown_skipped
 
         # ── Early bookend (parallel ipc_server.stop + WS drain) ─────────
         #  (partial) + SU-23: stop the IPC server EARLY so inbound

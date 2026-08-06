@@ -1,4 +1,4 @@
-"""d-review Finding 5 regression guard + CR-4 Rust/TS allowlist parity.
+"""d-review Finding 5 regression guard +  Rust/TS allowlist parity.
 
 SECURITY.md documents the number of IPC commands in the Electron main
 process's ``ALLOWED_COMMANDS`` allowlist. Finding 5 noted the doc had
@@ -16,7 +16,7 @@ renderer allowlist against the server command registry — together they
 keep the security docs, the renderer allowlist, and the server registry
 in lockstep.
 
-CR-4 (Fix-C): a second parity check was added — the Rust host's
+ (Fix-C): a second parity check was added — the Rust host's
 ``ALLOWED_COMMANDS`` set in ``src-tauri/src/commands/sidecar_cmds.rs``
 must mirror the TS renderer allowlist EXACTLY (same count + same
 entries). The Rust gate is the defense-in-depth backstop for a
@@ -137,7 +137,7 @@ def _count_allowed_commands() -> int:
 def _allowed_commands_ts() -> set[str]:
     """Return the set of command names in the TS ALLOWED_COMMANDS block.
 
-    Used by the CR-4 Rust/TS parity test to assert exact entry-level
+    Used by the  Rust/TS parity test to assert exact entry-level
     parity (not just count-level) — a count match with a different
     entry set (e.g. ``quit_app`` in TS but ``quit`` in Rust) would
     pass the count check but break at runtime.
@@ -389,6 +389,55 @@ def test_rust_allowlist_contains_key_commands() -> None:
     )
 
 
+#  (Low): check_accessibility removal regression guards
+
+
+def test_check_accessibility_not_in_python_command_registry() -> None:
+    """``check_accessibility`` MUST NOT be in the Python
+    ``_COMMAND_REGISTRY`` — the renderer uses
+    ``onboarding_check_permissions`` instead, and the Tauri host
+    routes ``check_accessibility`` through a dedicated Rust command
+    (with its own allowlist entry + consent prompt) rather than
+    bridging through the generic Python IPC dispatch path.
+
+    The Python-side ``_handle_check_accessibility`` method still
+    exists on the ``SystemHandlersMixin`` (in
+    ``voice_typer/server/handlers/system_handlers.py``) for the
+    legacy Electron path, but it MUST NOT be registered in
+    ``_COMMAND_REGISTRY`` — otherwise a compromised renderer could
+    ``invoke('dispatch', {cmd:'check_accessibility'})`` to bypass the
+    Rust-side consent prompt and reach the Python subprocess directly.
+    """
+    registry = _command_registry_entries()
+    assert "check_accessibility" not in registry, (
+        "'check_accessibility' MUST NOT be in the Python "
+        "_COMMAND_REGISTRY — the renderer uses "
+        "'onboarding_check_permissions' instead, and the Tauri host "
+        "routes check_accessibility through a dedicated Rust command. "
+        "Re-adding it here would re-open the IPC dispatch route that "
+        "the cleanup pass deliberately closed (see "
+        "tests/tauri/mig19/test_phase4_validation.py for the frozen "
+        "command table)."
+    )
+
+
+def test_check_accessibility_not_in_renderer_allowlist() -> None:
+    """``check_accessibility`` MUST NOT be in the TS renderer
+    ``ALLOWED_COMMANDS`` set. The renderer's permission flow now uses
+    ``onboarding_check_permissions``; the Tauri host handles the raw
+    accessibility probe via a dedicated Rust command.
+    """
+    ts = _allowed_commands_ts()
+    assert "check_accessibility" not in ts, (
+        "'check_accessibility' MUST NOT be in the renderer "
+        "ALLOWED_COMMANDS — the renderer uses "
+        "'onboarding_check_permissions' instead, and the Tauri host "
+        "routes check_accessibility through a dedicated Rust command. "
+        "Re-adding it here would re-open the IPC dispatch route that "
+        "the cleanup pass deliberately closed."
+    )
+
+
 # (this session): Python _COMMAND_REGISTRY ↔ TS allowlist parity ──
 
 
@@ -448,7 +497,7 @@ def test_command_registry_literal_exists() -> None:
 def test_command_registry_count_matches_renderer_allowlist_with_host_only_delta() -> None:
     """Python ``_COMMAND_REGISTRY`` count == TS allowlist + host-only set.
 
-    S4-CR-18: the original finding flagged drift between docs (which
+    : the original finding flagged drift between docs (which
     said 68/69/~35) and the actual IPC surface (then 70). The docs are
     now reconciled to 61 (the renderer allowlist count), but the
     Python ``_COMMAND_REGISTRY`` is intentionally larger because two
@@ -518,7 +567,7 @@ def test_command_registry_count_matches_renderer_allowlist_with_host_only_delta(
 def test_security_md_documents_renderer_count_not_registry_count() -> None:
     """SECURITY.md must document the RENDERER allowlist count, not the registry count.
 
-    S4-CR-18: the security doc should advertise the ATTACK SURFACE —
+    : the security doc should advertise the ATTACK SURFACE —
     i.e. what a compromised renderer can invoke — which is the renderer
     allowlist count (61), NOT the registry count (63, including 2
     host-only commands the renderer cannot invoke).

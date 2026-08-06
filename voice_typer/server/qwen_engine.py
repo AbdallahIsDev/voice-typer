@@ -840,20 +840,21 @@ class QwenEngine:
         Used by ``_transcribe_chunked`` to bound per-call audio length so
         the Whisper-style attention matrix and GPU memory footprint stay
         predictable for multi-minute recordings.
+
+        Delegates to :func:`voice_typer.server.asr_utils.split_audio`
+        (single source of truth shared with ``ParakeetEngine._split_audio``).
+        The method signature is preserved for backward compatibility with
+        existing call sites and tests that invoke
+        ``QwenEngine._split_audio(audio, chunk_sec, overlap_sec)`` directly.
         """
-        sr = WHISPER_SAMPLE_RATE
-        chunk_len = int(chunk_sec * sr)
-        overlap_len = int(overlap_sec * sr)
-        step = chunk_len - overlap_len
-        chunks: list[np.ndarray] = []
-        start = 0
-        while start < len(audio):
-            end = min(start + chunk_len, len(audio))
-            chunks.append(audio[start:end])
-            if end == len(audio):
-                break
-            start += step
-        return chunks
+        from voice_typer.server.asr_utils import split_audio
+
+        return split_audio(
+            audio,
+            chunk_duration=chunk_sec,
+            overlap_duration=overlap_sec,
+            sample_rate=WHISPER_SAMPLE_RATE,
+        )
 
     def transcribe_batch(self, audio_chunks: list[np.ndarray]) -> list[str]:
         """PERF-009: Batch transcription API for multiple audio chunks.

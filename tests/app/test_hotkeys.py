@@ -1,4 +1,4 @@
-"""CR-25: split from tests/test_app.py.
+"""split from tests/test_app.py.
 
 All heavy dependencies are mocked via the project-wide ``mock_heavy_imports``
 autouse fixture (in ``tests/conftest.py``) — CR-60 hoisted the

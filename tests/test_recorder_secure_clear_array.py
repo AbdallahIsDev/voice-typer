@@ -1,4 +1,4 @@
-"""Regression test for CR-17: ``_secure_clear_array`` must be called via
+"""Regression test for ``_secure_clear_array`` must be called via
 ``_recording_pkg._secure_clear_array``, not bare-name ``_secure_clear_array``.
 
 Pre-fix bug (verified by ruff F821 in review.md):

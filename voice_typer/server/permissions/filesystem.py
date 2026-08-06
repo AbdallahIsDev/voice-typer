@@ -84,11 +84,25 @@ def _open_linux_pkexec_prompt() -> None:
         )
         return
 
-    # Try pkexec first (modern Linux, GUI prompt via polkit)
+    # Try pkexec first (modern Linux, GUI prompt via polkit).
+    # invoke the install_permissions.py script DIRECTLY via
+    # pkexec (NOT ``pkexec <python> <script>``). The polkit policy
+    # annotation (installed by ``scripts/linux/install_permissions.py``
+    # via the .policy file) annotates the *script itself* as the
+    # authorized action — passing the python interpreter as the first
+    # arg breaks the annotation match (polkit sees ``<python>`` as
+    # the action, not the script) and the user gets a generic
+    # "Authentication is required" prompt with no app name. Direct
+    # script invocation requires the script to be executable
+    # (``chmod +x`` handled by ``install_permissions.py`` /
+    # ``scripts/linux/install_permissions.py``). The
+    # script's shebang (``#!/usr/bin/env python3``) ensures pkexec
+    # spawns it with the correct interpreter without us hard-coding
+    # ``sys.executable`` here.
     if shutil.which("pkexec"):
         try:
             subprocess.Popen(
-                ["pkexec", sys.executable, str(install_script)],
+                ["pkexec", str(install_script)],
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

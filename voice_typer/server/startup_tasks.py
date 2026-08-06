@@ -402,6 +402,31 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
             if current != last_state:
                 if current:
                     log.info("[PLAT-009] macOS Accessibility permission granted")
+                    # persist the app version at which a11y was
+                    # last observed granted. The next granted→denied
+                    # transition compares the current ``voice_typer.__version__``
+                    # against this value — if they differ, the denial
+                    # is likely a TCC reset on app update (macOS Sequoia
+                    # sometimes invalidates TCC grants on bundle-id-stable
+                    # binary updates), and we surface a different tray
+                    # notification pointing the user at ``tccutil reset
+                    # Accessibility com.voicetyper.app`` instead of the
+                    # generic "Open System Settings" message.
+                    # ``last_known_a11y_version`` is a future config
+                    # field (currently owned by another agent — using
+                    # ``getattr``/``setattr`` so this code is forward-
+                    # compatible when the field is added). When the
+                    # field is absent, ``getattr`` returns ``None``
+                    # (in-session tracking only — no cross-session
+                    # persistence until the field is declared).
+                    try:
+                        import voice_typer as _vt
+
+                        _current_vt_version = getattr(_vt, "__version__", None)
+                        if _current_vt_version is not None:
+                            app.config.last_known_a11y_version = _current_vt_version
+                    except Exception:
+                        log.debug("[PLAT-009] could not persist last_known_a11y_version", exc_info=True)
                     with contextlib.suppress(Exception):
                         app.tray.notify(
                             APP_NAME,
@@ -409,12 +434,42 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                         )
                 else:
                     log.warning("[PLAT-009] macOS Accessibility permission revoked")
-                    with contextlib.suppress(Exception):
-                        app.tray.notify_safety(
-                            f"{APP_NAME} — Accessibility Revoked",
-                            "Global hotkeys have been disabled. Open System Settings "
-                            "\u2192 Privacy & Security \u2192 Accessibility to re-grant.",
+                    # detect version-change-induced TCC reset
+                    # and surface a more actionable notification.
+                    _version_changed = False
+                    try:
+                        import voice_typer as _vt
+
+                        _current_vt_version = getattr(_vt, "__version__", None)
+                        _last_known_version = getattr(app.config, "last_known_a11y_version", None)
+                        _version_changed = (
+                            _current_vt_version is not None
+                            and _last_known_version is not None
+                            and _current_vt_version != _last_known_version
                         )
+                        if _version_changed:
+                            log.warning(
+                                "[PLAT-009] a11y denied after app version change (%s -> %s) — "
+                                "likely TCC reset on update",
+                                _last_known_version,
+                                _current_vt_version,
+                            )
+                    except Exception:
+                        log.debug("[PLAT-009] could not compare a11y version", exc_info=True)
+                    with contextlib.suppress(Exception):
+                        if _version_changed:
+                            app.tray.notify_safety(
+                                f"{APP_NAME} — Accessibility Re-grant",
+                                "Voice Typer was updated — Accessibility permission may "
+                                "need to be re-granted. Run: tccutil reset Accessibility "
+                                "com.voicetyper.app",
+                            )
+                        else:
+                            app.tray.notify_safety(
+                                f"{APP_NAME} — Accessibility Revoked",
+                                "Global hotkeys have been disabled. Open System Settings "
+                                "-> Privacy & Security -> Accessibility to re-grant.",
+                            )
                 last_state = current
 
     # PERF-25: dedicated stop_event so ``app._thread_registry`` can

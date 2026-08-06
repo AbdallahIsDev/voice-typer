@@ -158,27 +158,9 @@ class TestOnboardingControllerRemovesStepCallbacks:
         assert "on_complete" not in source
 
 
-class TestPhrasePatternCache:
-    """_correct_whisper_phrases caches compiled regex patterns."""
-
-    def test_pattern_is_cached(self):
-        from voice_typer.server import text_cleanup
-
-        text_cleanup._phrase_pattern_cache.clear()
-
-        p1 = text_cleanup._get_compiled_phrase_pattern("test phrase")
-        p2 = text_cleanup._get_compiled_phrase_pattern("test phrase")
-
-        assert p1 is p2
-        assert "test phrase" in text_cleanup._phrase_pattern_cache
-
-    def test_distinct_phrases_get_distinct_patterns(self):
-        from voice_typer.server import text_cleanup
-
-        text_cleanup._phrase_pattern_cache.clear()
-        p1 = text_cleanup._get_compiled_phrase_pattern("alpha")
-        p2 = text_cleanup._get_compiled_phrase_pattern("beta")
-        assert p1 is not p2
+# (TestPhrasePatternCache moved to tests/phrase_patterns/test_phrase_pattern_cache.py
+#  and rewritten to test the live ``_get_phrases_regex`` combined-alternation
+#  cache after the per-phrase eager-precompiled parallel lists were removed.)
 
 
 # (TestHistoryRestoreReinsertsRecord moved to tests/test_history_db_writer.py)
@@ -492,7 +474,7 @@ class TestApplyConfigPersistsOnSideEffectFailure:
     1. ``service.apply_config`` delegates to ``config_applier.apply_config``.
     2. ``config_applier.apply_config`` calls ``apply_config_side_effects``
        then ``app.config.save_strict()`` (NOT ``save()``).
-    3. CR-97: ``save_strict()`` raises ``RuntimeError`` if ``save()``
+    3. ``save_strict()`` raises ``RuntimeError`` if ``save()``
        returned ``False`` (disk write failure) — the IPC handler is
        expected to catch this and surface the error.
     4. G4-H-12: if ``save_strict()`` raises, in-memory Config is rolled
@@ -592,7 +574,7 @@ class TestApplyConfigPersistsOnSideEffectFailure:
         app.config.save_strict.assert_not_called()
 
     def test_save_failure_surfaces_when_side_effects_succeeded(self, tmp_config_dir, monkeypatch):
-        """CR-97: if save_strict() raises (e.g. save() returned False →
+        """if save_strict() raises (e.g. save() returned False →
         RuntimeError, or underlying OSError propagates), the error is
         surfaced to the caller. G4-H-12: in-memory Config is rolled back."""
 

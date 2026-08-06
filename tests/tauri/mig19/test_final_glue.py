@@ -473,7 +473,7 @@ def test_tauri_conf_security_csp_matches_electron_subset(tauri_conf) -> None:
 def test_tauri_conf_security_capabilities_references_migrate_runtime(
     tauri_conf,
 ) -> None:
-    """ADR-0020 §7 + CR-5: ``app.security.capabilities`` must reference
+    """ADR-0020 §7 + ``app.security.capabilities`` must reference
     ``main-runtime`` AND ``bubble-runtime`` (CR-5 deleted migrate-runtime)."""
     security = tauri_conf.get("app", {}).get("security", {})
     assert "capabilities" in security, (

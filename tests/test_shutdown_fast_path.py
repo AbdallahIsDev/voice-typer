@@ -96,12 +96,26 @@ class TestOsExitOnStuckWsDrain:
 
     def test_ws_drain_timeout_branch_exists(self) -> None:
         """The ``if join_thread.is_alive():`` branch (the drain-timeout
-        detector) must exist in ``_do_cleanup`` and log a WARNING."""
+        detector) must exist in ``_do_cleanup`` and log a WARNING.
+
+        NOTE: the module docstring ALSO mentions the branch (as a
+        ``code``-formatted comment), so a plain ``s.find`` would anchor
+        on the docstring occurrence. We anchor inside the
+        ``_drain_ws_dispatch_pool`` method body — the actual code —
+        instead.
+        """
         s = _src()
-        drain_timeout_idx = s.find("if join_thread.is_alive():")
-        assert drain_timeout_idx > -1, "the ws-drain timeout branch (if join_thread.is_alive():) must exist"
+        method_idx = s.find("def _drain_ws_dispatch_pool(self, app) -> None:")
+        assert method_idx > -1, "_drain_ws_dispatch_pool method must exist"
+        next_def = s.find("\n    def ", method_idx + 1)
+        body = s[method_idx:next_def]
+        # The method docstring ALSO mentions the branch; use the LAST
+        # occurrence in the method body — the actual code — so the
+        # comment doesn't shadow it.
+        drain_timeout_idx = body.rfind("if join_thread.is_alive():")
+        assert drain_timeout_idx > -1, "the ws-drain timeout branch (if join_thread.is_alive():) must exist in _drain_ws_dispatch_pool"
         # Slice a generous window for the block.
-        block = s[drain_timeout_idx : drain_timeout_idx + 800]
+        block = body[drain_timeout_idx : drain_timeout_idx + 800]
         assert "log.warning" in block, (
             "the drain-timeout branch must log a WARNING so operators see the degraded-shutdown event"
         )

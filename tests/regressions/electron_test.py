@@ -405,11 +405,11 @@ class TestSettingsRendererCallsPythonBridgeCall:
 
 
 class TestShutdownControllerPhasesContract:
-    """AC-87: ``_do_cleanup`` is decomposed into named phase methods.
+    """``_do_cleanup`` is decomposed into named phase methods.
 
     The original ``_do_cleanup`` was a 466-line method with 18 sequential
     teardown blocks, 25 ``except Exception`` clauses, and 9 dynamic
-    imports (per review entry AC-87). The fix extracted the teardown
+    imports (per review entry). The fix extracted the teardown
     blocks into dedicated ``_teardown_*`` phase methods and added a
     class-level ``_PARALLEL_TEARDOWN_PHASE_NAMES`` constant to make the
     ordered phase list explicit and inspectable at runtime.
@@ -424,7 +424,7 @@ class TestShutdownControllerPhasesContract:
         from voice_typer.server.shutdown_controller import ShutdownController
 
         assert hasattr(ShutdownController, "_PARALLEL_TEARDOWN_PHASE_NAMES"), (
-            "AC-87: ShutdownController must expose _PARALLEL_TEARDOWN_PHASE_NAMES (ordered phase list)"
+            "ShutdownController must expose _PARALLEL_TEARDOWN_PHASE_NAMES (ordered phase list)"
         )
 
     def test_parallel_teardown_phase_names_has_fifteen_entries(self):
@@ -433,16 +433,16 @@ class TestShutdownControllerPhasesContract:
 
         names = ShutdownController._PARALLEL_TEARDOWN_PHASE_NAMES
         assert isinstance(names, tuple)
-        assert len(names) == 15, f"AC-87: expected 15 parallel teardown phases; got {len(names)}: {names}"
+        assert len(names) == 15, f"expected 15 parallel teardown phases; got {len(names)}: {names}"
 
     def test_parallel_teardown_phase_names_are_method_names(self):
         """Each entry must be the name of a ``_teardown_*`` method on the class."""
         from voice_typer.server.shutdown_controller import ShutdownController
 
         for name in ShutdownController._PARALLEL_TEARDOWN_PHASE_NAMES:
-            assert name.startswith("_teardown_"), f"AC-87: phase name {name!r} must start with '_teardown_'"
+            assert name.startswith("_teardown_"), f"phase name {name!r} must start with '_teardown_'"
             assert callable(getattr(ShutdownController, name, None)), (
-                f"AC-87: phase {name!r} must resolve to a callable method on ShutdownController"
+                f"phase {name!r} must resolve to a callable method on ShutdownController"
             )
 
     def test_flush_bearing_phases_run_first(self):
@@ -459,13 +459,13 @@ class TestShutdownControllerPhasesContract:
         hotkeys_idx = names.index("_teardown_hotkeys")
         event_bus_idx = names.index("_teardown_event_bus")
         assert crash_idx < hotkeys_idx, (
-            "AC-87: _teardown_crash_recovery must run BEFORE _teardown_hotkeys (flush-before-teardown guarantee)"
+            "_teardown_crash_recovery must run BEFORE _teardown_hotkeys (flush-before-teardown guarantee)"
         )
         assert history_idx < hotkeys_idx, (
-            "AC-87: _teardown_history_db must run BEFORE _teardown_hotkeys (flush-before-teardown guarantee)"
+            "_teardown_history_db must run BEFORE _teardown_hotkeys (flush-before-teardown guarantee)"
         )
-        assert crash_idx < event_bus_idx, "AC-87: _teardown_crash_recovery must run BEFORE _teardown_event_bus"
-        assert history_idx < event_bus_idx, "AC-87: _teardown_history_db must run BEFORE _teardown_event_bus"
+        assert crash_idx < event_bus_idx, "_teardown_crash_recovery must run BEFORE _teardown_event_bus"
+        assert history_idx < event_bus_idx, "_teardown_history_db must run BEFORE _teardown_event_bus"
 
     def test_do_cleanup_is_decomposed(self):
         """``_do_cleanup`` must be an orchestrator (≤350 lines, ≤5 except
@@ -484,23 +484,19 @@ class TestShutdownControllerPhasesContract:
                         line_span = item.end_lineno - item.lineno + 1
                         except_count = sum(1 for n in ast.walk(item) if isinstance(n, ast.ExceptHandler))
                         import_count = sum(1 for n in ast.walk(item) if isinstance(n, (ast.Import, ast.ImportFrom)))
-                        assert line_span <= 350, (
-                            f"AC-87: _do_cleanup must be ≤350 lines after decomposition; got {line_span}"
-                        )
+                        assert line_span <= 350, f"_do_cleanup must be ≤350 lines after decomposition; got {line_span}"
                         assert except_count <= 5, (
-                            f"AC-87: _do_cleanup must have ≤5 except clauses after "
-                            f"decomposition (was 25); got {except_count}"
+                            f"_do_cleanup must have ≤5 except clauses after decomposition (was 25); got {except_count}"
                         )
                         assert import_count == 0, (
-                            f"AC-87: _do_cleanup must have 0 dynamic imports after "
-                            f"decomposition (was 9); got {import_count}"
+                            f"_do_cleanup must have 0 dynamic imports after decomposition (was 9); got {import_count}"
                         )
                         return
-        raise AssertionError("AC-87: _do_cleanup method not found on ShutdownController")
+        raise AssertionError("_do_cleanup method not found on ShutdownController")
 
 
 class TestQuitContractDocumented:
-    """AC-91: ``quit()`` documents the threading/exit contract.
+    """``quit()`` documents the threading/exit contract.
 
     The original ``quit()`` had an undocumented ``is_main`` asymmetry:
     on the main thread it called ``sys.exit(0)``; on a non-main thread
@@ -529,16 +525,16 @@ class TestQuitContractDocumented:
         from voice_typer.server.shutdown_controller import ShutdownController
 
         doc = (ShutdownController.quit.__doc__ or "") + "\n" + (lifecycle_quit.__doc__ or "")
-        assert doc, "AC-91: quit() must have a docstring documenting the threading contract"
+        assert doc, "quit() must have a docstring documenting the threading contract"
         # The docstring must mention at least one of the key contract
         # terms: non-main thread, sys.exit, or the watchdog.
         contract_terms = ("non-main", "main thread", "sys.exit", "watchdog", "_do_cleanup")
         assert any(term in doc.lower() for term in (t.lower() for t in contract_terms)), (
-            f"AC-91: quit() docstring must document the threading/exit contract (looked for any of {contract_terms})"
+            f"quit() docstring must document the threading/exit contract (looked for any of {contract_terms})"
         )
 
     def test_quit_arms_watchdog_on_non_main_thread(self):
-        """AC-91 (b): when ``quit()`` runs on a non-main thread, it must
+        """(b): when ``quit()`` runs on a non-main thread, it must
         arm the shutdown watchdog (which calls ``os._exit(0)`` after the
         grace period). Verified via spy on ``_arm_shutdown_watchdog``."""
         import sys
@@ -587,6 +583,6 @@ class TestQuitContractDocumented:
 
         assert not error_holder, f"quit() on non-main thread raised: {error_holder}"
         assert armed_calls == [SHUTDOWN_WATCHDOG_TIMEOUT_S], (
-            f"AC-91: quit() on non-main thread must arm the watchdog with "
+            f"quit() on non-main thread must arm the watchdog with "
             f"SHUTDOWN_WATCHDOG_TIMEOUT_S; got armed_calls={armed_calls}"
         )

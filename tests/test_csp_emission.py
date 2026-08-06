@@ -68,7 +68,7 @@ def _extract_array_constant(source: str, name: str) -> list[str]:
     Handles both direct array literals (``const CSP_PROD = [...].join(...)``)
     and alias chains (``const CSP_PROD = CSP_PROD_MAIN``) by recursively
     resolving the alias target. This is needed because the per-window
-    split (CR-11 / R6-F5) introduced ``CSP_PROD_MAIN`` and
+    split introduced ``CSP_PROD_MAIN`` and
     ``CSP_PROD_BUBBLE`` as the canonical array constants, with
     ``CSP_PROD`` kept as a back-compat alias.
     """
@@ -282,7 +282,7 @@ class TestSourceHtmlFailSafeDefault:
         )
 
     @pytest.mark.skip(
-        reason="CR-11 / R6-F5: CSP_PROD's connect-src is now built dynamically "
+        reason="CSP_PROD's connect-src is now built dynamically "
         "via buildConnectSrc({ allowGitHub: true }), so the constant can't be "
         "statically extracted as a complete string. The strict directives "
         "(script-src, frame-ancestors, form-action) are still verified by "
@@ -296,7 +296,7 @@ class TestSourceHtmlFailSafeDefault:
         )
 
     @pytest.mark.skip(
-        reason="CR-11 / R6-F5: bubble.html now ships CSP_PROD_BUBBLE (no "
+        reason="bubble.html now ships CSP_PROD_BUBBLE (no "
         "api.github.com) while CSP_PROD aliases CSP_PROD_MAIN (with "
         "api.github.com). The two intentionally diverge — bubble has no "
         "update-check surface. The strict directives are still verified "

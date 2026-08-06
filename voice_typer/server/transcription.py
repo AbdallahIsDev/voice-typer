@@ -6,7 +6,7 @@ import contextlib
 import logging
 import threading
 import time
-from typing import Any, Protocol, runtime_checkable
+from typing import Any
 
 # PERF-COLDSTART-001: numpy is ~250-335ms cumulative on cold start
 # and is only touched on the first transcription call (seconds after
@@ -43,50 +43,13 @@ np = lazy_module("numpy")
 # The re-exports below preserve backward compatibility with tests and
 # service.py that import these names from ``transcription``.
 
+# ``TranscriberProtocol`` was moved to ``transcription_load.py`` (canonical
+# source). Re-exported here so existing ``from voice_typer.server.transcription
+# import TranscriberProtocol`` imports resolve to the SAME class object (identity
+# parity — see ``tests/test_transcriber_protocol_parity.py``).
+from voice_typer.server.transcription_load import TranscriberProtocol  # noqa: F401, E402
+
 log = logging.getLogger(__name__)
-
-
-@runtime_checkable
-class TranscriberProtocol(Protocol):
-    """Protocol that any transcription engine must implement."""
-
-    @property
-    def is_loaded(self) -> bool: ...
-
-    def load(self, progress_callback=None) -> None: ...
-
-    def transcribe(self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None) -> str: ...
-
-    def transcribe_with_fallback(
-        self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None
-    ) -> str: ...
-
-    def unload(self) -> None: ...
-
-    @property
-    def device_info(self) -> str: ...
-
-    @property
-    def loaded_via(self) -> str: ...
-
-    # ``transcribe_words`` was missing from the protocol even
-    # though ``streaming.py:601, 668`` calls ``self.transcriber.transcribe_words(...)``
-    # and ``recording_controller.py:871`` does a ``hasattr`` check
-    # for it. Adding the method to the protocol means:
-    #   1. ``isinstance(backend, TranscriberProtocol)`` correctly
-    #      identifies backends that support streaming (the previous
-    #      protocol-membership check would silently fail for
-    #      backends that have ``transcribe_words`` but no protocol
-    #      declaration, leading to streaming being skipped).
-    #   2. Mock objects in tests that satisfy the protocol
-    #      declaration can no longer omit ``transcribe_words``
-    #      accidentally (pyrefly/mypy catch the omission at type-check
-    #      time, eliminating a class of integration-test flakiness).
-    #   3. The return-type signature documents the contract: a
-    #      sequence of word-level results (not just a str), which
-    #      the streaming pipeline relies on for partial-transcript
-    #      diffing.
-    def transcribe_words(self, audio: np.ndarray, offset_seconds: float = 0.0) -> object: ...
 
 
 # re-exported from ``voice_typer.server._audio_constants`` for

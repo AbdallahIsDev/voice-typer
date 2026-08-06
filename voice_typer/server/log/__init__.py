@@ -1017,7 +1017,9 @@ def close_devnull_files() -> None:
 def register_devnull_file(fd) -> None:
     """Register a devnull file descriptor for cleanup on shutdown.
 
-    Used by ``app.py`` when reopening stdout/stderr after a console
-    close event (Windows).
+    Called from :mod:`voice_typer.server.signal_handlers` when the
+    Win32 Ctrl-Close handler reopens stdout/stderr to ``os.devnull``
+    after ``FreeConsole`` (Windows). The registered FD is later closed
+    by :func:`close_devnull_files` during shutdown.
     """
     _devnull_files.append(fd)

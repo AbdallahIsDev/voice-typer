@@ -107,6 +107,13 @@ class HotkeyDispatcher:
         #  + M-94: threading.Event for atomic cross-thread
         # ESC-cancel signaling. See _on_esc_release for the consumer side.
         self._esc_pending_capture_exit_event: threading.Event = threading.Event()
+        # PTT safety timer. None when not armed (toggle mode,
+        # or PTT mode but no recording in progress). Set by
+        # ``_start_ptt_safety_timer`` and canceled by
+        # ``_cancel_ptt_safety_timer`` (called from ``stop_all`` and on
+        # the normal key-up stop). See ``_on_ptt_safety_timeout`` for the
+        # callback.
+        self._ptt_safety_timer: threading.Timer | None = None
 
     # ── Registration ───────────────────────────────────────────────────
 
@@ -259,6 +266,24 @@ class HotkeyDispatcher:
         # other backends ignore it.
         with contextlib.suppress(AttributeError, TypeError):
             new_backend._tray = app.tray  # type: ignore[attr-defined]
+        # surface a tray notification when the user binds Caps
+        # Lock on Wayland. The ``WaylandHotkey`` backend has no key-
+        # suppression mechanism, so the OS will toggle caps state on
+        # every press and the dictated text will be CAPITALIZED. The
+        # factory already logged the same condition (see
+        # ``factory.py``); here we ALSO surface it via the tray's
+        # safety channel so the user actually sees it (logs are
+        # invisible to most users). Done after ``create_hotkey_backend``
+        # so the warning fires even if ``start()`` later raises.
+        self._maybe_warn_wayland_caps_lock(hotkey_str)
+        # PTT safety timeout — if a recording started via
+        # push-to-talk exceeds 60s without a stop event, auto-stop and
+        # surface a tray notification. The release callback is wired
+        # below for PTT mode; this timer is a safety net in case the
+        # release event is missed (e.g. focus loss, IME intercept, LL
+        # hook race). See ``_start_ptt_safety_timer`` for details.
+        if app.config.recording_mode == "push_to_talk":
+            self._start_ptt_safety_timer()
         # USER-REQUESTED FIX: in toggle mode, fire the toggle on key-up
         # (release) so holding the key never starts-then-stops recording.
         if app.config.recording_mode == "toggle":
@@ -274,6 +299,108 @@ class HotkeyDispatcher:
             type(new_backend).__name__,
         )
         return new_backend
+
+    def _maybe_warn_wayland_caps_lock(self, hotkey_str: str) -> None:
+        """surface a tray notification if the user bound Caps Lock
+        on Wayland. See ``factory.py`` for the matching log.warning.
+
+        The factory detects the condition at register time and logs it;
+        this method mirrors the warning via the tray's safety channel so
+        the user actually sees it. Idempotent — calling it multiple times
+        for the same hotkey re-surfaces the same notification, which is
+        acceptable (the user may have dismissed the first one).
+        """
+        try:
+            from voice_typer.server.platform_utils import is_wayland_session
+
+            if not is_wayland_session():
+                return
+            if not hotkey_str or "caps_lock" not in hotkey_str.lower():
+                return
+            with contextlib.suppress(Exception):
+                self._app.tray.notify_safety(
+                    APP_NAME,
+                    "On Wayland, Caps Lock cannot be suppressed — "
+                    "your text will be capitalized. Bind Alt or a "
+                    "function key instead, or remap Caps Lock via "
+                    "your compositor's settings.",
+                )
+        except Exception:
+            log.debug("[HOTKEY] _maybe_warn_wayland_caps_lock failed", exc_info=True)
+
+    # PTT safety timeout. Push-to-talk starts recording on key-down
+    # and stops on key-up. If the key-up event is missed (e.g. the LL hook
+    # race, focus loss to a fullscreen app, IME intercept, or the listener
+    # thread dying), the recording would run forever, filling disk and
+    # confusing the user. This 60s safety timer auto-stops the recording
+    # and surfaces a tray notification. The timer is armed in
+    # ``_create_and_start_main_backend`` for PTT mode and canceled on the
+    # normal stop path (``_cancel_ptt_safety_timer``). The timer is a
+    # best-effort safety net — it does NOT replace the normal key-up
+    # detection, it only catches the case where key-up was missed.
+    _PTT_SAFETY_TIMEOUT_SECONDS: float = 60.0
+
+    def _start_ptt_safety_timer(self) -> None:
+        """Arm the 60s PTT safety timer. Called from
+        ``_create_and_start_main_backend`` when PTT mode is active.
+
+        The timer is stored on ``self._ptt_safety_timer`` and canceled by
+        ``_cancel_ptt_safety_timer`` (called from ``stop_all`` and on the
+        normal key-up stop). If the timer fires, it calls
+        ``_on_ptt_safety_timeout`` which auto-stops dictation and surfaces
+        a tray notification.
+        """
+        # cancel any existing timer (e.g. from a previous registration)
+        self._cancel_ptt_safety_timer()
+        try:
+            timer = threading.Timer(
+                self._PTT_SAFETY_TIMEOUT_SECONDS,
+                self._on_ptt_safety_timeout,
+            )
+            timer.daemon = True
+            timer.name = "PTT-Safety-Timeout"
+            self._ptt_safety_timer = timer
+            timer.start()
+            log.debug(
+                "[HOTKEY] PTT safety timer armed (%.0fs)",
+                self._PTT_SAFETY_TIMEOUT_SECONDS,
+            )
+        except Exception:
+            log.debug("[HOTKEY] Failed to arm PTT safety timer", exc_info=True)
+
+    def _cancel_ptt_safety_timer(self) -> None:
+        """Cancel the PTT safety timer if armed. Safe to call when no
+        timer is active (no-op)."""
+        timer = getattr(self, "_ptt_safety_timer", None)
+        if timer is not None:
+            timer.cancel()
+            self._ptt_safety_timer = None
+
+    def _on_ptt_safety_timeout(self) -> None:
+        """fired by the PTT safety timer when a recording has
+        run for 60s without a stop event. Auto-stops dictation and
+        surfaces a tray notification so the user knows the release was
+        missed.
+
+        This is a safety net, not a replacement for normal key-up
+        detection. The normal stop path (``set_on_release`` callback)
+        cancels this timer; if the timer fires, it means the release
+        event was lost.
+        """
+        log.warning(
+            "[HOTKEY] PTT release event missed — auto-stopping recording after %.0fs safety timeout",
+            self._PTT_SAFETY_TIMEOUT_SECONDS,
+        )
+        try:
+            with contextlib.suppress(Exception):
+                self._app._stop_dictation()
+            with contextlib.suppress(Exception):
+                self._app.tray.notify_safety(
+                    APP_NAME,
+                    "PTT release event missed — recording auto-stopped after 60s safety timeout.",
+                )
+        except Exception:
+            log.exception("[HOTKEY] PTT safety timeout handler failed")
 
     def _make_dictation_callback(self):
         """Create a dictation hotkey callback that respects keyboard ownership.
@@ -756,6 +883,10 @@ class HotkeyDispatcher:
         # rebuild under the "same spec" fast-path.
         self._esc_spec = None
         self._repaste_spec = None
+        # cancel any armed PTT safety timer so a hot-restart
+        # or shutdown doesn't leave a dangling Timer that fires after
+        # the dispatcher is torn down.
+        self._cancel_ptt_safety_timer()
 
     def _stop_one_backend(self, backend_attr: str) -> None:
         """stop a single backend and clear its attribute.

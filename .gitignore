@@ -20,10 +20,8 @@ voice_typer/client/src/renderer/dist/
 /build/
 /dist/
 *.tsbuildinfo
-
 # electron-vite cached transpiled config (auto-generated from electron.vite.config.ts)
 voice_typer/client/electron.vite.config.*.mjs
-
 # Runtime/debug output
 *.log
 runtime_log*.txt
@@ -32,14 +30,12 @@ PROBLEMS.md
 PROMPT.md
 REPORT.md
 nul
-
 # Local test/debug
 _cuda_test.py
 # RW-11: ruff ratchet CI artifact — produced by `ruff check ... --output-format=json`
 # and consumed by scripts/ruff_ratchet_check.py. Never commit; regenerate locally
 # with the same ruff invocation if you need it.
 ruff-current.json
-
 # Local editor/OS files
 .idea/
 .vscode/
@@ -55,7 +51,6 @@ FORENSIC_REVIEW_2026-06-17.md
 rebuild-and-launch.ps1
 voice_typer/server/assets/
 .opencode/
-
 # BUILD-N15: Python coverage / type-checker caches that should never
 # ship in the repo. Without these patterns a single `pytest --cov` or
 # `mypy voice_typer` run leaves dozens of cache files in the tree.
@@ -69,14 +64,12 @@ coverage.xml
 .pyrefly_cache/
 .tox/
 .pytype/
-
 # BUILD-N15: environment files — local secrets / API keys must never
 # be committed. The `.env` file is loaded by the test suite only when
 # present, but should never appear in `git status`.
 .env
 .env.*
 !.env.example
-
 # Tauri / Rust build artifacts — never commit the Cargo build cache.
 # src-tauri/target/ is the multi-GB output of `cargo check`/`cargo build`
 # (rlibs, rmetas, .rcgu.o, .fingerprint, build/ intermediates). It is
@@ -86,15 +79,12 @@ src-tauri/target/
 src-tauri/src-tauri/
 # NOTE: src-tauri/Cargo.lock IS intentionally committed (Tauri is a binary
 # app, not a library — reproducible builds require the lockfile in git).
-
 # Workspace Manager
 .workspace/
-
 # Git worktrees — sibling worktree roots live under .worktree/
 .worktree/
 README.ws.md
 bubble.md
-archive/deleted_files.txt
 DONE.md
 instructions.md
 # Verification-only stubs (cargo check on GNU target without MSVC) — do NOT commit
@@ -109,12 +99,7 @@ src-tauri/icons/
 .sessions/
 MERGE_CONTEXT_BRIEF.md
 -*
-src-tauri/icons/icon.ico
-src-tauri/.cargo/
-cargo-check-log.txt
-src-tauri/gen/
-src-tauri/icons/
 changes/
-
 # Local downloads (not committed)
 downloads/
+merged-output/

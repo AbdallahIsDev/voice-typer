@@ -238,6 +238,13 @@ def _make_fake_coreaudio_symbols() -> tuple[SimpleNamespace, threading.Event]:
         scope_global=2,
         element_master=3,
         system_object=4,
+        # Production at microphone_watcher_coreaudio.py:420 does
+        # ``if ca.property_default_input is not None:`` before registering
+        # the default-input-device listener. The fake must expose the
+        # attribute (``None`` skips that listener, exercising only the
+        # device-list listener — which is what these cross-platform
+        # tests need).
+        property_default_input=None,
         runloop_get_current=MagicMock(return_value="fake-runloop"),
         runloop_run=stop_event.wait,
         runloop_stop=lambda rl: stop_event.set(),

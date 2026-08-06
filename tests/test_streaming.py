@@ -786,7 +786,7 @@ class TestEvictionLogPrivacy:
     ``StreamingTextAssembler._insert_word_unlocked`` must NOT emit the
     evicted word's textual content.
 
-    Pre-fix: the WARNING-level log was sanitized per CR-74 (logged only
+    Pre-fix: the WARNING-level log was sanitized per  (logged only
     the structural fact: max + index), but a companion DEBUG log wrote
     ``evicted_word.word`` verbatim ("Evicted word content (debug only):
     %r").  When a support workflow enabled DEBUG logging (common for
@@ -858,7 +858,7 @@ class TestEvictionLogPrivacy:
         )
 
     def test_evicted_word_content_not_logged_at_warning_either(self, caplog):
-        """Regression guard for the existing CR-74 sanitization at WARNING
+        """Regression guard for the existing  sanitization at WARNING
         level — the fix for DE-57 must not regress it."""
         import logging
 
@@ -871,7 +871,7 @@ class TestEvictionLogPrivacy:
             assembler._insert_word_unlocked(WordTiming(pii_word, start_seconds=0.6, end_seconds=0.8))
 
         assert not any(pii_word in record.getMessage() for record in caplog.records), (
-            "DE-57 / CR-74: evicted word content must NOT be logged at "
+            "DE-57 / evicted word content must NOT be logged at "
             f"WARNING level either; found {pii_word!r} in:\n" + "\n".join(r.getMessage() for r in caplog.records)
         )
 
@@ -979,3 +979,271 @@ def test_finalize_zeros_full_audio_after_tail_merge():
         "after using it (XZ-PRIV-02). Mirrors the batch path in "
         "dictation_pipeline.py:337-346."
     )
+
+
+# _finalize_impl_inner direct branch coverage ───────────────
+
+
+class TestFinalizeImplInner:
+    """``_finalize_impl_inner`` (streaming.py:860-919) direct
+    unit tests.
+
+    The public ``finalize()`` wrapper is already covered by other tests
+    (``test_finalize_zeros_full_audio_after_tail_merge``,
+    ``test_streaming_session_finalizes_only_uncommitted_tail``, etc.) but
+    those tests only exercise the *outer* behavior and the buffer-zero /
+    snapshot machinery that ``finalize()`` wraps around the inner function.
+    The inner function has 4 distinct return branches:
+
+      1. empty ``snapshot_committed_text`` → ``transcribe_with_fallback``
+         (streaming.py:866-869) — covered by existing
+         ``test_streaming_session_without_confirmed_text_uses_fast_batch_finalize``
+      2. ``_fallback_required=True`` → ``transcribe_with_fallback``
+         (streaming.py:870-873) — covered here
+      3. tail-skip when ``last_committed_time >= full_audio_duration - 1.5``
+         (streaming.py:879-887) — covered here
+      4. tail-merge via ``transcribe_words``; on exception → fall back to
+         ``transcribe_with_fallback`` (streaming.py:896-919) — happy path
+         covered by existing tests, exception-swallow path covered here
+
+    These tests call ``_finalize_impl_inner`` directly so each branch can
+    be exercised without the surrounding lock-snapshot / buffer-zero
+    machinery.
+    """
+
+    def _make_session(self, *, fallback_required: bool = False, local_engine=None):
+        config = StreamingConfig(
+            min_first_chunk_seconds=5.0,
+            chunk_seconds=5.0,
+            left_overlap_seconds=0.5,
+        )
+        recorder = MagicMock()
+        transcriber = MagicMock()
+        transcriber.transcribe_with_fallback.return_value = "fallback result"
+        session = StreamingTranscriptionSession(
+            recorder=recorder,
+            transcriber=transcriber,
+            config=config,
+            sample_rate=SAMPLE_RATE,
+            local_engine=local_engine,
+        )
+        session._fallback_required = fallback_required
+        return session, transcriber
+
+    def test_finalize_fallback_required_uses_transcribe_with_fallback(self):
+        """Branch 2 (streaming.py:870-873): when ``_fallback_required``
+        is True, ``_finalize_impl_inner`` MUST short-circuit straight to
+        ``transcribe_with_fallback`` — even when there IS committed text —
+        because the streaming thread has permanently lost trust in its
+        transcription output (e.g. N consecutive transient errors). The
+        ``local_engine`` kwarg MUST be forwarded so the cloud→local
+        fallback path can fire when the active transcriber is a CloudEngine
+        and the cloud provider is unreachable.
+        """
+        local_engine = MagicMock(name="local_engine")
+        session, transcriber = self._make_session(
+            fallback_required=True,
+            local_engine=local_engine,
+        )
+        full_audio = audio_seconds(5.0)
+
+        # Pass a NON-empty snapshot_committed_text so the first
+        # ``if not snapshot_committed_text`` branch (line 866) does NOT
+        # fire — we want to reach the ``_fallback_required`` check on
+        # line 870 specifically.
+        result = session._finalize_impl_inner(
+            full_audio,
+            snapshot_committed_text="partial committed text",
+            snapshot_last_committed_time=2.0,
+        )
+
+        assert result == "fallback result"
+        transcriber.transcribe_with_fallback.assert_called_once()
+        args, kwargs = transcriber.transcribe_with_fallback.call_args
+        # full_audio is positional arg 0
+        assert args[0] is full_audio, (
+            "transcribe_with_fallback must receive the full_audio array "
+            "as its first positional argument."
+        )
+        # local_engine MUST be forwarded so cloud→local fallback fires
+        assert kwargs.get("local_engine") is local_engine, (
+            "_finalize_impl_inner must forward the session's _local_engine "
+            "to transcribe_with_fallback so the cloud→local fallback path "
+            "actually fires when the active transcriber is a CloudEngine."
+        )
+        # transcribe_words must NOT be called — we short-circuited before
+        # the tail-merge branch.
+        transcriber.transcribe_words.assert_not_called()
+
+    def test_finalize_skips_tail_when_last_word_within_1_5s(self):
+        """Branch 3 (streaming.py:879-887): when the streaming thread's
+        last committed word is within 1.5s of the end of the audio, the
+        expensive tail re-transcription is skipped — the streaming thread
+        already captured it. This is a PERF optimization that saves 2-3s
+        of serial transcription after stop.
+        """
+        session, transcriber = self._make_session(fallback_required=False)
+        # 5.0s of audio at SAMPLE_RATE=16000
+        full_audio = audio_seconds(5.0)
+        # last committed at 4.0s; audio ends at 5.0s;
+        # 5.0 - 1.5 = 3.5; 4.0 >= 3.5 → skip-tail branch fires
+        result = session._finalize_impl_inner(
+            full_audio,
+            snapshot_committed_text="hello world",
+            snapshot_last_committed_time=4.0,
+        )
+
+        # Must return the snapshot text unchanged
+        assert result == "hello world"
+        # CRITICAL: transcribe_words must NOT be called — the tail
+        # re-transcription is skipped because the streaming thread
+        # already captured the last word.
+        transcriber.transcribe_words.assert_not_called()
+        # And transcribe_with_fallback must NOT be called either — this
+        # is the happy-path skip, not a fallback.
+        transcriber.transcribe_with_fallback.assert_not_called()
+
+    def test_finalize_tail_merge_exception_falls_back_to_transcribe_with_fallback(self):
+        """Branch 4 exception path (streaming.py:915-919): when the
+        tail-merge path (``transcribe_words`` → ``_validate_words`` →
+        ``assembler.add_words``) raises, the exception MUST be swallowed
+        (logged at ERROR via ``log.exception``) and the function falls
+        back to ``transcribe_with_fallback``. This is the last-resort
+        guarantee: even if everything goes wrong with the
+        streaming-specific merge path, the user still gets SOME
+        transcription back rather than a crash propagating to
+        ``DictationPipeline.run``.
+        """
+        local_engine = MagicMock(name="local_engine")
+        session, transcriber = self._make_session(
+            fallback_required=False,
+            local_engine=local_engine,
+        )
+        # Force the tail-merge path to fail at the first step
+        transcriber.transcribe_words.side_effect = RuntimeError("tail transcribe exploded")
+        full_audio = audio_seconds(5.0)
+
+        # last_committed_time low enough to NOT trigger the 1.5s tail
+        # skip (0.5 < 5.0 - 1.5 = 3.5), so we reach the tail-merge
+        # branch and the exception path.
+        result = session._finalize_impl_inner(
+            full_audio,
+            snapshot_committed_text="partial",
+            snapshot_last_committed_time=0.5,
+        )
+
+        # Must have fallen back rather than propagating the exception.
+        assert result == "fallback result"
+        # transcribe_words was attempted (and raised) — prove we
+        # reached the tail-merge branch.
+        transcriber.transcribe_words.assert_called_once()
+        # And transcribe_with_fallback was invoked as the fallback.
+        transcriber.transcribe_with_fallback.assert_called_once()
+        args, kwargs = transcriber.transcribe_with_fallback.call_args
+        assert args[0] is full_audio
+        assert kwargs.get("local_engine") is local_engine
+
+
+# _validate_words branch coverage ───────────────────────────
+
+
+class TestValidateWords:
+    """``_validate_words`` (streaming.py:929-938) guards the
+    streaming tail-merge path against malformed WordTiming objects.
+    All 4 ``raise`` statements (TypeError × 2, ValueError × 2) plus
+    the happy path are unit-tested here.
+
+    The function is called from ``_finalize_impl_inner`` AFTER
+    ``transcribe_words`` returns (streaming.py:910); a regression here
+    would either (a) let malformed words into the assembler (corrupting
+    committed text) or (b) raise inside the tail-merge ``try`` block,
+    triggering the silent fallback to ``transcribe_with_fallback``
+    (quality regression — the streaming thread's output is discarded).
+    """
+
+    def _make_session(self):
+        config = StreamingConfig()
+        recorder = MagicMock()
+        transcriber = MagicMock()
+        return StreamingTranscriptionSession(
+            recorder=recorder,
+            transcriber=transcriber,
+            config=config,
+            sample_rate=SAMPLE_RATE,
+        )
+
+    def test_validate_words_rejects_non_string_word(self):
+        """Branch 1 (streaming.py:931-932): ``word.word`` MUST be a
+        ``str``. A non-string (e.g. an int from a buggy cloud JSON
+        parser that didn't coerce) must raise ``TypeError`` so the
+        malformed entry doesn't end up in the assembler's committed
+        text where it would later break text-formatting /
+        ``" ".join(...)`` calls.
+        """
+        session = self._make_session()
+        # dataclass type hints are NOT enforced at runtime — the
+        # constructor accepts the int. _validate_words is the runtime
+        # guard.
+        bad = WordTiming(word=123, start_seconds=0.0, end_seconds=1.0)  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="word text must be a string"):
+            session._validate_words([bad])
+
+    def test_validate_words_rejects_none_timestamps(self):
+        """Branch 2 (streaming.py:933-934): timestamps MUST be present.
+        A ``None`` start or end (e.g. from a cloud provider that omits
+        ``end`` for the final word) must raise ``TypeError`` — without
+        timestamps the dedup/merge logic in ``StreamingTextAssembler``
+        would silently drop the word or, worse, ``TypeError`` deep
+        inside ``round(word.start_seconds, 3)`` when computing the
+        dedup key.
+        """
+        session = self._make_session()
+        bad = WordTiming(word="hello", start_seconds=None, end_seconds=1.0)  # type: ignore[arg-type]
+        with pytest.raises(TypeError, match="word timestamps are required"):
+            session._validate_words([bad])
+
+    def test_validate_words_rejects_non_finite_timestamps(self):
+        """Branch 3 (streaming.py:935-936): timestamps MUST be finite.
+        ``NaN`` / ``inf`` (e.g. from a float parse error in a cloud
+        JSON response) would silently corrupt the assembler's sort
+        order (NaN compares False to everything) and break the dedup
+        set's ``round(word.start_seconds, 3)`` rounding logic. Must
+        raise ``ValueError``.
+        """
+        session = self._make_session()
+        bad = WordTiming(word="hello", start_seconds=float("nan"), end_seconds=1.0)
+        with pytest.raises(ValueError, match="word timestamps must be finite"):
+            session._validate_words([bad])
+
+    def test_validate_words_rejects_end_before_start(self):
+        """Branch 4 (streaming.py:937-938): ``end_seconds >=
+        start_seconds`` is an invariant used by ``add_words`` to
+        compute ``last_committed_time`` (it takes ``max(end_seconds)``).
+        A reversed pair would silently advance
+        ``last_committed_time`` to a bogus value, breaking the 1.5s
+        tail-skip optimization in ``_finalize_impl_inner`` (a too-high
+        ``last_committed_time`` would skip the tail re-transcription
+        and lose the last words).
+        """
+        session = self._make_session()
+        bad = WordTiming(word="hello", start_seconds=2.0, end_seconds=1.0)
+        with pytest.raises(ValueError, match="word end must be >= start"):
+            session._validate_words([bad])
+
+    def test_validate_words_accepts_valid_words(self):
+        """Happy path (no raise statement): well-formed words MUST
+        pass validation without raising. This guards against an
+        over-strict validation that would reject legitimate transcriber
+        output (e.g. zero-length words where start == end, words at
+        t=0.0).
+        """
+        session = self._make_session()
+        good = [
+            WordTiming(word="hello", start_seconds=0.0, end_seconds=0.5),
+            WordTiming(word="world", start_seconds=0.6, end_seconds=1.0),
+            # zero-length word at same instant is technically valid —
+            # the validation only checks end >= start, not end > start.
+            WordTiming(word="!", start_seconds=1.0, end_seconds=1.0),
+        ]
+        # Must not raise
+        session._validate_words(good)

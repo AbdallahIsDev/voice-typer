@@ -1,4 +1,4 @@
-"""Regression test for CR-3: ``_delayed_restore`` signature mismatch.
+"""Regression test for ``_delayed_restore`` signature mismatch.
 
 Before the fix, ``paste()`` spawned the daemon thread with 4 positional
 arguments::
@@ -41,25 +41,19 @@ box. They assert:
 
 from __future__ import annotations
 
-import sys
 import time
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-# Mock pynput / pyperclip at import time so the clipboard module loads
-# cleanly on a headless Linux box. (Same pattern as
-# test_clipboard_borrow_restore.py.)
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-sys.modules.setdefault("pyperclip", MagicMock())
-
+# pynput / pynput.keyboard / pyperclip are mocked at collection time by
+# tests/clipboard/conftest.py (single source of truth —  dedup).
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 
 # ---------------------------------------------------------------------------
-# Display-env isolation ()
+# Display-env isolation
 # ---------------------------------------------------------------------------
 # Previously this module mutated the process environment at import time
 # (setting DISPLAY=":99" and removing WAYLAND_DISPLAY) to keep clipboard
@@ -178,15 +172,15 @@ def _isolate_pending_restores():
 
 
 class TestPasteRestoresAndUnregisters:
-    """End-to-end ``paste()`` tests proving CR-3 is fixed.
+    """End-to-end ``paste()`` tests proving  is fixed.
 
     Each test:
     1. Calls the production ``paste(snapshot=...)`` (NOT
        ``_delayed_restore`` directly).
     2. Waits for the daemon thread to finish.
     3. Asserts the pending entry was removed from ``_pending_restores``
-       (CR-3 root cause) AND the original snapshot was restored
-       (CR-3 user-visible symptom).
+       ( root cause) AND the original snapshot was restored
+       ( user-visible symptom).
     """
 
     def test_paste_restores_clipboard_and_removes_pending_entry(self):
@@ -194,7 +188,7 @@ class TestPasteRestoresAndUnregisters:
         and removes its entry from ``_pending_restores`` once the daemon
         thread finishes.
 
-        Before CR-3 fix: the daemon thread died with TypeError, the
+        Before  fix: the daemon thread died with TypeError, the
         snapshot was never restored, and the entry stayed in
         ``_pending_restores`` forever.
         """
@@ -239,9 +233,9 @@ class TestPasteRestoresAndUnregisters:
         ``_delayed_restore`` defensively skips ``snapshot.restore()`` —
         but it MUST still remove the pending entry.
 
-        Before CR-3 fix: the daemon thread died with TypeError BEFORE
+        Before  fix: the daemon thread died with TypeError BEFORE
         the defensive check, so the entry leaked.
-        After CR-3 fix: the ``finally`` block fires on the skip path
+        After  fix: the ``finally`` block fires on the skip path
         too.
         """
         cm = _make_cm(restore_delay_ms=10)
@@ -283,9 +277,9 @@ class TestPasteRestoresAndUnregisters:
         """If ``snapshot.restore()`` raises, the exception is logged but
         the pending entry is STILL removed (``finally`` block).
 
-        Before CR-3 fix: the daemon thread died with TypeError BEFORE
+        Before  fix: the daemon thread died with TypeError BEFORE
         even attempting restore.
-        After CR-3 fix: the ``finally`` block fires on the exception
+        After  fix: the ``finally`` block fires on the exception
         path too.
         """
         cm = _make_cm(restore_delay_ms=10)
@@ -318,12 +312,12 @@ class TestPasteRestoresAndUnregisters:
 
     def test_paste_does_not_leak_entries_across_many_invocations(self):
         """Stress test simulating a heavy-dictation user (the
-        memory-leak symptom called out in CR-3's impact statement).
+        memory-leak symptom called out in 's impact statement).
 
         Runs ``paste(snapshot=...)`` 25 times back-to-back. After all
         daemon threads finish, ``_pending_restores`` should be empty.
 
-        Before CR-3 fix: this would have left 25 entries lingering
+        Before  fix: this would have left 25 entries lingering
         (one per paste) for the lifetime of the process.
         """
         cm = _make_cm(restore_delay_ms=5)
@@ -388,7 +382,7 @@ class TestDelayedRestoreSignature:
     """Directly verify ``_delayed_restore`` accepts the 4 positional args
     that ``paste()`` passes (snapshot, pasted_text, delay, pending_entry).
 
-    This is a focused regression for the literal TypeError that CR-3
+    This is a focused regression for the literal TypeError that
     reported. The end-to-end tests above exercise the production
     ``paste()`` path, but if a future refactor inlines the call
     differently, this test will still catch a signature drift.

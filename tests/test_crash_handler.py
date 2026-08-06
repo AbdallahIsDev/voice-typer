@@ -609,7 +609,7 @@ class TestCrashHandlerReportPending:
 
 
 class TestReportPendingCrashNextStepsHint:
-    """S1-CR-136: ``report_pending_crash`` appends a ``Next steps: run
+    """``report_pending_crash`` appends a ``Next steps: run
     ``python scripts/diagnostics.py export``` hint to the returned
     summary so the tray notification (which embeds the summary verbatim
     via ``app.tray.notify_safety(title, f"...{crash_summary}...")`` in
@@ -627,9 +627,9 @@ class TestReportPendingCrashNextStepsHint:
         )
         result = crash_handler.report_pending_crash(tmp_path)
         assert result is not None
-        assert "Next steps:" in result, f"S1-CR-136: crash summary must include a 'Next steps:' hint; got:\n{result}"
+        assert "Next steps:" in result, f"crash summary must include a 'Next steps:' hint; got:\n{result}"
         assert "python scripts/diagnostics.py export" in result, (
-            f"S1-CR-136: 'Next steps:' hint must mention the diagnostics-export CLI command; got:\n{result}"
+            f"'Next steps:' hint must mention the diagnostics-export CLI command; got:\n{result}"
         )
 
     def test_summary_next_steps_appears_exactly_once_for_single_crash(self, tmp_path):
@@ -648,7 +648,7 @@ class TestReportPendingCrashNextStepsHint:
         assert result is not None
         occurrences = result.count("Next steps:")
         assert occurrences == 1, (
-            f"S1-CR-136: 'Next steps:' must appear exactly once in the summary; got {occurrences}:\n{result}"
+            f"'Next steps:' must appear exactly once in the summary; got {occurrences}:\n{result}"
         )
 
     def test_summary_next_steps_appears_exactly_once_for_multiple_crashes(self, tmp_path):
@@ -672,7 +672,7 @@ class TestReportPendingCrashNextStepsHint:
         # And the Next steps hint must appear exactly once.
         occurrences = result.count("Next steps:")
         assert occurrences == 1, (
-            "S1-CR-136: 'Next steps:' must appear exactly once even with "
+            "'Next steps:' must appear exactly once even with "
             f"multiple crash files; got {occurrences}:\n{result}"
         )
 
@@ -690,7 +690,7 @@ class TestReportPendingCrashNextStepsHint:
         result = crash_handler.report_pending_crash(tmp_path)
         assert result is not None
         assert "python scripts/diagnostics.py export" in result, (
-            f"S1-CR-136: hint must use the literal 'python scripts/diagnostics.py export' command; got:\n{result}"
+            f"hint must use the literal 'python scripts/diagnostics.py export' command; got:\n{result}"
         )
 
     def test_summary_returns_none_still_omits_hint(self, tmp_path):
@@ -702,11 +702,11 @@ class TestReportPendingCrashNextStepsHint:
         """
         result = crash_handler.report_pending_crash(tmp_path)
         assert result is None, (
-            f"S1-CR-136: report_pending_crash must return None when no crash files exist; got: {result!r}"
+            f"report_pending_crash must return None when no crash files exist; got: {result!r}"
         )
 
     def test_summary_next_steps_hint_for_python_crash_marker(self, tmp_path):
-        """S1-CR-136: the ``Next steps`` hint is appended for
+        """the ``Next steps`` hint is appended for
         ``python_crash.<PID>.txt`` marker files too (not just VEH
         ``crash_diagnostics`` files), so the user is told how to
         capture a bundle regardless of which crash path fired.
@@ -1016,7 +1016,7 @@ class TestPythonExcepthook:
             sys.excepthook(type(exc), exc, exc.__traceback__)
 
     def test_remove_restores_original(self, restore_excepthook):
-        """AC-90: ``remove_python_excepthook`` restores ``sys.excepthook``
+        """``remove_python_excepthook`` restores ``sys.excepthook``
         to the value it had before ``install_python_excepthook`` ran.
 
         Symmetric with ``install`` — the remove counterpart closes the
@@ -1031,7 +1031,7 @@ class TestPythonExcepthook:
         assert sys.excepthook is original
 
     def test_remove_is_idempotent(self, restore_excepthook):
-        """AC-90: calling ``remove`` without a prior ``install`` is a
+        """calling ``remove`` without a prior ``install`` is a
         no-op (falls through to ``sys.__excepthook__`` if the
         ``_original_excepthook`` slot was never set).
 
@@ -1049,7 +1049,7 @@ class TestPythonExcepthook:
         assert sys.excepthook is not None
 
     def test_remove_then_reinstall_roundtrip(self, restore_excepthook):
-        """AC-90: the full install→remove→install roundtrip works.
+        """the full install→remove→install roundtrip works.
 
         This catches the failure mode where ``_original_excepthook``
         is cleared on remove and a second install incorrectly
@@ -1290,7 +1290,7 @@ class TestCrashDiagnosticsHeader:
     # reproduction hint + Windows version ───────────────
 
     def test_header_includes_reproduction_hint(self, tmp_path):
-        """S1-CR-136: the static crash-diagnostics header includes a
+        """the static crash-diagnostics header includes a
         ``Reproduction hint`` line telling the user / support engineer
         to run ``python scripts/diagnostics.py export`` to capture a
         full diagnostic bundle for a bug report.  The hint is inline
@@ -1301,14 +1301,14 @@ class TestCrashDiagnosticsHeader:
         crash_handler.set_crash_handler_config_dir(tmp_path)
         header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
         assert "Reproduction hint:" in header, (
-            f"S1-CR-136: header must include a 'Reproduction hint:' line; got:\n{header}"
+            f"header must include a 'Reproduction hint:' line; got:\n{header}"
         )
         assert "python scripts/diagnostics.py export" in header, (
-            f"S1-CR-136: reproduction hint must mention the diagnostics-export CLI command; got:\n{header}"
+            f"reproduction hint must mention the diagnostics-export CLI command; got:\n{header}"
         )
 
     def test_header_reproduction_hint_appears_before_end_marker(self, tmp_path):
-        """S1-CR-136: the reproduction hint line appears BEFORE the
+        """the reproduction hint line appears BEFORE the
         ``=== END HEADER ===`` marker so a reader that scans until the
         end marker doesn't miss it.  Layout regression guard against
         accidental reordering.
@@ -1318,15 +1318,15 @@ class TestCrashDiagnosticsHeader:
         hint_idx = header.find("Reproduction hint:")
         end_idx = header.find("=== END HEADER ===")
         assert hint_idx != -1 and end_idx != -1, (
-            f"S1-CR-136: header must contain both 'Reproduction hint:' and '=== END HEADER ==='; got:\n{header}"
+            f"header must contain both 'Reproduction hint:' and '=== END HEADER ==='; got:\n{header}"
         )
         assert hint_idx < end_idx, (
-            "S1-CR-136: 'Reproduction hint:' must appear BEFORE "
+            "'Reproduction hint:' must appear BEFORE "
             f"'=== END HEADER ==='; got hint_idx={hint_idx}, end_idx={end_idx}"
         )
 
     def test_header_includes_windows_version_on_windows(self, monkeypatch, tmp_path):
-        """S1-CR-136: on Windows, the header includes a ``Windows version:``
+        """on Windows, the header includes a ``Windows version:``
         line sourced from ``sys.getwindowsversion()``.  On POSIX the line
         is omitted (the API does not exist).  This test simulates the
         Windows code path by injecting a fake ``sys.getwindowsversion``
@@ -1347,13 +1347,13 @@ class TestCrashDiagnosticsHeader:
             crash_handler.set_crash_handler_config_dir(tmp_path)
             header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
             assert "Windows version:" in header, (
-                "S1-CR-136: header must include 'Windows version:' line when "
+                "header must include 'Windows version:' line when "
                 f"sys.getwindowsversion is available; got:\n{header}"
             )
             # The fake version tuple's build number (22621) must appear in
             # the formatted line.
             assert "22621" in header, (
-                "S1-CR-136: 'Windows version:' line must include the build "
+                "'Windows version:' line must include the build "
                 f"number from sys.getwindowsversion(); got:\n{header}"
             )
         finally:
@@ -1366,7 +1366,7 @@ class TestCrashDiagnosticsHeader:
                 delattr(sys, "getwindowsversion")
 
     def test_header_omits_windows_version_on_posix(self, tmp_path):
-        """S1-CR-136: on POSIX (where ``sys.getwindowsversion`` does not
+        """on POSIX (where ``sys.getwindowsversion`` does not
         exist), the header must NOT include a ``Windows version:`` line.
         The Windows-specific capture is gated on the API's availability
         so the header stays platform-honest.
@@ -1376,7 +1376,7 @@ class TestCrashDiagnosticsHeader:
         crash_handler.set_crash_handler_config_dir(tmp_path)
         header = crash_handler._crash_header_bytes.decode("utf-8", errors="replace")
         assert "Windows version:" not in header, (
-            "S1-CR-136: header must NOT include 'Windows version:' line on "
+            "header must NOT include 'Windows version:' line on "
             f"POSIX (no sys.getwindowsversion); got:\n{header}"
         )
 

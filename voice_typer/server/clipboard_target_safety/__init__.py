@@ -73,6 +73,16 @@ def is_windows() -> bool:
     return _get_clipboard_module().is_windows()
 
 
+def is_macos() -> bool:
+    """Delegate to ``clipboard.is_macos`` so test patches propagate.
+
+    Mirrors :func:`is_windows`. Used by the macOS Secure Input check
+    (:func:`_is_secure_input_enabled` in :mod:`.validation`) to
+    short-circuit on non-macOS hosts without spawning ``ioreg``.
+    """
+    return _get_clipboard_module().is_macos()
+
+
 # Keep the SAME log object as clipboard.py. Resolved dynamically via the
 # clipboard module so a single test patch of
 # ``voice_typer.server.clipboard.log`` (which is what the test suite
@@ -209,6 +219,16 @@ _PYATSPI_UNAVAILABLE_WARNED: bool = False
 # sentinel semantics.
 _PYATSPI_STATE_FOCUSED: Any = None
 
+# (Medium): once-only warning guard for the macOS Secure Input
+# check (``_is_secure_input_enabled`` in :mod:`.validation`). ``False``
+# is the initial state — the first detection of secure-input-enabled
+# mode emits the WARNING / tray toast; subsequent detections during
+# the same session log at DEBUG so the log is not flooded at paste
+# rate when the user keeps a password dialog open (which holds Secure
+# Input active for the dialog's lifetime). Reset to ``False`` in tests
+# via direct assignment on the package.
+_MACOS_SECURE_INPUT_WARNED: bool = False
+
 
 # ─── Re-exports from submodules ──────────────────────────────────────
 # Import order: each submodule is self-contained (no inter-submodule
@@ -234,6 +254,7 @@ from .validation import (  # noqa: E402,F401
     _is_password_field,
     _is_password_field_linux,
     _is_password_field_macos,
+    _is_secure_input_enabled,
     _warn_paste_safety_once,
     reset_platform_unavailable_warnings,
 )
@@ -241,6 +262,7 @@ from .validation import (  # noqa: E402,F401
 __all__ = [
     # Helpers
     "is_windows",
+    "is_macos",
     "_log",
     # Mutable globals (also accessible via PEP 562 __getattr__ in
     # voice_typer/server/clipboard/__init__.py — listed here so
