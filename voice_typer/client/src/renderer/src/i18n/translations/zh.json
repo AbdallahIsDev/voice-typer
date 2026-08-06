@@ -182,6 +182,12 @@
 		"selected": "已选择",
 		"useAria": "使用麦克风 — {name}"
 	},
+	"keyboard": {
+		"permissionDeniedTitle": "热键需要辅助功能权限",
+		"permissionDeniedMessage": "热键需要辅助功能权限 — 点击修复",
+		"openSettings": "打开设置",
+		"openSettingsAria": "打开操作系统的辅助功能设置"
+	},
 	"vocabulary": {
 		"title": "自定义词汇",
 		"description": "添加自定义词和纠正以提高准确率",

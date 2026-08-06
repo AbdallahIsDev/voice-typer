@@ -39,7 +39,7 @@ function makeBridge(overrides: Partial<WindowBridge> = {}): WindowBridge {
 	};
 }
 
-describe("TitleBar — FIX-15 PROD-9", () => {
+describe("TitleBar", () => {
 	beforeEach(() => {
 		cleanup();
 		// Wipe window_ between tests so each render starts fresh.

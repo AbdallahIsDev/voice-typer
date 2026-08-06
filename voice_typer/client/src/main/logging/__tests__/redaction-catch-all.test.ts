@@ -71,7 +71,7 @@ describe("redactPii catch-all: hex-shaped bare tokens are redacted", () => {
 	it("a 50-char hex token (intermediate length) IS redacted", () => {
 		// No length-range exemption exists — any 20+ char bare
 		// token, hex or not, is redacted.
-		const hash50 = "0123456789abcdef".repeat(3) + "01";
+		const hash50 = `${"0123456789abcdef".repeat(3)}01`;
 		expect(hash50.length).toBe(50);
 		const input = `id ${hash50} referenced`;
 		expect(redactPii(input)).toBe(`id *** referenced`);

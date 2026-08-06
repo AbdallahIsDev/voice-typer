@@ -182,6 +182,12 @@
 		"selected": "الميكروفون المحدد",
 		"useAria": "استخدام الميكروفون — {name}"
 	},
+	"keyboard": {
+		"permissionDeniedTitle": "تتطلب مفاتيح الاختصار إذن الوصول",
+		"permissionDeniedMessage": "تتطلب مفاتيح الاختصار إذن الوصول — انقر للإصلاح",
+		"openSettings": "فتح الإعدادات",
+		"openSettingsAria": "فتح إعدادات الوصول في نظام التشغيل"
+	},
 	"vocabulary": {
 		"title": "المفردات المخصصة",
 		"description": "أضف كلمات وتصحيحات مخصصة لتحسين الدقة",

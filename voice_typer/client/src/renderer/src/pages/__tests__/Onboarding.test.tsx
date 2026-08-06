@@ -366,7 +366,7 @@ describe("Onboarding wizard — F2: pre-select existing config values", () => {
 
 //Permissions step at index 2 ────────────────────────────────
 
-describe("Onboarding wizard — CR-6: Permissions step at index 2", () => {
+describe("Onboarding wizard — Permissions step at index 2", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockShowSnack.mockReset();

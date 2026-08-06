@@ -26,8 +26,7 @@
  * returns ``"en"`` (deterministic — Intl output for compact/byte
  * units is stable across Node versions for the ``en`` locale) and
  * ``t()`` returns the raw key string (matching the "missing key"
- * fallback behavior). This decouples the tests from the locale JSON
- * contents (owned by the i18n wave — FIX-11).
+ * fallback behavior). This decouples the tests from the locale JSON contents.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 

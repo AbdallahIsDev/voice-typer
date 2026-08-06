@@ -60,7 +60,6 @@ export function SettingRow({
 				ctrl.hasAttribute("title");
 			const isWrappedInLabel = ctrl.closest("label") !== null;
 			if (hasOwnName || isWrappedInLabel) return;
-			// eslint-disable-next-line no-console
 			console.warn(
 				`[SettingRow] The visible label "${label}" has no programmatic association with its child form control. ` +
 					"Pass `htmlFor` on SettingRow (and `id` on the control) OR pass `aria-label` / `aria-labelledby` on the control. " +

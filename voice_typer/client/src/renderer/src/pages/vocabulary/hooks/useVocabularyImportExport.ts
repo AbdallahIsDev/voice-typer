@@ -21,6 +21,7 @@ import { useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { t } from "@/i18n/i18n";
 import type { VocabularyData, VocabularyEntry } from "@/types/ipc";
+import type { ExportFormat } from "../../../../../shared/export-format";
 
 import { parseImportedVocabulary } from "../lib/importExport";
 import { flattenEntries, type VocabRow, withEntryIds } from "../lib/transform";
@@ -36,7 +37,7 @@ interface UseVocabularyImportExportArgs {
 
 interface UseVocabularyImportExportResult {
 	importInputRef: React.RefObject<HTMLInputElement | null>;
-	doExport: (format: "json" | "csv") => Promise<void>;
+	doExport: (format: ExportFormat) => Promise<void>;
 	handleImportFile: (file: File | undefined | null) => Promise<void>;
 	handleImportClick: () => void;
 }
@@ -50,7 +51,7 @@ export function useVocabularyImportExport({
 	const importInputRef = useRef<HTMLInputElement | null>(null);
 
 	const doExport = useCallback(
-		async (format: "json" | "csv") => {
+		async (format: ExportFormat) => {
 			try {
 				const data = await call<VocabularyData>("get_vocabulary");
 				// Include ``category`` in the export payload so re-importing

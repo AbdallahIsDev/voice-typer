@@ -39,7 +39,7 @@ const EXPECTED_LOCALES = [
 	"hi",
 ] as const;
 
-describe("AC-114: main-process i18n locales match renderer SUPPORTED_LOCALES", () => {
+describe("main-process i18n locales match renderer SUPPORTED_LOCALES", () => {
 	it("EXPECTED_LOCALES mirrors the renderer's 8-locale SUPPORTED_LOCALES", () => {
 		// Sanity: the hardcoded list isn't accidentally truncated.
 		expect(EXPECTED_LOCALES.length).toBe(8);

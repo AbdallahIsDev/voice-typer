@@ -65,14 +65,6 @@
  *      table, then against `MAIN_STRINGS.en`, then returns the raw key
  *      (defensive — should never happen for keys declared in
  *      {@link MAIN_STRINGS.en}).
- *
- * Inline-string gap (Low, tracked): the 8 locales × 8 dialog keys = 64
- * inline string literals below duplicate the renderer's translation
- * pipeline (which loads JSON from `src/renderer/src/i18n/translations/`).
- * Migrating main-process strings to JSON files (mirroring the renderer
- * schema) would let translators use the same tooling and prevent drift
- * between the two bundles. Out of scope for the current task — flagged
- * here so a future contributor can pick it up.
  */
 
 import { readFileSync } from "node:fs";

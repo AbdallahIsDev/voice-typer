@@ -143,6 +143,11 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		Add01Icon: make("Add01Icon"),
 		AiBrain03Icon: make("AiBrain03Icon"),
 		Alert02Icon: make("Alert02Icon"),
+		// KeyboardPermissionBanner (mounted on Settings) renders
+		// AlertCircleIcon when the onboarding_check_permissions probe
+		// returns a non-granted result — keep it in the mock or the
+		// Settings page crashes on mount.
+		AlertCircleIcon: make("AlertCircleIcon"),
 		Analytics01Icon: make("Analytics01Icon"),
 		ArrowDown01Icon: make("ArrowDown01Icon"),
 		ArrowRight01Icon: make("ArrowRight01Icon"),

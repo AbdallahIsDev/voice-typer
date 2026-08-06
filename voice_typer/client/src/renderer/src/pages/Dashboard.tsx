@@ -24,6 +24,10 @@ import { DashboardStatCard } from "@/components/dashboard/DashboardStatCard";
 import { QuickInfoCard } from "@/components/dashboard/QuickInfoCard";
 import { StatsShareImage } from "@/components/dashboard/StatsShareImage";
 import { EmptyState } from "@/components/feedback/EmptyState";
+// amber banner shown when the OS has not granted the
+// keyboard-monitoring (Accessibility / input-group) permission. Mirrors
+// the MicrophonePermissionBanner placement on the Microphone page.
+import { KeyboardPermissionBanner } from "@/components/KeyboardPermissionBanner";
 import { Button } from "@/components/ui/button.tsx";
 import { useNavigation } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
@@ -149,6 +153,13 @@ export default function DashboardPage() {
 						</Button>
 					)}
 			</PageHeading>
+
+			{/* amber keyboard-permission banner — placed
+				immediately under PageHeading so the user sees the "click to
+				fix" prompt before scrolling into the analytics cards. Renders
+				null when permission is granted / not needed, so the layout is
+				unchanged on platforms where the banner doesn't apply. */}
+			<KeyboardPermissionBanner />
 
 			<div className="flex justify-end pb-2">
 				<LastUpdatedIndicator

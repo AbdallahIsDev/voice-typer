@@ -69,9 +69,10 @@ export default defineConfig(({ command }) => ({
 			//raise the chunk-size warning limit from Vite's
 			// default 500 KB to 600 KB so the renderer bundle's
 			// larger chunks (radix-ui, hugeicons) don't print a noisy
-			// warning on every build. The 1.4 MB tauri-bridge chunk
-			// still warns — investigating why a bridge module pulls
-			// in 1.4 MB of shared deps is deeper work (Remaining).
+			// warning on every build. The 1.4 MB tauri-bridge chunk is
+			// isolated via the manualChunks rule below (dedicated chunk,
+			// fetched in parallel with entry + vendor chunks) so it no
+			// longer blocks initial parse of the entry bundle.
 			chunkSizeWarningLimit: 600,
 			rollupOptions: {
 				input: {
@@ -97,13 +98,26 @@ export default defineConfig(({ command }) => ({
 				// the entry needs them to render). radix-ui (the umbrella
 				// package re-exporting all Radix primitives) goes in
 				// vendor-radix. @hugeicons/react (the icon runtime) goes
-				// in vendor-icons.
+				// in vendor-icons. The Tauri <-> React bridge
+				// (src/renderer/src/lib/tauri-bridge/ + its @tauri-apps/api
+				// dep graph) goes in tauri-bridge — the SDK alone is ~1.4 MB,
+				// so isolating it lets the browser fetch + parse the entry
+				// + vendor chunks in parallel rather than blocking on a
+				// single monolithic index.js.
 				//
 				// NOTE: keep in sync with electron.vite.renderer.ts (the
 				// CI-only renderer build config). electron.vite.main.ts
 				// has no renderer section so it doesn't need this.
 				output: {
 					manualChunks: (moduleId: string) => {
+						// Isolate the Tauri <-> React bridge
+						// (src/renderer/src/lib/tauri-bridge/) and its
+						// @tauri-apps/api dep graph (~1.4 MB) into a dedicated
+						// chunk so the entry + vendor chunks fetch + parse in
+						// parallel rather than blocking on a monolithic index.js.
+						if (moduleId.includes("src/renderer/src/lib/tauri-bridge/")) {
+							return "tauri-bridge";
+						}
 						if (
 							moduleId.includes("node_modules/react-dom/") ||
 							moduleId.includes("node_modules/react/")

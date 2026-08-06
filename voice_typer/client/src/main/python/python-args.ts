@@ -97,11 +97,12 @@ function resolveBundledBackend(platform: NodeJS.Platform): string | null {
 }
 
 export function pythonArgs(): [string, string[]] {
-	// Each platform has its own `case` branch in the switch below —
-	// they are independent so we don't accidentally clobber the others.
-	// The dev-mode venv path at the bottom of this function is the
-	// fallback for any platform that doesn't match (or whose bundled
-	// backend is missing on disk).
+	// Each platform has its own guarded branch in
+	// resolveBundledBackend (per-platform if/else-if, mirrors the
+	// earlier ``switch`` design) — they are independent so we don't
+	// accidentally clobber the others. The dev-mode venv path at the
+	// bottom of this function is the fallback for any platform that
+	// doesn't match (or whose bundled backend is missing on disk).
 	if (app.isPackaged) {
 		//route all platforms through resolveBundledBackend so
 		// macOS / Linux get the same 2-path + try/catch fallback that

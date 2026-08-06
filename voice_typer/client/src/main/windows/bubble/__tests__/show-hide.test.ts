@@ -1,9 +1,9 @@
 // @vitest-environment node
 /**
- * AC-106 + DJ-91 regression tests for `bubble/show-hide.ts::showBubbleWindow`.
+ * regression tests for `bubble/show-hide.ts::showBubbleWindow`.
  *
  * Background:
- *   - AC-106 flagged `showBubbleWindow` as 131 lines with 7 inline
+ *   - flagged `showBubbleWindow` as 131 lines with 7 inline
  *     try/catch blocks (3× `setAlwaysOnTop` + 2× `moveTop`, each with
  *     its own near-identical `log.warn(...)` catch). The fix extracts
  *     a single `_tryWinOp(label, fn, options?)` helper that runs the
@@ -18,7 +18,7 @@
  * These tests verify:
  *   1. Source-text: `_tryWinOp` helper exists in show-hide.ts and is
  *      called from inside `showBubbleWindow` (≥ 7 call sites — the 7
- *      inline try/catches AC-106 targeted).
+ *      inline try/catches targeted).
  *   2. Source-text: the inline `catch (e)` count inside
  *      `showBubbleWindow` drops to zero (all win-op failures route
  *      through `_tryWinOp`).
@@ -123,7 +123,7 @@ function readSrc(): string {
 	return fs.readFileSync(path.join(__dirname, "..", "show-hide.ts"), "utf8");
 }
 
-describe("AC-106: showBubbleWindow consolidates try/catches via _tryWinOp helper", () => {
+describe("showBubbleWindow consolidates try/catches via _tryWinOp helper", () => {
 	const src = readSrc();
 	const showIdx = src.indexOf("export function showBubbleWindow");
 	const hideIdx = src.indexOf("export function hideBubbleWindow");
@@ -137,9 +137,9 @@ describe("AC-106: showBubbleWindow consolidates try/catches via _tryWinOp helper
 		expect(helperIdx).toBeLessThan(showIdx);
 	});
 
-	it("showBubbleWindow body calls _tryWinOp at least 7 times (the 7 AC-106 try/catches)", () => {
+	it("showBubbleWindow body calls _tryWinOp at least 7 times (the 7 try/catches)", () => {
 		const callCount = (showBody.match(/\b_tryWinOp\(/g) ?? []).length;
-		// AC-106 lists 7 inline try/catches (3× setAlwaysOnTop,
+		// lists 7 inline try/catches (3× setAlwaysOnTop,
 		// 2× moveTop, 1× setVisibleOnAllWorkspaces, 1× show+send).
 		// The rapid-toggle `clearCurrentHideAnimationCallback`
 		// try/catch (added later) is also routed through the
@@ -234,7 +234,7 @@ describe("DJ-91: redundant happy-path setAlwaysOnTop dropped", () => {
 	});
 });
 
-describe("AC-106 behavioral: _tryWinOp swallows + logs failures", () => {
+describe("behavioral: _tryWinOp swallows + logs failures", () => {
 	// Behavioral test: import the module with a mock window that
 	// throws on every win-op call, then call showBubbleWindow. The
 	// function must not throw; every win-op must be attempted (in

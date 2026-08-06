@@ -46,6 +46,18 @@ vi.mock("@/components/hotkey/hotkey-utils", async (importOriginal) => {
 const { getModifierCodeMap } = await import("@/components/hotkey/hotkey-utils");
 const { HotkeyPicker } = await import("@/components/hotkey/HotkeyPicker");
 
+// vitest.config.ts sets `clearMocks: true`, which wipes `mock.calls` /
+// `mock.results` in a `beforeEach` hook — BEFORE the first test runs.
+// The module-load call above happened during module evaluation, so by
+// test time its history would already be cleared (the spy would read 0
+// calls). Snapshot the module-load call count + first return value NOW,
+// at module scope, so the tests can still assert the hoisting fact
+// while `clearMocks` keeps per-test state clean.
+const moduleLoadCallCount = (getModifierCodeMap as ReturnType<typeof vi.fn>)
+	.mock.calls.length;
+const moduleLoadResult = (getModifierCodeMap as ReturnType<typeof vi.fn>).mock
+	.results[0]?.value as Record<string, string> | undefined;
+
 interface DispatchOpts {
 	code: string;
 	key: string;
@@ -87,8 +99,10 @@ describe("TY-30: MODIFIER_CODE_MAP hoisted to module scope", () => {
 
 	it("calls getModifierCodeMap exactly once at module load", () => {
 		// The module-load call already happened when HotkeyPicker was
-		// imported at the top of this file.
-		expect(getModifierCodeMap).toHaveBeenCalledTimes(1);
+		// imported at the top of this file. The count is captured at
+		// module scope because `clearMocks: true` wipes the spy's call
+		// history before every test.
+		expect(moduleLoadCallCount).toBe(1);
 	});
 
 	it("does NOT call getModifierCodeMap per keystroke (single mode)", async () => {
@@ -103,6 +117,13 @@ describe("TY-30: MODIFIER_CODE_MAP hoisted to module scope", () => {
 		);
 		await enterCaptureMode();
 
+		// Snapshot the spy's call count at the start of this test.
+		// With `clearMocks: true` (vitest.config.ts) this is 0;
+		// capturing a baseline keeps the assertion correct even if
+		// that config changes (the module-load call would then count).
+		const baseline = (getModifierCodeMap as ReturnType<typeof vi.fn>).mock.calls
+			.length;
+
 		// Dispatch a modifier keydown + keyup (these used to call
 		// getModifierCodeMap twice per pair — once in handleKeyDown,
 		// once in handleKeyUp).
@@ -115,9 +136,10 @@ describe("TY-30: MODIFIER_CODE_MAP hoisted to module scope", () => {
 		dispatchKey({ code: "KeyA", key: "a", type: "keydown" });
 		dispatchKey({ code: "KeyA", key: "a", type: "keyup" });
 
-		// The spy should still have exactly 1 call — the module-load
-		// call. No per-keystroke allocations.
-		expect(getModifierCodeMap).toHaveBeenCalledTimes(1);
+		// Any per-keystroke allocation would show up as a NEW call here
+		// (the count must equal the baseline from above). The
+		// module-load call is asserted separately via `moduleLoadCallCount`.
+		expect(getModifierCodeMap).toHaveBeenCalledTimes(baseline);
 	});
 
 	it("does NOT call getModifierCodeMap per keystroke (combo mode)", async () => {
@@ -131,6 +153,12 @@ describe("TY-30: MODIFIER_CODE_MAP hoisted to module scope", () => {
 			/>,
 		);
 		await enterCaptureMode();
+
+		// Snapshot the spy's call count at the start of this test (0
+		// under `clearMocks: true`; captured so the assertion stays
+		// correct if that config ever changes).
+		const baseline = (getModifierCodeMap as ReturnType<typeof vi.fn>).mock.calls
+			.length;
 
 		// Dispatch a multi-modifier combo (Ctrl+Shift) — both modifiers
 		// generate keydown + keyup events.
@@ -159,18 +187,20 @@ describe("TY-30: MODIFIER_CODE_MAP hoisted to module scope", () => {
 			type: "keyup",
 		});
 
-		// Still exactly 1 call (module-load).
-		expect(getModifierCodeMap).toHaveBeenCalledTimes(1);
+		// No per-keystroke allocations — the count must equal the
+		// baseline from above. The module-load call is asserted via
+		// `moduleLoadCallCount`.
+		expect(getModifierCodeMap).toHaveBeenCalledTimes(baseline);
 	});
 
 	it("snapshot: MODIFIER_CODE_MAP value is stable (matches the first call's return)", () => {
 		// The first call (at module load) returned the map that became
 		// MODIFIER_CODE_MAP. Subsequent renders must NOT produce a
-		// different value — the module-level constant is shared.
-		const firstResult = (getModifierCodeMap as ReturnType<typeof vi.fn>).mock
-			.results[0]?.value as Record<string, string> | undefined;
-		expect(firstResult).toBeDefined();
-		expect(firstResult).toMatchInlineSnapshot(`
+		// different value — the module-level constant is shared. The
+		// first result is captured at module scope (see above) because
+		// `clearMocks: true` wipes `mock.results` before each test.
+		expect(moduleLoadResult).toBeDefined();
+		expect(moduleLoadResult).toMatchInlineSnapshot(`
 			{
 			  "AltLeft": "alt",
 			  "AltRight": "alt",

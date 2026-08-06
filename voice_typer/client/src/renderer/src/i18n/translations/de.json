@@ -182,6 +182,12 @@
 		"selected": "Ausgewähltes Mikrofon",
 		"useAria": "Mikrofon verwenden — {name}"
 	},
+	"keyboard": {
+		"permissionDeniedTitle": "Tastenkürzel erfordern Barrierefreiheits-Berechtigung",
+		"permissionDeniedMessage": "Tastenkürzel erfordern Barrierefreiheits-Berechtigung — klicken zum Beheben",
+		"openSettings": "Einstellungen öffnen",
+		"openSettingsAria": "Barrierefreiheits-Einstellungen des Betriebssystems öffnen"
+	},
 	"vocabulary": {
 		"title": "Benutzerwortschatz",
 		"description": "Eigene Wörter und Korrekturen hinzufügen, um die Genauigkeit zu verbessern",

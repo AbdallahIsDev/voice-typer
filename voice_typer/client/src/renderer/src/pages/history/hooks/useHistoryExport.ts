@@ -24,6 +24,7 @@ import { useCallback } from "react";
 import { toast } from "sonner";
 import { t } from "@/i18n/i18n";
 import type { HistoryRecord } from "@/types/ipc";
+import type { ExportFormat } from "../../../../../shared/export-format";
 
 import { type HistorySortOrder, sortRecords } from "../utils/historySort";
 
@@ -62,7 +63,7 @@ export function useHistoryExport({
 }: UseHistoryExportParams): UseHistoryExportReturn {
 	const doExport = useCallback(
 		async (format: string) => {
-			const fmt: "json" | "csv" = format === "csv" ? "csv" : "json";
+			const fmt: ExportFormat = format === "csv" ? "csv" : "json";
 			//when a filter is active (``searchQuery`` non-empty OR
 			// ``favoritesOnly`` true), the export pages through the matching
 			// endpoint (``search_history`` / ``get_favorites``). When no

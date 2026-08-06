@@ -50,6 +50,12 @@ vi.mock("@hugeicons/react", () => ({
 vi.mock("@hugeicons/core-free-icons", () => {
 	const make = (name: string) => ({ name });
 	return {
+		// AlertCircleIcon + Settings03Icon are used by
+		// KeyboardPermissionBanner (mounted on Settings); the banner
+		// renders when the onboarding_check_permissions probe returns a
+		// non-granted result, so they must be in the mock or the page
+		// throws an unhandled render error.
+		AlertCircleIcon: make("AlertCircleIcon"),
 		ArrowDown01Icon: make("ArrowDown01Icon"),
 		ArrowTurnBackwardIcon: make("ArrowTurnBackwardIcon"),
 		ArrowUp01Icon: make("ArrowUp01Icon"),
@@ -66,6 +72,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		Moon02Icon: make("Moon02Icon"),
 		RefreshIcon: make("RefreshIcon"),
 		Search01Icon: make("Search01Icon"),
+		Settings03Icon: make("Settings03Icon"),
 		Sun01Icon: make("Sun01Icon"),
 		Tick02Icon: make("Tick02Icon"),
 		UnfoldMoreIcon: make("UnfoldMoreIcon"),

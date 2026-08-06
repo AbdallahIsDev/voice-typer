@@ -7,6 +7,7 @@ import {
 	RendererChannels,
 	WindowChannels,
 } from "../main/ipc/channels";
+import type { ExportFormat } from "../shared/export-format";
 import { makeBubbleApi } from "./_bubble-channels";
 
 // SEC-026: single preload for both main and bubble windows.
@@ -64,13 +65,13 @@ if (!isBubble) {
 				ipcRenderer.removeListener(WindowChannels.maximizedChanged, handler);
 			};
 		},
-		exportHistory: (data: Record<string, unknown>[], format: "json" | "csv") =>
+		exportHistory: (data: Record<string, unknown>[], format: ExportFormat) =>
 			ipcRenderer.invoke(ExportChannels.history, { data, format }) as Promise<{
 				success: boolean;
 				path?: string;
 				error?: string;
 			}>,
-		exportVocabulary: (data: Record<string, unknown>, format: "json" | "csv") =>
+		exportVocabulary: (data: Record<string, unknown>, format: ExportFormat) =>
 			ipcRenderer.invoke(ExportChannels.vocabulary, {
 				data,
 				format,

@@ -5,6 +5,10 @@ import { LastUpdatedIndicator } from "@/components/common/LastUpdatedIndicator";
 import PageHeading from "@/components/common/PageHeading";
 import { SearchField } from "@/components/common/SearchField";
 import { Spinner } from "@/components/feedback/Spinner";
+// amber banner shown when the OS has not granted the
+// keyboard-monitoring (Accessibility / input-group) permission. Mirrors
+// the MicrophonePermissionBanner placement on the Microphone page.
+import { KeyboardPermissionBanner } from "@/components/KeyboardPermissionBanner";
 import { AiEnhancementSettingsSection } from "@/components/settings/AiEnhancementSettingsSection";
 import { AudioSettingsSection } from "@/components/settings/AudioSettingsSection";
 import { GeneralSettingsSection } from "@/components/settings/GeneralSettingsSection";
@@ -330,13 +334,13 @@ export default function SettingsPage() {
 	return (
 		<div className="flex min-h-full flex-col">
 			{/* Sticky header: tabs + search (Fix #3 — SearchField
-                                moved inside the sticky header below the tab bar
-                                so it stays visible while scrolling settings). */}
+				moved inside the sticky header below the tab bar
+				so it stays visible while scrolling settings). */}
 			{/* : use the shared tabPageHeaderClassName /
-                                tabPageIndicatorClassName from pages/_tabBarStyles so
-                                Settings and Models render visually identical sticky
-                                tab bars (same z-index, same wrapper bg + border, same
-                                indicator style). */}
+				tabPageIndicatorClassName from pages/_tabBarStyles so
+				Settings and Models render visually identical sticky
+				tab bars (same z-index, same wrapper bg + border, same
+				indicator style). */}
 			<div className={tabPageHeaderClassName}>
 				<div className="mx-auto w-full max-w-2xl px-6 py-1.5">
 					<SegmentedControl<SettingsTab>
@@ -373,6 +377,13 @@ export default function SettingsPage() {
 					title={t("settings.title")}
 					description={t("settings.description")}
 				/>
+				{/* amber keyboard-permission banner —
+					placed immediately under PageHeading so the user sees the
+					"click to fix" prompt before scrolling into the tab panels.
+					Renders null when permission is granted / not needed, so the
+					layout is unchanged on platforms where the banner doesn't
+					apply (Windows). */}
+				<KeyboardPermissionBanner />
 				<div className="flex justify-end pb-2">
 					<LastUpdatedIndicator
 						agoLabel={agoLabel}
@@ -382,12 +393,12 @@ export default function SettingsPage() {
 				</div>
 
 				{/* Fix #12: empty-state banner with Clear filter button using
-                                        the existing searchNoMatch / noResultsMessage / a11y.clearSearch
-                                        i18n keys. `searchNoMatch` preserves the original "{query}"
-                                        interpolation so screen readers + sighted users see what they
-                                        searched for; `noResultsMessage` adds the actionable hint
-                                        ("Try a different search term or clear the filter..."); the
-                                        button gives a one-click escape hatch. */}
+					the existing searchNoMatch / noResultsMessage / a11y.clearSearch
+					i18n keys. `searchNoMatch` preserves the original "{query}"
+					interpolation so screen readers + sighted users see what they
+					searched for; `noResultsMessage` adds the actionable hint
+					("Try a different search term or clear the filter..."); the
+					button gives a one-click escape hatch. */}
 				{showEmptyBanner && (
 					<output
 						aria-live="polite"
@@ -455,11 +466,11 @@ export default function SettingsPage() {
 			</div>
 
 			{/* Fix #4: sticky-bottom save indicator — stays pinned to
-                                the bottom of the viewport while scrolling so
-                                the user always sees the pending/saving/saved
-                                state. Mirrors the sticky-top header (z-40,
-                                bg-(--bg-subtle), border-border) for visual
-                                rhythm. */}
+				the bottom of the viewport while scrolling so
+				the user always sees the pending/saving/saved
+				state. Mirrors the sticky-top header (z-40,
+				bg-(--bg-subtle), border-border) for visual
+				rhythm. */}
 			<div className="sticky bottom-0 left-0 right-0 z-40 border-t border-border bg-(--bg-subtle)">
 				<div className="mx-auto flex w-full max-w-2xl justify-end px-6 py-2">
 					<SettingsSaveIndicator

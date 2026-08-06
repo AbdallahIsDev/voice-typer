@@ -182,6 +182,12 @@
 		"selected": "Micrófono seleccionado",
 		"useAria": "Usar micrófono — {name}"
 	},
+	"keyboard": {
+		"permissionDeniedTitle": "Los atajos de teclado requieren permiso de accesibilidad",
+		"permissionDeniedMessage": "Los atajos de teclado requieren permiso de accesibilidad — haz clic para arreglarlo",
+		"openSettings": "Abrir ajustes",
+		"openSettingsAria": "Abrir la configuración de accesibilidad del sistema operativo"
+	},
 	"vocabulary": {
 		"title": "Vocabulario personalizado",
 		"description": "Agrega palabras y correcciones personalizadas para mejorar la precisión",

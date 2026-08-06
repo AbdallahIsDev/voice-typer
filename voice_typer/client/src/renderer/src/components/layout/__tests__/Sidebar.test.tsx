@@ -69,7 +69,7 @@ function findNavButton(label: string) {
 	});
 }
 
-describe("Sidebar — FIX-15 (UX-16, PROD-7, PROD-9, PROD-14)", () => {
+describe("Sidebar", () => {
 	beforeEach(() => {
 		cleanup();
 	});

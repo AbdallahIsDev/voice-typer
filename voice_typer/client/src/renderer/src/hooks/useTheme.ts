@@ -1,4 +1,77 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+/**
+ * Theme hook: manages the active theme mode (light/dark/system), preset,
+ * custom colours, and text-size scaling.  Applies the theme to the
+ * document via CSS variables and persists changes to the backend config
+ * with a 300ms debounce.
+ *
+ * @param call  The Python bridge `call` function (from usePython).
+ *
+ * ── singleton store + initOnce side-effect guard ───────────────
+ *
+ * ``useTheme`` is called from BOTH ``App.tsx`` (always-mounted) AND
+ * ``Settings.tsx`` (lazy-mounted when the user opens Settings).
+ * Previously each call instantiated an INDEPENDENT React state
+ * (``themeMode``, ``themePreset``, ``customTheme``, ``textSize``) plus:
+ *
+ *   - one ``reloadThemeFromConfig`` mount effect → 1 extra
+ *     ``get_config`` IPC call per Settings open
+ *   - one ``config_changed`` ``usePythonEvent`` subscription → 2
+ *     subscriptions app-wide (each updates its OWN state)
+ *   - one ``beforeunload`` flush listener → 2 listeners app-wide
+ *     (idempotent: both flush the same pending payload, the second
+ *     is a no-op because ``pendingThemeUpdatesRef`` is cleared on
+ *     first flush)
+ *   - one ``localStorage`` sync effect → 2 writes per state change
+ *     (idempotent: both write the same value)
+ *
+ * The fix mirrors ``useNavigation.ts``'s singleton-store pattern:
+ *
+ *   1. Theme state lives in a module-level Zustand store
+ *      (``useThemeStore``). Both callers READ from the same store via
+ *      ``useShallow``, so a state change in one caller's setter
+ *      re-renders BOTH callers.
+ *
+ *   2. Side-effecting logic (``reloadThemeFromConfig``, the
+ *      ``config_changed`` subscription handler, the
+ *      ``beforeunload`` flush listener, the debounced
+ *      ``scheduleThemeSave`` + ``flushPendingThemeSave``) is moved to
+ *      MODULE-LEVEL functions guarded by an ``initOnce`` flag
+ *      (``themeInitStarted``). The first ``useTheme`` caller's mount
+ *      effect calls ``ensureThemeSideEffects(call, mergeConfig)``,
+ *      which sets the flag and runs the side effects EXACTLY ONCE.
+ *      Subsequent callers' mount effects are no-ops.
+ *
+ *   3. The ``usePythonEvent("config_changed", handler)`` call is
+ *      kept inside the hook body (rules-of-hooks), but the handler
+ *      is a STABLE module-level singleton (``configChangedHandler``)
+ *      that updates the shared store. The dispatcher in
+ *      ``usePython.ts`` already deduplicates the underlying
+ *      ``api.onEvent`` subscription, so N callers share ONE IPC
+ *      listener; the per-caller handlers all update the same store
+ *      and Zustand's ``set`` deduplicates same-value writes (the
+ *      second caller's handler invocation is a no-op).
+ *
+ *   4. The per-instance theme-application effect (CSS variables) and
+ *      the per-instance ``localStorage`` sync effect are KEPT
+ *      per-instance — they are idempotent (apply the same values,
+ *      write the same keys) and cheap, so deduplicating them would
+ *      add complexity without meaningful perf gain.
+ *
+ *   5. The unmount cleanup that calls ``flushPendingThemeSave()`` is
+ *      KEPT per-instance — when the FIRST caller unmounts (e.g.
+ *      Settings closes), any pending save is flushed. The second
+ *      caller's unmount cleanup is a no-op (no pending). The
+ *      module-level ``beforeunload`` listener (installed once via
+ *      ``ensureThemeSideEffects``) stays for app lifetime.
+ *
+ * ``_resetThemeStoreForTest`` is the test seam (mirrors
+ * ``_resetNavigationForTest``): it re-reads localStorage into the
+ * store + resets the ``initOnce`` flag so a test can mount a fresh
+ * ``useTheme`` consumer deterministically.
+ */
+import { useCallback, useEffect } from "react";
+import { create } from "zustand";
+import { useShallow } from "zustand/react/shallow";
 import { usePythonEvent } from "@/hooks/usePython";
 import { setSoundFeedbackEnabled } from "@/lib/sound-manager";
 import {
@@ -92,79 +165,377 @@ function readLsTextSize(): number {
 	return 14;
 }
 
-/**
- * Theme hook: manages the active theme mode (light/dark/system), preset,
- * custom colours, and text-size scaling.  Applies the theme to the
- * document via CSS variables and persists changes to the backend config
- * with a 300ms debounce.
- *
- * @param call  The Python bridge `call` function (from usePython).
- *
- * ── dual-instance, deferred ──────────────────────────────────
- *
- * ``useTheme`` is called from BOTH ``App.tsx`` (always-mounted) AND
- * ``Settings.tsx`` (lazy-mounted when the user opens Settings). Each
- * call instantiates an INDEPENDENT React state (``themeMode``,
- * ``themePreset``, ``customTheme``, ``textSize``) plus:
- *
- *   - one ``reloadThemeFromConfig`` mount effect → 1 extra
- *     ``get_config`` IPC call per Settings open
- *   - one ``config_changed`` ``usePythonEvent`` subscription → 2
- *     subscriptions app-wide (each updates its OWN state)
- *   - one ``beforeunload`` flush listener → 2 listeners app-wide
- *     (idempotent: both flush the same pending payload, the second
- *     is a no-op because ``pendingThemeUpdatesRef`` is cleared on
- *     first flush)
- *   - one ``localStorage`` sync effect → 2 writes per state change
- *     (idempotent: both write the same value)
- *
- * State IS eventually consistent across the two instances because:
- *
- *   1. Both initialise from the same ``localStorage`` keys
- *      (``readLsThemeMode`` / ``readLsThemePreset`` /
- *      ``readLsCustomTheme`` / ``readLsTextSize``).
- *   2. Both receive ``config_changed`` events from the backend and
- *      update their local state from the same payload.
- *
- * So the user-visible behaviour is correct; the cost is duplicate
- * (idempotent) IPC traffic and duplicate (idempotent) listeners.
- *
- * The proper fix is to extract the state + side effects into a
- * module-level singleton store (e.g. ``useSyncExternalStore`` with a
- * module-level ``listeners`` set + ``getSnapshot``, or a tiny Zustand
- * store) so both callers READ from the same source and the
- * ``reloadThemeFromConfig`` / ``config_changed`` / ``beforeunload``
- * effects run EXACTLY ONCE per page load.
- *
- * This refactor is deferred because:
- *
- *  - The 519-line hook has tightly-coupled debounce + flush logic
- *    that depends on React lifecycle (``useRef`` for the timer,
- *    ``useEffect`` cleanup for the flush). Moving it to a module-level
- *    store requires re-implementing the debounce queue outside React
- *    (or guarding the effects with a module-level ``initOnce`` flag
- *    so only the FIRST ``useTheme`` caller actually runs them).
- *
- *  - The existing comment in ``Settings.tsx`` (line ~85-90) documents
- *    that the dual-instance pattern is "safe because theme state is
- *    synchronised across instances via the config_changed event
- *    subscription and localStorage cache" — confirming the team
- *    consciously accepted this trade-off.
- *
- *  - A minimal "initOnce" guard would prevent the duplicate
- *    ``reloadThemeFromConfig`` IPC and duplicate ``config_changed``
- *    subscription without converting the whole hook to an external
- *    store, but it would also break Settings.tsx's initial state
- *    (its ``themeMode`` wouldn't get the backend's authoritative
- *    value on first mount — only on the NEXT ``config_changed``
- *    event). Doing this correctly requires the singleton-store
- *    approach above.
- *
- * When the singleton refactor is done, ``useTheme`` should become a
- * thin wrapper around ``useSyncExternalStore(themeSubscribe,
- * themeGetSnapshot)`` returning the current state + stable setters
- * (the setters update the singleton, which notifies all subscribers).
- */
+// ── Module-level Zustand store ───────────────────────────────────────
+//
+// Mirrors the ``useNavigation`` pattern: theme state is a module-level
+// singleton so every ``useTheme`` caller reads from the SAME source.
+// A state change in one caller's setter re-renders ALL callers via
+// Zustand's subscriber-notification mechanism.
+//
+// The "internal" setters (``setThemeModeState`` etc.) update state
+// WITHOUT scheduling a backend save — they're used by backend-pushed
+// paths (``reloadThemeFromConfig``, ``config_changed`` handler) where
+// the change came FROM the backend, so round-tripping it would be a
+// feedback loop. The public-facing setters (in the hook body, below)
+// wrap these + add the debounced ``scheduleThemeSave`` call.
+
+interface ThemeState {
+	themeMode: VoiceTyperConfig["theme_mode"];
+	themePreset: VoiceTyperConfig["theme_preset"];
+	customTheme: CustomThemeData | null;
+	textSize: number;
+	// FLASH-FIX: tracks whether the first ``reloadThemeFromConfig``
+	// call has completed. Until it has, the theme-application effect
+	// in the hook is suppressed — the pre-React ``theme-bootstrap.ts``
+	// already applied the cached localStorage state to the DOM, so
+	// re-applying here would either be a no-op (when localStorage
+	// matches the bootstrap state) or a visible flash (when
+	// ``reloadThemeFromConfig`` resolves with backend values that
+	// differ from the cached localStorage, triggering a state change
+	// that re-runs this effect). By suppressing until the first
+	// reload completes, we ensure the backend confirmation produces
+	// at most ONE theme application rather than two (cached → backend).
+	hasInitialReloadCompleted: boolean;
+
+	// Internal setters (state-only, NO backend save).
+	setThemeModeState: (mode: VoiceTyperConfig["theme_mode"]) => void;
+	setThemePresetState: (preset: VoiceTyperConfig["theme_preset"]) => void;
+	setCustomThemeState: (custom: CustomThemeData | null) => void;
+	setTextSizeState: (size: number) => void;
+	setHasInitialReloadCompleted: (value: boolean) => void;
+}
+
+const useThemeStore = create<ThemeState>()((set) => ({
+	themeMode: readLsThemeMode(),
+	themePreset: readLsThemePreset(),
+	customTheme: readLsCustomTheme(),
+	textSize: readLsTextSize(),
+	hasInitialReloadCompleted: false,
+	setThemeModeState: (mode) => set({ themeMode: mode }),
+	setThemePresetState: (preset) => set({ themePreset: preset }),
+	setCustomThemeState: (custom) => set({ customTheme: custom }),
+	setTextSizeState: (size) => set({ textSize: size }),
+	setHasInitialReloadCompleted: (value) =>
+		set({ hasInitialReloadCompleted: value }),
+}));
+
+// ── Singleton side-effect state ──────────────────────────────────────
+//
+// All previously per-instance side-effect state (the ``call`` function
+// reference, ``mergeConfig`` from the appStore, the debounce timer ref,
+// the pending-updates ref) is now module-level. The first ``useTheme``
+// caller's mount effect calls ``ensureThemeSideEffects(call,
+// mergeConfig)`` which sets ``themeInitStarted = true`` and runs the
+// side effects EXACTLY ONCE. Subsequent callers' mount effects are
+// no-ops.
+//
+// The ``call`` and ``mergeConfig`` references are refreshed on every
+// ``ensureThemeSideEffects`` call (every consumer mount). In practice
+// these are stable across the app's lifetime (they come from
+// ``usePython`` and ``useAppStore``, both of which return stable
+// references), so refreshing is a no-op for the second caller.
+
+let themeInitStarted = false;
+let activeCall:
+	| ((type: string, data?: Record<string, unknown>) => Promise<unknown>)
+	| null = null;
+let activeMergeConfig: ((updates: Partial<VoiceTyperConfig>) => void) | null =
+	null;
+let themeSaveTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingThemeUpdates: Partial<
+	Pick<
+		VoiceTyperConfig,
+		"theme_mode" | "theme_preset" | "custom_theme" | "text_size"
+	>
+> | null = null;
+
+// Type alias for the public ``call`` function shape accepted by
+// ``useTheme``. Used to type the module-level ``activeCall`` slot.
+type ThemeCallFn = <T = unknown>(
+	type: string,
+	data?: Record<string, unknown>,
+) => Promise<T>;
+
+// ── reloadThemeFromConfig (module-level singleton) ───────────────────
+//
+// Pulled out of the hook body so it can run EXACTLY ONCE per app load
+// (via ``ensureThemeSideEffects``). Previously each ``useTheme`` caller
+// ran its own mount effect that called ``reloadThemeFromConfig``, so
+// opening Settings fired a second ``get_config`` IPC round-trip. Now
+// only the first caller triggers the reload; subsequent callers read
+// the already-populated store.
+function reloadThemeFromConfigImpl(): Promise<void> {
+	if (!activeCall) return Promise.resolve();
+	const call = activeCall as ThemeCallFn;
+	return call<VoiceTyperConfig>("get_config")
+		.then((cfg) => {
+			// FLASH-FIX: write the backend-confirmed values back
+			// to localStorage immediately so the NEXT mount
+			// starts with the authoritative state (the
+			// ``theme-bootstrap.ts`` module reads from the same
+			// keys).  Without this, a stale localStorage value
+			// could flash on every launch until the user
+			// manually changes the theme.
+			try {
+				if (cfg?.theme_mode) {
+					localStorage.setItem(LS_THEME_MODE, cfg.theme_mode);
+					useThemeStore.getState().setThemeModeState(cfg.theme_mode);
+				}
+				if (cfg?.theme_preset) {
+					localStorage.setItem(LS_THEME_PRESET, cfg.theme_preset);
+					useThemeStore.getState().setThemePresetState(cfg.theme_preset);
+				}
+				if (cfg?.custom_theme) {
+					localStorage.setItem(
+						LS_CUSTOM_THEME,
+						JSON.stringify(cfg.custom_theme),
+					);
+					useThemeStore.getState().setCustomThemeState(cfg.custom_theme);
+				} else if (cfg?.theme_preset && cfg.theme_preset !== "custom") {
+					// Backend confirmed a non-custom preset — clear
+					// any stale custom-theme cache so the bootstrap
+					// doesn't try to derive custom vars from it.
+					localStorage.removeItem(LS_CUSTOM_THEME);
+				}
+				if (cfg?.text_size) {
+					localStorage.setItem(LS_TEXT_SIZE, String(cfg.text_size));
+					useThemeStore.getState().setTextSizeState(cfg.text_size);
+				}
+			} catch (e) {
+				// localStorage may be unavailable — non-fatal.
+				// State setters below still fire so the UI
+				// reflects the backend values for this session.
+				console.warn("[useTheme] localStorage cache write failed:", e);
+				if (cfg?.theme_mode)
+					useThemeStore.getState().setThemeModeState(cfg.theme_mode);
+				if (cfg?.theme_preset)
+					useThemeStore.getState().setThemePresetState(cfg.theme_preset);
+				if (cfg?.custom_theme)
+					useThemeStore.getState().setCustomThemeState(cfg.custom_theme);
+				if (cfg?.text_size)
+					useThemeStore.getState().setTextSizeState(cfg.text_size);
+			}
+			// SOUND-FIX-REWRITE: sync the sound_feedback_enabled
+			// flag from config to localStorage on every config
+			// load.  Previously the localStorage flag was only
+			// written when the user toggled the switch in
+			// Settings, which caused drift on fresh installs
+			// and after clearing localStorage.  Now the flag
+			// is always in sync with the actual config value.
+			if (typeof cfg?.sound_feedback_enabled === "boolean") {
+				setSoundFeedbackEnabled(cfg.sound_feedback_enabled);
+			}
+		})
+		.catch((e) => {
+			console.warn("[useTheme] get_config failed:", e);
+		})
+		.finally(() => {
+			// FLASH-FIX: regardless of success/failure, flip the
+			// guard so the theme-application effect can run.
+			// On failure we keep the cached localStorage state
+			// (already applied by ``theme-bootstrap.ts``) —
+			// flipping the flag here lets the effect take over
+			// for subsequent state changes (e.g. when the user
+			// toggles the theme via the sidebar).
+			useThemeStore.getState().setHasInitialReloadCompleted(true);
+		});
+}
+
+// ── config_changed handler (module-level singleton) ──────────────────
+//
+// The handler invoked by the ``usePythonEvent("config_changed", ...)``
+// subscription. Kept as a module-level STABLE function reference so
+// the ``usePythonEvent`` hook's internal ``handlerRef`` always points
+// at the same identity (no re-subscription needed when consumers
+// re-render).
+//
+// Both ``useTheme`` callers register their own ``usePythonEvent``
+// entry in the dispatcher's ``typeSubscribers`` Map, but the
+// dispatcher holds a SINGLE ``api.onEvent`` subscription (it
+// deduplicates the underlying IPC listener). Both entries' handlers
+// are invoked per event — but the handler here updates the SHARED
+// Zustand store, and Zustand's ``set`` skips notification when the
+// new value is ``Object.is``-equal to the old. So the second
+// invocation is a no-op (cheap state-entry lookup, no subscriber
+// fan-out).
+function handleConfigChanged(
+	data: Record<string, unknown> | undefined,
+): (() => void) | undefined {
+	if (!data) return undefined;
+	// Merge into the store's config cache.
+	if (activeMergeConfig) {
+		// The backend's ``config_changed`` payload is a partial config
+		// object — cast to ``Partial<VoiceTyperConfig>`` for the
+		// ``mergeConfig`` call (the cast is safe because the backend
+		// only sends config-typed fields; unknown fields are silently
+		// ignored by ``mergeConfig``'s merge implementation).
+		activeMergeConfig(data as Partial<VoiceTyperConfig>);
+	}
+	const store = useThemeStore.getState();
+	if (typeof data.text_size === "number") {
+		store.setTextSizeState(data.text_size);
+	}
+	if (typeof data.theme_mode === "string") {
+		store.setThemeModeState(data.theme_mode as VoiceTyperConfig["theme_mode"]);
+	}
+	if (typeof data.theme_preset === "string") {
+		store.setThemePresetState(
+			data.theme_preset as VoiceTyperConfig["theme_preset"],
+		);
+	}
+	if (data.custom_theme && typeof data.custom_theme === "object") {
+		store.setCustomThemeState(data.custom_theme as CustomThemeData);
+	}
+	// SOUND-FIX-REWRITE: keep localStorage in sync
+	// when the sound_feedback_enabled flag changes
+	// via ANY path (Settings toggle, config import,
+	// CLI tool, etc.) — not just the Settings UI.
+	if (typeof data.sound_feedback_enabled === "boolean") {
+		setSoundFeedbackEnabled(data.sound_feedback_enabled);
+	}
+	return undefined;
+}
+
+// ── scheduleThemeSave / flushPendingThemeSave (module-level) ─────────
+//
+// PERF: debounce the backend write so rapid theme toggling (e.g.
+// user clicking through light → dark → system quickly) doesn't
+// fire 3 separate set_config IPC calls. The local UI updates
+// immediately (via the store); the backend save is deferred 300ms
+// and only the LAST selected mode is persisted.
+//
+// QUIT-FLUSH-FIX: previously, if the user changed the theme and
+// then closed the app (close-to-tray → tray Quit, or window close)
+// during the 300ms debounce window, the pending save was dropped
+// and the next launch loaded the old theme from the backend. The
+// ``beforeunload`` listener (installed once via
+// ``ensureThemeSideEffects``) + the per-instance unmount cleanup
+// (in the hook body, below) both call ``flushPendingThemeSave`` so
+// the pending save fires synchronously before the renderer tears
+// down.
+
+function flushPendingThemeSave(): void {
+	if (themeSaveTimer) {
+		clearTimeout(themeSaveTimer);
+		themeSaveTimer = null;
+	}
+	const pending = pendingThemeUpdates;
+	if (pending) {
+		pendingThemeUpdates = null;
+		if (activeCall) {
+			// Fire-and-forget — the renderer may be tearing down, so we
+			// can't await. The IPC layer queues the write before the
+			// process exits. The Promise's rejection MUST be handled
+			// here (via `.catch`) — `void call(...)` alone discards the
+			// Promise without installing a rejection handler, which
+			// surfaces as an "unhandled promise rejection" warning in
+			// Electron (and can crash the renderer in strict modes).
+			// Theme is local-only if backend unavailable — the warn is
+			// the entire recovery path.
+			void (activeCall as ThemeCallFn)("set_config", pending).catch((e) => {
+				console.warn("[useTheme] set_config (flush) failed:", e);
+			});
+		}
+	}
+}
+
+function scheduleThemeSave(
+	updates: Partial<
+		Pick<
+			VoiceTyperConfig,
+			"theme_mode" | "theme_preset" | "custom_theme" | "text_size"
+		>
+	>,
+): void {
+	// Merge into the pending payload so successive rapid
+	// changes (e.g. typing into a custom-colour picker)
+	// coalesce into a single backend write.
+	pendingThemeUpdates = {
+		...pendingThemeUpdates,
+		...updates,
+	};
+	// Cancel any pending save and schedule a new one.
+	if (themeSaveTimer) {
+		clearTimeout(themeSaveTimer);
+	}
+	themeSaveTimer = setTimeout(async () => {
+		themeSaveTimer = null;
+		const pending = pendingThemeUpdates;
+		pendingThemeUpdates = null;
+		if (!pending || !activeCall) return;
+		try {
+			await (activeCall as ThemeCallFn)("set_config", pending);
+		} catch (e) {
+			// Theme is local-only if backend unavailable
+			console.warn("[useTheme] set_config (debounced) failed:", e);
+		}
+	}, 300);
+}
+
+// ── ensureThemeSideEffects (initOnce guard) ──────────────────────────
+//
+// Called from the ``useTheme`` hook's mount ``useEffect``. Sets
+// ``themeInitStarted = true`` on the first call and runs the
+// side-effecting setup (initial ``reloadThemeFromConfig``,
+// ``beforeunload`` listener). Subsequent calls are no-ops (the flag
+// short-circuits), but they STILL refresh the ``activeCall`` /
+// ``activeMergeConfig`` references — in practice these are stable
+// across the app's lifetime, but refreshing is cheap and protects
+// against the (theoretical) case where a caller passes a different
+// ``call`` function (e.g. in tests with a mocked bridge).
+function ensureThemeSideEffects(
+	call: ThemeCallFn,
+	mergeConfig: (updates: Partial<VoiceTyperConfig>) => void,
+): void {
+	// Always refresh the singleton references — they're stable in
+	// practice (from ``usePython`` / ``useAppStore``), but refreshing
+	// is cheap and makes the singleton robust to test-environment
+	// bridge swaps.
+	activeCall = call;
+	activeMergeConfig = mergeConfig;
+
+	if (themeInitStarted) return;
+	if (typeof window === "undefined") return; // SSR guard
+	themeInitStarted = true;
+
+	// 1. Initial reload from config (single ``get_config`` IPC call
+	//    app-wide, was previously 2 with dual-instance pattern).
+	void reloadThemeFromConfigImpl();
+
+	// 2. ``beforeunload`` flush listener (single listener app-wide,
+	//    was previously 2 — the second was an idempotent no-op but
+	//    still consumed an event-listener slot).
+	window.addEventListener("beforeunload", flushPendingThemeSave);
+}
+
+// ── Test seam ────────────────────────────────────────────────────────
+//
+// Mirrors ``_resetNavigationForTest``: re-reads localStorage into the
+// shared store + resets the ``initOnce`` flag so a test can mount a
+// fresh ``useTheme`` consumer deterministically. @internal
+export function _resetThemeStoreForTest(): void {
+	useThemeStore.setState({
+		themeMode: readLsThemeMode(),
+		themePreset: readLsThemePreset(),
+		customTheme: readLsCustomTheme(),
+		textSize: readLsTextSize(),
+		hasInitialReloadCompleted: false,
+	});
+	themeInitStarted = false;
+	activeCall = null;
+	activeMergeConfig = null;
+	if (themeSaveTimer) {
+		clearTimeout(themeSaveTimer);
+		themeSaveTimer = null;
+	}
+	pendingThemeUpdates = null;
+	if (typeof window !== "undefined") {
+		window.removeEventListener("beforeunload", flushPendingThemeSave);
+	}
+}
+
+// ── Hook ─────────────────────────────────────────────────────────────
+
 export function useTheme(
 	call: <T = unknown>(
 		type: string,
@@ -173,52 +544,58 @@ export function useTheme(
 ) {
 	const mergeConfig = useAppStore((s) => s.mergeConfig);
 
-	// THEME-CACHE-FIX: seed from localStorage so the theme is immediately
-	// restored on remount (e.g. after restart) without waiting for the
-	// backend.  ``reloadThemeFromConfig`` updates the cache after the
-	// backend connects.
-	const [themeMode, setThemeMode] = useState<VoiceTyperConfig["theme_mode"]>(
-		readLsThemeMode(),
-	);
-	//the underlying useState setters are renamed to
-	// ``*State`` so the public-facing names (``setThemePreset``,
-	// ``setCustomTheme``, ``setTextSize``) can be wrapped in
-	// debounce-and-save callbacks below. The internal callers that
-	// receive backend-pushed values (``reloadThemeFromConfig``, the
-	// ``config_changed`` event handler) use the ``*State`` setters
-	// directly so they DON'T re-trigger a backend save (the change
-	// came FROM the backend, not from the user — round-tripping it
-	// would be a no-op at best and a feedback loop at worst).
-	const [themePreset, setThemePresetState] = useState<
-		VoiceTyperConfig["theme_preset"]
-	>(readLsThemePreset());
-	const [customTheme, setCustomThemeState] = useState<CustomThemeData | null>(
-		readLsCustomTheme(),
-	);
-	const [textSize, setTextSizeState] = useState(readLsTextSize());
-
-	//FLASH-FIX: tracks whether the first
-	// ``reloadThemeFromConfig`` call has completed on this mount.
-	// Until it has, the theme-application effect below is suppressed
-	// — the pre-React ``theme-bootstrap.ts`` already applied the
-	// cached localStorage state to the DOM, so re-applying here
-	// would either be a no-op (when localStorage matches the
-	// bootstrap state, which it always does) or a visible flash
-	// (when ``reloadThemeFromConfig`` resolves with backend values
-	// that differ from the cached localStorage, triggering a
-	// state change that re-runs this effect).  By suppressing
-	// until the first reload completes, we ensure the backend
-	// confirmation produces at most ONE theme application rather
-	// than two (cached → backend).
+	// ── Read state from the singleton store ────────────────────────
 	//
-	// The flag is a ``useState`` (not a ref) so toggling it
-	// triggers a re-render and re-runs the theme-application
-	// effect with the now-confirmed values.
-	const [hasInitialReloadCompleted, setHasInitialReloadCompleted] =
-		useState(false);
+	// ``useShallow`` collapses the 5 value reads into ONE selector
+	// run + ONE shallow-equal check per ``set()``. The selector
+	// returns a fresh object on every run, but ``useShallow``
+	// returns the CACHED object reference when the shallow-equal
+	// check passes (i.e. none of the 5 values changed), so unrelated
+	// state changes (none currently, but defensive) don't trigger
+	// re-renders.
+	const {
+		themeMode,
+		themePreset,
+		customTheme,
+		textSize,
+		hasInitialReloadCompleted,
+	} = useThemeStore(
+		useShallow((s) => ({
+			themeMode: s.themeMode,
+			themePreset: s.themePreset,
+			customTheme: s.customTheme,
+			textSize: s.textSize,
+			hasInitialReloadCompleted: s.hasInitialReloadCompleted,
+		})),
+	);
 
-	// ── Theme detection & application ────────────────────────────
+	// Stable internal setters (Zustand store actions — never change
+	// identity). Used by the public-facing setters below + by the
+	// theme-application effect.
+	const setThemeModeState = useThemeStore((s) => s.setThemeModeState);
+	const setThemePresetState = useThemeStore((s) => s.setThemePresetState);
+	const setCustomThemeState = useThemeStore((s) => s.setCustomThemeState);
+	const setTextSizeState = useThemeStore((s) => s.setTextSizeState);
 
+	// ── Singleton side-effect init (initOnce guard) ────────────────
+	//
+	// The FIRST ``useTheme`` caller's mount effect triggers
+	// ``ensureThemeSideEffects``, which sets ``themeInitStarted = true``
+	// and runs: (1) ``reloadThemeFromConfig`` (single ``get_config``
+	// IPC), (2) the ``beforeunload`` flush listener (single app-wide
+	// listener). Subsequent callers' mount effects are no-ops (the
+	// flag short-circuits). The ``call`` + ``mergeConfig`` references
+	// are refreshed on every call (cheap, robust to test bridge swaps).
+	useEffect(() => {
+		ensureThemeSideEffects(call, mergeConfig);
+	}, [call, mergeConfig]);
+
+	// ── Theme detection & application (per-instance, idempotent) ────
+	//
+	// KEPT per-instance rather than moved to the singleton — it's
+	// idempotent (applies the same CSS vars) and cheap. Both
+	// consumers' effects fire on every state change, but they write
+	// the same values to the DOM.
 	useEffect(() => {
 		// FLASH-FIX: skip until the backend has confirmed the
 		// theme state on first mount.  The bootstrap already
@@ -275,95 +652,26 @@ export function useTheme(
 		document.documentElement.style.setProperty("--font-scale", String(scale));
 	}, [textSize]);
 
-	// Load theme from config.  Extracted as a reusable callback so the
-	// onboarding-completion handler (in App.tsx) can re-trigger a full
-	// reload after the user finishes the wizard.
-	//removed the ``if (!isReady) return`` guard — it was
-	// dead code (``isReady`` was always ``true`` because the preload
-	// installs ``window.python`` before React mounts).  The actual
-	// backend-readiness check is ``connectionStatus === 'connected'``,
-	// which is set by the connection lifecycle effect in useConnection.
+	// Public-facing reload function — exposed so App.tsx's
+	// onboarding-completion handler can re-trigger a full theme reload
+	// after the wizard applies the user's choices (the onboarding_apply
+	// IPC route doesn't reliably emit a config_changed event, so we
+	// explicitly re-fetch the config).
+	//
+	// Wraps the module-level ``reloadThemeFromConfigImpl`` so the
+	// public API stays the same (``reloadThemeFromConfig()`` returns a
+	// Promise). The ``call`` reference is refreshed from the singleton
+	// so the latest caller's bridge is used.
 	const reloadThemeFromConfig = useCallback(async () => {
-		try {
-			const cfg = await call<VoiceTyperConfig>("get_config");
-			// FLASH-FIX: write the backend-confirmed values back
-			// to localStorage immediately so the NEXT mount
-			// starts with the authoritative state (the
-			// ``theme-bootstrap.ts`` module reads from the same
-			// keys).  Without this, a stale localStorage value
-			// could flash on every launch until the user
-			// manually changes the theme.
-			try {
-				if (cfg?.theme_mode) {
-					localStorage.setItem(LS_THEME_MODE, cfg.theme_mode);
-					setThemeMode(cfg.theme_mode);
-				}
-				if (cfg?.theme_preset) {
-					localStorage.setItem(LS_THEME_PRESET, cfg.theme_preset);
-					setThemePresetState(cfg.theme_preset);
-				}
-				if (cfg?.custom_theme) {
-					localStorage.setItem(
-						LS_CUSTOM_THEME,
-						JSON.stringify(cfg.custom_theme),
-					);
-					setCustomThemeState(cfg.custom_theme);
-				} else if (cfg?.theme_preset && cfg.theme_preset !== "custom") {
-					// Backend confirmed a non-custom preset — clear
-					// any stale custom-theme cache so the bootstrap
-					// doesn't try to derive custom vars from it.
-					localStorage.removeItem(LS_CUSTOM_THEME);
-				}
-				if (cfg?.text_size) {
-					localStorage.setItem(LS_TEXT_SIZE, String(cfg.text_size));
-					setTextSizeState(cfg.text_size);
-				}
-			} catch (e) {
-				// localStorage may be unavailable — non-fatal.
-				// State setters below still fire so the UI
-				// reflects the backend values for this session.
-				console.warn("[useTheme] localStorage cache write failed:", e);
-				if (cfg?.theme_mode) setThemeMode(cfg.theme_mode);
-				if (cfg?.theme_preset) setThemePresetState(cfg.theme_preset);
-				if (cfg?.custom_theme) setCustomThemeState(cfg.custom_theme);
-				if (cfg?.text_size) setTextSizeState(cfg.text_size);
-			}
-			// SOUND-FIX-REWRITE: sync the sound_feedback_enabled
-			// flag from config to localStorage on every config
-			// load.  Previously the localStorage flag was only
-			// written when the user toggled the switch in
-			// Settings, which caused drift on fresh installs
-			// and after clearing localStorage.  Now the flag
-			// is always in sync with the actual config value.
-			if (typeof cfg?.sound_feedback_enabled === "boolean") {
-				setSoundFeedbackEnabled(cfg.sound_feedback_enabled);
-			}
-		} catch (e) {
-			console.warn("[useTheme] get_config failed:", e);
-		} finally {
-			// FLASH-FIX: regardless of success/failure, flip the
-			// guard so the theme-application effect can run.
-			// On failure we keep the cached localStorage state
-			// (already applied by ``theme-bootstrap.ts``) —
-			// flipping the flag here lets the effect take over
-			// for subsequent state changes (e.g. when the user
-			// toggles the theme via the sidebar).
-			setHasInitialReloadCompleted(true);
-		}
+		activeCall = call;
+		await reloadThemeFromConfigImpl();
 	}, [call]);
 
-	// Load theme from config on mount
-	useEffect(() => {
-		reloadThemeFromConfig();
-	}, [reloadThemeFromConfig]);
-
-	// ── Sync theme state to localStorage on every change ────────────────
-	// THEME-CACHE-FIX: keep the localStorage cache in sync whenever the
-	// theme state changes (via handleThemeChange, setThemePreset,
-	// setCustomTheme, setTextSize, or config_changed events). This
-	// ensures the cache is always fresh regardless of how the theme was
-	// changed, so the next remount (e.g. after restart) immediately
-	// restores the last-known theme without waiting for the backend.
+	// ── Sync theme state to localStorage on every change ────────────
+	//
+	// KEPT per-instance — idempotent (writes the same value twice).
+	// Both consumers' effects fire on every state change, but they
+	// write the same keys with the same values.
 	useEffect(() => {
 		try {
 			localStorage.setItem(LS_THEME_MODE, themeMode);
@@ -380,162 +688,40 @@ export function useTheme(
 		}
 	}, [themeMode, themePreset, customTheme, textSize]);
 
-	// ── Config changed push (live UI updates) ───────────────────────────
-	// When the Python backend processes a set_config command, it pushes a
-	// config_changed event with the validated fields.  We update local UI
-	// state (text_size, theme_mode, etc.) immediately so the user sees the
-	// change without restarting the app.  We also merge the updates into
-	// the appStore's config snapshot so other components see the change.
-	usePythonEvent(
-		"config_changed",
-		useCallback(
-			(data): (() => void) | undefined => {
-				if (!data) return undefined;
-				// Merge into the store's config cache
-				mergeConfig(data);
-				if (typeof data.text_size === "number") {
-					setTextSizeState(data.text_size);
-				}
-				if (typeof data.theme_mode === "string") {
-					setThemeMode(data.theme_mode as VoiceTyperConfig["theme_mode"]);
-				}
-				if (typeof data.theme_preset === "string") {
-					setThemePresetState(
-						data.theme_preset as VoiceTyperConfig["theme_preset"],
-					);
-				}
-				if (data.custom_theme && typeof data.custom_theme === "object") {
-					setCustomThemeState(data.custom_theme as CustomThemeData);
-				}
-				// SOUND-FIX-REWRITE: keep localStorage in sync
-				// when the sound_feedback_enabled flag changes
-				// via ANY path (Settings toggle, config import,
-				// CLI tool, etc.) — not just the Settings UI.
-				if (typeof data.sound_feedback_enabled === "boolean") {
-					setSoundFeedbackEnabled(data.sound_feedback_enabled);
-				}
-				return undefined;
-			},
-			[mergeConfig],
-		),
-	);
+	// ── Config changed push (live UI updates) ───────────────────────
+	//
+	// ``usePythonEvent`` is called per-consumer (rules-of-hooks), but
+	// the handler is the STABLE module-level ``handleConfigChanged``
+	// singleton. The dispatcher in ``usePython.ts`` already
+	// deduplicates the underlying ``api.onEvent`` subscription, so N
+	// consumers share ONE IPC listener. Both consumers' handler
+	// invocations update the SAME Zustand store, and Zustand's ``set``
+	// skips notification when the new value is ``Object.is``-equal to
+	// the old — so the second invocation is a no-op.
+	usePythonEvent("config_changed", handleConfigChanged);
 
 	// ── Theme change handler (save to config) ─────────────────────
-	// PERF: debounce the backend write so rapid theme toggling (e.g.
-	// user clicking through light → dark → system quickly) doesn't
-	// fire 3 separate set_config IPC calls. The local UI updates
-	// immediately (setThemeMode); the backend save is deferred 300ms
-	// and only the LAST selected mode is persisted.
 	//
-	// QUIT-FLUSH-FIX: previously, if the user changed the theme and
-	// then closed the app (close-to-tray → tray Quit, or window close)
-	// during the 300ms debounce window, the pending save was dropped
-	// and the next launch loaded the old theme from the backend. Added
-	// a flush-on-unmount effect + a `beforeunload` listener so the
-	// pending save fires synchronously before the renderer tears down.
-	//
-	//the debounce + flush-on-unmount pattern was previously
-	// applied ONLY to ``theme_mode`` (via ``handleThemeChange``).
-	// ``setThemePreset`` / ``setCustomTheme`` / ``setTextSize`` were
-	// bare ``useState`` setters — external callers (Settings page,
-	// keyboard shortcuts) had to do their own ``set_config`` round-
-	// trip, which they often forgot or did non-idempotently. The
-	// unified ``scheduleThemeSave`` helper below merges all four
-	// theme-related config keys into a single debounce queue + a
-	// single flush path, so every theme-affecting setter persists
-	// its change with the same 300ms debounce and the same
-	// quit-flush guarantee.
-	const themeSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-	//unified pending-updates object. Each entry is a partial
-	// ``set_config`` payload keyed by the field name. The flush path
-	// sends the merged object in a single IPC call.
-	const pendingThemeUpdatesRef = useRef<Partial<
-		Pick<
-			VoiceTyperConfig,
-			"theme_mode" | "theme_preset" | "custom_theme" | "text_size"
-		>
-	> | null>(null);
-
-	const flushPendingThemeSave = useCallback(() => {
-		if (themeSaveTimerRef.current) {
-			clearTimeout(themeSaveTimerRef.current);
-			themeSaveTimerRef.current = null;
-		}
-		const pending = pendingThemeUpdatesRef.current;
-		if (pending) {
-			pendingThemeUpdatesRef.current = null;
-			// Fire-and-forget — the renderer may be tearing down, so we
-			// can't await. The IPC layer queues the write before the
-			// process exits. The Promise's rejection MUST be handled
-			// here (via `.catch`) — `void call(...)` alone discards the
-			// Promise without installing a rejection handler, which
-			// surfaces as an "unhandled promise rejection" warning in
-			// Electron (and can crash the renderer in strict modes).
-			// Theme is local-only if backend unavailable — the warn is
-			// the entire recovery path.
-			void call("set_config", pending).catch((e) => {
-				console.warn("[useTheme] set_config (flush) failed:", e);
-			});
-		}
-	}, [call]);
-
-	const scheduleThemeSave = useCallback(
-		(
-			updates: Partial<
-				Pick<
-					VoiceTyperConfig,
-					"theme_mode" | "theme_preset" | "custom_theme" | "text_size"
-				>
-			>,
-		): void => {
-			// Merge into the pending payload so successive rapid
-			// changes (e.g. typing into a custom-colour picker)
-			// coalesce into a single backend write.
-			pendingThemeUpdatesRef.current = {
-				...pendingThemeUpdatesRef.current,
-				...updates,
-			};
-			// Cancel any pending save and schedule a new one.
-			if (themeSaveTimerRef.current) {
-				clearTimeout(themeSaveTimerRef.current);
-			}
-			themeSaveTimerRef.current = setTimeout(async () => {
-				themeSaveTimerRef.current = null;
-				const pending = pendingThemeUpdatesRef.current;
-				pendingThemeUpdatesRef.current = null;
-				if (!pending) return;
-				try {
-					await call("set_config", pending);
-				} catch (e) {
-					// Theme is local-only if backend unavailable
-					console.warn("[useTheme] set_config (debounced) failed:", e);
-				}
-			}, 300);
-		},
-		[call],
-	);
-
+	// Public-facing setters: each updates the store immediately (so
+	// the UI reflects the change without waiting for the backend
+	// round-trip) AND schedules a debounced save via the module-level
+	// ``scheduleThemeSave``. The localStorage-sync effect above fires
+	// on every store change so the cache stays fresh for the next
+	// mount regardless of whether the backend save completes first.
 	const handleThemeChange = useCallback(
 		async (mode: VoiceTyperConfig["theme_mode"]): Promise<void> => {
-			setThemeMode(mode);
+			setThemeModeState(mode);
 			scheduleThemeSave({ theme_mode: mode });
 		},
-		[scheduleThemeSave],
+		[setThemeModeState],
 	);
 
-	//public-facing setters for theme_preset / custom_theme /
-	// text_size. Each updates the local state immediately (so the UI
-	// reflects the change without waiting for the backend round-trip)
-	// AND schedules a debounced save. The localStorage-sync effect
-	// below fires on every state change so the cache stays fresh
-	// for the next mount regardless of whether the backend save
-	// completes first.
 	const setThemePreset = useCallback(
 		(preset: VoiceTyperConfig["theme_preset"]): void => {
 			setThemePresetState(preset);
 			scheduleThemeSave({ theme_preset: preset });
 		},
-		[scheduleThemeSave],
+		[setThemePresetState],
 	);
 
 	const setCustomTheme = useCallback(
@@ -547,7 +733,7 @@ export function useTheme(
 			// merges the value as-is into the pending payload.
 			scheduleThemeSave({ custom_theme: custom });
 		},
-		[scheduleThemeSave],
+		[setCustomThemeState],
 	);
 
 	const setTextSize = useCallback(
@@ -555,19 +741,26 @@ export function useTheme(
 			setTextSizeState(size);
 			scheduleThemeSave({ text_size: size });
 		},
-		[scheduleThemeSave],
+		[setTextSizeState],
 	);
 
-	// QUIT-FLUSH-FIX: flush the pending theme save on unmount + before
-	// the renderer unloads (close-to-tray, window close, app quit).
+	// QUIT-FLUSH-FIX: flush the pending theme save on unmount. The
+	// ``beforeunload`` listener (installed once via
+	// ``ensureThemeSideEffects``) handles app-quit; this per-instance
+	// unmount cleanup handles the case where the FIRST caller unmounts
+	// (e.g. Settings closes) while a save is pending. The second
+	// caller's unmount cleanup is a no-op (no pending after the first
+	// flush). Idempotent.
+	//
+	// The empty dep array means this effect runs ONCE per mount with
+	// a stable cleanup closure. ``flushPendingThemeSave`` is a
+	// module-level function (stable identity), so the cleanup always
+	// references the current singleton state.
 	useEffect(() => {
-		const onBeforeUnload = () => flushPendingThemeSave();
-		window.addEventListener("beforeunload", onBeforeUnload);
 		return () => {
-			window.removeEventListener("beforeunload", onBeforeUnload);
 			flushPendingThemeSave();
 		};
-	}, [flushPendingThemeSave]);
+	}, []);
 
 	return {
 		themeMode,

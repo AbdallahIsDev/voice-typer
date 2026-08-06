@@ -14,6 +14,7 @@
 // `window.window_` lives in `./bubble_bridge.ts` (TypeScript merges
 // global augmentations across files).
 
+import type { ExportFormat } from "../../../../shared/export-format";
 import type { PythonPushEvent } from "./push_events";
 
 // ── Window augmentation for type-safe python bridge ───────────────
@@ -36,11 +37,11 @@ export interface WindowBridge {
 	onMaximizedChanged: (callback: (maximized: boolean) => void) => () => void;
 	exportHistory: (
 		data: Record<string, unknown>[],
-		format: "json" | "csv",
+		format: ExportFormat,
 	) => Promise<{ success: boolean; path?: string; error?: string }>;
 	exportVocabulary: (
 		data: Record<string, unknown>,
-		format: "json" | "csv",
+		format: ExportFormat,
 	) => Promise<{ success: boolean; path?: string; error?: string }>;
 	//GDPR right-to-export for templates + config.
 	exportTemplates?: (

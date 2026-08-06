@@ -127,7 +127,13 @@ vi.mock("@hugeicons/core-free-icons", () => {
 	const make = (name: string) => ({ name });
 	return {
 		// Icons used by About.tsx + Settings.tsx (and transitive children).
+		// NOTE: AlertCircleIcon + Settings03Icon are used by
+		// KeyboardPermissionBanner (mounted on Settings); the banner
+		// renders whenever the onboarding_check_permissions probe returns
+		// a non-granted result, so these must stay in the mock or the
+		// Settings page crashes on mount.
 		Alert02Icon: make("Alert02Icon"),
+		AlertCircleIcon: make("AlertCircleIcon"),
 		ArrowDown01Icon: make("ArrowDown01Icon"),
 		ArrowTurnBackwardIcon: make("ArrowTurnBackwardIcon"),
 		ArrowUp01Icon: make("ArrowUp01Icon"),
@@ -148,6 +154,7 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		PlayIcon: make("PlayIcon"),
 		RefreshIcon: make("RefreshIcon"),
 		Search01Icon: make("Search01Icon"),
+		Settings03Icon: make("Settings03Icon"),
 		Shield01Icon: make("Shield01Icon"),
 		SparklesIcon: make("SparklesIcon"),
 		Sun01Icon: make("Sun01Icon"),

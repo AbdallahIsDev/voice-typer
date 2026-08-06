@@ -217,42 +217,44 @@ export default function Home() {
 	}, [debouncedRefreshFromEvent]);
 
 	// ── Initial data load (config + today stats + recent history) ──
+	// Parallelized — the three IPC calls are independent, so running
+	// them concurrently cuts initial-load wall time from 3 sequential
+	// round-trips (~15-150ms) to one (~5-50ms). Each call updates its
+	// own state as soon as it settles (so e.g. `cfg`/`hotkey` aren't
+	// blocked on a slow `get_history`), and `Promise.allSettled` is
+	// used to mark the load complete once all three have settled —
+	// mirroring the parallel-fetch pattern in `handleManualRefresh`.
 	useEffect(() => {
 		let cancelled = false;
-		const load = async () => {
-			try {
-				const cfg = await call<VoiceTyperConfig>("get_config");
-				if (!cancelled) setCfg(cfg);
+		const cfgSettled = call<VoiceTyperConfig>("get_config")
+			.then((cfg) => {
 				if (cancelled) return;
+				setCfg(cfg);
 				setHotkey(normalizeHotkey(cfg?.hotkey ?? HOTKEY_DEFAULT));
-			} catch (e) {
-				console.warn("[Home] initial get_config failed:", e);
-			}
-			try {
-				const s = await call<TodayStats>("get_today_stats");
+			})
+			.catch((e) => console.warn("[Home] initial get_config failed:", e));
+		const statsSettled = call<TodayStats>("get_today_stats")
+			.then((s) => {
 				if (cancelled) return;
 				if (s) {
 					persistStats(cachedStatsRef, s);
 					setStats(s);
 				}
-			} catch (e) {
-				console.warn("[Home] initial get_today_stats failed:", e);
-			}
-			try {
-				const h = await call<HistoryRecord[]>("get_history", { limit: 4 });
+			})
+			.catch((e) => console.warn("[Home] initial get_today_stats failed:", e));
+		const historySettled = call<HistoryRecord[]>("get_history", { limit: 4 })
+			.then((h) => {
 				if (cancelled) return;
 				const recs = h ?? [];
 				persistRecent(cachedRecentRef, recs);
 				setRecent(recs);
-			} catch (e) {
-				console.warn("[Home] initial get_history failed:", e);
-			}
-			if (!cancelled) {
-				setInitialLoading(false);
-				markUpdated();
-			}
-		};
-		load();
+			})
+			.catch((e) => console.warn("[Home] initial get_history failed:", e));
+		Promise.allSettled([cfgSettled, statsSettled, historySettled]).then(() => {
+			if (cancelled) return;
+			setInitialLoading(false);
+			markUpdated();
+		});
 		return () => {
 			cancelled = true;
 		};
@@ -288,10 +290,12 @@ export default function Home() {
 		}
 	}, [call, markUpdated]);
 
-	//+ : status_change listener — re-fetches the hotkey
-	// (so the chip stays in sync after Settings changes) and tracks
-	// entry into "transcribing" so we can show "Force cancel" after
-	// FORCE_CANCEL_DELAY_MS.
+	//+ : status_change listener — tracks entry into "transcribing" so
+	// we can show "Force cancel" after FORCE_CANCEL_DELAY_MS. The
+	// hotkey is no longer re-fetched here — see the `config_changed`
+	// handler below. The `status_change` event fires on every
+	// recording → transcribing → idle transition, so a per-event
+	// `get_config` round-trip was wasted work (ER-62).
 	usePythonEvent("status_change", (data): (() => void) | undefined => {
 		const status = typeof data?.status === "string" ? data.status : "";
 		if (status === "transcribing") {
@@ -301,6 +305,17 @@ export default function Home() {
 			setTranscribeStartedAt(null);
 			setShowForceCancel(false);
 		}
+		return undefined;
+	});
+
+	//+ : config_changed listener — re-fetches the hotkey when the
+	// backend reports that Settings saved a new config (the
+	// `config_changed` event is published by `apply_config` in
+	// `config_handlers.py`). This replaces the per-status_change
+	// `get_config` fetch: the hotkey only changes when Settings
+	// saves, not on every recording-state transition. The initial
+	// hotkey is loaded by the mount-time effect above.
+	usePythonEvent("config_changed", (): (() => void) | undefined => {
 		let cancelled = false;
 		const reloadHotkey = async () => {
 			try {
@@ -308,7 +323,10 @@ export default function Home() {
 				if (cancelled) return;
 				setHotkey(normalizeHotkey(cfg?.hotkey ?? HOTKEY_DEFAULT));
 			} catch (e) {
-				console.warn("[Home] status_change reloadHotkey get_config failed:", e);
+				console.warn(
+					"[Home] config_changed reloadHotkey get_config failed:",
+					e,
+				);
 			}
 		};
 		reloadHotkey();

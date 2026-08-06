@@ -33,6 +33,27 @@
  * can mark the just-downloaded model as `downloaded: true` in the local
  * model list, and `refreshModelStatus` so `installDeps` can reconcile
  * the deps-installed state.
+ *
+ * ── single-state consolidation ──────────────────────────────────
+ *
+ * Previously this hook used 10 separate `useState` calls
+ * (`downloadingModel`, `downloadProgress`, `downloadStatus`, `isPaused`,
+ * `downloadedBytes`, `totalBytes`, `speedBps`, `etaSeconds`,
+ * `failedDownload`, `installingDepsModel`). Every `download_progress`
+ * event invoked up to 8 of these setters (one per field in the event
+ * payload). Although React 18 batches these into a single re-render, the
+ * per-setter overhead (8 distinct state-entry lookups + 8 distinct
+ * Object.is equality checks + 8 distinct subscriber notifications
+ * internally) was wasteful on the high-frequency progress event path
+ * (multiple events per second during a model download).
+ *
+ * The 10 fields are now consolidated into a single `useState<DownloadState>`
+ * updated via functional `setState(prev => ({ ...prev, ...patch }))`. Each
+ * `download_progress` event produces ONE setState call with a patch
+ * object containing only the fields present in the event payload. The
+ * return shape is preserved via destructuring at the return boundary so
+ * consumer identity stays stable (no `state.downloadingModel` access
+ * pattern leaks into consumers).
  */
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
@@ -85,6 +106,47 @@ export interface UseModelDownloadResult {
 	handleCancelDownload: () => Promise<void>;
 }
 
+// ── Consolidated download state ───────────────────────────────────────
+//
+// All 10 previously-separate useState fields live in ONE state object.
+// Updates go through functional `setState(prev => ({ ...prev, ...patch }))`
+// so each `download_progress` event produces exactly ONE setState call
+// (down from up to 8). React 18 already batched the per-field setStates
+// into a single re-render, but the consolidation still:
+//   - eliminates 7 redundant state-entry lookups per event
+//   - eliminates 7 redundant Object.is equality checks per event
+//   - produces a single subscriber notification per event (down from 8)
+//   - makes the atomicity guarantee explicit (all fields update together)
+//
+// `Partial<DownloadState>` is the patch shape used by event handlers —
+// only fields present in the event payload are set, others are preserved
+// via the `{ ...prev, ...patch }` spread.
+interface DownloadState {
+	downloadingModel: string | null;
+	downloadProgress: number;
+	downloadStatus: string;
+	isPaused: boolean;
+	downloadedBytes: number | null;
+	totalBytes: number | null;
+	speedBps: number | null;
+	etaSeconds: number | null;
+	failedDownload: FailedDownload | null;
+	installingDepsModel: string | null;
+}
+
+const INITIAL_DOWNLOAD_STATE: DownloadState = {
+	downloadingModel: null,
+	downloadProgress: 0,
+	downloadStatus: "",
+	isPaused: false,
+	downloadedBytes: null,
+	totalBytes: null,
+	speedBps: null,
+	etaSeconds: null,
+	failedDownload: null,
+	installingDepsModel: null,
+};
+
 // ── Hook ──────────────────────────────────────────────────────────────
 
 export function useModelDownload({
@@ -93,47 +155,73 @@ export function useModelDownload({
 	setModels,
 	refreshModelStatus,
 }: UseModelDownloadArgs): UseModelDownloadResult {
-	const [downloadingModel, setDownloadingModel] = useState<string | null>(null);
-	const [downloadProgress, setDownloadProgress] = useState(0);
-	const [downloadStatus, setDownloadStatus] = useState("");
-	const [isPaused, setIsPaused] = useState(false);
-	const [downloadedBytes, setDownloadedBytes] = useState<number | null>(null);
-	const [totalBytes, setTotalBytes] = useState<number | null>(null);
-	const [speedBps, setSpeedBps] = useState<number | null>(null);
-	const [etaSeconds, setEtaSeconds] = useState<number | null>(null);
-	const [failedDownload, setFailedDownload] = useState<FailedDownload | null>(
-		null,
-	);
-	const [installingDepsModel, setInstallingDepsModel] = useState<string | null>(
-		null,
-	);
+	// Consolidated download-progress state — previously 10 separate
+	// useState calls. Each `download_progress` event now produces ONE
+	// setState via the functional-update form below.
+	const [state, setState] = useState<DownloadState>(INITIAL_DOWNLOAD_STATE);
 
 	// ── download_progress event subscription ────────────────────────
+	//
+	// Build a patch object from the event payload, then issue ONE
+	// setState with `{ ...prev, ...patch }`. Previously this handler
+	// called up to 8 separate setters (`setDownloadProgress`,
+	// `setDownloadStatus`, `setDownloadedBytes`, `setTotalBytes`,
+	// `setSpeedBps`, `setEtaSeconds`, `setIsPaused`), each updating
+	// an independent useState. React 18 batched them into one
+	// re-render, but the per-setter overhead (state-entry lookup +
+	// Object.is check + subscriber notification) ran 8 times per
+	// event. The consolidated form runs the lookup + check once.
 	usePythonEvent(
 		"download_progress",
 		useCallback(
 			(data: Record<string, unknown> | undefined): (() => void) | undefined => {
 				if (!data) return undefined;
+				const patch: Partial<DownloadState> = {};
 				if (typeof data.progress === "number")
-					setDownloadProgress(data.progress);
-				if (typeof data.status === "string") setDownloadStatus(data.status);
+					patch.downloadProgress = data.progress;
+				if (typeof data.status === "string") patch.downloadStatus = data.status;
 				if (typeof data.downloaded_bytes === "number")
-					setDownloadedBytes(data.downloaded_bytes);
+					patch.downloadedBytes = data.downloaded_bytes;
 				if (typeof data.total_bytes === "number")
-					setTotalBytes(data.total_bytes);
+					patch.totalBytes = data.total_bytes;
 				if (typeof data.speed_bytes_per_sec === "number") {
-					setSpeedBps(data.speed_bytes_per_sec);
+					patch.speedBps = data.speed_bytes_per_sec;
 				} else if (data.speed_bytes_per_sec == null) {
-					setSpeedBps(null);
+					patch.speedBps = null;
 				}
 				if (typeof data.eta_seconds === "number") {
-					setEtaSeconds(data.eta_seconds);
+					patch.etaSeconds = data.eta_seconds;
 				} else if (data.eta_seconds == null) {
-					setEtaSeconds(null);
+					patch.etaSeconds = null;
 				}
-				if (typeof data.paused === "boolean") setIsPaused(data.paused);
+				if (typeof data.paused === "boolean") patch.isPaused = data.paused;
 				if (typeof data.resumed === "boolean" && data.resumed)
-					setIsPaused(false);
+					patch.isPaused = false;
+				// Only fire setState if the patch actually contains
+				// updates — avoids a no-op state transition.
+				if (Object.keys(patch).length > 0) {
+					// Bail out if no field actually changed value.
+					// The original per-`useState` pattern relied on
+					// React's `Object.is` bailout (e.g.
+					// `setSpeedBps(null)` was a no-op when speedBps
+					// was already null). The consolidated form
+					// creates a new state object on every call, which
+					// would defeat that bailout — so we explicitly
+					// compare each patched field against `prev` and
+					// return `prev` (same reference) when nothing
+					// changed. React's `Object.is` check then skips
+					// the re-render, matching the original behaviour.
+					setState((prev) => {
+						let changed = false;
+						for (const key of Object.keys(patch) as (keyof DownloadState)[]) {
+							if (!Object.is(prev[key], (patch as DownloadState)[key])) {
+								changed = true;
+								break;
+							}
+						}
+						return changed ? { ...prev, ...patch } : prev;
+					});
+				}
 				return undefined;
 			},
 			[],
@@ -141,13 +229,21 @@ export function useModelDownload({
 	);
 
 	const resetProgress = useCallback(() => {
-		setDownloadProgress(0);
-		setDownloadStatus("");
-		setDownloadedBytes(null);
-		setTotalBytes(null);
-		setSpeedBps(null);
-		setEtaSeconds(null);
-		setIsPaused(false);
+		// Reset only the progress-related fields — preserve
+		// `downloadingModel`, `failedDownload`, and
+		// `installingDepsModel` (these are managed by the action
+		// callbacks below and would be clobbered if we spread
+		// `INITIAL_DOWNLOAD_STATE` here).
+		setState((prev) => ({
+			...prev,
+			downloadProgress: 0,
+			downloadStatus: "",
+			downloadedBytes: null,
+			totalBytes: null,
+			speedBps: null,
+			etaSeconds: null,
+			isPaused: false,
+		}));
 	}, []);
 
 	//Action: downloadModel ( retry on failure) ────────────
@@ -161,8 +257,11 @@ export function useModelDownload({
 	// `failedDownload` (clear any stale failure for a re-download).
 	const downloadModel = useCallback(
 		async (model: ModelInfo) => {
-			setDownloadingModel(model.name);
-			setFailedDownload(null);
+			setState((prev) => ({
+				...prev,
+				downloadingModel: model.name,
+				failedDownload: null,
+			}));
 			resetProgress();
 			try {
 				const result = await call<{
@@ -185,15 +284,21 @@ export function useModelDownload({
 						"success",
 					);
 					// Success → unmount the bar + clear any stale failure.
-					setDownloadingModel(null);
-					setFailedDownload(null);
+					setState((prev) => ({
+						...prev,
+						downloadingModel: null,
+						failedDownload: null,
+					}));
 				} else {
 					// Failure → keep the bar mounted, record the failure so
 					// the inline error UI + Retry button render.
 					const message =
 						result.error ||
 						t("models.snack.downloadFailedName", { name: model.name });
-					setFailedDownload({ modelName: model.name, error: message });
+					setState((prev) => ({
+						...prev,
+						failedDownload: { modelName: model.name, error: message },
+					}));
 					//surface the failure with a Retry action button.
 					// `showSnack` doesn't support action buttons, so we go
 					// through sonner's `toast.error` directly — the global
@@ -212,7 +317,10 @@ export function useModelDownload({
 				const message = t("models.snack.downloadFailed", {
 					error: formatErrorMessage(err),
 				});
-				setFailedDownload({ modelName: model.name, error: message });
+				setState((prev) => ({
+					...prev,
+					failedDownload: { modelName: model.name, error: message },
+				}));
 				//same retry affordance on thrown errors.
 				toast.error(message, {
 					duration: 8000,
@@ -224,9 +332,10 @@ export function useModelDownload({
 					},
 				});
 			}
-			// NOTE: no `finally { setDownloadingModel(null) }` here — the
-			// failure branch must keep `downloadingModel` set so the bar
-			// stays mounted. The success branch clears it explicitly.
+			// NOTE: no `finally { setState(prev => ({ ...prev, downloadingModel: null })) }`
+			// here — the failure branch must keep `downloadingModel` set
+			// so the bar stays mounted. The success branch clears it
+			// explicitly.
 		},
 		[call, resetProgress, showSnack, setModels],
 	);
@@ -240,7 +349,7 @@ export function useModelDownload({
 	// immediately (before the next IPC round-trip resolves).
 	const retryDownload = useCallback(
 		async (model: ModelInfo) => {
-			setFailedDownload(null);
+			setState((prev) => ({ ...prev, failedDownload: null }));
 			await downloadModel(model);
 		},
 		[downloadModel],
@@ -256,7 +365,7 @@ export function useModelDownload({
 	//`aria-busy` + a "Downloading…" label swap ().
 	const installDeps = useCallback(
 		async (model: ModelInfo) => {
-			setInstallingDepsModel(model.name);
+			setState((prev) => ({ ...prev, installingDepsModel: model.name }));
 			try {
 				const result = await call<{ success: boolean; error?: string }>(
 					"install_parakeet_deps",
@@ -281,31 +390,36 @@ export function useModelDownload({
 				// IPC unavailable — fall back to the manual hint.
 				showSnack(t("models.snack.parakeetDepsRequired"), "warning");
 			} finally {
-				setInstallingDepsModel(null);
+				setState((prev) => ({ ...prev, installingDepsModel: null }));
 			}
 		},
 		[refreshModelStatus, showSnack, call],
 	);
 
 	// ── Action: handleTogglePause / handleCancelDownload ────────────
+	//
+	// `state.isPaused` is in the dep array so the closure captures the
+	// fresh value (mirrors the original code's `[call, isPaused, showSnack]`
+	// deps). The IPC call (`pause_model_download` vs.
+	// `resume_model_download`) is chosen based on the closure value.
 	const handleTogglePause = useCallback(async () => {
-		setIsPaused((prev) => !prev);
+		setState((prev) => ({ ...prev, isPaused: !prev.isPaused }));
 		try {
-			if (isPaused) {
+			if (state.isPaused) {
 				await call("resume_model_download");
 			} else {
 				await call("pause_model_download");
 			}
 		} catch (err) {
-			setIsPaused((prev) => !prev);
+			setState((prev) => ({ ...prev, isPaused: !prev.isPaused }));
 			showSnack(
-				isPaused
+				state.isPaused
 					? t("models.snack.resumeFailed", { error: formatErrorMessage(err) })
 					: t("models.snack.pauseFailed", { error: formatErrorMessage(err) }),
 				"error",
 			);
 		}
-	}, [call, isPaused, showSnack]);
+	}, [call, state.isPaused, showSnack]);
 
 	const handleCancelDownload = useCallback(async () => {
 		try {
@@ -325,11 +439,31 @@ export function useModelDownload({
 			// downloading, but the renderer's view reflects the user's
 			// intent and the next download_progress event (if any)
 			// will re-establish state.
-			setDownloadingModel(null);
-			setFailedDownload(null);
+			setState((prev) => ({
+				...prev,
+				downloadingModel: null,
+				failedDownload: null,
+			}));
 			resetProgress();
 		}
 	}, [call, showSnack, resetProgress]);
+
+	// Destructure at the return boundary so consumer identity stays
+	// stable — consumers continue to receive `downloadingModel` /
+	// `downloadProgress` / etc. as top-level fields (no `state.X`
+	// access pattern leaks into the call sites).
+	const {
+		downloadingModel,
+		downloadProgress,
+		downloadStatus,
+		isPaused,
+		downloadedBytes,
+		totalBytes,
+		speedBps,
+		etaSeconds,
+		failedDownload,
+		installingDepsModel,
+	} = state;
 
 	return {
 		downloadingModel,

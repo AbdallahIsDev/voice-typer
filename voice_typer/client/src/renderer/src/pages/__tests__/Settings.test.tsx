@@ -65,6 +65,7 @@ vi.mock("@hugeicons/react", () => ({
 vi.mock("@hugeicons/core-free-icons", () => {
 	const make = (name: string) => ({ name });
 	return {
+		AlertCircleIcon: make("AlertCircleIcon"),
 		ArrowDown01Icon: make("ArrowDown01Icon"),
 		ArrowTurnBackwardIcon: make("ArrowTurnBackwardIcon"),
 		ArrowUp01Icon: make("ArrowUp01Icon"),
@@ -88,6 +89,11 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		Moon02Icon: make("Moon02Icon"),
 		RefreshIcon: make("RefreshIcon"),
 		Search01Icon: make("Search01Icon"),
+		// KeyboardPermissionBanner (now mounted on Settings via
+		// the page-level import) renders AlertCircleIcon + Settings03Icon
+		// for the amber "click to fix" banner. Adding both to the mock
+		// keeps the existing render-graph coverage complete.
+		Settings03Icon: make("Settings03Icon"),
 		Sun01Icon: make("Sun01Icon"),
 		Tick02Icon: make("Tick02Icon"),
 		UnfoldMoreIcon: make("UnfoldMoreIcon"),

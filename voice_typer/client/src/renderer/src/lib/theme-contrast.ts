@@ -33,7 +33,6 @@ export const CONTRAST_AA_THRESHOLD = 4.5;
 
 // ── Hex input validation regex ───────────────────
 // Loose regex (allows partial typing):  #  followed by 0–6 hex digits.
-export const HEX_PARTIAL_RE = /^#[0-9a-fA-F]{0,6}$/;
 // Strict regex (used for commit-on-blur): # followed by exactly 6 hex digits.
 export const HEX_STRICT_RE = /^#[0-9a-fA-F]{6}$/;
 

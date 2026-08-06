@@ -25,6 +25,7 @@
 // implementation of the mapping.
 
 import type { WindowBridge } from "@/types/ipc";
+import type { ExportFormat } from "../../../../shared/export-format";
 
 import { makeListener, type TauriGlobal } from "./detect";
 
@@ -58,7 +59,7 @@ type ExportReturn = Promise<{
  * @param cmd   Rust command name, e.g. `"export_history"`.
  */
 function makeExportCommand(tauri: TauriGlobal, cmd: string) {
-	return async (data: unknown, format?: "json" | "csv"): ExportReturn => {
+	return async (data: unknown, format?: ExportFormat): ExportReturn => {
 		try {
 			const result = await tauri.core.invoke<ExportResult>(
 				cmd,

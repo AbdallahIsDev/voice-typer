@@ -28,7 +28,7 @@ interface PythonBridgeMock {
 	onEvent: ReturnType<typeof vi.fn>;
 }
 
-describe("CR-6: useBridgeReady + usePythonEvent lazy subscription", () => {
+describe("useBridgeReady + usePythonEvent lazy subscription", () => {
 	let original: PythonBridgeMock | undefined;
 
 	beforeEach(() => {
@@ -122,7 +122,7 @@ describe("CR-6: useBridgeReady + usePythonEvent lazy subscription", () => {
 		expect(onEvent).toHaveBeenCalledWith(expect.any(Function));
 	});
 
-	it("CR-6: usePythonEvent does NOT subscribe if window.python never becomes available", async () => {
+	it("usePythonEvent does NOT subscribe if window.python never becomes available", async () => {
 		const onEvent = vi.fn(() => () => {});
 
 		renderHook(() => usePythonEvent("state_changed", () => {}));
@@ -135,7 +135,7 @@ describe("CR-6: useBridgeReady + usePythonEvent lazy subscription", () => {
 		expect(onEvent).not.toHaveBeenCalled();
 	});
 
-	it("CR-6: handler receives events dispatched after the lazy subscription", async () => {
+	it("handler receives events dispatched after the lazy subscription", async () => {
 		// Captures the onEvent callback so the test can dispatch a
 		// synthetic event to it. Wrapped in an object so TS doesn't
 		// narrow it to `null` (assignments inside the vi.fn closure

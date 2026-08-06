@@ -1077,6 +1077,12 @@
 		"selected": "Microphone sélectionné",
 		"useAria": "Utiliser le micro — {name}"
 	},
+	"keyboard": {
+		"permissionDeniedTitle": "Les raccourcis clavier nécessitent l'autorisation d'accessibilité",
+		"permissionDeniedMessage": "Les raccourcis clavier nécessitent l'autorisation d'accessibilité — cliquer pour corriger",
+		"openSettings": "Ouvrir les paramètres",
+		"openSettingsAria": "Ouvrir les paramètres d'accessibilité du système d'exploitation"
+	},
 	"vocabulary": {
 		"title": "Vocabulaire personnalisé",
 		"description": "Ajoutez des mots et corrections personnalisés pour améliorer la précision",

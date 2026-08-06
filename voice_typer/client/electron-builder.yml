@@ -205,7 +205,7 @@ deb:
   depends:
     - libnotify4
     - libxtst6
-  # CR-26: the postinst/prerm scripts live at <repo>/scripts/linux/, NOT at
+  # the postinst/prerm scripts live at <repo>/scripts/linux/, NOT at
   # voice_typer/client/resources/linux/ (which does not exist). electron-builder
   # resolves these paths relative to its cwd (voice_typer/client/), so we use
   # ../../scripts/linux/... to reach the actual scripts. Without this fix, the
@@ -223,7 +223,7 @@ rpm:
   depends:
     - libnotify
     - libXtst
-  # CR-26: same path correction as the deb: section above.
+  # same path correction as the deb: section above.
   # S5-CR-83 (Linux side — HANDLED, SA-12): prerm.rpm removes the
   # per-user autostart .desktop entry (see ../../scripts/linux/prerm.rpm:40-58).
   # Functionally identical to the Debian prerm — only runs on uninstall

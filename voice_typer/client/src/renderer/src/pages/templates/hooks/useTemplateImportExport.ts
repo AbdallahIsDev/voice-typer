@@ -17,6 +17,7 @@
 import { useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { t } from "@/i18n/i18n";
+import type { ExportFormat } from "../../../../../shared/export-format";
 import { saveTemplates } from "../lib/storage";
 import { parseImportedTemplates, rowsToTemplates } from "../lib/transform";
 import type { Template, TemplateRow } from "../lib/types";
@@ -31,7 +32,7 @@ interface UseTemplateImportExportArgs {
 
 interface UseTemplateImportExportResult {
 	importInputRef: React.RefObject<HTMLInputElement | null>;
-	doExport: (format?: "json" | "csv") => Promise<void>;
+	doExport: (format?: ExportFormat) => Promise<void>;
 	handleImportFile: (file: File | undefined | null) => Promise<void>;
 	handleImportClick: () => void;
 }
@@ -43,7 +44,7 @@ interface UseTemplateImportExportResult {
 // this local alias keeps TypeScript happy in the meantime.
 type ExportTemplatesWithFormat = (
 	data: unknown,
-	format: "json" | "csv",
+	format: ExportFormat,
 ) => Promise<{ success: boolean; path?: string; error?: string }>;
 
 export function useTemplateImportExport({
@@ -65,7 +66,7 @@ export function useTemplateImportExport({
 	// the format (e.g. an ad-hoc test or a future "quick-export"
 	// shortcut) preserve the previous behaviour bit-for-bit.
 	const doExport = useCallback(
-		async (format: "json" | "csv" = "json") => {
+		async (format: ExportFormat = "json") => {
 			try {
 				const items = rowsToTemplates(templatesRef.current);
 				const bridge = window.window_;

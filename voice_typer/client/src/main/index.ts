@@ -157,10 +157,42 @@ app.whenReady().then(() => {
 	// `window-all-closed` handler returns instantly instead of
 	// blocking on the D-Bus subprocess check (up to 4s worst-case
 	// if neither `gdbus` nor `dbus-send` is installed). The check
-	// is ~1ms on a warm session bus; running it here (after
-	// startPython spawns the backend, before any window events
-	// fire) keeps quit-path latency at zero.
-	isLinuxWaylandWithoutSni();
+	// is ~1ms on a warm session bus.
+	//
+	// Deferred via `setImmediate` so the synchronous
+	// `execFileSync` D-Bus probe does NOT block the boot path.
+	// `createWindows()` (above) already kicked off the dashboard
+	// BrowserWindow creation; `startPython()` (above) returned
+	// after spawning the backend without awaiting its readiness.
+	// Synchronously calling `isLinuxWaylandWithoutSni()` here
+	// would shell out to `gdbus`/`dbus-send` on the same
+	// event-loop tick — stalling the `app.whenReady().then(...)`
+	// resolution and delaying the dashboard's first `loadURL` /
+	// `loadFile` microtask. By deferring to the next tick, the
+	// BrowserWindow's `loadURL` Promise gets its first event-loop
+	// turn BEFORE we shell out. The cache will still be populated
+	// long before the user can possibly trigger
+	// `window-all-closed` (a window close is a user-initiated
+	// event that requires the React dashboard to have rendered
+	// first, which itself requires the Python backend's TCP
+	// handshake — both >1 event-loop tick away).
+	//
+	// Tradeoff vs. an async `execFile` refactor (the "Option B"
+	// alternative considered): the probe itself stays
+	// synchronous, so the function signature stays synchronous
+	// and no caller needs to be refactored — but the probe runs
+	// on the next event-loop tick instead of blocking the
+	// `whenReady` Promise resolution. The `setImmediate` callback
+	// is wrapped in `try/catch` because, unlike the inline call,
+	// a throw here would surface as an uncaught exception on the
+	// next tick instead of bubbling out of `whenReady().then()`.
+	setImmediate(() => {
+		try {
+			isLinuxWaylandWithoutSni();
+		} catch (e) {
+			log.warn("[main] tray_available pre-warm (deferred) failed:", e);
+		}
+	});
 });
 
 //SIGTERM/SIGINT → app.quit() → before-quit → stopPython().

@@ -13,12 +13,13 @@ import type { RefObject } from "react";
 import ExportFormatMenu from "@/components/common/ExportFormatMenu";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
+import type { ExportFormat } from "../../../../../shared/export-format";
 
 interface VocabToolbarProps {
 	importInputRef: RefObject<HTMLInputElement | null>;
 	onImportClick: () => void;
 	onImportFile: (file: File | undefined | null) => void;
-	onExport: (format: "json" | "csv") => void;
+	onExport: (format: ExportFormat) => void;
 	onAdd: () => void;
 	exportDisabled: boolean;
 	addDisabled: boolean;
@@ -41,7 +42,7 @@ export function VocabToolbar({
 	return (
 		<div className="flex items-center gap-2">
 			{/* Hidden file input for the Import button (mirrors
-                the Templates pattern). */}
+		the Templates pattern). */}
 			<input
 				ref={importInputRef}
 				type="file"

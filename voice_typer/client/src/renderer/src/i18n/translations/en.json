@@ -189,6 +189,12 @@
 		"selected": "Selected microphone",
 		"useAria": "Use microphone — {name}"
 	},
+	"keyboard": {
+		"permissionDeniedTitle": "Hotkeys require accessibility permission",
+		"permissionDeniedMessage": "Hotkeys require accessibility permission — click to fix",
+		"openSettings": "Open settings",
+		"openSettingsAria": "Open the operating system accessibility settings"
+	},
 	"vocabulary": {
 		"title": "Custom Vocabulary",
 		"description": "Add custom words and corrections to improve accuracy",

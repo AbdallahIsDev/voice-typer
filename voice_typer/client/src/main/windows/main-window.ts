@@ -472,8 +472,8 @@ export function createMainWindow(forceShow = false): void {
 		if (inStorm) {
 			try {
 				dialog.showErrorBox(
-					"Voice Typer — Renderer crash loop",
-					"The main window renderer has crashed repeatedly and cannot recover.\n\nPlease use the tray icon to Restart or Quit, then relaunch Voice Typer.",
+					mainT("dialog.crashLoop.title", { appName: APP_NAME }),
+					mainT("dialog.crashLoop.mainBody", { appName: APP_NAME }),
 				);
 			} catch {
 				// dialog may not be available in headless mode.

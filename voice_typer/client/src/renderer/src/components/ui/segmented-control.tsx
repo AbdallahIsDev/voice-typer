@@ -227,6 +227,31 @@ export function SegmentedControl<T extends string>({
 		};
 	}, [resizeObserver]);
 
+	// Hoisted ref callback (was an inline arrow on the container <div>).
+	// An inline `ref={(el) => {...}}` creates a NEW function identity on
+	// every render, which prompts React to call the old ref with `null`
+	// and the new ref with the element on EVERY parent re-render —
+	// causing `resizeObserver.disconnect()` + `resizeObserver.observe(el)`
+	// + a `requestAnimationFrame(updateIndicator)` to fire repeatedly
+	// (ResizeObserver thrash). Wrapping the callback in `useCallback` with
+	// `[resizeObserver, updateIndicator]` deps gives it a stable identity
+	// across value-stable re-renders, so React only invokes the ref when
+	// the underlying element actually changes. The
+	// `containerRef.current !== el` guard is no longer needed — React
+	// guarantees a stable ref callback is only called when the element
+	// changes. The unmount effect above handles `disconnect()`.
+	const setContainerRef = useCallback(
+		(el: HTMLDivElement | null) => {
+			containerRef.current = el;
+			if (el) {
+				resizeObserver.observe(el);
+				// Measure on initial mount.
+				requestAnimationFrame(updateIndicator);
+			}
+		},
+		[resizeObserver, updateIndicator],
+	);
+
 	// A11Y-6: tabs variant uses the WAI-ARIA Tabs pattern with roving
 	// tabindex (only the active tab is in the page tab order). ArrowLeft /
 	// ArrowRight move focus between tabs and select the newly-focused tab
@@ -265,17 +290,7 @@ export function SegmentedControl<T extends string>({
 		// biome-ignore lint/a11y/noStaticElementInteractions: role is always set (ternary below returns "tablist" or "radiogroup"), making this an interactive container. biome's static analysis can't follow the ternary.
 		// biome-ignore lint/a11y/useAriaPropsSupportedByRole: aria-label is supported by both "tablist" and "radiogroup" roles. biome's static analysis can't follow the ternary role.
 		<div
-			ref={(el) => {
-				if (containerRef.current !== el) {
-					resizeObserver.disconnect();
-					containerRef.current = el;
-					if (el) {
-						resizeObserver.observe(el);
-						// Measure on initial mount.
-						requestAnimationFrame(() => updateIndicator());
-					}
-				}
-			}}
+			ref={setContainerRef}
 			role={isTabs ? "tablist" : "radiogroup"}
 			aria-label={ariaLabel}
 			onKeyDown={isTabs ? handleTabsKeyDown : undefined}

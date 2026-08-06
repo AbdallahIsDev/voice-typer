@@ -16,7 +16,7 @@ import { describe, expect, it } from "vitest";
 
 import { getTimeout } from "@/hooks/usePython";
 
-describe("CR-18: per-command timeout table (getTimeout)", () => {
+describe("per-command timeout table (getTimeout)", () => {
 	it("returns 5_000ms for `get_status` (trivial status probe)", () => {
 		// A healthy get_status round-trip is <100ms; 5s is more than
 		// enough to surface a hung backend without making the user

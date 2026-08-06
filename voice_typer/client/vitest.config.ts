@@ -47,6 +47,18 @@ export default defineConfig({
 		// errors) because module-scope `Object.defineProperty(window,
 		// "localStorage", ...)` in other test files leaked into them.
 		isolate: true,
+		// clear mock.calls / mock.results before every test.
+		// `clearMocks: true` resets only the call history — it does NOT
+		// reset implementations (so `vi.fn(() => x)` keeps its impl) and
+		// does NOT restore originals (so `vi.spyOn(obj, "m")` stays
+		// spied). This is the safe middle ground between "do nothing"
+		// (mock state leaks across tests when files share a worker
+		// thread) and `resetMocks: true` / `restoreMocks: true` (which
+		// would wipe `vi.fn` defaults mid-test and break `vi.spyOn`
+		// spies that rely on `.mockImplementation` set in `beforeEach`).
+		// Files that need a HARDER reset still call `mockReset()` /
+		// `mockRestore()` explicitly in their own `beforeEach`.
+		clearMocks: true,
 		environment: "jsdom",
 		setupFiles: ["./src/renderer/src/test-setup.ts"],
 		// Generous timeouts: many tests wait on async IPC round-trips

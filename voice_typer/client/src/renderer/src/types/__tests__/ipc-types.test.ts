@@ -302,7 +302,7 @@ describe("TASK-24-FIX-5/6/9/10/11: new IPC contract types exist with the expecte
 		expect(errored.state).toBe("error");
 	});
 
-	it("AutostartStatus has registered + error (TASK-24-FIX-10)", () => {
+	it("AutostartStatus has registered + error", () => {
 		const ok: AutostartStatus = {
 			registered: true,
 			error: null,
@@ -315,7 +315,7 @@ describe("TASK-24-FIX-5/6/9/10/11: new IPC contract types exist with the expecte
 		expect(failed.error).toContain("osascript");
 	});
 
-	it("MicrophonePermissionResult has state (TASK-24-FIX-11)", () => {
+	it("MicrophonePermissionResult has state", () => {
 		const granted: MicrophonePermissionResult = { state: "granted" };
 		const prompt: MicrophonePermissionResult = { state: "prompt" };
 		expect(granted.state).toBe("granted");

@@ -10,12 +10,14 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
+import type { ExportFormat } from "../../shared/export-format";
 import { mainT } from "../i18n";
 import { ExportChannels } from "./channels";
 
 /**
  * R6-F9: validated format set for `history:export` and
- * `vocabulary:export`. The renderer type unions `"json" | "csv"` but
+ * `vocabulary:export`. The renderer's `ExportFormat` type (in
+ * `src/shared/export-format.ts`) narrows to `"json" | "csv"` but
  * the IPC boundary is untyped at runtime — a compromised renderer (or
  * a hand-crafted `ipcRenderer.invoke` call from devtools) could pass
  * any string. Validating here prevents the format string from being
@@ -337,7 +339,7 @@ export function registerExportHandlers(): void {
 			{
 				data,
 				format,
-			}: { data: Record<string, unknown>[]; format: "json" | "csv" },
+			}: { data: Record<string, unknown>[]; format: ExportFormat },
 		) => {
 			// Wrap the ENTIRE handler body (including
 			// `dialog.showSaveDialog`) in try/catch.
@@ -415,10 +417,7 @@ export function registerExportHandlers(): void {
 		ExportChannels.vocabulary,
 		async (
 			_event,
-			{
-				data,
-				format,
-			}: { data: Record<string, unknown>; format: "json" | "csv" },
+			{ data, format }: { data: Record<string, unknown>; format: ExportFormat },
 		) => {
 			// Wrap the ENTIRE handler body in try/catch.
 			try {

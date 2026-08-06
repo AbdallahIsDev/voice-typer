@@ -8,9 +8,10 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { t } from "@/i18n/i18n";
+import type { ExportFormat } from "../../../../shared/export-format";
 
 interface ExportFormatMenuProps {
-	onExport: (format: "json" | "csv") => void | Promise<void>;
+	onExport: (format: ExportFormat) => void | Promise<void>;
 	disabled?: boolean;
 }
 
