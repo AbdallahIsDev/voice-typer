@@ -228,17 +228,23 @@ jobs:
       #      identified in XS-1).
       #   2. The "Audit pyrefly baseline changes" step below reads
       #      NEW_COUNT from the LIVE pyrefly-current.json (NOT from a
-      #      committed file) and compares against OLD_COUNT (the base
-      #      ref's committed pyrefly-baseline.json floor). The gate
-      #      fails only when NEW_COUNT > OLD_COUNT. The baseline file
-      #      holds the team's accepted error set (currently 156
-      #      platform-specific / third-party-stub errors) and only
-      #      ever shrinks — shrinking it requires editing
-      #      pyrefly-baseline.json in the same PR.
+      #      committed file) and compares against OLD_COUNT (the
+      #      pyrefly-baseline.json floor committed in THIS checkout).
+      #      The gate fails only when NEW_COUNT > OLD_COUNT. The
+      #      baseline file holds the team's accepted error set and
+      #      only ever shrinks — shrinking it requires editing
+      #      pyrefly-baseline.json in the same PR. Reading the
+      #      checkout's floor (rather than the base ref's) is what
+      #      makes the documented remedy — "raise the floor in
+      #      pyrefly-baseline.json with justification" — satisfiable
+      #      in a single PR/push.
       # This is the ratchet approach: any growth in real type errors
       # trips the gate, but the existing 156 errors don't block every
       # PR (which option (a) — hard-fail on any error — would do).
       - name: Run pyrefly type check
+        # bash syntax (if [ ... ], $(), /tmp paths) — must NOT run under
+        # PowerShell, the windows-2022 matrix leg's default shell.
+        shell: bash
         run: |
           # pin pyrefly==1.1.1 so error counts don't drift
           # between releases. Previously unpinned (`uv pip install
@@ -283,10 +289,15 @@ jobs:
       # silently. The fix reads NEW_COUNT from ``pyrefly-current.json``
       # (the live ``pyrefly check`` output written by the previous step)
       # so any new error introduced by the PR actually trips the gate.
-      # The OLD_COUNT floor is still the base ref's committed baseline
-      # (the team's accepted error set); shrinking the floor requires
-      # editing ``pyrefly-baseline.json`` in the same PR.
+      # OLD_COUNT reads the baseline committed in THIS checkout
+      # (pyrefly-baseline.json) — the team's accepted error set.
+      # Shrinking the floor requires editing ``pyrefly-baseline.json``
+      # in the same PR; the ratchet (live count must not exceed the
+      # checkout floor) is preserved.
       - name: Audit pyrefly baseline changes
+        # bash syntax (if [ ... ], $(), /tmp paths) — must NOT run under
+        # PowerShell, the windows-2022 matrix leg's default shell.
+        shell: bash
         run: |
           if [ ! -f pyrefly-current.json ]; then
             echo "::error::pyrefly-current.json not found — Run pyrefly type check step must run before this audit."
@@ -306,24 +317,54 @@ jobs:
           # always 0 and the audit could never fire. The diff-set
           # computation below was also reading `d.get('file','')` —
           # the actual schema field is `path`. Both fixed here.
-          OLD_COUNT=$(git show "$BASE_REF:pyrefly-baseline.json" 2>/dev/null | python -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
+          # The floor is THIS checkout's committed baseline
+          # (pyrefly-baseline.json), not the base ref's copy. Reading the
+          # base ref instead would make the gate's own remedy ("raise the
+          # floor in pyrefly-baseline.json with justification")
+          # unsatisfiable — a floor raise committed in the same PR would
+          # still be measured against the old base-ref floor. Reading the
+          # checkout's baseline keeps the ratchet intact: a PR that adds
+          # errors without updating the baseline fails (live > floor), and
+          # shrinking the floor without fixing errors fails too.
+          if [ -f pyrefly-baseline.json ]; then
+            OLD_COUNT=$(python -c "import json; d=json.load(open('pyrefly-baseline.json')); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
+          else
+            OLD_COUNT=$(git show "$BASE_REF:pyrefly-baseline.json" 2>/dev/null | python -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
+          fi
           # Read the LIVE pyrefly output (not the committed
           # baseline) so newly-introduced errors actually trip the gate.
           NEW_COUNT=$(python -c "import json; d=json.load(open('pyrefly-current.json')); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
           echo "Pyrefly: baseline floor = $OLD_COUNT errors, live current = $NEW_COUNT errors"
+          # Surface a floor RAISE in the checks UI (non-blocking). A PR
+          # may legitimately raise the floor with justification (the
+          # gate's documented remedy), but reviewers should see it
+          # without digging through the baseline diff.
+          BASE_FLOOR=$(git show "$BASE_REF:pyrefly-baseline.json" 2>/dev/null | python -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('errors', []) if isinstance(d, dict) else d))" 2>/dev/null || echo 0)
+          if [ "$OLD_COUNT" -gt "$BASE_FLOOR" ]; then
+            echo "::warning::Pyrefly baseline floor raised from $BASE_FLOOR (base ref) to $OLD_COUNT (this checkout) — confirm the justification in pyrefly-baseline.json _comment."
+          fi
           if [ "$NEW_COUNT" -gt "$OLD_COUNT" ]; then
             echo "::error::Pyrefly error count grew from $OLD_COUNT (baseline) to $NEW_COUNT (live)."
             echo "Each new error must be fixed OR the baseline floor must be raised in pyrefly-baseline.json"
             echo "with justification (platform-only false positive, missing optional dep, etc.)."
             echo ""
             echo "Added entries (in live output, not in base-ref baseline):"
-            git show "$BASE_REF:pyrefly-baseline.json" > /tmp/old_baseline.json 2>/dev/null || echo '[]' > /tmp/old_baseline.json
+            if [ -f pyrefly-baseline.json ]; then
+              cp pyrefly-baseline.json /tmp/old_baseline.json
+            else
+              git show "$BASE_REF:pyrefly-baseline.json" > /tmp/old_baseline.json 2>/dev/null || echo '[]' > /tmp/old_baseline.json
+            fi
             python -c "import json;o=json.load(open('/tmp/old_baseline.json'));n=json.load(open('pyrefly-current.json'));os_={(d.get('path',''),d.get('line',0),d.get('code','')) for d in (o if isinstance(o,list) else o.get('errors',[]))};ns_={(d.get('path',''),d.get('line',0),d.get('code','')) for d in (n if isinstance(n,list) else n.get('errors',[]))};[print(f'  {e[0]}:{e[1]} [{e[2]}]') for e in sorted(ns_-os_)]" 2>/dev/null || echo "  (could not diff)"
             exit 1
           fi
           echo "Baseline audit passed: $NEW_COUNT live errors ≤ $OLD_COUNT baseline floor"
 
       - name: Run tests with coverage
+        # `\` line continuations are bash-only — under PowerShell each
+        # line would parse as a separate statement and the flags would be
+        # dropped. Force bash on all matrix legs (Git Bash ships on the
+        # windows-2022 runner image).
+        shell: bash
         # --cov-fail-under=65 moved here from pyproject.toml addopts
         # so local subset runs (e.g. `pytest tests/test_foo.py`) no
         # longer trigger the coverage threshold (the conftest.py
