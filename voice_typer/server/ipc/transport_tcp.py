@@ -197,7 +197,19 @@ class TCPTransportMixin:
         else:
             port_num = port
             server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            # P1-1.4 (Windows parity): on Windows ``SO_REUSEADDR`` has the
+            # OPPOSITE semantics — it lets a second socket FORCIBLY bind a
+            # port already in use (the hijack behavior). That would let a
+            # stale second backend silently steal port 9876 from the live
+            # backend (e.g. an orphaned pythonw from a crashed Electron),
+            # splitting Electron's TCP connections across two servers and
+            # producing 15s command timeouts. Only set SO_REUSEADDR on
+            # POSIX (where it skips TIME_WAIT rebinds); on Windows the
+            # default exclusive-bind semantics make the second backend
+            # fail loudly with EADDRINUSE instead. Mirrors
+            # ``transport._pick_available_port`` (same P1-1.4 guard).
+            if os.name != "nt":
+                server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             try:
                 server.bind(("127.0.0.1", port_num))
                 server.listen(1)

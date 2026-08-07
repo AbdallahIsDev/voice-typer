@@ -106,6 +106,13 @@ class TestChangeModelReturnsImmediately:
         assert elapsed < 0.1, f"change_model should return immediately (<100ms); took {elapsed:.3f}s"
         # Release the background thread so it can complete.
         barrier.set()
+        # Join the background ModelChange thread so its
+        # ``asr_backend_ready`` publish completes INSIDE this test — a
+        # late publish would land in a later test's event_bus
+        # subscription window and flake it (see
+        # ``test_model_manager_load_races.py::TestBackendLoadFailedEvent``).
+        if mm._model_change_thread is not None:
+            mm._model_change_thread.join(timeout=5.0)
         # Ack shape.
         assert isinstance(ack, dict)
         assert ack["status"] == "loading"
@@ -147,6 +154,11 @@ class TestSetActiveBackendReturnsImmediately:
 
         assert elapsed < 0.1, f"set_active_backend should return immediately (<100ms); took {elapsed:.3f}s"
         barrier.set()
+        # Join the background BackendChange thread so its
+        # ``asr_backend_ready`` publish completes inside this test (see
+        # the comment in ``test_change_model_returns_under_100ms``).
+        if mm._backend_change_thread is not None:
+            mm._backend_change_thread.join(timeout=5.0)
         assert isinstance(ack, dict)
         assert ack["status"] == "loading"
         assert ack["pending"]["backend"] == "qwen"
@@ -258,6 +270,13 @@ class TestConcurrentCallsSerialize:
             t.start()
         for t in threads:
             t.join(timeout=5.0)
+        # Join the background ModelChange threads too. The two change
+        # threads serialize on ``_model_change_lock``, so joining the
+        # most recently spawned one waits for BOTH to complete their
+        # ``asr_backend_ready`` publish before the test ends (a late
+        # publish would flake a later test's event_bus subscription).
+        if mm._model_change_thread is not None:
+            mm._model_change_thread.join(timeout=5.0)
 
         # The loads must have serialized — never more than 1 concurrent.
         assert max_concurrent_loads[0] <= 1, (
@@ -293,6 +312,14 @@ class TestConcurrentCallsSerialize:
         t2.start()
         t1.join(timeout=5.0)
         t2.join(timeout=5.0)
+        # Join the background ModelChange + BackendChange threads (they
+        # serialize on ``_model_change_lock``) so their publishes
+        # complete inside this test — see the comment in
+        # ``test_concurrent_change_model_calls_do_not_interleave``.
+        if mm._model_change_thread is not None:
+            mm._model_change_thread.join(timeout=5.0)
+        if mm._backend_change_thread is not None:
+            mm._backend_change_thread.join(timeout=5.0)
 
         assert max_concurrent_loads[0] <= 1, (
             f"Concurrent load_active calls detected: max={max_concurrent_loads[0]} "
@@ -362,11 +389,15 @@ class TestApplyPendingModelChangeUsesBlocking:
         # Make sure the background path is NOT taken — verify the load
         # completes before return by checking the event was published.
         received: list[dict] = []
-        event_bus.subscribe(lambda e: received.append(e))
+
+        def _subscriber(event: dict) -> None:
+            received.append(event)
+
+        event_bus.subscribe(_subscriber)
         try:
             result = mm.apply_pending_model_change()
         finally:
-            event_bus.unsubscribe(lambda e: received.append(e))
+            event_bus.unsubscribe(_subscriber)
 
         assert result is True
         # The asr_backend_ready event must have been published

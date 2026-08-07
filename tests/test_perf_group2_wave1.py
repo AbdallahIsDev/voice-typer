@@ -196,8 +196,24 @@ class TestConfigSaveBackupSkip:
 
     @pytest.fixture(autouse=True)
     def _isolated_config_dir(self, tmp_path, monkeypatch):
-        """Point ``_config_dir`` at a tmp_path so each test gets a clean slate."""
+        """Point ``_config_dir`` at a tmp_path so each test gets a clean slate.
+
+        Mirrors conftest's ``tmp_config_dir`` fixture: also patch the
+        ``config_internals.paths`` binding and reset the ``lru_cache``
+        memoization. A prior test that resolved the REAL dir first (e.g.
+        via ``_acquire_config_lock`` / ``_get_config_dir``) leaves the
+        cache holding the real path; without the reset, path lookups
+        that route through ``config_internals.paths`` would keep
+        resolving the real config dir.
+        """
         monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        from voice_typer.server.config import _reset_config_dir_cache
+        from voice_typer.server.config_internals import paths as _paths_mod
+
+        # Reset the lru_cache BEFORE replacing the binding — the reset
+        # helper calls ``_config_dir.cache_clear()`` on the REAL function.
+        _reset_config_dir_cache()
+        monkeypatch.setattr(_paths_mod, "_config_dir", lambda: tmp_path)
         yield
 
     def test_backup_read_skipped_on_identical_resave(self, tmp_path, monkeypatch):

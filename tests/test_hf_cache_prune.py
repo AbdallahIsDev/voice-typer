@@ -1,268 +1,145 @@
-"""Tests for ``prune_model_cache`` (HF model cache size-based eviction).
+"""Tests for the REMOVED automatic model-cache eviction.
 
-Verifies the helper that enforces a size cap on the HuggingFace model
-cache by deleting the oldest cached repos (by ``last_modified``) until
-the total on-disk size is under the cap. Covers:
+The app NEVER deletes models automatically — deleting a model is an
+explicit user action (the Models page Delete button). The old
+``prune_model_cache`` auto-eviction helper (HF cache size-based
+eviction that deleted the oldest cached repos on every load) has been
+removed. These tests guard the new behavior:
 
-1. Happy path — oldest models pruned first, newest preserved.
-2. Multiple deletions — prune loops until under the cap.
-3. No-op when already under the cap.
-4. Fallback path when ``huggingface_hub.scan_cache_dir`` raises
-   ``ImportError`` (manual ``iterdir`` + ``stat().st_mtime`` scan).
-5. Fallback path when ``huggingface_hub`` is not importable at all.
-6. Returns 0 when ``cache_dir`` doesn't exist.
-7. Default ``max_bytes`` equals 8 GB (the ``_MAX_MODEL_CACHE_GB``
-   constant).
+1. ``asr_utils`` no longer exports ``prune_model_cache`` or its private
+   helpers / size-cap constant.
+2. ``cleanup_hf_cache_dir`` still exists (the explicit user-initiated
+   download path uses it to clear a tampered cache DURING a download),
+   but no engine ``load()`` path calls it.
+3. No production module may still reference the removed auto-eviction
+   entry points.
 """
 
 from __future__ import annotations
 
-import os
-import time
 from pathlib import Path
 
-# ──────────────────────────────────────────────────────────────────
-# Helpers
-# ──────────────────────────────────────────────────────────────────
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
-def _make_fake_repo(cache_dir: Path, name: str, size_bytes: int, mtime_offset_s: float) -> Path:
-    """Create a fake HF model cache dir ``models--Org--<name>``.
+def _read(path: str) -> str:
+    return (REPO_ROOT / path).read_text(encoding="utf-8")
 
-    The directory mimics the real HF hub cache layout
-    (``models--Org--Name/snapshots/<commit>/weights.bin``) so
-    ``huggingface_hub.scan_cache_dir`` recognises it as a cached repo.
 
-    ``mtime_offset_s`` is subtracted from ``time.time()`` and applied
-    to both the repo dir and its blob so the repo's ``last_modified``
-    reflects the requested age (larger offset = older repo).
+class TestPruneModelCacheRemoved:
+    """The auto-eviction helper and its internals are gone."""
+
+    def test_prune_model_cache_not_in_asr_utils(self):
+        from voice_typer.server import asr_utils
+
+        assert not hasattr(asr_utils, "prune_model_cache"), (
+            "prune_model_cache must be REMOVED — the app never deletes "
+            "models automatically; deleting a model is an explicit user "
+            "action (Models page Delete button)."
+        )
+
+    def test_prune_internal_helpers_removed(self):
+        from voice_typer.server import asr_utils
+
+        for name in ("_prune_oldest_repos", "_repo_size_bytes", "_MAX_MODEL_CACHE_GB"):
+            assert not hasattr(asr_utils, name), (
+                f"asr_utils.{name} must be REMOVED along with the "
+                "auto-eviction it supported."
+            )
+
+    def test_no_source_references_prune_model_cache(self):
+        """No production module may reference the removed helper."""
+        from voice_typer.server import asr_utils as mod
+
+        src = Path(mod.__file__).read_text(encoding="utf-8")
+        assert "prune_model_cache" not in src
+
+    def test_no_automatic_eviction_in_transcription_source(self):
+        src = _read("voice_typer/server/transcription.py")
+        assert "prune_model_cache" not in src, (
+            "transcription.py must not reference the removed auto-eviction helper."
+        )
+
+    def test_no_automatic_eviction_in_parakeet_source(self):
+        src = _read("voice_typer/server/parakeet_engine.py")
+        assert "prune_model_cache" not in src, (
+            "parakeet_engine.py must not reference the removed auto-eviction helper."
+        )
+
+
+class TestCleanupHelperStillAvailableForExplicitDownloads:
+    """``cleanup_hf_cache_dir`` survives — but ONLY for the explicit
+    user-initiated download path (clearing a tampered cache during a
+    download the user started), never for automatic load-time deletion.
     """
-    repo_dir = cache_dir / f"models--Org--{name}"
-    snap_dir = repo_dir / "snapshots" / "abc123def456"
-    snap_dir.mkdir(parents=True, exist_ok=True)
-    blob = snap_dir / "weights.bin"
-    # Use truncate to create a file of the exact requested size without
-    # writing every byte (faster for large sizes).
-    with open(blob, "wb") as f:
-        f.truncate(size_bytes)
-    # Age the dir + file mtimes so last_modified reflects the offset.
-    target_mtime = time.time() - mtime_offset_s
-    os.utime(blob, (target_mtime, target_mtime))
-    os.utime(snap_dir, (target_mtime, target_mtime))
-    os.utime(repo_dir, (target_mtime, target_mtime))
-    return repo_dir
+
+    def test_cleanup_hf_cache_dir_still_exists(self):
+        from voice_typer.server.asr_utils import cleanup_hf_cache_dir
+
+        assert callable(cleanup_hf_cache_dir)
+
+    def test_whisper_load_path_never_deletes(self):
+        """transcription.py must not call ``cleanup_hf_cache_dir`` on the
+        load path — a tampered cache raises ``ModelIntegrityError`` and
+        is left in place for the user to delete explicitly."""
+        src = _read("voice_typer/server/transcription.py")
+        # The import re-export and docstring comments are fine; a CALL is not.
+        call_sites = [
+            line
+            for line in src.splitlines()
+            if "cleanup_hf_cache_dir(" in line and not line.strip().startswith("#")
+        ]
+        assert not call_sites, (
+            "transcription.py must not call cleanup_hf_cache_dir — "
+            "deleting a model is an explicit user action."
+        )
+
+    def test_parakeet_load_path_never_deletes(self):
+        src = _read("voice_typer/server/parakeet_engine.py")
+        assert "cleanup_hf_cache_dir(" not in src, (
+            "parakeet_engine.py must not call cleanup_hf_cache_dir on load — "
+            "a tampered cache raises ModelIntegrityError and is left for the "
+            "user to delete explicitly."
+        )
+
+    def test_cleanup_only_reachable_from_explicit_download(self):
+        """The only production callers of ``cleanup_hf_cache_dir`` must be
+        the user-initiated download path (service/asr_setup) plus the
+        definition/delegation modules — never a load path."""
+        import voice_typer.server as server_pkg
+
+        hits: list[str] = []
+        for py in Path(server_pkg.__file__).parent.rglob("*.py"):
+            if "test" in py.name:
+                continue
+            text = py.read_text(encoding="utf-8")
+            call_lines = [
+                line
+                for line in text.splitlines()
+                if "cleanup_hf_cache_dir(" in line and not line.strip().startswith("#")
+            ]
+            if call_lines:
+                hits.append(str(py))
+        # Allowed: asr_utils (definition), _hf_cache_cleanup (delegation),
+        # service/* + asr_setup.py (explicit user-initiated download path).
+        allowed_markers = ("asr_utils", "_hf_cache_cleanup", "service", "asr_setup")
+        forbidden = [h for h in hits if not any(m in h for m in allowed_markers)]
+        assert not forbidden, (
+            "cleanup_hf_cache_dir must only be reachable from the explicit "
+            f"user-initiated download path; found: {forbidden}"
+        )
 
 
-def _total_dir_size(cache_dir: Path) -> int:
-    """Recompute the total on-disk size of all top-level dirs."""
-    total = 0
-    for entry in cache_dir.iterdir():
-        if entry.is_dir():
-            for f in entry.rglob("*"):
-                if f.is_file():
-                    total += f.stat().st_size
-    return total
+class TestUncachedModelsRefuseToLoad:
+    """Engines refuse to load an uncached model instead of downloading it —
+    the load path never triggers a network transfer or a cache delete."""
 
+    def test_whisper_load_requires_cached_model(self):
+        from voice_typer.server.asr_errors import ModelNotDownloadedError
 
-# ──────────────────────────────────────────────────────────────────
-# Happy path: oldest pruned, newest preserved
-# ──────────────────────────────────────────────────────────────────
+        assert issubclass(ModelNotDownloadedError, RuntimeError)
 
+    def test_parakeet_load_requires_cached_model(self):
+        from voice_typer.server.asr_errors import ModelIntegrityError
 
-def test_prune_deletes_oldest_until_under_cap(tmp_path):
-    """Three repos (oldest→newest): 4 MB, 2 MB, 1 MB. Cap = 4 MB.
-
-    Total = 7 MB > 4 MB → delete oldest (4 MB) → remaining 3 MB ≤ 4 MB.
-    Exactly 1 repo pruned; the newest (1 MB) survives."""
-    from voice_typer.server.asr_utils import prune_model_cache
-
-    cache_dir = tmp_path / "hub"
-    cache_dir.mkdir()
-    _make_fake_repo(cache_dir, "oldest", 4 * 1024 * 1024, mtime_offset_s=300)
-    _make_fake_repo(cache_dir, "middle", 2 * 1024 * 1024, mtime_offset_s=200)
-    _make_fake_repo(cache_dir, "newest", 1 * 1024 * 1024, mtime_offset_s=100)
-
-    pruned = prune_model_cache(cache_dir, max_bytes=4 * 1024 * 1024)
-
-    assert pruned == 1, f"expected 1 repo pruned, got {pruned}"
-    assert not (cache_dir / "models--Org--oldest").exists(), "oldest must be pruned"
-    assert (cache_dir / "models--Org--middle").exists(), "middle must survive"
-    assert (cache_dir / "models--Org--newest").exists(), "newest must survive"
-    assert _total_dir_size(cache_dir) <= 4 * 1024 * 1024
-
-
-def test_prune_deletes_multiple_until_under_cap(tmp_path):
-    """Cap = 1 MB. Repos: 5 MB (oldest), 3 MB (middle), 0.5 MB (newest).
-
-    Delete oldest (5 MB) → 3.5 MB > 1 MB. Delete middle (3 MB) → 0.5 MB
-    ≤ 1 MB. 2 repos pruned; newest survives."""
-    from voice_typer.server.asr_utils import prune_model_cache
-
-    cache_dir = tmp_path / "hub"
-    cache_dir.mkdir()
-    _make_fake_repo(cache_dir, "oldest", 5 * 1024 * 1024, mtime_offset_s=400)
-    _make_fake_repo(cache_dir, "middle", 3 * 1024 * 1024, mtime_offset_s=300)
-    _make_fake_repo(cache_dir, "newest", 512 * 1024, mtime_offset_s=100)
-
-    pruned = prune_model_cache(cache_dir, max_bytes=1024 * 1024)
-
-    assert pruned == 2, f"expected 2 repos pruned, got {pruned}"
-    assert not (cache_dir / "models--Org--oldest").exists()
-    assert not (cache_dir / "models--Org--middle").exists()
-    assert (cache_dir / "models--Org--newest").exists(), "newest must survive"
-    assert _total_dir_size(cache_dir) <= 1024 * 1024
-
-
-def test_prune_noop_when_under_cap(tmp_path):
-    """When total size ≤ max_bytes, no repos are pruned."""
-    from voice_typer.server.asr_utils import prune_model_cache
-
-    cache_dir = tmp_path / "hub"
-    cache_dir.mkdir()
-    _make_fake_repo(cache_dir, "a", 100 * 1024, mtime_offset_s=300)
-    _make_fake_repo(cache_dir, "b", 200 * 1024, mtime_offset_s=200)
-
-    pruned = prune_model_cache(cache_dir, max_bytes=1024 * 1024 * 1024)
-
-    assert pruned == 0
-    assert (cache_dir / "models--Org--a").exists()
-    assert (cache_dir / "models--Org--b").exists()
-
-
-# ──────────────────────────────────────────────────────────────────
-# Fallback path: scan_cache_dir raises ImportError
-# ──────────────────────────────────────────────────────────────────
-
-
-def test_prune_fallback_when_scan_cache_dir_raises_importerror(tmp_path, monkeypatch):
-    """When ``huggingface_hub.scan_cache_dir`` raises ``ImportError``
-    when called, the helper falls back to a manual mtime-based scan.
-
-    The fallback must still delete oldest-first and preserve the newest.
-    """
-    from voice_typer.server import asr_utils
-
-    cache_dir = tmp_path / "hub"
-    cache_dir.mkdir()
-    _make_fake_repo(cache_dir, "oldest", 4 * 1024 * 1024, mtime_offset_s=300)
-    _make_fake_repo(cache_dir, "middle", 2 * 1024 * 1024, mtime_offset_s=200)
-    _make_fake_repo(cache_dir, "newest", 1 * 1024 * 1024, mtime_offset_s=100)
-
-    # Replace scan_cache_dir with a callable that raises ImportError
-    # when invoked. The helper's ``except ImportError`` clause catches
-    # this and runs the fallback path.
-    #
-    # ``raising=False`` is required because earlier tests in the suite
-    # (notably ``tests/test_asr_setup.py::_install_hf_stub``) install a
-    # bare ``huggingface_hub`` stub module into ``sys.modules`` that does
-    # NOT expose ``scan_cache_dir`` (only ``snapshot_download``). The
-    # stub persists for the remainder of the session because
-    # ``_install_hf_stub`` mutates ``sys.modules`` directly (no
-    # monkeypatch teardown). With the real ``huggingface_hub`` 1.x
-    # module the attribute exists, but with the asr_setup stub it
-    # doesn't — so ``monkeypatch.setattr`` with the default
-    # ``raising=True`` raises ``AttributeError`` before the test body
-    # can run. ``raising=False`` makes the setattr succeed in both
-    # cases, which is exactly the contract this test exercises: the
-    # production code's ``except ImportError`` fallback must run whether
-    # ``scan_cache_dir`` was originally present or not.
-    import huggingface_hub
-
-    def _boom(*_args, **_kwargs):
-        raise ImportError("simulated: scan_cache_dir unavailable")
-
-    monkeypatch.setattr(huggingface_hub, "scan_cache_dir", _boom, raising=False)
-
-    pruned = asr_utils.prune_model_cache(cache_dir, max_bytes=4 * 1024 * 1024)
-
-    assert pruned == 1, f"fallback should prune 1 repo, got {pruned}"
-    assert not (cache_dir / "models--Org--oldest").exists()
-    assert (cache_dir / "models--Org--middle").exists()
-    assert (cache_dir / "models--Org--newest").exists()
-
-
-def test_prune_fallback_when_huggingface_hub_not_importable(tmp_path, monkeypatch):
-    """When ``huggingface_hub`` cannot be imported at all, the
-    ``from huggingface_hub import scan_cache_dir`` line raises
-    ``ImportError`` and the fallback path runs."""
-    import sys
-
-    from voice_typer.server import asr_utils
-
-    cache_dir = tmp_path / "hub"
-    cache_dir.mkdir()
-    _make_fake_repo(cache_dir, "oldest", 4 * 1024 * 1024, mtime_offset_s=300)
-    _make_fake_repo(cache_dir, "newest", 1 * 1024 * 1024, mtime_offset_s=100)
-
-    # Hide huggingface_hub from sys.modules and block re-import via a
-    # meta-path finder that raises ImportError for that module name.
-    real_hf = sys.modules.pop("huggingface_hub", None)
-
-    import importlib.abc
-
-    class _BlockHF(importlib.abc.MetaPathFinder):
-        def find_spec(self, fullname, path=None, target=None):
-            if fullname == "huggingface_hub":
-                raise ImportError("simulated: huggingface_hub not installed")
-            return None
-
-    blocker = _BlockHF()
-    monkeypatch.syspath_prepend("")  # no-op; just to touch monkeypatch
-    sys.meta_path.insert(0, blocker)
-    try:
-        pruned = asr_utils.prune_model_cache(cache_dir, max_bytes=2 * 1024 * 1024)
-    finally:
-        if blocker in sys.meta_path:
-            sys.meta_path.remove(blocker)
-        if real_hf is not None:
-            sys.modules["huggingface_hub"] = real_hf
-
-    assert pruned == 1, f"fallback should prune 1 repo, got {pruned}"
-    assert not (cache_dir / "models--Org--oldest").exists()
-    assert (cache_dir / "models--Org--newest").exists()
-
-
-# ──────────────────────────────────────────────────────────────────
-# Edge case: cache_dir doesn't exist
-# ──────────────────────────────────────────────────────────────────
-
-
-def test_prune_returns_zero_when_cache_dir_missing(tmp_path):
-    """If ``cache_dir`` doesn't exist, the helper returns 0 (no error).
-
-    Both the ``scan_cache_dir`` path and the fallback path handle this
-    gracefully — ``scan_cache_dir`` returns an empty scan, and the
-    fallback checks ``cache_dir.exists()`` before iterating.
-    """
-    from voice_typer.server.asr_utils import prune_model_cache
-
-    missing = tmp_path / "does_not_exist"
-    assert not missing.exists()
-    assert prune_model_cache(missing, max_bytes=1024) == 0
-
-
-def test_prune_returns_zero_for_empty_cache_dir(tmp_path):
-    """An existing but empty ``cache_dir`` prunes nothing."""
-    from voice_typer.server.asr_utils import prune_model_cache
-
-    cache_dir = tmp_path / "hub"
-    cache_dir.mkdir()
-    assert prune_model_cache(cache_dir, max_bytes=1024) == 0
-
-
-# ──────────────────────────────────────────────────────────────────
-# Default cap constant
-# ──────────────────────────────────────────────────────────────────
-
-
-def test_default_max_bytes_is_8gb():
-    """The default ``max_bytes`` (when caller omits the arg) is 8 GB,
-    matching the ``_MAX_MODEL_CACHE_GB`` constant."""
-    import inspect
-
-    from voice_typer.server import asr_utils
-
-    assert asr_utils._MAX_MODEL_CACHE_GB == 8
-    sig = inspect.signature(asr_utils.prune_model_cache)
-    default = sig.parameters["max_bytes"].default
-    assert default == 8 * 1024**3, f"default max_bytes should be 8 GiB ({8 * 1024**3}), got {default}"
+        assert issubclass(ModelIntegrityError, RuntimeError)

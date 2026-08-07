@@ -129,6 +129,13 @@ class TestParseIpcArgs:
         import os
 
         assert os.environ.get("TAURI_SIDECAR") == "1"
+        # parse_ipc_args mutated the process env directly — monkeypatch
+        # cannot track a raw ``os.environ[...] = ...`` assignment (the
+        # ``delenv`` above only guards the pre-test state). Restore here
+        # so ``TAURI_SIDECAR=1`` does not leak into every later test in
+        # this process (e.g. ``task_scheduler._prewarm_command`` would
+        # switch to the Tauri-sidecar resolver path).
+        os.environ.pop("TAURI_SIDECAR", None)
 
     def test_ws_and_port_mutually_exclusive(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """``--ws`` + ``--port`` is rejected (ADR-0020 §2): the WS path

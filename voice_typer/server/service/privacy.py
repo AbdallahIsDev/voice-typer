@@ -438,6 +438,42 @@ class PrivacyMixin(ServiceMixinBase):
             failed[str(rust_logs_dir)] = f"{type(exc).__name__}: {exc}"
 
     @staticmethod
+    def _gdpr_rmtree_electron_profile(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
+        """Remove the Electron/Chromium profile subdirectory.
+
+        ``<config_dir>/electron-profile/`` is where the Electron host's
+        Chromium profile lives (caches, Local Storage, Network state,
+        Crashpad) since ``bootstrap.ts`` pins
+        ``app.setPath("userData", …)`` to it. Local Storage / Network
+        state can hold personal data, so GDPR Art. 17 erasure removes
+        the whole subdir. Best-effort: a missing dir (fresh install or
+        pre-split build) is a silent no-op; a per-file OSError is caught
+        and surfaced in ``failed`` so the renderer can tell the user to
+        delete it manually.
+        """
+        import shutil
+        from pathlib import Path
+
+        profile_dir = Path(config_dir) / "electron-profile"
+        if not profile_dir.exists():
+            return
+        try:
+            shutil.rmtree(profile_dir, ignore_errors=False)
+            erased.append(str(profile_dir))
+            log.debug(
+                "[SERVICE] GDPR delete: removed Electron profile/ dir at %s",
+                profile_dir,
+            )
+        except OSError as exc:
+            log.warning(
+                "[SERVICE] GDPR delete: could not rmtree Electron profile/ "
+                "dir at %s: %s — user may need to delete it manually",
+                profile_dir,
+                exc,
+            )
+            failed[str(profile_dir)] = f"{type(exc).__name__}: {exc}"
+
+    @staticmethod
     def _gdpr_rmtree_crash_archive(config_dir: "os.PathLike[str] | str", erased: list, failed: dict) -> None:
         """remove archived crash diagnostics directory.
 
@@ -883,6 +919,7 @@ class PrivacyMixin(ServiceMixinBase):
         # by ``set_config`` / ``onboarding_apply`` (the lock is for
         # config-file mutation serialization, not arbitrary file IO).
         self._gdpr_rmtree_rust_logs(config_dir, erased, failed)
+        self._gdpr_rmtree_electron_profile(config_dir, erased, failed)
 
         # Acquire ``self._app._config_mutation_lock`` for the
         # remainder of the GDPR delete sequence (unlink personal files +

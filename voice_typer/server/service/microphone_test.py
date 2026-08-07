@@ -230,18 +230,20 @@ class MicrophoneTestMixin(ServiceMixinBase):
         )
 
         result = start_monitoring(mic_id=mic_id)
-        # Seed the level processor from the current config
+        # Seed the level processor from the current config. Use the
+        # shared ``to_filter_dict`` helper (single source of truth — the
+        # same one ``config_applier`` uses) so the dict is COMPLETE. The
+        # previous hand-rolled 5-key dict omitted ``noise_filter_notch``
+        # (+ eq/compressor/limiter/gate-* keys): ``AudioProcessor``
+        # reads them directly, so construction crashed with
+        # ``'SimpleNamespace' object has no attribute
+        # 'noise_filter_notch'`` — and the partial dict was ALSO stashed
+        # as ``_state._level_processor_config``, breaking every later
+        # processor rebuild after a device hot-swap.
         try:
-            cfg = self._app.config
-            update_level_processor(
-                {
-                    "noise_filter_enabled": getattr(cfg, "noise_filter_enabled", True),
-                    "noise_filter_highpass": getattr(cfg, "noise_filter_highpass", True),
-                    "noise_filter_gate": getattr(cfg, "noise_filter_gate", True),
-                    "noise_filter_rnnoise": getattr(cfg, "noise_filter_rnnoise", False),
-                    "noise_filter_post_capture": getattr(cfg, "noise_filter_post_capture", True),
-                }
-            )
+            from voice_typer.server.config_applier import to_filter_dict
+
+            update_level_processor(to_filter_dict(self._app.config))
         except Exception:
             # previously pass — silently swallowed update_level_processor failures
             log.debug(

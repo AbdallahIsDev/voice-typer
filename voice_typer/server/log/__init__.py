@@ -53,16 +53,19 @@ import time
 import uuid
 from pathlib import Path
 
-# WN-7: centralized log-rotation constants.  Mirrors the Rust-side
-# ``ROTATE_MAX_BYTES`` / ``ROTATE_MAX_FILES`` in ``src-tauri/src/util.rs``.
-# All Python logging handlers that create ``RotatingFileHandler`` instances
-# (the main voice-typer.log, the prewarm.log, and the Electron-build log)
-# MUST import these instead of inlining ``5 * 1024 * 1024`` / ``5`` so a
-# future bump to the rotation policy edits ONE file.  See
+# WN-7: centralized single-file log-size constant.  Mirrors the Rust-side
+# ``LOG_MAX_BYTES`` in ``src-tauri/src/util.rs``.
+# All Python logging handlers that write log files (the main
+# voice-typer.log, the prewarm.log, and the Electron-build log) MUST
+# import the size cap from here instead of inlining ``5 * 1024 * 1024``
+# so a future bump edits ONE file.  See
 # ``voice_typer/server/_log_constants.py`` for the rationale.
+#
+# Single-file policy: each log is a SINGLE file.  When it exceeds
+# ``LOG_MAX_BYTES`` it is truncated in place (emptied) and writing
+# continues — numbered backups (``.1``, ``.2``, ...) are NEVER created.
 from voice_typer.server._log_constants import (  # noqa: F401
-    ROTATE_MAX_BYTES,
-    ROTATE_MAX_FILES,
+    LOG_MAX_BYTES,
 )
 from voice_typer.server.log.correlation import (  # noqa: F401
     _correlation_id,
@@ -87,7 +90,7 @@ from voice_typer.server.log.formatters import (  # noqa: F401
 
 log = logging.getLogger(__name__)
 
-# log retention sweep — purge rotated log files older than
+# log retention sweep — purge LEGACY numbered backups older than
 # 30 days at startup. Mirrors ``crash_handler._sweep_stale_diagnostics``
 # (30-day mtime cutoff for crash diagnostics). The size-only rotation
 # (5 MiB × 5 backups) keeps at most 25 MiB of recent logs but does NOT
@@ -100,7 +103,7 @@ _LOG_RETENTION_MAX_AGE_SECONDS = 30 * 24 * 60 * 60  # 30 days
 _LOG_ROTATION_GLOBS: tuple[str, ...] = (
     "voice-typer.log.*",  # main process rotations (``.1``..``.5``)
     "prewarm.log.*",  # legacy prewarm process rotations
-    "voice-typer-prewarm.log.*",  # prewarm process rotations
+    "voice-typer-prewarm.log.*",  # legacy prewarm rotations (file no longer created)
 )
 
 
@@ -137,14 +140,16 @@ def _sweep_stale_log_rotations(config_dir: Path) -> None:
                 # or similar should not be unlinked by the sweep.
                 if not f.is_file():
                     continue
-                # NEVER touch the inter-process rotation
-                # lock file (``voice-typer.log.rotate.lock`` /
-                # ``prewarm.log.rotate.lock``). It is created by
-                # ``_SecureRotatingFileHandler.__init__`` and must
+                # NEVER touch the inter-process truncation
+                # lock file (``voice-typer.log.lock`` /
+                # ``prewarm.log.lock``). It is created by
+                # ``_SecureTruncatingFileHandler.__init__`` and must
                 # persist across setups so the next process can
                 # acquire the flock. Deleting it would race with a
-                # concurrent writer's lock acquisition.
-                if f.name.endswith(".rotate.lock"):
+                # concurrent writer's lock acquisition. (The old
+                # ``*.rotate.lock`` names from the rename-based
+                # rotation are legacy leftovers the sweep can drop.)
+                if f.name.endswith(".lock"):
                     continue
                 try:
                     age = now - f.stat().st_mtime
@@ -500,9 +505,9 @@ def setup_logging(
         if os.name == "posix":
             with contextlib.suppress(OSError):
                 os.chmod(config_dir, 0o700)
-        # Route to voice-typer-prewarm.log when
-        # process_name == "prewarm" so the prewarm and main processes don't
-        # race on the same file.
+        # Single-file policy: process_name == "prewarm" routes to
+        # prewarm.log so the prewarm and main processes don't race on
+        # the same file (there is no separate voice-typer-prewarm.log).
         log_file = get_log_file_path(config_dir, process_name=process_name)
 
         # structured JSON logging is opt-in via VOICE_TYPER_LOG_JSON.
@@ -520,16 +525,14 @@ def setup_logging(
         # character.  Without this, valuable diagnostic symbols like
         # arrows, em-dashes, and smart quotes become unreadable trash
         # in the log file.
-        handler = _SecureRotatingFileHandler(
+        handler = _SecureTruncatingFileHandler(
             log_file,
-            # ADR-0020 §11: 5 MiB per file, keep 5 backups (was 1 MiB × 2).
-            # WN-7: the rotation policy is centralized in
-            # ``voice_typer.server._log_constants`` so the main log,
-            # prewarm log, and (eventually) the Electron-build log all
-            # share a single source of truth — a future bump to 10 MiB
-            # or 7 backups edits ONE file instead of three.
-            maxBytes=ROTATE_MAX_BYTES,
-            backupCount=ROTATE_MAX_FILES,
+            # Single-file policy: 5 MiB cap, ZERO backups.  When the file
+            # exceeds the cap it is truncated IN PLACE (emptied) and
+            # writing continues to the same file — numbered backups
+            # (``voice-typer.log.1`` ...) are never created.
+            maxBytes=LOG_MAX_BYTES,
+            backupCount=0,
             encoding="utf-8",
             errors="backslashreplace",
         )
@@ -539,7 +542,7 @@ def setup_logging(
         # silently no-op on Windows where the umask already enforced
         # 0o600 at creation time via the ``os.umask(0o077)`` above.
         # post-rotation re-chmod is handled by
-        # ``_SecureRotatingFileHandler.doRollover`` so the privacy
+        # ``_SecureTruncatingFileHandler.doRollover`` so the privacy
         # guarantee survives log rotation (which happens AFTER
         # setup_logging returns and the umask is restored).
         if os.name == "posix":
@@ -598,7 +601,7 @@ def setup_logging(
 
         root = logging.getLogger("voice_typer")
         # Avoid duplicate handlers if setup is called multiple times.
-        # dedup on the ``_SecureRotatingFileHandler`` subclass
+        # dedup on the ``_SecureTruncatingFileHandler`` subclass
         # (not the parent ``RotatingFileHandler``) so a future caller
         # that installs a stock ``RotatingFileHandler`` (e.g. a test
         # helper) is NOT mistaken for the secure handler — the secure
@@ -621,11 +624,11 @@ def setup_logging(
         _new_file_level = handler.level
         _new_file_formatter = handler.formatter
         for _existing in root.handlers:
-            if isinstance(_existing, _SecureRotatingFileHandler):
+            if isinstance(_existing, _SecureTruncatingFileHandler):
                 _existing.setLevel(_new_file_level)
                 if _new_file_formatter is not None:
                     _existing.setFormatter(_new_file_formatter)
-        if not any(isinstance(h, _SecureRotatingFileHandler) for h in root.handlers):
+        if not any(isinstance(h, _SecureTruncatingFileHandler) for h in root.handlers):
             root.addHandler(handler)
         # PII + session filters are attached to each HANDLER
         # (file + stderr) above, NOT to the ``voice_typer`` root logger.
@@ -757,10 +760,10 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
     filename even if it ever changes.
 
     The ``process_name`` parameter routes
-    the prewarm process to a separate ``voice-typer-prewarm.log`` file
-    so the prewarm and main processes don't race on the same file.
+    the prewarm process to ``prewarm.log`` (its single file) so the
+    prewarm and main processes don't race on the same file.
     ``"main"`` (and any unrecognised value) routes to ``voice-typer.log``;
-    ``"prewarm"`` routes to ``voice-typer-prewarm.log``.
+    ``"prewarm"`` routes to ``prewarm.log``.
 
     Parameters
     ----------
@@ -776,7 +779,7 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
     Returns
     -------
     Path
-        ``<config_dir>/voice-typer.log`` or ``<config_dir>/voice-typer-prewarm.log``.
+        ``<config_dir>/voice-typer.log`` or ``<config_dir>/prewarm.log``.
         The path may not yet exist on disk — callers should check ``.exists()`` before opening.
     """
     if config_dir is None:
@@ -784,7 +787,9 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
 
         config_dir = _paths.config_dir()
     if process_name == "prewarm":
-        return config_dir / "voice-typer-prewarm.log"
+        # Single-file policy: the prewarm process writes to ONE file —
+        # ``prewarm.log``.  There is no separate ``voice-typer-prewarm.log``.
+        return config_dir / "prewarm.log"
     return config_dir / "voice-typer.log"
 
 
@@ -816,24 +821,30 @@ class _FlushingStreamHandler(logging.StreamHandler):
             self.flush()
 
 
-class _SecureRotatingFileHandler(logging.handlers.RotatingFileHandler):
-    """``RotatingFileHandler`` that is inter-process safe AND re-locks perms.
+class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
+    """``RotatingFileHandler`` subclass that truncates IN PLACE (single-file
+    policy) and is inter-process safe AND re-locks perms.
 
     Combines two concerns:
-    1. Inter-process rotation safety (``fcntl.flock`` / ``msvcrt.locking``)
-       so the main app and prewarm process don't race on rotation.
-    2. Post-rotation ``os.chmod(self.baseFilename, 0o600)`` on POSIX so
-       the active log file is never world-readable .
+    1. Single-file policy: ``doRollover`` TRUNCATES the active file in
+       place (empties it) when it exceeds ``maxBytes`` — a numbered
+       backup (``.1``, ``.2``, ...) is NEVER created. The file on disk
+       is always exactly one file.
+    2. Inter-process truncation safety (``fcntl.flock`` /
+       ``msvcrt.locking``) so the main app and prewarm process don't
+       race on truncation.
+    3. Post-truncation ``os.chmod(self.baseFilename, 0o600)`` on POSIX so
+       the active log file is never world-readable.
 
-    The lock is held only for the brief rename+reopen window, NOT for
+    The lock is held only for the brief truncate window, NOT for
     every ``emit()`` call.  After acquiring the lock the handler
-    re-checks whether rotation is still needed — another process may
-    have rotated while we waited.
+    re-checks whether truncation is still needed — another process may
+    have truncated while we waited.
     """
 
     def __init__(self, filename, *args, **kwargs):
         super().__init__(filename, *args, **kwargs)
-        self._rotation_lock_path = f"{filename}.rotate.lock"
+        self._rotation_lock_path = f"{filename}.lock"
 
     def _acquire_rotation_lock(self):
         """Open the lock file and acquire an inter-process lock on it."""
@@ -938,61 +949,47 @@ class _SecureRotatingFileHandler(logging.handlers.RotatingFileHandler):
             return True
 
     def doRollover(self) -> None:  # noqa: D401, N802
-        # tighten the process umask for the duration of the
-        # rollover so the freshly-created active log file is 0o600 from
-        # the very first ``open()`` call (mode 0o666 & ~umask=0o077 →
-        # 0o600). Previously the umask had been restored to the parent's
-        # value (typically 0o022 → 0o644 world-readable) by the time
-        # ``doRollover`` ran, so ``super().doRollover()`` created the
-        # file world-readable and the post-creation chmod ran AFTER the
-        # rotation lock was released — a TOCTOU window during which a
-        # co-located user could ``open()`` the file and read
-        # dictated-text fragments. Tightening the umask here closes the
-        # window at the source: the file is born 0o600. Restored in
-        # ``finally`` so the umask change does not leak to other
-        # threads or to subprocesses spawned after doRollover returns.
+        # Single-file policy: when the active log exceeds ``maxBytes``,
+        # TRUNCATE it in place (empty the file) and keep writing to the
+        # SAME path.  Numbered backups (``voice-typer.log.1`` ...) are
+        # NEVER created — the file on disk is always exactly one file.
         #
         # Short-circuit on the file-size pre-check: if the active log
-        # file is under the size cap, no rotation is needed. We do this
-        # BEFORE acquiring the rotation lock so the no-op path
-        # doesn't acquire + release the inter-process lock (which
-        # would still show up in lock-acquisition telemetry and in
-        # the regression test's call-order spy). The check is
-        # duplicated AFTER lock acquisition in case another process
-        # rotated while we were acquiring the lock.
+        # file is under the size cap, no truncation is needed.  We do
+        # this BEFORE acquiring the inter-process lock so the no-op path
+        # doesn't acquire + release it.  The check is duplicated AFTER
+        # lock acquisition in case another process truncated while we
+        # were acquiring the lock.
         if not self._rotation_needed():
             return
-        saved_umask = os.umask(0o077)
         lock_fd = self._acquire_rotation_lock()
         try:
             if not self._rotation_needed():
                 return
-            super().doRollover()
-            # Belt-and-suspenders: chmod INSIDE the lock + try
-            # block (before ``_release_rotation_lock``) so even if a
+            # Truncate in place. ``seek(0)`` first so the file position
+            # is at the start; ``truncate(0)`` empties it. The next
+            # ``emit`` appends from position 0. The file keeps its
+            # identity (same path/inode), so the inter-process lock file
+            # (``<name>.lock``) and any open handles stay valid.
+            self.stream.seek(0)
+            self.stream.truncate(0)
+            # Belt-and-suspenders: chmod INSIDE the lock so even if a
             # caller bypassed the umask (or a future refactor swapped
             # the open mode), the file is still re-locked to 0o600
-            # before any other process can observe it. The umask
-            # already ensures 0o600 at creation; this chmod guarantees
-            # it post-hoc and runs in the same critical section that
-            # holds the inter-process rotation lock.
+            # before any other process can observe it.
             #
             # Logged (not silently suppressed) so an operator can see
-            # when the post-rotation chmod fails — e.g. on NFS with
-            # root-squash, on a read-only filesystem, or under a
-            # SELinux policy that denies chmod. A silent suppress
-            # would leave the freshly-rotated log file world-readable
-            # (0o644) indefinitely with no signal that the privacy
-            # guarantee had degraded. The WARNING is the only
-            # operator-visible surface for this failure mode. Log
-            # only the exception class name (not ``str(exc)``, which
-            # can include the log file path → home-directory leak).
+            # when the chmod fails — e.g. on NFS with root-squash, on a
+            # read-only filesystem, or under a SELinux policy that
+            # denies chmod. Log only the exception class name (not
+            # ``str(exc)``, which can include the log file path →
+            # home-directory leak).
             if os.name == "posix":
                 try:
                     os.chmod(self.baseFilename, 0o600)
                 except OSError as exc:
                     log.warning(
-                        "[LOG-SETUP] post-rotation chmod to 0o600 failed "
+                        "[LOG-SETUP] post-truncate chmod to 0o600 failed "
                         "(%s) — log file may be world-readable; investigate "
                         "filesystem perms (NFS root-squash, read-only mount, "
                         "SELinux policy)",
@@ -1000,7 +997,8 @@ class _SecureRotatingFileHandler(logging.handlers.RotatingFileHandler):
                     )
         finally:
             self._release_rotation_lock(lock_fd)
-            os.umask(saved_umask)
+
+
 
 
 def close_devnull_files() -> None:

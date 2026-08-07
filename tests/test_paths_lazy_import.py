@@ -44,6 +44,23 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
+def _is_purged_module(key: str) -> bool:
+    """True for any module key that :func:`_purge_paths_and_config`
+    removes from ``sys.modules``.
+
+    Shared with the :func:`_restore_purged_modules` autouse fixture so
+    the purge set and the restore set can never drift apart.
+    """
+    return (
+        key == "voice_typer.server._paths"
+        or key == "voice_typer.server.config"
+        or key.startswith("voice_typer.server.config.")
+        or key.startswith("voice_typer.server.config_internals.")
+        or key.startswith("voice_typer.server.config_path_safety")
+        or key.startswith("voice_typer.server.config_validators")
+    )
+
+
 def _purge_paths_and_config() -> None:
     """Remove ``_paths``, ``config``, and related modules from
     ``sys.modules`` so the next ``importlib.import_module`` re-executes
@@ -56,17 +73,65 @@ def _purge_paths_and_config() -> None:
     ``_paths`` already in its namespace and the
     ``from voice_typer.server import _paths`` would not re-execute the
     module body.
+
+    NOTE: the deletion is process-global. The autouse
+    :func:`_restore_purged_modules` fixture snapshots the affected
+    entries BEFORE each test runs and puts the ORIGINAL module objects
+    back afterwards, so the purge cannot leak into the rest of the
+    suite (modules imported earlier, e.g.
+    ``voice_typer.server.task_scheduler``'s ``_paths`` binding, keep
+    referencing the original objects whose ``_config_dir`` lru_cache
+    still holds the real config dir).
     """
     for key in list(sys.modules):
-        if (
-            key == "voice_typer.server._paths"
-            or key == "voice_typer.server.config"
-            or key.startswith("voice_typer.server.config.")
-            or key.startswith("voice_typer.server.config_internals.")
-            or key.startswith("voice_typer.server.config_path_safety")
-            or key.startswith("voice_typer.server.config_validators")
-        ):
+        if _is_purged_module(key):
             del sys.modules[key]
+
+
+@pytest.fixture(autouse=True)
+def _restore_purged_modules():
+    """Snapshot and restore the modules purged by this module's tests.
+
+    Each test deliberately deletes ``_paths`` / ``config`` /
+    ``config_internals.*`` from ``sys.modules`` so it observes a cold
+    import. But the deletion is visible process-wide: any module that
+    was imported earlier in the suite keeps a direct reference to the
+    ORIGINAL module object (e.g. ``voice_typer.server.task_scheduler``
+    does ``from voice_typer.server import _paths`` at import time).
+    If the deleted entries are never put back, later tests resolve
+    through STALE objects — a ``Path.home`` / ``_config_dir``
+    monkeypatch lands on the fresh object in ``sys.modules`` while the
+    stale reference still returns the real config dir (order-dependent
+    failures in ``test_task_scheduler::TestPrewarmCommand`` and
+    ``test_perf_group2_wave1::TestConfigSaveBackupSkip``).
+
+    This fixture snapshots the affected ``sys.modules`` entries (and
+    the parent-package attributes that a re-import rebinds) before each
+    test, then restores them afterwards.
+    """
+    saved = {k: v for k, v in list(sys.modules.items()) if _is_purged_module(k)}
+    # Snapshot parent-package attributes: re-importing a submodule
+    # (e.g. ``voice_typer.server._paths``) rebinds the attribute on the
+    # parent ``voice_typer.server`` package, which ``from ... import``
+    # statements observe. Restore those too.
+    saved_attrs = {}
+    for key in saved:
+        parent_name, _, attr = key.rpartition(".")
+        parent = sys.modules.get(parent_name)
+        if parent is not None and hasattr(parent, attr):
+            saved_attrs[key] = (parent, attr, getattr(parent, attr))
+    yield
+    # Drop any freshly-imported objects created under these keys during
+    # the test (the test re-imported a NEW ``_paths`` / ``config``), then
+    # put the ORIGINAL objects back so later tests see the same module
+    # graph that existed before this file ran.
+    for key in list(sys.modules):
+        if _is_purged_module(key) and key not in saved:
+            del sys.modules[key]
+    sys.modules.update(saved)
+    for _key, (parent, attr, value) in saved_attrs.items():
+        if parent is not None:
+            setattr(parent, attr, value)
 
 
 # ── 1. Eager-import suppression ────────────────────────────────────────

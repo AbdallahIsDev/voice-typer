@@ -347,5 +347,108 @@ class TestAcceptLoopSourceContract:
         )
 
 
+# ─── 5. Windows exclusive-bind guard (P1-1.4) ─────────────────────────
+
+
+class TestAcceptTcpWindowsExclusiveBind:
+    """P1-1.4 (Windows parity): ``_accept_tcp`` must NOT set
+    ``SO_REUSEADDR`` on Windows (it has INVERSE semantics there — it lets
+    a second socket FORCIBLY bind a port already in use, so a stale
+    second backend could hijack port 9876 from the live backend and split
+    Electron's TCP connections across two servers), and MUST set it on
+    POSIX (where it skips TIME_WAIT rebinds). Mirrors the same guard in
+    ``transport._pick_available_port``.
+    """
+
+    def test_accept_tcp_skips_so_reuseaddr_on_windows(self, monkeypatch):
+        """On Windows, ``_accept_tcp`` must bind WITHOUT
+        ``SO_REUSEADDR`` — the default exclusive-bind semantics make a
+        second backend fail loudly with EADDRINUSE instead of silently
+        stealing the live backend's port."""
+        server = _make_server()
+
+        from voice_typer.server.ipc import transport_tcp as tcp_mod
+
+        created: list = []
+
+        class FakeSocket:
+            def __init__(self, *a, **k):
+                self.options: list = []
+                created.append(self)
+
+            def setsockopt(self, level, opt, val):
+                self.options.append((level, opt, val))
+
+            def bind(self, addr):
+                raise OSError(10048, "WSAEADDRINUSE simulated")
+
+            def close(self):
+                pass
+
+        # Patch the socket class + os.name at the transport_tcp module
+        # level so the bind path in _accept_tcp uses our fake.
+        monkeypatch.setattr(tcp_mod.socket, "socket", FakeSocket)
+        monkeypatch.setattr(tcp_mod.os, "name", "nt")
+
+        with contextlib.suppress(Exception):
+            server._accept_tcp(9876)
+
+        assert created, "_accept_tcp must create a socket before binding"
+        assert created[0].options == [], (
+            "on Windows, _accept_tcp must NOT call setsockopt(SO_REUSEADDR) "
+            "— exclusive bind is what prevents a second backend from "
+            "hijacking port 9876 (P1-1.4)"
+        )
+
+    def test_accept_tcp_sets_so_reuseaddr_on_posix(self, monkeypatch):
+        """On POSIX, ``_accept_tcp`` must keep setting ``SO_REUSEADDR``
+        so a socket in TIME_WAIT can be rebound on the next launch."""
+        server = _make_server()
+
+        from voice_typer.server.ipc import transport_tcp as tcp_mod
+
+        created: list = []
+
+        class FakeSocket:
+            def __init__(self, *a, **k):
+                self.options: list = []
+                created.append(self)
+
+            def setsockopt(self, level, opt, val):
+                self.options.append((level, opt, val))
+
+            def bind(self, addr):
+                raise OSError("bind failed (test)")
+
+            def close(self):
+                pass
+
+        monkeypatch.setattr(tcp_mod.socket, "socket", FakeSocket)
+        monkeypatch.setattr(tcp_mod.os, "name", "posix")
+
+        with contextlib.suppress(Exception):
+            server._accept_tcp(9876)
+
+        assert created, "_accept_tcp must create a socket before binding"
+        assert (socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) in created[0].options, (
+            "on POSIX, _accept_tcp must set SO_REUSEADDR (skips TIME_WAIT "
+            "rebinds) — P1-1.4 only removes it on Windows"
+        )
+
+    def test_accept_tcp_source_guards_so_reuseaddr_by_platform(self):
+        """Source-level pin: the SO_REUSEADDR setsockopt must be gated
+        on ``os.name != "nt"`` so a refactor can't silently reintroduce
+        the unconditional Windows hijack vector."""
+        source = inspect.getsource(IPCServer._accept_tcp)
+        assert 'if os.name != "nt":' in source, (
+            "_accept_tcp must gate SO_REUSEADDR on os.name != 'nt' (P1-1.4 "
+            "Windows parity — unconditional SO_REUSEADDR lets a second "
+            "backend hijack the port)"
+        )
+        assert "server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)" in source, (
+            "_accept_tcp must still set SO_REUSEADDR on POSIX"
+        )
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v", "--timeout=30"])

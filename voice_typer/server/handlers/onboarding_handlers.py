@@ -368,6 +368,42 @@ class OnboardingHandlersMixin(HandlerBase):
             self._respond_with_error(resp, exc, "onboarding_set_model")
         return resp
 
+    def _handle_onboarding_set_backend(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
+        """Handle the ``onboarding_set_backend`` IPC command.
+
+        Stores the local-vs-cloud choice from the wizard's Model step
+        (``"local"`` → download + run a local AI model, where the user
+        clicks Download explicitly — the app never auto-downloads;
+        ``"cloud"`` → connect a cloud transcription API, whose API key
+        + consent the wizard persists through the allowlisted
+        ``set_config`` fields, mirroring the Models page).
+        """
+        try:
+            validated, error = _validate_dict_payload(
+                data,
+                {
+                    "backend": {"type": str, "required": True},
+                },
+            )
+            if error:
+                return error
+            assert validated is not None  # narrowed by the error guard above
+            result = self.service.onboarding_set_backend(validated["backend"])
+            # Same ack-vs-error contract as the sibling onboarding
+            # handlers (see the class docstring).
+            if result.get("error") is not None:
+                log.warning(
+                    "[IPC] onboarding_set_backend: service returned error: %s",
+                    result.get("error"),
+                )
+                result = _redact_service_error(result)
+            resp["type"] = "ack" if result.get("error") is None else "error"
+            resp["data"] = result
+        except Exception as exc:
+            # generic WS-path envelope.
+            self._respond_with_error(resp, exc, "onboarding_set_backend")
+        return resp
+
     def _handle_onboarding_skip(self, data: object | None, resp: ResponseEnvelope) -> ResponseEnvelope | None:
         """Handle the ``onboarding_skip`` IPC command."""
         try:

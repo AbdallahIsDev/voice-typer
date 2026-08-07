@@ -110,9 +110,9 @@ def windows_env(monkeypatch, tmp_path):
     logger.setLevel(prev_level)
 
 
-def _make_handler(tmp_path) -> vt_log._SecureRotatingFileHandler:
+def _make_handler(tmp_path) -> vt_log._SecureTruncatingFileHandler:
     log_file = tmp_path / "app.log"
-    return vt_log._SecureRotatingFileHandler(str(log_file), maxBytes=1024, backupCount=2)
+    return vt_log._SecureTruncatingFileHandler(str(log_file), maxBytes=1024, backupCount=0)
 
 
 def test_windows_lock_timeout_fails_closed_and_warns(windows_env):

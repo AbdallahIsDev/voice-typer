@@ -39,6 +39,7 @@ import threading
 from typing import Any
 
 from voice_typer.server import i18n
+from voice_typer.server.asr_errors import ModelIntegrityError, ModelNotDownloadedError
 from voice_typer.server.asr_registry import AsrBackendRegistry
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.tray_types import AppState
@@ -88,6 +89,18 @@ class ModelManager:
         self._model_load_thread: threading.Thread | None = None
         self._model_load_attempted: bool = False
         self._pending_dictation: bool = False
+        # Latest background model-change / backend-change thread (AB-10
+        # non-blocking path). ``change_model`` / ``set_active_backend``
+        # spawn a ``ModelChange`` / ``BackendChange`` daemon thread and
+        # return immediately; these attrs track the most recently
+        # spawned thread so callers (tests, shutdown) can join it and
+        # know the full cycle — including the ``asr_backend_ready`` /
+        # ``asr_backend_load_failed`` publish — has completed. Concurrent
+        # change calls serialize on ``_model_change_lock``, so joining
+        # the LATEST thread also covers any earlier thread still waiting
+        # on the lock. Mirrors ``_model_load_thread``'s tracking role.
+        self._model_change_thread: threading.Thread | None = None
+        self._backend_change_thread: threading.Thread | None = None
         # When the user changes model during an active recording
         # we save config and notify "will change after current recording",
         # but previously never actually applied the change. We capture
@@ -311,13 +324,12 @@ class ModelManager:
                         beam_size=self._app.config.beam_size,
                         best_of=self._app.config.best_of,
                         condition_on_previous_text=self._app.config.condition_on_previous_text,
-                        # pass the live Config reference so
-                        # TranscriptionEngine._pre_download_model can
-                        # read huggingface_consent without crashing on
-                        # AttributeError.  Previously this kwarg was
-                        # missing, so self.config was None in the engine
-                        # and the consent check raised AttributeError
-                        # on every uncached Whisper download.
+                        # pass the live Config reference so the engine
+                        # can read huggingface_consent / model settings
+                        # without crashing on AttributeError. Previously
+                        # this kwarg was missing, so self.config was None
+                        # in the engine and consent/cache reads crashed
+                        # on every uncached model load.
                         config=self._app.config,
                     ),
                 )
@@ -357,6 +369,47 @@ class ModelManager:
             raise
 
     # ── Loading ────────────────────────────────────────────────────────
+
+    def _notify_model_load_refused(self, exc: Exception, backend: str | None = None) -> str:
+        """Surface a model-load refusal (not downloaded / integrity failed).
+
+        The app NEVER downloads models automatically, so a
+        ``ModelNotDownloadedError`` (or ``ModelIntegrityError``) at load
+        time is a UX signal: tell the user the model isn't on disk and
+        point them at the Models page — instead of the generic "model
+        load failed" message that implies a transient, retryable error.
+
+        Returns a short human-readable ``failure_reason`` string for
+        callers that publish an ``asr_backend_load_failed`` event.
+        """
+        backend_name = (backend or getattr(self._app.config, "asr_backend", "unknown")).title()
+        if isinstance(exc, ModelIntegrityError):
+            reason = i18n.t(
+                "state.model_manager.model_integrity_failed",
+                backend=backend_name,
+            )
+        else:
+            reason = i18n.t(
+                "state.model_manager.model_not_downloaded",
+                backend=backend_name,
+            )
+        log.warning("[MODEL] %s model load refused: %s", backend_name, exc)
+        try:
+            self._app.tray.set_state(AppState.ERROR, reason)
+            self._app.tray.notify(
+                APP_NAME,
+                i18n.t(
+                    "notify.model_manager.model_not_downloaded",
+                    backend=backend_name,
+                ),
+            )
+        except Exception:
+            # A tray failure must never break the load-refusal path.
+            log.debug(
+                "[MODEL] tray notification for load refusal failed (non-fatal)",
+                exc_info=True,
+            )
+        return reason
 
     def load_background(self) -> None:
         """Background worker: create + load the transcription engine.
@@ -466,6 +519,13 @@ class ModelManager:
                 # tray with ERROR state.
                 self._pending_dictation = False
 
+        except (ModelNotDownloadedError, ModelIntegrityError) as exc:
+            # The selected model isn't on disk (or failed integrity
+            # verification) — the app never auto-downloads. Surface an
+            # actionable message and do NOT auto-start any pending
+            # dictation (it would fail the same way).
+            self._notify_model_load_refused(exc, backend=backend_name)
+            self._pending_dictation = False
         except Exception:
             log.exception(
                 "[STARTUP] Background model load crashed (backend=%s, model=%s)",
@@ -592,7 +652,13 @@ class ModelManager:
         def on_progress(msg: str):
             self._app.tray.set_state(AppState.LOADING, msg)
 
-        success = self._registry.load_with_fallback(progress_callback=on_progress)
+        try:
+            success = self._registry.load_with_fallback(progress_callback=on_progress)
+        except (ModelNotDownloadedError, ModelIntegrityError) as exc:
+            # Whisper tiny.en isn't downloaded either — surface the
+            # actionable message instead of crashing the hotkey thread.
+            self._notify_model_load_refused(exc, backend="whisper")
+            return
         if success:
             #  PERF-015 LRU eviction — touch the
             # freshly-loaded backend so it's tracked, then evict the
@@ -748,6 +814,9 @@ class ModelManager:
                 log.info("[MODEL] Loaded successfully")
             else:
                 raise RuntimeError("All backends failed to load")
+        except (ModelNotDownloadedError, ModelIntegrityError) as exc:
+            _failed_backend = getattr(self._app.config, "asr_backend", "unknown")
+            self._notify_model_load_refused(exc, backend=_failed_backend)
         except Exception as e:
             # Include the model name and backend
             # info so the failure is actionable — the user can see which
@@ -847,6 +916,10 @@ class ModelManager:
             name="ModelChange",
             daemon=True,
         )
+        # Track the thread BEFORE start so callers joining
+        # ``_model_change_thread`` never miss it (a fast load could
+        # otherwise finish between ``start()`` and the assignment).
+        self._model_change_thread = thread
         thread.start()
         # track the thread centrally so shutdown_all() can
         # signal-and-join it. Best-effort — re-registering "ModelChange"
@@ -1066,6 +1139,8 @@ class ModelManager:
             )
             self._app.tray.set_state(AppState.ERROR, f"{new_backend.title()} model failed to load")
             return f"{new_backend.title()} model failed to load"
+        except (ModelNotDownloadedError, ModelIntegrityError) as exc:
+            return self._notify_model_load_refused(exc, backend=new_backend)
         except Exception as exc:
             log.exception("[MODEL] Model load failed: %s", exc)
             self._app.tray.set_state(AppState.ERROR, f"Model failed: {exc}")
@@ -1221,6 +1296,8 @@ class ModelManager:
             name="BackendChange",
             daemon=True,
         )
+        # Track the thread BEFORE start (see ``_change_model_background``).
+        self._backend_change_thread = thread
         thread.start()
         try:
             self._app._thread_registry.register(
@@ -1371,6 +1448,9 @@ class ModelManager:
                         f"{backend.title()} backend failed to load",
                     )
                     load_outcome = False
+            except (ModelNotDownloadedError, ModelIntegrityError) as exc:
+                self._notify_model_load_refused(exc, backend=backend)
+                load_outcome = False
             except Exception as exc:
                 log.exception("[MODEL] set_active_backend load failed: %s", exc)
                 self._app.tray.set_state(AppState.ERROR, f"Backend failed: {exc}")

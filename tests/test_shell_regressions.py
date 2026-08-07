@@ -396,47 +396,36 @@ class TestTrayWindowShellTrueRemoved:
         )
 
 
-# ── 3d. _electron_build._build_electron ────────────────────────────────
+# ── 3d. _electron_build._build_electron (removed) ────────────────────
 
 
-class TestBuildElectronShellTrueRemoved:
-    """S-7: ``_build_electron`` no longer falls back to shell=True."""
+class TestBuildElectronRemoved:
+    """S-7 follow-up: ``_build_electron`` (npm run build at launch time)
+    was removed from :mod:`voice_typer.server._electron_build`.
 
-    def test_uses_resolved_npm_path_when_available(self, monkeypatch):
-        """When ``_npm_command`` returns a list, subprocess.run is called with that list."""
+    The launcher no longer builds the Electron app from source at launch
+    — packaged installs ship pre-built bundles (``out/main/index.js``)
+    and the dev path uses ``npm run dev``.  ``_ensure_built_and_launch``
+    now fails fast (no subprocess build, hence no shell=True risk)
+    when the pre-built main entry is missing.
+    """
+
+    def test_build_electron_no_longer_defined(self):
+        """Removal guard: the auto-build function must NOT exist — a
+        regression to build-on-launch (with its subprocess + shell
+        handling) is a security regression."""
         from voice_typer.server import _electron_build as eb
 
-        resolved = ["/resolved/npm", "run", "build"]
-        monkeypatch.setattr(eb, "_npm_command", lambda script="build": resolved)
+        assert not hasattr(eb, "_build_electron")
 
-        captured: dict = {}
+    def test_ensure_built_and_launch_does_not_build_when_missing(self, monkeypatch):
+        """When the pre-built main entry is absent, the launcher fails
+        fast instead of invoking ``npm run build``."""
+        from voice_typer.server import autostart_launcher as al
 
-        def fake_run(argv, **kwargs):
-            captured["argv"] = list(argv)
-            captured["shell"] = kwargs.get("shell", False)
-            result = MagicMock()
-            result.returncode = 0
-            result.stderr = b""
-            return result
-
-        monkeypatch.setattr(subprocess, "run", fake_run)
-        assert eb._build_electron() is True
-        assert captured["argv"] == resolved
-        assert captured["shell"] is False
-
-    def test_returns_false_when_npm_unresolvable(self, monkeypatch):
-        """When ``_npm_command`` returns None, log and return False — no shell=True."""
-        from voice_typer.server import _electron_build as eb
-
-        monkeypatch.setattr(eb, "_npm_command", lambda script="build": None)
-
-        run_calls: list = []
-        monkeypatch.setattr(
-            subprocess,
-            "run",
-            lambda *a, **kw: run_calls.append((a, kw)) or MagicMock(returncode=0, stderr=b""),
-        )
-        assert eb._build_electron() is False
-        assert run_calls == [], (
-            f"S-7: when _npm_command returns None, subprocess.run must not be called at all (got {run_calls!r})."
-        )
+        monkeypatch.setattr(al, "_electron_binary", lambda: "/fake/electron")
+        monkeypatch.setattr(al, "_main_entry_built", lambda: False)
+        # If _ensure_built_and_launch attempted a build it would raise
+        # AttributeError (the module has no _build_electron) — returning
+        # False without a build is the required behaviour.
+        assert al._ensure_built_and_launch(hidden=True) is False

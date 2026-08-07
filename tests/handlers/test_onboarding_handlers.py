@@ -18,6 +18,7 @@ Set-style handlers (validate a single field, return ``{type: ack|error, data: <r
 - ``_handle_onboarding_set_microphone`` — validates ``mic_id: str`` (required).
 - ``_handle_onboarding_set_hotkey`` — validates ``hotkey: str`` (default ``<caps_lock>``).
 - ``_handle_onboarding_set_model`` — validates ``model: str`` (default ``small.en``).
+- ``_handle_onboarding_set_backend`` — validates ``backend: str`` (required — the explicit local-vs-cloud choice).
 
 Decision handlers (return ack or error based on whether the service
 result contains an ``error`` key):
@@ -180,6 +181,54 @@ class TestOnboardingSetModel:
         # ``legacy_code`` alias was removed once the renderer migrated).
         assert resp["data"]["code"] == "client.invalid_field"
         assert resp["data"]["field"] == "model"
+
+
+class TestOnboardingSetBackend:
+    """``_handle_onboarding_set_backend`` — validates ``backend`` (required).
+
+    The Model-step backend choice ("local" vs "cloud") is the user's
+    explicit decision — the app never auto-downloads a model. The field
+    is required (no default) so the wizard cannot silently fall back to
+    one backend when the renderer forgot to send the choice.
+    """
+
+    def test_happy_path_with_local(self, ipc_server, fake_service):
+        fake_service.onboarding_set_backend.return_value = {"ok": True}
+        resp = ipc_server._handle_onboarding_set_backend({"backend": "local"}, {})
+        assert resp["type"] == "ack"
+        fake_service.onboarding_set_backend.assert_called_once_with("local")
+
+    def test_happy_path_with_cloud(self, ipc_server, fake_service):
+        fake_service.onboarding_set_backend.return_value = {"ok": True}
+        resp = ipc_server._handle_onboarding_set_backend({"backend": "cloud"}, {})
+        assert resp["type"] == "ack"
+        fake_service.onboarding_set_backend.assert_called_once_with("cloud")
+
+    def test_missing_backend_returns_missing_field_error(self, ipc_server, fake_service):
+        """``backend`` is required — an empty payload must NOT silently
+        default to one of the choices."""
+        resp = ipc_server._handle_onboarding_set_backend({}, {})
+        assert resp["type"] == "error"
+        # Required field absent → ``client.missing_field`` (not
+        # ``client.invalid_field``, which is for wrong-type values).
+        assert resp["data"]["code"] == "client.missing_field"
+        assert resp["data"]["field"] == "backend"
+
+    def test_non_string_backend_returns_invalid_field_error(self, ipc_server, fake_service):
+        resp = ipc_server._handle_onboarding_set_backend({"backend": 42}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_field"
+        assert resp["data"]["field"] == "backend"
+
+    def test_service_error_flips_response_to_error(self, ipc_server, fake_service):
+        """An invalid choice surfaces the service's ValueError as an
+        error envelope (``{type: error}``), never a silent ack."""
+        fake_service.onboarding_set_backend.return_value = {
+            "error": "unknown onboarding backend choice: 'nope'",
+        }
+        resp = ipc_server._handle_onboarding_set_backend({"backend": "nope"}, {})
+        assert resp["type"] == "error"
+        assert resp["data"] == {"error": "unknown onboarding backend choice: 'nope'"}
 
 
 class TestOnboardingSkipAndApply:

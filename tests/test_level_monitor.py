@@ -544,6 +544,12 @@ class TestHeavyWorkOutsideLock:
         processor = MagicMock()
         processor.process_chunk.side_effect = slow_filter
         lm._level_processor = processor
+        # Clear the stashed rebuild config: a prior test (e.g. a
+        # config_applier test) may have populated
+        # ``_state._level_processor_config`` via ``update_level_processor``.
+        # ``start_monitoring`` rebuilds the processor from that stash on
+        # EVERY start, which would clobber the injected mock below.
+        lm._level_processor_config = None
         # ``_level_bar_filtered=False`` (the default cosmetic-bar
         # mode) intentionally SKIPS the filter chain — the user only
         # wants to see the raw mic level. The test needs the filter

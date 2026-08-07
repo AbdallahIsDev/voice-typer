@@ -1,6 +1,6 @@
 """Shared Electron-build helpers for the two launcher modules.
 
-Single source of truth for the **build-first → ``electron .`` → ``npm run dev``
+Single source of truth for the **locate → ``electron .`` → ``npm run dev``
 fallback** strategy that was previously copy-pasted into both
 :mod:`voice_typer.server.electron_launcher` and
 :mod:`voice_typer.server.autostart_launcher`.
@@ -8,8 +8,8 @@ fallback** strategy that was previously copy-pasted into both
 Why this module exists
 ----------------------
 The two launchers each defined their own copies of ``_electron_binary``,
-``_main_entry_built``, ``_npm_command``, ``_spawn_flags``,
-``_electron_log_files`` and ``_build_electron``.  Bug fixes had to be
+``_main_entry_built``, ``_npm_command``, ``_spawn_flags`` and
+``_electron_log_files``.  Bug fixes had to be
 applied to both copies, and they had already drifted in intent:
 
 * ``autostart_launcher._npm_command`` carried the
@@ -31,13 +31,16 @@ Strategy summary
 ----------------
 1. **Locate** the dev-mode Electron binary
    (``node_modules/electron/dist/electron[.exe]``).
-2. **Build if needed**: if ``out/main/index.js`` is missing, run
-   ``npm run build`` to produce the compiled bundles.
+2. **Verify the pre-built bundles** (``out/main/index.js``) exist — the
+   app is NEVER built from source at launch time.  A packaged install
+   ships pre-built bundles; when they are missing the launcher fails
+   fast so the caller can fall back to the dev path.
 3. **Launch ``electron .``** with ``VT_PYTHON_PORT`` / ``VT_IPC_TOKEN``
    env vars (set by the caller) so Electron's main process connects to
    the Python backend instead of spawning its own.
-4. **Last-resort fallback**: if the binary is missing or the build
-   fails, fall back to ``npm run dev`` (Vite dev server + Electron).
+4. **Last-resort fallback**: if the binary is missing or the pre-built
+   bundles are absent, fall back to ``npm run dev`` (Vite dev server +
+   Electron).
 
 The orchestration of these steps (when to fall back, what env vars to
 set, what to do with the child PID) lives in the launcher modules — this
@@ -265,8 +268,8 @@ def _electron_log_files() -> dict:
         # could grow them unbounded. Mirror the 5 MiB cap and keep one
         # backup (``.1``) — Electron crash logs are typically only
         # useful for the most recent crash, so one backup is enough.
-        _rotate_if_oversized(stdout_path)
-        _rotate_if_oversized(stderr_path)
+        _truncate_if_oversized(stdout_path)
+        _truncate_if_oversized(stderr_path)
         # "a" mode so logs accumulate across launches; line-buffered so
         # the user sees output in near-real-time when tailing.
         stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
@@ -294,99 +297,45 @@ def _electron_log_files() -> dict:
 _ELECTRON_LOG_MAX_BYTES = 5 * 1024 * 1024
 
 
-def _rotate_if_oversized(path: Path) -> None:
-    """Rename ``path`` to ``path.with_suffix('.1')`` if it exceeds the cap.
+def _truncate_if_oversized(path: Path) -> None:
+    """Truncate ``path`` in place if it exceeds the cap (single-file policy).
 
-    Best-effort: any failure (permission, race with another process
-    rotating) is logged at DEBUG and swallowed — the caller proceeds to
-    open the file in append mode, which is still correct (just larger
-    than the cap for one more cycle).
+    The file is emptied (truncated to zero bytes) and keeps its single
+    identity — a numbered backup (``.1``) is NEVER created.  Best-effort:
+    any failure (permission, race with another process truncating) is
+    logged at DEBUG and swallowed — the caller proceeds to open the file
+    in append mode, which is still correct (just larger than the cap for
+    one more cycle).
     """
     try:
         if not path.exists():
             return
         if path.stat().st_size <= _ELECTRON_LOG_MAX_BYTES:
             return
-        backup = path.with_suffix(path.suffix + ".1")
-        # ``Path.rename`` overwrites on POSIX; on Windows it raises if
-        # the destination exists, so unlink first (best-effort).
-        try:
-            if backup.exists():
-                backup.unlink()
-        except OSError:
+        with open(path, "w", encoding="utf-8"):
             pass
-        path.rename(backup)
         log.debug(
-            "[ELECTRON_BUILD] Rotated %s (> %d bytes) to %s",
+            "[ELECTRON_BUILD] Truncated %s (> %d bytes)",
             path.name,
             _ELECTRON_LOG_MAX_BYTES,
-            backup.name,
         )
     except Exception as exc:
         log.debug(
-            "[ELECTRON_BUILD] Rotation check failed for %s: %s",
+            "[ELECTRON_BUILD] Truncation check failed for %s: %s",
             path,
             exc,
         )
 
 
-def _build_electron() -> bool:
-    """Run ``npm run build`` to produce the compiled Electron bundles.
-
-        Returns ``True`` on success, ``False`` on failure.  On success,
-        ``out/main/index.js``, ``out/preload/index.js``, and the renderer
-        bundles will all be present.
-
-        Uses :func:`_npm_command` to resolve the npm path (S-7 /
-    prefer the list form to avoid
-        ``shell=True`` so we don't propagate PATH/env to a shell).  When
-        ``_npm_command`` returns ``None`` (npm not resolvable on Windows),
-        logs an error and returns ``False`` — no ``shell=True`` fallback.
-
-        Captures stdout/stderr and logs the last 500 chars of stderr on
-        failure for diagnosability.  Times out after 180 seconds — long
-        enough for a cold Vite build, short enough that a hung build
-        doesn't wedge the launcher.
-    """
-    log.info("[ELECTRON_BUILD] Building Electron app (npm run build)...")
-    try:
-        cmd = _npm_command("build")
-        if cmd is None:
-            # S-7: npm truly not resolvable — log and bail (no shell=True).
-            log.error("[ELECTRON_BUILD] npm not found on PATH; cannot build. Install Node.js / npm or add it to PATH.")
-            return False
-        result = subprocess.run(
-            cmd,
-            cwd=str(CLIENT_DIR),
-            capture_output=True,
-            timeout=180,
-        )
-        if result.returncode == 0:
-            log.info("[ELECTRON_BUILD] npm run build succeeded")
-            return True
-        log.warning(
-            "[ELECTRON_BUILD] npm run build failed (exit=%d): %s",
-            result.returncode,
-            result.stderr.decode("utf-8", errors="replace")[-500:],
-        )
-        return False
-    except subprocess.TimeoutExpired:
-        log.warning("[ELECTRON_BUILD] npm run build timed out after 180s")
-        return False
-    except Exception as exc:
-        log.warning("[ELECTRON_BUILD] npm run build raised: %s", exc)
-        return False
-
-
-# substring markers for "sensitive" env var names. When a
-# child process inherits the parent's env (intentional — same-app
-# restart), we log ONLY the key names matching one of these markers so
-# a future leak in a downstream log is auditable. Values are NEVER
-# printed. The list is intentionally conservative — it catches the
-# common SaaS API-key conventions (OPENAI_API_KEY, ANTHROPIC_API_KEY,
-# HF_TOKEN, GEMINI_API_KEY, AZURE_SPEECH_KEY, etc.) and OS-level
-# secrets (AWS_SECRET_ACCESS_KEY, *_PASSWORD) without flagging benign
-# vars (PATH, HOME, LANG, VT_PYTHON_PORT, etc.).
+# substring markers for "sensitive" env var names. When a child process
+# inherits the parent's env (intentional — same-app restart), we log
+# ONLY the key names matching one of these markers so a future leak in a
+# downstream log is auditable. Values are NEVER printed. The list is
+# intentionally conservative — it catches the common SaaS API-key
+# conventions (OPENAI_API_KEY, ANTHROPIC_API_KEY, HF_TOKEN,
+# GEMINI_API_KEY, AZURE_SPEECH_KEY, etc.) and OS-level secrets
+# (AWS_SECRET_ACCESS_KEY, *_PASSWORD) without flagging benign vars
+# (PATH, HOME, LANG, VT_PYTHON_PORT, etc.).
 _SENSITIVE_ENV_MARKERS = (
     "_API_KEY",
     "_SECRET",
@@ -400,20 +349,22 @@ _SENSITIVE_ENV_MARKERS = (
 def _redact_sensitive_env_keys(env: dict[str, str]) -> list[str]:
     """Return the NAMES of env keys that look sensitive.
 
-    helper used by the Electron / autostart launchers
-        right after ``env = dict(os.environ)`` to surface (without values)
-        which sensitive-looking env vars the child will inherit. The list
-        is intended for an audit log line — it is NOT a security control.
+    Helper used by the Electron / autostart launchers right after
+    ``env = dict(os.environ)`` to surface (without values) which
+    sensitive-looking env vars the child will inherit. The list is
+    intended for an audit log line — it is NOT a security control.
     """
-    return sorted(key for key in env if any(marker in key.upper() for marker in _SENSITIVE_ENV_MARKERS))
+    return sorted(
+        key for key in env if any(marker in key.upper() for marker in _SENSITIVE_ENV_MARKERS)
+    )
 
 
 def _log_sensitive_env_keys(env: dict[str, str], *, context: str) -> None:
     """Log (at INFO) the names of sensitive env keys present in ``env``.
 
-    only the KEY NAMES are logged — values are never
-        printed. If no sensitive keys are present, nothing is logged
-        (avoids log noise on the common case).
+    Only the KEY NAMES are logged — values are never printed. If no
+    sensitive keys are present, nothing is logged (avoids log noise on
+    the common case).
     """
     sensitive = _redact_sensitive_env_keys(env)
     if sensitive:

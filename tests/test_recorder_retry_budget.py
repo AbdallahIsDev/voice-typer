@@ -180,15 +180,36 @@ class TestRetryBudgetSlidingWindow:
         from the deque, so a slow-flapping device (e.g. one disconnect
         per 5 minutes) never reaches the threshold. This guards against
         a regression where the deque grows unbounded."""
+        import time as _time
+
         import voice_typer.server.recording as recording_mod
         from voice_typer.server.recording import Recorder
 
         _patch_ok_stream(monkeypatch, recording_mod)
 
+        # Deterministic clock: ``time.monotonic()`` on Windows is
+        # quantized to the ~15.6ms system timer tick, so a real 0.06s
+        # ``time.sleep`` can advance the clock by only 3 ticks (46.8ms)
+        # — LESS than the 0.05s window — making the prune step miss and
+        # the flap detector spuriously fire (~7% flake rate observed).
+        # Patch ``time.monotonic`` with a fake clock the test advances
+        # explicitly. Both ``recorder.py`` and ``disconnect_handler.py``
+        # do ``import time`` (same stdlib module), so this patch covers
+        # the flap-detection timestamps; ``monkeypatch`` restores it
+        # after the test. A frozen clock also keeps the mic-watcher /
+        # health-checker TTL logic from firing mid-test (more
+        # deterministic, no spurious disconnects).
+        fake_clock = {"t": 1000.0}
+
+        def _fake_monotonic() -> float:
+            return fake_clock["t"]
+
+        monkeypatch.setattr(_time, "monotonic", _fake_monotonic)
+
         config = MagicMock(sample_rate=16000, microphone=None)
         r = Recorder(config)
-        # Shrink the window to 0.05s so we don't have to sleep for 60s
-        # in the test.
+        # Shrink the window to 0.05s so we don't have to wait for a
+        # real 60s.
         r._flapping_window_seconds = 0.05
         r.start()
         try:
@@ -203,11 +224,10 @@ class TestRetryBudgetSlidingWindow:
             assert len(r._restart_timestamps) == 2
             assert device_lost_calls == []
 
-            # Sleep past the window so the next restart's prune step
-            # evicts the two old timestamps.
-            import time as _time
-
-            _time.sleep(0.06)
+            # Advance the clock past the window so the next restart's
+            # prune step evicts the two old timestamps (with a margin
+            # well above the 15.6ms tick quantization).
+            fake_clock["t"] += 0.06
 
             # Third restart — the prune step evicts the 2 old entries
             # BEFORE the threshold check, so the deque has only 1 entry

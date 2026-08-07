@@ -45,6 +45,39 @@ from voice_typer.server.ipc.rate_limiter import (
 )
 from voice_typer.server.ipc.validation import ResponseEnvelope
 
+# PERF-SHUTDOWN-001: the TCP dispatch pool's ``thread_name_prefix``,
+# used as a fallback self-join detector (see ``_in_pool_worker``).
+_TCP_DISPATCH_POOL_PREFIX = "tcp-dispatch"
+
+
+def _in_pool_worker(pool) -> bool:
+    """Return ``True`` when the current thread is a worker of ``pool``.
+
+    PERF-SHUTDOWN-001: detects the quit-path self-join. ``quit_app``
+    is dispatched via ``_tcp_dispatch_and_respond`` onto the
+    ``tcp-dispatch`` pool, so the quit handler calls ``app.quit()`` →
+    ``_do_cleanup()`` → ``ipc_server.stop()`` FROM INSIDE one of that
+    pool's own workers. Draining the pool there is a self-join that
+    can never complete — ``shutdown(wait=True)`` waits for EVERY
+    worker, including the caller blocked inside ``stop()`` — so the
+    drain burned its full 5s timeout on every quit (measured: quit
+    took 8.6s, of which 5s was this deadlock).
+
+    ``ThreadPoolExecutor`` exposes its live worker threads as the
+    private ``_threads`` set; membership there is exact and stable
+    across CPython 3.9+ (populated at worker start, cleared at exit).
+    Fall back to the ``thread_name_prefix`` we construct the pool with
+    if the attribute is ever absent (e.g. monkeypatched executors in
+    tests).
+    """
+    if pool is None:
+        return False
+    current = threading.current_thread()
+    workers = getattr(pool, "_threads", None)
+    if workers is not None:
+        return current in workers
+    return current.name.startswith(_TCP_DISPATCH_POOL_PREFIX)
+
 
 class LifecycleMixin:
     """Lifecycle methods for :class:`IPCServer`.
@@ -318,11 +351,21 @@ class LifecycleMixin:
         if dispatch_pool is not None:
             dispatch_pool.shutdown(wait=False, cancel_futures=True)
             self._tcp_dispatch_pool = None
-            dispatch_join = threading.Thread(target=dispatch_pool.shutdown, kwargs={"wait": True}, daemon=True)
-            dispatch_join.start()
-            dispatch_join.join(timeout=5.0)
-            if dispatch_join.is_alive():
-                log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s — proceeding anyway")
+            # PERF-SHUTDOWN-001: skip the drain wait when ``stop()`` is
+            # called from inside the dispatch pool itself. ``quit_app``
+            # runs on a ``tcp-dispatch`` worker, so draining the pool
+            # here would wait on a worker that is blocked inside this
+            # very ``stop()`` call — a self-join that always burned the
+            # full 5s timeout on quit. The caller exits right after
+            # ``stop()`` returns, ``cancel_futures=True`` already
+            # dropped queued work, and the accept-loop's own drain
+            # covers any remaining in-flight handlers.
+            if not _in_pool_worker(dispatch_pool):
+                dispatch_join = threading.Thread(target=dispatch_pool.shutdown, kwargs={"wait": True}, daemon=True)
+                dispatch_join.start()
+                dispatch_join.join(timeout=5.0)
+                if dispatch_join.is_alive():
+                    log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s — proceeding anyway")
         pool = self._tcp_worker_pool
         if pool is not None:
             pool.shutdown(wait=False, cancel_futures=True)

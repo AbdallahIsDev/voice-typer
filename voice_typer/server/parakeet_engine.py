@@ -1,7 +1,9 @@
 """Parakeet TDT v3 ASR engine — optional backend alongside Whisper/Qwen.
 
 Uses NVIDIA's parakeet-tdt-0.6b-v3 via HuggingFace Transformers.
-Auto-downloads model weights on first load via huggingface_hub.
+Model weights are NEVER auto-downloaded — the user must explicitly
+download them (Models page Download button, or the onboarding wizard)
+before the engine can load them from the local HF cache.
 Falls back gracefully on missing deps, CUDA errors, etc.
 """
 
@@ -20,7 +22,6 @@ from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.hallucination import log_hallucination_rejection, should_reject_low_audio_hallucination
 from voice_typer.server.i18n import DEFAULT_LOCALE
-from voice_typer.server.security import MODEL_HASHES as _MODEL_HASHES
 
 log = logging.getLogger(__name__)
 
@@ -111,18 +112,6 @@ class _AbortStoppingCriteria:
         return self._abort_event.is_set()
 
 
-# SEC-audit-005 / CRIT-5 / SEC-2: allow-list imported from the shared
-# ``_model_integrity`` module so ``parakeet_engine`` and ``asr_setup``
-# can never drift out of sync.  See ``_model_integrity.py`` for the
-# sync requirement with ``model_hashes.json`` — pinned files in the
-# manifest MUST be a subset of these allow-patterns, otherwise
-# ``verify_model_integrity()`` hard-fails on every download.
-from voice_typer.server._model_integrity import ALLOW_PATTERNS_PARAKEET as _PARAKEET_ALLOW_PATTERNS  # noqa: E402
-
-# SEC-audit-005: Pin to a specific revision for reproducibility.
-# Use the centralized MODEL_HASHES manifest from security.py.
-_PARAKEET_REVISION = _MODEL_HASHES.get(_PARAKERT_MODEL_ID, {}).get("revision", "main")
-
 # Parakeet's Conformer encoder has a practical limit of ~30s of audio.
 # Longer recordings are split into overlapping chunks.  3s overlap gives
 # the model audio context at boundaries so it doesn't hallucinate repeated
@@ -166,44 +155,12 @@ _MAX_BOUNDARY_SKIP_WORDS = 2
 _OVERLAP_DEDUP_WINDOW = 3
 
 
-def _cleanup_hf_cache_dir(model_dir: "Any") -> None:
-    """Cache cleanup: best-effort delete a tampered HF cache dir.
-
-    this local helper now delegates to the canonical
-    ``voice_typer.server._hf_cache_cleanup.cleanup_hf_cache_dir`` so the
-    cleanup logic lives in one place (previously the same body was
-    duplicated 3x across ``transcription.py``,
-    ``asr_setup.py``, and here). The
-    ``_hf_cache_cleanup`` module in turn delegates to
-    ``asr_utils.cleanup_hf_cache_dir`` where the actual implementation
-    lives.
-
-    The ``model_dir`` argument is preserved for backward compatibility
-    with the existing call site in ``ParakeetEngine.load()`` (which
-    already resolved the path from ``_PARAKERT_MODEL_ID``).  The
-    canonical helper re-resolves the path from the repo_id
-    (``_PARAKERT_MODEL_ID``) — the two paths are guaranteed identical
-    because both use ``_config_dir() / "huggingface" / "hub" /
-    f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"``.  The
-    ``model_dir`` argument is therefore accepted but ignored.
-
-    Best-effort: logs but does not raise if the cleanup itself fails
-    (e.g. file is locked on Windows, permission denied on POSIX).  The
-    integrity hard-fail (``return False`` / ``RuntimeError`` in the
-    caller) is the security gate; this cleanup is just hygiene so a
-    retry doesn't silently re-load the same tampered files.
-    """
-    from voice_typer.server._hf_cache_cleanup import cleanup_hf_cache_dir
-
-    # ``model_dir`` is intentionally ignored — see docstring above.
-    cleanup_hf_cache_dir(_PARAKERT_MODEL_ID, log_prefix="[PARAKEET]")
-
-
 class ParakeetEngine:
     """Wraps NVIDIA Parakeet TDT v3 ASR model via Transformers.
 
     Implements TranscriberProtocol so the app can swap backends transparently.
-    Model weights are auto-downloaded from HuggingFace on first load.
+    Model weights must be downloaded explicitly by the user (Models page or
+    onboarding wizard) before load; the engine never auto-downloads.
     """
 
     # Cache these class-level so they're imported ONCE, not per instance.
@@ -517,7 +474,16 @@ class ParakeetEngine:
         self._abort_event.clear()
 
     def load(self, progress_callback: Callable[[str], None] | None = None) -> bool:
-        """Download (if needed) and load the Parakeet model.
+        """Load the Parakeet model from the local HF cache (NEVER downloads).
+
+        The app never downloads models automatically — the user must
+        explicitly download the Parakeet weights (Models page Download
+        button, or the onboarding wizard) before they can be loaded. If
+        the model is not in the local HuggingFace cache, a
+        ``ModelNotDownloadedError`` is raised so callers can direct the
+        user to the Models page. A cached-but-tampered model raises
+        ``ModelIntegrityError`` and is NOT deleted automatically
+        (deletion is an explicit user action via the Models page).
 
         Weights land in ``~/.voice-typer/huggingface/hub/``.
         Returns True on success, False on failure.
@@ -560,77 +526,20 @@ class ParakeetEngine:
                 time.perf_counter() - _cache_t0,
             )
             if not _cached:
-                # HuggingFace downloads
-                # reveal the user's IP to a US-headquartered third party
-                # and pull ~2.5 GB over the network.  Require explicit
-                # ``huggingface_consent`` before any network call,
-                # mirroring ``transcription.py::_pre_download_model``
-                # and ``service/model.py::_require_huggingface_consent``.
-                # The canonical gate lives in
-                # ``asr_utils._require_huggingface_consent`` so the
-                # safe-default (no consent → refuse to contact
-                # HuggingFace), the log message, the progress-callback
-                # wording, and the typed ``ConsentRequiredError``
-                # surface stay in sync across all three call sites.
-                from voice_typer.server.asr_utils import _require_huggingface_consent
+                # The app NEVER auto-downloads models — downloading is an
+                # explicit user action (Models page Download button, or
+                # the onboarding wizard). Refuse to load and raise the
+                # actionable error so the tray / IPC layer can point the
+                # user at the Models page.
+                from voice_typer.server.asr_errors import ModelNotDownloadedError
 
-                _require_huggingface_consent(
-                    self.config,
-                    _PARAKERT_MODEL_ID,
-                    log_prefix="[PARAKEET]",
-                    progress_message="HuggingFace consent required before downloading Parakeet model.",
-                    progress_callback=progress_callback,
+                raise ModelNotDownloadedError(
+                    "The Parakeet model is not downloaded yet. "
+                    "Open the Models page and click Download before using it.",
+                    model_size="parakeet",
+                    backend="parakeet",
+                    repo_id=_PARAKERT_MODEL_ID,
                 )
-
-                try:
-                    from huggingface_hub import snapshot_download
-
-                    if progress_callback:
-                        progress_callback("Downloading Parakeet model files...")
-                    log.info("[PARAKEET] Downloading model files...")
-
-                    # wrap snapshot_download in a retry loop with
-                    # exponential backoff. HuggingFace's CDN and the HF Hub
-                    # rate-limiter intermittently drop connections on large
-                    # (~2.5 GB) downloads — without retry, a single transient
-                    # failure aborts the load. Whisper's ``_pre_download_model``
-                    # path and the Models-page download both already retry via
-                    # the same helper; this brings the parakeet engine path to
-                    # parity. ``resume_download=True`` makes each retry continue
-                    # from the last byte received.
-                    from voice_typer.server.asr_utils import _download_with_retry
-
-                    _download_with_retry(
-                        lambda: snapshot_download(
-                            repo_id=_PARAKERT_MODEL_ID,
-                            revision=_PARAKEET_REVISION,
-                            allow_patterns=_PARAKEET_ALLOW_PATTERNS,
-                            resume_download=True,
-                        ),
-                        max_attempts=4,
-                        delays=(2.0, 4.0, 8.0, 16.0),
-                    )
-                except Exception as exc:
-                    log.exception("[PARAKEET] Model download failed")
-                    if progress_callback:
-                        progress_callback(f"Download failed: {exc}")
-                    return False
-
-                if not self._is_cached():
-                    # Include the expected cache path so the
-                    # operator can investigate (e.g. check permissions,
-                    # disk space, or HF cache state) without filing a bug.
-                    from voice_typer.server.config import _config_dir
-
-                    _miss_cache_root = _config_dir() / "huggingface" / "hub"
-                    _miss_model_dir = _miss_cache_root / f"models--{_PARAKERT_MODEL_ID.replace('/', '--')}"
-                    log.error(
-                        "[PARAKEET] Model not found in cache after download (expected at %s)",
-                        _miss_model_dir,
-                    )
-                    if progress_callback:
-                        progress_callback("Model not found in cache after download")
-                    return False
 
             # Verify model integrity
             # UNCONDITIONALLY on every load.  The previous code only
@@ -642,12 +551,11 @@ class ParakeetEngine:
             # SHA-256 check.  The ~1-3s SHA-256 cost is acceptable vs
             # the 5-50s ``from_pretrained`` load time.
 
-            # The verify path is the same regardless of cache-hit or
-            # post-download: enumerate snapshot dirs and call
+            # The verify path enumerates snapshot dirs and calls
             # ``verify_model_integrity`` against the manifest.  On
-            # failure we hard-fail (return False) and remove the
-            # offending ``models--<repo>`` directory so the next
-            # ``load()`` doesn't re-discover the tampered snapshot.
+            # failure we hard-fail — WITHOUT deleting the tampered
+            # files (deleting a model is an explicit user action via the
+            # Models page Delete button).
 
             #  (): call ``security.verify_model_integrity``
             # directly with the canonical (local_dir, repo_id) argument
@@ -687,23 +595,22 @@ class ParakeetEngine:
                     # ``asr_setup.download_parakeet_weights``.
                     log.error(
                         "[PARAKEET] Model integrity check failed%s for %s at %s. "
-                        "Refusing to load tampered model. To fix: rm -rf %s",
+                        "Refusing to load tampered model. To fix: delete it from the Models page.",
                         f" (OSError: {verify_exc})" if verify_exc else "",
                         _PARAKERT_MODEL_ID,
                         model_dir,
-                        model_dir,
                     )
                     if progress_callback:
-                        progress_callback("Model integrity check failed; refusing to load tampered or corrupted model.")
-                    # Cache cleanup on verify failure:
-                    # remove the offending ``models--<repo>`` directory
-                    # so the next ``load()`` doesn't re-discover the
-                    # tampered snapshot.  Best-effort: log but don't
-                    # raise if the cleanup itself fails (e.g. file is
-                    # locked on Windows) — the integrity hard-fail is
-                    # the security gate, the cleanup is just hygiene.
-                    _cleanup_hf_cache_dir(model_dir)
-                    return False
+                        progress_callback("Model integrity check failed; delete and re-download from the Models page.")
+                    from voice_typer.server.asr_errors import ModelIntegrityError
+
+                    raise ModelIntegrityError(
+                        "The cached Parakeet model failed integrity verification. "
+                        "Delete it and download it again from the Models page to recover.",
+                        model_size="parakeet",
+                        backend="parakeet",
+                        repo_id=_PARAKERT_MODEL_ID,
+                    )
 
             # Load model from cache
             try:

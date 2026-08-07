@@ -1450,34 +1450,34 @@ class TestCrashBufferUsesSecureRotatingFileHandler:
 
     def test_target_handler_is_secure_rotating_file_handler(self, tmp_path: Path):
         """When the ``log`` package is importable (the normal case),
-        ``install_memory_buffer`` must use ``_SecureRotatingFileHandler``
-        as the crash-buffer target — NOT a stock
-        ``RotatingFileHandler``."""
+        ``install_memory_buffer`` must use
+        ``_SecureTruncatingFileHandler`` as the crash-buffer target — NOT
+        a stock ``RotatingFileHandler``."""
         from voice_typer.server.crash_handler._memory_buffer import (
             install_memory_buffer,
         )
-        from voice_typer.server.log import _SecureRotatingFileHandler
+        from voice_typer.server.log import _SecureTruncatingFileHandler
 
         install_memory_buffer(tmp_path)
 
         assert crash_handler._crash_buffer_handler is not None, "target RotatingFileHandler must be installed"
-        assert isinstance(crash_handler._crash_buffer_handler, _SecureRotatingFileHandler), (
-            "crash-buffer target must be _SecureRotatingFileHandler "
+        assert isinstance(crash_handler._crash_buffer_handler, _SecureTruncatingFileHandler), (
+            "crash-buffer target must be _SecureTruncatingFileHandler "
             f"(got {type(crash_handler._crash_buffer_handler).__name__}); "
             "the insecure stock RotatingFileHandler fallback must NOT be used"
         )
 
     def test_target_handler_is_not_stock_rotating_file_handler(self, tmp_path: Path):
-        """Defense-in-depth: even though ``_SecureRotatingFileHandler``
+        """Defense-in-depth: even though ``_SecureTruncatingFileHandler``
         subclasses ``RotatingFileHandler``, the installed target's
         concrete type must NOT be the stock base class. This catches a
         regression where the fallback is reintroduced (the stock
         handler is an instance of ``RotatingFileHandler`` but not of
-        ``_SecureRotatingFileHandler``)."""
+        ``_SecureTruncatingFileHandler``)."""
         from voice_typer.server.crash_handler._memory_buffer import (
             install_memory_buffer,
         )
-        from voice_typer.server.log import _SecureRotatingFileHandler
+        from voice_typer.server.log import _SecureTruncatingFileHandler
 
         install_memory_buffer(tmp_path)
 
@@ -1486,9 +1486,9 @@ class TestCrashBufferUsesSecureRotatingFileHandler:
         # thereof), NOT the stock base class.
         assert type(crash_handler._crash_buffer_handler) is not logging.handlers.RotatingFileHandler, (
             "crash-buffer target must not be a stock RotatingFileHandler; "
-            "it must be _SecureRotatingFileHandler (or a subclass)"
+            "it must be _SecureTruncatingFileHandler (or a subclass)"
         )
-        assert isinstance(crash_handler._crash_buffer_handler, _SecureRotatingFileHandler)
+        assert isinstance(crash_handler._crash_buffer_handler, _SecureTruncatingFileHandler)
 
     def test_no_insecure_fallback_when_secure_handler_unavailable(self, tmp_path: Path, monkeypatch):
         """If the secure handler import fails, ``install_memory_buffer``
@@ -1509,10 +1509,10 @@ class TestCrashBufferUsesSecureRotatingFileHandler:
         )
 
         # Hide the secure handler from the package so the hoisted
-        # ``from voice_typer.server.log import _SecureRotatingFileHandler``
+        # ``from voice_typer.server.log import _SecureTruncatingFileHandler``
         # inside ``install_memory_buffer`` raises ``ImportError``.
         # ``monkeypatch.delattr`` restores the attribute at teardown.
-        monkeypatch.delattr(_log_pkg, "_SecureRotatingFileHandler", raising=False)
+        monkeypatch.delattr(_log_pkg, "_SecureTruncatingFileHandler", raising=False)
 
         with pytest.raises(ImportError):
             install_memory_buffer(tmp_path)

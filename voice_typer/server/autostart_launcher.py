@@ -84,7 +84,6 @@ from pathlib import Path
 from voice_typer.server import _paths
 from voice_typer.server._electron_build import (
     CLIENT_DIR,
-    _build_electron,
     _electron_binary,
     _electron_log_files,
     _log_sensitive_env_keys,
@@ -107,15 +106,15 @@ def _tauri_log_files() -> dict:
     falls back to :data:`subprocess.DEVNULL` so the launch still succeeds.
     """
     try:
-        from voice_typer.server._electron_build import _rotate_if_oversized
+        from voice_typer.server._electron_build import _truncate_if_oversized
         from voice_typer.server.config import _config_dir as _cfg
 
         log_dir = _cfg() / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
         stdout_path = log_dir / "tauri-stdout.log"
         stderr_path = log_dir / "tauri-stderr.log"
-        _rotate_if_oversized(stdout_path)
-        _rotate_if_oversized(stderr_path)
+        _truncate_if_oversized(stdout_path)
+        _truncate_if_oversized(stderr_path)
         stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
         stderr_fd = open(stderr_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
         return {
@@ -588,31 +587,35 @@ def _write_pid_file(launcher_pid: int, child_pid: int | None) -> None:
 
 
 def _ensure_built_and_launch(hidden: bool = False) -> bool:
-    """Build the Electron app if needed, then launch with ``electron .``.
+    """Launch the pre-built Electron app with ``electron .``.
 
     Returns True if the app was launched successfully, False otherwise.
 
+    The app is NEVER built from source here — the packaged install
+    ships pre-built bundles (``out/main/index.js``) and the dev path
+    uses ``npm run dev`` via :func:`_spawn_npm_run_dev`. When the
+    pre-built output is missing we fail fast so the caller falls back
+    to the dev path instead of silently invoking a build.
+
     Strategy:
       1. Find the dev-mode electron binary (``node_modules/electron/dist/``).
-      2. If the build output (``out/main/index.js``) is absent, run
-         ``npm run build`` first.
+      2. Verify the build output (``out/main/index.js``) exists — if it
+         is absent, return False (no auto-build).
       3. Launch ``electron .`` with the compiled bundles.
       4. If any step fails, return False so the caller can decide what
          to do (fall back to dev mode, show error, etc.).
     """
     exe = _electron_binary()
     if not exe:
-        log.warning("[AUTOSTART] electron binary not found -- cannot build+launch")
+        log.warning("[AUTOSTART] electron binary not found -- cannot launch built app")
         return False
 
     if not _main_entry_built():
-        log.info("[AUTOSTART] No pre-built output found -- building first")
-        if not _build_electron():
-            log.warning("[AUTOSTART] Build failed; cannot launch built app")
-            return False
-        if not _main_entry_built():
-            log.warning("[AUTOSTART] Build succeeded but out/main/index.js still missing")
-            return False
+        log.warning(
+            "[AUTOSTART] No pre-built output found -- launch via the dev path "
+            "(npm run dev) or a packaged install"
+        )
+        return False
 
     child = _launch_electron_built(exe, hidden=hidden)
     if child is None:

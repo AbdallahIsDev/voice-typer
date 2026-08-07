@@ -250,6 +250,11 @@ class TestCancelIdleUnloadTimer:
         # important assertion is that the timer was cancelled.
         with contextlib.suppress(Exception):
             mm.change_model("parakeet")
+        # Join the background ModelChange thread so its
+        # ``asr_backend_ready`` publish doesn't leak into a later test's
+        # event_bus subscription window.
+        if mm._model_change_thread is not None:
+            mm._model_change_thread.join(timeout=5.0)
         assert mm._idle_unload_timer is None, (
             "TY-11: change_model must cancel the idle-unload timer before starting the unload/reload cycle."
         )
@@ -277,6 +282,11 @@ class TestCancelIdleUnloadTimer:
         mm._registry.load_active.return_value = engine
         with contextlib.suppress(Exception):
             mm.set_active_backend("parakeet")
+        # Join the background BackendChange thread so its
+        # ``asr_backend_ready`` publish doesn't leak into a later test's
+        # event_bus subscription window.
+        if mm._backend_change_thread is not None:
+            mm._backend_change_thread.join(timeout=5.0)
         # The OLD timer must NO LONGER be the current one — either
         # cancelled (None) or replaced by a new Timer. Both prove the
         # cancel ran.

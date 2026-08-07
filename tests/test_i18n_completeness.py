@@ -567,6 +567,22 @@ RW2_BACKFILLED_PENDING_TRANSLATION: set[str] = {
     "models.speed.variable",
     "nav.group.system",
     "onboarding.modelOption",
+    # 12 onboarding keys added by the Model-step rework (explicit
+    # local-vs-cloud backend choice + in-wizard Download button + cloud
+    # API panel). Backfilled with English values via
+    # scripts/add_i18n_keys.py --all pending native translation.
+    "onboarding.backendAria",
+    "onboarding.backendLocalLabel",
+    "onboarding.backendLocalDescription",
+    "onboarding.backendCloudLabel",
+    "onboarding.backendCloudDescription",
+    "onboarding.cloudProviderLabel",
+    "onboarding.cloudNote",
+    "onboarding.downloadModel",
+    "onboarding.downloadModelAria",
+    "onboarding.downloadRetry",
+    "onboarding.downloadFailedHint",
+    "onboarding.summaryBackend",
     # 123 keys backfilled with English-fallback values across all
     # 7 non-English locales (dd139ae8 merged renderer changes that added
     # ~213 keys to en.json; the locale files were only partially updated,

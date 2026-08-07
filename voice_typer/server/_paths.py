@@ -278,6 +278,7 @@ def user_data_subpaths_for_purge() -> list[Path]:
         base / "huggingface",  # HF model cache (GBs)
         base / "venv",  # Python venv (hundreds of MB)
         base / "logs",  # rotating log files
+        base / "electron-profile",  # Electron/Chromium profile (caches, Local Storage)
         base / "history.db",  # SQLite history DB
         base / "history.db-wal",  # SQLite WAL (may not exist)
         base / "history.db-shm",  # SQLite SHM (may not exist)

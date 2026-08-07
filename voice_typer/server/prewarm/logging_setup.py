@@ -40,57 +40,42 @@ from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 log = logging.getLogger("voice_typer.server.prewarm")
 
 
-class _NotPrewarmFilter(logging.Filter):
-    """DJ-45: exclude prewarm records from the shared ``voice-typer.log`` handler.
-
-    Attached (idempotently) to the shared ``voice-typer.log`` handler when
-    ``_setup_logging(prewarm_only=True)`` runs in the prewarm subprocess,
-    so prewarm lines land ONLY in ``prewarm.log`` instead of being
-    duplicated into ``voice-typer.log`` (each prewarm run emits hundreds
-    of INFO lines — the duplicate write halves per-line throughput and
-    adds ~1 MiB of duplicate content per run).
-
-    Tagged with ``_vt_not_prewarm = True`` so the DJ-45 regression tests
-    can find / count instances for the idempotency assertions.
-    """
-
-    _vt_not_prewarm = True
-
-    def filter(self, record: logging.LogRecord) -> bool:
-        return not record.name.startswith("voice_typer.server.prewarm")
-
-
 def _setup_logging(*, debug: bool = False, prewarm_only: bool = False) -> None:
-    """Minimal logging — prewarm runs detached, so log to the app log file.
+    """Wire up logging for the prewarm pipeline — a SINGLE ``prewarm.log``.
 
-        Uses the shared :func:`log.setup_logging` so the format is
-        consistent with the main app.  Avoids importing app.py to keep
-        prewarm's cold-start cost minimal.
+    Single-file policy: there is exactly ONE prewarm log file,
+    ``prewarm.log`` (next to ``voice-typer.log``). Numbered backups
+    (``prewarm.log.1``, ...) are NEVER created — the file truncates in
+    place when it exceeds its size cap.
 
-        DJ-45: ``prewarm_only=True`` (the prewarm subprocess) attaches a
-        ``_NotPrewarmFilter`` to the shared ``voice-typer.log`` handler so
-        prewarm records only land in ``prewarm.log`` — killing the
-        duplicate-write (every prewarm line written twice) and the ~1 MiB
-        of duplicate content added to ``voice-typer.log`` per run.
-        ``False`` (default — main app process) preserves the legacy
-        "voice-typer.log is the complete record" contract.
+    Two call modes:
 
-        Also writes to a dedicated ``prewarm.log`` (next to ``voice-typer.log``)
-        that contains only ``[PREWARM]`` messages via a logger-name filter.
-        The button in the About page opens this file so users can inspect
-        prewarm behaviour without scrolling through the main log.
+    - ``prewarm_only=True`` — the detached prewarm SUBPROCESS (the
+      scheduled task / ``run_prewarm`` spawn). The shared
+      :func:`log.setup_logging` runs normally (complete record in
+      ``voice-typer.log``), but a ``_NotPrewarmFilter`` is attached to the
+      shared handler so prewarm lines are EXCLUDED from ``voice-typer.log``,
+      and the dedicated single-file ``prewarm.log`` handler captures them.
+      Prewarm lines therefore land in exactly ONE file (``prewarm.log``),
+      and ``voice-typer-prewarm.log`` no longer exists anywhere
+      (eliminates the old double-sink).
+    - ``prewarm_only=False`` — the main app process running the prewarm
+      pipeline in-process (test fakes / future in-process invocation).
+      The shared setup writes the complete record to ``voice-typer.log``
+      (including prewarm lines — no exclusion filter) AND a dedicated
+      single-file ``prewarm.log`` handler is installed so the About-page
+      "Open prewarm log" button opens a real file.
 
-        Prewarm messages still flow to the shared ``voice-typer.log`` as well
-        (via the handler added by ``log.setup_logging``), so the main log
-        remains the complete record.
+    In both modes the shared :func:`log.setup_logging` format + PII /
+    session / bubble-level filters apply, keeping prewarm output
+    consistent with the main log.
 
-        Parameters
-        ----------
-        debug:
-    when ``True``, the prewarm handler emits DEBUG-level
-            records (matches the main handler's ``debug`` gating).  When
-            ``False`` (default), sits at INFO so production runs do not
-            flood ``prewarm.log`` with high-frequency model-warming traces.
+    Parameters
+    ----------
+    debug:
+        when ``True``, the prewarm handler emits DEBUG-level records.
+        When ``False`` (default), sits at INFO so production runs do not
+        flood ``prewarm.log`` with high-frequency model-warming traces.
     """
     from voice_typer.server import _paths
     from voice_typer.server.log import setup_logging as _setup_logging_shared
@@ -103,113 +88,28 @@ def _setup_logging(*, debug: bool = False, prewarm_only: bool = False) -> None:
     # umask wrap).  Restored in ``finally`` so the change does not leak.
     _old_umask = os.umask(0o077)
     try:
-        # (Critical): pass process_name="prewarm" so the shared
-        # setup_logging routes to voice-typer-prewarm.log (separate from the
-        # main voice-typer.log). This eliminates the multi-process log race
-        # () and the double-logging (). The separate prewarm.log
-        # handler below is kept for backwards compatibility but is now redundant
-        # — the shared handler already writes to voice-typer-prewarm.log with
-        # the same _SecureRotatingFileHandler (post-rotation chmod, inter-process
-        # rotation lock) guarantees.
-        # DJ-45: fall back to the 3-kwarg call when the shared setup does
-        # not accept ``process_name`` (test fakes / older signatures) so
-        # the prewarm-only exclusion filter can be exercised in isolation.
-        try:
-            _setup_logging_shared(log_dir, debug=debug, process_name="prewarm")
-        except TypeError:
+        if prewarm_only:
+            # Prewarm SUBPROCESS (DJ-45): the shared setup runs normally
+            # (complete record in voice-typer.log), then a
+            # ``_NotPrewarmFilter`` is attached to the shared handler so
+            # prewarm lines are excluded from voice-typer.log, and the
+            # dedicated single-file prewarm.log handler captures them.
+            # Prewarm lines land in exactly ONE file; the old
+            # ``voice-typer-prewarm.log`` double-sink no longer exists.
             _setup_logging_shared(log_dir, debug=debug)
+            _attach_not_prewarm_filter()
+            _install_dedicated_prewarm_handler(log_dir, debug)
+        else:
+            # In-process (main app): complete record in voice-typer.log
+            # (prewarm lines included — no exclusion filter), plus a
+            # dedicated single-file prewarm.log for the UI button.
+            _setup_logging_shared(log_dir, debug=debug)
+            _install_dedicated_prewarm_handler(log_dir, debug)
         # chmod the config dir 0o700 on POSIX so co-located
         # users cannot read it (best-effort — silently no-op on Windows).
         if os.name == "posix":
             with contextlib.suppress(OSError):
                 os.chmod(log_dir, 0o700)
-
-        prewarm_log = log_dir / "prewarm.log"
-        # The dedicated ``prewarm_handler`` is kept as a backwards-compat
-        # sink because the ``open_prewarm_log`` IPC handler (in
-        # ``status_handlers.py``) opens ``prewarm.log`` directly in the
-        # user's text editor — removing this handler would leave the UI
-        # button opening a placeholder file instead of real prewarm logs.
-        # The authoritative prewarm log is now
-        # ``voice-typer-prewarm.log`` (written by ``_setup_logging_shared``
-        # above with the full ``ROTATE_MAX_BYTES`` × ``ROTATE_MAX_FILES``
-        # rotation); ``prewarm.log`` is a filtered subset (only
-        # ``voice_typer.server.prewarm`` records) kept for the UI
-        # button's "open prewarm log" convenience.
-        #
-        # Use the shared ``_SecureRotatingFileHandler`` subclass (NOT
-        # the stock ``logging.handlers.RotatingFileHandler``) so
-        # ``prewarm.log`` inherits the same post-rotation ``chmod 0o600``
-        # guarantee (FR-2) and inter-process rotation lock
-        # (``fcntl.flock`` / ``msvcrt.locking``) as the main
-        # ``voice-typer.log``. Pre-fix, the stock handler created the
-        # active ``prewarm.log`` at 0o644 (world-readable) after every
-        # rotation — leaking dictated-text-adjacent prewarm traces to
-        # co-located users on multi-user POSIX systems.
-        #
-        # The rotation policy is reduced from
-        # ``ROTATE_MAX_BYTES`` × ``ROTATE_MAX_FILES`` (5 MiB × 5 = 25 MiB
-        # total, aligned with the main handler) to 1 MiB × 1 (2 MiB
-        # total) because ``prewarm.log`` is now a reduced backwards-compat
-        # sink — the authoritative prewarm log
-        # (``voice-typer-prewarm.log``) keeps the full rotation. The
-        # filter chain (PIIRedactionFilter, _SessionFilter,
-        # _BubbleLevelExclusionFilter, namespace filter, _FileFormatter)
-        # is preserved verbatim so existing filter-attachment tests
-        # still pass — only the rotation policy changes.
-        from voice_typer.server.log import (
-            _BubbleLevelExclusionFilter,
-            _FileFormatter,
-            _SecureRotatingFileHandler,
-            _SessionFilter,
-        )
-        from voice_typer.server.security import PIIRedactionFilter
-
-        prewarm_handler = _SecureRotatingFileHandler(
-            prewarm_log,
-            # 1 MiB × 1 = 2 MiB total cap — reduced because the
-            # authoritative prewarm log is ``voice-typer-prewarm.log``
-            # (which keeps the full 5 MiB × 5 rotation). ``prewarm.log``
-            # is a filtered subset for the UI "open prewarm log" button.
-            maxBytes=1 * 1024 * 1024,
-            backupCount=1,
-            encoding="utf-8",
-            errors="backslashreplace",
-        )
-        # lock down prewarm.log (0o600 — only the owning user
-        # can read it).  Best-effort on POSIX; silently no-op on Windows
-        # where the umask already enforced 0o600 at creation time.
-        if os.name == "posix":
-            with contextlib.suppress(OSError):
-                os.chmod(prewarm_log, 0o600)
-        prewarm_handler.setFormatter(_FileFormatter())
-        prewarm_handler.addFilter(logging.Filter("voice_typer.server.prewarm"))
-        prewarm_handler.addFilter(_SessionFilter())
-        prewarm_handler.addFilter(PIIRedactionFilter())
-        prewarm_handler.addFilter(_BubbleLevelExclusionFilter())
-        # gate the prewarm handler on the ``debug`` flag so
-        # production runs do not flood prewarm.log with DEBUG noise from
-        # the model-warming pipeline (was hardcoded DEBUG).
-        prewarm_handler.setLevel(logging.DEBUG if debug else logging.INFO)
-        # DJ-45 dedup: mark the handler with ``_vt_prewarm = True`` and
-        # skip re-adding when a prewarm handler already exists. Repeated
-        # ``_setup_logging`` calls in the same process previously stacked
-        # N prewarm handlers — multiplying each prewarm line N times AND
-        # holding N file descriptors on ``prewarm.log`` (locking it on
-        # Windows).
-        _vt_root = logging.getLogger("voice_typer")
-        if not any(
-            getattr(h, "_vt_prewarm", False)
-            for h in _vt_root.handlers
-            if isinstance(h, logging.handlers.RotatingFileHandler) and Path(h.baseFilename).name == "prewarm.log"
-        ):
-            prewarm_handler._vt_prewarm = True  # type: ignore[attr-defined]
-            _vt_root.addHandler(prewarm_handler)
-        # DJ-45: when running as the prewarm subprocess, attach the
-        # exclusion filter to the shared voice-typer.log handler so
-        # prewarm records do NOT duplicate into the main app log.
-        if prewarm_only:
-            _attach_not_prewarm_filter(_vt_root)
     except Exception as _setup_exc:
         # replace the bare ``logging.basicConfig`` fallback
         # (which used a divergent format string and had no PII
@@ -246,28 +146,109 @@ def _setup_logging(*, debug: bool = False, prewarm_only: bool = False) -> None:
         os.umask(_old_umask)
 
 
-def _attach_not_prewarm_filter(vt_root: logging.Logger | None = None) -> None:
-    """DJ-45: idempotently attach ``_NotPrewarmFilter`` to shared handlers.
+class _NotPrewarmFilter(logging.Filter):
+    """Exclude prewarm-namespace records from the shared
+    ``voice-typer.log`` handler (DJ-45).
 
-    Scans the ``voice_typer`` root for ``RotatingFileHandler`` instances
-    whose target file is ``voice-typer.log`` (the shared main-app log)
-    and attaches a single ``_NotPrewarmFilter`` to each.  Idempotent — a
-    repeated call never stacks a second filter (pinned by
-    ``tests/test_prewarm_logging_dedup.py::test_exclusion_filter_is_idempotent``).
+    Attached to every shared handler whose target is ``voice-typer.log``
+    when the prewarm subprocess runs (``prewarm_only=True``) so prewarm
+    records only land in the dedicated ``prewarm.log`` — they never leak
+    into the main app's log from a detached subprocess. The
+    ``_vt_not_prewarm`` class attribute is the marker the DJ-45 tests and
+    the idempotent attach helper use to avoid stacking duplicates.
     """
-    if vt_root is None:
-        vt_root = logging.getLogger("voice_typer")
-    for h in vt_root.handlers:
+
+    # Marker used by ``_attach_not_prewarm_filter`` (idempotency) and by
+    # the DJ-45 dedup tests.
+    _vt_not_prewarm = True  # type: ignore[attr-defined]
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        # Exclude the prewarm namespace (and its children) from the
+        # shared handler. Everything else still flows through.
+        return not record.name.startswith("voice_typer.server.prewarm")
+
+
+def _attach_not_prewarm_filter() -> None:
+    """Attach a :class:`_NotPrewarmFilter` to every shared
+    ``voice-typer.log`` handler (prewarm-only subprocess path).
+
+    Idempotent: a handler that already carries a ``_NotPrewarmFilter``
+    (marker ``_vt_not_prewarm``) is skipped, so repeated
+    ``_setup_logging(prewarm_only=True)`` calls never stack duplicates.
+    """
+    _vt_root = logging.getLogger("voice_typer")
+    for h in _vt_root.handlers:
         if not isinstance(h, logging.handlers.RotatingFileHandler):
             continue
-        try:
-            if Path(h.baseFilename).name != "voice-typer.log":
-                continue
-        except Exception:  # noqa: BLE001 — defensively skip un-stat-able handlers
+        if Path(h.baseFilename).name != "voice-typer.log":
             continue
         if any(getattr(f, "_vt_not_prewarm", False) for f in h.filters):
             continue
         h.addFilter(_NotPrewarmFilter())
+
+
+def _install_dedicated_prewarm_handler(log_dir: Path, debug: bool) -> None:
+    """Install the dedicated single-file ``prewarm.log`` handler.
+
+    Only used by the in-process path (``prewarm_only=False``) so the
+    About-page "Open prewarm log" button has a real file. The handler
+    carries the same filter chain as the main log (PII redaction,
+    session ID, bubble-level exclusion) plus a ``voice_typer.server.prewarm``
+    namespace filter, and follows the single-file policy
+    (``backupCount=0`` — truncate-in-place, never ``prewarm.log.1``).
+
+    Idempotent: a repeated call never stacks a second handler (marked
+    ``_vt_prewarm = True``; the dedup check skips re-adding, so repeated
+    ``_setup_logging`` calls in the same process hold ONE file
+    descriptor on ``prewarm.log`` instead of N).
+    """
+    from voice_typer.server.log import (
+        _BubbleLevelExclusionFilter,
+        _FileFormatter,
+        _SecureTruncatingFileHandler,
+        _SessionFilter,
+    )
+    from voice_typer.server.security import PIIRedactionFilter
+
+    prewarm_log = log_dir / "prewarm.log"
+    # Single-file policy: 1 MiB cap, ZERO backups — truncate in place.
+    prewarm_handler = _SecureTruncatingFileHandler(
+        prewarm_log,
+        maxBytes=1 * 1024 * 1024,
+        backupCount=0,
+        encoding="utf-8",
+        errors="backslashreplace",
+    )
+    # lock down prewarm.log (0o600 — only the owning user
+    # can read it).  Best-effort on POSIX; silently no-op on Windows
+    # where the umask already enforced 0o600 at creation time.
+    if os.name == "posix":
+        with contextlib.suppress(OSError):
+            os.chmod(prewarm_log, 0o600)
+    prewarm_handler.setFormatter(_FileFormatter())
+    prewarm_handler.addFilter(logging.Filter("voice_typer.server.prewarm"))
+    prewarm_handler.addFilter(_SessionFilter())
+    prewarm_handler.addFilter(PIIRedactionFilter())
+    prewarm_handler.addFilter(_BubbleLevelExclusionFilter())
+    # gate the prewarm handler on the ``debug`` flag so
+    # production runs do not flood prewarm.log with DEBUG noise from
+    # the model-warming pipeline (was hardcoded DEBUG).
+    prewarm_handler.setLevel(logging.DEBUG if debug else logging.INFO)
+    # dedup: mark the handler with ``_vt_prewarm = True`` and skip
+    # re-adding when a prewarm handler already exists. Repeated
+    # ``_setup_logging`` calls in the same process previously stacked
+    # N prewarm handlers — multiplying each prewarm line N times AND
+    # holding N file descriptors on ``prewarm.log`` (locking it on
+    # Windows).
+    _vt_root = logging.getLogger("voice_typer")
+    if not any(
+        getattr(h, "_vt_prewarm", False)
+        for h in _vt_root.handlers
+        if isinstance(h, logging.handlers.RotatingFileHandler)
+        and Path(h.baseFilename).name == "prewarm.log"
+    ):
+        prewarm_handler._vt_prewarm = True  # type: ignore[attr-defined]
+        _vt_root.addHandler(prewarm_handler)
 
 
 # ─── Guards ──────────────────────────────────────────────────────────────

@@ -243,27 +243,35 @@ class TestWithGpuFallback:
         assert engine._pending_gc_collect is False
 
 
-# ─── _pre_download_model phase helpers ────────────────────────
+# ─── load-path cache gate (_probe_cache / _require_model_downloaded) ─
 
 
-class TestPreDownloadPhaseHelpers:
-    """The 4 phase helpers split the 188-line ``_pre_download_model``
-    into focused, individually testable units."""
+class TestLoadPathCacheGate:
+    """The load path NEVER downloads or deletes models automatically.
 
-    def _make_engine(self, huggingface_consent=True):
+    ``_probe_cache`` is a local-only probe (``local_files_only=True``):
+    hit+verified → path; hit+tampered → (None, True) with NO deletion;
+    miss → (None, False). ``_require_model_downloaded`` turns those
+    outcomes into typed errors (``ModelNotDownloadedError`` /
+    ``ModelIntegrityError``) so callers can point the user at the Models
+    page. The old auto-download phase helpers (``_require_consent`` /
+    ``_check_disk`` / ``_download_and_verify``) have been removed.
+    """
+
+    def _make_engine(self):
         from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine.__new__(TranscriptionEngine)
-        cfg = MagicMock()
-        cfg.huggingface_consent = huggingface_consent
-        engine.config = cfg
+        engine.model_size = "small.en"
+        engine.config = MagicMock()
         return engine
+
+    # ── _probe_cache ────────────────────────────────────────────
 
     def test_probe_cache_returns_path_on_hit_with_valid_integrity(self, monkeypatch):
         engine = self._make_engine()
         fake_local_dir = "/fake/cache/path"
         fake_snapshot = MagicMock(return_value=fake_local_dir)
-        # Patch verify_model_integrity to return True (integrity OK).
         fake_verify = MagicMock(return_value=True)
         monkeypatch.setattr("voice_typer.server.security.verify_model_integrity", fake_verify)
 
@@ -277,6 +285,8 @@ class TestPreDownloadPhaseHelpers:
         )
         assert local_dir == fake_local_dir
         assert integrity_failed is False
+        # The probe must be local-only.
+        assert fake_snapshot.call_args.kwargs["local_files_only"] is True
 
     def test_probe_cache_returns_integrity_failed_on_tampered_hit(self, monkeypatch):
         engine = self._make_engine()
@@ -288,10 +298,29 @@ class TestPreDownloadPhaseHelpers:
         assert local_dir is None
         assert integrity_failed is True
 
+    def test_probe_cache_never_deletes_tampered_cache(self, monkeypatch):
+        """A tampered cache is NOT deleted by the probe — deletion is an
+        explicit user action (Models page Delete button)."""
+        engine = self._make_engine()
+        fake_snapshot = MagicMock(return_value="/fake/cache/path")
+        monkeypatch.setattr(
+            "voice_typer.server.security.verify_model_integrity",
+            lambda local_dir, repo_id: False,
+        )
+        cleaned = []
+        monkeypatch.setattr(
+            "voice_typer.server.transcription.cleanup_hf_cache_dir",
+            lambda repo_id, log_prefix="": cleaned.append(repo_id),
+        )
+
+        local_dir, integrity_failed = engine._probe_cache(fake_snapshot, "repo", "main", [], "small.en")
+        assert local_dir is None
+        assert integrity_failed is True
+        assert cleaned == [], "the cache probe must never delete files"
+
     def test_probe_cache_returns_miss_on_snapshot_exception(self, monkeypatch):
         engine = self._make_engine()
         fake_snapshot = MagicMock(side_effect=Exception("cache miss"))
-        # verify_model_integrity should NOT be called on cache miss.
         fake_verify = MagicMock()
         monkeypatch.setattr("voice_typer.server.security.verify_model_integrity", fake_verify)
 
@@ -300,99 +329,66 @@ class TestPreDownloadPhaseHelpers:
         assert integrity_failed is False
         fake_verify.assert_not_called()
 
-    def test_require_consent_raises_when_not_given(self):
-        engine = self._make_engine(huggingface_consent=False)
-        from voice_typer.server.asr_errors import ConsentRequiredError
+    # ── _require_model_downloaded ───────────────────────────────
 
-        with pytest.raises(ConsentRequiredError, match="consent not given"):
-            engine._require_consent("small.en", None, False, "repo")
+    def test_require_model_downloaded_raises_not_downloaded_on_miss(self, monkeypatch):
+        engine = self._make_engine()
+        monkeypatch.setitem(
+            sys.modules,
+            "huggingface_hub",
+            type(sys)("huggingface_hub"),
+        )
+        sys.modules["huggingface_hub"].snapshot_download = MagicMock(
+            side_effect=FileNotFoundError("not in cache")
+        )
+        from voice_typer.server.asr_errors import ModelNotDownloadedError
 
-    def test_require_consent_cleans_tampered_cache_after_consent(self, monkeypatch):
-        engine = self._make_engine(huggingface_consent=True)
+        with pytest.raises(ModelNotDownloadedError, match="not downloaded"):
+            engine._require_model_downloaded("small.en")
+
+    def test_require_model_downloaded_raises_integrity_error_without_delete(self, monkeypatch):
+        engine = self._make_engine()
+        fake_hf = type(sys)("huggingface_hub")
+        fake_hf.snapshot_download = MagicMock(return_value="/fake/cache/path")
+        monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
+        monkeypatch.setattr(
+            "voice_typer.server.security.verify_model_integrity",
+            lambda local_dir, repo_id: False,
+        )
         cleaned = []
         monkeypatch.setattr(
             "voice_typer.server.transcription.cleanup_hf_cache_dir",
-            lambda repo_id, log_prefix: cleaned.append(repo_id),
+            lambda repo_id, log_prefix="": cleaned.append(repo_id),
         )
+        from voice_typer.server.asr_errors import ModelIntegrityError
 
-        # integrity_failed=True → cache should be cleaned after consent.
-        engine._require_consent("small.en", None, True, "Systran/faster-whisper-small.en")
-        assert cleaned == ["Systran/faster-whisper-small.en"]
+        with pytest.raises(ModelIntegrityError):
+            engine._require_model_downloaded("small.en")
+        assert cleaned == [], "the load gate must never delete a tampered cache"
 
-    def test_require_consent_skips_cleanup_when_integrity_ok(self, monkeypatch):
-        engine = self._make_engine(huggingface_consent=True)
-        cleaned = []
-        monkeypatch.setattr(
-            "voice_typer.server.transcription.cleanup_hf_cache_dir",
-            lambda repo_id, log_prefix: cleaned.append(repo_id),
-        )
-
-        engine._require_consent("small.en", None, False, "repo")
-        assert cleaned == []
-
-    def test_require_consent_raises_when_config_is_none(self):
-        """Defensive: ``self.config`` may be None — treat as not given."""
-        from voice_typer.server.asr_errors import ConsentRequiredError
-        from voice_typer.server.transcription import TranscriptionEngine
-
-        engine = TranscriptionEngine.__new__(TranscriptionEngine)
-        engine.config = None
-        with pytest.raises(ConsentRequiredError):
-            engine._require_consent("small.en", None, False, "repo")
-
-    def test_check_disk_delegates_to_helper(self, monkeypatch):
+    def test_require_model_downloaded_passes_when_cached(self, monkeypatch):
         engine = self._make_engine()
-        called = []
+        fake_hf = type(sys)("huggingface_hub")
+        fake_hf.snapshot_download = MagicMock(return_value="/fake/cache/path")
+        monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
         monkeypatch.setattr(
-            "voice_typer.server.transcription._check_disk_space_for_download",
-            lambda repo_id, model_size: called.append((repo_id, model_size)),
+            "voice_typer.server.security.verify_model_integrity",
+            lambda local_dir, repo_id: True,
         )
-        engine._check_disk("repo", "small.en")
-        assert called == [("repo", "small.en")]
 
-    def test_download_and_verify_raises_on_integrity_failure(self, monkeypatch):
+        # Must not raise.
+        engine._require_model_downloaded("small.en")
+
+    def test_require_model_downloaded_skips_non_whisper(self, monkeypatch):
         engine = self._make_engine()
-        fake_snapshot = MagicMock(return_value="/fake/download/path")
-        fake_download_with_retry = MagicMock(return_value="/fake/download/path")
-        fake_verify = MagicMock(return_value=False)  # integrity FAILED
-        cleaned = []
-        monkeypatch.setattr(
-            "voice_typer.server.transcription._download_with_retry",
-            fake_download_with_retry,
-        )
-        monkeypatch.setattr("voice_typer.server.security.verify_model_integrity", fake_verify)
-        monkeypatch.setattr(
-            "voice_typer.server.transcription.cleanup_hf_cache_dir",
-            lambda repo_id, log_prefix: cleaned.append(repo_id),
-        )
+        fake_hf = type(sys)("huggingface_hub")
+        fake_hf.snapshot_download = MagicMock(side_effect=AssertionError("must not be called"))
+        monkeypatch.setitem(sys.modules, "huggingface_hub", fake_hf)
 
-        with pytest.raises(RuntimeError, match="integrity verification failed"):
-            engine._download_and_verify(fake_snapshot, "repo", "main", [], None, "small.en")
-        # Cache was cleaned before raising.
-        assert cleaned == ["repo"]
-
-    def test_download_and_verify_succeeds_on_valid_download(self, monkeypatch):
-        engine = self._make_engine()
-        fake_snapshot = MagicMock()
-        fake_download_with_retry = MagicMock(return_value="/fake/download/path")
-        fake_verify = MagicMock(return_value=True)  # integrity OK
-        monkeypatch.setattr(
-            "voice_typer.server.transcription._download_with_retry",
-            fake_download_with_retry,
-        )
-        monkeypatch.setattr("voice_typer.server.security.verify_model_integrity", fake_verify)
-
-        # Should not raise.
-        engine._download_and_verify(fake_snapshot, "repo", "main", [], None, "small.en")
-        fake_download_with_retry.assert_called_once()
-
-    def test_pre_download_skips_for_parakeet(self):
-        """Non-Whisper model sizes are skipped early."""
-        engine = self._make_engine()
-        # Should be a no-op (no exception, no download attempt).
-        engine._pre_download_model("parakeet")
-        engine._pre_download_model("qwen")
-        engine._pre_download_model("")
+        # Non-Whisper sizes are handled by their own load path.
+        engine._require_model_downloaded("parakeet")
+        engine._require_model_downloaded("qwen")
+        engine._require_model_downloaded("")
 
 
 # Late import so the autouse fixture can install the mock first.

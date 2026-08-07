@@ -1,6 +1,8 @@
 """Tests for ADR-0020 §11 logging changes.
 
-- RotatingFileHandler uses 5 MiB × 5 backups (was 1 MiB × 2).
+- The file handler uses a 5 MiB cap with ZERO backups (single-file
+  policy — the log truncates in place instead of creating numbered
+  ``.1`` backups).
 - ``bubble_level`` records are excluded from the file handler but NOT
   from the console/stderr path.
 """
@@ -13,8 +15,10 @@ import logging.handlers
 from voice_typer.server import log as vt_log
 
 
-def test_rotating_handler_uses_5mb_x5(tmp_path, monkeypatch):
-    """setup_logging must configure 5 MiB maxBytes and 5 backups."""
+def test_file_handler_uses_5mb_single_file(tmp_path, monkeypatch):
+    """setup_logging must configure 5 MiB maxBytes and ZERO backups
+    (single-file policy — the log truncates in place instead of creating
+    numbered ``.1`` backups)."""
     monkeypatch.delenv("VOICE_TYPER_LOG_JSON", raising=False)
     vt_log.reset()
     vt_log.setup_logging(tmp_path)
@@ -26,7 +30,9 @@ def test_rotating_handler_uses_5mb_x5(tmp_path, monkeypatch):
     assert len(file_handlers) == 1
     fh = file_handlers[0]
     assert fh.maxBytes == 5 * 1024 * 1024, fh.maxBytes
-    assert fh.backupCount == 5, fh.backupCount
+    # Single-file policy: backupCount is 0 — the file is truncated in
+    # place when it exceeds maxBytes; numbered backups are never created.
+    assert fh.backupCount == 0, fh.backupCount
     vt_log.reset()
 
 

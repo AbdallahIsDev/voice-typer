@@ -62,8 +62,8 @@ def _setup_logging():
     # accurate even if ``setup_logging`` is changed to compute JSON
     # mode from a different source in the future.
     # use get_log_file_path() instead of hardcoded literal so the
-    # banner reflects the actual log file (which may be voice-typer-prewarm.log
-    # for the prewarm process after the  fix).
+    # banner reflects the actual log file (voice-typer.log for main,
+    # prewarm.log for the prewarm process).
     from voice_typer.server.log import get_log_file_path
 
     _log_file = get_log_file_path(config_dir)

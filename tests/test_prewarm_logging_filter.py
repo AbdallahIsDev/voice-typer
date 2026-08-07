@@ -198,13 +198,9 @@ class TestPrewarmLogFilter:
                 f"prewarm handler formatter is {type(h.formatter).__name__}, expected _FileFormatter"
             )
 
-    def test_prewarm_handler_rotation_policy_matches_main(self, tmp_path, monkeypatch):
-        """The prewarm handler uses reduced 1 MiB × 1 rotation because the
-        shared _SecureRotatingFileHandler already writes all prewarm records
-        to voice-typer-prewarm.log (5 MiB × 5). The dedicated prewarm.log
-        handler is kept for backwards-compat (UI 'Open Prewarm Log' button)
-        but with reduced rotation since it's a strict subset of the shared
-        log.
+    def test_prewarm_handler_single_file_policy(self, tmp_path, monkeypatch):
+        """The dedicated prewarm.log handler follows the single-file policy:
+        1 MiB cap with ZERO backups (truncate-in-place, never prewarm.log.1).
         """
         _setup_prewarm_to_tmp(tmp_path, monkeypatch)
 
@@ -212,7 +208,10 @@ class TestPrewarmLogFilter:
         assert prewarm_handlers
         for h in prewarm_handlers:
             assert h.maxBytes == 1 * 1024 * 1024, f"prewarm handler maxBytes is {h.maxBytes}, expected 1 MiB"
-            assert h.backupCount == 1, f"prewarm handler backupCount is {h.backupCount}, expected 1"
+            assert h.backupCount == 0, (
+                f"prewarm handler backupCount is {h.backupCount}, "
+                "expected 0 (single-file policy)"
+            )
 
     def test_prewarm_handler_redacts_pii_in_messages(self, tmp_path, monkeypatch):
         """End-to-end: a log message containing an email actually gets

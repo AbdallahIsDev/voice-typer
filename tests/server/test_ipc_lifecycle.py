@@ -167,6 +167,78 @@ class TestStopIdempotency:
         assert server._cached_shutting_down is True
 
 
+# ── PERF-SHUTDOWN-001: dispatch-pool self-join ───────────────────────
+
+
+class TestStopDispatchPoolSelfJoin:
+    """PERF-SHUTDOWN-001: ``stop()`` called from INSIDE the TCP dispatch
+    pool must not self-join.
+
+    ``quit_app`` is dispatched onto ``_tcp_dispatch_pool`` (see
+    ``_tcp_dispatch_and_respond``), so the quit handler runs
+    ``app.quit()`` → ``_do_cleanup()`` → ``ipc_server.stop()`` on a
+    pool worker. Draining that pool from inside one of its own workers
+    is a self-join that can never complete — ``shutdown(wait=True)``
+    waits for every worker, including the caller blocked inside
+    ``stop()`` — so the drain burned its full 5s timeout on every
+    quit (measured: shutdown took 8.6s, of which 5s was this
+    deadlock).
+    """
+
+    def test_stop_from_dispatch_worker_returns_fast(self) -> None:
+        """Submitting ``stop()`` to a real single-worker dispatch pool
+        must complete quickly, not burn the 5s drain timeout."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        server = _make_server()
+        # Nothing bound — mirror TestStopIdempotency's prep so stop()
+        # only exercises the pool drain paths.
+        server._tcp_client = None
+        server._tcp_server_socket = None
+        server._tcp_worker_pool = None
+        # A REAL single-worker executor stands in for the production
+        # ``_tcp_dispatch_pool``: the self-join only reproduces with a
+        # real pool whose ``_threads`` set contains the caller.
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tcp-dispatch")
+        server._tcp_dispatch_pool = pool
+        start = time.monotonic()
+        try:
+            # If the self-join regresses, the task blocks in the 5s
+            # drain and this raises TimeoutError after 2s.
+            pool.submit(server.stop).result(timeout=2.0)
+            elapsed = time.monotonic() - start
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+        assert elapsed < 2.0, (
+            f"PERF-SHUTDOWN-001: stop() from a dispatch worker must not "
+            f"self-join on the pool drain; took {elapsed:.2f}s"
+        )
+        assert server._cached_shutting_down is True
+
+    def test_in_pool_worker_detects_pool_thread(self) -> None:
+        """``_in_pool_worker`` must return ``True`` from a pool worker
+        and ``False`` from a non-worker thread — the exact predicate
+        that gates the self-join skip."""
+        from concurrent.futures import ThreadPoolExecutor
+
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tcp-dispatch")
+        observed: dict[str, bool] = {}
+
+        def _probe() -> None:
+            observed["inside"] = lifecycle_mod._in_pool_worker(pool)
+
+        try:
+            assert lifecycle_mod._in_pool_worker(pool) is False, (
+                "main thread is not a pool worker — must be False"
+            )
+            pool.submit(_probe).result(timeout=5.0)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+        assert observed.get("inside") is True, (
+            "a running pool worker must be detected as inside the pool"
+        )
+
+
 # ── relaunch-ack coordination ─────────────────────────────────────────
 
 

@@ -32,17 +32,22 @@ from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE as _WHISPER_
 # body was duplicated 3x across ``transcription.py``, ``asr_setup.py``,
 # ``parakeet_engine.py``).
 # ``_hf_cache_cleanup`` in turn delegates to ``asr_utils.cleanup_hf_cache_dir``
-# where the actual implementation lives.  Re-exported here (``# noqa: F401``)
+# where the actual implementation lives.  Re-exported here (with a noqa F401
+# suppression on the import below)
 # for backward compatibility with tests that patch
 # ``voice_typer.server.transcription.cleanup_hf_cache_dir``.
 from voice_typer.server._hf_cache_cleanup import (  # noqa: F401
     cleanup_failed_cache as _cleanup_failed_cache,
 )
-from voice_typer.server._hf_cache_cleanup import (
+from voice_typer.server._hf_cache_cleanup import (  # noqa: F401
     cleanup_hf_cache_dir,
 )
 from voice_typer.server._lazy_import import lazy_module
-from voice_typer.server.asr_errors import ConsentRequiredError
+from voice_typer.server.asr_errors import (
+    ConsentRequiredError,  # noqa: F401  # re-exported for backward compat
+    ModelIntegrityError,
+    ModelNotDownloadedError,
+)
 from voice_typer.server.asr_utils import (  # noqa: F401
     _check_disk_space_for_download,
     _download_with_retry,
@@ -195,20 +200,18 @@ class TranscriptionEngine:
         # implicit, and the test fixtures that bypass ``__init__`` set
         # this explicitly too.
         self._pending_gc_collect = False
-        # store a reference to the app's Config dataclass
-        # so the HuggingFace-consent check in _pre_download_model can
-        # read ``huggingface_consent`` without crashing.  Previously
-        # ``self.config`` was never assigned in __init__, but the
-        # consent check at line ~528 did ``getattr(self.config, ...)``
-        # — which raised ``AttributeError`` on every uncached model
-        # download attempt (the most common production path).
+        # store a reference to the app's Config dataclass so the
+        # engine can read per-segment flags (e.g. ``log_transcriptions``)
+        # without reaching into the app object.
 
         # ``config`` may be None when constructed by callers that
         # don't have access to the app's Config (e.g. service.py
-        # benchmark path, or test stubs).  In that case, the consent
-        # check below treats None as "consent not given" and refuses
-        # to download — which is the safe default per GDPR Art. 6/13.
-        # Callers that need to download must pass a real Config.
+        # benchmark path, or test stubs).  Feature flags that read
+        # ``self.config`` must guard for None.  Note: the engine NEVER
+        # downloads models (downloads are explicit user actions via the
+        # Models page / onboarding), so no consent gate exists here —
+        # the HuggingFace consent gate lives in the explicit download
+        # path (``service/model.py``).
         self.config = config
 
     def _resolve_device(self, device: str) -> tuple[str, str]:
@@ -314,21 +317,34 @@ class TranscriptionEngine:
         return f"{self._device}/{self._compute_type}/{self.model_size}"
 
     def load(self, progress_callback=None) -> None:
-        """Load the Whisper model. Downloads on first run.
+        """Load the Whisper model from the local cache (NEVER downloads).
+
+        The app never downloads models automatically — the user must
+        explicitly download a model (Models page Download button, or the
+        onboarding wizard) before it can be loaded. If the selected model
+        is not present in the local HuggingFace cache,
+        :class:`~voice_typer.server.asr_errors.ModelNotDownloadedError` is
+        raised so callers can direct the user to the Models page. If the
+        cached files fail integrity verification,
+        :class:`~voice_typer.server.asr_errors.ModelIntegrityError` is
+        raised and the tampered cache is NOT deleted automatically
+        (deleting a model is an explicit user action).
 
         Fallback chain:
           1. Configured device (e.g. CUDA/float16)
           2. CPU / int8 with original model size
           3. CPU / int8 with tiny.en
           4. CPU / float32 with tiny.en (last resort — avoids MKL int8 path)
+        Fallback entries whose model is not cached locally are skipped
+        (never auto-downloaded).
 
         Stores which path succeeded via loaded_via property.
 
-        progress_callback: optional callable(message: str) for download/load status.
+        progress_callback: optional callable(message: str) for load status.
         """
         # Deferred CUDA detection — run now (once) near load time
         self._resolve_device_once()
-        self._pre_download_model(self.model_size, progress_callback)
+        self._require_model_downloaded(self.model_size, progress_callback)
         self._load_model_outside_lock(progress_callback=progress_callback)
 
     def _resolve_device_once(self):
@@ -390,6 +406,21 @@ class TranscriptionEngine:
         last_error = None
         for device, compute_type, model_size in chain:
             try:
+                # NEVER auto-download: skip fallback-chain entries whose
+                # model is not present in the local HF cache. Only the
+                # explicit Models-page / onboarding download populates the
+                # cache. (The primary model was already verified by
+                # ``_require_model_downloaded`` in ``load()``.)
+                if not self._whisper_size_cached(model_size):
+                    log.warning(
+                        "[MODEL] %s: model '%s' not in local cache — skipping "
+                        "fallback entry (%s/%s). Download it from the Models page first.",
+                        verb,
+                        model_size,
+                        device,
+                        compute_type,
+                    )
+                    continue
                 log.info(
                     "[MODEL] %s Whisper model '%s' on %s (%s)...",
                     verb,
@@ -457,6 +488,15 @@ class TranscriptionEngine:
                 if not acquire_lock:
                     self._model = None
 
+        if last_error is None:
+            # Every fallback-chain entry was skipped because its model is
+            # not in the local cache — surface the actionable error.
+            raise ModelNotDownloadedError(
+                f"The Whisper model '{self.model_size}' is not downloaded yet. "
+                "Open the Models page and click Download before using it.",
+                model_size=self.model_size,
+                backend="whisper",
+            )
         raise RuntimeError(
             f"Failed to {verb_base} Whisper model on any device/model. Last error: {last_error}"
         ) from last_error
@@ -638,20 +678,18 @@ class TranscriptionEngine:
         Returns ``(local_dir, integrity_failed)``:
 
         * ``(path, False)`` — cache hit AND integrity verified. The
-          orchestrator can return immediately (no download needed).
+          caller can proceed to load.
         * ``(None, True)`` — cache hit BUT integrity check failed. The
-          orchestrator must clean the tampered cache and re-download
-          (after consent). The ``local_dir`` is dropped on this path
-          because the caller must NOT trust the tampered files — only
-          the ``integrity_failed`` flag is propagated.
+          caller must refuse to load (raise ``ModelIntegrityError``)
+          without deleting the tampered files — deletion is an explicit
+          user action (Models page Delete button).
         * ``(None, False)`` — cache miss (or local probe raised). The
-          orchestrator falls through to consent + download.
+          caller raises ``ModelNotDownloadedError`` (never downloads).
 
         ``snapshot_download_fn`` is the ``huggingface_hub.snapshot_download``
         callable (injected so tests can pass a MagicMock). The call uses
         ``local_files_only=True`` so no network traffic is generated on
-        the cache-probe path — consent is only required for the actual
-        download (see :meth:`_require_consent`).
+        the cache-probe path.
         """
         try:
             local_dir = snapshot_download_fn(
@@ -669,217 +707,128 @@ class TranscriptionEngine:
         if not verify_model_integrity(local_dir, repo_id):
             log.error(
                 "[MODEL] Cached model '%s' failed integrity check (cache hit path) — "
-                "will remove tampered cache after consent confirmation.",
+                "refusing to load tampered files (no automatic deletion).",
                 model_size,
             )
             if progress_callback:
-                progress_callback("Cached model failed integrity check; re-downloading after consent.")
+                progress_callback("Cached model failed integrity check; delete and re-download from the Models page.")
             return None, True
 
         return local_dir, False
 
-    def _require_consent(
-        self,
-        model_size: str,
-        progress_callback,
-        integrity_failed: bool,
-        repo_id: str,
-    ) -> None:
-        """Phase 2: require HuggingFace consent + clean tampered cache.
+    def _require_model_downloaded(self, model_size: str, progress_callback=None) -> None:
+        """Ensure the Whisper model is present in the local HF cache.
 
-        Delegates the consent check to the canonical
-        :func:`asr_utils._require_huggingface_consent` helper so the
-        gate, the log message, the progress-callback wording, and the
-        typed ``ConsentRequiredError`` surface stay in sync across all
-        three download paths (Whisper, Parakeet, Models-page).
+        The app never downloads models automatically: the user must
+        explicitly click Download on the Models page (or the onboarding
+        wizard) first. This gate refuses to load an uncached model and
+        raises :class:`~voice_typer.server.asr_errors.ModelNotDownloadedError`
+        so callers can point the user at the Models page. A cached-but-
+        tampered model raises
+        :class:`~voice_typer.server.asr_errors.ModelIntegrityError` and is
+        NOT deleted automatically — deletion is an explicit user action
+        (Models page Delete button).
 
-        After consent is confirmed, if ``integrity_failed`` is True
-        (the cache was tampered), the tampered cache directory is
-        removed so the re-download below fetches fresh files. Pre-fix
-        this cleanup happened inline in ``_pre_download_model`` —
-        extracted here so the orchestrator is a thin delegator.
+        The probe is local-only (``local_files_only=True``) so no network
+        traffic is generated and no consent is required — consent is only
+        relevant for the explicit download path (``service.download_model``).
         """
-        _require_huggingface_consent(
-            self.config,
-            model_size,
-            log_prefix="[MODEL]",
-            progress_message="HuggingFace consent required before downloading model.",
-            progress_callback=progress_callback,
-        )
-
-        # Consent confirmed.  Now safe to delete a tampered cache
-        # (if any) — the re-download in ``_download_and_verify`` will
-        # fetch fresh files. Deferred from ``_probe_cache`` because
-        # the consent check above may block the re-download, which
-        # would leave the user with no model at all (deleting the
-        # only copy before consent would be destructive).
-        if integrity_failed:
-            log.info(
-                "[MODEL] Removing tampered cache for '%s' after consent confirmed.",
-                model_size,
-            )
-            cleanup_hf_cache_dir(repo_id, log_prefix="[MODEL]")
-
-    def _check_disk(self, repo_id: str, model_size: str) -> None:
-        """Phase 3: check disk space before downloading.
-
-        Thin delegator to :func:`asr_utils._check_disk_space_for_download`
-        so the orchestrator reads as a sequence of named phases. The
-        underlying helper raises ``RuntimeError`` with a user-friendly
-        message if insufficient space is detected.
-        """
-        _check_disk_space_for_download(repo_id, model_size)
-
-    def _download_and_verify(
-        self,
-        snapshot_download_fn,
-        repo_id: str,
-        revision: str,
-        allow_patterns,
-        progress_callback,
-        model_size: str,
-    ) -> None:
-        """Phase 4: download with retry + verify integrity after download.
-
-        Wraps ``snapshot_download_fn`` in :func:`asr_utils._download_with_retry`
-        (exponential backoff for transient CDN / rate-limit failures),
-        then runs :func:`security.verify_model_integrity` against the
-        pinned ``MODEL_HASHES`` manifest. On integrity failure the
-        tampered cache directory is cleaned (so the next launch
-        re-downloads) and ``RuntimeError`` is raised with the message
-        ``"Model integrity verification failed for <repo_id>"`` so the
-        outer ``except RuntimeError`` re-raises (WhisperModel does NOT
-        silently load bad files on the current launch).
-        """
-        local_dir = _download_with_retry(
-            snapshot_download_fn,
-            repo_id=repo_id,
-            revision=revision,
-            allow_patterns=allow_patterns,
-            resume_download=True,
-        )
-        from voice_typer.server.security import verify_model_integrity
-
-        if not verify_model_integrity(local_dir, repo_id):
-            log.error(
-                "[MODEL] Model '%s' integrity check failed after download",
-                model_size,
-            )
-            if progress_callback:
-                progress_callback("Download completed but integrity check failed")
-            cleanup_hf_cache_dir(repo_id, log_prefix="[MODEL]")
-            raise RuntimeError(f"Model integrity verification failed for {repo_id}")
-
-    def _pre_download_model(self, model_size: str, progress_callback=None):
-        """Pre-download model files via huggingface_hub if not already cached.
-
-        This ensures the user sees download progress before WhisperModel blocks
-        on the download internally.
-
-        PERF- previously this blocked the calling thread, adding
-        2-15s of cold-start latency before model loading could begin.
-        We now check the cache first (fast path); if the model is
-        already cached, we return immediately so load can proceed. If
-        not cached, we download synchronously — load() already runs on
-        a background thread, so parallelizing would just add complexity
-        without measurable benefit (WhisperModel.__init__ needs the
-        files anyway).
-
-        HuggingFace downloads reveal the user's IP to a
-        US-headquartered third party.  We check the
-        ``huggingface_consent`` config flag before downloading; if
-        consent hasn't been given, we raise a ConsentRequiredError so
-        the IPC layer can surface a consent dialog to the renderer.
-        The cache-check path (``local_files_only=True``) does NOT
-        require consent — it only reads local files and never
-        contacts HuggingFace.
-
-        Orchestrates 4 phase helpers (``_probe_cache``,
-        ``_require_consent``, ``_check_disk``, ``_download_and_verify``)
-        so each phase is independently testable. The 188-line
-        monolith body is now a thin delegator.
-        """
-        # Skip pre-download for non-Whisper model sizes (e.g. "parakeet" or "qwen")
+        # Skip the gate for non-Whisper model sizes (e.g. "parakeet" or
+        # "qwen") — those backends have their own load path.
         if not model_size or model_size in ("parakeet", "qwen"):
-            log.debug("[MODEL] Skipping pre-download for non-Whisper model '%s'", model_size)
+            log.debug(
+                "[MODEL] Skipping download-required check for non-Whisper model '%s'",
+                model_size,
+            )
             return
         try:
             from huggingface_hub import snapshot_download
 
             repo_id = f"Systran/faster-whisper-{model_size}"
 
-            # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest
+            # SEC-audit-005: Use pinned revision from MODEL_HASHES manifest.
             from voice_typer.server.security import MODEL_HASHES
 
             whisper_revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
 
-            # Use the shared
-            # ``ALLOW_PATTERNS_WHISPER`` list from ``_model_integrity``
-            # instead of an inline duplicate.  Whisper-family repos ship
-            # ``model.bin`` (CTranslate2 native format) which is kept
-            # here — CTranslate2 loads it without going through
-            # ``torch.load`` (the pickle RCE vector), so the ``*.bin``
-            # risk is bounded to "wrong weights → bad transcription"
-            # rather than "arbitrary code execution".  The Parakeet path
-            # (``parakeet_engine.py`` / ``asr_setup.py``) uses the
-            # ``ALLOW_PATTERNS_PARAKEET`` list which omits ``*.bin``
-            # because Parakeet ships ``model.safetensors`` only.
+            # Shared allow-pattern list (see ``_model_integrity``).
             from voice_typer.server._model_integrity import ALLOW_PATTERNS_WHISPER
-
-            _whisper_allow_patterns = ALLOW_PATTERNS_WHISPER
 
             if progress_callback:
                 progress_callback(f"Checking model cache for '{model_size}'...")
-            # Phase 1: probe cache (local-only, no consent needed).
             local_dir, integrity_failed = self._probe_cache(
                 snapshot_download,
                 repo_id,
                 whisper_revision,
-                _whisper_allow_patterns,
+                ALLOW_PATTERNS_WHISPER,
                 model_size,
                 progress_callback=progress_callback,
             )
             if local_dir is not None and not integrity_failed:
                 log.info("[MODEL] Model '%s' already cached (integrity verified)", model_size)
                 return
-
-            # Phase 2: require consent + clean tampered cache (if any).
-            self._require_consent(model_size, progress_callback, integrity_failed, repo_id)
-
-            log.info("[MODEL] Model '%s' not cached, downloading...", model_size)
-            if progress_callback:
-                progress_callback(f"Downloading model '{model_size}' (varies by size)...")
-
-            # Phase 3: check disk space before downloading.
-            self._check_disk(repo_id, model_size)
-
-            # Phase 4: download with retry + verify integrity.
-            self._download_and_verify(
-                snapshot_download,
-                repo_id,
-                whisper_revision,
-                _whisper_allow_patterns,
-                progress_callback,
-                model_size,
+            if integrity_failed:
+                raise ModelIntegrityError(
+                    f"The cached model '{model_size}' failed integrity verification. "
+                    "Delete it and download it again from the Models page to recover.",
+                    model_size=model_size,
+                    backend="whisper",
+                    repo_id=repo_id,
+                )
+            raise ModelNotDownloadedError(
+                f"The Whisper model '{model_size}' is not downloaded yet. "
+                "Open the Models page and click Download before using it.",
+                model_size=model_size,
+                backend="whisper",
+                repo_id=repo_id,
             )
-            log.info("[MODEL] Model '%s' download complete", model_size)
         except ImportError:
-            log.debug("[MODEL] huggingface_hub not available, skipping pre-download")
-        except ConsentRequiredError:
-            #  (): re-raise ``ConsentRequiredError`` so it
-            # propagates to the IPC layer — do NOT let the broad
-            # ``except Exception`` below swallow it (which would turn a
-            # user-actionable consent dialog into a silent warning log).
-            raise
-        except RuntimeError:
-            # re-raise integrity-check failures (raised in
-            # ``_download_and_verify``) so WhisperModel does NOT silently load
-            # the bad files on the current launch. The cache dir was
-            # already cleaned, so the next launch will
-            # re-download — but the current launch must fail fast.
-            raise
-        except Exception as exc:
-            log.warning("[MODEL] Pre-download failed (WhisperModel will retry): %s", exc)
+            # huggingface_hub unavailable — we cannot verify the cache, so
+            # refuse to load (never auto-download) and point at Models page.
+            raise ModelNotDownloadedError(
+                f"The Whisper model '{model_size}' is not downloaded yet. "
+                "Open the Models page and click Download before using it.",
+                model_size=model_size,
+                backend="whisper",
+            ) from None
+
+    def _whisper_size_cached(self, model_size: str) -> bool:
+        """Local-only probe: is ``model_size`` fully present in the HF cache?
+
+        Used by the fallback chain in ``_load_transcriber_impl`` to skip
+        entries whose model has not been downloaded (the app never
+        auto-downloads). Returns ``True`` when the probe is inconclusive
+        (``huggingface_hub`` unavailable) so the load attempt is allowed
+        to proceed — ``WhisperModel`` will surface its own error if the
+        files are genuinely missing.
+        """
+        try:
+            from huggingface_hub import snapshot_download
+
+            repo_id = f"Systran/faster-whisper-{model_size}"
+
+            from voice_typer.server.security import MODEL_HASHES
+
+            revision = MODEL_HASHES.get(repo_id, {}).get("revision", "main")
+
+            from voice_typer.server._model_integrity import ALLOW_PATTERNS_WHISPER
+
+            snapshot_download(
+                repo_id=repo_id,
+                revision=revision,
+                allow_patterns=ALLOW_PATTERNS_WHISPER,
+                local_files_only=True,
+            )
+            return True
+        except ImportError:
+            # Cannot probe — allow the load attempt (WhisperModel will
+            # surface its own error if the files are missing).
+            return True
+        except Exception:
+            # Cache miss (or local probe failure) — never auto-download.
+            return False
+
+
 
     def transcribe(self, audio: np.ndarray, audio_stats: tuple[float, float, float] | None = None) -> str:
         """Transcribe audio array. Returns cleaned text string.

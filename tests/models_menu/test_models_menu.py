@@ -1,17 +1,19 @@
 """Tray models menu tests split out of the former ``tests/test_history_and_models.py``.
 
 Domain: tray menu — ``build_models_submenu_data`` config_provider
-support + corrupt-config fallback, and tray-icon source-level
-invariants (no stale SVG reference, ``getchannel('A')`` instead of
-``split()[3]``).
+support + corrupt-config fallback.
+
+The former ``TestTrayIconNoLongerReferencesStaleSvg`` /
+``TestTrayIconUsesGetchannelNotSplitIndex`` classes that lived here
+were merged into ``tests/test_tray_icon.py`` (Phase 4.5 / TC-15
+completion) so each tray-icon regression lives next to the rest of
+the tray-icon tests.
 
 Class/method names + assertions are preserved verbatim from the
 original monolith — only file location has changed.
 """
 
 from __future__ import annotations
-
-import inspect
 
 
 class TestBuildModelsSubmenuConfigProvider:
@@ -65,40 +67,4 @@ class TestBuildModelsSubmenuConfigProvider:
         corrupt_log_lines = [r.message for r in caplog.records if "failed to read config.json" in r.message]
         assert corrupt_log_lines, (
             "PI-19 regression: expected a log.debug line recording the config.json read failure, got none"
-        )
-
-
-class TestTrayIconNoLongerReferencesStaleSvg:
-    """vt_logo.svg references updated."""
-
-    def test_tray_icon_no_longer_references_vt_logo(self):
-        from voice_typer.server import tray_icon
-
-        source = inspect.getsource(tray_icon._make_icon)
-        assert "from vt_logo.svg" not in source
-
-
-class TestTrayIconUsesGetchannelNotSplitIndex:
-    """Use getchannel('A') instead of split()[3]."""
-
-    def test_no_split_index_3(self):
-        from voice_typer.server import tray_icon
-
-        source = inspect.getsource(tray_icon._make_icon)
-        code_lines = []
-        for line in source.splitlines():
-            stripped = line.lstrip()
-            if stripped.startswith("#"):
-                continue
-            if "#" in line:
-                line = line.split("#", 1)[0]
-            code_lines.append(line)
-        code_only = "\n".join(code_lines)
-
-        assert "split()[3]" not in code_only
-        # The production source uses ``getchannel("A")`` (double quotes);
-        # accept either quote style so the test is resilient to the
-        # formatter's preference.
-        assert ('getchannel("A")' in code_only) or ("getchannel('A')" in code_only), (
-            "expected getchannel('A') or getchannel(\"A\") in _make_icon source"
         )

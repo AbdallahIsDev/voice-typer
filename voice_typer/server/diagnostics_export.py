@@ -35,6 +35,7 @@ import contextlib
 import logging
 import os
 import tempfile
+import uuid
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -75,12 +76,19 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
     # UE-5-F6 collision: ``%Y%m%d_%H%M%S`` is second-resolution, so
     # two exports in the same second produce the same bundle_path —
     # the second call's ``os.replace`` would clobber the first call's
-    # zip. Append ``%f`` (microseconds) for collision-free naming
-    # even on rapid back-to-back exports (e.g. a user triggers one
-    # from Settings → Troubleshooting while a crash-recovery
-    # auto-export fires in the same second).
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
-    bundle_name = f"voice-typer-diagnostics-{timestamp}.zip"
+    # zip. ``%f`` (microseconds) was added next, but on Windows
+    # ``datetime.now()`` is quantized to the system timer tick
+    # (~15.6 ms), so two rapid back-to-back exports can STILL land on
+    # the identical microsecond and produce the same name (observed in
+    # the full-suite run: two sequential exports both named
+    # ``..._030802_328984.zip``). ``time.time_ns()`` is equally
+    # quantized on Windows. The only collision-proof disambiguator is
+    # a per-call random suffix — mirrors the ``mkstemp`` strategy used
+    # for the tmp file, and the ``uuid4().hex[:8]`` / ``token_hex``
+    # patterns used elsewhere in the codebase.
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    unique = uuid.uuid4().hex[:8]
+    bundle_name = f"voice-typer-diagnostics-{timestamp}-{unique}.zip"
     bundle_path = config_dir / bundle_name
 
     # Write the zip to a sibling ``.tmp`` file first, then atomically

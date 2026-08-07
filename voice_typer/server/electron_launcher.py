@@ -41,7 +41,6 @@ import time
 
 from voice_typer.server._electron_build import (
     CLIENT_DIR,
-    _build_electron,
     _electron_binary,
     _electron_log_files,
     _log_sensitive_env_keys,
@@ -216,19 +215,17 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
 
     exe = _electron_binary()
     if exe and not _main_entry_built():
-        log.info("[LAUNCHER] No pre-built output — building first")
-        if not _build_electron():
-            # include the operation inputs (exe path + CLIENT_DIR)
-            # so operators can tell which build attempt failed.
-            log.warning(
-                "[LAUNCHER] Build failed (exe=%s, cwd=%s); will try npm run dev",
-                exe,
-                CLIENT_DIR,
-            )
-            exe = None
-        elif not _main_entry_built():
-            log.warning("[LAUNCHER] Build succeeded but out/main/index.js still missing")
-            exe = None
+        # The app is NEVER built from source at launch time — packaged
+        # installs ship pre-built bundles (``out/main/index.js``) and
+        # the dev path uses ``npm run dev``. When the pre-built output
+        # is missing, fall through to the dev path below instead of
+        # invoking a build.
+        log.warning(
+            "[LAUNCHER] No pre-built output found (exe=%s, cwd=%s); will try npm run dev",
+            exe,
+            CLIENT_DIR,
+        )
+        exe = None
 
     if exe:
         try:

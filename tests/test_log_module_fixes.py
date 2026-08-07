@@ -9,7 +9,7 @@ Covers:
 * **UE-4-F8** — ``quiet=True`` lowers the file handler to WARNING (not
   just the root logger) so the handler level matches the root logger
   level and the ``quiet`` contract is honoured end-to-end.
-* — File-handler dedup uses ``_SecureRotatingFileHandler``
+* — File-handler dedup uses ``_SecureTruncatingFileHandler``
   (not the parent ``RotatingFileHandler``) so a future caller that
   installs a stock ``RotatingFileHandler`` is NOT mistaken for the
   secure handler.
@@ -208,11 +208,11 @@ class TestUe4F8QuietFileHandlerLevel:
     """
 
     def _file_handler(self) -> logging.Handler:
-        from voice_typer.server.log import _SecureRotatingFileHandler
+        from voice_typer.server.log import _SecureTruncatingFileHandler
 
         handlers = logging.getLogger("voice_typer").handlers
-        secure = [h for h in handlers if isinstance(h, _SecureRotatingFileHandler)]
-        assert secure, f"no _SecureRotatingFileHandler installed; got {handlers!r}"
+        secure = [h for h in handlers if isinstance(h, _SecureTruncatingFileHandler)]
+        assert secure, f"no _SecureTruncatingFileHandler installed; got {handlers!r}"
         return secure[0]
 
     def test_quiet_lowers_file_handler_to_warning(self, tmp_path, clean_env):
@@ -279,21 +279,21 @@ class TestUe4F8QuietFileHandlerLevel:
             reset()
 
 
-# file-handler dedup uses _SecureRotatingFileHandler ────────
+# file-handler dedup uses _SecureTruncatingFileHandler ────────
 
 
 class TestUe4F9SecureHandlerDedup:
     """the ``setup_logging`` idempotency check uses
-    ``isinstance(h, _SecureRotatingFileHandler)`` (not the parent
+    ``isinstance(h, _SecureTruncatingFileHandler)`` (not the parent
     ``RotatingFileHandler``) so a future caller that installs a stock
     ``RotatingFileHandler`` is NOT mistaken for the secure handler.
     """
 
     def test_setup_logging_idempotent_with_secure_handler(self, tmp_path, clean_env):
         """Calling ``setup_logging`` twice does NOT add a second
-        ``_SecureRotatingFileHandler``."""
+        ``_SecureTruncatingFileHandler``."""
         from voice_typer.server.log import (
-            _SecureRotatingFileHandler,
+            _SecureTruncatingFileHandler,
             reset,
             setup_logging,
         )
@@ -301,13 +301,21 @@ class TestUe4F9SecureHandlerDedup:
         reset()
         try:
             setup_logging(tmp_path)
-            before = [h for h in logging.getLogger("voice_typer").handlers if isinstance(h, _SecureRotatingFileHandler)]
+            before = [
+                h
+                for h in logging.getLogger("voice_typer").handlers
+                if isinstance(h, _SecureTruncatingFileHandler)
+            ]
             setup_logging(tmp_path)
-            after = [h for h in logging.getLogger("voice_typer").handlers if isinstance(h, _SecureRotatingFileHandler)]
+            after = [
+                h
+                for h in logging.getLogger("voice_typer").handlers
+                if isinstance(h, _SecureTruncatingFileHandler)
+            ]
             assert len(before) == 1
             assert len(after) == 1, (
                 f"setup_logging should not install a duplicate "
-                f"_SecureRotatingFileHandler; got {len(after)} after second call"
+                f"_SecureTruncatingFileHandler; got {len(after)} after second call"
             )
         finally:
             reset()
@@ -320,7 +328,7 @@ class TestUe4F9SecureHandlerDedup:
         and the inter-process rotation lock.
         """
         from voice_typer.server.log import (
-            _SecureRotatingFileHandler,
+            _SecureTruncatingFileHandler,
             reset,
             setup_logging,
         )
@@ -337,10 +345,10 @@ class TestUe4F9SecureHandlerDedup:
             setup_logging(tmp_path)
 
             secure_handlers = [
-                h for h in logging.getLogger("voice_typer").handlers if isinstance(h, _SecureRotatingFileHandler)
+                h for h in logging.getLogger("voice_typer").handlers if isinstance(h, _SecureTruncatingFileHandler)
             ]
             assert len(secure_handlers) == 1, (
-                f"setup_logging must install the _SecureRotatingFileHandler "
+                f"setup_logging must install the _SecureTruncatingFileHandler "
                 f"even when a stock RotatingFileHandler is already present (the "
                 f"stock handler does NOT satisfy the secure-handler dedup check); "
                 f"got {len(secure_handlers)} secure handlers"
@@ -479,7 +487,7 @@ class TestUe4F13LockFailureNoPathLeak:
 
         monkeypatch.setattr(os, "open", raising_open)
 
-        handler = log_module._SecureRotatingFileHandler(tmp_path / "ue17.log", maxBytes=128, backupCount=1)
+        handler = log_module._SecureTruncatingFileHandler(tmp_path / "ue17.log", maxBytes=128, backupCount=0)
         try:
             with caplog.at_level(logging.DEBUG, logger=log_module.log.name):
                 lock_fd = handler._acquire_rotation_lock()

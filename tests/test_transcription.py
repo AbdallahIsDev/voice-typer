@@ -26,25 +26,26 @@ def mock_faster_whisper(monkeypatch):
     mock_ct2.get_cuda_device_count.return_value = 1
     monkeypatch.setitem(sys.modules, "ctranslate2", mock_ct2)
 
-    # Bypass the HuggingFace consent gate AND the model-download path
-    # so tests can exercise the fallback chain without setting up a
-    # real Config with ``huggingface_consent=True`` and without a real
-    # network download. The consent gate is a GDPR safety guard in
-    # production (refuses to download without explicit consent); in
-    # unit tests the model loading is fully mocked via ``faster_whisper``
-    # so both consent and download are irrelevant. Without these
-    # patches, ``engine.load()`` either raises ``ConsentRequiredError``
-    # before ever calling ``WhisperModel`` (consent gate) or hangs in
-    # ``_download_with_retry``'s retry/sleep loop (download path), and
-    # every fallback-chain assertion fails with ``IndexError`` on
-    # ``call_args_list[0]``.
+    # Bypass the load-path cache gate so tests can exercise the fallback
+    # chain without a real model on disk. The app NEVER downloads models
+    # automatically — ``_require_model_downloaded`` refuses to load an
+    # uncached model with ``ModelNotDownloadedError`` (the GDPR-safe
+    # default). In unit tests the model loading is fully mocked via
+    # ``faster_whisper``, so the cache gate is irrelevant here. Without
+    # this patch, ``engine.load()`` raises ``ModelNotDownloadedError``
+    # before ever calling ``WhisperModel``, and every fallback-chain
+    # assertion fails with ``IndexError`` on ``call_args_list[0]``.
     monkeypatch.setattr(
         "voice_typer.server.transcription._require_huggingface_consent",
         lambda *args, **kwargs: None,
     )
     monkeypatch.setattr(
-        "voice_typer.server.transcription.TranscriptionEngine._pre_download_model",
+        "voice_typer.server.transcription.TranscriptionEngine._require_model_downloaded",
         lambda self, model_size, progress_callback=None: None,
+    )
+    monkeypatch.setattr(
+        "voice_typer.server.transcription.TranscriptionEngine._whisper_size_cached",
+        lambda self, model_size: True,
     )
 
 

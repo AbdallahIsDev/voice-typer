@@ -44,6 +44,43 @@ from voice_typer.server.tray_types import AppState
 log = logging.getLogger(__name__)
 
 
+#: Stable ``consent_field`` id the backend publishes for the voice-
+#: biometric dictation gate. The renderer's ``consent_required`` push
+#: handler (App.tsx) branches on this id so it only surfaces the
+#: in-app consent prompt for the biometric gate — the HuggingFace
+#: consent shape (``provider`` / ``model``) is handled by the
+#: model-download flow.
+VOICE_BIOMETRIC_CONSENT_FIELD = "voice_biometric_consent"
+
+
+def _publish_consent_required_event() -> None:
+    """Best-effort publish of a ``consent_required`` push event.
+
+    The renderer subscribes to this event (App.tsx) to surface an
+    in-app consent prompt + Settings → Privacy deep-link when dictation
+    start is refused for missing ``voice_biometric_consent``. This
+    covers entry points the renderer cannot gate client-side (the F2
+    hotkey, the tray click action, and the sandboxed bubble window) —
+    without it, those paths only showed a tray notification and the
+    renderer got zero feedback.
+
+    The event carries only the stable ``consent_field`` id; the
+    renderer localizes the message itself (mirrors the HuggingFace
+    ``consent_required`` publish in ``service/model.py``).
+    """
+    try:
+        from voice_typer.server import event_bus
+
+        event_bus.publish(
+            {
+                "type": "consent_required",
+                "data": {"consent_field": VOICE_BIOMETRIC_CONSENT_FIELD},
+            }
+        )
+    except Exception:
+        log.debug("[DICTATION] consent_required event push failed", exc_info=True)
+
+
 class RecordingLifecycle:
     """Toggle / start / stop / cancel state machine for recording.
 
@@ -228,6 +265,12 @@ class RecordingLifecycle:
                     )
                 except Exception:
                     log.debug("[DICTATION] failed to notify about missing consent", exc_info=True)
+                # Publish the ``consent_required`` push event so the
+                # renderer surfaces the in-app consent prompt + Settings
+                # deep-link (the tray notification alone is invisible for
+                # renderer-triggered dictation — the IPC returned ``ack``
+                # with no feedback).
+                _publish_consent_required_event()
                 return
         except Exception:
             # GDPR Art. 9: if we cannot verify voice_biometric_consent
@@ -254,6 +297,10 @@ class RecordingLifecycle:
                     "[DICTATION] failed to notify about consent check exception",
                     exc_info=True,
                 )
+            # Same ``consent_required`` push as the plain-refusal branch
+            # — a corrupt-config fail-CLOSED refusal deserves the same
+            # in-app feedback.
+            _publish_consent_required_event()
             return
 
         # Cancel any stale pending timers from previous sessions

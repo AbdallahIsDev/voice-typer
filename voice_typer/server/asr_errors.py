@@ -278,3 +278,61 @@ class MicrophonePermissionDeniedError(RuntimeError):
         if self.state:
             return f"{base} (state={self.state})"
         return base
+
+
+class ModelNotDownloadedError(RuntimeError):
+    """Raised when a local ASR engine is asked to load a model that has
+    not been downloaded yet.
+
+    The app NEVER downloads models automatically — the user must
+    explicitly download a model (via the Models page Download button or
+    the onboarding wizard) before it can be loaded. This error is raised
+    by the engine ``load()`` paths when the selected model is absent
+    from the local HuggingFace cache, so the IPC / tray layer can
+    surface an actionable "open the Models page and download" message
+    instead of a generic load failure.
+
+    Subclass of ``RuntimeError`` so existing ``except RuntimeError``
+    catch clauses still work. Structured fields (``model_size`` /
+    ``backend`` / ``repo_id``) let callers surface a targeted message
+    without regex-matching the text.
+    """
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        model_size: str | None = None,
+        backend: str | None = None,
+        repo_id: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.model_size = model_size
+        self.backend = backend
+        self.repo_id = repo_id
+
+
+class ModelIntegrityError(RuntimeError):
+    """Raised when a cached local model fails integrity verification on
+    the engine ``load()`` path.
+
+    The tampered cache directory is intentionally NOT deleted
+    automatically — deleting a user's model files is an explicit user
+    action (the Models page Delete button). Instead the load is refused
+    and the user is told to delete + re-download the model (via the
+    Models page) to recover. Only the explicit, user-initiated download
+    path may replace tampered files.
+    """
+
+    def __init__(
+        self,
+        message: str = "",
+        *,
+        model_size: str | None = None,
+        backend: str | None = None,
+        repo_id: str | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.model_size = model_size
+        self.backend = backend
+        self.repo_id = repo_id

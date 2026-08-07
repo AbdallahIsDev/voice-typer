@@ -121,6 +121,7 @@ COMMAND_COSTS: dict[str, int] = {
     "onboarding_next_step": 1,
     "onboarding_prev_step": 1,
     "onboarding_reset": 1,
+    "onboarding_set_backend": 1,
     "onboarding_set_hotkey": 1,
     "onboarding_set_microphone": 1,
     "onboarding_set_model": 1,

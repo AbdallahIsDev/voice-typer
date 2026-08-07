@@ -1,8 +1,8 @@
 """the fix-4 regression: prewarm.log handler must be a
-``_SecureRotatingFileHandler`` (NOT the stock
-``logging.handlers.RotatingFileHandler``) so the post-rotation
-``chmod 0o600`` guarantee (the fix) and the inter-process rotation lock
-extend to ``prewarm.log``.
+``_SecureTruncatingFileHandler`` (NOT the stock
+``logging.handlers.RotatingFileHandler``) so the single-file
+``chmod 0o600`` guarantee (the fix) and the inter-process truncation
+lock extend to ``prewarm.log``.
 
 Pre-fix, ``prewarm/logging_setup.py`` constructed the prewarm.log
 handler as a stock ``logging.handlers.RotatingFileHandler``. The
@@ -11,12 +11,14 @@ file down, but the stock ``RotatingFileHandler.doRollover`` has NO
 post-rotation chmod hook — after the first 5 MiB rotation the new
 active ``prewarm.log`` was created at ``0o666 & ~umask = 0o644``
 (world-readable on POSIX), leaking dictated-text-adjacent prewarm
-traces to co-located users on multi-user systems.
+traces to co-located users on multi-user systems. The single-file
+policy (truncate-in-place, ``backupCount=0``) keeps the SAME file and
+re-asserts 0o600 inside the inter-process lock after every truncation.
 
 The existing ``test_logging_rotation_perms.py`` ONLY tests
-``voice-typer.log`` rotation — ``prewarm.log`` rotation had NO perms
-regression test. This file mirrors
-``test_logging_rotation_perms.py::test_post_rotation_mode_is_0o600``
+``voice-typer.log`` perms — ``prewarm.log`` had NO perms regression
+test. This file mirrors
+``test_logging_rotation_perms.py::test_truncate_in_place_keeps_mode_0o600``
 but targets ``prewarm.log``.
 
 POSIX-only — on Windows the file mode is governed by ACLs, not the
@@ -77,15 +79,15 @@ def _setup_prewarm_to_tmp(tmp_path: Path, monkeypatch) -> None:
     """Run ``prewarm.logging_setup._setup_logging`` with config_dir pointed
     at ``tmp_path``, stubbing the shared main-app setup so only the
     prewarm.log handler is installed (no voice-typer.log handler to
-    confuse rotation assertions).
+    confuse truncate assertions).
     """
     from voice_typer.server import _paths
     from voice_typer.server.prewarm import logging_setup
 
     monkeypatch.setattr(_paths, "config_dir", lambda: tmp_path)
     # Stub the shared main-app setup so we don't create voice-typer.log
-    # (or voice-typer-prewarm.log) in the tmp dir — we only want the
-    # prewarm.log handler to exercise the rotation-perms guarantee.
+    # in the tmp dir — we only want the prewarm.log handler to exercise
+    # the truncate-perms guarantee.
     monkeypatch.setattr(
         "voice_typer.server.log.setup_logging",
         lambda *args, **kwargs: "deadbeef",
@@ -107,12 +109,12 @@ def _prewarm_handlers() -> list[logging.Handler]:
     ]
 
 
-def test_prewarm_handler_is_secure_rotating_subclass(tmp_path, monkeypatch):
+def test_prewarm_handler_is_secure_truncating_subclass(tmp_path, monkeypatch):
     """the ``prewarm.logging_setup._setup_logging`` installs a
-    ``_SecureRotatingFileHandler`` for ``prewarm.log``, NOT the stock
+    ``_SecureTruncatingFileHandler`` for ``prewarm.log``, NOT the stock
     ``logging.handlers.RotatingFileHandler``. The subclass overrides
-    ``doRollover`` to re-chmod the active log file to 0o600 after each
-    rotation and to acquire an inter-process rotation lock.
+    ``doRollover`` to truncate in place, re-chmod the active log file to
+    0o600, and acquire an inter-process lock.
     """
     from voice_typer.server import log as vt_log
 
@@ -123,23 +125,22 @@ def test_prewarm_handler_is_secure_rotating_subclass(tmp_path, monkeypatch):
         "no prewarm.log handler found on voice_typer root logger after _setup_logging() — the fix-4 fix not applied?"
     )
     for h in prewarm_handlers:
-        assert isinstance(h, vt_log._SecureRotatingFileHandler), (
-            "the prewarm.log handler must be a _SecureRotatingFileHandler "
-            "(subclass that re-chmods to 0o600 after each rotation AND acquires "
-            "the inter-process rotation lock), not the stock "
+        assert isinstance(h, vt_log._SecureTruncatingFileHandler), (
+            "the prewarm.log handler must be a _SecureTruncatingFileHandler "
+            "(subclass that truncates in place, re-chmods to 0o600 AND acquires "
+            "the inter-process lock), not the stock "
             "logging.handlers.RotatingFileHandler. Pre-fix the stock handler "
             "left the post-rotation active prewarm.log at 0o644 (world-readable)."
         )
 
 
-def test_prewarm_post_rotation_mode_is_0o600(tmp_path, monkeypatch):
-    """the after a prewarm.log rotation fires, the new active
-    ``prewarm.log`` is 0o600.
+def test_prewarm_truncate_in_place_keeps_mode_0o600(tmp_path, monkeypatch):
+    """after a prewarm.log truncate-in-place fires, the active
+    ``prewarm.log`` (the only file) is 0o600 and no numbered backup
+    (``prewarm.log.1``) exists.
 
-    Writes >5 MiB of records to a prewarm logger to force the rotation,
-    then asserts the new active ``prewarm.log`` mode is 0o600. Pre-fix
-    (stock ``RotatingFileHandler``), this was 0o644 (world-readable)
-    because the stock handler has no post-rotation chmod hook.
+    Writes >5 MiB of records to a prewarm logger to force the truncate,
+    then asserts the active ``prewarm.log`` mode is 0o600.
     """
     _setup_prewarm_to_tmp(tmp_path, monkeypatch)
 
@@ -150,10 +151,10 @@ def test_prewarm_post_rotation_mode_is_0o600(tmp_path, monkeypatch):
         f"initial prewarm.log mode must be 0o600; got {oct(stat.S_IMODE(os.stat(prewarm_log).st_mode))}"
     )
 
-    # Force a rotation by writing >5 MiB of records. Use a long sentence
-    # per record so the PII redaction filter (which collapses runs of
-    # identical chars to ``***``) doesn't shrink the payload. 8 KiB per
-    # record -> ~700 records to hit 5 MiB.
+    # Force a truncate-in-place by writing >5 MiB of records. Use a long
+    # sentence per record so the PII redaction filter (which collapses
+    # runs of identical chars to ``***``) doesn't shrink the payload.
+    # 8 KiB per record -> ~700 records to hit 5 MiB.
     prewarm_logger = logging.getLogger("voice_typer.server.prewarm.rotation_test")
     prewarm_logger.setLevel(logging.DEBUG)
     payload = "the quick brown fox jumps over the lazy dog " * 180  # ~8 KiB
@@ -161,24 +162,23 @@ def test_prewarm_post_rotation_mode_is_0o600(tmp_path, monkeypatch):
     for _ in range(700):
         prewarm_logger.info(payload)
 
-    # Flush all handlers so the rotation actually fires.
+    # Flush all handlers so the truncate actually fires.
     for h in logging.getLogger("voice_typer").handlers:
         with contextlib.suppress(Exception):
             h.flush()
 
-    # The active prewarm.log must still be 0o600 after the rotation.
+    # The active prewarm.log must still be 0o600 after the truncate.
     mode = stat.S_IMODE(os.stat(prewarm_log).st_mode)
     assert oct(mode) == "0o600", (
-        f"the post-rotation prewarm.log mode must be 0o600 on POSIX; got {oct(mode)}. "
+        f"the post-truncate prewarm.log mode must be 0o600 on POSIX; got {oct(mode)}. "
         "Pre-fix (stock RotatingFileHandler) this was 0o644 (world-readable) "
         "because the stock handler has no post-rotation chmod hook — the "
         "initial setup-time chmod did not survive the first 5 MiB rotation."
     )
 
-    # The rotated backup file (``prewarm.log.1``) must ALSO be 0o600 —
-    # it was renamed from the original active file (which was 0o600), so
-    # the mode carries over via rename.
+    # Single-file policy: NO numbered backup (``prewarm.log.1``) exists.
     backup = tmp_path / "prewarm.log.1"
-    assert backup.exists(), "the expected a rotated backup file prewarm.log.1 after >5 MiB write"
-    backup_mode = stat.S_IMODE(os.stat(backup).st_mode)
-    assert oct(backup_mode) == "0o600", f"the rotated prewarm.log.1 mode must be 0o600 on POSIX; got {oct(backup_mode)}"
+    assert not backup.exists(), (
+        "single-file policy: prewarm.log.1 must NOT be created — prewarm.log "
+        "truncates in place instead of rotating to numbered backups"
+    )

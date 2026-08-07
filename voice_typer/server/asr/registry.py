@@ -28,6 +28,7 @@ from typing import Protocol, runtime_checkable
 
 from voice_typer.server.asr.busy_flag import BusyFlag
 from voice_typer.server.asr.circuit_breaker import CircuitBreaker
+from voice_typer.server.asr_errors import ModelIntegrityError, ModelNotDownloadedError
 
 log = logging.getLogger(__name__)
 
@@ -234,6 +235,27 @@ class RegistryCore:
                     log.info("[ASR_REGISTRY] loaded backend: %s", name)
                     self._record_success(name)
                     return backend
+                except (ModelNotDownloadedError, ModelIntegrityError) as exc:
+                    # Not a transient failure: the user hasn't downloaded
+                    # the model (or the cached files failed integrity
+                    # verification) — the app NEVER downloads models
+                    # automatically. Do NOT record a circuit-breaker
+                    # failure (a retry won't help, and the breaker would
+                    # permanently disable a backend the user may download
+                    # or repair later) and do NOT fall back to whisper
+                    # (silently switching backends would hide the missing
+                    # download from the user, who explicitly chose this
+                    # backend). Re-raise so the caller (ModelManager)
+                    # can surface an actionable "open the Models page and
+                    # download" message.
+                    log.warning(
+                        "[ASR_REGISTRY] %s backend refused to load: %s — "
+                        "model not downloaded / integrity check failed. "
+                        "No circuit-breaker record, no whisper fallback.",
+                        name,
+                        exc,
+                    )
+                    raise
                 except Exception as exc:
                     # ``exc_info=True`` so the full traceback is captured.
                     log.warning(

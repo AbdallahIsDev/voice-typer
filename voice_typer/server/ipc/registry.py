@@ -225,6 +225,9 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "onboarding_set_microphone": "_handle_onboarding_set_microphone",
     "onboarding_set_hotkey": "_handle_onboarding_set_hotkey",
     "onboarding_set_model": "_handle_onboarding_set_model",
+    # local-vs-cloud choice on the wizard's Model step ("local" →
+    # download + run a local model; "cloud" → connect a cloud API).
+    "onboarding_set_backend": "_handle_onboarding_set_backend",
     "onboarding_skip": "_handle_onboarding_skip",
     "onboarding_apply": "_handle_onboarding_apply",
     "onboarding_get_microphones": "_handle_onboarding_get_microphones",

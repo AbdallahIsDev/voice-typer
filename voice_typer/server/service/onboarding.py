@@ -121,6 +121,23 @@ class OnboardingMixin(ServiceMixinBase):
         ctrl.set_model(model)
         return {"ok": True}
 
+    def onboarding_set_backend(self, backend: str) -> dict:
+        """Set the local-vs-cloud backend choice in the onboarding wizard.
+
+        ``"local"`` runs a local AI model (downloaded explicitly by the
+        user — the app never auto-downloads); ``"cloud"`` connects a
+        cloud transcription API (API key + consent persisted via the
+        allowlisted ``set_config`` fields).
+        """
+        ctrl = getattr(self, "_onboarding", None)
+        if ctrl is None:
+            return {"error": "Onboarding not started"}
+        try:
+            ctrl.set_backend(backend)
+        except ValueError as exc:
+            return {"error": str(exc)}
+        return {"ok": True}
+
     def onboarding_skip(self) -> dict:
         """Skip onboarding entirely."""
         ctrl = getattr(self, "_onboarding", None)

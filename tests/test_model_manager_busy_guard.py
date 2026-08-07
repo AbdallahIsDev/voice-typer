@@ -257,6 +257,13 @@ class TestSetActiveBackendDefersWhenBusy:
         mm._evict_lru_model = lambda: None
 
         mm.set_active_backend("qwen")
+        # Join the background BackendChange thread so its
+        # ``asr_backend_ready`` publish completes inside this test
+        # (doesn't leak into a later test's event_bus subscription
+        # window).
+        bg_thread = getattr(mm, "_backend_change_thread", None)
+        if bg_thread is not None:
+            bg_thread.join(timeout=5.0)
 
         # NOT deferred.
         assert mm._pending_backend_change is None, (

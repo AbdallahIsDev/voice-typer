@@ -5,14 +5,20 @@ These tests guard the thread-safety fixes added for:
   * **FR-22** (Medium): ``tray_menu.py:build_menu_for_tray`` and
     ``invalidate_menu_cache`` read+write ``tray._cached_menu`` /
     ``tray._menu_cache_valid`` / ``tray._microphones`` without any
-    lock. ``invalidate_menu_cache`` is called from background threads
+    lock.    ``invalidate_menu_cache`` is called from background threads
     (e.g. ``set_microphones`` from the device watcher). On Windows,
     ``pystray.Icon._update_menu()`` calls ``DestroyMenu`` /
     ``CreatePopupMenu`` — not guaranteed thread-safe.
-    Fix: ``tray._menu_lock`` (``threading.Lock``) serializes the
+    Fix: ``tray._menu_lock`` (``threading.RLock``) serializes the
     check-then-build-then-cache sequence in ``build_menu_for_tray``
     AND the flag-clear + ``_update_menu()`` pair in
-    ``invalidate_menu_cache``.
+    ``invalidate_menu_cache``. RLock (not Lock) because
+    ``invalidate_menu_cache`` holds the lock while calling
+    ``_icon._update_menu()``, and pystray's ``_update_menu`` iterates
+    the ``pystray.Menu(tray._build_menu)`` callable — which re-enters
+    ``build_menu_for_tray`` on the SAME thread (a plain Lock would
+    self-deadlock, permanently wedging the IPC dispatch worker and
+    producing the 15s ``command_timeout`` storm).
 
   * **FR-23** (Medium): ``tray.py:_apply_state`` + ``stop`` had no
     lock around ``self._icon`` access. Between ``self._icon.stop()``
@@ -174,13 +180,22 @@ def _make_tray() -> TrayIcon:
 class TestMenuLockDeclared:
     """FR-22: TrayIcon.__init__ must declare ``_menu_lock``."""
 
-    def test_menu_lock_is_threading_lock(self):
-        import threading
+    def test_menu_lock_is_reentrant_rlock(self):
+        """FR-22: ``_menu_lock`` must be re-entrant (RLock).
 
+        ``invalidate_menu_cache`` holds the lock while calling
+        ``tray._icon._update_menu()``; pystray's ``_update_menu``
+        iterates the menu, and ``pystray.Menu(callable)`` INVOKES the
+        callable on iteration, so ``build_menu_for_tray`` re-enters the
+        lock on the SAME thread. A plain ``threading.Lock`` self-
+        deadlocks there, permanently wedging the IPC dispatch worker
+        (the 15s ``command_timeout`` storm). Re-entrant acquisition
+        must succeed.
+        """
         tray = _make_tray()
-        assert isinstance(tray._menu_lock, type(threading.Lock())), (
-            f"tray._menu_lock must be a threading.Lock (FR-22). Got {type(tray._menu_lock)!r}."
-        )
+        with tray._menu_lock, tray._menu_lock:
+            pass  # RLock allows re-entrant acquisition from one thread
+        # If we get here without deadlock, _menu_lock is re-entrant.
 
     def test_menu_lock_is_distinct_from_queue_lock(self):
         tray = _make_tray()
@@ -190,9 +205,70 @@ class TestMenuLockDeclared:
         )
 
 
+class _CallableMenuIcon:
+    """Fake pystray icon whose ``_update_menu`` iterates a callable menu.
+
+    Mirrors pystray's real behavior: the icon's menu was created as
+    ``pystray.Menu(tray._build_menu)`` (a single callable), and
+    ``_update_menu`` iterates the menu — which INVOKES the callable
+    (pystray's ``Menu.items`` property calls ``self._items[0]()`` when
+    the menu holds a single callable), synchronously re-entering
+    ``build_menu_for_tray`` on the same thread. This is the exact
+    re-entrancy that made a plain ``threading.Lock`` on ``_menu_lock``
+    self-deadlock. Implemented without the real pystray module so the
+    headless-CI mock can't mask the bug.
+    """
+
+    def __init__(self, tray):
+        self._tray = tray
+
+    def _update_menu(self):
+        # pystray's win32 _create_menu does `for descriptor in self.menu`;
+        # iterating a Menu(single-callable) invokes the callable.
+        for _descriptor in self._tray._build_menu():
+            pass
+
+
 class TestConcurrentBuildAndInvalidateNoException:
     """FR-22: spawn N threads through build_menu_for_tray +
     invalidate_menu_cache and assert no thread raises."""
+
+    def test_invalidate_menu_cache_with_live_icon_does_not_self_deadlock(self):
+        """Regression: ``invalidate_menu_cache`` on a LIVE icon must not
+        self-deadlock.
+
+        The dispatch-pool worker thread that runs ``set_tray_locale``
+        calls ``invalidate_menu_cache``, which holds ``_menu_lock``
+        while calling ``_icon._update_menu()``. pystray's
+        ``_update_menu`` re-enters ``build_menu_for_tray`` (via the
+        callable menu) on the same thread — with a plain Lock that is a
+        self-deadlock that permanently wedges the worker (the 15s
+        ``command_timeout`` storm in production). With the RLock fix the
+        re-entrant acquisition succeeds and the call returns.
+        """
+        from voice_typer.server.tray_menu import invalidate_menu_cache
+
+        tray = _make_tray()
+        tray._microphones = [{"id": "mic1", "name": "Mic 1"}]
+        tray._icon = _CallableMenuIcon(tray)
+
+        done: list[bool] = []
+
+        def invalidate():
+            try:
+                invalidate_menu_cache(tray)
+                done.append(True)
+            except Exception:  # noqa: BLE001 — test surface for the regression
+                done.append(False)
+
+        t = threading.Thread(target=invalidate, daemon=True)
+        t.start()
+        t.join(timeout=5.0)
+        assert not t.is_alive(), (
+            "invalidate_menu_cache with a live callable-menu icon self-deadlocked "
+            "on _menu_lock (>5s) — the 15s command_timeout storm root cause (regression)."
+        )
+        assert done == [True], "invalidate_menu_cache raised or did not complete on a live icon."
 
     def test_concurrent_build_and_invalidate_no_exceptions(self):
         from voice_typer.server.tray_menu import (

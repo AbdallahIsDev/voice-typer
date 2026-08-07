@@ -301,72 +301,160 @@ class TestCloudEngineRefusesWithoutConsent:
         assert result == ""
 
 
-class TestWhisperPreDownloadRespectsHuggingFaceConsent:
-    """TranscriptionEngine._pre_download_model respects huggingface_consent."""
+class TestWhisperLoadRefusesUncachedModel:
+    """TranscriptionEngine load-path gate: the app NEVER downloads or
+    deletes models automatically.
 
-    def test_pre_download_returns_early_without_consent(self, monkeypatch, tmp_path):
-        """When consent is False and model is not cached, _pre_download_model
-        returns early without calling snapshot_download with local_files_only=False."""
+    ``_require_model_downloaded`` (the load-time gate) refuses to load
+    an uncached model with ``ModelNotDownloadedError`` and refuses to
+    load a tampered cache with ``ModelIntegrityError`` WITHOUT deleting
+    it. No network download is ever attempted from the load path —
+    downloads are an explicit user action (Models page Download button,
+    onboarding wizard).
+    """
+
+    @staticmethod
+    def _make_engine():
+        from voice_typer.server.transcription import TranscriptionEngine
+
+        engine = TranscriptionEngine.__new__(TranscriptionEngine)
+        engine.model_size = "small.en"
+        return engine
+
+    @staticmethod
+    def _install_fake_hf(monkeypatch, snapshot_impl):
+        import sys
+
+        fake_module = type(sys)("huggingface_hub")
+        fake_module.snapshot_download = snapshot_impl
+        monkeypatch.setitem(sys.modules, "huggingface_hub", fake_module)
+        return fake_module
+
+    def test_cache_miss_raises_not_downloaded_without_network(self, monkeypatch):
+        """Cache miss → ``ModelNotDownloadedError``; the only
+        ``snapshot_download`` calls are local-only probes
+        (``local_files_only=True``) — never a network transfer."""
         calls = []
 
-        def fake_snapshot_download(**kwargs):
+        def fake_snapshot(**kwargs):
             calls.append(kwargs)
             if kwargs.get("local_files_only"):
                 raise FileNotFoundError("not in cache")
-            return "/fake/path"
+            raise AssertionError("network download attempted from load path")
 
-        import sys
+        self._install_fake_hf(monkeypatch, fake_snapshot)
+        from voice_typer.server.asr_errors import ModelNotDownloadedError
 
-        fake_module = type(sys)("huggingface_hub")
-        fake_module.snapshot_download = fake_snapshot_download
-        monkeypatch.setitem(sys.modules, "huggingface_hub", fake_module)
+        engine = self._make_engine()
+        with pytest.raises(ModelNotDownloadedError, match="not downloaded"):
+            engine._require_model_downloaded("small.en")
+        assert calls, "the local cache probe must run"
+        assert all(c.get("local_files_only") for c in calls), (
+            "the load path must never trigger a network download"
+        )
 
-        from voice_typer.server.transcription import TranscriptionEngine
+    def test_cache_miss_raises_even_with_consent(self, monkeypatch):
+        """Consent is irrelevant on the load path: even with
+        ``huggingface_consent=True`` the load refuses — there is nothing
+        to consent to, because downloads only happen via an explicit
+        user action."""
 
-        engine = TranscriptionEngine.__new__(TranscriptionEngine)
-        engine.model_size = "small.en"
-        engine.config = type("FakeConfig", (), {"huggingface_consent": False})()
-
-        engine._pre_download_model("parakeet")
-        assert calls == []
-
-    def test_pre_download_skips_download_without_consent(self, monkeypatch):
-        """When consent is False and model is not cached, _pre_download_model
-        raises ``ConsentRequiredError`` (EC-the fix) and never makes a network
-        download call.
-
-        Pre-EC-the SUT silently returned; the test asserted
-        ``network_calls == []`` with no exception. EC-changed the
-        SUT to raise ``ConsentRequiredError`` so the IPC layer can
-        ``isinstance``-check and surface a consent dialog (mirroring
-        ``parakeet_engine.load`` and ``cloud_engines.CloudEngine.transcribe``).
-        The test now expects the typed exception AND still verifies no
-        network call was attempted.
-        """
-        network_calls = []
-
-        def fake_snapshot_download(**kwargs):
+        def fake_snapshot(**kwargs):
             if kwargs.get("local_files_only"):
                 raise FileNotFoundError("not in cache")
-            network_calls.append(kwargs)
-            return "/fake/path"
+            raise AssertionError("network download attempted from load path")
 
+        self._install_fake_hf(monkeypatch, fake_snapshot)
+        from voice_typer.server.asr_errors import ModelNotDownloadedError
+
+        engine = self._make_engine()
+        engine.config = type("FakeConfig", (), {"huggingface_consent": True})()
+        with pytest.raises(ModelNotDownloadedError):
+            engine._require_model_downloaded("small.en")
+
+    def test_tampered_cache_raises_integrity_error_without_deleting(self, monkeypatch):
+        """Cache hit but tampered → ``ModelIntegrityError``; the cache is
+        NOT deleted automatically (deleting a model is an explicit user
+        action via the Models page Delete button)."""
+        cleaned = []
+
+        def fake_snapshot(**kwargs):
+            return "/fake/cache/path"
+
+        self._install_fake_hf(monkeypatch, fake_snapshot)
+        monkeypatch.setattr(
+            "voice_typer.server.security.verify_model_integrity",
+            lambda local_dir, repo_id: False,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.transcription.cleanup_hf_cache_dir",
+            lambda repo_id, log_prefix="": cleaned.append(repo_id),
+        )
+        from voice_typer.server.asr_errors import ModelIntegrityError
+
+        engine = self._make_engine()
+        with pytest.raises(ModelIntegrityError):
+            engine._require_model_downloaded("small.en")
+        assert cleaned == [], (
+            "a tampered cache must NOT be deleted automatically"
+        )
+
+    def test_cached_and_verified_model_passes(self, monkeypatch):
+        """Cached + integrity-verified → the gate passes (no raise)."""
+
+        def fake_snapshot(**kwargs):
+            return "/fake/cache/path"
+
+        self._install_fake_hf(monkeypatch, fake_snapshot)
+        monkeypatch.setattr(
+            "voice_typer.server.security.verify_model_integrity",
+            lambda local_dir, repo_id: True,
+        )
+
+        engine = self._make_engine()
+        engine._require_model_downloaded("small.en")  # must not raise
+
+    def test_non_whisper_models_skip_the_gate(self, monkeypatch):
+        """Non-Whisper model sizes are handled by their own load path."""
+
+        def fake_snapshot(**kwargs):
+            raise AssertionError("snapshot_download must not be called for non-whisper")
+
+        self._install_fake_hf(monkeypatch, fake_snapshot)
+
+        engine = self._make_engine()
+        engine._require_model_downloaded("parakeet")
+        engine._require_model_downloaded("qwen")
+        engine._require_model_downloaded("")
+
+    def test_missing_huggingface_hub_raises_not_downloaded(self, monkeypatch):
+        """If huggingface_hub is unavailable we cannot verify the cache —
+        refuse to load (never auto-download) with
+        ``ModelNotDownloadedError``."""
+        import importlib.abc
         import sys
 
-        fake_module = type(sys)("huggingface_hub")
-        fake_module.snapshot_download = fake_snapshot_download
-        monkeypatch.setitem(sys.modules, "huggingface_hub", fake_module)
+        real_hf = sys.modules.pop("huggingface_hub", None)
 
-        from voice_typer.server.asr_errors import ConsentRequiredError
-        from voice_typer.server.transcription import TranscriptionEngine
+        class _BlockHF(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target=None):
+                if fullname == "huggingface_hub":
+                    raise ImportError("simulated: huggingface_hub not installed")
+                return None
 
-        engine = TranscriptionEngine.__new__(TranscriptionEngine)
-        engine.model_size = "small.en"
-        engine.config = type("FakeConfig", (), {"huggingface_consent": False})()
+        blocker = _BlockHF()
+        sys.meta_path.insert(0, blocker)
+        try:
+            from voice_typer.server.asr_errors import ModelNotDownloadedError
 
-        with pytest.raises(ConsentRequiredError):
-            engine._pre_download_model("small.en")
-        assert network_calls == []
+            engine = self._make_engine()
+            with pytest.raises(ModelNotDownloadedError):
+                engine._require_model_downloaded("small.en")
+        finally:
+            if blocker in sys.meta_path:
+                sys.meta_path.remove(blocker)
+            if real_hf is not None:
+                sys.modules["huggingface_hub"] = real_hf
 
 
 class TestEngineAcceptsConfigInRealConstructionPath:
@@ -388,15 +476,10 @@ class TestEngineAcceptsConfigInRealConstructionPath:
         engine = TranscriptionEngine(model_size="small.en")
         assert engine.config is None
 
-    def test_pre_download_does_not_crash_without_config(self, tmp_path, monkeypatch):
-        """When ``config`` is None the SUT treats consent as not-given
-        (GDPR-safe default) and raises ``ConsentRequiredError`` (EC-the fix)
-        — it does NOT crash with ``AttributeError`` (the pre-fix bug where
-        ``getattr(self.config, ...)`` was called on ``None``).
-
-        The progress callback still receives a "consent required" message
-        so the renderer can surface a consent dialog.
-        """
+    def test_require_model_downloaded_does_not_crash_without_config(self, tmp_path, monkeypatch):
+        """When ``config`` is None the load gate still works — the local
+        cache probe doesn't read config, so an uncached model raises
+        ``ModelNotDownloadedError`` (not ``AttributeError``)."""
         import sys
 
         fake_module = type(sys)("huggingface_hub")
@@ -404,33 +487,23 @@ class TestEngineAcceptsConfigInRealConstructionPath:
         def fake_snapshot_download(**kwargs):
             if kwargs.get("local_files_only"):
                 raise FileNotFoundError("not in cache")
-            raise AssertionError("snapshot_download called without consent")
+            raise AssertionError("snapshot_download network call from load path")
 
         fake_module.snapshot_download = fake_snapshot_download
         monkeypatch.setitem(sys.modules, "huggingface_hub", fake_module)
 
-        from voice_typer.server.asr_errors import ConsentRequiredError
+        from voice_typer.server.asr_errors import ModelNotDownloadedError
         from voice_typer.server.transcription import TranscriptionEngine
 
         engine = TranscriptionEngine(model_size="small.en")
-        progress_messages: list[str] = []
-        with pytest.raises(ConsentRequiredError):
-            engine._pre_download_model("small.en", progress_callback=progress_messages.append)
-        assert any("consent" in m.lower() for m in progress_messages)
+        with pytest.raises(ModelNotDownloadedError):
+            engine._require_model_downloaded("small.en")
 
-    def test_pre_download_downloads_when_consent_given(self, tmp_path, monkeypatch):
-        """When consent is True and the model is not cached, ``_pre_download_model``
-        performs the network download (``local_files_only=False``) at least once.
-
-        The post-download ``verify_model_integrity`` check and the
-        pre-download ``_check_disk_space_for_download`` guard are both
-        mocked — their real behaviour (SHA-256 hash comparison against
-        the ``MODEL_HASHES`` manifest; ``shutil.disk_usage`` check
-        against the model's estimated size) is exercised by the
-        ``test_model_integrity*`` and ``test_disk_space*`` suites, not
-        here. The point of this test is the consent gate: when consent
-        is True, the download is allowed to proceed.
-        """
+    def test_load_path_never_downloads_even_with_consent(self, tmp_path, monkeypatch):
+        """The engine load path NEVER downloads — even with consent
+        granted, an uncached model refuses to load with
+        ``ModelNotDownloadedError``. Downloads are an explicit user
+        action (``service.download_model``), not part of loading."""
         import sys
 
         from voice_typer.server.config import Config
@@ -441,83 +514,21 @@ class TestEngineAcceptsConfigInRealConstructionPath:
             download_calls.append(kwargs)
             if kwargs.get("local_files_only"):
                 raise FileNotFoundError("not in cache")
-            return str(tmp_path / "fake_model")
+            raise AssertionError("network download attempted from load path")
 
         fake_module = type(sys)("huggingface_hub")
         fake_module.snapshot_download = fake_snapshot_download
         monkeypatch.setitem(sys.modules, "huggingface_hub", fake_module)
 
-        # Mock the integrity check so the download path completes without
-        # raising RuntimeError (the test is about the download happening,
-        # not about the integrity verification).
-        monkeypatch.setattr(
-            "voice_typer.server.security.verify_model_integrity",
-            lambda local_dir, repo_id: True,
-        )
-        # Mock the disk-space guard so the download path is not blocked by
-        # the sandbox's limited free space (the test is about consent, not
-        # disk capacity — see ``test_disk_space*`` for the real check).
-        monkeypatch.setattr(
-            "voice_typer.server.asr_utils._check_disk_space_for_download",
-            lambda repo_id, model_size: None,
-        )
-        # ``_check_disk_space_for_download`` is imported into
-        # ``transcription.py`` at module load time, so patching the
-        # ``asr_utils`` attribute alone is not enough — patch the
-        # re-exported name in ``transcription`` too.
-        monkeypatch.setattr(
-            "voice_typer.server.transcription._check_disk_space_for_download",
-            lambda repo_id, model_size: None,
-        )
-
+        from voice_typer.server.asr_errors import ModelNotDownloadedError
         from voice_typer.server.transcription import TranscriptionEngine
 
         cfg = Config()
         cfg.huggingface_consent = True
         engine = TranscriptionEngine(model_size="small.en", config=cfg)
 
-        engine._pre_download_model("small.en")
-        non_local_calls = [c for c in download_calls if not c.get("local_files_only")]
-        assert len(non_local_calls) >= 1
-
-    def test_pre_download_refuses_download_without_consent(self, tmp_path, monkeypatch):
-        """When consent is False and the model is not cached,
-        ``_pre_download_model`` raises ``ConsentRequiredError`` (EC-the fix)
-        and never makes a network download call.
-
-        Pre-EC-the SUT silently returned; the test asserted
-        ``non_local_calls == 0`` with no exception. EC-changed the
-        SUT to raise ``ConsentRequiredError`` so the IPC layer can
-        ``isinstance``-check and surface a consent dialog (mirroring
-        ``parakeet_engine.load`` and ``cloud_engines.CloudEngine.transcribe``).
-        The test now expects the typed exception AND still verifies no
-        network call was attempted.
-        """
-        import sys
-
-        from voice_typer.server.config import Config
-
-        download_calls: list[dict] = []
-
-        def fake_snapshot_download(**kwargs):
-            download_calls.append(kwargs)
-            if kwargs.get("local_files_only"):
-                raise FileNotFoundError("not in cache")
-            raise AssertionError("snapshot_download called without consent")
-
-        fake_module = type(sys)("huggingface_hub")
-        fake_module.snapshot_download = fake_snapshot_download
-        monkeypatch.setitem(sys.modules, "huggingface_hub", fake_module)
-
-        from voice_typer.server.asr_errors import ConsentRequiredError
-        from voice_typer.server.transcription import TranscriptionEngine
-
-        cfg = Config()
-        cfg.huggingface_consent = False
-        engine = TranscriptionEngine(model_size="small.en", config=cfg)
-
-        with pytest.raises(ConsentRequiredError):
-            engine._pre_download_model("small.en")
+        with pytest.raises(ModelNotDownloadedError):
+            engine._require_model_downloaded("small.en")
         non_local_calls = [c for c in download_calls if not c.get("local_files_only")]
         assert len(non_local_calls) == 0
 

@@ -127,7 +127,25 @@ class TrayIcon:
         # threads). On Windows, ``pystray.Icon._update_menu()`` calls
         # ``DestroyMenu`` / ``CreatePopupMenu`` — not guaranteed
         # thread-safe — so the lock serializes the rebuild.
-        self._menu_lock = threading.Lock()
+        #
+        # RLock (not Lock): ``invalidate_menu_cache`` acquires this lock
+        # and THEN calls ``tray._icon._update_menu()``. pystray's
+        # ``_update_menu`` iterates the icon's menu, and the menu was
+        # created as ``pystray.Menu(self._build_menu)`` — a single
+        # callable. pystray's ``Menu.items`` property INVOKES that
+        # callable when the menu is iterated, so ``_update_menu()``
+        # synchronously re-enters ``build_menu_for_tray`` on the SAME
+        # thread, which acquires ``_menu_lock`` again. With a plain
+        # ``Lock`` that is a self-deadlock: the dispatch-pool worker
+        # thread hangs forever holding the lock, and repeated
+        # ``set_tray_locale`` calls wedge all workers, so every IPC
+        # command (get_config etc.) times out at 15s while inline
+        # heartbeats keep the connection alive. An RLock lets the same
+        # thread re-enter while still serializing against OTHER threads
+        # (concurrent right-click builds on the pystray loop thread),
+        # preserving the FR-22 cross-thread guarantee. Mirrors the
+        # reentrancy rationale of ``_icon_lock`` below.
+        self._menu_lock = threading.RLock()
         # Protects ``self._icon`` access in ``_apply_state`` +
         # ``stop()``. Between ``self._icon.stop()`` returning and
         # ``self._icon = None`` executing, a concurrent ``_apply_state``

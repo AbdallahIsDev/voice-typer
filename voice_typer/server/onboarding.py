@@ -70,6 +70,14 @@ class OnboardingController:
         # NATIVE-001: default hotkey is Caps Lock on all platforms
         self.selected_hotkey: str = DEFAULT_HOTKEY
         self.selected_model: str = "small.en"
+        # The Model step's local-vs-cloud choice. "local" downloads and
+        # runs a local AI model (the user clicks Download explicitly —
+        # the app NEVER auto-downloads); "cloud" connects a cloud
+        # transcription API (API key + consent persisted via the
+        # allowlisted set_config fields, mirroring the Models page —
+        # cloud ASR is configured but the local backend stays active
+        # until CloudEngine is wired into the dictation pipeline).
+        self.selected_backend: str = "local"
         # removed the ``on_step_change`` and ``on_complete``
         # callbacks — they were declared but never set by any caller.
         # The renderer tracks step changes via the IPC response
@@ -127,6 +135,12 @@ class OnboardingController:
             smd = data.get("selected_model")
             if isinstance(smd, str) and smd:
                 self.selected_model = smd
+            # selected_backend — one of BACKEND_CHOICES ("local" /
+            # "cloud"). Invalid values are ignored (fall back to
+            # default).
+            sb = data.get("selected_backend")
+            if isinstance(sb, str) and sb in self.BACKEND_CHOICES:
+                self.selected_backend = sb
             log.info(
                 "[ONBOARDING] Resumed in-progress wizard state from %s (step=%d)",
                 self._progress_path.name,
@@ -154,6 +168,7 @@ class OnboardingController:
                     "selected_microphone": self.selected_microphone,
                     "selected_hotkey": self.selected_hotkey,
                     "selected_model": self.selected_model,
+                    "selected_backend": self.selected_backend,
                 }
             )
             # durability=False — onboarding progress is transient UI
@@ -345,6 +360,7 @@ class OnboardingController:
         self.selected_microphone = None
         self.selected_hotkey = DEFAULT_HOTKEY
         self.selected_model = "small.en"
+        self.selected_backend = "local"
         log.info("[ONBOARDING] Reset (markers removed)")
 
     # ─── Step navigation ─────────────────────────────────────────────
@@ -599,6 +615,13 @@ class OnboardingController:
 
     # ─── Model selection ─────────────────────────────────────────────
 
+    # The Model step's local-vs-cloud choice. The app NEVER downloads
+    # models automatically — a local model is loaded only after the
+    # user explicitly clicks Download (Models page or this wizard);
+    # "cloud" connects a cloud transcription API instead (API key +
+    # consent, persisted via the allowlisted set_config fields).
+    BACKEND_CHOICES: tuple[str, ...] = ("local", "cloud")
+
     # each entry now carries ``vram_gb`` (estimated VRAM for
     # GPU inference / RAM for CPU inference, in gigabytes) and
     # ``languages`` (``None`` means "all languages" / multilingual;
@@ -681,6 +704,21 @@ class OnboardingController:
     def set_model(self, model_name: str) -> None:
         """Store the selected model."""
         self.selected_model = model_name
+        # Persist progress so a mid-wizard app
+        # restart restores this selection.
+        self._persist_progress()
+
+    def set_backend(self, backend: str) -> None:
+        """Store the local-vs-cloud backend choice (Model step).
+
+        ``"local"`` runs a local AI model (downloaded explicitly by the
+        user); ``"cloud"`` connects a cloud transcription API. Invalid
+        choices raise ``ValueError`` so the IPC layer surfaces an error
+        envelope instead of silently persisting garbage.
+        """
+        if backend not in self.BACKEND_CHOICES:
+            raise ValueError(f"unknown onboarding backend choice: {backend!r}")
+        self.selected_backend = backend
         # Persist progress so a mid-wizard app
         # restart restores this selection.
         self._persist_progress()

@@ -517,12 +517,14 @@ class TestRegistryExtraction:
         assert registry._COMMAND_REGISTRY["heartbeat"] == "_handle_heartbeat"
         # reconciliation documented 64 commands;
         # (test_cloud_connection) + XZ-SEC-05 (add_trusted_endpoint)
-        # brought it to 65. The count is deliberately pinned here and in
-        # SECURITY.md — update all sources of truth together.
-        assert len(registry._COMMAND_REGISTRY) == 65, (
-            f"registry._COMMAND_REGISTRY must contain 65 entries "
+        # brought it to 65; onboarding_set_backend (Model-step backend
+        # choice) brought it to 66. The count is deliberately pinned
+        # here and in SECURITY.md — update all sources of truth together.
+        assert len(registry._COMMAND_REGISTRY) == 66, (
+            f"registry._COMMAND_REGISTRY must contain 66 entries "
             f"(64 baseline + test_cloud_connection + "
-            f"add_trusted_endpoint); got {len(registry._COMMAND_REGISTRY)}. "
+            f"add_trusted_endpoint + onboarding_set_backend); got "
+            f"{len(registry._COMMAND_REGISTRY)}. "
             f"If the count drifted, update this test together with the "
             f"registry + the TS/Rust allowlists."
         )

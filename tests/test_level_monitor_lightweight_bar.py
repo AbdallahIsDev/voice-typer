@@ -86,6 +86,12 @@ class TestLightweightLevelBarMode:
         processor = MagicMock()
         processor.process_chunk.side_effect = lambda x: x
         lm._level_processor = processor
+        # Clear the stashed rebuild config: a prior test (e.g. a
+        # config_applier test) may have populated
+        # ``_state._level_processor_config`` via ``update_level_processor``.
+        # ``start_monitoring`` rebuilds the processor from that stash on
+        # EVERY start, which would clobber the injected mock below.
+        lm._level_processor_config = None
         # Default: _level_bar_filtered is False
         lm._level_bar_filtered = False
         # Not in test mode
@@ -123,6 +129,12 @@ class TestLightweightLevelBarMode:
         processor = MagicMock()
         processor.process_chunk.side_effect = lambda x: x
         lm._level_processor = processor
+        # Clear the stashed rebuild config: a prior test (e.g. a
+        # config_applier test) may have populated
+        # ``_state._level_processor_config`` via ``update_level_processor``.
+        # ``start_monitoring`` rebuilds the processor from that stash on
+        # EVERY start, which would clobber the injected mock below.
+        lm._level_processor_config = None
         # Opt in to filtered bar
         lm._level_bar_filtered = True
         lm._test_mode = False
@@ -154,6 +166,12 @@ class TestLightweightLevelBarMode:
         processor = MagicMock()
         processor.process_chunk.side_effect = lambda x: x
         lm._level_processor = processor
+        # Clear the stashed rebuild config: a prior test (e.g. a
+        # config_applier test) may have populated
+        # ``_state._level_processor_config`` via ``update_level_processor``.
+        # ``start_monitoring`` rebuilds the processor from that stash on
+        # EVERY start, which would clobber the injected mock below.
+        lm._level_processor_config = None
         lm._level_bar_filtered = False
         # In test mode — filter chain must run regardless
         lm._test_mode = True

@@ -360,6 +360,11 @@ class TestServiceErrorsLogged:
                 "onboarding_set_model",
                 {"model": "tiny.en"},
             ),
+            (
+                "_handle_onboarding_set_backend",
+                "onboarding_set_backend",
+                {"backend": "local"},
+            ),
             ("_handle_onboarding_skip", "onboarding_skip", {}),
             ("_handle_onboarding_apply", "onboarding_apply", {}),
         ],
@@ -373,7 +378,7 @@ class TestServiceErrorsLogged:
         service_method,
         payload,
     ):
-        """Each of the 5 onboarding handlers that delegate ack-vs-error
+        """Each of the 6 onboarding handlers that delegate ack-vs-error
         to the service's return dict shape must log the service-returned
         error at WARNING so the failure leaves a server-side breadcrumb."""
         service_mock = getattr(fake_service, service_method)

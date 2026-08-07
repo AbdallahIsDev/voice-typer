@@ -364,7 +364,6 @@ class TestLaunchTauriFreshStart:
         monkeypatch.setattr(time, "sleep", lambda s: None)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._electron_binary", lambda: None)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._main_entry_built", lambda: False)
-        monkeypatch.setattr("voice_typer.server.autostart_launcher._build_electron", lambda: False)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._client_dir_exists", lambda: True)
         # Force npm run dev to be unavailable so the fallback path
         # returns 1 — proving the fallback was taken.
@@ -418,7 +417,6 @@ class TestLaunchPreservesElectronPath:
         monkeypatch.setattr("voice_typer.server.autostart_launcher._client_dir_exists", lambda: True)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._electron_binary", lambda: None)
         monkeypatch.setattr("voice_typer.server.autostart_launcher._main_entry_built", lambda: False)
-        monkeypatch.setattr("voice_typer.server.autostart_launcher._build_electron", lambda: False)
 
         from voice_typer.server import app as _app_mod
 

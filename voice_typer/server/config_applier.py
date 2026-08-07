@@ -211,13 +211,22 @@ _AUDIO_FILTER_KEYS = (
 def to_filter_dict(config: Any) -> dict:
     """build the audio-filter settings dict from a Config.
 
-    Single source of truth for the 5-key filter dict consumed by
+    Single source of truth for the filter dict consumed by
     :func:`level_monitor.update_level_processor` and
     :func:`microphone_test.update_test_filters`.  Both call sites in
     ``service.py`` (``level_monitor_start`` and
     ``apply_config_side_effects``) now route through this helper so
     the defaults can't diverge (the previous two inline dicts
     disagreed on ``noise_filter_rnnoise``).
+
+    The dict is COMPLETE: every ``noise_filter_*`` / ``noise_suppression_*``
+    field (plus ``audio_preset``) declared on the ``Config`` dataclass is
+    included. The earlier 5-key version omitted ``noise_filter_notch``
+    (and the eq/compressor/limiter/gate-* fields), which crashed
+    ``AudioProcessor`` construction with ``'SimpleNamespace' object has
+    no attribute 'noise_filter_notch'`` — and the partial dict was also
+    stashed as ``_state._level_processor_config``, breaking every later
+    level-processor rebuild after a device hot-swap.
 
     Parameters
     ----------
@@ -230,21 +239,24 @@ def to_filter_dict(config: Any) -> dict:
     Returns
     -------
     dict
-        A 5-key dict suitable for ``update_level_processor`` /
+        A complete filter dict suitable for ``update_level_processor`` /
         ``update_test_filters``.
     """
-    # Defaults mirror the Config dataclass declarations in config.py:
-    # noise_filter_enabled=True, noise_filter_highpass=True,
-    # noise_filter_gate=True, noise_filter_rnnoise=True (ADR 0007
-    # changed the rnnoise default from False to True),
-    # noise_filter_post_capture=True.
-    return {
-        "noise_filter_enabled": getattr(config, "noise_filter_enabled", True),
-        "noise_filter_highpass": getattr(config, "noise_filter_highpass", True),
-        "noise_filter_gate": getattr(config, "noise_filter_gate", True),
-        "noise_filter_rnnoise": getattr(config, "noise_filter_rnnoise", True),
-        "noise_filter_post_capture": getattr(config, "noise_filter_post_capture", True),
-    }
+    import dataclasses
+
+    from voice_typer.server.config import Config as _ConfigClass
+
+    _fields = _ConfigClass.__dataclass_fields__
+    result: dict[str, Any] = {}
+    for name, field_info in _fields.items():
+        if not (name.startswith("noise_filter_") or name.startswith("noise_suppression_") or name == "audio_preset"):
+            continue
+        default = field_info.default
+        if default is dataclasses.MISSING:
+            factory = field_info.default_factory
+            default = factory() if factory is not dataclasses.MISSING else None
+        result[name] = getattr(config, name, default)
+    return result
 
 
 def _apply_audio_preset(preset: str) -> dict:

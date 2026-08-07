@@ -440,6 +440,62 @@ class TestCycleCounterNotIncrementedForBlockedToggles:
         assert app._stop_dictation.called, "UE-9-F15: the committed stop path must call _stop_dictation."
 
 
+# _start_impl publishes a consent_required push on refusal ──────
+
+
+class TestStartDictationConsentPush:
+    """GDPR Art. 9: refusing dictation start without
+    ``voice_biometric_consent`` must publish a ``consent_required`` push
+    event so the renderer can surface in-app consent feedback for ANY
+    entry point (Home mic button, bubble, F2 hotkey, tray click).
+
+    Previously the refusal was tray-notification-only: the IPC
+    ``toggle_dictation`` resolved ``ack`` and the renderer got zero
+    feedback (a dead mic button). The push event carries only the
+    stable ``consent_field`` id; the renderer localizes the message.
+    """
+
+    def test_consent_refusal_publishes_consent_required_event(self):
+        ctrl, app = _make_controller()
+        app.config.voice_biometric_consent = False
+
+        with patch("voice_typer.server.event_bus.publish") as publish:
+            ctrl.start()
+
+        # Fail closed: the recorder must NOT have been started.
+        assert app.recorder.start.call_count == 0, (
+            "GDPR gate must refuse to start the recorder without consent."
+        )
+        # The consent_required event was published with the stable id.
+        consent_events = [
+            c.args[0]
+            for c in publish.call_args_list
+            if c.args and c.args[0].get("type") == "consent_required"
+        ]
+        assert len(consent_events) == 1, (
+            f"expected exactly 1 consent_required publish; got {len(consent_events)}"
+        )
+        assert (
+            consent_events[0]["data"]["consent_field"] == "voice_biometric_consent"
+        )
+
+    def test_consent_granted_does_not_publish_consent_event(self):
+        ctrl, app = _make_controller()
+        app.config.voice_biometric_consent = True
+
+        with patch("voice_typer.server.event_bus.publish") as publish:
+            ctrl.start()
+
+        consent_events = [
+            c.args[0]
+            for c in publish.call_args_list
+            if c.args and c.args[0].get("type") == "consent_required"
+        ]
+        assert consent_events == [], (
+            "Consent granted: no consent_required event expected."
+        )
+
+
 # inverted _busy_event semantics documentation (deferred) ────
 
 

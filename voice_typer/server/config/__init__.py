@@ -280,8 +280,9 @@ def _default_hotkey_for_platform() -> str:
 # module (``RECOVERY_FILENAME``, ``VOCAB_FILENAME``,
 # ``TEMPLATES_FILENAME``, …) instead of bare literals that drifted
 # from the actual on-disk names. ``_USER_DATA_DIRS`` is still defined
-# inline because the four entries (``logs``, ``huggingface``,
-# ``crashes``, ``native_logs``) are stable directory names owned by
+# inline because the five entries (``logs``, ``huggingface``,
+# ``crashes``, ``native_logs``, ``electron-profile``) are stable
+# directory names owned by
 # several modules (no single canonical constant exists for each).
 
 _USER_DATA_DIRS: tuple[str, ...] = (
@@ -289,6 +290,7 @@ _USER_DATA_DIRS: tuple[str, ...] = (
     "huggingface",  # HF model cache (potentially GB-sized)
     "crashes",
     "native_logs",
+    "electron-profile",  # Electron/Chromium profile (caches, Local Storage)
 )
 
 

@@ -1,8 +1,10 @@
 """Tests for ``voice_typer.server.parakeet_engine``.
 
 Parakeet TDT v3 is an optional ASR backend alongside Whisper / Qwen. It
-uses NVIDIA's ``parakeet-tdt-0.6b-v3`` via HuggingFace Transformers and
-auto-downloads weights on first load. These tests cover the engine's API
+uses NVIDIA's ``parakeet-tdt-0.6b-v3`` via HuggingFace Transformers.
+The app NEVER auto-downloads model weights — downloading is an explicit
+user action (Models page / onboarding wizard); the engine refuses to
+load an uncached model. These tests cover the engine's API
 surface WITHOUT importing torch / transformers / huggingface_hub — those
 heavy deps are mocked at the ``sys.modules`` level, mirroring how
 ``tests/test_qwen_engine.py`` mocks ``qwen_asr``.
@@ -775,87 +777,104 @@ class TestSplitAudio:
 # (Session 7 — Group 4) regression tests ──
 
 
-class TestConsentGate:
-    """G4-H-04: ParakeetEngine.load() must gate HuggingFace downloads on
-    explicit ``config.huggingface_consent``.  Cache hits (model already
-    on disk) do NOT need consent; only the network download does.
+class TestLoadRequiresCachedModel:
+    """G4-H-04 (superseded): ParakeetEngine.load() NEVER downloads or
+    deletes models automatically.
 
-    Pre-fix: ``ParakeetEngine.load()`` called ``snapshot_download()`` with
-    NO consent check — user could trigger a ~2.5 GB download from
-    huggingface.co without consent by selecting the Parakeet backend and
-    starting a dictation.
+    Pre-fix: ``ParakeetEngine.load()`` called ``snapshot_download()`` on
+    cache miss — a user selecting the Parakeet backend could trigger a
+    ~2.5 GB download from huggingface.co without any explicit download
+    action (a consent gate was later bolted on as a partial fix). The
+    app now NEVER downloads from the load path: an uncached model
+    raises :class:`ModelNotDownloadedError` and the user must click
+    Download on the Models page (or the onboarding wizard) explicitly.
+    A cached-but-tampered model raises
+    :class:`ModelIntegrityError` and is NOT deleted automatically —
+    deletion is an explicit user action (Models page Delete button).
     """
 
-    def test_consent_false_raises_on_cache_miss(self):
-        """When ``config.huggingface_consent`` is False and the model is
-        NOT cached, ``load()`` raises ``ConsentRequiredError``."""
-        from voice_typer.server.cloud_engines import ConsentRequiredError
+    def test_cache_miss_raises_not_downloaded(self):
+        """When the model is NOT cached, ``load()`` raises
+        ``ModelNotDownloadedError`` — no download is attempted."""
+        from voice_typer.server.asr_errors import ModelNotDownloadedError
 
         engine, _, _ = _make_engine_with_mocks(device="cpu")
-        # Config with consent=False (the default).
-        engine.config = type("FakeConfig", (), {"huggingface_consent": False})()
+        engine.config = type("FakeConfig", (), {"huggingface_consent": True})()
 
         with (
             patch.object(type(engine), "_is_cached", return_value=False),
-            pytest.raises(ConsentRequiredError, match="consent not given"),
+            pytest.raises(ModelNotDownloadedError, match="not downloaded"),
         ):
             engine.load()
 
-    def test_consent_none_raises_on_cache_miss(self):
-        """When ``config`` is None (degenerate path) and the model is
-        NOT cached, ``load()`` raises ``ConsentRequiredError`` — safe
-        default per GDPR Art. 6/13."""
-        from voice_typer.server.cloud_engines import ConsentRequiredError
+    def test_cache_miss_raises_even_without_config(self):
+        """``config`` None + cache miss → ``ModelNotDownloadedError``
+        (no ``AttributeError``, no consent dependency)."""
+        from voice_typer.server.asr_errors import ModelNotDownloadedError
 
         engine, _, _ = _make_engine_with_mocks(device="cpu")
         engine.config = None  # degenerate / test path
 
         with (
             patch.object(type(engine), "_is_cached", return_value=False),
-            pytest.raises(ConsentRequiredError, match="consent not given"),
+            pytest.raises(ModelNotDownloadedError, match="not downloaded"),
         ):
             engine.load()
 
-    def test_consent_true_proceeds_to_download(self):
-        """When ``config.huggingface_consent`` is True and the model is
-        NOT cached, ``load()`` proceeds with the download (existing
-        happy path preserved)."""
-        engine, _, mock_transformers = _make_engine_with_mocks(device="cpu")
+    def test_cache_miss_never_downloads_even_with_consent(self):
+        """Even with ``huggingface_consent=True``, a cache miss refuses to
+        load — the app never downloads from the load path; the user must
+        click Download explicitly (Models page / onboarding wizard)."""
+        from voice_typer.server.asr_errors import ModelNotDownloadedError
+
+        engine, _, _ = _make_engine_with_mocks(device="cpu")
         engine.config = type("FakeConfig", (), {"huggingface_consent": True})()
 
-        # Make _is_cached return False on the first call (cache-miss
-        # branch) and True on subsequent calls (post-download).  We
-        # also need _verify_model_integrity to return True so the
-        # unconditional integrity check passes.
-        cached_calls = [False, True, True]
-
-        def _fake_cached():
-            return cached_calls.pop(0) if cached_calls else True
-
         with (
-            patch.object(type(engine), "_is_cached", side_effect=_fake_cached),
-            patch.object(type(engine), "_should_force_cpu", return_value=False),
+            patch.object(type(engine), "_is_cached", return_value=False),
+            pytest.raises(ModelNotDownloadedError, match="not downloaded"),
+        ):
+            engine.load()
+
+    def test_tampered_cache_raises_integrity_error_without_deleting(self, tmp_path, monkeypatch):
+        """A cached-but-tampered model raises ``ModelIntegrityError`` and
+        the tampered cache is NOT deleted automatically — deletion is an
+        explicit user action (Models page Delete button)."""
+        from voice_typer.server.asr_errors import ModelIntegrityError
+
+        engine, _, _ = _make_engine_with_mocks(device="cpu")
+        engine.config = type("FakeConfig", (), {"huggingface_consent": True})()
+
+        # Build a fake HF cache dir with a real snapshot dir so the
+        # source's ``if model_dir.is_dir():`` gate passes and the
+        # integrity check path is entered.
+        cache_root = tmp_path / "huggingface" / "hub"
+        model_dir = cache_root / "models--nvidia--parakeet-tdt-0.6b-v3"
+        snapshot_dir = model_dir / "snapshots" / "abc123"
+        snapshot_dir.mkdir(parents=True)
+        (snapshot_dir / "model.safetensors").write_bytes(b"\x00" * 100)
+        (snapshot_dir / "config.json").write_text('{"tampered": true}')
+
+        deleted = []
+        monkeypatch.setattr(
+            "voice_typer.server.asr_utils.cleanup_hf_cache_dir",
+            lambda repo_id, log_prefix="": deleted.append(repo_id),
+        )
+        with (
+            patch.object(type(engine), "_is_cached", return_value=True),
             patch(
                 "voice_typer.server.security.verify_model_integrity",
-                return_value=True,
+                return_value=False,  # integrity FAILED
             ),
-            patch("huggingface_hub.snapshot_download", return_value="/fake/path"),
+            patch("voice_typer.server.config._config_dir", return_value=tmp_path),
+            pytest.raises(ModelIntegrityError),
         ):
-            mock_transformers.AutoProcessor.from_pretrained.return_value = MagicMock()
-            mock_transformers.AutoModelForTDT.from_pretrained.return_value = MagicMock()
-            # Disable the cache_dir block so we don't touch the real FS.
-            with patch("voice_typer.server.config._config_dir") as mock_dir:
-                # Use a non-existent path so model_dir.is_dir() is False.
-                mock_dir.return_value = Path("/nonexistent/parakeet/test")
-                result = engine.load()
+            engine.load()
+        assert deleted == [], "a tampered cache must NOT be deleted automatically"
 
-        assert result is True
-        assert engine.is_loaded is True
-
-    def test_cache_hit_skips_consent_gate(self):
-        """When the model IS cached, ``load()`` does NOT raise even if
-        ``config.huggingface_consent`` is False — local file access
-        doesn't need network consent."""
+    def test_cache_hit_loads_without_consent(self):
+        """When the model IS cached and integrity-verified, ``load()``
+        succeeds — no consent needed for local file access."""
         engine, _, mock_transformers = _make_engine_with_mocks(device="cpu")
         # Config with consent=False, BUT model is cached.
         engine.config = type("FakeConfig", (), {"huggingface_consent": False})()
@@ -927,9 +946,13 @@ class TestUnconditionalIntegrityVerify:
         # _verify_model_integrity must have been called at least once.
         mock_verify.assert_called()
 
-    def test_cache_hit_with_tampered_model_returns_false(self, tmp_path):
-        """When the cached model fails integrity check, ``load()``
-        returns False and cleans up the tampered cache dir."""
+    def test_cache_hit_with_tampered_model_raises_integrity_error(self, tmp_path):
+        """When the cached model fails integrity check, ``load()`` raises
+        ``ModelIntegrityError`` and does NOT delete the tampered cache
+        (deletion is an explicit user action via the Models page Delete
+        button)."""
+        from voice_typer.server.asr_errors import ModelIntegrityError
+
         # Build a fake HF cache dir with a tampered snapshot.
         cache_root = tmp_path / "huggingface" / "hub"
         model_dir = cache_root / "models--nvidia--parakeet-tdt-0.6b-v3"
@@ -950,17 +973,16 @@ class TestUnconditionalIntegrityVerify:
                 return_value=False,
             ),
             patch("voice_typer.server.config._config_dir", return_value=tmp_path),
+            pytest.raises(ModelIntegrityError),
         ):
-            result = engine.load()
+            engine.load()
 
-        assert result is False
         assert engine.is_loaded is False
-        # cache cleanup: the tampered cache dir MUST have
-        # been removed so the next load() doesn't re-discover it.
-        assert not model_dir.exists(), (
-            "G4-tampered HF cache directory must be removed after "
-            "integrity check failure so the next load() doesn't re-load "
-            "the same tampered files."
+        # The tampered cache must be LEFT IN PLACE for the user to delete
+        # explicitly — the app never deletes models automatically.
+        assert model_dir.exists(), (
+            "the tampered cache must NOT be deleted automatically — "
+            "deletion is an explicit user action."
         )
 
 

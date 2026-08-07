@@ -52,6 +52,7 @@ from voice_typer.server.asr.registry import (
     ProgressCallback,
     RegistryCore,
 )
+from voice_typer.server.asr_errors import ModelIntegrityError, ModelNotDownloadedError
 
 log = logging.getLogger(__name__)
 
@@ -117,6 +118,23 @@ class AsrBackendRegistry(RegistryCore):
             log.info("[ASR_REGISTRY] loaded active backend: %s", self.active_name)
             self._record_success(self.active_name)
             return backend
+        except (ModelNotDownloadedError, ModelIntegrityError) as exc:
+            # Not a transient failure: the model isn't downloaded (or the
+            # cache failed integrity verification) — the app NEVER
+            # downloads models automatically. Do NOT record a
+            # circuit-breaker failure (a retry won't help and the breaker
+            # would permanently disable a backend the user may download /
+            # repair later). Re-raise so the caller (ModelManager) can
+            # surface an actionable "open the Models page and download"
+            # message.
+            log.warning(
+                "[ASR_REGISTRY] active backend %s refused to load: %s — "
+                "model not downloaded / integrity check failed. "
+                "No circuit-breaker record.",
+                self.active_name,
+                exc,
+            )
+            raise
         except Exception as exc:
             log.exception("[ASR_REGISTRY] failed to load active backend %s: %s", self.active_name, exc)
             self._record_failure(self.active_name)

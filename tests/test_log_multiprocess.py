@@ -12,8 +12,8 @@ the original file in write mode — **truncating the log mid-session**.
 The fix in :func:`voice_typer.server.log.setup_logging` adds a
 ``process_name`` parameter (default ``"main"``). When the prewarm
 process passes ``process_name="prewarm"`` the rotating file handler
-writes to ``<config_dir>/voice-typer-prewarm.log`` instead of the
-shared ``<config_dir>/voice-typer.log``. This eliminates the race
+writes to ``<config_dir>/prewarm.log`` instead of the shared
+``<config_dir>/voice-typer.log``. This eliminates the race
 because the two processes never share a file descriptor on the same
 file.
 
@@ -22,7 +22,7 @@ These tests assert:
 1. ``setup_logging(config_dir)`` (default ``process_name="main"``)
    writes to ``<config_dir>/voice-typer.log``.
 2. ``setup_logging(config_dir, process_name="prewarm")`` writes to
-   ``<config_dir>/voice-typer-prewarm.log`` — a DIFFERENT path.
+   ``<config_dir>/prewarm.log`` — a DIFFERENT path.
 3. ``get_log_file_path`` mirrors the same disambiguation.
 4. The two paths are NOT equal (the core race-elimination invariant).
 """
@@ -64,7 +64,7 @@ def test_main_process_writes_to_voice_typer_log(tmp_path: Path) -> None:
         _flush_handlers()
 
         main_log = config_dir / "voice-typer.log"
-        prewarm_log = config_dir / "voice-typer-prewarm.log"
+        prewarm_log = config_dir / "prewarm.log"
 
         assert main_log.exists(), "main log file should exist after setup_logging"
         assert not prewarm_log.exists(), "prewarm log file should NOT exist when process_name is 'main'"
@@ -75,7 +75,7 @@ def test_main_process_writes_to_voice_typer_log(tmp_path: Path) -> None:
 
 
 def test_prewarm_process_writes_to_prewarm_log(tmp_path: Path) -> None:
-    """``process_name="prewarm"`` writes to ``voice-typer-prewarm.log``.
+    """``process_name="prewarm"`` writes to ``prewarm.log``.
 
     This is the DJ-49 fix — the prewarm process gets its own file so
     the shared RotatingFileHandler is never opened by two processes
@@ -91,7 +91,7 @@ def test_prewarm_process_writes_to_prewarm_log(tmp_path: Path) -> None:
         _flush_handlers()
 
         main_log = config_dir / "voice-typer.log"
-        prewarm_log = config_dir / "voice-typer-prewarm.log"
+        prewarm_log = config_dir / "prewarm.log"
 
         assert prewarm_log.exists(), "prewarm log file should exist when process_name='prewarm'"
         assert not main_log.exists(), (
@@ -119,7 +119,7 @@ def test_main_and_prewarm_paths_are_disjoint(tmp_path: Path) -> None:
     prewarm_path = get_log_file_path(config_dir, process_name="prewarm")
 
     assert main_path == config_dir / "voice-typer.log"
-    assert prewarm_path == config_dir / "voice-typer-prewarm.log"
+    assert prewarm_path == config_dir / "prewarm.log"
     assert main_path != prewarm_path, (
         "DJ-49 invariant violated: main and prewarm must write to DIFFERENT "
         "files (otherwise the RotatingFileHandler race re-emerges)"
