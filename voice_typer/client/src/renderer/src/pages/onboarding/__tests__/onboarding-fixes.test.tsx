@@ -804,37 +804,68 @@ describe("ModelStep aria-label interpolates the model name", () => {
 	});
 	afterEach(() => cleanup());
 
+	// Base props shared by all direct ModelStep renders in this block.
+	// The Model step rework added the backend-choice / download / cloud
+	// props; passing them explicitly keeps the component's prop contract
+	// pinned (a future prop removal would fail the typecheck here).
+	const baseProps = {
+		headingRef: () => {},
+		selectedBackend: "local" as const,
+		setSelectedBackend: () => {},
+		hfConsent: false,
+		setHfConsent: () => {},
+		downloadingModel: null,
+		downloadProgress: 0,
+		downloadFailed: false,
+		onDownload: () => Promise.resolve(),
+		cloudProvider: "openai",
+		setCloudProvider: () => {},
+		cloudApiKey: "",
+		setCloudApiKey: () => {},
+		cloudConsent: false,
+		setCloudConsent: () => {},
+	};
+
+	const twoOptions = [
+		{
+			name: "small.en",
+			size: "~466MB",
+			speed: "Fast",
+			description: "Small",
+		},
+		{
+			name: "medium.en",
+			size: "~1.5GB",
+			speed: "Slow",
+			description: "Medium",
+		},
+	];
+
+	// The SelectTrigger is rendered as a <button> by the mock. Scope by
+	// its aria-label ("Select model: …") because the reworked Model step
+	// also renders backend-choice cards and a Download button.
+	function modelTrigger(): HTMLButtonElement {
+		return screen.getByRole("button", {
+			name: /Select model/,
+		}) as HTMLButtonElement;
+	}
+
 	it("aria-label contains the selected model name (not literal '{name}')", () => {
 		// Render ModelStep directly so we can assert on the
 		// SelectTrigger's aria-label without driving the full
 		// wizard IPC flow.
 		render(
 			<ModelStep
-				headingRef={() => {}}
-				modelOptions={[
-					{
-						name: "small.en",
-						size: "~466MB",
-						speed: "Fast",
-						description: "Small",
-					},
-					{
-						name: "medium.en",
-						size: "~1.5GB",
-						speed: "Slow",
-						description: "Medium",
-					},
-				]}
+				{...baseProps}
+				modelOptions={twoOptions}
 				selectedModel="small.en"
 				setSelectedModel={() => {}}
 			/>,
 		);
 
-		// The SelectTrigger is rendered as a <button> by the mock.
 		// Its aria-label should be the interpolated string
 		// "Select model: small.en" — NOT "Select model: {name}".
-		const trigger = screen.getByRole("button");
-		const label = trigger.getAttribute("aria-label") ?? "";
+		const label = modelTrigger().getAttribute("aria-label") ?? "";
 		expect(label).toContain("small.en");
 		expect(label).not.toContain("{name}");
 	});
@@ -842,61 +873,33 @@ describe("ModelStep aria-label interpolates the model name", () => {
 	it("aria-label updates when the selected model changes", () => {
 		const { rerender } = render(
 			<ModelStep
-				headingRef={() => {}}
-				modelOptions={[
-					{
-						name: "small.en",
-						size: "~466MB",
-						speed: "Fast",
-						description: "Small",
-					},
-					{
-						name: "medium.en",
-						size: "~1.5GB",
-						speed: "Slow",
-						description: "Medium",
-					},
-				]}
+				{...baseProps}
+				modelOptions={twoOptions}
 				selectedModel="small.en"
 				setSelectedModel={() => {}}
 			/>,
 		);
 
-		let trigger = screen.getByRole("button");
-		expect(trigger.getAttribute("aria-label")).toContain("small.en");
+		expect(modelTrigger().getAttribute("aria-label")).toContain("small.en");
 
 		// Re-render with a different selectedModel.
 		rerender(
 			<ModelStep
-				headingRef={() => {}}
-				modelOptions={[
-					{
-						name: "small.en",
-						size: "~466MB",
-						speed: "Fast",
-						description: "Small",
-					},
-					{
-						name: "medium.en",
-						size: "~1.5GB",
-						speed: "Slow",
-						description: "Medium",
-					},
-				]}
+				{...baseProps}
+				modelOptions={twoOptions}
 				selectedModel="medium.en"
 				setSelectedModel={() => {}}
 			/>,
 		);
 
-		trigger = screen.getByRole("button");
-		expect(trigger.getAttribute("aria-label")).toContain("medium.en");
-		expect(trigger.getAttribute("aria-label")).not.toContain("{name}");
+		expect(modelTrigger().getAttribute("aria-label")).toContain("medium.en");
+		expect(modelTrigger().getAttribute("aria-label")).not.toContain("{name}");
 	});
 
 	it("placeholder also interpolates the model name", () => {
 		render(
 			<ModelStep
-				headingRef={() => {}}
+				{...baseProps}
 				modelOptions={[
 					{
 						name: "tiny.en",

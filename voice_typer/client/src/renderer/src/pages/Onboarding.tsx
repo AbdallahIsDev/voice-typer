@@ -70,6 +70,21 @@ export default function OnboardingPage({
 		handlePrev,
 		handleSkip,
 		skipOnInitError,
+		// Model step: local-vs-cloud choice + explicit download + cloud panel.
+		selectedBackend,
+		setSelectedBackend,
+		hfConsent,
+		setHfConsent,
+		downloadingModel,
+		downloadProgress,
+		downloadFailed,
+		handleDownload,
+		cloudProvider,
+		setCloudProvider,
+		cloudApiKey,
+		setCloudApiKey,
+		cloudConsent,
+		setCloudConsent,
 	} = useOnboardingWizard(onComplete);
 
 	const {
@@ -85,10 +100,12 @@ export default function OnboardingPage({
 	// but the wizard previously completed without ever asking. Now the
 	// Done step renders an inline consent checkbox; the Get Started
 	// button stays disabled until the user accepts. On accept, we
-	// persist both `voice_biometric_consent` and `huggingface_consent`
-	// (the latter is required because model download happens on first
-	// hotkey press). Initial state is loaded from get_config so a user
-	// who already consented via Settings → Privacy can skip past.
+	// persist `voice_biometric_consent` ONLY — the HuggingFace consent
+	// for model downloads is granted explicitly on the Model step (the
+	// app never downloads a model automatically, so there is no hidden
+	// download to consent to here). Initial state is loaded from
+	// get_config so a user who already consented via Settings → Privacy
+	// can skip past.
 	const { call } = usePython();
 	const [consentAccepted, setConsentAccepted] = useState(false);
 	const [consentPersisting, setConsentPersisting] = useState(false);
@@ -124,15 +141,6 @@ export default function OnboardingPage({
 		setConsentPersisting(true);
 		call("set_config", {
 			voice_biometric_consent: nextChecked,
-			// Auto-grant HuggingFace consent alongside voice
-			// biometric consent: the very first hotkey press
-			// triggers a model download from huggingface.co,
-			// and `huggingface_consent` gates that download.
-			// Asking for two separate consents on the wizard's
-			// final step would be confusing. The user can
-			// revoke either individually later in Settings →
-			// Privacy.
-			huggingface_consent: nextChecked,
 		})
 			.catch((e) => {
 				console.error("[Onboarding] set_config consent failed:", e);
@@ -364,6 +372,20 @@ export default function OnboardingPage({
 						modelOptions={modelOptions}
 						selectedModel={selectedModel}
 						setSelectedModel={setSelectedModel}
+						selectedBackend={selectedBackend}
+						setSelectedBackend={setSelectedBackend}
+						hfConsent={hfConsent}
+						setHfConsent={setHfConsent}
+						downloadingModel={downloadingModel}
+						downloadProgress={downloadProgress}
+						downloadFailed={downloadFailed}
+						onDownload={handleDownload}
+						cloudProvider={cloudProvider}
+						setCloudProvider={setCloudProvider}
+						cloudApiKey={cloudApiKey}
+						setCloudApiKey={setCloudApiKey}
+						cloudConsent={cloudConsent}
+						setCloudConsent={setCloudConsent}
 					/>
 				)}
 				{step.step_name === DONE_STEP_NAME && (
@@ -373,6 +395,7 @@ export default function OnboardingPage({
 						selectedModel={selectedModel}
 						selectedMic={selectedMic}
 						microphones={microphones}
+						selectedBackend={selectedBackend}
 					/>
 				)}
 
@@ -383,9 +406,10 @@ export default function OnboardingPage({
 					user who pressed their hotkey was refused by
 					recording_controller () with only a tray
 					notification — leading to massive first-run drop-off.
-					The checkbox persists voice_biometric_consent AND
-					huggingface_consent (the latter is required because
-					the first hotkey press triggers a model download). */}
+					The checkbox persists voice_biometric_consent only;
+					the HuggingFace download consent is granted
+					explicitly on the Model step (nothing is downloaded
+					automatically). */}
 				{isDoneStep && (
 					<div
 						className="mt-6 rounded-lg border border-border bg-(--bg-subtle) p-4"
@@ -408,44 +432,9 @@ export default function OnboardingPage({
 								<span className="mt-1 block text-xs text-(--text-muted)">
 									{t("settings.voiceBiometricProcessingInfo")}
 								</span>
-								{/* HuggingFace consent is auto-granted
-									alongside voice biometric consent. Surfaced
-									here so the user knows both flags are being
-									set; revoke individually in Settings →
-									Privacy. */}
-								<span className="mt-1 block text-xs text-(--text-muted)">
-									{t("settings.huggingFaceDownloads")}
-								</span>
 							</span>
 						</label>
 					</div>
-				)}
-
-				{/*download progress feedback. The
-					wizard's "Get Started" click triggers
-					onboarding_apply → model load (which may
-					download 466 MB–1.5 GB on first run).
-					Previously the user saw only a tray
-					status string and a "Setup complete!"
-					snack — no in-wizard progress. While we
-					cannot show a byte-level progress bar
-					without backend event_bus changes
-					(service.download_model path), we can at
-					least render an inline "loading model…"
-					status so the user knows the app is
-					alive and what to expect. Reuses the
-					existing `onboarding.setupCompleteSnack`
-					i18n key ("Setup complete! Loading your
-					model..."). */}
-				{isDoneStep && submitting && (
-					<output
-						className="mt-4 flex items-center gap-2 rounded-lg border border-accent/40 bg-accent/5 p-3 text-sm text-(--text-secondary)"
-						aria-live="polite"
-						data-testid="onboarding-download-feedback"
-					>
-						<Spinner />
-						<span>{t("onboarding.setupCompleteSnack")}</span>
-					</output>
 				)}
 
 				<div className="mt-8 flex items-center justify-between gap-4">

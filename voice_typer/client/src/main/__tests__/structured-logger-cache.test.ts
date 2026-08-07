@@ -8,7 +8,7 @@
  * Background
  * ----------
  * The previous implementation inlined a `fs.statSync(p)` + conditional
- * `fs.renameSync(p, p + ".1")` + `fs.appendFileSync(p, line, ...)`
+ * `fs.truncateSync(p, 0)` + `fs.appendFileSync(p, line, ...)`
  * block inside `appendLifecycleLine`. The comment explicitly stated
  * "avoid the  file-size cache — the INFO stream is lower priority
  * than WARN/ERROR and the extra stat on each write is acceptable for

@@ -22,10 +22,13 @@ import {
 	useState,
 } from "react";
 import type { AudioPreset } from "@/components/microphone/AudioPresetSelector";
+import { useNavigation } from "@/hooks/useNavigation";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
+import { showConsentRequiredSnack } from "@/lib/consent";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
+
 import type { TestResultQuality } from "../lib/types";
 import { useMicrophoneLevelMonitor } from "./useMicrophoneLevelMonitor";
 import { useMicrophonePlayback } from "./useMicrophonePlayback";
@@ -93,6 +96,19 @@ export function useMicrophoneTest({
 }: UseMicrophoneTestOptions): UseMicrophoneTestResult {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
+	// Deep-link for the ``client.consent_required`` error path —
+	// takes the user to Settings and scrolls to + highlights the
+	// EXACT consent toggle named by the backend envelope's
+	// ``consent_field`` (Settings.tsx consumes the navigate option
+	// via ``pendingConsentField`` and jumps to the Privacy tab).
+	// Memoized so the session hook's ``startTest`` (which lists
+	// ``onOpenPrivacySettings`` as a dep) stays stable across
+	// renders — ``navigate`` is a stable zustand action.
+	const { navigate } = useNavigation();
+	const openPrivacySettings = useCallback(
+		(consentField?: string) => navigate("settings", { consentField }),
+		[navigate],
+	);
 
 	// Fix 15: user-configurable test recording duration (3–30s).
 	const [testDurationSec, setTestDurationSec] = useState(10);
@@ -115,11 +131,25 @@ export function useMicrophoneTest({
 	// The level monitor also receives ``meterRef`` so its rAF
 	// loop can imperatively update the ``LevelBar``'s fill div without
 	// triggering parent re-renders at 30 Hz.
+	// Level-monitor consent refusal (a race: consent revoked between the
+	// renderer gate and the IPC) surfaces the same consent snackbar +
+	// exact-toggle deep-link as the mic-test path (shared helper in
+	// lib/consent.ts).
+	const handleLevelMonitorConsentRequired = useCallback(
+		(consentField?: string) => {
+			showConsentRequiredSnack(showSnack, t, () =>
+				navigate("settings", { consentField }),
+			);
+		},
+		[showSnack, navigate],
+	);
+
 	const levelMonitor = useMicrophoneLevelMonitor({
 		config,
 		playingRef: playback.playingRef,
 		testRunningRef,
 		meterRef,
+		onConsentRequired: handleLevelMonitorConsentRequired,
 	});
 
 	// Test-session state machine — receives the level monitor's
@@ -142,6 +172,7 @@ export function useMicrophoneTest({
 		stopPlayback: playback.stopPlayback,
 		testRunningRef,
 		selectMicrophoneRef,
+		onOpenPrivacySettings: openPrivacySettings,
 	});
 
 	// Trivial UI handlers — pure pass-throughs to ``updateConfig``.

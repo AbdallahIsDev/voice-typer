@@ -9,11 +9,10 @@
  * per file. After rotation, the Set entry is cleared so the new active
  * file gets chmod'd on the next append.
  *
- * : `rotateIfNeeded` previously did NOT chmod the `.1` backup
- * after rename. `rename` preserves the source file's mode, but a
- * leftover rotated file from a pre-hardening build may still be 0o644.
- * The fix adds a belt-and-suspenders `fs.chmodSync(backup, 0o600)`
- * after the rename (best-effort).
+ * Single-file policy: `rotateIfNeeded` truncates the file IN PLACE
+ * (empties it) when it exceeds the cap — a numbered `.1` backup is
+ * never created. The per-path "perms verified" flag is reset on
+ * truncation so the next append re-asserts 0o600.
  */
 import fs from "node:fs";
 import os from "node:os";
@@ -150,7 +149,7 @@ describe("XE-20-6: rotateIfNeeded chmods the .1 backup after rename", () => {
 	});
 
 	it.skipIf(process.platform === "win32")(
-		"chmods the .1 backup to 0o600 after rotation (POSIX)",
+		"truncates the active file in place when over the cap (POSIX)",
 		async () => {
 			vi.resetModules();
 			const mod = await import("../../logging");
@@ -164,18 +163,19 @@ describe("XE-20-6: rotateIfNeeded chmods the .1 backup after rename", () => {
 			fs.chmodSync(logPath, 0o644);
 			expect(fs.statSync(logPath).mode & 0o777).toBe(0o644);
 
-			// Trigger rotation with a very small max-size.
+			// Trigger truncation with a very small max-size.
 			rotateIfNeeded(logPath, 10);
 
-			// After rotation, the .1 backup must exist and be 0o600.
-			const backup = `${logPath}.1`;
-			expect(fs.existsSync(backup)).toBe(true);
-			const mode = fs.statSync(backup).mode & 0o777;
-			expect(mode).toBe(0o600);
+			// Single-file policy: NO .1 backup is ever created. The
+			// active file is truncated IN PLACE (0 bytes) and keeps its
+			// single identity.
+			expect(fs.existsSync(`${logPath}.1`)).toBe(false);
+			expect(fs.existsSync(logPath)).toBe(true);
+			expect(fs.statSync(logPath).size).toBe(0);
 		},
 	);
 
-	it("does NOT throw when the backup chmod fails (best-effort)", async () => {
+	it("does NOT throw when the truncate fails (best-effort)", async () => {
 		vi.resetModules();
 		const mod = await import("../../logging");
 		mod._resetFileSizeCacheForTest();
@@ -184,16 +184,16 @@ describe("XE-20-6: rotateIfNeeded chmods the .1 backup after rename", () => {
 		const bigContent = "x".repeat(100);
 		fs.writeFileSync(logPath, bigContent, { mode: 0o644 });
 
-		// Mock chmodSync to throw for the backup path.
-		const chmodSpy = vi.spyOn(fs, "chmodSync").mockImplementation(() => {
+		// Mock truncateSync to throw.
+		const truncateSpy = vi.spyOn(fs, "truncateSync").mockImplementation(() => {
 			const err = new Error("EACCES") as NodeJS.ErrnoException;
 			err.code = "EACCES";
 			throw err;
 		});
 
-		// Must not throw — chmod failure is best-effort.
+		// Must not throw — truncate failure is best-effort.
 		expect(() => rotateIfNeeded(logPath, 10)).not.toThrow();
 
-		chmodSpy.mockRestore();
+		truncateSpy.mockRestore();
 	});
 });

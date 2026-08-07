@@ -110,6 +110,100 @@ export default function SettingsPage() {
 	});
 	const prevTabRef = useRef(activeTab);
 
+	// Consent deep-link (``client.consent_required`` path). A consent
+	// refusal elsewhere (mic test / level monitor / dictation gate)
+	// navigates here with ``{ consentField }`` (see NavigateOptions in
+	// useNavigation.ts); the field is staged in the nav store as
+	// ``pendingConsentField`` and consumed ONCE here. Cleared
+	// highlight state so the ring only shows for the toggle the
+	// refusal actually named.
+	const { pendingConsentField, consumeConsentField } = useNavigation();
+	const [focusedConsentField, setFocusedConsentField] = useState<string | null>(
+		null,
+	);
+	// One-shot scroll guard + ring-lifetime timer for the consent
+	// deep-link highlight (see the scroll effect below).
+	const scrolledTargetRef = useRef<string | null>(null);
+	const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	// Consume the pending deep-link target: jump to the Privacy tab,
+	// clear any active search filter (so the consent row is visible),
+	// and drop the previous Privacy scroll position so the
+	// tab-change scroll-restore effect can't fight the scroll-to-row
+	// below.
+	useEffect(() => {
+		if (!pendingConsentField) return;
+		const field = consumeConsentField();
+		if (!field) return;
+		setSettingsFilter("");
+		scrollPositionsRef.current.privacy = 0;
+		setFocusedConsentField(field);
+		setActiveTab("privacy");
+	}, [pendingConsentField, consumeConsentField]);
+
+	// Scroll the deep-linked consent row into view once it's rendered
+	// (Privacy tab active + config loaded). The row is rendered by
+	// PrivacySettingsSection with a ``data-consent-field`` attribute;
+	// retry until found (bounded) in case the lazy page / config fetch
+	// is still settling. The scroll is ONE-SHOT per deep-link target
+	// (``scrolledTargetRef``) so a config identity change — e.g. the
+	// user toggling the just-highlighted consent — doesn't re-trigger a
+	// smooth re-center. The highlight ring's lifetime starts when the
+	// row is actually found, so a slow ``get_config`` can't clear the
+	// ring before the row renders.
+	useEffect(() => {
+		if (!focusedConsentField || !config || activeTab !== "privacy") return;
+		if (scrolledTargetRef.current === focusedConsentField) return;
+		let attempts = 0;
+		let cancelled = false;
+		const tryScroll = () => {
+			if (cancelled) return;
+			// Match by attribute VALUE rather than interpolating the
+			// field into a selector — the field comes from the backend
+			// envelope, and value-filtering avoids any selector
+			// injection edge.
+			const el = Array.from(
+				document.querySelectorAll<HTMLElement>("[data-consent-field]"),
+			).find(
+				(node) =>
+					node.getAttribute("data-consent-field") === focusedConsentField,
+			);
+			if (el) {
+				scrolledTargetRef.current = focusedConsentField;
+				el.scrollIntoView?.({ behavior: "smooth", block: "center" });
+				// Ring lifetime starts now (row actually visible).
+				if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
+				highlightTimerRef.current = setTimeout(() => {
+					setFocusedConsentField(null);
+					scrolledTargetRef.current = null;
+				}, 2600);
+				return;
+			}
+			// Bounded retry (~3s) — a stale target can't spin forever.
+			if (attempts < 60) {
+				attempts += 1;
+				setTimeout(tryScroll, 50);
+			}
+		};
+		const timer = setTimeout(tryScroll, 0);
+		return () => {
+			cancelled = true;
+			clearTimeout(timer);
+		};
+	}, [focusedConsentField, config, activeTab]);
+
+	// Max-lifetime safety net: even if the target row never renders
+	// (e.g. an unknown ``consent_field``), the highlight can't linger
+	// indefinitely.
+	useEffect(() => {
+		if (!focusedConsentField) return;
+		const timer = setTimeout(() => {
+			setFocusedConsentField(null);
+			scrolledTargetRef.current = null;
+		}, 5000);
+		return () => clearTimeout(timer);
+	}, [focusedConsentField]);
+
 	// label-based search auto-switch. Score each tab by counting
 	// label matches and switch to the highest-scoring one. Requires
 	// q.length >= 2 to avoid jarring switches as the user types.
@@ -453,7 +547,10 @@ export default function SettingsPage() {
 					renderTabPanel(
 						"privacy",
 						<>
-							<PrivacySettingsSection {...sectionProps} />
+							<PrivacySettingsSection
+								{...sectionProps}
+								consentFocusField={focusedConsentField}
+							/>
 							<TroubleshootingSettingsSection
 								isVisible={_filter_settings}
 								updateConfig={updateConfig}

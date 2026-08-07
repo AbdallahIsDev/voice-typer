@@ -12,7 +12,8 @@
  *
  * Post-: a per-path "perms verified" flag (`_permsVerified` Set
  * in rotation.ts) skips the chmod after the first successful call.
- * The flag is reset on rotation (which creates a new file).
+ * The flag is reset on truncation (single-file policy truncates
+ * the file in place; the next append re-asserts 0o600).
  *
  * These tests verify:
  *   1. `fs.chmodSync` is called exactly ONCE for the first append to
@@ -151,9 +152,9 @@ describe("AB-40: appendLogLine per-path perms cache", () => {
 		await new Promise<void>((resolve) => setImmediate(resolve));
 		await new Promise<void>((resolve) => setImmediate(resolve));
 
-		// Second append — the rotation renamed the old file to .1, the
-		// perms flag was reset. The new file is created with mode 0o600
-		// and chmod fires again (flag was reset by rotation).
+		// Second append — the truncation emptied the file in place and
+		// reset the perms flag. chmod fires again (flag was reset by
+		// the truncation).
 		appendLogLine(logPath, "second line\n", 1024 * 1024);
 
 		const chmodCalls = chmodSpy.mock.calls.filter(

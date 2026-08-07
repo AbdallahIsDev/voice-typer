@@ -345,6 +345,11 @@ export interface OnboardingSetModelRequest {
 	data?: Record<string, unknown>;
 }
 
+export interface OnboardingSetBackendRequest {
+	type: "onboarding_set_backend";
+	data?: Record<string, unknown>;
+}
+
 export interface OnboardingSkipRequest {
 	type: "onboarding_skip";
 	data?: Record<string, unknown>;
@@ -454,6 +459,7 @@ export type PythonRequest =
 	| OnboardingSetHotkeyRequest
 	| OnboardingSetMicrophoneRequest
 	| OnboardingSetModelRequest
+	| OnboardingSetBackendRequest
 	| OnboardingSkipRequest
 	| OnboardingStartRequest
 	// phantom ``OpenModelsFolderRequest`` removed —

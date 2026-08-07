@@ -42,6 +42,7 @@ import {
 	useStatsShare,
 } from "@/hooks/useStatsShare";
 import { t } from "@/i18n/i18n";
+import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
 import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
 import { useAppStore } from "@/stores/appStore";
 import type { VoiceTyperConfig } from "@/types/config";
@@ -315,6 +316,11 @@ export default function Home() {
 	// `get_config` fetch: the hotkey only changes when Settings
 	// saves, not on every recording-state transition. The initial
 	// hotkey is loaded by the mount-time effect above.
+	//
+	// Also refreshes ``cfg`` (the full config snapshot) so the
+	// GDPR ``voice_biometric_consent`` gate in ``handleToggle`` can
+	// never go stale — e.g. consent granted in Settings must unblock
+	// dictation immediately even if Home stays mounted.
 	usePythonEvent("config_changed", (): (() => void) | undefined => {
 		let cancelled = false;
 		const reloadHotkey = async () => {
@@ -322,6 +328,7 @@ export default function Home() {
 				const cfg = await call<VoiceTyperConfig>("get_config");
 				if (cancelled) return;
 				setHotkey(normalizeHotkey(cfg?.hotkey ?? HOTKEY_DEFAULT));
+				setCfg(cfg);
 			} catch (e) {
 				console.warn(
 					"[Home] config_changed reloadHotkey get_config failed:",
@@ -416,6 +423,30 @@ export default function Home() {
 	}, [stats, cfg, shareAsImage]);
 
 	const handleToggle = useCallback(async () => {
+		// GDPR Art. 9 gate: the backend refuses to start recording without
+		// ``voice_biometric_consent`` — but the refusal is silent over
+		// IPC (``toggle_dictation`` returns ``ack`` and only the tray
+		// notification fires). Gate client-side so the user gets the
+		// in-app consent prompt + Settings → Privacy deep-link instead
+		// of a dead button. The backend gate (recording_lifecycle.py)
+		// remains the enforcement backstop for hotkey/tray-triggered
+		// dictation.
+		if (cfg && !cfg.voice_biometric_consent) {
+			toast.warning(t("notify.recording_controller.consent_required_body"), {
+				duration: 6000,
+				action: {
+					label: t("microphone.consentRequiredAction"),
+					// Deep-link to the EXACT consent toggle — Settings
+					// consumes the ``consentField`` navigate option and
+					// scrolls to / highlights the Voice Biometric row.
+					onClick: () =>
+						navigate("settings", {
+							consentField: VOICE_BIOMETRIC_CONSENT_FIELD,
+						}),
+				},
+			});
+			return;
+		}
 		setToggling(true);
 		try {
 			await call("toggle_dictation");
@@ -425,7 +456,10 @@ export default function Home() {
 		} finally {
 			setToggling(false);
 		}
-	}, [call]);
+		// ``t`` is a stable module-level import — not a render-scoped
+		// value, so it must NOT be listed as a dep (biome
+		// useExhaustiveDependencies flags it as unnecessary).
+	}, [call, cfg, navigate]);
 
 	const handleUndo = useCallback(async () => {
 		try {

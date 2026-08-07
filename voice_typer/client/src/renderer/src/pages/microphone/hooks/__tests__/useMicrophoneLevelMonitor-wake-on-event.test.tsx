@@ -135,9 +135,13 @@ async function renderProbe(refs: ReturnType<typeof makeRefs>) {
 	} = { hook: null };
 	function Probe() {
 		captures.hook = useMicrophoneLevelMonitor({
-			config: { microphone: null } as unknown as Parameters<
-				typeof useMicrophoneLevelMonitor
-			>[0]["config"],
+			// Biometric consent granted so the mount effect's
+			// ``level_monitor_start`` (gated on
+			// ``voice_biometric_consent``) still fires.
+			config: {
+				microphone: null,
+				voice_biometric_consent: true,
+			} as unknown as Parameters<typeof useMicrophoneLevelMonitor>[0]["config"],
 			playingRef: refs.playingRef,
 			testRunningRef: refs.testRunningRef,
 			meterRef: refs.meterRef,
@@ -267,5 +271,57 @@ describe("useMicrophoneLevelMonitor rAF loop pauses on idle", () => {
 			micLevelHandler?.({ level: 0.3, peak: 0.4, active: true });
 		});
 		expect(rafCount).toBeGreaterThan(countBeforeHiddenTick);
+	});
+});
+
+describe("useMicrophoneLevelMonitor — consent refusal surfaces the deep-link callback", () => {
+	it("invokes onConsentRequired with the envelope's consent_field when level_monitor_start is refused", async () => {
+		// Race path: consent revoked between the renderer's client-side
+		// gate and the IPC (or a stale renderer). The backend's
+		// ``client.consent_required`` envelope must reach the caller's
+		// deep-link snackbar instead of being console.warn'd silently.
+		const consentErr = new Error(
+			"voice biometric consent required to start level monitor",
+		);
+		(consentErr as { code?: string }).code = "client.consent_required";
+		(consentErr as { consent_field?: string }).consent_field =
+			"voice_biometric_consent";
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "level_monitor_start") return Promise.reject(consentErr);
+			return Promise.resolve({ success: true });
+		});
+
+		const refs = makeRefs();
+		const { useMicrophoneLevelMonitor } = await import(
+			"../useMicrophoneLevelMonitor"
+		);
+		const onConsentRequired = vi.fn();
+		const captures: {
+			hook: ReturnType<typeof useMicrophoneLevelMonitor> | null;
+		} = { hook: null };
+		function Probe() {
+			captures.hook = useMicrophoneLevelMonitor({
+				config: {
+					microphone: null,
+					voice_biometric_consent: true,
+				} as unknown as Parameters<
+					typeof useMicrophoneLevelMonitor
+				>[0]["config"],
+				playingRef: refs.playingRef,
+				testRunningRef: refs.testRunningRef,
+				meterRef: refs.meterRef,
+				onConsentRequired,
+			});
+			return null as unknown as ReactNode;
+		}
+		render(<Probe />);
+
+		// Wait for the mount effect's level_monitor_start rejection.
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		expect(onConsentRequired).toHaveBeenCalledTimes(1);
+		expect(onConsentRequired).toHaveBeenCalledWith("voice_biometric_consent");
 	});
 });

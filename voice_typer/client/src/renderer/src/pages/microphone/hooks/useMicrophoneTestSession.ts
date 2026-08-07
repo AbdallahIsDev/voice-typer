@@ -41,7 +41,12 @@ import {
 } from "react";
 import type { PythonCall } from "@/hooks/usePython";
 import { usePythonEvent } from "@/hooks/usePython";
-import type { SnackbarType } from "@/hooks/useSnackbar";
+import type { ShowSnackOptions, SnackbarType } from "@/hooks/useSnackbar";
+import {
+	CONSENT_REQUIRED_CODE,
+	showConsentRequiredSnack,
+	VOICE_BIOMETRIC_CONSENT_FIELD,
+} from "@/lib/consent";
 import type { MicrophoneDevice, VoiceTyperConfig } from "@/types/config";
 import { buildTestFilters } from "../lib/buildTestFilters";
 import { computeAudioKey } from "../lib/computeAudioKey";
@@ -50,8 +55,12 @@ import type { TestResultQuality, TestStopResult } from "../lib/types";
 /** Type of the ``t()`` i18n function — accepts a key + optional params. */
 type TFunction = (key: string, params?: Record<string, string>) => string;
 
-/** Type of the ``showSnack`` toast function. */
-type ShowSnack = (message: string, type?: SnackbarType) => void;
+/** Type of the ``showSnack`` toast function (matches ``useSnackbar``). */
+type ShowSnack = (
+	message: string,
+	type?: SnackbarType,
+	options?: ShowSnackOptions,
+) => void;
 
 interface UseMicrophoneTestSessionOptions {
 	/** ``call`` from ``usePython()`` — passed in so the composition hook owns the single bridge subscription. */
@@ -96,6 +105,18 @@ interface UseMicrophoneTestSessionOptions {
 	selectMicrophoneRef?: MutableRefObject<
 		(micId: string | null) => Promise<void>
 	>;
+	/**
+	 * Optional callback that navigates the user to the exact Settings
+	 * consent toggle (deep-link for the ``client.consent_required``
+	 * error path). Receives the ``consent_field`` carried by the
+	 * backend envelope (e.g. ``"voice_biometric_consent"`` — the
+	 * level-monitor / mic-test handlers raise
+	 * ``ConsentRequiredError`` with that field) so the caller can
+	 * ``navigate("settings", { consentField })`` and Settings will
+	 * scroll to + highlight the matching toggle. When omitted, the
+	 * consent-required snackbar shows without an action button.
+	 */
+	onOpenPrivacySettings?: (consentField?: string) => void;
 }
 
 export interface UseMicrophoneTestSessionResult {
@@ -127,6 +148,7 @@ export function useMicrophoneTestSession({
 	stopPlayback,
 	testRunningRef,
 	selectMicrophoneRef,
+	onOpenPrivacySettings,
 }: UseMicrophoneTestSessionOptions): UseMicrophoneTestSessionResult {
 	// ``updateConfig`` is part of the public session-hook signature
 	// for parity with the prior ``useMicrophoneTest`` API but is not
@@ -229,6 +251,28 @@ export function useMicrophoneTestSession({
 		// Record the current filter state for invalidation tracking.
 		setFiltersSinceLastTest(computeAudioKey(config));
 
+		// Shared consent-required snackbar (deduped across the
+		// resolved-envelope + thrown-error paths below, and shared with
+		// the level-monitor path via lib/consent.ts). Surfaces the
+		// ``microphone.consentRequired`` message with a deep-link
+		// action to the EXACT Settings toggle when
+		// ``onOpenPrivacySettings`` is wired (omitted in tests / older
+		// consumers → no action). The ``consentField`` from the
+		// backend envelope is forwarded so Settings scrolls to +
+		// highlights the matching toggle (defaults to
+		// ``voice_biometric_consent`` — the only field the
+		// level-monitor / mic-test gates enforce — for older backends
+		// whose plain ``success:false`` envelope omits it).
+		const showConsentSnack = (consentField: string) => {
+			showConsentRequiredSnack(
+				showSnack,
+				t,
+				onOpenPrivacySettings
+					? () => onOpenPrivacySettings?.(consentField)
+					: undefined,
+			);
+		};
+
 		try {
 			const result = await call<{
 				success: boolean;
@@ -242,6 +286,37 @@ export function useMicrophoneTestSession({
 			});
 
 			if (!result?.success) {
+				// The backend's ``client.consent_required`` envelope
+				// (from ``_respond_with_error``'s ConsentRequiredError
+				// mapping) carries a structured ``code`` field and a
+				// message containing "consent required" — branch on the
+				// code first (robust to message rewording), falling back
+				// to the substring for older backend versions that only
+				// resolve a plain ``success:false`` envelope. Surface the
+				// consent requirement with a deep-link to Settings →
+				// Privacy instead of the generic failure toast. The
+				// handler docstring (see microphone_test_handlers.py)
+				// explicitly designs this envelope so the renderer can
+				// do exactly this.
+				const resolvedCode = (result as { code?: unknown } | null)?.code;
+				if (
+					resolvedCode === CONSENT_REQUIRED_CODE ||
+					(typeof result?.message === "string" &&
+						result.message.includes("consent required"))
+				) {
+					// Forward the structured ``consent_field`` from the
+					// envelope so the deep-link lands on the EXACT
+					// Settings toggle (not just the Privacy tab).
+					const resolvedConsentField = (
+						result as { consent_field?: unknown } | null
+					)?.consent_field;
+					showConsentSnack(
+						typeof resolvedConsentField === "string"
+							? resolvedConsentField
+							: VOICE_BIOMETRIC_CONSENT_FIELD,
+					);
+					return;
+				}
 				showSnack(result?.message ?? t("microphone.startTestFailed"), "error");
 				return;
 			}
@@ -285,6 +360,27 @@ export function useMicrophoneTestSession({
 			}, 1000);
 			elapsedTimerRef.current = elapsedInterval;
 		} catch (err) {
+			// The Electron path surfaces the backend's
+			// ``client.consent_required`` envelope as a thrown Error
+			// with ``code`` preserved (see usePython.call's
+			// ``type:"error"`` handling). Detect it and surface the
+			// consent prompt + Settings deep-link instead of the
+			// generic failure toast.
+			const code = (err as { code?: string } | null)?.code;
+			if (code === CONSENT_REQUIRED_CODE) {
+				// ``usePython.call`` now preserves the structured
+				// consent fields onto the thrown Error — forward the
+				// ``consent_field`` so the deep-link scrolls to the
+				// exact Settings toggle.
+				const consentField = (err as { consent_field?: unknown } | null)
+					?.consent_field;
+				showConsentSnack(
+					typeof consentField === "string"
+						? consentField
+						: VOICE_BIOMETRIC_CONSENT_FIELD,
+				);
+				return;
+			}
 			console.error("Failed to start microphone test:", err);
 			showSnack(t("microphone.startTestFailed"), "error");
 		}
@@ -298,6 +394,7 @@ export function useMicrophoneTestSession({
 		stopTest,
 		setLevel,
 		setPeak,
+		onOpenPrivacySettings,
 	]);
 
 	const selectMicrophone = useCallback(

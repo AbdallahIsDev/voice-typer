@@ -21,7 +21,15 @@
  *   - LAST_TEXT_AUTO_CLEAR_MS is bumped to 30_000 in constants.ts.
  *   - No task-ID / session-prefix comments remain in the owned files.
  */
-import { act, cleanup, render, screen } from "@testing-library/react";
+import {
+	act,
+	cleanup,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
@@ -575,6 +583,106 @@ describe("RecordingErrorCard renders a secondary 'Open Microphone settings' ghos
 		expect(
 			screen.getByRole("button", { name: "Open Mic Settings" }),
 		).toBeTruthy();
+	});
+});
+
+// ── GDPR gate: Home refuses dictation start without consent ──
+
+/**
+ * Render Home with a controlled ``get_config`` promise. The test
+ * resolves the config AFTER mount so ``cfg`` is populated
+ * deterministically BEFORE the mic button is clicked (the gate reads
+ * ``cfg.voice_biometric_consent``). The other mount fetches stay
+ * pending — with ``stats``/``recent`` null the StatCards/ActivityList
+ * never render with empty data (``compactNumber`` would crash on
+ * ``undefined``).
+ */
+async function renderHomeWithDeferredConfig() {
+	let resolveConfig: (cfg: unknown) => void = () => {};
+	const configPromise = new Promise<unknown>((res) => {
+		resolveConfig = res;
+	});
+	mockCall.mockImplementation((cmd: string) => {
+		if (cmd === "get_config") return configPromise;
+		return new Promise(() => {});
+	});
+	const { useAppStore } = await import("@/stores/appStore");
+	useAppStore.setState({ recordingState: "idle", lastError: null });
+	await renderHome();
+	return { resolveConfig };
+}
+
+describe("Home gates dictation on voice_biometric_consent (GDPR Art. 9)", () => {
+	beforeEach(() => {
+		mockCall.mockReset();
+		mockPythonEvent.mockReset();
+		mockNavigate.mockReset();
+		vi.mocked(toast.warning).mockClear();
+		localStorage.clear();
+		vi.resetModules();
+	});
+
+	afterEach(() => {
+		cleanup();
+	});
+
+	it("shows the consent prompt + Settings deep-link instead of calling toggle_dictation when consent is off", async () => {
+		const { resolveConfig } = await renderHomeWithDeferredConfig();
+
+		await act(async () => {
+			resolveConfig({ voice_biometric_consent: false, hotkey: "<f2>" });
+		});
+
+		// Click the mic button with consent OFF.
+		const micButton = await screen.findByRole("button", {
+			name: /start dictation/i,
+		});
+		fireEvent.click(micButton);
+
+		// The IPC must NOT be called — the client-side gate short-circuits.
+		const toggleCalls = mockCall.mock.calls.filter(
+			(c) => c[0] === "toggle_dictation",
+		);
+		expect(toggleCalls.length).toBe(0);
+
+		// The consent prompt surfaces with the Settings deep-link action.
+		expect(toast.warning).toHaveBeenCalledWith(
+			"Voice biometric consent is required to start recording.\nEnable it in Settings > Privacy > Voice Biometric Consent.",
+			expect.objectContaining({
+				action: expect.objectContaining({ onClick: expect.any(Function) }),
+			}),
+		);
+		const options = vi.mocked(toast.warning).mock.calls[0]?.[1] as {
+			action?: { onClick: () => void };
+		};
+		options.action?.onClick();
+		// The deep-link carries the consent field so Settings scrolls
+		// to the EXACT Voice Biometric toggle.
+		expect(mockNavigate).toHaveBeenCalledWith("settings", {
+			consentField: "voice_biometric_consent",
+		});
+	});
+
+	it("calls toggle_dictation normally when consent IS granted", async () => {
+		const { resolveConfig } = await renderHomeWithDeferredConfig();
+
+		await act(async () => {
+			resolveConfig({ voice_biometric_consent: true, hotkey: "<f2>" });
+		});
+
+		const micButton = await screen.findByRole("button", {
+			name: /start dictation/i,
+		});
+		fireEvent.click(micButton);
+
+		// The IPC fires; no consent prompt.
+		await waitFor(() => {
+			const toggleCalls = mockCall.mock.calls.filter(
+				(c) => c[0] === "toggle_dictation",
+			);
+			expect(toggleCalls.length).toBe(1);
+		});
+		expect(toast.warning).not.toHaveBeenCalled();
 	});
 });
 

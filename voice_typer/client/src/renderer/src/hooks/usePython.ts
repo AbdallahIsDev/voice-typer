@@ -603,15 +603,64 @@ export function usePython() {
 				// renderers (useSettingsConfig) prefer
 				// ``err.errors`` (joined) when present.
 				const data = (
-					result as { data?: { message?: string; errors?: string[] } }
+					result as {
+						data?: {
+							message?: string;
+							errors?: string[];
+							code?: string;
+							// Structured consent fields carried by
+							// ``client.consent_required`` envelopes (see
+							// HandlerBase._respond_with_error +
+							// ConsentRequiredError.to_dict). Preserved onto
+							// the thrown Error so the renderer can
+							// deep-link to the EXACT Settings toggle.
+							consent_field?: unknown;
+							engine_name?: unknown;
+							model_id?: unknown;
+						};
+					}
 				).data;
 				const msg = data?.message ?? "unknown error";
 				const errs = Array.isArray(data?.errors)
 					? (data?.errors as string[])
 					: undefined;
+				// Preserve the structured ``code`` (e.g.
+				// ``client.consent_required``) onto the thrown Error
+				// so callers can branch on the failure class instead
+				// of substring-matching the message. Mirrors the
+				// ``_error``/``_code`` handling above — without this,
+				// the ``client.consent_required`` envelope from the
+				// level-monitor / mic-test handlers is indistinguishable
+				// from a generic ``internal_error`` and the renderer
+				// shows a misleading generic toast.
+				const code = data?.code;
 				const err = new Error(msg);
+				if (typeof code === "string" && code.length > 0) {
+					(err as { code?: string }).code = code;
+				}
 				if (errs && errs.length > 0) {
 					(err as { errors?: string[] }).errors = errs;
+				}
+				// Preserve the structured consent fields (consent_field /
+				// engine_name / model_id) the backend attaches to
+				// ``client.consent_required`` envelopes so callers can
+				// deep-link to the exact Settings toggle (e.g. the
+				// level-monitor / mic-test handlers raise
+				// ``ConsentRequiredError`` with
+				// ``consent_field="voice_biometric_consent"``). Only
+				// ``consent_field`` is consumed by the deep-link, but the
+				// siblings ride along for completeness / diagnostics.
+				const consentField = data?.consent_field;
+				const engineName = data?.engine_name;
+				const modelId = data?.model_id;
+				if (typeof consentField === "string" && consentField.length > 0) {
+					(err as { consent_field?: string }).consent_field = consentField;
+				}
+				if (typeof engineName === "string" && engineName.length > 0) {
+					(err as { engine_name?: string }).engine_name = engineName;
+				}
+				if (typeof modelId === "string" && modelId.length > 0) {
+					(err as { model_id?: string }).model_id = modelId;
 				}
 				throw err;
 			}

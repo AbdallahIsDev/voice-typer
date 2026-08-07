@@ -1,5 +1,6 @@
 import type { Ref } from "react";
 import { t } from "@/i18n/i18n";
+import type { BackendChoice } from "../hooks/useOnboardingWizard";
 import { HEADING_CLASS } from "../lib/constants";
 import type { MicrophoneOption } from "../lib/types";
 
@@ -9,6 +10,16 @@ export interface DoneStepProps {
 	selectedModel: string;
 	selectedMic: string;
 	microphones: MicrophoneOption[];
+	// Local-vs-cloud choice made on the Model step (shown in the summary
+	// so the user sees what they opted into — nothing is downloaded
+	// automatically).
+	selectedBackend: BackendChoice;
+}
+
+function backendLabel(backend: BackendChoice): string {
+	return backend === "cloud"
+		? t("onboarding.backendCloudLabel")
+		: t("onboarding.backendLocalLabel");
 }
 
 export function DoneStep({
@@ -17,6 +28,7 @@ export function DoneStep({
 	selectedModel,
 	selectedMic,
 	microphones,
+	selectedBackend,
 }: DoneStepProps) {
 	//use existing `summaryHotkey`/`summaryMic`/`summaryModel`.
 	// The old `doneHotkey`/`doneMic`/`doneModel` keys never existed in any
@@ -26,37 +38,20 @@ export function DoneStep({
 			<h2 ref={headingRef} tabIndex={-1} className={HEADING_CLASS}>
 				{t("onboarding.completeTitle")}
 			</h2>
-			{/*surface the model-download warning so first-run
-			    users aren't surprised by a ~466 MB / ~1.5 GB download
-			    on a metered connection. The `completeDescription` key
-			    already exists in every locale; this is the only
-			    consumer. */}
+			{/* The `completeDescription` key already exists in every
+			    locale; this is the only consumer. It no longer promises a
+			    background model download — the user already chose local
+			    (explicit download) or cloud on the Model step. */}
 			<p className="mb-4 text-sm text-(--text-secondary)">
 				{t("onboarding.completeDescription", {
 					hotkey: selectedHotkey.replace(/[<>]/g, "").toUpperCase(),
 				})}
 			</p>
-			{/*inline progress indicator so first-run users see
-			    the model is loading in the background (and the button
-			    below is "Get Started" → navigates to Home where the
-			    Home page polls download progress). The spinner is
-			    decorative — the real progress UI lives on Home. The
-			    inline indicator here is just a visual cue that the
-			    app is alive and that something is happening in the
-			    background. Wrapped in `aria-hidden` so screen readers
-			    don't announce the spinner; the surrounding text
-			    already explains the state. */}
-			<div
-				aria-hidden="true"
-				className="mb-6 flex items-center gap-2 text-sm text-(--text-secondary)"
-			>
-				<span
-					className="inline-block h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent"
-					role="presentation"
-				/>
-				<span>{t("onboarding.modelDownloadingHint")}</span>
-			</div>
 			<div className="mb-6 space-y-2 text-sm text-(--text-secondary)">
+				<p>
+					{t("onboarding.summaryBackend")}{" "}
+					<strong>{backendLabel(selectedBackend)}</strong>
+				</p>
 				<p>
 					{t("onboarding.summaryHotkey")}{" "}
 					<strong>{selectedHotkey.replace(/[<>]/g, "").toUpperCase()}</strong>

@@ -95,6 +95,76 @@ describe("usePython — NEW-IPC-107 error-envelope handling", () => {
 		);
 	});
 
+	it("preserves the structured consent fields (consent_field/engine_name/model_id) on the thrown Error", async () => {
+		// The level-monitor / mic-test handlers raise
+		// ``ConsentRequiredError`` with typed fields that
+		// ``HandlerBase._respond_with_error`` forwards via
+		// ``exc.to_dict()`` — ``consent_field`` names the EXACT
+		// Settings toggle the deep-link must scroll to. All three
+		// fields must survive onto the thrown Error so the renderer
+		// can deep-link without regex-matching the message.
+		installPythonMock(() =>
+			Promise.resolve({
+				type: "error",
+				data: {
+					code: "client.consent_required",
+					message: "voice biometric consent required to start level monitor",
+					engine_name: "level_monitor",
+					consent_field: "voice_biometric_consent",
+					model_id: null,
+				},
+			}),
+		);
+
+		const { result } = renderHook(() => usePython());
+
+		try {
+			await result.current.call("level_monitor_start");
+			expect.unreachable("should have thrown");
+		} catch (err) {
+			const e = err as {
+				code?: string;
+				consent_field?: string;
+				engine_name?: string;
+				model_id?: string;
+			};
+			expect(e.code).toBe("client.consent_required");
+			expect(e.consent_field).toBe("voice_biometric_consent");
+			expect(e.engine_name).toBe("level_monitor");
+			// ``model_id`` is ``null`` for the level-monitor gate — it
+			// must NOT be stamped onto the Error (only truthy strings).
+			expect(e.model_id).toBeUndefined();
+		}
+	});
+
+	it("preserves the envelope's structured `code` on the thrown Error (e.g. client.consent_required)", async () => {
+		// The level-monitor / mic-test handlers emit a
+		// ``client.consent_required`` envelope so the renderer can
+		// surface a consent dialog instead of a generic error toast. The
+		// ``code`` must survive onto the thrown Error — otherwise the
+		// Microphone page can't distinguish consent-required from
+		// ``internal_error`` and shows a misleading generic failure.
+		installPythonMock(() =>
+			Promise.resolve({
+				type: "error",
+				data: {
+					code: "client.consent_required",
+					message: "voice biometric consent required to start microphone test",
+				},
+			}),
+		);
+
+		const { result } = renderHook(() => usePython());
+
+		try {
+			await result.current.call("microphone_test_start");
+			expect.unreachable("should have thrown");
+		} catch (err) {
+			expect((err as { code?: string }).code).toBe("client.consent_required");
+			expect((err as Error).message).toContain("consent required");
+		}
+	});
+
 	it("throws an Error with the `_error` message on `{_error:{message}}` envelope (object form)", async () => {
 		// Defensive: the actual Electron code sends `_error` as a string,
 		// but we accept the object form too so a future refactor of

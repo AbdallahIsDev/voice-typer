@@ -75,6 +75,10 @@ import {
 	useState,
 } from "react";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
+import {
+	CONSENT_REQUIRED_CODE,
+	VOICE_BIOMETRIC_CONSENT_FIELD,
+} from "@/lib/consent";
 import type { VoiceTyperConfig } from "@/types/config";
 
 interface UseMicrophoneLevelMonitorOptions {
@@ -104,6 +108,21 @@ interface UseMicrophoneLevelMonitorOptions {
 	 * to a ``<div>`` wrapping ``<ActiveMicrophoneCard>``.
 	 */
 	meterRef: RefObject<HTMLElement | null>;
+	/**
+	 * Optional callback invoked when ``level_monitor_start`` is refused
+	 * with the backend's ``client.consent_required`` envelope (a race:
+	 * consent revoked between the renderer's client-side gate and the
+	 * IPC, or a stale renderer). Receives the envelope's
+	 * ``consent_field`` so the caller can surface a consent snackbar
+	 * with a deep-link to the exact Settings toggle. Without this the
+	 * refusal is only console.warn'd — silent from the user's
+	 * perspective.
+	 *
+	 * MUST be referentially stable (wrap in ``useCallback``): it is a
+	 * dependency of the mount effect, so an identity change tears down
+	 * (``level_monitor_stop``) and restarts the level monitor.
+	 */
+	onConsentRequired?: (consentField?: string) => void;
 }
 
 export interface UseMicrophoneLevelMonitorResult {
@@ -145,6 +164,7 @@ export function useMicrophoneLevelMonitor({
 	playingRef,
 	testRunningRef,
 	meterRef,
+	onConsentRequired,
 }: UseMicrophoneLevelMonitorOptions): UseMicrophoneLevelMonitorResult {
 	const { call } = usePython();
 
@@ -198,13 +218,37 @@ export function useMicrophoneLevelMonitor({
 	// doesn't freeze for ~33 ms waiting for the first push after
 	// ``level_monitor_start``).
 	useEffect(() => {
+		// Privacy gate (GDPR Art. 9): the level monitor opens a
+		// continuous biometric-capture InputStream on the mic — the
+		// backend enforces ``voice_biometric_consent`` and refuses
+		// ``level_monitor_start`` without it. Skip the start + the
+		// one-shot poll client-side when consent is off, so the page
+		// doesn't spam futile IPC calls + console warnings on every
+		// mount for users who haven't granted consent yet (they get a
+		// consent prompt when they try to START a test instead).
+		if (!config?.voice_biometric_consent) return;
 		const micId = config?.microphone ?? null;
 		call<{ success: boolean }>("level_monitor_start", { mic_id: micId }).catch(
-			(err) =>
+			(err) => {
+				// The backend's ``client.consent_required`` envelope
+				// (ConsentRequiredError with consent_field) surfaces
+				// only in a race — the client-side gate above normally
+				// short-circuits before the IPC. Surface it through the
+				// caller's deep-link snackbar instead of swallowing it.
+				const code = (err as { code?: string } | null)?.code;
+				if (code === CONSENT_REQUIRED_CODE && onConsentRequired) {
+					const field = (err as { consent_field?: unknown } | null)
+						?.consent_field;
+					onConsentRequired(
+						typeof field === "string" ? field : VOICE_BIOMETRIC_CONSENT_FIELD,
+					);
+					return;
+				}
 				console.warn(
 					"[IPC] microphone command failed: level_monitor_start:",
 					err,
-				),
+				);
+			},
 		);
 
 		// one-shot fallback poll. The backend's ``mic_level`` push
@@ -262,7 +306,13 @@ export function useMicrophoneLevelMonitor({
 				),
 			);
 		};
-	}, [call, config?.microphone, playingRef]);
+	}, [
+		call,
+		config?.microphone,
+		config?.voice_biometric_consent,
+		playingRef,
+		onConsentRequired,
+	]);
 
 	//  rAF loop — imperative DOM writes for the LevelBar fill.
 	//

@@ -31,7 +31,7 @@
  *   - `app.on("before-quit" | "will-quit" | "window-all-closed" | "activate", …)`.
  */
 import { app } from "electron";
-import { bootstrapRuntime } from "./bootstrap";
+import { bootstrapRuntime, setupUserData } from "./bootstrap";
 import { runBubbleTestDiagnostics } from "./dev/bubble-test";
 import { registerIpcHandlers } from "./ipc";
 //route main-process lifecycle messages through
@@ -70,6 +70,24 @@ try {
 	// to the default (app.exe name) which is acceptable.
 	log.warn("[main] setAppUserModelId failed (non-fatal):", e);
 }
+
+// Override Electron's userData directory to the shared
+// `electron-profile` subfolder AT MODULE-LOAD TIME (not inside
+// `app.whenReady()`).
+//
+// Chromium spawns its GPU + network-service utility processes while
+// the app is still initializing — before `whenReady()` resolves. If
+// `app.setPath("userData", …)` runs inside `bootstrapRuntime()`, those
+// early processes are spawned with the DEFAULT userData
+// (`%APPDATA%/voice-typer-desktop`), leaving a mixed profile: the
+// renderer (created later) uses `electron-profile/` while the GPU /
+// network processes keep writing Cache / GPU Cache / Network state to
+// the old default dir. Calling `setupUserData()` here — before
+// `acquireSingleInstanceLock()` and `app.whenReady()` — guarantees
+// EVERY Chromium child process inherits the unified data root.
+// Idempotent: `bootstrapRuntime()` re-invokes it inside `whenReady`
+// (harmless re-set of the same path).
+setupUserData();
 
 // Single-instance gate + `app.on("second-instance")` handler. Must run
 // before `app.whenReady()` — the lock is checked at process start.

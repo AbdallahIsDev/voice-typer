@@ -67,46 +67,72 @@
  *      {@link MAIN_STRINGS.en}).
  */
 
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { app } from "electron";
 
 import { APP_NAME } from "./branding";
+// Static JSON imports (not `readFileSync` at module init).
+//
+// The locale tables were originally loaded via
+// `readFileSync(join(__dirname, "i18n", "locales", ...))` — the
+// comment there claimed "the bundler inlines the JSON file content at
+// build time when the readFileSync call is statically analyzable".
+// That is FALSE: Rollup/electron-vite never inlines `readFileSync`
+// calls. The JSON files exist under `src/main/i18n/locales/` in the
+// source tree (so vitest passed — `__dirname` points at source there),
+// but nothing copies them into the electron-vite output
+// (`out/main/i18n/locales/`), so every dev AND packaged build failed to
+// load all 8 locales with ENOENT and fell back to empty tables.
+//
+// Static JSON imports ARE bundled into the JS output by Vite/Rollup's
+// built-in JSON plugin, so the strings ship inside `out/main/index.js`
+// and work identically in dev, preview, and packaged builds. Each file
+// is tiny (~9 dialog keys), so inlining all 8 adds a few KB to the
+// main bundle in exchange for the locales always being present.
+import ar from "./i18n/locales/ar.json";
+import de from "./i18n/locales/de.json";
+import en from "./i18n/locales/en.json";
+import es from "./i18n/locales/es.json";
+import fr from "./i18n/locales/fr.json";
+import hi from "./i18n/locales/hi.json";
+import ru from "./i18n/locales/ru.json";
+import zh from "./i18n/locales/zh.json";
 
 /**
- * Synchronously load a locale JSON file at module init.
+ * Locale string tables, bundled at build time by the static imports
+ * above. Keyed by the same 8 locale ids the renderer ships.
+ */
+const LOCALE_TABLES: Record<string, Record<string, string>> = {
+	ar,
+	de,
+	en,
+	es,
+	fr,
+	hi,
+	ru,
+	zh,
+};
+
+/**
+ * Look up a locale table from the statically-bundled JSON imports.
  *
- * The main process is single-threaded and these JSON files are tiny
- * (9 keys each), so a synchronous read at module init is cheaper than
- * the dynamic-import Promise dance the renderer uses (the renderer has
- * React Suspense + lazy chunk loading concerns that don't apply here).
- *
- * The JSON files live under `./i18n/locales/<locale>.json` — resolved
- * via `__dirname` so the path is stable whether the module is loaded
- * from source (dev / vitest) or from the electron-vite bundled output
- * (production). The bundler inlines the JSON file content at build
- * time when the `readFileSync` call is statically analyzable, so this
- * never does a real disk read in production.
+ * Never throws and never touches the filesystem: every supported
+ * locale is compiled into the bundle, so an unknown key degrades to
+ * an empty table (same fallback the old runtime-read had on ENOENT),
+ * and `mainT`'s English-fallback chain covers the rest.
  */
 function _loadLocaleJson(locale: string): Record<string, string> {
-	try {
-		const filePath = join(__dirname, "i18n", "locales", `${locale}.json`);
-		return JSON.parse(readFileSync(filePath, "utf8")) as Record<string, string>;
-	} catch (e) {
-		console.warn("[i18n] failed to load locale", locale, e);
-		return {};
-	}
+	return LOCALE_TABLES[locale] ?? {};
 }
 
 /**
  * The set of locales that ship dialog strings for the main process.
  * Must stay in sync with the renderer's `SUPPORTED_LOCALES`.
  *
- * Loaded from per-locale JSON files under `./i18n/locales/` at module
- * init via `readFileSync`. The `{appName}` placeholder in
- * `dialog.singleInstance.title` is substituted with `APP_NAME` from
- * `./branding` so the JSON files stay free of hardcoded product names
- * (see the branding rule in AGENTS.md).
+ * Loaded from the statically-bundled JSON imports above (see
+ * `LOCALE_TABLES`) — never from disk at runtime. The `{appName}`
+ * placeholder in `dialog.singleInstance.title` is substituted with
+ * `APP_NAME` from `./branding` so the JSON files stay free of
+ * hardcoded product names (see the branding rule in AGENTS.md).
  */
 function _withAppName(table: Record<string, string>): Record<string, string> {
 	// Substitute the {appName} placeholder with the canonical
@@ -148,10 +174,11 @@ type MainStringsKey = keyof MainStrings;
  * Canonical, hand-maintained list of dialog keys that `mainT` accepts.
  *
  * The renderer's i18n layer infers its key set from the JSON imports
- * directly (TypeScript can read `import en from "./en.json"`), but the
- * main process loads its locale JSON via `fs.readFileSync` at module
- * init — so the type system sees `Record<string, string>` and cannot
- * narrow the key set. `MAIN_KEYS` is the manual bridge: it lets
+ * directly (TypeScript can read `import en from "./en.json"`), and the
+ * main process now does the same via its own static JSON imports —
+ * but because the bundled tables are typed `Record<string, string>`,
+ * the type system still cannot narrow the key set. `MAIN_KEYS` is the
+ * manual bridge: it lets
  * `MainKey = typeof MAIN_KEYS[number]` act as the literal-union type
  * for `mainT`'s `key` parameter, catching typos like
  * `mainT("dialog.criticalError.titl")` at compile time.

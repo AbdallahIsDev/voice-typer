@@ -50,7 +50,10 @@ vi.mock("electron", () => ({
 	dialog: { showErrorBox: vi.fn() },
 }));
 
-vi.mock("../bootstrap", () => ({ bootstrapRuntime: vi.fn() }));
+vi.mock("../bootstrap", () => ({
+	bootstrapRuntime: vi.fn(),
+	setupUserData: vi.fn(),
+}));
 vi.mock("../dev/bubble-test", () => ({
 	runBubbleTestDiagnostics: () => ({ cleanup: () => {} }),
 }));

@@ -156,6 +156,10 @@ function makeConfig(
 		cloud_openai_consent: false,
 		cloud_groq_consent: false,
 		cloud_deepgram_consent: false,
+		// Biometric consent granted so the level-monitor mount
+		// effect (gated on ``voice_biometric_consent``) still fires
+		// ``level_monitor_start`` in these tests.
+		voice_biometric_consent: true,
 		...overrides,
 	} as VoiceTyperConfig;
 }
@@ -182,8 +186,8 @@ function makeSelectMicrophoneRef() {
 	>;
 }
 
-function makeHookArgs() {
-	const config = makeConfig();
+function makeHookArgs(configOverrides: Partial<VoiceTyperConfig> = {}) {
+	const config = makeConfig(configOverrides);
 	const microphones = makeMicrophones();
 	const setConfig = vi.fn();
 	const updateConfig = vi.fn();
@@ -378,6 +382,104 @@ describe("useMicrophoneTest — test start/stop lifecycle", () => {
 		expect(result.current.testAudioBase64).toBe("clip-1");
 		expect(result.current.testDurationMs).toBe(5000);
 		expect(result.current.testQuality).toBe("good");
+	});
+});
+
+describe("useMicrophoneTest — biometric consent gating (GDPR Art. 9)", () => {
+	it("does NOT call level_monitor_start when voice_biometric_consent is false", async () => {
+		// Privacy gate: the level monitor opens a continuous
+		// biometric-capture InputStream — the mount effect must skip
+		// ``level_monitor_start`` + the one-shot poll until consent is
+		// granted (previously the page spammed futile IPC calls on
+		// every mount for non-consenting users).
+		const args = makeHookArgs({ voice_biometric_consent: false });
+		renderHook(() => useMicrophoneTest(args));
+
+		// Flush the mount effect + one-shot poll microtasks.
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		const startCalls = callMock.mock.calls.filter(
+			(c) => c[0] === "level_monitor_start",
+		);
+		expect(startCalls.length).toBe(0);
+	});
+
+	it("calls level_monitor_start on mount when voice_biometric_consent is true", async () => {
+		const args = makeHookArgs({ voice_biometric_consent: true });
+		renderHook(() => useMicrophoneTest(args));
+
+		// Flush the mount effect so the async ``level_monitor_start``
+		// fires.
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		const startCalls = callMock.mock.calls.filter(
+			(c) => c[0] === "level_monitor_start",
+		);
+		expect(startCalls.length).toBeGreaterThanOrEqual(1);
+	});
+
+	it("starts the level monitor when consent is granted WHILE the page is mounted (false → true rerender)", async () => {
+		// The mount effect lists ``config?.voice_biometric_consent`` in
+		// its deps, so flipping consent from off → on via a rerender
+		// must re-run the effect and fire ``level_monitor_start``.
+		// Without this, a user who grants consent in Settings while
+		// the Microphone page is already mounted would never get a
+		// live meter until they navigated away and back.
+		const firstArgs = makeHookArgs({ voice_biometric_consent: false });
+		const { rerender } = renderHook(({ args }) => useMicrophoneTest(args), {
+			initialProps: { args: firstArgs },
+		});
+
+		// Mount with consent off — no start.
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+		expect(
+			callMock.mock.calls.filter((c) => c[0] === "level_monitor_start").length,
+		).toBe(0);
+
+		// Grant consent → the effect re-runs and starts the monitor.
+		const grantedArgs = makeHookArgs({ voice_biometric_consent: true });
+		rerender({ args: grantedArgs });
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		const startCalls = callMock.mock.calls.filter(
+			(c) => c[0] === "level_monitor_start",
+		);
+		expect(startCalls.length).toBeGreaterThanOrEqual(1);
+	});
+
+	it("stops the level monitor when consent is revoked WHILE the page is mounted (true → false rerender)", async () => {
+		const firstArgs = makeHookArgs({ voice_biometric_consent: true });
+		const { rerender } = renderHook(({ args }) => useMicrophoneTest(args), {
+			initialProps: { args: firstArgs },
+		});
+
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+		expect(
+			callMock.mock.calls.filter((c) => c[0] === "level_monitor_start").length,
+		).toBeGreaterThanOrEqual(1);
+
+		// Revoke consent → the effect's cleanup (``level_monitor_stop``)
+		// runs and the early-return skips restarting.
+		const revokedArgs = makeHookArgs({ voice_biometric_consent: false });
+		rerender({ args: revokedArgs });
+		await act(async () => {
+			await new Promise((r) => setTimeout(r, 0));
+		});
+
+		const stopCalls = callMock.mock.calls.filter(
+			(c) => c[0] === "level_monitor_stop",
+		);
+		expect(stopCalls.length).toBeGreaterThanOrEqual(1);
 	});
 });
 

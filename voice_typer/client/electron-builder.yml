@@ -205,6 +205,10 @@ deb:
   depends:
     - libnotify4
     - libxtst6
+  # R6-F8: python3 is deliberately NOT in depends — the bundled
+  # PyInstaller backend embeds its own interpreter, so requiring the
+  # system python3 package would be unnecessary bloat (and could pull
+  # an unrelated python3 version).
   # the postinst/prerm scripts live at <repo>/scripts/linux/, NOT at
   # voice_typer/client/resources/linux/ (which does not exist). electron-builder
   # resolves these paths relative to its cwd (voice_typer/client/), so we use

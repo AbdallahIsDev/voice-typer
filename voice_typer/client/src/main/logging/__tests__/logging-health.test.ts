@@ -26,7 +26,7 @@
  *      an entry (operation: "chmod 0o600") — the chmod failure is
  *      a separate catch block inside the same try, so the append
  *      itself succeeds but the perms cache is left unset.
- *   3. `rotateIfNeeded` with a mocked `fs.renameSync` failure records
+ *   3. `rotateIfNeeded` with a mocked `fs.truncateSync` failure records
  *      an entry (operation: "rotateIfNeeded").
  *   4. The ring buffer is bounded at 20 entries — the 21st failure
  *      evicts the oldest.
@@ -150,18 +150,17 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 		chmodSpy.mockRestore();
 	});
 
-	it("rotateIfNeeded records a failure entry when fs.renameSync throws", async () => {
+	it("rotateIfNeeded records a failure entry when fs.truncateSync throws", async () => {
 		const { rotateIfNeeded, getLoggingHealth } = await import("../rotation");
-		// Pre-create a log file that exceeds the rotation threshold so
-		// `rotateIfNeeded` enters the rename branch.
+		// Pre-create a log file that exceeds the truncation threshold so
+		// `rotateIfNeeded` enters the truncate branch (single-file
+		// policy truncates in place; it never renames).
 		fs.writeFileSync(logPath, "x".repeat(100), { mode: 0o644 });
-		// Mock `fs.renameSync` to throw an EXDEV (cross-device link)
-		// error — the kind of failure `rotateIfNeeded` catches.
-		const renameSpy = vi.spyOn(fs, "renameSync").mockImplementation(() => {
-			const err = new Error(
-				"EXDEV: cross-device link not permitted",
-			) as NodeJS.ErrnoException;
-			err.code = "EXDEV";
+		// Mock `fs.truncateSync` to throw an EIO error — the kind of
+		// failure `rotateIfNeeded` catches.
+		const truncateSpy = vi.spyOn(fs, "truncateSync").mockImplementation(() => {
+			const err = new Error("EIO: I/O error") as NodeJS.ErrnoException;
+			err.code = "EIO";
 			throw err;
 		});
 
@@ -171,10 +170,9 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 		expect(health.length).toBe(1);
 		expect(health[0]?.operation).toBe("rotateIfNeeded");
 		expect(health[0]?.filePath).toBe(logPath);
-		expect(health[0]?.error).toContain("EXDEV");
-		expect(health[0]?.error).toContain("cross-device link");
+		expect(health[0]?.error).toContain("EIO");
 
-		renameSpy.mockRestore();
+		truncateSpy.mockRestore();
 	});
 
 	it("the ring buffer is bounded at 20 entries (oldest evicted on overflow)", async () => {
@@ -284,13 +282,13 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 		const { appendLogLine, rotateIfNeeded, getLoggingHealth } = await import(
 			"../rotation"
 		);
-		// First: trigger a rotateIfNeeded failure (rename throws).
+		// First: trigger a rotateIfNeeded failure (truncate throws).
 		fs.writeFileSync(logPath, "x".repeat(100), { mode: 0o644 });
-		const renameSpy = vi.spyOn(fs, "renameSync").mockImplementation(() => {
-			throw new Error("rename failure A");
+		const truncateSpy = vi.spyOn(fs, "truncateSync").mockImplementation(() => {
+			throw new Error("truncate failure A");
 		});
 		rotateIfNeeded(logPath, 10);
-		renameSpy.mockRestore();
+		truncateSpy.mockRestore();
 
 		// Second: trigger an appendLogLine failure (append throws).
 		const appendSpy = vi.spyOn(fs, "appendFileSync").mockImplementation(() => {
@@ -304,7 +302,7 @@ describe("logging-health ring buffer: getLoggingHealth() captures failures", () 
 		// (rotateIfNeeded first, appendLogLine second).
 		expect(health.length).toBe(2);
 		expect(health[0]?.operation).toBe("rotateIfNeeded");
-		expect(health[0]?.error).toContain("rename failure A");
+		expect(health[0]?.error).toContain("truncate failure A");
 		expect(health[1]?.operation).toBe("appendLogLine");
 		expect(health[1]?.error).toContain("append failure B");
 	});

@@ -116,11 +116,43 @@ function saveNavState(state: NavState): void {
 	}
 }
 
+/**
+ * Optional navigation parameters for {@link NavStore.navigate}.
+ *
+ * ``consentField`` is a transient deep-link target consumed by the
+ * Settings page: when a consent refusal elsewhere (microphone test,
+ * level monitor, dictation gate) navigates to ``"settings"`` with the
+ * consent field from the backend's ``client.consent_required``
+ * envelope (e.g. ``"voice_biometric_consent"``), Settings jumps to the
+ * Privacy tab and scrolls to / highlights the exact toggle instead of
+ * dropping the user on whatever tab they last visited.
+ */
+export interface NavigateOptions {
+	/**
+	 * The Config consent-field name (e.g. ``"voice_biometric_consent"``)
+	 * to deep-link to in Settings. Ignored when ``page !== "settings"``.
+	 */
+	consentField?: string;
+}
+
 interface NavStore extends NavState {
-	navigate: (page: Page) => void;
+	navigate: (page: Page, opts?: NavigateOptions) => void;
 	replace: (page: Page) => void;
 	goBack: () => void;
 	goForward: () => void;
+	/**
+	 * Transient consent deep-link target (see {@link NavigateOptions}).
+	 * NOT persisted to localStorage (it's a one-shot navigation intent,
+	 * not part of the user's browsing state) and consumed by the
+	 * Settings page via {@link consumeConsentField}.
+	 */
+	pendingConsentField: string | null;
+	/**
+	 * Read-and-clear the pending consent deep-link target. Returns the
+	 * field (or ``null``) and resets it to ``null`` so a stale target
+	 * can't re-fire on a later Settings visit.
+	 */
+	consumeConsentField: () => string | null;
 }
 
 const useNavStore = create<NavStore>()((set, get) => {
@@ -132,8 +164,18 @@ const useNavStore = create<NavStore>()((set, get) => {
 
 	return {
 		...loadNavState(),
-		navigate: (page) => {
+		pendingConsentField: null,
+		navigate: (page, opts) => {
 			const { page: current, history, index } = get();
+			// Set the transient deep-link target BEFORE the
+			// same-page early return below — a consent refusal fired
+			// while the user is ALREADY on Settings must still arm the
+			// pending field so the mounted Settings page (which
+			// subscribes to ``pendingConsentField`` reactively) can
+			// consume it and scroll to the toggle.
+			if (opts?.consentField) {
+				set({ pendingConsentField: opts.consentField });
+			}
 			// No-op when navigating to the page we're already
 			// on. Previously this still pushed a duplicate entry onto
 			// the history stack and re-saved localStorage, polluting
@@ -198,6 +240,13 @@ const useNavStore = create<NavStore>()((set, get) => {
 			if (target === undefined) return;
 			apply({ page: target, history, index: index + 1 });
 		},
+		consumeConsentField: () => {
+			const field = get().pendingConsentField;
+			if (field) {
+				set({ pendingConsentField: null });
+			}
+			return field;
+		},
 	};
 });
 
@@ -210,7 +259,7 @@ const useNavStore = create<NavStore>()((set, get) => {
  * picks up the persisted page. @internal
  */
 export function _resetNavigationForTest(): void {
-	useNavStore.setState(loadNavState());
+	useNavStore.setState({ ...loadNavState(), pendingConsentField: null });
 	// Also reset the document-listener install flag so a test that
 	// re-mounts App (or calls `useNavigation` again) doesn't skip the
 	// listener install because of a stale `documentListenersInstalled`
@@ -329,14 +378,21 @@ export function useNavigation() {
 	const currentPage = useNavStore((s) => s.page);
 	const history = useNavStore((s) => s.history);
 	const index = useNavStore((s) => s.index);
-	const { navigate, replace, goBack, goForward } = useNavStore(
-		useShallow((s) => ({
-			navigate: s.navigate,
-			replace: s.replace,
-			goBack: s.goBack,
-			goForward: s.goForward,
-		})),
-	);
+	// Transient consent deep-link target — consumed by the Settings
+	// page. Rarely non-null (only immediately after a consent
+	// deep-link navigate), so the extra re-render when it flips is
+	// negligible.
+	const pendingConsentField = useNavStore((s) => s.pendingConsentField);
+	const { navigate, replace, goBack, goForward, consumeConsentField } =
+		useNavStore(
+			useShallow((s) => ({
+				navigate: s.navigate,
+				replace: s.replace,
+				goBack: s.goBack,
+				goForward: s.goForward,
+				consumeConsentField: s.consumeConsentField,
+			})),
+		);
 
 	// Install the document-level listeners exactly once per app load.
 	// The empty dep array means this runs on mount for EVERY consumer,
@@ -359,5 +415,7 @@ export function useNavigation() {
 		goForward,
 		canGoBack: index > 0,
 		canGoForward: index < history.length - 1,
+		pendingConsentField,
+		consumeConsentField,
 	};
 }

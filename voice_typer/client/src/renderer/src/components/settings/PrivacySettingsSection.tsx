@@ -16,7 +16,7 @@ import {
 	InformationCircleIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { memo, useState } from "react";
+import { memo, type ReactNode, useState } from "react";
 import ConfirmDialog from "@/components/common/ConfirmDialog";
 import { SettingRow } from "@/components/common/SettingRow";
 import { SettingsSection } from "@/components/common/SettingsSection";
@@ -25,15 +25,61 @@ import { Switch } from "@/components/ui/switch";
 import { usePython } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { useT } from "@/i18n/i18n";
+import { cn } from "@/lib/utils";
 import { SettingsSkeleton } from "./SettingsSkeleton";
 
 import type { SettingsSectionSharedProps } from "./types";
+
+/**
+ * Module-level consent-row wrapper (stable identity). Carries the
+ * ``data-consent-field`` attribute that Settings.tsx's deep-link scroll
+ * targets, and renders the temporary highlight ring when ``highlighted``.
+ *
+ * MUST stay at module scope: an inline component would get a fresh
+ * function identity on every section re-render, which React treats as a
+ * changed element type → unmount/remount of the whole row subtree on
+ * each render — losing focus on a just-clicked Switch and resetting
+ * child-local state.
+ */
+function ConsentRow({
+	field,
+	highlighted,
+	children,
+}: {
+	field: string;
+	highlighted: boolean;
+	children: ReactNode;
+}) {
+	return (
+		<div
+			data-consent-field={field}
+			className={cn(
+				"rounded-lg transition-shadow duration-500",
+				highlighted && "ring-2 ring-(--primary) bg-(--bg-subtle)",
+			)}
+		>
+			{children}
+		</div>
+	);
+}
 
 export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 	config,
 	updateConfig,
 	isVisible,
-}: SettingsSectionSharedProps) {
+	consentFocusField,
+}: SettingsSectionSharedProps & {
+	/**
+	 * Consent deep-link target (e.g. ``"voice_biometric_consent"``).
+	 * When set, the matching consent row renders a temporary highlight
+	 * ring so the user lands visually on the exact toggle the
+	 * ``client.consent_required`` refusal named. Rendered by
+	 * Settings.tsx from the navigate ``{ consentField }`` option;
+	 * cleared after a short timeout. ``data-consent-field``
+	 * attributes double as Settings.tsx's scroll target.
+	 */
+	consentFocusField?: string | null;
+}) {
 	const { call } = usePython();
 	const { showSnack } = useSnackbar();
 
@@ -267,16 +313,21 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 							t("settings.privacy.huggingFaceDownloadsInfo"),
 							privacyTitle,
 						) && (
-							<SettingRow
-								label={huggingFaceLabel}
-								info={t("settings.privacy.huggingFaceDownloadsInfo")}
+							<ConsentRow
+								field="huggingface_consent"
+								highlighted={consentFocusField === "huggingface_consent"}
 							>
-								<Switch
-									checked={config.huggingface_consent ?? false}
-									onCheckedChange={handleHuggingFaceConsentChange}
-									aria-label={t("settings.privacy.huggingFaceDownloadsAria")}
-								/>
-							</SettingRow>
+								<SettingRow
+									label={huggingFaceLabel}
+									info={t("settings.privacy.huggingFaceDownloadsInfo")}
+								>
+									<Switch
+										checked={config.huggingface_consent ?? false}
+										onCheckedChange={handleHuggingFaceConsentChange}
+										aria-label={t("settings.privacy.huggingFaceDownloadsAria")}
+									/>
+								</SettingRow>
+							</ConsentRow>
 						)}
 
 						{/* Voice biometric consent */}
@@ -285,18 +336,23 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 							t("settings.privacy.voiceBiometricProcessingInfo"),
 							privacyTitle,
 						) && (
-							<SettingRow
-								label={voiceBiometricLabel}
-								info={t("settings.privacy.voiceBiometricProcessingInfo")}
+							<ConsentRow
+								field="voice_biometric_consent"
+								highlighted={consentFocusField === "voice_biometric_consent"}
 							>
-								<Switch
-									checked={config.voice_biometric_consent ?? false}
-									onCheckedChange={handleVoiceBiometricChange}
-									aria-label={t(
-										"settings.privacy.voiceBiometricProcessingAria",
-									)}
-								/>
-							</SettingRow>
+								<SettingRow
+									label={voiceBiometricLabel}
+									info={t("settings.privacy.voiceBiometricProcessingInfo")}
+								>
+									<Switch
+										checked={config.voice_biometric_consent ?? false}
+										onCheckedChange={handleVoiceBiometricChange}
+										aria-label={t(
+											"settings.privacy.voiceBiometricProcessingAria",
+										)}
+									/>
+								</SettingRow>
+							</ConsentRow>
 						)}
 
 						{/* Per-provider cloud ASR consent — mirrors Models page toggles */}
@@ -305,48 +361,63 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 							t("settings.privacy.openaiCloudAsrInfo"),
 							privacyTitle,
 						) && (
-							<SettingRow
-								label={openaiCloudAsrLabel}
-								info={t("settings.privacy.openaiCloudAsrInfo")}
+							<ConsentRow
+								field="cloud_openai_consent"
+								highlighted={consentFocusField === "cloud_openai_consent"}
 							>
-								<Switch
-									checked={config.cloud_openai_consent ?? false}
-									onCheckedChange={handleOpenAiConsentChange}
-									aria-label={t("settings.privacy.openaiCloudAsrAria")}
-								/>
-							</SettingRow>
+								<SettingRow
+									label={openaiCloudAsrLabel}
+									info={t("settings.privacy.openaiCloudAsrInfo")}
+								>
+									<Switch
+										checked={config.cloud_openai_consent ?? false}
+										onCheckedChange={handleOpenAiConsentChange}
+										aria-label={t("settings.privacy.openaiCloudAsrAria")}
+									/>
+								</SettingRow>
+							</ConsentRow>
 						)}
 						{isVisible(
 							groqCloudAsrLabel,
 							t("settings.privacy.groqCloudAsrInfo"),
 							privacyTitle,
 						) && (
-							<SettingRow
-								label={groqCloudAsrLabel}
-								info={t("settings.privacy.groqCloudAsrInfo")}
+							<ConsentRow
+								field="cloud_groq_consent"
+								highlighted={consentFocusField === "cloud_groq_consent"}
 							>
-								<Switch
-									checked={config.cloud_groq_consent ?? false}
-									onCheckedChange={handleGroqConsentChange}
-									aria-label={t("settings.privacy.groqCloudAsrAria")}
-								/>
-							</SettingRow>
+								<SettingRow
+									label={groqCloudAsrLabel}
+									info={t("settings.privacy.groqCloudAsrInfo")}
+								>
+									<Switch
+										checked={config.cloud_groq_consent ?? false}
+										onCheckedChange={handleGroqConsentChange}
+										aria-label={t("settings.privacy.groqCloudAsrAria")}
+									/>
+								</SettingRow>
+							</ConsentRow>
 						)}
 						{isVisible(
 							deepgramCloudAsrLabel,
 							t("settings.privacy.deepgramCloudAsrInfo"),
 							privacyTitle,
 						) && (
-							<SettingRow
-								label={deepgramCloudAsrLabel}
-								info={t("settings.privacy.deepgramCloudAsrInfo")}
+							<ConsentRow
+								field="cloud_deepgram_consent"
+								highlighted={consentFocusField === "cloud_deepgram_consent"}
 							>
-								<Switch
-									checked={config.cloud_deepgram_consent ?? false}
-									onCheckedChange={handleDeepgramConsentChange}
-									aria-label={t("settings.privacy.deepgramCloudAsrAria")}
-								/>
-							</SettingRow>
+								<SettingRow
+									label={deepgramCloudAsrLabel}
+									info={t("settings.privacy.deepgramCloudAsrInfo")}
+								>
+									<Switch
+										checked={config.cloud_deepgram_consent ?? false}
+										onCheckedChange={handleDeepgramConsentChange}
+										aria-label={t("settings.privacy.deepgramCloudAsrAria")}
+									/>
+								</SettingRow>
+							</ConsentRow>
 						)}
 
 						{/* LLM polish consent (existing field, surfaced here for completeness) */}
@@ -355,16 +426,21 @@ export const PrivacySettingsSection = memo(function PrivacySettingsSection({
 							t("settings.privacy.llmTextPolishingInfo"),
 							privacyTitle,
 						) && (
-							<SettingRow
-								label={llmTextPolishingLabel}
-								info={t("settings.privacy.llmTextPolishingInfo")}
+							<ConsentRow
+								field="llm_polish_consent"
+								highlighted={consentFocusField === "llm_polish_consent"}
 							>
-								<Switch
-									checked={config.llm_polish_consent ?? false}
-									onCheckedChange={handleLlmPolishConsentChange}
-									aria-label={t("settings.privacy.llmTextPolishingAria")}
-								/>
-							</SettingRow>
+								<SettingRow
+									label={llmTextPolishingLabel}
+									info={t("settings.privacy.llmTextPolishingInfo")}
+								>
+									<Switch
+										checked={config.llm_polish_consent ?? false}
+										onCheckedChange={handleLlmPolishConsentChange}
+										aria-label={t("settings.privacy.llmTextPolishingAria")}
+									/>
+								</SettingRow>
+							</ConsentRow>
 						)}
 
 						{/*GDPR right-to-export (Art. 15/20).

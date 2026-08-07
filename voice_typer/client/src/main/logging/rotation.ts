@@ -1,8 +1,12 @@
 /**
- * File-rotation primitive + low-level log-line helpers for the
+ * Single-file log primitive + low-level log-line helpers for the
  * Electron main-process loggers.
  *
- * Per-path "perms verified" cache + deferred rotation via setImmediate.
+ * Single-file policy: each log is ONE file. When it exceeds its size
+ * cap it is truncated IN PLACE (emptied) and writing continues — a
+ * numbered backup (`.1`, `.2`, ...) is NEVER created.
+ *
+ * Per-path "perms verified" cache + deferred truncation via setImmediate.
  */
 import fs from "node:fs";
 
@@ -269,6 +273,14 @@ export function redactPii(text: string): string {
 	return out;
 }
 
+/**
+ * Truncate the file in place if it exceeds {@link maxSize} bytes.
+ *
+ * Single-file policy: the file is emptied (truncated to zero bytes) and
+ * keeps its single identity — numbered backups are never created.
+ * Best-effort: any I/O error is swallowed and recorded to the
+ * logging-health ring buffer.
+ */
 export function rotateIfNeeded(
 	filePath: string,
 	maxSize: number = DEFAULT_CRASH_LOG_MAX_BYTES,
@@ -298,29 +310,15 @@ export function rotateIfNeeded(
 		_setCachedFileSize(filePath, size);
 		return;
 	}
-	const backup = `${filePath}.1`;
+	// Single-file policy: NEVER create a numbered backup (`.1`, `.2`, ...).
+	// When the file exceeds the cap, truncate it IN PLACE (empty it) and
+	// keep writing to the same file — the log stays exactly one file.
 	try {
-		try {
-			fs.unlinkSync(backup);
-		} catch (e) {
-			const code = (e as NodeJS.ErrnoException).code;
-			if (code !== "ENOENT") throw e;
-		}
-		fs.renameSync(filePath, backup);
+		fs.truncateSync(filePath, 0);
 		_clearCachedFileSize(filePath);
-		// Reset the per-path "perms verified" flag on rotation.
+		// Reset the per-path "perms verified" flag so the next append
+		// re-asserts 0o600 on the (now empty) file.
 		_permsVerified.delete(filePath);
-		// XE-20-6: the rotated backup may contain PII (transcribed text,
-		// API keys in URLs) and inherits the original file's mode. If that
-		// was 0o644 (pre-hardening leftover, umask), the backup would be
-		// world-readable. Tighten to 0o600. Best-effort: a chmod failure
-		// must not break rotation.
-		try {
-			fs.chmodSync(backup, 0o600);
-		} catch (e) {
-			console.warn(`[logging] chmod 0o600 failed for ${backup}:`, e);
-			recordLoggingFailure(backup, "chmod 0o600", e);
-		}
 	} catch (e) {
 		console.warn("[logging] rotateIfNeeded failed:", e);
 		recordLoggingFailure(filePath, "rotateIfNeeded", e);
@@ -328,10 +326,11 @@ export function rotateIfNeeded(
 }
 
 /**
- * Append a single line to filePath, rotating first if the file has
- * grown past maxBytes. Best-effort: any I/O error is swallowed.
+ * Append a single line to filePath, truncating it in place first if the
+ * file has grown past maxBytes (single-file policy). Best-effort: any
+ * I/O error is swallowed.
  *
- * Deferred rotation: the rotateIfNeeded call is wrapped in
+ * Deferred truncation: the rotateIfNeeded call is wrapped in
  * setImmediate(...) so the rotation I/O does not block the current IPC
  * dispatch. The appendFileSync still runs synchronously (crash
  * durability preserved).

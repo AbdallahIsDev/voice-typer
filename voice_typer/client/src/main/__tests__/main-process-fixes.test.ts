@@ -206,7 +206,7 @@ describe("XV-154: logging.ts file-size cache", () => {
 	let statSpy: ReturnType<typeof vi.spyOn>;
 
 	// AB-40 defers rotateIfNeeded via setImmediate, so rotation
-	// effects (rename, cache clear, stat) land on the next event-loop
+	// effects (truncate, cache clear, stat) land on the next event-loop
 	// tick — tests must flush pending immediates before asserting.
 	const flushRotation = () =>
 		new Promise<void>((resolve) => setImmediate(resolve));
@@ -269,21 +269,21 @@ describe("XV-154: logging.ts file-size cache", () => {
 		fs.writeFileSync(logPath, "x".repeat(2048));
 
 		// First append: cache miss → deferred rotate stats the
-		// file (2048 > 1024) → rotate (rename to .1, cache
-		// cleared). The line that triggered the rotation lands in
-		// the file BEFORE the deferred rotate runs (append first,
-		// rotate on the next tick), so it is rotated away with the
-		// old content — the active file is re-created by the next
-		// append.
+		// file (2048 > 1024) → truncate IN PLACE (cache cleared).
+		// The line that triggered the truncation lands in the file
+		// BEFORE the deferred rotate runs (append first, truncate on
+		// the next tick), so it is truncated away with the old
+		// content — the file is emptied and keeps its identity.
 		appendLogLine(logPath, "trigger rotation\n", 1024);
 
-		// Flush the deferred rotateIfNeeded so the rename lands.
+		// Flush the deferred rotateIfNeeded so the truncate lands.
 		await flushRotation();
 
-		// The backup .1 now holds the pre-rotation content (plus
-		// the triggering line); the active file does not exist
-		// until the next append re-creates it.
-		expect(fs.existsSync(`${logPath}.1`)).toBe(true);
+		// Single-file policy: no .1 backup exists; the active file
+		// was emptied in place (the pre-seed + triggering line were
+		// truncated away).
+		expect(fs.existsSync(`${logPath}.1`)).toBe(false);
+		expect(fs.statSync(logPath).size).toBeLessThan(1024);
 
 		// After rotation, the cache was cleared. The appendLogLine
 		// call above tried to bump the cache but prevSize was null

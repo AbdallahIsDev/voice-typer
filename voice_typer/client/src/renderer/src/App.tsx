@@ -25,6 +25,7 @@ import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSoundFeedback } from "@/hooks/useSoundFeedback";
 import { useTheme } from "@/hooks/useTheme";
 import { getLocale, setLocale, useT } from "@/i18n/i18n";
+import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
 import { cn } from "@/lib/utils";
 // Route-level code splitting. Home is the default landing page
 // and stays eagerly imported so first paint is fast. The other 9 pages
@@ -370,6 +371,39 @@ export default function App() {
 		} else {
 			toast.warning(title, { description, duration: 8000 });
 		}
+		return undefined;
+	});
+
+	// consent_required toast — GDPR Art. 9 dictation gate. The backend
+	// publishes this event (recording_lifecycle.py) when dictation
+	// start is refused for missing ``voice_biometric_consent`` — the
+	// path for entry points the renderer can't gate client-side (F2
+	// hotkey, tray click action, sandboxed bubble window). Surface an
+	// in-app prompt with a Settings → Privacy deep-link instead of the
+	// silent tray-only refusal (the ``toggle_dictation`` IPC resolves
+	// ``ack`` with no feedback). Only the voice-biometric field is
+	// handled here — the HuggingFace ``{provider, model}`` shape is
+	// handled by the model-download flow.
+	usePythonEvent("consent_required", (data): (() => void) | undefined => {
+		const payload = (data ?? {}) as {
+			consent_field?: string;
+		};
+		if (payload.consent_field !== VOICE_BIOMETRIC_CONSENT_FIELD) {
+			return undefined;
+		}
+		toast.warning(t("notify.recording_controller.consent_required_body"), {
+			duration: 6000,
+			action: {
+				label: t("microphone.consentRequiredAction"),
+				// Deep-link to the EXACT consent toggle — Settings
+				// consumes the ``consentField`` navigate option and
+				// scrolls to / highlights the Voice Biometric row.
+				onClick: () =>
+					navigate("settings", {
+						consentField: payload.consent_field,
+					}),
+			},
+		});
 		return undefined;
 	});
 

@@ -5,12 +5,30 @@ import {
 	useRef,
 	useState,
 } from "react";
-import { usePython } from "@/hooks/usePython";
+import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSnackbar } from "@/hooks/useSnackbar";
 import { t } from "@/i18n/i18n";
 import type { VoiceTyperConfig } from "@/types/config";
 import { HOTKEY_DEFAULT } from "../lib/constants";
 import type { MicrophoneOption, ModelOption, StepInfo } from "../lib/types";
+
+export type BackendChoice = "local" | "cloud";
+
+// Map a cloud provider to its allowlisted config fields (mirrors
+// `useCloudProviders.ts` — the Models page cloud tab uses the same
+// mapping, so the onboarding Cloud panel persists to the SAME config
+// keys the user would set there).
+function cloudConsentField(provider: string): string {
+	if (provider === "openai") return "cloud_openai_consent";
+	if (provider === "groq") return "cloud_groq_consent";
+	return "cloud_deepgram_consent";
+}
+
+function cloudApiKeyField(provider: string): string {
+	if (provider === "openai") return "openai_api_key";
+	if (provider === "groq") return "groq_api_key";
+	return "deepgram_api_key";
+}
 
 export interface UseOnboardingWizardResult {
 	loading: boolean;
@@ -37,6 +55,22 @@ export interface UseOnboardingWizardResult {
 	handlePrev: () => Promise<void>;
 	handleSkip: () => Promise<void>;
 	skipOnInitError: () => Promise<void>;
+	// Model step: local-vs-cloud choice + explicit download.
+	selectedBackend: BackendChoice;
+	setSelectedBackend: (v: BackendChoice) => void;
+	hfConsent: boolean;
+	setHfConsent: (v: boolean) => void;
+	downloadingModel: string | null;
+	downloadProgress: number;
+	downloadFailed: boolean;
+	handleDownload: () => Promise<void>;
+	// Model step: cloud provider configuration (API key + consent).
+	cloudProvider: string;
+	setCloudProvider: (v: string) => void;
+	cloudApiKey: string;
+	setCloudApiKey: (v: string) => void;
+	cloudConsent: boolean;
+	setCloudConsent: (v: boolean) => void;
 }
 
 export function useOnboardingWizard(
@@ -59,6 +93,23 @@ export function useOnboardingWizard(
 	const [hotkeyPresets, setHotkeyPresets] = useState<string[]>([]);
 	const [modelOptions, setModelOptions] = useState<ModelOption[]>([]);
 	const [microphones, setMicrophones] = useState<MicrophoneOption[]>([]);
+
+	// Model step: the user chooses a local model (downloaded explicitly
+	// — the app NEVER auto-downloads) or a cloud transcription API.
+	const [selectedBackend, setSelectedBackend] =
+		useState<BackendChoice>("local");
+	// HuggingFace consent gates the EXPLICIT local-model download
+	// (service.download_model requires it). Persisted via set_config.
+	const [hfConsent, setHfConsent] = useState(false);
+	// Explicit in-wizard download progress.
+	const [downloadingModel, setDownloadingModel] = useState<string | null>(null);
+	const [downloadProgress, setDownloadProgress] = useState(0);
+	const [downloadFailed, setDownloadFailed] = useState(false);
+	// Cloud panel: provider API key + consent (persisted via the
+	// allowlisted set_config fields, mirroring the Models page).
+	const [cloudProvider, setCloudProvider] = useState("openai");
+	const [cloudApiKey, setCloudApiKey] = useState("");
+	const [cloudConsent, setCloudConsent] = useState(false);
 
 	const headingRef = useRef<HTMLHeadingElement | null>(null);
 
@@ -103,6 +154,9 @@ export function useOnboardingWizard(
 						const cfgModel = cfg.model_size ?? "small.en";
 						if (cfgModel) setSelectedModel(cfgModel);
 						setSelectedMic(cfg.microphone ?? "");
+						setHfConsent(cfg.huggingface_consent === true);
+						const cfgConsent = cfg.cloud_openai_consent === true;
+						setCloudConsent(cfgConsent);
 					}
 				} catch (e) {
 					console.warn("[useOnboardingWizard] get_config probe failed:", e);
@@ -158,6 +212,45 @@ export function useOnboardingWizard(
 		});
 	}, [step?.step_name, step]);
 
+	// Explicit in-wizard model download. The app NEVER downloads
+	// automatically — the user clicks Download on the Model step (or the
+	// Models page). Progress arrives via the ``download_progress`` push
+	// event; the promise resolves when the download completes.
+	//
+	// The HuggingFace consent checkbox on the Model step is the user's
+	// explicit opt-in for this download — ``service.download_model``
+	// refuses to download without ``huggingface_consent``, so it is
+	// persisted here right before the download is started (and again on
+	// Continue via ``handleNext`` so the choice survives the wizard even
+	// if the user never downloads in-wizard).
+	const handleDownload = useCallback(async () => {
+		setDownloadFailed(false);
+		setDownloadingModel(selectedModel);
+		setDownloadProgress(0);
+		try {
+			if (hfConsent) {
+				await call("set_config", { huggingface_consent: true });
+			}
+			await call("download_model", { model: selectedModel });
+		} catch (err) {
+			console.error("[useOnboardingWizard] model download failed:", err);
+			setDownloadFailed(true);
+		} finally {
+			setDownloadingModel(null);
+		}
+	}, [call, selectedModel, hfConsent]);
+
+	usePythonEvent(
+		"download_progress",
+		useCallback((data: Record<string, unknown> | undefined) => {
+			if (!data) return undefined;
+			if (typeof data.progress === "number") {
+				setDownloadProgress(data.progress);
+			}
+			return undefined;
+		}, []),
+	);
+
 	const handleNext = useCallback(async () => {
 		setSubmitting(true);
 		try {
@@ -169,6 +262,27 @@ export function useOnboardingWizard(
 				await call("onboarding_set_hotkey", { hotkey: selectedHotkey });
 			} else if (step?.step_name === "Model") {
 				await call("onboarding_set_model", { model: selectedModel });
+				// Persist the local-vs-cloud choice (Model step).
+				await call("onboarding_set_backend", { backend: selectedBackend });
+				if (selectedBackend === "local") {
+					// Persist the HuggingFace consent checkbox (the user's
+					// explicit opt-in for local model downloads) so it
+					// survives the wizard even when no download was
+					// started on this step. The user can still revoke it
+					// later in Settings → Privacy.
+					await call("set_config", { huggingface_consent: hfConsent });
+				} else if (selectedBackend === "cloud") {
+					// Persist the cloud provider API key + consent through
+					// the allowlisted set_config fields — mirroring the
+					// Models page cloud tab.
+					const updates: Record<string, unknown> = {
+						[cloudConsentField(cloudProvider)]: cloudConsent,
+					};
+					if (cloudApiKey.trim()) {
+						updates[cloudApiKeyField(cloudProvider)] = cloudApiKey.trim();
+					}
+					await call("set_config", updates);
+				}
 			}
 			// Note: the Done step does NOT call onboarding_apply via
 			// handleNext — the Done-step Continue button is wired to
@@ -192,6 +306,11 @@ export function useOnboardingWizard(
 		selectedMic,
 		selectedHotkey,
 		selectedModel,
+		selectedBackend,
+		cloudProvider,
+		cloudApiKey,
+		cloudConsent,
+		hfConsent,
 		showSnack,
 	]);
 
@@ -307,5 +426,19 @@ export function useOnboardingWizard(
 		handlePrev,
 		handleSkip,
 		skipOnInitError,
+		selectedBackend,
+		setSelectedBackend,
+		hfConsent,
+		setHfConsent,
+		downloadingModel,
+		downloadProgress,
+		downloadFailed,
+		handleDownload,
+		cloudProvider,
+		setCloudProvider,
+		cloudApiKey,
+		setCloudApiKey,
+		cloudConsent,
+		setCloudConsent,
 	};
 }

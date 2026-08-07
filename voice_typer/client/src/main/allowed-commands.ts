@@ -107,6 +107,7 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	"onboarding_set_microphone",
 	"onboarding_set_hotkey",
 	"onboarding_set_model",
+	"onboarding_set_backend",
 	"onboarding_skip",
 	"onboarding_apply",
 	//commands previously missing from this canonical

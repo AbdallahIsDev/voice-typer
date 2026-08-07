@@ -200,6 +200,7 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	onboarding_get_model_options: true,
 	onboarding_get_hotkey_presets: true,
 	onboarding_check_permissions: true,
+	onboarding_set_backend: true,
 	onboarding_reset: true,
 	microphone_test_start: true,
 	microphone_test_stop: true,

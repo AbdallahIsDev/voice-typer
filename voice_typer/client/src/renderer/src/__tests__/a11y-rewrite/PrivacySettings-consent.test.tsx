@@ -254,6 +254,56 @@ describe("PrivacySettings consent toggles — RW-0 rewrite of test_settings_has_
 		});
 	});
 
+	it("renders data-consent-field scroll targets and highlights the deep-linked consent row", () => {
+		const config = makeConfig();
+		renderWithProviders(
+			<PrivacySettingsSection
+				config={config}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
+				isVisible={alwaysVisible}
+				// The consent refusal envelope's ``consent_field`` —
+				// Settings.tsx passes it through after consuming the
+				// navigate deep-link option.
+				consentFocusField="voice_biometric_consent"
+			/>,
+		);
+
+		// Every consent row carries the ``data-consent-field``
+		// attribute that Settings.tsx's scroll effect targets.
+		const biometricRow = document.querySelector(
+			'[data-consent-field="voice_biometric_consent"]',
+		);
+		expect(biometricRow).toBeTruthy();
+		expect(
+			document.querySelector('[data-consent-field="huggingface_consent"]'),
+		).toBeTruthy();
+		expect(
+			document.querySelector('[data-consent-field="cloud_openai_consent"]'),
+		).toBeTruthy();
+
+		// The deep-linked row renders the temporary highlight ring.
+		expect(biometricRow?.className).toContain("ring-");
+	});
+
+	it("does NOT highlight any consent row when no consentFocusField is passed", () => {
+		const config = makeConfig();
+		renderWithProviders(
+			<PrivacySettingsSection
+				config={config}
+				updateConfig={() => {}}
+				updateConfigDebounced={() => {}}
+				isVisible={alwaysVisible}
+			/>,
+		);
+
+		const rows = document.querySelectorAll("[data-consent-field]");
+		expect(rows.length).toBeGreaterThanOrEqual(6);
+		for (const row of Array.from(rows)) {
+			expect(row.className).not.toContain("ring-");
+		}
+	});
+
 	it("calls updateConfig with voice_biometric_consent=true when its Switch is toggled on", () => {
 		const updateConfig = vi.fn();
 		const config = makeConfig({ voice_biometric_consent: false });

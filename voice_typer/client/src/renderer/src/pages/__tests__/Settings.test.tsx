@@ -26,10 +26,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Hoist the mock call/event handlers so they're available inside the
 // vi.mock factory (which is hoisted to the top of the file by vitest
 // and runs before any other code).
-const { mockCall, mockPythonEvent, mockNavigate } = vi.hoisted(() => ({
+const {
+	mockCall,
+	mockPythonEvent,
+	mockNavigate,
+	mockPendingConsentField,
+	mockConsumeConsentField,
+} = vi.hoisted(() => ({
 	mockCall: vi.fn(),
 	mockPythonEvent: vi.fn(),
 	mockNavigate: vi.fn(),
+	// Consent deep-link channel (see NavigateOptions in
+	// useNavigation.ts) — mocked so the deep-link test can arm a
+	// pending field and observe the consume call.
+	mockPendingConsentField: vi.fn<() => string | null>(() => null),
+	mockConsumeConsentField: vi.fn<() => string | null>(() => null),
 }));
 
 vi.mock("@/hooks/usePython", () => ({
@@ -38,7 +49,11 @@ vi.mock("@/hooks/usePython", () => ({
 }));
 
 vi.mock("@/hooks/useNavigation", () => ({
-	useNavigation: () => ({ navigate: mockNavigate }),
+	useNavigation: () => ({
+		navigate: mockNavigate,
+		pendingConsentField: mockPendingConsentField(),
+		consumeConsentField: mockConsumeConsentField,
+	}),
 }));
 
 vi.mock("@hugeicons/react", () => ({
@@ -190,6 +205,11 @@ describe("Settings page — PERF-002 batched config writes", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockPythonEvent.mockReset();
+		mockNavigate.mockReset();
+		mockPendingConsentField.mockReset();
+		mockPendingConsentField.mockReturnValue(null);
+		mockConsumeConsentField.mockReset();
+		mockConsumeConsentField.mockReturnValue(null);
 		localStorage.clear();
 		// Reset the module registry so Settings' module-level cache
 		// (_cachedConfig) is re-initialised on each test.
@@ -433,6 +453,36 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		const payload = lastSetConfigPayload();
 		expect(payload).not.toBeNull();
 		expect(payload).toHaveProperty("onboarding_completed", false);
+	});
+
+	it("consumes a consent deep-link: jumps to the Privacy tab and highlights the exact toggle row", async () => {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(baseConfig);
+			if (type === "set_config") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+		// A consent refusal elsewhere (mic test / level monitor /
+		// dictation gate) navigated here with
+		// ``{ consentField: "voice_biometric_consent" }``.
+		mockPendingConsentField.mockReturnValue("voice_biometric_consent");
+		mockConsumeConsentField.mockReturnValue("voice_biometric_consent");
+
+		const { default: SettingsPage } = await import("@/pages/Settings");
+		renderWithProviders(<SettingsPage />);
+
+		// The deep-link forces the Privacy tab and the Voice Biometric
+		// row renders with the ``data-consent-field`` scroll target +
+		// temporary highlight ring.
+		await waitFor(() => {
+			const row = document.querySelector(
+				'[data-consent-field="voice_biometric_consent"]',
+			);
+			expect(row).toBeTruthy();
+			expect(row?.className).toContain("ring-");
+		});
+
+		// The pending target was consumed exactly once (one-shot).
+		expect(mockConsumeConsentField).toHaveBeenCalledTimes(1);
 	});
 
 	//regression test: the destructive "Reset to Defaults" button

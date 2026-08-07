@@ -4,7 +4,7 @@
  * Extracted from `index.ts` (REF-2). `bootstrapRuntime()` performs:
  *   1. SEC-029 per-session nonce generation (stored in `state.sessionNonce`).
  *   2.  userData override so Electron and Python share one
- *      config directory.
+ *      data root (Chromium profile tucked in ``electron-profile/``).
  *   3. SEC-012 /  Content-Security-Policy headers (HTTP).
  *   4. SEC-021 uncaughtException / unhandledRejection handlers with a
  *      crash log + 5-error circuit breaker (: log rotation +
@@ -100,8 +100,8 @@ function generateSessionNonce(): void {
 
 /**
  * : unify Electron's userData directory with the Python
- * backend's config directory.  Previously these were two separate
- * directories:
+ * backend's config directory, in a dedicated ``electron-profile``
+ * subfolder.  Previously these were two separate directories:
  *   - Python: ~/.voice-typer (legacy) or platform-appropriate path
  *     (see voice_typer/server/config.py:_config_dir())
  *   - Electron: app.getPath('userData') which defaults to
@@ -109,12 +109,18 @@ function generateSessionNonce(): void {
  *
  * This caused user confusion ("where is my data?") and made GDPR
  * right-to-portability harder (two locations to scrub).  We now
- * explicitly set Electron's userData to match the Python config dir
- * so both sides read/write the same location.
+ * explicitly set Electron's userData to the Python config dir's
+ * ``electron-profile`` subfolder so both sides share one data root
+ * (uninstall / factory-reset still wipes everything) while the
+ * Chromium browser-profile noise stays out of the data-dir root.
  */
-function setupUserData(): void {
+export function setupUserData(): void {
 	try {
 		const configDir = computeConfigDir();
+		// Electron's Chromium profile (caches, Local Storage, Network
+		// state, Crashpad, ...) lives in a subfolder so the data-dir
+		// root stays a readable mix of user data + app logs.
+		const electronProfileDir = path.join(configDir, "electron-profile");
 		// Ensure the directory exists before Electron tries to use it.
 		try {
 			fs.mkdirSync(configDir, { recursive: true });
@@ -133,12 +139,12 @@ function setupUserData(): void {
 			// default userData if `app.setPath` is never called.
 			log.warn("[MAIN] mkdirSync for userData failed:", e);
 		}
-		app.setPath("userData", configDir);
+		app.setPath("userData", electronProfileDir);
 		//route through the structured `log` logger so
 		// the lifecycle message persists to `electron-runtime.log` instead
 		// of being lost in packaged builds where `console.warn` has no
 		// terminal attached.
-		log.info(`[MAIN] userData set to: ${configDir}`);
+		log.info(`[MAIN] userData set to: ${electronProfileDir}`);
 	} catch (e) {
 		log.warn("[MAIN] Failed to override userData path:", e);
 		// Non-fatal — Electron falls back to its default userData location.

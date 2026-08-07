@@ -162,27 +162,30 @@ describe("rotateIfNeeded (CR-9)", () => {
 		expect(fs.existsSync(`${target}.1`)).toBe(false);
 	});
 
-	it("renames the file to .1 when it exceeds the cap", () => {
+	it("truncates the file in place when it exceeds the cap (no .1 backup)", () => {
 		const target = path.join(tmpDir, "big.log");
 		fs.writeFileSync(target, "x".repeat(2_000));
 		rotateIfNeeded(target, 1_000);
-		// Source is gone (renamed away).
-		expect(fs.existsSync(target)).toBe(false);
-		// .1 contains the rotated content.
-		expect(fs.existsSync(`${target}.1`)).toBe(true);
-		expect(fs.readFileSync(`${target}.1`, "utf-8").length).toBe(2_000);
+		// Single-file policy: the file is emptied IN PLACE — it keeps
+		// its single identity (no numbered .1 backup is ever created).
+		expect(fs.existsSync(target)).toBe(true);
+		expect(fs.statSync(target).size).toBe(0);
+		expect(fs.existsSync(`${target}.1`)).toBe(false);
 	});
 
-	it("overwrites a prior .1 file (single-generation rotation)", () => {
+	it("ignores a stale .1 backup from an old build (single-file policy never writes backups)", () => {
 		const target = path.join(tmpDir, "rollover.log");
-		// Seed an old .1 backup.
+		// A leftover numbered backup from a PRE-single-file build must
+		// be left untouched — the current policy never creates or
+		// writes backups.
 		fs.writeFileSync(`${target}.1`, "OLD_BACKUP_CONTENT");
 		// Seed the active file with new oversized content.
 		fs.writeFileSync(target, "x".repeat(2_000));
 		rotateIfNeeded(target, 1_000);
-		// .1 was overwritten with the new content.
-		expect(fs.readFileSync(`${target}.1`, "utf-8")).toBe("x".repeat(2_000));
-		expect(fs.existsSync(target)).toBe(false);
+		// The active file is truncated in place (0 bytes); the stale
+		// backup is neither touched nor deleted.
+		expect(fs.statSync(target).size).toBe(0);
+		expect(fs.readFileSync(`${target}.1`, "utf-8")).toBe("OLD_BACKUP_CONTENT");
 	});
 
 	it("uses DEFAULT_CRASH_LOG_MAX_BYTES (1 MiB) when maxSize is omitted", () => {
@@ -192,17 +195,18 @@ describe("rotateIfNeeded (CR-9)", () => {
 		fs.writeFileSync(target, "x".repeat(DEFAULT_CRASH_LOG_MAX_BYTES));
 		rotateIfNeeded(target);
 		expect(fs.existsSync(target)).toBe(true);
-		expect(fs.existsSync(`${target}.1`)).toBe(false);
-		//One byte over the cap → rotate. : reset the cache
+		expect(fs.statSync(target).size).toBe(DEFAULT_CRASH_LOG_MAX_BYTES);
+		// One byte over the cap → truncate in place. Reset the cache
 		// first — the prior rotateIfNeeded call cached the file size
 		// (1048576), and fs.appendFileSync doesn't update the cache,
 		// so the second call would see the stale cached size and skip
-		// rotation.
+		// truncation.
 		_resetFileSizeCacheForTest();
 		fs.appendFileSync(target, "y");
 		rotateIfNeeded(target);
-		expect(fs.existsSync(target)).toBe(false);
-		expect(fs.existsSync(`${target}.1`)).toBe(true);
+		expect(fs.existsSync(target)).toBe(true);
+		expect(fs.statSync(target).size).toBe(0);
+		expect(fs.existsSync(`${target}.1`)).toBe(false);
 	});
 });
 
@@ -237,20 +241,18 @@ describe("_installErrorHandlers — CR-9 rotation + circuit breaker", () => {
 			handlers.dispose();
 		}
 
-		//.1 backup exists and holds the pre-seeded content
-		// (renamed away when the active file exceeded 1 MiB).
-		const backupPath = `${crashLogPath}.1`;
-		expect(fs.existsSync(backupPath)).toBe(true);
-		expect(fs.readFileSync(backupPath, "utf-8")).toBe(preseed);
-
-		// The active file now holds the 6 new crash lines (each
-		// ~hundreds of bytes, well under the 1 MiB cap, so no
-		// further rotation).
+		// Single-file policy: the oversized pre-seed was truncated IN
+		// PLACE on the first emit — no .1 backup exists, and the
+		// active file holds the 6 new crash lines (each ~hundreds of
+		// bytes, well under the 1 MiB cap, so no further truncation).
+		expect(fs.existsSync(`${crashLogPath}.1`)).toBe(false);
 		expect(fs.existsSync(crashLogPath)).toBe(true);
 		const active = fs.readFileSync(crashLogPath, "utf-8");
 		expect(active).toContain("[uncaughtException]");
 		expect(active).toContain("boom 0");
 		expect(active).toContain("boom 5");
+		// The pre-seed was truncated away, not preserved in a backup.
+		expect(active).not.toContain("PRESEED");
 
 		// Circuit breaker: MAX_UNCAUGHT=5, so exit(1) was called
 		// on the 5th error AND on the 6th (count is still >= 5).
@@ -339,12 +341,10 @@ describe("_installErrorHandlers — CR-9 rotation + circuit breaker", () => {
 			handlers.dispose();
 		}
 
-		// Rejection log rotated to .1.
-		expect(fs.existsSync(`${rejectionLogPath}.1`)).toBe(true);
-		expect(
-			fs.readFileSync(`${rejectionLogPath}.1`, "utf-8").startsWith("R_"),
-		).toBe(true);
-		// Active rejection log holds the new event.
+		// Single-file policy: the oversized pre-seed was truncated in
+		// place — no .1 backup exists, and the active file holds the
+		// new event.
+		expect(fs.existsSync(`${rejectionLogPath}.1`)).toBe(false);
 		expect(fs.readFileSync(rejectionLogPath, "utf-8")).toContain(
 			"[unhandledRejection]",
 		);

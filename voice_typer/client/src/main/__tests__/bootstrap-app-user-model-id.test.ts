@@ -154,7 +154,10 @@ describe("bootstrapRuntime calls app.setAppUserModelId('VoiceTyper')", () => {
 		bootstrapRuntime();
 
 		// Both must have been called.
-		expect(setPathMock).toHaveBeenCalledWith("userData", tmpDir);
+		expect(setPathMock).toHaveBeenCalledWith(
+			"userData",
+			path.join(tmpDir, "electron-profile"),
+		);
 		expect(setAppUserModelIdMock).toHaveBeenCalledWith("VoiceTyper");
 
 		// Assert ordering: setPath's first invocation must come

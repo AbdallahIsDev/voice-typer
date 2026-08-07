@@ -205,3 +205,80 @@ describe("useNavigation useShallow consolidation (4 selector runs per update)", 
 		u.unmount();
 	});
 });
+
+describe("useNavigation consent deep-link channel (pendingConsentField / consumeConsentField)", () => {
+	it("stages the consent field when navigate('settings', { consentField }) is called", () => {
+		const captures = {
+			current: null as ReturnType<typeof useNavigation> | null,
+		};
+		const u = render(<Probe captures={captures} />);
+
+		// No deep-link pending by default.
+		expect(captures.current?.pendingConsentField).toBeNull();
+
+		act(() => {
+			captures.current?.navigate("settings", {
+				consentField: "voice_biometric_consent",
+			});
+		});
+
+		expect(captures.current?.pendingConsentField).toBe(
+			"voice_biometric_consent",
+		);
+
+		// consume reads AND clears (one-shot — a stale target can't
+		// re-fire on a later Settings visit).
+		let consumed: string | null = "sentinel";
+		act(() => {
+			consumed = captures.current?.consumeConsentField() ?? null;
+		});
+		expect(consumed).toBe("voice_biometric_consent");
+		expect(captures.current?.pendingConsentField).toBeNull();
+		// Second consume is a no-op.
+		act(() => {
+			consumed = captures.current?.consumeConsentField() ?? null;
+		});
+		expect(consumed).toBeNull();
+
+		u.unmount();
+	});
+
+	it("stages the field even when already ON the settings page (same-page deep-link re-arms)", () => {
+		const captures = {
+			current: null as ReturnType<typeof useNavigation> | null,
+		};
+		const u = render(<Probe captures={captures} />);
+
+		// Navigate to settings first (no deep-link), then fire a
+		// consent refusal WHILE already on settings.
+		act(() => {
+			captures.current?.navigate("settings");
+		});
+		expect(captures.current?.currentPage).toBe("settings");
+
+		act(() => {
+			captures.current?.navigate("settings", {
+				consentField: "cloud_openai_consent",
+			});
+		});
+
+		// The same-page early-return must NOT swallow the deep-link.
+		expect(captures.current?.pendingConsentField).toBe("cloud_openai_consent");
+
+		u.unmount();
+	});
+
+	it("a plain navigate (no consentField) does not arm the pending field", () => {
+		const captures = {
+			current: null as ReturnType<typeof useNavigation> | null,
+		};
+		const u = render(<Probe captures={captures} />);
+
+		act(() => {
+			captures.current?.navigate("settings");
+		});
+		expect(captures.current?.pendingConsentField).toBeNull();
+
+		u.unmount();
+	});
+});
