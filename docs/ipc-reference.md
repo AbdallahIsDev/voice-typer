@@ -50,7 +50,7 @@ renderer ALLOWED_COMMANDS gate but still routes through
 `_COMMAND_REGISTRY`** — i.e. the handler must be registered or the
 dispatch fails with `unknown_command`).
 
-## Commands (65 total — 63 renderer-reachable + 2 host-only: shutdown, tray_click)
+## Commands (66 total — 64 renderer-reachable + 2 host-only: shutdown, tray_click)
 
 Grouped by namespace. "✓" in the Allowlist column means the command is
 in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
@@ -96,6 +96,7 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `onboarding_set_hotkey` | `_handle_onboarding_set_hotkey` | ✓ |  |
 | `onboarding_set_microphone` | `_handle_onboarding_set_microphone` | ✓ |  |
 | `onboarding_set_model` | `_handle_onboarding_set_model` | ✓ |  |
+| `onboarding_set_backend` | `_handle_onboarding_set_backend` | ✓ | Persists the Model step's explicit local-vs-cloud backend choice. |
 | `onboarding_skip` | `_handle_onboarding_skip` | ✓ |  |
 | `onboarding_start` | `_handle_onboarding_start` | ✓ |  |
 

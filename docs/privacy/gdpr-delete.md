@@ -28,9 +28,9 @@ otherwise noted.
 | Templates | `voice-typer-templates.json` | Deleted | User templates. |
 | Mic-test recordings | `mic-test-*.wav` | Deleted (glob match) | Voice biometric data. |
 | Logs (Python main) | `voice-typer.log` | Deleted | Active log file. |
-| Logs (Python main, rotated) | `voice-typer.log.*` | Deleted (glob match) | PI-4: rotated backups `.1`..`.5` produced by `RotatingFileHandler(backupCount=5)` in `log.py:911-915`. Per XZ-PII-01 / XZ-PRIV-04 may contain user-spoken text. |
-| Logs (Python prewarm) | `prewarm.log`, `prewarm.log.*` | Deleted | PI-6: prewarm process log + rotated backups. |
-| Logs (Rust host) | `<config_dir>/logs/` (subdir) | Recursively removed (`shutil.rmtree`) | PI-6: Rust host rotating log (`logs/voice-typer.log` + `.log.1`..`.log.4`) per `src-tauri/src/platform/logging.rs:30-34`. Per XZ-LOG-02 the Rust logger has no PII redaction. |
+| Logs (Python main, rotated) | `voice-typer.log.*` | Deleted (glob match) | PI-4: defensive glob — the current build never creates numbered backups (single-file policy truncates in place), but leftovers from pre-single-file builds must still be erased. Per XZ-PII-01 / XZ-PRIV-04 may contain user-spoken text. |
+| Logs (Python prewarm) | `prewarm.log`, `prewarm.log.*` | Deleted | PI-6: prewarm process log + defensive glob for pre-single-file leftovers. |
+| Logs (Rust host) | `<config_dir>/logs/` (subdir) | Recursively removed (`shutil.rmtree`) | PI-6: Rust host log (`logs/voice-typer.log` — single-file policy truncates in place; the subdir may hold pre-single-file `.log.1`..`.log.4` leftovers from older builds). Per XZ-LOG-02 the Rust logger has no PII redaction. |
 | Crash dumps (Windows VEH) | `crash_diagnostics.*.txt` | Deleted (glob match) | PI-5: written by `crash_handler.py:722` as `crash_diagnostics.<PID>.txt`. The old `crash-*.dmp` glob was fictional. |
 | Crash dumps (Python excepthook) | `python_crash.*.txt` | Deleted (glob match) | PI-5: written by `crash_handler.py:1190` as `python_crash.<PID>.txt`. |
 | Archived crash diagnostics | `crash_diagnostics_archive/` | Recursively removed | G4-M-33: where `crash_handler` moves processed crash dumps. |
@@ -46,11 +46,11 @@ whether `delete_all_personal_data()` auto-deletes it.
 | Process | Path | Auto-deleted by `delete_all_personal_data()`? |
 |---|---|---|
 | Python backend (main) | `<config_dir>/voice-typer.log` | ✅ Yes — listed in `_GDPR_PERSONAL_FILES`. |
-| Python backend (main, rotated) | `<config_dir>/voice-typer.log.1`..`voice-typer.log.5` | ✅ Yes — matched by `voice-typer.log.*` glob (PI-4). |
+| Python backend (main, rotated) | `<config_dir>/voice-typer.log.1`..`voice-typer.log.5` | ✅ Yes — matched by `voice-typer.log.*` glob (PI-4) (defensive: current builds truncate in place and never create backups). |
 | Python prewarm | `<config_dir>/prewarm.log` | ✅ Yes — listed in `_GDPR_PERSONAL_FILES` (PI-6). |
-| Python prewarm (rotated) | `<config_dir>/prewarm.log.1`..`prewarm.log.5` | ✅ Yes — matched by `prewarm.log.*` glob (PI-6). |
+| Python prewarm (rotated) | `<config_dir>/prewarm.log.1`..`prewarm.log.5` | ✅ Yes — matched by `prewarm.log.*` glob (PI-6) (defensive: current builds never create backups). |
 | Rust host (Tauri) | `<config_dir>/logs/voice-typer.log` | ✅ Yes — `<config_dir>/logs/` is recursively removed via `shutil.rmtree` (PI-6). |
-| Rust host (Tauri, rotated) | `<config_dir>/logs/voice-typer.log.1`..`voice-typer.log.4` | ✅ Yes — same `shutil.rmtree` (PI-6). |
+| Rust host (Tauri, rotated) | `<config_dir>/logs/voice-typer.log.1`..`voice-typer.log.4` | ✅ Yes — same `shutil.rmtree` (PI-6) (defensive: current builds truncate in place). |
 | Electron main process | `<userData>/electron-main.log` | ❌ **No** — lives in Electron's `app.getPath("userData")` (a DIFFERENT directory from `config_dir`). The Python backend cannot delete files in `userData`. |
 | Electron renderer errors | `<userData>/electron-renderer-errors.log` | ❌ **No** — same as above. |
 

@@ -38,12 +38,15 @@ dir), while the Rust host log is at `<DATA_DIR>/logs/voice-typer.log`
 
 ### Python backend log
 
-Written by `RotatingFileHandler` in `voice_typer/server/log.py`, invoked at
-startup via `voice_typer/server/logging_setup.py:_setup_logging()` (canonical
-entry point — re-exported from `app.py` for backwards compatibility). Rotates
-at 5 MiB with 5 backup files kept
-(`RotatingFileHandler(maxBytes=5_242_880, backupCount=5)` — ADR-0020 §11;
-the in-code comment notes this replaced an earlier "1 MiB × 2" default).
+Written by `_SecureTruncatingFileHandler` in
+`voice_typer/server/log/__init__.py`, invoked at startup via
+`voice_typer/server/logging_setup.py:_setup_logging()` (canonical entry point
+— re-exported from `app.py` for backwards compatibility). **Single-file
+policy:** when the log exceeds 5 MiB it is truncated IN PLACE (emptied) and
+writing continues to the same file — numbered backups
+(`voice-typer.log.1`, `.2`, ...) are NEVER created
+(`_SecureTruncatingFileHandler(maxBytes=5_242_880, backupCount=0)` —
+ADR-0020 §11, hardened).
 
 | Platform | Python log file path |
 |----------|----------------------|
@@ -63,8 +66,9 @@ log (below).
 ### Tauri Rust host log
 
 When running under the Tauri runtime (ADR-0020), the Rust host writes
-its own log at `<DATA_DIR>/logs/voice-typer.log` (rotating, 5 MB × 5
-backups — see `src-tauri/src/platform/logging.rs:22`). The file is
+its own log at `<DATA_DIR>/logs/voice-typer.log` (single-file policy: it
+is truncated in place at 5 MB — numbered backups are never created —
+see `src-tauri/src/platform/logging.rs`). The file is
 named `voice-typer.log` (NOT `voice-typer-rust.log` — an earlier draft
 of this doc mis-named it; the diagnostics bundle renames it to
 `rust-voice-typer.log` only inside the exported zip so the two files
@@ -106,9 +110,10 @@ This design is:
 │   ├── bin/python               #   Python executable (POSIX)
 │   ├── Lib/site-packages/       #   All Python deps (Windows)
 │   └── lib/python3.XY/site-packages/  # All Python deps (POSIX)
-├── voice-typer.log              # Python backend rotating log (5 MiB × 5 backups)
+├── voice-typer.log              # Python backend log (single file, truncates in place at 5 MiB)
 ├── logs/
-│   └── voice-typer.log          # Tauri Rust host rotating log (5 MB × 5 backups) — ADR-0020 §11
+│   └── voice-typer.log          # Tauri Rust host log (single file, truncates in place at 5 MB)
+├── electron-profile/            # Electron/Chromium profile (caches, Local Storage, Network state)
 ├── voice-typer-vocabulary.json  # User vocabulary overrides (merged with bundled defaults)
 ├── voice-typer-corrections.json # User text-corrections overrides (optional; merged with bundled)
 └── crash_recovery/
@@ -139,6 +144,17 @@ Python virtual environment created by the installer or first-run setup. Contains
 - Python interpreter
 - All pip dependencies (faster-whisper, ctranslate2, torch, sounddevice, pynput, pystray, Pillow, etc.)
 - CLI entry point (`voice-typer`)
+
+### `electron-profile/`
+Electron/Chromium browser profile for the desktop host — caches
+(`Cache/`, `GPUCache/`, `Code Cache/`, `Crashpad/`, …), `Local Storage/`,
+`Network/`, `Session Storage/`, `Preferences`, `DIPS`, `blob_storage/`.
+Pinned there by `voice_typer/client/src/main/bootstrap.ts`
+(`app.setPath("userData", <DATA_DIR>/electron-profile)` so the browser-
+engine noise stays out of the data-dir root while both sides still share
+one data root for uninstall/factory-reset. Safe to delete while the app
+is closed — Electron recreates it. Removed on uninstall purge and GDPR
+erasure; not included in GDPR export bundles.
 
 ### `voice-typer-vocabulary.json` and `voice-typer-corrections.json`
 User-defined vocabulary and correction files. Read by `VocabularyManager` and `configure_corrections()` respectively to build replacement maps for `clean_transcribed_text()`. Both are optional — the app ships with bundled defaults (`voice_typer/server/corrections.json`) that are merged with the user file.

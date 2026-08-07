@@ -361,7 +361,7 @@ cargo tauri build
 | `src-tauri/tauri.conf.json` | Per-arch `externalBin` (6 target triples) + `resources` (3 native hotkey binaries + 6 prewarm binaries) + Tauri v2 capabilities. `withGlobalTauri: true` exposes `window.__TAURI__`. |
 | `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | Least-privilege capability split (CR-5 / SEC-026): `main-runtime` grants the privileged main window scoped `shell:allow-spawn` per sidecar binary, `notification`, `clipboard-manager`, `single-instance`, `dialog`, and `core:tray:*`; `bubble-runtime` is minimal (`core:event:default` + `core:window:allow-start-dragging`) so a compromised bubble renderer cannot spawn, write clipboard, or touch the tray. (The legacy `migrate-runtime.json` file was split into these two scopes.) |
 | `voice_typer/client/src/renderer/src/lib/tauri-bridge.ts` | React ↔ Tauri bridge. Auto-installs `window.python` / `window.bubble` / `window.window_` using Tauri's global API when Tauri is detected; no-op under Electron (the preload already installed the namespaces). |
-| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake (ZR-56 reconciliation 2026-07-24: the implementation has always been a constant-time bearer-token literal match via `hmac.compare_digest`, not a keyed HMAC — historical "HMAC" wording has been reconciled across docs), dispatches WS frames via `IPCServer._dispatch` (reuses the 65-command registry unchanged — CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18, see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
+| `voice_typer/server/sidecar_ws.py` | WebSocket server side of the bridge. Binds `127.0.0.1:0`, emits `{"event":"server_started","port":N}` to stdout, performs bearer-token auth handshake (ZR-56 reconciliation 2026-07-24: the implementation has always been a constant-time bearer-token literal match via `hmac.compare_digest`, not a keyed HMAC — historical "HMAC" wording has been reconciled across docs), dispatches WS frames via `IPCServer._dispatch` (reuses the 66-command registry unchanged — CR-18 reconciliation 2026-07-19; re-verified 2026-07-24 S4-CR-18, see `_HOST_ONLY_COMMANDS` in `tests/test_security_doc_command_count.py` for the +2 host-only delta), handles `{"type":"shutdown"}` cooperative shutdown. |
 | `voice_typer/server/ipc_server.py` | `--ws` CLI flag + `TAURI_SIDECAR=1` env gate. Under `TAURI_SIDECAR=1`: heartbeat thread is NOT started; Win32 single-instance mutex is NOT acquired. Electron path unchanged. |
 
 #### Cutover status
@@ -417,10 +417,15 @@ voice-typer/
 │       └── electron-builder.yml
 │
 ├── tests/                            # pytest suite (6000+ tests; see `pytest --collect-only -q | tail -1` for the live count)
-│   ├── conftest.py                   # mock_heavy_imports autouse fixture
-│   ├── fixtures/                     # WAV files for audio tests
+│   ├── conftest.py                   # mock_heavy_imports autouse fixture (session + per-test split, see below)
+│   ├── fixtures/                     # WAV files + ipc_test_helpers for audio tests
 │   ├── manual/                       # scripts you run by hand (cublas, etc.)
-│   └── test_*.py                     # one test module per feature/round
+│   ├── <domain>/                     # domain subpackages — one package per feature area
+│   │   # e.g. vocabulary/, templates/, onboarding/, keyring/, microphones/,
+│   │   # config_side_effects/, history/, models_menu/, model_download/,
+│   │   # phrase_patterns/, recording/, hotkeys/, handlers/, service/, server/,
+│   │   # app/, shutdown/, clipboard/, security/, regressions/, tauri/
+│   └── test_*.py                     # top-level tests for cross-cutting concerns
 │       # S2-CR-62: tests/mutmut_config.py was removed; mutmut now reads
 │       # its config from the [tool.mutmut] table in pyproject.toml.
 │
@@ -465,6 +470,7 @@ pytest tests/test_config.py::test_set_config_allowlist -v
 # Markers (see tests/conftest.py for the full list)
 pytest -m real_pynput      # tests that need the real pynput.keyboard listener
 pytest -m real_pil         # tests that need the real PIL.ImageDraw
+pytest -m real_torch       # tests that need the real torch.backends.mps (Apple Silicon)
 
 # Coverage report (HTML)
 pytest --cov=voice_typer --cov-report=html
@@ -876,6 +882,10 @@ Adding a new **ASR engine** has its own touchpoint set: see
     listener (for tests that exercise the actual key dispatch path).
   - `@pytest.mark.real_pil` — use the real `PIL.ImageDraw` (for tests
     that render the tray icon bitmap).
+  - `@pytest.mark.real_torch` — use the real `torch` package (evicts
+    the session `torch` mock so real `torch.backends.mps` semantics
+    work on Apple Silicon; currently unused, registered for future
+    tests — the branch is symmetric with `real_pil`).
 - **Coverage threshold:** 65 %, enforced by `--cov-fail-under=65` in
   `pyproject.toml`. If your change drops coverage below 65 %, add
   tests or mark unreachable branches with `# pragma: no cover`.
@@ -984,7 +994,7 @@ Every test inherits the `mock_heavy_imports` autouse fixture in
 `tests/conftest.py`, which installs `MagicMock`s for `sounddevice`,
 `faster_whisper`, `pynput`, `pystray`, `PIL`, and `pyperclip`.  This
 lets the suite run on any CI runner without a display, microphone,
-or audio stack.  Two markers opt out:
+or audio stack.  Three markers opt out:
 
 ```python
 @pytest.mark.real_pynput
@@ -993,6 +1003,10 @@ def test_uses_real_pynput(): ...
 
 @pytest.mark.real_pil
 def test_renders_tray_bitmap(): ...
+
+
+@pytest.mark.real_torch
+def test_exercises_real_mps(): ...
 ```
 
 When adding a new hardware-touching module, prefer extending this

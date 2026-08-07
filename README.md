@@ -516,10 +516,12 @@ Key design decisions:
 
 Voice Typer writes **two** log files (one per process). The Python
 backend log lives directly under the data directory; the Tauri Rust
-host log lives under a `logs/` subdir. Both rotate at 5 MiB with 5
-backups kept (`RotatingFileHandler(maxBytes=5_242_880, backupCount=5)`
-in `voice_typer/server/log/__init__.py:531-532`; ADR-0020 §11 specifies the
-5 MiB × 5 cap).
+host log lives under a `logs/` subdir. **Single-file policy:** each log
+is exactly ONE file — when it exceeds 5 MiB it is truncated IN PLACE
+(emptied) and writing continues to the same file; numbered backups
+(`.1`, `.2`, ...) are NEVER created
+(`_SecureTruncatingFileHandler(maxBytes=5_242_880, backupCount=0)` in
+`voice_typer/server/log/__init__.py`).
 
 | Platform | Python backend log | Tauri Rust host log |
 |----------|--------------------|---------------------|
@@ -534,7 +536,7 @@ lives under `<DATA_DIR>/logs/`). See `docs/home-directory.md` §"Log
 File Paths" for the canonical per-platform reference and the source-of-
 truth constants.
 
-Uses `RotatingFileHandler` (5 MiB max, 5 backups) with structured logging (session ID, component name).
+Uses `_SecureTruncatingFileHandler` (5 MiB cap, truncates in place — single-file policy) with structured logging (session ID, component name).
 
 ## Troubleshooting
 
