@@ -29,7 +29,7 @@
 //! ```
 
 
-use crate::util::{ROTATE_MAX_BYTES, ROTATE_MAX_FILES, now_timestamp};
+use crate::util::{LOG_MAX_BYTES, now_timestamp};
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1524,7 +1524,7 @@ pub fn install_early_logger() {
 }
 
 /// Minimal rotating-file writer: appends to
-/// `<dir>/<base_name>.log` until the file exceeds `ROTATE_MAX_BYTES`,
+/// `<dir>/<base_name>.log` until the file exceeds `LOG_MAX_BYTES`,
 /// then rotates (`.log` → `.log.1` → `.log.2` → … → `.log.4` → delete).
 /// Thread-safe via a single `Mutex<Option<BufWriter<File>>>`.
 ///
@@ -1551,17 +1551,10 @@ pub(crate) struct RotatingFileWriter {
     /// access is from `flush()`, which doesn't read this field), so
     /// there's no cross-thread ordering requirement.
     current_size: std::sync::atomic::AtomicU64,
-    /// Serializes rotations WITHOUT blocking normal writers. The
-    /// `inner` Mutex is dropped BEFORE `rotate()` runs (so concurrent
-    /// writers can continue appending to a fresh `.log` while the
-    /// rename/remove fs ops execute — those can take 100ms+ on slow
-    /// disks / AV-scanned Windows / network filesystems). Multiple
-    /// writers may independently detect `size > ROTATE_MAX_BYTES` and
-    /// both reach the rotation path; this lock ensures only one
-    /// `rotate()` call executes at a time. The losers' `rotate()`
-    /// calls are no-ops (rename of nonexistent files fails silently
-    /// via `let _ =`).
-    rotation_lock: Mutex<()>,
+    // Single-file policy: no rotation lock is needed — the
+    // truncate-in-place path runs while holding `inner`, so writers
+    // are already serialized and truncation is a single `set_len(0)`
+    // syscall (no slow rename chain to coordinate).
 }
 
 impl RotatingFileWriter {
@@ -1571,7 +1564,6 @@ impl RotatingFileWriter {
             base_name: base_name.to_string(),
             inner: Mutex::new(None),
             current_size: std::sync::atomic::AtomicU64::new(0),
-            rotation_lock: Mutex::new(()),
         }
     }
 
@@ -1642,7 +1634,7 @@ impl RotatingFileWriter {
             // stale `voice-typer.log`, its bytes are still on disk
             // and writes append to them. Without this seed, the
             // counter would start at 0 and rotation would not trigger
-            // until the file grows past `ROTATE_MAX_BYTES + <pre-
+            // until the file grows past `LOG_MAX_BYTES + <pre-
             // existing size>`. This is one `metadata()` syscall per
             // file OPEN (not per line) — a ~99% reduction vs the
             // prior per-line `metadata()` call.
@@ -1688,7 +1680,7 @@ impl RotatingFileWriter {
         //in-memory byte counter — increment by the bytes we
         // just wrote. Replaces the per-line `file.metadata()?.len()`
         // stat() syscall. The counter is reset to 0 below when the
-        // file rotates.
+        // file is truncated in place.
         self.current_size
             .fetch_add(written, std::sync::atomic::Ordering::Relaxed);
         // The BufWriter<File> accumulates the write in its 8 KB
@@ -1699,99 +1691,27 @@ impl RotatingFileWriter {
         // auto-flush at 8 KB, or (c) drop (the `*guard = None` path on
         // rotation triggers BufWriter::drop which flushes before the
         // fd is closed).
-        // Check size; rotate if we've crossed the threshold.
+        // Check size; truncate in place if we've crossed the threshold.
         let len = self
             .current_size
             .load(std::sync::atomic::Ordering::Relaxed);
-        if len > u64::from(ROTATE_MAX_BYTES) {
-            // Drop the file handle BEFORE renaming (Windows refuses to
-            // rename a file that's open by another handle).
-            *guard = None;
-            // Reset the in-memory counter — the file is about to be
-            // renamed to `.log.1`, and the next `write_line` call
-            // opens a fresh empty `.log` whose size starts at 0.
+        if len > u64::from(LOG_MAX_BYTES) {
+            // Single-file policy: truncate the log file IN PLACE. A
+            // numbered backup (`.log.1`, `.log.2`, ...) is NEVER
+            // created — the file on disk is always exactly one file.
+            // We hold the `inner` Mutex for the whole `write_line`, so
+            // no other writer can interleave during the truncate.
+            use std::io::Seek;
+            // Flush the BufWriter's in-memory buffer first so the
+            // file's byte count is accurate, then truncate to zero and
+            // seek back to the start. The line that crossed the
+            // threshold is dropped (bounded-size trade-off); subsequent
+            // lines start the file fresh.
+            file.flush()?;
+            file.get_mut().set_len(0)?;
+            file.seek(std::io::SeekFrom::Start(0))?;
             self.current_size
                 .store(0, std::sync::atomic::Ordering::Relaxed);
-            // Drop the `inner` Mutex guard BEFORE calling `rotate()`
-            // so other loggers aren't blocked during the (potentially
-            // slow — 100ms+ on AV-scanned Windows / network filesystems)
-            // rename/remove `fs` operations. The rotation path does NOT
-            // need the `File` handle: we just set `*guard = None` above
-            // (closing the fd), and `rotate()` works purely on
-            // filesystem paths. Concurrent writers that arrive during
-            // rotation will see `guard.is_none()` and lazily open a
-            // fresh `.log` (which `rotate()` may rename out from under
-            // them — on POSIX the open fd follows the inode, so their
-            // writes land in `.log.1`; an acceptable edge case for a
-            // logging path, far better than blocking the entire logger
-            // pool during rotation).
-            drop(guard);
-            // Serialize rotations WITHOUT blocking writers: a separate
-            // `Mutex<()>` ensures only one `rotate()` runs at a time
-            // (two writers that both crossed the threshold would
-            // otherwise race on the rename chain). Losers' `rotate()`
-            // calls are no-ops — `rename` of a nonexistent source
-            // fails silently via `let _ =`.
-            let _rotation_guard = crate::state::lock(&self.rotation_lock);
-            self.rotate()?;
-        }
-        Ok(())
-    }
-
-    /// Rotate: `.log.(N-1)` → `.log.N`, …, `.log` → `.log.1`.
-    /// Files at index `ROTATE_MAX_FILES - 1` (the oldest) are deleted.
-    ///
-    //the previous loop bound was `(1..ROTATE_MAX_FILES).rev()`
-    /// (= 1,2,3,4) with delete check `i + 1 >= ROTATE_MAX_FILES` (=
-    /// `5 >= 5`). That kept 6 files total (`.log`, `.log.1`..`.log.5`),
-    /// one MORE than `ROTATE_MAX_FILES=5` — an off-by-one that grew
-    /// the disk cap from 25 MB to 30 MB. The fix tightens the loop to
-    /// `(1..ROTATE_MAX_FILES - 1).rev()` (= 1,2,3) and the delete check
-    /// to `i + 1 >= ROTATE_MAX_FILES - 1` (= `4 >= 4`), so the total
-    /// file count is exactly `ROTATE_MAX_FILES=5`.
-    fn rotate(&self) -> std::io::Result<()> {
-        for i in (1..ROTATE_MAX_FILES - 1).rev() {
-            let from = self.dir.join(format!("{}.log.{}", self.base_name, i));
-            let to = self
-                .dir
-                .join(format!("{}.log.{}", self.base_name, i + 1));
-            if from.exists() {
-                if i + 1 >= ROTATE_MAX_FILES - 1 {
-                    // Oldest slot — delete what's there before renaming
-                    // (best-effort; ignore errors if the file is gone).
-                    let _ = std::fs::remove_file(&to);
-                }
-                let _ = std::fs::rename(&from, &to);
-                // Belt-and-suspenders chmod of the
-                // renamed file to 0o600 on POSIX. `rename` preserves
-                // the source file's mode, which should already be 0o600
-                // (set by `write_line`'s `OpenOptionsExt::mode` call),
-                // but a leftover rotated file from a pre-hardening build may
-                // still be 0o644. Best-effort: ignore errors (the file
-                // may have been moved/deleted between the rename and the
-                // chmod — extremely unlikely but defensive).
-                #[cfg(unix)]
-                {
-                    let _ = std::fs::set_permissions(
-                        &to,
-                        std::fs::Permissions::from_mode(0o600),
-                    );
-                }
-            }
-        }
-        let from = self.current_path();
-        let to = self.dir.join(format!("{}.log.1", self.base_name));
-        if from.exists() {
-            let _ = std::fs::rename(&from, &to);
-            // Same belt-and-suspenders chmod for the
-            // `.log` → `.log.1` rename above.
-            #[cfg(unix)]
-            {
-                let _ = std::fs::set_permissions(
-                    &to,
-                    std::fs::Permissions::from_mode(0o600),
-                );
-            }
         }
         Ok(())
     }

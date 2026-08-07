@@ -111,21 +111,23 @@ def test_pi7_openoptions_mode_0o600_present_in_write_line() -> None:
     )
 
 
-def test_pi7_chmod_0o600_after_rename_in_rotate() -> None:
-    """``rotate`` must chmod renamed files to ``0o600`` (belt-and-suspenders).
+def test_pi7_chmod_0o600_belt_and_suspenders_in_write_line() -> None:
+    """``write_line`` must chmod the log file to ``0o600`` on open (belt-and-suspenders).
 
-    ``rename`` preserves the source file's mode (which is 0o600 from
-    the ``OpenOptionsExt::mode`` call in ``write_line``), but a
-    leftover rotated file from a pre-PI-7 build may still be 0o644.
-    The belt-and-suspenders ``set_permissions(..., 0o600)`` call in
-    ``rotate`` re-asserts 0o600 for those leftover files.
+    ``OpenOptionsExt::mode(0o600)`` only applies to NEW files — a leftover
+    0o644 log file from a pre-hardening build would stay world-readable
+    otherwise. The single-file policy (truncate-in-place, no numbered
+    backups) re-asserts ``set_permissions(..., 0o600)`` in ``write_line``'s
+    just-in-time init path so pre-existing files are hardened on next open.
     """
     src = _logging_rs_source()
-    m = re.search(r"fn rotate\([^)]*\)[^{]*\{", src)
-    assert m is not None, f"PI-7 regression: could not locate `fn rotate` in {LOGGING_RS}."
-    rotate_body_start = m.end()
+    m = re.search(r"fn write_line\([^)]*\)[^{]*\{", src)
+    assert m is not None, (
+        f"PI-7 regression: could not locate `fn write_line` in {LOGGING_RS}. Did the function signature change?"
+    )
+    write_line_body_start = m.end()
     depth = 1
-    i = rotate_body_start
+    i = write_line_body_start
     while i < len(src) and depth > 0:
         c = src[i]
         if c == "{":
@@ -133,22 +135,23 @@ def test_pi7_chmod_0o600_after_rename_in_rotate() -> None:
         elif c == "}":
             depth -= 1
         i += 1
-    rotate_body = src[rotate_body_start:i]
-    # Count the number of `set_permissions(..., 0o600)` calls in the
-    # rotate body. There should be at least 2: one inside the loop
-    # (for `.log.N` → `.log.N+1` renames) and one for the `.log` →
-    # `.log.1` rename at the end.
+    assert depth == 0, (
+        "PI-7 regression: could not find the closing `}` of `fn write_line` — the function body is malformed."
+    )
+    write_line_body = src[write_line_body_start:i]
+    # The belt-and-suspenders `set_permissions(..., 0o600)` call must be
+    # present in write_line's init path (it re-asserts 0o600 for log files
+    # left behind by a pre-hardening build).
     chmod_calls = re.findall(
         r"set_permissions\([^,]+,\s*std::fs::Permissions::from_mode\(0o600\)",
-        rotate_body,
+        write_line_body,
     )
-    assert len(chmod_calls) >= 2, (
-        "PI-7 regression: expected at least 2 "
-        "`set_permissions(..., 0o600)` calls in `fn rotate` (one in "
-        "the loop, one after the final `.log` → `.log.1` rename); "
+    assert len(chmod_calls) >= 1, (
+        "PI-7 regression: expected at least 1 "
+        "`set_permissions(..., 0o600)` call in `fn write_line` (the "
+        "belt-and-suspenders re-assert for pre-existing 0o644 files); "
         f"found {len(chmod_calls)}."
     )
-
 
 def test_pi7_chmod_0o700_on_logs_dir_in_init_file_logger() -> None:
     """``init_file_logger`` must chmod the ``<config_dir>/logs/`` dir to ``0o700``.

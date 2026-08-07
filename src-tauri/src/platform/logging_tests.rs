@@ -19,7 +19,7 @@
 //! reach them without leaking them past the crate boundary.
 
 use super::logging::*;
-use crate::util::{ROTATE_MAX_FILES, ROTATE_MAX_BYTES};
+use crate::util::LOG_MAX_BYTES;
 use log::Log;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
@@ -55,10 +55,10 @@ fn test_rotating_file_writer_basic_write() {
 }
 
 #[test]
-fn test_rotating_file_writer_rotation() {
-    // Use a tiny threshold by writing many large lines.
-    // ROTATE_MAX_BYTES is 5 MB; writing 6 MB should trigger at
-    // least one rotation.
+fn test_rotating_file_writer_truncates_in_place() {
+    // Single-file policy: writing past LOG_MAX_BYTES (5 MB) truncates
+    // the log IN PLACE — the file keeps its single identity and a
+    // numbered backup (`.log.1`) is NEVER created.
     let tmp = std::env::temp_dir().join(format!(
         "voice-typer-test-{}-rotate",
         std::process::id()
@@ -70,84 +70,66 @@ fn test_rotating_file_writer_rotation() {
     for _ in 0..60 {
         writer.write_line(&big_line).unwrap();
     }
-    // After rotation, `.log` should exist (the current file) and
-    // `.log.1` should exist (the first rotated file).
+    writer.flush().unwrap();
+    // The single `.log` file exists (current + only file) ...
     assert!(tmp.join("test-log.log").exists(), "current log missing");
+    // ... and NO numbered backup was created.
     assert!(
-        tmp.join("test-log.log.1").exists(),
-        "first rotated log missing"
+        !tmp.join("test-log.log.1").exists(),
+        "single-file policy: .log.1 must NOT exist"
+    );
+    // The file is bounded: after truncation it holds at most one
+    // line-worth of content (the first write after truncate).
+    let size = std::fs::metadata(tmp.join("test-log.log"))
+        .map(|m| m.len())
+        .unwrap_or(0);
+    assert!(
+        size <= 2 * 100_000,
+        "truncated log must be bounded; got {} bytes",
+        size
     );
     std::fs::remove_dir_all(&tmp).ok();
 }
 
-//pin the exact file count after N rotations ────────────
-//
-// The previous rotation loop kept `ROTATE_MAX_FILES + 1` files on
-// disk (off-by-one). This test writes enough data to trigger MANY
-// rotations (well past the cap) and asserts the final file count
-// is EXACTLY `ROTATE_MAX_FILES` — no more, no less.
-
 #[test]
-fn test_rotating_file_writer_pins_exact_file_count_after_many_rotations() {
+fn test_rotating_file_writer_keeps_single_file_after_many_truncations() {
+    // Write well past the cap many times over — the file count on disk
+    // must stay EXACTLY ONE (no `.log.N` backups ever).
     let tmp = std::env::temp_dir().join(format!(
         "voice-typer-test-{}-gt67-count",
         std::process::id()
     ));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-    // Write ~50 MB total (100 KB/line × 500 lines). With a 5 MB
-    // rotation threshold, this triggers ~10 rotations — well past
-    // the 5-file cap, so the rotate() function's delete-oldest
-    // path runs at least 5 times.
+    // ~50 MB total (100 KB/line × 500 lines) — ~10 truncation cycles.
     let big_line = "x".repeat(100_000);
     for _ in 0..500 {
         writer.write_line(&big_line).unwrap();
     }
     writer.flush().unwrap();
 
-    // Count the actual files on disk (current + rotated).
-    let mut file_count = 0;
-    for i in 0..=ROTATE_MAX_FILES {
-        let path = if i == 0 {
-            tmp.join("test-log.log")
-        } else {
-            tmp.join(format!("test-log.log.{}", i))
-        };
-        if path.exists() {
-            file_count += 1;
+    // Exactly one file: the active `.log`.
+    let active = tmp.join("test-log.log");
+    assert!(active.exists(), "active log missing");
+    let mut backups: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&tmp) {
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.starts_with("test-log.log.") {
+                backups.push(e.path());
+            }
         }
     }
-
-    //invariant: total file count must be EXACTLY
-    // ROTATE_MAX_FILES (=5). Pre-fix this was 6 (off-by-one).
-    assert_eq!(
-        file_count,
-        ROTATE_MAX_FILES,
-        "GT-67: rotating log must keep exactly {} files; found {}. Pre-fix this was {} (off-by-one).",
-        ROTATE_MAX_FILES,
-        file_count,
-        ROTATE_MAX_FILES + 1,
-    );
-
-    // The oldest KEPT slot is `.log.(ROTATE_MAX_FILES - 1)` (=4).
     assert!(
-        tmp.join(format!("test-log.log.{}", ROTATE_MAX_FILES - 1)).exists(),
-        "GT-67: oldest kept slot `.log.{}` must exist after many rotations",
-        ROTATE_MAX_FILES - 1
+        backups.is_empty(),
+        "single-file policy: no numbered backups allowed; found {:?}",
+        backups
     );
-    // The next-oldest slot (`.log.ROTATE_MAX_FILES` = .log.5) must
-    // NOT exist — it's the one that gets deleted by the rotate()
-    // loop's `if i + 1 >= ROTATE_MAX_FILES - 1` branch.
-    assert!(
-        !tmp.join(format!("test-log.log.{}", ROTATE_MAX_FILES)).exists(),
-        "GT-67: `.log.{}` (one past the cap) must NOT exist",
-        ROTATE_MAX_FILES
-    );
-
     std::fs::remove_dir_all(&tmp).ok();
 }
 
 #[test]
+fn test_rotating_file_writer_thread_safety() {#[test]
 fn test_rotating_file_writer_thread_safety() {
     // Spawn multiple threads writing to the same writer — should
     // not panic or corrupt (Mutex protects the inner File).
@@ -195,19 +177,17 @@ fn test_rotating_file_writer_thread_safety() {
 // rename chain. Post-fix, the `inner` guard is dropped before
 // `rotate()`, so non-rotating writers proceed in parallel.
 #[test]
-fn test_rotating_file_writer_concurrent_rotation_no_deadlock() {
+fn test_rotating_file_writer_concurrent_truncation_no_deadlock() {
+    // 4 threads write ~200 MB total — well past the 5 MB threshold, so
+    // each thread triggers many truncate-in-place cycles. All writes
+    // serialize on the `inner` Mutex; the test passes if all threads
+    // join (no deadlock / panic) and no numbered backup is created.
     let tmp = std::env::temp_dir().join(format!(
         "voice-typer-test-{}-conc-rot",
         std::process::id()
     ));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = std::sync::Arc::new(RotatingFileWriter::new(tmp.clone(), "test-log"));
-    // 4 threads × 500 lines × ~100KB/line = ~200MB total — well
-    // past the 5MB threshold, so each thread triggers many
-    // rotations. The `rotation_lock` serializes the rotations;
-    // without it, two concurrent `rotate()` calls would race on
-    // the rename chain and could clobber each other's `.log.N`
-    // files.
     let big_line = "x".repeat(100_000);
     let mut handles = Vec::new();
     for _ in 0..4 {
@@ -222,30 +202,28 @@ fn test_rotating_file_writer_concurrent_rotation_no_deadlock() {
     for h in handles {
         h.join().expect("writer thread panicked — likely deadlock");
     }
-    // The test passes if all threads joined (no deadlock / panic).
-    // Verify at least one rotated file exists (proof that rotation
-    // actually fired under contention). Don't require `.log.1`
-    // specifically: under heavy parallel load on Windows a writer
-    // can hold the freshly-opened `.log` open while a concurrent
-    // `rotate()` is mid-chain — the `.log → .log.1` rename then
-    // fails silently (the `let _ =`) and `.log.1` is momentarily
-    // absent, but the earlier `.log.1 → .log.2` move already
-    // happened. ANY `.log.N` existing proves the rename chain ran.
-    let mut rotated_any = false;
-    for i in 1..ROTATE_MAX_FILES {
-        if tmp.join(format!("test-log.log.{}", i)).exists() {
-            rotated_any = true;
-            break;
+    writer.flush().unwrap();
+    // The active file exists (single-file identity preserved) ...
+    assert!(tmp.join("test-log.log").exists(), "active log missing");
+    // ... and NO numbered backups were created under contention.
+    let mut backups: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&tmp) {
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().into_owned();
+            if name.starts_with("test-log.log.") {
+                backups.push(name);
+            }
         }
     }
     assert!(
-        rotated_any,
-        "expected at least one rotated .log.N after concurrent rotations"
+        backups.is_empty(),
+        "single-file policy: no numbered backups under contention; found {:?}",
+        backups
     );
     std::fs::remove_dir_all(&tmp).ok();
 }
 
-//poison-recovery (Mutex .unwrap_or_else) ──────────
+//poison-recovery (Mutex .unwrap_or_else) ──────────//poison-recovery (Mutex .unwrap_or_else) ──────────
 
 #[test]
 fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
@@ -622,13 +600,11 @@ fn test_rotating_file_writer_log_file_mode_is_0o600_on_posix() {
 
 #[cfg(unix)]
 #[test]
-fn test_rotating_file_writer_rotated_files_get_0o600_on_posix() {
-    // After rotation, the renamed `.log.1` file must also
-    // have mode `0o600`. `rename` preserves the source file's mode
-    // (which is 0o600 from the `OpenOptionsExt::mode` call in
-    // `write_line`), plus the belt-and-suspenders `chmod` in
-    // `rotate` re-asserts 0o600 in case a pre-hardening leftover file
-    // had looser perms.
+fn test_rotating_file_writer_truncate_keeps_0o600_on_posix() {
+    // After truncate-in-place cycles, the SINGLE active `.log` file
+    // must still be 0o600 (owner rw only) and no `.log.1` backup may
+    // exist. `set_len(0)` preserves the existing file mode, and the
+    // belt-and-suspenders `chmod` in `write_line` re-asserts it.
     use std::os::unix::fs::PermissionsExt;
     let tmp = std::env::temp_dir().join(format!(
         "voice-typer-test-{}-pi7-rotate-mode",
@@ -636,34 +612,28 @@ fn test_rotating_file_writer_rotated_files_get_0o600_on_posix() {
     ));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
-    // Write ~6 MB total to trigger at least one rotation
-    // (ROTATE_MAX_BYTES = 5 MB).
+    // Write ~6 MB total to trigger at least one truncate
+    // (LOG_MAX_BYTES = 5 MB).
     let big_line = "x".repeat(100_000);
     for _ in 0..60 {
         writer.write_line(&big_line).unwrap();
     }
     writer.flush().unwrap();
 
-    let rotated = tmp.join("test-log.log.1");
-    assert!(rotated.exists(), "rotated file .log.1 must exist");
-    let meta = std::fs::metadata(&rotated)
-        .expect("rotated log file must exist");
-    let mode = meta.permissions().mode() & 0o777;
-    assert_eq!(
-        mode, 0o600,
-        "PI-7: rotated log file mode must be 0o600; got 0o{:o}",
-        mode
+    // No numbered backup may exist.
+    assert!(
+        !tmp.join("test-log.log.1").exists(),
+        "PI-7: single-file policy forbids .log.1 backups"
     );
 
-    // The current (just-rotated) `.log` file must also be 0o600 —
-    // it was just freshly opened by `write_line`'s `OpenOptionsExt::mode(0o600)`.
+    // The current (only) `.log` file must be 0o600.
     let current = tmp.join("test-log.log");
     let meta = std::fs::metadata(&current)
         .expect("current log file must exist");
     let mode = meta.permissions().mode() & 0o777;
     assert_eq!(
         mode, 0o600,
-        "PI-7: current log file mode must be 0o600 after rotation; got 0o{:o}",
+        "PI-7: current log file mode must be 0o600 after truncate; got 0o{:o}",
         mode
     );
 
@@ -671,6 +641,8 @@ fn test_rotating_file_writer_rotated_files_get_0o600_on_posix() {
 }
 
 #[cfg(unix)]
+#[test]
+fn test_init_file_logger_tightens_logs_dir_to_0o700_on_posix() {#[cfg(unix)]
 #[test]
 fn test_init_file_logger_tightens_logs_dir_to_0o700_on_posix() {
     // `init_file_logger` must chmod the parent `<config_dir>/logs/`

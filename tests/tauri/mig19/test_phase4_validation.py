@@ -223,6 +223,12 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "onboarding_set_microphone",
         "onboarding_set_hotkey",
         "onboarding_set_model",
+        # ADR-0020 §16 addendum (2026-08-06): ``onboarding_set_backend``
+        # — the Model step's explicit local-vs-cloud backend choice
+        # (Model-step rework: the user chooses; the app NEVER
+        # auto-downloads models). Handler in onboarding_handlers.py with
+        # a ``_validate_dict_payload`` schema + IPC validation coverage.
+        "onboarding_set_backend",
         "onboarding_skip",
         "onboarding_apply",
         "onboarding_get_microphones",
@@ -308,9 +314,10 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "shutdown",
     }
 )
-assert len(EXPECTED_COMMANDS) == 61, (
-    "ADR-0020 §2 freezes the command table. 61 = post-cleanup baseline "
-    "after ZR-45 + the Tauri/Rust allowlist narrowing. The prior 76-command "
+assert len(EXPECTED_COMMANDS) == 62, (
+    "ADR-0020 §2 freezes the command table. 62 = post-cleanup baseline "
+    "after ZR-45 + the Tauri/Rust allowlist narrowing (+ ``onboarding_set_backend``, "
+    "§16 addendum 2026-08-06). The prior 76-command "
     "list was stale — it included 17 commands that had been deliberately "
     "REMOVED from ``_COMMAND_REGISTRY`` to match the Tauri host's Rust "
     "allowlist narrowing (see ``test_dead_code_stays_removed.py`` for the "

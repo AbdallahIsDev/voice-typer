@@ -230,6 +230,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "onboarding_next_step",
             "onboarding_prev_step",
             "onboarding_set_microphone",
+            "onboarding_set_backend",
             "onboarding_set_hotkey",
             "onboarding_set_model",
             "onboarding_skip",

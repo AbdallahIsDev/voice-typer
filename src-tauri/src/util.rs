@@ -112,12 +112,10 @@ pub(crate) const DISPATCH_SHORT_TIMEOUT_SECS: u64 = 15;
 /// "restarting…" banner before the process exits.
 pub(crate) const PRE_RESTART_DELAY_MS: u64 = 500;
 
-/// ADR-0020 §11: max bytes per log file before rotation.
-pub(crate) const ROTATE_MAX_BYTES: u64 = 5 * 1024 * 1024; // 5 MB
-
-/// ADR-0020 §11: max rotated files to keep (current + N-1 rotated).
-/// Total disk cap ≈ 5 MB × 5 files = 25 MB.
-pub(crate) const ROTATE_MAX_FILES: usize = 5;
+/// ADR-0020 §11: max bytes per log file. Single-file policy:
+/// when the log exceeds this cap it is truncated IN PLACE (emptied) and
+/// writing continues — numbered backups (`.log.1`, ...) are NEVER created.
+pub(crate) const LOG_MAX_BYTES: u64 = 5 * 1024 * 1024; // 5 MB
 
 //heartbeat / kill-tree / paste / poll / flush constants ──────
 //
