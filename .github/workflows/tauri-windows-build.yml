@@ -550,6 +550,16 @@ jobs:
       # the value of signing the outer installer. Adding the native listener
       # to the same foreach loop keeps every Mach-O/PE binary the bundle ships
       # signed with the same Authenticode cert.
+      #
+      # SmartScreen reputation note: a freshly-issued OV certificate starts
+      # with "unknown publisher" in SmartScreen and builds reputation over
+      # time + download volume; an EV certificate can earn immediate
+      # reputation. There is no way to force reputation — the mitigation is
+      # a stable OV/EV cert, consistent signing, and the SmartScreen
+      # timeline expectations documented in RELEASING.md. The long-term
+      # migration path (Azure Trusted Signing) is tracked in the security
+      # roadmap; it replaces the manual PFX material with a managed HSM
+      # identity and is the recommended next step for this repo.
       - name: Sign sidecar + prewarm + native listener (optional — ADR-0020 §13.1)
         if: ${{ inputs.sign == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
         shell: pwsh
@@ -736,6 +746,37 @@ jobs:
           & $signtool verify /pa /v $msi
           Remove-Item $pfxPath -Force
 
+      # S1-CR-99: sign the standalone voice-typer-tauri.exe. Tauri does NOT
+      # automatically invoke signCommand on the top-level exe (it only signs
+      # the NSIS bundle when `bundle.windows.signCommand` is set); the
+      # standalone exe shipped unsigned. Users who run
+      # voice-typer-tauri.exe directly (instead of the installer) hit
+      # SmartScreen on every launch. Sign it explicitly here when the
+      # secrets are present. Skipped silently if the binary wasn't produced
+      # (cross-target builds emit under target/<triple>/release/).
+      - name: Sign standalone voice-typer-tauri.exe (optional — ADR-0020 §13.1)
+        if: ${{ inputs.sign == 'true' && env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != '' }}
+        shell: pwsh
+        run: |
+          $standalone = "src-tauri\target\${{ matrix.target }}\release\voice-typer-tauri.exe"
+          if (-not (Test-Path $standalone)) {
+            Write-Host "Standalone exe not found at $standalone — skipping standalone signing."
+            exit 0
+          }
+          $pfxPath = "$env:RUNNER_TEMP\codesign.pfx"
+          [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:WIN_CSC_LINK))
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Select-Object -First 1 -ExpandProperty FullName
+          # C-BRAND-1: derive the Authenticode description from branding.py
+          # (see the Sign sidecar step for the full rationale).
+          $sigDescMatch = Select-String -Path voice_typer/server/branding.py -Pattern '^APP_NAME\s*=\s*"([^"]+)"' -ErrorAction SilentlyContinue
+          if (-not $sigDescMatch) { Write-Error "branding.py APP_NAME not found in workspace"; exit 1 }
+          $sigDescription = $sigDescMatch.Matches[0].Groups[1].Value
+          & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD `
+              /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /d "$sigDescription" /du "https://voicetyper.app" $standalone
+          if ($LASTEXITCODE -ne 0) { Write-Error "signtool failed for standalone exe: $standalone"; exit 1 }
+          & $signtool verify /pa /v $standalone
+          Remove-Item $pfxPath -Force
+
       # smoke test the bundled sidecar binary after `cargo tauri build`.
       # Pre-fix the Tauri workflows only ran `objdump -p` / `ldd` static checks on
       # the sidecar — no execution. A Nuitka flag change or Cargo dep bump that
@@ -809,7 +850,8 @@ jobs:
                 "${{ steps.artifacts.outputs.msi_path }}",
                 "src-tauri/bin/python-sidecar-${{ matrix.target }}.exe",
                 "src-tauri/resources/prewarm-${{ matrix.target }}.exe",
-                "src-tauri/resources/native/windows-key-listener.exe"
+                "src-tauri/resources/native/windows-key-listener.exe",
+                "src-tauri/target/${{ matrix.target }}/release/voice-typer-tauri.exe"
           )) {
             if (Test-Path $p) {
               $hash = (Get-FileHash -Path $p -Algorithm SHA256).Hash.ToLower()
@@ -840,3 +882,4 @@ jobs:
           subject-path: |
             ${{ steps.artifacts.outputs.nsis_path }}
             ${{ steps.artifacts.outputs.msi_path }}
+            src-tauri/target/${{ matrix.target }}/release/voice-typer-tauri.exe

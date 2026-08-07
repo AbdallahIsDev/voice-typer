@@ -1,4 +1,4 @@
-# compile_native.ps1 — Build the native Windows key-listener binary.
+# compile_native.ps1 -- Build the native Windows key-listener binary.
 #
 # This script compiles voice_typer/server/native/windows-key-listener.c
 # into a standalone windows-key-listener.exe using MSVC (cl.exe), which
@@ -26,14 +26,14 @@ $SourceFile = Join-Path $ProjectRoot "voice_typer\server\native\windows-key-list
 $OutputDir  = Join-Path $ProjectRoot "src-tauri\resources\native"
 $OutputExe  = Join-Path $OutputDir "windows-key-listener.exe"
 
-# ─── -Check mode: probe the toolchain and exit (mirrors compile_native.sh
-# --check for win32 — WR-18 FINDING A-1). The sibling bash script
+# --- -Check mode: probe the toolchain and exit (mirrors compile_native.sh
+# --check for win32 -- WR-18 FINDING A-1). The sibling bash script
 # build_native_listener_windows.sh invokes `compile_native.ps1 -Check`;
 # previously this script had no param() block so PowerShell rejected the
 # -Check argument with "A parameter cannot be found that matches parameter
 # name 'Check'." The probe below verifies (a) the C source file exists and
 # (b) an MSVC toolchain is reachable (cl.exe on PATH, or vswhere.exe
-# present, or vcvars64.bat discoverable) — exits 0 if OK, 1 if missing.
+# present, or vcvars64.bat discoverable) -- exits 0 if OK, 1 if missing.
 if ($Check) {
     Write-Host "[compile_native] -Check: verifying toolchain"
 
@@ -52,7 +52,7 @@ if ($Check) {
         exit 0
     }
 
-    # (c) vswhere.exe present? (Implies a VS install — cl.exe reachable via vcvars.)
+    # (c) vswhere.exe present? (Implies a VS install -- cl.exe reachable via vcvars.)
     $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
     if (Test-Path $vswhere) {
         $vsPath = & $vswhere -latest -property installationPath
@@ -77,7 +77,7 @@ if ($Check) {
     }
 
     # (e) MinGW gcc on PATH? (fallback toolchain for dev machines
-    # without Visual Studio Build Tools — ADR-0020 §3.)
+    # without Visual Studio Build Tools -- ADR-0020 section 3.)
     $gccCheck = Get-Command "gcc.exe" -ErrorAction SilentlyContinue
     if ($gccCheck) {
         Write-Host "[compile_native] OK: MinGW gcc.exe found on PATH at $($gccCheck.Source)"
@@ -102,22 +102,22 @@ if (-not (Test-Path $SourceFile)) {
     exit 1
 }
 
-# ─── Locate vcvars64.bat ────────────────────────────────────────────────────
+# --- Locate vcvars64.bat ----------------------------------------------------
 # CRITICAL: cl.exe cannot find windows.h (or any standard SDK header) unless
 # the INCLUDE / LIB / LIBPATH environment variables are populated first.
 # Sourcing vcvars64.bat (the VS "Developer Command Prompt" bootstrap) is the
-# ONLY correct way to set those — invoking cl.exe directly (as this script
+# ONLY correct way to set those -- invoking cl.exe directly (as this script
 # did previously) fails with `fatal error C1034: windows.h: no include path
 # set` because cl.exe only knows the compiler binary's own location, not the
 # Windows SDK / MSVC headers.
 #
 # Discovery order:
-#   1. vswhere.exe — the canonical VS 2017+ discovery tool.
+#   1. vswhere.exe -- the canonical VS 2017+ discovery tool.
 #   2. Hard-coded VS 2022 / 2019 install paths (Build Tools + per-edition).
 #   3. vcvars64.bat already on PATH (rare; cl.exe would also be there).
 $vcvarsFound = $null
 
-# 1. vswhere (VS 2017+) — canonical discovery.
+# 1. vswhere (VS 2017+) -- canonical discovery.
 $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 if (Test-Path $vswhere) {
     $vsPath = & $vswhere -latest -property installationPath
@@ -148,22 +148,22 @@ if (-not $vcvarsFound) {
     }
 }
 
-# MinGW gcc fallback (ADR-0020 §3): for developers without Visual
-# Studio Build Tools. gcc needs no vcvars environment — the MinGW
+# MinGW gcc fallback (ADR-0020 section 3): for developers without Visual
+# Studio Build Tools. gcc needs no vcvars environment -- the MinGW
 # install carries its own windows.h + user32 import lib on PATH.
 $gccOnPath = Get-Command "gcc.exe" -ErrorAction SilentlyContinue
 if (-not $vcvarsFound) {
     if ($gccOnPath) {
-        Write-Host "[compile_native] MSVC not found — falling back to MinGW gcc.exe at $($gccOnPath.Source)"
+        Write-Host "[compile_native] MSVC not found -- falling back to MinGW gcc.exe at $($gccOnPath.Source)"
     } else {
         Write-Error "MSVC toolchain not found. Install Visual Studio Build Tools with the 'Desktop development with C++' workload."
         Write-Error "  Download: https://visualstudio.microsoft.com/downloads/#build-tools-for-visual-studio-2022"
-        Write-Error "  (MinGW gcc.exe was also not found on PATH — install either toolchain to build the native key listener.)"
+        Write-Error "  (MinGW gcc.exe was also not found on PATH -- install either toolchain to build the native key listener.)"
         exit 1
     }
 }
 
-# ─── Toolchain selection ────────────────────────────────────────────────────
+# --- Toolchain selection ----------------------------------------------------
 # _WIN32_WINNT=0x0600 (Vista+) is passed to BOTH toolchains because
 # WH_KEYBOARD_LL (SetWindowsHookEx) requires Vista+; the define is what
 # makes the Win32 headers expose the API surface the C source uses.
@@ -172,7 +172,7 @@ $win32Winnt = "0x0600"
 if ($vcvarsFound) {
     Write-Host "[compile_native] Using vcvars64.bat: $vcvarsFound"
 
-    # ─── Compile via a temp batch wrapper that sources vcvars64.bat ─────────
+    # --- Compile via a temp batch wrapper that sources vcvars64.bat ---------
     # vcvars64.bat populates INCLUDE / LIB / LIBPATH and prepends the MSVC bin
     # dir to PATH, then we chain into cl.exe. We MUST run this through cmd.exe
     # (not PowerShell's `&` invocation of cl.exe directly) because the env-var
@@ -180,11 +180,11 @@ if ($vcvarsFound) {
     #
     # Why write a temp .bat instead of `cmd /c "$vcvars && cl.exe ..."`:
     #   When PowerShell passes a single string containing multiple quote chars
-    #   to `cmd /c`, cmd's quote-stripping rule (see `cmd /?` → /C) removes the
+    #   to `cmd /c`, cmd's quote-stripping rule (see `cmd /?` -> /C) removes the
     #   FIRST and LAST quote characters from the command line, which corrupts
     #   paths containing spaces (e.g. "C:\Program Files\Microsoft Visual
     #   Studio\..."). Writing a temp batch file and invoking `cmd /c <file>`
-    #   avoids the issue entirely — no string quote-stripping possible.
+    #   avoids the issue entirely -- no string quote-stripping possible.
     $batchContent = @"
 @echo off
 call `"$vcvarsFound`" >nul
@@ -202,7 +202,12 @@ exit /b %errorlevel%
     }
 } else {
     # MinGW fallback: gcc links user32 via ``-luser32``.
-    & $gccOnPath.Source -O2 -D_WIN32_WINNT=$win32Winnt -o "$OutputExe" "$SourceFile" -luser32
+    # Quote the -D argument: PowerShell 5.1 does NOT expand ``$win32Winnt``
+    # inside the unquoted bareword ``-D_WIN32_WINNT=$win32Winnt`` (it passes
+    # the literal text ``$win32Winnt`` to gcc, which made _WIN32_WINNT garbage
+    # and broke the version-guarded Win32 headers: FINDEX_INFO_LEVELS /
+    # PVALENTA unknown-type errors). Quoting forces expansion to ``0x0600``.
+    & $gccOnPath.Source -O2 "-D_WIN32_WINNT=$win32Winnt" -o "$OutputExe" "$SourceFile" -luser32
     $exitCode = $LASTEXITCODE
 }
 if ($null -eq $exitCode) { $exitCode = 1 }
@@ -220,6 +225,17 @@ if (-not (Test-Path $OutputExe)) {
 $size = (Get-Item $OutputExe).Length / 1KB
 Write-Host "[compile_native] SUCCESS: $OutputExe ($([math]::Round($size,1)) KB)"
 
-# Update the binary manifest SHA-256 (optional, for CI)
-$sha = (Get-FileHash -Algorithm SHA256 -Path $OutputExe).Hash.ToLower()
+# Update the binary manifest SHA-256 (optional, for CI). Compute it via
+# .NET instead of the Get-FileHash cmdlet: some minimal PS 5.1 environments
+# (e.g. stripped CI runners) do not expose Microsoft.PowerShell.Utility's
+# Get-FileHash, which would fail the whole compile. The .NET SHA256 class is
+# always available. The FileStream is disposed in a finally block so the
+# freshly-written exe isn't left open (Windows locks it otherwise).
+$fs = [System.IO.File]::OpenRead($OutputExe)
+try {
+    $shaBytes = [System.Security.Cryptography.SHA256]::Create().ComputeHash($fs)
+} finally {
+    $fs.Dispose()
+}
+$sha = [System.BitConverter]::ToString($shaBytes).Replace("-", "").ToLower()
 Write-Host "[compile_native] SHA-256: $sha"
