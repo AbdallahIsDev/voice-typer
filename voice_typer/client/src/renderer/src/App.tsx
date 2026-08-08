@@ -549,8 +549,13 @@ export default function App() {
 			</a>
 			<div
 				className={cn(
+					// Clean-window: no outer frame border. The window keeps its
+					// rounded corners (the `html` element carries the radius so
+					// it persists across React re-renders) but the 1px hard
+					// outline around the whole app is removed — the content
+					// background alone separates the window from the desktop.
 					"flex h-screen flex-col bg-(--bg-subtle) font-sans text-(--text-primary) overflow-hidden",
-					!isMaximized && "rounded-lg border border-border",
+					!isMaximized && "rounded-lg",
 				)}
 			>
 				<TitleBar
@@ -588,7 +593,11 @@ export default function App() {
 							// `focus-visible` only fires for keyboard-initiated focus, so a
 							// mouse-click nav followed by the programmatic focus() call
 							// would NOT show the ring under `focus-visible:`.
-							className="flex-1 overflow-y-auto rounded-s-xl border-border border border-s-0 border-b-0 bg-(--bg) focus:outline-none focus:ring-2 focus:ring-ring/30 focus:ring-offset-2"
+							// Clean-window: no left/top panel border around the
+							// content area. The bg contrast against the
+							// --bg-subtle wrapper still separates content from
+							// chrome without a hard frame line.
+							className="flex-1 overflow-y-auto bg-(--bg) focus:outline-none focus:ring-2 focus:ring-ring/30 focus:ring-offset-2"
 							style={{ scrollbarGutter: "stable" }}
 						>
 							{connectionStatus === "connected" ? (

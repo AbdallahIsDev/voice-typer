@@ -31,7 +31,9 @@ export function SettingsSection({
 					<p className="text-sm text-(--text-muted)">{description}</p>
 				)}
 			</div>
-			<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
+			{/* Clean-card: no hard outer outline. The soft background +
+			    row dividers still group the rows without a boxed frame. */}
+			<div className="rounded-lg bg-(--bg-subtle) divide-y divide-border">
 				{children}
 			</div>
 		</section>
