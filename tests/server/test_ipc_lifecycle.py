@@ -215,6 +215,59 @@ class TestStopDispatchPoolSelfJoin:
         )
         assert server._cached_shutting_down is True
 
+    def test_stop_skips_dispatch_drain_when_app_shutting_down(self) -> None:
+        """The drain-skip gate must also fire when ``stop()`` runs on a
+        NON-pool helper thread while the app is shutting down.
+
+        This is the production quit shape that the thread-membership
+        check alone cannot see: ``quit_app`` runs on a ``tcp-dispatch``
+        worker, which blocks inside ``_do_cleanup()`` waiting for a
+        ``_run_with_timeout("ipc_server.stop", ...)`` helper thread.
+        ``stop()`` therefore executes OUTSIDE the pool, and draining the
+        pool would wait on a worker that is transitively blocked on
+        this very call — burning the full 5s drain timeout on every
+        quit (measured: 8.8s end-to-end). ``app._shutting_down`` guards
+        that transitive self-join.
+        """
+        from concurrent.futures import ThreadPoolExecutor
+
+        server = _make_server()
+        server.app._shutting_down = True
+        server._tcp_client = None
+        server._tcp_server_socket = None
+        server._tcp_worker_pool = None
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="tcp-dispatch")
+        server._tcp_dispatch_pool = pool
+        stop_returned = threading.Event()
+        worker_released = threading.Event()
+
+        try:
+            def _quit_handler() -> None:
+                # Mirrors the dispatch worker executing quit_app → app.quit()
+                # → _do_cleanup(): it stays blocked until stop() returns.
+                worker_released.wait(timeout=5.0)
+
+            pool.submit(_quit_handler)
+
+            def _stop_from_helper_thread() -> None:
+                server.stop()
+                stop_returned.set()
+
+            helper = threading.Thread(target=_stop_from_helper_thread, name="cleanup-ipc_server.stop")
+            start = time.monotonic()
+            helper.start()
+            helper.join(timeout=1.0)
+            elapsed = time.monotonic() - start
+            try:
+                assert stop_returned.is_set(), (
+                    f"stop() during app shutdown must skip the dispatch-pool drain "
+                    f"(transitive self-join); blocked {elapsed:.2f}s"
+                )
+            finally:
+                worker_released.set()
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
+
     def test_in_pool_worker_detects_pool_thread(self) -> None:
         """``_in_pool_worker`` must return ``True`` from a pool worker
         and ``False`` from a non-worker thread — the exact predicate
@@ -226,6 +279,16 @@ class TestStopDispatchPoolSelfJoin:
 
         def _probe() -> None:
             observed["inside"] = lifecycle_mod._in_pool_worker(pool)
+            # CPython 3.12 ``_adjust_thread_count`` calls ``t.start()``
+            # BEFORE ``self._threads.add(t)``, so a live worker can run
+            # while ``_threads`` is momentarily EMPTY. Simulate that
+            # window and pin the prefix fallback.
+            real_threads = pool._threads
+            try:
+                pool._threads = set()  # type: ignore[attr-defined]
+                observed["inside_empty_set"] = lifecycle_mod._in_pool_worker(pool)
+            finally:
+                pool._threads = real_threads
 
         try:
             assert lifecycle_mod._in_pool_worker(pool) is False, (
@@ -236,6 +299,12 @@ class TestStopDispatchPoolSelfJoin:
             pool.shutdown(wait=False, cancel_futures=True)
         assert observed.get("inside") is True, (
             "a running pool worker must be detected as inside the pool"
+        )
+        assert observed.get("inside_empty_set") is True, (
+            "a running pool worker must still be detected when ``pool._threads`` "
+            "is momentarily empty (CPython 3.12 worker-start race) — without the "
+            "prefix fallback the quit-path self-join gate drains the pool from "
+            "inside itself and burns the full 5s timeout"
         )
 
 

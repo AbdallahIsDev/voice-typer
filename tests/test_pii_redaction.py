@@ -436,7 +436,15 @@ def test_g4_h_03_lastresort_is_stream_handler_with_pii_filter():
     urllib3, websockets) is redacted."""
     import logging
 
-    from voice_typer.server.security import PIIRedactionFilter
+    from voice_typer.server.security import (
+        PIIRedactionFilter,
+        install_lastresort_pii_filter,
+    )
+
+    # Self-contained: the filter is process-global and per-test logging
+    # hygiene fixtures may remove it — (re)install explicitly rather
+    # than relying on a prior test's side effect.
+    install_lastresort_pii_filter()
 
     # The default lastResort is a _StderrHandler (a private subclass of
     # StreamHandler). After security.py is imported, it should be a
@@ -456,7 +464,12 @@ def test_g4_h_03_lastresort_filter_redacts_pii():
     the filter is functional, not just attached)."""
     import logging
 
-    from voice_typer.server.security import PIIRedactionFilter
+    from voice_typer.server.security import (
+        PIIRedactionFilter,
+        install_lastresort_pii_filter,
+    )
+
+    install_lastresort_pii_filter()  # self-contained (see above)
 
     filters = [f for f in logging.lastResort.filters if isinstance(f, PIIRedactionFilter)]
     assert len(filters) >= 1
@@ -487,6 +500,10 @@ def test_g4_h_03_third_party_logger_output_redacted_via_lastresort():
     """
     import logging
     from io import StringIO
+
+    from voice_typer.server.security import install_lastresort_pii_filter
+
+    install_lastresort_pii_filter()  # self-contained (see above)
 
     # Save the original stream so we can restore it after the test.
     # lastResort's stream is captured at construction time, so we

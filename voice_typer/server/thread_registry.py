@@ -55,10 +55,78 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import weakref
 from collections.abc import Callable
 from dataclasses import dataclass
 
 log = logging.getLogger(__name__)
+
+# Module-level registry of live ``ThreadRegistry`` instances so the test
+# suite can drain (``shutdown_all``) any threads still alive when a test
+# ends (mirrors ``crash_recovery._LIVE_INSTANCES``); production
+# behaviour is unaffected — a WeakSet drops instances automatically on
+# GC.
+_LIVE_REGISTRIES: weakref.WeakSet = weakref.WeakSet()
+
+# Hard cap on one ``_drain_live_thread_registries()`` call (test-suite
+# infrastructure). Each registry's ``shutdown_all()`` joins its threads
+# with their per-thread ``join_timeout`` (up to 2-3s for a still-running
+# vad-preload / model-load thread). Under xdist a worker accumulates
+# dozens of registries over the suite; without a cap, a single test's
+# autouse teardown drain could take 100+ seconds (2s × ~50 registries),
+# pushing the next test past pytest-timeout's per-test limit — the
+# timeout's thread method then kills the WHOLE worker via os._exit(1)
+# (``[gwN] node down: Not properly terminated``). The cap bounds any
+# single drain to a few seconds; leftover threads are daemons that exit
+# on their own and are re-visited on the next drain.
+_TEST_DRAIN_BUDGET_S = 5.0
+
+
+def _drain_live_thread_registries() -> None:
+    """Call ``shutdown_all()`` on every live ``ThreadRegistry``.
+
+    Tests that construct a real ``VoiceTyperApp`` spawn real daemon
+    threads registered on ``app._thread_registry`` (e.g. the ``vad-preload``
+    worker armed by ``VoiceTyperApp.__init__`` -> ``_preload_vad_model``,
+    join_timeout=2.0). Under xdist a worker process lives for the WHOLE
+    suite, so those threads accumulate; if a ``vad-preload`` worker wakes
+    during a ``@pytest.mark.real_torch`` test window (which evicts the
+    session torch mock), it loads REAL torch + the real Silero model and
+    runs inference concurrently with history_db file copies — a
+    combination that produced rare native heap corruption
+    (``Windows fatal exception: code 0xc0000374``) on a fully-loaded
+    worker. Draining every live registry between tests quiesces those
+    threads.
+
+    ``shutdown_all()`` is idempotent and joins with each thread's own
+    bounded ``join_timeout``. The drain is time-budgeted (see
+    ``_TEST_DRAIN_BUDGET_S``) and drops each drained registry from the
+    WeakSet so repeated per-test drains stay O(1) instead of re-walking
+    the whole accumulated set every time.
+    """
+    # Deadline is computed on ``time.perf_counter()`` (NOT
+    # ``time.monotonic()``): a test that leaks a bare
+    # ``mod.time.monotonic = MagicMock(return_value=...)`` mutation (see
+    # the clipboard test files) permanently freezes the GLOBAL
+    # ``time.monotonic`` for the whole xdist worker, which would make a
+    # monotonic-based deadline never expire and turn the drain's join
+    # loop into an infinite spin — the silent ``[gwN] node down``
+    # worker-death signature. ``perf_counter`` is a distinct clock and
+    # is not a patch target in the suite. As a second line of defense,
+    # ``shutdown_all`` also caps the join loop by ITERATION COUNT (see
+    # there), which is immune to ANY clock being frozen/mocked.
+    deadline = time.perf_counter() + _TEST_DRAIN_BUDGET_S
+    for registry in list(_LIVE_REGISTRIES):
+        if time.perf_counter() >= deadline:
+            break
+        try:
+            registry.shutdown_all(deadline=deadline)
+        except Exception:
+            log.debug("[THREAD-REGISTRY] drain shutdown_all() failed", exc_info=True)
+        # The registry is quiesced (or exhausted its join budget); drop
+        # it so later drains don't re-walk it. Fresh registries created
+        # by subsequent tests re-add themselves on construction.
+        _LIVE_REGISTRIES.discard(registry)
 
 
 @dataclass
@@ -111,6 +179,12 @@ class ThreadRegistry:
 
     def __init__(self) -> None:
         self._entries: dict[str, ThreadRegistryEntry] = {}
+        # Register in the module-level WeakSet so the test-suite drain
+        # (``_drain_live_thread_registries``) can join any threads still
+        # alive when a test ends. Mirrors the ``_LIVE_INSTANCES``
+        # pattern in crash_recovery / transcription_watchdog; production
+        # behaviour is unaffected — a WeakSet drops registries on GC.
+        _LIVE_REGISTRIES.add(self)
         self._lock = threading.Lock()
 
     def register(
@@ -353,7 +427,7 @@ class ThreadRegistry:
         with self._lock:
             return list(self._entries.keys())
 
-    def shutdown_all(self) -> None:
+    def shutdown_all(self, *, deadline: float | None = None) -> None:
         """Signal all registered threads to stop and join them.
 
         Idempotent — safe to call multiple times. Subsequent calls
@@ -431,12 +505,50 @@ class ThreadRegistry:
         start = time.monotonic()
         # Per-thread deadline: ``start + entry.join_timeout``.
         deadlines = {id(entry): start + entry.join_timeout for entry in entries}
+        # ITERATION CAP (clock-independent): each join slice is
+        # ``join_slice`` (0.1s) of real time, so the number of slices
+        # we may spend is bounded by the wall-clock budget DIVIDED BY
+        # the slice length — no reliance on any clock reading. A test
+        # that leaks ``time.monotonic``/``time.perf_counter`` freezes
+        # (e.g. ``mod.time.monotonic = MagicMock(return_value=100.3)``
+        # in the clipboard tests) would otherwise make the deadline
+        # checks below never fire and turn this loop into an infinite
+        # spin that kills the whole xdist worker via pytest-timeout's
+        # ``os._exit(1)`` (``[gwN] node down``). The cap makes the loop
+        # terminate after at most ``budget`` seconds of real joining
+        # even with a fully frozen clock. In production (no deadline)
+        # the cap is derived from the largest per-thread join_timeout,
+        # preserving the existing bounded-shutdown contract.
+        if deadline is not None:
+            # Wall-clock budget in seconds; the join loop must never
+            # exceed it by more than one slice. The deadline was
+            # computed by the caller on ``time.perf_counter()``.
+            budget_seconds = max(0.0, deadline - time.perf_counter())
+            max_join_iterations = int(budget_seconds / join_slice) + 2
+        else:
+            # No caller deadline: bound by the longest per-thread
+            # join_timeout (the pre-existing PERF-23 contract).
+            max_join_iterations = (
+                int(max((e.join_timeout for e in entries), default=0.0) / join_slice) + 2
+            )
+        max_join_iterations = max(1, min(max_join_iterations, 1_000_000))
         # work on a mutable ``pending`` list so we can prune
         # dead entries at the start of each slice without losing the
         # original ``entries`` snapshot (which Phase 3 iterates for
         # per-entry "exited cleanly" / "did not exit" logging).
         pending = list(entries)
+        join_iterations = 0
         while True:
+            join_iterations += 1
+            if join_iterations > max_join_iterations:
+                log.warning(
+                    "[THREAD-REGISTRY] shutdown_all: join iteration cap "
+                    "(%d) reached with %d thread(s) still alive — "
+                    "giving up (daemons will be reaped on process exit)",
+                    max_join_iterations,
+                    len([e for e in pending if e.thread.is_alive()]),
+                )
+                break
             # prune dead entries at the start of each slice
             # so we don't keep re-checking threads that have already
             # exited.
@@ -448,6 +560,18 @@ class ThreadRegistry:
             # we're done — give up on the laggards.
             joinable = [e for e in pending if now < deadlines[id(e)]]
             if not joinable:
+                break
+            # Wall-clock cap (test-suite drain): if a caller passed an
+            # overall deadline (e.g. ``_drain_live_thread_registries``'s
+            # 5s budget), stop mid-join once it elapses so a single
+            # slow/hung thread (or a pathological ``join_timeout``
+            # value) can never pin the main thread for the whole
+            # per-test timeout — the exact worker-death signature seen
+            # when a leaked registry's join ran 100+ seconds.
+            #
+            # ``perf_counter`` is used (NOT ``monotonic``) so a leaked
+            # ``time.monotonic`` freeze can't defeat the cap.
+            if deadline is not None and time.perf_counter() >= deadline:
                 break
             # Join each joinable thread with a short slice.
             for entry in joinable:

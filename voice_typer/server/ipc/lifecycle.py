@@ -67,15 +67,26 @@ def _in_pool_worker(pool) -> bool:
     private ``_threads`` set; membership there is exact and stable
     across CPython 3.9+ (populated at worker start, cleared at exit).
     Fall back to the ``thread_name_prefix`` we construct the pool with
-    if the attribute is ever absent (e.g. monkeypatched executors in
-    tests).
+    when that set is absent, empty, or does not (yet) contain the
+    running worker:
+
+      - absent → monkeypatched executors in tests;
+      - empty → CPython 3.12+ ``_adjust_thread_count`` calls
+        ``t.start()`` BEFORE ``self._threads.add(t)``, so during
+        that window a live worker is not a member yet.  Without the
+        fallback the quit-path self-join gate would misread the
+        worker as "outside the pool" and drain the pool from inside
+        itself (burning the full 5s timeout on every quit).
     """
     if pool is None:
         return False
     current = threading.current_thread()
     workers = getattr(pool, "_threads", None)
     if workers is not None:
-        return current in workers
+        if current in workers:
+            return True
+        if workers:
+            return False
     return current.name.startswith(_TCP_DISPATCH_POOL_PREFIX)
 
 
@@ -260,7 +271,7 @@ class LifecycleMixin:
         # ``shutdown_all()`` will still JOIN the stdin thread (with a
         # short timeout) to verify it's tracked; the existing per-site
         # ``stop()`` is responsible for the actual cleanup.
-        registry = getattr(self.app, "_thread_registry", None)
+        registry = getattr(getattr(self, "app", None), "_thread_registry", None)
         if registry is not None:
             # ADR-0020 §10: heartbeat-watchdog is skipped under TAURI_SIDECAR=1,
             # so only register it if it actually exists.
@@ -351,16 +362,34 @@ class LifecycleMixin:
         if dispatch_pool is not None:
             dispatch_pool.shutdown(wait=False, cancel_futures=True)
             self._tcp_dispatch_pool = None
-            # PERF-SHUTDOWN-001: skip the drain wait when ``stop()`` is
-            # called from inside the dispatch pool itself. ``quit_app``
+# PERF-SHUTDOWN-001: skip the drain wait when ``stop()`` is
+            # called from inside the dispatch pool itself.  ``quit_app``
             # runs on a ``tcp-dispatch`` worker, so draining the pool
             # here would wait on a worker that is blocked inside this
             # very ``stop()`` call — a self-join that always burned the
-            # full 5s timeout on quit. The caller exits right after
-            # ``stop()`` returns, ``cancel_futures=True`` already
+            # full 5s timeout on every quit.  The caller exits right
+            # after ``stop()`` returns, ``cancel_futures=True`` already
             # dropped queued work, and the accept-loop's own drain
             # covers any remaining in-flight handlers.
-            if not _in_pool_worker(dispatch_pool):
+            #
+            # The thread-membership check alone is NOT enough: the
+            # production shutdown path runs ``stop()`` on a separate
+            # helper thread — ``_do_cleanup()`` → ``_run_with_timeout(
+            # "ipc_server.stop", ...)`` spawns a ``cleanup-*`` thread —
+            # NOT on the pool worker itself. The ``quit_app`` dispatch
+            # worker is then *transitively* blocked waiting for that
+            # thread inside ``_do_cleanup``, and draining the pool
+            # waits once more on the same worker → guaranteed full-5s
+            # timeout on every shutdown (measured: quit took 8.8s, of
+            # which 5s was this deadlock). Gate the drain on the
+            # app-level shutdown flag as well: during quit/restart the
+            # in-flight dispatcher finishes as soon as ``stop()``
+            # returns and the process is exiting anyway, so skipping
+            # the wait is safe. ``is not True`` keeps old drain
+            # behavior for test mocks whose ``_shutting_down`` is a
+            # truthy child Mock.
+            app_ref = getattr(self, "app", None)
+            if not _in_pool_worker(dispatch_pool) and getattr(app_ref, "_shutting_down", False) is not True:
                 dispatch_join = threading.Thread(target=dispatch_pool.shutdown, kwargs={"wait": True}, daemon=True)
                 dispatch_join.start()
                 dispatch_join.join(timeout=5.0)
@@ -370,17 +399,28 @@ class LifecycleMixin:
         if pool is not None:
             pool.shutdown(wait=False, cancel_futures=True)
             self._tcp_worker_pool = None
-            # Bound the in-flight handler drain so teardown doesn't
-            # race with running handlers. ``shutdown(wait=False)`` only
-            # cancels queued futures; in-flight handlers keep running on the
-            # pool's worker threads. We drain them with a hard 5s deadline
-            # on a daemon thread so this ``stop()`` call never blocks
-            # indefinitely.
-            join_thread = threading.Thread(target=pool.shutdown, kwargs={"wait": True}, daemon=True)
-            join_thread.start()
-            join_thread.join(timeout=5.0)
-            if join_thread.is_alive():
-                log.warning("[SHUTDOWN] tcp_worker_pool did not drain in 5s — proceeding anyway")
+            # PERF-SHUTDOWN-002: same shutdown gate as the dispatch drain
+            # above. The connection read-loop worker blocks in ``recv`` on
+            # the client socket while the client keeps it open during the
+            # quit handshake, and Windows does NOT unblock that recv from
+            # ``close()`` — so the drain join below would burn its full
+            # 5s timeout on EVERY quit (measured end-to-end: 8.8s, of
+            # which 5s was this worker-pool join; the dispatch drain
+            # fixed the other 5s). During app shutdown the process exits
+            # right after cleanup, so in-flight connection handlers are
+            # daemon-thread reaped — nothing to wait for.
+            if getattr(getattr(self, "app", None), "_shutting_down", False) is not True:
+                # Bound the in-flight handler drain so teardown doesn't
+                # race with running handlers. ``shutdown(wait=False)`` only
+                # cancels queued futures; in-flight handlers keep running on the
+                # pool's worker threads. We drain them with a hard 5s deadline
+                # on a daemon thread so this ``stop()`` call never blocks
+                # indefinitely.
+                join_thread = threading.Thread(target=pool.shutdown, kwargs={"wait": True}, daemon=True)
+                join_thread.start()
+                join_thread.join(timeout=5.0)
+                if join_thread.is_alive():
+                    log.warning("[SHUTDOWN] tcp_worker_pool did not drain in 5s — proceeding anyway")
         # signal the heartbeat watchdog to exit.  The thread
         # sleeps on ``_heartbeat_stop_event.wait(timeout=INTERVAL)``;
         # setting the event wakes it immediately so it doesn't linger
@@ -393,7 +433,7 @@ class LifecycleMixin:
         # without triggering the "Re-registering name" warning. Safe to
         # call when no entry exists (unregister is a no-op for unknown
         # names).
-        registry = getattr(self.app, "_thread_registry", None)
+        registry = getattr(getattr(self, "app", None), "_thread_registry", None)
         if registry is not None:
             registry.unregister("heartbeat-watchdog")
             registry.unregister("ipc-server")

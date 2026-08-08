@@ -469,7 +469,7 @@ class TestAllCleanup:
     def test_de11_grace_period_alias_still_module_level(self):
         """``_DE11_GRACE_PERIOD_SECONDS`` is still accessible as a
         module attribute (back-compat)."""
-        assert _tu._DE11_GRACE_PERIOD_SECONDS == 2.0
+        assert _tu._DE11_GRACE_PERIOD_SECONDS == 1.0
         # And it must equal the canonical constant.
         assert _DE11_GRACE_PERIOD_SECONDS == SHUTDOWN_WATCHDOG_TIMEOUT_S
 

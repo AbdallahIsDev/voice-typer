@@ -75,17 +75,18 @@ TIMEOUT = _TimeoutSentinel()
 # callers use the canonical ``TIMEOUT``.
 _TIMEOUT = TIMEOUT
 # back-compat alias. Same rationale as ``_TIMEOUT``.
-_DE11_GRACE_PERIOD_SECONDS: float = 2.0
+_DE11_GRACE_PERIOD_SECONDS: float = 1.0
 
 
 # watchdog timeout for the non-main-thread ``quit()``
 # ``restart_app()`` path. After ``_do_cleanup()`` completes, we arm a
 # daemon-thread watchdog that calls ``os._exit(0)`` after this many
 # seconds if the process is still alive (i.e. the main thread has not
-# returned from ``tray.run()``). : the grace period is 2s (matches
-# ``_DE11_GRACE_PERIOD_SECONDS`` and the SIGKILL escalation window in the
-# legacy Electron termination path). Tests patch this to a shorter value
-# to keep the suite fast.
+# returned from ``tray.run()``). the grace period is 1s (was 2s
+# pre-quit-latency-fix; the 5s dispatch-drain deadlock elimination
+# means the main thread has only the pystray loop-break to wait for —
+# 1s is ample, and the watchdog is only ever a last-resort exit).
+# Tests patch this to a shorter value to keep the suite fast.
 SHUTDOWN_WATCHDOG_TIMEOUT_S: float = _DE11_GRACE_PERIOD_SECONDS
 
 

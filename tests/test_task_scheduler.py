@@ -289,10 +289,18 @@ class TestPrewarmCommand:
     def test_prefers_venv_pythonw(self, monkeypatch, tmp_path):
         """If ~/.voice-typer/venv/Scripts/pythonw.exe exists, use it."""
         fake_home = tmp_path
-        venv_py = fake_home / ".voice-typer" / "venv" / "Scripts" / "pythonw.exe"
+        config_dir = fake_home / ".voice-typer"
+        venv_py = config_dir / "venv" / "Scripts" / "pythonw.exe"
         venv_py.parent.mkdir(parents=True)
         venv_py.write_text("")  # exists() must return True
-        monkeypatch.setattr(Path, "home", lambda: fake_home)
+        # Patch the resolved config-dir callable directly (the documented
+        # ``_paths._config_dir`` override pattern). ``_paths`` memoizes
+        # the resolver for the process lifetime, so a ``Path.home``
+        # monkeypatch alone is order-dependent under xdist (a prior test
+        # in the worker may already have resolved the real config dir).
+        from voice_typer.server import _paths
+
+        monkeypatch.setattr(_paths, "_config_dir", lambda: config_dir)
         # STARTUP-1: _prewarm_command returns just the pythonw path now
         # (the cmd.exe wrapper and -m flag were moved into _build_task_xml).
         cmd = task_scheduler._prewarm_command()
@@ -301,9 +309,11 @@ class TestPrewarmCommand:
 
     def test_falls_back_to_sys_pythonw(self, monkeypatch, tmp_path):
         """No venv → pythonw.exe next to sys.executable."""
+        from voice_typer.server import _paths
+
         fake_home = tmp_path
         # No venv pythonw at this path — fallback to sys.executable sibling.
-        monkeypatch.setattr(Path, "home", lambda: fake_home)
+        monkeypatch.setattr(_paths, "_config_dir", lambda: fake_home / ".voice-typer")
         # STARTUP-1: returns just the path; on non-Windows test envs,
         # pythonw.exe doesn't exist next to sys.executable so we fall
         # through to sys.executable itself.

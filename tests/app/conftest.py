@@ -52,7 +52,30 @@ def app(tmp_config_dir, monkeypatch):
     # won't try to create a fresh TranscriptionEngine.
     instance.models.transcriber = MagicMock()
     instance.models.transcriber.is_loaded = True
+    # Never duck the developer's REAL system volume. The volume
+    # backend is also global-mocked (``mock_heavy_imports_session``),
+    # but an inert ducker here keeps dictation tests from touching the
+    # hardware even if a test re-exposes ``get_volume_backend``.
+    instance._volume_ducker = MagicMock()
+    instance._volume_ducker.initialize.return_value = False
     yield instance
+    import contextlib
+
+    # Close the real HistoryDB so its writer / periodic-retention /
+    # reader-prune daemon threads are quiesced instead of leaking into
+    # the xdist worker for the rest of the suite. ``close()`` is
+    # idempotent; tests that swapped ``history_db`` for a MagicMock
+    # (e.g. ``_stub_restart_environment`` in tests/test_app_restart.py)
+    # make this a harmless no-op call. See the conftest
+    # ``_drain_crash_recovery_workers`` fixture for the same pattern.
+    with contextlib.suppress(Exception):
+        if instance.history_db is not None:
+            instance.history_db.close()
+    # Cancel the tray elapsed-recording timer worker thread (a real
+    # ``tray_elapsed_timer`` daemon thread per recording session) if the
+    # test started one. Defensive — ``tray`` may be a MagicMock.
+    with contextlib.suppress(Exception):
+        instance.tray._cancel_elapsed_timer()
     # join the background model-load thread so it doesn't outlive
     # the test and touch a torn-down VoiceTyperApp. Best-effort — if the
     # thread is None or already finished, the join is a no-op.

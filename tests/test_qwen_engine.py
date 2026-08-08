@@ -265,6 +265,12 @@ class TestWhisperSkipWhenQwenActive:
         app.models._qwen_engine.is_loaded = qwen_loaded
         app.models._qwen_engine.load = MagicMock()
 
+        # Never duck the developer's REAL system volume (the factory
+        # is also global-mocked in ``mock_heavy_imports_session``;
+        # belt-and-braces here so dictation tests never touch pycaw).
+        app._volume_ducker = MagicMock()
+        app._volume_ducker.initialize.return_value = False
+
         return app
 
     def test_startup_skips_whisper_when_qwen_active(self, monkeypatch, tmp_path):

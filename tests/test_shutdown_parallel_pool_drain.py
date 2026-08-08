@@ -296,9 +296,19 @@ class TestParallelPoolDrain:
         assert "ws_dispatch_pool.drain" in descs, (
             f"early-bookend batch must contain 'ws_dispatch_pool.drain'; got {descs}"
         )
-        # Both items must have a 5.0s timeout.
-        for desc, _func, timeout in early_bookend:
-            assert timeout == 5.0, f"early-bookend item '{desc}' must have timeout=5.0; got {timeout}"
+        # Timeouts: ipc_server.stop has a 2.0s hard ceiling (PERF-
+        # SHUTDOWN-002 — it returns in ms since the drains are gated on
+        # ``app._shutting_down``, and 2.0s bounds a regression); the WS
+        # pool drain keeps a 5.0s budget (in-flight WS handlers can
+        # legitimately run longer).
+        timeouts = {desc: timeout for desc, _func, timeout in early_bookend}
+        assert timeouts["ipc_server.stop"] == 2.0, (
+            f"ipc_server.stop must have timeout=2.0 (hard ceiling after PERF-SHUTDOWN-002); "
+            f"got {timeouts['ipc_server.stop']}"
+        )
+        assert timeouts["ws_dispatch_pool.drain"] == 5.0, (
+            f"ws_dispatch_pool.drain must have timeout=5.0; got {timeouts['ws_dispatch_pool.drain']}"
+        )
 
 
 # _teardown_asr_models inner timeout ──────────────────────────

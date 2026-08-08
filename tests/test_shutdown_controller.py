@@ -818,6 +818,44 @@ class TestShutdownWatchdog:
         )
         assert elapsed >= 0.2, f"GT-43: watchdog fired too early — expected ≥0.2s, got {elapsed:.2f}s"
 
+    def test_drain_shutdown_watchdogs_cancels_before_os_exit(self, monkeypatch):
+        """A leaked shutdown watchdog (armed by a non-main-thread
+        restart/quit test that never lets the process exit) must be
+        disarmable via ``_drain_shutdown_watchdogs()`` before it fires
+        the real ``os._exit(0)`` — otherwise it kills the whole xdist
+        worker mid-suite with no traceback."""
+        from voice_typer.server.shutdown.lifecycle import (
+            _LIVE_SHUTDOWN_WATCHDOG_THREADS,
+            _WATCHDOG_CANCEL_EVENTS,
+            _drain_shutdown_watchdogs,
+        )
+        from voice_typer.server.shutdown_controller import ShutdownController
+
+        fake_app = MagicMock()
+        ctrl = ShutdownController(fake_app)
+
+        exit_calls: list[int] = []
+        monkeypatch.setattr(os, "_exit", lambda code=0: exit_calls.append(code))
+
+        # Arm a real watchdog with a LONG timeout (like a leaked one).
+        ctrl._arm_shutdown_watchdog(30.0)
+        assert len(list(_LIVE_SHUTDOWN_WATCHDOG_THREADS)) == 1, (
+            "the armed watchdog must be registered so the drain can find it"
+        )
+
+        # Drain must cancel it without waiting 30s and without os._exit.
+        _drain_shutdown_watchdogs()
+
+        assert exit_calls == [], (
+            f"drain must cancel the watchdog before os._exit; got exit_calls={exit_calls}"
+        )
+        assert not list(_LIVE_SHUTDOWN_WATCHDOG_THREADS), (
+            "drained watchdog threads must be removed from the registry"
+        )
+        assert not list(_WATCHDOG_CANCEL_EVENTS), (
+            "drained watchdog cancel events must be removed from the registry"
+        )
+
 
 # recorder _force_closed shutdown barrier ────────────────────
 

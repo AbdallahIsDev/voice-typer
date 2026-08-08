@@ -57,6 +57,7 @@ import concurrent.futures
 import contextlib
 import logging
 import threading
+import weakref
 from typing import Any
 
 from voice_typer.server.branding import APP_NAME
@@ -65,6 +66,13 @@ from voice_typer.server.hotkeys import HotkeyBackend, create_hotkey_backend
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 
 log = logging.getLogger(__name__)
+
+# Registry of dispatchers with a live PTT safety timer. Lets the test
+# harness cancel leaked timers between tests (mirrors
+# ``transcription_watchdog._LIVE_WATCHDOG_CONTROLLERS``); production
+# behaviour is unaffected — a WeakSet drops dispatchers automatically
+# on GC.
+_LIVE_PTT_TIMER_DISPATCHERS: weakref.WeakSet = weakref.WeakSet()
 
 
 class HotkeyDispatcher:
@@ -780,6 +788,7 @@ class HotkeyDispatcher:
             timer.name = "PTT-Safety-Timeout"
             self._ptt_safety_timer = timer
             timer.start()
+            _LIVE_PTT_TIMER_DISPATCHERS.add(self)
             log.debug(
                 "[HOTKEY] PTT safety timer armed (%.0fs)",
                 self._PTT_SAFETY_TIMEOUT_SECONDS,
@@ -794,6 +803,9 @@ class HotkeyDispatcher:
         if timer is not None:
             timer.cancel()
             self._ptt_safety_timer = None
+        # Test-harness registry: no live timer remains on this
+        # dispatcher, so drop it from the live set (best-effort).
+        _LIVE_PTT_TIMER_DISPATCHERS.discard(self)
 
     def _on_ptt_safety_timeout(self) -> None:
         """fired by the PTT safety timer when a recording has

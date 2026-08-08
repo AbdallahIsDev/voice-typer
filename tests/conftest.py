@@ -509,6 +509,19 @@ def mock_heavy_imports_session():
         mp.setitem(sys.modules, "torch", _build_mock_torch())
         mp.setitem(sys.modules, "transformers", MagicMock(name="mock_transformers"))
 
+        # Volume-duck backend: never auto-detect a REAL platform volume
+        # backend in tests. A test that builds a real VoiceTyperApp and
+        # starts dictation would otherwise duck the developer's actual
+        # system volume to ``volume_duck_level`` (~20%) via pycaw /
+        # CoreAudio / pactl and never restore it (tests don't run the
+        # full cleanup path). Tests that need a volume backend inject
+        # their own (``VolumeDucker(backend=...)`` or a monkeypatched
+        # ``get_volume_backend``) — those bypass this factory, and
+        # ``VolumeDucker.duck()``/``restore()`` already short-circuit
+        # on a ``None`` backend — so this only neutralizes ACCIDENTAL
+        # real backends.
+        mp.setattr("voice_typer.server.server_platform.get_volume_backend", lambda: None)
+
         yield
     finally:
         mp.undo()
@@ -748,6 +761,355 @@ def _reset_log_rate_limit():
     log_rate_limit.reset()
     yield
     log_rate_limit.reset()
+
+
+@pytest.fixture(autouse=True)
+def _restore_vt_logging_state():
+    """Snapshot and restore the ``voice_typer`` logger between tests.
+
+    Tests that call ``voice_typer.server.log.setup_logging()`` install
+    PII-filtered / session-filtered handlers on the ``voice_typer``
+    logger that persist for the rest of the xdist worker process.
+    Because ``logging`` passes the SAME record object through every
+    handler in ``Logger.callHandlers``, a leaked ``PIIRedactionFilter``
+    handler mutates ``record.msg`` BEFORE caplog's own handler captures
+    it — so later tests see redacted messages (e.g. ``[MIC-WATCHER] ***
+    callback raised``, ``expected ***, got ***``) and their caplog
+    assertions fail order- and worker-dependently under xdist.
+
+    Mirrors the file-local fixture in ``tests/test_log_formatting.py``
+    and the ``_reset_log_rate_limit`` autouse pattern; the global
+    version closes the leak for the ~10 other files that call
+    ``setup_logging`` without their own restore.
+    """
+    import logging
+
+    from voice_typer.server.log import _module_level_overrides
+
+    vt_root = logging.getLogger("voice_typer")
+    saved_handlers = list(vt_root.handlers)
+    saved_filters = list(vt_root.filters)
+    saved_level = vt_root.level
+    saved_overrides = dict(_module_level_overrides)
+    saved_last_resort_filters = (
+        list(logging.lastResort.filters) if logging.lastResort is not None else []
+    )
+
+    yield
+
+    # Drop handlers the test installed WITHOUT closing them: a leaked
+    # background thread (e.g. a recording watchdog) may still be mid-
+    # emit, and closing the underlying stream under it can surface as a
+    # hard ``Windows fatal exception: 0x800703e5`` during worker
+    # teardown. Dropping matches ``log.reset()`` semantics; the GC
+    # closes the handler later.
+    vt_root.handlers = saved_handlers
+    vt_root.filters = saved_filters
+    vt_root.setLevel(saved_level)
+    _module_level_overrides.clear()
+    _module_level_overrides.update(saved_overrides)
+    if logging.lastResort is not None:
+        logging.lastResort.filters = saved_last_resort_filters
+
+
+@pytest.fixture(autouse=True)
+def _drain_crash_recovery_workers():
+    """Stop any leaked ``CrashRecovery`` save worker thread between tests.
+
+    ``CrashRecovery`` spawns a daemon save worker per instance and
+    registers the instance in ``_LIVE_INSTANCES``. Tests that construct
+    an instance without calling ``shutdown()`` (or whose worker is
+    still draining when the test ends) leak a thread that can fire an
+    asynchronous ``_save_sync()`` DURING a LATER test — polluting
+    module-level ``mock.patch`` assertions (``assert_called_once``
+    seeing a 2nd call from a stale path) and writing stale files into
+    the wrong test's tmp dir. Observed order-dependently under xdist
+    on 3.12.7, 3.13.7 and 3.13.14 alike.
+
+    ``shutdown()`` is idempotent and bounded (join(timeout=1.0)); the
+    WeakSet is empty for the vast majority of tests, so the overhead is
+    negligible.
+    """
+    import contextlib
+
+    yield
+    with contextlib.suppress(Exception):
+        from voice_typer.server import crash_recovery as _cr
+
+        for inst in list(_cr._LIVE_INSTANCES):
+            inst.shutdown()
+
+
+@pytest.fixture(autouse=True)
+def _drain_watchdog_threads():
+    """Stop any leaked ``TranscriptionWatchdog`` threads between tests.
+
+    ``RecordingLifecycle._start_impl`` arms a real 90s watchdog thread
+    on every successful ``start()`` (``recording_lifecycle.py`` L1108).
+    Tests that start a controller without calling ``stop()`` leak that
+    thread; ~90s later it fires a ``[STUCK-RECOVERY]`` log storm on a
+    closed logging stream, which can hard-crash the xdist worker
+    (``[gwN] node down: Not properly terminated``) and hang the
+    controller — the suite then appears to "run forever".
+
+    Mirrors the ``_LIVE_INSTANCES`` drain in
+    ``_drain_crash_recovery_workers``; the WeakSet is empty for the
+    vast majority of tests, so the overhead is negligible.
+    """
+    yield
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        from voice_typer.server.transcription_watchdog import (
+            _LIVE_WATCHDOG_CONTROLLERS,
+        )
+
+        for ctrl in list(_LIVE_WATCHDOG_CONTROLLERS):
+            ctrl._stop_watchdog_thread()
+
+
+@pytest.fixture(autouse=True)
+def _drain_ptt_safety_timers():
+    """Cancel any leaked PTT safety timers between tests.
+
+    ``HotkeyDispatcher._start_ptt_safety_timer`` arms a real 60s daemon
+    ``threading.Timer`` whenever a push-to-talk backend is registered
+    (``hotkey_dispatcher.py`` L451). Tests that register a PTT backend
+    without exercising the release path leak that timer; ~60s later it
+    fires ``[HOTKEY] PTT release event missed`` on a closed logging
+    stream — the same worker-crash/hang signature as the leaked
+    transcription watchdog (see ``_drain_watchdog_threads``).
+
+    Mirrors that fixture's WeakSet-registry pattern.
+    """
+    yield
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        from voice_typer.server.hotkey_dispatcher import (
+            _LIVE_PTT_TIMER_DISPATCHERS,
+        )
+
+        for dispatcher in list(_LIVE_PTT_TIMER_DISPATCHERS):
+            dispatcher._cancel_ptt_safety_timer()
+
+
+@pytest.fixture(autouse=True)
+def _drain_shutdown_watchdogs():
+    """Disarm any leaked shutdown-watchdog threads between tests.
+
+    ``quit()`` / ``restart_app()`` invoked on a NON-main thread arm a
+    real 2s daemon watchdog (``shutdown/lifecycle.py``
+    ``arm_shutdown_watchdog``) that calls ``os._exit(0)`` as a last
+    resort. Tests that exercise the non-main-thread path (e.g.
+    ``tests/test_app_restart.py`` runs ``restart_app()`` on a worker
+    thread, and its ``_stub_restart_environment`` only patches
+    ``voice_typer.server.app.os._exit`` — NOT the module-level ``os``
+    in ``shutdown/lifecycle.py``) arm that watchdog and never let the
+    process exit. ~2s later the watchdog fires the REAL ``os._exit(0)``
+    and kills the whole xdist worker with no traceback
+    (``[gwN] node down: Not properly terminated``), hanging the
+    controller — the suite then appears to "run forever".
+
+    The watchdog is cancellable (``cancel_event.wait(timeout_s)``);
+    setting the event wakes it immediately so it returns before calling
+    ``os._exit(0)``. Mirrors the WeakSet-registry pattern of
+    ``_drain_crash_recovery_workers``.
+    """
+    yield
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        from voice_typer.server.shutdown.lifecycle import (
+            _drain_shutdown_watchdogs as _drain_watchdog_threads_impl,
+        )
+
+        _drain_watchdog_threads_impl()
+
+
+@pytest.fixture(autouse=True)
+def _drain_test_thread_registry_workers():
+    """Stop and join any live ``test_thread_registry`` worker threads.
+
+    ``tests/test_thread_registry.py`` deliberately creates "never-exit"
+    workers (``never_exit=True`` or ``stop_event=None``) that loop
+    ``time.sleep(0.01)`` forever to exercise the registry's stuck-thread
+    paths. Under xdist a worker process lives for the WHOLE suite, so
+    those daemon threads would otherwise spin for the entire run — the
+    crash dump of a rare native heap corruption (``0xc0000374``) showed
+    ``tests/test_thread_registry.py``'s ``_run`` thread still alive at
+    crash time, alongside real-torch VAD inference and history_db file
+    copies. The kill-switch is checked BEFORE ``never_exit`` so stuck
+    workers can be terminated between tests.
+
+    Mirrors the WeakSet-registry pattern of the other drain fixtures.
+    """
+    yield
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        import tests.test_thread_registry as _ttr
+
+        _ttr._drain_test_workers()
+
+
+@pytest.fixture(autouse=True)
+def _drain_thread_registries():
+    """Call ``shutdown_all()`` on every live ``ThreadRegistry``.
+
+    ``VoiceTyperApp.__init__`` arms a real ``vad-preload`` daemon thread
+    (registered on ``app._thread_registry`` with join_timeout=2.0), and
+    ``StartupSequence.run()`` arms a ``vad-preload-startup`` one. Tests
+    that build a real app (the ``app`` fixture, ``app_for_startup``,
+    and ~20 direct ``VoiceTyperApp()`` constructions) never join those
+    threads. Under xdist a worker lives for the WHOLE suite, so leaked
+    preload threads accumulate; if one wakes during a
+    ``@pytest.mark.real_torch`` test window (which evicts the session
+    torch mock), it loads REAL torch + the real Silero model and runs
+    inference concurrently with history_db file copies — the rare native
+    heap corruption (``0xc0000374``) seen in crash dumps.
+
+    This fixture is the catch-all: it drains every live registry (and
+    therefore every registered thread — vad-preload, bubble-level
+    pusher, etc.) regardless of which fixture constructed the app.
+    Mirrors the WeakSet-registry pattern of the other drain fixtures.
+    """
+    yield
+    import contextlib
+
+    with contextlib.suppress(Exception):
+        from voice_typer.server.thread_registry import (
+            _drain_live_thread_registries,
+        )
+
+        _drain_live_thread_registries()
+
+
+# ── Silent worker-death diagnostics (opt-in: VT_OSEXIT_LOG=<dir>) ──────
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _vt_capture_worker_os_exit():
+    """Diagnostic (opt-in): capture ``os._exit()`` calls with tracebacks.
+
+    The full suite occasionally loses a worker to a SILENT abnormal
+    exit (``[gwN] node down: Not properly terminated``) near the end of
+    the run — no native-crash banner, no faulthandler dump — the
+    signature of an ``os._exit()`` fired by a leaked daemon thread
+    (shutdown watchdog, heartbeat force-exit, ...). ``os._exit`` skips
+    all interpreter cleanup, so nothing is ever logged.
+
+    Set ``VT_OSEXIT_LOG=<dir>`` to wrap ``os._exit`` for the whole
+    process: before delegating to the real ``os._exit`` the wrapper
+    appends a faulthandler dump (ALL thread stacks) to
+    ``<dir>/os-exit-<pid>.log``, and a per-process session start/finish
+    marker is appended to ``<dir>/session-<pid>.log``. When
+    ``VT_OSEXIT_LOG`` is unset this fixture is a no-op — normal runs
+    are completely unaffected.
+
+    The wrapper is intentionally NOT restored at teardown: it must stay
+    armed through interpreter shutdown, where leaked daemons can still
+    fire ``os._exit`` (the exact scenario under diagnosis).
+    """
+    import os as _os_mod
+    import threading as _threading_mod
+
+    log_dir = _os_mod.environ.get("VT_OSEXIT_LOG")
+    if not log_dir:
+        yield
+        return
+
+    _os_mod.makedirs(log_dir, exist_ok=True)
+    pid = _os_mod.getpid()
+    session_log = _os_mod.path.join(log_dir, f"session-{pid}.log")
+    try:
+        with open(session_log, "a", encoding="utf-8") as _fh:
+            _fh.write(
+                f"sessionstart pid={pid} thread={_threading_mod.current_thread().name}\n"
+            )
+    except Exception:
+        pass
+
+    import faulthandler as _faulthandler_mod
+
+    _real_exit = _os_mod._exit
+    os_exit_log = _os_mod.path.join(log_dir, f"os-exit-{pid}.log")
+
+    def _logged_exit(code: int = 0) -> None:
+        try:
+            with open(os_exit_log, "a", encoding="utf-8") as _fh:
+                _fh.write(
+                    f"\n===== os._exit({code}) from thread "
+                    f"{_threading_mod.current_thread().name} "
+                    f"(pid={pid}) =====\n"
+                )
+                _faulthandler_mod.dump_traceback(file=_fh)
+                # Also dump the live ThreadRegistry contents (names +
+                # join_timeouts + alive flags) so a slow teardown drain
+                # can be attributed to a specific registered thread.
+                try:
+                    from voice_typer.server.thread_registry import (
+                        _LIVE_REGISTRIES,
+                    )
+
+                    _fh.write("\n--- live ThreadRegistry contents ---\n")
+                    for _r in list(_LIVE_REGISTRIES):
+                        _entries = list(getattr(_r, "_entries", {}).values())
+                        _fh.write(
+                            f"registry {_r!r}: {len(_entries)} entries\n"
+                        )
+                        for _e in _entries:
+                            _fh.write(
+                                f"  {_e.name!r}: alive="
+                                f"{_e.thread.is_alive()}, join_timeout="
+                                f"{_e.join_timeout!r}, stop_event="
+                                f"{_e.stop_event is not None}\n"
+                            )
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        _real_exit(code)
+
+    _os_mod._exit = _logged_exit  # type: ignore[assignment]
+
+    # Periodic faulthandler snapshot (every 40s) so a slow/hung phase is
+    # caught MID-STACK, not just at death. A leaked-daemon or
+    # GIL-starved worker can make a normally-fast test exceed the
+    # per-test timeout; these snapshots reveal exactly which frame the
+    # main thread is stuck in.
+    _snapshot_stop = _threading_mod.Event()
+
+    def _snapshot_loop() -> None:
+        while not _snapshot_stop.wait(40.0):
+            try:
+                with open(os_exit_log, "a", encoding="utf-8") as _fh:
+                    _fh.write(
+                        f"\n===== periodic dump (pid={pid}) at "
+                        f"t={time.monotonic():.0f}s =====\n"
+                    )
+                    _faulthandler_mod.dump_traceback(file=_fh)
+            except Exception:
+                pass
+
+    _snapshot_thread = _threading_mod.Thread(
+        target=_snapshot_loop,
+        name="vt-os-exit-snapshot",
+        daemon=True,
+    )
+    _snapshot_thread.start()
+
+    try:
+        yield
+    finally:
+        _snapshot_stop.set()
+        try:
+            with open(session_log, "a", encoding="utf-8") as _fh:
+                _fh.write(
+                    f"sessionfinish pid={pid} thread={_threading_mod.current_thread().name}\n"
+                )
+        except Exception:
+            pass
 
 
 # ── Shared fixtures for domain-split test files ────────────────────────

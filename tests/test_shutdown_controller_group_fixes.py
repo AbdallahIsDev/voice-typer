@@ -398,11 +398,13 @@ class TestForceExitOnNonMainThread:
     ``sys.exit(0)`` on a non-main thread only raises ``SystemExit`` in
     THAT thread and doesn't exit the process."""
 
-    def test_grace_period_constant_is_two_seconds(self):
-        """DE-11: the grace period must be 2.0s (matches the SIGKILL
-        escalation window in the legacy Electron termination path)."""
-        assert _DE11_GRACE_PERIOD_SECONDS == 2.0, (
-            f"DE-11: _DE11_GRACE_PERIOD_SECONDS must be 2.0; got {_DE11_GRACE_PERIOD_SECONDS}"
+    def test_grace_period_constant_is_one_second(self):
+        """DE-11: the grace period must be 1.0s (reduced from 2.0s with
+        the quit-latency fix — the 5s dispatch-drain deadlock no longer
+        stalls _do_cleanup, so the watchdog only waits for the pystray
+        loop to unwind)."""
+        assert _DE11_GRACE_PERIOD_SECONDS == 1.0, (
+            f"DE-11: _DE11_GRACE_PERIOD_SECONDS must be 1.0; got {_DE11_GRACE_PERIOD_SECONDS}"
         )
 
     def test_quit_on_main_thread_does_not_schedule_force_exit(self, controller, fake_app, monkeypatch):

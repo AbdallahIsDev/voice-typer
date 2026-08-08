@@ -115,6 +115,13 @@ def make_voice_typer_app(tmp_config_dir: Any, monkeypatch: Any) -> Any:
     # won't try to create a fresh TranscriptionEngine.
     instance.models.transcriber = MagicMock()
     instance.models.transcriber.is_loaded = True
+    # Never duck the developer's REAL system volume. The volume
+    # backend factory is also globalized on
+    # (``mock_heavy_imports_session``), but an inert ducker here keeps
+    # any test that starts dictation from touching the hardware even
+    # if a later test re-exposes ``get_volume_backend``.
+    instance._volume_ducker = MagicMock()
+    instance._volume_ducker.initialize.return_value = False
     return instance
 
 

@@ -184,15 +184,20 @@ def test_mypy_hook_is_local_with_language_system() -> None:
     )
 
 
-def test_mypy_hook_entry_uses_python_dash_m() -> None:
-    """The mypy entry must be ``python -m mypy`` (not bare ``mypy``) so
-    it works on Windows where ``.venv/Scripts/mypy.exe`` may not be on
-    PATH but ``.venv/Scripts/python.exe`` is (XS-35)."""
+def test_mypy_hook_entry_uses_python_ratchet_script() -> None:
+    """The mypy entry must be ``python scripts/mypy_ratchet_check.py``
+    (not bare ``mypy``) so it works on Windows where
+    ``.venv/Scripts/mypy.exe`` may not be on PATH but
+    ``.venv/Scripts/python.exe`` is (XS-35). The ratchet script runs
+    mypy on the whole server scope and compares the error counts
+    against ``mypy-baseline.json``, so pre-push blocks only NEW errors
+    instead of failing on the ~700 baselined typing-debt items."""
     cfg = yaml.safe_load(PRE_COMMIT_CONFIG.read_text())
     mypy_hook = _find_hook(cfg, "mypy")
-    assert mypy_hook["entry"] == "python -m mypy", (
-        "mypy hook entry must be `python -m mypy` for cross-platform "
-        "venv portability (XS-35). Found: " + repr(mypy_hook.get("entry"))
+    assert mypy_hook["entry"] == "python scripts/mypy_ratchet_check.py", (
+        "mypy hook entry must run `python scripts/mypy_ratchet_check.py` "
+        "for cross-platform venv portability + the count-based ratchet "
+        "(XS-35). Found: " + repr(mypy_hook.get("entry"))
     )
 
 

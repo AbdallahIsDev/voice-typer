@@ -533,7 +533,13 @@ class ShutdownController:
 
             early_items: list[tuple[str, object, float]] = []
             if ipc_server is not None:
-                early_items.append(("ipc_server.stop", ipc_server.stop, 5.0))
+                # PERF-SHUTDOWN-002: the ipc_server.stop budget was 5.0s
+                # pre-quit-latency-fix. ``stop()`` gates its pool drains
+                # on ``app._shutting_down`` (always True on this path),
+                # so it returns in milliseconds; 2.0s is now a generous
+                # hard ceiling that still bounds teardown if a future
+                # regression re-introduces a blocking path.
+                early_items.append(("ipc_server.stop", ipc_server.stop, 2.0))
 
             if ws_pool is not None and hasattr(ws_pool, "shutdown"):
 

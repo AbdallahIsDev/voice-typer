@@ -58,7 +58,17 @@ class TestPaste:
     def test_paste_sends_keystroke(self, monkeypatch):
         import voice_typer.server.clipboard as mod
 
-        mod.time = MagicMock()
+        # Use monkeypatch (NOT a bare ``mod.time = MagicMock()``
+        # assignment): ``clipboard.time`` is the GLOBAL ``time`` module
+        # (clipboard/__init__.py does ``import time``), so a bare
+        # assignment/mutation leaks a MagicMock (or a frozen
+        # ``time.monotonic``) into the shared module for the whole xdist
+        # worker — later teardown drains that read
+        # ``time.monotonic()`` for their deadline then never see the
+        # clock advance and spin forever (the silent ``[gwN] node down``
+        # worker-death signature). monkeypatch auto-restores after the
+        # test.
+        monkeypatch.setattr(mod, "time", MagicMock())
         mod.time.monotonic.return_value = 100.0
         # Platform is now centralized in platform_utils; clipboard.py uses
         # is_windows()/is_macos() imported into its namespace. Force the
@@ -80,14 +90,22 @@ class TestPaste:
         assert result is False
         cm._keyboard.press.assert_not_called()
 
-    def test_paste_skips_when_rate_limited(self):
+    def test_paste_skips_when_rate_limited(self, monkeypatch):
         cm = ClipboardManager(paste_enabled=True)
         cm._last_paste_time = 100.0
         cm._keyboard = MagicMock()
 
         import voice_typer.server.clipboard as mod
 
-        mod.time.monotonic = MagicMock(return_value=100.3)
+        # monkeypatch (NOT ``mod.time.monotonic = ...``): ``mod.time``
+        # is the GLOBAL ``time`` module, so a bare assignment would
+        # permanently freeze ``time.monotonic()`` at 100.3 for the
+        # whole xdist worker and break every time-budgeted teardown
+        # drain afterwards. monkeypatch restores the real attribute
+        # after this test.
+        monkeypatch.setattr(
+            mod.time, "monotonic", MagicMock(return_value=100.3)
+        )
 
         result = cm.paste()
 
@@ -97,7 +115,10 @@ class TestPaste:
     def test_paste_returns_false_on_keyboard_error(self, monkeypatch):
         import voice_typer.server.clipboard as mod
 
-        mod.time = MagicMock()
+        # monkeypatch (NOT a bare ``mod.time = MagicMock()``): see
+        # ``test_paste_sends_keystroke`` — bare assignment leaks a mock
+        # into the shared module for the whole xdist worker.
+        monkeypatch.setattr(mod, "time", MagicMock())
         mod.time.monotonic.return_value = 100.0
         # Platform is now centralized in platform_utils; force the
         # non-Windows, non-macOS keystroke path (Ctrl+V via pynput).

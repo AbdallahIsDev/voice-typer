@@ -457,8 +457,13 @@ class TestPreRollFiltered:
         r.start()
         try:
             # Raw chunk (0.3 amplitude) was stored because filter failed.
-            assert len(r._buffer) >= 1, "raw pre-roll chunk must be stored on filter failure"
-            first_chunk = r._buffer[0]
+            # Accept the chunk in either buffer: the mock stream fires
+            # synchronously during start(), and depending on scheduling
+            # the prepend to ``_buffer`` may not have run yet — mirror
+            # the sibling test's either-or robustness (R18-F12).
+            stored_chunks = list(r._preroll_buffer) or list(r._buffer)
+            assert len(stored_chunks) >= 1, "raw pre-roll chunk must be stored on filter failure"
+            first_chunk = stored_chunks[0]
             max_abs = float(np.max(np.abs(first_chunk)))
             assert 0.25 < max_abs < 0.35, (
                 f"raw pre-roll chunk (0.3) must be stored when filter raises — got {max_abs:.3f}"

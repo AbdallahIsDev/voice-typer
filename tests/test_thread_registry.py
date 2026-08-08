@@ -23,6 +23,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+import weakref
 
 from voice_typer.server.thread_registry import (
     ThreadRegistry,
@@ -30,6 +31,18 @@ from voice_typer.server.thread_registry import (
 )
 
 # ─── Helpers ─────────────────────────────────────────────────────────────
+
+
+# Module-level kill-switch for worker threads created by
+# ``_make_worker``. Under xdist a worker process lives for the WHOLE
+# suite, so a "never-exit" test worker would otherwise spin
+# ``time.sleep(0.01)`` forever, accumulating thread bloat that
+# contributed to rare native heap corruption (``0xc0000374``) when real
+# torch ran concurrently in the same worker. The autouse conftest drain
+# (``_drain_test_thread_registry_workers``) sets this event between
+# tests; the per-test assertions that a stuck worker is STILL ALIVE all
+# run BEFORE teardown, so they are unaffected.
+_KILL_ALL_TEST_WORKERS = threading.Event()
 
 
 def _make_worker(
@@ -56,11 +69,17 @@ def _make_worker(
     never_exit : bool
         If True, the worker never exits even when stop_event is set.
         Used to test the "thread didn't exit within timeout" path.
+
+    Every worker also honours the module-level ``_KILL_ALL_TEST_WORKERS``
+    kill-switch (checked FIRST, before ``never_exit``) so the conftest
+    drain can terminate deliberately-stuck workers between tests.
     """
 
     def _run() -> None:
         try:
             while True:
+                if _KILL_ALL_TEST_WORKERS.is_set():
+                    return
                 if stop_event is not None and stop_event.is_set() and not never_exit:
                     if sleep_before_exit > 0:
                         time.sleep(sleep_before_exit)
@@ -71,8 +90,29 @@ def _make_worker(
                 on_exit.set()
 
     t = threading.Thread(target=_run, name="test-worker", daemon=True)
+    _LIVE_TEST_WORKERS.add(t)
     t.start()
     return t
+
+
+# Module-level registry of live test workers so the conftest drain can
+# join them after arming the kill-switch. A WeakSet drops entries
+# automatically once the thread finishes (or is GC'd).
+_LIVE_TEST_WORKERS: weakref.WeakSet = weakref.WeakSet()
+
+
+def _drain_test_workers() -> None:
+    """Stop and join every live ``_make_worker`` thread.
+
+    Called by the conftest autouse drain between tests. Sets the
+    module-level kill-switch (checked before ``never_exit``) and joins
+    each registered thread with a bounded timeout. Idempotent — safe to
+    call even when no workers are live.
+    """
+    _KILL_ALL_TEST_WORKERS.set()
+    for t in list(_LIVE_TEST_WORKERS):
+        t.join(timeout=0.5)
+    _KILL_ALL_TEST_WORKERS.clear()
 
 
 # ─── Registration / unregistration ───────────────────────────────────────
@@ -723,6 +763,91 @@ class TestShutdownAllAutoPrune:
         finally:
             stop.set()
             t.join(timeout=2.0)
+
+
+# Frozen-clock drain regression ────────────────────────
+
+
+class TestFrozenClockDrain:
+    """The test-suite drain must stay bounded even if a leaked test patch
+    freezes the global ``time.monotonic`` clock.
+
+    ``tests/test_clipboard.py`` used to do a bare
+    ``mod.time.monotonic = MagicMock(return_value=100.3)`` — since
+    ``clipboard.time`` is the GLOBAL ``time`` module, that permanently
+    froze ``time.monotonic()`` at a constant for the whole xdist worker.
+    Every later teardown drain computed its deadline with the frozen
+    clock, ``now >= deadline`` never became true, and ``shutdown_all``
+    spun in the join loop until pytest-timeout killed the worker
+    (``[gwN] node down: Not properly terminated``).
+
+    The drain now uses ``time.perf_counter()`` for the deadline AND caps
+    the join loop by iteration count, so a frozen/mocked clock can no
+    longer hang it. These tests pin that behaviour.
+    """
+
+    def test_drain_bounded_with_frozen_monotonic(self):
+        """A stuck thread + frozen ``time.monotonic`` must not hang the drain."""
+        import voice_typer.server.thread_registry as tr_module
+
+        real_monotonic = time.monotonic
+        real_perf_counter = time.perf_counter
+        # Simulate the leaked clipboard patch: global clock frozen.
+        time.monotonic = lambda: 100.3  # type: ignore[assignment]
+        try:
+            reg = ThreadRegistry()
+
+            def _forever() -> None:
+                while True:
+                    time.sleep(60)
+
+            t = threading.Thread(target=_forever, daemon=True)
+            t.start()
+            reg.register("stuck-thread", t, None, join_timeout=0.5)
+
+            start = real_perf_counter()
+            tr_module._drain_live_thread_registries()
+            elapsed = real_perf_counter() - start
+            # Budget is 5s; allow generous headroom but far below the
+            # old infinite-spin behaviour (which ran until the per-test
+            # timeout killed the worker).
+            assert elapsed < 30, (
+                f"drain with frozen time.monotonic took {elapsed:.1f}s; "
+                "expected bounded by the drain budget"
+            )
+        finally:
+            time.monotonic = real_monotonic
+            time.perf_counter = real_perf_counter
+
+    def test_drain_bounded_with_frozen_perf_counter_too(self):
+        """Even if BOTH clocks are frozen, the iteration cap still bounds it."""
+        import voice_typer.server.thread_registry as tr_module
+
+        real_monotonic = time.monotonic
+        real_perf_counter = time.perf_counter
+        time.monotonic = lambda: 100.3  # type: ignore[assignment]
+        time.perf_counter = lambda: 200.0  # type: ignore[assignment]
+        try:
+            reg = ThreadRegistry()
+
+            def _forever() -> None:
+                while True:
+                    time.sleep(60)
+
+            t = threading.Thread(target=_forever, daemon=True)
+            t.start()
+            reg.register("stuck-thread", t, None, join_timeout=0.5)
+
+            start = real_perf_counter()
+            tr_module._drain_live_thread_registries()
+            elapsed = real_perf_counter() - start
+            assert elapsed < 30, (
+                f"drain with both clocks frozen took {elapsed:.1f}s; "
+                "expected bounded by the iteration cap"
+            )
+        finally:
+            time.monotonic = real_monotonic
+            time.perf_counter = real_perf_counter
 
 
 # register(join_previous_timeout=...) ─────────────────────

@@ -460,11 +460,17 @@ class TestYj22PynputBindingsTyping:
             f"YJ-22: ``_Controller`` annotation must be ``type | None`` (narrowed from ``Any``). Got: {ann!r}"
         )
 
-    def test_controller_initial_value_is_none(self):
+    def test_controller_initial_value_is_none(self, monkeypatch):
         """``_Controller`` initial value MUST be ``None`` (the lazy-import
         sentinel). ``type | None`` accepts ``None`` without a
         ``# type: ignore[assignment]`` marker."""
         import voice_typer.server.clipboard as clip_mod
+
+        # A prior test in the same xdist worker may have already
+        # populated the lazy sentinel via ``_ensure_pynput_imported()``;
+        # restore the pristine module-declared state so the assertion
+        # is order-independent (see ``clipboard/__init__.py`` L131).
+        monkeypatch.setattr(clip_mod, "_Controller", None)
 
         assert clip_mod._Controller is None, (
             "YJ-22: ``_Controller`` initial value must be ``None`` (lazily populated by ``_ensure_pynput_imported()``)."

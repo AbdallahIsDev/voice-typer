@@ -123,6 +123,38 @@ def _build_mock_recorder(
     return recorder
 
 
+def _source_without_docstring(func) -> str:
+    """Return ``func``'s source with the leading docstring statement removed.
+
+    Python 3.13 dedents function docstrings at compile time (gh-103180), so
+    ``src.replace(func.__doc__ or "", "")`` only strips the docstring on
+    <=3.12 — on 3.13 the dedented ``__doc__`` is no longer a substring of the
+    raw source and the replace silently no-ops, leaking the docstring (which
+    legitimately mentions ``self._start_lock``) into the inspected body.
+    Excising the docstring statement via the AST is robust on every version.
+    """
+    import ast
+    import textwrap
+
+    src = textwrap.dedent(inspect.getsource(func))
+    tree = ast.parse(src)
+    fn = tree.body[0]
+    # Narrow to node types that actually carry a ``body`` (pyrefly types
+    # ``tree.body[0]`` as the abstract ``ast.stmt``, which has none).
+    if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return src
+    first = fn.body[0] if fn.body else None
+    if (
+        isinstance(first, ast.Expr)
+        and isinstance(first.value, ast.Constant)
+        and isinstance(first.value.value, str)
+    ):
+        lines = src.splitlines(keepends=True)
+        del lines[first.lineno - 1 : first.end_lineno]
+        src = "".join(lines)
+    return src
+
+
 # ── Happy-path ordering ────────────────────────────────────────────
 
 
@@ -815,8 +847,7 @@ class TestNoRealExternalDeps:
         ``Recorder.start``'s lock block (which stays on
         ``Recorder.start``).
         """
-        src = inspect.getsource(start_recording)
-        body = src.replace(start_recording.__doc__ or "", "")
+        body = _source_without_docstring(start_recording)
         assert "verify_microphone_accessible" not in body, (
             "start_recording must NOT call the permissions module — that's "
             "the responsibility of Recorder.start's _start_lock block."
@@ -832,8 +863,7 @@ class TestNoRealExternalDeps:
         inside the recorder's delegate methods (which tests stub via
         MagicMock).
         """
-        src = inspect.getsource(start_recording)
-        body = src.replace(start_recording.__doc__ or "", "")
+        body = _source_without_docstring(start_recording)
         sd_pattern = re.compile(r"\bsd\b")
         sounddevice_pattern = re.compile(r"sounddevice")
         assert not sd_pattern.search(body), "start_recording must not reference the `sd` proxy directly."
@@ -843,8 +873,7 @@ class TestNoRealExternalDeps:
         """No ``os.system`` / ``subprocess.*`` calls — those would be
         a major layering violation.
         """
-        src = inspect.getsource(start_recording)
-        body = src.replace(start_recording.__doc__ or "", "")
+        body = _source_without_docstring(start_recording)
         assert "subprocess" not in body
         assert "os.system" not in body
 
@@ -863,11 +892,7 @@ class TestSourceRewritingContract:
         """No ``self.`` references in the function body. All instance
         access must go through ``recorder.``.
         """
-        src = inspect.getsource(start_recording)
-        # Strip the docstring (which legitimately mentions
-        # ``self._start_lock`` when describing what ``Recorder.start``
-        # does — that's a docstring fragment, not a code reference).
-        body = src.replace(start_recording.__doc__ or "", "")
+        body = _source_without_docstring(start_recording)
         # ``self.X`` followed by an identifier is a real reference.
         # Avoid false-positives from comment strings by matching the
         # Python token shape ``self.\w``.
@@ -880,8 +905,7 @@ class TestSourceRewritingContract:
         ``recorder._recording_event``, not ``self._recording_event``
         or a bare-name lookup.
         """
-        src = inspect.getsource(start_recording)
-        body = src.replace(start_recording.__doc__ or "", "")
+        body = _source_without_docstring(start_recording)
         assert "recorder._recording_event.set()" in body
         assert "self._recording_event" not in body
 
@@ -893,8 +917,7 @@ class TestSourceRewritingContract:
         ``recorder._audio_processor`` (not ``self._audio_processor``)
         — the second assertion pins that.
         """
-        src = inspect.getsource(start_recording)
-        body = src.replace(start_recording.__doc__ or "", "")
+        body = _source_without_docstring(start_recording)
         # retune call re-added — recorder._audio_processor is
         # accessed (passed to retune_audio_processor).
         assert "recorder._audio_processor" in body, (
@@ -910,8 +933,7 @@ class TestSourceRewritingContract:
         ``_open_stream_for_candidates``, ``_open_stream_fallback``)
         must be called via ``recorder.X``.
         """
-        src = inspect.getsource(start_recording)
-        body = src.replace(start_recording.__doc__ or "", "")
+        body = _source_without_docstring(start_recording)
         for method in (
             "_resolve_device",
             "_same_physical_microphone_candidates",
@@ -943,8 +965,7 @@ class TestLazyPackageImport:
         namespace — pin this so a future refactor doesn't move it
         to module top (which would create a circular import).
         """
-        src = inspect.getsource(start_recording)
-        body = src.replace(start_recording.__doc__ or "", "")
+        body = _source_without_docstring(start_recording)
         assert "from voice_typer.server import recording as _recording_pkg" in body, (
             "start_recording must do the lazy package import inside its "
             "body — moving it to module top would re-introduce the "

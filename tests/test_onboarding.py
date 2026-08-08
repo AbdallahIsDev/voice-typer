@@ -814,15 +814,22 @@ class TestModelOptionsIncludeMultilingualAndParakeet:
         # Force the lazy import inside get_model_catalog to fail.
         import sys
 
+        # Ensure the module is PRESENT in sys.modules before the
+        # setitem, so monkeypatch records its real value and restores
+        # it at teardown. The old pattern popped the key first and
+        # then ``monkeypatch.setitem(sys.modules, key, None)`` —
+        # monkeypatch recorded the key as ABSENT, so its teardown
+        # DELETED the entry (overriding the finally-restore),
+        # permanently evicting model_registry from sys.modules. Any
+        # later ``from voice_typer.server.model_registry import X``
+        # then re-imported a FRESH module object, silently breaking
+        # every string-target ``monkeypatch.setattr`` on that module
+        # (e.g. the XV-2 download poll test in test_service_fixes.py).
+        import voice_typer.server.model_registry  # noqa: F401 -- register in sys.modules
         from voice_typer.server.onboarding import OnboardingController
 
-        real_module = sys.modules.pop("voice_typer.server.model_registry", None)
         monkeypatch.setitem(sys.modules, "voice_typer.server.model_registry", None)
-        try:
-            assert OnboardingController.get_model_catalog() == []
-        finally:
-            if real_module is not None:
-                sys.modules["voice_typer.server.model_registry"] = real_module
+        assert OnboardingController.get_model_catalog() == []
 
 
 class TestModelOptionsVramAndLanguages:

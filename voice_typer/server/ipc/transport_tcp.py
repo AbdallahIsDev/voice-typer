@@ -295,30 +295,44 @@ class TCPTransportMixin:
         # The dispatch pool is shut down first so its in-flight
         # dispatches can finish writing their responses before the
         # connection handlers' sockets are torn down.
+        # PERF-SHUTDOWN-002: during app shutdown that "exit promptly"
+        # does NOT hold — the read-loops are parked in a blocked
+        # ``recv`` that Windows ``close()`` does not unblock, so the
+        # ``wait=True`` joins below would burn their full 5s budget on
+        # every quit. ``stop()`` (the canonical shutdown path) already
+        # gates these drains on ``app._shutting_down``; this accept-loop
+        # exit drain is the belt-and-suspenders path (also reached when
+        # the listening socket is closed by a test fixture) and must
+        # gate identically. During shutdown the process is exiting
+        # right after cleanup — in-flight handlers are reaped as daemon
+        # threads, nothing to wait for.
+        _skip_drain = self.app._shutting_down is True
         dispatch_pool = self._tcp_dispatch_pool
         if dispatch_pool is not None:
             dispatch_pool.shutdown(wait=False, cancel_futures=True)
             self._tcp_dispatch_pool = None
-            dispatch_join = threading.Thread(target=dispatch_pool.shutdown, kwargs={"wait": True}, daemon=True)
-            dispatch_join.start()
-            dispatch_join.join(timeout=5.0)
-            if dispatch_join.is_alive():
-                log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s — proceeding anyway")
+            if not _skip_drain:
+                dispatch_join = threading.Thread(target=dispatch_pool.shutdown, kwargs={"wait": True}, daemon=True)
+                dispatch_join.start()
+                dispatch_join.join(timeout=5.0)
+                if dispatch_join.is_alive():
+                    log.warning("[SHUTDOWN] tcp_dispatch_pool did not drain in 5s — proceeding anyway")
         pool = self._tcp_worker_pool
         if pool is not None:
             pool.shutdown(wait=False, cancel_futures=True)
             self._tcp_worker_pool = None
-            # Bound the in-flight handler drain so teardown doesn't
-            # race with running handlers. ``shutdown(wait=False)`` only
-            # cancels queued futures; in-flight handlers keep running on the
-            # pool's worker threads. We drain them with a hard 5s deadline
-            # on a daemon thread so the accept loop's exit never blocks
-            # indefinitely.
-            join_thread = threading.Thread(target=pool.shutdown, kwargs={"wait": True}, daemon=True)
-            join_thread.start()
-            join_thread.join(timeout=5.0)
-            if join_thread.is_alive():
-                log.warning("[SHUTDOWN] tcp_worker_pool did not drain in 5s — proceeding anyway")
+            if not _skip_drain:
+                # Bound the in-flight handler drain so teardown doesn't
+                # race with running handlers. ``shutdown(wait=False)`` only
+                # cancels queued futures; in-flight handlers keep running on the
+                # pool's worker threads. We drain them with a hard 5s deadline
+                # on a daemon thread so the accept loop's exit never blocks
+                # indefinitely.
+                join_thread = threading.Thread(target=pool.shutdown, kwargs={"wait": True}, daemon=True)
+                join_thread.start()
+                join_thread.join(timeout=5.0)
+                if join_thread.is_alive():
+                    log.warning("[SHUTDOWN] tcp_worker_pool did not drain in 5s — proceeding anyway")
 
         with contextlib.suppress(OSError):
             server.close()

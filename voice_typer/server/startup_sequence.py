@@ -359,11 +359,27 @@ class StartupSequence:
                 except Exception:
                     log.debug("[STARTUP] vad.preload() failed", exc_info=True)
 
-            threading.Thread(
-                target=_vad_preload_worker,
-                name="vad-preload-startup",
-                daemon=True,
-            ).start()
+            # Register with the app's thread registry (mirroring
+            # ``VoiceTyperApp._preload_vad_model``) so ``shutdown_all()``
+            # joins it cleanly. Under the test suite, an unregistered
+            # preload thread would otherwise outlive its test and — if
+            # it woke during a ``real_torch`` window — load real torch
+            # + the real Silero model concurrently with other tests'
+            # native work, contributing to rare heap corruption.
+            registry = getattr(app, "_thread_registry", None)
+            if registry is not None and hasattr(registry, "spawn_and_register"):
+                registry.spawn_and_register(
+                    "vad-preload-startup",
+                    _vad_preload_worker,
+                    daemon=True,
+                    join_timeout=2.0,
+                )
+            else:
+                threading.Thread(
+                    target=_vad_preload_worker,
+                    name="vad-preload-startup",
+                    daemon=True,
+                ).start()
         except Exception:
             log.debug("[STARTUP] could not spawn vad-preload thread", exc_info=True)
 

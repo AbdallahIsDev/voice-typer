@@ -30,7 +30,6 @@ from __future__ import annotations
 
 import inspect
 import socket
-import sys
 import threading
 from unittest.mock import MagicMock
 
@@ -196,16 +195,6 @@ class TestTCPLineIOCloseUsesShutdown:
             "shutdown) so both reads and writes are interrupted."
         )
 
-    @pytest.mark.skipif(
-        sys.platform == "win32",
-        reason=(
-            "Windows winsock cannot interrupt a blocking recv from another thread "
-            "(neither shutdown() nor closesocket() wakes it while a read is "
-            "in flight — documented winsock behavior). The deadlock scenario is "
-            "POSIX-only; the source-inspection test above still pins the "
-            "shutdown-before-close fix on every platform."
-        ),
-    )
     def test_close_does_not_deadlock_with_concurrent_read(self):
         """End-to-end: a concurrent ``recv`` blocked on the socket must
         be interrupted by ``close()`` (via ``shutdown``) so the
@@ -213,11 +202,11 @@ class TestTCPLineIOCloseUsesShutdown:
         ``BufferedReader.close()`` would deadlock against the in-progress
         ``recv`` and this test would hang until the pytest timeout.
 
-        POSIX-only: on Windows, a blocked ``recv`` cannot be woken from
-        another thread by any socket API (shutdown/closesocket both leave
-        it pending), so the close-while-read behavior cannot be exercised
-        there. The source-inspection test (``test_close_source_uses_shutdown``)
-        runs everywhere and still fails if the fix is reverted.
+        Windows: historically skipped because a blocked ``recv`` cannot
+        be woken by any socket API (shutdown/closesocket both leave it
+        pending). ``_TCPLineIO.close()`` now handles that: it frees the
+        raw fd eagerly and hands the buffered close to a daemon thread,
+        so ``close()`` returns promptly on every platform.
         """
         # ``socket.socketpair()`` (no family arg) uses AF_UNIX on POSIX and
         # AF_INET on Windows — identical duplex-pipe semantics on both.

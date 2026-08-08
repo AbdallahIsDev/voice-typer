@@ -562,8 +562,24 @@ class TestQuarantineCorruptUsesOsReplace:
         from voice_typer.server import secure_file_io as _sfio
 
         monkeypatch.setattr(_sfio, "_QUARANTINE_SUFFIX_SEQ", itertools.count())
-        monkeypatch.setattr(time, "time", lambda: fixed_ts)
-        monkeypatch.setattr(time, "time_ns", lambda: next(ns_values))
+        # Patch secure_file_io's module-level ``time`` binding (a shim
+        # exposing only the two attrs ``_quarantine_corrupt`` reads) instead
+        # of the GLOBAL time module: Python 3.13's ``logging.LogRecord``
+        # calls ``time.time_ns()`` internally, so patching the global would
+        # let logging consume the iterator and exhaust ``ns_values`` mid-
+        # test (the quarantine's own ``log.warning`` would eat the second
+        # value). ``_quarantine_corrupt`` resolves ``time`` from the module
+        # globals, while logging keeps using the real time module.
+        import types as _types
+
+        monkeypatch.setattr(
+            _sfio,
+            "time",
+            _types.SimpleNamespace(
+                time=lambda: fixed_ts,
+                time_ns=lambda: next(ns_values),
+            ),
+        )
         monkeypatch.setattr(os, "getpid", lambda: fixed_pid)
 
         # First quarantine.

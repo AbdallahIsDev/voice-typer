@@ -46,12 +46,19 @@ import contextlib
 import gc
 import logging
 import threading
+import weakref
 
 from voice_typer.server import i18n
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
+
+# Registry of controllers with a live watchdog thread. Lets the test
+# harness drain leaked watchdog threads between tests (mirrors
+# ``crash_recovery._LIVE_INSTANCES``); production behaviour is
+# unaffected — a WeakSet drops controllers automatically on GC.
+_LIVE_WATCHDOG_CONTROLLERS: weakref.WeakSet = weakref.WeakSet()
 
 
 # Bounded cap for ``_cancelled_cycle_ids``. Each cancel event (ESC-during-
@@ -365,6 +372,7 @@ class TranscriptionWatchdog:
                 daemon=True,
             )
             controller._watchdog_thread.start()
+            _LIVE_WATCHDOG_CONTROLLERS.add(controller)
 
     def loop(self, controller) -> None:
         """Persistent watchdog loop — runs on the watchdog daemon thread.
@@ -445,3 +453,6 @@ class TranscriptionWatchdog:
             # will exit naturally after returning, so null the reference.
             # Also covers the ``t is None`` case (no-op).
             controller._watchdog_thread = None
+        # Test-harness registry: the controller's watchdog is (about to
+        # be) dead, so drop it from the live set (best-effort).
+        _LIVE_WATCHDOG_CONTROLLERS.discard(controller)

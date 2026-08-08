@@ -14,6 +14,7 @@ import io
 import logging
 import os
 import socket
+import threading
 
 from voice_typer.server._paths import IPC_PORT
 
@@ -252,15 +253,38 @@ class _TCPLineIO:
         # - Windows: ``shutdown()`` called from another thread while a
         #   ``recv`` is in flight can BLOCK until that I/O completes
         #   (documented winsock behavior) — so the shutdown-first order
-        #   deadlocks. On Windows, ``close()`` alone is the correct
-        #   wake-up: the blocked ``recv`` fails with WSAENOTSOCK.
+        #   deadlocks. The remaining socket ops below are Windows-safe:
+        #   ``close()`` returns immediately (the parked ``recv`` just
+        #   stays parked), and the ``BufferedReader`` is released on a
+        #   daemon thread WITHOUT joining — closing the buffered reader
+        #   synchronously would deadlock on the buffer lock held by the
+        #   parked ``recv`` (measured on the quit path: stop() hung the
+        #   full 5s cleanup budget). The daemon thread is reaped at
+        #   process exit; the raw fd is freed eagerly below so the
+        #   socket number is reusable.
         if os.name != "nt":
             with contextlib.suppress(Exception):
                 self.conn.shutdown(socket.SHUT_RDWR)
         with contextlib.suppress(Exception):
             self.conn.close()
-        with contextlib.suppress(Exception):
-            self._reader.close()
+        reader = self._reader
+        if os.name == "nt":
+            # Release the raw fd NOW (no lock) so the OS socket is
+            # reusable, then hand the buffered close to a daemon thread.
+            # ``reader.close()`` needs the buffer lock; the parked
+            # dispatch-loop ``recv`` holds it → deadlock if joined.
+            raw = getattr(reader, "raw", None)
+            if raw is None:
+                raw = getattr(getattr(reader, "buffer", None), "raw", None)
+            if raw is not None:
+                with contextlib.suppress(Exception):
+                    raw.close()
+            with contextlib.suppress(Exception):
+                daemon_thread = threading.Thread(target=reader.close, daemon=True)
+                daemon_thread.start()
+        else:
+            with contextlib.suppress(Exception):
+                reader.close()
 
 
 __all__ = ["_pick_available_port", "_TCPLineIO"]

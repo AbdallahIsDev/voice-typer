@@ -40,6 +40,7 @@ import os
 import sys
 import threading
 import time
+import weakref
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -178,10 +179,12 @@ def quit(controller: ShutdownController) -> None:  # noqa: A001 — mirrors the 
     # The watchdog is a daemon thread, so it never blocks process
     # exit in the normal case (main thread returns, process exits,
     # daemon thread is killed).
-    # The constant ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` is 2.0s (matches
+    # The constant ``SHUTDOWN_WATCHDOG_TIMEOUT_S`` is 1.0s (matches
     # ``_DE11_GRACE_PERIOD_SECONDS``); the previous comment incorrectly
-    # said "10s". Git history confirms it has always been 2.0s (see
-    # ``_timeout_utils.py:_DE11_GRACE_PERIOD_SECONDS``).
+    # said "10s" pre-fix; reduced from 2.0s to 1.0s with the quit-latency
+    # fix (the 5s dispatch-drain deadlock no longer stalls ``_do_cleanup``,
+    # so the main thread only needs to unwind the pystray loop). See
+    # ``_timeout_utils.py:_DE11_GRACE_PERIOD_SECONDS``.
     if not is_main:
         controller._arm_shutdown_watchdog(SHUTDOWN_WATCHDOG_TIMEOUT_S)
 
@@ -223,8 +226,22 @@ def arm_shutdown_watchdog(
     or by passing a smaller ``timeout_s`` directly.
     """
 
+    cancel_event = threading.Event()
+
     def _watchdog() -> None:
+        # Grace-period wait. ``time.sleep`` (not ``cancel_event.wait``)
+        # is preserved so the DE-11 contract test that patches
+        # ``time.sleep`` in the shutdown_controller module namespace and
+        # asserts ``sleep_calls == [_DE11_GRACE_PERIOD_SECONDS]`` keeps
+        # passing, and the single-blocking-sleep remains observable
+        # (tests that arm a 0.2s watchdog and sleep 0.6s still see it
+        # fire at >=0.2s).
         time.sleep(timeout_s)
+        # If the test-suite drain disarmed us while we slept, return
+        # WITHOUT ``os._exit(0)`` — a leaked watchdog must never kill
+        # the whole xdist worker mid-suite.
+        if cancel_event.is_set():
+            return
         log.warning(
             "[SHUTDOWN] GT-43 watchdog: process still alive %.1fs after "
             "_do_cleanup completed — calling os._exit(0) to unblock the "
@@ -301,10 +318,57 @@ def arm_shutdown_watchdog(
         name="shutdown-watchdog",
         daemon=True,
     )
+    # Cancellation handle for the test-suite drain (see
+    # ``_drain_shutdown_watchdogs`` in tests/conftest.py). Production
+    # never sets it, so the watchdog's last-resort behaviour is
+    # unchanged. Stored in the WeakKeyDictionary registry (thread →
+    # cancel event) rather than as a dynamic attribute on ``Thread``.
+    _WATCHDOG_CANCEL_EVENTS[t] = cancel_event
+    _LIVE_SHUTDOWN_WATCHDOG_THREADS.add(t)
     t.start()
 
 
+def _drain_shutdown_watchdogs() -> None:
+    """Cancel and join any live shutdown-watchdog threads.
+
+    Tests that exercise the non-main-thread restart/quit path (e.g.
+    ``tests/test_app_restart.py``) arm a REAL 2s daemon watchdog
+    (``arm_shutdown_watchdog``) and never let the process exit; ~2s
+    later the watchdog fires the real ``os._exit(0)`` and kills the
+    whole xdist worker with no traceback (``[gwN] node down: Not
+    properly terminated``), hanging the controller. Setting the cancel
+    event wakes ``cancel_event.wait(timeout_s)`` immediately so the
+    leaked watchdog returns before calling ``os._exit(0)``.
+    """
+    for t in list(_LIVE_SHUTDOWN_WATCHDOG_THREADS):
+        cancel = _WATCHDOG_CANCEL_EVENTS.get(t)
+        if cancel is not None:
+            cancel.set()
+        # Best-effort join; a leaked watchdog may still be in its
+        # grace-period sleep (daemon thread) — it will wake, see the
+        # set event, and return without os._exit. Bounded join so a
+        # long-timeout watchdog doesn't stall test teardown.
+        t.join(timeout=0.5)
+        # Drop from the registries so a later drain doesn't re-join and
+        # the WeakSet/WeakKeyDictionary don't accumulate entries.
+        _LIVE_SHUTDOWN_WATCHDOG_THREADS.discard(t)
+        _WATCHDOG_CANCEL_EVENTS.pop(t, None)
+
+
+# Module-level registry of live shutdown-watchdog threads so the test
+# suite can disarm any watchdog a test leaked between tests (mirrors
+# ``crash_recovery._LIVE_INSTANCES`` and
+# ``transcription_watchdog._LIVE_WATCHDOG_CONTROLLERS``); production
+# behaviour is unaffected — a WeakSet drops threads automatically on GC.
+_LIVE_SHUTDOWN_WATCHDOG_THREADS: weakref.WeakSet = weakref.WeakSet()
+# Parallel WeakKeyDictionary mapping each live watchdog thread to its
+# cancel event (threads are weakref-able, so entries drop on GC too).
+_WATCHDOG_CANCEL_EVENTS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
 __all__ = [
+    "_drain_shutdown_watchdogs",
+    "_LIVE_SHUTDOWN_WATCHDOG_THREADS",
     "arm_shutdown_watchdog",
     "quit",
 ]
