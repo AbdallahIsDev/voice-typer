@@ -105,5 +105,6 @@ pub(super) fn toggle_rate_limiter_allows() -> bool {
 // (`LAST_TOGGLE_NANOS`, `TOGGLE_RATE_LIMIT_NS`) without visibility
 // changes.
 #[cfg(test)]
+#[path = "rate_limit_tests.rs"]
 mod rate_limit_tests;
 

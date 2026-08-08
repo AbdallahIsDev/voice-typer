@@ -944,7 +944,7 @@ pub(crate) async fn reconnect_ws(
     // the reader/writer tasks. Renamed to `app` to reflect actual use
     // and silence the misleading-underscore lint.
     let (write, read) = ws_connect(port).await?;
-    let (ws_rx, my_generation) = queue_auth_and_store_ws_tx(state, token)?;
+    let (ws_rx, my_generation) = queue_auth_and_store_ws_tx(state, token).await?;
     //pass ``app`` + ``state`` so ``spawn_writer_task`` can
     // run the symmetric cleanup block (clear ws_tx, drain pending,
     // trigger respawn) on write-half failure — previously the writer

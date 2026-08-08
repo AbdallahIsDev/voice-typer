@@ -148,7 +148,7 @@ fn test_allowed_commands_count_matches_ts_parity() {
     // the COUNT so a local `cargo test` catches a drift before the
     // Python test even runs.
     //
-    // 61 shared commands (TS has 63 = 61 shared + heartbeat +
+    // 62 shared commands (TS has 64 = 62 shared + heartbeat +
     // relaunch_ack). `heartbeat` and `relaunch_ack` are
     // intentionally ABSENT from this Rust literal — see the
     // doc comment on the cmds literal below. `add_trusted_endpoint`
@@ -156,21 +156,21 @@ fn test_allowed_commands_count_matches_ts_parity() {
     // intentionally absent — see `dispatch_inner`.
     assert_eq!(
         allowed_commands().len(),
-        61,
-        "must match TS allowlist (63 entries) minus heartbeat/relaunch_ack (61 entries)"
+        62,
+        "must match TS allowlist (64 entries) minus heartbeat/relaunch_ack (62 entries)"
     );
 }
 
 #[test]
 fn test_allowed_commands_set_contains_no_duplicates() {
     let set = allowed_commands();
-    // 61 entries — must match the cmds literal below (single
+    // 62 entries — must match the cmds literal below (single
     // source of truth). A duplicate in the literal would make
-    // set.len() < 61.
+    // set.len() < 62.
     assert_eq!(
         set.len(),
-        61,
-        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (61). \
+        62,
+        "ALLOWED_COMMANDS contains a duplicate entry — set len ({}) < literal len (62). \
          Check the constructor log for the duplicate name.",
         set.len()
     );
@@ -178,20 +178,20 @@ fn test_allowed_commands_set_contains_no_duplicates() {
 
 #[test]
 fn test_allowed_commands_exact_snapshot() {
-    //Stricter parity test: pin the EXACT 61-entry set (sorted)
+    //Stricter parity test: pin the EXACT 62-entry set (sorted)
     // so any drift between the Rust literal and the TS allowlist is
     // caught at `cargo test` time, BEFORE the cross-layer Python
     // parity test in
     // `tests/test_security_doc_command_count.py::test_rust_allowlist_matches_ts_allowlist`
     // runs. The count-only test above catches add/remove drift but
     // MISSES a rename (e.g. `onboarding_reset` → `reset_onboarding`)
-    // that keeps the count at 61. This snapshot test catches both
+    // that keeps the count at 62. This snapshot test catches both
     // renames and any silent reordering that would mask a missing
     // entry.
     //
     // The expected list is the alphabetically-sorted union of:
     //   - the TS `ALLOWED_COMMANDS` literal in
-    //     `voice_typer/client/src/main/allowed-commands.ts` (63 entries)
+    //     `voice_typer/client/src/main/allowed-commands.ts` (64 entries)
     //   - minus the two Rust-only-excluded commands:
     //     `heartbeat` (sent by the Rust WS-reader task) and
     //     `relaunch_ack` (sent by the Rust `relaunch_app` event
@@ -245,6 +245,7 @@ fn test_allowed_commands_exact_snapshot() {
         "onboarding_next_step",
         "onboarding_prev_step",
         "onboarding_reset",
+        "onboarding_set_backend",
         "onboarding_set_hotkey",
         "onboarding_set_microphone",
         "onboarding_set_model",
@@ -281,7 +282,7 @@ fn test_allowed_commands_exact_snapshot() {
     assert_eq!(
         actual, expected,
         "ALLOWED_COMMANDS snapshot drift — the Rust literal no longer matches the pinned \
-         61-entry snapshot. Diff the actual vs expected Vec above. If the change is \
+         62-entry snapshot. Diff the actual vs expected Vec above. If the change is \
          intentional, update this snapshot in lockstep with the cmds literal AND the TS \
          allowlist (see MAINTENANCE note above)."
     );

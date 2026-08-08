@@ -51,12 +51,9 @@ pub(crate) fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
     // missing path surfaces as a structured error string (which the
     // caller puts in the ``{"success": false, "error": ...}`` envelope)
     // rather than a silent Ok(()) followed by an OS error dialog.
-    if !path.exists() {
-        return Err(format!(
-            "path does not exist: {}",
-            path.display()
-        ));
-    }
+    // The check lives in the pure [`preflight_path_exists`] helper so
+    // unit tests can pin it WITHOUT spawning the OS file manager.
+    preflight_path_exists(path)?;
 
     #[cfg(target_os = "windows")]
     {
@@ -118,6 +115,27 @@ pub(crate) fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
         let _ = path;
         Err("unsupported platform: open_path is only implemented for Windows / macOS / Linux".to_string())
     }
+}
+
+/// Pure pre-flight existence check for [`open_path_in_file_manager`].
+/// Returns `Err("path does not exist: ...")` for a missing path so
+/// the caller can surface a structured error instead of spawning the
+/// OS binary and popping a "path not found" dialog.
+///
+/// Extracted as a spawn-free helper so unit tests can pin the
+/// contract WITHOUT launching the OS file manager — the previous
+/// `test_open_path_accepts_existing_path` test called
+/// `open_path_in_file_manager` on the temp dir, which spawned
+/// `explorer.exe` and opened a real file-explorer window on the
+/// developer's machine on every `cargo test` run on Windows.
+pub(crate) fn preflight_path_exists(path: &Path) -> Result<(), String> {
+    if !path.exists() {
+        return Err(format!(
+            "path does not exist: {}",
+            path.display()
+        ));
+    }
+    Ok(())
 }
 
 

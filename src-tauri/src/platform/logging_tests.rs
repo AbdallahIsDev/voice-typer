@@ -78,14 +78,20 @@ fn test_rotating_file_writer_truncates_in_place() {
         !tmp.join("test-log.log.1").exists(),
         "single-file policy: .log.1 must NOT exist"
     );
-    // The file is bounded: after truncation it holds at most one
-    // line-worth of content (the first write after truncate).
+    // The file is bounded: the single-file policy guarantees the
+    // on-disk log never exceeds the rotation cap (the write that
+    // crosses the threshold is flushed then truncated away). All
+    // writes AFTER the truncation point survive — with a 5 MiB cap and
+    // 100 KB lines, the first 53 lines cross the cap (5,300,053 B) and
+    // are truncated, leaving the remaining 7 lines (~700 KB) well
+    // under the cap.
     let size = std::fs::metadata(tmp.join("test-log.log"))
         .map(|m| m.len())
         .unwrap_or(0);
     assert!(
-        size <= 2 * 100_000,
-        "truncated log must be bounded; got {} bytes",
+        size <= u64::from(LOG_MAX_BYTES),
+        "truncated log must stay under the rotation cap ({} bytes); got {} bytes",
+        LOG_MAX_BYTES,
         size
     );
     std::fs::remove_dir_all(&tmp).ok();
@@ -129,7 +135,6 @@ fn test_rotating_file_writer_keeps_single_file_after_many_truncations() {
 }
 
 #[test]
-fn test_rotating_file_writer_thread_safety() {#[test]
 fn test_rotating_file_writer_thread_safety() {
     // Spawn multiple threads writing to the same writer — should
     // not panic or corrupt (Mutex protects the inner File).
@@ -641,8 +646,6 @@ fn test_rotating_file_writer_truncate_keeps_0o600_on_posix() {
 }
 
 #[cfg(unix)]
-#[test]
-fn test_init_file_logger_tightens_logs_dir_to_0o700_on_posix() {#[cfg(unix)]
 #[test]
 fn test_init_file_logger_tightens_logs_dir_to_0o700_on_posix() {
     // `init_file_logger` must chmod the parent `<config_dir>/logs/`

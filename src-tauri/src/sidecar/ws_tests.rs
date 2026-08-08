@@ -11,7 +11,7 @@ use super::ws::{
     drain_pending_with_disconnect_error, queue_auth_and_store_ws_tx, WS_WRITER_CHANNEL_CAPACITY,
 };
 use crate::sidecar::bubble_coalesce::bubble_coalesce_should_emit;
-use crate::state::{lock as mutex_lock, PendingMap, SidecarState};
+use crate::state::{lock as mutex_lock, PendingMap};
 use crate::util::BUBBLE_LEVEL_COALESCE_HZ;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -214,6 +214,7 @@ async fn test_si15_queue_auth_increments_ws_generation_and_stores_ws_tx() {
 
     // First reconnect — bumps generation 0 → 1, stores ws_tx.
     let (_ws_rx1, gen1) = queue_auth_and_store_ws_tx(&state, "token-1")
+        .await
         .expect("first queue_auth must succeed");
     assert_eq!(gen1, 1, "first reconnect must return generation 1");
     assert_eq!(
@@ -230,6 +231,7 @@ async fn test_si15_queue_auth_increments_ws_generation_and_stores_ws_tx() {
     // (replacing the old one). This mirrors the supervisor's
     // reconnect-after-kill path.
     let (_ws_rx2, gen2) = queue_auth_and_store_ws_tx(&state, "token-2")
+        .await
         .expect("second queue_auth must succeed");
     assert_eq!(gen2, 2, "second reconnect must return generation 2");
     assert_eq!(
@@ -255,8 +257,10 @@ async fn test_si15_cleanup_generation_guard_skips_clear_on_mismatch() {
     // reconnect (gen=2) replaced it. The old reader's cleanup is
     // now running with my_generation=1.
     let (_old_ws_rx, _gen1) = queue_auth_and_store_ws_tx(&state, "old-token")
+        .await
         .expect("old queue_auth must succeed");
     let (new_ws_rx, gen2) = queue_auth_and_store_ws_tx(&state, "new-token")
+        .await
         .expect("new queue_auth must succeed");
     let my_generation = 1u64; // the OLD reader's captured generation
     assert_eq!(gen2, 2, "precondition: new reconnect must be generation 2");
@@ -305,6 +309,7 @@ async fn test_si15_cleanup_generation_guard_clears_on_match() {
 
     // Single reconnect — generation 1, no newer reconnect has run.
     let (_ws_rx, gen1) = queue_auth_and_store_ws_tx(&state, "token")
+        .await
         .expect("queue_auth must succeed");
     let my_generation = gen1;
     assert_eq!(
@@ -358,8 +363,10 @@ async fn test_cleanup_delayed_reader_skips_drain_and_respawn_on_generation_misma
     // (Tokio runtime contention) after the new reconnect's auth
     // already completed.
     let (_old_ws_rx, _gen1) = queue_auth_and_store_ws_tx(&state, "old-token")
+        .await
         .expect("old queue_auth must succeed");
     let (new_ws_rx, gen2) = queue_auth_and_store_ws_tx(&state, "new-token")
+        .await
         .expect("new queue_auth must succeed");
     let my_generation = 1u64; // the OLD reader's captured generation
     assert_eq!(gen2, 2, "precondition: new reconnect must be generation 2");
@@ -437,6 +444,7 @@ async fn test_cleanup_drains_pending_on_generation_match() {
     let state = Arc::new(crate::state::SidecarState::new());
 
     let (_ws_rx, gen1) = queue_auth_and_store_ws_tx(&state, "token")
+        .await
         .expect("queue_auth must succeed");
     let my_generation = gen1;
     let _ws_rx_guard = _ws_rx;
@@ -513,6 +521,7 @@ async fn test_queue_auth_creates_bounded_channel_at_capacity() {
     let state = Arc::new(crate::state::SidecarState::new());
 
     let (mut ws_rx, _gen) = queue_auth_and_store_ws_tx(&state, "auth-token")
+        .await
         .expect("queue_auth must succeed on a fresh state");
 
     // The auth frame is the very first frame queued inside

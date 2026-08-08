@@ -31,6 +31,7 @@
 
 use crate::util::{LOG_MAX_BYTES, now_timestamp};
 use std::fs::OpenOptions;
+use std::io::Seek;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
@@ -1589,18 +1590,34 @@ impl RotatingFileWriter {
             std::fs::create_dir_all(&self.dir)?;
             // Create the log file with `0o600` perms
             // on POSIX so it is NOT world-readable. On Linux/macOS the
-            // default `OpenOptions::create(true).append(true).open(...)`
+            // default `OpenOptions::create(true).write(true).open(...)`
             // inherits the process umask (typically 0o022), producing
             // `0o644` — readable by group + others. The dictation log
             //may contain raw transcription text + PII (),
             // so tighten to owner-only. On Windows `OpenOptionsExt::mode`
             // is unavailable; the OS uses ACLs instead (configured at
             // install time, not per-file).
+            //
+            // NOTE: we open with `write(true)` (NOT `append(true)`). On
+            // Windows an append-mode handle lacks `FILE_WRITE_DATA`, so
+            // the rotation path's `set_len(0)` fails with
+            // `ERROR_ACCESS_DENIED` (code 5) and the file silently stops
+            // being written once it crosses `LOG_MAX_BYTES`. With write
+            // mode we position at EOF explicitly below (append
+            // semantics), and both `set_len` and `seek` work on every
+            // platform. Writes are already serialized by the `inner`
+            // Mutex, so the explicit position management is race-free.
             let mut opts = OpenOptions::new();
-            opts.create(true).append(true);
+            opts.create(true).write(true);
             #[cfg(unix)]
             opts.mode(0o600);
-            let file = opts.open(self.current_path())?;
+            let mut file = opts.open(self.current_path())?;
+            // Position at EOF so new writes append to any pre-existing
+            // content (write mode does not carry the O_APPEND / append-
+            // only semantics). If a prior run left a stale
+            // `voice-typer.log`, this continues appending to it instead
+            // of overwriting from the start.
+            file.seek(std::io::SeekFrom::End(0))?;
             // Wrap the raw `File` in a `std::io::BufWriter` (8 KB
             // default capacity) so per-line `write_all` calls land in
             // an in-memory buffer instead of issuing one `write(2)`

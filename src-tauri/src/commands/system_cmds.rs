@@ -427,5 +427,6 @@ pub async fn export_config(
 // file can use `use super::{...}` to access `pub(crate)` items
 // (`is_sensitive_key`, `redact_config_secrets`, `REDACTED_MARKER`).
 #[cfg(test)]
+#[path = "system_cmds_tests.rs"]
 mod system_cmds_tests;
 

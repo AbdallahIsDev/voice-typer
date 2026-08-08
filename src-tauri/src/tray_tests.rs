@@ -22,9 +22,6 @@
 use super::*;
 use serde_json::json;
 
-    use super::*;
-    use serde_json::json;
-
     //TrayStatePayload parsing ───────────────────────────────
 
     #[test]

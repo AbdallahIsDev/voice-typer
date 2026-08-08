@@ -33,29 +33,22 @@ fn test_open_path_rejects_missing_path() {
     );
 }
 
-// an existing path is accepted (the OS-binary spawn is
-// platform-gated, so we can't easily assert success here without
-// depending on a file manager being installed in CI — but the
-// pre-flight existence check is the contract, and that's
-// what we exercise). The temp dir always exists.
+// an existing path is accepted by the pre-flight existence check
+// WITHOUT spawning the OS file manager. (The previous version of
+// this test called `open_path_in_file_manager(&temp_dir)`, which on
+// Windows spawned `explorer.exe` on the temp dir — opening a real
+// file-explorer window on the developer's machine on every
+// `cargo test` run. The spawn is a side effect the contract does
+// NOT need, so we test the pure [`preflight_path_exists`] check
+// instead.) The temp dir always exists.
 #[test]
 fn test_open_path_accepts_existing_path() {
     let existing = std::env::temp_dir();
     assert!(existing.exists());
-    // We don't assert Ok(()) — on a headless CI runner xdg-open /
-    // explorer.exe / open may not be installed. The contract we
-    // test is "the pre-flight existence check does NOT reject an
-    // existing path" — i.e. the error (if any) is NOT
-    // "path does not exist".
-    match open_path_in_file_manager(&existing) {
-        Ok(()) => {}
-        Err(e) => {
-            assert!(
-                !e.contains("path does not exist"),
-                "pre-flight rejected an existing path: {e}"
-            );
-        }
-    }
+    assert!(
+        preflight_path_exists(&existing).is_ok(),
+        "pre-flight must accept an existing path without spawning the OS file manager"
+    );
 }
 
 // The reaper thread must not leak the `Child` handle. We can't

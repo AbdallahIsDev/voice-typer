@@ -320,5 +320,6 @@ pub(crate) fn csv_escape_into(out: &mut String, s: &str) {
 // `export` so the test file can use `use super::{...}` to access
 // `pub(crate)` items.
 #[cfg(test)]
+#[path = "export_tests.rs"]
 mod export_tests;
 

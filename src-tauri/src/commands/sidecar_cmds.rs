@@ -312,7 +312,7 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
         ];
         // Build the set in one pass. Duplicate detection is enforced
         // by the `test_allowed_commands_set_contains_no_duplicates`
-        // unit test (which asserts `set.len() == 61`), so we don't
+        // unit test (which asserts `set.len() == 62`), so we don't
         // need a runtime `log::error!` per duplicate here — that path
         // was ~14 lines of defensive logging on a static `&[&str]`
         // literal and was redundant with the test. If a future
@@ -976,5 +976,6 @@ pub(crate) fn on_main_window_close(
 // (`allowed_commands`, `is_command_allowed`, `PENDING_MAX`,
 // `PENDING_FULL_CODE`).
 #[cfg(test)]
+#[path = "sidecar_cmds_tests.rs"]
 mod sidecar_cmds_tests;
 

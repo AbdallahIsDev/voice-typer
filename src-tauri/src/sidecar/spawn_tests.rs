@@ -16,6 +16,8 @@
 //! allowlist tests are `#[cfg(target_os = "linux")]`-gated.
 
 use super::*;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 /// The LINUX_GUI env-var allowlist must include `XDG_SESSION_TYPE`.
 /// Pre-fix: this var was missing, so the sidecar couldn't tell
@@ -111,8 +113,6 @@ fn test_passthrough_env_allowlist_keeps_existing_linux_gui_vars() {
 // ── Pre-existing parse_server_started + is_shutting_down tests ────
 // (Moved verbatim from the legacy inline
 //  block to comply with C-TEST-5.)
-
-    use super::*;
 
     // ── parse_server_started ──────────────────────────────────────────
 

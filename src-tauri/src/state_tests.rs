@@ -7,7 +7,7 @@
 //! already `pub(crate)`, so no visibility bumps were needed in
 //! `state.rs`.
 
-use crate::state::{lock, PendingMap, SidecarHandle, SidecarState, shutdown_sidecar_for_exit};
+use crate::state::{PendingMap, SidecarHandle, SidecarState, shutdown_sidecar_for_exit};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;

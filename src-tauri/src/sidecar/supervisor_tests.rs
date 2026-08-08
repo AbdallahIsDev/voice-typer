@@ -14,7 +14,7 @@ use super::supervisor::{
 };
 #[cfg(target_os = "linux")]
 use crate::state::SidecarHandle;
-use crate::state::{lock as mutex_lock, SidecarState};
+use crate::state::SidecarState;
 use futures_util::FutureExt;
 use serde_json::json;
 use std::panic::AssertUnwindSafe;
