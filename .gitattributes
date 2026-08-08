@@ -10,3 +10,14 @@ pyrefly-baseline.json text eol=lf
 # platform regardless of core.autocrlf so the byte equality holds.
 src-tauri/resources/linux-scripts/* text eol=lf
 scripts/linux/* text eol=lf
+
+# macOS + Windows installer scripts also run at install / uninstall time
+# (macOS install.sh / uninstall.sh; Windows uninstall.bat /
+# uninstaller.nsh / sign-authenticode.ps1 / uninstall_permissions.py).
+# CRLF would break the POSIX shell scripts, and
+# tests/test_script_resources_lf.py byte-compares the working tree
+# against the committed LF blob + asserts `git check-attr` resolves
+# text + eol=lf — so these must stay LF on every platform regardless of
+# core.autocrlf.
+scripts/macos/* text eol=lf
+scripts/windows/* text eol=lf

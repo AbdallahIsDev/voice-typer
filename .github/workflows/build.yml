@@ -184,6 +184,22 @@ jobs:
           python -m ruff check voice_typer/ tests/ scripts/ conftest.py --output-format=json > ruff-current.json || true
           python scripts/ruff_ratchet_check.py
 
+      # linux-scripts LF check. The maintainer scripts shipped in the
+      # .deb/.rpm bundles must stay LF: .gitattributes enforces
+      # `text eol=lf` on scripts/linux/* and
+      # src-tauri/resources/linux-scripts/*, but if that rule regresses
+      # (or a Windows editor commits CRLF with autocrlf off) the bundled
+      # scripts carry CR bytes and bash fails with `\r: command not
+      # found` at install time. The pytest byte-compare (bundled ==
+      # canonical) cannot catch a UNIFORM CRLF drift on both sides, so
+      # this step forbids CR bytes AND byte-compares bundled vs canonical
+      # (scripts/check_linux_scripts_lf.py). Runs on every matrix leg: a
+      # CRLF blob committed on any OS is caught on every leg, and a
+      # working-tree CRLF regression (from a .gitattributes removal)
+      # surfaces on the Windows leg.
+      - name: Linux scripts LF check
+        run: python scripts/check_linux_scripts_lf.py
+
       # i18n key-completeness gate. Runs the i18n completeness suite
       # explicitly BEFORE the full pytest sweep so a missing-key regression
       # fails the build fast (the full test step also runs this file, but
