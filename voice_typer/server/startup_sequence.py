@@ -40,6 +40,7 @@ from typing import TYPE_CHECKING
 from voice_typer.server import crash_handler as _crash_handler
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.config import _config_dir
+from voice_typer.server.duration import format_duration
 from voice_typer.server.platform_utils import is_linux, is_macos, is_wayland_session, is_windows
 from voice_typer.server.server_platform import is_autostart_enabled
 from voice_typer.server.text_cleanup import configure_corrections
@@ -338,6 +339,10 @@ class StartupSequence:
         begun shutdown.
         """
         app = self._app
+        # C-LOG-2: anchor the total startup duration, reported on the
+        # "Startup complete" line (model load runs on a background
+        # thread and is measured separately).
+        _t0 = time.perf_counter()
         log.info("[STARTUP] Initializing: autostart, microphones, hotkey, model...")
 
         # DJ-57: eagerly preload + warm the Silero VAD model on a
@@ -1152,4 +1157,7 @@ class StartupSequence:
             except Exception as e:
                 log.debug("[STARTUP] Failed to push bubble config: %s", e)
 
-        log.info("[STARTUP] Startup complete, model still loading in background")
+        log.info(
+            "[STARTUP] Startup complete (model still loading in background)%s",
+            format_duration(time.perf_counter() - _t0),
+        )

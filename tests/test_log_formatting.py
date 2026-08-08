@@ -15,10 +15,13 @@ Covers six findings from the comprehensive review:
 * **GT-65 (Medium)** — :func:`_apply_per_module_log_levels` must log
   a WARNING for each skipped ``VOICE_TYPER_LOG_LEVEL_MODULES`` entry
   so a typo no longer silently disables DEBUG output.
-* **GT-61 (Medium)** — timestamps must include milliseconds and a
-  timezone offset (ISO 8601) so two log lines within the same second
-  are distinguishable and cross-timezone tickets don't need manual
-  timezone inference.
+* **GT-61 (Medium)** — timestamps must be distinguishable and
+  cross-timezone readable.  Text output (file + terminal) is a clean
+  space-separated local timestamp with seconds precision
+  (``YYYY-MM-DD  HH:MM:SS`` — two spaces between date and time in the
+  file; time-only ``HH:MM:SS`` on the terminal, the date lives only in
+  the file).  JSON output keeps the millisecond fraction + UTC ``Z``
+  suffix for log aggregators.
 * **GT-62 (Medium)** — :class:`_BubbleLevelExclusionFilter` must keep
   WARNING+ records unconditionally (cheap path) so a legitimate
   ``"bubble_level handler crashed"`` error is never dropped from the
@@ -282,16 +285,25 @@ def test_apply_per_module_log_levels_warns_on_missing_equals(tmp_path: Path, mon
         reset()
 
 
-# ISO 8601 timestamps with millis + tz ───────────────────────────
+# timestamps: millis, clean text format, UTC Z for JSON ────────────────
 
 
-_ISO_RE_TEXT = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{4}")
+# Text output (file): clean space-separated local timestamp
+# `YYYY-MM-DD  HH:MM:SS` — TWO spaces between the date and the time,
+# seconds-only precision (no millisecond fraction), no ``T`` separator,
+# no tz offset — reads naturally.
+_TS_RE_TEXT = re.compile(r"\d{4}-\d{2}-\d{2}  \d{2}:\d{2}:\d{2}")
+# Terminal output: time only `HH:MM:SS` (no date, no millis).
+_TS_RE_TERM = re.compile(r"\d{2}:\d{2}:\d{2}")
+# JSON output: UTC ISO 8601 with Z suffix (for log aggregators).
 _ISO_RE_JSON = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z")
 
 
-def test_file_formatter_iso_timestamp_with_millis_and_tz() -> None:
-    """GT-61: ``_FileFormatter`` emits an ISO 8601 timestamp with
-    milliseconds and a timezone offset (``+HHMM``)."""
+def test_file_formatter_clean_timestamp_no_millis() -> None:
+    """``_FileFormatter`` emits a clean space-separated timestamp with
+    seconds-only precision: ``YYYY-MM-DD  HH:MM:SS`` — TWO spaces
+    between the date and the time, no millisecond fraction, no ``T``
+    separator, no timezone offset."""
     record = logging.LogRecord(
         name="voice_typer.server.fake",
         level=logging.INFO,
@@ -303,12 +315,22 @@ def test_file_formatter_iso_timestamp_with_millis_and_tz() -> None:
     )
     record.session_id = "deadbeef"
     line = _FileFormatter().format(record)
-    assert _ISO_RE_TEXT.search(line), f"GT-61 regression: text timestamp not ISO 8601 with millis+tz:\n{line!r}"
+    assert _TS_RE_TEXT.search(line), (
+        f"regression: text timestamp not clean with two-space date/time sep:\n{line!r}"
+    )
+    # No T separator between date and time, no tz offset suffix.
+    first = line.split()[0]
+    assert "T" not in first, f"no T separator expected: {line!r}"
+    assert "+" not in first and not first.endswith("Z"), f"no tz offset expected: {line!r}"
+    # No millisecond fraction (seconds-only precision).
+    assert "." not in first
+    assert not re.search(r"\d{2}\.\d{3}", line), f"no millis expected: {line!r}"
 
 
-def test_color_formatter_iso_timestamp_with_millis_and_tz() -> None:
-    """GT-61: ``_ColorFormatter`` emits an ISO 8601 timestamp with
-    milliseconds and a timezone offset."""
+def test_color_formatter_clean_timestamp_time_only() -> None:
+    """``_ColorFormatter`` (terminal) emits a TIME-ONLY timestamp
+    ``HH:MM:SS`` — the date is deliberately kept out of console output
+    (it lives only in the log file).  No millis, no tz offset."""
     record = logging.LogRecord(
         name="voice_typer.server.fake",
         level=logging.INFO,
@@ -322,9 +344,15 @@ def test_color_formatter_iso_timestamp_with_millis_and_tz() -> None:
     line = _ColorFormatter().format(record)
     # Strip ANSI escapes before matching so colour codes don't interfere.
     plain = re.sub(r"\033\[[0-9;]*m", "", line)
-    assert _ISO_RE_TEXT.search(plain), (
-        f"GT-61 regression: colour formatter timestamp not ISO 8601 with millis+tz:\n{plain!r}"
+    assert _TS_RE_TERM.search(plain), (
+        f"regression: colour formatter timestamp not time-only HH:MM:SS:\n{plain!r}"
     )
+    # The date must NOT appear in terminal output.
+    assert not re.search(r"\d{4}-\d{2}-\d{2}", plain), (
+        f"date must not appear on terminal lines: {plain!r}"
+    )
+    # No millis / tz on the terminal either.
+    assert not re.search(r"\.\d{3}", plain), f"no millis expected on terminal: {plain!r}"
 
 
 def test_json_formatter_iso_timestamp_utc_z_suffix() -> None:

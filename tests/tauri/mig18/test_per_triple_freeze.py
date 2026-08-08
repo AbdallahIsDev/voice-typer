@@ -172,11 +172,12 @@ Gaps documented (report, do NOT fix — out of scope for MIG-1.8):
 from __future__ import annotations
 
 import json
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from tests.fixtures.bash_utils import bash_usable
 
 # ─── Project paths ───────────────────────────────────────────────────────────
 # This test file lives at tests/tauri/mig18/test_per_triple_freeze.py.
@@ -274,8 +275,8 @@ def test_build_script_is_bash_syntax_valid(script: Path):
     cl.exe / python-build-standalone is spawned. Safe to run on the
     Linux sandbox.
     """
-    if not shutil.which("bash"):
-        pytest.skip("bash not available on this host — cannot run `bash -n`.")
+    if not bash_usable():
+        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(script)],
         capture_output=True,
@@ -737,8 +738,8 @@ def test_nuitka_freeze_wrapper_exists_and_is_valid_bash():
     to the right per-platform script based on the host OS (ADR-0020 §4).
     """
     assert NUITKA_FREEZE_WRAPPER.is_file(), f"missing unified Nuitka freeze wrapper: {NUITKA_FREEZE_WRAPPER}"
-    if not shutil.which("bash"):
-        pytest.skip("bash not available on this host — cannot run `bash -n`.")
+    if not bash_usable():
+        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(NUITKA_FREEZE_WRAPPER)],
         capture_output=True,

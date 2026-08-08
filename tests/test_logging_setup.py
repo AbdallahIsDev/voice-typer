@@ -236,14 +236,22 @@ def test_log_message_reaches_file(config_dir, clean_env, stub_side_effects):
     assert "[HOTKEY] RegisterHotKey succeeded" in content
 
 
-def test_session_id_bracket_appears_in_file(config_dir, clean_env, stub_side_effects):
-    """The 8-char per-process session_id bracket appears in file log output."""
+def test_no_session_id_bracket_in_file(config_dir, clean_env, stub_side_effects):
+    """The 8-char per-process session_id bracket must NOT appear in file
+    log output — it added noise to every line without helping the user
+    read the log (correlation stays available in JSON mode)."""
     logging_setup._setup_logging()
     lg = logging.getLogger("voice_typer.server.fake_module")
     lg.info("[HOTKEY] fired")
     _flush_all()
     content = (config_dir / "voice-typer.log").read_text(encoding="utf-8")
-    assert re.search(r"\[[0-9a-f]{8}\]", content), f"no 8-char session_id bracket in log file:\n{content}"
+    assert not re.search(r"\[[0-9a-f]{8}\]", content), (
+        f"8-char session_id bracket must NOT appear in file log:\n{content}"
+    )
+    assert "[HOTKEY] fired" in content
+    # Clean space-separated timestamp (no T separator, no tz offset).
+    first = content.split()[0]
+    assert "T" not in first and "+" not in first, f"clean ts expected: {content!r}"
 
 
 # ─── Environment variable side effects ───────────────────────────────────
@@ -441,6 +449,12 @@ class TestStartupBanner:  # noqa: N801
             log_file, root_level, json_mode, debug, quiet, session_id,
         )
 
+    The session id is included exactly ONCE, as the trailing
+    ``session=`` field of the banner — the first line of the session —
+    so every subsequent line implicitly belongs to this session
+    without the id being repeated per-line (C-LOG-1 keeps per-line
+    output clean; the banner is the single mention).
+
     The banner is the first INFO record emitted through the
     ``voice_typer.server.logging_setup`` logger after the rotating
     file handler is installed, so it lands at the top of
@@ -514,19 +528,32 @@ class TestStartupBanner:  # noqa: N801
             f"GT-B1-15: banner should show json=True under VOICE_TYPER_LOG_JSON=1; got: {banner!r}"
         )
 
-    def test_banner_includes_session_id(self, config_dir, clean_env, stub_side_effects):
-        """The banner includes the 8-char hex session id returned by
-        ``setup_logging``.
+    def test_banner_includes_session_id_once(self, config_dir, clean_env, stub_side_effects):
+        """The session id is mentioned exactly ONCE per session: on the
+        VERY FIRST line of the log file (the ``[STARTUP] logging
+        initialized:`` banner), never on any subsequent line (C-LOG-1
+        keeps per-line output clean; the banner is the single mention).
         """
         from voice_typer.server import log as _log_module
 
         logging_setup._setup_logging()
         _flush_all()
-        banner = self._banner_lines(config_dir)
+        content = (config_dir / "voice-typer.log").read_text(encoding="utf-8")
+        lines = content.splitlines()
         session_id = _log_module._session_id
         assert session_id, "setup_logging did not populate _session_id"
-        assert f"session={session_id}" in banner, (
-            f"GT-B1-15: banner missing session id; expected session={session_id}, got: {banner!r}"
+        assert re.fullmatch(r"[0-9a-f]{8}", session_id), (
+            f"GT-B1-15: _session_id is not an 8-char hex id; got: {session_id!r}"
+        )
+        # The session id must sit on the very first line of the session.
+        assert lines, "GT-B1-15: log file is empty"
+        assert f"session={session_id}" in lines[0], (
+            f"GT-B1-15: first log line must carry session=<id>; got: {lines[0]!r}"
+        )
+        # ...and nowhere else in the entire file (one mention per
+        # session — no per-line ids, no duplication in later banners).
+        assert content.count("session=") == 1, (
+            f"GT-B1-15: session= must appear exactly once; got:\n{content}"
         )
 
     def test_banner_defaults_when_no_flags_set(self, config_dir, clean_env, stub_side_effects):

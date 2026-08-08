@@ -26,7 +26,7 @@ Contracts pinned here:
 
 from __future__ import annotations
 
-import subprocess
+import re
 from pathlib import Path
 
 import pytest
@@ -100,27 +100,23 @@ class TestTranscriptionEngineReExportRemoved:
         tests/test_qwen_engine.py ×1) now target
         ``voice_typer.server.transcription.TranscriptionEngine``.
 
-        Uses grep so a future regression (someone re-introduces a patch
-        on the removed re-export) trips this test loudly. Pattern is
-        scoped to actual ``monkeypatch.setattr`` call sites (not
+        Uses a source scan so a future regression (someone re-introduces
+        a patch on the removed re-export) trips this test loudly. Pattern
+        is scoped to actual ``monkeypatch.setattr`` call sites (not
         docstrings / comments) to avoid false positives from this test
         file's own narrative.
         """
         repo_root = Path(__file__).resolve().parent.parent
-        result = subprocess.run(
-            [
-                "rg",
-                "-n",
-                r'monkeypatch\.setattr\(\s*"voice_typer\.server\.app\.TranscriptionEngine"',
-                "tests/",
-            ],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
+        pattern = re.compile(
+            r'monkeypatch\.setattr\(\s*"voice_typer\.server\.app\.TranscriptionEngine"'
         )
-        # rg exits 1 when no matches found — that's what we want.
-        assert result.returncode == 1, (
+        hits = []
+        for path in sorted((repo_root / "tests").rglob("*.py")):
+            text = path.read_text(encoding="utf-8", errors="replace")
+            if pattern.search(text):
+                hits.append(str(path.relative_to(repo_root)))
+        assert not hits, (
             "Regression: found test(s) still monkeypatching the "
-            f"removed voice_typer.server.app.TranscriptionEngine re-export:\n"
-            f"{result.stdout}"
+            "removed voice_typer.server.app.TranscriptionEngine re-export:\n"
+            + "\n".join(hits)
         )

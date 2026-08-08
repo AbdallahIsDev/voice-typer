@@ -59,12 +59,13 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from tests.fixtures.bash_utils import bash_usable
 
 # ─── Paths to real source files (source-inspection, NOT mocked) ──────────
 
@@ -121,12 +122,16 @@ LEGACY_PATH = "/usr/share/voice-typer/scripts"
 # resolves to a working script across Tauri v2 / AppImage installs.
 POLKIT_STABLE_PATH = "/usr/share/voice-typer/scripts/install_permissions.py"
 
-# Skip bash -n syntax checks on hosts without bash (e.g. Windows CI runners
-# without Git Bash).  On Linux + macOS this is always satisfied.
-_HAS_BASH = shutil.which("bash") is not None
+# Skip bash -n syntax checks on hosts without a USABLE bash. A mere
+# `shutil.which("bash")` check is not enough: GitHub Actions Windows
+# runners resolve `bash` to the WSL launcher stub
+# (C:\Windows\System32\bash.exe), which is on PATH but exits non-zero
+# with "Windows Subsystem for Linux has no installed distributions."
+# when invoked — so the tests would fail instead of skip.
+# `bash_usable()` probes that `bash -c 'exit 0'` actually succeeds.
 _skip_no_bash = pytest.mark.skipif(
-    not _HAS_BASH,
-    reason="bash not available on PATH (cannot run `bash -n` syntax check)",
+    not bash_usable(),
+    reason="bash not available or not usable on this host (cannot run `bash -n` syntax check)",
 )
 
 

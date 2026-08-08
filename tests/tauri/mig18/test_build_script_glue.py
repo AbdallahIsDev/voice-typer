@@ -111,12 +111,13 @@ Gaps documented (report, do NOT fix — out of scope for this glue test):
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+
+from tests.fixtures.bash_utils import bash_usable
 
 # ─── Project paths ───────────────────────────────────────────────────────────
 # This test file lives at tests/tauri/mig18/test_build_script_glue.py.
@@ -197,8 +198,8 @@ def test_orchestrator_is_bash_syntax_valid():
     ``-n`` only parses — it does NOT execute the script — so no
     sidecar/Nuitka/cargo is spawned. Safe to run on any host.
     """
-    if not shutil.which("bash"):
-        pytest.skip("bash not available on this host — cannot run `bash -n`.")
+    if not bash_usable():
+        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(ORCHESTRATOR)],
         capture_output=True,
@@ -464,8 +465,8 @@ def test_compile_native_script_exists():
 
 def test_compile_native_is_bash_syntax_valid():
     """``bash -n`` must parse compile_native.sh without syntax errors."""
-    if not shutil.which("bash"):
-        pytest.skip("bash not available on this host — cannot run `bash -n`.")
+    if not bash_usable():
+        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(COMPILE_NATIVE)],
         capture_output=True,

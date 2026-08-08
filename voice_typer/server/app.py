@@ -51,13 +51,18 @@ from voice_typer.server._security_attributes import (  # noqa: F401
 # import cost (audio_filters -> scipy.signal.butter; volume_ducker ->
 # pyobjc / ctypes on macOS; waveform -> numpy) to first attribute
 # access — paid only when the user actually dictates / ducks volume /
-# sees the bubble, not on every cold start. ``ClipboardManager`` /
-# ``AudioQualityAnalyzer`` / ``CrashRecovery`` / ``HistoryDB`` stay at
-# module top because they're either cheap to import or re-exported for
-# test monkeypatch.
+# sees the bubble, not on every cold start. ``AudioQualityAnalyzer`` /
+# ``CrashRecovery`` / ``HistoryDB`` stay at module top because they're
+# either cheap to import or re-exported for test monkeypatch.
+# ``ClipboardManager`` is NOT imported at module top: the clipboard
+# package eagerly imports ``pyperclip`` + the platform backends
+# (``.windows`` / ``.linux``, which pull in pywin32 / pynput) and its
+# ``manager`` submodule imports ``config`` at module top — several
+# ms of the cold-start import chain paid even though the clipboard is
+# only touched at dictation-stop paste time. The class is imported
+# lazily inside the ``clipboard`` @property getter below.
 from voice_typer.server.audio_quality import AudioQualityAnalyzer
 from voice_typer.server.branding import APP_NAME
-from voice_typer.server.clipboard import ClipboardManager
 from voice_typer.server.config import Config, _config_dir
 from voice_typer.server.crash_recovery import CrashRecovery
 from voice_typer.server.history_db import HistoryDB
@@ -897,6 +902,17 @@ class VoiceTyperApp:
     def clipboard(self):
         backing = self._clipboard_backing
         if backing is None:
+            # Deferred import — the clipboard package eagerly imports
+            # ``pyperclip`` + the platform backends (``.windows`` /
+            # ``.linux``, which pull in pywin32 / pynput) and the
+            # ``manager`` submodule imports ``config`` at module top
+            # (~13 ms of the cold-start import chain, measured). The
+            # clipboard is only touched at dictation-stop paste time,
+            # so the class import is deferred to first access — mirrors
+            # the existing deferred-import pattern (undo, audio_quality,
+            # _volume_ducker).
+            from voice_typer.server.clipboard import ClipboardManager
+
             backing = ClipboardManager(
                 paste_enabled=self.config.paste_on_stop,
             )

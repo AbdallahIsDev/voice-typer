@@ -36,6 +36,7 @@ import itertools
 import json
 import logging
 import os
+import threading
 import time
 from typing import TYPE_CHECKING
 
@@ -77,6 +78,18 @@ _CONFIG_QUARANTINE_SUFFIX_SEQ: "itertools.count" = itertools.count()
 # lazily via ``import voice_typer.server.config as _cfg`` inside each
 # function ensures the patched binding is picked up at call time.
 
+#: Dedupe key for the unknown-key WARNING, keyed by ``(config_file, keys)``.
+#: ``Config.load()`` runs several times during startup (app init, crash
+#: handler install, onboarding, prewarm, autostart sync), and each run
+#: re-parses the same config.json and re-fires the same warning — the
+#: user saw the identical "dropped 1 unknown key" line 4× within 10 ms.
+#: Logging it once per (file, key-set) per process keeps the signal
+#: without the noise.  The check-then-add is guarded by a lock because
+#: the prewarm thread can call ``Config.load()`` concurrently with the
+#: main startup thread (without it, a race could slip a duplicate line).
+_unknown_key_warnings: set[tuple[str, frozenset[str]]] = set()
+_unknown_key_warnings_lock = threading.Lock()
+
 
 def _read_raw_json_impl(config_file) -> dict | None:
     """Read + parse ``config_file`` as JSON; return the parsed dict (or None).
@@ -116,18 +129,30 @@ def _filter_unknown_keys_impl(cls, parsed: dict, config_file) -> dict:
     Extracted verbatim from ``Config._filter_unknown_keys``.  : log a
     WARNING if the on-disk config contains keys this build doesn't
     recognize.  These keys are silently dropped by the filter.
+
+    The warning is emitted at most once per ``(config_file, key-set)``
+    per process (see :data:`_unknown_key_warnings`) because
+    ``Config.load()`` runs multiple times during startup — without
+    dedupe the same line appeared 4× within milliseconds.
     """
     # log a WARNING if the on-disk config contains
     # keys this build doesn't recognize.  These keys are
     # silently dropped by the filter below.
     unknown_keys = set(parsed) - set(cls.__dataclass_fields__)
     if unknown_keys:
-        log.warning(
-            "[CONFIG] dropped %d unknown key(s) from %s: %s",
-            len(unknown_keys),
-            config_file,
-            ", ".join(sorted(unknown_keys)),
-        )
+        dedupe_key = (str(config_file), frozenset(unknown_keys))
+        with _unknown_key_warnings_lock:
+            first_time = dedupe_key not in _unknown_key_warnings
+            if first_time:
+                _unknown_key_warnings.add(dedupe_key)
+        if first_time:
+            log.warning(
+                "[CONFIG] ignoring %d unrecognized setting(s) in %s "
+                "(possibly from a newer app version); they will be removed "
+                "on the next save.",
+                len(unknown_keys),
+                config_file,
+            )
     return {k: v for k, v in parsed.items() if k in cls.__dataclass_fields__}
 
 

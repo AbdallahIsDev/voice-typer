@@ -50,6 +50,7 @@ from __future__ import annotations
 import io
 import socket
 import sys
+import time
 from unittest.mock import MagicMock
 
 import pytest
@@ -429,49 +430,76 @@ class TestPortBindingFallback:
 
         The pre-bound sockets are closed in a ``finally`` so the test
         never leaks file descriptors.
+
+        Retry loop: under a parallel xdist run, a CONCURRENT test can
+        transiently hold one port of the range while this test pre-binds
+        its blockers (the blocker bind then fails with EADDRINUSE). If a
+        blocker failed, the "ALL ports busy" premise does NOT hold — the
+        foreign socket may close mid-test and the helper could
+        legitimately return a port inside the range. The scenario is
+        therefore retried until the full range is bound by THIS test's
+        sockets (making the assertion deterministic); only then is the
+        helper exercised.
         """
         import contextlib
 
         max_tries = 5
-        blockers: list[socket.socket] = []
-        try:
-            for offset in range(max_tries):
-                s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                # No SO_REUSEADDR here either — a plain (exclusive)
-                # listening socket blocks the probe's REUSEADDR bind on
-                # both Linux (listening port is never shareable) and
-                # Windows (SO_REUSEADDR only allows double-binding when
-                # BOTH sockets opt in).
-                try:
-                    s.bind(("127.0.0.1", IPC_PORT + offset))
-                    s.listen(1)
-                    blockers.append(s)
-                except OSError:
-                    # Port already busy (e.g. another test) — that's
-                    # fine, the helper will skip it too.
-                    s.close()
-
-            port, sock = _pick_available_port(IPC_PORT, max_tries=max_tries)
+        for _attempt in range(5):
+            blockers: list[socket.socket] = []
             try:
-                # The returned port is non-zero (ephemeral fallback).
-                assert port > 0, (
-                    f"ephemeral fallback must return a real non-zero "
-                    f"port; got {port}"
-                )
-                # The returned port is NOT in the busy range (the
-                # helper skipped all of them and asked the OS for an
-                # ephemeral).
-                assert port < IPC_PORT or port >= IPC_PORT + max_tries, (
-                    f"ephemeral fallback port {port} must be outside "
-                    f"the busy range [{IPC_PORT}..{IPC_PORT + max_tries - 1}]"
-                )
-                # The socket is bound to the returned port.
-                assert sock.getsockname()[1] == port
-                sock.listen(1)
+                all_bound = True
+                for offset in range(max_tries):
+                    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    # No SO_REUSEADDR here either — a plain (exclusive)
+                    # listening socket blocks the probe's REUSEADDR bind
+                    # on both Linux (listening port is never shareable)
+                    # and Windows (SO_REUSEADDR only allows
+                    # double-binding when BOTH sockets opt in).
+                    try:
+                        s.bind(("127.0.0.1", IPC_PORT + offset))
+                        s.listen(1)
+                        blockers.append(s)
+                    except OSError:
+                        # Port transiently held by a concurrent test —
+                        # the busy-range premise is broken; release our
+                        # partial blockers and retry the scenario.
+                        s.close()
+                        all_bound = False
+                        break
+                if not all_bound:
+                    # Give a transient foreign socket a moment to
+                    # release the port, then retry from scratch.
+                    time.sleep(0.1)
+                    continue
+
+                port, sock = _pick_available_port(IPC_PORT, max_tries=max_tries)
+                try:
+                    # The returned port is non-zero (ephemeral fallback).
+                    assert port > 0, (
+                        f"ephemeral fallback must return a real non-zero "
+                        f"port; got {port}"
+                    )
+                    # The returned port is NOT in the busy range (the
+                    # helper skipped all of them and asked the OS for an
+                    # ephemeral).
+                    assert port < IPC_PORT or port >= IPC_PORT + max_tries, (
+                        f"ephemeral fallback port {port} must be outside "
+                        f"the busy range [{IPC_PORT}..{IPC_PORT + max_tries - 1}]"
+                    )
+                    # The socket is bound to the returned port.
+                    assert sock.getsockname()[1] == port
+                    sock.listen(1)
+                finally:
+                    with contextlib.suppress(OSError):
+                        sock.close()
+                return  # success
             finally:
-                with contextlib.suppress(OSError):
-                    sock.close()
-        finally:
-            for s in blockers:
-                with contextlib.suppress(OSError):
-                    s.close()
+                for s in blockers:
+                    with contextlib.suppress(OSError):
+                        s.close()
+        pytest.skip(
+            f"could not pre-bind the full busy range [{IPC_PORT}.."
+            f"{IPC_PORT + max_tries - 1}] after 5 attempts — a concurrent "
+            f"process keeps holding one of the ports (environmental; "
+            f"the all-bound path still verifies the fallback)"
+        )

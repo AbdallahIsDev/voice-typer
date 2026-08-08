@@ -44,7 +44,12 @@ def _setup_logging():
     quiet = os.environ.get("VOICE_TYPER_QUIET", "").lower() in ("1", "true", "yes")
     port_mode = "--port" in sys.argv
 
-    session_id = _setup_logging_shared(
+    # The 8-char session id anchors this process's session. It is
+    # printed ONCE in the banner below (the first line of the session)
+    # so every subsequent line implicitly belongs to this session
+    # without repeating the id on each line (C-LOG-1 keeps per-line
+    # output clean; the banner is the single mention).
+    _session_id = _setup_logging_shared(
         config_dir,
         debug=debug,
         quiet=quiet,
@@ -53,14 +58,12 @@ def _setup_logging():
 
     # emit a startup banner so operators can see at a glance
     # which logging configuration took effect (file path, root level,
-    # JSON mode, debug flag, quiet flag, session id).  Logged at INFO so
+    # JSON mode, debug flag, quiet flag).  Logged at INFO so
     # it appears in the rotating file log under the default
     # configuration (file handler sits at INFO per ).  The
-    # session_id is the 8-char hex returned by ``setup_logging``;
-    # ``os.environ.get("VOICE_TYPER_LOG_JSON")`` is re-checked here
-    # (rather than introspected from ``log``) so the banner stays
-    # accurate even if ``setup_logging`` is changed to compute JSON
-    # mode from a different source in the future.
+    # session id is included exactly ONCE here, as the trailing
+    # ``session=`` field of the banner — the very first line of the
+    # session — so it is never repeated per-line (C-LOG-1).
     # use get_log_file_path() instead of hardcoded literal so the
     # banner reflects the actual log file (voice-typer.log for main,
     # prewarm.log for the prewarm process).
@@ -90,7 +93,7 @@ def _setup_logging():
         _json_mode,
         debug,
         quiet,
-        session_id,
+        _session_id,
     )
 
     # validate environment variables before consuming them

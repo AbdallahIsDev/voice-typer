@@ -28,6 +28,8 @@ from unittest.mock import MagicMock
 
 import numpy as np
 
+from tests.fixtures.recorder_test_helpers import wait_for_workers_stopped
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -319,7 +321,12 @@ class TestEventWorkerLifecycle:
 
         r.stop()
 
-        assert r._event_worker_thread is None, "stop() must set _event_worker_thread to None after joining"
+        # GT-23-style load guard: a worker that outlived a timed-out join
+        # leaves a stale ref (stop() fast-paths when idle and cannot reap
+        # it) — poll the shared guard before asserting the ref cleared.
+        assert wait_for_workers_stopped(r, stop=r.stop), (
+            "stop() must set _event_worker_thread to None after joining"
+        )
 
     def test_event_worker_thread_stops_on_discard(self, monkeypatch):
         import voice_typer.server.recording as recording_mod
@@ -334,7 +341,10 @@ class TestEventWorkerLifecycle:
 
         r.discard()
 
-        assert r._event_worker_thread is None, "discard() must set _event_worker_thread to None after joining"
+        # GT-23-style load guard — see the stop() variant above.
+        assert wait_for_workers_stopped(r, stop=r.stop), (
+            "discard() must set _event_worker_thread to None after joining"
+        )
 
     def test_event_worker_can_restart_after_stop(self, monkeypatch):
         """After stop(), a subsequent start() must start a NEW event
@@ -353,7 +363,7 @@ class TestEventWorkerLifecycle:
         assert first is not None
         assert first.is_alive()
         r.stop()
-        assert r._event_worker_thread is None
+        assert wait_for_workers_stopped(r, stop=r.stop), "event worker must stop after stop()"
 
         # Second session — must start a NEW thread
         r.start()
@@ -362,7 +372,7 @@ class TestEventWorkerLifecycle:
         assert second.is_alive()
         assert second is not first, "start() after stop() must create a NEW event worker thread, not reuse the dead one"
         r.stop()
-        assert r._event_worker_thread is None
+        assert wait_for_workers_stopped(r, stop=r.stop), "event worker must stop after stop()"
 
 
 # non-blocking audio worker ────────────────────────────────

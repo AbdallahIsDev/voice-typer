@@ -42,8 +42,10 @@ import logging
 import os
 import site
 import sys
+import time
 from typing import Any
 
+from voice_typer.server.duration import format_duration
 from voice_typer.server.platform_utils import is_windows
 
 log = logging.getLogger(__name__)
@@ -160,6 +162,9 @@ class _NvidiaDllPathManager:
         """Inner implementation, called under ``lock``."""
         if self.configured or not is_windows():
             return
+        # C-LOG-2: report the DLL scan + prepend duration on the
+        # completion line so "package loading" time is measurable.
+        _t0 = time.perf_counter()
 
         roots: list[str] = []
         try:
@@ -249,7 +254,11 @@ class _NvidiaDllPathManager:
 
         if new_paths:
             os.environ["PATH"] = os.pathsep.join(new_paths + existing_paths)
-            log.info("[CUDA-DLL] Prepended to PATH: %s", new_paths)
+            log.info(
+                "[CUDA-DLL] Prepended to PATH: %s%s",
+                new_paths,
+                format_duration(time.perf_counter() - _t0),
+            )
 
         self.configured = True
 

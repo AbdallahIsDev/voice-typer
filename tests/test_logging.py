@@ -2,12 +2,14 @@
 
 Covers three findings from a-review:
 
-* Finding 5 (C2) — ``session_id`` rendering in log output.
-  ``_SessionFilter`` was injecting ``session_id`` into every record but
-  neither ``_FileFormatter`` nor ``_ColorFormatter`` rendered it, so
-  the 8-char per-process ID never appeared in ``voice-typer.log`` and
-  operators could not correlate lines across process restarts or
-  distinguish interleaved lines from concurrent backends.
+* Finding 5 (C2) — clean log-line rendering.
+  The text formatters (``_FileFormatter`` for the file, ``_ColorFormatter``
+  for the terminal) render a CLEAN line: timestamp + level + message.
+  The per-line ``[session_id]`` bracket, ``[threadName]``, and
+  ``[component]`` labels were removed — they added noise to every line
+  without helping the user read the log.  Correlation metadata stays
+  available in JSON mode (``VOICE_TYPER_LOG_JSON=1``).  These tests pin
+  the clean format so the clutter is not reintroduced.
 
 * Finding 6 (C3) — ``get_logger`` is dead code.
   The factory was documented as the canonical logger entry point but
@@ -23,6 +25,7 @@ so a regression in either layer is caught.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import voice_typer.server.log as log_module
@@ -33,16 +36,16 @@ from voice_typer.server.log import (
     setup_logging,
 )
 
-# ─── C2: session_id rendering ──────────────────────────────────────────
+# ─── C2: clean line format (no session/thread/component clutter) ───────
 
 
-def test_session_id_appears_in_file_log(tmp_path: Path) -> None:
+def test_file_log_line_is_clean_end_to_end(tmp_path: Path) -> None:
     """End-to-end: ``setup_logging`` → log line → file on disk.
 
-    The 8-char session ID returned by ``setup_logging`` must appear
-    inside square brackets on every file log line so operators can
-    correlate log lines across process restarts and disambiguate
-    interleaved lines from concurrent processes.
+    The rendered line must be CLEAN: timestamp + level + message.  The
+    8-char session ID, thread name, and module path must NOT appear on
+    the line — they added noise to every line without helping the user
+    read the log.
     """
     reset()
     config_dir = tmp_path / "cfg"
@@ -61,18 +64,25 @@ def test_session_id_appears_in_file_log(tmp_path: Path) -> None:
 
         log_file = config_dir / "voice-typer.log"
         content = log_file.read_text(encoding="utf-8")
-        assert f"[{session_id}]" in content, f"session_id bracket [{session_id}] not found in log file:\n{content}"
-        # Existing format pieces must still be present (regression guard
-        # that the session_id bracket is appended, not replacing anything).
+        # The message and level must be present…
         assert "INFO" in content
         assert "[HOTKEY] RegisterHotKey succeeded" in content
+        # …but the per-line correlation/thread/component clutter is gone.
+        assert f"[{session_id}]" not in content, (
+            f"session_id bracket [{session_id}] must NOT appear on file log lines:\n{content}"
+        )
+        assert "[MainThread]" not in content
+        assert "[fake_module]" not in content
+        # Clean space-separated timestamp (no T separator, no tz offset).
+        assert "T" not in content.split()[0], f"timestamp must be space-separated:\n{content}"
     finally:
         reset()
 
 
-def test_file_formatter_renders_session_id_bracket() -> None:
-    """``_FileFormatter.format`` emits a ``[session_id]`` bracket before
-    the message when the record carries a session_id attribute."""
+def test_file_formatter_omits_session_thread_component() -> None:
+    """``_FileFormatter.format`` must NOT render the session_id bracket,
+    thread name, or component label — the line is timestamp + level +
+    message only."""
     record = logging.LogRecord(
         name="voice_typer",
         level=logging.INFO,
@@ -84,16 +94,84 @@ def test_file_formatter_renders_session_id_bracket() -> None:
     )
     record.session_id = "a3f1b2c4"
     line = _FileFormatter().format(record)
-    assert "[a3f1b2c4]" in line
+    assert "[a3f1b2c4]" not in line
+    assert "MainThread" not in line
+    # The module-path component label is gone (message only carries its
+    # own [TOPIC] prefix).
+    assert "[voice_typer.server.log]" not in line
+    assert "\033[" not in line  # file output is plain text, no ANSI
     # Timestamp + level label + message all still present.
     assert "INFO" in line
     assert "[HOTKEY] RegisterHotKey succeeded" in line
+    # Clean timestamp: `YYYY-MM-DD  HH:MM:SS` (two spaces, no millis,
+    # no T separator, no tz).
+    parts = line.split()
+    assert len(parts) >= 3
+    assert "-" in parts[0] and ":" in parts[1], f"clean ts expected, got: {line!r}"
+    assert "T" not in parts[0]
+    assert "+0300" not in line and "+0200" not in line  # tz offset gone
 
 
-def test_color_formatter_renders_dimmed_session_id_bracket() -> None:
-    """``_ColorFormatter.format`` emits the session_id bracket dimmed
-    (SGR 2) so it doesn't compete with the level colour or message
-    body on the terminal."""
+# Exact line shape: `<ts>  <LEVEL>  <msg>` — a full-line anchored match,
+# stronger than the substring checks above.  A session id, thread name,
+# or module path inserted ANYWHERE (before the ts, between fields, or
+# appended at the end) breaks the match.
+#
+# Timestamp is `YYYY-MM-DD  HH:MM:SS` — TWO spaces between the date
+# and the time (so the time column aligns in the file), seconds-only
+# precision (no millisecond fraction).  Level label is the short form
+# (`WARN`, not `WARNING`).
+_EXACT_FILE_LINE_RE = re.compile(
+    r"\d{4}-\d{2}-\d{2}  \d{2}:\d{2}:\d{2}  "  # clean ts + 2 spaces
+    r"(?:DEBUG|INFO|WARN|ERROR|CRITICAL)  "  # level label + 2 spaces
+    r".+"  # message (unmodified)
+)
+
+
+def test_file_formatter_exact_line_shape_is_timestamp_level_message() -> None:
+    """Pin the EXACT file line shape to ``<ts>  <LEVEL>  <msg>``.
+
+    The record carries every field the old format printed on every line
+    (session id, component / module path, thread name, function name) so
+    a reintroduction anywhere in the rendering pipeline is caught — not
+    just the specific bracket styles the substring tests guard against.
+    """
+    record = logging.LogRecord(
+        name="voice_typer.server.app",
+        level=logging.INFO,
+        pathname=__file__,
+        lineno=1,
+        msg="Voice Typer starting -- model=small.en",
+        args=(),
+        exc_info=None,
+    )
+    # Full clutter: everything the old format rendered on every line.
+    record.session_id = "2ae8edcc"
+    record.component = "voice_typer.server.app"
+    record.threadName = "MainThread"
+    record.funcName = "main"
+
+    line = _FileFormatter().format(record)
+
+    # 1) The whole line must match `ts  LEVEL  msg` and nothing else.
+    assert _EXACT_FILE_LINE_RE.fullmatch(line), (
+        f"regression: file line shape is not exactly '<ts>  <LEVEL>  <msg>':\n{line!r}"
+    )
+    # 2) None of the removed fields may appear anywhere in the line.
+    assert "2ae8edcc" not in line
+    assert "MainThread" not in line
+    assert "voice_typer.server.app" not in line
+    assert "main" not in line
+    # 3) The message text is preserved verbatim at the end of the line.
+    assert line.endswith("Voice Typer starting -- model=small.en")
+    # 4) Clean timestamp: space-separated, no T separator, no tz offset.
+    ts, _, _ = line.partition("  ")
+    assert "T" not in ts and "+" not in ts and not ts.endswith("Z")
+
+
+def test_color_formatter_omits_session_id_bracket() -> None:
+    """``_ColorFormatter.format`` must NOT render the session_id bracket
+    on the terminal."""
     record = logging.LogRecord(
         name="voice_typer",
         level=logging.INFO,
@@ -105,14 +183,16 @@ def test_color_formatter_renders_dimmed_session_id_bracket() -> None:
     )
     record.session_id = "a3f1b2c4"
     line = _ColorFormatter().format(record)
-    assert "[a3f1b2c4]" in line
-    # SGR 2 = dim/faint attribute (per ECMA-48 / ANSI X3.64).
-    assert "\033[2m" in line, f"dim SGR (\\033[2m) missing from: {line!r}"
+    assert "[a3f1b2c4]" not in line
+    assert "MainThread" not in line
+    # Message still present and coloured by topic.
+    assert "[HOTKEY] RegisterHotKey succeeded" in line
+    assert "\033[" in line
 
 
-def test_color_formatter_renders_session_id_for_warning_lines() -> None:
-    """WARN/ERR/FATAL lines (full-line coloured) must also include the
-    session_id bracket — otherwise error logs would lose correlation."""
+def test_color_formatter_warning_lines_omit_session_id() -> None:
+    """WARN/ERR/FATAL lines (full-line coloured) must also omit the
+    session_id bracket."""
     record = logging.LogRecord(
         name="voice_typer",
         level=logging.WARNING,
@@ -124,17 +204,17 @@ def test_color_formatter_renders_session_id_for_warning_lines() -> None:
     )
     record.session_id = "deadbeef"
     line = _ColorFormatter().format(record)
-    assert "[deadbeef]" in line
+    assert "[deadbeef]" not in line
+    # Short level label `WARN` (not the long-form `WARNING`).
     assert "WARN" in line
     # Full-line WARN colour (pure yellow #FFFF00) still applied.
     assert "\033[38;5;226m" in line
 
 
-def test_session_id_defaults_to_dashes_when_filter_not_applied() -> None:
+def test_formatters_do_not_require_session_attribute() -> None:
     """Records constructed without going through ``_SessionFilter``
     (e.g. third-party library logs, or unit-test records built by hand)
-    must not raise ``AttributeError`` and must render a ``[--------]``
-    placeholder so the line still has a well-formed bracket.
+    must not raise ``AttributeError``.
 
     Also covers the early-startup case where ``setup_logging`` has not
     yet been called (``_session_id`` is the empty string ``""``).
@@ -153,17 +233,19 @@ def test_session_id_defaults_to_dashes_when_filter_not_applied() -> None:
     assert not hasattr(record, "session_id")
 
     file_line = _FileFormatter().format(record)
-    assert "[--------]" in file_line
+    assert "[--------]" not in file_line
+    assert "loading model" in file_line
 
     color_line = _ColorFormatter().format(record)
-    assert "[--------]" in color_line
+    assert "[--------]" not in color_line
+    assert "loading model" in color_line
 
 
-def test_session_id_defaults_to_dashes_when_filter_set_empty_string() -> None:
+def test_formatter_empty_session_id_renders_no_bracket() -> None:
     """When ``_SessionFilter`` runs before ``setup_logging`` has assigned
     a session_id, it sets ``record.session_id = ""`` (the module-level
-    default).  The formatters must render ``[--------]`` in that case
-    rather than ``[]`` (empty brackets look like a bug to operators)."""
+    default).  The formatters must render no bracket at all (no
+    ``[]``, no ``[--------]``)."""
     record = logging.LogRecord(
         name="voice_typer",
         level=logging.INFO,
@@ -175,8 +257,8 @@ def test_session_id_defaults_to_dashes_when_filter_set_empty_string() -> None:
     )
     record.session_id = ""  # Simulates filter applied before setup_logging().
     file_line = _FileFormatter().format(record)
-    assert "[--------]" in file_line
-    assert "[]" not in file_line
+    assert "[" not in file_line
+    assert "early startup line" in file_line
 
 
 # ─── C3: get_logger removal (regression guard) ─────────────────────────

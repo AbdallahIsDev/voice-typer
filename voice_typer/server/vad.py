@@ -25,10 +25,12 @@ network call is ever made — the offline guarantee (C-DATA-1) is preserved.
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
+from voice_typer.server.duration import format_duration
 
 np = lazy_module("numpy")
 
@@ -65,6 +67,13 @@ _VAD_MODEL_PATH = Path(__file__).resolve().parent / "silero_vad.jit"
 # Lazy-loaded model reference
 _model = None
 _utils = None
+
+#: Guards the one-time ``[VAD] Silero VAD model preloaded + warmed``
+#: INFO line. ``preload()`` is invoked from BOTH the app-startup
+#: background thread (app.py) AND the startup-sequence prewarm task —
+#: without the guard the identical line was logged twice within
+#: milliseconds from two threads, cluttering the log with a duplicate.
+_preload_warmed_logged: bool = False
 
 
 def is_available() -> bool:
@@ -368,6 +377,9 @@ def preload() -> bool:
             multiple times — the cached model is returned immediately on
             subsequent calls.
     """
+    # C-LOG-2: report total preload duration (model load + warmup) on
+    # the "preloaded + warmed" completion line.
+    _t0 = time.perf_counter()
     model, _ = _load_model()
     if model is None:
         return False
@@ -381,7 +393,17 @@ def preload() -> bool:
     except Exception:
         log.debug("[VAD] warmup inference failed", exc_info=True)
         return False
-    log.info("[VAD] Silero VAD model preloaded + warmed")
+    global _preload_warmed_logged
+    if not _preload_warmed_logged:
+        # Emit the one-time INFO so the log stays clean when both
+        # startup paths (app thread + prewarm task) call preload().
+        _preload_warmed_logged = True
+        log.info(
+            "[VAD] Silero VAD model preloaded + warmed%s",
+            format_duration(time.perf_counter() - _t0),
+        )
+    else:
+        log.debug("[VAD] Silero VAD model preloaded + warmed (repeat call)")
     return True
 
 

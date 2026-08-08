@@ -131,11 +131,12 @@ Gaps documented (report, do NOT fix — out of scope for MIG-1.8):
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
+
+from tests.fixtures.bash_utils import bash_usable
 
 # ─── Project paths ───────────────────────────────────────────────────────────
 # This test file lives at tests/tauri/mig18/test_openmp_runtimes.py.
@@ -201,8 +202,8 @@ def test_build_script_is_bash_syntax_valid(script: Path):
     it does NOT execute the script, so no Nuitka / cl.exe / swiftc / gcc
     is spawned. Safe to run on the Linux sandbox.
     """
-    if not shutil.which("bash"):
-        pytest.skip("bash not available on this host — cannot run `bash -n`.")
+    if not bash_usable():
+        pytest.skip("bash not available or not usable on this host — cannot run `bash -n`.")
     result = subprocess.run(
         ["bash", "-n", str(script)],
         capture_output=True,

@@ -42,6 +42,7 @@ from typing import Protocol, runtime_checkable
 
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE as _WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
+from voice_typer.server.duration import format_duration
 
 np = lazy_module("numpy")
 
@@ -150,11 +151,11 @@ def load_transcriber_impl(
                 engine._loaded_model_size = model_size
                 engine.model_size = engine._configured_model_size
             log.info(
-                "[MODEL] Model %s via %s (%s) — %.1fs",
+                "[MODEL] Model %s via %s (%s)%s",
                 verb.lower(),
                 engine.loaded_via,
                 _warm_label,
-                _load_elapsed,
+                format_duration(_load_elapsed),
             )
 
             # CUDA probe: force a tiny transcription to smoke-test
@@ -302,6 +303,9 @@ def warm_up_model(engine) -> None:
     """
     if engine._model is None or engine._device != "cuda":
         return
+    # C-LOG-2: warm-up is part of the model-load path; report its
+    # duration on the completion line.
+    _t0 = time.perf_counter()
     try:
         import numpy as np
 
@@ -318,7 +322,10 @@ def warm_up_model(engine) -> None:
         # Force iteration to complete the warm-up
         for _ in segments:
             pass
-        log.info("[PERF-007] Warm-up inference completed — CUDA kernels primed")
+        log.info(
+            "[PERF-007] Warm-up inference completed — CUDA kernels primed%s",
+            format_duration(time.perf_counter() - _t0),
+        )
     except Exception as exc:
         # Warm-up failure is non-critical — log and continue
         log.debug("[PERF-007] Warm-up inference skipped: %s", exc)

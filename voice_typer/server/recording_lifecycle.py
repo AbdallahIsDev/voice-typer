@@ -39,6 +39,7 @@ import threading
 
 from voice_typer.server import i18n
 from voice_typer.server.branding import APP_NAME
+from voice_typer.server.duration import format_duration
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
@@ -1033,8 +1034,8 @@ class RecordingLifecycle:
             except Exception:
                 log.debug("[AUDIO_QUALITY] finalize failed", exc_info=True)
         log.info(
-            "[DICTATION] Recording stopped -- %.1fs of audio, recorded_rms=%.4f, busy=True (cycle=%s)",
-            duration,
+            "[DICTATION] Recording stopped %s of audio, recorded_rms=%.4f, busy=True (cycle=%s)",
+            format_duration(duration),
             recorded_rms,
             cycle_id,
         )

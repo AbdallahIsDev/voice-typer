@@ -176,6 +176,24 @@ Applies to: All agents, all modes. Especially relevant to IMPROVE mode targeting
 
 ---
 
+## Category: Logging & Observability
+
+```
+C-LOG-1
+Rule: Do NOT change the canonical log line template. FILE lines MUST be exactly `YYYY-MM-DD  HH:MM:SS  LEVEL  msg` — TWO spaces between the date and the time, seconds-only precision (NO millisecond fraction), no `T` separator, no timezone offset, short level labels (`DEBUG` / `INFO` / `WARN` / `ERROR` / `CRITICAL` — `WARN`, never `WARNING`), and NO per-line session id, thread name, function name, or module/component path. The ONLY sanctioned occurrence of the session id is the trailing `session=xxxxxxxx` field on the FIRST line of the session — the `[STARTUP] logging initialized:` banner emitted by `voice_typer/server/logging_setup.py` (the banner is logged once per process with the 8-char hex id returned by `log.setup_logging`); it must NEVER appear on any other line. This keeps the session mechanism alive and greppable (`session=`) while keeping every other line clean. TERMINAL (stderr) lines MUST be `HH:MM:SS  LEVEL  msg` — TIME ONLY, no date (the date lives only in the log file; console output shows just the clock). This applies to BOTH the Python formatters (`_iso_timestamp`, `_FileFormatter`, `_ColorFormatter` in `voice_typer/server/log/formatters.py`) AND the Rust sidecar (`now_timestamp` / `now_time_only` / `now_timestamps` in `src-tauri/src/util.rs`, `CombinedLogger` / `EarlyLogger` in `src-tauri/src/platform/logging.rs`). The ONLY sanctioned exception is the opt-in JSON formatter (`VOICE_TYPER_LOG_JSON=1`), which keeps the UTC `Z` + millisecond timestamp for log aggregators.
+Rationale: The legacy format rendered `2026-08-06T23:14:33.352+0300 [2ae8edcc] [MainThread] INFO [voice_typer.server.logging_setup] ...` — ISO-8601 with tz offset + millis, a per-process session id, thread name, and module path on EVERY line, plus the long-form `WARNING` label, all of which made the log unreadable. The clean template above replaced it on 2026-08-08 and is pinned by `tests/test_logging.py` (`_EXACT_FILE_LINE_RE`), `tests/test_log_formatting.py` (`_TS_RE_TEXT` / `_TS_RE_TERM`), and `src-tauri/src/util_tests.rs` (`test_now_timestamp_format` / `test_now_time_only_format` / `test_now_timestamps_pair_consistent`). Reverting ANY part of it — re-adding millis, `T`/tz, session id, thread, module path, the `WARNING` label, or moving the date to the terminal / removing it from the file — regresses the readability fix. When touching logging, keep the format unchanged and update these tests if a (user-approved) format change is ever made.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-LOG-2
+Rule: Do NOT remove the `_<duration>` suffix from lifecycle-completion log lines. Every log line that reports the END of a timed operation (startup complete, model/VAD/CUDA-DLL load, warm-up inference, transcription, recording stop, and any future timed load/transaction) MUST carry a duration suffix produced by `format_duration()` in `voice_typer/server/duration.py` (dependency-free; import it rather than inlining ad-hoc `f"..._{x:.1f}s"` strings that drift from the minutes case): `_2.3s` for sub-minute durations, `_1m 2.3s` for anything longer. Never bare `2.3s`, never `took=2.3s`, never `-- 2.3s` — the underscore form is the canonical, greppable performance marker. The suffix is attached to the timed event, normally at line END; the recording line is the one intentional mid-line placement (`Recording stopped _30.0s of audio, ...` reads naturally — the duration IS the subject). Timed lines today: `[STARTUP] Startup complete (model still loading in background)_3.7s`, `[MODEL] Model loaded via ... _1.4s`, `[PERF-007] Warm-up inference completed — CUDA kernels primed_2.4s`, `[CUDA-DLL] Prepended to PATH: [...]_0.8s`, `[TRANSCRIBE] Transcription complete (len=..., cycle=...)_0.8s`, `[DICTATION] Recording stopped _30.0s of audio, ...`, `[VAD] Silero VAD model preloaded + warmed_1.2s`. The measurement source is always `time.perf_counter()` (monotonic) captured at the start of the operation and diffed at the completion log. Grep anchor: `_\d+(m \d+)?\.\ds`.
+Rationale: Added 2026-08-08 so performance is measurable at a glance in the log file — how long startup took, how long the model/packages took to load, how long transcription took, and how long the user recorded. Prior to this, several completion lines had no duration at all (startup) or used inconsistent ad-hoc formats (`took=%.1fs`, `— %.1fs`, `-- %.1fs of audio`) that could not be grep-summed. Reverting to a duration-less or non-underscore format regresses the performance observability the user explicitly requested.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+---
+
 ## How the adds / edits constraints
 
 1. Add a new constraint block under the appropriate category (or create a new category with a `## Category: <name>` header).

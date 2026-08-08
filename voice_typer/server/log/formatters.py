@@ -27,28 +27,35 @@ import time
 from voice_typer.server.log.correlation import get_correlation_id
 
 
-def _iso_timestamp(record: logging.LogRecord, *, utc: bool = False) -> str:
-    """Return an ISO 8601 timestamp with milliseconds and timezone.
+def _iso_timestamp(
+    record: logging.LogRecord,
+    *,
+    utc: bool = False,
+    include_date: bool = True,
+) -> str:
+    """Return a clean timestamp.
 
-    ``logging.Formatter.formatTime`` with a custom format string
-    bypasses Python's ``%(msecs)`` / ``%(asctime)`` defaults and drops
-    both milliseconds and the timezone offset.  For an audio app that
-    pushes ``bubble_level`` events at ~60 Hz, two log lines within the
-    same second are indistinguishable, and cross-timezone support
-    tickets require manual timezone inference.
+    Text output (the default) is a clean, space-separated local
+    timestamp with seconds precision — ``2026-08-08  22:18:59`` — with
+    TWO spaces between the date and the time, no millisecond fraction,
+    no ``T`` separator, and no timezone offset, so it reads naturally
+    in the file and on the terminal.  The terminal formatter passes
+    ``include_date=False`` to get the time only (``22:18:59``) — the
+    date is deliberately kept out of console output.
 
-    By default the local-time zone offset is appended (``+0200``);
-    pass ``utc=True`` for the JSON formatter which emits a Z-suffixed
-    UTC timestamp (``...Z``) that log aggregators expect.
+    Pass ``utc=True`` for the JSON formatter, which emits a
+    Z-suffixed UTC timestamp with millis (``2026-08-08T22:18:59.172Z``)
+    that log aggregators expect — that path is unchanged and keeps the
+    millisecond fraction + date.
     """
     if utc:
         ct = time.gmtime(record.created)
         base = time.strftime("%Y-%m-%dT%H:%M:%S", ct)
         return f"{base}.{int(record.msecs):03d}Z"
     ct = time.localtime(record.created)
-    base = time.strftime("%Y-%m-%dT%H:%M:%S", ct)
-    tz = time.strftime("%z", ct) or "+0000"
-    return f"{base}.{int(record.msecs):03d}{tz}"
+    # seconds-only precision (no millis); two spaces between the date
+    # and the time in the file format (the terminal shows time only).
+    return time.strftime("%Y-%m-%d  %H:%M:%S" if include_date else "%H:%M:%S", ct)
 
 
 # ── Shared colour tables ──────────────────────────────────────────────
@@ -257,10 +264,8 @@ class _ColorFormatter(logging.Formatter):
 
     Design
     ------
-    - Timestamp dimmed to recede visually
-    - Per-process ``[session_id]`` bracket dimmed (SGR 2) so it is
-      available for correlation but does not compete with the level
-      colour or message body.
+    - Clean time-only timestamp (``HH:MM:SS``, no date) dimmed to
+      recede visually — the date lives only in the log file
     - INFO level label omitted (redundant on ~every line)
     - WARN / ERR / FATAL full-line coloured with level label
     - Lines with ``[TOPIC]`` prefix coloured by topic
@@ -268,7 +273,6 @@ class _ColorFormatter(logging.Formatter):
     """
 
     _DIM = "38;5;242"  # grey
-    _DIM_ATTR = "2"  # SGR 2 = faint/dim attribute (ECMA-48)
     # LOG-COLOR-FIX: WARN was 38;5;214 (orange #FFAF00) which
     # 256→16-color quantization on Windows conhost maps to bright-red,
     # making WARN look red and ERROR look yellow by comparison — the
@@ -281,40 +285,24 @@ class _ColorFormatter(logging.Formatter):
         logging.CRITICAL: "38;5;196;1",  # red bold
     }
     _LVL_SYM = {
-        logging.WARNING: "WARNING",
+        logging.WARNING: "WARN",
         logging.ERROR: "ERROR",
         logging.CRITICAL: "CRITICAL",
     }
 
     def format(self, record: logging.LogRecord) -> str:
-        # ISO 8601 with millis + tz so sub-second audio events
-        # are distinguishable. ISO 8601 requires a 2-digit hour, so we
-        # do NOT trim the leading zero (the legacy ``%H:%M:%S`` trim
-        # was a cosmetic preference that breaks ISO parsing).
-        ts = _iso_timestamp(record)
+        # terminal shows time only (no date, no millis).
+        ts = _iso_timestamp(record, include_date=False)
         msg = record.getMessage()
         topic, _ = _extract_topic(msg)
-        # the per-process ``[hex session_id]`` bracket is rendered
-        # on every line so operators can correlate log entries across
-        # process restarts and disambiguate interleaved lines from
-        # concurrent backends.  The bracket is dimmed (SGR 2) so it
-        # recedes visually and does not compete with the level colour or
-        # message body.  When ``_SessionFilter`` has not yet run (early
-        # startup, third-party loggers that bypass the voice_typer
-        # logger) the bracket renders ``[--------]`` so the line still
-        # has a well-formed correlation field.
-        session_id = getattr(record, "session_id", "") or "--------"
-        bracket = f"\033[{self._DIM_ATTR}m[{session_id}]\033[0m"
 
         if record.levelno >= logging.WARNING:
             c = self._LVL_COLOR.get(record.levelno, "0")
             sym = self._LVL_SYM.get(record.levelno, "????")
-            # Full-line colour: emit colour, ts, dim bracket (SGR 22
-            # restores normal intensity so the level symbol + message
-            # stay in the level colour), then reset.
-            line = f"\033[{c}m{ts}  \033[{self._DIM_ATTR}m[{session_id}]\033[22m  {sym} {msg}\033[0m"
+            # Full-line colour: emit colour, ts, then reset.
+            line = f"\033[{c}m{ts}  {sym} {msg}\033[0m"
         else:
-            # INFO — dim timestamp, dim session_id bracket, no level label,
+            # INFO — dim timestamp, no level label,
             # message coloured by topic.
             prefix = f"\033[{self._DIM}m{ts}\033[0m"
             tc = _TOPIC_COLOR.get(topic) if topic else None
@@ -323,7 +311,7 @@ class _ColorFormatter(logging.Formatter):
                 if inferred:
                     tc = _TOPIC_COLOR.get(inferred)
             body = f"\033[{tc}m{msg}\033[0m" if tc else msg
-            line = f"{prefix}  {bracket}  {body}"
+            line = f"{prefix}  {body}"
 
         # append exception traceback. ``PIIRedactionFilter``
         # pre-formats and redacts the traceback into ``record.exc_text``
@@ -340,78 +328,44 @@ class _FileFormatter(logging.Formatter):
     codes.  If you need coloured log output, use the terminal stderr
     stream (which uses ``_ColorFormatter``).
 
-    Format (docstring updated to match the real ISO 8601 format
-    with millis + tz offset)::
+    Format::
 
-        2026-07-15T12:34:56.789+0200  [a3f1b2c4]  [MainThread]  INFO   [voice_typer.server.app]  RegisterHotKey OK
-        2026-07-15T12:34:56.789+0200  [a3f1b2c4]  [MainThread]  WARN   [voice_typer.server.app]  [ENV] Invalid value ...
-        2026-07-15T12:34:56.789+0200  [a3f1b2c4]  [Transcribe]  ERR  [voice_typer.server.dictation_pipeline]  Stream end
+        2026-07-15  12:34:56  INFO  [HOTKEY] RegisterHotKey OK
+        2026-07-15  12:34:56  WARN  [ENV] Invalid value ...
+        2026-07-15  12:34:56  ERROR  Stream end
 
     Fields (left to right):
 
-    - ``ts``                 — ISO 8601 timestamp
-      (``YYYY-MM-DDTHH:MM:SS.mmm±HHMM``) with ``T`` date/time
-      separator, millisecond precision, and a signed tz offset.  The
-      millis are required so sub-second audio events (VAD triggers,
-      chunk boundaries) are distinguishable in the file log .
-    - ``[session_id]``       — 8-char per-process hex ID rendered by
-      ``_SessionFilter`` (``[--------]`` placeholder when the filter
-      has not run, e.g. third-party loggers that bypass ``voice_typer``).
-      Lets operators correlate log entries across process restarts and
-      disambiguate interleaved lines from concurrent backends.
-    - ``[threadName]``       — name of the emitting thread (always
-      present; ``MainThread`` for the default case).
-    - ``[taskName]``         — Python 3.12+ asyncio task name, emitted
-      only when set (omitted for synchronous call sites).
-    - ``label``              — level label (``DEBUG`` / ``INFO `` /
-      ``WARN `` / ``ERROR`` / ``FATAL``), aligned to 5 chars.
-    - ``[component]``        — module/logger name (``record.component``
-      when ``_SessionFilter`` injected it, else ``record.name``).
-    - ``msg``                — the redacted log message.
+    - ``ts``       — clean space-separated local timestamp
+      (``YYYY-MM-DD  HH:MM:SS`` — two spaces between the date and the
+      time) with seconds precision.  No ``T`` separator, no
+      timezone offset, no millisecond fraction — the line reads
+      naturally.
+    - ``label``    — short level label (``DEBUG`` / ``INFO`` / ``WARN`` /
+      ``ERROR`` / ``CRITICAL``).
+    - ``msg``      — the redacted log message (its ``[TOPIC]`` prefix
+      already identifies the subsystem, so no separate component
+      column is needed).
 
-    Level labels are aligned so lines scroll cleanly:
-    - ``DEBUG``   (5 chars)
-    - ``INFO``    (4 chars)
-    - ``WARN``    (4 chars)
-    - ``ERROR``   (5 chars)
-    - ``FATAL``   (5 chars)
+    The session id, thread name, and module path are deliberately NOT
+    rendered: they add noise to every line without helping the user
+    read the log.  Correlation metadata is still available in JSON
+    mode (``VOICE_TYPER_LOG_JSON=1``) for operators who need it.
     """
 
     _LVL_LABEL = {
         logging.DEBUG: "DEBUG",
         logging.INFO: "INFO",
-        logging.WARNING: "WARNING",
+        logging.WARNING: "WARN",
         logging.ERROR: "ERROR",
         logging.CRITICAL: "CRITICAL",
     }
 
     def format(self, record: logging.LogRecord) -> str:
-        # ISO 8601 with millis + tz so sub-second audio events
-        # are distinguishable in the file log.
         ts = _iso_timestamp(record)
         msg = record.getMessage()
-        label = self._LVL_LABEL.get(record.levelno, "INFO ")
-        # render the per-process session_id bracket so operators
-        # can correlate log lines across process restarts.  ``--------``
-        # placeholder when ``_SessionFilter`` has not injected the attribute
-        # (third-party loggers, early startup, unit-test records built by
-        # hand) — empty brackets look like a bug.
-        session_id = getattr(record, "session_id", "") or "--------"
-        # render the component (module/logger name) so operators
-        # can tell which subsystem produced a line without parsing the
-        # message text.  Defaults to ``record.name`` for records that
-        # bypass ``_SessionFilter``.
-        component = getattr(record, "component", record.name)
-        # render the emitting thread name so threaded pipelines
-        # (transcription thread, prewarm pipeline, IPC workers) can be
-        # distinguished in the log.  ``taskName`` (Python 3.12+) is
-        # emitted inline when an asyncio task is in scope.
-        thread_name = getattr(record, "threadName", "") or ""
-        task_bracket = ""
-        task_name = getattr(record, "taskName", None)
-        if task_name:
-            task_bracket = f"  [{task_name}]"
-        line = f"{ts}  [{session_id}]  [{thread_name}]{task_bracket}  {label}  [{component}]  {msg}"
+        label = self._LVL_LABEL.get(record.levelno, "INFO")
+        line = f"{ts}  {label}  {msg}"
         # append the (already PII-redacted) traceback so
         # ``log.exception(...)`` / ``log.error(..., exc_info=True)``
         # records keep their diagnostic stack trace in the file.

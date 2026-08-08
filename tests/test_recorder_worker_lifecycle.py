@@ -46,6 +46,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from tests.fixtures.recorder_test_helpers import wait_for_workers_stopped
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -462,36 +464,15 @@ class TestConcurrentStartStopNoLeak:
         # superseded zombie worker (the stale-alive branch in
         # ``_start_audio_worker`` replaced its stop/wake events and
         # discarded its ref) may not have reached its next loop
-        # iteration yet. Poll (bounded) until BOTH the tracked refs are
-        # None AND no worker-named thread is alive — stop() is
-        # idempotent, and a REAL leak keeps the threads alive past the
-        # deadline, so the asserts below still fire.
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            live = [t for t in threading.enumerate() if t.name in worker_names]
-            if not live and r._worker_thread is None and r._event_worker_thread is None:
-                break
-            r.stop()
-            time.sleep(0.01)
-
-        # Assert: no leaked audio-worker / event-worker threads.
-        # The recorder's tracked worker thread refs must be None after stop().
-        assert r._worker_thread is None, (
-            "GT-23 regression: r._worker_thread is not None after stop() — "
-            "a worker was started but never joined (leaked)."
-        )
-        assert r._event_worker_thread is None, (
-            "GT-23 regression: r._event_worker_thread is not None after "
-            "stop() — an event worker was started but never joined (leaked)."
-        )
-
-        # Enumerate live threads — none should match the worker names
-        # (the recorder's workers are daemons and should have exited).
-        live_worker_threads = [t for t in threading.enumerate() if t.name in worker_names]
-        assert live_worker_threads == [], (
-            f"GT-23 regression: {len(live_worker_threads)} worker thread(s) "
-            f"still alive after stop(): "
-            f"{[(t.name, t.is_alive()) for t in live_worker_threads]}."
+        # iteration yet. The shared guard polls (bounded) until BOTH
+        # the tracked refs are None AND no worker-named thread is
+        # alive — stop() is idempotent, and a REAL leak keeps the
+        # threads alive past the deadline, so this assert still fires.
+        assert wait_for_workers_stopped(r, stop=r.stop), (
+            f"GT-23 regression: worker thread(s) still alive after "
+            f"concurrent start()/stop(): "
+            f"{[(t.name, t.is_alive()) for t in threading.enumerate() if t.name in worker_names]} "
+            f"(refs: worker={r._worker_thread!r}, event={r._event_worker_thread!r})."
         )
 
     def test_concurrent_start_discard_no_leak(self, monkeypatch):
@@ -544,15 +525,12 @@ class TestConcurrentStartStopNoLeak:
             "stream-finished-handler",
             "device-disconnect-handler",
         }
-        deadline = time.monotonic() + 5.0
-        while time.monotonic() < deadline:
-            live = [t for t in threading.enumerate() if t.name in worker_names]
-            if not live and r._worker_thread is None and r._event_worker_thread is None:
-                break
-            r.stop()
-            time.sleep(0.01)
-        assert r._worker_thread is None, "GT-23 regression: worker_thread leaked after start/discard hammer"
-        assert r._event_worker_thread is None, "GT-23 regression: event_worker_thread leaked after start/discard hammer"
+        assert wait_for_workers_stopped(r, stop=r.stop), (
+            f"GT-23 regression: worker thread(s) still alive after "
+            f"concurrent start()/discard(): "
+            f"{[(t.name, t.is_alive()) for t in threading.enumerate() if t.name in worker_names]} "
+            f"(refs: worker={r._worker_thread!r}, event={r._event_worker_thread!r})."
+        )
 
 
 # stream-finished callback captures _captured_generation ──

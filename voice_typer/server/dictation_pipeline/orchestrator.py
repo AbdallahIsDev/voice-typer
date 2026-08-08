@@ -47,6 +47,7 @@ from voice_typer.server.dictation_stages import (
     _PipelineAbortEmpty,
     build_default_stages,
 )
+from voice_typer.server.duration import format_duration
 from voice_typer.server.tray_types import AppState
 
 log = logging.getLogger(__name__)
@@ -316,10 +317,10 @@ class _OrchestratorMixin:
                 if stage.name == "transcribe":
                     _elapsed = time.perf_counter() - _t0
                     log.info(
-                        "[TRANSCRIBE] Transcription complete (len=%d, took=%.1fs, cycle=%s)",
+                        "[TRANSCRIBE] Transcription complete (len=%d, cycle=%s)%s",
                         len(text) if text else 0,
-                        _elapsed,
                         self._cycle_id,
+                        format_duration(_elapsed),
                     )
                     log.debug(
                         "[PIPE-PERF] transcribe: %.0f ms (cycle=%s)",

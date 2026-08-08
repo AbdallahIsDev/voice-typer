@@ -18,9 +18,14 @@ These tests pin:
    called). This is the load-bearing assertion: a regression that
    re-introduces a top-level ``from voice_typer.server.config import
    _config_dir`` makes this test fail immediately.
-2. **Cold-import time** — ``python -X importtime`` shows the
-   ``_paths`` line at <5ms (was ~54ms before the lazy fix). Verified
-   via a subprocess invocation that parses the ``importtime`` output.
+2. **Cold-import in a fresh interpreter** — a subprocess imports
+   ``_paths`` and asserts the heavy ``voice_typer.server.config``
+   package is NOT pulled into ``sys.modules`` (the regression the eager
+   import caused). This used to be a ``python -X importtime`` wall-clock
+   bound (<5ms cumulative); wall-clock import timing is
+   machine-dependent (Windows CI runners with cold disk caches /
+   antivirus scanning can take 10ms+ for any .py import), so the check
+   is now deterministic.
 3. **Lazy resolution still works** — calling any helper (e.g.
    :func:`config_dir`) triggers the lazy import on first use and
    caches the resolved function on ``_paths._config_dir``.
@@ -201,88 +206,38 @@ def test_paths_module_initial_config_dir_is_none() -> None:
 # ── 2. Cold-import time (python -X importtime) ─────────────────────────
 
 
-def test_paths_cold_import_under_5ms() -> None:
-    """``python -X importtime`` smoke check: the ``_paths`` line in the
-    import-time trace must show a cumulative time under 5ms.
+def test_paths_cold_import_does_not_pull_config_in_fresh_interpreter() -> None:
+    """Cold import in a fresh interpreter must NOT pull the heavy
+    ``voice_typer.server.config`` package into ``sys.modules``.
 
-    Before the lazy fix, ``_paths`` showed ~54ms cumulative (because
-    it transitively imported the heavy ``config`` package). After the
-    fix, ``_paths`` itself imports in <1ms (only ``sys`` + ``pathlib``
-    at the top — both already loaded by the parent
-    ``voice_typer.server`` package init).
-
-    This test spawns a subprocess that runs
-    ``python -X importtime -c 'from voice_typer.server import _paths'``
-    and parses the stderr output (``-X importtime`` writes to stderr)
-    to find the ``voice_typer.server._paths`` line, then asserts the
-    cumulative time is under 5ms.
-
-    The 5ms ceiling matches the task's expected target (lazy import
-    drops from 54ms to <5ms). The actual measured value on Linux +
-    Python 3.12 is typically <1ms; we keep a 5x safety margin to
-    absorb CI-machine variance (slower CPUs, cold disk caches).
+    Replaces an earlier ``python -X importtime`` wall-clock bound
+    (<5ms cumulative). Wall-clock import timing is machine-dependent
+    (Windows CI runners with cold disk caches / antivirus scanning can
+    take 10ms+ for any .py import, inflating the cumulative figure even
+    when the module body is tiny), which made the bound flaky. The
+    load-bearing property — a regression that re-introduces an eager
+    ``from voice_typer.server.config import _config_dir`` makes the
+    import pull the whole config package — is asserted directly in a
+    fresh subprocess, deterministically.
     """
-    # Use the same venv Python that pytest is running under so the
-    # subprocess picks up the installed ``voice_typer`` package.
-    cmd = [
-        sys.executable,
-        "-X",
-        "importtime",
-        "-c",
-        "from voice_typer.server import _paths",
-    ]
-    # ``PYTHONPATH`` is inherited from the test process; the
-    # ``voice_typer`` package is installed in editable mode so the
-    # subprocess can import it without explicit cwd pinning.
+    script = (
+        "import sys;"
+        "from voice_typer.server import _paths;"
+        "pulled = 'voice_typer.server.config' in sys.modules;"
+        "print('config_pulled:', pulled);"
+        "sys.exit(1 if pulled else 0)"
+    )
     result = subprocess.run(
-        cmd,
+        [sys.executable, "-c", script],
         capture_output=True,
         text=True,
         cwd=str(REPO_ROOT),
         timeout=30,
     )
     assert result.returncode == 0, (
-        f"subprocess failed (returncode={result.returncode}):\n"
+        " regression: cold import of voice_typer.server._paths pulled "
+        "voice_typer.server.config into sys.modules.\n"
         f"stdout: {result.stdout}\nstderr: {result.stderr}"
-    )
-    # ``-X importtime`` writes one line per imported module to stderr,
-    # in the format:
-    #   ``import time:    <self_us> |   <cumulative_us> |   <module_name>``
-    # We look for the line whose module name is exactly
-    # ``voice_typer.server._paths`` (no leading whitespace in the
-    # module-name column means it's a top-level import, not a nested
-    # child of another module's import).
-    paths_line = None
-    for line in result.stderr.splitlines():
-        if "voice_typer.server._paths" not in line:
-            continue
-        # The module name is the last ``|``-separated field, stripped
-        # of leading/trailing whitespace. We match the exact name so
-        # we don't accidentally pick up a child like
-        # ``voice_typer.server._paths.something``.
-        parts = line.split("|")
-        if len(parts) != 3:
-            continue
-        module_name = parts[2].strip()
-        if module_name == "voice_typer.server._paths":
-            paths_line = line
-            break
-    assert paths_line is not None, (
-        "could not find the 'voice_typer.server._paths' line in the "
-        f"importtime output:\n{result.stderr}"
-    )
-    # The cumulative time is the middle ``|``-separated field (in
-    # microseconds). Parse it as an int and convert to milliseconds.
-    cumulative_us = int(parts[1].strip())
-    cumulative_ms = cumulative_us / 1000.0
-    assert cumulative_ms < 5.0, (
-        f" regression: voice_typer.server._paths cold import took "
-        f"{cumulative_ms:.2f}ms (expected <5ms after the lazy-config "
-        f"import fix). The module is likely eagerly importing "
-        f"voice_typer.server.config again. Run:\n"
-        f"  {sys.executable} -X importtime -c 'from voice_typer.server "
-        f"import _paths'\nand look for the voice_typer.server.config "
-        f"line in the trace."
     )
 
 

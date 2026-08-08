@@ -39,6 +39,13 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+#: Guards the one-time ``[HISTORY] History database initialized`` INFO
+#: line per DB path. ``init_schema`` runs on every ``HistoryDB``
+#: construction (writer thread) and again during corruption recovery;
+#: without the guard the same line appeared twice within milliseconds,
+#: cluttering the log with a duplicate.
+_announced_db_paths: set[str] = set()
+
 _CURRENT_SCHEMA_VERSION = 3
 
 _MIGRATION_V2 = """
@@ -588,11 +595,22 @@ def init_schema(
                 cursor.close()
             return init_schema(db, new_conn, _is_recovery=True)
 
-    log.info(
-        "[HISTORY] History database initialized: %s (schema v%d)",
-        db.db_path,
-        _CURRENT_SCHEMA_VERSION,
-    )
+    key = str(db.db_path)
+    if key not in _announced_db_paths:
+        # Emit the one-time INFO so the log stays clean when both the
+        # initial construction and a corruption-recovery re-init run.
+        _announced_db_paths.add(key)
+        log.info(
+            "[HISTORY] History database initialized: %s (schema v%d)",
+            db.db_path,
+            _CURRENT_SCHEMA_VERSION,
+        )
+    else:
+        log.debug(
+            "[HISTORY] History database initialized: %s (schema v%d, repeat)",
+            db.db_path,
+            _CURRENT_SCHEMA_VERSION,
+        )
     with contextlib.suppress(Exception):
         cursor.close()
     return conn

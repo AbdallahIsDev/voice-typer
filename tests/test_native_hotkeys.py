@@ -1452,4 +1452,3 @@ class TestHotkeyDispatcherPooling:
         assert dispatcher._shared_backend is None
         result = dispatcher._pool_aux_into_shared("esc", "<esc>", lambda: None, None)
         assert result is False
-
