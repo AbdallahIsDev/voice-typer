@@ -978,4 +978,3 @@ pub(crate) fn on_main_window_close(
 #[cfg(test)]
 #[path = "sidecar_cmds_tests.rs"]
 mod sidecar_cmds_tests;
-

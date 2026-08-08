@@ -331,7 +331,7 @@ pub(crate) fn config_dir_from_env(
         // technically undefined behavior per the spec; we choose a
         // CWD-relative path rather than panicking.
         // Empty-string HOME is filtered to None above (XDG-spec rule).
-        let home = home.unwrap_or_else(|| {
+        let Some(home) = home else {
             // `log::warn!` (was `eprintln!`).
             // ALSO eprintln! so it lands on stderr regardless
             // of logger state.
@@ -345,8 +345,12 @@ pub(crate) fn config_dir_from_env(
             );
             eprintln!("{}", warn_msg);
             log::warn!("{}", warn_msg);
-            "."
-        });
+            // Mirrors the Windows / macOS branches: a missing HOME
+            // falls back to the CWD-relative `./voice-typer`, NOT
+            // `./.local/share/voice-typer` (the XDG default requires
+            // HOME). Pinned by the paths_tests missing-HOME tests.
+            return std::path::PathBuf::from(".").join(APP_SLUG);
+        };
         std::path::PathBuf::from(home)
             .join(".local")
             .join("share")
@@ -475,4 +479,3 @@ pub(crate) fn validate_path_safety(custom: &std::path::Path, home: &std::path::P
 #[cfg(test)]
 #[path = "paths_tests.rs"]
 mod paths_tests;
-

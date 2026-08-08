@@ -107,4 +107,3 @@ pub(super) fn toggle_rate_limiter_allows() -> bool {
 #[cfg(test)]
 #[path = "rate_limit_tests.rs"]
 mod rate_limit_tests;
-

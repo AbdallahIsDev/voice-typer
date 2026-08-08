@@ -41,15 +41,6 @@ pub(crate) const SUPERVISOR_MAX_RETRIES: u32 = 5;
 /// [`EXIT_SHUTDOWN_ACK_TIMEOUT_MS`] instead — see its doc comment.
 pub(crate) const SHUTDOWN_ACK_TIMEOUT_MS: u64 = 2000;
 
-/// ADR-0020 §10: cooperative-shutdown poll interval (dev-mode fallback
-/// step). While waiting for the sidecar to ack `{"type":"shutdown"}` and
-/// exit, the host polls the child's `CommandEvent::Terminated` stream at
-/// this cadence (the dev-mode fallback path — the release path uses the
-/// async event stream directly, with no polling). 100ms balances
-/// responsiveness (the sidecar acks in ~10-50ms) against CPU cost (10ms
-/// would burn a core for the full 2s graceful window).
-pub(crate) const SHUTDOWN_POLL_INTERVAL_MS: u64 = 100;
-
 /// Cooperative shutdown timeout for the EXIT path only
 /// (`RunEvent::Exit` / `ExitRequested` → `on_host_exit` →
 /// `shutdown_sidecar_for_exit`). This is the LAST-RESORT teardown
@@ -208,7 +199,14 @@ pub(crate) mod hex {
 
 // ─── now_timestamp (ADR-0020 §11) ─────────────────────────────────────
 
-/// Format the current time as `YYYY-MM-DDTHH:MM:SS.mmmZ` (ISO-8601 UTC).
+/// Format the current time as a clean space-separated timestamp
+/// (UTC): `YYYY-MM-DD  HH:MM:SS` — TWO spaces between the date and
+/// the time, seconds-only precision (no millisecond fraction), no
+/// `T` separator, no timezone offset — matching the Python side's
+/// `_iso_timestamp` in `voice_typer/server/log/formatters.py` so the
+/// sidecar lines and Python lines in the log folder use the same
+/// timestamp column width (the level column uses `{:5}` padding, so
+/// INFO/WARN/ERROR align consistently across both files).
 ///
 /// Uses Howard Hinnant's `civil_from_days` algorithm to convert days-
 /// since-Unix-epoch to a (y, m, d) triple without pulling in `chrono`
@@ -216,21 +214,54 @@ pub(crate) mod hex {
 /// minimal deps" guidance). UTC is fine for log timestamps — the
 /// Python side also logs in UTC (`log.py` uses `gmtime()`).
 ///
-//format changed from `YYYY-MM-DD HH:MM:SS.mmm` (space sep,
-/// no tz indicator) to `YYYY-MM-DDTHH:MM:SS.mmmZ` (T sep + Z suffix)
-/// to match Python JSON + TS `new Date().toISOString()` (both produce
-/// ISO-8601 with T separator + Z suffix). Pre-fix the space-separated
-/// Rust format caused log aggregators (Loki, Datadog, ELK) with
-/// ISO-8601 timestamp parsers to fail/misparse Rust log lines, and
-/// cross-layer correlation by timestamp required layer-specific
-/// parsing logic.
+/// `#[cfg(test)]`: production logging now calls [`now_timestamps`]
+/// (single clock read for both sinks), so this standalone file-format
+/// helper is referenced only by `util_tests::test_now_timestamp_format`.
+/// Keeping it test-scoped avoids a `dead_code` warning in release
+/// builds while preserving the format-pin test.
+#[cfg(test)]
 pub(crate) fn now_timestamp() -> String {
+    let (y, m, d, hour, min, sec) = now_civil_parts();
+    format!(
+        "{:04}-{:02}-{:02}  {:02}:{:02}:{:02}",
+        y, m, d, hour, min, sec
+    )
+}
+
+/// Format the current time as TIME ONLY (UTC): `HH:MM:SS` — no date.
+///
+/// Used by the stderr/terminal sinks: the date lives only in the log
+/// file (``now_timestamp``), and console output shows just the clock
+/// time, matching the Python `_ColorFormatter` (which passes
+/// ``include_date=False`` to `_iso_timestamp`).
+pub(crate) fn now_time_only() -> String {
+    let (_, _, _, hour, min, sec) = now_civil_parts();
+    format!("{:02}:{:02}:{:02}", hour, min, sec)
+}
+
+/// Return BOTH the file timestamp and the terminal time-only string
+/// from a SINGLE clock read, so a log record's file line and terminal
+/// line can never straddle a second boundary (``now_timestamp`` and
+/// ``now_time_only`` called separately could disagree by one second if
+/// a record is emitted exactly at a second tick).
+pub(crate) fn now_timestamps() -> (String, String) {
+    let (y, m, d, hour, min, sec) = now_civil_parts();
+    let file_ts = format!(
+        "{:04}-{:02}-{:02}  {:02}:{:02}:{:02}",
+        y, m, d, hour, min, sec
+    );
+    let term_ts = format!("{:02}:{:02}:{:02}", hour, min, sec);
+    (file_ts, term_ts)
+}
+
+/// Compute the current UTC civil date + clock time once, so both
+/// timestamp formatters share a single clock read.
+fn now_civil_parts() -> (i64, u64, u64, u64, u64, u64) {
     use std::time::{SystemTime, UNIX_EPOCH};
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default();
     let secs = now.as_secs();
-    let millis = now.subsec_millis();
     //use `i64::try_from(...).unwrap_or(i64::MAX)` for the
     // `u64 → i64` cast instead of `as i64`. The `as i64` cast silently
     // wraps any u64 value above `i64::MAX`. The saturating `try_from`
@@ -257,13 +288,7 @@ pub(crate) fn now_timestamp() -> String {
     let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
     let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
     let y = if m <= 2 { y + 1 } else { y };
-    //ISO-8601 format with T separator + Z suffix (UTC). The
-    // prior `" "` separator + missing tz indicator was non-ISO-8601-
-    // compliant and broke log-aggregator timestamp parsers.
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        y, m, d, hour, min, sec, millis
-    )
+    (y, m, d, hour, min, sec)
 }
 
 // ─── atomic_write_bytes ────────────────────────────────────────────────

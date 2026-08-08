@@ -47,6 +47,12 @@ mod util;
 #[cfg(test)]
 mod state_tests;
 
+// Shared test-only state (e.g. the panic-hook serialization lock used
+// by every test that fires a real panic through the process-global
+// hook — see `test_support.rs` for the race rationale).
+#[cfg(test)]
+mod test_support;
+
 use std::sync::Arc;
 
 // `Listener` for `app.listen("relaunch_app", ...)`, `Manager` for

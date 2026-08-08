@@ -3,3 +3,10 @@
 # is a program-generated JSON manifest; CRLF would break its deterministic format
 # and cause spurious diffs when regenerated on different platforms.
 pyrefly-baseline.json text eol=lf
+
+# Linux installer resources are byte-compared against their canonical
+# sources by tests (test_linux_installer_paths / test_install_permissions_polkit_stable
+# assert bundled == scripts/linux/<file>). They must stay LF on every
+# platform regardless of core.autocrlf so the byte equality holds.
+src-tauri/resources/linux-scripts/* text eol=lf
+scripts/linux/* text eol=lf

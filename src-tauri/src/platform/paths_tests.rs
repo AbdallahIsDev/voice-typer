@@ -333,7 +333,7 @@ fn test_config_dir_voice_typer_config_dir_no_home_falls_through() {
 }
 
 // ── Pre-existing per-platform resolution tests ─────────────────────
-// (Moved verbatim from the legacy inline 
+// (Moved verbatim from the legacy inline
 //  block to comply with C-TEST-5. These tests were updated to
 //  create real tmpdirs when exercising the path-safety override
 //  so they exercise the new validate_path_safety guard.)

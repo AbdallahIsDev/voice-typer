@@ -6,8 +6,8 @@
   "build": {
     "frontendDist": "../voice_typer/client/dist",
     "devUrl": "http://localhost:1420",
-    "beforeDevCommand": "cd ../voice_typer/client && npm run build:renderer",
-    "beforeBuildCommand": "cd ../voice_typer/client && npm run build:renderer"
+    "beforeDevCommand": "cd voice_typer/client && npm run build:renderer",
+    "beforeBuildCommand": "cd voice_typer/client && npm run build:renderer"
   },
   "app": {
     "withGlobalTauri": true,

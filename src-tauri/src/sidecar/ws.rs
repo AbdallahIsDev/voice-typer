@@ -966,4 +966,3 @@ pub(crate) async fn reconnect_ws(
     spawn_heartbeat_task(app_handle, state_clone).await;
     Ok(())
 }
-

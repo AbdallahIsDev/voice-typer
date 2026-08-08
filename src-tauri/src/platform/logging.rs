@@ -29,7 +29,7 @@
 //! ```
 
 
-use crate::util::{LOG_MAX_BYTES, now_timestamp};
+use crate::util::{LOG_MAX_BYTES, now_time_only, now_timestamps};
 use std::fs::OpenOptions;
 use std::io::Seek;
 use std::io::Write;
@@ -324,22 +324,22 @@ impl log::Log for CombinedLogger {
         // `str::contains('@')` / `str::contains('+')` / etc. scan.
         let raw_msg = record.args().to_string();
         let msg = redact_pii(&raw_msg);
-        let ts = now_timestamp();
-        // include `file:line` so operators can jump
-        // directly to the source location from a log line. Both
-        // `record.file()` and `record.line()` return `Option` (they
-        // are `None` for log records emitted from non-`#[track_caller]`
-        // paths or release builds with debuginfo stripped); fall back
-        // to "?" / 0 so the format string still renders cleanly.
-        let line = format!(
-            "{} {:5} {} {}:{} -- {}",
-            ts,
-            record.level(),
-            record.target(),
-            record.file().unwrap_or("?"),
-            record.line().unwrap_or(0),
-            msg
-        );
+        // Clean line format: `ts LEVEL msg`. The `record.target()`
+        // module path and `file:line` were deliberately removed — the
+        // module path added noise to every line (matching the Python
+        // side's removal of the `[component]` label) and the message
+        // already carries a `[TOPIC]` prefix identifying the subsystem.
+        //
+        // The FILE sink gets the full timestamp (`YYYY-MM-DD  HH:MM:SS`,
+        // matching Python's `_FileFormatter`) while the TERMINAL sink
+        // shows TIME ONLY (`HH:MM:SS` — the date lives only in the log
+        // file, matching Python's `_ColorFormatter`). Two lines are
+        // built from a SINGLE clock read (`now_timestamps`) so the file
+        // and terminal lines for one record can never straddle a second
+        // boundary; the level + message body are identical.
+        let (file_ts, term_ts) = now_timestamps();
+        let file_line = format!("{} {:5} {}", file_ts, record.level(), msg);
+        let term_line = format!("{} {:5} {}", term_ts, record.level(), msg);
         // gate the per-line `eprintln!` on the cached
         // `stderr_verbose` flag (computed once at logger init from
         // `cfg!(debug_assertions)` OR `RUST_LOG_STDERR=1`). The prior
@@ -351,7 +351,7 @@ impl log::Log for CombinedLogger {
         // `AtomicBool::load(Relaxed)` — runtime-toggleable
         // without restart. Same per-line cost as a `bool` load.
         if self.stderr_verbose.load(Ordering::Relaxed) {
-            eprintln!("{}", line);
+            eprintln!("{}", term_line);
         }
         // ADR-0020 §11: exclude `bubble_level` from the file log
         // (60 Hz would fill disk fast even with rotation). Match by a
@@ -387,7 +387,7 @@ impl log::Log for CombinedLogger {
             let is_filtered_bubble = record.level() >= log::Level::Info
                 && msg.starts_with("[WS-READER] bubble_level event");
             if !is_filtered_bubble {
-                let _ = writer.write_line(&line);
+                let _ = writer.write_line(&file_line);
                 // Flush the BufWriter immediately for Warn+ records so
                 // an impending crash (the most likely producer of
                 // `log::error!`) does NOT leave the diagnostic line
@@ -1410,16 +1410,13 @@ impl log::Log for EarlyLogger {
         // log::*! call would land on stderr unredacted. Mirror the
         // CombinedLogger's redaction here.
         let msg = redact_pii(&raw_msg);
-        let ts = now_timestamp();
-        let line = format!(
-            "{} {:5} {} {}:{} -- {}",
-            ts,
-            record.level(),
-            record.target(),
-            record.file().unwrap_or("?"),
-            record.line().unwrap_or(0),
-            msg
-        );
+        // stderr-only pre-init sink — clean time-only line
+        // (`HH:MM:SS LEVEL msg`), matching the CombinedLogger terminal
+        // line + Python `_ColorFormatter`. The module path / file:line
+        // are deliberately NOT rendered (they add noise to every line;
+        // the message carries its own `[TOPIC]` prefix).
+        let ts = now_time_only();
+        let line = format!("{} {:5} {}", ts, record.level(), msg);
         //AtomicBool::load(Relaxed) — runtime-toggleable.
         if self.stderr_verbose.load(Ordering::Relaxed) {
             eprintln!("{}", line);
@@ -1742,4 +1739,3 @@ impl RotatingFileWriter {
         Ok(())
     }
 }
-

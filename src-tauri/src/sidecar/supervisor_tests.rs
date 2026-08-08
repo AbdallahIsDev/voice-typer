@@ -15,11 +15,22 @@ use super::supervisor::{
 #[cfg(target_os = "linux")]
 use crate::state::SidecarHandle;
 use crate::state::SidecarState;
+// NOTE: the panic-hook test lock is a `std::sync::MutexGuard` (non-Send),
+// held across an `.await` below. This only compiles because
+// `#[tokio::test]` defaults to the current_thread flavor — if a future
+// edit flips this test to `flavor = "multi_thread"`, it must switch to
+// a `tokio::sync::Mutex` (see test_support.rs).
+use crate::test_support::PANIC_HOOK_TEST_LOCK;
 use futures_util::FutureExt;
 use serde_json::json;
 use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+// `Duration` is only referenced inside the `#[cfg(target_os = "linux")]`
+// tests below (they sleep the fake sidecar via `tokio::time::sleep`),
+// so the import must carry the same cfg or Windows builds warn about an
+// unused import.
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 
 
@@ -453,6 +464,11 @@ async fn test_cr14_retry_loop_first_iteration_kills_crashed_sidecar() {
 // pattern and verifying the flag is clearable from the Err arm.
 #[tokio::test]
 async fn test_gt9_catch_unwind_clears_respawn_in_progress_on_panic() {
+    // This test fires a REAL panic through the process-global hook
+    // (if `install_panic_hook` has run), which toggles the global
+    // `PANIC_HOOK_REENTRY` — serialize against the other
+    // panic-firing / flag-mutating tests (see test_support.rs).
+    let _panic_lock = PANIC_HOOK_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let state = make_test_state();
     assert!(
         state

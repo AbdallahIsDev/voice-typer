@@ -1025,4 +1025,3 @@ fn kill_process_group_if_safe(pid: u32, sig: libc::c_int) {
 #[cfg(test)]
 #[path = "process_tests.rs"]
 mod process_tests;
-

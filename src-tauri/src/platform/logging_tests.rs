@@ -19,6 +19,7 @@
 //! reach them without leaking them past the crate boundary.
 
 use super::logging::*;
+use crate::test_support::PANIC_HOOK_TEST_LOCK;
 use crate::util::LOG_MAX_BYTES;
 use log::Log;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -232,6 +233,11 @@ fn test_rotating_file_writer_concurrent_truncation_no_deadlock() {
 
 #[test]
 fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
+    // This test fires a REAL panic through the process-global hook
+    // (if `install_panic_hook` has run), which toggles the global
+    // `PANIC_HOOK_REENTRY` — serialize against the other
+    // panic-firing / flag-mutating tests (see test_support.rs).
+    let _panic_lock = PANIC_HOOK_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     //a prior panic while holding `inner`'s lock
     // poisons the mutex. The pre-fix code called `.lock().unwrap()`
     // here, which would re-panic. The post-fix code uses
@@ -364,6 +370,7 @@ fn test_si11_panic_hook_reentry_swap_semantics() {
     // (proceed with hook body). A second `swap(true→true)` returns
     // true (bail out — re-entrant call). After `store(false)`, a
     // subsequent swap returns false again (guard reset).
+    let _panic_lock = PANIC_HOOK_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     PANIC_HOOK_REENTRY.store(false, Ordering::SeqCst);
     let first = PANIC_HOOK_REENTRY.swap(true, Ordering::SeqCst);
     assert!(!first, "first swap (false→true) must return false");
@@ -379,6 +386,7 @@ fn test_si11_panic_hook_reentry_swap_semantics() {
 fn test_si11_panic_hook_does_not_abort_and_resets_guard() {
     // a normal panic must not abort, and the guard must be
     // reset to false afterward so a later panic gets full treatment.
+    let _panic_lock = PANIC_HOOK_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     install_panic_hook();
     PANIC_HOOK_REENTRY.store(false, Ordering::SeqCst);
     let result = std::panic::catch_unwind(|| {
@@ -476,12 +484,12 @@ fn test_si15_3_install_early_logger_does_not_orphan_handle() {
 //CombinedLogger::log format ───────────────────────
 
 #[test]
-fn test_combined_logger_log_format_includes_file_and_line() {
-    //verify the format string includes the file:line
-    // segment by constructing a logger and calling `log()` with a
-    // synthetic Record. We can't capture stderr (eprintln! goes to
-    // fd 2) but we CAN capture the file write and assert the
-    // `file:line --` segment is present.
+fn test_combined_logger_log_format_is_clean() {
+    // Verify the format string is clean — `ts LEVEL msg` with no
+    // `record.target()` module path and no `file:line` segment — by
+    // constructing a logger and calling `log()` with a synthetic
+    // Record. We can't capture stderr (eprintln! goes to fd 2) but we
+    // CAN capture the file write and assert the line shape.
     let tmp = std::env::temp_dir().join(format!(
         "voice-typer-test-{}-fmt",
         std::process::id()
@@ -510,31 +518,40 @@ fn test_combined_logger_log_format_includes_file_and_line() {
     logger.flush();
     let content =
         std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
-    assert!(
-        content.contains("test_target"),
-        "target missing from log line: {}",
-        content
-    );
-    assert!(
-        content.contains("src/test.rs:42"),
-        "file:line missing from log line (PVT-G5-084): {}",
-        content
-    );
+    // Message + level must be present.
     assert!(
         content.contains("hello world"),
         "message missing from log line: {}",
+        content
+    );
+    assert!(
+        content.contains("INFO"),
+        "level missing from log line: {}",
+        content
+    );
+    // Clean format: the `record.target()` module path and `file:line`
+    // are NOT rendered (they added noise to every line; the message
+    // already carries a `[TOPIC]` prefix identifying the subsystem).
+    assert!(
+        !content.contains("test_target"),
+        "target leaked into clean log line: {}",
+        content
+    );
+    assert!(
+        !content.contains("src/test.rs"),
+        "file:line leaked into clean log line: {}",
         content
     );
     std::fs::remove_dir_all(&tmp).ok();
 }
 
 #[test]
-fn test_combined_logger_log_format_falls_back_when_file_line_absent() {
-    //when `record.file()` / `record.line()` return
-    // None (e.g. release builds with debuginfo stripped, or
-    // records built without `#[track_caller]`), the format string
-    // must still render cleanly (no panic, no `Option` debug
-    // string in the output).
+fn test_combined_logger_log_format_renders_without_file_line() {
+    // The format no longer depends on `record.file()` / `record.line()`
+    // (they are `None` for records emitted from non-`#[track_caller]`
+    // paths or release builds with debuginfo stripped), so the line
+    // must render cleanly regardless — no panic, no `Option` debug
+    // string, no `?` / `0` fallback markers.
     let tmp = std::env::temp_dir().join(format!(
         "voice-typer-test-{}-fmt-nofile",
         std::process::id()
@@ -561,10 +578,18 @@ fn test_combined_logger_log_format_falls_back_when_file_line_absent() {
     logger.flush();
     let content =
         std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
-    // Should contain the "?" fallback for file and "0" for line.
     assert!(
-        content.contains("?:0"),
-        "fallback file:line missing from log line: {}",
+        content.contains("no loc"),
+        "message missing from log line: {}",
+        content
+    );
+    // No module path, no debug "None", no "?" / ":0" fallback.
+    assert!(
+        !content.contains("test_target")
+            && !content.contains("None")
+            && !content.contains("src/test.rs")
+            && !content.contains("?:0"),
+        "clutter leaked into clean log line: {}",
         content
     );
     std::fs::remove_dir_all(&tmp).ok();

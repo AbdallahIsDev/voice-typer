@@ -782,4 +782,3 @@ pub(crate) async fn respawn_inner(
 // pure UI-rate-limiting predicate with nothing to do with sidecar
 // supervision. See `sidecar/bubble_coalesce.rs` for the function +
 // its unit tests (3 tests moved with it).
-
