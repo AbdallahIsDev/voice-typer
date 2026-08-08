@@ -1,0 +1,11 @@
+# Toolchain pin for the Tauri Rust host. `stable` is the same channel the
+# GitHub Actions workflows request via dtolnay/rust-toolchain. The rustfmt
+# component is listed here so `cargo fmt` / `cargo fmt --check` work out of
+# the box for every contributor and on CI (the workflows also pass
+# `components: rustfmt` to the action for explicitness). Do not pin an exact
+# patch version — CI and local must agree on the SAME stable, and `stable`
+# keeps security/critical fixes flowing while rustfmt output stays stable
+# within a release train.
+[toolchain]
+channel = "stable"
+components = ["rustfmt"]

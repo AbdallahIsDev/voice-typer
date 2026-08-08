@@ -15,6 +15,7 @@ use crate::util::{SERVER_STARTED_POLL_INTERVAL_MS, SERVER_STARTED_TIMEOUT_MS};
 // inside the stdout-read loops (passed in by the supervisor's
 // respawn path so the loop can short-circuit mid-handshake if the
 // user quits the app).
+use serde_json::Value;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -23,7 +24,6 @@ use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 use tokio::io::AsyncBufReadExt;
 use tokio::sync::mpsc;
-use serde_json::Value;
 
 // ─── Sidecar spawn + stdout handshake (ADR-0020 §1) ───────────────────
 
@@ -189,7 +189,8 @@ pub(crate) async fn initialize_sidecar(
             //store the sidecar's event receiver so
             // shutdown_sidecar can poll for graceful exit.
             *state.child_exit_rx.lock().await = exit_rx;
-            if let Err(e) = crate::sidecar::ws::reconnect_ws(app_handle, &state, port, &token).await {
+            if let Err(e) = crate::sidecar::ws::reconnect_ws(app_handle, &state, port, &token).await
+            {
                 log::error!("[SETUP] initial WS connect failed: {}", e);
                 let _ = crate::sidecar::supervisor::respawn(app_handle, &state).await;
             }
@@ -261,19 +262,11 @@ pub(crate) fn is_dev_mode_for(value: Option<&str>) -> bool {
 /// both `tauri_plugin_shell::process::Command::envs` and
 /// `tokio::process::Command::envs` accept an iterator of `(K, V)`
 /// pairs and a Vec preserves insertion order for debuggability.
-pub(crate) fn passthrough_env_allowlist(
-) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
+pub(crate) fn passthrough_env_allowlist() -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
     let mut out: Vec<(std::ffi::OsString, std::ffi::OsString)> = Vec::new();
 
     // ── Always-pass (cross-platform) ───────────────────────────────
-    const ALWAYS: &[&str] = &[
-        "PATH",
-        "USER",
-        "LANG",
-        "TEMP",
-        "TMP",
-        "TMPDIR",
-    ];
+    const ALWAYS: &[&str] = &["PATH", "USER", "LANG", "TEMP", "TMP", "TMPDIR"];
     for name in ALWAYS {
         if let Some(val) = std::env::var_os(name) {
             out.push((std::ffi::OsString::from(name), val));
@@ -408,9 +401,17 @@ pub(crate) async fn spawn_sidecar_release(
         .envs(passthrough_env_allowlist())
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
-        .env("VOICE_TYPER_NATIVE_DIR", native_dir.to_string_lossy().to_string())
+        .env(
+            "VOICE_TYPER_NATIVE_DIR",
+            native_dir.to_string_lossy().to_string(),
+        )
         .env("VOICE_TYPER_PREWARM_EXE", prewarm_exe)
-        .env("VOICE_TYPER_CONFIG_DIR", crate::platform::paths::config_dir().to_string_lossy().to_string());
+        .env(
+            "VOICE_TYPER_CONFIG_DIR",
+            crate::platform::paths::config_dir()
+                .to_string_lossy()
+                .to_string(),
+        );
 
     // Tauri v2's shell plugin automatically pipes stdout/stderr —
     // the `spawn()` returns a `Receiver<CommandEvent>` that yields
@@ -558,9 +559,9 @@ pub(crate) async fn spawn_sidecar_release(
                         // `SidecarHandle::kill_tree` pattern in
                         // `state.rs:148`.
                         let pid = child.pid();
-                        let _ = tauri::async_runtime::spawn_blocking(
-                            move || crate::platform::process::kill_process_tree(pid),
-                        )
+                        let _ = tauri::async_runtime::spawn_blocking(move || {
+                            crate::platform::process::kill_process_tree(pid)
+                        })
                         .await;
                         if let Err(kill_err) = child.kill() {
                             log::warn!(
@@ -590,9 +591,9 @@ pub(crate) async fn spawn_sidecar_release(
                         // (High): spawn_blocking wrap — see the
                         // comment in the Terminated arm above.
                         let pid = child.pid();
-                        let _ = tauri::async_runtime::spawn_blocking(
-                            move || crate::platform::process::kill_process_tree(pid),
-                        )
+                        let _ = tauri::async_runtime::spawn_blocking(move || {
+                            crate::platform::process::kill_process_tree(pid)
+                        })
                         .await;
                         if let Err(kill_err) = child.kill() {
                             log::warn!(
@@ -622,7 +623,10 @@ pub(crate) async fn spawn_sidecar_release(
                 // Not the server_started line — could be a stray log
                 // (shouldn't happen per ADR-0020 §1, sidecar sends
                 // all non-handshake logs to stderr).
-                log::warn!("[SIDECAR] unexpected stdout line (expected only server_started): {}", line.trim());
+                log::warn!(
+                    "[SIDECAR] unexpected stdout line (expected only server_started): {}",
+                    line.trim()
+                );
             }
             Ok(None) => {
                 return Err("sidecar stdout closed before server_started".into());
@@ -725,7 +729,11 @@ pub(crate) async fn spawn_sidecar_dev_mode(
     token: &str,
     shutting_down: Option<&AtomicBool>,
 ) -> Result<(u16, SidecarHandle), String> {
-    let python_bin = if cfg!(target_os = "windows") { "python.exe" } else { "python3" };
+    let python_bin = if cfg!(target_os = "windows") {
+        "python.exe"
+    } else {
+        "python3"
+    };
 
     // ADR-0020 §14: `VOICE_TYPER_NATIVE_DIR` points to the source-tree
     // native binary dir so the sidecar finds the dev-mode native
@@ -747,7 +755,10 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         .envs(passthrough_env_allowlist())
         .env("TAURI_SIDECAR", "1")
         .env("VOICE_TYPER_IPC_TOKEN", token)
-        .env("VOICE_TYPER_NATIVE_DIR", native_dir.to_string_lossy().to_string())
+        .env(
+            "VOICE_TYPER_NATIVE_DIR",
+            native_dir.to_string_lossy().to_string(),
+        )
         // mirror the release-path env-var set so dev mode
         // doesn't silently diverge. Previously dev mode was missing
         // `VOICE_TYPER_PREWARM_EXE` (so the prewarm scheduled-task
@@ -763,7 +774,12 @@ pub(crate) async fn spawn_sidecar_dev_mode(
         // logs a warning so the developer knows prewarm is disabled
         // in this dev session.
         .env("VOICE_TYPER_PREWARM_EXE", dev_prewarm_exe())
-        .env("VOICE_TYPER_CONFIG_DIR", crate::platform::paths::config_dir().to_string_lossy().to_string())
+        .env(
+            "VOICE_TYPER_CONFIG_DIR",
+            crate::platform::paths::config_dir()
+                .to_string_lossy()
+                .to_string(),
+        )
         // set VOICE_TYPER_DEBUG=1 so the Python sidecar enables
         // verbose debug logging (its `log.py` checks this env var).
         // Previously this set only `RUST_LOG=debug`, which is
@@ -838,7 +854,12 @@ pub(crate) async fn spawn_sidecar_dev_mode(
             return Err("shutdown".to_string());
         }
         let mut line = String::new();
-        match tokio::time::timeout(Duration::from_millis(SERVER_STARTED_POLL_INTERVAL_MS), reader.read_line(&mut line)).await {
+        match tokio::time::timeout(
+            Duration::from_millis(SERVER_STARTED_POLL_INTERVAL_MS),
+            reader.read_line(&mut line),
+        )
+        .await
+        {
             Ok(Ok(0)) => {
                 return Err("dev sidecar stdout closed before server_started".into());
             }

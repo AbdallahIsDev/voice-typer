@@ -278,10 +278,10 @@ fn now_civil_parts() -> (i64, u64, u64, u64, u64, u64) {
     let era = if z >= 0 { z } else { z - 146096 } / 146097;
     let doe = (z - era * 146097) as u64; // [0, 146096]
     let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365; // [0, 399]
-    //same `i64::try_from` saturating cast for `yoe → i64`.
-    // `yoe` is in `[0, 399]` so it always fits, but the explicit
-    // `try_from` documents the invariant and is consistent with the
-    // `days` cast above.
+                                                                     //same `i64::try_from` saturating cast for `yoe → i64`.
+                                                                     // `yoe` is in `[0, 399]` so it always fits, but the explicit
+                                                                     // `try_from` documents the invariant and is consistent with the
+                                                                     // `days` cast above.
     let y = i64::try_from(yoe).unwrap_or(i64::MAX) + era * 400;
     let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
     let mp = (5 * doy + 2) / 153; // [0, 11]
@@ -414,8 +414,7 @@ pub(crate) fn atomic_write_bytes(path: &Path, contents: &[u8]) -> Result<(), Str
 /// avoiding the memory doubling that `atomic_copy`'s read-into-memory
 /// would impose on multi-GB model weights.
 pub(crate) fn atomic_copy(src: &Path, dst: &Path) -> Result<(), String> {
-    let bytes = std::fs::read(src)
-        .map_err(|e| format!("read src {}: {}", src.display(), e))?;
+    let bytes = std::fs::read(src).map_err(|e| format!("read src {}: {}", src.display(), e))?;
     atomic_write_bytes(dst, &bytes)
 }
 
@@ -459,12 +458,7 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
     // Linux, no userspace buffering — efficient for large files).
     if let Err(e) = std::fs::copy(src, &tmp) {
         let _ = std::fs::remove_file(&tmp);
-        return Err(format!(
-            "copy {} → {}: {}",
-            src.display(),
-            tmp.display(),
-            e
-        ));
+        return Err(format!("copy {} → {}: {}", src.display(), tmp.display(), e));
     }
 
     // fsync the temp file so the data is durable before the rename.
@@ -483,7 +477,11 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
             // (this helper was originally in `migrate.rs`) so log
             // aggregators / test fixtures that match on the prefix
             // keep working — pure refactor, no log-output change.
-            log::warn!("[MIGRATE] fsync of tmp {} failed (non-fatal): {}", tmp.display(), e);
+            log::warn!(
+                "[MIGRATE] fsync of tmp {} failed (non-fatal): {}",
+                tmp.display(),
+                e
+            );
         }
     }
 
@@ -500,7 +498,6 @@ pub(crate) fn atomic_copy_file(src: &Path, dst: &Path) -> Result<(), String> {
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 #[path = "util_tests.rs"]

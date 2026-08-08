@@ -70,7 +70,14 @@ pub async fn export_vocabulary(
     window: tauri::Window,
 ) -> Result<Value, String> {
     require_main_window(&window)?;
-    export_data(data, format, app, "voice-typer-vocabulary", "Export Vocabulary").await
+    export_data(
+        data,
+        format,
+        app,
+        "voice-typer-vocabulary",
+        "Export Vocabulary",
+    )
+    .await
 }
 
 /// Shared helper for `export_history` + `export_vocabulary`. Opens a
@@ -107,8 +114,9 @@ pub(crate) async fn export_data(
         None => return Ok(json!({"canceled": true})),
     };
     let content = match format.as_str() {
-        "json" => serde_json::to_string_pretty(&data)
-            .map_err(|e| format!("JSON encode failed: {e}"))?,
+        "json" => {
+            serde_json::to_string_pretty(&data).map_err(|e| format!("JSON encode failed: {e}"))?
+        }
         "csv" => json_to_csv(&data)?,
         other => return Err(format!("unsupported format: {}", other)),
     };
@@ -283,10 +291,7 @@ pub(crate) fn csv_escape_into(out: &mut String, s: &str) {
     // is applied) contains a comma, double-quote, newline, or carriage
     // return. The prefix `'` is not itself a quoting trigger, so we check
     // the raw source string — equivalent to checking the prefixed value.
-    let needs_quote = s.contains(',')
-        || s.contains('"')
-        || s.contains('\n')
-        || s.contains('\r');
+    let needs_quote = s.contains(',') || s.contains('"') || s.contains('\n') || s.contains('\r');
     if needs_quote {
         out.push('"');
         if needs_prefix {

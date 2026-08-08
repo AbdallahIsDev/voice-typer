@@ -66,10 +66,7 @@ pub(crate) fn is_sensitive_key(key: &str) -> bool {
     // key containing those as a substring, e.g. "openai_api_key").
     // We check all three spellings because the regex `[_-]?` makes
     // the separator optional.
-    if k.contains("api_key")
-        || k.contains("api-key")
-        || k.contains("apikey")
-    {
+    if k.contains("api_key") || k.contains("api-key") || k.contains("apikey") {
         return true;
     }
     // The remaining alternatives are plain substring checks. Using
@@ -104,11 +101,7 @@ pub(crate) fn redact_config_secrets(value: &mut Value) -> usize {
 /// lives (None at the root) — used to decide whether to replace
 /// `value` wholesale (if the parent key is sensitive) or to recurse
 /// into it.
-fn redact_config_secrets_inner(
-    value: &mut Value,
-    parent_key: Option<&str>,
-    count: &mut usize,
-) {
+fn redact_config_secrets_inner(value: &mut Value, parent_key: Option<&str>, count: &mut usize) {
     // If the parent key is sensitive, replace this value wholesale
     // with the redaction marker (regardless of type — a secret could
     // be a string, number, bool, or even a nested object the sidecar
@@ -198,10 +191,7 @@ fn redact_config_secrets_inner(
 /// `require_main_window(&window)?` runs FIRST so a compromised bubble
 /// renderer cannot trigger OS file-manager opens.
 #[tauri::command]
-pub async fn open_logs(
-    _app: tauri::AppHandle,
-    window: tauri::Window,
-) -> Result<Value, String> {
+pub async fn open_logs(_app: tauri::AppHandle, window: tauri::Window) -> Result<Value, String> {
     require_main_window(&window)?;
     let log_dir = config_dir();
     // Offload the synchronous fs mkdir + the OS file-manager spawn to
@@ -379,7 +369,14 @@ pub async fn export_templates(
     require_main_window(&window)?;
     // Templates are always JSON (no tabular CSV shape). Pass "json"
     // explicitly so the shared helper's format-validation accepts.
-    export_data(data, "json".to_string(), app, "voice-typer-templates", "Export Templates").await
+    export_data(
+        data,
+        "json".to_string(),
+        app,
+        "voice-typer-templates",
+        "Export Templates",
+    )
+    .await
 }
 
 //GDPR right-to-export for the full app config. The
@@ -417,7 +414,14 @@ pub async fn export_config(
             redaction_count
         );
     }
-    export_data(data, "json".to_string(), app, "voice-typer-config", "Export Config").await
+    export_data(
+        data,
+        "json".to_string(),
+        app,
+        "voice-typer-config",
+        "Export Config",
+    )
+    .await
 }
 
 // Unit tests for `is_sensitive_key` + `redact_config_secrets` live in

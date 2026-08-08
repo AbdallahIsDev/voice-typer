@@ -165,6 +165,7 @@ mod windows_impl {
     // "feature `Win32_System_JobObjects` is not enabled", the Cargo.toml
     // `[target.'cfg(windows)'.dependencies]` windows entry needs the
     // feature added (one-line change — see the fix instructions).
+    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{CloseHandle, HANDLE, INVALID_HANDLE_VALUE};
     use windows::Win32::System::JobObjects::{
         AssignProcessToJobObject, CreateJobObjectW, JobObjectExtendedLimitInformation,
@@ -172,7 +173,6 @@ mod windows_impl {
         JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
     };
     use windows::Win32::System::Threading::{OpenProcess, PROCESS_SET_QUOTA, PROCESS_TERMINATE};
-    use windows::core::PCWSTR;
 
     /// Wrapper around a Win32 `HANDLE` that closes it on Drop. RAII so
     /// the Job Object handle is closed even if a panic happens between
@@ -308,9 +308,9 @@ mod windows_impl {
         // prior `OnceLock<Result<JobHandle, String>>` bug where a
         // transient `create_job_object` failure was cached forever,
         // permanently disabling the kill-on-parent-exit guarantee.
-        let mut guard = JOB_OBJECT.try_lock().map_err(|e| {
-            format!("JOB_OBJECT lock contended/poisoned: {}", e)
-        })?;
+        let mut guard = JOB_OBJECT
+            .try_lock()
+            .map_err(|e| format!("JOB_OBJECT lock contended/poisoned: {}", e))?;
         if guard.is_none() {
             let jh = create_job_object()?;
             *guard = Some(jh);
@@ -592,7 +592,9 @@ pub(crate) fn kill_process_tree(pid: u32) {
                 log::warn!(
                     "[KILL-TREE] {} exited with code {} for pid {}",
                     tool,
-                    s.code().map(|c| c.to_string()).unwrap_or_else(|| "<signal>".into()),
+                    s.code()
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| "<signal>".into()),
                     pid
                 );
             }
@@ -631,7 +633,10 @@ pub(crate) fn kill_process_tree(pid: u32) {
         // is safe. When the spawn path is updated to put the sidecar
         // in its own group, this early return should be reconsidered.
         if all_descendants.is_empty() {
-            log::debug!("[KILL-TREE] no descendants for pid {} — skipping SIGTERM/SIGKILL cycle", pid);
+            log::debug!(
+                "[KILL-TREE] no descendants for pid {} — skipping SIGTERM/SIGKILL cycle",
+                pid
+            );
             // Still attempt the process-group kill (best-effort, no-op
             // when the sidecar shares the host's pgid).
             kill_process_group_if_safe(pid, libc::SIGTERM);

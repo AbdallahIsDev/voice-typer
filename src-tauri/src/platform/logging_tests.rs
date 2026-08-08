@@ -37,10 +37,7 @@ use std::sync::OnceLock;
 
 #[test]
 fn test_rotating_file_writer_basic_write() {
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-basic",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-basic", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     writer.write_line("hello").unwrap();
@@ -49,8 +46,7 @@ fn test_rotating_file_writer_basic_write() {
     // two short lines (12 bytes total) would still be in the 8 KB
     // in-memory buffer and the file would appear empty.
     writer.flush().unwrap();
-    let content =
-        std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+    let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
     assert_eq!(content, "hello\nworld\n");
     std::fs::remove_dir_all(&tmp).ok();
 }
@@ -60,10 +56,7 @@ fn test_rotating_file_writer_truncates_in_place() {
     // Single-file policy: writing past LOG_MAX_BYTES (5 MB) truncates
     // the log IN PLACE — the file keeps its single identity and a
     // numbered backup (`.log.1`) is NEVER created.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-rotate",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-rotate", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     // 6 MB total, 100 KB per line → ~60 lines.
@@ -139,10 +132,7 @@ fn test_rotating_file_writer_keeps_single_file_after_many_truncations() {
 fn test_rotating_file_writer_thread_safety() {
     // Spawn multiple threads writing to the same writer — should
     // not panic or corrupt (Mutex protects the inner File).
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-threads",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-threads", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = std::sync::Arc::new(RotatingFileWriter::new(tmp.clone(), "test-log"));
     let mut handles = Vec::new();
@@ -164,8 +154,7 @@ fn test_rotating_file_writer_thread_safety() {
     // could fail on a fast machine where all 200 lines fit in the
     // buffer without triggering an auto-flush.
     writer.flush().unwrap();
-    let content =
-        std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+    let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
     let line_count = content.lines().count();
     // Could be fewer if rotation happened mid-write (the current
     // file gets renamed to .log.1 and a fresh .log starts). Just
@@ -188,10 +177,8 @@ fn test_rotating_file_writer_concurrent_truncation_no_deadlock() {
     // each thread triggers many truncate-in-place cycles. All writes
     // serialize on the `inner` Mutex; the test passes if all threads
     // join (no deadlock / panic) and no numbered backup is created.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-conc-rot",
-        std::process::id()
-    ));
+    let tmp =
+        std::env::temp_dir().join(format!("voice-typer-test-{}-conc-rot", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = std::sync::Arc::new(RotatingFileWriter::new(tmp.clone(), "test-log"));
     let big_line = "x".repeat(100_000);
@@ -237,7 +224,9 @@ fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
     // (if `install_panic_hook` has run), which toggles the global
     // `PANIC_HOOK_REENTRY` — serialize against the other
     // panic-firing / flag-mutating tests (see test_support.rs).
-    let _panic_lock = PANIC_HOOK_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _panic_lock = PANIC_HOOK_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     //a prior panic while holding `inner`'s lock
     // poisons the mutex. The pre-fix code called `.lock().unwrap()`
     // here, which would re-panic. The post-fix code uses
@@ -246,10 +235,7 @@ fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
     // continue. This test simulates the poison by manually
     // poisoning the mutex via `std::sync::PoisonError`, then
     // verifies that `write_line` and `flush` do NOT panic.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-poison",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-poison", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     // Write an initial line so the inner File handle is opened.
@@ -260,17 +246,27 @@ fn test_rotating_file_writer_recovers_from_poisoned_mutex() {
         let _guard = writer.inner.lock().unwrap();
         panic!("intentional poison for PVT-G5-018 test");
     }));
-    assert!(poison_result.is_err(), "test setup: panic should have fired");
+    assert!(
+        poison_result.is_err(),
+        "test setup: panic should have fired"
+    );
     // Now the mutex is poisoned. The post-fix code must NOT panic.
     writer.write_line("after-poison").unwrap();
     writer.flush().unwrap();
     // Verify both lines landed (the recovered guard carries the
     // previously-opened File handle, so the post-poison write
     // appends to the same file).
-    let content =
-        std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
-    assert!(content.contains("before-poison"), "pre-poison line lost: {}", content);
-    assert!(content.contains("after-poison"), "post-poison line lost: {}", content);
+    let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+    assert!(
+        content.contains("before-poison"),
+        "pre-poison line lost: {}",
+        content
+    );
+    assert!(
+        content.contains("after-poison"),
+        "post-poison line lost: {}",
+        content
+    );
     std::fs::remove_dir_all(&tmp).ok();
 }
 
@@ -370,12 +366,17 @@ fn test_si11_panic_hook_reentry_swap_semantics() {
     // (proceed with hook body). A second `swap(true→true)` returns
     // true (bail out — re-entrant call). After `store(false)`, a
     // subsequent swap returns false again (guard reset).
-    let _panic_lock = PANIC_HOOK_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _panic_lock = PANIC_HOOK_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     PANIC_HOOK_REENTRY.store(false, Ordering::SeqCst);
     let first = PANIC_HOOK_REENTRY.swap(true, Ordering::SeqCst);
     assert!(!first, "first swap (false→true) must return false");
     let second = PANIC_HOOK_REENTRY.swap(true, Ordering::SeqCst);
-    assert!(second, "second swap (true→true) must return true (re-entered)");
+    assert!(
+        second,
+        "second swap (true→true) must return true (re-entered)"
+    );
     PANIC_HOOK_REENTRY.store(false, Ordering::SeqCst);
     let third = PANIC_HOOK_REENTRY.swap(true, Ordering::SeqCst);
     assert!(!third, "swap after reset must return false");
@@ -386,14 +387,19 @@ fn test_si11_panic_hook_reentry_swap_semantics() {
 fn test_si11_panic_hook_does_not_abort_and_resets_guard() {
     // a normal panic must not abort, and the guard must be
     // reset to false afterward so a later panic gets full treatment.
-    let _panic_lock = PANIC_HOOK_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _panic_lock = PANIC_HOOK_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     install_panic_hook();
     PANIC_HOOK_REENTRY.store(false, Ordering::SeqCst);
     let result = std::panic::catch_unwind(|| {
         panic!("si11 normal panic test payload");
     });
     assert!(result.is_err(), "catch_unwind must catch the panic");
-    assert!(!PANIC_HOOK_REENTRY.load(Ordering::SeqCst), "guard must be reset");
+    assert!(
+        !PANIC_HOOK_REENTRY.load(Ordering::SeqCst),
+        "guard must be reset"
+    );
 }
 
 // ── is_truthy_env_var / is_truthy_value ─────────────────
@@ -455,15 +461,23 @@ fn test_si15_5_is_truthy_env_var_truthy_when_set() {
 #[test]
 fn test_si15_5_is_debug_env_truthy_delegates_to_shared_matcher() {
     let cases: [Option<&str>; 9] = [
-        None, Some(""), Some("1"), Some("true"), Some("YES"),
-        Some("  yes  "), Some("0"), Some("false"), Some("yess"),
+        None,
+        Some(""),
+        Some("1"),
+        Some("true"),
+        Some("YES"),
+        Some("  yes  "),
+        Some("0"),
+        Some("false"),
+        Some("yess"),
     ];
     for case in cases {
         assert_eq!(
             is_debug_env_truthy(case),
             is_truthy_value(case),
             "is_debug_env_truthy({:?}) must match is_truthy_value({:?})",
-            case, case
+            case,
+            case
         );
     }
 }
@@ -490,10 +504,7 @@ fn test_combined_logger_log_format_is_clean() {
     // constructing a logger and calling `log()` with a synthetic
     // Record. We can't capture stderr (eprintln! goes to fd 2) but we
     // CAN capture the file write and assert the line shape.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-fmt",
-        std::process::id()
-    ));
+    let tmp = std::env::temp_dir().join(format!("voice-typer-test-{}-fmt", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     let logger = CombinedLogger {
@@ -516,8 +527,7 @@ fn test_combined_logger_log_format_is_clean() {
         .build();
     logger.log(&record);
     logger.flush();
-    let content =
-        std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+    let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
     // Message + level must be present.
     assert!(
         content.contains("hello world"),
@@ -576,8 +586,7 @@ fn test_combined_logger_log_format_renders_without_file_line() {
         .build();
     logger.log(&record);
     logger.flush();
-    let content =
-        std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
+    let content = std::fs::read_to_string(tmp.join("test-log.log")).unwrap();
     assert!(
         content.contains("no loc"),
         "message missing from log line: {}",
@@ -607,18 +616,15 @@ fn test_rotating_file_writer_log_file_mode_is_0o600_on_posix() {
     // The dictation log may contain raw transcription text + PII
     //(), so it must be owner-only.
     use std::os::unix::fs::PermissionsExt;
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-pi7-mode",
-        std::process::id()
-    ));
+    let tmp =
+        std::env::temp_dir().join(format!("voice-typer-test-{}-pi7-mode", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     writer.write_line("secret-dictation-text").unwrap();
     writer.flush().unwrap();
 
     let path = tmp.join("test-log.log");
-    let meta = std::fs::metadata(&path)
-        .expect("log file must exist after write_line");
+    let meta = std::fs::metadata(&path).expect("log file must exist after write_line");
     let mode = meta.permissions().mode() & 0o777;
     assert_eq!(
         mode, 0o600,
@@ -658,8 +664,7 @@ fn test_rotating_file_writer_truncate_keeps_0o600_on_posix() {
 
     // The current (only) `.log` file must be 0o600.
     let current = tmp.join("test-log.log");
-    let meta = std::fs::metadata(&current)
-        .expect("current log file must exist");
+    let meta = std::fs::metadata(&current).expect("current log file must exist");
     let mode = meta.permissions().mode() & 0o777;
     assert_eq!(
         mode, 0o600,
@@ -692,16 +697,9 @@ fn test_init_file_logger_tightens_logs_dir_to_0o700_on_posix() {
     let logs_dir = tmp.join("logs");
     std::fs::create_dir_all(&logs_dir).unwrap();
     // Set permissive mode first (mimics a pre-hardening leftover dir).
-    std::fs::set_permissions(
-        &logs_dir,
-        std::fs::Permissions::from_mode(0o755),
-    )
-    .unwrap();
+    std::fs::set_permissions(&logs_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
     // Apply the same chmod `init_file_logger` does.
-    let _ = std::fs::set_permissions(
-        &logs_dir,
-        std::fs::Permissions::from_mode(0o700),
-    );
+    let _ = std::fs::set_permissions(&logs_dir, std::fs::Permissions::from_mode(0o700));
     let meta = std::fs::metadata(&logs_dir).unwrap();
     let mode = meta.permissions().mode() & 0o777;
     assert_eq!(
@@ -726,10 +724,8 @@ fn test_fr33_bubble_level_filter_drops_info_record() {
     // INFO-level bubble_level event must be dropped from the file
     // log (the original ADR-0020 §11 behavior — 60 Hz events would
     // fill disk fast).
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-fr33-info",
-        std::process::id()
-    ));
+    let tmp =
+        std::env::temp_dir().join(format!("voice-typer-test-{}-fr33-info", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     let logger = CombinedLogger {
@@ -760,10 +756,8 @@ fn test_fr33_bubble_level_filter_preserves_warn_record() {
     //WARN-level bubble_level record must be PRESERVED in
     // the file log even though the message starts with the
     // filtered prefix. Pre-fix this was silently dropped.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-fr33-warn",
-        std::process::id()
-    ));
+    let tmp =
+        std::env::temp_dir().join(format!("voice-typer-test-{}-fr33-warn", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     let logger = CombinedLogger {
@@ -776,7 +770,9 @@ fn test_fr33_bubble_level_filter_preserves_warn_record() {
         .target("test_target")
         .file(Some("src/test.rs"))
         .line(Some(2))
-        .args(format_args!("[WS-READER] bubble_level event handler stalled"))
+        .args(format_args!(
+            "[WS-READER] bubble_level event handler stalled"
+        ))
         .build();
     logger.log(&record);
     logger.flush();
@@ -795,10 +791,8 @@ fn test_fr33_bubble_level_filter_preserves_error_record() {
     // This is the most important case — a future
     // `log::error!("[WS-READER] bubble_level event handler crashed")`
     // would be silently lost without the level guard.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-test-{}-fr33-err",
-        std::process::id()
-    ));
+    let tmp =
+        std::env::temp_dir().join(format!("voice-typer-test-{}-fr33-err", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     let writer = RotatingFileWriter::new(tmp.clone(), "test-log");
     let logger = CombinedLogger {
@@ -811,7 +805,9 @@ fn test_fr33_bubble_level_filter_preserves_error_record() {
         .target("test_target")
         .file(Some("src/test.rs"))
         .line(Some(3))
-        .args(format_args!("[WS-READER] bubble_level event handler crashed: panic"))
+        .args(format_args!(
+            "[WS-READER] bubble_level event handler crashed: panic"
+        ))
         .build();
     logger.log(&record);
     logger.flush();
@@ -987,10 +983,7 @@ fn test_redact_pii_multiple_patterns_in_one_line() {
     // security-positive.
     let input = "auth=Bearer abc123, email=alice@example.com, key=sk-1234567890abcdef";
     let out = redact_pii(input);
-    assert_eq!(
-        out,
-        "auth=*** abc123, email=[EMAIL], key=***"
-    );
+    assert_eq!(out, "auth=*** abc123, email=[EMAIL], key=***");
 }
 
 //extended coverage: gsk_, IBAN, phone, SSN, CC ───────

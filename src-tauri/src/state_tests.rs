@@ -7,7 +7,7 @@
 //! already `pub(crate)`, so no visibility bumps were needed in
 //! `state.rs`.
 
-use crate::state::{PendingMap, SidecarHandle, SidecarState, shutdown_sidecar_for_exit};
+use crate::state::{shutdown_sidecar_for_exit, PendingMap, SidecarHandle, SidecarState};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -63,7 +63,10 @@ async fn test_shutdown_sidecar_for_exit_is_idempotent() {
     // the call.
     let mut guard_set = false;
     for _ in 0..100 {
-        if state.shutting_down.load(std::sync::atomic::Ordering::SeqCst) {
+        if state
+            .shutting_down
+            .load(std::sync::atomic::Ordering::SeqCst)
+        {
             guard_set = true;
             break;
         }
@@ -117,11 +120,19 @@ fn test_shell_plugin_none_drops_cleanly() {
 async fn test_shell_plugin_none_kill_returns_ok() {
     let h = SidecarHandle::ShellPlugin(None);
     let result = h.kill().await;
-    assert!(result.is_ok(), "kill() on ShellPlugin(None) must return Ok: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "kill() on ShellPlugin(None) must return Ok: {:?}",
+        result
+    );
 
     let h2 = SidecarHandle::ShellPlugin(None);
     let result2 = h2.kill_tree().await;
-    assert!(result2.is_ok(), "kill_tree() on ShellPlugin(None) must return Ok: {:?}", result2);
+    assert!(
+        result2.is_ok(),
+        "kill_tree() on ShellPlugin(None) must return Ok: {:?}",
+        result2
+    );
 }
 
 /// `SidecarHandle::DevMode` must kill the child process on Drop
@@ -140,7 +151,9 @@ async fn test_devmode_drop_kills_child_when_kill_on_drop_set() {
     cmd.stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     let child = cmd.spawn().expect("failed to spawn `sleep 30` for test");
-    let pid = child.id().expect("child must have a pid immediately after spawn");
+    let pid = child
+        .id()
+        .expect("child must have a pid immediately after spawn");
 
     let handle = SidecarHandle::DevMode(child);
     drop(handle);
@@ -171,7 +184,9 @@ async fn test_devmode_drop_does_not_kill_when_kill_on_drop_unset() {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
     let child = cmd.spawn().expect("failed to spawn `sleep 30` for test");
-    let pid = child.id().expect("child must have a pid immediately after spawn");
+    let pid = child
+        .id()
+        .expect("child must have a pid immediately after spawn");
 
     let handle = SidecarHandle::DevMode(child);
     drop(handle);

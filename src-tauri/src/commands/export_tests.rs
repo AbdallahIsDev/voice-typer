@@ -174,8 +174,8 @@ fn test_value_to_string_into_matches_value_to_string() {
         json!(true),
         json!(false),
         json!(null),
-        json!([1, 2, 3]),    // array → other.to_string()
-        json!({"k": "v"}),   // object → other.to_string()
+        json!([1, 2, 3]),  // array → other.to_string()
+        json!({"k": "v"}), // object → other.to_string()
     ];
     for v in &values {
         let mut out = String::new();
@@ -336,7 +336,8 @@ fn test_require_main_window_error_envelope_shape() {
     assert_eq!(parsed["type"], "error");
     assert_eq!(parsed["data"]["code"], "disallowed_window");
     assert_eq!(
-        parsed["data"]["message"], "command only allowed from main window"
+        parsed["data"]["message"],
+        "command only allowed from main window"
     );
 }
 
@@ -369,8 +370,7 @@ fn test_pi13_atomic_write_helper_preserves_existing_file_on_overwrite() {
     std::fs::write(&path, b"OLD,SENTINEL,CONTENTS\n").unwrap();
     // Atomic overwrite with new content.
     let new_content = b"new,export,contents\nrow2\n";
-    crate::util::atomic_write_bytes(&path, new_content)
-        .expect("atomic_write_bytes must succeed");
+    crate::util::atomic_write_bytes(&path, new_content).expect("atomic_write_bytes must succeed");
     let read_back = std::fs::read(&path).expect("file must still exist");
     assert_eq!(
         read_back.as_slice(),
@@ -420,8 +420,8 @@ fn test_pi13_atomic_write_helper_failure_leaves_original_unchanged() {
         "PI-13: write to non-existent subdir must return Err, got Ok"
     );
     // The original file at the unrelated path must be UNCHANGED.
-    let read_back = std::fs::read(&original_path)
-        .expect("original file must still exist after failed write");
+    let read_back =
+        std::fs::read(&original_path).expect("original file must still exist after failed write");
     assert_eq!(
         read_back.as_slice(),
         b"ORIGINAL,SENTINEL\n".as_ref(),

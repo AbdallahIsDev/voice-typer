@@ -222,7 +222,11 @@ fn migrate_inner(new_dir: &Path) {
     );
 
     if let Err(e) = std::fs::create_dir_all(&new_dir) {
-        log::error!("[MIGRATE] cannot create target dir {}: {}", new_dir.display(), e);
+        log::error!(
+            "[MIGRATE] cannot create target dir {}: {}",
+            new_dir.display(),
+            e
+        );
         return;
     }
 

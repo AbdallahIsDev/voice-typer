@@ -107,13 +107,13 @@ fn atomic_copy_file_produces_identical_destination() {
     let leftover: Vec<_> = std::fs::read_dir(&root)
         .unwrap()
         .flatten()
-        .filter(|e| {
-            e.file_name()
-                .to_string_lossy()
-                .contains(".tmp.copy.")
-        })
+        .filter(|e| e.file_name().to_string_lossy().contains(".tmp.copy."))
         .collect();
-    assert!(leftover.is_empty(), "no temp files should remain: {:?}", leftover);
+    assert!(
+        leftover.is_empty(),
+        "no temp files should remain: {:?}",
+        leftover
+    );
 }
 
 //`atomic_copy_file` must NOT leave a partial destination
@@ -124,8 +124,7 @@ fn atomic_copy_file_no_partial_on_missing_source() {
     let root = _scratch.path().to_path_buf();
     let src = root.join("nonexistent.bin");
     let dst = root.join("dst.bin");
-    let err = util::atomic_copy_file(&src, &dst)
-        .expect_err("missing source must produce an error");
+    let err = util::atomic_copy_file(&src, &dst).expect_err("missing source must produce an error");
     assert!(err.contains("copy"), "error should mention copy: {}", err);
     assert!(!dst.exists(), "destination must NOT exist after failure");
 }
@@ -151,7 +150,9 @@ fn merge_config_backs_up_corrupt_source() {
     // so 0 keys are written from old.
     match outcome {
         MergeOutcome::Merged(0) => {}
-        MergeOutcome::Merged(n) => panic!("expected Merged(0) for corrupt source, got Merged({})", n),
+        MergeOutcome::Merged(n) => {
+            panic!("expected Merged(0) for corrupt source, got Merged({})", n)
+        }
         MergeOutcome::Copied => panic!("expected Merged for existing target, got Copied"),
     }
     // A backup file matching the corrupt-pre-migration pattern
@@ -163,7 +164,12 @@ fn merge_config_backs_up_corrupt_source() {
         .filter(|n| n.starts_with("config.json.corrupt-pre-migration."))
         .filter(|n| n.ends_with(".bak"))
         .collect();
-    assert_eq!(backups.len(), 1, "exactly one backup should exist: {:?}", backups);
+    assert_eq!(
+        backups.len(),
+        1,
+        "exactly one backup should exist: {:?}",
+        backups
+    );
     // The backup must contain the original corrupt bytes.
     let backup_contents = std::fs::read(root.join(&backups[0])).unwrap();
     assert_eq!(backup_contents, b"{not valid json");
@@ -194,15 +200,29 @@ fn merge_config_whole_file_mtime_wins() {
     // Only `a` is solely in old -> 1 key written.
     match outcome {
         MergeOutcome::Merged(1) => {}
-        other => panic!("expected Merged(1) (only `a` is solely in old), got {:?}", other),
+        other => panic!(
+            "expected Merged(1) (only `a` is solely in old), got {:?}",
+            other
+        ),
     }
     let merged: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&new).unwrap()).unwrap();
     let obj = merged.as_object().expect("merged should be an object");
-    assert_eq!(obj.get("a").and_then(|v| v.as_i64()), Some(1), "a taken from old");
-    assert_eq!(obj.get("b").and_then(|v| v.as_i64()), Some(99),
-        "b stays new's value (new is newer)");
-    assert_eq!(obj.get("c").and_then(|v| v.as_i64()), Some(3), "c stays new's value");
+    assert_eq!(
+        obj.get("a").and_then(|v| v.as_i64()),
+        Some(1),
+        "a taken from old"
+    );
+    assert_eq!(
+        obj.get("b").and_then(|v| v.as_i64()),
+        Some(99),
+        "b stays new's value (new is newer)"
+    );
+    assert_eq!(
+        obj.get("c").and_then(|v| v.as_i64()),
+        Some(3),
+        "c stays new's value"
+    );
 
     // Now flip: make old newer than new. ALL of old's overlapping
     // keys win.
@@ -228,9 +248,16 @@ fn merge_config_whole_file_mtime_wins() {
     let merged2: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&new).unwrap()).unwrap();
     let obj2 = merged2.as_object().unwrap();
-    assert_eq!(obj2.get("b").and_then(|v| v.as_i64()), Some(7),
-        "b taken from old (old is newer)");
-    assert_eq!(obj2.get("d").and_then(|v| v.as_i64()), Some(4), "d taken from old");
+    assert_eq!(
+        obj2.get("b").and_then(|v| v.as_i64()),
+        Some(7),
+        "b taken from old (old is newer)"
+    );
+    assert_eq!(
+        obj2.get("d").and_then(|v| v.as_i64()),
+        Some(4),
+        "d taken from old"
+    );
 }
 
 //`sidecar_path` appends the suffix to the file_name
@@ -302,7 +329,10 @@ fn write_sentinel_if_clean_writes_on_success() {
     assert!(!sentinel.exists(), "sentinel must not exist before call");
 
     let written = write_sentinel_if_clean(&new_dir, 0);
-    assert!(written, "sentinel should be written when migration_failed == 0");
+    assert!(
+        written,
+        "sentinel should be written when migration_failed == 0"
+    );
     assert!(sentinel.exists(), "sentinel file must exist on disk");
     // The sentinel is an empty marker file — its presence (not its
     // contents) is what the early-return guard checks.
@@ -327,7 +357,10 @@ fn write_sentinel_if_clean_skips_on_failure() {
 
     // Simulate 1 critical-step failure (e.g. history.db copy failed).
     let written = write_sentinel_if_clean(&new_dir, 1);
-    assert!(!written, "sentinel must NOT be written when migration_failed > 0");
+    assert!(
+        !written,
+        "sentinel must NOT be written when migration_failed > 0"
+    );
     assert!(
         !sentinel.exists(),
         "sentinel file must NOT exist on disk after a failed migration"
@@ -345,7 +378,10 @@ fn write_sentinel_if_clean_skips_on_multiple_failures() {
     let sentinel = new_dir.join(".migrated-from-electron");
 
     let written = write_sentinel_if_clean(&new_dir, 3);
-    assert!(!written, "sentinel must NOT be written when migration_failed > 1");
+    assert!(
+        !written,
+        "sentinel must NOT be written when migration_failed > 1"
+    );
     assert!(!sentinel.exists(), "sentinel file must NOT exist on disk");
 }
 

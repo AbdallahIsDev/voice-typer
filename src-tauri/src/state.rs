@@ -1,13 +1,13 @@
 //! Shared state types for the Voice Typer Tauri host (ADR-0020 §1 + §10).
 
+use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64};
 use std::sync::{Arc, Mutex};
 use tauri::Manager;
-use tauri_plugin_shell::process::{CommandEvent, CommandChild};
+use tauri_plugin_shell::process::{CommandChild, CommandEvent};
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex, Notify};
 use tokio_tungstenite::tungstenite::Message;
-use serde_json::Value;
 
 //Poison-safe Mutex helper () ───────────────────────────────
 //
@@ -321,8 +321,7 @@ pub(crate) struct SidecarState {
     //coordination note: `main.rs`'s `SidecarState { ... }`
     /// struct-literal initializer must add `heartbeat_handle:
     /// AsyncMutex::new(None),` — OR switch to `SidecarState::new()`.
-    pub(crate) heartbeat_handle:
-        AsyncMutex<Option<tauri::async_runtime::JoinHandle<()>>>,
+    pub(crate) heartbeat_handle: AsyncMutex<Option<tauri::async_runtime::JoinHandle<()>>>,
     /// Monotonic generation counter bumped on every successful
     /// `queue_auth_and_store_ws_tx` (i.e. every time a fresh `ws_tx`
     /// channel is stored into `state.ws_tx`). The reader and writer
@@ -421,9 +420,9 @@ impl Default for SidecarState {
 /// `tauri::async_runtime::block_on` + `tokio::time::timeout` so the
 /// run loop never hangs on a misbehaving sidecar.
 pub(crate) async fn shutdown_sidecar_for_exit(state: &Arc<SidecarState>) {
+    use crate::util::EXIT_SHUTDOWN_ACK_TIMEOUT_MS;
     use std::sync::atomic::Ordering;
     use std::time::Duration;
-    use crate::util::EXIT_SHUTDOWN_ACK_TIMEOUT_MS;
 
     // Idempotency guard.
     if state.shutting_down.swap(true, Ordering::SeqCst) {
@@ -684,10 +683,7 @@ pub(crate) fn on_relaunch_app(app_handle: &tauri::AppHandle, _event: tauri::Even
 pub(crate) fn on_host_exit(app_handle: &tauri::AppHandle) {
     use std::time::Duration;
 
-    let sidecar_state = app_handle
-        .state::<Arc<SidecarState>>()
-        .inner()
-        .clone();
+    let sidecar_state = app_handle.state::<Arc<SidecarState>>().inner().clone();
     std::thread::spawn(move || {
         tauri::async_runtime::block_on(async move {
             let _ = tokio::time::timeout(

@@ -249,9 +249,7 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
             // recover from a poisoned mutex — the inner
             // data may be stale but we can still attempt a fresh
             // spawn.
-            log::warn!(
-                "[SUPERVISOR] respawn-supervisor mutex poisoned — recovering (XE-15-3)"
-            );
+            log::warn!("[SUPERVISOR] respawn-supervisor mutex poisoned — recovering (XE-15-3)");
             poisoned.into_inner()
         }
     };
@@ -283,9 +281,7 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
             // Keep a clone for the caller.
             *guard = Some(tx.clone());
             drop(guard);
-            log::info!(
-                "[SUPERVISOR] long-lived respawn-supervisor thread spawned (XE-15-3)"
-            );
+            log::info!("[SUPERVISOR] long-lived respawn-supervisor thread spawned (XE-15-3)");
             Some(tx)
         }
         Err(e) => {
@@ -335,10 +331,7 @@ fn respawn_supervisor_sender() -> Option<std::sync::mpsc::SyncSender<RespawnRequ
 // call it. The drain helper `drain_pending_with_disconnect_error`
 // lives in the parent `ws` module and is also `pub(super)` so this
 // module can call it via `super::drain_pending_with_disconnect_error`.
-pub(super) async fn cleanup_and_trigger_respawn(
-    app: &tauri::AppHandle,
-    state: &Arc<SidecarState>,
-) {
+pub(super) async fn cleanup_and_trigger_respawn(app: &tauri::AppHandle, state: &Arc<SidecarState>) {
     {
         // rule: no `unwrap()` on new code. Recover from a
         // poisoned mutex by taking the inner guard (the data inside

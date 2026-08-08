@@ -1,8 +1,8 @@
 //! Tauri command handler modules (ADR-0020 §6 + §7 + §10 +  +  + ).
 
-pub(crate) mod sidecar_cmds;
-pub(crate) mod export;
 pub(crate) mod bubble;
+pub(crate) mod export;
+pub(crate) mod sidecar_cmds;
 pub(crate) mod system_cmds;
 //the `paste` module + the `paste_text` Tauri command
 // were deleted as dead production code. The Python sidecar owns the
@@ -23,8 +23,8 @@ pub(crate) mod system_cmds;
 // no caller. Both the re-exports and the `#[allow(unused_imports)]`
 // annotations are deleted here; `cargo check` confirms `generate_handler!`
 // still resolves every command via the direct submodule imports.
-pub(crate) use sidecar_cmds::{dispatch_inner, DispatchArgs};
 pub(crate) use sidecar_cmds::DISALLOWED_WINDOW_CODE;
+pub(crate) use sidecar_cmds::{dispatch_inner, DispatchArgs};
 
 //canonical main-window guard (ADR-0020 §7 + §9 + SEC-026) ────
 //

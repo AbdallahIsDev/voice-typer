@@ -24,15 +24,14 @@ use crate::test_support::PANIC_HOOK_TEST_LOCK;
 use futures_util::FutureExt;
 use serde_json::json;
 use std::panic::AssertUnwindSafe;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 // `Duration` is only referenced inside the `#[cfg(target_os = "linux")]`
 // tests below (they sleep the fake sidecar via `tokio::time::sleep`),
 // so the import must carry the same cfg or Windows builds warn about an
 // unused import.
 #[cfg(target_os = "linux")]
 use std::time::Duration;
-
 
 // parse_restart_counter saturating cast ──────────────
 
@@ -217,18 +216,17 @@ fn test_cr13_flag_bails_when_already_in_progress() {
     let state = make_test_state();
 
     // First respawn acquires the flag.
-    assert!(
-        state
-            .respawn_in_progress
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
-            .is_ok()
-    );
+    assert!(state
+        .respawn_in_progress
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok());
 
     // A concurrent respawn (e.g. from a second WS reader task
     // that also detected a disconnect) must bail.
-    let concurrent_result = state
-        .respawn_in_progress
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
+    let concurrent_result =
+        state
+            .respawn_in_progress
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst);
     assert!(
         concurrent_result.is_err(),
         "concurrent respawn must bail when flag is already set"
@@ -468,7 +466,9 @@ async fn test_gt9_catch_unwind_clears_respawn_in_progress_on_panic() {
     // (if `install_panic_hook` has run), which toggles the global
     // `PANIC_HOOK_REENTRY` — serialize against the other
     // panic-firing / flag-mutating tests (see test_support.rs).
-    let _panic_lock = PANIC_HOOK_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let _panic_lock = PANIC_HOOK_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let state = make_test_state();
     assert!(
         state
@@ -563,7 +563,10 @@ async fn test_gt_c4_8_child_install_race_clears_flag() {
     state.shutting_down.store(true, Ordering::SeqCst);
 
     let install = !state.shutting_down.load(Ordering::SeqCst);
-    assert!(!install, "GT-C4-8: when shutting_down is set, install must be false");
+    assert!(
+        !install,
+        "GT-C4-8: when shutting_down is set, install must be false"
+    );
     if !install {
         state.respawn_in_progress.store(false, Ordering::SeqCst);
     }
@@ -796,9 +799,16 @@ fn test_ue3_f5_install_arm_handles_some_child() {
     if let Some(new_child) = child.take() {
         child_guard = Some(new_child);
     }
-    assert_eq!(child_guard, Some(42), "UE-3-F5: install arm must install the fresh child");
+    assert_eq!(
+        child_guard,
+        Some(42),
+        "UE-3-F5: install arm must install the fresh child"
+    );
     assert!(child.is_none(), "UE-3-F5: child must be consumed by take()");
-    assert!(old.is_none(), "UE-3-F5: prior child (None here) is preserved in `old`");
+    assert!(
+        old.is_none(),
+        "UE-3-F5: prior child (None here) is preserved in `old`"
+    );
 }
 
 // write_restart_counter + read_restart_counter round-trip ──
@@ -831,11 +841,16 @@ fn test_write_read_restart_counter_round_trip_json_contract() {
         // (now - ts) <= COUNTER_STALE_SECS. With ts = now, both
         // hold, so it delegates to `parse_restart_counter`.
         let ts = payload.get("ts").and_then(|t| t.as_u64()).unwrap_or(0);
-        assert!(ts > 0, "ts field must be present + non-zero for count {}", count);
+        assert!(
+            ts > 0,
+            "ts field must be present + non-zero for count {}",
+            count
+        );
         let now = now_unix_secs();
         assert!(
             now >= ts && now - ts <= COUNTER_STALE_SECS,
-            "fresh ts must pass staleness check for count {}", count
+            "fresh ts must pass staleness check for count {}",
+            count
         );
         // The actual parse step `read_restart_counter` runs:
         let parsed = parse_restart_counter(&payload);
@@ -879,10 +894,8 @@ fn test_clear_restart_counter_for_user_restart_sets_zero() {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_nanos())
         .unwrap_or(0);
-    let temp_config = std::env::temp_dir().join(format!(
-        "voice-typer-test-clear-counter-{}-{}",
-        pid, ts_ns
-    ));
+    let temp_config =
+        std::env::temp_dir().join(format!("voice-typer-test-clear-counter-{}-{}", pid, ts_ns));
     // Best-effort create; if it fails (read-only temp dir), the
     // test will fall through to the "config dir unwritable" guard
     // below and skip the assertions rather than fail spuriously.
@@ -915,8 +928,11 @@ fn test_clear_restart_counter_for_user_restart_sets_zero() {
             before
         );
         // Restore env var + best-effort cleanup.
-        if let Some(p) = prev { std::env::set_var("VOICE_TYPER_CONFIG_DIR", p); }
-        else { std::env::remove_var("VOICE_TYPER_CONFIG_DIR"); }
+        if let Some(p) = prev {
+            std::env::set_var("VOICE_TYPER_CONFIG_DIR", p);
+        } else {
+            std::env::remove_var("VOICE_TYPER_CONFIG_DIR");
+        }
         let _ = std::fs::remove_dir_all(&temp_config);
         return;
     }
@@ -943,8 +959,11 @@ fn test_clear_restart_counter_for_user_restart_sets_zero() {
 
     // Cleanup: restore the env var (so other tests / the user's
     // real config dir are unaffected) + remove the temp dir.
-    if let Some(p) = prev { std::env::set_var("VOICE_TYPER_CONFIG_DIR", p); }
-    else { std::env::remove_var("VOICE_TYPER_CONFIG_DIR"); }
+    if let Some(p) = prev {
+        std::env::set_var("VOICE_TYPER_CONFIG_DIR", p);
+    } else {
+        std::env::remove_var("VOICE_TYPER_CONFIG_DIR");
+    }
     let _ = std::fs::remove_dir_all(&temp_config);
 }
 

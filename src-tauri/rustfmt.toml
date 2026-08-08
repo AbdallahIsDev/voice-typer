@@ -1,0 +1,13 @@
+# Project-wide rustfmt configuration.
+#
+# Locking the style here (instead of relying on rustfmt defaults, which can
+# shift between Rust releases) keeps `cargo fmt --check` deterministic for
+# contributors and CI. Bump deliberately, not casually — any change here
+# reformats the whole crate.
+#
+# NOTE: rustfmt itself is not version-locked (`channel = "stable"` in
+# src-tauri/rust-toolchain.toml), so a future stable release can change
+# formatting and fail the CI gate on unrelated PRs. When bumping the
+# toolchain, deliberately re-run `cargo fmt` and re-verify `cargo fmt
+# --check` in the same commit.
+max_width = 100

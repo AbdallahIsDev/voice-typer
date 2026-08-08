@@ -6,16 +6,14 @@ use crate::state::SidecarState;
 // `.lock().unwrap()` so a poisoned mutex (a prior panic while holding
 // the lock) does not re-panic and permanently brick the dispatch path.
 use crate::state::lock as mutex_lock;
-use crate::util::{
-    DISPATCH_SHORT_TIMEOUT_SECS, DISPATCH_TIMEOUT_SECS, SHUTDOWN_ACK_TIMEOUT_MS,
-};
+use crate::util::{DISPATCH_SHORT_TIMEOUT_SECS, DISPATCH_TIMEOUT_SECS, SHUTDOWN_ACK_TIMEOUT_MS};
+use serde::{Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
-use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
 use tauri::Manager;
 use tauri_plugin_shell::process::CommandEvent;
 use tokio::sync::oneshot;
@@ -532,9 +530,9 @@ async fn dispatch_frame(
     // construction further down both work unchanged with a `Cow<str>`
     // (it derefs to `&str`).
     let data_str: Cow<'static, str> = match data.as_ref() {
-        Some(data_val) => Cow::Owned(
-            serde_json::to_string(data_val).unwrap_or_else(|_| "null".to_string()),
-        ),
+        Some(data_val) => {
+            Cow::Owned(serde_json::to_string(data_val).unwrap_or_else(|_| "null".to_string()))
+        }
         None => Cow::Borrowed("{}"),
     };
     if data_str.len() > DISPATCH_DATA_MAX_BYTES {
@@ -564,10 +562,7 @@ async fn dispatch_frame(
     // have produced, but the data Value is serialized exactly once
     // (in the size check above) instead of twice.
     let cmd_json = serde_json::to_string(cmd).unwrap_or_else(|_| "\"\"".to_string());
-    let frame_str = format!(
-        r#"{{"type":{},"data":{},"id":{}}}"#,
-        cmd_json, data_str, id
-    );
+    let frame_str = format!(r#"{{"type":{},"data":{},"id":{}}}"#, cmd_json, data_str, id);
 
     //confirm `ws_tx` is Some BEFORE inserting into the pending
     // map so the early-return Err path doesn't leak a stale entry.
@@ -638,7 +633,9 @@ async fn dispatch_frame(
         let mut pending = state.pending.lock().await;
         pending.remove(&id);
         let err_msg = match &e {
-            tokio::sync::mpsc::error::TrySendError::Closed(_) => "sidecar not connected".to_string(),
+            tokio::sync::mpsc::error::TrySendError::Closed(_) => {
+                "sidecar not connected".to_string()
+            }
             tokio::sync::mpsc::error::TrySendError::Full(_) => format!("WS send failed: {e}"),
         };
         log::warn!(
@@ -868,7 +865,8 @@ pub async fn shutdown_sidecar(
             Ok(Some(CommandEvent::Terminated(payload))) => {
                 log::info!(
                     "[SHUTDOWN] sidecar exited gracefully (code={:?}, signal={:?})",
-                    payload.code, payload.signal
+                    payload.code,
+                    payload.signal
                 );
                 graceful = true;
             }
@@ -938,10 +936,7 @@ pub async fn shutdown_sidecar(
 /// The actual shutdown runs in a spawned async task so the event loop
 /// is not blocked on the cooperative-shutdown wait (up to
 /// `SHUTDOWN_ACK_TIMEOUT_MS` = 2s).
-pub(crate) fn on_main_window_close(
-    app_handle: &tauri::AppHandle,
-    window: &tauri::Window,
-) {
+pub(crate) fn on_main_window_close(app_handle: &tauri::AppHandle, window: &tauri::Window) {
     match window.label() {
         "main" => {
             if cfg!(target_os = "macos") {

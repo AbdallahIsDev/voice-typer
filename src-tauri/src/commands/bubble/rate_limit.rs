@@ -84,12 +84,7 @@ pub(super) fn toggle_rate_limiter_allows() -> bool {
         }
         // Try to claim this toggle by updating LAST_TOGGLE_NANOS. If
         // another caller beat us, retry the loop with the new value.
-        match LAST_TOGGLE_NANOS.compare_exchange(
-            last,
-            now,
-            Ordering::SeqCst,
-            Ordering::SeqCst,
-        ) {
+        match LAST_TOGGLE_NANOS.compare_exchange(last, now, Ordering::SeqCst, Ordering::SeqCst) {
             Ok(_) => return true,
             Err(_) => continue,
         }

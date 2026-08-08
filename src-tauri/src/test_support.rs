@@ -15,6 +15,17 @@
 //! real panic through the global hook (or that directly pokes
 //! `PANIC_HOOK_REENTRY`), regardless of which module the test lives
 //! in, so the global flag is only ever touched by one test at a time.
+//!
+//! Current lock holders (KEEP THIS LIST IN SYNC — any NEW test that
+//! fires a real panic through the global hook, or that reads/writes
+//! `PANIC_HOOK_REENTRY`, MUST acquire `PANIC_HOOK_TEST_LOCK` and be
+//! added here, otherwise it can reintroduce the "guard must be reset"
+//! flake under parallel test execution):
+//!
+//! - `platform::logging_tests::test_rotating_file_writer_recovers_from_poisoned_mutex`
+//! - `platform::logging_tests::test_si11_panic_hook_reentry_swap_semantics`
+//! - `platform::logging_tests::test_si11_panic_hook_does_not_abort_and_resets_guard`
+//! - `sidecar::supervisor_tests::test_gt9_catch_unwind_clears_respawn_in_progress_on_panic`
 
 use std::sync::Mutex;
 

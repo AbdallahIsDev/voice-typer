@@ -75,7 +75,11 @@ mod tests {
     fn test_bubble_coalesce_should_emit_first_event() {
         // First event (no prior emit) → always emit.
         let now = Instant::now();
-        assert!(bubble_coalesce_should_emit(None, now, BUBBLE_LEVEL_COALESCE_HZ));
+        assert!(bubble_coalesce_should_emit(
+            None,
+            now,
+            BUBBLE_LEVEL_COALESCE_HZ
+        ));
     }
 
     #[test]

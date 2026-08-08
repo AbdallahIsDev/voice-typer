@@ -48,26 +48,48 @@ use std::sync::OnceLock;
 // one release cycle with no rolling-upgrade traffic.
 pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // spec list (verbatim) ──
-    "status_change", "bubble_level", "notification", "relaunch_app",
-    "tray_menu", "tray_state", "supervisor_relaunching", "supervisor_reconnected", "crash_recovery",
-    "transcription_partial", "transcription_final", "transcription_interim",
-    "recording_state", "vocabulary_suggestion", "model_download_progress",
-    "audio_status", "server_started",
+    "status_change",
+    "bubble_level",
+    "notification",
+    "relaunch_app",
+    "tray_menu",
+    "tray_state",
+    "supervisor_relaunching",
+    "supervisor_reconnected",
+    "crash_recovery",
+    "transcription_partial",
+    "transcription_final",
+    "transcription_interim",
+    "recording_state",
+    "vocabulary_suggestion",
+    "model_download_progress",
+    "audio_status",
+    "server_started",
     // Additional known server-published events ──
     // Lifecycle / window management:
-    "ready", "quit_app", "show_window", "navigate",
+    "ready",
+    "quit_app",
+    "show_window",
+    "navigate",
     // Bubble UI:
-    "bubble_show", "bubble_hide", "bubble_config", "bubble_set_state",
+    "bubble_show",
+    "bubble_hide",
+    "bubble_config",
+    "bubble_set_state",
     // Recording (server emits *_started/*_stopped; `recording_state` in
     // the spec list above is the umbrella name some future server may
     // adopt — keep both):
-    "recording_started", "recording_stopped",
+    "recording_started",
+    "recording_stopped",
     // Settings / config / history:
-    "config_changed", "history_changed", "consent_required",
+    "config_changed",
+    "history_changed",
+    "consent_required",
     // Hotkey capture:
     "hotkey_capture_cancel",
     // Microphone settings:
-    "microphone_test_complete", "microphones_changed",
+    "microphone_test_complete",
+    "microphones_changed",
     // Model download (server emits `download_progress`; the spec list
     // above has the umbrella `model_download_progress`):
     "download_progress",
@@ -119,9 +141,16 @@ pub(super) const ALLOWED_EVENT_TYPES: &[&str] = &[
     // degraded. Adding it here lets the frame through to the
     // renderer's `usePythonEvent("tray_fallback_notification", ...)`
     // handler.
-    "state_changed", "error", "mic_level", "llm_polish_failed",
-    "device_lost", "asr_backend_disabled", "asr_last_resort_unloaded",
-    "audio_clip", "dictation_lost", "tray_fallback_notification",
+    "state_changed",
+    "error",
+    "mic_level",
+    "llm_polish_failed",
+    "device_lost",
+    "asr_backend_disabled",
+    "asr_last_resort_unloaded",
+    "audio_clip",
+    "dictation_lost",
+    "tray_fallback_notification",
     // legacy aliases `relaunch_electron` and
     // `electron_notification` REMOVED. The Python sidecar has published
     // the canonical `relaunch_app` and `notification` event names for
@@ -216,7 +245,10 @@ mod tests {
         // `test_ws_reader_does_not_rename_relaunch_app` parity test in
         // `tests/tauri/mig19/test_wire_swap_recovery.py`.
         assert_eq!(translate_event_name("relaunch_app"), "relaunch_app");
-        assert_eq!(translate_event_name("relaunch_electron"), "relaunch_electron");
+        assert_eq!(
+            translate_event_name("relaunch_electron"),
+            "relaunch_electron"
+        );
     }
 
     #[test]
@@ -236,8 +268,14 @@ mod tests {
         // so new sidecar events don't require a host-side release.
         assert_eq!(translate_event_name("bubble_level"), "bubble_level");
         assert_eq!(translate_event_name("notification"), "notification");
-        assert_eq!(translate_event_name("electron_notification"), "electron_notification");
-        assert_eq!(translate_event_name("some_brand_new_event"), "some_brand_new_event");
+        assert_eq!(
+            translate_event_name("electron_notification"),
+            "electron_notification"
+        );
+        assert_eq!(
+            translate_event_name("some_brand_new_event"),
+            "some_brand_new_event"
+        );
         assert_eq!(translate_event_name(""), "");
     }
 

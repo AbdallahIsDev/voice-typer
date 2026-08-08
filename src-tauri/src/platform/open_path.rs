@@ -113,7 +113,10 @@ pub(crate) fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
     {
         let _ = path;
-        Err("unsupported platform: open_path is only implemented for Windows / macOS / Linux".to_string())
+        Err(
+            "unsupported platform: open_path is only implemented for Windows / macOS / Linux"
+                .to_string(),
+        )
     }
 }
 
@@ -130,14 +133,10 @@ pub(crate) fn open_path_in_file_manager(path: &Path) -> Result<(), String> {
 /// developer's machine on every `cargo test` run on Windows.
 pub(crate) fn preflight_path_exists(path: &Path) -> Result<(), String> {
     if !path.exists() {
-        return Err(format!(
-            "path does not exist: {}",
-            path.display()
-        ));
+        return Err(format!("path does not exist: {}", path.display()));
     }
     Ok(())
 }
-
 
 #[cfg(test)]
 #[path = "open_path_tests.rs"]

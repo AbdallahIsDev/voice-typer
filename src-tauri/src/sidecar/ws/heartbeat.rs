@@ -25,14 +25,12 @@ use crate::state::SidecarState;
 // heartbeat interval / response timeout / max misses are named
 // constants in `util.rs` (previously inline `Duration::from_secs(10)` /
 // `Duration::from_secs(15)` / `>= 3` literals below).
-use crate::util::{
-    HEARTBEAT_INTERVAL_SECS, HEARTBEAT_MAX_MISSES, HEARTBEAT_RESPONSE_TIMEOUT_SECS,
-};
+use crate::util::{HEARTBEAT_INTERVAL_SECS, HEARTBEAT_MAX_MISSES, HEARTBEAT_RESPONSE_TIMEOUT_SECS};
+use futures_util::FutureExt;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use futures_util::FutureExt;
 
 /// shared heartbeat-abort helper. Idempotent — a no-op if
 /// `heartbeat_handle` is already `None`.
@@ -111,7 +109,10 @@ pub(crate) async fn abort_heartbeat(state: &Arc<SidecarState>) {
 /// `pub(super)` so the parent `ws` module's `reconnect_ws` can call
 /// it. Calls `super::respawn_scheduler::trigger_respawn_off_thread`
 /// on miss #3.
-pub(super) async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartbeat_state: Arc<SidecarState>) {
+pub(super) async fn spawn_heartbeat_task(
+    heartbeat_app: tauri::AppHandle,
+    heartbeat_state: Arc<SidecarState>,
+) {
     //abort any previous heartbeat task before spawning
     // the new one. `reconnect_ws` is called on every successful
     // supervisor respawn (and on initial cold start), so without this abort the
@@ -165,115 +166,123 @@ pub(super) async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartb
     let prev_handle_opt: Option<tauri::async_runtime::JoinHandle<()>> = {
         let mut hb_guard = heartbeat_state.heartbeat_handle.lock().await;
         let prev = hb_guard.take();
-        let handle: tauri::async_runtime::JoinHandle<()> =
-            tauri::async_runtime::spawn(async move {
-            let mut missed: u32 = 0;
-            let mut interval = tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
-            loop {
-                if heartbeat_state_for_task.shutting_down.load(Ordering::SeqCst) {
-                    break;
-                }
-                interval.tick().await;
-                if heartbeat_state_for_task.shutting_down.load(Ordering::SeqCst) {
-                    break;
-                }
-                let heartbeat_args = DispatchArgs {
-                    cmd: "heartbeat".to_string(),
-                    data: None,
-                };
-                //wrap the dispatch + timeout in `catch_unwind`
-                // so a panic inside `dispatch_inner` (e.g. a serde
-                // invariant violation, or a future-proofing regression
-                // in `dispatch_frame`'s pending-map insert path) is
-                // caught, logged at ERROR, and treated as a miss —
-                // instead of silently killing the heartbeat task and
-                //losing  detection entirely. The reader + writer
-                // tasks already wrap their bodies in `catch_unwind`
-                //the heartbeat task was added later
-                //and missed the same treatment.
-                let dispatch_result = AssertUnwindSafe(async {
-                    tokio::time::timeout(
-                        Duration::from_secs(HEARTBEAT_RESPONSE_TIMEOUT_SECS),
-                        dispatch_inner(heartbeat_args, heartbeat_state_for_task.clone()),
-                    )
-                    .await
-                })
-                .catch_unwind()
-                .await;
-                match dispatch_result {
-                    Ok(Ok(Ok(_))) => {
-                        missed = 0;
+        let handle: tauri::async_runtime::JoinHandle<()> = tauri::async_runtime::spawn(
+            async move {
+                let mut missed: u32 = 0;
+                let mut interval =
+                    tokio::time::interval(Duration::from_secs(HEARTBEAT_INTERVAL_SECS));
+                loop {
+                    if heartbeat_state_for_task
+                        .shutting_down
+                        .load(Ordering::SeqCst)
+                    {
+                        break;
                     }
-                    Ok(Ok(Err(e))) => {
-                        missed += 1;
-                        log::warn!(
-                            "[HEARTBEAT] dispatch error (miss #{}/{}): {}",
-                            missed,
-                            HEARTBEAT_MAX_MISSES,
-                            e
-                        );
-                        if missed >= HEARTBEAT_MAX_MISSES {
+                    interval.tick().await;
+                    if heartbeat_state_for_task
+                        .shutting_down
+                        .load(Ordering::SeqCst)
+                    {
+                        break;
+                    }
+                    let heartbeat_args = DispatchArgs {
+                        cmd: "heartbeat".to_string(),
+                        data: None,
+                    };
+                    //wrap the dispatch + timeout in `catch_unwind`
+                    // so a panic inside `dispatch_inner` (e.g. a serde
+                    // invariant violation, or a future-proofing regression
+                    // in `dispatch_frame`'s pending-map insert path) is
+                    // caught, logged at ERROR, and treated as a miss —
+                    // instead of silently killing the heartbeat task and
+                    //losing  detection entirely. The reader + writer
+                    // tasks already wrap their bodies in `catch_unwind`
+                    //the heartbeat task was added later
+                    //and missed the same treatment.
+                    let dispatch_result = AssertUnwindSafe(async {
+                        tokio::time::timeout(
+                            Duration::from_secs(HEARTBEAT_RESPONSE_TIMEOUT_SECS),
+                            dispatch_inner(heartbeat_args, heartbeat_state_for_task.clone()),
+                        )
+                        .await
+                    })
+                    .catch_unwind()
+                    .await;
+                    match dispatch_result {
+                        Ok(Ok(Ok(_))) => {
+                            missed = 0;
+                        }
+                        Ok(Ok(Err(e))) => {
+                            missed += 1;
                             log::warn!(
+                                "[HEARTBEAT] dispatch error (miss #{}/{}): {}",
+                                missed,
+                                HEARTBEAT_MAX_MISSES,
+                                e
+                            );
+                            if missed >= HEARTBEAT_MAX_MISSES {
+                                log::warn!(
                                 "[HEARTBEAT] {} consecutive misses — triggering supervisor respawn",
                                 HEARTBEAT_MAX_MISSES
                             );
-                            super::respawn_scheduler::trigger_respawn_off_thread(
-                                heartbeat_app.clone(),
-                                heartbeat_state_for_task.clone(),
-                            );
-                            break;
+                                super::respawn_scheduler::trigger_respawn_off_thread(
+                                    heartbeat_app.clone(),
+                                    heartbeat_state_for_task.clone(),
+                                );
+                                break;
+                            }
                         }
-                    }
-                    Ok(Err(_)) => {
-                        missed += 1;
-                        log::warn!(
-                            "[HEARTBEAT] {}s response timeout (miss #{}/{})",
-                            HEARTBEAT_RESPONSE_TIMEOUT_SECS,
-                            missed,
-                            HEARTBEAT_MAX_MISSES
-                        );
-                        if missed >= HEARTBEAT_MAX_MISSES {
+                        Ok(Err(_)) => {
+                            missed += 1;
                             log::warn!(
+                                "[HEARTBEAT] {}s response timeout (miss #{}/{})",
+                                HEARTBEAT_RESPONSE_TIMEOUT_SECS,
+                                missed,
+                                HEARTBEAT_MAX_MISSES
+                            );
+                            if missed >= HEARTBEAT_MAX_MISSES {
+                                log::warn!(
                                 "[HEARTBEAT] {} consecutive misses — triggering supervisor respawn",
                                 HEARTBEAT_MAX_MISSES
                             );
-                            super::respawn_scheduler::trigger_respawn_off_thread(
-                                heartbeat_app.clone(),
-                                heartbeat_state_for_task.clone(),
-                            );
-                            break;
+                                super::respawn_scheduler::trigger_respawn_off_thread(
+                                    heartbeat_app.clone(),
+                                    heartbeat_state_for_task.clone(),
+                                );
+                                break;
+                            }
                         }
-                    }
-                    //catch_unwind returned Err(_panic_payload).
-                    // Treat the panic as a miss and continue the loop so
-                    // the heartbeat task stays alive (mirrors the
-                    // existing timeout / dispatch-error arms). After
-                    // HEARTBEAT_MAX_MISSES consecutive panic-misses the
-                    // supervisor respawn is triggered — same threshold
-                    // as the other arms.
-                    Err(_) => {
-                        missed += 1;
-                        log::error!(
-                            "[HEARTBEAT] dispatch_inner panicked (miss #{}/{}) — \
+                        //catch_unwind returned Err(_panic_payload).
+                        // Treat the panic as a miss and continue the loop so
+                        // the heartbeat task stays alive (mirrors the
+                        // existing timeout / dispatch-error arms). After
+                        // HEARTBEAT_MAX_MISSES consecutive panic-misses the
+                        // supervisor respawn is triggered — same threshold
+                        // as the other arms.
+                        Err(_) => {
+                            missed += 1;
+                            log::error!(
+                                "[HEARTBEAT] dispatch_inner panicked (miss #{}/{}) — \
                              task staying alive",
-                            missed,
-                            HEARTBEAT_MAX_MISSES
-                        );
-                        if missed >= HEARTBEAT_MAX_MISSES {
-                            log::warn!(
+                                missed,
+                                HEARTBEAT_MAX_MISSES
+                            );
+                            if missed >= HEARTBEAT_MAX_MISSES {
+                                log::warn!(
                                 "[HEARTBEAT] {} consecutive panic-misses — triggering supervisor respawn",
                                 HEARTBEAT_MAX_MISSES
                             );
-                            super::respawn_scheduler::trigger_respawn_off_thread(
-                                heartbeat_app.clone(),
-                                heartbeat_state_for_task.clone(),
-                            );
-                            break;
+                                super::respawn_scheduler::trigger_respawn_off_thread(
+                                    heartbeat_app.clone(),
+                                    heartbeat_state_for_task.clone(),
+                                );
+                                break;
+                            }
                         }
                     }
                 }
-            }
-        });
+            },
+        );
         // store the new handle INSIDE the lock
         // so the take+spawn+store sequence is atomic with respect to
         // other callers. The next reconnect (or `abort_heartbeat` /
@@ -295,8 +304,8 @@ pub(super) async fn spawn_heartbeat_task(heartbeat_app: tauri::AppHandle, heartb
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
     use std::sync::Arc;
+    use std::time::Duration;
 
     // heartbeat task abort on reconnect ────────────────────
 

@@ -10,8 +10,8 @@
 use super::commands::{bubble_dismiss, bubble_hide_complete};
 use super::math::{
     clamp_f64_to_i32, clamp_resize_height, clamp_resize_width, compute_move_by_new_pos,
-    MAX_BUBBLE_H, MAX_BUBBLE_W, MIN_BUBBLE_H, MIN_BUBBLE_W, round_f64_to_i32_saturating,
-    round_f64_to_u32_saturating,
+    round_f64_to_i32_saturating, round_f64_to_u32_saturating, MAX_BUBBLE_H, MAX_BUBBLE_W,
+    MIN_BUBBLE_H, MIN_BUBBLE_W,
 };
 use super::parse::{parse_keyword_position, parse_position};
 use super::window::hide_bubble_window;
@@ -299,10 +299,16 @@ fn test_parse_position_float_just_outside_i32_range() {
     // +1.0 is representable since i32::MAX is 2_147_483_647 and
     // f64 has 53-bit mantissa). Should saturate to i32::MAX.
     let just_over = (i32::MAX as f64) + 1.0;
-    assert!(just_over > i32::MAX as f64, "test setup: value should exceed i32::MAX");
+    assert!(
+        just_over > i32::MAX as f64,
+        "test setup: value should exceed i32::MAX"
+    );
     assert_eq!(clamp_f64_to_i32(just_over), i32::MAX);
     let just_under = (i32::MIN as f64) - 1.0;
-    assert!(just_under < i32::MIN as f64, "test setup: value should be below i32::MIN");
+    assert!(
+        just_under < i32::MIN as f64,
+        "test setup: value should be below i32::MIN"
+    );
     assert_eq!(clamp_f64_to_i32(just_under), i32::MIN);
 }
 

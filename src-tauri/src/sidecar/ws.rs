@@ -60,15 +60,15 @@ use crate::state::lock as mutex_lock;
 use crate::sidecar::bubble_coalesce::bubble_coalesce_should_emit;
 // frame-size cap enforced in `ws_connect` (ADR-0020 §10 1 MiB limit).
 use crate::util::{BUBBLE_LEVEL_COALESCE_HZ, MAX_FRAME_BYTES};
-use std::panic::AssertUnwindSafe;
-use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use std::time::{Duration, Instant};
 use futures_util::{
     stream::{SplitSink, SplitStream},
     FutureExt, SinkExt, StreamExt,
 };
 use serde_json::{json, Value};
+use std::panic::AssertUnwindSafe;
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tauri::Emitter;
 use tokio::sync::{mpsc, oneshot};
 use tokio_tungstenite::{
@@ -197,8 +197,7 @@ async fn ws_connect(
     )
     .await;
     let (ws, _) = match connect_result {
-        Ok(connect_inner) => connect_inner
-            .map_err(|e| format!("WS reconnect failed: {e}"))?,
+        Ok(connect_inner) => connect_inner.map_err(|e| format!("WS reconnect failed: {e}"))?,
         Err(_) => {
             return Err(format!(
                 "WS reconnect timed out after {}s",
@@ -409,13 +408,8 @@ fn spawn_writer_task(
                 ) {
                     log::warn!("[WS-WRITER] failed to emit supervisor_relaunching: {}", e);
                 }
-                log::warn!(
-                    "[WS-WRITER] write half closed — triggering supervisor respawn"
-                );
-                trigger_respawn_off_thread(
-                    app_for_cleanup.clone(),
-                    state_for_cleanup.clone(),
-                );
+                log::warn!("[WS-WRITER] write half closed — triggering supervisor respawn");
+                trigger_respawn_off_thread(app_for_cleanup.clone(), state_for_cleanup.clone());
             } else {
                 log::info!(
                     "[WS-WRITER] cleanup skipping respawn trigger — generation mismatch \
@@ -472,144 +466,131 @@ async fn wait_for_auth_ok(
     let result = AssertUnwindSafe(async move {
         let app = &app_for_body;
         let state = &state_for_body;
-        let auth_result = tokio::time::timeout(
-            Duration::from_secs(WS_AUTH_OK_TIMEOUT_SECS),
-            read.next(),
-        )
-        .await;
-    match auth_result {
-        Err(_) => {
-            log::error!(
-                "[WS-AUTH] auth_ok/ready timeout ({}s) — closing WS and \
+        let auth_result =
+            tokio::time::timeout(Duration::from_secs(WS_AUTH_OK_TIMEOUT_SECS), read.next()).await;
+        match auth_result {
+            Err(_) => {
+                log::error!(
+                    "[WS-AUTH] auth_ok/ready timeout ({}s) — closing WS and \
                  triggering supervisor",
-                WS_AUTH_OK_TIMEOUT_SECS
-            );
-            cleanup_and_trigger_respawn(app, state).await;
-            return Err(format!(
-                "WS auth timed out after {}s",
-                WS_AUTH_OK_TIMEOUT_SECS
-            ));
-        }
-        Ok(None) => {
-            log::error!("[WS-AUTH] stream closed before auth_ok/ready");
-            cleanup_and_trigger_respawn(app, state).await;
-            return Err("WS stream closed during auth".to_string());
-        }
-        Ok(Some(Err(e))) => {
-            log::error!("[WS-AUTH] error reading auth_ok/ready: {}", e);
-            cleanup_and_trigger_respawn(app, state).await;
-            return Err(format!("WS auth read error: {}", e))
-        }
-        Ok(Some(Ok(msg))) => {
-            let text = match msg {
-                // tungstenite 0.27 changed `Message::Text`'s
-                // inner type from `String` to `Utf8Bytes` (a smart
-                // pointer over `str`). `Utf8Bytes: Deref<Target=str>`,
-                // so `t.to_string()` works via the `str` impl and
-                // unifies the arm type with the `Message::Binary` arm
-                // (which produces a `String` from `String::from_utf8`).
-                Message::Text(t) => t.to_string(),
-                Message::Binary(b) => {
-                    // Some clients send binary frames — try to decode
-                    // as UTF-8 for the auth_ok check.
-                    match String::from_utf8(b.to_vec()) {
-                        Ok(s) => s,
-                        Err(_) => {
-                            log::warn!(
-                                "[WS-AUTH] unexpected binary frame during auth"
-                            );
-                            cleanup_and_trigger_respawn(app, state).await;
-                            return Err(
-                                "WS auth received non-UTF8 binary".to_string()
-                            );
+                    WS_AUTH_OK_TIMEOUT_SECS
+                );
+                cleanup_and_trigger_respawn(app, state).await;
+                return Err(format!(
+                    "WS auth timed out after {}s",
+                    WS_AUTH_OK_TIMEOUT_SECS
+                ));
+            }
+            Ok(None) => {
+                log::error!("[WS-AUTH] stream closed before auth_ok/ready");
+                cleanup_and_trigger_respawn(app, state).await;
+                return Err("WS stream closed during auth".to_string());
+            }
+            Ok(Some(Err(e))) => {
+                log::error!("[WS-AUTH] error reading auth_ok/ready: {}", e);
+                cleanup_and_trigger_respawn(app, state).await;
+                return Err(format!("WS auth read error: {}", e));
+            }
+            Ok(Some(Ok(msg))) => {
+                let text = match msg {
+                    // tungstenite 0.27 changed `Message::Text`'s
+                    // inner type from `String` to `Utf8Bytes` (a smart
+                    // pointer over `str`). `Utf8Bytes: Deref<Target=str>`,
+                    // so `t.to_string()` works via the `str` impl and
+                    // unifies the arm type with the `Message::Binary` arm
+                    // (which produces a `String` from `String::from_utf8`).
+                    Message::Text(t) => t.to_string(),
+                    Message::Binary(b) => {
+                        // Some clients send binary frames — try to decode
+                        // as UTF-8 for the auth_ok check.
+                        match String::from_utf8(b.to_vec()) {
+                            Ok(s) => s,
+                            Err(_) => {
+                                log::warn!("[WS-AUTH] unexpected binary frame during auth");
+                                cleanup_and_trigger_respawn(app, state).await;
+                                return Err("WS auth received non-UTF8 binary".to_string());
+                            }
                         }
                     }
-                }
-                Message::Close(_) => {
-                    log::warn!("[WS-AUTH] server closed during auth");
+                    Message::Close(_) => {
+                        log::warn!("[WS-AUTH] server closed during auth");
+                        cleanup_and_trigger_respawn(app, state).await;
+                        return Err("WS closed during auth".to_string());
+                    }
+                    _ => {
+                        log::warn!("[WS-AUTH] unexpected frame type (ping/pong) during auth");
+                        cleanup_and_trigger_respawn(app, state).await;
+                        return Err("WS auth unexpected frame type".to_string());
+                    }
+                };
+                let v: Value = match serde_json::from_str(&text) {
+                    Ok(v) => v,
+                    Err(_) => {
+                        log::warn!("[WS-AUTH] invalid JSON in auth response: {}", text);
+                        cleanup_and_trigger_respawn(app, state).await;
+                        return Err(format!("WS auth invalid JSON: {}", text));
+                    }
+                };
+                let t = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
+                if t == "auth_failed" {
+                    log::error!("[WS-AUTH] auth_failed received from server");
                     cleanup_and_trigger_respawn(app, state).await;
-                    return Err("WS closed during auth".to_string());
+                    return Err("WS auth rejected by server".to_string());
                 }
-                _ => {
-                    log::warn!(
-                        "[WS-AUTH] unexpected frame type (ping/pong) during auth"
-                    );
-                    cleanup_and_trigger_respawn(app, state).await;
-                    return Err("WS auth unexpected frame type".to_string());
-                }
-            };
-            let v: Value = match serde_json::from_str(&text) {
-                Ok(v) => v,
-                Err(_) => {
-                    log::warn!(
-                        "[WS-AUTH] invalid JSON in auth response: {}",
-                        text
-                    );
-                    cleanup_and_trigger_respawn(app, state).await;
-                    return Err(format!("WS auth invalid JSON: {}", text));
-                }
-            };
-            let t = v.get("type").and_then(|x| x.as_str()).unwrap_or("");
-            if t == "auth_failed" {
-                log::error!("[WS-AUTH] auth_failed received from server");
-                cleanup_and_trigger_respawn(app, state).await;
-                return Err("WS auth rejected by server".to_string());
-            }
-            // tighten the auth-success contract. Accept ONLY
-            // `auth_ok` (future contract) or `ready` (current Python
-            // sidecar contract — see sidecar_ws.py:503) as the
-            // auth-success signal. Any other frame type at auth time is
-            // a protocol violation — reject it, clean up, and trigger
-            // supervisor respawn. The previous "proceed anyway (best-
-            // effort)" else branch accepted ANY non-`auth_failed` frame
-            // as proof of auth, which let a buggy or compromised sidecar
-            // skip the auth handshake by sending e.g. `{"type":
-            // "bubble_level"}` first.
-            if t == "auth_ok" {
-                log::info!("[WS-AUTH] auth_ok received — proceeding to reader task");
-            } else if t == "ready" {
-                // The current Python sidecar emits `{"type":"ready"}`
-                // as the first post-auth frame. We consume it here as
-                // the auth-success signal, but we MUST re-emit it as a
-                // Tauri event so the renderer's `usePythonEvent("ready")`
-                // listeners (and the generic `python-event` catch-all)
-                // still see it — without this, the reader task never
-                // sees the frame and the event is silently lost.
-                log::info!(
-                    "[WS-AUTH] ready frame received (auth confirmed) — \
+                // tighten the auth-success contract. Accept ONLY
+                // `auth_ok` (future contract) or `ready` (current Python
+                // sidecar contract — see sidecar_ws.py:503) as the
+                // auth-success signal. Any other frame type at auth time is
+                // a protocol violation — reject it, clean up, and trigger
+                // supervisor respawn. The previous "proceed anyway (best-
+                // effort)" else branch accepted ANY non-`auth_failed` frame
+                // as proof of auth, which let a buggy or compromised sidecar
+                // skip the auth handshake by sending e.g. `{"type":
+                // "bubble_level"}` first.
+                if t == "auth_ok" {
+                    log::info!("[WS-AUTH] auth_ok received — proceeding to reader task");
+                } else if t == "ready" {
+                    // The current Python sidecar emits `{"type":"ready"}`
+                    // as the first post-auth frame. We consume it here as
+                    // the auth-success signal, but we MUST re-emit it as a
+                    // Tauri event so the renderer's `usePythonEvent("ready")`
+                    // listeners (and the generic `python-event` catch-all)
+                    // still see it — without this, the reader task never
+                    // sees the frame and the event is silently lost.
+                    log::info!(
+                        "[WS-AUTH] ready frame received (auth confirmed) — \
                      re-emitting as Tauri event"
-                );
-                let payload = v.get("data").cloned().unwrap_or(json!({}));
-                // surface emit failures instead of silently
-                // dropping them. A failed `app.emit` here means the
-                // renderer won't see the `ready` event — log it so the
-                // miss is observable in diagnostics.
-                if let Err(e) = app.emit("ready", payload.clone()) {
-                    log::warn!("[WS-AUTH] failed to re-emit ready event: {}", e);
-                }
-                if let Err(e) = app.emit(
-                    "python-event",
-                    json!({"type": "ready", "data": payload}),
-                ) {
-                    log::warn!(
-                        "[WS-AUTH] failed to re-emit ready (python-event) event: {}",
-                        e
                     );
-                }
-            } else {
-                // protocol violation — reject, clean up, and
-                // trigger supervisor respawn. Do NOT proceed.
-                log::warn!(
-                    "[WS-AUTH] expected auth_ok or ready, got: {} — \
+                    let payload = v.get("data").cloned().unwrap_or(json!({}));
+                    // surface emit failures instead of silently
+                    // dropping them. A failed `app.emit` here means the
+                    // renderer won't see the `ready` event — log it so the
+                    // miss is observable in diagnostics.
+                    if let Err(e) = app.emit("ready", payload.clone()) {
+                        log::warn!("[WS-AUTH] failed to re-emit ready event: {}", e);
+                    }
+                    if let Err(e) =
+                        app.emit("python-event", json!({"type": "ready", "data": payload}))
+                    {
+                        log::warn!(
+                            "[WS-AUTH] failed to re-emit ready (python-event) event: {}",
+                            e
+                        );
+                    }
+                } else {
+                    // protocol violation — reject, clean up, and
+                    // trigger supervisor respawn. Do NOT proceed.
+                    log::warn!(
+                        "[WS-AUTH] expected auth_ok or ready, got: {} — \
                      treating as protocol violation, cleaning up and triggering respawn",
-                    t
-                );
-                cleanup_and_trigger_respawn(app, state).await;
-                return Err(format!("WS auth unexpected frame type: {}", t));
+                        t
+                    );
+                    cleanup_and_trigger_respawn(app, state).await;
+                    return Err(format!("WS auth unexpected frame type: {}", t));
+                }
+                Ok(read)
             }
-            Ok(read)
         }
-    }
     })
     .catch_unwind()
     .await;
@@ -894,10 +875,8 @@ fn spawn_reader_task(
                 // banner before the backoff schedule runs. The eventual
                 // `supervisor_reconnected` (on success) or second `supervisor_relaunching`
                 // (on exhaustion) supersedes this event.
-                let _ = app_for_cleanup.emit(
-                    "supervisor_relaunching",
-                    json!({"reason": "disconnected"}),
-                );
+                let _ = app_for_cleanup
+                    .emit("supervisor_relaunching", json!({"reason": "disconnected"}));
                 log::warn!("[WS-READER] unexpected close — triggering supervisor");
                 // spawn supervisor respawn on a separate thread via the
                 // shared `trigger_respawn_off_thread` helper. The thread
@@ -908,10 +887,7 @@ fn spawn_reader_task(
                 // documents the failed attempt to use a direct
                 // `tokio::spawn` here. See the helper's doc comment for
                 // the full rationale.
-                trigger_respawn_off_thread(
-                    app_for_cleanup.clone(),
-                    state_for_cleanup.clone(),
-                );
+                trigger_respawn_off_thread(app_for_cleanup.clone(), state_for_cleanup.clone());
             }
         } else {
             log::info!(

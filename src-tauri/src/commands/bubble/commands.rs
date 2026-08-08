@@ -7,13 +7,13 @@
 
 use serde_json::{json, Value};
 use std::sync::Arc;
-use tauri::{PhysicalPosition, Emitter, Manager};
+use tauri::{Emitter, Manager, PhysicalPosition};
 
 use crate::state::SidecarState;
 
 use super::math::{
-    clamp_resize_height, clamp_resize_width, compute_move_by_new_pos,
-    round_f64_to_i32_saturating, round_f64_to_u32_saturating,
+    clamp_resize_height, clamp_resize_width, compute_move_by_new_pos, round_f64_to_i32_saturating,
+    round_f64_to_u32_saturating,
 };
 use super::parse::parse_keyword_position;
 use super::rate_limit::toggle_rate_limiter_allows;
@@ -126,10 +126,7 @@ pub async fn bubble_signal_ready(
 /// can at worst move itself off-screen (an annoyance, not a security
 //boundary — the bubble is sandboxed per SEC-026 / ).
 #[tauri::command]
-pub async fn bubble_set_position(
-    position: String,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
+pub async fn bubble_set_position(position: String, app: tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("bubble")
         .ok_or("bubble window not found")?;
@@ -147,9 +144,7 @@ pub async fn bubble_set_position(
     //( / ).
     let screen_w = i32::try_from(screen_size.width).unwrap_or(i32::MAX);
     let screen_h = i32::try_from(screen_size.height).unwrap_or(i32::MAX);
-    let bubble_size = window
-        .outer_size()
-        .map_err(|e| e.to_string())?;
+    let bubble_size = window.outer_size().map_err(|e| e.to_string())?;
     //same saturating-cast rationale as `screen_w` / `screen_h`
     // above. `bubble_size.width` / `.height` are `u32`.
     let bubble_w = i32::try_from(bubble_size.width).unwrap_or(i32::MAX);
@@ -178,10 +173,7 @@ pub async fn bubble_set_position(
 /// button so an accidental drag doesn't fire). The command's effect
 /// is confined to the bubble window's drag listener.
 #[tauri::command]
-pub async fn bubble_set_draggable(
-    draggable: bool,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
+pub async fn bubble_set_draggable(draggable: bool, app: tauri::AppHandle) -> Result<(), String> {
     app.emit_to("bubble", "bubble:draggable", draggable)
         .map_err(|e| e.to_string())
 }
@@ -220,11 +212,7 @@ pub async fn bubble_set_draggable(
 /// (sidecar WS reader, status poll, etc.). The blocking pool absorbs
 /// the IPC latency without contending with the async runtime.
 #[tauri::command]
-pub async fn bubble_move_by(
-    dx: f64,
-    dy: f64,
-    app: tauri::AppHandle,
-) -> Result<Value, String> {
+pub async fn bubble_move_by(dx: f64, dy: f64, app: tauri::AppHandle) -> Result<Value, String> {
     // Wrap the OS-IPC body in `spawn_blocking` so the async runtime's
     // worker pool is not held for the duration of `outer_position` +
     // `set_position` (two blocking OS-IPC syscalls per mousemove). The
@@ -258,9 +246,7 @@ pub async fn bubble_move_by(
     .await;
     match join_result {
         Ok(inner) => inner,
-        Err(join_err) => Err(format!(
-            "bubble_move_by blocking task failed: {join_err}"
-        )),
+        Err(join_err) => Err(format!("bubble_move_by blocking task failed: {join_err}")),
     }
 }
 
@@ -354,10 +340,7 @@ pub async fn bubble_hide_complete(
 /// channel (defense-in-depth — both gates must hold for the dismiss to
 /// take effect).
 #[tauri::command]
-pub async fn bubble_dismiss(
-    app: tauri::AppHandle,
-    window: tauri::Window,
-) -> Result<(), String> {
+pub async fn bubble_dismiss(app: tauri::AppHandle, window: tauri::Window) -> Result<(), String> {
     //only the bubble window may dismiss itself. A compromised
     // main renderer invoking `bubble_dismiss` would otherwise be able to
     // prematurely hide the bubble overlay (the dismiss button only shows
@@ -424,11 +407,7 @@ pub async fn bubble_dismiss(
 /// `MIN_BUBBLE_H`/`MAX_BUBBLE_H` bounds as Electron (see the constants
 /// in `math.rs`) so both hosts produce identical resize behavior.
 #[tauri::command]
-pub async fn bubble_resize(
-    width: f64,
-    height: f64,
-    app: tauri::AppHandle,
-) -> Result<(), String> {
+pub async fn bubble_resize(width: f64, height: f64, app: tauri::AppHandle) -> Result<(), String> {
     let window = app
         .get_webview_window("bubble")
         .ok_or("bubble window not found")?;
@@ -516,9 +495,7 @@ pub async fn bubble_toggle_dictation(
     // above for the rationale (DoS protection against a buggy or
     // compromised bubble renderer spamming toggle_dictation).
     if !toggle_rate_limiter_allows() {
-        log::warn!(
-            "[BUBBLE] toggle_dictation rate-limited (last toggle <500ms ago) — dropping"
-        );
+        log::warn!("[BUBBLE] toggle_dictation rate-limited (last toggle <500ms ago) — dropping");
         return Ok(());
     }
     // Fire-and-forget: send the toggle_dictation envelope with a
@@ -537,9 +514,5 @@ pub async fn bubble_toggle_dictation(
     // strings ("sidecar not connected" / "WS send failed: <e>")
     // mirror `dispatch_frame`'s shape so the renderer's reject path
     // handles them identically.
-    crate::commands::sidecar_cmds::dispatch_fire_and_forget(
-        state.inner(),
-        "toggle_dictation",
-        None,
-    )
+    crate::commands::sidecar_cmds::dispatch_fire_and_forget(state.inner(), "toggle_dictation", None)
 }

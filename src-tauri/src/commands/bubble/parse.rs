@@ -99,9 +99,7 @@ pub(super) fn parse_position(
                 // range values so we can surface a diagnostic to the
                 // caller (the React TS bridge) rather than silently
                 // moving the bubble to a wrapped-negative pixel.
-                i32::try_from(i).map_err(|e| {
-                    format!("coordinate out of range ({}): {}", i, e)
-                })?
+                i32::try_from(i).map_err(|e| format!("coordinate out of range ({}): {}", i, e))?
             } else if let Some(f) = n.as_f64() {
                 //was `f as i32` (NaN → 0, ±inf → UB-
                 // adjacent saturation). Use `clamp_f64_to_i32` for
@@ -121,7 +119,12 @@ pub(super) fn parse_position(
             // off-screen left.
             "top" => ((screen_w - bubble_w) / 2).max(0),
             "bottom" => ((screen_w - bubble_w) / 2).max(0),
-            other => return Err(format!("x string must be \"top\" or \"bottom\", got {:?}", other)),
+            other => {
+                return Err(format!(
+                    "x string must be \"top\" or \"bottom\", got {:?}",
+                    other
+                ))
+            }
         },
         Value::Null => 0,
         _ => return Err(format!("x must be a number, string, or null, got {:?}", x)),
@@ -130,9 +133,7 @@ pub(super) fn parse_position(
         Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 //see the `px` arm above for rationale.
-                i32::try_from(i).map_err(|e| {
-                    format!("coordinate out of range ({}): {}", i, e)
-                })?
+                i32::try_from(i).map_err(|e| format!("coordinate out of range ({}): {}", i, e))?
             } else if let Some(f) = n.as_f64() {
                 //see the `px` arm above for rationale.
                 clamp_f64_to_i32(f)
@@ -143,7 +144,12 @@ pub(super) fn parse_position(
         Value::String(s) => match s.as_str() {
             "top" => 0,
             "bottom" => (screen_h - bubble_h).max(0),
-            other => return Err(format!("y string must be \"top\" or \"bottom\", got {:?}", other)),
+            other => {
+                return Err(format!(
+                    "y string must be \"top\" or \"bottom\", got {:?}",
+                    other
+                ))
+            }
         },
         Value::Null => 0,
         _ => return Err(format!("y must be a number, string, or null, got {:?}", y)),

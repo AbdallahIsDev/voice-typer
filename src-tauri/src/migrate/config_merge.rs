@@ -78,7 +78,10 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
     let old_val: serde_json::Value = match serde_json::from_str(&old_txt) {
         Ok(v) => v,
         Err(e) => {
-            log::warn!("[MIGRATE] old config.json parse failed (treating as empty): {}", e);
+            log::warn!(
+                "[MIGRATE] old config.json parse failed (treating as empty): {}",
+                e
+            );
             backup_corrupt_config(old);
             serde_json::Value::Null
         }
@@ -86,7 +89,10 @@ pub(crate) fn merge_config(old: &Path, new: &Path) -> Result<MergeOutcome, Strin
     let new_val: serde_json::Value = match serde_json::from_str(&new_txt) {
         Ok(v) => v,
         Err(e) => {
-            log::warn!("[MIGRATE] new config.json parse failed (treating as empty): {}", e);
+            log::warn!(
+                "[MIGRATE] new config.json parse failed (treating as empty): {}",
+                e
+            );
             backup_corrupt_config(new);
             serde_json::Value::Null
         }

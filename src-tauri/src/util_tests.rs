@@ -82,10 +82,26 @@ fn test_now_time_only_format() {
 fn test_now_timestamps_pair_consistent() {
     let (file_ts, term_ts) = now_timestamps();
     // Both come from a SINGLE clock read (no second-boundary straddle).
-    assert_eq!(file_ts.len(), 20, "file ts should be `YYYY-MM-DD  HH:MM:SS`: \"{}\"", file_ts);
-    assert_eq!(term_ts.len(), 8, "term ts should be `HH:MM:SS`: \"{}\"", term_ts);
+    assert_eq!(
+        file_ts.len(),
+        20,
+        "file ts should be `YYYY-MM-DD  HH:MM:SS`: \"{}\"",
+        file_ts
+    );
+    assert_eq!(
+        term_ts.len(),
+        8,
+        "term ts should be `HH:MM:SS`: \"{}\"",
+        term_ts
+    );
     // The terminal time is the tail of the file timestamp (same read).
-    assert_eq!(&file_ts[12..], term_ts, "term ts must match file ts time part: \"{}\" vs \"{}\"", file_ts, term_ts);
+    assert_eq!(
+        &file_ts[12..],
+        term_ts,
+        "term ts must match file ts time part: \"{}\" vs \"{}\"",
+        file_ts,
+        term_ts
+    );
     // No millis / tz in either.
     assert!(!file_ts.contains('.'), "no millis in file ts: {}", file_ts);
     assert!(!term_ts.contains('Z'), "no Z in term ts: {}", term_ts);
@@ -188,10 +204,8 @@ fn test_atomic_write_bytes_creates_file_with_expected_contents() {
     // Sanity: the basic write+rename contract still holds after
     // the parent-dir fsync addition. We write a small file,
     // then read it back and verify the contents match.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-pi9-test-{}-basic",
-        std::process::id()
-    ));
+    let tmp =
+        std::env::temp_dir().join(format!("voice-typer-pi9-test-{}-basic", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     std::fs::create_dir_all(&tmp).unwrap();
     let path = tmp.join("config.json");
@@ -272,10 +286,8 @@ fn test_atomic_write_bytes_parent_dir_fsync_does_not_fail_write() {
     // is the visible side-effect of the rename, which the fsync
     // then makes durable). The test name pins the "does not fail
     // the write" contract for future regression coverage.
-    let tmp = std::env::temp_dir().join(format!(
-        "voice-typer-pi9-test-{}-fsync",
-        std::process::id()
-    ));
+    let tmp =
+        std::env::temp_dir().join(format!("voice-typer-pi9-test-{}-fsync", std::process::id()));
     std::fs::remove_dir_all(&tmp).ok();
     std::fs::create_dir_all(&tmp).unwrap();
     // Read the parent dir mtime BEFORE the write, then sleep briefly

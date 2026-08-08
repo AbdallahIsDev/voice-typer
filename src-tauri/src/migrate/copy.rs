@@ -24,10 +24,7 @@ pub(crate) fn sidecar_path(db: &Path, suffix: &str) -> PathBuf {
     // inner buffer into a String) avoids the second allocation on
     // valid-UTF-8 file names. On non-UTF-8 names we fall through to
     // the prior `db.to_path_buf()` fallback (same behavior).
-    let mut name = match db
-        .file_name()
-        .map(|n| n.to_os_string().into_string())
-    {
+    let mut name = match db.file_name().map(|n| n.to_os_string().into_string()) {
         Some(Ok(n)) => n,
         Some(Err(_)) | None => return db.to_path_buf(),
     };

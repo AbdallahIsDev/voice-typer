@@ -284,13 +284,13 @@ def test_gp94_tauri_command_count_in_doc_matches_code():
     )
 
 
-def test_gp94_main_rs_line_count_is_259():
-    """Doc claims 259 lines; main.rs must actually be 259 lines."""
+def test_gp94_main_rs_line_count_is_264():
+    """Doc claims 264 lines; main.rs must actually be 264 lines."""
     doc = _read(ARCH_DOC)
-    assert "259 lines" in doc, "Doc must claim '259 lines' for main.rs."
+    assert "264 lines" in doc, "Doc must claim '264 lines' for main.rs."
     actual = sum(1 for _ in _read(MAIN_RS).splitlines())
-    assert actual == 259, (
-        f"src-tauri/src/main.rs must be 259 lines (actual: {actual}). "
+    assert actual == 264, (
+        f"src-tauri/src/main.rs must be 264 lines (actual: {actual}). "
         f"Update the doc + this test together."
     )
     # Stale 488 must NOT be in the doc.

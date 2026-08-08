@@ -367,11 +367,14 @@ fn test_pending_full_error_envelope_shape() {
     );
     // Round-trip through serde_json to verify it's valid JSON.
     let parsed: Value = serde_json::from_str(&serialized).expect(
-        "pending_full error envelope must be valid JSON — the renderer parses it as a string"
+        "pending_full error envelope must be valid JSON — the renderer parses it as a string",
     );
     assert_eq!(parsed.get("type").and_then(|v| v.as_str()), Some("error"));
     assert_eq!(
-        parsed.get("data").and_then(|d| d.get("code")).and_then(|c| c.as_str()),
+        parsed
+            .get("data")
+            .and_then(|d| d.get("code"))
+            .and_then(|c| c.as_str()),
         Some("pending_full")
     );
 }

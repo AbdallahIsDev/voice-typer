@@ -157,262 +157,262 @@ fn test_kill_process_tree_pid_zero_is_noop() {
 // (Moved verbatim from the legacy inline
 //  block to comply with C-TEST-5.)
 
-    // Unit tests for this module are limited because the actual
-    // behavior (kill-on-parent-exit) requires process-level testing
-    // that can't be done in-process. The integration test lives in
-    // `tests/tauri/zr2_kill_on_parent_exit.rs` (to be added by the
-    // validation phase).
+// Unit tests for this module are limited because the actual
+// behavior (kill-on-parent-exit) requires process-level testing
+// that can't be done in-process. The integration test lives in
+// `tests/tauri/zr2_kill_on_parent_exit.rs` (to be added by the
+// validation phase).
+//
+// The one thing we CAN unit-test is that the function is callable
+// and returns Ok(()) or Err(String) without panicking on the
+// current platform.
+
+/// `kill_process_tree` must be best-effort — calling it with a
+/// non-existent pid must not panic.
+#[test]
+fn test_kill_process_tree_nonexistent_pid_is_noop() {
+    super::kill_process_tree(999_999);
+}
+
+/// `kill_process_tree` must not panic on a pathologically large pid
+/// (e.g. u32::MAX).
+#[test]
+fn test_kill_process_tree_u32_max_is_noop() {
+    super::kill_process_tree(u32::MAX);
+}
+
+// Process-group signal helpers — Unix-only. These verify the
+// SAFETY GUARD that prevents `signal_process_group` from killing
+// the host when the sidecar shares the host's pgid (the current
+// production state, since `tauri-plugin-shell`'s `externalBin`
+// API doesn't call `setsid()` / `setpgid()`).
+
+/// `signal_process_group` must be a no-op (not panic, not signal)
+/// when called with a pgid of 0 or negative (the return value of
+/// a failed `getpgid`). This covers the "sidecar already exited"
+/// case where `getpgid` returns -1.
+#[cfg(unix)]
+#[test]
+fn test_signal_process_group_invalid_pgid_is_noop() {
+    super::signal_process_group(0, libc::SIGTERM);
+    super::signal_process_group(-1, libc::SIGTERM);
+    super::signal_process_group(0, libc::SIGKILL);
+    super::signal_process_group(-1, libc::SIGKILL);
+}
+
+/// `signal_process_group` must REFUSE to signal the host's own
+/// process group. This is the critical safety guard: the sidecar
+/// is spawned via `tauri-plugin-shell` (no `setsid()`), so its
+/// pgid == the host's pgid. Sending `kill -<host_pgid>` would kill
+/// the host. The guard must detect this and skip the signal.
+///
+/// We verify by calling `signal_process_group` with the HOST's own
+/// pgid. If the guard works, the test process survives. If the
+/// guard is broken, the test process would be killed by its own
+/// signal and the test would fail with a process-death error.
+#[cfg(unix)]
+#[test]
+fn test_signal_process_group_refuses_host_pgid() {
+    let host_pgid = unsafe { libc::getpgrp() };
+    assert!(host_pgid > 0, "host pgid should be positive");
+    // This MUST NOT kill the test process.
+    super::signal_process_group(host_pgid, libc::SIGTERM);
+    super::signal_process_group(host_pgid, libc::SIGKILL);
+    // If we reach here, the guard worked.
+    assert!(host_pgid > 0);
+}
+
+/// `kill_process_group_if_safe` must not panic on a non-existent
+/// pid. `getpgid` returns -1 for a dead pid, which the guard
+/// rejects.
+#[cfg(unix)]
+#[test]
+fn test_kill_process_group_if_safe_nonexistent_pid_is_noop() {
+    super::kill_process_group_if_safe(999_999, libc::SIGTERM);
+    super::kill_process_group_if_safe(999_999, libc::SIGKILL);
+}
+
+/// `kill_process_group_if_safe` for the test process's OWN pid
+/// must not kill the test process. The test process shares the
+/// host's pgid, so the guard rejects the signal.
+#[cfg(unix)]
+#[test]
+fn test_kill_process_group_if_safe_own_pid_does_not_self_kill() {
+    let own_pid = std::process::id();
+    super::kill_process_group_if_safe(own_pid, libc::SIGTERM);
+    super::kill_process_group_if_safe(own_pid, libc::SIGKILL);
+    assert!(own_pid > 0);
+}
+
+/// `kill_process_tree` for a process in the host's own pgid must
+/// not kill the host. Integration test: call `kill_process_tree`
+/// with our OWN pid. The pgrep DFS finds no children, takes the
+/// early-return path, and calls `kill_process_group_if_safe` which
+/// must refuse to signal the host's pgid.
+#[cfg(unix)]
+#[test]
+fn test_kill_process_tree_own_pid_does_not_self_kill() {
+    let own_pid = std::process::id();
+    super::kill_process_tree(own_pid);
+    assert!(own_pid > 0);
+}
+
+// ── per-pid + child-enumeration helpers (syscall migration) ──────
+//
+// These pin the contract for the libc-syscall replacements of the
+// prior `kill -<sig> <pid>` shell-outs (now `signal_pid`) and the
+// `pgrep -P <pid>` shell-out on Linux (now `enumerate_children` →
+// `enumerate_children_procfs`). The behavior must be best-effort:
+// nonexistent pids, parse errors, and missing /proc files must
+// all degrade gracefully without panicking.
+
+/// `signal_pid` must not panic on a nonexistent pid. `libc::kill`
+/// returns -1 with errno=ESRCH for a nonexistent pid — the helper
+/// logs at `debug!` (not `warn!`) and returns. This pins the
+/// best-effort contract: a SIGTERM-reaped pid that's already gone
+/// must not abort the SIGKILL phase that follows.
+#[cfg(unix)]
+#[test]
+fn test_signal_pid_nonexistent_pid_is_noop() {
+    super::signal_pid(999_999, libc::SIGTERM);
+    super::signal_pid(999_999, libc::SIGKILL);
+}
+
+/// `signal_pid` must not panic on `u32::MAX` (a pathologically
+/// large pid that exceeds `pid_t`'s positive range on most
+/// platforms). `libc::kill` will return -1 with ESRCH or EINVAL;
+/// the helper logs and returns either way.
+#[cfg(unix)]
+#[test]
+fn test_signal_pid_u32_max_is_noop() {
+    super::signal_pid(u32::MAX, libc::SIGTERM);
+    super::signal_pid(u32::MAX, libc::SIGKILL);
+}
+
+/// `signal_name` must return the canonical names for the two
+/// signals used by `kill_process_tree`. Pinning the names guards
+/// against accidental rename regressions in the log lines that
+/// users grep for during shutdown debugging.
+#[cfg(unix)]
+#[test]
+fn test_signal_name_canonical() {
+    assert_eq!(super::signal_name(libc::SIGTERM), "SIGTERM");
+    assert_eq!(super::signal_name(libc::SIGKILL), "SIGKILL");
+}
+
+/// `enumerate_children_procfs` for the test process's OWN pid
+/// must return an empty Vec (the test process has no children).
+/// This pins the Linux `/proc/<pid>/task/<pid>/children` reader's
+/// parse contract: space-separated decimal pids, empty file = no
+/// children = empty Vec.
+#[cfg(target_os = "linux")]
+#[test]
+fn test_enumerate_children_procfs_own_pid_no_children() {
+    let own_pid = std::process::id();
+    let children = super::enumerate_children_procfs(own_pid)
+        .expect("reading /proc/self/task/self/children must succeed for the test process");
+    assert!(
+        children.is_empty(),
+        "test process has no children — expected empty Vec, got {:?}",
+        children
+    );
+}
+
+/// `enumerate_children_procfs` for a nonexistent pid must return
+/// `Err` (the `/proc/<pid>/task/<pid>/children` file doesn't
+/// exist for a dead pid). The caller (`enumerate_children`)
+/// catches this and falls back to `pgrep` — this test pins the
+/// error path so the fallback stays wired correctly.
+#[cfg(target_os = "linux")]
+#[test]
+fn test_enumerate_children_procfs_nonexistent_pid_returns_err() {
+    let result = super::enumerate_children_procfs(999_999);
+    assert!(
+        result.is_err(),
+        "expected Err for nonexistent pid 999999, got {:?}",
+        result
+    );
+}
+
+/// `enumerate_children` (the dispatch wrapper) for the test
+/// process's OWN pid must return an empty Vec on Linux (reads
+/// /proc successfully) and on macOS (pgrep returns exit 1 for no
+/// children → empty Vec). This pins the dispatch contract: on
+/// Linux it must NOT fall back to pgrep (the /proc read succeeds),
+/// on non-Linux it must use the pgrep path.
+#[cfg(unix)]
+#[test]
+fn test_enumerate_children_own_pid_returns_empty() {
+    let own_pid = std::process::id();
+    let children = super::enumerate_children(own_pid);
+    assert!(
+        children.is_empty(),
+        "test process has no children — expected empty Vec, got {:?}",
+        children
+    );
+}
+
+/// `enumerate_children` for a nonexistent pid must NOT panic —
+/// on Linux, the /proc read fails and we fall back to pgrep which
+/// returns exit 1 (no children) → empty Vec; on macOS, pgrep
+/// returns exit 1 directly → empty Vec. Either way, the function
+/// is best-effort and returns an empty Vec.
+#[cfg(unix)]
+#[test]
+fn test_enumerate_children_nonexistent_pid_is_noop() {
+    let children = super::enumerate_children(999_999);
+    assert!(
+        children.is_empty(),
+        "nonexistent pid must yield empty Vec (best-effort), got {:?}",
+        children
+    );
+}
+
+#[test]
+fn test_register_kill_on_parent_exit_returns_result_not_panic() {
+    // We don't actually register a real pid here (that would
+    // spawn a reaper subprocess or assign a non-existent pid to
+    // the Job Object). We just verify the function exists and
+    // is callable. The real behavior is validated by the
+    // VALIDATE ON LINUX HOST / WINDOWS HOST commands in the
+    // module-level doc comment.
     //
-    // The one thing we CAN unit-test is that the function is callable
-    // and returns Ok(()) or Err(String) without panicking on the
-    // current platform.
-
-    /// `kill_process_tree` must be best-effort — calling it with a
-    /// non-existent pid must not panic.
-    #[test]
-    fn test_kill_process_tree_nonexistent_pid_is_noop() {
-        super::kill_process_tree(999_999);
-    }
-
-    /// `kill_process_tree` must not panic on a pathologically large pid
-    /// (e.g. u32::MAX).
-    #[test]
-    fn test_kill_process_tree_u32_max_is_noop() {
-        super::kill_process_tree(u32::MAX);
-    }
-
-    // Process-group signal helpers — Unix-only. These verify the
-    // SAFETY GUARD that prevents `signal_process_group` from killing
-    // the host when the sidecar shares the host's pgid (the current
-    // production state, since `tauri-plugin-shell`'s `externalBin`
-    // API doesn't call `setsid()` / `setpgid()`).
-
-    /// `signal_process_group` must be a no-op (not panic, not signal)
-    /// when called with a pgid of 0 or negative (the return value of
-    /// a failed `getpgid`). This covers the "sidecar already exited"
-    /// case where `getpgid` returns -1.
-    #[cfg(unix)]
-    #[test]
-    fn test_signal_process_group_invalid_pgid_is_noop() {
-        super::signal_process_group(0, libc::SIGTERM);
-        super::signal_process_group(-1, libc::SIGTERM);
-        super::signal_process_group(0, libc::SIGKILL);
-        super::signal_process_group(-1, libc::SIGKILL);
-    }
-
-    /// `signal_process_group` must REFUSE to signal the host's own
-    /// process group. This is the critical safety guard: the sidecar
-    /// is spawned via `tauri-plugin-shell` (no `setsid()`), so its
-    /// pgid == the host's pgid. Sending `kill -<host_pgid>` would kill
-    /// the host. The guard must detect this and skip the signal.
-    ///
-    /// We verify by calling `signal_process_group` with the HOST's own
-    /// pgid. If the guard works, the test process survives. If the
-    /// guard is broken, the test process would be killed by its own
-    /// signal and the test would fail with a process-death error.
-    #[cfg(unix)]
-    #[test]
-    fn test_signal_process_group_refuses_host_pgid() {
-        let host_pgid = unsafe { libc::getpgrp() };
-        assert!(host_pgid > 0, "host pgid should be positive");
-        // This MUST NOT kill the test process.
-        super::signal_process_group(host_pgid, libc::SIGTERM);
-        super::signal_process_group(host_pgid, libc::SIGKILL);
-        // If we reach here, the guard worked.
-        assert!(host_pgid > 0);
-    }
-
-    /// `kill_process_group_if_safe` must not panic on a non-existent
-    /// pid. `getpgid` returns -1 for a dead pid, which the guard
-    /// rejects.
-    #[cfg(unix)]
-    #[test]
-    fn test_kill_process_group_if_safe_nonexistent_pid_is_noop() {
-        super::kill_process_group_if_safe(999_999, libc::SIGTERM);
-        super::kill_process_group_if_safe(999_999, libc::SIGKILL);
-    }
-
-    /// `kill_process_group_if_safe` for the test process's OWN pid
-    /// must not kill the test process. The test process shares the
-    /// host's pgid, so the guard rejects the signal.
-    #[cfg(unix)]
-    #[test]
-    fn test_kill_process_group_if_safe_own_pid_does_not_self_kill() {
-        let own_pid = std::process::id();
-        super::kill_process_group_if_safe(own_pid, libc::SIGTERM);
-        super::kill_process_group_if_safe(own_pid, libc::SIGKILL);
-        assert!(own_pid > 0);
-    }
-
-    /// `kill_process_tree` for a process in the host's own pgid must
-    /// not kill the host. Integration test: call `kill_process_tree`
-    /// with our OWN pid. The pgrep DFS finds no children, takes the
-    /// early-return path, and calls `kill_process_group_if_safe` which
-    /// must refuse to signal the host's pgid.
-    #[cfg(unix)]
-    #[test]
-    fn test_kill_process_tree_own_pid_does_not_self_kill() {
-        let own_pid = std::process::id();
-        super::kill_process_tree(own_pid);
-        assert!(own_pid > 0);
-    }
-
-    // ── per-pid + child-enumeration helpers (syscall migration) ──────
+    // Use a pid that's guaranteed to not exist (pid 0 is the
+    // scheduler — never a real process; pid 1 is init — never
+    // assigned to a Job Object). On Windows, `OpenProcess` will
+    // fail with "invalid parameter" for pid 0. On POSIX, the
+    // reaper will spawn successfully (it doesn't validate the
+    // pid at spawn time — it just embeds it in the script).
     //
-    // These pin the contract for the libc-syscall replacements of the
-    // prior `kill -<sig> <pid>` shell-outs (now `signal_pid`) and the
-    // `pgrep -P <pid>` shell-out on Linux (now `enumerate_children` →
-    // `enumerate_children_procfs`). The behavior must be best-effort:
-    // nonexistent pids, parse errors, and missing /proc files must
-    // all degrade gracefully without panicking.
-
-    /// `signal_pid` must not panic on a nonexistent pid. `libc::kill`
-    /// returns -1 with errno=ESRCH for a nonexistent pid — the helper
-    /// logs at `debug!` (not `warn!`) and returns. This pins the
-    /// best-effort contract: a SIGTERM-reaped pid that's already gone
-    /// must not abort the SIGKILL phase that follows.
+    // We call the function and accept any Result — the test
+    // passes as long as it doesn't panic.
     #[cfg(unix)]
-    #[test]
-    fn test_signal_pid_nonexistent_pid_is_noop() {
-        super::signal_pid(999_999, libc::SIGTERM);
-        super::signal_pid(999_999, libc::SIGKILL);
-    }
-
-    /// `signal_pid` must not panic on `u32::MAX` (a pathologically
-    /// large pid that exceeds `pid_t`'s positive range on most
-    /// platforms). `libc::kill` will return -1 with ESRCH or EINVAL;
-    /// the helper logs and returns either way.
-    #[cfg(unix)]
-    #[test]
-    fn test_signal_pid_u32_max_is_noop() {
-        super::signal_pid(u32::MAX, libc::SIGTERM);
-        super::signal_pid(u32::MAX, libc::SIGKILL);
-    }
-
-    /// `signal_name` must return the canonical names for the two
-    /// signals used by `kill_process_tree`. Pinning the names guards
-    /// against accidental rename regressions in the log lines that
-    /// users grep for during shutdown debugging.
-    #[cfg(unix)]
-    #[test]
-    fn test_signal_name_canonical() {
-        assert_eq!(super::signal_name(libc::SIGTERM), "SIGTERM");
-        assert_eq!(super::signal_name(libc::SIGKILL), "SIGKILL");
-    }
-
-    /// `enumerate_children_procfs` for the test process's OWN pid
-    /// must return an empty Vec (the test process has no children).
-    /// This pins the Linux `/proc/<pid>/task/<pid>/children` reader's
-    /// parse contract: space-separated decimal pids, empty file = no
-    /// children = empty Vec.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn test_enumerate_children_procfs_own_pid_no_children() {
-        let own_pid = std::process::id();
-        let children = super::enumerate_children_procfs(own_pid)
-            .expect("reading /proc/self/task/self/children must succeed for the test process");
+    {
+        // POSIX: the reaper spawns successfully even with a
+        // bogus pid (it just exits immediately on the first
+        // `kill -0 $target` check). We expect Ok(()).
+        let result = super::register_kill_on_parent_exit(0);
         assert!(
-            children.is_empty(),
-            "test process has no children — expected empty Vec, got {:?}",
-            children
-        );
-    }
-
-    /// `enumerate_children_procfs` for a nonexistent pid must return
-    /// `Err` (the `/proc/<pid>/task/<pid>/children` file doesn't
-    /// exist for a dead pid). The caller (`enumerate_children`)
-    /// catches this and falls back to `pgrep` — this test pins the
-    /// error path so the fallback stays wired correctly.
-    #[cfg(target_os = "linux")]
-    #[test]
-    fn test_enumerate_children_procfs_nonexistent_pid_returns_err() {
-        let result = super::enumerate_children_procfs(999_999);
-        assert!(
-            result.is_err(),
-            "expected Err for nonexistent pid 999999, got {:?}",
+            result.is_ok(),
+            "POSIX reaper spawn should succeed even with bogus pid 0, got: {:?}",
             result
         );
     }
-
-    /// `enumerate_children` (the dispatch wrapper) for the test
-    /// process's OWN pid must return an empty Vec on Linux (reads
-    /// /proc successfully) and on macOS (pgrep returns exit 1 for no
-    /// children → empty Vec). This pins the dispatch contract: on
-    /// Linux it must NOT fall back to pgrep (the /proc read succeeds),
-    /// on non-Linux it must use the pgrep path.
-    #[cfg(unix)]
-    #[test]
-    fn test_enumerate_children_own_pid_returns_empty() {
-        let own_pid = std::process::id();
-        let children = super::enumerate_children(own_pid);
+    #[cfg(target_os = "windows")]
+    {
+        // Windows: OpenProcess(pid=0) fails. We expect Err(_).
+        // We don't assert the exact error string (it varies by
+        // Windows version) but we do assert it's an Err.
+        let result = super::register_kill_on_parent_exit(0);
         assert!(
-            children.is_empty(),
-            "test process has no children — expected empty Vec, got {:?}",
-            children
-        );
-    }
-
-    /// `enumerate_children` for a nonexistent pid must NOT panic —
-    /// on Linux, the /proc read fails and we fall back to pgrep which
-    /// returns exit 1 (no children) → empty Vec; on macOS, pgrep
-    /// returns exit 1 directly → empty Vec. Either way, the function
-    /// is best-effort and returns an empty Vec.
-    #[cfg(unix)]
-    #[test]
-    fn test_enumerate_children_nonexistent_pid_is_noop() {
-        let children = super::enumerate_children(999_999);
-        assert!(
-            children.is_empty(),
-            "nonexistent pid must yield empty Vec (best-effort), got {:?}",
-            children
-        );
-    }
-
-    #[test]
-    fn test_register_kill_on_parent_exit_returns_result_not_panic() {
-        // We don't actually register a real pid here (that would
-        // spawn a reaper subprocess or assign a non-existent pid to
-        // the Job Object). We just verify the function exists and
-        // is callable. The real behavior is validated by the
-        // VALIDATE ON LINUX HOST / WINDOWS HOST commands in the
-        // module-level doc comment.
-        //
-        // Use a pid that's guaranteed to not exist (pid 0 is the
-        // scheduler — never a real process; pid 1 is init — never
-        // assigned to a Job Object). On Windows, `OpenProcess` will
-        // fail with "invalid parameter" for pid 0. On POSIX, the
-        // reaper will spawn successfully (it doesn't validate the
-        // pid at spawn time — it just embeds it in the script).
-        //
-        // We call the function and accept any Result — the test
-        // passes as long as it doesn't panic.
-        #[cfg(unix)]
-        {
-            // POSIX: the reaper spawns successfully even with a
-            // bogus pid (it just exits immediately on the first
-            // `kill -0 $target` check). We expect Ok(()).
-            let result = super::register_kill_on_parent_exit(0);
-            assert!(
-                result.is_ok(),
-                "POSIX reaper spawn should succeed even with bogus pid 0, got: {:?}",
-                result
-            );
-        }
-        #[cfg(target_os = "windows")]
-        {
-            // Windows: OpenProcess(pid=0) fails. We expect Err(_).
-            // We don't assert the exact error string (it varies by
-            // Windows version) but we do assert it's an Err.
-            let result = super::register_kill_on_parent_exit(0);
-            assert!(
                 result.is_err(),
                 "Windows Job Object assignment for pid 0 should fail (OpenProcess rejects pid 0), got: {:?}",
                 result
             );
-        }
-        #[cfg(not(any(unix, target_os = "windows")))]
-        {
-            let result = super::register_kill_on_parent_exit(0);
-            assert!(result.is_ok());
-        }
     }
+    #[cfg(not(any(unix, target_os = "windows")))]
+    {
+        let result = super::register_kill_on_parent_exit(0);
+        assert!(result.is_ok());
+    }
+}

@@ -28,8 +28,7 @@
 //!   tests/          // co-located per sub-module
 //! ```
 
-
-use crate::util::{LOG_MAX_BYTES, now_time_only, now_timestamps};
+use crate::util::{now_time_only, now_timestamps, LOG_MAX_BYTES};
 use std::fs::OpenOptions;
 use std::io::Seek;
 use std::io::Write;
@@ -66,8 +65,7 @@ use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 /// (not on a timer), which is fine for our write volume.
 pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), String> {
     let logs_dir = config_dir.join("logs");
-    std::fs::create_dir_all(&logs_dir)
-        .map_err(|e| format!("create logs dir failed: {e}"))?;
+    std::fs::create_dir_all(&logs_dir).map_err(|e| format!("create logs dir failed: {e}"))?;
     // Tighten the parent `<config_dir>/logs/` dir to
     // `0o700` on POSIX (owner rwx only — no group/other access). Mirrors
     // the Python side's `os.chmod(config_dir, 0o700)` at
@@ -77,10 +75,7 @@ pub(crate) fn init_file_logger(config_dir: &std::path::Path) -> Result<(), Strin
     // individual log files inside still get `0o600` via `OpenOptionsExt`).
     #[cfg(unix)]
     {
-        let _ = std::fs::set_permissions(
-            &logs_dir,
-            std::fs::Permissions::from_mode(0o700),
-        );
+        let _ = std::fs::set_permissions(&logs_dir, std::fs::Permissions::from_mode(0o700));
     }
     // rename Rust's log basename to `voice-typer-rust` so the
     // final path is `<config_dir>/logs/voice-typer-rust.log`. Pre-fix
@@ -211,11 +206,10 @@ pub(crate) fn init_file_logger_or_stderr_fallback(config_dir: &std::path::Path) 
         // Best-effort: env_logger for stderr only (no file sink).
         // `try_init` avoids panic if `log::set_logger` was already
         // called (e.g. by the EarlyLogger swap path above).
-        if let Err(e2) = env_logger::Builder::from_env(
-            env_logger::Env::default().default_filter_or("info"),
-        )
-        .format_timestamp_millis()
-        .try_init()
+        if let Err(e2) =
+            env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info"))
+                .format_timestamp_millis()
+                .try_init()
         {
             eprintln!(
                 "[MAIN] env_logger fallback ALSO failed: {} — running with NO logger; all log::*! calls will be dropped",
@@ -244,10 +238,7 @@ pub(crate) fn init_file_logger_or_stderr_fallback(config_dir: &std::path::Path) 
 /// Rust + Python hosts respond identically to the same env var.
 pub(crate) fn is_truthy_value(value: Option<&str>) -> bool {
     match value {
-        Some(v) => matches!(
-            v.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes"
-        ),
+        Some(v) => matches!(v.trim().to_ascii_lowercase().as_str(), "1" | "true" | "yes"),
         None => false,
     }
 }
@@ -584,9 +575,9 @@ pub(crate) fn redact_pii(input: &str) -> String {
                 let domain = &after_at[..domain_end];
                 if domain.contains('.') && !domain.starts_with('.') {
                     let local_valid = !prefix.is_empty()
-                        && prefix
-                            .chars()
-                            .all(|c| c.is_alphanumeric() || c == '.' || c == '-' || c == '_' || c == '+');
+                        && prefix.chars().all(|c| {
+                            c.is_alphanumeric() || c == '.' || c == '-' || c == '_' || c == '+'
+                        });
                     if local_valid {
                         out.push_str("[EMAIL]");
                         i += at_pos + 1 + domain_end;
@@ -1706,9 +1697,7 @@ impl RotatingFileWriter {
         // rotation triggers BufWriter::drop which flushes before the
         // fd is closed).
         // Check size; truncate in place if we've crossed the threshold.
-        let len = self
-            .current_size
-            .load(std::sync::atomic::Ordering::Relaxed);
+        let len = self.current_size.load(std::sync::atomic::Ordering::Relaxed);
         if len > u64::from(LOG_MAX_BYTES) {
             // Single-file policy: truncate the log file IN PLACE. A
             // numbered backup (`.log.1`, `.log.2`, ...) is NEVER

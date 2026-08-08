@@ -48,7 +48,6 @@
 /// than letting them slip through as silent API growth.
 pub(crate) const APP_NAME: &str = "Voice Typer";
 
-
 #[cfg(test)]
 #[path = "branding_tests.rs"]
 mod branding_tests;

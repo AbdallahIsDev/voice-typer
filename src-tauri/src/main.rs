@@ -70,8 +70,7 @@ use commands::sidecar_cmds::{dispatch, on_main_window_close, shutdown_sidecar};
 // commands (open_logs / open_model_import_dialog / export_templates /
 // export_config) and the renderer_log_error sink.
 use commands::system_cmds::{
-    export_config, export_templates, open_logs, open_model_import_dialog,
-    renderer_log_error,
+    export_config, export_templates, open_logs, open_model_import_dialog, renderer_log_error,
 };
 use platform::logging::init_file_logger_or_stderr_fallback;
 use platform::paths::config_dir;

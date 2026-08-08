@@ -178,10 +178,8 @@ pub(crate) fn config_dir_from_env(
     // path that quietly no-ops.
     let home = home.and_then(|h| if h.is_empty() { None } else { Some(h) });
     let appdata = appdata.and_then(|a| if a.is_empty() { None } else { Some(a) });
-    let xdg_data_home =
-        xdg_data_home.and_then(|x| if x.is_empty() { None } else { Some(x) });
-    let config_dir_env =
-        config_dir_env.and_then(|c| if c.is_empty() { None } else { Some(c) });
+    let xdg_data_home = xdg_data_home.and_then(|x| if x.is_empty() { None } else { Some(x) });
+    let config_dir_env = config_dir_env.and_then(|c| if c.is_empty() { None } else { Some(c) });
 
     // VOICE_TYPER_CONFIG_DIR env-var override. Mirrors the
     // Python side's _config_dir() resolution order: env var wins,

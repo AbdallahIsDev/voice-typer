@@ -122,6 +122,7 @@ jobs:
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: stable
+          components: rustfmt
           targets: ${{ env.RUST_TARGET }}
 
       - name: Cache cargo registry + target
@@ -252,6 +253,15 @@ jobs:
           # tauri.linux-x86_64.conf.json the bundle build will use — catches
           # drift in the config file before it surfaces at bundle time.
           cargo check --target ${{ env.RUST_TARGET }} --all-targets
+
+      # rustfmt gate: the Rust host must stay uniformly formatted.
+      # The rustfmt component is installed by the dtolnay step above
+      # (and by the repo's src-tauri/rust-toolchain.toml); the locked
+      # style lives in src-tauri/rustfmt.toml. Any drift fails here.
+      - name: cargo fmt --check (Tauri Rust host formatting gate)
+        working-directory: src-tauri
+        run: |
+          cargo fmt --check
 
       # TX-22: run the Rust unit tests — 331 tests across 16 source
       # files previously NEVER executed in CI (cargo check only compiled

@@ -24,13 +24,13 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
+use tauri::image::Image;
 use tauri::menu::{
     CheckMenuItemBuilder, IsMenuItem, MenuBuilder, MenuItemBuilder, PredefinedMenuItem,
     SubmenuBuilder,
 };
 use tauri::tray::{MouseButton, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Listener, Manager};
-use tauri::image::Image;
 
 //use `dispatch_inner` (no allowlist gate — `tray_click` is a
 // Rust-only command not in the renderer `ALLOWED_COMMANDS` set) which
@@ -196,7 +196,10 @@ fn load_tray_icon(app: &AppHandle, name: &str) -> Option<Image<'static>> {
         // Poisoned lock — fall through to the disk-read path so the
         // tray still updates. The cache is best-effort, not a correctness
         // requirement.
-        log::warn!("[TRAY] icon cache lock poisoned — bypassing cache for {:?}", allowed);
+        log::warn!(
+            "[TRAY] icon cache lock poisoned — bypassing cache for {:?}",
+            allowed
+        );
     }
 
     // Slow path: read + decode from disk. Done OUTSIDE the cache lock
@@ -233,7 +236,10 @@ fn load_tray_icon(app: &AppHandle, name: &str) -> Option<Image<'static>> {
 /// either a separator, a leaf `MenuItem` (or `CheckMenuItem` when
 //`checked` is `Some` — : native checkmark, not accelerator
 /// text), or a nested `Submenu`.
-fn build_item_refs(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<Vec<Box<dyn IsMenuItem<R>>>> {
+fn build_item_refs(
+    app: &AppHandle,
+    items: &[MenuItemData],
+) -> tauri::Result<Vec<Box<dyn IsMenuItem<R>>>> {
     let mut out: Vec<Box<dyn IsMenuItem<R>>> = Vec::with_capacity(items.len());
     for item in items {
         if item.separator {
@@ -280,8 +286,8 @@ fn build_item_refs(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<Vec
             let mi = mi.build(app)?;
             out.push(Box::new(mi));
         } else {
-            let mut mi = MenuItemBuilder::with_id(item.id.clone(), &item.label)
-                .enabled(!item.disabled);
+            let mut mi =
+                MenuItemBuilder::with_id(item.id.clone(), &item.label).enabled(!item.disabled);
             // Same accelerator forwarding as the
             // `CheckMenuItemBuilder` branch above. `MenuItemBuilder::
             // accelerator` is the same `S: AsRef<str>` signature.
@@ -572,7 +578,10 @@ pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
                     }
                 }
             } else {
-                log::warn!("[TRAY] tray_by_id({}) returned None — tray not yet built?", TRAY_ID);
+                log::warn!(
+                    "[TRAY] tray_by_id({}) returned None — tray not yet built?",
+                    TRAY_ID
+                );
             }
         });
     });
@@ -589,8 +598,6 @@ fn rebuild_tray_menu(app: &AppHandle, items: &[MenuItemData]) -> tauri::Result<(
     }
     Ok(())
 }
-
-
 
 // Sibling test module — tests live in `tray_tests.rs` (per C-TEST-5:
 // no inline `#[cfg(test)] mod tests` blocks in production source).

@@ -15,8 +15,8 @@ use crate::state::{lock as mutex_lock, PendingMap};
 use crate::util::BUBBLE_LEVEL_COALESCE_HZ;
 use serde_json::{json, Value};
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{mpsc, oneshot, Mutex as AsyncMutex};
 use tokio_tungstenite::tungstenite::Message;
@@ -33,7 +33,11 @@ async fn test_pending_dispatch_map_fulfill_by_id() {
     // Insert the pending request.
     let (tx, rx) = oneshot::channel::<Value>();
     pending.lock().await.insert(id, tx);
-    assert_eq!(pending.lock().await.len(), 1, "pending map should have 1 entry after insert");
+    assert_eq!(
+        pending.lock().await.len(),
+        1,
+        "pending map should have 1 entry after insert"
+    );
 
     // Simulate the WS reader fulfilling the request by id.
     let response = json!({"id": 42, "type": "result", "data": {"ok": true}});
@@ -51,7 +55,10 @@ async fn test_pending_dispatch_map_fulfill_by_id() {
         .await
         .expect("oneshot did not resolve within 1s — sender was never invoked")
         .expect("oneshot sender was dropped without sending");
-    assert_eq!(received, response, "received response must match the sent payload");
+    assert_eq!(
+        received, response,
+        "received response must match the sent payload"
+    );
 
     // Map must be empty after fulfillment.
     assert_eq!(
@@ -128,7 +135,10 @@ async fn test_ue8_drain_pending_sends_disconnect_error_to_all() {
             .await
             .expect("oneshot did not resolve within 1s — drain helper did not send")
             .expect("oneshot sender was dropped without sending");
-        assert_eq!(received["type"], "error", "drained response type must be \"error\"");
+        assert_eq!(
+            received["type"], "error",
+            "drained response type must be \"error\""
+        );
         assert_eq!(
             received["data"]["code"], "sidecar_disconnected",
             "drained response code must be \"sidecar_disconnected\""
@@ -172,7 +182,10 @@ async fn test_ue8_drain_pending_swallows_send_error_for_dropped_receiver() {
 
     // Drain — must not panic on the dropped receiver.
     let drained = drain_pending_with_disconnect_error(&state).await;
-    assert_eq!(drained, 2, "drain helper must report 2 drained entries (both attempted)");
+    assert_eq!(
+        drained, 2,
+        "drain helper must report 2 drained entries (both attempted)"
+    );
 
     // The second receiver must still get its error response.
     let received = tokio::time::timeout(Duration::from_secs(1), rx2)
@@ -664,8 +677,7 @@ fn test_bubble_level_emit_uses_current_payload_not_stale() {
         assert_eq!(
             emitted_payloads[emit_idx], frames[frame_idx],
             "emit #{} must carry frame {}'s payload (current frame, not stale)",
-            emit_idx,
-            frame_idx
+            emit_idx, frame_idx
         );
         // The `python-event` catch-all must wrap the SAME payload
         // in its `data` field (the prior `last_bubble_payload.take()`
@@ -673,8 +685,7 @@ fn test_bubble_level_emit_uses_current_payload_not_stale() {
         assert_eq!(
             emitted_python_event_data[emit_idx]["data"], frames[frame_idx],
             "python-event emit #{} must wrap frame {}'s payload in its data field",
-            emit_idx,
-            frame_idx
+            emit_idx, frame_idx
         );
         assert_eq!(
             emitted_python_event_data[emit_idx]["type"], "bubble_level",

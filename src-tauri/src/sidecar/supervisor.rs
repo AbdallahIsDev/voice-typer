@@ -13,10 +13,12 @@ use crate::state::SidecarState;
 // `state.X.lock().unwrap()` with `mutex_lock(&state.X)` so a poisoned
 // mutex (a prior panic while holding the lock) doesn't re-panic and
 // brick the resilience layer.
-use crate::state::lock as mutex_lock;
 use crate::sidecar::spawn::spawn_sidecar_and_get_port_with_shutdown;
 use crate::sidecar::ws::reconnect_ws;
-use crate::util::{generate_token, atomic_write_bytes, SUPERVISOR_BACKOFF_MS, PRE_RESTART_DELAY_MS};
+use crate::state::lock as mutex_lock;
+use crate::util::{
+    atomic_write_bytes, generate_token, PRE_RESTART_DELAY_MS, SUPERVISOR_BACKOFF_MS,
+};
 // reuse the canonical atomic write helper so the
 // restart counter is durable against mid-write crashes (see
 // `write_restart_counter` below). previously imported from
@@ -25,12 +27,12 @@ use crate::util::{generate_token, atomic_write_bytes, SUPERVISOR_BACKOFF_MS, PRE
 // eventually be removed once `migrate.rs` itself is deleted.
 // `AssertUnwindSafe` + `catch_unwind` for the respawn_inner
 // panic-safety wrapper. `FutureExt` brings `.catch_unwind()` into scope.
-use std::panic::AssertUnwindSafe;
 use futures_util::FutureExt;
+use serde_json::json;
+use std::panic::AssertUnwindSafe;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use serde_json::json;
 use tauri::Emitter;
 
 /// max number of `app.restart()` attempts before the supervisor
@@ -167,7 +169,11 @@ pub(crate) fn write_restart_counter(count: u32) {
     //include `ts` so future reads can detect staleness.
     let payload = json!({"count": count, "ts": now_unix_secs()});
     if let Err(e) = atomic_write_bytes(&path, payload.to_string().as_bytes()) {
-        log::warn!("[SUPERVISOR] failed to persist restart counter to {:?}: {}", path, e);
+        log::warn!(
+            "[SUPERVISOR] failed to persist restart counter to {:?}: {}",
+            path,
+            e
+        );
     }
 }
 
@@ -390,7 +396,11 @@ pub(crate) async fn respawn_inner(
             state.respawn_in_progress.store(false, Ordering::SeqCst);
             return Ok(());
         }
-        log::warn!("[SUPERVISOR] respawn attempt {} after {}ms", attempt + 1, delay_ms);
+        log::warn!(
+            "[SUPERVISOR] respawn attempt {} after {}ms",
+            attempt + 1,
+            delay_ms
+        );
         // Cancellable backoff: `tokio::select!` between the remaining
         // backoff sleep and `shutdown_notify.notified()`. This eliminates
         // the prior 100ms polling wakeups entirely (the loop used to
@@ -472,7 +482,8 @@ pub(crate) async fn respawn_inner(
         // this, a respawn initiated seconds before quit would block for
         // up to SERVER_STARTED_TIMEOUT_MS (30s) waiting for a
         // `server_started` line that will never arrive.
-        match spawn_sidecar_and_get_port_with_shutdown(app, &new_token, &state.shutting_down).await {
+        match spawn_sidecar_and_get_port_with_shutdown(app, &new_token, &state.shutting_down).await
+        {
             Ok((port, child, exit_rx)) => {
                 // install-time guard + atomic install.
                 //
@@ -570,7 +581,9 @@ pub(crate) async fn respawn_inner(
                     return Ok(());
                 }
                 if let Some(old) = old_handle {
-                    log::info!("[SUPERVISOR] killing old sidecar before installing new one (CR-28)");
+                    log::info!(
+                        "[SUPERVISOR] killing old sidecar before installing new one (CR-28)"
+                    );
                     let _ = old.kill_tree().await;
                 }
                 // the dead `state.token: Mutex<String>`
@@ -625,18 +638,16 @@ pub(crate) async fn respawn_inner(
                         // the exhaustion path can surface it in the
                         // `supervisor_relaunching` / `supervisor_failed`
                         // payloads.
-                        last_error = format!(
-                            "attempt {}: WS reconnect failed: {}",
-                            attempt + 1,
-                            e
-                        );
+                        last_error = format!("attempt {}: WS reconnect failed: {}", attempt + 1, e);
                         // fix: kill the just-spawned child before
                         // continuing to the next retry iteration,
                         // otherwise it would be orphaned when the next
                         // iteration overwrites state.child.
                         let orphan = mutex_lock(&state.child).take();
                         if let Some(c) = orphan {
-                            log::info!("[SUPERVISOR] killing respawned sidecar after WS reconnect failure");
+                            log::info!(
+                                "[SUPERVISOR] killing respawned sidecar after WS reconnect failure"
+                            );
                             let _ = c.kill_tree().await;
                         }
                         continue;
@@ -660,11 +671,7 @@ pub(crate) async fn respawn_inner(
                 }
                 log::warn!("[SUPERVISOR] sidecar spawn failed: {}", e);
                 // capture the per-iteration error.
-                last_error = format!(
-                    "attempt {}: sidecar spawn failed: {}",
-                    attempt + 1,
-                    e
-                );
+                last_error = format!("attempt {}: sidecar spawn failed: {}", attempt + 1, e);
                 continue;
             }
         }
