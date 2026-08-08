@@ -26,18 +26,16 @@
 #      devices) are deferred to CI.
 #   3. mypy is at ``stages: [pre-push]`` in .pre-commit-config.yaml
 #      AND is now a LOCAL hook with ``language: system`` /
-#      ``entry: python -m mypy`` so it reuses the project venv
-#      instead of creating an isolated venv via mirrors-mypy. The
-#      previous ``additional_dependencies: [numpy, torch, ...]``
-#      caused a 2GB torch reinstall on first ``pre-commit run mypy``;
-#      the local hook eliminates that — mypy reads numpy/torch/etc.
-#      from the deps already installed by
-#      ``uv pip install -e ".[test,dev]"``. mypy runs only when
-#      explicitly invoked (``pre-commit run mypy`` or
-#      ``pre-commit run --all-files --hook-stage pre-push``); it is
-#      NOT invoked by this pre-push wrapper because the
-#      ``pre-commit run`` block in ``.husky/pre-commit`` only runs
-#      at the commit stage.
+#      ``entry: python scripts/mypy_ratchet_check.py`` so it reuses
+#      the project venv instead of creating an isolated venv via
+#      mirrors-mypy. The previous ``additional_dependencies:
+#      [numpy, torch, ...]`` caused a 2GB torch reinstall on first
+#      ``pre-commit run mypy``; the local hook eliminates that — the
+#      ratchet script runs mypy against the deps already installed by
+#      ``uv pip install -e ".[test,dev]"``. It is invoked below via
+#      ``pre-commit run --hook-stage pre-push`` (mypy is NOT part of
+#      the commit-stage ``pre-commit run`` block in
+#      ``.husky/pre-commit``).
 echo "[pre-push] Running typecheck (client, cached)..."
 cd voice_typer/client && npm run typecheck || { echo "[pre-push] typecheck FAILED"; exit 1; }
 

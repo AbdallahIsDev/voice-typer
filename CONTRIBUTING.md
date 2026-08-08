@@ -285,11 +285,15 @@ torch alone is ~2GB and 5-10 min to install. This made
 `--no-verify`'d past it.
 
 The fix: mypy is now a LOCAL hook with `language: system` and
-`entry: python -m mypy`. It reuses the project venv (which already
-has numpy, torch, transformers, pydantic, sounddevice, pystray
-installed via `uv pip install -e ".[test,dev]"`). No torch
-reinstall, no isolated venv, ~5s cold. mypy stays at
-`stages: [pre-push]` so it does NOT run on every commit.
+`entry: python scripts/mypy_ratchet_check.py`. It reuses the project
+venv (which already has numpy, torch, transformers, pydantic,
+sounddevice, pystray installed via `uv pip install -e ".[test,dev]"`).
+No torch reinstall, no isolated venv. The ratchet script runs mypy on
+the whole server scope and compares the error counts against
+`mypy-baseline.json` (mirroring the ruff ratchet), so pre-push blocks
+only NEW errors instead of failing on the ~700 baselined typing-debt
+items. mypy stays at `stages: [pre-push]` so it does NOT run on every
+commit.
 
 The contributor must activate the project venv before running
 `pre-commit run mypy` — same convention as the `check-branding`
@@ -524,13 +528,12 @@ misleading. The correct install command is just `npm install` in
 `voice_typer/client/`.
 
 Hooks (see `.pre-commit-config.yaml`): `ruff` (lint + format), `mypy`
-(server-only, `stages: [pre-push]` — runs from the project venv via
-`python -m mypy` so it reuses the deps already installed by
-`uv pip install -e ".[test,dev]"` instead of reinstalling torch in
-an isolated venv; does NOT pass `--ignore-missing-imports` or
-`--no-strict-optional` so contributors' `pre-commit run mypy` matches
-CI's strict mypy configuration — mypy reads `[tool.mypy]` in
-`pyproject.toml` directly), `pre-commit-hooks` (trailing whitespace,
+(server-only, `stages: [pre-push]` — runs `python
+scripts/mypy_ratchet_check.py` from the project venv so it reuses the
+deps already installed by `uv pip install -e ".[test,dev]"` instead
+of reinstalling torch in an isolated venv; the ratchet script runs
+mypy with the project's `[tool.mypy]` config and compares the error
+counts against `mypy-baseline.json`, blocking only NEW errors), `pre-commit-hooks` (trailing whitespace,
 end-of-file fixer, YAML/JSON validation, merge-conflict markers,
 large-file cap at 500 KB, LF line endings), plus local hooks that
 shell out to `npx biome check` and `npm run typecheck` for the client.
@@ -654,9 +657,13 @@ subscription. See `docs/ARCHITECTURE.md` for the full diagram and
 - **Type hints are mandatory** on all new public functions. The
   codebase has many untyped legacy functions (`disallow_untyped_defs`
   is `false` in `pyproject.toml`), but new code must be typed. Run
-  `mypy voice_typer/server/` locally; the pre-commit hook already
-  scopes mypy to `^voice_typer/server/` and runs with the project's
-  ``[tool.mypy]`` config (no override flags — see CR-183 fix in
+  `python scripts/mypy_ratchet_check.py` to check that your change
+  adds no NEW mypy errors (the script compares counts against
+  `mypy-baseline.json`; raw `python -m mypy voice_typer/server/`
+  surfaces ~700 baselined typing-debt errors that are not fixed yet —
+  see `docs/mypy-ratchet.md`). The pre-commit hook already scopes mypy
+  to `^voice_typer/server/` and runs with the project's ``[tool.mypy]``
+  config (no override flags — see CR-183 fix in
   ``.pre-commit-config.yaml`` for the rationale).
 - **Use `log.exception(...)`** for error paths, not bare `print()` or
   `logging.error(...)` without a traceback. The exception is

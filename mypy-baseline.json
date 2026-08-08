@@ -1,0 +1,24 @@
+{
+  "_schema_version": 1,
+  "_target": "voice_typer/server/ (mypy, python_version 3.10 + numpy Any-shadow stub)",
+  "_updated": "Bootstrap baseline: mypy could not parse numpy 2.x PEP 695 stubs at the 3.10 language level (parse errors cannot be suppressed), so numpy is shadowed by an Any-stub (voice_typer/mypy_stubs/). With numpy resolving, mypy now checks every server module and surfaces ~700 latent typing-debt errors that were previously hidden. They are tracked here (count-based ratchet, mirroring ruff-baseline.json) instead of fixed all at once: total_count and every by_code count must not grow. Regenerate only after FIXING errors: python scripts/mypy_ratchet_check.py --regenerate",
+  "total_count": 696,
+  "by_code": {
+    "arg-type": 22,
+    "assignment": 28,
+    "attr-defined": 320,
+    "call-overload": 5,
+    "has-type": 17,
+    "index": 18,
+    "method-assign": 1,
+    "misc": 17,
+    "name-defined": 116,
+    "no-any-return": 95,
+    "no-redef": 6,
+    "operator": 2,
+    "return-value": 3,
+    "type-var": 1,
+    "union-attr": 34,
+    "var-annotated": 11
+  }
+}

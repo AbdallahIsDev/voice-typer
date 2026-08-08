@@ -53,19 +53,27 @@ repos:
   # Contributors who want mypy on every commit can run
   # `pre-commit run mypy --all-files` manually.
   #
-  # The entry uses `python -m mypy` (not bare `mypy`) so it works on
-  # Windows where `.venv/Scripts/mypy.exe` may not be on PATH but
-  # `.venv/Scripts/python.exe` is (via the activated venv). The
-  # contributor must activate the project venv before running
+  # The entry runs `python scripts/mypy_ratchet_check.py` (not bare
+  # `mypy`) so it works on Windows where `.venv/Scripts/mypy.exe` may
+  # not be on PATH but `.venv/Scripts/python.exe` is (via the activated
+  # venv). The contributor must activate the project venv before running
   # `pre-commit run mypy` — same convention as the `check-branding`
   # local hook below.
+  #
+  # The ratchet script runs mypy on the whole server scope and compares
+  # the error counts against `mypy-baseline.json` (mirroring the ruff
+  # ratchet). Raw `python -m mypy` on staged files would fail pre-push
+  # on the ~700 baselined typing-debt errors; the ratchet blocks only
+  # NEW errors. `pass_filenames: false` so pre-commit's staged-file
+  # args are not forwarded.
   - repo: local
     hooks:
       - id: mypy
-        name: mypy (server, project venv)
-        entry: python -m mypy
+        name: mypy ratchet (server, project venv)
+        entry: python scripts/mypy_ratchet_check.py
         language: system
         files: ^voice_typer/server/
+        pass_filenames: false
         stages: [pre-push]
 
   - repo: https://github.com/pre-commit/pre-commit-hooks

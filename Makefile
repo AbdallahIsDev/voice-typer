@@ -66,9 +66,9 @@ format: ## Run formatters (ruff format + biome format)
 	ruff format voice_typer/ tests/
 	cd voice_typer/client && npm run format
 
-typecheck: ## Run TypeScript + mypy + ruff IN PARALLEL (disjoint file sets — wall-clock = max(tsc, mypy, ruff))
+typecheck: ## Run TypeScript + mypy ratchet + ruff IN PARALLEL (disjoint file sets — wall-clock = max(tsc, mypy, ruff))
 	@cd voice_typer/client && npm run typecheck & \
-	python -m mypy voice_typer/server/ & \
+	python scripts/mypy_ratchet_check.py & \
 	ruff check voice_typer/ tests/ & \
 	wait
 
