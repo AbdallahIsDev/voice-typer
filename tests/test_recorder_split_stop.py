@@ -20,9 +20,11 @@ Each test is deterministic and sub-second.
 The tests pin five contracts:
 
   1. **Not-recording fast path**: when ``_recording_event.is_set()``
-     is False, the function returns an empty ``float32`` array and
-     does NOT touch any other state (no stop_generation bump, no
-     teardown, no worker joins).
+     is False AND no worker refs exist, the function returns an empty
+     ``float32`` array and does NOT touch any other state (no
+     stop_generation bump, no teardown, no worker joins). A worker ref
+     present while the event is cleared (the start()/discard() race
+     end-state) must still be stopped (GT-23R).
 
   2. **Happy-path ordering**: every step in the documented source
      order (event-clear → stop_generation bump → user_stop_pending
@@ -89,6 +91,15 @@ def _build_mock_recorder(
     recorder._stop_generation = 0
     # `_user_stop_pending` is a bool flag toggled by stop() / discard().
     recorder._user_stop_pending = False
+    # `_worker_thread` / `_event_worker_thread` are None on a real
+    # idle recorder. The not-recording fast path only fires when the
+    # event is cleared AND both worker refs are None (GT-23R: a
+    # start()/discard() race can leave a live worker with the event
+    # cleared — stop() must still stop it), so the mock must be None
+    # here or MagicMock's auto-children (not None) would defeat the
+    # fast path.
+    recorder._worker_thread = None
+    recorder._event_worker_thread = None
 
     # `_lock` must be a real `threading.Lock` so the `with` block
     # works (the function swaps the deque + captures the chunk list
@@ -135,10 +146,12 @@ def _build_mock_recorder(
 
 
 class TestNotRecordingFastPath:
-    """When ``_recording_event.is_set()`` is False the function must
-    return an empty ``float32`` array and MUST NOT mutate any other
-    state — no stop_generation bump, no teardown, no worker joins, no
-    buffer swap."""
+    """When ``_recording_event.is_set()`` is False and no worker refs
+    exist, the function must return an empty ``float32`` array and
+    MUST NOT mutate any other state — no stop_generation bump, no
+    teardown, no worker joins, no buffer swap. A worker ref present
+    while the event is cleared (GT-23R start()/discard() race
+    end-state) must still be stopped."""
 
     def test_returns_empty_float32_array(self):
         recorder = _build_mock_recorder(recording=False)
@@ -176,6 +189,21 @@ class TestNotRecordingFastPath:
         recorder._stop_device_health_checker.assert_not_called()
         recorder._secure_clear_caches.assert_not_called()
         recorder._prepare_audio.assert_not_called()
+
+    def test_cleared_event_with_live_worker_still_stops_workers(self):
+        """GT-23R: when ``_recording_event`` is cleared but a worker ref
+        exists (the start()/discard() race end-state), the fast-path
+        must NOT fire — ``stop_recording`` must still stop the worker
+        (otherwise the daemon leaks until process exit)."""
+        recorder = _build_mock_recorder(recording=False)
+        recorder._worker_thread = threading.Thread(target=lambda: None)
+        recorder._event_worker_thread = threading.Thread(target=lambda: None)
+
+        stop_recording(recorder)
+
+        recorder._teardown_stream.assert_called_once()
+        recorder._stop_audio_worker.assert_called_once()
+        recorder._stop_event_worker.assert_called_once()
 
 
 # ── Happy-path ordering ───────────────────────────────────────────

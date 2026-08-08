@@ -46,7 +46,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from tests.fixtures.recorder_test_helpers import wait_for_workers_stopped
+from tests.fixtures.recorder_test_helpers import (
+    WORKER_THREAD_NAMES,
+    wait_for_workers_stopped,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -451,12 +454,6 @@ class TestConcurrentStartStopNoLeak:
         assert not errors, f"GT-23: concurrent start()/stop() raised: {errors}"
 
         # Final cleanup: ensure no worker thread is left running.
-        worker_names = {
-            "audio-worker",
-            "event-worker",
-            "stream-finished-handler",
-            "device-disconnect-handler",
-        }
         r.stop()
         # GT-23 load-flake guard: under a loaded runner (full-suite
         # serial run), a worker started by the last in-flight start()
@@ -471,7 +468,7 @@ class TestConcurrentStartStopNoLeak:
         assert wait_for_workers_stopped(r, stop=r.stop), (
             f"GT-23 regression: worker thread(s) still alive after "
             f"concurrent start()/stop(): "
-            f"{[(t.name, t.is_alive()) for t in threading.enumerate() if t.name in worker_names]} "
+            f"{[(t.name, t.is_alive()) for t in threading.enumerate() if t.name in WORKER_THREAD_NAMES]} "
             f"(refs: worker={r._worker_thread!r}, event={r._event_worker_thread!r})."
         )
 
@@ -519,17 +516,103 @@ class TestConcurrentStartStopNoLeak:
 
         r.stop()
         # GT-23 load-flake guard — see test_concurrent_start_stop_no_leak.
-        worker_names = {
-            "audio-worker",
-            "event-worker",
-            "stream-finished-handler",
-            "device-disconnect-handler",
-        }
         assert wait_for_workers_stopped(r, stop=r.stop), (
             f"GT-23 regression: worker thread(s) still alive after "
             f"concurrent start()/discard(): "
-            f"{[(t.name, t.is_alive()) for t in threading.enumerate() if t.name in worker_names]} "
+            f"{[(t.name, t.is_alive()) for t in threading.enumerate() if t.name in WORKER_THREAD_NAMES]} "
             f"(refs: worker={r._worker_thread!r}, event={r._event_worker_thread!r})."
+        )
+
+
+# orphaned-worker cleanup when idle ───────
+
+
+class TestIdleStopStopsOrphanedWorkers:
+    """GT-23R: a start()/discard() race can leave ``_recording_event``
+    cleared but a live worker thread (a start() spawned it after a
+    concurrent discard already cleared the event). ``stop()`` must still
+    stop that worker instead of fast-pathing on the cleared event alone
+    — otherwise the daemon leaks until process exit (surfaced by the
+    recorder worker-lifecycle guard as a timeout under parallel load).
+    """
+
+    def test_stop_stops_live_event_worker_when_event_cleared(self, monkeypatch):
+        """A live ``event-worker`` with ``_recording_event`` cleared must
+        be stopped by ``stop()`` (the start/discard race end-state)."""
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        _patch_ok_stream(monkeypatch, recording_mod)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+
+        # Reproduce the race end-state: recording_event cleared (a
+        # discard ran) but the event worker spawned by a concurrent
+        # start() is still alive.
+        assert not r._recording_event.is_set()
+        r._start_event_worker()
+        assert r._event_worker_thread is not None
+        assert r._event_worker_thread.is_alive()
+
+        # stop() must stop it despite the cleared event.
+        r.stop()
+
+        assert wait_for_workers_stopped(r, stop=r.stop), (
+            "GT-23R: stop() fast-pathed on the cleared recording event "
+            "and left the event worker running. stop() must stop live "
+            "workers even when idle (start/discard race end-state)."
+        )
+
+    def test_stop_stops_live_audio_worker_when_event_cleared(self, monkeypatch):
+        """Same contract for the ``audio-worker``: a live worker with
+        ``_recording_event`` cleared must be stopped by ``stop()``."""
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        _patch_ok_stream(monkeypatch, recording_mod)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+
+        assert not r._recording_event.is_set()
+        r._start_audio_worker()
+        assert r._worker_thread is not None
+        assert r._worker_thread.is_alive()
+
+        r.stop()
+
+        assert wait_for_workers_stopped(r, stop=r.stop), (
+            "GT-23R: stop() fast-pathed on the cleared recording event "
+            "and left the audio worker running. stop() must stop live "
+            "workers even when idle (start/discard race end-state)."
+        )
+
+    def test_discard_stops_live_worker_when_event_cleared(self, monkeypatch):
+        """Same contract for ``discard()`` (the production ESC-cancel
+        path): a live worker with ``_recording_event`` cleared must be
+        stopped by ``discard()`` — its idle fast-path must not skip the
+        worker shutdown either."""
+        import voice_typer.server.recording as recording_mod
+        from voice_typer.server.recording import Recorder
+
+        _patch_ok_stream(monkeypatch, recording_mod)
+
+        config = MagicMock(sample_rate=16000, microphone=None)
+        r = Recorder(config)
+
+        assert not r._recording_event.is_set()
+        r._start_event_worker()
+        assert r._event_worker_thread is not None
+        assert r._event_worker_thread.is_alive()
+
+        r.discard()
+
+        assert wait_for_workers_stopped(r, stop=r.stop), (
+            "GT-23R: discard() fast-pathed on the cleared recording "
+            "event and left the event worker running. discard() must "
+            "stop live workers even when idle (start/discard race "
+            "end-state)."
         )
 
 

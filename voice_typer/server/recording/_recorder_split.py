@@ -970,7 +970,17 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         DEFAULT_MAX_BUFFER_CHUNKS,
     )
 
-    if not recorder._recording_event.is_set():
+    # GT-23R: fast-path ONLY when no worker refs exist. A
+    # start()/discard() race can leave ``_recording_event`` cleared but
+    # a live worker (a start() spawned it after a concurrent discard
+    # already cleared the event). In that state stop() must still stop
+    # the worker — otherwise the daemon leaks until process exit (the
+    # recorder worker-lifecycle guard surfaces it as a timeout).
+    if (
+        not recorder._recording_event.is_set()
+        and recorder._worker_thread is None
+        and recorder._event_worker_thread is None
+    ):
         return np.array([], dtype=np.float32)
 
     stop_started = time.perf_counter()

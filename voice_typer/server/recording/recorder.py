@@ -2862,6 +2862,16 @@ class Recorder(VadShimMixin, RecorderInitMixin):
             # that prevents wasted work: no ``_stop_generation``
             # increment, no ``_user_stop_pending`` flip, no stream teardown,
             # no worker stop.
-            if not self._recording_event.is_set():
+            # GT-23R: fast-path ONLY when no worker refs exist — a
+            # start()/discard() race can leave ``_recording_event``
+            # cleared but a live worker (start() spawned it after this
+            # discard cleared the event). In that state discard() must
+            # still run the full body to stop the worker, otherwise the
+            # daemon leaks until process exit.
+            if (
+                not self._recording_event.is_set()
+                and self._worker_thread is None
+                and self._event_worker_thread is None
+            ):
                 return
             _recorder_split.discard_recording(self)

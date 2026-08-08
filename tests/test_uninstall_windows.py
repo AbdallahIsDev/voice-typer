@@ -231,20 +231,26 @@ class TestUnregisterAllVoiceTyperRunkeys:
         the uninstaller script calls this unconditionally and relies on
         the empty-list return to signal "nothing to do on this platform".
         """
-        # Ensure winreg is NOT in sys.modules (simulates non-Windows host).
-        monkeypatch.setitem(sys.modules, "winreg", None)
+        import builtins
+
         from voice_typer.server.server_platform import autostart_windows
 
-        # The function does `import winreg` — with winreg set to None in
-        # sys.modules, the import "succeeds" but the bound name is None,
-        # so the `except ImportError` doesn't trigger. We need to actually
-        # raise ImportError. Use a side-effect via sys.modules manipulation:
-        # Remove the entry so `import winreg` raises ImportError.
-        if "winreg" in sys.modules:
-            monkeypatch.delitem(sys.modules, "winreg")
+        # winreg is a real, importable stdlib module on Windows hosts, so
+        # sys.modules deletion canNOT simulate a non-Windows host: `import
+        # winreg` would silently re-import the REAL module and the sweep
+        # would run against the actual registry (which deleted the
+        # developer's real VoiceTyper_* autostart key in the full-suite
+        # run). Patching builtins.__import__ is deterministic on every
+        # platform and independent of prior test order.
+        real_import = builtins.__import__
 
-        # Also ensure builtins.__import__ doesn't somehow find a real
-        # winreg on the Linux host (it shouldn't — winreg is Windows-only).
+        def _fake_import(name, *args, **kwargs):
+            if name == "winreg":
+                raise ImportError("winreg is Windows-only")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", _fake_import)
+
         deleted = autostart_windows._unregister_all_voicetyper_runkeys()
         assert deleted == []
 
