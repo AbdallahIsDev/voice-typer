@@ -566,15 +566,69 @@ export function useConnection({
 
 	// ── Reconnection handler (called by children on fatal errors) ─
 
+	//OPTION-A recovered retry: probe first, then escalate to a
+	// main-process backend RESTART if the probe fails.
+	//
+	// Previously this handler was a single `get_config` probe: on
+	// failure it flipped straight back to "disconnected", so a backend
+	// that had actually died (not just a TCP flap) left the user in a
+	// loop of clicking Retry with zero effect — the probe can never
+	// succeed against a dead process, and the renderer had NO way to
+	// recreate the backend.
+	//
+	// The fix: when the probe fails, ask the Electron main process to
+	// restart ONLY the Python backend (`window.window_.restartBackend`,
+	// the `backend:restart` IPC channel). The main process kills the
+	// old sidecar (SIGTERM→SIGKILL fallback, exit listeners stripped)
+	// and respawns it; the fresh backend then goes through the normal
+	// `state_changed` push-on-connect, which flips this hook back to
+	// "connected" automatically (see the `state_changed` subscriber
+	// above).
+	//
+	// Status flow: "connecting" (probe in flight) → probe ok
+	// "connected"; probe fail + restart accepted → "restarting" (the
+	// ConnectionStatusScreen renders the Restarting UI + Force-Retry
+	// affordance for this state); probe fail + restart declined
+	// (adopted mode / relaunch in-flight / bridge missing) →
+	// "disconnected" with a localized lastError so the user knows the
+	// single-click recovery was attempted but the backend is
+	// parent-managed.
+	//
+	// The post-restart recovery path lands through `state_changed`
+	// (pushed by the backend on client connect) or the
+	// `reconnected` synthetic event from the host bridge — both are
+	// already subscribed above, so no extra wiring is needed to exit
+	// the "restarting" state.
 	const handleRetryConnection = useCallback(async () => {
 		setConnectionStatus("connecting");
 		try {
 			await call("get_config");
 			setConnectionStatus("connected");
+			return;
 		} catch {
+			// Probe failed — the backend may be dead, not just flapping.
+			// Escalate to a process restart (Phase 2 below).
+		}
+		// Phase 2 — escalate to a backend-process restart.
+		try {
+			const res = await window.window_?.restartBackend?.();
+			if (res?.ok) {
+				setConnectionStatus("restarting");
+				return;
+			}
+			// adopted mode (backend spawned us) or relaunch in-flight —
+			// nothing more the main process can do for us.
+			setLastError(t("connection.restartBackendHint"));
+			setConnectionStatus("disconnected");
+		} catch (e) {
+			// Bridge channel unavailable (tauri mode, old preload) or
+			// handler threw — no restart capability, fall back to the
+			// previous bare-probe behavior.
+			console.warn("[useConnection] restartBackend escalation failed:", e);
+			setLastError(t("connection.restartBackendHint"));
 			setConnectionStatus("disconnected");
 		}
-	}, [call, setConnectionStatus]);
+	}, [call, setConnectionStatus, setLastError, t]);
 
 	return {
 		recordingState,

@@ -1840,7 +1840,8 @@
 	},
 	"connection": {
 		"respawnFailed": "Backend konnte nicht automatisch neu gestartet werden",
-		"respawnFailedHint": "Voice Typer hat mehrmals versucht, sein Backend wiederherzustellen, und aufgegeben. Starten Sie die App neu, und prüfen Sie bei anhaltendem Problem die Protokolle oder installieren Sie neu."
+		"respawnFailedHint": "Voice Typer hat mehrmals versucht, sein Backend wiederherzustellen, und aufgegeben. Starten Sie die App neu, und prüfen Sie bei anhaltendem Problem die Protokolle oder installieren Sie neu.",
+		"restartBackendHint": "Das Backend konnte nicht aus diesem Fenster neu gestartet werden. Es wird möglicherweise extern verwaltet – bitte starten Sie die App neu."
 	},
 	"dialog": {
 		"pythonCrash": {

@@ -46,6 +46,12 @@ export const RendererChannels = {
 	logError: "renderer:log-error",
 } as const;
 
+// Backend lifecycle controls (renderer → main only; NOT Python IPC
+// commands, so they stay out of the SEC-002 command allowlist).
+export const BackendChannels = {
+	restart: "backend:restart",
+} as const;
+
 export const BubbleChannels = {
 	level: "bubble:level",
 	show: "bubble:show",

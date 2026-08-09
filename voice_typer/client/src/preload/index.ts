@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from "electron";
 import {
+	BackendChannels,
 	ExportChannels,
 	I18nChannels,
 	ModelChannels,
@@ -115,5 +116,10 @@ if (!isBubble) {
 			componentStack?: string;
 			message?: string;
 		}) => ipcRenderer.invoke(RendererChannels.logError, payload),
+		restartBackend: () =>
+			ipcRenderer.invoke(BackendChannels.restart) as Promise<{
+				ok: boolean;
+				reason?: string;
+			}>,
 	});
 }

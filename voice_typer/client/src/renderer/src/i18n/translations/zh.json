@@ -1840,7 +1840,8 @@
 	},
 	"connection": {
 		"respawnFailed": "后端无法自动重启",
-		"respawnFailedHint": "Voice Typer 多次尝试恢复后端并放弃了。请重新启动应用，如果问题持续，请检查日志或重新安装。"
+		"respawnFailedHint": "Voice Typer 多次尝试恢复后端并放弃了。请重新启动应用，如果问题持续，请检查日志或重新安装。",
+		"restartBackendHint": "无法从此窗口重新启动后端。它可能由外部管理——请重新启动应用。"
 	},
 	"dialog": {
 		"pythonCrash": {

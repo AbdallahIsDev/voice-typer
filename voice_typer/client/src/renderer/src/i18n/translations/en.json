@@ -1840,7 +1840,8 @@
 	},
 	"connection": {
 		"respawnFailed": "Backend couldn't restart automatically",
-		"respawnFailedHint": "Voice Typer tried to recover its backend several times and gave up. Relaunch the app, and if the problem persists, check the logs or reinstall."
+		"respawnFailedHint": "Voice Typer tried to recover its backend several times and gave up. Relaunch the app, and if the problem persists, check the logs or reinstall.",
+		"restartBackendHint": "The backend could not be restarted from this window. It may be managed externally — please relaunch the app."
 	},
 	"dialog": {
 		"pythonCrash": {

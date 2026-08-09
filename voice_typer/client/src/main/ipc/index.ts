@@ -6,12 +6,14 @@
  * `ipcMain.on` / `ipcMain.handle` listener. Behaviour is identical to
  * the original top-level registrations.
  */
+import { registerBackendRestartHandler } from "./backend-restart-handler";
 import { registerBubbleHandlers } from "./bubble-handlers";
 import { registerExportHandlers } from "./export-handlers";
 import { registerPythonCallHandler } from "./python-call-handler";
 import { registerWindowHandlers } from "./window-handlers";
 
 export function registerIpcHandlers(): void {
+	registerBackendRestartHandler();
 	registerBubbleHandlers();
 	registerWindowHandlers();
 	registerExportHandlers();

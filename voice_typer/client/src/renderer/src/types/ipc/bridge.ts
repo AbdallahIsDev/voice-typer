@@ -81,4 +81,13 @@ export interface WindowBridge {
 	// install it (Tauri-side dialogs are localised via the OS locale,
 	// not a renderer-pushed value).
 	setLocale?: (locale: string) => Promise<unknown>;
+	//Restart the Python backend process only (Electron stays alive).
+	// Used by the "Lost connection" Retry escalation AFTER a plain
+	// reconnect probe fails. Optional because the Tauri bridge has no
+	// main-process spawn surface (Tauri's Rust host owns the backend
+	// lifecycle there). Electron preload always installs it.
+	restartBackend?: () => Promise<{
+		ok: boolean;
+		reason?: string;
+	}>;
 }
