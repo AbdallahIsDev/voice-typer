@@ -316,13 +316,16 @@ class TestEnforceWindowsOwnerOnlyAcl:
     def test_save_invokes_acl_helper_on_windows(self, monkeypatch, tmp_config_dir):
         """integration: ``Config._save_unlocked`` (the body of
         ``save()`` after the cross-process lock is acquired) must call
-        ``_enforce_windows_owner_only_acl`` on the config file, the
-        config dir, and (if a backup is written) the .bak file — but
-        ONLY on Windows. We call ``_save_unlocked`` directly to skip
-        the cross-process lock (which tries to import ``msvcrt`` on
-        Windows). We simulate Windows by patching ``config.is_windows``
-        so the Windows-only call sites fire; the spy replaces the
-        helper so no real ``icacls`` is invoked."""
+        ``_enforce_windows_owner_only_acl`` on the config file and (if
+        a backup is written) the .bak file — but ONLY on Windows, and
+        NEVER on the config directory (the dir ACL is tightened by
+        ``save()`` BEFORE the lock is acquired — see
+        ``test_save_tightens_config_dir_before_lock``). We call
+        ``_save_unlocked`` directly to skip the cross-process lock
+        (which tries to import ``msvcrt`` on Windows). We simulate
+        Windows by patching ``config.is_windows`` so the Windows-only
+        call sites fire; the spy replaces the helper so no real
+        ``icacls`` is invoked."""
         from voice_typer.server import config as config_mod
         from voice_typer.server.config import Config
 
@@ -353,12 +356,21 @@ class TestEnforceWindowsOwnerOnlyAcl:
         assert result is True, "_save_unlocked should report success"
 
         # The spy should be called on:
-        #   1. the config dir (after path.mkdir)
-        #   2. the config.json.bak (after _secure_atomic_write of the bak)
-        #   3. the config.json (after _secure_atomic_write of the main file)
-        assert any(str(tmp_config_dir) == t for t in targets), (
-            "Config._save_unlocked must call _enforce_windows_owner_only_acl "
-            f"on the config directory {tmp_config_dir}. Got calls: {targets}"
+        #   1. the config.json.bak (after _secure_atomic_write of the bak)
+        #   2. the config.json (after _secure_atomic_write of the main file)
+        #
+        # The config DIR must NOT be in the list: ``_save_unlocked`` is
+        # always called with ``config.json.lock`` held open, and
+        # ``icacls <dir>`` while the lock file is open poisons it on
+        # Python < 3.11.13 (no FILE_SHARE_DELETE in os.open), failing
+        # every subsequent save() in the process. The dir ACL is
+        # tightened by ``save()`` BEFORE the lock is acquired.
+        assert not any(str(tmp_config_dir) == t for t in targets), (
+            "Config._save_unlocked must NOT call _enforce_windows_owner_only_acl "
+            f"on the config directory {tmp_config_dir} (dir-wide icacls while "
+            "the lock file is open breaks subsequent saves on Python < 3.11.13; "
+            "the dir is tightened by save() before the lock). "
+            f"Got calls: {targets}"
         )
         assert any(t.endswith("config.json") and not t.endswith(".bak") for t in targets), (
             "Config._save_unlocked must call _enforce_windows_owner_only_acl "
@@ -368,4 +380,77 @@ class TestEnforceWindowsOwnerOnlyAcl:
             "Config._save_unlocked must call _enforce_windows_owner_only_acl "
             "on the config.json.bak file (the .bak also contains plaintext "
             f"API keys). Got calls: {targets}"
+        )
+
+    def test_save_tightens_config_dir_before_lock(self, monkeypatch, tmp_config_dir):
+        """``Config.save()`` must tighten the config DIR's ACL BEFORE
+        the cross-process lock is acquired: ``icacls <dir>`` while
+        ``config.json.lock`` is held open poisons the lock file on
+        Python < 3.11.13 (no FILE_SHARE_DELETE in os.open), failing
+        every subsequent save in the process. Tightening the dir first
+        also means the ``tempfile.mkstemp`` tmp file inherits the
+        owner-only dir DACL, so ``config.json`` is never
+        shared-readable even in the brief window between ``os.replace``
+        and the per-file icacls.
+
+        The lock is replaced with a no-op spy context manager so the
+        assertion runs on any platform (the real lock branches on
+        ``config.is_windows`` — the same function object — which this
+        test patches to True). The dir ACL must run exactly ONCE (only
+        when ``save()`` creates the directory): re-running the
+        dir-wide icacls on a dir that already exists is both pointless
+        and unsafe (dir icacls while files in the dir are open poisons
+        them on Python < 3.11.13)."""
+        import contextlib
+        import shutil
+
+        from voice_typer.server import config as config_mod
+        from voice_typer.server.config import Config
+
+        order: list[str] = []
+
+        @contextlib.contextmanager
+        def _fake_lock():
+            order.append("lock")
+            yield
+
+        def _spy_acl(path):
+            order.append(f"acl:{path}")
+
+        monkeypatch.setattr(config_mod, "is_windows", lambda: True)
+        monkeypatch.setattr(config_mod, "_acquire_config_lock", _fake_lock)
+        monkeypatch.setattr(config_mod, "_enforce_windows_owner_only_acl", _spy_acl)
+
+        # Simulate a fresh install: the config dir does not exist yet,
+        # so save() creates it AND tightens it before anything is
+        # written. (pytest's tmp_path fixture pre-creates the dir.)
+        shutil.rmtree(tmp_config_dir, ignore_errors=True)
+
+        cfg = Config()
+        assert cfg.save() is True
+
+        assert order, "save() must invoke _enforce_windows_owner_only_acl on Windows"
+        # The config dir must be tightened FIRST — before the lock is
+        # acquired and before any file write — so the tmp file created
+        # by _secure_atomic_write inherits the owner-only dir DACL.
+        assert order[0] == f"acl:{tmp_config_dir}", (
+            "Config.save() must tighten the config DIR before acquiring the "
+            f"cross-process lock. Expected first ACL call to be {tmp_config_dir}, "
+            f"got {order}"
+        )
+        assert order.index("lock") > order.index(f"acl:{tmp_config_dir}"), (
+            "The dir ACL must be enforced before the lock file is opened. "
+            f"Got order: {order}"
+        )
+
+        # The dir ACL must run ONCE per config dir (only when save()
+        # creates the directory): after the first save the dir exists,
+        # and re-running the dir-wide icacls on an existing dir is both
+        # pointless and unsafe (it poisons open files on
+        # Python < 3.11.13).
+        cfg.hotkey = "<f9>"  # mark dirty so the second save is real
+        assert cfg.save() is True
+        assert order.count(f"acl:{tmp_config_dir}") == 1, (
+            "The config DIR must be tightened exactly once (only when save() "
+            f"creates the directory); got {order}"
         )

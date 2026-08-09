@@ -659,10 +659,10 @@ class TranscriptionEngine:
             # Force iteration to complete the warm-up
             for _ in segments:
                 pass
-            log.info("[PERF-007] Warm-up inference completed — CUDA kernels primed")
+            log.info("[PERF] Warm-up inference completed — CUDA kernels primed")
         except Exception as exc:
             # Warm-up failure is non-critical — log and continue
-            log.debug("[PERF-007] Warm-up inference skipped: %s", exc)
+            log.debug("[PERF] Warm-up inference skipped: %s", exc)
 
     def _probe_cache(
         self,

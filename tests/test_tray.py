@@ -774,6 +774,85 @@ class TestOpenElectronWindow:
         assert not win32_called
         assert not launched
 
+    def test_publish_true_without_live_transport_falls_back_to_win32(self, tray, monkeypatch):
+        """publish() returning True is NOT proof of delivery: the TCP push
+        swallows write failures and unrelated subscribers accept every
+        event, so the transport-liveness probe is the only truthful
+        signal. When no probe reports a live host client (the exact
+        production state when the Electron TCP connection is down), the
+        push must NOT be treated as delivered and the Win32 focus
+        fallback must run — regression: the tray "Open App" silently
+        did nothing while the window stayed hidden/minimized."""
+        from voice_typer.server.event_bus import (
+            register_transport_probe,
+            unregister_transport_probe,
+        )
+
+        # publish() reports success (as it always does — the IPC push
+        # buffers silently when disconnected).
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: True,
+        )
+        # A registered transport whose client is NOT connected.
+        def probe() -> bool:
+            return False
+
+        register_transport_probe(probe)
+        try:
+            called = []
+            import voice_typer.server.tray_window as tw_mod
+
+            monkeypatch.setattr(
+                tw_mod,
+                "bring_electron_to_front",
+                lambda: called.append(True) or True,
+            )
+            tray.open_electron_window()
+            assert called, (
+                "publish()==True with no live transport client must fall "
+                "through to bring_electron_to_front"
+            )
+        finally:
+            unregister_transport_probe(probe)
+
+    def test_publish_true_with_live_transport_skips_fallbacks(self, tray, monkeypatch):
+        """When a transport probe reports a live host client, the push is
+        genuinely delivered and neither fallback runs."""
+        from voice_typer.server.event_bus import (
+            register_transport_probe,
+            unregister_transport_probe,
+        )
+
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: True,
+        )
+        def probe() -> bool:
+            return True
+
+        register_transport_probe(probe)
+        try:
+            win32_called = []
+            import voice_typer.server.tray_window as tw_mod
+
+            monkeypatch.setattr(
+                tw_mod,
+                "bring_electron_to_front",
+                lambda: win32_called.append(True) or True,
+            )
+            launched = []
+            monkeypatch.setattr(
+                subprocess,
+                "Popen",
+                lambda *a, **kw: launched.append(True) or MagicMock(),
+            )
+            tray.open_electron_window()
+            assert not win32_called
+            assert not launched
+        finally:
+            unregister_transport_probe(probe)
+
 
 class TestBringElectronToFront:
     """bring_electron_to_front() is a Win32-only fallback that handles

@@ -32,6 +32,8 @@ test construct a real ``VoiceTyperApp`` without paying the
 from __future__ import annotations
 
 import sys
+import threading
+import types
 from unittest.mock import MagicMock
 
 import pytest
@@ -430,3 +432,162 @@ class TestDeferredImportsInLazyGetters:
             "WaveformBubble should NOT be a module-top attribute — "
             "it should be imported inside the _waveform_bubble getter."
         )
+
+
+# ─── deferred recorder / recording construction (STARTUP-9) ──────
+
+
+class TestRecorderDeferredConstruction:
+    """``Recorder`` + ``RecordingController`` must NOT be constructed
+    synchronously in ``VoiceTyperApp.__init__``.
+
+    STARTUP-9: the ``voice_typer.server.recording`` import + ``Recorder()``
+    build eagerly loads numpy/scipy/sounddevice (PortAudio) and can take
+    1-8s on the main thread (measured ~5x slower under the system Python
+    the packaged app runs on). Construction is deferred to a background
+    thread registered with the ThreadRegistry; ``app.recorder`` /
+    ``app.recording`` are lazy properties that block only briefly on
+    first access.
+
+    These tests pin the contract deterministically by installing FAKE
+    ``voice_typer.server.recording`` / ``recording_controller`` modules
+    into ``sys.modules`` (hermetic — no numpy/audio imports at all). The
+    fake ``Recorder.__init__`` is gated on a ``threading.Event``, so the
+    test can observe the sentinel state while the build is provably
+    still in flight on a background thread.
+    """
+
+    @staticmethod
+    def _install_fake_recording_modules(monkeypatch, recorder_cls, controller_cls):
+        """Install fake ``voice_typer.server.recording`` /
+        ``recording_controller`` modules into ``sys.modules`` so the
+        background build thread's deferred imports (``from
+        voice_typer.server.recording import Recorder`` / ``from
+        voice_typer.server.recording_controller import
+        RecordingController``) resolve to the fakes — the test never
+        imports numpy/audio and never constructs real subsystems.
+        """
+        fake_recording = types.ModuleType("voice_typer.server.recording")
+        fake_controller = types.ModuleType("voice_typer.server.recording_controller")
+        # ``setattr`` instead of attribute assignment so pyrefly (which
+        # rejects unknown attributes on ``ModuleType``) accepts the fakes.
+        fake_recording.Recorder = recorder_cls
+        fake_controller.RecordingController = controller_cls
+        monkeypatch.setitem(sys.modules, "voice_typer.server.recording", fake_recording)
+        monkeypatch.setitem(
+            sys.modules,
+            "voice_typer.server.recording_controller",
+            fake_controller,
+        )
+
+    def test_recorder_backing_is_sentinel_after_init_and_accessible_after_build(
+        self, tmp_config_dir, monkeypatch
+    ):
+        """Right after ``__init__``, ``_recorder_backing`` is still the
+        ``_RECORDER_MISSING`` sentinel and ``_recorder_build_ready`` is
+        NOT set — the recorder was NOT built synchronously. The fake
+        ``Recorder.__init__`` blocks on an event, so the test can prove
+        the construction is proceeding on a background thread while the
+        sentinel state is observable; once released, ``app.recorder`` /
+        ``app.recording`` return the built instances.
+        """
+        _patch_app_platform_helpers(monkeypatch)
+        from voice_typer.server import app as _app_mod
+
+        entered = threading.Event()  # set once the background build enters Recorder.__init__
+        release = threading.Event()  # the test sets this to let the build finish
+        built: list = []
+
+        class _BlockingRecorder:
+            def __init__(self, config, audio_processor=None, thread_registry=None):
+                built.append(self)
+                entered.set()
+                release.wait(10)
+
+        controller_instance = MagicMock(name="controller_instance")
+        controller_cls = MagicMock(
+            name="MockRecordingController",
+            return_value=controller_instance,
+        )
+        self._install_fake_recording_modules(monkeypatch, _BlockingRecorder, controller_cls)
+
+        try:
+            instance = _app_mod.VoiceTyperApp()
+
+            # The recorder must NOT have been built synchronously in __init__.
+            assert instance._recorder_backing is _app_mod._RECORDER_MISSING, (
+                "Recorder must NOT be constructed in __init__; _recorder_backing "
+                "should still be the _RECORDER_MISSING sentinel."
+            )
+            assert not instance._recorder_build_ready.is_set(), (
+                "The background recorder build must not have completed during __init__."
+            )
+
+            # Prove the build IS proceeding — on a background thread, not the main one.
+            assert entered.wait(5), "background recorder build thread never started"
+
+            # While the build is in flight the sentinel must hold (no eager construction).
+            assert instance._recorder_backing is _app_mod._RECORDER_MISSING
+
+            # Release the gate: the build completes and the properties work.
+            release.set()
+            assert instance._recorder_build_ready.wait(5), (
+                "background recorder build did not complete after release"
+            )
+            assert instance.recorder is built[0], (
+                "app.recorder must return the recorder built by the background thread"
+            )
+            assert instance.recorder is built[0], "app.recorder must cache (same instance)"
+            assert instance.recording is controller_instance, (
+                "app.recording must return the controller built by the background thread"
+            )
+            assert instance.recording is controller_instance, "app.recording must cache"
+        finally:
+            release.set()
+
+    def test_recorder_setter_short_circuits_background_build(self, tmp_config_dir, monkeypatch):
+        """If a test (or caller) injects ``app.recorder = MagicMock()``
+        via the setter while the background build is in flight, the build
+        must NOT clobber the injected value, and ``app.recording`` still
+        works (falling back to an on-demand ``RecordingController``).
+        """
+        _patch_app_platform_helpers(monkeypatch)
+        from voice_typer.server import app as _app_mod
+
+        entered = threading.Event()
+        release = threading.Event()
+
+        class _BlockingRecorder:
+            def __init__(self, config, audio_processor=None, thread_registry=None):
+                entered.set()
+                release.wait(10)
+
+        controller_instance = MagicMock(name="controller_instance")
+        controller_cls = MagicMock(
+            name="MockRecordingController",
+            return_value=controller_instance,
+        )
+        self._install_fake_recording_modules(monkeypatch, _BlockingRecorder, controller_cls)
+
+        try:
+            instance = _app_mod.VoiceTyperApp()
+            assert entered.wait(5), "background recorder build thread never started"
+
+            injected = MagicMock(name="injected_recorder")
+            instance.recorder = injected  # setter while the build is in flight
+            release.set()
+            assert instance._recorder_build_ready.wait(5), (
+                "background recorder build did not complete after release"
+            )
+
+            # The background build must not clobber the injected mock.
+            assert instance.recorder is injected, (
+                "the background build must not clobber a recorder injected via the setter"
+            )
+            # app.recording still works (on-demand controller fallback).
+            assert instance.recording is controller_instance, (
+                "app.recording must fall back to an on-demand RecordingController "
+                "when the background build was short-circuited"
+            )
+        finally:
+            release.set()

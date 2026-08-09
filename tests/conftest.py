@@ -509,6 +509,26 @@ def mock_heavy_imports_session():
         mp.setitem(sys.modules, "torch", _build_mock_torch())
         mp.setitem(sys.modules, "transformers", MagicMock(name="mock_transformers"))
 
+        # BLOCK THE REAL ``winreg`` MODULE. Setting ``sys.modules["winreg"]``
+        # to ``None`` makes any later ``import winreg`` raise ImportError
+        # ("import of winreg halted; None in sys.modules") — exactly the
+        # behaviour on non-Windows CI, where production code degrades
+        # gracefully (``try: import winreg / except ImportError: return
+        # False``). Without this guard, running the suite on a Windows dev
+        # machine lets tests that exercise Windows autostart / uninstall
+        # paths (``_register/_unregister_app_autostart_runkey``,
+        # ``_unregister_all_voicetyper_runkeys``, …) hit the DEVELOPER'S
+        # REAL HKCU registry: a test that called ``disable_autostart`` or
+        # the uninstaller sweep deleted the user's actual autostart
+        # Run-key entry and wrote a ``MagicMock``-content pid file into
+        # the real config dir (both observed in the wild), producing the
+        # perpetual "Config says autostart=true but it is disabled --
+        # enabling" re-registration loop. Tests that need winreg inject a
+        # fake via ``monkeypatch.setitem(sys.modules, "winreg", fake)``
+        # (the ``fake_winreg`` fixtures), which overrides this None during
+        # the test and is undone back to None afterwards.
+        mp.setitem(sys.modules, "winreg", None)
+
         # Volume-duck backend: never auto-detect a REAL platform volume
         # backend in tests. A test that builds a real VoiceTyperApp and
         # starts dictation would otherwise duck the developer's actual
@@ -810,6 +830,40 @@ def _restore_vt_logging_state():
     _module_level_overrides.update(saved_overrides)
     if logging.lastResort is not None:
         logging.lastResort.filters = saved_last_resort_filters
+
+
+@pytest.fixture(autouse=True)
+def _restore_event_bus_transport_probes():
+    """Snapshot + restore ``event_bus._transport_probes`` between tests.
+
+    ``TCPTransportMixin.start_tcp`` registers a transport-liveness probe
+    on the process-global ``event_bus`` registry and ``stop()``
+    unregisters it. Tests that start a real TCP server WITHOUT calling
+    ``stop()`` (``tests/test_e2e_pipeline.py`` deliberately skips it —
+    ``stop()`` would try to join a stdin thread that was never started)
+    leave the probe registered for the rest of the xdist worker; the
+    probe reports ``False`` once the test closes the client socket, so
+    any later test on the same worker that calls
+    ``event_bus.has_live_transport()`` (e.g. the tray "open window"
+    tests) sees "no live transport" and takes the wrong code path.
+
+    The weakref storage in ``event_bus`` already auto-evicts probes
+    whose server is GC'd, but the e2e fixture's server stays alive past
+    teardown via its own accept-loop thread, so the registry needs a
+    deterministic per-test restore. Mirrors the ``_restore_vt_logging_state``
+    snapshot/restore pattern; the empty-list case is a no-op in terms
+    of cost (~1 list copy per test).
+    """
+    from voice_typer.server import event_bus
+
+    # Snapshot under the registry lock: a late weakref eviction
+    # callback from a previous test's dying server can mutate the list
+    # concurrently, and ``list(list)`` on a concurrently-shrinking list
+    # is not thread-safe in CPython. The restore is an atomic rebind.
+    with event_bus._transport_probes_lock:
+        saved = list(event_bus._transport_probes)
+    yield
+    event_bus._transport_probes = saved
 
 
 @pytest.fixture(autouse=True)

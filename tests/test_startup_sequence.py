@@ -409,9 +409,11 @@ class TestOnboardingStartedMarkerGate:
         config_file = tmp_config_dir / "config.json"
         config_file.write_text('{"onboarding_completed": false}', encoding="utf-8")
 
-        # The wizard-in-progress marker exists.
-        started_marker = tmp_config_dir / ".onboarding_started"
-        started_marker.write_text('{"started": true}', encoding="utf-8")
+        # The wizard-in-progress state exists (started flag in the
+        # merged onboarding-status document).
+        from voice_typer.server import onboarding_status
+
+        onboarding_status.write_status(tmp_config_dir, started=True)
 
         # Spy on OnboardingController.mark_complete — auto-heal calls
         # it; the deferred-to-wizard path does NOT.

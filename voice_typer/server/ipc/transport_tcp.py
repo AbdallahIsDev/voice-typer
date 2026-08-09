@@ -19,8 +19,10 @@ import os
 import socket
 import threading
 import time
+import typing
 from concurrent.futures import ThreadPoolExecutor
 
+from voice_typer.server import event_bus
 from voice_typer.server._paths import IPC_TOKEN_ENV_VAR
 from voice_typer.server.handlers._log import log
 from voice_typer.server.ipc.rate_limiter import (
@@ -77,6 +79,21 @@ class TCPTransportMixin:
     # ``IPCServer.__init__`` declarations.
     _tcp_worker_pool: ThreadPoolExecutor | None
     _tcp_dispatch_pool: ThreadPoolExecutor | None
+    # host app object (``IPCServer.__init__`` stores the real
+    # ``VoiceTyperApp``). Declared so the mixin's ``self.app`` accesses
+    # type-check; without it pyrefly reports "no attribute app" at every
+    # use (line-keyed suppression kept it quiet until a line shift
+    # exposed it). ``Any`` avoids an override conflict with the host's
+    # concrete ``app`` attribute.
+    app: typing.Any
+    # transport-liveness probe registered with ``event_bus`` in
+    # ``start_tcp`` (reports ``self._tcp_client is not None``) and
+    # unregistered by ``LifecycleMixin.stop``. Registered as a bound
+    # method so ``event_bus`` stores it weakly (no strong ref from the
+    # leaf module to this server) and auto-evicts it if the server is
+    # GC'd without ``stop()``. Declared here AND on ``LifecycleMixin``
+    # with the SAME type so mypy merges the two base-class definitions.
+    _transport_live_probe: typing.Callable[[], bool] | None
 
     def start_tcp(self, port) -> None:
         """Start a TCP server that accepts one Electron connection.
@@ -95,6 +112,24 @@ class TCPTransportMixin:
           the probe and the listen.
         """
         self._tcp_mode = True
+        # TRAY-WINDOW: register a transport-liveness probe so
+        # ``tray_window.open_electron_window()`` can tell whether a
+        # ``show_window`` push actually has a live host client to reach.
+        # ``event_bus.publish`` returns True when ANY in-process subscriber
+        # accepts — the TCP push swallows write failures (buffers to
+        # ``_pending_tcp`` and marks the client dead) and unrelated
+        # listeners (e.g. the tray's parakeet-cpu-fallback handler) accept
+        # every event — so the probe is the only truthful delivery signal.
+        # Unregistered in ``LifecycleMixin.stop()``. Registered here (not
+        # in ``start()``) so the non-TCP transports (stdin, Tauri WS
+        # sidecar) never register a probe and keep their previous
+        # publish-and-return behavior. A BOUND METHOD (not a lambda) is
+        # registered so ``event_bus`` can store it via
+        # ``weakref.WeakMethod`` — a lambda would capture ``self`` in a
+        # strong closure and pin this server alive (and its probe
+        # stale) even if ``stop()`` is never reached.
+        self._transport_live_probe = self._transport_has_live_client
+        event_bus.register_transport_probe(self._transport_live_probe)
         # lazily create the worker pools. Two pools are used so that
         # long-lived blocking connection read-loops cannot starve
         # short-lived dispatch submissions:
@@ -134,6 +169,18 @@ class TCPTransportMixin:
             daemon=True,
         )
         t.start()
+
+    def _transport_has_live_client(self) -> bool:
+        """Transport-liveness probe: True while an authenticated TCP
+        client is installed (``self._tcp_client`` non-None).
+
+        Registered with ``event_bus`` by :meth:`start_tcp` so
+        ``tray_window.open_electron_window`` can distinguish a genuinely
+        delivered ``show_window`` push from ``event_bus.publish``'s
+        "any subscriber accepted" success signal (the TCP push swallows
+        write failures and unrelated subscribers accept every event).
+        """
+        return self._tcp_client is not None
 
     def _accept_tcp(self, port) -> None:
         """Accept one connection, then run the TCP IPC loop.

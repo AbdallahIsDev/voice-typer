@@ -136,6 +136,7 @@ and continue) and is verified by
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import threading
@@ -616,6 +617,129 @@ def _deliver_deferred(event, resolvers):
     finally:
         with _deferred_in_flight_lock:
             _deferred_in_flight = max(0, _deferred_in_flight - 1)
+
+
+# ── Transport-liveness probes ──────────────────────────────────────────
+#
+# ``publish()`` returns True when ANY in-process subscriber accepted the
+# event. That is NOT the same as "the event reached the host UI": the
+# IPC transport's push() swallows write failures (it buffers to
+# ``_pending_tcp`` and marks the client dead instead of raising) and the
+# no-client path buffers silently, while unrelated subscribers (e.g. the
+# tray's parakeet-cpu-fallback listener) accept every event without
+# raising. Callers that must know whether the event actually went over
+# the wire to a live host client (``tray_window.open_electron_window``)
+# register a zero-arg probe here; :func:`has_live_transport` reports
+# whether any registered probe currently has a live client.
+_transport_probes: list[typing.Any] = []
+# RLock (not Lock) — mirrors ``_lock``: the WeakMethod eviction
+# callback (``_on_transport_probe_dead``) fires at arbitrary decref
+# points on arbitrary threads, and may run while the same thread holds
+# this lock if a future change ever resolves/holds a probe (and thus a
+# server reference) inside a critical section. Re-entrancy makes that
+# impossible to deadlock.
+_transport_probes_lock = threading.RLock()
+
+
+def _as_probe_entry(probe: typing.Callable[[], bool]) -> typing.Any:
+    """Wrap *probe* for registry storage.
+
+    Bound methods (the production registration from
+    ``TCPTransportMixin.start_tcp``) become a ``weakref.WeakMethod`` so
+    the registry holds NO strong reference to the owning server: if the
+    server is GC'd without an explicit ``unregister_transport_probe``
+    (e.g. a test fixture that deliberately skips ``stop()``), the probe
+    is auto-evicted instead of pinning the server alive forever and
+    reporting stale liveness for the rest of the process. Plain
+    functions / lambdas (test probes, no captured server instance) are
+    stored as-is.
+    """
+    # ``getattr`` with defaults (not ``hasattr``) so the check is
+    # type-checker-clean on a ``Callable``-typed param and matches the
+    # ``_SubscriberSet._classify`` pattern.
+    if getattr(probe, "__self__", None) is not None and getattr(probe, "__func__", None) is not None:
+        return weakref.WeakMethod(probe, _on_transport_probe_dead)
+    return probe
+
+
+def _on_transport_probe_dead(ref: typing.Any) -> None:
+    """Evict a probe whose owning instance was collected.
+
+    ``weakref.WeakMethod`` callback: fires when the bound method's
+    ``__self__`` (the IPC server) is GC'd without a matching
+    ``unregister_transport_probe``. Removing the entry keeps
+    ``has_live_transport`` truthful and prevents the registry from
+    accumulating dead entries across server start/stop cycles.
+    """
+    with _transport_probes_lock, contextlib.suppress(ValueError):
+        # Already unregistered (or evicted by a sibling callback).
+        _transport_probes.remove(ref)
+
+
+def register_transport_probe(probe: typing.Callable[[], bool] | None) -> None:
+    """Register *probe* — a zero-arg callable reporting whether the IPC
+    transport currently has a live host client connected.
+
+    The TCP transport (``IPCServer.start_tcp`` in
+    ``voice_typer/server/ipc/transport_tcp.py``) registers a bound
+    method reporting ``self._tcp_client is not None`` and
+    ``IPCServer.stop`` unregisters it. Registering ``None`` is a no-op.
+    """
+    if probe is None:
+        return
+    with _transport_probes_lock:
+        _transport_probes.append(_as_probe_entry(probe))
+
+
+def unregister_transport_probe(probe: typing.Callable[[], bool] | None) -> None:
+    """Unregister *probe* (no-op if unknown or ``None``)."""
+    if probe is None:
+        return
+    with _transport_probes_lock, contextlib.suppress(ValueError):
+        # ``WeakMethod.__eq__`` compares the underlying bound method,
+        # so re-wrapping here matches the stored entry even though the
+        # callback differs. ``ValueError`` = never registered (or
+        # already evicted) — a no-op.
+        _transport_probes.remove(_as_probe_entry(probe))
+
+
+def has_live_transport() -> bool:
+    """Return True if a registered transport probe reports a live client.
+
+    When NO probes are registered the transport was never set up
+    (console mode, or a non-TCP transport like the Tauri WS sidecar) —
+    return True so callers that publish regardless keep their previous
+    behavior in those environments.
+    """
+    with _transport_probes_lock:
+        probes = list(_transport_probes)
+    if not probes:
+        return True
+    for entry in probes:
+        # Bound-method entries are WeakMethods (resolve to None once
+        # the owning server is GC'd — the eviction callback normally
+        # removes them first; the skip is purely defensive).
+        cb = entry() if isinstance(entry, weakref.WeakMethod) else entry
+        if cb is None:
+            continue
+        try:
+            if cb():
+                return True
+        except Exception:
+            # Isolate probe failures (mirrors ``_deliver``'s
+            # subscriber-isolation): a raising probe must not take down
+            # the caller (e.g. the tray click handler, which wraps
+            # ``publish`` but not ``has_live_transport``). Rate-limited
+            # so a persistently-broken probe logs once, not every call.
+            log_rate_limited(
+                log,
+                logging.WARNING,
+                "[event_bus] transport-liveness probe raised",
+                exc_info=True,
+                key="event_bus:transport_probe",
+            )
+            continue
+    return False
 
 
 def publish(event: dict, *, async_dispatch: bool = False) -> bool:

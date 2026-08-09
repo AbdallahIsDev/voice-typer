@@ -29,7 +29,7 @@ import threading
 from pathlib import Path
 from typing import Any
 
-from voice_typer.server import task_scheduler
+from voice_typer.server import onboarding_status, task_scheduler
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_windows
 from voice_typer.server.providers import AppProtocol
@@ -82,6 +82,32 @@ def sync_autostart(app: AppProtocol) -> dict:
     # tests that monkeypatch voice_typer.server.app.{is_autostart_enabled,
     # enable_autostart, disable_autostart} still take effect.
     from voice_typer.server import app as _app_module
+
+    # One-time per-install cleanup of legacy autostart entries
+    # (AUTOSTART-LEGACY): pre-PLAT-RUN fixed names + the buggy
+    # ``sys.executable``-derived hashes could leave multiple live
+    # ``VoiceTyper*`` Run keys / ``VoiceTyperAutostart*`` tasks /
+    # ``VoiceTyper*.bat`` files that ALL point at this install and ALL
+    # fire at logon. The sweep is marker-gated (per install hash), so
+    # after the first run the only cost here is a single
+    # ``Path.exists()`` check. Best-effort: a sweep failure must never
+    # break autostart sync.
+    try:
+        from voice_typer.server.config import _config_dir as _cfg_dir
+        from voice_typer.server.server_platform import sweep_legacy_autostart_entries
+
+        _sweep = sweep_legacy_autostart_entries(_cfg_dir())
+        if _sweep.get("swept"):
+            _removed = _sweep.get("removed", {})
+            _total = sum(len(v) for v in _removed.values())
+            if _total:
+                log.info(
+                    "[AUTOSTART] Legacy autostart sweep removed %s duplicate entry(s): %s",
+                    _total,
+                    _removed,
+                )
+    except Exception:
+        log.debug("[AUTOSTART] Legacy autostart sweep failed", exc_info=True)
 
     # (a): track the post-sync ACTUAL OS-level autostart state so the
     # caller can pass it straight to ``tray.set_autostart_enabled(...)`` without
@@ -402,7 +428,7 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
             current = _check_accessibility()
             if current != last_state:
                 if current:
-                    log.info("[PLAT-009] macOS Accessibility permission granted")
+                    log.info("[A11Y] macOS Accessibility permission granted")
                     # persist the app version at which a11y was
                     # last observed granted. The next granted→denied
                     # transition compares the current ``voice_typer.__version__``
@@ -427,14 +453,14 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                         if _current_vt_version is not None:
                             app.config.last_known_a11y_version = _current_vt_version
                     except Exception:
-                        log.debug("[PLAT-009] could not persist last_known_a11y_version", exc_info=True)
+                        log.debug("[A11Y] could not persist last_known_a11y_version", exc_info=True)
                     with contextlib.suppress(Exception):
                         app.tray.notify(
                             APP_NAME,
                             "Accessibility permission granted. Hotkeys are now active.",
                         )
                 else:
-                    log.warning("[PLAT-009] macOS Accessibility permission revoked")
+                    log.warning("[A11Y] macOS Accessibility permission revoked")
                     # detect version-change-induced TCC reset
                     # and surface a more actionable notification.
                     _version_changed = False
@@ -450,13 +476,13 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                         )
                         if _version_changed:
                             log.warning(
-                                "[PLAT-009] a11y denied after app version change (%s -> %s) — "
+                                "[A11Y] a11y denied after app version change (%s -> %s) — "
                                 "likely TCC reset on update",
                                 _last_known_version,
                                 _current_vt_version,
                             )
                     except Exception:
-                        log.debug("[PLAT-009] could not compare a11y version", exc_info=True)
+                        log.debug("[A11Y] could not compare a11y version", exc_info=True)
                     with contextlib.suppress(Exception):
                         if _version_changed:
                             app.tray.notify_safety(
@@ -557,26 +583,22 @@ def reset_onboarding_complete(
             from voice_typer.server.config import _config_dir
 
             config_dir = _config_dir()
-        marker = Path(config_dir) / ".onboarding_complete"
-        if marker.exists():
-            marker.unlink()
-            log.info("[ONBOARDING] Reset onboarding marker: %s", marker)
-        else:
-            log.info("[ONBOARDING] Reset onboarding marker (already absent): %s", marker)
-        # Also delete ``.onboarding_started`` to stay consistent with
-        # ``OnboardingController.reset``. If this marker survives, the
-        # auto-heal treats the next launch as mid-wizard and
-        # SKIPS re-running the wizard — defeating the whole point of a
+        # Delete the merged ``.onboarding_status.json`` document (which
+        # holds the started flag, the completed flag, AND the fail
+        # counter) so the wizard re-runs on next launch. Any legacy
+        # ``.onboarding_complete`` / ``.onboarding_started`` markers
+        # still on disk are removed too. Deleting the whole document
+        # (rather than clearing one flag) keeps the flags consistent:
+        # if a stale ``started`` flag survived, the XA-11-2 auto-heal
+        # would treat the next launch as a mid-wizard crash and SKIP
+        # re-running the wizard — defeating the whole point of a
         # "re-run setup" affordance.
-        started_marker = Path(config_dir) / ".onboarding_started"
-        if started_marker.exists():
-            started_marker.unlink()
-            log.info("[ONBOARDING] Reset onboarding started marker: %s", started_marker)
-        else:
-            log.debug(
-                "[ONBOARDING] Reset onboarding started marker (already absent): %s",
-                started_marker,
-            )
+        if not onboarding_status.reset_status(config_dir):
+            raise OSError("could not delete the onboarding status document")
+        log.info(
+            "[ONBOARDING] Reset onboarding status: %s",
+            onboarding_status.status_path(config_dir),
+        )
         # Also clear the ``onboarding_completed`` flag in config.json so
         # ``OnboardingController.is_first_run`` returns True even if the
         # marker file is recreated by a stale save.

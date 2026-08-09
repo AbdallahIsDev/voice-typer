@@ -36,6 +36,17 @@ from pathlib import Path
 
 import pytest
 
+# Python 3.10/3.11 compatibility: ``pathlib.PurePath._parse_args`` looks up
+# ``cls._flavour``, an attribute that exists only on the CONCRETE flavour
+# classes (``WindowsPath`` / ``PosixPath``), not on ``Path`` itself. A
+# subclass defined directly as ``class FakePath(Path)`` therefore breaks
+# construction on 3.10/3.11 (``AttributeError: type object 'FakePath' has
+# no attribute '_flavour'``). Python 3.12+ rewrote pathlib (``PathBase``)
+# so direct subclasses work there. ``type(Path())`` yields the platform's
+# concrete Path class, so fake-path subclasses work on every supported
+# Python version.
+_CONCRETE_PATH = type(Path())
+
 # Resolve the canonical install_permissions.py path (tests/ → repo root →
 # scripts/linux/install_permissions.py).
 _REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -167,7 +178,7 @@ class TestAppImageDetection:
 
         fake_path = "/tmp/.mount_VoiceT_y12345/usr/lib/voice-typer/resources/linux-scripts/install_permissions.py"
 
-        class FakePath(OriginalPath):
+        class FakePath(_CONCRETE_PATH):
             def resolve(self, strict=False):
                 return OriginalPath(fake_path)
 
@@ -181,7 +192,7 @@ class TestAppImageDetection:
 
         fake_path = "/usr/lib/voice-typer/resources/linux-scripts/install_permissions.py"
 
-        class FakePath(OriginalPath):
+        class FakePath(_CONCRETE_PATH):
             def resolve(self, strict=False):
                 return OriginalPath(fake_path)
 
@@ -240,9 +251,7 @@ class TestSetupPolkitStablePath:
         monkeypatch.setattr(ip_module, "_install_polkit_policy", fake_install_polkit_policy)
 
         # Mock Path.samefile to return True (we're at the polkit-stable path).
-        from pathlib import Path as OriginalPath
-
-        class SameFilePath(OriginalPath):
+        class SameFilePath(_CONCRETE_PATH):
             def samefile(self, other):
                 return True
 
@@ -272,7 +281,7 @@ class TestSetupPolkitStablePath:
 
         real_script = OriginalPath(_INSTALL_SCRIPT).resolve()
 
-        class TestPath(OriginalPath):
+        class TestPath(_CONCRETE_PATH):
             def samefile(self, other):
                 raise FileNotFoundError("polkit-stable path doesn't exist yet")
 
@@ -296,7 +305,7 @@ class TestSetupPolkitStablePath:
 
         from pathlib import Path as OriginalPath
 
-        class TestPath(OriginalPath):
+        class TestPath(_CONCRETE_PATH):
             def samefile(self, other):
                 raise FileNotFoundError("polkit-stable path doesn't exist yet")
 
@@ -325,9 +334,7 @@ class TestSetupPolkitStablePath:
         monkeypatch.setattr(ip_module, "POLKIT_STABLE_DIR", stable_dir)
         monkeypatch.setattr(ip_module, "POLKIT_STABLE_PATH", stable_path)
 
-        from pathlib import Path as OriginalPath
-
-        class TestPath(OriginalPath):
+        class TestPath(_CONCRETE_PATH):
             def samefile(self, other):
                 raise FileNotFoundError("don't short-circuit")
 
@@ -362,7 +369,7 @@ class TestSetupPolkitStablePath:
         monkeypatch.setattr(ip_module, "POLKIT_STABLE_DIR", stable_dir)
         monkeypatch.setattr(ip_module, "POLKIT_STABLE_PATH", stable_path)
 
-        class TestPath(OriginalPath):
+        class TestPath(_CONCRETE_PATH):
             def samefile(self, other):
                 raise FileNotFoundError("don't short-circuit")
 

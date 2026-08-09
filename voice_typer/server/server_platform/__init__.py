@@ -163,7 +163,10 @@ SYSTEM = sys.platform  # "win32", "darwin", "linux"
 from .autostart import (  # noqa: E402
     _autostart_command,
     _desktop_quote,
+    _install_hash,
     _install_hash_suffix,
+    _install_identifier,
+    _resolve_tauri_binary_for_autostart,
     disable_autostart,
     enable_autostart,
     get_autostart_dir,
@@ -186,6 +189,7 @@ from .autostart_windows import (  # noqa: E402
     _cleanup_stale_runkey_entry,
     _disable_autostart_windows,
     _enable_autostart_windows,
+    _extract_arguments_from_task_xml,
     _extract_command_from_task_xml,
     _is_app_autostart_runkey_registered,
     _is_app_autostart_startup_registered,
@@ -201,6 +205,7 @@ from .autostart_windows import (  # noqa: E402
     _unregister_app_autostart_startup,
     _unregister_app_autostart_task,
     _validate_runkey_command,
+    sweep_legacy_autostart_entries,
 )
 from .desktop_shortcut import (  # noqa: E402
     _build_powershell_lnk_script,
@@ -272,11 +277,15 @@ __all__ = [
     "get_autostart_dir",
     "_autostart_command",
     "_desktop_quote",
+    "_install_hash",
     "_install_hash_suffix",
+    "_install_identifier",
+    "_resolve_tauri_binary_for_autostart",
     # autostart_windows
     "_enable_autostart_windows",
     "_disable_autostart_windows",
     "_is_autostart_windows",
+    "_extract_arguments_from_task_xml",
     "_app_autostart_command_and_args",
     "_build_app_autostart_task_xml",
     "_register_app_autostart_task",
@@ -294,6 +303,7 @@ __all__ = [
     "_is_app_autostart_startup_registered",
     "_startup_bat_name",
     "_startup_bat_path",
+    "sweep_legacy_autostart_entries",
     "_APP_AUTOSTART_TASK_NAME",
     # autostart_macos
     "_enable_autostart_macos",

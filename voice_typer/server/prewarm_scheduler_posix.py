@@ -518,11 +518,11 @@ def register_linux_app_service() -> bool:
             capture_output=True,
             timeout=5,
         )
-        log.info("[PLAT-019] systemd user unit written to %s", service_path)
-        log.info("[PLAT-019] Enable with: systemctl --user enable voice-typer.service")
+        log.info("[SYSTEMD] systemd user unit written to %s", service_path)
+        log.info("[SYSTEMD] Enable with: systemctl --user enable voice-typer.service")
         return True
     except Exception as exc:
-        log.warning("[PLAT-019] Failed to register systemd user unit: %s", exc)
+        log.warning("[SYSTEMD] Failed to register systemd user unit: %s", exc)
         return False
 
 

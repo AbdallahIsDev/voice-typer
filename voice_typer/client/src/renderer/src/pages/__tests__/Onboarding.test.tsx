@@ -700,14 +700,24 @@ describe("Onboarding wizard — Permissions step at index 2", () => {
 
 		render(<OnboardingPage onComplete={() => {}} />);
 
-		// Wait for the Permissions step + permission probe to finish.
+		// Wait for the Permissions step to render.
+		const testHotkeyButton = (await screen.findByRole("button", {
+			name: "Test hotkey",
+		})) as HTMLButtonElement;
+
+		// The button is disabled while the permission probe is in
+		// flight (`permissionsLoading`) — clicking a disabled button
+		// is a no-op. On slow CI the probe can still be loading when
+		// the button first appears, so wait for the enabled state
+		// before clicking (CI flake fix: the click previously landed
+		// while disabled and the listening label never rendered).
 		await waitFor(() => {
-			expect(screen.getByRole("button", { name: "Test hotkey" })).toBeTruthy();
+			expect(testHotkeyButton.disabled).toBe(false);
 		});
 
 		// Click the button — should enter listening state and
 		// show the "Press your hotkey to test" label.
-		fireEvent.click(screen.getByRole("button", { name: "Test hotkey" }));
+		fireEvent.click(testHotkeyButton);
 		await waitFor(() => {
 			expect(screen.getByText("Press your hotkey to test")).toBeTruthy();
 		});

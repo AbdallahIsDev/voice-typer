@@ -460,7 +460,7 @@ class ModelManager:
                     self._evict_lru_model()
                 except Exception:
                     log.warning(
-                        "[PERF-015] LRU tracking failed (non-fatal)",
+                        "[PERF] LRU tracking failed (non-fatal)",
                         exc_info=True,
                     )
                 active = self._registry.get_active()
@@ -669,7 +669,7 @@ class ModelManager:
                 self._evict_lru_model()
             except Exception:
                 log.warning(
-                    "[PERF-015] LRU tracking failed (non-fatal)",
+                    "[PERF] LRU tracking failed (non-fatal)",
                     exc_info=True,
                 )
             active = self._registry.get_active()
@@ -805,7 +805,7 @@ class ModelManager:
                     self._evict_lru_model()
                 except Exception:
                     log.warning(
-                        "[PERF-015] LRU tracking failed (non-fatal)",
+                        "[PERF] LRU tracking failed (non-fatal)",
                         exc_info=True,
                     )
                 active = self._registry.get_active()
@@ -1121,7 +1121,7 @@ class ModelManager:
                     self._evict_lru_model()
                 except Exception:
                     log.warning(
-                        "[PERF-015] LRU tracking failed for %s (non-fatal)",
+                        "[PERF] LRU tracking failed for %s (non-fatal)",
                         new_backend,
                         exc_info=True,
                     )
@@ -1427,7 +1427,7 @@ class ModelManager:
                         self._evict_lru_model()
                     except Exception:
                         log.warning(
-                            "[PERF-015] LRU tracking failed (non-fatal)",
+                            "[PERF] LRU tracking failed (non-fatal)",
                             exc_info=True,
                         )
                     active = self._registry.get_active()
@@ -1763,7 +1763,7 @@ class ModelManager:
                     self._registry.load_active(progress_callback=on_progress)
                 except Exception:
                     log.warning(
-                        "[TY-11] reload after idle-unload failed (non-fatal)",
+                        "[MODEL] reload after idle-unload failed (non-fatal)",
                         exc_info=True,
                     )
                 # Re-arm the idle-unload timer for the next idle period
@@ -1771,7 +1771,7 @@ class ModelManager:
                 try:
                     self.touch_model(self._registry.active_name)
                 except Exception:
-                    log.debug("[TY-11] touch_model after reload failed", exc_info=True)
+                    log.debug("[MODEL] touch_model after reload failed", exc_info=True)
                 # Surface the active backend's device info on the tray
                 # so the user sees "Ready -- <device>" (matches the
                 # set_active_backend success-path tray message).
@@ -1784,7 +1784,7 @@ class ModelManager:
                         else:
                             self._app.tray.set_state(AppState.IDLE, f"Ready -- {name.title()} ASR")
                 except Exception:
-                    log.debug("[TY-11] tray set_state after reload failed", exc_info=True)
+                    log.debug("[MODEL] tray set_state after reload failed", exc_info=True)
         return self.active_transcriber()
 
     def _evict_lru_model(self) -> None:
@@ -1818,7 +1818,7 @@ class ModelManager:
             )
             oldest_time = self._model_access_times[oldest_backend]
             log.info(
-                "[PERF-015] Evicting LRU model '%s' (last used %.1fs ago) — %d models loaded, max is %d",
+                "[PERF] Evicting LRU model '%s' (last used %.1fs ago) — %d models loaded, max is %d",
                 oldest_backend,
                 __import__("time").monotonic() - oldest_time,
                 len(self._model_access_times),
@@ -1836,14 +1836,14 @@ class ModelManager:
                 self._registry.unload(oldest_backend)
             except RuntimeError as busy_exc:
                 log.warning(
-                    "[PERF-015] Skipping LRU eviction of busy backend '%s': %s",
+                    "[PERF] Skipping LRU eviction of busy backend '%s': %s",
                     oldest_backend,
                     busy_exc,
                 )
                 return
             except Exception as exc:
                 log.warning(
-                    "[PERF-015] registry.unload('%s') failed (non-fatal): %s",
+                    "[PERF] registry.unload('%s') failed (non-fatal): %s",
                     oldest_backend,
                     exc,
                     exc_info=True,
@@ -1859,7 +1859,7 @@ class ModelManager:
                 self._registry.unregister(oldest_backend)
             except Exception as exc:
                 log.warning(
-                    "[PERF-015] registry.unregister('%s') failed (non-fatal): %s",
+                    "[PERF] registry.unregister('%s') failed (non-fatal): %s",
                     oldest_backend,
                     exc,
                     exc_info=True,
@@ -1877,7 +1877,7 @@ class ModelManager:
                 release_gpu_memory()
             except Exception:
                 log.debug(
-                    "[PERF-015] release_gpu_memory() failed (non-fatal)",
+                    "[PERF] release_gpu_memory() failed (non-fatal)",
                     exc_info=True,
                 )
 
@@ -1940,7 +1940,7 @@ class ModelManager:
             self.touch_model(self._registry.active_name)
         except Exception:
             log.warning(
-                "[PERF-015] touch_active_model failed (non-fatal)",
+                "[PERF] touch_active_model failed (non-fatal)",
                 exc_info=True,
             )
 
@@ -1974,7 +1974,7 @@ class ModelManager:
                 timer.cancel()
             except Exception:
                 log.debug(
-                    "[TY-11] timer.cancel() failed (non-fatal)",
+                    "[MODEL] timer.cancel() failed (non-fatal)",
                     exc_info=True,
                 )
 
@@ -2049,7 +2049,7 @@ class ModelManager:
         with self._idle_unload_lock:
             current = self._idle_unload_timer
         if current is not timer:
-            log.debug("[TY-11] idle-unload timer callback aborted (timer no longer current)")
+            log.debug("[MODEL] idle-unload timer callback aborted (timer no longer current)")
             return
         self._do_idle_unload()
         # Clear the timer reference (the callback has run; the timer is
@@ -2075,7 +2075,7 @@ class ModelManager:
         """
         # Skip if shutting down — don't race with teardown.
         if getattr(self._app, "_shutting_down", False):
-            log.debug("[TY-11] idle-unload skipped (app shutting down)")
+            log.debug("[MODEL] idle-unload skipped (app shutting down)")
             return
         try:
             active_name = self._registry.active_name
@@ -2084,14 +2084,14 @@ class ModelManager:
         engine = self._registry.get_active()
         # Skip if no active engine (nothing to unload).
         if engine is None:
-            log.debug("[TY-11] idle-unload skipped (no active engine)")
+            log.debug("[MODEL] idle-unload skipped (no active engine)")
             return
         # Skip if already unloaded (no double-unload).
         if hasattr(engine, "is_loaded") and not engine.is_loaded:
-            log.debug("[TY-11] idle-unload skipped (engine already unloaded)")
+            log.debug("[MODEL] idle-unload skipped (engine already unloaded)")
             return
         log.info(
-            "[TY-11] idle-unload: unloading active backend '%s' after idle period",
+            "[MODEL] idle-unload: unloading active backend '%s' after idle period",
             active_name,
         )
         # Unload via the registry (which calls engine.unload() on the
@@ -2100,7 +2100,7 @@ class ModelManager:
             self._registry.unload(active_name)
         except Exception:
             log.warning(
-                "[TY-11] registry.unload(%s) failed (non-fatal)",
+                "[MODEL] registry.unload(%s) failed (non-fatal)",
                 active_name,
                 exc_info=True,
             )
@@ -2112,7 +2112,7 @@ class ModelManager:
                 engine.unload()
         except Exception:
             log.debug(
-                "[TY-11] engine.unload() failed (non-fatal)",
+                "[MODEL] engine.unload() failed (non-fatal)",
                 exc_info=True,
             )
         # Release GPU memory (CUDA caching allocator blocks). Defense
@@ -2128,10 +2128,10 @@ class ModelManager:
 
                 vad.unload()
             except Exception:
-                log.debug("[TY-11] vad.unload() failed (non-fatal)", exc_info=True)
+                log.debug("[MODEL] vad.unload() failed (non-fatal)", exc_info=True)
         except Exception:
             log.debug(
-                "[TY-11] release_gpu_memory() failed (non-fatal)",
+                "[MODEL] release_gpu_memory() failed (non-fatal)",
                 exc_info=True,
             )
         # Tray state transition: "Idle — model unloaded" (reuses
@@ -2141,7 +2141,7 @@ class ModelManager:
             self._app.tray.set_state(AppState.IDLE, "Idle — model unloaded")
         except Exception:
             log.debug(
-                "[TY-11] tray.set_state failed (non-fatal)",
+                "[MODEL] tray.set_state failed (non-fatal)",
                 exc_info=True,
             )
 

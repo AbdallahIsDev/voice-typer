@@ -168,7 +168,7 @@ def _download_with_retry(
             if attempt < max_attempts - 1:
                 delay = delays[attempt] if attempt < len(delays) else delays[-1]
                 log.warning(
-                    "[PROD-004] Download attempt %d/%d failed: %s. Retrying in %.0fs...",
+                    "[DOWNLOAD] Download attempt %d/%d failed: %s. Retrying in %.0fs...",
                     attempt + 1,
                     max_attempts,
                     exc,
@@ -178,7 +178,7 @@ def _download_with_retry(
             else:
                 # log.exception preserves the traceback; keep max_attempts arg, drop exc.
                 log.exception(
-                    "[PROD-004] All %d download attempts failed.",
+                    "[DOWNLOAD] All %d download attempts failed.",
                     max_attempts,
                 )
     raise last_exc
@@ -290,7 +290,7 @@ def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:
                 f"Free up disk space and try again."
             )
         log.debug(
-            "[PROD-005] Disk space check passed: %d MB available, ~%d MB needed for '%s'",
+            "[DISK] Disk space check passed: %d MB available, ~%d MB needed for '%s'",
             available_mb,
             estimated_mb,
             model_size,
@@ -301,7 +301,7 @@ def _check_disk_space_for_download(repo_id: str, model_size: str) -> None:
         # If we can't check disk space, don't block the download —
         # the download itself will fail with a clear error if space
         # runs out during the transfer.
-        log.debug("[PROD-005] Disk space check skipped: %s", exc)
+        log.debug("[DISK] Disk space check skipped: %s", exc)
 
 
 def _require_huggingface_consent(

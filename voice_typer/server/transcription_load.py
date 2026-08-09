@@ -323,12 +323,12 @@ def warm_up_model(engine) -> None:
         for _ in segments:
             pass
         log.info(
-            "[PERF-007] Warm-up inference completed — CUDA kernels primed%s",
+            "[PERF] Warm-up inference completed — CUDA kernels primed%s",
             format_duration(time.perf_counter() - _t0),
         )
     except Exception as exc:
         # Warm-up failure is non-critical — log and continue
-        log.debug("[PERF-007] Warm-up inference skipped: %s", exc)
+        log.debug("[PERF] Warm-up inference skipped: %s", exc)
 
 
 def resolve_device(engine, device: str) -> tuple[str, str]:

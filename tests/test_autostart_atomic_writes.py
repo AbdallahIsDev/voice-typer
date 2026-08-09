@@ -291,8 +291,8 @@ class TestOnboardingFailCountAtomicWrite:
     def test_uses_secure_atomic_write_with_durability_false(self, monkeypatch, tmp_path):
         from voice_typer.server import startup_sequence as ss
 
-        counter_path = tmp_path / ".onboarding_fail_count"
-        monkeypatch.setattr(ss, "_onboarding_fail_counter_path", lambda: counter_path)
+        status_path = tmp_path / ".onboarding_status.json"
+        monkeypatch.setattr(ss, "_config_dir", lambda: tmp_path)
 
         real_fn = sio._secure_atomic_write
         with (
@@ -304,17 +304,16 @@ class TestOnboardingFailCountAtomicWrite:
         assert spy_atomic.called, "_secure_atomic_write must be called for the onboarding fail counter"
         assert spy_atomic.call_args.kwargs.get("durability") is False
         called_path, called_content = spy_atomic.call_args.args[:2]
-        assert Path(called_path) == counter_path
-        # payload is JSON; verify it round-trips to the expected dict.
+        assert Path(called_path) == status_path
+        # payload is JSON; verify the counter fields round-trip.
         import json
 
-        assert json.loads(called_content) == {
-            "count": 3,
-            "last_fail_ts": 1700000000.0,
-        }
+        payload = json.loads(called_content)
+        assert payload["count"] == 3
+        assert payload["last_fail_ts"] == 1700000000.0
         for c in spy_write_text.call_args_list:
             self_arg = c.args[0] if c.args else c.kwargs.get("self")
-            if self_arg is not None and Path(self_arg) == counter_path:
+            if self_arg is not None and Path(self_arg) == status_path:
                 pytest.fail(
                     "Path.write_text must NOT be used for the onboarding counter; use _secure_atomic_write instead"
                 )
@@ -324,8 +323,7 @@ class TestOnboardingFailCountAtomicWrite:
         reads back the same values (no data loss)."""
         from voice_typer.server import startup_sequence as ss
 
-        counter_path = tmp_path / ".onboarding_fail_count"
-        monkeypatch.setattr(ss, "_onboarding_fail_counter_path", lambda: counter_path)
+        monkeypatch.setattr(ss, "_config_dir", lambda: tmp_path)
 
         ss._write_onboarding_fail_count(2, 1700000000.0)
 

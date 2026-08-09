@@ -49,6 +49,7 @@ submodules.
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import sys
@@ -308,16 +309,42 @@ def _system_python_can_import_launcher(system_python: str) -> bool:
 # ─── Install-path hash suffix (PLAT-RUN) ─────────────────────────────
 
 
+def _install_identifier() -> str:
+    """PLAT-RUN: Return a STABLE per-install identifier for autostart naming.
+
+    Historically the hash was computed from ``sys.executable``. That was
+    unstable across launch contexts: the app can start via the console
+    shim (``python.exe`` / ``voice-typer.exe``), the dev venv, or the
+    autostart launcher (``pythonw.exe``) — each has a different
+    ``sys.executable``, so the Run-key / task / .bat name registered by
+    one process was never found by the next, and the app re-registered
+    on every launch ("Config says autostart=true but it is disabled --
+    enabling" loop). The launcher script path is identical no matter
+    which interpreter runs it, and differs between installs (PLAT-RUN
+    multi-install support), so it is the correct stable key.
+    """
+    return str(Path(__file__).resolve().parent.parent / "autostart_launcher.py")
+
+
+def _install_hash() -> str:
+    """PLAT-RUN: 8-char hex hash of the stable install identifier.
+
+    Shared by ``_install_hash_suffix`` (Task Scheduler / Startup .bat
+    naming) and ``autostart_windows._run_key_name`` (HKCU Run-key
+    naming) so all three mechanisms agree on the same per-install
+    name regardless of which interpreter / entry point launched the
+    process.
+    """
+    return hashlib.sha256(_install_identifier().encode()).hexdigest()[:8]
+
+
 def _install_hash_suffix() -> str:
     """PLAT-RUN: Return an 8-char hash suffix for the install path.
 
     Empty string on non-Windows or if hashing fails (non-fatal).
     """
     try:
-        import hashlib
-        import sys
-
-        return "_" + hashlib.sha256(sys.executable.encode()).hexdigest()[:8]
+        return "_" + _install_hash()
     except (OSError, ValueError):
         log.debug("[PLATFORM] _install_hash_suffix failed", exc_info=True)
         return ""

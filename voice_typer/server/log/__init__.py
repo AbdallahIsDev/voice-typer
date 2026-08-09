@@ -793,6 +793,47 @@ def get_log_file_path(config_dir: Path | None = None, *, process_name: str = "ma
     return config_dir / "voice-typer.log"
 
 
+def _stderr_line(text: str) -> None:
+    """Write one plain line to ``sys.stderr`` (best-effort, never raises).
+
+    Used by the handler-error path so a failed record still surfaces a
+    concise diagnostic WITHOUT recursing through the logging framework
+    (which would re-enter the very handler that just failed).
+    """
+    try:
+        if sys.stderr is None:
+            return
+        sys.stderr.write(text + "\n")
+        sys.stderr.flush()
+    except Exception:
+        pass
+
+
+def _quiet_handler_error(handler: logging.Handler, record: logging.LogRecord) -> None:  # noqa: D401
+    """Replace the stock ``handleError`` with a single concise line.
+
+    Python's default ``Handler.handleError`` prints a multi-line
+    ``--- Logging error ---`` header + full traceback to stderr for
+    EVERY failed record. Under a console (PowerShell) that interleaves
+    stdout/stderr this renders as a bare ``--- Logging error ---`` line
+    with no usable information, and the header is emitted for every
+    subsequent failure — exactly the garbage the user reported. We emit
+    ONE line with the exception class + truncated message instead; the
+    traceback stays in the record (JSON mode) and the failure is still
+    visible.
+    """
+    try:
+        exc = sys.exc_info()[1]
+        detail = f"{type(exc).__name__}" if exc is not None else "unknown"
+        if exc is not None:
+            msg = str(exc)
+            if msg:
+                detail = f"{detail}: {msg[:200]}"
+        _stderr_line(f"[LOG] {type(handler).__name__} emit failed ({detail})")
+    except Exception:
+        pass
+
+
 class _FlushingStreamHandler(logging.StreamHandler):
     """StreamHandler that flushes after every emit.
 
@@ -820,6 +861,9 @@ class _FlushingStreamHandler(logging.StreamHandler):
             # flush itself fails.)
             self.flush()
 
+    def handleError(self, record: logging.LogRecord) -> None:  # noqa: N802 — override of logging.Handler.handleError
+        _quiet_handler_error(self, record)
+
 
 class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
     """``RotatingFileHandler`` subclass that truncates IN PLACE (single-file
@@ -845,6 +889,39 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
     def __init__(self, filename, *args, **kwargs):
         super().__init__(filename, *args, **kwargs)
         self._rotation_lock_path = f"{filename}.lock"
+
+    def handleError(self, record: logging.LogRecord) -> None:  # noqa: N802 — override of logging.Handler.handleError
+        _quiet_handler_error(self, record)
+
+    def emit(self, record: logging.LogRecord) -> None:  # noqa: D401
+        """Write the record, never losing it to a rotation failure.
+
+        Mirrors the stock ``RotatingFileHandler.emit`` (rotate-then-
+        write) but wraps the rollover in a try/except: if the inter-
+        process rotation lock is contended or the truncate fails, we
+        still append the record (the file is simply over-cap) and
+        surface ONE concise stderr line instead of dropping the record
+        and printing the stock ``--- Logging error ---`` block.
+        """
+        try:
+            try:
+                if self.shouldRollover(record):
+                    try:
+                        self.doRollover()
+                    except Exception as exc:  # noqa: BLE001 — rotation is best-effort
+                        _stderr_line(
+                            "[LOG-SETUP] log rotation failed "
+                            f"({type(exc).__name__}) — appending without rotating"
+                        )
+            except Exception:
+                # ``shouldRollover`` itself failed (e.g. broken stream) —
+                # still try to write the record.
+                pass
+            logging.FileHandler.emit(self, record)
+        except RecursionError:
+            raise
+        except Exception:
+            self.handleError(record)
 
     def _acquire_rotation_lock(self):
         """Open the lock file and acquire an inter-process lock on it."""
@@ -971,8 +1048,17 @@ class _SecureTruncatingFileHandler(logging.handlers.RotatingFileHandler):
             # ``emit`` appends from position 0. The file keeps its
             # identity (same path/inode), so the inter-process lock file
             # (``<name>.lock``) and any open handles stay valid.
-            self.stream.seek(0)
-            self.stream.truncate(0)
+            #
+            # ``stream`` is ``TextIOWrapper | None`` per typeshed (None
+            # when the file failed to open, e.g. disk full / perms). A
+            # None stream cannot be truncated — skip the truncate (the
+            # base ``FileHandler.emit`` raises ``RuntimeError`` on a
+            # None stream, surfaced as ONE concise stderr line by
+            # ``handleError``) rather than crashing inside the
+            # inter-process rotation lock.
+            if self.stream is not None:
+                self.stream.seek(0)
+                self.stream.truncate(0)
             # Belt-and-suspenders: chmod INSIDE the lock so even if a
             # caller bypassed the umask (or a future refactor swapped
             # the open mode), the file is still re-locked to 0o600

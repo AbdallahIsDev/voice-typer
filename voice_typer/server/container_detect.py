@@ -274,7 +274,7 @@ def warn_if_in_container() -> None:
         return
 
     _log.warning(
-        "[PLAT-021] Running inside a %s container. "
+        "[CONTAINER] Running inside a %s container. "
         "The following features may be unavailable: "
         "system tray (no D-Bus session), "
         "audio capture (no /dev/snd), "

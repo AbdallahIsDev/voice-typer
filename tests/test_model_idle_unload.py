@@ -403,7 +403,7 @@ class TestIdleUnloadFiresAndReleasesGpu:
         with caplog.at_level(logging.INFO, logger="voice_typer.server.model_manager"):
             mm._do_idle_unload()
         info_msgs = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
-        assert any("TY-11" in m and "idle-unload" in m for m in info_msgs), (
+        assert any("[MODEL]" in m and "idle-unload" in m for m in info_msgs), (
             f"TY-11: idle-unload must be logged at INFO level. Got: {info_msgs}"
         )
 

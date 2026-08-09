@@ -173,9 +173,12 @@ class TestOnboardingStartedMarker:
         _stub_configure_corrections(monkeypatch)
         _stub_startup_tasks(monkeypatch)
 
-        # Simulate the mid-wizard state: both config.json AND .onboarding_started exist.
+        # Simulate the mid-wizard state: config.json exists AND the
+        # status document records started=True.
         (tmp_path / "config.json").write_text("{}", encoding="utf-8")
-        (tmp_path / ".onboarding_started").write_text("1", encoding="utf-8")
+        from voice_typer.server import onboarding_status
+
+        onboarding_status.write_status(tmp_path, started=True)
 
         # Set _shutting_down after the onboarding branch so the rest of
         # startup is short-circuited (we only care about the onboarding

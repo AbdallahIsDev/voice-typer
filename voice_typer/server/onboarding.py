@@ -19,6 +19,7 @@ import json
 import logging
 from pathlib import Path
 
+from voice_typer.server import onboarding_status
 from voice_typer.server.config import DEFAULT_HOTKEY
 
 log = logging.getLogger(__name__)
@@ -40,14 +41,17 @@ class OnboardingController:
 
             config_dir = _config_dir()
         self._config_dir = config_dir
-        self._marker_path = config_dir / ".onboarding_complete"
-        # a second marker tracks that the wizard has *started*
-        # rendering (as opposed to "completed"). ``startup_sequence.py``'s
-        # auto-heal logic should ONLY fire when this marker is absent —
+        # Wizard lifecycle state (started / completed) lives in the
+        # single ``.onboarding_status.json`` document managed by
+        # ``voice_typer.server.onboarding_status`` — which merged the
+        # legacy ``.onboarding_complete`` / ``.onboarding_started``
+        # markers. ``started`` tracks that the wizard has *started*
+        # rendering (as opposed to "completed"): ``startup_sequence.py``'s
+        # auto-heal logic should ONLY fire when ``started`` is False —
         # if the wizard has started, the user is genuinely in first-run
-        # flow and auto-healing would clobber their in-progress selections.
-        # See the docstring on :meth:`mark_started` for the full rationale.
-        self._started_marker_path = config_dir / ".onboarding_started"
+        # flow and auto-healing would clobber their in-progress
+        # selections. See the docstring on :meth:`mark_started` for the
+        # full rationale.
         # Progress marker — persists the in-progress
         # wizard state (current step + selected mic/hotkey/model) so that
         # closing the app mid-wizard doesn't lose all selections. The
@@ -202,8 +206,9 @@ class OnboardingController:
         ``apply_settings`` / ``skip`` methods set the flag to True and
         create the marker, so subsequent calls correctly return False.
         """
-        # Fast path: marker exists → onboarding was completed.
-        if self._marker_path.exists():
+        # Fast path: the status document records completion (or the
+        # legacy marker was migrated into it) → onboarding was completed.
+        if onboarding_status.read_status(self._config_dir).get("completed"):
             return False
         # Otherwise, check config.onboarding_completed. Default to
         # "first run" if the config can't be read.
@@ -260,23 +265,19 @@ class OnboardingController:
         re-raised (the wizard is correctly marked complete and won't
         reappear).
         """
-        self._config_dir.mkdir(parents=True, exist_ok=True)
-        from voice_typer.server.config import _secure_atomic_write
-
         # Critical operation — let exceptions propagate ().
-        _secure_atomic_write(
-            self._marker_path,
-            json.dumps({"completed": True, "version": 1}),
-        )
-        # the started marker is no longer needed once the
-        # wizard completes — remove it so a future first-run (after a
-        # :meth:`reset` call) starts with a clean slate. Best-effort:
-        # the marker write above already succeeded, so a cleanup failure
-        # here doesn't affect first-run detection.
-        try:
-            self._started_marker_path.unlink(missing_ok=True)
-        except Exception:
-            log.debug("[ONBOARDING] Failed to remove started marker", exc_info=True)
+        # Sets completed=True and clears started in ONE atomic write
+        # (the started flag is no longer needed once the wizard
+        # completes — clearing it gives a future first-run after a
+        # :meth:`reset` a clean slate). On a pre-merge install,
+        # ``write_status``'s internal ``read_status`` first performs the
+        # one-time legacy-marker migration (an extra write) before this
+        # update write; if the update write then fails, the config flag
+        # (``onboarding_completed=True`` persisted by ``apply_settings``
+        # before this call) remains the source of truth, so the wizard
+        # still won't reappear. ``write_status`` raises on disk failure
+        # so the IPC layer can surface the error.
+        onboarding_status.write_status(self._config_dir, started=False, completed=True)
         # The progress marker is also no longer
         # needed — the wizard is done. _clear_progress has its own
         # try/except internally.
@@ -325,34 +326,25 @@ class OnboardingController:
         gate is the remaining piece.
         """
         try:
-            self._config_dir.mkdir(parents=True, exist_ok=True)
-            from voice_typer.server.config import _secure_atomic_write
-
-            _secure_atomic_write(
-                self._started_marker_path,
-                json.dumps({"started": True, "version": 1}),
-            )
+            onboarding_status.write_status(self._config_dir, started=True)
         except Exception:
-            # Best-effort — marker creation is non-critical. If it
+            # Best-effort — status creation is non-critical. If it
             # fails, the worst case is the pre-fix auto-heal behavior
             # (which is the current production behavior anyway).
-            log.debug("[ONBOARDING] Failed to write started marker", exc_info=True)
+            log.debug("[ONBOARDING] Failed to write started status", exc_info=True)
 
     def reset(self) -> None:
         """Reset onboarding state so the wizard shows again on next launch.
 
-        deletes both the ``.onboarding_complete`` and
-        ``.onboarding_started`` markers. Used by tests and by a future
-        "re-run onboarding" affordance in Settings. Does NOT modify
+        deletes the ``.onboarding_status.json`` document (and any
+        legacy ``.onboarding_complete`` / ``.onboarding_started``
+        markers still on disk). Used by tests and by the "re-run
+        onboarding" affordance in Settings. Does NOT modify
         ``config.json`` — the caller is responsible for flipping
         ``config.onboarding_completed`` to ``False`` if they want
         :meth:`is_first_run` to return ``True`` on the next launch.
         """
-        for path in (self._marker_path, self._started_marker_path):
-            try:
-                path.unlink(missing_ok=True)
-            except Exception:
-                log.debug("[ONBOARDING] Failed to remove marker %s", path, exc_info=True)
+        onboarding_status.reset_status(self._config_dir)
         # Clear the in-progress wizard state so the
         # next launch starts at the Welcome step with default selections.
         self._clear_progress()

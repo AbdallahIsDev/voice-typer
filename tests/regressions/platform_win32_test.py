@@ -132,9 +132,21 @@ class TestPlatRunAutostartTaskHashed:
         """Two different install paths must produce different hash suffixes."""
         from voice_typer.server.server_platform import _install_hash_suffix
 
-        with patch("sys.executable", "/path/to/install1/voice-typer.exe"):
+        # The hash is derived from the STABLE install identifier (the
+        # autostart launcher path), NOT sys.executable — sys.executable
+        # differs between python.exe / pythonw.exe / the venv for the
+        # SAME install, which caused the perpetual "autostart enabled but
+        # disabled" re-registration loop. Different install DIRECTORIES
+        # must still produce different hashes (PLAT-RUN multi-install).
+        with patch(
+            "voice_typer.server.server_platform.autostart._install_identifier",
+            return_value="/path/to/install1/autostart_launcher.py",
+        ):
             hash1 = _install_hash_suffix()
-        with patch("sys.executable", "/path/to/install2/voice-typer.exe"):
+        with patch(
+            "voice_typer.server.server_platform.autostart._install_identifier",
+            return_value="/path/to/install2/autostart_launcher.py",
+        ):
             hash2 = _install_hash_suffix()
         assert hash1 != hash2, "different install paths must produce different hashes"
 

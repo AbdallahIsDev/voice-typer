@@ -12,7 +12,7 @@ Scope (ADR-0020 §7 + §15):
    build output, ``devUrl`` is the Vite dev server
    (``http://localhost:1420``), and ``beforeDevCommand`` +
    ``beforeBuildCommand`` both invoke ``npm run build:renderer`` so a
-   fresh ``dist/`` is always present before Tauri bundles or serves.
+   fresh ``out/renderer/`` is always present before Tauri bundles or serves.
 
 2. **``app.security`` block** — ``csp`` is set and reproduces the
    Electron CSP's core directives (``default-src 'self'``,
@@ -70,7 +70,7 @@ to confirm the full glue holds end-to-end:
     #    The beforeDevCommand / beforeBuildCommand must run the renderer
     #    build (npm run build:renderer) so frontendDist is populated.
     cd voice_typer/client && npm run build:renderer
-    ls dist/                                                # index.html + assets/
+    ls out/renderer/                                        # index.html + assets/
 
     # 3. WebView CSP is enforced — open DevTools (right-click → Inspect),
     #    confirm the <meta http-equiv="Content-Security-Policy"> tag in
@@ -139,10 +139,13 @@ _MAIN_RS = _TAURI_DIR / "src" / "main.rs"
 _CARGO_TOML = _TAURI_DIR / "Cargo.toml"
 _CLIENT_PACKAGE_JSON = _REPO_ROOT / "voice_typer" / "client" / "package.json"
 
-#: ADR-0020 §7: the renderer build output (Vite/electron-vite renderer
-#: build → dist/). beforeDevCommand + beforeBuildCommand must populate
-#: this dir before Tauri bundles or serves the webview.
-EXPECTED_FRONTEND_DIST = "../voice_typer/client/dist"
+#: ADR-0020 §7: the renderer build output (electron-vite renderer-only
+#: build → out/renderer/). beforeDevCommand + beforeBuildCommand must
+#: populate this dir before Tauri bundles or serves the webview.
+#: NOTE: ``dist/`` is the electron-builder INSTALLER output dir — the
+#: renderer build never emits there, so frontendDist must point at
+#: ``out/renderer`` (the electron-vite renderer output).
+EXPECTED_FRONTEND_DIST = "../voice_typer/client/out/renderer"
 
 #: ADR-0020 §7: Vite dev server default port (1420 — Vite's
 #: canonical "first user port", matching Tauri's own create-tauri-app
@@ -298,8 +301,10 @@ def test_tauri_conf_frontend_dist_points_to_renderer_build_output(
     Tauri v2 embeds the webview by serving static files from
     ``frontendDist`` in production builds. The path is relative to
     ``src-tauri/`` (the location of tauri.conf.json), so
-    ``../voice_typer/client/dist`` resolves to the Vite/electron-vite
-    renderer build output directory.
+    ``../voice_typer/client/out/renderer`` resolves to the
+    electron-vite renderer-only build output (``npm run build:renderer``
+    emits ``voice_typer/client/out/renderer/`` — NOT ``dist/``, which is
+    the electron-builder installer output dir).
     """
     build = tauri_conf.get("build", {})
     assert "frontendDist" in build, (
@@ -358,7 +363,7 @@ def test_package_json_defines_build_renderer_script(
         f"package.json:scripts.{EXPECTED_RENDERER_BUILD_SCRIPT} must be a non-empty string; got {script_value!r}"
     )
     # The script must invoke a build tool (electron-vite or vite) — not
-    # just `echo` or `true` — so the renderer dist/ is actually populated.
+    # just `echo` or `true` — so the renderer out/renderer/ is actually populated.
     assert re.search(r"\b(electron-vite|vite)\b.*\bbuild\b", script_value), (
         f"package.json:scripts.{EXPECTED_RENDERER_BUILD_SCRIPT} must invoke a "
         f"Vite-family build (electron-vite or vite build); got {script_value!r}"

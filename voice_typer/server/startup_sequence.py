@@ -29,7 +29,6 @@ appears in ``app.py``'s import-time graph.
 from __future__ import annotations
 
 import contextlib
-import json
 import logging
 import os
 import threading
@@ -38,6 +37,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from voice_typer.server import crash_handler as _crash_handler
+from voice_typer.server import onboarding_status
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.config import _config_dir
 from voice_typer.server.duration import format_duration
@@ -54,17 +54,19 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# name of the onboarding-fail-counter persistence file
-# (lives in the config dir alongside config.json). The file holds a
-# tiny JSON document: ``{"count": <int>, "last_fail_ts": <epoch-float>}``.
-# The counter survives process restarts so the "after 3 failures"
-# circuit breaker (see ``_do_onboarding_check``) actually trips even
-# when each failure occurs in a different process session. Pre-fix
-# the counter lived only on ``app._onboarding_fail_count`` (an
-# in-memory attribute), so a user whose onboarding kept failing once
-# per app-start would NEVER hit the circuit breaker and would be
-# stuck on the onboarding wizard forever.
-_ONBOARDING_FAIL_COUNTER_FILENAME = ".onboarding_fail_count"
+# Onboarding fail counter: the "after 3 failures" circuit breaker
+# (see the onboarding block in ``StartupSequence.run``) persists its
+# counter so it actually trips even when each failure occurs in a
+# different process session. Pre-fix the counter lived only on
+# ``app._onboarding_fail_count`` (an in-memory attribute), so a user
+# whose onboarding kept failing once per app-start would NEVER hit
+# the circuit breaker and would be stuck on the onboarding wizard
+# forever. The counter now lives in the single
+# ``.onboarding_status.json`` document (``count`` / ``last_fail_ts``
+# fields) managed by ``voice_typer.server.onboarding_status`` — which
+# also holds the wizard's started/completed flags, replacing the
+# legacy ``.onboarding_complete`` / ``.onboarding_started`` /
+# ``.onboarding_fail_count`` markers.
 # Stale-counter cutoff: if the last failure is older than this window
 # (in seconds), the counter resets to 1 on the next failure. Prevents
 # a user who hit 2 failures a year ago from being marked
@@ -240,8 +242,9 @@ def _sweep_stale_tmp_files(directory: Path, now: float) -> None:
 
 
 def _onboarding_fail_counter_path() -> Path:
-    """Return the absolute path to the onboarding fail-counter file."""
-    return _config_dir() / _ONBOARDING_FAIL_COUNTER_FILENAME
+    """Return the absolute path to the onboarding status file (which
+    holds the fail counter alongside the started/completed flags)."""
+    return onboarding_status.status_path(_config_dir())
 
 
 def _read_onboarding_fail_count() -> tuple[int, float]:
@@ -251,24 +254,8 @@ def _read_onboarding_fail_count() -> tuple[int, float]:
     file, corrupt JSON, schema drift), returns ``(0, 0.0)`` — the
     safe default that lets the next failure start the counter fresh.
     """
-    path = _onboarding_fail_counter_path()
-    try:
-        raw = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeDecodeError):
-        return 0, 0.0
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError:
-        return 0, 0.0
-    if not isinstance(data, dict):
-        return 0, 0.0
-    count = data.get("count", 0)
-    last_fail_ts = data.get("last_fail_ts", 0.0)
-    if not isinstance(count, int) or count < 0:
-        return 0, 0.0
-    if not isinstance(last_fail_ts, (int, float)):
-        last_fail_ts = 0.0
-    return count, float(last_fail_ts)
+    data = onboarding_status.read_status(_config_dir())
+    return data["count"], data["last_fail_ts"]
 
 
 def _write_onboarding_fail_count(count: int, last_fail_ts: float) -> None:
@@ -277,23 +264,20 @@ def _write_onboarding_fail_count(count: int, last_fail_ts: float) -> None:
     Failures are best-effort — a write error is logged at DEBUG and
     swallowed (the in-memory counter on ``app._onboarding_fail_count``
     is still incremented, so the circuit breaker can still trip
-    in-session even if persistence is broken).
+    in-session even if persistence is broken). durability=False
+    matches the existing autostart/prewarm pattern.
     """
-    path = _onboarding_fail_counter_path()
-    payload = json.dumps({"count": count, "last_fail_ts": last_fail_ts})
     try:
-        # Atomic write (temp + os.replace) so a crash mid-write cannot
-        # leave a half-truncated JSON document that the load helper
-        # would treat as count=0 on next startup — defeating the
-        # onboarding-fail circuit breaker. durability=False matches
-        # the existing autostart/prewarm pattern.
-        from voice_typer.server.secure_file_io import _secure_atomic_write
-
-        _secure_atomic_write(path, payload, durability=False)
+        onboarding_status.write_status(
+            _config_dir(),
+            durability=False,
+            count=count,
+            last_fail_ts=last_fail_ts,
+        )
     except OSError as exc:
         log.debug(
             "[STARTUP] Could not persist onboarding fail counter to %s: %s",
-            path,
+            _onboarding_fail_counter_path(),
             exc,
         )
 
@@ -303,16 +287,16 @@ def _reset_onboarding_fail_count() -> None:
 
     Called on successful onboarding completion so a future transient
     failure doesn't accumulate against the stale count. Best-effort:
-    a missing file is a no-op, a write error is logged at DEBUG.
+    a write error is logged at DEBUG. The started/completed flags in
+    the status document are preserved — resetting the counter must not
+    un-complete onboarding.
     """
-    path = _onboarding_fail_counter_path()
     try:
-        if path.exists():
-            path.unlink()
+        onboarding_status.write_status(_config_dir(), count=0, last_fail_ts=0.0)
     except OSError as exc:
         log.debug(
             "[STARTUP] Could not reset onboarding fail counter at %s: %s",
-            path,
+            _onboarding_fail_counter_path(),
             exc,
         )
 
@@ -481,8 +465,8 @@ class StartupSequence:
                     # complete to prevent the wizard from showing on
                     # every restart and overwriting the user's settings.
                     config_file = _config_dir() / "config.json"
-                    started_marker = _config_dir() / ".onboarding_started"
-                    if config_file.exists() and not started_marker.exists():
+                    started = onboarding_status.read_status(_config_dir()).get("started", False)
+                    if config_file.exists() and not started:
                         log.info(
                             "[STARTUP] Config file exists but onboarding "
                             "flag is False and marker is missing -- "

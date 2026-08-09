@@ -34,6 +34,7 @@ import contextlib
 import os
 import threading
 import time
+import typing
 
 from voice_typer.server import event_bus
 from voice_typer.server.handlers._log import log
@@ -116,6 +117,16 @@ class LifecycleMixin:
     _heartbeat_stop_event: threading.Event
     _relaunch_ack_event: threading.Event
     _last_heartbeat_at: float | None
+    # host app object — declared (mirroring ``TCPTransportMixin``) so
+    # the mixin's ``self.app`` accesses type-check; ``Any`` avoids an
+    # override conflict with the host's concrete ``app`` attribute.
+    app: typing.Any
+    # transport-liveness probe registered by ``TCPTransportMixin.start_tcp``
+    # and unregistered here in ``stop()``. Declared with the SAME type
+    # as ``TCPTransportMixin`` so mypy merges the two base-class
+    # definitions instead of flagging an MRO conflict (the assignment
+    # in ``stop()`` alone would infer ``None``).
+    _transport_live_probe: typing.Callable[[], bool] | None
 
     def _reset_ready_emitted(self) -> None:
         """Test-only: reset the per-instance ``_ready_emitted`` flag.
@@ -338,6 +349,13 @@ class LifecycleMixin:
         if push_fn is not None:
             event_bus.unsubscribe(push_fn)
             self._push_fn = None
+        # Unregister the transport-liveness probe registered by
+        # ``start_tcp`` (no-op when the TCP transport never started,
+        # e.g. the Tauri WS sidecar path).
+        event_bus.unregister_transport_probe(
+            getattr(self, "_transport_live_probe", None)
+        )
+        self._transport_live_probe = None
         if self._tcp_client is not None:
             self._tcp_client.close()
             self._tcp_client = None

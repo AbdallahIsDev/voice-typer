@@ -5,6 +5,7 @@ import sys
 from unittest.mock import MagicMock
 
 import pytest
+from voice_typer.server.onboarding_status import read_status
 
 
 @pytest.fixture
@@ -514,7 +515,7 @@ class TestApplySettingsMarksComplete:
         assert ctrl.is_first_run() is True
         ctrl.apply_settings(MockConfig())
         # After apply: marker file exists, is_first_run False.
-        assert (onboarding_dir / ".onboarding_complete").exists()
+        assert read_status(onboarding_dir).get("completed") is True
         assert ctrl.is_first_run() is False
 
     def test_apply_settings_does_not_mark_complete_on_save_failure(self, ctrl, onboarding_dir):
@@ -536,7 +537,7 @@ class TestApplySettingsMarksComplete:
         # save() raises → mark_complete() is never reached.
         with pytest.raises(OSError):
             ctrl.apply_settings(FlakyConfig())
-        assert not (onboarding_dir / ".onboarding_complete").exists()
+        assert read_status(onboarding_dir).get("completed") is not True
         assert ctrl.is_first_run() is True
 
     def test_next_step_does_not_call_mark_complete(self, ctrl, monkeypatch):
@@ -553,7 +554,7 @@ class TestApplySettingsMarksComplete:
         """``skip`` is the other valid completion path."""
         assert ctrl.is_first_run() is True
         ctrl.skip()
-        assert (onboarding_dir / ".onboarding_complete").exists()
+        assert read_status(onboarding_dir).get("completed") is True
         assert ctrl.is_first_run() is False
 
 
@@ -582,16 +583,16 @@ class TestMarkCompleteFailurePropagation:
     def test_mark_complete_raises_on_marker_write_failure(self, ctrl, onboarding_dir, monkeypatch):
         """``mark_complete`` re-raises ``OSError`` from
         ``_secure_atomic_write`` instead of swallowing it."""
-        from voice_typer.server import config as config_mod
+        import voice_typer.server.secure_file_io as sio
 
         def _boom(path, content, **kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(config_mod, "_secure_atomic_write", _boom)
+        monkeypatch.setattr(sio, "_secure_atomic_write", _boom)
         with pytest.raises(OSError, match="disk full"):
             ctrl.mark_complete()
-        # Marker was NOT written.
-        assert not (onboarding_dir / ".onboarding_complete").exists()
+        # Status was NOT written.
+        assert read_status(onboarding_dir).get("completed") is not True
 
     def test_apply_settings_sets_onboarding_completed_before_save(self, ctrl, onboarding_dir):
         """``apply_settings`` sets ``config.onboarding_completed = True``
@@ -631,12 +632,12 @@ class TestMarkCompleteFailurePropagation:
         was set to ``True`` and persisted via ``config.save()`` BEFORE
         the marker write, so the wizard will NOT reappear on the next
         launch even though the marker file is missing."""
-        from voice_typer.server import config as config_mod
+        import voice_typer.server.secure_file_io as sio
 
         def _boom(path, content, **kwargs):
             raise OSError("read-only filesystem")
 
-        monkeypatch.setattr(config_mod, "_secure_atomic_write", _boom)
+        monkeypatch.setattr(sio, "_secure_atomic_write", _boom)
 
         ctrl.set_microphone("mic-1")
         ctrl.set_hotkey("<f4>")
@@ -667,8 +668,8 @@ class TestMarkCompleteFailurePropagation:
             "config.onboarding_completed must be set to True BEFORE config.save() "
             "so the wizard doesn't reappear when the marker write fails"
         )
-        # Marker was NOT written (the write raised).
-        assert not (onboarding_dir / ".onboarding_complete").exists()
+        # Status was NOT written (the write raised).
+        assert read_status(onboarding_dir).get("completed") is not True
 
     def test_apply_settings_marker_failure_does_not_reappear(self, ctrl, onboarding_dir, monkeypatch):
         """end-to-end: when the marker write fails but the config
@@ -680,19 +681,19 @@ class TestMarkCompleteFailurePropagation:
         import json as _json
         from pathlib import Path
 
-        from voice_typer.server import config as config_mod
+        import voice_typer.server.secure_file_io as sio
         from voice_typer.server.config import Config
 
         # Capture the real _secure_atomic_write BEFORE patching so the
         # patched version can delegate non-marker writes to it.
-        real_write = config_mod._secure_atomic_write
+        real_write = sio._secure_atomic_write
 
         def _boom_on_marker(path, content, **kwargs):
-            if Path(path).name == ".onboarding_complete":
+            if Path(path).name == ".onboarding_status.json":
                 raise OSError("read-only filesystem")
             return real_write(path, content, **kwargs)
 
-        monkeypatch.setattr(config_mod, "_secure_atomic_write", _boom_on_marker)
+        monkeypatch.setattr(sio, "_secure_atomic_write", _boom_on_marker)
 
         ctrl.set_microphone("mic-usb")
         ctrl.set_hotkey("<f4>")
@@ -714,8 +715,8 @@ class TestMarkCompleteFailurePropagation:
         assert (onboarding_dir / "config.json").exists()
         persisted = _json.loads((onboarding_dir / "config.json").read_text(encoding="utf-8"))
         assert persisted.get("onboarding_completed") is True
-        # ...but the marker is missing.
-        assert not (onboarding_dir / ".onboarding_complete").exists()
+        # ...but the status file was not written (the write raised).
+        assert read_status(onboarding_dir).get("completed") is not True
 
         # Simulate next launch: fresh controller reads disk state.
         from voice_typer.server.onboarding import OnboardingController
@@ -730,15 +731,15 @@ class TestMarkCompleteFailurePropagation:
         """``skip`` propagates marker write failures so the IPC
         layer can surface the error to the user (instead of silently
         swallowing it and leaving the wizard in an inconsistent state)."""
-        from voice_typer.server import config as config_mod
+        import voice_typer.server.secure_file_io as sio
 
         def _boom(path, content, **kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(config_mod, "_secure_atomic_write", _boom)
+        monkeypatch.setattr(sio, "_secure_atomic_write", _boom)
         with pytest.raises(OSError, match="disk full"):
             ctrl.skip()
-        assert not (onboarding_dir / ".onboarding_complete").exists()
+        assert read_status(onboarding_dir).get("completed") is not True
 
 
 class TestModelOptionsIncludeMultilingualAndParakeet:

@@ -148,14 +148,27 @@ def open_electron_window() -> None:
     # 1. Primary: push show_window over TCP.  Cheap, cross-platform,
     #    and works whether the window is hidden (close-to-tray) or
     #    minimized.
-    try:
-        from voice_typer.server import event_bus
+    from voice_typer.server import event_bus
 
-        if event_bus.publish({"type": "show_window"}):
-            log.info("[TRAY] show_window pushed to Electron")
-            return
+    try:
+        published = event_bus.publish({"type": "show_window"})
     except Exception:
-        log.debug("[TRAY] show_window push failed, trying Win32 focus")
+        published = False
+        log.debug("[TRAY] show_window push raised, trying Win32 focus")
+
+    # ``event_bus.publish`` returns True when ANY in-process subscriber
+    # accepted the event — which does NOT prove Electron received it:
+    # the IPC transport's push() swallows write failures (it buffers to
+    # ``_pending_tcp`` and marks the client dead instead of raising) and
+    # the no-client path buffers silently, while unrelated subscribers
+    # (e.g. the tray's parakeet-cpu-fallback listener) accept every
+    # event. Only treat the push as delivered when a transport probe
+    # reports a live host client; otherwise fall through to the Win32
+    # focus path so the window still appears.
+    if published and event_bus.has_live_transport():
+        log.info("[TRAY] show_window pushed to Electron")
+        return
+    log.info("[TRAY] no live Electron transport — trying Win32 focus")
 
     # 2. Fallback: Win32 EnumWindows focus on an existing window.
     if bring_electron_to_front():

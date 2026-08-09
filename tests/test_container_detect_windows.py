@@ -150,7 +150,7 @@ class TestWin32PlatformGate:
         _clear_container_env(monkeypatch)
         with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
             container_detect.warn_if_in_container()
-        assert not any("PLAT-021" in r.message for r in caplog.records)
+        assert not any("[CONTAINER]" in r.message for r in caplog.records)
 
     def test_win32_with_stale_container_env_var_does_not_detect(self, monkeypatch):
         """A dual-boot machine may have ``CONTAINER=systemd-nspawn`` set

@@ -314,7 +314,7 @@ class TestWarnIfInContainer:
         _clear_container_env(monkeypatch)
         with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
             container_detect.warn_if_in_container()
-        assert not any("PLAT-021" in r.message for r in caplog.records)
+        assert not any("[CONTAINER]" in r.message for r in caplog.records)
 
     def test_warning_emitted_when_in_docker(self, monkeypatch, caplog):
         _force_linux(monkeypatch)
@@ -323,7 +323,7 @@ class TestWarnIfInContainer:
         _clear_container_env(monkeypatch)
         with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
             container_detect.warn_if_in_container()
-        plat_records = [r for r in caplog.records if "PLAT-021" in r.message]
+        plat_records = [r for r in caplog.records if "[CONTAINER]" in r.message]
         assert len(plat_records) == 1
         # %-formatting happens lazily via getMessage()
         assert "docker" in plat_records[0].getMessage()
@@ -351,7 +351,7 @@ class TestWarnIfInContainer:
         _clear_container_env(monkeypatch)
         with caplog.at_level(logging.WARNING, logger=_LOGGER_NAME):
             container_detect.warn_if_in_container()
-        assert not any("PLAT-021" in r.message for r in caplog.records)
+        assert not any("[CONTAINER]" in r.message for r in caplog.records)
 
 
 # cgroup v2-aware detection ───────────────────────────────────

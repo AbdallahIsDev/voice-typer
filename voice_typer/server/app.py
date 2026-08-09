@@ -290,6 +290,12 @@ with i18n._LOCK:
     _en_labels.setdefault("state.app.starting", "Starting...")
 
 
+# Sentinel for the lazily-built ``recorder`` / ``recording`` backings
+# (STARTUP-9). ``None`` is a legitimate test-set value, so a distinct
+# sentinel distinguishes "not built yet" from "explicitly None".
+_RECORDER_MISSING: object = object()
+
+
 class VoiceTyperApp:
     """The main application."""
 
@@ -430,28 +436,71 @@ class VoiceTyperApp:
         # constructed). Calling it here would trigger the proxy to
         # resolve immediately, defeating the lazy construction.
 
-        # ``Recorder`` is imported here (not at module top) so the
-        # ``voice_typer.server.recording`` package — which eagerly loads
-        # 7+ numpy-importing submodules — stays out of the module-import
-        # critical path. Matches the deferred-import pattern used below
-        # for ``RecordingController``, ``ModelManager``, etc.
-        from voice_typer.server.recording import Recorder
+        # ``Recorder`` + ``RecordingController`` construction is deferred
+        # to a background thread (STARTUP-9). The
+        # ``voice_typer.server.recording`` import + ``Recorder()`` build
+        # eagerly loads numpy/scipy/sounddevice (PortAudio) and can take
+        # 1-8s on the main thread — measured ~5x slower under the system
+        # Python (the interpreter the packaged app runs on) than under
+        # the dev venv, and worse on cold cache. The tray and IPC server
+        # don't need the recorder, so blocking startup on it made the
+        # app look dead for seconds. The background build is registered
+        # with the ThreadRegistry (shutdown joins it) and ``app.recorder``
+        # / ``app.recording`` are lazy properties that block only briefly
+        # on first access if the build is still in flight — every existing
+        # call site keeps working unchanged.
+        self._recorder_backing: Any = _RECORDER_MISSING
+        self._recording_backing: Any = _RECORDER_MISSING
+        self._recorder_build_error: BaseException | None = None
+        self._recorder_build_ready = threading.Event()
 
-        self.recorder = Recorder(
-            self.config,
-            audio_processor=self._audio_processor,
-            thread_registry=self._thread_registry,
+        def _build_recorder_subsystem() -> None:
+            try:
+                # Setter guard: a test (or a later caller) may have
+                # injected ``app.recorder = MagicMock()`` via the setter
+                # while this background build was in flight — never
+                # clobber a caller-provided value with the real recorder.
+                if self._recorder_backing is not _RECORDER_MISSING:
+                    return
+                from voice_typer.server.recording import Recorder
+
+                recorder = Recorder(
+                    self.config,
+                    audio_processor=self._audio_processor,
+                    thread_registry=self._thread_registry,
+                )
+                if self._recorder_backing is not _RECORDER_MISSING:
+                    return  # setter raced us between import + construction
+                self._recorder_backing = recorder
+                # #2 Recording lifecycle extracted to RecordingController.
+                # Owns toggle/start/stop/cancel, silence/xrun callbacks,
+                # and the streaming session.
+                from voice_typer.server.recording_controller import RecordingController
+
+                controller: Any = RecordingController(self)
+                if self._recorder_backing is not recorder:
+                    return  # setter raced us during controller construction
+                self._recording_backing = controller
+                # Item 1: wire xrun threshold callback for tray
+                # notification (was ``self.recorder.on_xrun_threshold =
+                # self.recording.on_xrun_threshold`` on the main thread).
+                recorder.on_xrun_threshold = controller.on_xrun_threshold
+            except Exception as exc:  # noqa: BLE001 — surfaced on first access
+                self._recorder_build_error = exc
+                log.warning(
+                    "[INIT] background recorder construction failed (%s)",
+                    type(exc).__name__,
+                    exc_info=True,
+                )
+            finally:
+                self._recorder_build_ready.set()
+
+        self._thread_registry.spawn_and_register(
+            "recorder-init",
+            _build_recorder_subsystem,
+            daemon=True,
+            join_timeout=10.0,
         )
-        # #2 Recording lifecycle extracted to RecordingController.
-        # Owns toggle/start/stop/cancel, silence/xrun callbacks, and the
-        # streaming session. The recorder's xrun threshold callback is
-        # wired to RecordingController.on_xrun_threshold instead of the
-        # old VoiceTyperApp._on_xrun_threshold method.
-        from voice_typer.server.recording_controller import RecordingController
-
-        self.recording: RecordingController = RecordingController(self)
-        # Item 1: wire xrun threshold callback for tray notification
-        self.recorder.on_xrun_threshold = self.recording.on_xrun_threshold
         # eagerly preload + warm the Silero VAD model on a
         # background thread so the first recording's first audio chunk
         # does not stall on torch.jit.load (~150-600ms cold load). The
@@ -954,6 +1003,77 @@ class VoiceTyperApp:
     @waveform_wiring.setter
     def waveform_wiring(self, value) -> None:
         self._waveform_wiring_backing = value
+
+    # ─── Lazy recorder / recording properties (STARTUP-9) ─────────────
+    #
+    # ``recorder`` / ``recording`` are built on a background thread in
+    # ``__init__`` so the multi-second construction cost
+    # (numpy/scipy/sounddevice + PortAudio init) never blocks the tray /
+    # IPC startup. The getters block only if the background build is
+    # still in flight (brief); the setters let tests inject mocks
+    # transparently (assignment bypasses the lazy build).
+
+    @property
+    def recorder(self) -> Any:
+        backing = self._recorder_backing
+        if backing is not _RECORDER_MISSING:
+            return backing
+        # Shutdown guard (mirrors ``history_db``): if the app is already
+        # quitting and the background build never finished, return None
+        # instead of blocking the teardown path on the still-in-flight
+        # build. Shutdown teardowns check ``app.recorder is not None``,
+        # so a never-built recorder is skipped cleanly; a built recorder
+        # is returned by the fast path above.
+        if self._shutting_down_event.is_set():
+            return None
+        self._recorder_build_ready.wait()
+        if self._recorder_build_error is not None:
+            raise self._recorder_build_error
+        backing = self._recorder_backing
+        if backing is not _RECORDER_MISSING:
+            return backing
+        # The background build was short-circuited by a ``recorder``
+        # setter (test mock injection) before it could build the real
+        # Recorder — never construct one eagerly here (that would
+        # re-introduce the multi-second startup stall). Return None;
+        # callers treat a missing recorder the same as an unbuilt one.
+        return None
+
+    @recorder.setter
+    def recorder(self, value: Any) -> None:
+        self._recorder_backing = value
+        self._recorder_build_ready.set()
+
+    @property
+    def recording(self) -> Any:
+        backing = self._recording_backing
+        if backing is not _RECORDER_MISSING:
+            return backing
+        # Shutdown guard — see the ``recorder`` getter docstring.
+        if self._shutting_down_event.is_set():
+            return None
+        self._recorder_build_ready.wait()
+        if self._recorder_build_error is not None:
+            raise self._recorder_build_error
+        backing = self._recording_backing
+        if backing is not _RECORDER_MISSING:
+            return backing
+        # The background build was short-circuited by a ``recorder``
+        # setter (test mock injection) so ``_recording_backing`` was
+        # never populated. Construct the controller on demand to
+        # preserve the long-standing contract that ``app.recording`` is
+        # always a RecordingController (RecordingController is cheap to
+        # build — no audio/numpy imports — so this adds no startup cost).
+        from voice_typer.server.recording_controller import RecordingController
+
+        backing = RecordingController(self)
+        self._recording_backing = backing
+        return backing
+
+    @recording.setter
+    def recording(self, value: Any) -> None:
+        self._recording_backing = value
+        self._recorder_build_ready.set()
 
     # ─── Lazy controller / volume-subsystem properties ────────────────
     #

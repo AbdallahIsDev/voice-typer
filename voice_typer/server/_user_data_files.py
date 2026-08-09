@@ -83,15 +83,21 @@ _TEMPLATES_FILENAME: str = "voice-typer-templates.json"
 # ``BUNDLED_CORRECTIONS_PATH``) and import it here.
 _CORRECTIONS_FILENAME: str = "voice-typer-corrections.json"
 
-# Onboarding state files. ``onboarding.py`` persists three dot-prefixed
-# marker files (no canonical ``*_FILENAME`` constant is exported) —
-# ``.onboarding_complete`` (terminal marker), ``.onboarding_started``
-# (wizard-has-rendered marker), and ``.onboarding_progress`` (JSON
-# blob with the in-progress wizard state). Listed individually because
-# the purge walk iterates a flat name list (not a glob), so each
-# marker must be enumerated.
+# Onboarding state files. ``onboarding_status.py`` persists the
+# wizard lifecycle (started/completed flags + the auto-heal fail
+# counter) in ONE JSON document, ``.onboarding_status.json`` (the
+# legacy ``.onboarding_complete`` / ``.onboarding_started`` /
+# ``.onboarding_fail_count`` markers were merged into it and are
+# deleted by the one-time migration). ``onboarding.py`` persists
+# ``.onboarding_progress`` (JSON blob with the in-progress wizard
+# state, kept separate — it is transient per-step state). Listed
+# individually because the purge walk iterates a flat name list (not a
+# glob); the legacy marker names are retained in the inventory so an
+# upgrade that has not yet run the migration still purges them.
+_ONBOARDING_STATUS_MARKER: str = ".onboarding_status.json"
 _ONBOARDING_COMPLETE_MARKER: str = ".onboarding_complete"
 _ONBOARDING_STARTED_MARKER: str = ".onboarding_started"
+_ONBOARDING_FAIL_COUNT_MARKER: str = ".onboarding_fail_count"
 _ONBOARDING_PROGRESS_MARKER: str = ".onboarding_progress"
 
 # Personal-data log files. These are not owned by a single Python
@@ -131,8 +137,10 @@ _USER_DATA_FILES: tuple[str, ...] = (
     _VOCAB_FILENAME,
     _TEMPLATES_FILENAME,
     _CORRECTIONS_FILENAME,
+    _ONBOARDING_STATUS_MARKER,
     _ONBOARDING_COMPLETE_MARKER,
     _ONBOARDING_STARTED_MARKER,
+    _ONBOARDING_FAIL_COUNT_MARKER,
     _ONBOARDING_PROGRESS_MARKER,
     _VOICE_TYPER_LOG,
     _PREWARM_LOG,
@@ -264,6 +272,32 @@ try:
         f"_TEMPLATES_FILENAME drifted: literal {_TEMPLATES_FILENAME!r} != "
         f"canonical {_CANONICAL_TEMPLATES_FILENAME!r}. Update the literal "
         f"in _user_data_files.py to match templates.TEMPLATES_FILENAME."
+    )
+
+    # Onboarding markers are owned by ``onboarding_status.py`` — the
+    # purge inventory mirrors its canonical constants (the legacy names
+    # are retained so a pre-migration uninstall still purges them).
+    from voice_typer.server import onboarding_status
+
+    assert _ONBOARDING_STATUS_MARKER == onboarding_status.ONBOARDING_STATUS_FILENAME, (
+        f"_ONBOARDING_STATUS_MARKER drifted: literal {_ONBOARDING_STATUS_MARKER!r} != "
+        f"canonical {onboarding_status.ONBOARDING_STATUS_FILENAME!r}. Update the literal "
+        f"in _user_data_files.py to match onboarding_status.ONBOARDING_STATUS_FILENAME."
+    )
+    assert _ONBOARDING_COMPLETE_MARKER == onboarding_status._LEGACY_COMPLETE_MARKER, (
+        f"_ONBOARDING_COMPLETE_MARKER drifted: literal {_ONBOARDING_COMPLETE_MARKER!r} != "
+        f"canonical {onboarding_status._LEGACY_COMPLETE_MARKER!r}. Update the literal "
+        f"in _user_data_files.py to match onboarding_status._LEGACY_COMPLETE_MARKER."
+    )
+    assert _ONBOARDING_STARTED_MARKER == onboarding_status._LEGACY_STARTED_MARKER, (
+        f"_ONBOARDING_STARTED_MARKER drifted: literal {_ONBOARDING_STARTED_MARKER!r} != "
+        f"canonical {onboarding_status._LEGACY_STARTED_MARKER!r}. Update the literal "
+        f"in _user_data_files.py to match onboarding_status._LEGACY_STARTED_MARKER."
+    )
+    assert _ONBOARDING_FAIL_COUNT_MARKER == onboarding_status._LEGACY_FAIL_COUNT_MARKER, (
+        f"_ONBOARDING_FAIL_COUNT_MARKER drifted: literal {_ONBOARDING_FAIL_COUNT_MARKER!r} != "
+        f"canonical {onboarding_status._LEGACY_FAIL_COUNT_MARKER!r}. Update the literal "
+        f"in _user_data_files.py to match onboarding_status._LEGACY_FAIL_COUNT_MARKER."
     )
 except ImportError:
     # Circular import — happens when this module is imported directly

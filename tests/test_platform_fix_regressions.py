@@ -490,9 +490,23 @@ class TestMutexPathHash:
     def test_different_executables_produce_different_hashes(self, monkeypatch):
         from voice_typer.server.server_platform import _run_key_name
 
-        monkeypatch.setattr("voice_typer.server.server_platform.sys.executable", "/path/a/python.exe")
+        # The Run-key name hashes the STABLE install identifier (the
+        # autostart launcher path), NOT sys.executable — sys.executable
+        # differs between python.exe / pythonw.exe / the venv for the
+        # SAME install, so a sys.executable-derived name would be
+        # registered by one process and never found by the next (the
+        # perpetual "autostart=true but disabled -- enabling" loop).
+        # Different install DIRECTORY identifiers must still produce
+        # different names (PLAT-RUN multi-install support).
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.autostart._install_identifier",
+            lambda: "/path/a/autostart_launcher.py",
+        )
         name_a = _run_key_name()
-        monkeypatch.setattr("voice_typer.server.server_platform.sys.executable", "/path/b/python.exe")
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.autostart._install_identifier",
+            lambda: "/path/b/autostart_launcher.py",
+        )
         name_b = _run_key_name()
         assert name_a != name_b
 

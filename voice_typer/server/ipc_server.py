@@ -470,15 +470,35 @@ class IPCServer(
             # the unplugged device, missing the newly-plugged one) for
             # up to 5s. Best-effort: guarded so a recorder-without-
             # DeviceManager (tests) doesn't fail.
-            try:
-                recorder_devices = getattr(app.recorder, "_devices", None)
-                if recorder_devices is not None and hasattr(recorder_devices, "set_service_cache_invalidator"):
-                    recorder_devices.set_service_cache_invalidator(lambda: self.service.refresh_microphones(force=True))
-            except Exception:
-                log.debug(
-                    "[IPC] failed to wire service-layer cache invalidator",
-                    exc_info=True,
-                )
+            # STARTUP-9: the recorder may still be building on its
+            # background thread, so this wiring is deferred to a daemon
+            # thread instead of blocking IPC-server startup on
+            # ``app.recorder`` (the lazy property would wait for the
+            # whole multi-second build). The invalidator is a best-effort
+            # nicety — until it is wired, the DeviceManager's own cache
+            # invalidation (30s TTL fallback) still applies.
+            def _wire_service_cache_invalidator() -> None:
+                try:
+                    recorder_devices = getattr(app.recorder, "_devices", None)
+                    if recorder_devices is not None and hasattr(
+                        recorder_devices,
+                        "set_service_cache_invalidator",
+                    ):
+                        recorder_devices.set_service_cache_invalidator(
+                            lambda: self.service.refresh_microphones(force=True)
+                        )
+                except Exception:
+                    log.debug(
+                        "[IPC] failed to wire service-layer cache invalidator",
+                        exc_info=True,
+                    )
+
+            _wire_thread = threading.Thread(
+                target=_wire_service_cache_invalidator,
+                name="ipc-cache-invalidator-wiring",
+                daemon=True,
+            )
+            _wire_thread.start()
         self._running = False
         # use RLock instead of Lock so _hook_tray_set_state
         # (which calls self.push() → self._send() → acquires _lock) can

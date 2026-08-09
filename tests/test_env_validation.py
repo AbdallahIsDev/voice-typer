@@ -230,9 +230,15 @@ class TestPathVars:
     def test_whitespace_path_preserved(self, monkeypatch, var):
         # Whitespace (incl. spaces inside) is allowed — only NUL is
         # forbidden. Paths legitimately contain spaces.
-        monkeypatch.setenv(var, "   /tmp/voice typer   ")
+        # Keep the value under home (like the other preserved tests): a
+        # leading-space relative value like "   /tmp/voice typer   "
+        # resolves against the process CWD, which on CI runners is NOT
+        # under home, so _validate_path_safety would reject it and the
+        # var would be discarded.
+        safe_path = str(Path.home() / "voice typer   ")
+        monkeypatch.setenv(var, safe_path)
         _validate_env_vars()
-        assert os.environ.get(var) == "   /tmp/voice typer   "
+        assert os.environ.get(var) == safe_path
 
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_unicode_path_preserved(self, monkeypatch, var):
@@ -248,9 +254,20 @@ class TestPathVars:
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_path_at_max_length_preserved(self, monkeypatch, var):
         # Boundary: len == 4096 is allowed (length check is `> 4096`).
-        monkeypatch.setenv(var, "a" * 4096)
+        # Build an ABSOLUTE path under home of exactly 4096 chars.
+        # A relative "a"*4096 resolves against the process CWD, which on
+        # CI runners is NOT under home (e.g. D:\\a\\_work on Windows
+        # runners), so _validate_path_safety would reject it and the var
+        # would be discarded — the test would fail even though the
+        # length-boundary behavior under test is correct.
+        home = str(Path.home())
+        pad = 4096 - len(home) - 1  # -1 for the path separator
+        assert pad > 0
+        safe_path = home + os.sep + ("a" * pad)
+        assert len(safe_path) == 4096
+        monkeypatch.setenv(var, safe_path)
         _validate_env_vars()
-        assert os.environ.get(var) == "a" * 4096
+        assert os.environ.get(var) == safe_path
 
     @pytest.mark.parametrize("var", _PATH_VARS)
     def test_overlength_path_removed(self, monkeypatch, var):

@@ -140,7 +140,7 @@ def _windows_wait_for_process_exit(handle) -> None:
         result = kernel32.WaitForSingleObject(handle, _WAIT_FOR_PROCESS_EXIT_TIMEOUT_MS)
         if result == _WAIT_TIMEOUT:
             _log.warning(
-                "[DE-68] WaitForSingleObject timed out after %d ms while "
+                "[WIN32] WaitForSingleObject timed out after %d ms while "
                 "waiting for launched editor to exit; returning control to "
                 "caller (the editor process is still running — the user may "
                 "need to close it manually).",
@@ -151,7 +151,7 @@ def _windows_wait_for_process_exit(handle) -> None:
             # Don't raise — the caller's contract is "never raise" — but
             # log a warning so the failure is diagnosable.
             _log.warning(
-                "[DE-68] WaitForSingleObject returned WAIT_FAILED; the "
+                "[WIN32] WaitForSingleObject returned WAIT_FAILED; the "
                 "process handle may be invalid. Caller will proceed to "
                 "CloseHandle."
             )

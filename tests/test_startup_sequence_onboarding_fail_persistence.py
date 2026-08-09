@@ -137,14 +137,19 @@ class TestWriteOnboardingFailCount:
         ss_mod._write_onboarding_fail_count(3, 1234567890.5)
         path = ss_mod._onboarding_fail_counter_path()
         data = json.loads(path.read_text(encoding="utf-8"))
-        assert data == {"count": 3, "last_fail_ts": 1234567890.5}
+        # The fail counter lives in the merged onboarding-status
+        # document, so the persisted dict also carries the
+        # started/completed flags.
+        assert data["count"] == 3
+        assert data["last_fail_ts"] == 1234567890.5
 
     def test_overwrites_existing_file(self, isolated_config_dir: Path) -> None:
         path = ss_mod._onboarding_fail_counter_path()
         path.write_text(json.dumps({"count": 1, "last_fail_ts": 1.0}), encoding="utf-8")
         ss_mod._write_onboarding_fail_count(2, 2.0)
         data = json.loads(path.read_text(encoding="utf-8"))
-        assert data == {"count": 2, "last_fail_ts": 2.0}
+        assert data["count"] == 2
+        assert data["last_fail_ts"] == 2.0
 
     def test_round_trips_through_read(self, isolated_config_dir: Path) -> None:
         ss_mod._write_onboarding_fail_count(7, 99999.0)
@@ -173,20 +178,27 @@ class TestResetOnboardingFailCount:
     """``_reset_onboarding_fail_count`` clears the persisted counter so
     a future transient failure starts fresh."""
 
-    def test_deletes_existing_file(self, isolated_config_dir: Path) -> None:
+    def test_zeroes_existing_counter(self, isolated_config_dir: Path) -> None:
         path = ss_mod._onboarding_fail_counter_path()
         path.write_text(json.dumps({"count": 2, "last_fail_ts": 1.0}), encoding="utf-8")
         assert path.exists()
         ss_mod._reset_onboarding_fail_count()
-        assert not path.exists()
+        # The counter is zeroed; the status document itself is kept so
+        # the started/completed flags survive the reset.
+        count, ts = ss_mod._read_onboarding_fail_count()
+        assert count == 0
+        assert ts == 0.0
 
     def test_no_op_when_file_missing(self, isolated_config_dir: Path) -> None:
-        # A missing file is the post-reset state — calling reset again
-        # must be a no-op (not raise).
+        # A missing status document is the pre-onboarding state —
+        # calling reset again must be a no-op (not raise) and leave the
+        # counter at zero.
         path = ss_mod._onboarding_fail_counter_path()
         assert not path.exists()
         ss_mod._reset_onboarding_fail_count()
-        assert not path.exists()
+        count, ts = ss_mod._read_onboarding_fail_count()
+        assert count == 0
+        assert ts == 0.0
 
     def test_read_returns_zero_after_reset(self, isolated_config_dir: Path) -> None:
         ss_mod._write_onboarding_fail_count(5, 5.0)
@@ -195,14 +207,32 @@ class TestResetOnboardingFailCount:
         assert count == 0
         assert ts == 0.0
 
+    def test_reset_preserves_started_completed_flags(self, isolated_config_dir: Path) -> None:
+        # The fail counter shares the status document with the
+        # started/completed flags — resetting the counter must NOT
+        # un-complete onboarding (this is exactly why the reset writes
+        # count=0 instead of deleting the file).
+        from voice_typer.server import onboarding_status as os_status
+
+        os_status.write_status(
+            isolated_config_dir, started=True, completed=True, count=5, last_fail_ts=5.0
+        )
+        ss_mod._reset_onboarding_fail_count()
+        data = os_status.read_status(isolated_config_dir)
+        assert data["count"] == 0
+        assert data["started"] is True
+        assert data["completed"] is True
+
     def test_reset_failure_is_swallowed(self, isolated_config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         path = ss_mod._onboarding_fail_counter_path()
         path.write_text(json.dumps({"count": 1, "last_fail_ts": 1.0}), encoding="utf-8")
 
-        def _raise_oserror(_self: Path) -> None:
+        def _raise_oserror(*_args: object, **_kwargs: object) -> None:
             raise OSError("permission denied")
 
-        monkeypatch.setattr(Path, "unlink", _raise_oserror)
+        from voice_typer.server import onboarding_status as os_status
+
+        monkeypatch.setattr(os_status, "_write", _raise_oserror)
         # Must not raise.
         ss_mod._reset_onboarding_fail_count()
 
@@ -227,14 +257,16 @@ class TestOnboardingFailCounterTTL:
         assert seven_days_seconds == ss_mod._ONBOARDING_FAIL_COUNTER_TTL_SECONDS
 
     def test_filename_is_dotted(self) -> None:
-        # The counter file lives in the config dir alongside config.json
-        # and uses a leading dot (matching .onboarding_started,
-        # .onboarding_complete, .dictation-in-flight conventions) so it
-        # doesn't show up in default directory listings and is clearly
-        # an internal state file.
-        assert ss_mod._ONBOARDING_FAIL_COUNTER_FILENAME.startswith(".")
-        assert "onboarding" in ss_mod._ONBOARDING_FAIL_COUNTER_FILENAME
-        assert "fail" in ss_mod._ONBOARDING_FAIL_COUNTER_FILENAME
+        # The status document lives in the config dir alongside
+        # config.json and uses a leading dot (matching the
+        # .dictation-in-flight convention) so it doesn't show up in
+        # default directory listings and is clearly an internal state
+        # file.
+        from voice_typer.server.onboarding_status import ONBOARDING_STATUS_FILENAME
+
+        assert ONBOARDING_STATUS_FILENAME.startswith(".")
+        assert "onboarding" in ONBOARDING_STATUS_FILENAME
+        assert ONBOARDING_STATUS_FILENAME.endswith(".json")
 
 
 # ── Stale-counter TTL reset (integration with the read helper) ─────────

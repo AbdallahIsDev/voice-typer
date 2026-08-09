@@ -1472,6 +1472,37 @@ class Config:
         lock is set (e.g. tests), saves proceed without locking —
         preserving backward compat.
         """
+        # Windows-only, best-effort: tighten the config DIR's ACL when
+        # this save CREATES the directory. We cannot run ``icacls <dir>
+        # /inheritance:r`` on an existing dir — while ANY file in it is
+        # held open (``config.json.lock`` during every save), the ACL
+        # rewrite poisons the open file on Python < 3.11.13 (where
+        # ``os.open`` lacks ``FILE_SHARE_DELETE`` on Windows), failing
+        # every subsequent ``Config.save()`` in the process with
+        # ``PermissionError`` (reproduced on 3.11.9 — the CI 3.11 leg
+        # failed ~20 config tests); the same rewrite on a dir that
+        # already contains files breaks writes to those files too. A
+        # directory we just created is guaranteed empty, so the icacls
+        # there is safe and every file created afterwards
+        # (``config.json.lock``, the ``tempfile.mkstemp`` tmp,
+        # ``config.json``, ``config.json.bak``) inherits the owner-only
+        # dir DACL. Note this is narrow belt-and-suspenders: in the
+        # normal flow the config dir is created by logging/history init
+        # BEFORE the first save (and per-user ``%APPDATA%`` is
+        # owner-only by default anyway) — the meaningful hardening is
+        # the per-file icacls on ``config.json`` / ``config.json.bak``
+        # in ``_save_unlocked``. Guarded by the same dirty-flag
+        # short-circuit as ``_save_unlocked`` so no-op saves skip it;
+        # the broad catch keeps ``save()``'s never-raises contract even
+        # if ``_config_dir()`` raises in an edge scenario.
+        if is_windows() and (self._dirty or self._last_saved_bytes is None):
+            try:
+                config_dir = _config_dir()
+                if not config_dir.exists():
+                    config_dir.mkdir(parents=True, exist_ok=True)
+                    _enforce_windows_owner_only_acl(config_dir)
+            except Exception:
+                pass
         try:
             with _acquire_config_lock():
                 return self._save_with_mutation_lock()
@@ -1566,13 +1597,15 @@ class Config:
                 os.chmod(path, 0o700)
             except OSError as e:
                 log.warning("[CONFIG] Failed to chmod config dir: %s", e)
-        else:
-            # enforce owner-only ACL on the config dir on
-            # Windows so a shared ``%APPDATA%`` or
-            # ``VOICE_TYPER_CONFIG_DIR`` doesn't leak the directory's
-            # contents (including the ``config.json.bak`` written
-            # below) to co-located users.
-            _enforce_windows_owner_only_acl(path)
+        # The config DIR's ACL is tightened in ``save()`` BEFORE the
+        # cross-process lock is acquired, NOT here — this method is
+        # always called with ``config.json.lock`` held open, and
+        # running ``icacls <dir> /inheritance:r`` while the lock file
+        # is open poisons it on Python < 3.11.13 (``os.open`` lacks
+        # ``FILE_SHARE_DELETE`` on Windows), failing every subsequent
+        # save() in the process. The secret-holding files
+        # (``config.json`` and ``config.json.bak``) are tightened
+        # individually after each write below.
         config_file = path / "config.json"
         data = asdict(self)
         # Reset the ``_secrets_routed_in_save`` flag at the
