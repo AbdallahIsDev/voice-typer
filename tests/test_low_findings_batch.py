@@ -185,7 +185,7 @@ class TestNewPriv003SensitiveEnvRedaction:
         with caplog.at_level(logging.INFO, logger="voice_typer.server._electron_build"):
             _log_sensitive_env_keys({"PATH": "/usr/bin"}, context="test")
         # No  log line should fire for an env with no sensitive keys.
-        assert not any("PRIV-003" in rec.message for rec in caplog.records), (
+        assert not any("[ENV]" in rec.message for rec in caplog.records), (
             f"_log_sensitive_env_keys emitted a spurious audit line for a benign env: {caplog.records}"
         )
 
@@ -203,8 +203,8 @@ class TestNewPriv003SensitiveEnvRedaction:
                 {"OPENAI_API_KEY": secret_value, "PATH": "/usr/bin"},
                 context="test_context",
             )
-        priv_records = [r for r in caplog.records if "PRIV-003" in r.message]
-        assert len(priv_records) == 1, f"Expected exactly one PRIV-003 audit line, got: {priv_records}"
+        priv_records = [r for r in caplog.records if "[ENV]" in r.message]
+        assert len(priv_records) == 1, f"Expected exactly one [ENV] audit line, got: {priv_records}"
         msg = priv_records[0].message
         assert "OPENAI_API_KEY" in msg, "Key name must appear in audit line"
         assert secret_value not in msg, f"Secret value leaked into audit log line: {msg!r}"
@@ -385,6 +385,63 @@ class TestXzR6As02ElectronBinaryHashCheck:
         monkeypatch.setattr(eb, "is_windows", lambda: False)
         monkeypatch.setenv("VOICE_TYPER_ELECTRON_SHA256", "0" * 64)
         assert eb._electron_binary() is None
+
+
+class TestMainEntryBuiltRequiresAllBundles:
+    """RACE-011: ``_main_entry_built`` must require main + renderer + preload.
+
+    A pre-built check that only looked at ``out/main/index.js`` let the
+    launchers spawn ``electron .`` with a missing renderer bundle — the
+    window never showed (did-fail-load ERR_FILE_NOT_FOUND) and the
+    process lingered as a hidden zombie holding the single-instance
+    lock, silently killing every later launch.
+    """
+
+    def _built_tree(self, tmp_path):
+        from voice_typer.server import _electron_build as eb
+
+        fake_client = tmp_path / "voice_typer" / "client"
+        out = fake_client / "out"
+        (out / "main").mkdir(parents=True)
+        (out / "preload").mkdir(parents=True)
+        (out / "renderer").mkdir(parents=True)
+        (out / "main" / "index.js").write_text("// main")
+        (out / "preload" / "index.js").write_text("// preload")
+        (out / "renderer" / "index.html").write_text("<html></html>")
+        monkeypatch = pytest.MonkeyPatch()
+        monkeypatch.setattr(eb, "CLIENT_DIR", fake_client)
+        return eb, monkeypatch
+
+    def test_true_when_all_three_bundles_exist(self, tmp_path):
+        eb, m = self._built_tree(tmp_path)
+        try:
+            assert eb._main_entry_built() is True
+        finally:
+            m.undo()
+
+    def test_false_when_renderer_missing(self, tmp_path):
+        eb, m = self._built_tree(tmp_path)
+        try:
+            (tmp_path / "voice_typer" / "client" / "out" / "renderer" / "index.html").unlink()
+            assert eb._main_entry_built() is False
+        finally:
+            m.undo()
+
+    def test_false_when_preload_missing(self, tmp_path):
+        eb, m = self._built_tree(tmp_path)
+        try:
+            (tmp_path / "voice_typer" / "client" / "out" / "preload" / "index.js").unlink()
+            assert eb._main_entry_built() is False
+        finally:
+            m.undo()
+
+    def test_false_when_main_missing(self, tmp_path):
+        eb, m = self._built_tree(tmp_path)
+        try:
+            (tmp_path / "voice_typer" / "client" / "out" / "main" / "index.js").unlink()
+            assert eb._main_entry_built() is False
+        finally:
+            m.undo()
 
 
 if __name__ == "__main__":

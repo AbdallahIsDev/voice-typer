@@ -137,15 +137,30 @@ def _electron_binary() -> str | None:
 
 
 def _main_entry_built() -> bool:
-    """Return ``True`` if the compiled Electron main bundle exists.
+    """Return ``True`` if ALL compiled Electron bundles exist.
 
     ``electron .`` loads ``out/main/index.js`` (the electron-vite build
-    output).  If the client has never been built (fresh checkout,
-    deleted ``out/``), this is ``False`` and the caller must run
+    output), the renderer via ``out/renderer/index.html``, and the
+    preload from ``out/preload/index.js``.  All three must exist for the
+    built app to display anything:
+
+    * A missing renderer bundle makes the main window fail to load
+      (``did-fail-load`` ERR_FILE_NOT_FOUND) — the window never shows
+      and the process lingers as a hidden zombie holding the
+      single-instance lock, silently killing every later launch
+      (RACE-011).
+    * A missing preload triggers ``preload-error`` → ``app.quit()``.
+
+    If the client has never been fully built (fresh checkout, deleted
+    ``out/``), this is ``False`` and the caller must run
     ``npm run build`` first — or fall back to ``npm run dev``, which
     builds-and-runs in one step.
     """
-    return (CLIENT_DIR / "out" / "main" / "index.js").exists()
+    return (
+        (CLIENT_DIR / "out" / "main" / "index.js").exists()
+        and (CLIENT_DIR / "out" / "renderer" / "index.html").exists()
+        and (CLIENT_DIR / "out" / "preload" / "index.js").exists()
+    )
 
 
 def _npm_command(script: str = "dev") -> list[str] | None:
@@ -369,7 +384,7 @@ def _log_sensitive_env_keys(env: dict[str, str], *, context: str) -> None:
     sensitive = _redact_sensitive_env_keys(env)
     if sensitive:
         log.info(
-            "[PRIV-003] %s: child inherits sensitive env keys (names only, values redacted): %s",
+            "[ENV] %s: child inherits sensitive env keys (names only, values redacted): %s",
             context,
             ", ".join(sensitive),
         )

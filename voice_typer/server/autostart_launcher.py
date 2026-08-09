@@ -592,15 +592,16 @@ def _ensure_built_and_launch(hidden: bool = False) -> bool:
     Returns True if the app was launched successfully, False otherwise.
 
     The app is NEVER built from source here — the packaged install
-    ships pre-built bundles (``out/main/index.js``) and the dev path
+    ships pre-built bundles (``out/main/index.js`` + renderer + preload)
+    and the dev path
     uses ``npm run dev`` via :func:`_spawn_npm_run_dev`. When the
     pre-built output is missing we fail fast so the caller falls back
     to the dev path instead of silently invoking a build.
 
     Strategy:
       1. Find the dev-mode electron binary (``node_modules/electron/dist/``).
-      2. Verify the build output (``out/main/index.js``) exists — if it
-         is absent, return False (no auto-build).
+      2. Verify the build output (main + renderer + preload bundles)
+         exists — if any is missing, return False (no auto-build).
       3. Launch ``electron .`` with the compiled bundles.
       4. If any step fails, return False so the caller can decide what
          to do (fall back to dev mode, show error, etc.).
