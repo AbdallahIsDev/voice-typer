@@ -4,7 +4,7 @@
   "version": "1.0.0",
   "identifier": "com.voicetyper.app",
   "build": {
-    "frontendDist": "../voice_typer/client/dist",
+    "frontendDist": "../voice_typer/client/out/renderer",
     "devUrl": "http://localhost:1420",
     "beforeDevCommand": "cd voice_typer/client && npm run build:renderer",
     "beforeBuildCommand": "cd voice_typer/client && npm run build:renderer"

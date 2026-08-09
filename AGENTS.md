@@ -138,7 +138,10 @@ instead):
   (renderer IPC allowlist), `SEC-026` (sandboxed bubble preload).
 - `RACE-*` — concurrency / ordering invariant. Examples:
   `RACE-001` (download-progress event ordering), `RACE-002`
-  (heartbeat vs. shutdown ordering).
+  (heartbeat vs. shutdown ordering), `RACE-011` (launcher
+  bundle-completeness probe — a missing renderer/preload bundle lets
+  `electron .` linger as a blank hidden zombie that holds the
+  single-instance lock and kills every later launch).
 - `PERF-*` — performance-sensitive path where a "trivial" change
   could regress hot-loop or memory. Examples: `PERF-005`
   (relaunch_ack fast-path), `PERF-006` (audio ring buffer zero-copy),
