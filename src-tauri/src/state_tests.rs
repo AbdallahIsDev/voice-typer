@@ -13,6 +13,11 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
+// The devmode Drop tests below spawn REAL `sleep 30` subprocesses
+// (children of the test binary) — serialize against the own-pid
+// enumeration tests (see test_support.rs CHILD_PROCESS_TEST_LOCK).
+#[cfg(unix)]
+use crate::test_support::CHILD_PROCESS_TEST_LOCK;
 
 //`SidecarState::new()` must initialize
 /// `heartbeat_handle` to `None`. Also verifies the `Default` impl.
@@ -146,6 +151,14 @@ async fn test_shell_plugin_none_kill_returns_ok() {
 async fn test_devmode_drop_kills_child_when_kill_on_drop_set() {
     use std::time::Duration;
 
+    // Spawns a REAL child of the test binary — serialize against the
+    // own-pid enumeration tests (see test_support.rs). The guard is
+    // non-Send and held across `.await`, which only compiles on the
+    // default `current_thread` tokio flavor.
+    let _child_lock = CHILD_PROCESS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
     let mut cmd = tokio::process::Command::new("sleep");
     cmd.arg("30").kill_on_drop(true);
     cmd.stdout(std::process::Stdio::null())
@@ -179,6 +192,14 @@ async fn test_devmode_drop_kills_child_when_kill_on_drop_set() {
 async fn test_devmode_drop_does_not_kill_when_kill_on_drop_unset() {
     use std::time::Duration;
 
+    // Spawns a REAL child of the test binary — serialize against the
+    // own-pid enumeration tests (see test_support.rs). The guard is
+    // non-Send and held across `.await`, which only compiles on the
+    // default `current_thread` tokio flavor.
+    let _child_lock = CHILD_PROCESS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+
     let mut cmd = tokio::process::Command::new("sleep");
     cmd.arg("30")
         .stdout(std::process::Stdio::null())
@@ -199,4 +220,11 @@ async fn test_devmode_drop_does_not_kill_when_kill_on_drop_unset() {
     );
 
     let _ = crate::platform::process::kill_process_tree(pid);
+    // Settle so tokio's process driver reaps the just-killed child
+    // BEFORE this test returns and releases CHILD_PROCESS_TEST_LOCK.
+    // Otherwise the zombie can linger in
+    // /proc/<test_pid>/task/<test_pid>/children for a sub-ms window
+    // and flake the own-pid empty-assertion tests that acquire the
+    // lock next (see test_support.rs CHILD_PROCESS_TEST_LOCK).
+    tokio::time::sleep(Duration::from_millis(100)).await;
 }

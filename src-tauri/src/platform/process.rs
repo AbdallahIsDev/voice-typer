@@ -560,6 +560,23 @@ use posix_impl::register_kill_on_parent_exit_posix;
 /// `tokio::process::Child`, not a `SidecarHandle`, so they can't use
 /// `kill_tree`).
 pub(crate) fn kill_process_tree(pid: u32) {
+    // pid 0 is the kernel scheduler — never a real sidecar pid, and
+    // passing it here is catastrophic on Unix: `enumerate_children(0)`
+    // falls back to `pgrep -P 0`, which matches PID 1 (init) + kernel
+    // threads, and the DFS then descends into the ENTIRE process tree
+    // (including the caller's own host / a CI runner agent) and signals
+    // every process the caller owns. POSIX `kill(0, sig)` also signals
+    // the caller's own process group. Treat pid 0 as a no-op.
+    //
+    // CI incident: this killed the GitHub Actions runner agent during
+    // `cargo test` (the job died with "The runner has received a
+    // shutdown signal" right after `test_kill_process_tree_pid_zero_is_noop`).
+    if pid == 0 {
+        log::debug!(
+            "[KILL-TREE] kill_process_tree(0) is a no-op (pid 0 is the kernel scheduler, not a process)"
+        );
+        return;
+    }
     // Capture each shell-out / syscall result and log on Err / non-zero
     // exit so a broken `taskkill` / `pgrep` / `kill` (PATH issue,
     // permissions, etc.) isn't silently swallowed. The function
@@ -770,6 +787,16 @@ pub(crate) fn kill_process_tree(pid: u32) {
 /// the failure (once per `kill_process_tree` invocation, not N times).
 #[cfg(unix)]
 fn signal_pid(pid: u32, sig: libc::c_int) -> bool {
+    // pid 0 guard: POSIX `kill(0, sig)` signals the CALLING process's
+    // own process group — a self-kill. Real descendant pids are never
+    // 0, but a malformed input must not be able to group-signal the
+    // caller. Mirrors the `pid > i32::MAX` range guard below.
+    if pid == 0 {
+        log::debug!(
+            "[KILL-TREE] signal_pid skipped for pid 0 (would signal the caller's own process group)"
+        );
+        return false;
+    }
     // Range guard: `pid` is `u32` but `libc::pid_t` is `i32` on all
     // supported Unix platforms. A `pid > i32::MAX` would silently
     // wrap to a NEGATIVE `pid_t` (which POSIX `kill(2)` interprets as
@@ -897,6 +924,16 @@ fn enumerate_children_procfs(pid: u32) -> Result<Vec<u32>, std::io::Error> {
 /// failure (best-effort).
 #[cfg(unix)]
 fn enumerate_children_pgrep(pid: u32) -> Vec<u32> {
+    // pid 0 guard: `pgrep -P 0` matches PID 1 (init) + kernel threads,
+    // and the DFS in `kill_process_tree` would then descend into the
+    // ENTIRE process tree (the caller's host included). Never run
+    // pgrep with a 0 parent — return empty (best-effort contract).
+    if pid == 0 {
+        log::debug!(
+            "[KILL-TREE] enumerate_children_pgrep skipped for pid 0 (pgrep -P 0 would match init + kernel threads)"
+        );
+        return Vec::new();
+    }
     use std::process::Command;
     let pgrep = Command::new("pgrep")
         .args(["-P", &pid.to_string()])
@@ -1010,6 +1047,16 @@ fn signal_process_group(sidecar_pgid: libc::pid_t, sig: libc::c_int) {
 /// to attempt the process-group kill to catch race-window children).
 #[cfg(unix)]
 fn kill_process_group_if_safe(pid: u32, sig: libc::c_int) {
+    // pid 0 guard: `getpgid(0)` returns the CALLING process's own
+    // pgid, which would route the group signal to the caller's own
+    // group (the `signal_process_group` host-pgid check happens to
+    // catch it, but never get there). Real sidecar pids are never 0.
+    if pid == 0 {
+        log::debug!(
+            "[KILL-TREE] kill_process_group_if_safe skipped for pid 0 (getpgid(0) would return the caller's own pgid)"
+        );
+        return;
+    }
     // Range guard: same as `signal_pid` — `pid_t` is `i32`, so a
     // `u32` value > `i32::MAX` would wrap to a negative `pid_t` and
     // `getpgid` would interpret it as a process-group lookup of an

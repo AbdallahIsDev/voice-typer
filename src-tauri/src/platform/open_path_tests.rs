@@ -7,6 +7,10 @@
 //! declares this module via `#[cfg(test)] mod open_path_tests;`.
 
 use super::*;
+// The reaper-thread test below spawns a REAL child process (child of
+// the test binary) — serialize against the own-pid enumeration tests
+// (see test_support.rs CHILD_PROCESS_TEST_LOCK).
+use crate::test_support::CHILD_PROCESS_TEST_LOCK;
 
 // pre-flight existence check rejects a missing path with a
 // structured error string. The error is what the caller puts in the
@@ -60,6 +64,11 @@ fn test_open_path_accepts_existing_path() {
 // calls `child.wait()`.
 #[test]
 fn test_open_path_reaper_thread_does_not_panic() {
+    // Spawns a REAL child of the test binary — serialize against the
+    // own-pid enumeration tests (see test_support.rs).
+    let _child_lock = CHILD_PROCESS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     // We can't call open_path_in_file_manager with an arbitrary
     // binary (it hard-codes explorer/open/xdg-open), so this test
     // instead exercises the same spawn→reaper-thread pattern

@@ -21,6 +21,12 @@ use crate::state::SidecarState;
 // edit flips this test to `flavor = "multi_thread"`, it must switch to
 // a `tokio::sync::Mutex` (see test_support.rs).
 use crate::test_support::PANIC_HOOK_TEST_LOCK;
+// The cr14 tests below spawn REAL `sleep 30` subprocesses (children of
+// the test binary) — serialize against the own-pid enumeration tests
+// (see test_support.rs CHILD_PROCESS_TEST_LOCK). Same non-Send-guard-
+// across-await constraint as PANIC_HOOK_TEST_LOCK above.
+#[cfg(target_os = "linux")]
+use crate::test_support::CHILD_PROCESS_TEST_LOCK;
 use futures_util::FutureExt;
 use serde_json::json;
 use std::panic::AssertUnwindSafe;
@@ -294,6 +300,12 @@ async fn test_cr14_kill_tree_kills_dev_mode_child() {
     // kills the underlying process. This is the primitive the
     // fix relies on (the retry loop calls `old.kill_tree().await`
     // before storing the new child).
+    //
+    // Spawns a REAL child of the test binary — serialize against the
+    // own-pid enumeration tests (see test_support.rs).
+    let _child_lock = CHILD_PROCESS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let (handle, pid) = spawn_dummy_sidecar();
 
     // Verify the process is alive before kill_tree.
@@ -334,6 +346,12 @@ async fn test_cr14_retry_loop_kills_old_child_before_storing_new() {
     //
     // This is the exact pattern added by the fix in
     // `respawn_inner`'s retry loop.
+    //
+    // Spawns REAL children of the test binary — serialize against
+    // the own-pid enumeration tests (see test_support.rs).
+    let _child_lock = CHILD_PROCESS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let state = make_test_state();
 
     // Setup: store an "old" sidecar in state.child (simulating a
@@ -405,6 +423,13 @@ async fn test_cr14_retry_loop_kills_old_child_before_storing_new() {
     if let Some(h) = new_child {
         let _ = h.kill_tree().await;
     }
+    // Settle so tokio's process driver reaps the just-killed child
+    // BEFORE this test returns and releases CHILD_PROCESS_TEST_LOCK.
+    // Otherwise the zombie can linger in
+    // /proc/<test_pid>/task/<test_pid>/children for a sub-ms window
+    // and flake the own-pid empty-assertion tests that acquire the
+    // lock next (see test_support.rs CHILD_PROCESS_TEST_LOCK).
+    tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
 #[tokio::test]
@@ -420,6 +445,12 @@ async fn test_cr14_retry_loop_first_iteration_kills_crashed_sidecar() {
     // This test verifies the take-kill-store pattern works correctly
     // when the "old" child is still alive (simulating a half-dead
     // sidecar where the WS thread died but the process is running).
+    //
+    // Spawns REAL children of the test binary — serialize against
+    // the own-pid enumeration tests (see test_support.rs).
+    let _child_lock = CHILD_PROCESS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let state = make_test_state();
 
     // Setup: store a "crashed but still running" sidecar.
@@ -451,6 +482,13 @@ async fn test_cr14_retry_loop_first_iteration_kills_crashed_sidecar() {
     if let Some(h) = new_child {
         let _ = h.kill_tree().await;
     }
+    // Settle so tokio's process driver reaps the just-killed child
+    // BEFORE this test returns and releases CHILD_PROCESS_TEST_LOCK.
+    // Otherwise the zombie can linger in
+    // /proc/<test_pid>/task/<test_pid>/children for a sub-ms window
+    // and flake the own-pid empty-assertion tests that acquire the
+    // lock next (see test_support.rs CHILD_PROCESS_TEST_LOCK).
+    tokio::time::sleep(Duration::from_millis(100)).await;
 }
 
 // catch_unwind clears respawn_in_progress ────────────────

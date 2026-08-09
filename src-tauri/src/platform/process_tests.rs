@@ -23,6 +23,14 @@
 
 use super::*;
 
+// Serializes the own-pid enumeration/kill tests below against the
+// tests that spawn REAL OS child processes (see test_support.rs
+// CHILD_PROCESS_TEST_LOCK holder list). Unix-only: the own-pid tests
+// snapshot the test binary's real children, which only exist on Unix
+// CI (the sleep-30 + reaper spawners).
+#[cfg(unix)]
+use crate::test_support::CHILD_PROCESS_TEST_LOCK;
+
 // ── Range guard for `pid > i32::MAX` ───────────────────────────────
 
 /// `signal_pid` must NOT call `libc::kill` when `pid > i32::MAX`.
@@ -142,15 +150,22 @@ fn test_kill_process_tree_does_not_panic_on_any_platform() {
     // If we reach here, the function didn't panic.
 }
 
-/// `kill_process_tree` for `pid = 0` must not panic. pid 0 is the
-/// scheduler on Linux (never a real killable process); on Windows
-/// it's the idle process. The function should treat it as a no-op
-/// (the per-pid `signal_pid` returns ESRCH; `taskkill` exits
-/// non-zero).
+/// `kill_process_tree` for `pid = 0` must be a **no-op** — it must NOT
+/// enumerate children or signal anything. pid 0 is the kernel scheduler
+/// on Linux (never a real killable process); on Windows it's the idle
+/// process. Before the guard, `enumerate_children(0)` fell back to
+/// `pgrep -P 0` on Unix, which matches PID 1 (init) + kernel threads,
+/// and the DFS then descended into the ENTIRE process tree — including
+/// the GitHub Actions runner agent — and the per-pid SIGTERM/SIGKILL
+/// loop killed it (CI incident: job died with "The runner has received
+/// a shutdown signal" right after this test). The guard makes it a
+/// safe no-op that returns without enumerating or signaling.
 #[test]
 fn test_kill_process_tree_pid_zero_is_noop() {
     kill_process_tree(0);
-    // If we reach here, the function didn't panic.
+    // If we reach here, the function didn't panic AND didn't kill the
+    // caller's process tree (pre-guard, this would have signaled the
+    // whole process tree via the pgrep -P 0 fallback).
 }
 
 // ── Pre-existing kill-tree + register_kill_on_parent_exit tests ────
@@ -249,9 +264,17 @@ fn test_kill_process_group_if_safe_own_pid_does_not_self_kill() {
 /// with our OWN pid. The pgrep DFS finds no children, takes the
 /// early-return path, and calls `kill_process_group_if_safe` which
 /// must refuse to signal the host's pgid.
+///
+/// The lock serializes against the sibling tests that spawn REAL
+/// subprocesses (sleep 30 / reaper): those children are children of
+/// the test binary, so the DFS here would descend into and
+/// SIGTERM/SIGKILL them (failing their liveness assertions).
 #[cfg(unix)]
 #[test]
 fn test_kill_process_tree_own_pid_does_not_self_kill() {
+    let _child_lock = CHILD_PROCESS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let own_pid = std::process::id();
     super::kill_process_tree(own_pid);
     assert!(own_pid > 0);
@@ -305,9 +328,16 @@ fn test_signal_name_canonical() {
 /// This pins the Linux `/proc/<pid>/task/<pid>/children` reader's
 /// parse contract: space-separated decimal pids, empty file = no
 /// children = empty Vec.
+///
+/// The lock serializes against the sibling tests that spawn REAL
+/// subprocesses — their `sleep 30` children are children of the test
+/// binary and would appear in this file, failing the empty assertion.
 #[cfg(target_os = "linux")]
 #[test]
 fn test_enumerate_children_procfs_own_pid_no_children() {
+    let _child_lock = CHILD_PROCESS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let own_pid = std::process::id();
     let children = super::enumerate_children_procfs(own_pid)
         .expect("reading /proc/self/task/self/children must succeed for the test process");
@@ -334,15 +364,56 @@ fn test_enumerate_children_procfs_nonexistent_pid_returns_err() {
     );
 }
 
+/// `enumerate_children_pgrep(0)` must return empty WITHOUT running
+/// `pgrep -P 0`. `pgrep -P 0` matches PID 1 (init) + kernel threads,
+/// which made the `kill_process_tree(0)` DFS descend into the entire
+/// process tree (including the CI runner agent) and signal everything.
+/// The pid-0 guard must short-circuit before the pgrep spawn.
+#[cfg(unix)]
+#[test]
+fn test_enumerate_children_pgrep_pid_zero_returns_empty() {
+    let children = super::enumerate_children_pgrep(0);
+    assert!(
+        children.is_empty(),
+        "enumerate_children_pgrep(0) must return empty (pgrep -P 0 would match init + kernel threads) — got {:?}",
+        children
+    );
+}
+
+/// `enumerate_children` (the dispatch wrapper) for pid 0 must return
+/// an empty Vec on every Unix platform. On Linux the /proc read for
+/// pid 0 fails (no /proc/0) and the pgrep fallback would match init +
+/// kernel threads; the pid-0 guard in `enumerate_children_pgrep` must
+/// short-circuit before that happens. On macOS the same pgrep guard
+/// applies.
+#[cfg(unix)]
+#[test]
+fn test_enumerate_children_pid_zero_returns_empty() {
+    let children = super::enumerate_children(0);
+    assert!(
+        children.is_empty(),
+        "enumerate_children(0) must return empty (pid 0 is the kernel scheduler) — got {:?}",
+        children
+    );
+}
+
 /// `enumerate_children` (the dispatch wrapper) for the test
 /// process's OWN pid must return an empty Vec on Linux (reads
 /// /proc successfully) and on macOS (pgrep returns exit 1 for no
 /// children → empty Vec). This pins the dispatch contract: on
 /// Linux it must NOT fall back to pgrep (the /proc read succeeds),
 /// on non-Linux it must use the pgrep path.
+///
+/// The lock serializes against the sibling tests that spawn REAL
+/// subprocesses — their `sleep 30` children are children of the test
+/// binary and would appear in the enumeration, failing the empty
+/// assertion.
 #[cfg(unix)]
 #[test]
 fn test_enumerate_children_own_pid_returns_empty() {
+    let _child_lock = CHILD_PROCESS_TEST_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let own_pid = std::process::id();
     let children = super::enumerate_children(own_pid);
     assert!(
@@ -377,26 +448,62 @@ fn test_register_kill_on_parent_exit_returns_result_not_panic() {
     // VALIDATE ON LINUX HOST / WINDOWS HOST commands in the
     // module-level doc comment.
     //
-    // Use a pid that's guaranteed to not exist (pid 0 is the
-    // scheduler — never a real process; pid 1 is init — never
-    // assigned to a Job Object). On Windows, `OpenProcess` will
-    // fail with "invalid parameter" for pid 0. On POSIX, the
-    // reaper will spawn successfully (it doesn't validate the
-    // pid at spawn time — it just embeds it in the script).
+    // Use a pid that's guaranteed to not exist: pid 0 on Windows
+    // (`OpenProcess` fails with "invalid parameter" → Err, asserted
+    // below) and 999_999 on POSIX (pid 0 would be a self-reaper —
+    // `kill -0 0` succeeds and the reaper would loop forever; see
+    // the inline NOTE in the POSIX branch). pid 1 is init — never
+    // assigned to a Job Object.
     //
     // We call the function and accept any Result — the test
     // passes as long as it doesn't panic.
+    //
+    // The lock serializes against the own-pid enumeration tests:
+    // the reaper subprocess spawned below IS a child of the test
+    // binary, so `enumerate_children(own_pid)` would see it.
     #[cfg(unix)]
     {
+        let _child_lock = CHILD_PROCESS_TEST_LOCK
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         // POSIX: the reaper spawns successfully even with a
         // bogus pid (it just exits immediately on the first
         // `kill -0 $target` check). We expect Ok(()).
-        let result = super::register_kill_on_parent_exit(0);
+        //
+        // NOTE: use pid 999_999, NOT pid 0. The reaper script's
+        // first check is `kill -0 $target` — and POSIX `kill -0 0`
+        // SUCCEEDS (pid 0 signals the calling process's own
+        // process group), so a pid-0 target would make the reaper
+        // loop FOREVER as a live child of the test process,
+        // breaking the own-pid enumeration tests. With 999_999
+        // the first check fails (ESRCH) and the reaper exits
+        // immediately.
+        let result = super::register_kill_on_parent_exit(999_999);
         assert!(
             result.is_ok(),
-            "POSIX reaper spawn should succeed even with bogus pid 0, got: {:?}",
+            "POSIX reaper spawn should succeed even with bogus pid 999999, got: {:?}",
             result
         );
+        // Reap the (now-exited) reaper so it doesn't linger as a
+        // zombie child of the test binary — a zombie still shows
+        // up in /proc/<test_pid>/task/<test_pid>/children and
+        // would fail the own-pid empty assertions for the rest of
+        // the test run. Best-effort WNOHANG reap loop (the reaper
+        // exits within ~1ms of its first kill -0 check).
+        //
+        // NOTE: `waitpid(-1, WNOHANG)` reaps ANY zombie child of the
+        // test process. Under `CHILD_PROCESS_TEST_LOCK` no other
+        // child-spawning test is active, so the only child that can
+        // be reaped here is our own reaper (or a leftover zombie
+        // from an already-finished test, which is harmless to reap).
+        let mut status: libc::c_int = 0;
+        for _ in 0..50 {
+            let rc = unsafe { libc::waitpid(-1, &mut status, libc::WNOHANG) };
+            if rc != 0 {
+                break; // rc > 0 = reaped the reaper; rc == -1 = ECHILD (nothing left)
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
     }
     #[cfg(target_os = "windows")]
     {
