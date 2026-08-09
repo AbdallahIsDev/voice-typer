@@ -12,9 +12,17 @@ The canonical product root is ``com.voicetyper.*``:
 Legacy / wrong roots that must NOT reappear:
 
 - ``org.voice-typer.*`` — the pre-Tauri Electron polkit namespace.
-  Review finding #54 renamed it to ``com.voicetyper.*``; the
-  uninstaller now removes the legacy policy file so uninstalled
-  systems fully converge on ``com.voicetyper.*``.
+  Review finding #54 renamed it to ``com.voicetyper.*``; the legacy
+  policy file is removed at install/upgrade time by
+  ``install_permissions.py::_install_polkit_policy`` AND at uninstall
+  (via ``LEGACY_POLKIT_POLICY_DEST``), so converged systems never
+  register the old action ID.
+- ``app.voicetyper`` — the pre-migration OS keyring service name.
+  ``voice_typer/server/credential_store.py::KEYRING_SERVICE_NAME`` now
+  uses ``com.voicetyper.keyring``, and
+  ``_migrate_legacy_service_names_locked()`` copies legacy entries
+  forward at startup (gated on a per-hop config flag). No allowlisted
+  token remains for it.
 - ``com.voice-typer`` / ``com.voice_typer`` / ``org.voicetyper`` /
   ``org.voice_typer`` — misspellings / alternative spellings of the
   product root (a real ``com.voice-typer`` once shipped in
@@ -22,27 +30,19 @@ Legacy / wrong roots that must NOT reappear:
 
 This test scans every tracked text file and fails on any reverse-DNS
 token in the ``voicetyper`` family whose root is not ``com.voicetyper``.
-The only legacy tokens allowed to remain anywhere in the repo are:
+The only legacy tokens allowed to remain are SCOPED TO SPECIFIC FILES
+(see ``_LEGACY_TOKEN_ALLOWLIST`` — nothing is allowed globally):
 
-- ``org.voice-typer.policy`` / ``org.voice-typer.install-permissions``
-  / ``org.voice-typer.*`` — the legacy polkit artifacts referenced by
-  the uninstaller's cleanup (``LEGACY_POLKIT_POLICY_DEST`` in
-  ``scripts/linux/install_permissions.py``) and by the rename
-  documentation (polkit header, ADR-0008).
-- ``app.voicetyper`` — the OS keyring service name
-  (``voice_typer/server/credential_store.py::KEYRING_SERVICE_NAME``).
-  This is a runtime-stable, user-visible credential namespace:
-  renaming it would orphan every existing user's stored API keys and
-  the at-rest encryption key. It deliberately uses a different RDNN
-  root and is not a bundle identifier.
-
-One historical file is exempt for the BARE legacy root only:
-``scripts/append_review_findings.py`` — a one-shot review log whose
-finding-#54 entry snapshots the state at close time ("Repo-wide grep
-confirms zero ``org.voice-typer`` references remain"). A historical
-record is not rewritten; the guard still catches any NEW bare-legacy
-root usage anywhere else in the repo, and the specific legacy artifact
-tokens above are the only ones that may appear at all.
+- the uninstaller/installer script (both copies) — the explicit legacy
+  cleanup itself (``LEGACY_POLKIT_POLICY_DEST`` removal at
+  install/upgrade + uninstall);
+- the tests that pin that cleanup;
+- the polkit file headers — the rename history must spell the old name
+  to be meaningful;
+- ``scripts/append_review_findings.py`` — a one-shot review log whose
+  finding-#54 entry snapshots the state at close time (bare root +
+  artifact tokens). A historical record is not rewritten; the guard
+  still catches any NEW legacy-root usage anywhere else in the repo.
 
 This test file itself is exempt from the scan: its docstring
 necessarily spells out the exact banned spellings (``org.voicetyper``,
@@ -64,21 +64,43 @@ _REPO_ROOT = Path(__file__).resolve().parents[1]
 # The canonical root: every product namespace must start with this.
 CANONICAL_ROOT = "com.voicetyper"
 
-# Legacy tokens that legitimately remain (see module docstring).
-_ALLOWED_LEGACY_TOKENS = frozenset(
-    {
-        "org.voice-typer.policy",  # legacy polkit file the uninstaller removes
-        "org.voice-typer.install-permissions",  # legacy polkit action ID (rename docs)
-        "org.voice-typer.*",  # glob form used in rename docs / findings
-        "app.voicetyper",  # OS keyring service name (runtime-stable credentials)
-    }
-)
-
-# Historical findings log: exempt for the BARE legacy root only (its
-# finding-#54 entry snapshots the "zero references remain" state at
-# close time). The specific legacy artifact tokens are still governed
-# by the global allowlist above.
-_FINDINGS_LOG = Path("scripts/append_review_findings.py")
+# Legacy tokens that legitimately remain, SCOPED to the files that
+# perform or document the explicit legacy cleanup (see module docstring).
+# Nothing is allowed globally — every other file must use the canonical
+# ``com.voicetyper.*`` root.
+_LEGACY_TOKEN_ALLOWLIST: dict[str, frozenset[str]] = {
+    # Uninstaller/installer script (both copies) — the explicit legacy
+    # cleanup itself: removal of the legacy policy at install/upgrade
+    # (``_install_polkit_policy``) and at uninstall (``uninstall()``).
+    "scripts/linux/install_permissions.py": frozenset({"org.voice-typer.policy", "org.voice-typer.*"}),
+    "src-tauri/resources/linux-scripts/install_permissions.py": frozenset(
+        {"org.voice-typer.policy", "org.voice-typer.*"}
+    ),
+    # Tests pinning that cleanup.
+    "tests/test_install_permissions_polkit_stable.py": frozenset({"org.voice-typer.policy"}),
+    # Polkit file headers — the rename history must spell the old name
+    # to be meaningful.
+    "scripts/linux/voice-typer.polkit": frozenset({"org.voice-typer.policy", "org.voice-typer.install-permissions"}),
+    "src-tauri/resources/linux-scripts/voice-typer.polkit": frozenset(
+        {"org.voice-typer.policy", "org.voice-typer.install-permissions"}
+    ),
+    # Historical findings log — the finding-#54 entry snapshots the
+    # close-time state (bare root + legacy artifact tokens). A one-shot
+    # record is not rewritten.
+    "scripts/append_review_findings.py": frozenset(
+        {
+            "org.voice-typer",
+            "org.voice-typer.policy",
+            "org.voice-typer.install-permissions",
+            "org.voice-typer.*",
+        }
+    ),
+    # The keyring half of the legacy namespace cleanup: the
+    # ``_LEGACY_KEYRING_SERVICE_NAMES`` tuple + migration docstrings
+    # must name the old service so ``_migrate_legacy_service_names_locked``
+    # can re-register entries under ``KEYRING_SERVICE_NAME``.
+    "voice_typer/server/credential_store.py": frozenset({"app.voicetyper"}),
+}
 
 # This test module itself: its docstring defines the exact banned
 # spellings, so it is exempt from the scan (definitions, not usages).
@@ -126,7 +148,7 @@ class TestProductNamespaceConsistency:
 
     def test_no_legacy_or_wrong_product_namespaces(self):
         """Every reverse-DNS token in the voicetyper family is canonical
-        (or on the explicit legacy allowlist)."""
+        (or scoped per-file in ``_LEGACY_TOKEN_ALLOWLIST``)."""
         violations: list[tuple[str, int, str]] = []
         for path in _tracked_text_files():
             rel = path.relative_to(_REPO_ROOT).as_posix()
@@ -138,21 +160,20 @@ class TestProductNamespaceConsistency:
                 token = match.group(1)
                 if token == CANONICAL_ROOT or token.startswith(CANONICAL_ROOT + "."):
                     continue  # canonical — allowed everywhere
-                if token in _ALLOWED_LEGACY_TOKENS:
-                    continue  # documented legacy artifact — allowed everywhere
-                if token == "org.voice-typer" and rel_path == _FINDINGS_LOG:
-                    continue  # historical findings snapshot — bare-root exempt
+                allowed = _LEGACY_TOKEN_ALLOWLIST.get(rel, frozenset())
+                if token in allowed:
+                    continue  # documented legacy artifact — scoped to this file
                 line = text.count("\n", 0, match.start()) + 1
                 violations.append((rel, line, token))
 
         assert not violations, (
             "Non-canonical product namespace(s) found. The canonical reverse-DNS "
             f"root is '{CANONICAL_ROOT}.*' (tauri.conf.json identifier, "
-            "electron-builder.yml appId, polkit action, macOS LaunchAgents).\n"
-            + "\n".join(f"  {rel}:{line}: {token}" for rel, line, token in violations)
-            + "\n"
+            "electron-builder.yml appId, polkit action, macOS LaunchAgents, "
+            "keyring service name).\n" + "\n".join(f"  {rel}:{line}: {token}" for rel, line, token in violations) + "\n"
             "Fix: rename the token to the canonical com.voicetyper.* root (or, only "
-            "for the documented legacy polkit artifacts the uninstaller removes / "
-            "the keyring service name, extend the allowlist in "
-            "tests/test_product_namespace_consistency.py with a reason)."
+            "for the legacy polkit artifacts the installer/uninstaller explicitly "
+            "cleans up, extend the per-file scope in "
+            "tests/test_product_namespace_consistency.py::_LEGACY_TOKEN_ALLOWLIST "
+            "with a reason)."
         )

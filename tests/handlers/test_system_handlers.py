@@ -396,19 +396,20 @@ class TestResetLinuxPermissions:
         assert calls == [], "must NOT spawn pkexec/pkaction on non-Linux"
 
     def test_linux_happy_path_restarts_polkit_and_reports_post_reset_state(self, ipc_server, monkeypatch):
-        """Linux → polkit daemon restarted via pkexec; both the current
-        and the legacy (finding #54) action registrations are surfaced
-        and pkcheck'd to ``not_authorized`` (the cleared state)."""
+        """Linux → polkit daemon restarted via pkexec; the canonical
+        ``com.voicetyper.install-permissions`` action registration is
+        surfaced and pkcheck'd to ``not_authorized`` (the cleared state).
+
+        The legacy (pre-Tauri Electron) action is NOT enumerated: the
+        legacy policy file is removed at install/upgrade time (see
+        install_permissions.py), so no current install registers it."""
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers.is_linux",
             lambda: True,
         )
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers._enumerate_polkit_actions",
-            lambda: [
-                "com.voicetyper.install-permissions",
-                "org.voice-typer.install-permissions",
-            ],
+            lambda: ["com.voicetyper.install-permissions"],
         )
         monkeypatch.setattr(
             "voice_typer.server.handlers.system_handlers._reset_polkit_authorization",
@@ -425,13 +426,9 @@ class TestResetLinuxPermissions:
         assert resp["data"]["ok"] is True
         assert resp["data"]["command"] == "pkexec systemctl restart polkit"
         assert resp["data"]["error"] is None
-        assert resp["data"]["actions"] == [
-            "com.voicetyper.install-permissions",
-            "org.voice-typer.install-permissions",
-        ]
+        assert resp["data"]["actions"] == ["com.voicetyper.install-permissions"]
         assert resp["data"]["checks"] == {
             "com.voicetyper.install-permissions": "not_authorized",
-            "org.voice-typer.install-permissions": "not_authorized",
         }
 
     def test_linux_reset_failure_reports_error_and_skips_checks(self, ipc_server, monkeypatch):
@@ -478,16 +475,15 @@ class TestPolkitResetHelpers:
     ``reset_linux_permissions``."""
 
     def test_enumerate_filters_voicetyper_actions_and_dedupes(self, monkeypatch):
-        """Only action IDs mentioning ``voicetyper`` are surfaced (both
-        namespaces); unrelated polkit actions are dropped; duplicates
-        collapse."""
+        """Only action IDs mentioning ``voicetyper`` are surfaced (the
+        canonical namespace); unrelated polkit actions are dropped;
+        duplicates collapse."""
         import voice_typer.server.handlers.system_handlers as sh
 
         class _FakeCompleted:
             returncode = 0
             stdout = (
                 "com.voicetyper.install-permissions\n"
-                "org.voice-typer.install-permissions\n"
                 "org.freedesktop.policykit.exec\n"
                 "com.voicetyper.install-permissions\n"
             )
@@ -496,7 +492,6 @@ class TestPolkitResetHelpers:
 
         assert sh._enumerate_polkit_actions() == [
             "com.voicetyper.install-permissions",
-            "org.voice-typer.install-permissions",
         ]
 
     def test_enumerate_tolerates_missing_pkaction(self, monkeypatch):

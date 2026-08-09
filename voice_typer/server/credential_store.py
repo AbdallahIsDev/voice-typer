@@ -288,22 +288,38 @@ def _run_keyring_call(func: Callable[..., _T], *args: Any, **kwargs: Any) -> _T:
 #: matches the convention recommended by the keyring docs (one service
 #: per application, multiple usernames).
 #:
-# changed from the bare ``"voice-typer"`` to the reverse-DNS
-#: form ``"app.voicetyper"`` so another app registering the same bare
-#: service name cannot read Voice Typer secrets (or pollute our
-#: namespace). :func:`migrate_secrets_to_keyring` performs a one-time
-#: cutover that copies entries stored under any name in
+#: The service name shares the ``com.voicetyper.*`` RDNN root with the
+#: bundle identifier and the polkit action (product-namespace
+#: consistency — pinned by ``tests/test_product_namespace_consistency.py``).
+#: Historically it was the reverse-DNS ``app.voicetyper`` form
+#: (itself migrated from the bare ``voice-typer``) so another app
+#: registering the same bare service name cannot read Voice Typer
+#: secrets (or pollute our namespace).
+#: :func:`migrate_secrets_to_keyring` performs the one-time cutover that
+#: copies entries stored under any name in
 #: :data:`_LEGACY_KEYRING_SERVICE_NAMES` to the new name and deletes
-#: the legacy entries (gated on the ``service_name_migrated`` config
-#: flag so it only runs once per install).
-KEYRING_SERVICE_NAME = "app.voicetyper"
+#: the legacy entries. The cutover is gated on a per-hop config flag
+#: (:data:`_SERVICE_NAME_MIGRATED_FLAG`) so it runs once per service
+#: name — including on systems that already migrated under an earlier
+#: service name (their old flag does not suppress the new hop).
+KEYRING_SERVICE_NAME = "com.voicetyper.keyring"
 
 #: Prior service names used by Voice Typer. :func:`migrate_secrets_to_keyring`
 #: copies any keyring entries stored under these names to
 #: :data:`KEYRING_SERVICE_NAME` and deletes the originals. Listed in
 #: reverse-chronological order (most recent first) so a partial cutover
 #: that was interrupted is completed correctly on the next launch.
-_LEGACY_KEYRING_SERVICE_NAMES: tuple[str, ...] = ("voice-typer",)
+_LEGACY_KEYRING_SERVICE_NAMES: tuple[str, ...] = ("app.voicetyper", "voice-typer")
+
+#: Config flag key (in ``config.json``) that gates the legacy-service-name
+#: cutover (:func:`_migrate_legacy_service_names_locked`). The name is
+#: derived from the CURRENT :data:`KEYRING_SERVICE_NAME` so a future
+#: service-name change automatically re-runs the cutover for the new
+#: hop: an old flag set under a previous service name (e.g. the
+#: unqualified ``service_name_migrated`` set by the first hop) must NOT
+#: suppress the new hop, and fresh installs run the cutover exactly
+#: once.
+_SERVICE_NAME_MIGRATED_FLAG = f"service_name_migrated_{KEYRING_SERVICE_NAME.replace('.', '_')}"
 
 #: The prefix used in config.json reference tokens. A flat api_key field
 #: whose value starts with this prefix is treated as "the real secret
@@ -1856,14 +1872,16 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
 
     # one-time legacy keyring service-name cutover. Runs
     # BEFORE the ``secrets_migrated`` early-return so it's not blocked
-    # by a prior successful migration. Gated on the independent
-    # ``service_name_migrated`` config flag. If keyring is unavailable,
-    # the flag is NOT set (we'll retry next launch).
+    # by a prior successful migration. Gated on the per-hop derived
+    # config flag (``_SERVICE_NAME_MIGRATED_FLAG``) — a flag set by an
+    # earlier service-name hop does NOT suppress the current hop. If
+    # keyring is unavailable, the flag is NOT set (we'll retry next
+    # launch).
     service_name_migrated_this_run = False
-    if not data.get("service_name_migrated", False):
+    if not data.get(_SERVICE_NAME_MIGRATED_FLAG, False):
         if is_keyring_available():
             _migrate_legacy_service_names_locked()
-            data["service_name_migrated"] = True
+            data[_SERVICE_NAME_MIGRATED_FLAG] = True
             service_name_migrated_this_run = True
         else:
             log.info("[CREDENTIAL_STORE] migration: deferring legacy service-name cutover — keyring unavailable")
@@ -1874,14 +1892,15 @@ def _migrate_secrets_to_keyring_locked(config_file) -> int:
     # entirely (idempotent).
     if data.get("secrets_migrated", False):
         log.debug("[CREDENTIAL_STORE] migration: secrets_migrated flag already set — skipping")
-        # If we just set ``service_name_migrated`` this run, persist it
-        # before early-returning.
+        # If we just set the service-name-migration flag this run,
+        # persist it before early-returning.
         if service_name_migrated_this_run:
             try:
                 _secure_atomic_write(config_file, json.dumps(data, indent=2))
             except Exception as e:
                 log.error(
-                    "[CREDENTIAL_STORE] migration: failed to persist service_name_migrated flag: %s",
+                    "[CREDENTIAL_STORE] migration: failed to persist %s flag: %s",
+                    _SERVICE_NAME_MIGRATED_FLAG,
                     _redact_sensitive(str(e)),
                 )
         return 0
@@ -2023,13 +2042,13 @@ def _migrate_legacy_service_names_locked() -> int:
     to the current :data:`KEYRING_SERVICE_NAME`, then delete the legacy
     entries.
 
-    Pre-, Voice Typer stored secrets under the bare service
-    name ``"voice-typer"``.  changed the service name to the
-    reverse-DNS form ``"app.voicetyper"``. This function performs the
-    one-time cutover: for each legacy service name in
+    Pre-migration, Voice Typer stored secrets under the bare service
+    name ``"voice-typer"``, then under the reverse-DNS ``app.voicetyper``
+    service name. This function performs the one-time cutover for both
+    hops: for each legacy service name in
     :data:`_LEGACY_KEYRING_SERVICE_NAMES` and each provider in
     :data:`PROVIDER_TO_CONFIG_FIELD`, copy the entry forward to the
-    new service name and delete the legacy entry.
+    current service name and delete the legacy entry.
 
     Assumes the cross-process ``config.json.lock`` is held (caller is
     :func:`_migrate_secrets_to_keyring_locked`) AND that

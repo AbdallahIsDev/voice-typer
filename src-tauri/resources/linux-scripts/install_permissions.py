@@ -132,9 +132,11 @@ POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/com.voicetyper.policy")
 # the action ID + filename used the ``org.voice-typer.*`` RDNN root.
 # Upgraded systems that installed the legacy Electron package may still
 # have this file at ``/usr/share/polkit-1/actions/org.voice-typer.policy``.
-# The uninstaller removes it (alongside the current policy) so an
-# uninstalled system fully converges on the ``com.voicetyper.*``
-# namespace — see ``_remove_polkit_policies``.
+# ``_install_polkit_policy`` removes it on every install/upgrade run (so
+# the upgrade itself converges the system) and the uninstaller removes
+# it (alongside the current policy) so an uninstalled system fully
+# converges on the ``com.voicetyper.*`` namespace — see
+# ``_remove_polkit_policies``.
 LEGACY_POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/org.voice-typer.policy")
 
 # AppImage squashfs mounts under ``/tmp/.mount_<name><rand>/``. The
@@ -226,10 +228,25 @@ def _install_polkit_policy() -> None:
     (byte-identical). Only runs if the source policy file exists alongside
     this script (it is bundled as a Tauri resource sibling in
     ``src-tauri/resources/linux-scripts/``).
+
+    Also removes the legacy ``org.voice-typer.policy`` (see
+    ``LEGACY_POLKIT_POLICY_DEST``) so an UPGRADE from a pre-Tauri
+    Electron install converges on the ``com.voicetyper.*`` namespace at
+    install time — the legacy file is inert (pkexec matches by
+    ``exec.path``, not action ID) but must not linger. The removal runs
+    BEFORE the idempotent-match early return so a no-op install still
+    performs the cleanup, and is tolerant of an absent / unremovable
+    file (non-fatal).
     """
     if not POLKIT_POLICY_SOURCE.is_file():
         log(f"WARNING: polkit policy source not found at {POLKIT_POLICY_SOURCE} — skipping polkit policy install")
         return
+
+    # Converge upgraded systems on the com.voicetyper.* namespace: a
+    # legacy org.voice-typer.policy from a pre-Tauri Electron install
+    # defines the old action ID and would otherwise linger until
+    # uninstall. Tolerant of absence / OSError (non-fatal).
+    _remove_polkit_policy_file(LEGACY_POLKIT_POLICY_DEST)
 
     # Idempotent: skip if destination already matches source.
     if POLKIT_POLICY_DEST.is_file():
@@ -248,6 +265,23 @@ def _install_polkit_policy() -> None:
         log(f"WARNING: failed to install polkit policy (non-fatal): {exc}")
 
 
+def _remove_polkit_policy_file(policy: Path) -> None:
+    """Remove one polkit policy file.
+
+    Tolerant of absent files (silent no-op) and ``OSError`` (logged as
+    a non-fatal warning — a failure here must not abort the caller).
+    """
+    try:
+        # ``is_symlink()`` covers dangling symlinks that ``exists()``
+        # would report as absent (polkit policy files could be
+        # symlinked by a prior installer).
+        if policy.exists() or policy.is_symlink():
+            policy.unlink()
+            log(f"Removed polkit policy {policy}")
+    except OSError as exc:
+        log(f"WARNING: failed to remove polkit policy {policy} (non-fatal): {exc}")
+
+
 def _remove_polkit_policies() -> None:
     """Remove the polkit policy files Voice Typer has ever shipped.
 
@@ -263,15 +297,41 @@ def _remove_polkit_policies() -> None:
     uninstall).
     """
     for policy in (POLKIT_POLICY_DEST, LEGACY_POLKIT_POLICY_DEST):
-        try:
-            # ``is_symlink()`` covers dangling symlinks that ``exists()``
-            # would report as absent (polkit policy files could be
-            # symlinked by a prior installer).
-            if policy.exists() or policy.is_symlink():
-                policy.unlink()
-                log(f"Removed polkit policy {policy}")
-        except OSError as exc:
-            log(f"WARNING: failed to remove polkit policy {policy} (non-fatal): {exc}")
+        _remove_polkit_policy_file(policy)
+
+
+def _remove_polkit_stable_path() -> None:
+    """Remove the polkit-stable script path (symlink or copy) + its dir.
+
+    ``setup_polkit_stable_path`` installs this script to
+    ``/usr/share/voice-typer/scripts/install_permissions.py`` (a
+    symlink for .deb / .rpm, a copy for AppImage). After the polkit
+    policies are gone (``_remove_polkit_policies``), the stable path has
+    no consumer: the file at it is now inert, and on uninstall the
+    symlink would dangle (its target is being deleted). Removal happens
+    at uninstall only — during normal operation the path must keep
+    resolving for ``pkexec com.voicetyper.install-permissions``.
+
+    The dir is removed only if it becomes empty (``rmdir`` semantics —
+    never delete foreign files that may share the directory).
+
+    Tolerant of absent paths and ``OSError`` (logged as a non-fatal
+    warning — a failure here must not abort the rest of the uninstall).
+    """
+    try:
+        # ``is_symlink()`` covers dangling symlinks that ``exists()``
+        # would report as absent.
+        if POLKIT_STABLE_PATH.is_symlink() or POLKIT_STABLE_PATH.exists():
+            POLKIT_STABLE_PATH.unlink()
+            log(f"Removed polkit-stable script {POLKIT_STABLE_PATH}")
+    except OSError as exc:
+        log(f"WARNING: failed to remove polkit-stable script {POLKIT_STABLE_PATH} (non-fatal): {exc}")
+    try:
+        if POLKIT_STABLE_DIR.exists() and not POLKIT_STABLE_DIR.is_symlink():
+            POLKIT_STABLE_DIR.rmdir()  # only removes if empty — safe
+            log(f"Removed polkit-stable dir {POLKIT_STABLE_DIR}")
+    except OSError as exc:
+        log(f"WARNING: failed to remove polkit-stable dir {POLKIT_STABLE_DIR} (non-fatal): {exc}")
 
 
 def setup_polkit_stable_path() -> None:
@@ -1163,6 +1223,13 @@ def uninstall() -> None:
     # restoration so a failure here can't skip the rest of the cleanup
     # (the helper is non-fatal anyway).
     _remove_polkit_policies()
+
+    # Remove the polkit-stable script path (symlink or copy) + its
+    # (now-empty) dir. With both polkit policies gone, the stable path
+    # has no consumer — the script at it is inert and a symlink would
+    # dangle against the deleted install. Runs after the policy removal
+    # (same non-fatal semantics).
+    _remove_polkit_stable_path()
 
     # Restore backups if they exist
     if manifest:

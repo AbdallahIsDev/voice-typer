@@ -61,12 +61,13 @@ def _has_control_chars(value) -> bool:
 def _enumerate_polkit_actions() -> list[str]:
     """Enumerate polkit actions registered for Voice Typer via ``pkaction``.
 
-    Covers BOTH action-ID namespaces the app has ever shipped:
-    ``com.voicetyper.install-permissions`` (current) and the legacy
-    ``org.voice-typer.install-permissions`` (pre-Tauri Electron builds —
-    finding #54). On upgraded systems pkaction lists both while the old
-    policy file lingers; surfacing them in the reset response tells the
-    user (and the diagnostics) what was actually cleared.
+    Surfaces the ``com.voicetyper.install-permissions`` action (the only
+    namespace the app ships — finding #54 renamed it from the legacy
+    pre-Tauri Electron root, and ``install_permissions.py`` removes the
+    legacy policy file (``LEGACY_POLKIT_POLICY_DEST``) at install/upgrade
+    time, so no current install registers the old action ID).
+    Enumerating the legacy action here would be vestigial: the legacy
+    policy is gone by the time a user reaches the reset button.
 
     Returns a sorted, deduped list of matching action IDs. Tolerant of
     ``pkaction`` being absent, timing out, or exiting non-zero
@@ -90,13 +91,7 @@ def _enumerate_polkit_actions() -> list[str]:
             result.returncode,
         )
         return []
-    return sorted(
-        {
-            line.strip()
-            for line in result.stdout.splitlines()
-            if "voicetyper" in line.strip().lower() or "voice-typer" in line.strip().lower()
-        }
-    )
+    return sorted({line.strip() for line in result.stdout.splitlines() if "voicetyper" in line.strip().lower()})
 
 
 def _polkit_check_authorization(action_id: str) -> str:
@@ -504,9 +499,9 @@ class SystemHandlersMixin(HandlerBase):
         in-memory authorization cache. Steps:
 
         1. ``pkaction`` — enumerate the registered Voice Typer polkit
-           action IDs (both ``com.voicetyper.install-permissions`` and
-           the legacy ``org.voice-typer.install-permissions``), so the
-           response can surface what was actually registered.
+           action IDs (``com.voicetyper.install-permissions`` — the only
+           namespace the app ships), so the response can surface what
+           was actually registered.
         2. ``pkexec systemctl restart polkit`` (fallbacks: polkitd /
            ``service polkit restart``) — clears the cached
            authorization. Runs via pkexec so a NEW polkit prompt

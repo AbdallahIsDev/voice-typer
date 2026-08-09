@@ -29,7 +29,7 @@ Voice Typer persists user data on disk under the platform config dir
 | `history.db` FTS5 shadow tables (`transcriptions_fts_data`, `_idx`, `_content`, `_config`, `_docsize`) | tokenized dictated text | same file perms as `history.db` | Yes — derived PII |
 | `history.db` metadata columns (`timestamp`, `model`, `device`, `language`, `favorite`) | recording metadata | same | No (operational) |
 | `config.json` | hotkey, model selection, cloud_api_url, `keyring://` reference tokens | POSIX `0o600` via `_secure_atomic_write`; reference tokens instead of secrets when keyring available | No (refs only) |
-| OS keychain entries (`app.voicetyper` service) | cloud provider API keys (OpenAI / Groq / Deepgram / cloud / llm) | already encrypted at rest by the OS keychain wrapper (DPAPI / Keychain / SecretService). Managed by `voice_typer/server/credentials/`. See [`docs/security/credential-store.md`](../security/credential-store.md). | Yes (already protected) |
+| OS keychain entries (`com.voicetyper.keyring` service) | cloud provider API keys (OpenAI / Groq / Deepgram / cloud / llm) | already encrypted at rest by the OS keychain wrapper (DPAPI / Keychain / SecretService). Managed by `voice_typer/server/credentials/`. See [`docs/security/credential-store.md`](../security/credential-store.md). | Yes (already protected) |
 | `vocabulary.json`, `templates.json` | user-defined phrases / templates (may contain personal snippets) | `0o600` via `PersistedJSON`; single-slot `.bak`; corrupt-quarantine | Secondary PII |
 | `crash_diagnostics_archive/*.txt` and `.zip` exports | stack traces; **may include last-N dictated transcriptions** (see `diagnostics_export.py` lines 416–420) | `0o600`; retention sweep | Secondary PII |
 | Audio recordings | **Not persisted to disk.** Audio flows through the in-memory ring buffer in `recording/audio_pipeline.py` and is discarded after transcription. No file is written. | n/a | n/a |
@@ -60,7 +60,7 @@ Encrypt the `transcriptions.text` column at the Python application layer
 using **AES-256-GCM** (authenticated encryption), with the data-encryption
 key (DEK) sourced from the **existing OS keychain integration** in
 `voice_typer/server/credentials/` (same `keyring` library, same
-`KEYRING_SERVICE_NAME = "app.voicetyper"` service, same plaintext
+`KEYRING_SERVICE_NAME = "com.voicetyper.keyring"` service, same plaintext
 fallback policy). Extend `secure_file_io.py` with a small `EncryptedColumn`
 helper so the same atomic-write + TOCTOU-safe-read + 0o600-perms
 guarantees apply to the DEK material.
@@ -87,7 +87,7 @@ and adds the at-rest-encryption mitigation column:
 | Actor | Capability | Mitigated by (current) | Mitigated by (this design) | Residual |
 |---|---|---|---|---|
 | **Offline attacker with disk access** (stolen laptop, disk image, disk salvage, cloud-synced `~/.config`) | Read `history.db` directly; recover dictated text from free pages, WAL, journal | POSIX `0o600` + `secure_delete=ON` + WAL truncate on close; **no Windows protection** | AES-256-GCM on `text` column. Without DEK (keychain-encrypted), the column is opaque ciphertext. | None on POSIX+keychain; None on Windows+keychain. Residual when keychain unavailable — see §9. |
-| **Same-user process** (another app running as the OS user) | `open("history.db")` and read | POSIX `0o600` blocks other users only; **any same-user process can still read**. On Windows, default ACLs allow same-user read. | Ciphertext requires DEK. DEK lives in keychain; same-user process *can* call `keyring.get_password("app.voicetyper", "__data_encryption_key__")` and recover DEK. | **Partial mitigation only** — same-user malware that knows to query the keychain still wins. Documented in §10. |
+| **Same-user process** (another app running as the OS user) | `open("history.db")` and read | POSIX `0o600` blocks other users only; **any same-user process can still read**. On Windows, default ACLs allow same-user read. | Ciphertext requires DEK. DEK lives in keychain; same-user process *can* call `keyring.get_password("com.voicetyper.keyring", "__data_encryption_key__")` and recover DEK. | **Partial mitigation only** — same-user malware that knows to query the keychain still wins. Documented in §10. |
 | **Root / admin** | Read everything regardless of perms | None at app layer | DEK is recoverable by root (keychain grants access to root on most platforms). | None. Filesystem-level encryption (FileVault / BitLocker / LUKS) remains the user's responsibility. |
 | **Malware with same-user privileges, while app is running** | Read `history.db` + read DEK from keychain | n/a | DEK is cached in process memory after first load. A memory dump captures DEK + plaintext-decrypted rows in the read cache. | Out of scope (same threat model as credential store — see `docs/security/credential-store.md` "What RW-01 does NOT protect against"). |
 | **Forensic disk recovery after GDPR delete** | Recover deleted plaintext from free pages / WAL / journal | `secure_delete=ON`; GDPR delete unlinks `history.db*` and `crash_diagnostics_archive/` | After encryption is enabled, deleted rows are ciphertext; even if recovered, they need DEK. | Strengthened. |
@@ -169,7 +169,7 @@ the OS keychain under the existing service name with a reserved
 username:
 
 ```
-service = KEYRING_SERVICE_NAME   # "app.voicetyper" — same as API keys
+service = KEYRING_SERVICE_NAME   # "com.voicetyper.keyring" — same as API keys
 username = "__data_encryption_key__"   # reserved; never used for a cloud provider
 secret = base64(dek)              # keyring stores strings; encode bytes as b64
 ```
@@ -444,8 +444,8 @@ the platform backend:
 
 | Platform | Backend (`keyring.get_keyring()` returns) | DEK wrapped by | User-visible behavior |
 |---|---|---|---|
-| **Windows 10 / 11** | `WindowsCredentialVaultKeyring` (pywin32) | DPAPI (user scope) | DEK stored in Credential Manager under `Target: app.voicetyper:__data_encryption_key__`. Survives user logoff. Not readable by other users. Recoverable by an administrator with DPAPI master-key backup. |
-| **macOS 11+** | `macOSKeyring` (pyobjc) | Keychain (AES-128, key from login password) | DEK stored in the user's login Keychain under service `app.voicetyper`, account `__data_encryption_key__`. First access shows a Keychain prompt — user clicks "Always Allow". Survives reboot. Not readable by other users. |
+| **Windows 10 / 11** | `WindowsCredentialVaultKeyring` (pywin32) | DPAPI (user scope) | DEK stored in Credential Manager under `Target: com.voicetyper.keyring:__data_encryption_key__`. Survives user logoff. Not readable by other users. Recoverable by an administrator with DPAPI master-key backup. |
+| **macOS 11+** | `macOSKeyring` (pyobjc) | Keychain (AES-128, key from login password) | DEK stored in the user's login Keychain under service `com.voicetyper.keyring`, account `__data_encryption_key__`. First access shows a Keychain prompt — user clicks "Always Allow". Survives reboot. Not readable by other users. |
 | **Linux (with `gnome-keyring-daemon`)** | `SecretServiceKeyring` (libsecret via dbus-python) | libsecret (encrypted with the keyring master password, often the login password) | DEK stored in the GNOME Keyring. Survives logout. |
 | **Linux (headless, no `gnome-keyring-daemon`)** | `fail.Keyring` (detected as unavailable by `_probe_keyring`) | n/a — DEK cannot be stored | Falls through to §9 (plaintext fallback: encryption DISABLED). |
 
@@ -650,9 +650,9 @@ Per-OS validation (extends the matrix in
 
 | OS | DEK source | Encryption enabled? | Residual risk | Validation step |
 |---|---|---|---|---|
-| **Linux (with `gnome-keyring-daemon`)** | SecretService | ✅ Yes | Same-user malware (out-of-scope). | `secret-tool search service app.voicetyper username __data_encryption_key__` returns the entry; `history.db` row `text_enc` is non-readable (BLOB of `v1` + 12-byte nonce + ciphertext + 16-byte tag). |
-| **macOS (Keychain)** | Keychain | ✅ Yes | Same + Time Machine backup of Keychain (residual). | `security find-generic-password -s app.voicetyper -a __data_encryption_key__` returns the entry. |
-| **Windows (Credential Manager)** | DPAPI | ✅ Yes | Same-user malware (out-of-scope). | `cmdkey /list` shows `app.voicetyper:__data_encryption_key__`. |
+| **Linux (with `gnome-keyring-daemon`)** | SecretService | ✅ Yes | Same-user malware (out-of-scope). | `secret-tool search service com.voicetyper.keyring username __data_encryption_key__` returns the entry; `history.db` row `text_enc` is non-readable (BLOB of `v1` + 12-byte nonce + ciphertext + 16-byte tag). |
+| **macOS (Keychain)** | Keychain | ✅ Yes | Same + Time Machine backup of Keychain (residual). | `security find-generic-password -s com.voicetyper.keyring -a __data_encryption_key__` returns the entry. |
+| **Windows (Credential Manager)** | DPAPI | ✅ Yes | Same-user malware (out-of-scope). | `cmdkey /list` shows `com.voicetyper.keyring:__data_encryption_key__`. |
 | **Linux (headless, no keyring daemon)** | n/a | ❌ No (passthrough) | Same as current state — dictated text in plaintext. | `history.db` row `text` is plaintext; renderer shows amber "encryption disabled" badge. |
 
 ## 14. References
@@ -672,7 +672,7 @@ Per-OS validation (extends the matrix in
   `get_keyring_status`). This design adds `load_dek`, `store_dek`,
   `rotate_dek` to the same module.
 - `voice_typer/server/credentials/_constants.py` — `KEYRING_SERVICE_NAME
-  = "app.voicetyper"`. This design adds
+  = "com.voicetyper.keyring"`. This design adds
   `DATA_ENCRYPTION_KEY_USERNAME = "__data_encryption_key__"` (and
   `__data_encryption_key_prev__` for rotation).
 - `voice_typer/server/credentials/_keyring_io.py` — `_run_keyring_call`

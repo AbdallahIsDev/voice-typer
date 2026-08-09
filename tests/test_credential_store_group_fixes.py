@@ -393,17 +393,59 @@ class TestAlreadyFixedVerifications:
         assert "[redacted]" in redacted
 
     def test_xz_sec_08_service_name_is_reverse_dns(self):
-        """``KEYRING_SERVICE_NAME`` must be the reverse-DNS
-        form ``app.voicetyper`` (not the bare ``voice-typer`` that
-        another app could register and use to read Voice Typer secrets)."""
-        assert credential_store.KEYRING_SERVICE_NAME == "app.voicetyper", (
-            "regression: KEYRING_SERVICE_NAME reverted to the "
-            "bare 'voice-typer' form — another app registering the same "
-            "service name could read Voice Typer secrets."
+        """``KEYRING_SERVICE_NAME`` must be the canonical
+        ``com.voicetyper.*`` reverse-DNS form (matching the bundle
+        identifier / polkit action RDNN root), not the bare
+        ``voice-typer`` that another app could register and use to read
+        Voice Typer secrets."""
+        assert credential_store.KEYRING_SERVICE_NAME == "com.voicetyper.keyring", (
+            "regression: KEYRING_SERVICE_NAME no longer uses the canonical "
+            "com.voicetyper.* reverse-DNS root — another app registering "
+            "the same service name could read Voice Typer secrets, and "
+            "the product-namespace drift guard "
+            "(tests/test_product_namespace_consistency.py) would fail."
         )
         # Legacy names must include the bare form so one-time migration
         # can copy entries forward.
         assert "voice-typer" in credential_store._LEGACY_KEYRING_SERVICE_NAMES
+
+
+# keyring service-name cutover ──────────────────────────────
+
+
+class TestLegacyServiceNameCutover:
+    """``_migrate_legacy_service_names_locked`` re-registers keyring
+    entries from EVERY legacy service name (bare + prior reverse-DNS)
+    under the current ``KEYRING_SERVICE_NAME`` and deletes the originals
+    — the keyring half of the product-namespace migration (the polkit
+    half lives in install_permissions.py)."""
+
+    def test_copies_entries_from_all_legacy_names(self, monkeypatch):
+        """Entries stored under each name in
+        ``_LEGACY_KEYRING_SERVICE_NAMES`` are re-registered under the
+        current service name, and the legacy entries are deleted."""
+        harness = _install_fake_keyring(monkeypatch, available=True)
+        store = harness["store"]
+
+        current = credential_store.KEYRING_SERVICE_NAME
+        legacy_names = credential_store._LEGACY_KEYRING_SERVICE_NAMES
+        assert len(legacy_names) >= 2, (
+            "the bare legacy name AND the prior reverse-DNS name must both be listed (reverse-chronological)"
+        )
+        for legacy in legacy_names:
+            store[(legacy, "openai")] = f"sk-{legacy}"
+
+        copied = credential_store._migrate_legacy_service_names_locked()
+
+        assert copied == len(legacy_names), "every legacy entry must be copied forward"
+        # Last-processed legacy name wins (loop order is reverse-
+        # chronological).
+        last_legacy = legacy_names[-1]
+        assert store[(current, "openai")] == f"sk-{last_legacy}", (
+            "the current service name must hold the migrated entry"
+        )
+        for legacy in legacy_names:
+            assert (legacy, "openai") not in store, f"legacy entry under {legacy!r} must be deleted after cutover"
 
 
 # non-string api_key value crashes migration ───────────────────

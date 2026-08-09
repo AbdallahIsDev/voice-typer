@@ -533,6 +533,36 @@ jobs:
       - name: Verify src-tauri/icons matches a fresh `tauri icon` + prune
         run: python scripts/build/generate_tauri_icons.py --check
 
+  # ──────────────────────────────────────────────────────────────────────────
+  # Product-namespace drift check: the repo-wide reverse-DNS guard
+  # (tests/test_product_namespace_consistency.py) scans every tracked
+  # text file for non-`com.voicetyper.*` product namespaces (legacy
+  # pre-Tauri Electron polkit artifacts, wrong spellings, misspelled
+  # roots). Runs as its own fast job (mirroring icons-drift) so a
+  # stray legacy / misspelled namespace dies in ~1 min instead of only
+  # surfacing at the end of the full test suite. The guard is ALSO part
+  # of the full Python suite — this job exists purely for fast
+  # feedback.
+  # ──────────────────────────────────────────────────────────────────────────
+  product-namespace-drift:
+    name: Product namespaces use com.voicetyper.*
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # The guard needs stdlib + pytest only (no project deps), so a
+      # plain pip pytest install keeps the job ~1 min.
+      - name: Run product-namespace drift guard
+        run: |
+          python -m pip install --quiet pytest
+          python -m pytest tests/test_product_namespace_consistency.py -q
+
   # weekly pip-audit sweep — runs the FULL audit (no ignore list)
   # on a schedule so we can re-triage new findings before they become
   # blockers. Posts a GitHub issue if any findings appear.
