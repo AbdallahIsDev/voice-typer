@@ -426,3 +426,91 @@ class TestStdinListenerGatedInTcpMode:
             assert server._stdin_thread is not None, "stdin listener must be spawned in legacy stdin mode"
         finally:
             server.stop()
+
+
+class TestResetMacosAccessibilityDispatchError:
+    """ADR-0020 §16 item (4): ``reset_macos_accessibility`` must behave
+    under the dispatch-level exception safety net like every other
+    registered command — a buggy handler yields a structured error
+    response (not a torn-down connection) and the socket survives.
+    """
+
+    def test_handler_exception_returns_error_response(self, authenticated_client, monkeypatch):
+        """A raising ``_handle_reset_macos_accessibility`` must produce the
+        generic ``internal error`` envelope (the safety net does not
+        leak the exception message) without disconnecting the client."""
+        client, server = authenticated_client
+
+        def boom(data, resp):  # noqa: ARG001 — handler signature
+            raise RuntimeError("simulated reset_macos_accessibility crash")
+
+        monkeypatch.setattr(server, "_handle_reset_macos_accessibility", boom)
+
+        _send_line(client, {"id": 99, "type": "reset_macos_accessibility"})
+        resp = _read_response_line(client, timeout=2.0)
+
+        assert resp["type"] == "error", f"Expected error response for raising handler, got: {resp}"
+        assert resp.get("id") == 99
+        assert resp["data"]["message"] == "internal error", f"Expected generic 'internal error' message, got: {resp}"
+
+        # Same socket must survive and serve a normal ack afterwards.
+        original = server._handle_reset_macos_accessibility
+
+        def ok_handler(data, resp):
+            resp["type"] = "ack"
+            resp["data"] = {"ok": True, "command": None, "error": None}
+            return resp
+
+        monkeypatch.setattr(server, "_handle_reset_macos_accessibility", ok_handler)
+        _send_line(client, {"id": 100, "type": "reset_macos_accessibility"})
+        resp2 = _read_response_line(client, timeout=2.0)
+        assert resp2["type"] == "ack", f"Connection did not survive: {resp2}"
+        assert resp2.get("id") == 100
+        monkeypatch.setattr(server, "_handle_reset_macos_accessibility", original)
+
+
+class TestResetLinuxPermissionsDispatchError:
+    """ADR-0020 §16 item (4): ``reset_linux_permissions`` must behave
+    under the dispatch-level exception safety net like every other
+    registered command — a buggy handler yields a structured error
+    response (not a torn-down connection) and the socket survives.
+    """
+
+    def test_handler_exception_returns_error_response(self, authenticated_client, monkeypatch):
+        """A raising ``_handle_reset_linux_permissions`` must produce the
+        generic ``internal error`` envelope (the safety net does not
+        leak the exception message) without disconnecting the client."""
+        client, server = authenticated_client
+
+        def boom(data, resp):  # noqa: ARG001 — handler signature
+            raise RuntimeError("simulated reset_linux_permissions crash")
+
+        monkeypatch.setattr(server, "_handle_reset_linux_permissions", boom)
+
+        _send_line(client, {"id": 99, "type": "reset_linux_permissions"})
+        resp = _read_response_line(client, timeout=2.0)
+
+        assert resp["type"] == "error", f"Expected error response for raising handler, got: {resp}"
+        assert resp.get("id") == 99
+        assert resp["data"]["message"] == "internal error", f"Expected generic 'internal error' message, got: {resp}"
+
+        # Same socket must survive and serve a normal ack afterwards.
+        original = server._handle_reset_linux_permissions
+
+        def ok_handler(data, resp):
+            resp["type"] = "ack"
+            resp["data"] = {
+                "ok": True,
+                "command": None,
+                "error": None,
+                "actions": [],
+                "checks": {},
+            }
+            return resp
+
+        monkeypatch.setattr(server, "_handle_reset_linux_permissions", ok_handler)
+        _send_line(client, {"id": 100, "type": "reset_linux_permissions"})
+        resp2 = _read_response_line(client, timeout=2.0)
+        assert resp2["type"] == "ack", f"Connection did not survive: {resp2}"
+        assert resp2.get("id") == 100
+        monkeypatch.setattr(server, "_handle_reset_linux_permissions", original)

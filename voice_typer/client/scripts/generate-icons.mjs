@@ -127,11 +127,121 @@ print("ICO generated")
 	);
 }
 
+/**
+ * Regenerate the Tauri tray state icons
+ * (``src-tauri/icons/tray/{idle,recording,transcribing,error}.png`` +
+ * ``tray-mic-template.png``) from the microphone bar shape + the shared
+ * state palette.
+ *
+ * Standalone function so the tray set can be regenerated WITHOUT
+ * touching the Electron / server / bundle-icon sets (``node
+ * generate-icons.mjs --tray``) — the repeatable wrapper
+ * ``scripts/build/generate_tray_icons.py`` calls exactly this path.
+ * The four state names + palette MUST stay in sync with
+ * ``src-tauri/src/tray.rs`` (``is_allowed_icon_name``) and the Python
+ * host (``voice_typer/server/tray_icon.py::_make_icon``) — the drift
+ * guards in ``tests/tauri/test_tray_icons.py`` enforce that.
+ */
+async function generateTauriTrayIcons(tauriIconsDir) {
+	// Microphone bar shape (mirrors the pystray server-asset traySvg
+	// above). White bars on transparent — tinted per state below.
+	const traySvg = `<svg width="148" height="148" viewBox="0 0 148 148" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="18.5" y="55.5" width="18.5" height="37" rx="9.25" fill="white"/><rect x="49.3333" y="37" width="18.5" height="74" rx="9.25" fill="white"/><rect x="80.1667" y="18.5" width="18.5" height="111" rx="9.25" fill="white"/><rect x="111" y="45.0938" width="18.5" height="57.8125" rx="9.25" fill="white"/></svg>`;
+
+	// Tauri tray state icons (src-tauri/icons/tray/). The Rust host
+	// (`src-tauri/src/tray.rs::load_tray_icon`) whitelists icon
+	// names to EXACTLY `idle` / `recording` / `transcribing` /
+	// `error` (matching the Python `tray.py::_APP_STATE_TO_ICON_NAME`
+	// mapping). Each PNG is the base microphone bar shape colorized
+	// per AppState — mirrors the Python `_make_icon` palette at
+	// `tray_icon.py:302-309` so the visual states are identical
+	// across the pystray (Python) and Tauri (Rust) hosts.
+	//
+	// Color palette (RGBA, alpha = 255 for full opacity):
+	//   idle         — (120, 120, 120)   gray
+	//   recording    — (46, 204, 113)    bright green (color-blind safe)
+	//   transcribing — (52, 152, 219)    blue
+	//   error        — (231, 76, 60)     red
+	//
+	// The bars are rendered on a transparent background so the OS
+	// tray chrome (light/dark menubar, taskbar notch) shows through.
+	// On macOS, `icon_as_template(true)` is set in the Rust
+	// TrayIconBuilder chain — the OS applies the menubar color and
+	// uses the alpha channel as a mask, so the per-state color is
+	// only visible on Windows/Linux. macOS users get the bar SHAPE
+	// (which is identical across states — state is shown via the
+	// tooltip).
+	const trayStateColors = {
+		idle: { r: 120, g: 120, b: 120 },
+		recording: { r: 46, g: 204, b: 113 },
+		transcribing: { r: 52, g: 152, b: 219 },
+		error: { r: 231, g: 76, b: 60 },
+	};
+	const tauriTrayDir = resolve(tauriIconsDir, "tray");
+	mkdirSync(tauriTrayDir, { recursive: true });
+	// Render the bars DIRECTLY in the state color by injecting the
+	// color into the SVG fill. (The previous approach — white bars +
+	// sharp `tint` — silently produced IDENTICAL white icons for
+	// every state: sharp's tint preserves luminance, so tinting pure
+	// white is a no-op on the RGB channels. Injecting the fill color
+	// is exact: bar pixels are (r,g,b) with the anti-aliased alpha
+	// the SVG renderer produces on the rounded-rect edges.)
+	const trayIconSize = 32;
+	for (const [stateName, color] of Object.entries(trayStateColors)) {
+		const coloredSvg = traySvg.replace(
+			/fill="white"/g,
+			`fill="rgb(${color.r}, ${color.g}, ${color.b})"`,
+		);
+		await sharp(Buffer.from(coloredSvg))
+			.resize(trayIconSize, trayIconSize)
+			.png()
+			.toFile(resolve(tauriTrayDir, `${stateName}.png`));
+	}
+	console.log("Created src-tauri/icons/tray/{idle,recording,transcribing,error}.png");
+
+	// macOS template icon (white bars + alpha). The Rust host calls
+	// `.icon_as_template(true)` on macOS (gated by
+	// `cfg!(target_os = "macos")` in `tray.rs`), which tells the OS
+	// to render the icon as a single-color alpha mask. The OS
+	// applies the menubar color (black on light menubar, white on
+	// dark menubar) and uses the alpha channel as the shape mask.
+	// The source PNG must be a single color with alpha — white bars
+	// on transparent background is the conventional choice (matches
+	// what Apple's own SF Symbols use for template images).
+	//
+	// This file is currently NOT loaded by the Rust host — the
+	// state icons (idle/recording/transcribing/error) are loaded
+	// instead, and `icon_as_template(true)` is applied to whatever
+	// icon is currently set. The state icons' alpha channel (the bar
+	// shapes) becomes the template mask; the color is ignored on
+	// macOS. This file is shipped as a documented fallback for a
+	// future "always use template on macOS regardless of state"
+	// mode (where the state would be communicated via tooltip only).
+	await sharp(Buffer.from(traySvg))
+		.resize(trayIconSize, trayIconSize)
+		.png()
+		.toFile(resolve(tauriTrayDir, "tray-mic-template.png"));
+	console.log("Created src-tauri/icons/tray/tray-mic-template.png (macOS template source)");
+}
+
 async function main() {
 	const rawSvg = readFileSync(svgPath, "utf-8");
 	// The source SVG uses currentColor — replace with explicit colors for rendering
 	const lightSvg = rawSvg.replace(/currentColor/g, "black");
 	const darkSvg = rawSvg.replace(/currentColor/g, "white");
+
+	// Tauri host icons dir — computed once at the top so the --tray
+	// fast path can target it directly.
+	const tauriIconsDir = resolve(projectRoot, "src-tauri", "icons");
+
+	// --tray: regenerate ONLY the Tauri tray state icons and exit.
+	// Used by scripts/build/generate_tray_icons.py so a tray-icon
+	// change is repeatable without touching the Electron / server /
+	// bundle-icon sets.
+	if (process.argv.includes("--tray")) {
+		await generateTauriTrayIcons(tauriIconsDir);
+		console.log("\nAll tray icons generated successfully.");
+		return;
+	}
 
 	// Light icons (black logo on transparent)
 	await generateIcons(lightSvg, "light", "");
@@ -203,7 +313,6 @@ async function main() {
 	//
 	// All four use the same black-on-transparent light SVG so the
 	// brand mark is consistent across the dock/taskbar/menubar.
-	const tauriIconsDir = resolve(projectRoot, "src-tauri", "icons");
 	mkdirSync(tauriIconsDir, { recursive: true });
 	await sharp(Buffer.from(lightSvg)).resize(32, 32).png()
 		.toFile(resolve(tauriIconsDir, "32x32.png"));
@@ -215,86 +324,9 @@ async function main() {
 		.toFile(resolve(tauriIconsDir, "icon.png"));
 	console.log("Created src-tauri/icons/{32x32,128x128,128x128@2x,icon}.png");
 
-	// Tauri tray state icons (src-tauri/icons/tray/). The Rust host
-	// (`src-tauri/src/tray.rs::load_tray_icon`) whitelists icon
-	// names to EXACTLY `idle` / `recording` / `transcribing` /
-	// `error` (matching the Python `tray.py::_APP_STATE_TO_ICON_NAME`
-	// mapping). Each PNG is the base microphone bar shape colorized
-	// per AppState — mirrors the Python `_make_icon` palette at
-	// `tray_icon.py:302-309` so the visual states are identical
-	// across the pystray (Python) and Tauri (Rust) hosts.
-	//
-	// Color palette (RGBA, alpha = 255 for full opacity):
-	//   idle         — (120, 120, 120)   gray
-	//   recording    — (46, 204, 113)    bright green (color-blind safe)
-	//   transcribing — (52, 152, 219)    blue
-	//   error        — (231, 76, 60)     red
-	//
-	// The bars are rendered on a transparent background so the OS
-	// tray chrome (light/dark menubar, taskbar notch) shows through.
-	// On macOS, `icon_as_template(true)` is set in the Rust
-	// TrayIconBuilder chain — the OS applies the menubar color and
-	// uses the alpha channel as a mask, so the per-state color is
-	// only visible on Windows/Linux. macOS users get the bar SHAPE
-	// (which is identical across states — state is shown via the
-	// tooltip).
-	const trayStateColors = {
-		idle: { r: 120, g: 120, b: 120 },
-		recording: { r: 46, g: 204, b: 113 },
-		transcribing: { r: 52, g: 152, b: 219 },
-		error: { r: 231, g: 76, b: 60 },
-	};
-	const tauriTrayDir = resolve(tauriIconsDir, "tray");
-	mkdirSync(tauriTrayDir, { recursive: true });
-	// Render the tray SVG once at the target size, then composite
-	// the colorized version by tinting the alpha channel. `sharp`
-	// doesn't have a direct "tint" operation, so we use the
-	// `ensureAlpha` + `tint` pipeline: tint modifies the RGB channels
-	// while preserving alpha. The bar rects in `traySvg` are solid
-	// white (RGB 255,255,255, alpha 255) on a transparent background
-	// — tinting white to (r,g,b) produces the target color on the
-	// bars and leaves the background transparent.
-	const trayIconSize = 32;
-	for (const [stateName, color] of Object.entries(trayStateColors)) {
-		await sharp(Buffer.from(traySvg))
-			.resize(trayIconSize, trayIconSize)
-			.ensureAlpha()
-			// `tint` takes a hex color (no alpha component —
-			// it operates on RGB only). The resulting image
-			// has the bar rects in the target color and the
-			// transparent background preserved.
-			.tint(
-				(color.r << 16) | (color.g << 8) | color.b,
-			)
-			.png()
-			.toFile(resolve(tauriTrayDir, `${stateName}.png`));
-	}
-	console.log("Created src-tauri/icons/tray/{idle,recording,transcribing,error}.png");
-
-	// macOS template icon (white bars + alpha). The Rust host calls
-	// `.icon_as_template(true)` on macOS (gated by
-	// `cfg!(target_os = "macos")` in `tray.rs`), which tells the OS
-	// to render the icon as a single-color alpha mask. The OS
-	// applies the menubar color (black on light menubar, white on
-	// dark menubar) and uses the alpha channel as the shape mask.
-	// The source PNG must be a single color with alpha — white bars
-	// on transparent background is the conventional choice (matches
-	// what Apple's own SF Symbols use for template images).
-	//
-	// This file is currently NOT loaded by the Rust host — the
-	// state icons (idle/recording/transcribing/error) are loaded
-	// instead, and `icon_as_template(true)` is applied to whatever
-	// icon is currently set. The state icons' alpha channel (the bar
-	// shapes) becomes the template mask; the color is ignored on
-	// macOS. This file is shipped as a documented fallback for a
-	// future "always use template on macOS regardless of state"
-	// mode (where the state would be communicated via tooltip only).
-	await sharp(Buffer.from(traySvg))
-		.resize(trayIconSize, trayIconSize)
-		.ensureAlpha()
-		.png()
-		.toFile(resolve(tauriTrayDir, "tray-mic-template.png"));
-	console.log("Created src-tauri/icons/tray/tray-mic-template.png (macOS template source)");
+	// Tauri tray state icons (see generateTauriTrayIcons above — the
+	// comment block moved there with the function).
+	await generateTauriTrayIcons(tauriIconsDir);
 
 	console.log("\nAll icons generated successfully.");
 }

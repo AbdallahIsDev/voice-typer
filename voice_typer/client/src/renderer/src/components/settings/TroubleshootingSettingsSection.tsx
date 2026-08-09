@@ -22,6 +22,7 @@ import {
 	Delete02Icon,
 	File02Icon,
 	InformationCircleIcon,
+	ShieldBanIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { memo } from "react";
@@ -67,6 +68,19 @@ export const TroubleshootingSettingsSection = memo(
 		const reportBugLabel = t("settings.troubleshooting.reportBug");
 		const reRunWizardLabel = t("settings.troubleshooting.reRunWizard");
 		const resetToDefaultsLabel = t("settings.troubleshooting.resetToDefaults");
+		const resetAccessibilityLabel = t(
+			"settings.troubleshooting.resetAccessibility",
+		);
+		const resetLinuxLabel = t("settings.troubleshooting.resetLinux");
+
+		// macOS-only: the stale-TCC-entry reset (``tccutil reset
+		// Accessibility <bundle-id>``) is meaningless on Windows / Linux.
+		// Linux-only: the stale-polkit-authorization reset is meaningless
+		// elsewhere. Same UA probe as KeyboardPermissionBanner.
+		const ua =
+			typeof navigator === "undefined" ? "" : navigator.userAgent.toLowerCase();
+		const isMac = ua.includes("mac");
+		const isLinux = ua.includes("linux");
 
 		// Section-level hide-when-empty: hide the whole section unless the
 		// title OR at least one button label matches the active search query.
@@ -79,6 +93,8 @@ export const TroubleshootingSettingsSection = memo(
 				reportBugLabel,
 				reRunWizardLabel,
 				resetToDefaultsLabel,
+				...(isMac ? [resetAccessibilityLabel] : []),
+				...(isLinux ? [resetLinuxLabel] : []),
 			].some((label) => isVisible(label, undefined, title));
 
 		if (!sectionVisible) return null;
@@ -121,6 +137,81 @@ export const TroubleshootingSettingsSection = memo(
 			await updateConfig({ onboarding_completed: false });
 			showSnack(t("settings.troubleshooting.reRunWizardToast"), "success");
 			onNavigate?.("onboarding");
+		};
+
+		// Reset a stale macOS Accessibility TCC entry: the backend runs
+		// `tccutil reset Accessibility <bundle-id>` (bundle ID resolved at
+		// runtime, so the command matches the actually-running host —
+		// Electron or Tauri) and re-opens System Settings so the user can
+		// re-grant. The success toast surfaces the RUNTIME-RESOLVED
+		// command the backend actually ran (finding #127 part b /
+		// #919 part a) when the backend returned one.
+		const handleResetAccessibility = async () => {
+			try {
+				const result = (await call("reset_macos_accessibility")) as {
+					ok?: boolean;
+					command?: string | null;
+					error?: string | null;
+				};
+				if (result?.ok) {
+					showSnack(
+						result.command
+							? t(
+									"settings.troubleshooting.resetAccessibilityToastWithCommand",
+									{
+										command: result.command,
+									},
+								)
+							: t("settings.troubleshooting.resetAccessibilityToast"),
+						"success",
+					);
+				} else {
+					showSnack(
+						result?.error ||
+							t("settings.troubleshooting.resetAccessibilityFailed"),
+						"error",
+					);
+				}
+			} catch (err) {
+				console.error("reset_macos_accessibility failed:", err);
+				showSnack(
+					t("settings.troubleshooting.resetAccessibilityFailed"),
+					"error",
+				);
+			}
+		};
+
+		// Reset a stale Linux polkit authorization: the backend restarts
+		// the polkit daemon via pkexec (pkaction enumerates the Voice
+		// Typer actions, pkcheck verifies the post-reset state) so the
+		// next "Grant permission" re-prompts. Mirrors the macOS reset —
+		// the success toast surfaces the command that was run.
+		const handleResetLinuxPermissions = async () => {
+			try {
+				const result = (await call("reset_linux_permissions")) as {
+					ok?: boolean;
+					command?: string | null;
+					error?: string | null;
+				};
+				if (result?.ok) {
+					showSnack(
+						result.command
+							? t("settings.troubleshooting.resetLinuxToastWithCommand", {
+									command: result.command,
+								})
+							: t("settings.troubleshooting.resetLinuxToast"),
+						"success",
+					);
+				} else {
+					showSnack(
+						result?.error || t("settings.troubleshooting.resetLinuxFailed"),
+						"error",
+					);
+				}
+			} catch (err) {
+				console.error("reset_linux_permissions failed:", err);
+				showSnack(t("settings.troubleshooting.resetLinuxFailed"), "error");
+			}
 		};
 
 		return (
@@ -211,6 +302,38 @@ export const TroubleshootingSettingsSection = memo(
 					<p className="mt-1 text-xs text-muted-foreground">
 						{t("settings.troubleshooting.reRunWizardHint")}
 					</p>
+					{isMac && (
+						<Button
+							variant="outline"
+							className="gap-2"
+							onClick={handleResetAccessibility}
+							aria-label={t("settings.troubleshooting.resetAccessibilityAria")}
+							title={t("settings.troubleshooting.resetAccessibilityHint")}
+						>
+							<HugeiconsIcon
+								icon={ShieldBanIcon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{resetAccessibilityLabel}
+						</Button>
+					)}
+					{isLinux && (
+						<Button
+							variant="outline"
+							className="gap-2"
+							onClick={handleResetLinuxPermissions}
+							aria-label={t("settings.troubleshooting.resetLinuxAria")}
+							title={t("settings.troubleshooting.resetLinuxHint")}
+						>
+							<HugeiconsIcon
+								icon={ShieldBanIcon}
+								strokeWidth={2}
+								className="h-4 w-4"
+							/>
+							{resetLinuxLabel}
+						</Button>
+					)}
 					{/*visually separate the destructive Reset to Defaults
                                                 button from the 5 non-destructive buttons above with a
                                                 top border + padding so users don't click it by accident. */}

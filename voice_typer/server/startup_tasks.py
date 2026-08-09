@@ -34,11 +34,12 @@ from voice_typer.server.branding import APP_NAME
 from voice_typer.server.platform_utils import is_windows
 from voice_typer.server.providers import AppProtocol
 from voice_typer.server.server_platform import create_launcher_shortcut
+from voice_typer.server.server_platform.macos_bundle_id import resolve_host_bundle_id
 
 log = logging.getLogger(__name__)
 
 
-# PERF-: cache the macOS ApplicationServices framework handle at
+# cache the macOS ApplicationServices framework handle at
 # module level instead of re-loading it every 60s in
 # ``_check_accessibility``. ``ctypes.cdll.LoadLibrary`` is not free
 # (it calls dlopen + resolves symbols), and the handle is safe to
@@ -50,6 +51,29 @@ log = logging.getLogger(__name__)
 # falls through to the "fail safe (assume not granted)" branch.
 _APP_SERVICES_LIB: Any | None = None
 _APP_SERVICES_LIB_LOADED: bool = False
+
+
+def _a11y_regrant_message(bundle_id: str | None) -> str:
+    """Build the macOS Accessibility re-grant notification body.
+
+    When the HOST app's bundle ID can be resolved at runtime (see
+    ``resolve_host_bundle_id``), the message includes the exact
+    ``tccutil reset Accessibility <bundle-id>`` command for the
+    currently-running runtime (Electron or Tauri). When it cannot be
+    resolved (dev-mode run without an ``.app`` in the process chain),
+    fall back to the generic System Settings walkthrough — a wrong
+    bundle ID in a ``tccutil`` command is worse than no command.
+    """
+    if bundle_id:
+        return (
+            "Voice Typer was updated — Accessibility permission may "
+            f"need to be re-granted. Run: tccutil reset Accessibility {bundle_id}"
+        )
+    return (
+        "Voice Typer was updated — Accessibility permission may "
+        "need to be re-granted. Open System Settings "
+        "-> Privacy & Security -> Accessibility to re-grant."
+    )
 
 
 def sync_autostart(app: AppProtocol) -> dict:
@@ -437,8 +461,9 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                     # sometimes invalidates TCC grants on bundle-id-stable
                     # binary updates), and we surface a different tray
                     # notification pointing the user at ``tccutil reset
-                    # Accessibility com.voicetyper.app`` instead of the
-                    # generic "Open System Settings" message.
+                    # Accessibility <bundle-id>`` — the bundle ID is
+                    # resolved at runtime (see ``_a11y_regrant_message``)
+                    # instead of the generic "Open System Settings" message.
                     # ``last_known_a11y_version`` is a future config
                     # field (currently owned by another agent — using
                     # ``getattr``/``setattr`` so this code is forward-
@@ -476,8 +501,7 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                         )
                         if _version_changed:
                             log.warning(
-                                "[A11Y] a11y denied after app version change (%s -> %s) — "
-                                "likely TCC reset on update",
+                                "[A11Y] a11y denied after app version change (%s -> %s) — likely TCC reset on update",
                                 _last_known_version,
                                 _current_vt_version,
                             )
@@ -485,11 +509,15 @@ def start_accessibility_pulse(app: AppProtocol, initial_state: bool) -> None:
                         log.debug("[A11Y] could not compare a11y version", exc_info=True)
                     with contextlib.suppress(Exception):
                         if _version_changed:
+                            # Resolve the HOST app's bundle ID at runtime:
+                            # both the Electron and Tauri builds work, and a
+                            # future bundle-identifier change needs no code
+                            # edit here. If resolution fails (dev-mode run),
+                            # ``_a11y_regrant_message`` falls back to the
+                            # generic walkthrough.
                             app.tray.notify_safety(
                                 f"{APP_NAME} — Accessibility Re-grant",
-                                "Voice Typer was updated — Accessibility permission may "
-                                "need to be re-granted. Run: tccutil reset Accessibility "
-                                "com.voicetyper.app",
+                                _a11y_regrant_message(resolve_host_bundle_id()),
                             )
                         else:
                             app.tray.notify_safety(

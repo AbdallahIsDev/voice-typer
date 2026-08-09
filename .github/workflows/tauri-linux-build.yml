@@ -10,14 +10,62 @@
 # See build.yml header for full rationale + breaking-change analysis.
 # =============================================================================
 
+# =============================================================================
+# GATE STATUS — ENABLED (Phase 0-L validation runnable via manual dispatch)
+# -----------------------------------------------------------------------------
+# The bundle `build` job (matrix x86_64 + aarch64, fail-fast: false) is
+# ENABLED for Phase 0-L validation: it runs on `workflow_dispatch` (or the
+# tauri-build.yml orchestrator's `workflow_call`) ONLY — never on push/PR,
+# where only the lightweight smoke-cargo-check job runs (see the trigger
+# comment above). The display-dependent smoke tests are documented in
+# docs/migration/linux-validation-runbook.md and must pass on a real Linux
+# display host (X11 + Wayland) before a release cut (Phase 0-L handoff).
+#
+# PHASE 0-L VALIDATION HANDOFF (required before CUTOVER, not before running):
+#   1. A maintainer dispatches this workflow (or the tauri-build.yml
+#      orchestrator with `platform: linux`) — `sign` must stay false
+#      (Linux is unsigned by design, ADR-0020 §13.3; sign=true fails fast).
+#   2. Follow docs/migration/linux-validation-runbook.md — the 9-point
+#      Phase 0-L gate below — on a real Linux display host (X11 + Wayland,
+#      both x86_64 and aarch64).
+#   3. Only after all 9 checks pass on a real host, consider enabling CI
+#      bundle runs on push/PR (ADR-0020 §15 + cutover-playbook.md Step 2).
+#
+# PHASE 0-L 9-POINT GATE STATUS
+# (docs/migration/linux-validation-runbook.md §"9-Point Validation Gate
+# Summary" — all 9 must pass on BOTH X11 AND Wayland, on BOTH arches):
+#   [ ] 1. externalBin sidecar spawns via Tauri on X11 + Wayland
+#            (sidecar.log shows [SIDECAR] server_started port=N)
+#   [ ] 2. WS + bearer-token handshake works on X11 + Wayland
+#            (log shows WS connected + auth ok)
+#   [ ] 3. faster-whisper transcribes inside the Nuitka exe
+#            (text in focused field within 5s of releasing the hotkey)
+#   [ ] 4. enigo types on X11; clipboard + Ctrl+V fallback (wl-copy) on
+#            Wayland
+#   [ ] 5. tauri-plugin-notification posts via libnotify on X11 + Wayland
+#   [ ] 6. Cooperative {"type":"shutdown"} exits; kill_children cleans
+#            (no python-sidecar within 2s of window close)
+#   [ ] 7. Prewarm exe registered as systemd user timer
+#            (systemctl --user list-timers voice-typer-prewarm.timer)
+#   [ ] 8. Native linux-key-listener toggles dictation on X11 (XRecord) +
+#            Wayland (libinput/evdev) — F8 starts/stops recording
+#   [ ] 9. Single-instance (lockfile) — second launch focuses first, no
+#            zombie sidecar
+# All 9 pending — host validation has not run yet; tick each off in the
+# runbook as it passes on a real Linux display host. Electron remains the
+# shipped fallback until the Phase 0-L gate is met (ADR-0020 Phase 5).
+# =============================================================================
+
 name: Tauri Linux build (Phase 0-L)
 
 # ADR-0020 Phase 0-L: Linux Nuitka sidecar + prewarm + native listener + Tauri bundle.
-# Marked `if: false` initially — the build takes 30-60 min per arch and the smoke
-# tests need a display server (not available in CI). Enable manually for release
-# builds once the local validation runbook
-# (docs/migration/linux-validation-runbook.md) has passed on a real Linux display
-# host.
+# ENABLED for Phase 0-L validation — the bundle `build` job runs on
+# `workflow_dispatch` or the tauri-build.yml orchestrator's `workflow_call`
+# ONLY (never on push/PR — see the push/PR comment below). The build takes
+# 30-60 min per arch and the display-dependent smoke tests are NOT run in CI
+# (no display server); they are documented in
+# (docs/migration/linux-validation-runbook.md) and must pass on a real Linux
+# display host (X11 + Wayland) before a release cut (Phase 0-L handoff).
 #
 # Matrix: builds BOTH x86_64-unknown-linux-gnu AND aarch64-unknown-linux-gnu in
 # parallel. The aarch64 job cross-compiles via qemu-user-static on the x86_64
@@ -26,7 +74,8 @@ name: Tauri Linux build (Phase 0-L)
 # interpreter during compilation). ADR-0020 §4.4 mandates a separate Nuitka
 # build per target triple (Nuitka does NOT cross-compile natively).
 #
-# To enable: change `if: false` to `if: true` (or trigger via workflow_dispatch).
+# To dispatch: trigger via workflow_dispatch (arch: x86_64 / aarch64 / both,
+# sign must be false — Linux is unsigned by design, ADR-0020 §13.3).
 on:
   workflow_call:
     inputs:
@@ -61,13 +110,15 @@ on:
         default: false
         type: boolean
   # enable push/PR triggers ONLY for the smoke-cargo-check
-  # job below (gated by `if:` on that job). The full bundle build job remains
-  # `if: false` until Phase 0-L host validation passes. This gives us
-  # continuous CI verification that the Tauri Rust host still compiles on
-  # every push to main + every PR — catching Cargo dep bumps, Rust toolchain
-  # regressions, and tauri.conf.json edits that would break the bundle build
-  # BEFORE a maintainer flips the bundle job's `if: false`. Without this,
-  # the entire Tauri migration target (ADR-0020) had ZERO CI coverage.
+  # job below (gated by `if:` on that job). The full bundle `build` job is
+  # gated to `workflow_dispatch` / the orchestrator's `workflow_call` and is
+  # NEVER triggered by push/PR (a plain `if: true` would fire the 30-60 min
+  # x2-arch bundle build on every push touching src-tauri/** — ADR-0020 §15).
+  # This gives us continuous CI verification that the Tauri Rust host still
+  # compiles on every push to main + every PR — catching Cargo dep bumps, Rust
+  # toolchain regressions, and tauri.conf.json edits that would break the
+  # bundle build BEFORE a maintainer dispatches it. Without this, the entire
+  # Tauri migration target (ADR-0020) had ZERO CI coverage.
   push:
     branches: [main]
     paths:
@@ -95,11 +146,11 @@ jobs:
   # lightweight smoke job that runs `cargo check` on the
   # Tauri Rust host for x86_64-unknown-linux-gnu. Runs on EVERY push to main +
   # every PR (gated by the push/PR triggers above with path filters). The full
-  # bundle build job (`build` below) stays `if: false` until Phase 0-L host
-  # validation passes — this smoke job gives us early signal that the Rust
-  # host still compiles, tauri.conf.json is still valid, and Cargo deps still
-  # resolve, without paying the 30-60 min Nuitka+Tauri bundle cost. Runs in
-  # ~2-3 min on a warm runner.
+  # bundle `build` job (`build` below) runs on workflow_dispatch / workflow_call
+  # only — this smoke job gives us early signal that the Rust host still
+  # compiles, tauri.conf.json is still valid, and Cargo deps still resolve,
+  # without paying the 30-60 min Nuitka+Tauri bundle cost. Runs in ~2-3 min on
+  # a warm runner.
   smoke-cargo-check:
     if: github.event_name == 'push' || github.event_name == 'pull_request'
     runs-on: ubuntu-22.04
@@ -291,8 +342,15 @@ jobs:
           python3 -c "import json; json.load(open('tauri.conf.json')); json.load(open('tauri.linux-x86_64.conf.json')); print('tauri.conf.json + tauri.linux-x86_64.conf.json parse OK')"
 
   build:
-    # Disabled by default — enable manually via workflow_dispatch or by flipping `if: false`.
-    if: false
+    # ENABLED for Phase 0-L validation — runs on workflow_dispatch or the
+    # tauri-build.yml orchestrator's workflow_call ONLY, NOT on push/PR.
+    # Plain `if: true` would also fire this 30-60 min x2-arch bundle build on
+    # every push/PR touching src-tauri/** (the workflow has live push/PR
+    # triggers for the smoke-cargo-check job), contradicting ADR-0020 §15.
+    # The gate mirrors tauri-macos-build.yml's enablement; the Phase 0-L
+    # display-host validation (docs/migration/linux-validation-runbook.md,
+    # X11 + Wayland) remains a manual precondition before a release cut.
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'
     runs-on: ubuntu-22.04
     timeout-minutes: 90
     # job-level permissions widen the top-level `contents: read`
@@ -583,17 +641,57 @@ jobs:
           npm ci
           npm run build:renderer
 
-      # generate placeholder Tauri icons + binary stubs if they
-      # don't already exist. cargo tauri build reads the icon list from
-      # tauri.conf.json and hard-fails on the first missing icon. The
-      # `--check` flag exits 0 if all stubs are present (no-op on a warm
-      # checkout) and 1 if any are missing — the `||` falls through to
-      # the generation command only when needed. CLI flags verified by
-      # reading scripts/gen_tauri_icons_stub.py (argparse: --check /
-      # --clean / no-flag = generate).
-      - name: Generate Tauri icons (stub)
+      # Fail-fast gate: run the config drift guards BEFORE the build —
+      # identifier↔appId + productName + version parity, bundle.icon↔git
+      # lockstep, and the config↔script pairs (bundle.resources/externalBin
+      # ↔ stub generator registry, tauri-binaries.json ↔ canonical triples +
+      # Cargo binary name). Same guards the full suite enforces, but a drift
+      # regression dies in seconds instead of only after the whole test run.
+      # MUST stay BEFORE "Generate Tauri binary stubs" below: the icons
+      # module's autouse fixture runs --clean after each test, which removes
+      # freshly-generated STUB files (real binaries are preserved by the
+      # _is_stub_file heuristic).
+      - name: Verify config drift guards (icons, identity, binaries) (fail fast)
+        run: |
+          python3 -m pytest \
+            tests/tauri/test_bundle_identifier_parity.py \
+            tests/tauri/test_gen_tauri_icons_stub.py::test_tauri_conf_icon_list_matches_tracked_icons \
+            tests/tauri/test_gen_tauri_icons_stub.py::test_per_arch_configs_do_not_override_bundle_icon \
+            tests/tauri/test_config_script_drift.py::TestBundleBinariesVsStubRegistry::test_config_declares_exactly_the_stub_generator_registry \
+            tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestCoverage::test_manifest_covers_exactly_the_canonical_triples \
+            tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestBinaryNames::test_manifest_binary_names_match_cargo_binary_name \
+            -q --no-cov
+
+      # generate placeholder BINARY stubs (sidecar / native / prewarm) if
+      # they don't already exist. The icons are committed real files, so
+      # this step only covers the binaries. The `--check` flag exits 0 iff
+      # all stubs are present AND structurally valid (exact canonical stub
+      # bytes, or a real binary) and 1 otherwise — a truncated/corrupt
+      # stub fails the gate in milliseconds instead of inside cargo tauri
+      # build. The `||` falls through to the generation command only when
+      # needed, and generate() also REPAIRS corrupt stubs. CLI flags
+      # verified by reading scripts/gen_tauri_icons_stub.py (argparse:
+      # --check / --clean / no-flag = generate).
+      - name: Generate Tauri binary stubs
         run: |
           python3 scripts/gen_tauri_icons_stub.py --check || python3 scripts/gen_tauri_icons_stub.py
+
+      # Fail-fast gate: verify the COMMITTED bundle.icon PNGs (32x32.png,
+      # 128x128.png, 128x128@2x.png, icon.png — read from tauri.conf.json)
+      # exist AND are structurally valid before the cargo tauri build.
+      # Fail-fast gate: verify EVERY committed file in tauri.conf.json
+      # bundle.icon exists AND is structurally valid (the 4 PNGs +
+      # icon.ico + icon.icns) before the cargo tauri build. The single
+      # cross-platform gate (--check-icons) reads the icon list from
+      # tauri.conf.json and dispatches each entry to the right validator
+      # by extension; tauri-build hard-fails the whole build when the
+      # platform's icon is missing or corrupt, and a corrupt file would
+      # otherwise only surface minutes into the compile. This gate fails
+      # in <1s instead. CLI flags verified by reading
+      # scripts/gen_tauri_icons_stub.py (argparse: --check /
+      # --check-icons / --clean / no-flag).
+      - name: Verify bundle.icon icons are present + valid (fail fast)
+        run: python3 scripts/gen_tauri_icons_stub.py --check-icons
 
       # install tauri-cli explicitly. The runner's pre-installed
       # `cargo-tauri` is unversioned and lags upstream by months; on

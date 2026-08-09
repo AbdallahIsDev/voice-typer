@@ -138,9 +138,7 @@ def test_workflow_actions_are_pinned(wf_path: Path) -> None:
             continue
         expected_ref = PINNED_ACTION_VERSIONS[action_name]
         if ref != expected_ref:
-            violations.append(
-                f"  line {line_no}: {action_name}@{ref} (expected @{expected_ref})"
-            )
+            violations.append(f"  line {line_no}: {action_name}@{ref} (expected @{expected_ref})")
     assert not violations, (
         f"{wf_path.name}: C-CI-1 pin violation — the following `uses:` "
         "directives do not match the canonical pinned version map "
@@ -199,14 +197,11 @@ def test_macos_codesign_uses_timestamp_no_deep() -> None:
     text = wf.read_text(encoding="utf-8")
     # All three codesign invocations: nested binaries loop, top-level .app, .dmg.
     codesign_count = text.count("codesign --force")
-    assert codesign_count >= 3, (
-        f"expected ≥3 `codesign --force` invocations in {wf.name}, got {codesign_count}"
-    )
+    assert codesign_count >= 3, f"expected ≥3 `codesign --force` invocations in {wf.name}, got {codesign_count}"
     # Every codesign --force invocation should be followed (within a few
     # lines) by --timestamp. We assert `--timestamp` appears at least 3x.
     assert text.count("--timestamp") >= 3, (
-        f"expected ≥3 `--timestamp` flags (one per codesign "
-        f"invocation), got {text.count('--timestamp')}"
+        f"expected ≥3 `--timestamp` flags (one per codesign invocation), got {text.count('--timestamp')}"
     )
     # The top-level .app codesign must NOT use --deep.
     # Find the line with `signing top-level app bundle` and assert the
@@ -237,8 +232,7 @@ def test_macos_missing_binary_is_hard_failure() -> None:
         "nested binaries must hard-fail with `::error::` + `exit 1`."
     )
     assert "::error::Expected binary missing from .app bundle:" in text, (
-        "expected `::error::Expected binary missing from .app bundle:` "
-        "error message not found."
+        "expected `::error::Expected binary missing from .app bundle:` error message not found."
     )
 
 
@@ -251,37 +245,82 @@ def test_macos_codesign_verify_step_exists() -> None:
     if not wf.is_file():
         pytest.skip("tauri-macos-build.yml not found")
     text = wf.read_text(encoding="utf-8")
-    assert "codesign --verify --verbose=4" in text, (
-        "`codesign --verify --verbose=4` verification step not found."
-    )
-    assert "spctl --assess --verbose=4" in text, (
-        "`spctl --assess --verbose=4` Gatekeeper assessment not found."
-    )
+    assert "codesign --verify --verbose=4" in text, "`codesign --verify --verbose=4` verification step not found."
+    assert "spctl --assess --verbose=4" in text, "`spctl --assess --verbose=4` Gatekeeper assessment not found."
 
 
 def test_macos_gate_documentation_present() -> None:
-    """the macOS workflow must document the gate status (why
-    ``if: false`` is on all 3 jobs) at the top of the file.
+    """the macOS workflow must document the gate status at the top of
+    the file AND have its three jobs enabled (``if: true``) so the
+    Phase 0-M validation run can execute via workflow_dispatch.
     """
     wf = WORKFLOWS_DIR / "tauri-macos-build.yml"
     if not wf.is_file():
         pytest.skip("tauri-macos-build.yml not found")
     text = wf.read_text(encoding="utf-8")
-    # The gate block must mention  explicitly + reference the
-    # validation handoff (runbook). This satisfies the  minimum
-    # requirement: "a comment block at the top documenting the gate
-    # status and what needs to happen to enable."
+    # The top-of-file gate block must document the state + the
+    # validation handoff (runbook) so maintainers know what must pass
+    # before cutover.
     head = text[:4000]  # the gate block is in the top-of-file comment.
-    assert "" in head, "gate documentation must reference  at the top of the file."
-    assert "VALIDATION HANDOFF" in head, (
-        "top-of-file gate block must document the validation handoff."
+    assert "VALIDATION HANDOFF" in head, "top-of-file gate block must document the validation handoff."
+    assert "Phase 0-M" in head, "top-of-file gate block must reference Phase 0-M."
+    # The jobs must be ENABLED (no `if: false` guards left) so the
+    # Phase 0-M validation run can execute via workflow_dispatch.
+    assert "if: false" not in text, (
+        "expected NO `if: false` job guards — the macOS jobs must be "
+        "enabled (`if: true`) for the Phase 0-M validation run."
     )
-    # All 3 jobs must still carry `if: false` (we did NOT enable them —
-    # no macOS runner is available in this sandbox).
-    assert text.count("if: false") >= 3, (
-        "expected ≥3 `if: false` guards (one per macOS job); "
-        "if you intend to ENABLE the jobs, flip them to `if: true` "
-        "AFTER completing the validation handoff."
+    assert text.count("if: true") >= 3, (
+        "expected ≥3 `if: true` job guards (one per macOS job: build-aarch64, build-x86_64, build-tauri-universal)."
+    )
+
+
+def test_tauri_workflows_have_config_drift_failfast_gate() -> None:
+    """Every per-platform Tauri workflow must run the config drift guards as a
+    fail-fast step BEFORE the build.
+
+    The guards are the same tests the full suite enforces
+    (``test_bundle_identifier_parity.py`` identifier↔appId +
+    productName + version parity — run as the WHOLE module so a new
+    identity-parity class is auto-included — plus the
+    ``test_gen_tauri_icons_stub.py`` bundle.icon↔git drift tests), but as a
+    dedicated pre-build step a drift regression (e.g. an icon added to one
+    side only, or the Tauri identifier / Electron appId / productName /
+    version drifting apart) dies in seconds instead of only after the whole
+    test suite.
+    """
+    node_ids = (
+        "tests/tauri/test_bundle_identifier_parity.py",
+        "tests/tauri/test_gen_tauri_icons_stub.py::test_tauri_conf_icon_list_matches_tracked_icons",
+        "tests/tauri/test_gen_tauri_icons_stub.py::test_per_arch_configs_do_not_override_bundle_icon",
+        "tests/tauri/test_config_script_drift.py::TestBundleBinariesVsStubRegistry::test_config_declares_exactly_the_stub_generator_registry",
+        "tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestCoverage::test_manifest_covers_exactly_the_canonical_triples",
+        "tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestBinaryNames::test_manifest_binary_names_match_cargo_binary_name",
+    )
+    for name in ("tauri-windows-build.yml", "tauri-macos-build.yml", "tauri-linux-build.yml"):
+        wf = WORKFLOWS_DIR / name
+        if not wf.is_file():
+            pytest.skip(f"{name} not found")
+        text = wf.read_text(encoding="utf-8")
+        assert "Verify config drift guards (icons, identity, binaries) (fail fast)" in text, (
+            f"{name} must have the fail-fast config drift gate step."
+        )
+        for node in node_ids:
+            assert node in text, (
+                f"{name} drift gate must run {node} — a drift regression would "
+                "otherwise only surface after the full test suite."
+            )
+        assert "--no-cov" in text, (
+            f"{name} drift gate must pass --no-cov (the pyproject addopts "
+            "--cov would otherwise measure a 6-test subset)."
+        )
+    # The macOS universal job does not install the project's [dev,test]
+    # deps (only the arch jobs do), so it must install the minimal pytest
+    # deps the drift gate needs.
+    macos = (WORKFLOWS_DIR / "tauri-macos-build.yml").read_text(encoding="utf-8")
+    assert "uv pip install --system pytest pyyaml filelock" in macos, (
+        "tauri-macos-build.yml universal job must install pytest/pyyaml/filelock "
+        "for the fail-fast config drift gate (it does not install [dev,test])."
     )
 
 
@@ -295,14 +334,11 @@ def test_windows_signs_voice_typer_tauri_exe() -> None:
         pytest.skip("tauri-windows-build.yml not found")
     text = wf.read_text(encoding="utf-8")
     # The signing step exists.
-    assert "Sign standalone voice-typer-tauri.exe " in text, (
-        "standalone voice-typer-tauri.exe signing step not found."
-    )
+    assert "Sign standalone voice-typer-tauri.exe " in text, "standalone voice-typer-tauri.exe signing step not found."
     # SHA256SUMS loop includes the per-triple path.
     assert "src-tauri/target/${{ matrix.target }}/release/voice-typer-tauri.exe" in text, (
         "voice-typer-tauri.exe missing from SHA256SUMS loop / SLSA subject-path."
     )
-
 
 
 def test_windows_signtool_retry_loop() -> None:
@@ -322,9 +358,7 @@ def test_windows_signtool_retry_loop() -> None:
     ):
         assert ts in text, f"alternate timestamp server {ts!r} not found in workflow."
     # Retry loop scaffolding.
-    assert "Start-Sleep -Seconds 30" in text, (
-        "expected 30s backoff (`Start-Sleep -Seconds 30`) in retry loop."
-    )
+    assert "Start-Sleep -Seconds 30" in text, "expected 30s backoff (`Start-Sleep -Seconds 30`) in retry loop."
     # 3 attempts.
     assert re.search(r"maxAttempts\s*=\s*3|attempt -le 3", text), (
         "expected 3-attempt retry loop (`maxAttempts = 3` or `attempt -le 3`)."
@@ -346,24 +380,17 @@ def test_windows_signtool_has_d_du_flags() -> None:
     # The description is derived from branding.py (C-BRAND-1) — the
     # /d flag must interpolate `$sigDescription`, never a hardcoded name.
     brand_source = "voice_typer/server/branding.py"
-    assert brand_source in text, (
-        f"signtool description must be sourced from branding.py (missing `{brand_source}`)."
-    )
+    assert brand_source in text, f"signtool description must be sourced from branding.py (missing `{brand_source}`)."
     # One centralized invocation covers sidecar, prewarm, listener, host,
     # NSIS, and MSI signing without divergent arguments.
     d_count = text.count('/d "$sigDescription"')
     du_count = text.count('/du "https://voicetyper.app"')
-    assert d_count == 1, (
-        f"expected one centralized `/d \"$sigDescription\"` flag, got {d_count}."
-    )
-    assert du_count == 1, (
-        f"expected one centralized `/du \"https://voicetyper.app\"` flag, got {du_count}."
-    )
+    assert d_count == 1, f'expected one centralized `/d "$sigDescription"` flag, got {d_count}.'
+    assert du_count == 1, f'expected one centralized `/du "https://voicetyper.app"` flag, got {du_count}.'
     # The literal app name must NOT be inlined into a signtool /d flag —
     # it must flow through $sigDescription so a rename propagates to CI.
     assert f'/d "{APP_NAME}"' not in text, (
-        "signtool description hardcodes the app name; use "
-        "/d \"$sigDescription\" (C-BRAND-1)."
+        'signtool description hardcodes the app name; use /d "$sigDescription" (C-BRAND-1).'
     )
 
 
@@ -378,12 +405,8 @@ def test_windows_smartscreen_doc_block() -> None:
     text = wf.read_text(encoding="utf-8")
     assert "" in text, "documentation block must reference ."
     assert "SmartScreen" in text, "SmartScreen reputation timeline not documented."
-    assert "Azure Trusted Signing" in text, (
-        "Azure Trusted Signing migration path not documented."
-    )
-    assert "OV" in text and "EV" in text, (
-        "OV vs EV cert distinction not documented."
-    )
+    assert "Azure Trusted Signing" in text, "Azure Trusted Signing migration path not documented."
+    assert "OV" in text and "EV" in text, "OV vs EV cert distinction not documented."
 
 
 def test_linux_aarch64_comment_updated() -> None:
@@ -398,13 +421,8 @@ def test_linux_aarch64_comment_updated() -> None:
     text = wf.read_text(encoding="utf-8")
     # The stale claim must be GONE.
     assert "aarch64 does NOT" not in text, (
-        "stale 'aarch64 does NOT (compile_native.sh can't cross-compile it)' "
-        "comment still present."
+        "stale 'aarch64 does NOT (compile_native.sh can't cross-compile it)' comment still present."
     )
     # The new S2- reference must be present.
-    assert "S2-" in text, (
-        "S2- (aarch64 cross-compile) reference not found in comment."
-    )
-    assert "aarch64-linux-gnu-gcc" in text, (
-        "aarch64-linux-gnu-gcc cross-compiler reference not found."
-    )
+    assert "S2-" in text, "S2- (aarch64 cross-compile) reference not found in comment."
+    assert "aarch64-linux-gnu-gcc" in text, "aarch64-linux-gnu-gcc cross-compiler reference not found."

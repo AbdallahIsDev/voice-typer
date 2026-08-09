@@ -151,8 +151,14 @@ COMMAND_COSTS: dict[str, int] = {
     # Commands added to _COMMAND_REGISTRY after the cost map was last audited.
     # add_trusted_endpoint: small write (appends to a trusted-endpoints list).
     # test_cloud_connection: opens a subprocess to probe connectivity.
+    # reset_macos_accessibility: runs a subprocess (tccutil) + re-opens
+    # System Settings — side-effectful, cost 2.
+    # reset_linux_permissions: runs pkaction/pkexec/pkcheck subprocesses
+    # + restarts the polkit daemon — side-effectful, cost 2.
     "add_trusted_endpoint": 2,
     "test_cloud_connection": 10,
+    "reset_macos_accessibility": 2,
+    "reset_linux_permissions": 2,
 }
 DEFAULT_COST = 1
 

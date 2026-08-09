@@ -111,7 +111,7 @@ const TRAY_ID: &str = "voice-typer-tray";
 // name (`"idle"` / `"recording"` / `"transcribing"` / `"error"`).
 //
 // Without this cache, every `tray_state` event re-read the PNG from
-// disk (`resource_dir/tray/<name>.png`) AND re-decoded it via
+// disk (`resource_dir/icons/tray/<name>.png`) AND re-decoded it via
 // `Image::from_path` (which allocates an RGBA buffer + runs the PNG
 // decoder). For a typical session the icon flips between `idle` ↔
 // `recording` ↔ `transcribing` dozens of times — each flip paid the
@@ -137,7 +137,7 @@ static TRAY_ICON_CACHE: OnceLock<Mutex<HashMap<String, Image<'static>>>> = OnceL
 /// `transcribing`, `error`). Used by `load_tray_icon` to defend against
 /// a compromised sidecar trying to read an arbitrary file via the tray
 /// icon path (e.g. `icon: "../../../etc/passwd"` would otherwise be
-/// joined to `resource_dir/tray/../../../etc/passwd.png` and read).
+/// joined to `resource_dir/icons/tray/../../../etc/passwd.png` and read).
 ///
 /// Extracted from `load_tray_icon` so the whitelist is unit-testable in
 /// isolation (calling `load_tray_icon` directly would require a live
@@ -161,9 +161,12 @@ fn is_allowed_icon_name(name: &str) -> bool {
 /// (caller logs and skips the icon update — non-fatal).
 ///
 /// The icon files live under `src-tauri/icons/tray/` and are declared
-/// in `bundle.resources` of the per-arch Tauri config overrides so
-/// they're shipped with the bundle. At runtime they're resolved via
-/// `app.path().resource_dir()` → `tray/<name>.png`.
+/// in `bundle.resources` (string entry `"icons/tray/"` — Tauri
+/// preserves the relative path, so the files land at
+/// `$RESOURCE/icons/tray/<name>.png`, mirroring the source tree) of
+/// the base + per-arch Tauri configs so they're shipped with the
+/// bundle. At runtime they're resolved via `app.path().resource_dir()`
+/// → `icons/tray/<name>.png`.
 ///
 /// If the icon file is missing on disk (e.g. a fresh dev checkout that
 /// hasn't run the icon-generation script), the call returns `None` —
@@ -205,7 +208,10 @@ fn load_tray_icon(app: &AppHandle, name: &str) -> Option<Image<'static>> {
     // Slow path: read + decode from disk. Done OUTSIDE the cache lock
     // so a slow disk doesn't block other threads' cache hits.
     let resource_dir = app.path().resource_dir().ok()?;
-    let path = resource_dir.join("tray").join(format!("{}.png", allowed));
+    let path = resource_dir
+        .join("icons")
+        .join("tray")
+        .join(format!("{}.png", allowed));
     let bytes = std::fs::read(&path).ok()?;
     let img = match Image::from_path(&path) {
         Ok(img) => img,
@@ -351,7 +357,14 @@ fn is_focus_main_window_event(event: &TrayIconEvent) -> bool {
 /// visibility surfaces unintended cross-module couplings at compile
 /// time rather than letting them slip through as silent API growth.
 pub(crate) fn create_tray(app: &AppHandle) -> tauri::Result<()> {
-    let icon = app.default_window_icon().cloned();
+    // Initial icon: the `idle` state icon (gray bars) so the tray
+    // starts in the same visual state the Python sidecar starts in
+    // (AppState.IDLE). Falls back to the default window icon when the
+    // tray resources aren't available (e.g. a checkout that predates
+    // the tray PNGs) — never a bare `None`, so the tray always shows a
+    // real icon from the first frame. On macOS `icon_as_template(true)`
+    // (set below) renders either as the menubar-colored bar shape.
+    let icon = load_tray_icon(app, "idle").or_else(|| app.default_window_icon().cloned());
     let menu = empty_menu(app)?;
 
     // macOS opens the tray menu on LEFT-click by

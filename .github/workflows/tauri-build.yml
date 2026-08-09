@@ -18,9 +18,14 @@
 # only (`workflow_dispatch`) — it is NOT triggered on push or tag, and it
 # does NOT emit a `latest.json` updater manifest. Releases are
 # manual-download only, matching today's Electron release model. The
-# per-platform workflows themselves carry `if: false` guards until a
-# platform's Phase 0 spike passes; this orchestrator respects those
-# guards (calling a workflow that is disabled is a no-op).
+# `validate` job below runs the same fail-fast config-drift gate as the
+# per-platform workflows (identifier↔appId parity, bundle.icon↔git
+# lockstep, config↔script registry pairs) BEFORE fanning out, so a drift
+# regression dies in ~1 minute instead of after the first 30-60 min
+# platform build. Each platform's own gate guard lives INSIDE that
+# platform's workflow (macOS bundle jobs `if: true`; Linux bundle job
+# gated to `workflow_dispatch`/`workflow_call`; Windows matrix job
+# dispatch-enabled) — no top-level `if: false` remains anywhere.
 #
 # Reusable per-platform workflows (must exist in .github/workflows/):
 #   - tauri-windows-build.yml  (owned by sub-agent #5)
@@ -95,15 +100,79 @@ permissions:
 
 jobs:
   # ──────────────────────────────────────────────────────────────────────────
-  # Build matrix: dispatch to per-platform workflows.
-  # The `if:` on each per-platform call respects both the user's
-  # `platform` input AND the per-platform workflow's own `if: false`
-  # Phase-0-gate guard (so a not-yet-enabled platform is skipped cleanly).
+  # Pre-dispatch validation: the same fail-fast config-drift gate the
+  # per-platform workflows run inside their build jobs, hoisted into the
+  # orchestrator so it runs ONCE, ~1 min, before any 30-60 min platform
+  # build is queued. A drift regression (identifier/appId change not
+  # mirrored in tauri.conf.json, bundle.icon set out of lockstep with
+  # tauri.conf.json, bundle.resources/externalBin diverging from the
+  # stub-generator registry, tauri-binaries.json drifting from the
+  # canonical triples / Cargo bin name) fails here instead of after
+  # the first build. Same 6 pytest nodes + --check-icons as
+  # tauri-macos-build.yml / tauri-linux-build.yml / tauri-windows-build.yml.
+  # The icons tests' autouse fixture runs --clean, which only removes
+  # uncommitted stub binaries — safe in a fresh checkout.
+  # ──────────────────────────────────────────────────────────────────────────
+
+  validate:
+    name: Pre-dispatch config drift gate (fail fast)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+
+      # Minimal install (pytest + the two non-stdlib imports the drift
+      # tests need: yaml for electron-builder.yml, filelock for the icons
+      # module's serialize fixture) — mirrors the macOS workflow pattern.
+      - name: Install Python deps (fail-fast config drift gate)
+        run: uv pip install --system pytest pyyaml filelock
+
+      # Fail-fast gate: run the config drift guards ONCE here, BEFORE the
+      # per-platform builds fan out — identifier↔appId + productName +
+      # version parity, bundle.icon↔git lockstep, and the config↔script
+      # pairs (bundle.resources/externalBin ↔ stub generator registry,
+      # tauri-binaries.json ↔ canonical triples + Cargo binary name). Same
+      # guards the per-platform workflows re-run inside their build jobs.
+      - name: Verify config drift guards (icons, identity, binaries) (fail fast)
+        run: |
+          python3 -m pytest \
+            tests/tauri/test_bundle_identifier_parity.py \
+            tests/tauri/test_gen_tauri_icons_stub.py::test_tauri_conf_icon_list_matches_tracked_icons \
+            tests/tauri/test_gen_tauri_icons_stub.py::test_per_arch_configs_do_not_override_bundle_icon \
+            tests/tauri/test_config_script_drift.py::TestBundleBinariesVsStubRegistry::test_config_declares_exactly_the_stub_generator_registry \
+            tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestCoverage::test_manifest_covers_exactly_the_canonical_triples \
+            tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestBinaryNames::test_manifest_binary_names_match_cargo_binary_name \
+            -q --no-cov
+
+      # Fail-fast gate: verify EVERY committed file in tauri.conf.json
+      # bundle.icon exists AND is structurally valid (the 4 PNGs +
+      # icon.ico + icon.icns) before any platform build starts.
+      - name: Verify bundle.icon icons are present + valid (fail fast)
+        run: python3 scripts/gen_tauri_icons_stub.py --check-icons
+
+  # ──────────────────────────────────────────────────────────────────────────
+  # Build matrix: dispatch to per-platform workflows. Every platform call
+  # needs: validate — the one-time pre-dispatch drift gate — so a drift
+  # regression aborts the fan-out instead of burning build minutes.
+  # The `if:` on each per-platform call respects the user's `platform`
+  # input; each called workflow enforces its OWN event gate (macOS bundle
+  # jobs `if: true`; Linux bundle job `workflow_dispatch`/`workflow_call`;
+  # Windows matrix job dispatch-enabled).
   # ──────────────────────────────────────────────────────────────────────────
 
   build-windows:
     name: Windows (call tauri-windows-build)
     if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'windows'
+    needs: validate
     uses: ./.github/workflows/tauri-windows-build.yml
     with:
       target: ${{ github.event.inputs.target }}
@@ -113,13 +182,14 @@ jobs:
       # tauri-windows-build.yml's defaults.
       pybs_date: ${{ github.event.inputs.pybs_date }}
       pybs_version: ${{ github.event.inputs.pybs_version }}
-    # Per-platform workflow must NOT be triggered on push (per ADR-0020 §15).
-    # If the per-platform workflow file is missing or has `if: false` at the
-    # top level, this call is a no-op (GitHub Actions will skip it).
+    # Per ADR-0020 §15 the per-platform workflow must NOT be triggered on
+    # push — each called workflow enforces that itself (its bundle job is
+    # gated to workflow_dispatch / this orchestrator's workflow_call).
 
   build-macos:
     name: macOS (call tauri-macos-build)
     if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'macos'
+    needs: validate
     uses: ./.github/workflows/tauri-macos-build.yml
     with:
       target: ${{ github.event.inputs.target }}
@@ -128,6 +198,7 @@ jobs:
   build-linux:
     name: Linux (call tauri-linux-build)
     if: github.event.inputs.platform == 'all' || github.event.inputs.platform == 'linux'
+    needs: validate
     uses: ./.github/workflows/tauri-linux-build.yml
     with:
       target: ${{ github.event.inputs.target }}
@@ -187,7 +258,7 @@ jobs:
           # Sanity: warn if no installers were found at all (every platform failed).
           count=$(find aggregated -type f | wc -l)
           if [ "$count" -eq 0 ]; then
-            echo "::warning::No per-platform installer artifacts were found. Either all per-platform workflows are still gated behind Phase 0 (their top-level \`if: false\`), or all failed. See docs/migration/cutover-playbook.md for the per-platform readiness gate."
+            echo "::warning::No per-platform installer artifacts were found. Either all per-platform workflows were skipped (platform filter), the pre-dispatch drift gate (validate) failed, or all platform builds failed. See docs/migration/cutover-playbook.md for the per-platform readiness gate."
           fi
 
       - name: Upload aggregated artifact

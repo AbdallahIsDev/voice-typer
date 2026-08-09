@@ -9,7 +9,8 @@
       "resources/linux-scripts/uninstall_permissions.py",
       "resources/linux-scripts/99-voice-typer.rules",
       "resources/linux-scripts/00-voice-typer-capslock.conf",
-      "resources/linux-scripts/voice-typer.polkit"
+      "resources/linux-scripts/voice-typer.polkit",
+      "icons/tray/"
     ]
   }
 }

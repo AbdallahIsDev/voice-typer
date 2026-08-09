@@ -43,6 +43,29 @@ export interface OnboardingCheckPermissionsRequest {
 	type: "onboarding_check_permissions";
 }
 
+// macOS troubleshooting (finding #127 part b): clear a stale
+// Accessibility TCC entry + re-open System Settings. Invoked by the
+// Settings → Troubleshooting "Reset Accessibility Permission" button
+// (macOS only). The backend runs `tccutil reset Accessibility
+// <bundle-id>` with the bundle ID resolved at runtime, then re-opens
+// System Settings. Resolves to
+// `{ ok: boolean, command: string | null, error: string | null }`.
+export interface ResetMacosAccessibilityRequest {
+	type: "reset_macos_accessibility";
+}
+
+// Linux troubleshooting (finding #127 part b): clear a stale polkit
+// authorization so the next "Grant permission" re-prompts. Invoked by
+// the Settings → Troubleshooting "Reset Linux Permission" button
+// (Linux only). The backend restarts the polkit daemon via pkexec
+// (pkaction enumerates the Voice Typer actions, pkcheck verifies the
+// post-reset state). Resolves to
+// `{ ok: boolean, command: string | null, error: string | null,
+//    actions: string[], checks: Record<string, string> }`.
+export interface ResetLinuxPermissionsRequest {
+	type: "reset_linux_permissions";
+}
+
 export interface GetStatusRequest {
 	type: "get_status";
 }
@@ -435,6 +458,8 @@ export type PythonRequest =
 	| SetTrayLocaleRequest
 	| OnboardingResetRequest
 	| OnboardingCheckPermissionsRequest
+	| ResetMacosAccessibilityRequest
+	| ResetLinuxPermissionsRequest
 	// Additional renderer-called commands (permissive ``data?`` shape).
 	// See the individual interface declarations above for the survey
 	// methodology and the rationale for the permissive shape.

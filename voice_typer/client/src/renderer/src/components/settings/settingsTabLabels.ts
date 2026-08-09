@@ -94,6 +94,8 @@ export function getTabLabels(): Record<SettingsTab, string[]> {
 			t("settings.troubleshooting.reportBug"),
 			t("settings.troubleshooting.reRunWizard"),
 			t("settings.troubleshooting.resetToDefaults"),
+			t("settings.troubleshooting.resetAccessibility"),
+			t("settings.troubleshooting.resetLinux"),
 			t("about.cacheTitle"),
 			t("about.updatesTitle"),
 		],

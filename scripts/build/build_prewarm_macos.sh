@@ -152,6 +152,7 @@ NUITKA_ARGS=(
     --include-package=ctranslate2
     --include-package=voice_typer
     --include-package=websockets
+    --include-package-data=voice_typer.server
     --include-data-dir="$CT2_LIB_DIR=$CT2_LIB_DIR"
     --macos-create-bundle
     --macos-app-name=VoiceTyperPrewarm

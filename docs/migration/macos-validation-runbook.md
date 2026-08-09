@@ -860,7 +860,7 @@ xcrun stapler validate "$DMG_PATH"
 ### 7.7 Hardened runtime + entitlements
 
 The `.app`'s `Info.plist` must declare:
-- `CFBundleIdentifier`: `com.voicetyper.app` (matches `tauri.conf.json` identifier)
+- `CFBundleIdentifier`: `com.voicetyper.desktop` (matches `tauri.conf.json` identifier)
 - `LSMinimumSystemVersion`: `13.0`
 - `LSUIElement`: `false` (the main app shows in the Dock)
 - `NSMicrophoneUsageDescription`: required for `sounddevice` mic access

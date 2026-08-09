@@ -5,7 +5,8 @@
     "resources": [
       "resources/native/macos-key-listener",
       "resources/prewarm-x86_64-apple-darwin",
-      "resources/prewarm-aarch64-apple-darwin"
+      "resources/prewarm-aarch64-apple-darwin",
+      "icons/tray/"
     ]
   }
 }

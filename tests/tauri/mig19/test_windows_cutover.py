@@ -7,8 +7,10 @@ Validation & cutover (per platform)" + §"Reversibility"). It validates the
 ``docs/migration/cutover-playbook.md`` and as wired in:
 
   - ``.github/workflows/tauri-windows-build.yml`` — the Tauri host build
-    (Phase 0-W / Phase 1-W packaging; stubbed with ``if: false`` until the
-    Phase 0-W host gate passes on a real Windows host).
+    (Phase 0-W / Phase 1-W packaging; the x86_64 matrix leg is ENABLED
+    and runs via ``workflow_dispatch`` / ``workflow_call`` for Phase 0-W
+    validation — the aarch64 leg is a commented matrix template (TX-40)
+    until GitHub ships a ``windows-11-arm`` runner).
   - ``.github/workflows/build.yml`` — the existing Electron build
     pipeline (the ``build-windows`` job runs
     ``npx electron-builder --win`` to produce the NSIS installer).
@@ -34,8 +36,9 @@ therefore validate that the **plan + wiring** is in place:
      just deprioritized (commented out in electron-builder.yml on flip;
      re-enabled on rollback).
   5. The Windows cutover gate requires Phase 0-W to pass first — the
-     ``tauri-windows-build.yml`` workflow is stubbed with ``if: false``
-     until Phase 0-W host validation (see
+     ``tauri-windows-build.yml`` workflow is ENABLED for the Phase 0-W
+     validation dispatches (active x86_64 matrix leg) but push/PR
+     triggers stay commented out until the host validation (see
      ``docs/migration/windows-validation-runbook.md``) passes on a real
      Windows host.
   6. The Windows cutover includes a rollback plan — the playbook has a
@@ -62,7 +65,7 @@ References:
     host gate (must pass on a real Windows 10 22H2 / Windows 11 host
     before the cutover gate flips).
   - .github/workflows/tauri-windows-build.yml — the Tauri host CI build
-    (stubbed with ``if: false`` until Phase 0-W passes).
+    (active x86_64 matrix leg, dispatch-enabled for Phase 0-W validation).
   - .github/workflows/build.yml::build-windows — the existing Electron
     fallback CI build (``npx electron-builder --win``).
   - voice_typer/client/electron-builder.yml — the Electron fallback
@@ -79,14 +82,12 @@ Gaps documented (report, do NOT fix — out of scope for this gate check):
     the comment-out step (the lever).
     See ``test_electron_fallback_win_target_is_currently_active_pre_cutover``
     + ``test_playbook_documents_electron_target_disable_step``.
-  - GAP-2: ``tauri-windows-build.yml`` is stubbed with ``if: false`` —
-    this is INTENTIONAL (Phase 0-W has not passed on a real Windows
-    host). The cutover cannot proceed until (a) Phase 0-W passes on a
-    real host AND (b) the ``if: false`` is flipped to ``if: true`` per
-    playbook Step 2.1. This test asserts the pre-cutover state (stubbed
-    guard present) so that flipping the guard is a deliberate, tested
-    step.
-    See ``test_tauri_windows_workflow_has_phase0w_if_false_guard``.
+  - GAP-2 (CLOSED — workflow enabled, RT-FIX-9): ``tauri-windows-build.yml``
+    is ENABLED (active x86_64 matrix leg) so the Phase 0-W validation
+    dispatches actually build on a real Windows host. The cutover still
+    cannot proceed until (a) Phase 0-W passes on a real host AND (b) the
+    push/PR triggers are uncommented per playbook Step 2.1.
+    See ``test_tauri_windows_workflow_has_active_job_after_cutover``.
   - GAP-3: The cutover playbook's "Cutover log" section is empty — no
     platform has been cut over yet. This is the expected pre-cutover
     state. ``test_playbook_cutover_log_section_exists`` only asserts the
@@ -595,7 +596,8 @@ def test_tauri_windows_workflow_has_active_job_after_cutover(
     # The header comment must reference Phase 0-W.
     assert "Phase 0-W" in tauri_windows_workflow_text, (
         "tauri-windows-build.yml must reference Phase 0-W in its header "
-        "comment (the gate that must pass before flipping `if: false`)."
+        "comment (the host gate documented in "
+        "docs/migration/windows-validation-runbook.md)."
     )
 
 
@@ -613,8 +615,8 @@ def test_tauri_windows_workflow_references_validation_runbook(
 
     The workflow header comment must point to
     ``docs/migration/windows-validation-runbook.md`` so the release
-    engineer knows what host validation to run BEFORE flipping the
-    ``if: false`` guard.
+    engineer knows what host validation to run BEFORE un-commenting the
+    push/PR triggers.
     """
     assert "windows-validation-runbook" in tauri_windows_workflow_text, (
         "tauri-windows-build.yml must reference "

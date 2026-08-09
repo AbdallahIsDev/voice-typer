@@ -60,8 +60,8 @@ that opens an audio input device.
   failure.
 - **TCC.db reset** (advanced): if the permission is in a broken state
   (e.g. after a macOS major-version upgrade), reset it via
-  `tccutil reset Microphone com.voice-typer` (substitute the actual
-  bundle ID).
+  `tccutil reset Microphone com.voicetyper.desktop` (substitute the
+  actual bundle ID).
 
 ### No special permission for clipboard paste
 

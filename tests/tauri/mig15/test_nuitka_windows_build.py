@@ -248,22 +248,37 @@ def test_script_outputs_to_src_tauri_bin(script_text: str):
     )
 
 
-# ─── 4. ctranslate2/lib guard (singular — REQUIRED) ─────────────────────────
+# ─── 4. ctranslate2/lib guard (singular — layout-aware, REQUIRED) ───────────
 def test_script_has_ctranslate2_lib_guard(script_text: str):
-    """The script must hard-fail if ``$SITE/ctranslate2/lib`` is missing.
+    """The script must bundle ctranslate2's native DLLs from EITHER layout.
 
-    Without this directory the build would produce a broken .exe (no
-    libiomp5md.dll / ctranslate2.dll). The Linux + macOS siblings have
-    the same guard.
+    ctranslate2 ships its DLLs either under ``ctranslate2/lib`` (older
+    wheels) or directly in ``ctranslate2/`` (modern wheels — e.g. the
+    cp312 win_amd64 wheel has ctranslate2.dll + cudnn64_9.dll +
+    libiomp5md.dll at the package root). The script prefers the
+    ``lib/`` layout and falls back to the package dir; it hard-fails
+    only when the ctranslate2 package itself is missing or
+    ``ctranslate2.dll`` is absent from the resolved layout. Without
+    this, the build would produce a broken .exe (no libiomp5md.dll /
+    ctranslate2.dll) that crashes on ``import ctranslate2`` at launch.
     """
-    # The script must define CT2_LIB_DIR and check its existence.
-    assert "CT2_LIB_DIR=" in script_text, "build_sidecar_windows.sh must define CT2_LIB_DIR (the ctranslate2/lib path)."
-    assert "CT2_LIB_DIR" in script_text and '"$CT2_LIB_DIR"' in script_text.replace("$CT2_LIB_DIR=", ""), (
-        "build_sidecar_windows.sh must reference $CT2_LIB_DIR for an existence check."
+    # The script must define the lib/ path and resolve the native-DLL
+    # location from EITHER layout (old lib/ wheels OR modern
+    # package-root wheels — mirrors the inline command in
+    # .github/workflows/tauri-windows-build.yml).
+    assert 'CT2_LIB_DIR="$CT2_DIR/lib"' in script_text, (
+        "build_sidecar_windows.sh must define CT2_LIB_DIR as $CT2_DIR/lib (the ctranslate2/lib path)."
     )
-    # Look for the guard: `if [[ ! -d "$CT2_LIB_DIR" ]]`
-    assert '! -d "$CT2_LIB_DIR"' in script_text or '! -d "$SITE/ctranslate2/lib"' in script_text, (
-        'build_sidecar_windows.sh must guard: `if [[ ! -d "$CT2_LIB_DIR" ]]; then echo ERROR ...; exit 1; fi`'
+    assert 'CT2_DATA_DIR_SRC="$CT2_LIB_DIR"' in script_text, (
+        "build_sidecar_windows.sh must prefer the ctranslate2/lib layout when present."
+    )
+    assert 'CT2_DATA_DIR_SRC="$CT2_DIR"' in script_text, (
+        "build_sidecar_windows.sh must fall back to the ctranslate2 package dir "
+        "(modern wheels ship DLLs without a lib/ subdir)."
+    )
+    # ctranslate2.dll is mandatory in the resolved layout — hard-fail when absent.
+    assert '! -f "$CT2_DLL"' in script_text, (
+        'build_sidecar_windows.sh must guard: `if [[ ! -f "$CT2_DLL" ]]; then echo ERROR ...; exit 1; fi`'
     )
 
 

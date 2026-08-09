@@ -501,6 +501,38 @@ jobs:
           #   --ignore-vuln GHSA-xxxx-xxxx-xxxx
           pip-audit --strict
 
+  # ──────────────────────────────────────────────────────────────────────────
+  # Icon drift check: the committed src-tauri/icons must match what a
+  # fresh `tauri icon` + prune produces (from voice_typer/client/scripts/
+  # logo.svg). Catches a logo.svg edit that wasn't regenerated, or a
+  # hand-edited / stale icon set, in ~1 min instead of at bundle time.
+  # The check runs the generator in --check mode, which regenerates into
+  # a TEMP dir and compares (byte-exact for the deterministic PNGs + ICO;
+  # structurally for the non-deterministic ICNS) without ever touching
+  # the working tree. Fix by running
+  # `python scripts/build/generate_tauri_icons.py` and committing.
+  # ──────────────────────────────────────────────────────────────────────────
+  icons-drift:
+    name: Icons match `tauri icon` output
+    runs-on: ubuntu-22.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      # `tauri icon` runs via npx (@tauri-apps/cli ships a native binary).
+      - name: Set up Node 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+
+      - name: Verify src-tauri/icons matches a fresh `tauri icon` + prune
+        run: python scripts/build/generate_tauri_icons.py --check
+
   # weekly pip-audit sweep — runs the FULL audit (no ignore list)
   # on a schedule so we can re-triage new findings before they become
   # blockers. Posts a GitHub issue if any findings appear.

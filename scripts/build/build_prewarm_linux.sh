@@ -161,6 +161,7 @@ NUITKA_ARGS=(
     --include-package=ctranslate2
     --include-package=voice_typer
     --include-package=websockets
+    --include-package-data=voice_typer.server
     --include-data-dir="$CT2_LIB_DIR=$CT2_LIB_DIR"
     --onefile-tempdir-spec="$HOME/.cache/voice-typer/prewarm-onefile-tmp"
     --output-filename="$OUTPUT_NAME"

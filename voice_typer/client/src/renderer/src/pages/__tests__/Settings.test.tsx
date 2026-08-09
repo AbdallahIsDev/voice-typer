@@ -104,6 +104,12 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		Moon02Icon: make("Moon02Icon"),
 		RefreshIcon: make("RefreshIcon"),
 		Search01Icon: make("Search01Icon"),
+		// TroubleshootingSettingsSection's macOS-only "Reset
+		// Accessibility Permission" button (finding #127 part b)
+		// renders ShieldBanIcon — the mock must export it or the
+		// macOS-UA render test crashes with "No 'ShieldBanIcon'
+		// export is defined on the mock".
+		ShieldBanIcon: make("ShieldBanIcon"),
 		// KeyboardPermissionBanner (now mounted on Settings via
 		// the page-level import) renders AlertCircleIcon + Settings03Icon
 		// for the amber "click to fix" banner. Adding both to the mock
@@ -548,5 +554,131 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		expect(resetIcon?.getAttribute("data-name")).not.toBe(
 			wizardIcon?.getAttribute("data-name"),
 		);
+	});
+
+	// ── Finding #127 part (b): "Reset Accessibility Permission" ────────
+	// The button lives in TroubleshootingSettingsSection (Privacy tab)
+	// and is macOS-only (UA-gated like KeyboardPermissionBanner). Clicking
+	// it invokes the `reset_macos_accessibility` IPC; the backend runs
+	// `tccutil reset Accessibility <bundle-id>` (runtime-resolved) and
+	// re-opens System Settings.
+	const macUA =
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) " +
+		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+	const linuxUA =
+		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
+		"(KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+	const windowsUA =
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+		"AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+
+	async function renderSettingsOnPrivacyTabForResetA11y() {
+		mockCall.mockImplementation((type: string) => {
+			if (type === "get_config") return Promise.resolve(baseConfig);
+			if (type === "set_config") return Promise.resolve({ success: true });
+			return Promise.resolve({});
+		});
+
+		const { default: SettingsPage } = await import("@/pages/Settings");
+		renderWithProviders(<SettingsPage />);
+
+		await waitFor(() => {
+			expect(screen.getByText("Appearance")).toBeTruthy();
+		});
+
+		// The Troubleshooting section lives on the Privacy tab.
+		fireEvent.click(screen.getByText("Privacy"));
+	}
+
+	it("renders the Reset Accessibility Permission button on macOS and calls reset_macos_accessibility", async () => {
+		Object.defineProperty(window.navigator, "userAgent", {
+			value: macUA,
+			configurable: true,
+		});
+		try {
+			await renderSettingsOnPrivacyTabForResetA11y();
+
+			const button = await waitFor(() =>
+				screen.getByRole("button", {
+					name: "Reset macOS accessibility permission",
+				}),
+			);
+
+			// Pin the glyph (ShieldBanIcon = shield + ban, distinct from
+			// the benign reload/back icons used by the other buttons).
+			const icon = button.querySelector(
+				'[data-testid="hugeicon"]',
+			) as HTMLElement | null;
+			expect(icon?.getAttribute("data-name")).toBe("ShieldBanIcon");
+
+			fireEvent.click(button);
+			expect(mockCall).toHaveBeenCalledWith("reset_macos_accessibility");
+		} finally {
+			Object.defineProperty(window.navigator, "userAgent", {
+				value: linuxUA,
+				configurable: true,
+			});
+		}
+	});
+
+	// ── Finding #127 part (b) Linux sibling: "Reset Linux Permission" ──
+	// A stale polkit authorization is cleared by restarting the polkit
+	// daemon (pkexec) so the next "Grant permission" re-prompts.
+	it("renders the Reset Linux Permission button on Linux and calls reset_linux_permissions", async () => {
+		Object.defineProperty(window.navigator, "userAgent", {
+			value: linuxUA,
+			configurable: true,
+		});
+		try {
+			await renderSettingsOnPrivacyTabForResetA11y();
+
+			const button = await waitFor(() =>
+				screen.getByRole("button", {
+					name: "Reset Linux keyboard permission",
+				}),
+			);
+
+			// Same glyph family as the macOS reset (both are
+			// permission-reset actions; the UA gate makes them mutually
+			// exclusive).
+			const icon = button.querySelector(
+				'[data-testid="hugeicon"]',
+			) as HTMLElement | null;
+			expect(icon?.getAttribute("data-name")).toBe("ShieldBanIcon");
+
+			fireEvent.click(button);
+			expect(mockCall).toHaveBeenCalledWith("reset_linux_permissions");
+		} finally {
+			Object.defineProperty(window.navigator, "userAgent", {
+				value: macUA,
+				configurable: true,
+			});
+		}
+	});
+
+	it("does NOT render either platform reset button on non-macOS/non-Linux", async () => {
+		Object.defineProperty(window.navigator, "userAgent", {
+			value: windowsUA,
+			configurable: true,
+		});
+		await renderSettingsOnPrivacyTabForResetA11y();
+
+		// Wait for the section to mount (via a sibling button).
+		await waitFor(() =>
+			expect(
+				screen.getByRole("button", { name: "Re-run setup wizard" }),
+			).toBeTruthy(),
+		);
+
+		expect(
+			screen.queryByRole("button", {
+				name: "Reset macOS accessibility permission",
+			}),
+		).toBeNull();
+		expect(
+			screen.queryByRole("button", {
+				name: "Reset Linux keyboard permission",
+			}),
+		).toBeNull();
 	});
 });

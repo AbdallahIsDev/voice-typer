@@ -1,6 +1,6 @@
 # electron-builder distribution config.
 # NEW-DOC-014: added code signing + auto-update config.
-appId: com.voicetyper.app
+appId: com.voicetyper.desktop
 productName: Voice Typer
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 asar: true

@@ -174,6 +174,7 @@ echo "[build_prewarm_windows] Running Nuitka..."
     --nofollow-import-to=pytest \
     --include-package=voice_typer \
     --include-package=websockets \
+    --include-package-data=voice_typer.server \
     --windows-disable-console \
     --onefile-tempdir-spec="%LOCALAPPDATA%\\voice-typer\\prewarm-onefile-tmp" \
     --output-filename="$OUTPUT_NAME" \

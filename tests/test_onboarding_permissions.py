@@ -153,6 +153,114 @@ class TestOnboardingCheckPermissions:
         _cmds = " ".join(data["instructions"].get("commands") or []).lower()
         assert "input" in _joined or "udev" in (_joined + " " + _cmds)
 
+    def test_check_permissions_macos_denied_embeds_runtime_bundle_id(self, monkeypatch):
+        """On macOS with permission denied, the walkthrough's ``commands``
+        carry the RUNTIME-resolved bundle ID (never a hardcoded one) —
+        mirroring ``startup_tasks.py``'s a11y re-grant notification."""
+        from voice_typer.server import permissions as perm_mod
+        from voice_typer.server.permissions import PermissionState
+
+        monkeypatch.setattr(perm_mod, "is_windows", lambda: False)
+        monkeypatch.setattr(perm_mod, "is_macos", lambda: True)
+        monkeypatch.setattr(perm_mod, "is_linux", lambda: False)
+        monkeypatch.setattr(
+            perm_mod,
+            "check_keyboard_permission",
+            lambda: PermissionState.DENIED,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.onboarding.resolve_host_bundle_id",
+            lambda: "com.voicetyper.desktop",
+        )
+
+        server, _fake_app, _fake_service = make_ipc_server_with_fakes()
+        resp = server._handle_onboarding_check_permissions({}, {})
+
+        assert resp["type"] == "onboarding_permissions"
+        data = resp["data"]
+        assert data["platform"] == "macos"
+        assert data["needed"] is True
+        assert data["instructions"] is not None
+        assert data["instructions"]["commands"] == ["tccutil reset Accessibility com.voicetyper.desktop"]
+
+    def test_check_permissions_macos_denied_embeds_any_runtime_bundle_id(self, monkeypatch):
+        """The command must follow the resolved value, not a fixed one —
+        the whole point of runtime resolution (e.g. a future Tauri
+        build with a different identifier)."""
+        from voice_typer.server import permissions as perm_mod
+        from voice_typer.server.permissions import PermissionState
+
+        monkeypatch.setattr(perm_mod, "is_windows", lambda: False)
+        monkeypatch.setattr(perm_mod, "is_macos", lambda: True)
+        monkeypatch.setattr(perm_mod, "is_linux", lambda: False)
+        monkeypatch.setattr(
+            perm_mod,
+            "check_keyboard_permission",
+            lambda: PermissionState.DENIED,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.onboarding.resolve_host_bundle_id",
+            lambda: "com.voicetyper.some-other-build",
+        )
+
+        server, _fake_app, _fake_service = make_ipc_server_with_fakes()
+        resp = server._handle_onboarding_check_permissions({}, {})
+        data = resp["data"]
+
+        assert data["instructions"]["commands"] == ["tccutil reset Accessibility com.voicetyper.some-other-build"]
+
+    def test_check_permissions_macos_denied_omits_command_when_unresolved(self, monkeypatch):
+        """macOS denied + unresolvable bundle ID → ``commands`` is None
+        (a wrong bundle ID in a tccutil command is worse than no
+        command)."""
+        from voice_typer.server import permissions as perm_mod
+        from voice_typer.server.permissions import PermissionState
+
+        monkeypatch.setattr(perm_mod, "is_windows", lambda: False)
+        monkeypatch.setattr(perm_mod, "is_macos", lambda: True)
+        monkeypatch.setattr(perm_mod, "is_linux", lambda: False)
+        monkeypatch.setattr(
+            perm_mod,
+            "check_keyboard_permission",
+            lambda: PermissionState.DENIED,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.onboarding.resolve_host_bundle_id",
+            lambda: None,
+        )
+
+        server, _fake_app, _fake_service = make_ipc_server_with_fakes()
+        resp = server._handle_onboarding_check_permissions({}, {})
+        data = resp["data"]
+
+        assert data["platform"] == "macos"
+        assert data["needed"] is True
+        assert data["instructions"] is not None
+        assert data["instructions"]["commands"] is None
+
+    def test_check_permissions_macos_granted_has_no_instructions(self, monkeypatch):
+        """macOS with permission already granted → ``needed=False`` and
+        ``instructions=None`` (no walkthrough, no bundle-ID probe)."""
+        from voice_typer.server import permissions as perm_mod
+        from voice_typer.server.permissions import PermissionState
+
+        monkeypatch.setattr(perm_mod, "is_windows", lambda: False)
+        monkeypatch.setattr(perm_mod, "is_macos", lambda: True)
+        monkeypatch.setattr(perm_mod, "is_linux", lambda: False)
+        monkeypatch.setattr(
+            perm_mod,
+            "check_keyboard_permission",
+            lambda: PermissionState.GRANTED,
+        )
+
+        server, _fake_app, _fake_service = make_ipc_server_with_fakes()
+        resp = server._handle_onboarding_check_permissions({}, {})
+        data = resp["data"]
+
+        assert data["platform"] == "macos"
+        assert data["needed"] is False
+        assert data["instructions"] is None
+
     def test_check_permissions_windows_returns_not_needed(self, monkeypatch):
         """On Windows, no permission is needed — ``needed=False``,
         ``instructions=None`` (UX-4 auto-pass branch)."""

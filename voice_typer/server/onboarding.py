@@ -21,6 +21,7 @@ from pathlib import Path
 
 from voice_typer.server import onboarding_status
 from voice_typer.server.config import DEFAULT_HOTKEY
+from voice_typer.server.server_platform.macos_bundle_id import resolve_host_bundle_id
 
 log = logging.getLogger(__name__)
 
@@ -528,10 +529,14 @@ class OnboardingController:
         (``title_key`` / ``steps_keys``) instead of literal English
         strings. The renderer resolves them via ``t(key)`` so the
         walkthrough is fully localized. ``commands`` remains literal
-        (shell commands are not translatable). The renderer supports
-        both the new key-based shape and the legacy literal shape
-        (``title`` / ``steps``) for backward compatibility with older
-        backends and test mocks.
+        (shell commands are not translatable). On macOS the commands
+        carry the ``tccutil reset Accessibility <bundle-id>`` re-grant
+        command with the bundle ID resolved at RUNTIME
+        (``resolve_host_bundle_id``) — never hardcoded — so both the
+        Electron and Tauri builds show the command for the actually
+        running host. The renderer supports both the new key-based
+        shape and the legacy literal shape (``title`` / ``steps``) for
+        backward compatibility with older backends and test mocks.
         """
         # Import the platform helpers from ``permissions`` (which
         # re-exports them from ``platform_utils``) so tests can
@@ -554,19 +559,29 @@ class OnboardingController:
         elif perm_mod.is_macos():
             platform_name = "macos"
             needed = state != PermissionState.GRANTED
-            instructions = (
-                {
+            if needed:
+                # The re-grant command embeds the host app's bundle ID,
+                # resolved at RUNTIME from the nearest ``*.app`` in the
+                # parent-process chain (``resolve_host_bundle_id``) so
+                # both the Electron and Tauri builds show the correct
+                # ``tccutil`` command and a future bundle-identifier
+                # change needs no code edit — mirrors the a11y re-grant
+                # notification in ``startup_tasks.py``. ``None`` when
+                # unresolvable: a wrong bundle ID in a tccutil command
+                # is worse than no command.
+                bundle_id = resolve_host_bundle_id()
+                commands = [f"tccutil reset Accessibility {bundle_id}"] if bundle_id else None
+                instructions = {
                     "title_key": "onboarding.permissionsInstructionsMacosTitle",
                     "steps_keys": [
                         "onboarding.permissionsInstructionsMacosStep1",
                         "onboarding.permissionsInstructionsMacosStep2",
                         "onboarding.permissionsInstructionsMacosStep3",
                     ],
-                    "commands": None,
+                    "commands": commands,
                 }
-                if needed
-                else None
-            )
+            else:
+                instructions = None
         elif perm_mod.is_linux():
             platform_name = "linux"
             needed = state != PermissionState.GRANTED

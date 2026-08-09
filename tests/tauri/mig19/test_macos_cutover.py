@@ -40,8 +40,10 @@ These tests check:
   3. The macOS Tauri CI workflow's universal-build job ``needs:``
      BOTH the aarch64 + x86_64 sidecar jobs (so the gate requires
      Phase 0-M to pass on BOTH archs — neither arch can be skipped).
-  4. The macOS Tauri CI workflow is gated by ``if: false`` until
-     Phase 0-M is manually validated (the per-platform Phase 5 gate).
+4. The macOS Tauri CI workflow is ENABLED for Phase 0-M validation
+      (jobs gated ``if: true``) — it runs on ``workflow_dispatch`` / the
+      tauri-build.yml orchestrator's ``workflow_call`` while the
+      per-platform Phase 5 gate (Phase 0-M host validation) is pending.
   5. The Electron fallback is preserved: ``electron-builder.yml`` keeps
      the ``mac:`` section with ``dmg`` target + both ``x64`` + ``arm64``
      archs (the fallback that ships while macOS Tauri is in beta + the
@@ -85,13 +87,16 @@ Gaps documented (report, do NOT fix — out of scope for this gate check):
     IS explicitly signed with ``codesign --force --sign
     "$MAC_SIGNING_IDENTITY" "$DMG_PATH"`` (no --deep / --entitlements).
     Report only — do NOT fix.
-  - GAP-3: the CI workflow's ``if: false`` guards are uniform across
-    all 3 jobs (build-aarch64 / build-x86_64 / build-tauri-universal),
-    so there is currently no way to enable ONLY aarch64 (e.g., if
-    Phase 0-M passes on aarch64 but not yet on x86_64). Per the
-    playbook, macOS cutover requires BOTH archs, so this is correct
-    behavior — but it means a partial Phase 0-M pass cannot ship an
-    aarch64-only Tauri beta. Report only — do NOT fix.
+  - GAP-3 (CLOSED — workflow enabled): the CI workflow's 3 jobs
+    (build-aarch64 / build-x86_64 / build-tauri-universal) are uniform:
+    all ENABLED (``if: true``) for Phase 0-M validation, so there is
+    currently no way to enable ONLY aarch64 (e.g., if Phase 0-M passes on
+    aarch64 but not yet on x86_64). Per the playbook, macOS cutover
+    requires BOTH archs, so this is correct behavior — but it means a
+    partial Phase 0-M pass cannot ship an aarch64-only Tauri beta. The
+    workflow runs via ``workflow_dispatch`` / the tauri-build.yml
+    orchestrator's ``workflow_call``; push/PR triggers stay commented out
+    until Phase 0-M host validation passes. Report only — do NOT fix.
 
 VALIDATE ON MACOS HOST (both archs):
 
@@ -151,8 +156,11 @@ VALIDATE ON MACOS HOST (both archs):
   OS version for EACH arch independently. After BOTH archs pass + the
   evidence trail is filed, follow cutover-playbook.md Step 2 ("Flip the
   default (T-0 release)") for macOS:
-    - .github/workflows/tauri-macos-build.yml: change `if: false` →
-      `if: true` on all 3 jobs.
+    - .github/workflows/tauri-macos-build.yml: jobs are ALREADY ENABLED
+      (``if: true``) for validation — cutover means re-running the
+      dispatch + uncommenting the push/PR triggers (ADR-0020 §15 +
+      cutover-playbook.md Step 2.1) so CI-driven runs confirm the
+      runbook pass on real runners.
     - voice_typer/client/electron-builder.yml: comment out the `mac:`
       section's `target:` entries (the Electron build path stays in the
       repo as the reversible fallback).
@@ -388,34 +396,36 @@ def test_workflow_universal_job_needs_both_arch_jobs(workflow_text: str):
     )
 
 
-def test_workflow_has_phase_0_m_gate(workflow_text: str):
-    """The macOS Tauri workflow must be gated by ``if: false`` (Phase 0-M).
+def test_workflow_is_enabled_for_phase_0_m_validation(workflow_text: str):
+    """The macOS Tauri workflow must be ENABLED (``if: true``) for Phase 0-M.
 
     ADR-0020 §"Phase 5" + cutover-playbook.md Step 2.1: a platform's
     Tauri workflow is gated (``if: false``) until its Phase 0 validation
-    passes on a real host. The macOS workflow must have ``if: false``
-    guards (the Phase 0-M gate) that are flipped to ``if: true`` ONLY
-    when Phase 0-M passes on BOTH archs.
-
-    Per cutover-playbook.md Step 2.1: "Enable the per-platform Tauri
-    workflow's top-level ``if:`` guard. Change ``if: false`` → ``if: true``
-    (or remove the guard)."
+    is ready to run on a real host, then flipped to ``if: true`` (or the
+    guard is removed) so the validation run can execute via
+    ``workflow_dispatch``. The macOS workflow must have NO ``if: false``
+    job guards left, and must still document the Phase 0-M validation
+    requirement so future maintainers know what must pass before cutover.
     """
-    # The workflow must have at least one `if: false` guard on a job.
-    if_false_count = workflow_text.count("if: false")
-    assert if_false_count >= 1, (
-        "tauri-macos-build.yml does NOT have any 'if: false' guards. "
-        "ADR-0020 §'Phase 5' + cutover-playbook.md Step 2.1 mandate "
-        "that the per-platform Tauri workflow is gated until its Phase 0 "
-        "validation passes (macOS = Phase 0-M on BOTH archs)."
+    # No job may remain disabled.
+    assert "if: false" not in workflow_text, (
+        "tauri-macos-build.yml still has `if: false` job guards — the "
+        "macOS workflow must be enabled (`if: true`) for Phase 0-M "
+        "validation (cutover-playbook.md Step 2.1)."
     )
-    # The workflow must mention Phase 0-M (so the gate's purpose is
-    # documented in the workflow itself, not just in the playbook).
+    # All three jobs must be present and explicitly enabled.
+    for job in ("build-aarch64:", "build-x86_64:", "build-tauri-universal:"):
+        assert job in workflow_text, f"tauri-macos-build.yml missing job {job!r}"
+    assert "if: true" in workflow_text, (
+        "tauri-macos-build.yml jobs must be enabled with `if: true` so the Phase 0-M validation run can execute."
+    )
+    # The Phase 0-M validation requirement must still be documented in the
+    # workflow itself (not just in the runbook), so the cutover gate stays
+    # discoverable.
     assert "Phase 0-M" in workflow_text, (
         "tauri-macos-build.yml does NOT reference 'Phase 0-M'. The "
-        "workflow's `if: false` gate exists to block CI until Phase 0-M "
-        "passes on a real macOS host — the workflow must document this "
-        "so future maintainers know what the gate is for."
+        "workflow must document that Phase 0-M (macOS host validation "
+        "runbook) must pass on BOTH archs before cutover."
     )
 
 

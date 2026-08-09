@@ -796,7 +796,7 @@ Voice Typer today uses the platform-aware `_paths.config_dir()` (which delegates
 5. The DMG is built from the stapled `.app`, then the DMG itself is signed + notarized + stapled.
 
 **Required `Info.plist` keys for the `.app`:**
-- `CFBundleIdentifier`: `com.voicetyper.app` (matches today's `electron-builder.yml` `appId`).
+- `CFBundleIdentifier`: `com.voicetyper.desktop` (matches today's `electron-builder.yml` `appId`).
 - `LSMinimumSystemVersion`: `13.0` (matches `PLATFORM_STATUS.md` minimum).
 - `LSUIElement`: `false` (the main app shows in the Dock; the sidecar sets `LSUIElement=true` separately).
 - `NSMicrophoneUsageDescription`: required for `sounddevice` to access the mic.

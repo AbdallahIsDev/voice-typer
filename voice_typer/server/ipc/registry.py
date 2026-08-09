@@ -257,6 +257,16 @@ _COMMAND_REGISTRY: dict[str, str] = {
     "get_model_catalog": "_handle_get_model_catalog",
     "delete_model": "_handle_delete_model",
     "set_tray_locale": "_handle_set_tray_locale",
+    # macOS troubleshooting (finding #127 part b): reset the stale
+    # Accessibility TCC entry (``tccutil reset Accessibility
+    # <bundle-id>`` — bundle ID resolved at runtime) + re-open System
+    # Settings. Handler lives in ``handlers/system_handlers.py``.
+    "reset_macos_accessibility": "_handle_reset_macos_accessibility",
+    # Linux troubleshooting: reset a stale polkit authorization
+    # (restart the polkit daemon via pkexec; pkaction enumerates + pkcheck
+    # verifies) so the next permission grant re-prompts. Handler lives in
+    # ``handlers/system_handlers.py``.
+    "reset_linux_permissions": "_handle_reset_linux_permissions",
     # Cloud-provider "Test Connection" probe. The renderer's
     # ``useCloudProviders.testConnection`` action dispatches this command
     # instead of issuing a cross-origin fetch directly (which would leak

@@ -50,7 +50,7 @@ renderer ALLOWED_COMMANDS gate but still routes through
 `_COMMAND_REGISTRY`** — i.e. the handler must be registered or the
 dispatch fails with `unknown_command`).
 
-## Commands (66 total — 64 renderer-reachable + 2 host-only: shutdown, tray_click)
+## Commands (68 total — 66 renderer-reachable + 2 host-only: shutdown, tray_click)
 
 Grouped by namespace. "✓" in the Allowlist column means the command is
 in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
@@ -78,6 +78,13 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 | `shutdown` | `_handle_shutdown` | — | Cooperative shutdown — handler runs identically on TCP / stdin / WS. |
 | `toggle_dictation` | `_handle_toggle_dictation` | ✓ |  |
 | `tray_click` | `_handle_tray_click` | — | Host-only — Rust tray dispatcher invokes via `dispatch_inner`, so a renderer `dispatch` call returns "unknown command". |
+
+### macOS permissions (accessibility troubleshooting)
+
+| Command | Handler | Allowlist | Notes |
+|---------|---------|-----------|-------|
+| `reset_macos_accessibility` | `_handle_reset_macos_accessibility` | ✓ | Finding #127 part b — Settings → Troubleshooting "Reset Accessibility Permission" button. Runs `tccutil reset Accessibility <bundle-id>` (bundle ID resolved at runtime via `macos_bundle_id.py` — never hardcoded) and re-opens System Settings → Privacy & Security → Accessibility. `ack` → `{ok, command, error}`. |
+| `reset_linux_permissions` | `_handle_reset_linux_permissions` | ✓ | Finding #127 part b (Linux sibling) — Settings → Troubleshooting "Reset Linux Permission" button. Clears a stale polkit authorization (`auth_admin_keep` is cached ~5 min by polkitd — see finding #134) by restarting the polkit daemon via `pkexec systemctl restart polkit` / `polkitd` / `service polkit restart`; `pkaction` enumerates the Voice Typer actions (both `com.voicetyper.install-permissions` and the legacy `org.voice-typer.install-permissions`) and `pkcheck` verifies the post-reset state. pkexec exit 126 (auth dismissed) is reported as such. `ack` → `{ok, command, error, actions, checks}`. |
 | `undo_last` | `_handle_undo_last` | ✓ |  |
 
 ### Onboarding wizard

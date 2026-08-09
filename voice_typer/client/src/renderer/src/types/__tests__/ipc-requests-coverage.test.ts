@@ -64,6 +64,8 @@ const _RENDERER_CALLED_COMMANDS = {
 	set_tray_locale: true,
 	onboarding_reset: true,
 	onboarding_check_permissions: true,
+	reset_macos_accessibility: true,
+	reset_linux_permissions: true,
 	// 28 commands added by the widening slice (see the
 	// per-interface docstrings in ``types/ipc/requests.ts`` for
 	// the call-site survey).
@@ -202,6 +204,8 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	onboarding_check_permissions: true,
 	onboarding_set_backend: true,
 	onboarding_reset: true,
+	reset_macos_accessibility: true,
+	reset_linux_permissions: true,
 	microphone_test_start: true,
 	microphone_test_stop: true,
 	microphone_test_cancel: true,

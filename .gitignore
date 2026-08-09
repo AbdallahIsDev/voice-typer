@@ -6,14 +6,14 @@ __pycache__/
 node_modules/
 .agents/
 
-# DEAD-003: Electron/Vite build outputs — never commit these.
+# Electron/Vite build outputs — never commit these.
 # They're regenerated on every `npm run build` and bloat the repo.
 # NOTE: `csp-plugin.ts` at the client root is a SOURCE file (tracked,
 # imported by electron.vite.config.ts), NOT a build output — do not add
 # it here. It is covered by tsconfig.node.json explicitly.
 voice_typer/client/out/
 voice_typer/client/src/renderer/dist/
-# BUILD-N15: also ignore the root build/ and dist/ dirs used by
+# also ignore the root build/ and dist/ dirs used by
 # setuptools and PyInstaller.  Note: the leading slash anchors these
 # to the repo root so they don't accidentally match subdirectories
 # like scripts/build/ (which contains tracked build scripts).
@@ -32,7 +32,7 @@ REPORT.md
 nul
 # Local test/debug
 _cuda_test.py
-# RW-11: ruff ratchet CI artifact — produced by `ruff check ... --output-format=json`
+# ruff ratchet CI artifact — produced by `ruff check ... --output-format=json`
 # and consumed by scripts/ruff_ratchet_check.py. Never commit; regenerate locally
 # with the same ruff invocation if you need it.
 ruff-current.json
@@ -51,7 +51,7 @@ FORENSIC_REVIEW_2026-06-17.md
 rebuild-and-launch.ps1
 voice_typer/server/assets/
 .opencode/
-# BUILD-N15: Python coverage / type-checker caches that should never
+# Python coverage / type-checker caches that should never
 # ship in the repo. Without these patterns a single `pytest --cov` or
 # `mypy voice_typer` run leaves dozens of cache files in the tree.
 .coverage
@@ -64,7 +64,7 @@ coverage.xml
 .pyrefly_cache/
 .tox/
 .pytype/
-# BUILD-N15: environment files — local secrets / API keys must never
+# environment files — local secrets / API keys must never
 # be committed. The `.env` file is loaded by the test suite only when
 # present, but should never appear in `git status`.
 .env
@@ -81,6 +81,7 @@ src-tauri/src-tauri/
 # app, not a library — reproducible builds require the lockfile in git).
 # Workspace Manager
 .workspace/
+.freebuff/
 # Git worktrees — sibling worktree roots live under .worktree/
 .worktree/
 README.ws.md
@@ -102,3 +103,4 @@ changes/
 downloads/
 merged-output/
 status.md
+WINDOWS_PIPELINE_LOCAL_RUN_STATUS.md

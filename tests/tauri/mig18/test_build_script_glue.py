@@ -35,8 +35,9 @@ Scope (the 8 glue assertions this file enforces):
      only fires on the matching host — cross-compilation is NOT
      supported — but the script MUST contain all 3 branches so a build
      on any host produces the matching listener.)
-  8. ``gen_tauri_icons_stub.py`` generates placeholder icons for
-     development (RGBA PNGs + stub sidecar/native/prewarm binaries).
+  8. ``gen_tauri_icons_stub.py`` generates stub sidecar/native/prewarm
+     binaries (the icons are committed real files — see the ICONS-ARE-
+     NOT-STUBS note below).
 
 VALIDATE ON HOST:
     1. bash scripts/build/build_tauri_all.sh
@@ -64,19 +65,20 @@ References:
 
 Gaps documented (report, do NOT fix — out of scope for this glue test):
 
-  - GAP-1: ``build_tauri_all.sh`` does NOT invoke
-    ``gen_tauri_icons_stub.py`` (or any icon generator) AND does NOT
-    document that the operator must run it first. A clean checkout has
-    no ``src-tauri/icons/*.png`` + no ``src-tauri/bin/python-sidecar-*``
-    + no ``src-tauri/resources/native/*`` + no
-    ``src-tauri/resources/prewarm-*``, so ``cargo tauri build`` fails
-    immediately with "failed to open icon 'icons/32x32.png'". The
-    operator must manually run ``python scripts/gen_tauri_icons_stub.py``
-    (or the real ``scripts/build/generate_icon.py``) BEFORE invoking
-    ``build_tauri_all.sh``. This is documented in the tauri-build-runbook
-    "Common failures" section but is NOT enforced — or even mentioned —
-    by the orchestrator itself. See
-    ``test_known_gap_orchestrator_neither_runs_nor_documents_icon_generation``.
+  - GAP-1 (RESOLVED): the ORIGINAL gap was that ``build_tauri_all.sh``
+    neither invoked ``gen_tauri_icons_stub.py`` nor documented that the
+    operator must run it first — a clean checkout had no
+    ``src-tauri/bin/python-sidecar-*`` + no
+    ``src-tauri/resources/native/*`` + no
+    ``src-tauri/resources/prewarm-*``, so ``cargo tauri build`` failed
+    with "resource path 'bin/python-sidecar-<triple>' doesn't exist".
+    BUILD-4 fixed the binary-stub half (the orchestrator now runs
+    ``gen_tauri_icons_stub.py --check`` in Phase 0 — asserted by
+    ``test_orchestrator_invokes_gen_tauri_icons_stub``), and the ICONS
+    are now committed real files (``src-tauri/icons/*`` generated once
+    with ``tauri icon`` from ``voice_typer/client/scripts/logo.svg``),
+    so no icon generation is needed at all. See
+    ``test_icon_stub_generator_documents_icons_are_committed``.
 
   - GAP-2: ``build_tauri_all.sh`` does NOT directly invoke
     ``compile_native.sh``. It invokes
@@ -361,12 +363,12 @@ def test_orchestrator_references_compile_native_script(
 def test_orchestrator_invokes_gen_tauri_icons_stub(orchestrator_text: str):
     """BUILD-4 fix: the orchestrator now invokes ``gen_tauri_icons_stub.py``.
 
-    ``src-tauri/tauri.conf.json`` references 4 PNG icons + 6 sidecar
-    binaries + 3 native + 6 prewarm resources. On a clean checkout NONE
-    exist, so ``cargo tauri build`` fails immediately. BUILD-4 added a
-    Phase 0 that runs ``gen_tauri_icons_stub.py --check`` (generates stubs
-    only if missing) before Phase 1a. This test ASSERTS the invocation
-    IS present.
+    ``src-tauri/tauri.conf.json`` references 6 sidecar binaries + 3
+    native + 6 prewarm resources (the icons are committed real files, so
+    only the BINARY stubs are needed on a clean checkout). BUILD-4 added
+    a Phase 0 that runs ``gen_tauri_icons_stub.py --check`` (generates
+    binary stubs only if missing) before Phase 1a. This test ASSERTS the
+    invocation IS present.
     """
     invokes_directly = (
         "gen_tauri_icons_stub.py" in orchestrator_text
@@ -375,7 +377,7 @@ def test_orchestrator_invokes_gen_tauri_icons_stub(orchestrator_text: str):
     )
     assert invokes_directly, (
         "build_tauri_all.sh should invoke gen_tauri_icons_stub.py (BUILD-4 fix). "
-        "The orchestrator must generate icon + binary stubs before cargo tauri build."
+        "The orchestrator must generate binary stubs before cargo tauri build."
     )
 
 
@@ -538,7 +540,7 @@ def test_compile_native_supports_check_mode(compile_native_text: str):
     assert "--check" in compile_native_text, "compile_native.sh must support `--check` (verify toolchain, exit 0/1)."
 
 
-# ─── 8. gen_tauri_icons_stub.py generates placeholder icons ─────────────────
+# ─── 8. gen_tauri_icons_stub.py generates binary stubs (icons are committed) ─
 def test_icon_stub_generator_exists():
     """``gen_tauri_icons_stub.py`` must exist at the canonical path."""
     assert ICON_STUB_GENERATOR.is_file(), f"missing: {ICON_STUB_GENERATOR}"
@@ -547,28 +549,37 @@ def test_icon_stub_generator_exists():
     )
 
 
-def test_icon_stub_generator_generates_placeholder_icons(icon_stub_text: str):
-    """The generator must produce RGBA PNGs (color_type=6) for development.
+def test_icon_stub_generator_documents_icons_are_committed(icon_stub_text: str):
+    """The icon set is committed real files; the generator only makes binary stubs.
 
-    Tauri v2 ``generate_context!()`` requires RGBA (color_type=6) for
-    the bundle icons — RGB (color_type=2) is rejected with
-    "icon ... is not RGBA". The generator must produce 4 PNGs at the
-    sizes referenced by ``src-tauri/tauri.conf.json``:
-      - ``icons/32x32.png``
-      - ``icons/128x128.png``
-      - ``icons/128x128@2x.png`` (256x256)
-      - ``icons/icon.png`` (512x512)
+    The icons referenced by ``src-tauri/tauri.conf.json`` ``bundle.icon``
+    (``32x32.png``, ``128x128.png``, ``128x128@2x.png``, ``icon.png``,
+    ``icon.ico``, ``icon.icns``) are REAL git-committed artifacts,
+    generated once with ``tauri icon`` from
+    ``voice_typer/client/scripts/logo.svg`` (the app's logo source of
+    truth). ``gen_tauri_icons_stub.py`` must NOT generate or delete them
+    — its only icon duty is ``--check-icons`` validation of the committed
+    ``icons/icon.ico`` (``tauri-build`` hard-fails without it on
+    Windows: "required for generating a Windows Resource file during
+    tauri-build").
     """
-    # The generator must produce RGBA PNGs.
-    assert "color_type=6" in icon_stub_text or "RGBA" in icon_stub_text, (
-        "gen_tauri_icons_stub.py must document that it generates RGBA PNGs "
-        "(color_type=6 — required by Tauri v2 generate_context!())."
+    # Every bundle.icon file must exist on disk (i.e. be committed — a
+    # fresh checkout has it). A missing icon breaks cargo tauri build.
+    src_tauri = PROJECT_ROOT / "src-tauri"
+    missing = [
+        rel
+        for rel in ("32x32.png", "128x128.png", "128x128@2x.png", "icon.png", "icon.ico", "icon.icns")
+        if not (src_tauri / "icons" / rel).is_file()
+    ]
+    assert not missing, (
+        f"missing committed icons: {missing} — the icon set must be committed "
+        "(generate once with `tauri icon` from voice_typer/client/scripts/logo.svg)."
     )
-    # All 4 icon paths must be referenced.
-    for icon_rel in ("32x32.png", "128x128.png", "128x128@2x.png", "icon.png"):
-        assert icon_rel in icon_stub_text, (
-            f"gen_tauri_icons_stub.py must generate `{icon_rel}` (referenced by src-tauri/tauri.conf.json bundle.icon)."
-        )
+    # The generator must document that icons are committed (not generated).
+    assert any(marker in icon_stub_text for marker in ("tauri icon", "logo.svg", "committed")), (
+        "gen_tauri_icons_stub.py must document that the icons are committed "
+        "real files and that it only generates binary stubs."
+    )
 
 
 def test_icon_stub_generator_generates_stub_sidecar_binaries(icon_stub_text: str):
@@ -626,9 +637,10 @@ def test_icon_stub_generator_supports_check_mode(icon_stub_text: str):
 def test_icon_stub_generator_supports_clean_mode(icon_stub_text: str):
     """``gen_tauri_icons_stub.py --clean`` must remove stubs (preserving real artifacts).
 
-    Uses a heuristic (PNG signature OR STUB_MARKER string in the first
-    8 KB) so a developer who built a real Nuitka sidecar at one of the
-    stub paths doesn't lose it.
+    Uses a heuristic (STUB_MARKER string in the first 8 KB — icons are
+    committed real files and are NOT in the stub path registry) so a
+    developer who built a real Nuitka sidecar at one of the stub paths
+    doesn't lose it.
     """
     assert "--clean" in icon_stub_text, (
         "gen_tauri_icons_stub.py must support `--clean` (remove stubs, preserve real artifacts via heuristic)."
@@ -636,11 +648,15 @@ def test_icon_stub_generator_supports_clean_mode(icon_stub_text: str):
 
 
 def test_icon_stub_generator_run_produces_all_expected_files():
-    """End-to-end smoke: invoking the generator produces all expected stub files.
+    """End-to-end smoke: generator produces binary stubs, preserves committed icons.
 
     This test actually invokes the generator (it's pure-Python + stdlib
-    only — no Nuitka / gcc / swiftc needed) and verifies every expected
-    stub file is created. Cleans up after itself via ``--clean``.
+    only — no Nuitka / gcc / swiftc needed) and verifies:
+      - the committed icon set still exists afterwards (generate() must
+        never delete/overwrite the real committed icons),
+      - every expected stub binary is created,
+      - ``--clean`` removes the binary stubs but PRESERVES the committed
+        icons.
     """
     result = subprocess.run(
         [sys.executable, str(ICON_STUB_GENERATOR)],
@@ -652,21 +668,24 @@ def test_icon_stub_generator_run_produces_all_expected_files():
     assert result.returncode == 0, (
         f"gen_tauri_icons_stub.py failed:\n--- stdout ---\n{result.stdout}\n--- stderr ---\n{result.stderr}"
     )
-    # Verify the 4 PNG icons were created.
+    # The committed icons (4 PNGs + the Windows .ico + the macOS .icns)
+    # must exist BEFORE + AFTER generate() — the generator must never
+    # touch them.
     src_tauri = PROJECT_ROOT / "src-tauri"
     expected_icons = [
         src_tauri / "icons" / "32x32.png",
         src_tauri / "icons" / "128x128.png",
         src_tauri / "icons" / "128x128@2x.png",
         src_tauri / "icons" / "icon.png",
+        src_tauri / "icons" / "icon.ico",
+        src_tauri / "icons" / "icon.icns",
     ]
     missing = [p for p in expected_icons if not p.exists()]
-    assert not missing, f"missing generated PNG icons: {missing}"
-    # Verify each PNG is non-trivial (>100 bytes — a valid PNG with IHDR + IDAT + IEND).
+    assert not missing, f"missing committed icons: {missing}"
+    # Verify each icon is non-trivial (a valid PNG / ICO / ICNS container).
     for p in expected_icons:
         assert p.stat().st_size > 100, (
-            f"{p.name} is suspiciously small ({p.stat().st_size} bytes); "
-            "expected a valid PNG with signature + IHDR + IDAT + IEND."
+            f"{p.name} is suspiciously small ({p.stat().st_size} bytes); expected a valid icon container."
         )
     # Verify the 6 stub sidecar binaries were created.
     expected_sidecars = [
@@ -687,7 +706,9 @@ def test_icon_stub_generator_run_produces_all_expected_files():
     ]
     missing_native = [p for p in expected_native if not p.exists()]
     assert not missing_native, f"missing generated native stubs: {missing_native}"
-    # Cleanup so we don't pollute the repo.
+    # Cleanup so we don't pollute the repo. --clean must remove the
+    # binary stubs but PRESERVE the committed icons (they are real files,
+    # not stubs).
     cleanup = subprocess.run(
         [sys.executable, str(ICON_STUB_GENERATOR), "--clean"],
         capture_output=True,
@@ -698,11 +719,15 @@ def test_icon_stub_generator_run_produces_all_expected_files():
     assert cleanup.returncode == 0, (
         f"gen_tauri_icons_stub.py --clean failed:\n--- stdout ---\n{cleanup.stdout}\n--- stderr ---\n{cleanup.stderr}"
     )
+    leftover_icons = [p for p in expected_icons if not p.exists()]
+    assert not leftover_icons, f"--clean deleted committed icons: {leftover_icons}"
+    leftover_stubs = [p for p in expected_sidecars + expected_native if p.exists()]
+    assert not leftover_stubs, f"--clean left binary stubs behind: {leftover_stubs}"
 
 
 # ─── Known gaps (assert the gap is present; DO NOT fix) ──────────────────────
 def test_known_gap_orchestrator_only_builds_host_platform(orchestrator_text: str):
-    """GAP-3 (documented): the orchestrator only builds for the HOST platform.
+    """the orchestrator only builds for the HOST platform.
 
     ADR-0020 §4: Nuitka cannot cross-compile. A single host CANNOT
     produce all 6 sidecar triples + all 6 prewarm triples + all 3 native
@@ -724,7 +749,7 @@ def test_known_gap_orchestrator_only_builds_host_platform(orchestrator_text: str
 
 
 def test_known_gap_orchestrator_does_not_preflight_artifacts(orchestrator_text: str):
-    """GAP-4 (documented): the orchestrator does NOT pre-flight the artifact set
+    """the orchestrator does NOT pre-flight the artifact set
     before invoking ``cargo tauri build``.
 
     If ``SKIP_SIDECAR=1`` is set (or a prior sidecar build silently

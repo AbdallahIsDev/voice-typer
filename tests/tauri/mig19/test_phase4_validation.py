@@ -296,6 +296,24 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # Electron path. See ``test_dead_code_stays_removed.py``.
         "set_tray_locale",
         "set_esc_cancel_paused",
+        # ADR-0020 §16 addendum (2026-08-09, finding #127 part b):
+        # ``reset_macos_accessibility`` — Settings → Troubleshooting
+        # "Reset Accessibility Permission" button. Runs `tccutil reset
+        # Accessibility <bundle-id>` (bundle ID resolved at runtime via
+        # macos_bundle_id.py) + re-opens System Settings. Handler in
+        # system_handlers.py with a `_validate_dict_payload` schema +
+        # dispatch-errors test (tests/test_ipc_dispatch_errors.py).
+        "reset_macos_accessibility",
+        # ADR-0020 §16 addendum (2026-08-10, finding #127 part b):
+        # ``reset_linux_permissions`` — Settings → Troubleshooting
+        # "Reset Linux Permission" button (Linux sibling of the macOS
+        # TCC reset). Clears a stale polkit authorization
+        # (``auth_admin_keep`` is cached by polkitd) by restarting the
+        # polkit daemon via pkexec; pkaction enumerates the Voice Typer
+        # actions + pkcheck verifies the post-reset state. Handler in
+        # system_handlers.py with a `_validate_dict_payload` schema +
+        # dispatch-errors test (tests/test_ipc_dispatch_errors.py).
+        "reset_linux_permissions",
         # ipc_server ( / ADR-0018) — kept on the registry even
         # though it is REMOVED on the Tauri path; a stray frame from a
         # legacy UI must still hit the handler (not ``unknown_command``).
@@ -314,10 +332,12 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "shutdown",
     }
 )
-assert len(EXPECTED_COMMANDS) == 62, (
-    "ADR-0020 §2 freezes the command table. 62 = post-cleanup baseline "
+assert len(EXPECTED_COMMANDS) == 64, (
+    "ADR-0020 §2 freezes the command table. 64 = post-cleanup baseline "
     "after ZR-45 + the Tauri/Rust allowlist narrowing (+ ``onboarding_set_backend``, "
-    "§16 addendum 2026-08-06). The prior 76-command "
+    "§16 addendum 2026-08-06; + ``reset_macos_accessibility``, "
+    "§16 addendum 2026-08-09; + ``reset_linux_permissions``, "
+    "§16 addendum 2026-08-10). The prior 76-command "
     "list was stale — it included 17 commands that had been deliberately "
     "REMOVED from ``_COMMAND_REGISTRY`` to match the Tauri host's Rust "
     "allowlist narrowing (see ``test_dead_code_stays_removed.py`` for the "
@@ -331,12 +351,14 @@ assert len(EXPECTED_COMMANDS) == 62, (
     "``dismiss_vocabulary_suggestion``) − 3 Tauri-Rust-bridged commands "
     "(``export_diagnostics``, ``check_accessibility``, "
     "``show_electron_notification``) − 2 GDPR commands bridged via Rust "
-    "(``delete_all_personal_data``, ``export_gdpr_bundle``) + 8 commands "
+    "(``delete_all_personal_data``, ``export_gdpr_bundle``) + 10 commands "
     "added since the original frozen table (``repaste_last``, "
     "``onboarding_check_permissions``, ``onboarding_reset``, ``shutdown``, "
     "``get_history_count``, ``get_transcription_text``, "
     "``pause_model_download``, ``resume_model_download``, "
-    "``get_model_catalog``). Update this set + the ADR addendum together "
+    "``get_model_catalog``, ``reset_macos_accessibility``, "
+    "``reset_linux_permissions``). Update this "
+    "set + the ADR addendum together "
     "(§16). Note: ``relaunch_ack`` and ``tray_click`` are tracked "
     "separately in KNOWN_UNDOCUMENTED_COMMANDS, not here."
 )

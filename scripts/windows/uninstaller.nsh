@@ -1,10 +1,13 @@
 ; Voice Typer — NSIS uninstaller customization (CR-69 + CR-70).
 ;
 ; This file is `!include`d by electron-builder's generated installer.nsi
-; (via the `nsis.include` config option in electron-builder.yml). It
-; defines the `customUnInstall` macro that NSIS runs during the uninstall
-; phase, AFTER the main app files are removed but BEFORE the installer
-; exits. We use it to clean up per-user artifacts that survive the file
+; (via the `nsis.include` config option in electron-builder.yml) AND by
+; Tauri v2's NSIS bundler (src-tauri/tauri.conf.json ->
+; bundle.windows.nsis.installerHooks — must be an .nsh here, NOT the
+; .bat: NSIS cannot `!include` a batch file). It defines the
+; `customUnInstall` macro that NSIS runs during the uninstall phase,
+; AFTER the main app files are removed but BEFORE the installer exits.
+; We use it to clean up per-user artifacts that survive the file
 ; removal:
 ;
 ;   CR-69: delete the HKCU Run key entries starting with "VoiceTyper"

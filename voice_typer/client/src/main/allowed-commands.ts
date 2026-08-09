@@ -212,4 +212,18 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// XZ-SEC-05: add a trusted hostname to the URL allowlist (self-hosted
 	// LLM/ASR endpoints). Python handler: ConfigHandlersMixin._handle_add_trusted_endpoint.
 	"add_trusted_endpoint",
+	// macOS troubleshooting (finding #127 part b): reset the stale
+	// Accessibility TCC entry + re-open System Settings. Invoked by the
+	// Settings → Troubleshooting "Reset Accessibility Permission"
+	// button. Python handler: SystemHandlersMixin._handle_reset_macos_accessibility
+	// (runs `tccutil reset Accessibility <bundle-id>` with the bundle ID
+	// resolved at runtime).
+	"reset_macos_accessibility",
+	// Linux troubleshooting (finding #127 part b): reset a stale polkit
+	// authorization — restart the polkit daemon via pkexec so the next
+	// "Grant permission" re-prompts. Invoked by the Settings →
+	// Troubleshooting "Reset Linux Permission" button. Python handler:
+	// SystemHandlersMixin._handle_reset_linux_permissions (pkaction
+	// enumerates + pkcheck verifies).
+	"reset_linux_permissions",
 ]);

@@ -22,7 +22,7 @@ pub(crate) const APP_SLUG: &str = "voice-typer";
 /// # Why not `app.path().app_config_dir()`?
 ///
 /// Tauri's `app_config_dir()` returns a path derived from the bundle
-/// identifier (`com.voicetyper.app`), but the Python sidecar uses the
+/// identifier (`com.voicetyper.desktop`), but the Python sidecar uses the
 /// lowercase-hyphenated `voice-typer` directory (per `_paths.py`). To
 /// keep the Rust host + Python sidecar reading/writing the SAME paths
 /// byte-for-byte, we resolve from env vars directly, matching the

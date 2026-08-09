@@ -54,12 +54,13 @@ auto-signs the .app. Currently signing is performed by the CI workflow
 post-build step (``codesign --force --deep ...``), not by the Tauri
 bundler itself.
 
-GAP-3 (CI workflow disabled): ``.github/workflows/tauri-macos-build.yml``
-has ``if: false`` on all three jobs (build-aarch64, build-x86_64,
-build-tauri-universal) because Phase 0-M has not been validated on a
-real macOS host yet. The workflow YAML is structurally correct (source
-inspection passes), but it does not run in CI until the manual
-validation gate is signed off and the ``if: false`` guards are removed.
+GAP-3 (CLOSED — workflow enabled): ``.github/workflows/tauri-macos-build.yml``
+jobs are now ENABLED (``if: true``) so the Phase 0-M validation run can
+execute via ``workflow_dispatch``. The workflow YAML is structurally
+correct (source inspection passes). Cutover to CI-driven runs still
+requires the Phase 0-M manual validation runbook
+(``docs/migration/macos-validation-runbook.md``) to pass on a real macOS
+host (ADR-0020 §15 + cutover-playbook.md Step 2.1).
 
 VALIDATE ON MACOS HOST:
 1. Build the installer: cd src-tauri; cargo tauri build --target x86_64-apple-darwin  (OR aarch64-apple-darwin)
@@ -676,10 +677,9 @@ def test_ci_workflow_runs_codesign_notarytool_stapler():
     REQUIRED for distribution — a DMG with an unsigned .app will be
     rejected by Gatekeeper on user machines.
 
-    Source-inspection of the YAML (no mocking). The workflow is
-    currently disabled (``if: false`` on all jobs — GAP-3) pending the
-    Phase 0-M manual validation gate, but the YAML structure must be
-    correct so enabling it is a one-line change.
+    Source-inspection of the YAML (no mocking). The workflow jobs are
+    enabled (``if: true`` — GAP-3 closed) so the Phase 0-M validation
+    run executes via ``workflow_dispatch``.
     """
     assert CI_WORKFLOW.exists(), f"CI workflow missing at {CI_WORKFLOW}"
     yaml_text = CI_WORKFLOW.read_text(encoding="utf-8")
@@ -741,13 +741,22 @@ def test_ci_workflow_runs_codesign_notarytool_stapler():
         "CI workflow must build the x86_64 (Intel, via Rosetta 2) sidecar + prewarm"
     )
 
-    # 6.  (report, do not fix): the workflow is currently disabled
-    #    (if: false on all jobs) pending Phase 0-M manual validation.
-    assert yaml_text.count("if: false") >= 3, (
-        "GAP-3: the workflow must have `if: false` on all 3 jobs "
-        "(build-aarch64, build-x86_64, build-tauri-universal) — Phase 0-M "
-        "is not yet started, so the workflow is a STUB that must be "
-        "validated on a real macOS host before being enabled in CI. "
-        "Remove the `if: false` guards once the manual validation gate "
-        "has passed."
+    # 6. The workflow jobs are enabled (`if: true` — GAP-3 closed, TX-39):
+    #    Phase 0-M validation is runnable via manual dispatch. The
+    #    workflow is NOT a stub anymore; no `if: false` may remain.
+    assert "if: false" not in yaml_text, (
+        "GAP-3: the workflow must have NO `if: false` guards left — all 3 "
+        "jobs (build-aarch64, build-x86_64, build-tauri-universal) are "
+        "ENABLED (`if: true`) so the signing + notarization path can be "
+        "exercised via workflow_dispatch (GATE STATUS header: 'ENABLED'). "
+        "Phase 0-M host validation per docs/migration/macos-validation-runbook.md "
+        "is still required before CI push/PR triggers are uncommented."
     )
+    assert "if: true" in yaml_text, (
+        "GAP-3: the workflow jobs must be ENABLED (`if: true`) for the "
+        "Phase 0-M validation dispatch (see the GATE STATUS header)."
+    )
+    assert "GATE STATUS" in yaml_text, (
+        "the workflow must carry a GATE STATUS header block documenting the Phase 0-M validation handoff."
+    )
+    assert "Phase 0-M" in yaml_text, "the workflow must reference Phase 0-M (the macOS Phase 0 spike gate)."

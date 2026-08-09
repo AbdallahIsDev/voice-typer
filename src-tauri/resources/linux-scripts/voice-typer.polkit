@@ -6,16 +6,21 @@
   pkexec, with a GUI password prompt (polkit). Used by the AppImage
   first-run permission helper.
 
-  Placement: /usr/share/polkit-1/actions/org.voice-typer.policy
+  Placement: /usr/share/polkit-1/actions/com.voicetyper.policy
 
-  The polkit action ID was renamed from
-  ``org.voice-typer.install-permissions`` to
-  ``com.voicetyper.install-permissions`` (matching the project's
-  ``com.voicetyper.*`` RDNN reverse-DNS prefix). The destination FILENAME
-  is intentionally left as ``org.voice-typer.policy`` to avoid breaking
-  the ``tauri.conf.json`` bundle.resources reference;
-  polkit identifies actions by the ``<action id>`` attribute, not by the
-  filename, so the rename works without a file rename.
+  The action ID ``com.voicetyper.install-permissions`` and the policy
+  filename both use the project's ``com.voicetyper.*`` RDNN reverse-DNS
+  root (matching the ``com.voicetyper.desktop`` Tauri bundle identifier
+  — see review finding #54). Historically the action was
+  ``org.voice-typer.install-permissions``; the ID was renamed in this
+  file first, and the destination filename now matches too. Polkit
+  identifies actions by the ``<action id>`` attribute, not by the
+  filename, so a legacy ``org.voice-typer.policy`` left on an upgraded
+  system is inert (pkexec matches by the ``exec.path`` annotation,
+  which still points at the same script); new installs write
+  ``com.voicetyper.policy``. The uninstaller (``install_permissions.py
+  --uninstall``) removes BOTH policy files so an uninstalled system
+  fully converges on the ``com.voicetyper.*`` namespace.
 
   ``<message>`` and ``<description>`` entries are provided for
   ar, de, es, fr, hi, ru, zh (genuine translations per C-I18N-2 — never

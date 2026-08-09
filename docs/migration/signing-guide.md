@@ -187,7 +187,7 @@ Per ADR-0020 §13.2:
 
 | Key | Value | Why |
 |-----|-------|-----|
-| `CFBundleIdentifier` | `com.voicetyper.app` | Matches today's `electron-builder.yml` `appId`. |
+| `CFBundleIdentifier` | `com.voicetyper.desktop` | Matches today's `electron-builder.yml` `appId`. |
 | `LSMinimumSystemVersion` | `13.0` | Matches `PLATFORM_STATUS.md` minimum. |
 | `LSUIElement` | `false` | Main app shows in Dock. (Sidecar sets `LSUIElement=true` separately.) |
 | `NSMicrophoneUsageDescription` | (required) | `sounddevice` mic access. |

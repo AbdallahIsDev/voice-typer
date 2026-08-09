@@ -27,9 +27,12 @@ REM      belt-and-suspenders second sweep (the .nsh's native loop and
 REM      the Python script use different code paths; if either has a
 REM      bug, the other catches it).
 REM   2. src-tauri/tauri.conf.json -> bundle.windows.nsis.installerHooks
-REM      points at this .bat (Tauri v2 NSIS hooks key). Tauri's NSIS
-REM      bundler runs this BEFORE removing the app files (so the
-REM      Python bundle is still on disk when the script runs).
+REM      points at scripts/windows/uninstaller.nsh (NOT this .bat):
+REM      Tauri v2's NSIS installerHooks are `!include`d into the
+REM      generated installer.nsi, and NSIS cannot `!include` a batch
+REM      file (makensis aborts with "Invalid command: @echo"). The .nsh
+REM      performs the native sweep directly, so this .bat is NOT part
+REM      of the Tauri uninstall path.
 REM
 REM Python-first strategy: try the Python script first (preferred - it
 REM shares parsing/logging with the production autostart_windows.py). If

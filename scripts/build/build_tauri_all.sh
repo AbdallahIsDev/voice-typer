@@ -136,18 +136,19 @@ if [[ ! -f "$SRC_TAURI/Cargo.toml" ]]; then
     exit 1
 fi
 
-# ─── Phase 0: ensure Tauri icons + binary stubs are present ──────────────────
-# BUILD-4: src-tauri/tauri.conf.json references 4 PNG icons + 6 sidecar binaries
-# (externalBin) + 3 native + 6 prewarm resources. On a clean checkout NONE of
-# these exist, so `cargo tauri build` (Phase 1c) fails immediately with
-# "failed to open icon 'icons/32x32.png'" / "resource path ... doesn't exist".
-# gen_tauri_icons_stub.py --check verifies all stubs are present (exit 0) or
-# reports which are missing (exit 1). If --check fails, generate the stubs
+# ─── Phase 0: ensure Tauri binary stubs are present ─────────────────────────
+# BUILD-4: src-tauri/tauri.conf.json references 6 sidecar binaries (externalBin)
+# + 3 native + 6 prewarm resources. On a clean checkout NONE of these exist, so
+# `cargo tauri build` (Phase 1c) fails immediately with
+# "resource path ... doesn't exist". (The icons under src-tauri/icons/ are
+# committed real files — no icon generation needed.)
+# gen_tauri_icons_stub.py --check verifies all binary stubs are present (exit 0)
+# or reports which are missing (exit 1). If --check fails, generate the stubs
 # automatically so a developer doesn't have to run the generator manually first
 # (see docs/migration/tauri-build-runbook.md "Common failures"). Stubs are NOT
 # real binaries — they print "STUB: not a real sidecar" + exit 1 if executed;
 # Phase 1a below overwrites them with real Nuitka/compiled artifacts.
-echo "::group::Phase 0 — ensure Tauri icons + binary stubs"
+echo "::group::Phase 0 — ensure Tauri binary stubs"
 ICON_STUB="$PROJECT_ROOT/scripts/gen_tauri_icons_stub.py"
 if ! python3 "$ICON_STUB" --check; then
     echo "[build_tauri_all] some stubs missing — generating..."

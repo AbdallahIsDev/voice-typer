@@ -85,9 +85,7 @@ class TestStdinGate:
             "the stdin listener."
         )
         assert ipc_server_mod._STDIN_IPC_ENV_VAR == "VOICE_TYPER_ALLOW_STDIN_IPC", (
-            f"_STDIN_IPC_ENV_VAR must be "
-            f"'VOICE_TYPER_ALLOW_STDIN_IPC'; got "
-            f"{ipc_server_mod._STDIN_IPC_ENV_VAR!r}."
+            f"_STDIN_IPC_ENV_VAR must be 'VOICE_TYPER_ALLOW_STDIN_IPC'; got {ipc_server_mod._STDIN_IPC_ENV_VAR!r}."
         )
 
     def test_start_gates_stdin_listener_when_env_var_unset(self, monkeypatch) -> None:
@@ -347,8 +345,7 @@ class TestShutdownGate:
         assert not server._shutdown_started.is_set()
         server._handle_shutdown(data=None, resp={"id": 1})
         assert server._shutdown_started.is_set(), (
-            "_shutdown_started must be set after the first "
-            "_handle_shutdown call so the second invocation no-ops."
+            "_shutdown_started must be set after the first _handle_shutdown call so the second invocation no-ops."
         )
 
     def test_cleanup_thread_registered_on_thread_registry(self) -> None:
@@ -518,12 +515,16 @@ class TestRegistryExtraction:
         # reconciliation documented 64 commands;
         # (test_cloud_connection) + XZ-SEC-05 (add_trusted_endpoint)
         # brought it to 65; onboarding_set_backend (Model-step backend
-        # choice) brought it to 66. The count is deliberately pinned
-        # here and in SECURITY.md — update all sources of truth together.
-        assert len(registry._COMMAND_REGISTRY) == 66, (
-            f"registry._COMMAND_REGISTRY must contain 66 entries "
+        # choice) brought it to 66; reset_macos_accessibility (finding
+        # #127 part b) brought it to 67; reset_linux_permissions
+        # (finding #127 part b Linux sibling) brought it to 68.
+        # The count is deliberately pinned here and in SECURITY.md —
+        # update all sources of truth together.
+        assert len(registry._COMMAND_REGISTRY) == 68, (
+            f"registry._COMMAND_REGISTRY must contain 68 entries "
             f"(64 baseline + test_cloud_connection + "
-            f"add_trusted_endpoint + onboarding_set_backend); got "
+            f"add_trusted_endpoint + onboarding_set_backend + "
+            f"reset_macos_accessibility + reset_linux_permissions); got "
             f"{len(registry._COMMAND_REGISTRY)}. "
             f"If the count drifted, update this test together with the "
             f"registry + the TS/Rust allowlists."

@@ -112,6 +112,7 @@ DOCS_MIGRATION = PROJECT_ROOT / "docs" / "migration"
 CUTOVER_PLAYBOOK = DOCS_MIGRATION / "cutover-playbook.md"
 WORKFLOWS = PROJECT_ROOT / ".github" / "workflows"
 TAURI_LINUX_BUILD_YML = WORKFLOWS / "tauri-linux-build.yml"
+TAURI_BUILD_YML = WORKFLOWS / "tauri-build.yml"
 ELECTRON_BUILDER_YML = PROJECT_ROOT / "voice_typer" / "client" / "electron-builder.yml"
 TAURI_CONF = PROJECT_ROOT / "src-tauri" / "tauri.conf.json"
 
@@ -131,6 +132,36 @@ def linux_workflow_text() -> str:
     """Read ``tauri-linux-build.yml`` once per module."""
     assert TAURI_LINUX_BUILD_YML.is_file(), f"tauri-linux-build.yml missing: {TAURI_LINUX_BUILD_YML}"
     return TAURI_LINUX_BUILD_YML.read_text()
+
+
+@pytest.fixture(scope="module")
+def tauri_build_orchestrator_text() -> str:
+    """Read ``tauri-build.yml`` (the cross-platform orchestrator) once per module."""
+    assert TAURI_BUILD_YML.is_file(), f"tauri-build.yml missing: {TAURI_BUILD_YML}"
+    return TAURI_BUILD_YML.read_text()
+
+
+def _yaml_job_block(text: str, job: str) -> str | None:
+    """Return the YAML lines of ``jobs.<job>`` up to the next top-level key.
+
+    Line-scanning (NOT a multi-line regex — ambiguous ``[ \t]+.*`` line
+    matchers cause catastrophic backtracking on long workflow files). It
+    is newline-agnostic (CRLF checkouts) and comment/blank-line safe: the
+    block ends at the first line that starts with EXACTLY two spaces
+    followed by a key character (4+-space indented content lines, blank
+    lines, and ``  # comment`` banners do not terminate the block).
+    """
+    lines = text.splitlines()
+    header = f"  {job}:"
+    for idx, line in enumerate(lines):
+        if line.rstrip() == header:
+            block: list[str] = []
+            for sub in lines[idx + 1 :]:
+                if len(sub) >= 3 and sub.startswith("  ") and not sub.startswith("   ") and sub[2].isalpha():
+                    break
+                block.append(sub)
+            return "\n".join(block)
+    return None
 
 
 @pytest.fixture(scope="module")
@@ -447,8 +478,9 @@ def test_ci_workflow_documents_phase_0_l_gate(linux_workflow_text: str) -> None:
         "tauri-linux-build.yml must reference Phase 0-L (the Linux Phase 0 spike gate)"
     )
     # The workflow header must mention that smoke tests need a real Linux
-    # display host (X11 + Wayland) — this is why it's `if: false` until
-    # validated on a real host.
+    # display host (X11 + Wayland) — this is why the bundle `build` job is
+    # gated to workflow_dispatch / the orchestrator's workflow_call until
+    # validated on a real host (never a plain `if: true` on push/PR).
     assert "display" in linux_workflow_text.lower() or "X11" in linux_workflow_text, (
         "tauri-linux-build.yml must document that X11/Wayland display-host validation "
         "is required before enabling the workflow"
@@ -468,18 +500,152 @@ def test_ci_workflow_documents_x11_and_wayland(linux_workflow_text: str) -> None
     )
 
 
-def test_ci_workflow_gated_with_if_false(linux_workflow_text: str) -> None:
-    """The Linux CI workflow's build job must default to ``if: false`` (Phase 0-L gate).
+def test_ci_workflow_has_gate_status_block_with_9_runbook_checks(
+    linux_workflow_text: str,
+) -> None:
+    """The Linux workflow header must carry a GATE STATUS block mirroring
+    macOS's, tracking the 9-point Phase 0-L runbook gate + pass state.
+
+    ``docs/migration/linux-validation-runbook.md`` §"9-Point Validation
+    Gate Summary" defines the 9 mandatory checks (externalBin sidecar
+    spawn, WS handshake, faster-whisper in the Nuitka exe, enigo
+    X11 / clipboard+Ctrl+V Wayland paste, libnotify toast, cooperative
+    shutdown, prewarm systemd timer, linux-key-listener toggle,
+    single-instance). The workflow header must list them with an
+    unchecked ``[ ]`` pass-state marker (``[x]`` once validated on a real
+    host) so the status of the Phase 0-L handoff is trackable from the
+    workflow file itself, like macOS's GATE STATUS block.
+    """
+    assert "GATE STATUS" in linux_workflow_text, (
+        "tauri-linux-build.yml must carry a GATE STATUS header block mirroring tauri-macos-build.yml"
+    )
+    # The 10 markers = the "9-Point Validation Gate Summary" line + the 9
+    # checklist entries with a pass-state marker.
+    assert linux_workflow_text.count("[ ]") >= 9, (
+        "GATE STATUS block must list the 9 runbook checks each with a pass-state marker"
+    )
+    # Every one of the 9 runbook checks must appear by (case-insensitive)
+    # keyword so a drifted/missing check is caught.
+    for keyword in (
+        "externalBin",
+        "handshake",
+        "faster-whisper",
+        "enigo",
+        "libnotify",
+        "shutdown",
+        "prewarm",
+        "linux-key-listener",
+        "single-instance",
+    ):
+        assert keyword.lower() in linux_workflow_text.lower(), f"GATE STATUS block must track runbook check: {keyword}"
+
+
+def test_ci_workflow_enabled_for_phase_0_l_validation(linux_workflow_text: str) -> None:
+    """The Linux CI workflow's build job must be enabled for dispatch/orchestrator runs.
 
     Per ADR-0020 Phase 5 + the cutover playbook, the per-platform Tauri
-    workflow is gated behind ``if: false`` until the platform's Phase 0
-    spike passes on a real host. The cutover procedure (playbook Step 2.1)
-    flips ``if: false`` → ``if: true`` to enable the workflow on tag push.
+    workflow is enabled for Phase 0-L validation once it is ready to
+    exercise: the bundle ``build`` job runs on ``workflow_dispatch`` /
+    the tauri-build.yml orchestrator's ``workflow_call`` ONLY — NEVER on
+    push/PR. A plain ``if: true`` would also fire the 30-60 min x2-arch
+    bundle build on every push/PR touching ``src-tauri/**`` (the workflow
+    has live push/PR triggers for the smoke-cargo-check job), which
+    contradicts ADR-0020 §15 — so the gate is the event conditional, not
+    ``if: false`` and not ``if: true``.
     """
-    assert re.search(r"^\s*if:\s*false\s*$", linux_workflow_text, re.MULTILINE), (
-        "tauri-linux-build.yml build job must default to 'if: false' "
-        "(gated until Phase 0-L passes on a real Linux host)"
+    assert "if: false" not in linux_workflow_text, (
+        "tauri-linux-build.yml still has an `if: false` job guard — the bundle "
+        "build job is enabled for Phase 0-L validation (dispatch/orchestrator)."
     )
+    assert (
+        "if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'" in linux_workflow_text
+    ), (
+        "tauri-linux-build.yml build job must be gated to "
+        "`workflow_dispatch || workflow_call` (NOT plain `if: true` — push/PR "
+        "triggers would fire the 30-60 min x2-arch bundle build on every push "
+        "touching src-tauri/**)."
+    )
+
+
+def test_orchestrator_build_linux_triggers_linux_bundle_job(
+    tauri_build_orchestrator_text: str, linux_workflow_text: str
+) -> None:
+    """``tauri-build.yml``'s ``build-linux`` call must actually trigger the
+    Linux bundle job (workflow_call input wiring + gate compatibility).
+
+    The orchestrator fans out via ``workflow_call`` to
+    ``tauri-linux-build.yml``; the Linux ``build`` job's event gate is
+    ``github.event_name == 'workflow_dispatch' || 'workflow_call'``, and a
+    reusable-workflow call from the orchestrator fires exactly the
+    ``workflow_call`` event — so ``platform: linux`` (or ``all``) on the
+    orchestrator runs the bundle job. This test pins both sides: the
+    orchestrator must call the Linux workflow with the
+    ``target``/``sign`` inputs wired through, AND the Linux workflow's
+    bundle gate must accept the ``workflow_call`` event. If either side
+    drifts (orchestrator stops calling it, or the gate forgets
+    ``workflow_call``), a ``platform: linux`` dispatch silently no-ops —
+    no bundle, no artifacts, no error.
+    """
+    build_linux_block = _yaml_job_block(tauri_build_orchestrator_text, "build-linux")
+    assert build_linux_block, "tauri-build.yml must define a build-linux job that calls the Linux workflow"
+    block = build_linux_block
+    assert "uses: ./.github/workflows/tauri-linux-build.yml" in block, (
+        "build-linux must call tauri-linux-build.yml via workflow_call"
+    )
+    assert "target: ${{ github.event.inputs.target }}" in block, (
+        "build-linux must pass the target input through to the Linux workflow"
+    )
+    assert "sign: ${{ fromJSON(github.event.inputs.sign) }}" in block, (
+        "build-linux must pass the sign input through to the Linux workflow"
+    )
+    # Gate compatibility: the called workflow's bundle job fires on exactly
+    # the event this call produces (workflow_call), not on push/PR.
+    assert (
+        "if: github.event_name == 'workflow_dispatch' || github.event_name == 'workflow_call'" in linux_workflow_text
+    ), (
+        "Linux bundle job gate must accept the orchestrator's workflow_call "
+        "event — otherwise build-linux dispatches silently produce nothing"
+    )
+
+
+def test_orchestrator_runs_pre_dispatch_drift_gate_before_fan_out(
+    tauri_build_orchestrator_text: str,
+) -> None:
+    """``tauri-build.yml`` must run the fail-fast config-drift gate ONCE as a
+    pre-dispatch ``validate`` job before fanning out to all three platforms.
+
+    The per-platform workflows each re-run the gate inside their build jobs,
+    but the orchestrator hoists the same 6 pytest nodes + ``--check-icons``
+    into a single ``validate`` job that every platform call ``needs`` — a
+    drift regression (identifier/appId parity, bundle.icon↔git lockstep,
+    config↔script registry pairs, tauri-binaries.json ↔ canonical triples)
+    aborts the whole fan-out in ~1 minute instead of after the first
+    30-60 min platform build.
+    """
+    assert re.search(r"^  validate:", tauri_build_orchestrator_text, re.MULTILINE), (
+        "tauri-build.yml must define a validate job (pre-dispatch drift gate)"
+    )
+    assert "Pre-dispatch config drift gate" in tauri_build_orchestrator_text, (
+        "tauri-build.yml validate job must be the pre-dispatch drift gate"
+    )
+    assert "tests/tauri/test_bundle_identifier_parity.py" in tauri_build_orchestrator_text, (
+        "validate job must run the identifier↔appId parity drift guard"
+    )
+    assert (
+        "tests/tauri/test_config_script_drift.py::TestBundleBinariesVsStubRegistry::test_config_declares_exactly_the_stub_generator_registry"
+        in tauri_build_orchestrator_text
+    ), "validate job must run the config↔stub-registry drift guard"
+    assert "python3 scripts/gen_tauri_icons_stub.py --check-icons" in (tauri_build_orchestrator_text), (
+        "validate job must run --check-icons on the committed bundle.icon set"
+    )
+    # Every platform call must depend on the gate (fan-out is blocked until
+    # the gate passes).
+    for platform_job in ("build-windows", "build-macos", "build-linux"):
+        platform_block = _yaml_job_block(tauri_build_orchestrator_text, platform_job)
+        assert platform_block, f"tauri-build.yml must define a {platform_job} job"
+        assert "needs: validate" in platform_block, (
+            f"{platform_job} must needs: validate — the pre-dispatch drift gate must run once before the fan-out"
+        )
 
 
 def test_ci_workflow_matrix_includes_both_archs(linux_workflow_text: str) -> None:

@@ -24,7 +24,8 @@
 #   - --standalone --onefile
 #   - --include-package=faster_whisper --include-package=ctranslate2
 #   - --include-package=voice_typer --include-package=websockets
-#   - --include-data-dir=<SITE>/ctranslate2/lib=<SITE>/ctranslate2/lib
+#   - --include-data-dir=<SITE>/ctranslate2/lib=ctranslate2/lib (dest is
+#     RELATIVE to the dist folder — absolute dests are silently ignored)
 #   - --include-dll=<SITE>/ctranslate2/lib/ctranslate2.dll
 #   - --windows-disable-console
 #   - --onefile-tempdir-spec=%LOCALAPPDATA%\voice-typer\onefile-tmp
@@ -33,8 +34,10 @@
 # libiomp5md.dll / mkl_*.dll / libgomp-*.dll are missing from the build env,
 # the frozen exe BUILDS but CRASHES on `import ctranslate2`. See ADR-0020
 # §4.2 "CPU inference runtimes" for the discovery procedure. This script
-# copies the entire `$SITE/ctranslate2/lib` folder via --include-data-dir,
-# which captures libiomp5md.dll + any MKL/OpenMP DLLs present.
+# copies the ctranslate2 native DLL dir via --include-data-dir (the whole
+# `ctranslate2/lib` folder, or the whole `ctranslate2/` folder on modern
+# wheels that ship DLLs without a lib/ subdir), which captures
+# libiomp5md.dll + any MKL/OpenMP DLLs present.
 # =============================================================================
 set -euo pipefail
 
@@ -98,18 +101,32 @@ echo "[build_sidecar_windows] SITE=$SITE"
 "$PY" -c 'import faster_whisper, ctranslate2, websockets; print("ctranslate2", ctranslate2.__version__)' \
     || { echo "ERROR: build env is missing faster_whisper / ctranslate2 / websockets" >&2; exit 1; }
 
-# ─── Locate ctranslate2/lib (for --include-data-dir + --include-dll) ─────────
-CT2_LIB_DIR="$SITE/ctranslate2/lib"
-if [[ ! -d "$CT2_LIB_DIR" ]]; then
-    echo "ERROR: $CT2_LIB_DIR not found — ctranslate2 install is incomplete." >&2
+# ─── Locate ctranslate2 native DLLs (for --include-data-dir + --include-dll) ─
+# ctranslate2 ships its DLLs either under ctranslate2/lib (older wheels) or
+# directly in ctranslate2/ (modern wheels — e.g. the cp312 win_amd64 wheel
+# has ctranslate2.dll + cudnn64_9.dll + libiomp5md.dll at the package root).
+# Prefer the lib/ layout, fall back to the package dir — mirrors the inline
+# command in .github/workflows/tauri-windows-build.yml.
+CT2_DIR="$SITE/ctranslate2"
+if [[ ! -d "$CT2_DIR" ]]; then
+    echo "ERROR: $CT2_DIR not found — ctranslate2 install is incomplete." >&2
     exit 1
 fi
-CT2_DLL="$CT2_LIB_DIR/ctranslate2.dll"
+CT2_LIB_DIR="$CT2_DIR/lib"
+if [[ -d "$CT2_LIB_DIR" ]]; then
+    CT2_DATA_DIR_SRC="$CT2_LIB_DIR"
+    CT2_DATA_DIR_DEST="ctranslate2/lib"
+else
+    echo "[build_sidecar_windows] WARNING: $CT2_LIB_DIR not found — falling back to $CT2_DIR (modern wheel layout)"
+    CT2_DATA_DIR_SRC="$CT2_DIR"
+    CT2_DATA_DIR_DEST="ctranslate2"
+fi
+CT2_DLL="$CT2_DATA_DIR_SRC/ctranslate2.dll"
 if [[ ! -f "$CT2_DLL" ]]; then
     echo "ERROR: $CT2_DLL not found — ctranslate2 install is incomplete." >&2
     exit 1
 fi
-echo "[build_sidecar_windows] CT2_LIB_DIR=$CT2_LIB_DIR"
+echo "[build_sidecar_windows] CT2_DATA_DIR=$CT2_DATA_DIR_SRC → $CT2_DATA_DIR_DEST"
 echo "[build_sidecar_windows] CT2_DLL=$CT2_DLL"
 
 # ─── Prepare output dir ──────────────────────────────────────────────────────
@@ -135,10 +152,18 @@ NUITKA_ARGS=(
     --standalone --onefile
     --assume-yes-for-downloads
     --enable-plugin=anti-bloat
+    # NU-106 (VAD): keep torch.jit ENABLED. Nuitka's torch plugin
+    # disables JIT by default in standalone mode (sets PYTORCH_JIT=0 /
+    # omits torch.jit), which breaks torch.jit.load(silero_vad.jit) with
+    # "module 'torch' has no attribute 'jit'" — Silero VAD silently
+    # degrades to RMS. Make the choice explicit.
+    --module-parameter=torch-disable-jit=no
     --nofollow-import-to=torch._dynamo
     --nofollow-import-to=torch._inductor
-    --nofollow-import-to=torch.export
-    --nofollow-import-to=torch._functorch
+    # NU-106 (VAD): torch.export / torch._functorch / torch.testing /
+    # torch.package are loaded UNCONDITIONALLY by plain `import torch`
+    # (torch 2.13) — do NOT exclude them or `import torch` fails with
+    # ModuleNotFoundError and Silero VAD silently degrades to RMS.
     --nofollow-import-to=scipy._lib.cobyqa
     --nofollow-import-to=scipy._lib.array_api_extra.testing
     --nofollow-import-to=sympy
@@ -152,7 +177,8 @@ NUITKA_ARGS=(
     --include-package=ctranslate2
     --include-package=voice_typer
     --include-package=websockets
-    --include-data-dir="$CT2_LIB_DIR=$CT2_LIB_DIR"
+    --include-package-data=voice_typer.server
+    --include-data-dir="$CT2_DATA_DIR_SRC=$CT2_DATA_DIR_DEST"
     --include-dll="$CT2_DLL"
     --windows-disable-console
     --onefile-tempdir-spec="%LOCALAPPDATA%\\voice-typer\\onefile-tmp"

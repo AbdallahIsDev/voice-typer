@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Voice Typer",
   "version": "1.0.0",
-  "identifier": "com.voicetyper.app",
+  "identifier": "com.voicetyper.desktop",
   "build": {
     "frontendDist": "../voice_typer/client/out/renderer",
     "devUrl": "http://localhost:1420",
@@ -53,7 +53,9 @@
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
-      "icons/icon.png"
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
     ],
     "externalBin": [
       "bin/python-sidecar"
@@ -72,7 +74,8 @@
       "resources/linux-scripts/uninstall_permissions.py",
       "resources/linux-scripts/99-voice-typer.rules",
       "resources/linux-scripts/00-voice-typer-capslock.conf",
-      "resources/linux-scripts/voice-typer.polkit"
+      "resources/linux-scripts/voice-typer.polkit",
+      "icons/tray/"
     ],
     "linux": {
       "deb": {
@@ -107,7 +110,7 @@
       },
       "nsis": {
         "installMode": "currentUser",
-        "installerHooks": "../scripts/windows/uninstall.bat"
+        "installerHooks": "../scripts/windows/uninstaller.nsh"
       },
       "signCommand": "..\\scripts\\tauri-sign.cmd %1"
     },

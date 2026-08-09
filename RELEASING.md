@@ -184,41 +184,41 @@ before any push — do not bypass it for release pushes.
 
 ## 10. Signing
 
-Code signing is configured but **not yet operational end-to-end on CI**
-(see `FEATURES.md` → "Distribution — gaps that remain"). The
-authoritative signing + notarization reference for the Tauri v2 builds
+Code signing + notarization is **wired on both runtime paths**, gated on
+repo secrets / workflow inputs (Electron: `build.yml` +
+`electron-builder.yml` env vars; Tauri: `sign=true` workflow input +
+the same secrets). The authoritative reference for the Tauri v2 builds
 lives at [`docs/migration/signing-guide.md`](docs/migration/signing-guide.md)
 (Windows Authenticode, macOS Developer ID + `notarytool` + `stapler`,
 Linux unsigned-by-default). Update that guide when certs or notarization
 secrets change; this section only summarizes the user-facing workaround
 matrix.
 
-> **macOS Tauri workflow gate (TX-39):** the
-> `.github/workflows/tauri-macos-build.yml` workflow is currently gated
-> by `if: false` on all three jobs (`build-aarch64`, `build-x86_64`,
-> `build-tauri-universal`) because the project's CI environment has no
-> macOS host to validate the signing/notarization path end-to-end. The
-> macOS signing logic in that workflow has NEVER executed in CI. Until
-> the Phase 0-M host-validation runbook
+> **macOS Tauri workflow (TX-39 closed):** the
+> `.github/workflows/tauri-macos-build.yml` workflow jobs are now
+> ENABLED (`if: true`) so the Phase 0-M validation run can execute via
+> `workflow_dispatch` (with `sign=true` to exercise codesign +
+> notarization against the repo secrets). Until the Phase 0-M
+> host-validation runbook
 > (`docs/migration/macos-validation-runbook.md`) passes on a real macOS
-> host, do NOT remove the `if: false` guards.
+> host, push/PR triggers remain off (ADR-0020 §15) and macOS releases
+> are NOT CI-verified on every commit.
 
 The user-facing workaround depends on whether the build is signed:
 
 ### (a) Signed release builds (signed Electron + future signed Tauri)
 
-When the Electron build (or the future Tauri build once TX-39 is lifted)
-is signed + notarized + stapled, **no workaround is needed** — Gatekeeper
-accepts the stapled ticket and the app launches on first open with no
-quarantine warning. SmartScreen on Windows similarly accepts Authenticode-
-signed installers without the "unknown publisher" warning. This is the
-target state once signing is fully wired (planned post-1.0).
+When a signed + notarized + stapled build ships, **no workaround is
+needed** — Gatekeeper accepts the stapled ticket and the app launches on
+first open with no quarantine warning. SmartScreen on Windows similarly
+accepts Authenticode-signed installers without the "unknown publisher"
+warning.
 
 ### (b) Unsigned dev/local builds (current state)
 
-Until signing is operational, dev/local builds and any unsigned artifact
-will trigger SmartScreen / Gatekeeper / `apt-get` warnings on first
-install. Document the workaround in the release notes:
+Unsigned dev/local builds (no secrets configured, or `sign=false`) will
+trigger SmartScreen / Gatekeeper / `apt-get` warnings on first install.
+Document the workaround in the release notes:
 
 - **Windows**: "More info → Run anyway" on the SmartScreen dialog.
 - **macOS**: `xattr -dr com.apple.quarantine /Applications/Voice\ Typer.app`
@@ -227,7 +227,10 @@ install. Document the workaround in the release notes:
 - **Linux**: `sudo dpkg -i --force-unsatisfied-deps` if dependency
   warnings appear (the postinst script installs them via `apt-get`).
 
-When signing is added (planned post-1.0, gated by TX-39 for the macOS
-Tauri path), update `docs/migration/signing-guide.md` with the
-certificate / notarization workflow and remove the unsigned-workaround
-section above.
+The macOS Tauri signing + notarization flow is implemented in
+`.github/workflows/tauri-macos-build.yml` (codesign `--timestamp` +
+`notarytool` + `stapler`, gated on `inputs.sign: true`). The remaining
+gate is the Phase 0-M host-validation runbook
+(`docs/migration/macos-validation-runbook.md`): once it passes on a
+real macOS host, uncomment the push/PR triggers in that workflow and
+remove the unsigned-workaround section above.

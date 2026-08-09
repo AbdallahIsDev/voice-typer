@@ -71,7 +71,9 @@ ls -la target/release/bundle/
 
 **Common failures**:
 - `error: failed to run custom build command for 'gdk-sys'` → Missing `libgtk-3-dev`. Install system deps.
-- `error: failed to open icon 'icons/32x32.png'` → Run `python /home/z/my-project/scripts/gen_tauri_icons_stub.py` to generate stub icons (or use the real icons from `scripts/build/generate_icon.py`).
+- `error: failed to open icon 'icons/32x32.png'` → The icons are REAL committed files (generated once with `tauri icon` from `voice_typer/client/scripts/logo.svg`). If the error occurs, the icon set is missing from the checkout (stale branch / partial clone) — regenerate + commit it: `python scripts/build/generate_tauri_icons.py` (runs `tauri icon`, re-prunes to the 6 `bundle.icon` files, re-runs the config↔git drift guard, then you commit).
+- `error: \`icons/icon.ico\` not found; required for generating a Windows Resource file during tauri-build` (Windows) → `icons/icon.ico` is a committed real file and must stay listed in `bundle.icon` (the MSI bundler also errors with "Couldn't find a .ico icon" without it). Verify it is present + valid with the unified fail-fast gate: `python scripts/gen_tauri_icons_stub.py --check-icons` (runs identically in every Tauri workflow — tauri-windows-build.yml / tauri-macos-build.yml / tauri-linux-build.yml — before `cargo tauri build`, validating ALL of `bundle.icon`: the 4 PNGs, `icon.ico`, `icon.icns`).
+- The Tauri tray state icons (`src-tauri/icons/tray/{idle,recording,transcribing,error}.png` — shipped to `$RESOURCE/icons/tray/` via the `bundle.resources` string entry `"icons/tray/"`, read by `src-tauri/src/tray.rs::load_tray_icon`) are committed real files. To change them (e.g. a palette or bar-shape edit), edit `trayStateColors` / `traySvg` in `voice_typer/client/scripts/generate-icons.mjs` and run `python scripts/build/generate_tray_icons.py` (re-runs the mjs `--tray` mode, validates the PNGs + config wiring, re-runs the drift guards), then commit. Note Tauri's `BundleResources` is an untagged enum — do NOT try to add a map entry to the string resources list.
 - `error: resource path 'bin/python-sidecar-x86_64-unknown-linux-gnu' doesn't exist` → Create a stub: `touch src-tauri/bin/python-sidecar-x86_64-unknown-linux-gnu` (for dev) or build the real sidecar with Nuitka.
 
 ### Wayland notes
@@ -300,16 +302,35 @@ xvfb-run cargo tauri build
 
 ### Icons missing
 
-Generate stub icons:
+The Tauri icon set is REAL and COMMITTED (``src-tauri/icons/``: 4 PNGs
++ `icons/icon.ico` + `icons/icon.icns`), generated from the app logo
+`voice_typer/client/scripts/logo.svg`. To change the icon, edit the
+logo and re-run the repeatable generator — it re-prunes to the 6
+`bundle.icon` files and re-runs the config↔git drift guard:
 ```bash
-python /home/z/my-project/scripts/gen_tauri_icons_stub.py
+python scripts/build/generate_tauri_icons.py
+# then review + commit the regenerated src-tauri/icons/*
 ```
+(The script wraps `npx --yes @tauri-apps/cli icon <logo>`, drops the
+`tauri icon` superset — Store logos, `android/`, `ios/`, etc. — and
+re-runs `test_tauri_conf_icon_list_matches_tracked_icons` + the
+per-arch guard in tests/tauri/test_gen_tauri_icons_stub.py.)
 
-Or generate real icons from the SVG:
-```bash
-cd voice_typer/client
-node scripts/generate-icons.mjs
-```
+On Windows, `tauri-build` hard-fails without `icons/icon.ico`
+(`required for generating a Windows Resource file during tauri-build`)
+and the MSI bundler errors with `Couldn't find a .ico icon` when
+`bundle.icon` has no `.ico` — both the file and the config entry are
+committed, so nothing needs generating on a clean checkout. The
+`gen_tauri_icons_stub.py` script handles ONLY the binary stubs
+(sidecar / native / prewarm); its icon mode is the single fail-fast CI
+gate `--check-icons` that structurally validates EVERY committed icon
+before each platform's `cargo tauri build` — it reads the icon list
+from `tauri.conf.json` `bundle.icon` (the 4 PNGs, `icon.ico`,
+`icon.icns`) and dispatches each entry to the right validator by
+extension. All three Tauri workflows run the identical `--check-icons`
+step. The macOS workflow has no BINARY stub step at all — icons come
+from git and all macOS binaries are built real — but it still runs the
+`--check-icons` gate.
 
 ---
 
@@ -339,16 +360,16 @@ runs require per-platform host validation (Phase 0) first.
 | Native listener build (macOS) | `scripts/build/build_native_listener_macos.sh` | ✅ Wraps `scripts/build/compile_native.sh` (Swift). Copies + ad-hoc codesigns `macos-key-listener` into `src-tauri/resources/native/`. |
 | Native listener build (Linux) | `scripts/build/build_native_listener_linux.sh` | ✅ Wraps `scripts/build/compile_native.sh` (gcc). Copies `linux-key-listener` into `src-tauri/resources/native/`. glibc baseline check. |
 | CI aggregator workflow | `.github/workflows/tauri-build.yml` | ✅ `workflow_dispatch` only; fans out to the 3 per-platform workflows via `workflow_call`. NO `latest.json` updater manifest (ADR-0020 §15). |
-| CI Windows workflow | `.github/workflows/tauri-windows-build.yml` | ✅ `workflow_call` + `workflow_dispatch`. Job-level `if: false` guard until Phase 0-W passes. Nuitka build + signtool + MSI/NSIS upload. |
-| CI macOS workflow | `.github/workflows/tauri-macos-build.yml` | ✅ `workflow_call` + `workflow_dispatch` only (push/PR triggers commented out — ADR-0020 §15 manual-trigger-only). Three jobs (aarch64, x86_64-via-Rosetta, universal). `if: false` per-job guards. |
-| CI Linux workflow | `.github/workflows/tauri-linux-build.yml` | ✅ `workflow_call` + `workflow_dispatch` only (push/PR triggers commented out). x86_64 + aarch64 (qemu). `if: false` job guard. glibc baseline check. |
+| CI Windows workflow | `.github/workflows/tauri-windows-build.yml` | ✅ `workflow_call` + `workflow_dispatch`. Active x86_64 matrix leg (dispatch-runnable for Phase 0-W validation); aarch64 leg is a commented matrix template (TX-40) until GitHub ships a `windows-11-arm` runner. Nuitka build + signtool + MSI/NSIS upload. Push/PR triggers commented out until Phase 0-W host validation passes. |
+| CI macOS workflow | `.github/workflows/tauri-macos-build.yml` | ✅ `workflow_call` + `workflow_dispatch` only (push/PR triggers commented out — ADR-0020 §15 manual-trigger-only). Three jobs (aarch64, x86_64-via-Rosetta, universal). Jobs ENABLED (`if: true`) for Phase 0-M validation; push/PR triggers stay off until the macOS host validation runbook passes. |
+| CI Linux workflow | `.github/workflows/tauri-linux-build.yml` | ✅ `workflow_call` + `workflow_dispatch` only (push/PR triggers commented out). x86_64 + aarch64 (qemu). Bundle `build` job gated to `workflow_dispatch` + `workflow_call` (manual-trigger-only per ADR-0020 §15). GATE STATUS header block tracks the 9-point Phase 0-L runbook gate. glibc baseline check. |
 | Tauri config | `src-tauri/tauri.conf.json` | ✅ `bundle.externalBin` uses single base name `bin/python-sidecar` (Tauri v2 appends host triple — NOT per-arch entries). `bundle.resources` lists 3 native + 6 prewarm binaries. `plugins.updater` is ABSENT (ADR-0020 §15). |
 | Tauri capabilities | `src-tauri/capabilities/main-runtime.json` + `bubble-runtime.json` | ✅ Least-privilege permissions (split per CR-5 / SEC-026: privileged main window vs. sandboxed bubble window). NO `updater:*` perms. `shell:allow-spawn` scoped to `bin/python-sidecar` via `plugins.shell.scope`. |
 | Cargo deps | `src-tauri/Cargo.toml` | ✅ NO `tauri-plugin-updater` dependency. |
 | Signing guide | `docs/migration/signing-guide.md` | ✅ Windows Authenticode (signtool + RFC-3161 timestamp + OV/EV cert tradeoff). macOS Developer ID + notarytool + stapler (Info.plist keys + entitlements). Linux unsigned by default. Updater audit results documented. |
 | Cutover playbook | `docs/migration/cutover-playbook.md` | ✅ Per-platform cutover criteria (9-point Phase 0 gate + supervisor + side-by-side smoke + signing verification + user sign-off). Per-platform rollback procedure. Mixed-mode period support. |
 | PyInstaller fallback | `scripts/build/voice-typer.spec` | ✅ Entry point is `voice_typer/server/ipc_server.py` (the same entry point the Nuitka builds use). Bundles native hotkey binaries + Linux permission scripts + Silero VAD JIT model. Used when Nuitka proves impractical on a target (ADR-0020 §4.5). |
-| Stub generator | `scripts/gen_tauri_icons_stub.py` | ✅ Generates RGBA PNGs (color_type=6) — required by Tauri v2 `generate_context!()`. Generates stub sidecar + prewarm + native binaries so `cargo tauri build` dry-runs succeed without real Nuitka artifacts. `--check` mode for CI gates; `--clean` mode preserves real artifacts. |
+| Stub generator | `scripts/gen_tauri_icons_stub.py` | ✅ Generates stub sidecar + prewarm + native binaries so `cargo tauri build` dry-runs succeed without real Nuitka artifacts (preserves real binaries via `_is_stub_file` heuristic). Icons are NOT generated — `src-tauri/icons/*` are committed real files (generated once with `tauri icon` from `voice_typer/client/scripts/logo.svg`). `--check` mode for CI gates; `--check-icons` structurally validates the committed icons before every platform's `cargo tauri build` (the identical fail-fast step in tauri-windows-build.yml / tauri-macos-build.yml / tauri-linux-build.yml); `--clean` removes binary stubs and never touches the committed icons. |
 
 ### Pending (requires per-platform host validation — Phase 0 first)
 
@@ -408,8 +429,13 @@ print('YAML OK')
 # 3. No `updater` references in src-tauri/ (ADR-0020 §15).
 grep -rn "updater" src-tauri/   # expected: empty (or only comments)
 
-# 4. Icon stub generator produces RGBA PNGs (color_type=6).
+# 4. Icons are committed real files (generated once with `tauri icon`);
+#    the stub generator produces binary stubs only.
 python scripts/gen_tauri_icons_stub.py --check   # exit 0 after generate
+
+# 4b. Unified icon fail-fast gate: EVERY file in tauri.conf.json
+#     bundle.icon (4 PNGs + icon.ico + icon.icns) is present + valid.
+python scripts/gen_tauri_icons_stub.py --check-icons  # exit 0 if valid (runs identically in every Tauri workflow before cargo tauri build)
 
 # 5. tauri.conf.json externalBin is single base name (NOT per-arch entries).
 python -c "
@@ -430,10 +456,11 @@ grep -n 'ipc_server.py' scripts/build/voice-typer.spec
    `windows-validation-runbook.md`, `macos-validation-runbook.md`,
    `linux-validation-runbook.md`. File the evidence trail per
    `cutover-playbook.md` §"Evidence trail".
-2. **Once Phase 0 passes on a platform**, flip the per-platform CI
-   workflow's `if: false` → `if: true` and remove the `if:` guard. Run
-   the top-level `tauri-build.yml` orchestrator with `platform:
-   <platform>` to produce a signed installer.
+2. **Once Phase 0 passes on a platform**, re-run the per-platform CI
+   workflow via `workflow_dispatch` (gate status: ENABLED) and
+   un-comment its push/PR triggers. Run the top-level `tauri-build.yml`
+   orchestrator with `platform: <platform>` — its `validate` job runs
+   the config-drift gate before fan-out — to produce a signed installer.
 3. **Per-platform cutover** — see `cutover-playbook.md` §"Cutover
    procedure". One platform per release; reversible per-platform.
 4. **Auto-update (out of scope for v1)** — `tauri-plugin-updater` is

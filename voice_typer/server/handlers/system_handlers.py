@@ -18,6 +18,7 @@ reference shape the Rust host mirrors.
 """
 
 import contextlib
+import subprocess
 import unicodedata
 
 from voice_typer.server import event_bus
@@ -30,7 +31,7 @@ from voice_typer.server.ipc.validation import (  # noqa: F401
     _error_response,
     _validate_dict_payload,
 )
-from voice_typer.server.platform_utils import is_macos
+from voice_typer.server.platform_utils import is_linux, is_macos
 
 
 def _has_control_chars(value) -> bool:
@@ -55,6 +56,135 @@ def _has_control_chars(value) -> bool:
     if not isinstance(value, str):
         return False
     return any(unicodedata.category(ch) in ("Cc", "Cf") and ch != "\t" for ch in value)
+
+
+def _enumerate_polkit_actions() -> list[str]:
+    """Enumerate polkit actions registered for Voice Typer via ``pkaction``.
+
+    Covers BOTH action-ID namespaces the app has ever shipped:
+    ``com.voicetyper.install-permissions`` (current) and the legacy
+    ``org.voice-typer.install-permissions`` (pre-Tauri Electron builds —
+    finding #54). On upgraded systems pkaction lists both while the old
+    policy file lingers; surfacing them in the reset response tells the
+    user (and the diagnostics) what was actually cleared.
+
+    Returns a sorted, deduped list of matching action IDs. Tolerant of
+    ``pkaction`` being absent, timing out, or exiting non-zero
+    (logged warning, empty list) — the caller still performs the
+    polkit-daemon restart regardless.
+    """
+
+    try:
+        result = subprocess.run(
+            ["pkaction"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        log.warning("[IPC] reset_linux_permissions: pkaction unavailable (%s)", exc)
+        return []
+    if result.returncode != 0:
+        log.warning(
+            "[IPC] reset_linux_permissions: pkaction exited %d",
+            result.returncode,
+        )
+        return []
+    return sorted(
+        {
+            line.strip()
+            for line in result.stdout.splitlines()
+            if "voicetyper" in line.strip().lower() or "voice-typer" in line.strip().lower()
+        }
+    )
+
+
+def _polkit_check_authorization(action_id: str) -> str:
+    """Query the current authorization state of *action_id* via ``pkcheck``.
+
+    ``pkcheck`` exit codes: 0 = authorized, 1 = not authorized,
+    anything else (or an unavailable/timeouting binary) = ``check_error``.
+    Called AFTER the polkit-daemon restart, so the expected post-reset
+    state for Voice Typer's ``auth_admin_keep`` actions is
+    ``not_authorized`` — i.e. the next pkexec grant will re-prompt
+    (compare ``install_permissions.py``'s documented ~5-minute
+    ``auth_admin_keep`` caching window).
+    """
+
+    try:
+        result = subprocess.run(
+            ["pkcheck", "--action-id", action_id],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError) as exc:
+        log.warning(
+            "[IPC] reset_linux_permissions: pkcheck unavailable for %s (%s)",
+            action_id,
+            exc,
+        )
+        return "check_error"
+    if result.returncode == 0:
+        return "authorized"
+    if result.returncode == 1:
+        return "not_authorized"
+    return "check_error"
+
+
+def _reset_polkit_authorization() -> tuple[str | None, bool, str | None]:
+    """Clear polkitd's cached authorization decisions by restarting it.
+
+    polkit's ``auth_admin_keep`` default (``voice-typer.polkit``) caches
+    the admin decision for ~5 minutes, so after a Voice Typer update the
+    old grant can still authorize pkexec runs without re-prompting even
+    though the on-disk policy changed — the stale authorization. There
+    is no per-action revocation command in polkit; restarting the
+    polkit daemon (polkitd) is the supported way to flush the whole
+    in-memory authorization cache.
+
+    The restart needs root, so it goes through ``pkexec`` (the same
+    mechanism the permission installer itself uses). Within the stale
+    ``auth_admin_keep`` window the pkexec call succeeds WITHOUT a new
+    prompt; once the cache is stale-but-expired the user gets the
+    familiar polkit GUI prompt. Candidate service names in order of
+    likelihood (systemd ``polkit`` / ``polkitd``, then legacy
+    ``service polkit restart``).
+
+    Returns ``(command, ok, error)``: the exact command that succeeded
+    (for the ``ack`` payload + the renderer's snackbar), or
+    ``(None, False, error)`` when every candidate failed.
+    """
+
+    candidates = [
+        ["pkexec", "systemctl", "restart", "polkit"],
+        ["pkexec", "systemctl", "restart", "polkitd"],
+        ["pkexec", "service", "polkit", "restart"],
+    ]
+    last_error: str | None = None
+    for cmd in candidates:
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            last_error = f"pkexec failed: {exc}"
+            continue
+        if result.returncode == 0:
+            return " ".join(cmd), True, None
+        if result.returncode == 126:
+            # pkexec: the user dismissed the polkit authentication dialog.
+            last_error = "pkexec: authentication dismissed"
+        elif result.returncode == 127:
+            # pkexec: not authorized / no authentication agent, or an
+            # internal error occurred.
+            last_error = "pkexec: not authorized (no authentication agent?)"
+        else:
+            last_error = result.stderr.strip() or (f"polkit daemon restart exited {result.returncode}")
+    return None, False, last_error or "polkit daemon restart failed"
 
 
 class SystemHandlersMixin(HandlerBase):
@@ -270,6 +400,160 @@ class SystemHandlersMixin(HandlerBase):
         except Exception as exc:
             # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "check_accessibility")
+        return resp
+
+    def _handle_reset_macos_accessibility(self, data: object | None, resp: dict) -> dict | None:
+        """Handle the ``reset_macos_accessibility`` IPC command.
+
+        Runs ``tccutil reset Accessibility <bundle-id>`` to clear a stale
+        macOS Accessibility TCC entry (e.g. orphaned under a stale
+        designated requirement after an app update silently reset the
+        permission), then re-opens System Settings → Privacy & Security
+        → Accessibility so the user can re-grant.
+
+        The bundle ID is resolved at RUNTIME from the host app's
+        ``Contents/Info.plist`` (``resolve_host_bundle_id`` — walks the
+        parent-process chain to the nearest ``*.app``), so both the
+        Electron and Tauri builds reset the entry for the actually
+        running host and a future bundle-identifier change needs no code
+        edit. Mirrors the a11y re-grant notification in
+        ``startup_tasks.py`` (finding #127 part b).
+
+        ``tccutil`` is a per-user command — the backend runs as the
+        logged-in user, so it is invoked directly (no sudo).
+
+        Response: ``ack`` with ``{ok: bool, command: str | None,
+        error: str | None}``. ``ok=False`` with ``error`` set when the
+        platform isn't macOS, the bundle ID can't be resolved, or
+        ``tccutil`` fails — a wrong bundle ID in a ``tccutil`` command
+        is worse than no command, so ``command`` is omitted entirely
+        when unresolved.
+        """
+        validated, error = _validate_dict_payload(data, {})
+        if error:
+            return error
+        try:
+            if not is_macos():
+                resp["type"] = "ack"
+                resp["data"] = {
+                    "ok": False,
+                    "command": None,
+                    "error": "unsupported_platform",
+                }
+                return resp
+
+            from voice_typer.server.permissions import _open_macos_accessibility_settings
+            from voice_typer.server.server_platform.macos_bundle_id import resolve_host_bundle_id
+
+            bundle_id = resolve_host_bundle_id()
+            if not bundle_id:
+                resp["type"] = "ack"
+                resp["data"] = {
+                    "ok": False,
+                    "command": None,
+                    "error": "bundle_id_unresolved",
+                }
+                return resp
+
+            command = f"tccutil reset Accessibility {bundle_id}"
+            try:
+                result = subprocess.run(
+                    ["tccutil", "reset", "Accessibility", bundle_id],
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                )
+                ok = result.returncode == 0
+                tcc_error = None if ok else (result.stderr.strip() or "tccutil failed")
+            except (subprocess.TimeoutExpired, OSError) as exc:
+                ok = False
+                tcc_error = f"tccutil failed: {exc}"
+
+            # Re-open System Settings → Privacy & Security →
+            # Accessibility so the user can re-grant after the reset
+            # clears the stale entry (non-fatal — the settings opener
+            # logs its own warning on failure).
+            _open_macos_accessibility_settings()
+
+            resp["type"] = "ack"
+            resp["data"] = {"ok": ok, "command": command, "error": tcc_error}
+        except Exception as exc:
+            self._respond_with_error(resp, exc, "reset_macos_accessibility")
+        return resp
+
+    def _handle_reset_linux_permissions(self, data: object | None, resp: dict) -> dict | None:
+        """Handle the ``reset_linux_permissions`` IPC command.
+
+        The Linux sibling of ``reset_macos_accessibility``: clears a
+        STALE polkit authorization for Voice Typer's keyboard-permission
+        grant so the next "Grant permission" (pkexec
+        ``com.voicetyper.install-permissions``) prompts again.
+
+        Why this exists: ``voice-typer.polkit`` uses polkit's
+        ``auth_admin_keep`` default, which caches the admin decision for
+        ~5 minutes in polkitd. After an app update (or a policy change
+        such as the finding-#54 action-ID rename), the cached decision
+        can authorize pkexec runs without re-prompting even though the
+        grant is stale relative to the running build — the visual
+        symptom is "Grant permission silently does nothing / the
+        permission never seems to reset".
+
+        There is no per-action revocation command in polkit
+        (``pkaction`` only lists; ``pkcheck`` only queries), so the
+        reset restarts the polkit daemon, which flushes the whole
+        in-memory authorization cache. Steps:
+
+        1. ``pkaction`` — enumerate the registered Voice Typer polkit
+           action IDs (both ``com.voicetyper.install-permissions`` and
+           the legacy ``org.voice-typer.install-permissions``), so the
+           response can surface what was actually registered.
+        2. ``pkexec systemctl restart polkit`` (fallbacks: polkitd /
+           ``service polkit restart``) — clears the cached
+           authorization. Runs via pkexec so a NEW polkit prompt
+           appears when no cached auth exists; inside the stale
+           window it succeeds silently.
+        3. ``pkcheck --action-id <id>`` per enumerated action — verify
+           the post-reset state (expected: ``not_authorized`` = the
+           next grant will re-prompt).
+
+        Response: ``ack`` with ``{ok: bool, command: str | None,
+        error: str | None, actions: list[str], checks: dict[str, str]}``.
+        ``ok=False`` with ``error`` set when the platform isn't Linux,
+        pkexec fails (incl. the user dismissing the dialog — exit 126),
+        or no restart candidate succeeds.
+        """
+        validated, error = _validate_dict_payload(data, {})
+        if error:
+            return error
+        try:
+            if not is_linux():
+                resp["type"] = "ack"
+                resp["data"] = {
+                    "ok": False,
+                    "command": None,
+                    "error": "unsupported_platform",
+                    "actions": [],
+                    "checks": {},
+                }
+                return resp
+
+            actions = _enumerate_polkit_actions()
+            command, ok, error_str = _reset_polkit_authorization()
+            checks: dict[str, str] = {}
+            if ok:
+                for action_id in actions:
+                    checks[action_id] = _polkit_check_authorization(action_id)
+
+            resp["type"] = "ack"
+            resp["data"] = {
+                "ok": ok,
+                "command": command,
+                "error": error_str,
+                "actions": actions,
+                "checks": checks,
+            }
+        except Exception as exc:
+            self._respond_with_error(resp, exc, "reset_linux_permissions")
         return resp
 
     def _handle_set_tray_locale(self, data: dict | None, resp: dict) -> dict | None:

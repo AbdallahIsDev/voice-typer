@@ -263,15 +263,24 @@ NUITKA_ARGS=(
     --jobs="$NUITKA_JOBS"
     --enable-plugin=numpy
     --enable-plugin=anti-bloat
+    # NU-106 (VAD): keep torch.jit ENABLED. Nuitka's torch plugin
+    # disables JIT by default in standalone mode, breaking
+    # torch.jit.load(silero_vad.jit) with "module 'torch' has no
+    # attribute 'jit'" — Silero VAD silently degrades to RMS. Make the
+    # choice explicit.
+    --module-parameter=torch-disable-jit=no
     --nofollow-import-to=torch._dynamo
     --nofollow-import-to=torch._inductor
-    --nofollow-import-to=torch.export
-    --nofollow-import-to=torch._functorch
+    # NU-106 (VAD): torch.export / torch._functorch are loaded
+    # UNCONDITIONALLY by plain `import torch` (torch 2.13) — do NOT
+    # exclude them or `import torch` fails with ModuleNotFoundError and
+    # Silero VAD silently degrades to RMS.
     --nofollow-import-to=transformers
     --include-package=faster_whisper
     --include-package=ctranslate2
     --include-package=voice_typer
     --include-package=websockets
+    --include-package-data=voice_typer.server
     --include-package=numpy
     --include-data-dir="$SITE/ctranslate2/lib=$SITE/ctranslate2/lib"
     --onefile-tempdir-spec="$ONEFILE_TEMPDIR"

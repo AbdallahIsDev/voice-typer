@@ -13,8 +13,8 @@ Operations (all idempotent):
      ``/usr/share/voice-typer/scripts/install_permissions.py`` resolves
      to this script (symlink for stable installs, copy for AppImage).
      Also installs the polkit policy file to
-     ``/usr/share/polkit-1/actions/org.voice-typer.policy`` so
-     ``pkexec org.voice-typer.install-permissions`` resolves to the
+     ``/usr/share/polkit-1/actions/com.voicetyper.policy`` so
+     ``pkexec com.voicetyper.install-permissions`` resolves to the
      custom authentication prompt. This is a defensive fallback for
      AppImage installs (which have no ``postinst``) and for repair
      scenarios.
@@ -119,12 +119,23 @@ POLKIT_STABLE_DIR = Path("/usr/share/voice-typer/scripts")
 POLKIT_STABLE_PATH = POLKIT_STABLE_DIR / "install_permissions.py"
 
 # The polkit policy file. Installed to the canonical polkit actions
-# directory so ``pkexec org.voice-typer.install-permissions`` resolves
+# directory so ``pkexec com.voicetyper.install-permissions`` resolves
 # to the custom authentication prompt (instead of the generic pkexec
-# prompt). The Debian / RPM postinst installs this via the package
-# manager; AppImage installs require this script to install it.
+# prompt). The filename matches the action ID's ``com.voicetyper.*``
+# RDNN root (see voice-typer.polkit header — review finding #54). The
+# Debian / RPM postinst installs this via the package manager; AppImage
+# installs require this script to install it.
 POLKIT_POLICY_SOURCE = Path(__file__).resolve().parent / "voice-typer.polkit"
-POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/org.voice-typer.policy")
+POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/com.voicetyper.policy")
+
+# Legacy polkit policy filename from the pre-Tauri (Electron) era, when
+# the action ID + filename used the ``org.voice-typer.*`` RDNN root.
+# Upgraded systems that installed the legacy Electron package may still
+# have this file at ``/usr/share/polkit-1/actions/org.voice-typer.policy``.
+# The uninstaller removes it (alongside the current policy) so an
+# uninstalled system fully converges on the ``com.voicetyper.*``
+# namespace — see ``_remove_polkit_policies``.
+LEGACY_POLKIT_POLICY_DEST = Path("/usr/share/polkit-1/actions/org.voice-typer.policy")
 
 # AppImage squashfs mounts under ``/tmp/.mount_<name><rand>/``. The
 # mount is ephemeral — it disappears when the AppImage process exits.
@@ -237,6 +248,32 @@ def _install_polkit_policy() -> None:
         log(f"WARNING: failed to install polkit policy (non-fatal): {exc}")
 
 
+def _remove_polkit_policies() -> None:
+    """Remove the polkit policy files Voice Typer has ever shipped.
+
+    Removes the current ``com.voicetyper.policy`` (installed by
+    ``_install_polkit_policy``) and the legacy ``org.voice-typer.policy``
+    (installed by the pre-Tauri Electron installer, which used the
+    ``org.voice-typer.*`` RDNN root). Removing the legacy file ensures
+    upgraded systems fully converge on the ``com.voicetyper.*``
+    namespace after uninstall.
+
+    Tolerant of absent files (silent no-op) and ``OSError`` (logged as
+    a non-fatal warning — a failure here must not abort the rest of the
+    uninstall).
+    """
+    for policy in (POLKIT_POLICY_DEST, LEGACY_POLKIT_POLICY_DEST):
+        try:
+            # ``is_symlink()`` covers dangling symlinks that ``exists()``
+            # would report as absent (polkit policy files could be
+            # symlinked by a prior installer).
+            if policy.exists() or policy.is_symlink():
+                policy.unlink()
+                log(f"Removed polkit policy {policy}")
+        except OSError as exc:
+            log(f"WARNING: failed to remove polkit policy {policy} (non-fatal): {exc}")
+
+
 def setup_polkit_stable_path() -> None:
     """Ensure the polkit-stable path resolves to this script.
 
@@ -245,7 +282,7 @@ def setup_polkit_stable_path() -> None:
     ``org.freedesktop.policykit.exec.path`` annotation. Polkit requires
     an absolute, stable path — it does not follow symlinks at invoke
     time, but the path must EXIST when ``pkexec
-    org.voice-typer.install-permissions`` is invoked.
+    com.voicetyper.install-permissions`` is invoked.
 
     For Debian / RPM installs, the package's ``postinst`` creates a
     symlink at the polkit-stable path pointing to the actually-installed
@@ -410,12 +447,7 @@ def _find_sway_xkb_options_lines(lines: list[str]) -> list[int]:
         if not stripped or stripped.startswith("#"):
             continue
         tokens = stripped.split()
-        if (
-            len(tokens) >= 4
-            and tokens[0] == "input"
-            and tokens[1] == "*"
-            and tokens[2] == "xkb_options"
-        ):
+        if len(tokens) >= 4 and tokens[0] == "input" and tokens[1] == "*" and tokens[2] == "xkb_options":
             indices.append(idx)
     return indices
 
@@ -573,8 +605,13 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
             # (which would lose user customization that predated Voice Typer).
             get_proc = subprocess.run(
                 [
-                    "sudo", "-u", username, "gsettings", "get",
-                    "org.gnome.desktop.input-sources", "xkb-options",
+                    "sudo",
+                    "-u",
+                    username,
+                    "gsettings",
+                    "get",
+                    "org.gnome.desktop.input-sources",
+                    "xkb-options",
                 ],
                 capture_output=True,
                 text=True,
@@ -587,8 +624,14 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
             merged_value = _format_gsettings_array(merged_options)
             run(
                 [
-                    "sudo", "-u", username, "gsettings", "set",
-                    "org.gnome.desktop.input-sources", "xkb-options", merged_value,
+                    "sudo",
+                    "-u",
+                    username,
+                    "gsettings",
+                    "set",
+                    "org.gnome.desktop.input-sources",
+                    "xkb-options",
+                    merged_value,
                 ],
                 check=False,
             )
@@ -669,10 +712,7 @@ def configure_caps_lock_neutralization(session_type: str, username: str) -> dict
                 # Replace the matched line with a commented-out backup of the
                 # original (so the user can see what Voice Typer changed) plus
                 # the new merged line.
-                lines[first_idx] = (
-                    f"{restore_marker} {original_line}\n"
-                    f"{new_line}"
-                )
+                lines[first_idx] = f"{restore_marker} {original_line}\n{new_line}"
                 # Drop subsequent duplicate ``input * xkb_options`` lines
                 # (Voice Typer consolidates them into the first).
                 for idx in reversed(match_indices[1:]):
@@ -799,9 +839,7 @@ def install() -> None:
 
     log("")
     log("Voice Typer keyboard permissions installed successfully.")
-    log(
-        f"IMPORTANT: user '{username}' must log out and log back in for the 'input' group change to take effect."
-    )
+    log(f"IMPORTANT: user '{username}' must log out and log back in for the 'input' group change to take effect.")
     log("")
 
 
@@ -914,8 +952,14 @@ def _restore_gnome_xkb_options(manifest: dict) -> None:
         if original_raw:
             run(
                 [
-                    "sudo", "-u", username, "gsettings", "set",
-                    "org.gnome.desktop.input-sources", "xkb-options", original_raw,
+                    "sudo",
+                    "-u",
+                    username,
+                    "gsettings",
+                    "set",
+                    "org.gnome.desktop.input-sources",
+                    "xkb-options",
+                    original_raw,
                 ],
                 check=False,
             )
@@ -923,8 +967,13 @@ def _restore_gnome_xkb_options(manifest: dict) -> None:
         else:
             run(
                 [
-                    "sudo", "-u", username, "gsettings", "reset",
-                    "org.gnome.desktop.input-sources", "xkb-options",
+                    "sudo",
+                    "-u",
+                    username,
+                    "gsettings",
+                    "reset",
+                    "org.gnome.desktop.input-sources",
+                    "xkb-options",
                 ],
                 check=False,
             )
@@ -1031,12 +1080,7 @@ def _restore_sway_config_options(manifest: dict) -> None:
                 i += 1
                 if i < len(lines):
                     nxt = lines[i].split()
-                    if (
-                        len(nxt) >= 3
-                        and nxt[0] == "input"
-                        and nxt[1] == "*"
-                        and nxt[2] == "xkb_options"
-                    ):
+                    if len(nxt) >= 3 and nxt[0] == "input" and nxt[1] == "*" and nxt[2] == "xkb_options":
                         i += 1
                 if original_line and not restored:
                     new_lines.append(original_line + "\n")
@@ -1111,6 +1155,14 @@ def uninstall() -> None:
     if XKB_CONF_PATH.exists():
         XKB_CONF_PATH.unlink()
         log(f"Removed {XKB_CONF_PATH}")
+
+    # Remove the polkit policy files (current + legacy). The legacy
+    # ``org.voice-typer.policy`` may linger from pre-Tauri Electron
+    # installs — removing it converges the polkit actions directory on
+    # the ``com.voicetyper.*`` namespace. Runs before the backup
+    # restoration so a failure here can't skip the rest of the cleanup
+    # (the helper is non-fatal anyway).
+    _remove_polkit_policies()
 
     # Restore backups if they exist
     if manifest:

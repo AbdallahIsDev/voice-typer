@@ -20,8 +20,10 @@ table at §9.
 - `scripts/build/compile_native.ps1` — builds `windows-key-listener.exe`.
 - `scripts/build/voice-typer.spec` — PyInstaller fallback spec (ADR §4.5).
 - `scripts/build/smoke_test_windows.ps1` — native-listener smoke test.
-- `.github/workflows/tauri-windows-build.yml` — CI workflow (stub,
-  `if: false`; flip to `true` once §6 passes on a host).
+- `.github/workflows/tauri-windows-build.yml` — CI workflow ENABLED
+  (active x86_64 matrix leg runs via `workflow_dispatch` /
+  `workflow_call` for Phase 0-W validation; push/PR triggers stay
+  commented out until §6 passes on a host).
 
 **Time estimate**: 2–4 hours first run; subsequent runs ~30 min with
 cached deps.
@@ -1140,6 +1142,17 @@ NSIS installer after `cargo tauri build`.
 - `signtool.exe` (bundled with Windows SDK; installed with VS Build
   Tools §0.3).
 
+> **Unsigned local builds still need `signtool.exe` on PATH.**
+> ``tauri.conf.json`` sets ``bundle.windows.signCommand``
+> (``scripts/tauri-sign.cmd``), and Tauri's NSIS bundler locates
+> ``signtool.exe`` on PATH *before* invoking the wrapper — even when no
+> cert is configured — so on a host without the Windows SDK the bundle
+> step fails with ``failed to bundle project: SignTool not found``. On
+> such a host, either install the SDK signing tools, or temporarily
+> remove ``signCommand`` from ``tauri.conf.json`` for the unsigned
+> local build (CI's windows-2022 image has signtool preinstalled, so
+> the workflow is unaffected).
+
 ### §7.1 Set up the cert (skip if you already have one)
 
 **VALIDATE ON WINDOWS HOST** If you don't have a real cert, create a
@@ -1800,14 +1813,16 @@ rebuild the sidecar (§1) and re-run the failing §6 item.
 ## Appendix A — CI workflow reference
 
 The CI workflow at `.github/workflows/tauri-windows-build.yml` is the
-automated counterpart of this runbook. It is currently a **STUB**
-(`if: false` on the single job) — it does NOT run on push/PR until
-the Phase 0-W gate (§6) has actually passed on a real Windows host.
+automated counterpart of this runbook. It is ENABLED for validation:
+the active x86_64 matrix leg runs on `workflow_dispatch` (or via the
+`tauri-build.yml` orchestrator's `workflow_call`) so a Phase 0-W
+validation dispatch actually produces the installer artifacts. It does
+NOT run on push/PR until the Phase 0-W gate (§6) has actually passed on
+a real Windows host — the push/PR triggers stay commented out.
 
 Once §6 passes, the release engineer should:
-1. Flip `if: false` to `if: true` (or remove the `if:` key entirely
-   and rely on the `workflow_dispatch` trigger) on the
-   `tauri-windows-build` job.
+1. Un-comment the `push`/`pull_request` triggers on the
+   `tauri-windows-build` job (the workflow is otherwise active).
 2. Verify the workflow runs green on `main`.
 3. Download the workflow artifacts (NSIS installer, MSI installer,
   sidecar binary, prewarm binary, native listener binary, SHA256SUMS)

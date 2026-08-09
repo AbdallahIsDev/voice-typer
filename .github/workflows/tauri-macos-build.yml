@@ -14,33 +14,27 @@
 name: Tauri macOS Build (Phase 0-M)
 
 # =============================================================================
-# GATE STATUS — VALIDATE ON MACOS HOST (jobs remain gated by if: false until a macOS runner is available)
+# GATE STATUS — ENABLED (Phase 0-M validation runnable via manual dispatch)
 # -----------------------------------------------------------------------------
-# This workflow contains ~603 lines of macOS signing + notarization logic that
-# has NEVER executed in CI. All 3 jobs (build-aarch64, build-x86_64,
-# build-tauri-universal) carry an explicit `if: false` guard because the
-# project's CI environment has no macOS host available to validate the
-# signing/notarization path end-to-end. Running the untested signing logic in
-# CI would risk shipping a broken or wrongly-signed .dmg to users.
+# The three jobs (build-aarch64, build-x86_64, build-tauri-universal) are now
+# ENABLED (`if: true`) so the macOS signing + notarization path can actually
+# execute. The workflow is triggered MANUALLY via `workflow_dispatch` (or via
+# the tauri-build.yml orchestrator's `workflow_call`); push/PR triggers remain
+# commented out per ADR-0020 §15 (release builds are manual-trigger-only, no
+# auto-update).
 #
-# VALIDATION HANDOFF (required before release):
-#   1. A maintainer with access to a real macOS host (either a self-hosted
-#      runner or a local Mac) triggers this workflow manually via the
-#      `workflow_dispatch` event defined in the `on:` block below (the
-#      "Run workflow" button on the Actions tab).
-#   2. Set `inputs.sign: true` on the dispatch to exercise the full
-#      codesign + notarize path with the repo secrets available.
-#   3. Follow docs/migration/macos-validation-runbook.md to confirm the
+# PHASE 0-M VALIDATION HANDOFF (required before CUTOVER, not before running):
+#   1. A maintainer dispatches this workflow from the Actions UI with
+#      `inputs.sign: true` to exercise the full codesign + notarize path
+#      with the repo secrets available (MAC_SIGNING_IDENTITY / APPLE_ID /
+#      APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID).
+#   2. Follow docs/migration/macos-validation-runbook.md to confirm the
 #      universal .app launches on both Apple Silicon and Intel Macs and the
 #      notarization ticket stamps cleanly (`spctl --assess`, `xcrun stapler
 #      validate`).
-#   4. Once the runbook has passed manually on a developer Mac, remove
-#      `if: false` from all 3 jobs (or change to `if: true`) and uncomment
-#      the push/PR triggers below to enable CI-driven runs.
-#
-# Until that validation gate passes, do NOT remove the `if: false` guards —
-# they are the second layer of protection (the first layer being the absence
-# of push/PR triggers). See ADR-0020 §15 + Phase 0-M gate.
+#   3. Only after the runbook passes on a real macOS host, uncomment the
+#      push/PR triggers below to enable CI-driven runs (ADR-0020 §15 +
+#      cutover-playbook.md Step 2.1).
 # =============================================================================
 #
 # ADR-0020 Phase 0-M: macOS x86_64 + aarch64-apple-darwin Tauri build.
@@ -72,11 +66,11 @@ on:
         required: false
         default: false
         type: boolean
-  # ADR-0020 §15 + Phase 0-M gate: do NOT enable push/PR triggers until the
+  # ADR-0020 §15 + Phase 0-M gate: push/PR triggers stay disabled until the
   # macOS host validation runbook has passed on a real macOS host. The
   # workflow is invoked manually via workflow_dispatch (or via the
-  # tauri-build.yml orchestrator's workflow_call). The per-job `if: false`
-  # guards below are the second layer of protection.
+  # tauri-build.yml orchestrator's workflow_call). The jobs are enabled
+  # (`if: true`) so the manual Phase 0-M validation run can execute.
   # push:
   #   tags:
   #     - "v*-macos"
@@ -96,7 +90,7 @@ jobs:
   # ─── Job 1: Apple Silicon (aarch64-apple-darwin) ────────────────────────────
   # Runs natively on a macos-14 runner (Apple Silicon).
   build-aarch64:
-    if: false  # VALIDATE ON MACOS HOST — remove `if: false` when a macOS runner is available (see TX-39 gate block above). Phase 0-M NOT YET STARTED.
+    if: true  # ENABLED for Phase 0-M validation (see GATE STATUS block). Run via workflow_dispatch with sign=true to exercise codesign + notarization.
     runs-on: macos-14
     timeout-minutes: 60
     steps:
@@ -215,7 +209,7 @@ jobs:
   #
   # Alternative: run this on a separate macos-13 runner if available.
   build-x86_64:
-    if: false  # VALIDATE ON MACOS HOST — remove `if: false` when a macOS runner is available (see TX-39 gate block above). Phase 0-M NOT YET STARTED.
+    if: true  # ENABLED for Phase 0-M validation (see GATE STATUS block). Run via workflow_dispatch with sign=true to exercise codesign + notarization.
     runs-on: macos-14
     timeout-minutes: 60
     steps:
@@ -317,11 +311,11 @@ jobs:
 
   # ─── Job 3: Universal .app + .dmg via cargo tauri build ─────────────────────
   # Depends on both arch jobs having produced their binaries.
-  # CRIT-7 note: the universal (universal2) build is INTENTIONALLY DISABLED
-  # (`if: false`) until the Phase 0-M host validation gate passes on a real
-  # macOS host — flip to `if: true` together with the two arch jobs above.
+  # CRIT-7 note: the universal (universal2) build depends on both arch jobs
+  # (build-aarch64 + build-x86_64) via `needs:` below — it only runs when
+  # both sidecar legs succeed, then lipo-creates the universal binaries.
   build-tauri-universal:
-    if: false  # VALIDATE ON MACOS HOST — remove `if: false` when a macOS runner is available (see TX-39 gate block above). Phase 0-M NOT YET STARTED; universal build intentionally disabled.
+    if: true  # ENABLED for Phase 0-M validation (see GATE STATUS block above).
     needs: [build-aarch64, build-x86_64]
     runs-on: macos-14
     timeout-minutes: 60
@@ -462,18 +456,55 @@ jobs:
           echo "OK: universal listener contains both x86_64 + arm64 slices."
           ls -la src-tauri/bin src-tauri/resources src-tauri/resources/native
 
-      # WR-17: generate placeholder Tauri icons + binary stubs if they
-      # don't already exist. cargo tauri build reads the icon list from
-      # tauri.conf.json and hard-fails on the first missing icon. The
-      # `--check` flag exits 0 if all stubs are present (no-op on a warm
-      # checkout) and 1 if any are missing — the `||` falls through to
-      # the generation command only when needed. CLI flags verified by
-      # reading scripts/gen_tauri_icons_stub.py (argparse: --check /
-      # --clean / no-flag = generate).
-      - name: Generate Tauri icons (stub)
-        run: |
-          python3 scripts/gen_tauri_icons_stub.py --check || python3 scripts/gen_tauri_icons_stub.py
+      # The universal job needs pytest for the config drift gate below —
+      # unlike the arch jobs it does not install the project's [dev,test]
+      # deps. Minimal install (pytest + the two non-stdlib imports the
+      # drift tests need: yaml for electron-builder.yml, filelock for the
+      # icons module's serialize fixture).
+      - name: Install Python deps (fail-fast config drift gate)
+        run: uv pip install --system pytest pyyaml filelock
 
+      # Fail-fast gate: run the config drift guards BEFORE the build —
+      # identifier↔appId + productName + version parity, bundle.icon↔git
+      # lockstep, and the config↔script pairs (bundle.resources/externalBin
+      # ↔ stub generator registry, tauri-binaries.json ↔ canonical triples +
+      # Cargo binary name). Same guards the full suite enforces, but a drift
+      # regression dies in seconds instead of only after the whole test run.
+      # The icons module's autouse fixture runs --clean after each test,
+      # which preserves the REAL binaries the arch jobs placed above (the
+      # _is_stub_file heuristic) and touches no committed icons.
+      - name: Verify config drift guards (icons, identity, binaries) (fail fast)
+        run: |
+          python3 -m pytest \
+            tests/tauri/test_bundle_identifier_parity.py \
+            tests/tauri/test_gen_tauri_icons_stub.py::test_tauri_conf_icon_list_matches_tracked_icons \
+            tests/tauri/test_gen_tauri_icons_stub.py::test_per_arch_configs_do_not_override_bundle_icon \
+            tests/tauri/test_config_script_drift.py::TestBundleBinariesVsStubRegistry::test_config_declares_exactly_the_stub_generator_registry \
+            tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestCoverage::test_manifest_covers_exactly_the_canonical_triples \
+            tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestBinaryNames::test_manifest_binary_names_match_cargo_binary_name \
+            -q --no-cov
+
+      # Fail-fast gate: verify the COMMITTED icons/icon.icns exists AND is
+      # Fail-fast gate: verify EVERY committed file in tauri.conf.json
+      # bundle.icon exists AND is structurally valid (the 4 PNGs +
+      # icon.ico + icon.icns) before the cargo tauri build. The single
+      # cross-platform gate (--check-icons) reads the icon list from
+      # tauri.conf.json and dispatches each entry to the right validator
+      # by extension; tauri-build hard-fails the whole build when the
+      # platform's icon is missing or corrupt, and a corrupt file would
+      # otherwise only surface minutes into the compile. This gate fails
+      # in <1s instead. CLI flags verified by reading
+      # scripts/gen_tauri_icons_stub.py (argparse: --check /
+      # --check-icons / --clean / no-flag).
+      - name: Verify bundle.icon icons are present + valid (fail fast)
+        run: python3 scripts/gen_tauri_icons_stub.py --check-icons
+
+      # The icons (src-tauri/icons/*) are REAL committed files generated
+      # once with `tauri icon` from voice_typer/client/scripts/logo.svg —
+      # cargo tauri build reads them straight from the checkout. All
+      # macOS binaries (sidecar x2, prewarm x2, native listener) were
+      # built real by the two arch jobs above, so no stub generation step
+      # is needed here at all.
       - name: Build Tauri universal .app + .dmg
         run: |
           cd src-tauri

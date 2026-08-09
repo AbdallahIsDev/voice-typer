@@ -13,7 +13,7 @@ at the polkit-stable path pointing to the actually-installed script.
 For AppImage installs, no ``postinst`` runs. Without the self-install
 logic in ``install_permissions.py``, the polkit-stable path would never
 exist on AppImage installs, and ``pkexec
-org.voice-typer.install-permissions`` would silently fail.
+com.voicetyper.install-permissions`` would silently fail.
 
 These tests verify the self-install logic:
 
@@ -140,8 +140,13 @@ class TestConstants:
         assert ip_module.POLKIT_STABLE_PATH.as_posix() == ("/usr/share/voice-typer/scripts/install_permissions.py")
 
     def test_polkit_policy_dest_constant(self, ip_module):
-        """``POLKIT_POLICY_DEST`` points at the canonical polkit actions dir."""
-        assert ip_module.POLKIT_POLICY_DEST.as_posix() == ("/usr/share/polkit-1/actions/org.voice-typer.policy")
+        """``POLKIT_POLICY_DEST`` points at the canonical polkit actions dir.
+
+        The policy filename uses the same ``com.voicetyper.*`` RDNN root
+        as the action ID (``com.voicetyper.install-permissions``) and the
+        ``com.voicetyper.desktop`` Tauri bundle identifier (finding #54).
+        """
+        assert ip_module.POLKIT_POLICY_DEST.as_posix() == ("/usr/share/polkit-1/actions/com.voicetyper.policy")
 
     def test_polkit_policy_source_exists(self, ip_module):
         """``POLKIT_POLICY_SOURCE`` (sibling voice-typer.polkit) exists.
@@ -393,7 +398,7 @@ class TestInstallPolkitPolicy:
     def test_skips_when_source_missing(self, ip_module, monkeypatch, tmp_path, capsys):
         """When the source polkit file doesn't exist, logs a warning and returns."""
         monkeypatch.setattr(ip_module, "POLKIT_POLICY_SOURCE", tmp_path / "nonexistent.polkit")
-        monkeypatch.setattr(ip_module, "POLKIT_POLICY_DEST", tmp_path / "org.voice-typer.policy")
+        monkeypatch.setattr(ip_module, "POLKIT_POLICY_DEST", tmp_path / "com.voicetyper.policy")
         ip_module._install_polkit_policy()
         captured = capsys.readouterr()
         assert "not found" in captured.out.lower()
@@ -402,7 +407,7 @@ class TestInstallPolkitPolicy:
         """When the destination doesn't exist, copies the source."""
         source = tmp_path / "voice-typer.polkit"
         source.write_text("<policyconfig>test</policyconfig>")
-        dest = tmp_path / "org.voice-typer.policy"
+        dest = tmp_path / "com.voicetyper.policy"
 
         monkeypatch.setattr(ip_module, "POLKIT_POLICY_SOURCE", source)
         monkeypatch.setattr(ip_module, "POLKIT_POLICY_DEST", dest)
@@ -416,7 +421,7 @@ class TestInstallPolkitPolicy:
         """When the destination already matches the source, no-op."""
         source = tmp_path / "voice-typer.polkit"
         source.write_text("<policyconfig>test</policyconfig>")
-        dest = tmp_path / "org.voice-typer.policy"
+        dest = tmp_path / "com.voicetyper.policy"
         dest.write_text(source.read_text())
 
         # Track shutil.copy2 calls.
@@ -440,7 +445,7 @@ class TestInstallPolkitPolicy:
         """When the destination differs from the source, overwrites."""
         source = tmp_path / "voice-typer.polkit"
         source.write_text("<policyconfig>new</policyconfig>")
-        dest = tmp_path / "org.voice-typer.policy"
+        dest = tmp_path / "com.voicetyper.policy"
         dest.write_text("<policyconfig>old</policyconfig>")
 
         monkeypatch.setattr(ip_module, "POLKIT_POLICY_SOURCE", source)
@@ -449,6 +454,63 @@ class TestInstallPolkitPolicy:
         ip_module._install_polkit_policy()
 
         assert dest.read_text() == source.read_text()
+
+
+# ─── _remove_polkit_policies ──────────────────────────────────────────────
+
+
+class TestRemovePolkitPolicies:
+    """``_remove_polkit_policies()`` behavior (uninstall-time cleanup)."""
+
+    def test_legacy_policy_dest_points_at_legacy_path(self, ip_module):
+        """The legacy constant targets the pre-Tauri Electron policy filename."""
+        assert ip_module.LEGACY_POLKIT_POLICY_DEST.as_posix() == ("/usr/share/polkit-1/actions/org.voice-typer.policy")
+
+    def test_removes_current_and_legacy_policies(self, ip_module, monkeypatch, tmp_path, capsys):
+        """Both the current and legacy policy files are removed."""
+        current = tmp_path / "com.voicetyper.policy"
+        legacy = tmp_path / "org.voice-typer.policy"
+        current.write_text("<policyconfig>current</policyconfig>")
+        legacy.write_text("<policyconfig>legacy</policyconfig>")
+
+        monkeypatch.setattr(ip_module, "POLKIT_POLICY_DEST", current)
+        monkeypatch.setattr(ip_module, "LEGACY_POLKIT_POLICY_DEST", legacy)
+
+        ip_module._remove_polkit_policies()
+
+        assert not current.exists()
+        assert not legacy.exists()
+        captured = capsys.readouterr()
+        assert "com.voicetyper.policy" in captured.out
+        assert "org.voice-typer.policy" in captured.out
+
+    def test_noop_when_absent(self, ip_module, monkeypatch, tmp_path):
+        """Missing policy files are a silent no-op (no error)."""
+        monkeypatch.setattr(ip_module, "POLKIT_POLICY_DEST", tmp_path / "no-current.policy")
+        monkeypatch.setattr(ip_module, "LEGACY_POLKIT_POLICY_DEST", tmp_path / "no-legacy.policy")
+
+        ip_module._remove_polkit_policies()  # must not raise
+
+    def test_tolerates_oserror(self, ip_module, monkeypatch, tmp_path, capsys):
+        """A failing unlink logs a non-fatal warning and continues to the next file."""
+        current = tmp_path / "com.voicetyper.policy"
+        legacy = tmp_path / "org.voice-typer.policy"
+        current.write_text("x")
+        legacy.write_text("y")
+
+        def _failing_unlink(self, *args, **kwargs):
+            raise PermissionError("simulated EACCES on unlink")
+
+        monkeypatch.setattr(ip_module.Path, "unlink", _failing_unlink)
+
+        monkeypatch.setattr(ip_module, "POLKIT_POLICY_DEST", current)
+        monkeypatch.setattr(ip_module, "LEGACY_POLKIT_POLICY_DEST", legacy)
+
+        ip_module._remove_polkit_policies()  # must not raise
+
+        captured = capsys.readouterr()
+        assert "failed to remove polkit policy" in captured.out
+        assert "non-fatal" in captured.out
 
 
 # ─── main() CLI flag handling ─────────────────────────────────────────────
@@ -509,6 +571,56 @@ class TestMainCliFlags:
 
         ip_module.main()
         assert len(uninstall_calls) == 1
+
+
+# ─── uninstall() polkit cleanup ──────────────────────────────────────────
+
+
+class TestUninstallRemovesPolkitPolicies:
+    """``uninstall()`` removes the polkit policy files it (or a legacy
+    installer) placed in the polkit actions directory."""
+
+    def test_uninstall_removes_current_and_legacy_policies(self, ip_module, monkeypatch, tmp_path):
+        """``uninstall()`` unlinks both the current and legacy policy files."""
+        monkeypatch.setattr(ip_module, "is_root", lambda: True)
+
+        current = tmp_path / "com.voicetyper.policy"
+        legacy = tmp_path / "org.voice-typer.policy"
+        current.write_text("x")
+        legacy.write_text("y")
+        monkeypatch.setattr(ip_module, "POLKIT_POLICY_DEST", current)
+        monkeypatch.setattr(ip_module, "LEGACY_POLKIT_POLICY_DEST", legacy)
+
+        # Stub the other uninstall side effects (paths under tmp_path so
+        # nothing touches the real system).
+        monkeypatch.setattr(ip_module, "UDEV_RULE_PATH", tmp_path / "no-udev")
+        monkeypatch.setattr(ip_module, "XKB_CONF_PATH", tmp_path / "no-xkb")
+        monkeypatch.setattr(ip_module, "MANIFEST_PATH", tmp_path / "no-manifest.json")
+        monkeypatch.setattr(ip_module, "run", lambda *a, **k: None)
+
+        ip_module.uninstall()
+
+        assert not current.exists()
+        assert not legacy.exists()
+
+    def test_uninstall_removes_legacy_policy_even_without_manifest(self, ip_module, monkeypatch, tmp_path):
+        """The legacy policy is removed even when the manifest is missing
+        (upgraded system whose installer never wrote a manifest)."""
+        monkeypatch.setattr(ip_module, "is_root", lambda: True)
+
+        legacy = tmp_path / "org.voice-typer.policy"
+        legacy.write_text("y")
+        monkeypatch.setattr(ip_module, "LEGACY_POLKIT_POLICY_DEST", legacy)
+        monkeypatch.setattr(ip_module, "POLKIT_POLICY_DEST", tmp_path / "no-current.policy")
+
+        monkeypatch.setattr(ip_module, "UDEV_RULE_PATH", tmp_path / "no-udev")
+        monkeypatch.setattr(ip_module, "XKB_CONF_PATH", tmp_path / "no-xkb")
+        monkeypatch.setattr(ip_module, "MANIFEST_PATH", tmp_path / "no-manifest.json")
+        monkeypatch.setattr(ip_module, "run", lambda *a, **k: None)
+
+        ip_module.uninstall()
+
+        assert not legacy.exists()
 
 
 # ─── Bundled copy sync ────────────────────────────────────────────────────

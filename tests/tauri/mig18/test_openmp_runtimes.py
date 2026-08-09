@@ -217,13 +217,19 @@ def test_build_script_is_bash_syntax_valid(script: Path):
 
 # ─── 2. Windows: libiomp5md.dll (Intel OpenMP) bundling ──────────────────────
 def test_windows_bundles_libiomp5md_dll_via_include_data_dir(windows_text: str):
-    """Windows must ``--include-data-dir`` the ``ctranslate2/lib`` folder.
+    """Windows must ``--include-data-dir`` the ctranslate2 native-DLL folder.
 
-    ADR-0020 §4.2: ``libiomp5md.dll`` lives under
-    ``$SITE/ctranslate2/lib/``. Because Nuitka does NOT glob ``*.dll``,
-    the reliable pattern is ``--include-data-dir=$SITE/ctranslate2/lib``
-    which copies the whole folder verbatim — this captures
-    ``libiomp5md.dll`` + any MKL redistributables present.
+    ADR-0020 §4.2: ``libiomp5md.dll`` lives under ``$SITE/ctranslate2/lib``
+    (older wheels) or at the package root (modern wheels — the cp312
+    win_amd64 wheel ships ctranslate2.dll + cudnn64_9.dll +
+    libiomp5md.dll directly in ``ctranslate2/``). Because Nuitka does
+    NOT glob ``*.dll``, the reliable pattern is ``--include-data-dir``
+    of the whole native-DLL folder, which copies it verbatim and
+    captures ``libiomp5md.dll`` + any MKL redistributables present.
+    The flag is layout-aware (``$CT2_DATA_DIR_SRC=$CT2_DATA_DIR_DEST``)
+    with a RELATIVE destination (absolute dests are silently ignored by
+    Nuitka), and ``ctranslate2.dll`` itself is also explicitly
+    ``--include-dll``'d.
 
     Without this, the frozen .exe BUILDS but CRASHES on
     ``import ctranslate2`` at launch (ADR-0020 §11 "Known Issues:
@@ -231,17 +237,22 @@ def test_windows_bundles_libiomp5md_dll_via_include_data_dir(windows_text: str):
     """
     assert "--include-data-dir" in windows_text, (
         "build_sidecar_windows.sh must use --include-data-dir for the "
-        "ctranslate2/lib folder (captures libiomp5md.dll + MKL/OpenMP DLLs)."
+        "ctranslate2 native-DLL folder (captures libiomp5md.dll + MKL/OpenMP DLLs)."
     )
-    assert "ctranslate2/lib" in windows_text, (
-        "build_sidecar_windows.sh must reference ctranslate2/lib in its --include-data-dir flag."
+    assert '--include-data-dir="$CT2_DATA_DIR_SRC=$CT2_DATA_DIR_DEST"' in windows_text, (
+        "build_sidecar_windows.sh must --include-data-dir the layout-resolved "
+        "ctranslate2 native-DLL folder ($CT2_DATA_DIR_SRC=$CT2_DATA_DIR_DEST)."
     )
-    # The flag must be the UNCONDITIONAL form (in the main nuitka invocation),
-    # not wrapped in an `if [[ -d ... ]]` guard — ctranslate2/lib is mandatory.
-    assert '--include-data-dir="$CT2_LIB_DIR=$CT2_LIB_DIR"' in windows_text, (
-        "build_sidecar_windows.sh must have the unconditional "
-        '--include-data-dir="$CT2_LIB_DIR=$CT2_LIB_DIR" flag in the main '
-        "Nuitka invocation (ctranslate2/lib is mandatory, not optional)."
+    # Both layouts must resolve a RELATIVE dest (absolute dests are silently
+    # ignored by Nuitka — see the script header note).
+    assert 'CT2_DATA_DIR_DEST="ctranslate2/lib"' in windows_text, (
+        "the lib/ layout must map to a RELATIVE dest (ctranslate2/lib)."
+    )
+    assert 'CT2_DATA_DIR_DEST="ctranslate2"' in windows_text, (
+        "the package-root layout must map to a RELATIVE dest (ctranslate2)."
+    )
+    assert '--include-dll="$CT2_DLL"' in windows_text, (
+        "build_sidecar_windows.sh must also --include-dll ctranslate2.dll explicitly."
     )
 
 

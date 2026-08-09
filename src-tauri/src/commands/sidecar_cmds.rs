@@ -257,6 +257,22 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             "level_monitor_stop",
             "set_esc_cancel_paused",
             "set_tray_locale",
+            // macOS troubleshooting (finding #127 part b): reset the
+            // stale Accessibility TCC entry + re-open System Settings.
+            // Invoked by the Settings → Troubleshooting button. Python
+            // handler: `_handle_reset_macos_accessibility` in
+            // `handlers/system_handlers.py` (runs `tccutil reset
+            // Accessibility <bundle-id>` with the bundle ID resolved at
+            // runtime). Mirrors the TS allowlist.
+            "reset_macos_accessibility",
+            // Linux troubleshooting (finding #127 part b): reset a stale
+            // polkit authorization — restart the polkit daemon via
+            // pkexec so the next "Grant permission" re-prompts. Invoked
+            // by the Settings → Troubleshooting "Reset Linux Permission"
+            // button. Python handler: `_handle_reset_linux_permissions`
+            // in `handlers/system_handlers.py` (pkaction enumerates +
+            // pkcheck verifies). Mirrors the TS allowlist.
+            "reset_linux_permissions",
             "import_model",
             //`heartbeat` and `relaunch_ack` are intentionally
             // ABSENT from this Rust allowlist (they ARE in the TS

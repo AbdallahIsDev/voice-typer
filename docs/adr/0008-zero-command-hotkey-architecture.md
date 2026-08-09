@@ -501,7 +501,7 @@ exit 0
  "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
 
 <policyconfig>
-  <action id="org.voice-typer.install-permissions">
+  <action id="com.voicetyper.install-permissions">
     <description>Install Voice Typer keyboard permissions</description>
     <message>Authentication is required to grant Voice Typer access to keyboard events</message>
     <defaults>
@@ -515,7 +515,7 @@ exit 0
 </policyconfig>
 ```
 
-**Placement**: `/usr/share/polkit-1/actions/org.voice-typer.policy`
+**Placement**: `/usr/share/polkit-1/actions/com.voicetyper.policy`
 
 **`auth_admin_keep`**: Allows the user to authenticate once and not be re-prompted for 5 minutes (default polkit timeout). This handles the case where the installer needs to run multiple commands.
 

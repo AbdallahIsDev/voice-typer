@@ -187,6 +187,456 @@ class TestCheckAccessibility:
         assert resp["data"]["code"] == "client.invalid_payload"
 
 
+class TestResetMacosAccessibility:
+    """``_handle_reset_macos_accessibility`` (finding #127 part b).
+
+    Runs ``tccutil reset Accessibility <bundle-id>`` (bundle ID resolved
+    at runtime) and re-opens System Settings. Returns an ``ack`` with
+    ``{ok, command, error}``.
+    """
+
+    def test_non_macos_returns_unsupported_platform(self, ipc_server, monkeypatch):
+        """On non-macOS hosts the command is a no-op (no subprocess)."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_macos",
+            lambda: False,
+        )
+        calls: list = []
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.subprocess.run",
+            lambda *a, **k: calls.append(a),
+        )
+
+        resp = ipc_server._handle_reset_macos_accessibility({}, {})
+
+        assert resp["type"] == "ack"
+        assert resp["data"] == {
+            "ok": False,
+            "command": None,
+            "error": "unsupported_platform",
+        }
+        assert calls == [], "must NOT spawn tccutil on non-macOS"
+
+    def test_macos_runs_tccutil_with_resolved_bundle_id_and_reopens_settings(self, ipc_server, monkeypatch):
+        """macOS + resolved bundle ID → tccutil runs with the RUNTIME
+        bundle ID and System Settings is re-opened."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_macos",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
+            lambda: "com.voicetyper.desktop",
+        )
+        run_calls: list = []
+
+        class _FakeCompleted:
+            returncode = 0
+            stderr = ""
+
+        def _fake_run(args, **kwargs):
+            run_calls.append(args)
+            return _FakeCompleted()
+
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.subprocess.run",
+            _fake_run,
+        )
+        opened: list = []
+        monkeypatch.setattr(
+            "voice_typer.server.permissions._open_macos_accessibility_settings",
+            lambda: opened.append(True),
+        )
+
+        resp = ipc_server._handle_reset_macos_accessibility({}, {})
+
+        assert resp["type"] == "ack"
+        assert resp["data"]["ok"] is True
+        assert resp["data"]["command"] == "tccutil reset Accessibility com.voicetyper.desktop"
+        assert resp["data"]["error"] is None
+        assert run_calls == [["tccutil", "reset", "Accessibility", "com.voicetyper.desktop"]]
+        assert opened == [True], "System Settings must be re-opened after the reset"
+
+    def test_macos_embeds_any_runtime_bundle_id(self, ipc_server, monkeypatch):
+        """The command must follow the resolved value, not a fixed one —
+        the whole point of runtime resolution (e.g. a future Tauri
+        build with a different identifier)."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_macos",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
+            lambda: "com.voicetyper.some-other-build",
+        )
+        run_calls: list = []
+
+        class _FakeCompleted:
+            returncode = 0
+            stderr = ""
+
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.subprocess.run",
+            lambda args, **k: (run_calls.append(args), _FakeCompleted())[1],
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.permissions._open_macos_accessibility_settings",
+            lambda: None,
+        )
+
+        resp = ipc_server._handle_reset_macos_accessibility({}, {})
+
+        assert resp["data"]["ok"] is True
+        assert resp["data"]["command"] == "tccutil reset Accessibility com.voicetyper.some-other-build"
+        assert run_calls == [["tccutil", "reset", "Accessibility", "com.voicetyper.some-other-build"]]
+
+    def test_macos_unresolved_bundle_id_returns_no_command(self, ipc_server, monkeypatch):
+        """Unresolvable bundle ID → ok=False with no command (a wrong
+        bundle ID in a tccutil command is worse than no command)."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_macos",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
+            lambda: None,
+        )
+        run_calls: list = []
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.subprocess.run",
+            lambda *a, **k: run_calls.append(a),
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.permissions._open_macos_accessibility_settings",
+            lambda: None,
+        )
+
+        resp = ipc_server._handle_reset_macos_accessibility({}, {})
+
+        assert resp["data"] == {
+            "ok": False,
+            "command": None,
+            "error": "bundle_id_unresolved",
+        }
+        assert run_calls == [], "must NOT spawn tccutil without a bundle ID"
+
+    def test_macos_tccutil_failure_reports_error_but_still_reopens_settings(self, ipc_server, monkeypatch):
+        """tccutil failure → ok=False with the stderr; System Settings is
+        still re-opened so the user can re-grant manually."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_macos",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
+            lambda: "com.voicetyper.desktop",
+        )
+
+        class _FakeFailed:
+            returncode = 1
+            stderr = "tccutil: reset failed"
+
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.subprocess.run",
+            lambda *a, **k: _FakeFailed(),
+        )
+        opened: list = []
+        monkeypatch.setattr(
+            "voice_typer.server.permissions._open_macos_accessibility_settings",
+            lambda: opened.append(True),
+        )
+
+        resp = ipc_server._handle_reset_macos_accessibility({}, {})
+
+        assert resp["data"]["ok"] is False
+        assert resp["data"]["error"] == "tccutil: reset failed"
+        assert resp["data"]["command"] == "tccutil reset Accessibility com.voicetyper.desktop"
+        assert opened == [True]
+
+    def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server):
+        """Non-dict ``data`` → ``code: client.invalid_payload`` (consistent
+        with sibling handlers)."""
+        resp = ipc_server._handle_reset_macos_accessibility("not-a-dict", {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_payload"
+
+
+class TestResetLinuxPermissions:
+    """``_handle_reset_linux_permissions`` (finding #127 part b, Linux
+    sibling of the macOS TCC reset).
+
+    Clears a stale polkit authorization by restarting the polkit daemon
+    via pkexec (``pkaction`` enumerates the Voice Typer actions,
+    ``pkcheck`` verifies the post-reset state). Returns an ``ack`` with
+    ``{ok, command, error, actions, checks}``.
+    """
+
+    def test_non_linux_returns_unsupported_platform(self, ipc_server, monkeypatch):
+        """On non-Linux hosts the command is a no-op (no subprocess)."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_linux",
+            lambda: False,
+        )
+        calls: list = []
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.subprocess.run",
+            lambda *a, **k: calls.append(a),
+        )
+
+        resp = ipc_server._handle_reset_linux_permissions({}, {})
+
+        assert resp["type"] == "ack"
+        assert resp["data"] == {
+            "ok": False,
+            "command": None,
+            "error": "unsupported_platform",
+            "actions": [],
+            "checks": {},
+        }
+        assert calls == [], "must NOT spawn pkexec/pkaction on non-Linux"
+
+    def test_linux_happy_path_restarts_polkit_and_reports_post_reset_state(self, ipc_server, monkeypatch):
+        """Linux → polkit daemon restarted via pkexec; both the current
+        and the legacy (finding #54) action registrations are surfaced
+        and pkcheck'd to ``not_authorized`` (the cleared state)."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_linux",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers._enumerate_polkit_actions",
+            lambda: [
+                "com.voicetyper.install-permissions",
+                "org.voice-typer.install-permissions",
+            ],
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers._reset_polkit_authorization",
+            lambda: ("pkexec systemctl restart polkit", True, None),
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers._polkit_check_authorization",
+            lambda action: "not_authorized",
+        )
+
+        resp = ipc_server._handle_reset_linux_permissions({}, {})
+
+        assert resp["type"] == "ack"
+        assert resp["data"]["ok"] is True
+        assert resp["data"]["command"] == "pkexec systemctl restart polkit"
+        assert resp["data"]["error"] is None
+        assert resp["data"]["actions"] == [
+            "com.voicetyper.install-permissions",
+            "org.voice-typer.install-permissions",
+        ]
+        assert resp["data"]["checks"] == {
+            "com.voicetyper.install-permissions": "not_authorized",
+            "org.voice-typer.install-permissions": "not_authorized",
+        }
+
+    def test_linux_reset_failure_reports_error_and_skips_checks(self, ipc_server, monkeypatch):
+        """pkexec failure (e.g. the user dismisses the polkit dialog →
+        exit 126) → ok=False with the error; pkcheck must NOT run."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_linux",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers._enumerate_polkit_actions",
+            lambda: ["com.voicetyper.install-permissions"],
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers._reset_polkit_authorization",
+            lambda: (None, False, "pkexec: authentication dismissed"),
+        )
+        checked: list = []
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers._polkit_check_authorization",
+            lambda action: checked.append(action),
+        )
+
+        resp = ipc_server._handle_reset_linux_permissions({}, {})
+
+        assert resp["data"]["ok"] is False
+        assert resp["data"]["command"] is None
+        assert resp["data"]["error"] == "pkexec: authentication dismissed"
+        assert resp["data"]["actions"] == ["com.voicetyper.install-permissions"]
+        assert resp["data"]["checks"] == {}, "pkcheck must NOT run after a failed reset"
+        assert checked == []
+
+    def test_non_dict_payload_returns_invalid_payload_error(self, ipc_server):
+        """Non-dict ``data`` → ``code: client.invalid_payload`` (consistent
+        with sibling handlers)."""
+        resp = ipc_server._handle_reset_linux_permissions("not-a-dict", {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.invalid_payload"
+
+
+class TestPolkitResetHelpers:
+    """Module-level ``_enumerate_polkit_actions`` / ``_polkit_check_authorization``
+    / ``_reset_polkit_authorization`` — the subprocess glue behind
+    ``reset_linux_permissions``."""
+
+    def test_enumerate_filters_voicetyper_actions_and_dedupes(self, monkeypatch):
+        """Only action IDs mentioning ``voicetyper`` are surfaced (both
+        namespaces); unrelated polkit actions are dropped; duplicates
+        collapse."""
+        import voice_typer.server.handlers.system_handlers as sh
+
+        class _FakeCompleted:
+            returncode = 0
+            stdout = (
+                "com.voicetyper.install-permissions\n"
+                "org.voice-typer.install-permissions\n"
+                "org.freedesktop.policykit.exec\n"
+                "com.voicetyper.install-permissions\n"
+            )
+
+        monkeypatch.setattr(sh.subprocess, "run", lambda *a, **k: _FakeCompleted())
+
+        assert sh._enumerate_polkit_actions() == [
+            "com.voicetyper.install-permissions",
+            "org.voice-typer.install-permissions",
+        ]
+
+    def test_enumerate_tolerates_missing_pkaction(self, monkeypatch):
+        """No ``pkaction`` binary → empty list (the reset still runs)."""
+        import voice_typer.server.handlers.system_handlers as sh
+
+        def _boom(*a, **k):
+            raise FileNotFoundError("pkaction")
+
+        monkeypatch.setattr(sh.subprocess, "run", _boom)
+
+        assert sh._enumerate_polkit_actions() == []
+
+    def test_enumerate_tolerates_nonzero_exit(self, monkeypatch):
+        """``pkaction`` exiting non-zero → empty list (tolerant)."""
+        import voice_typer.server.handlers.system_handlers as sh
+
+        class _FakeFailed:
+            returncode = 1
+            stdout = ""
+
+        monkeypatch.setattr(sh.subprocess, "run", lambda *a, **k: _FakeFailed())
+
+        assert sh._enumerate_polkit_actions() == []
+
+    def test_check_authorization_maps_pkcheck_exit_codes(self, monkeypatch):
+        """pkcheck exit 0 → authorized, 1 → not_authorized, anything
+        else → check_error."""
+        import voice_typer.server.handlers.system_handlers as sh
+
+        class _FakeCompleted:
+            def __init__(self, rc: int) -> None:
+                self.returncode = rc
+
+        codes = iter([0, 1, 3])
+
+        monkeypatch.setattr(
+            sh.subprocess,
+            "run",
+            lambda *a, **k: _FakeCompleted(next(codes)),
+        )
+
+        assert sh._polkit_check_authorization("com.voicetyper.install-permissions") == "authorized"
+        assert sh._polkit_check_authorization("com.voicetyper.install-permissions") == "not_authorized"
+        assert sh._polkit_check_authorization("com.voicetyper.install-permissions") == "check_error"
+
+    def test_check_authorization_tolerates_missing_pkcheck(self, monkeypatch):
+        """No ``pkcheck`` binary / timeout → check_error, never raises."""
+        import subprocess
+
+        import voice_typer.server.handlers.system_handlers as sh
+
+        def _boom(*a, **k):
+            raise subprocess.TimeoutExpired("pkcheck", 10)
+
+        monkeypatch.setattr(sh.subprocess, "run", _boom)
+
+        assert sh._polkit_check_authorization("com.voicetyper.install-permissions") == "check_error"
+
+    def test_reset_tries_candidates_until_one_succeeds(self, monkeypatch):
+        """First candidate (polkit) failing → the polkitd fallback wins;
+        the successful command is reported verbatim."""
+        import voice_typer.server.handlers.system_handlers as sh
+
+        class _FakeCompleted:
+            def __init__(self, rc: int) -> None:
+                self.returncode = rc
+                self.stderr = ""
+
+        codes = iter([127, 0])
+        calls: list = []
+
+        def _fake_run(args, **kwargs):
+            calls.append(args)
+            return _FakeCompleted(next(codes))
+
+        monkeypatch.setattr(sh.subprocess, "run", _fake_run)
+
+        command, ok, error = sh._reset_polkit_authorization()
+
+        assert ok is True
+        assert command == "pkexec systemctl restart polkitd"
+        assert error is None
+        assert calls == [
+            ["pkexec", "systemctl", "restart", "polkit"],
+            ["pkexec", "systemctl", "restart", "polkitd"],
+        ]
+
+    def test_reset_all_candidates_fail_reports_pkexec_dismissal(self, monkeypatch):
+        """pkexec exit 126 = the user dismissed the polkit dialog →
+        reported as such (not a raw exit code)."""
+        import voice_typer.server.handlers.system_handlers as sh
+
+        class _FakeCompleted:
+            def __init__(self, rc: int) -> None:
+                self.returncode = rc
+                self.stderr = ""
+
+        monkeypatch.setattr(sh.subprocess, "run", lambda *a, **k: _FakeCompleted(126))
+
+        command, ok, error = sh._reset_polkit_authorization()
+
+        assert ok is False
+        assert command is None
+        assert error == "pkexec: authentication dismissed"
+
+    def test_reset_reports_last_stderr_when_commands_exit_nonzero(self, monkeypatch):
+        """Non-pkexec exit codes fall back to the command's stderr."""
+        import voice_typer.server.handlers.system_handlers as sh
+
+        class _FakeCompleted:
+            def __init__(self) -> None:
+                self.returncode = 1
+                self.stderr = "polkit.service not found"
+
+        monkeypatch.setattr(sh.subprocess, "run", lambda *a, **k: _FakeCompleted())
+
+        command, ok, error = sh._reset_polkit_authorization()
+
+        assert ok is False
+        assert command is None
+        assert error == "polkit.service not found"
+
+    def test_reset_tolerates_missing_pkexec(self, monkeypatch):
+        """No ``pkexec`` binary → ok=False with an actionable error
+        (never raises)."""
+        import voice_typer.server.handlers.system_handlers as sh
+
+        def _boom(*a, **k):
+            raise FileNotFoundError("pkexec")
+
+        monkeypatch.setattr(sh.subprocess, "run", _boom)
+
+        command, ok, error = sh._reset_polkit_authorization()
+
+        assert ok is False
+        assert command is None
+        assert "pkexec" in (error or "")
+
+
 class TestSetTrayLocale:
     """``_handle_set_tray_locale`` — validates ``locale`` and returns ack."""
 
