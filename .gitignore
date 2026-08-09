@@ -91,11 +91,9 @@ instructions.md
 src-tauri/bin/
 src-tauri/resources/native/
 src-tauri/resources/prewarm-*
-src-tauri/icons/icon.ico
 src-tauri/.cargo/
 cargo-check-log.txt
 src-tauri/gen/
-src-tauri/icons/
 .sessions/
 MERGE_CONTEXT_BRIEF.md
 -*
