@@ -2107,19 +2107,6 @@ The reader task (519-757) and the heartbeat task (758-893) have no shared intern
 
 ---
 
-### YJ-17 — Electron log lines lack `session_id` / `component` / `correlation_id` fields
-**Status:** ❌ Not Fixed — deferred (cross-process change)
-**Description:** `logging.ts:274-289` (formatLine) produces `<ISO ts> [<LEVEL>] <msg> <json-args>`. There is NO `session_id` field (the Python sidecar generates an 8-char hex session_id via `log.setup_logging`), NO `component`/`source` field, NO `correlation_id` field. Prior review S2-CR-75 explicitly recommended "Propagate Python session_id into Electron log lines" — partially addressed (WARN/ERROR now persist) but session_id propagation was not done.
-**Root Cause:** Verified — incomplete.
-**Progress:** Deferred — requires coordinated cross-process change.
-**Related Files:**
-- `voice_typer/client/src/main/logging.ts`
-- `voice_typer/server/log.py`
-**Fix:** When the Electron main process spawns the Python sidecar, capture the session_id from the sidecar's startup banner (or generate one Electron-side and pass it as `--session-id` to the sidecar). Add `session_id` as a top-level field in `formatLine`.
-**Severity:** 🟡 Medium
-
----
-
 ### YJ-32 — `clipboard_target_safety.py` is a 1012-LOC monolith mixing 3 platform branches
 **Status:** ❌ Not Fixed — deferred (large refactor)
 **Description:** Single file mixes: Win32 UIA helpers (`_get_uia_singleton:501`, `_get_uia_focused_element:555`, `_is_content_editable:575`, `_focused_window_is_credential_dialog:274`, `_is_elevated_target:168`, `_get_we_elevated:101`), Linux AT-SPI helpers (`_find_focused_atspi_accessible:829`, `_is_password_field_linux:909`), macOS helpers (`_is_password_field_macos:691`), and cross-cutting wiring (`_warn_paste_safety_once:75`, `reset_platform_unavailable_warnings:678`, `_is_password_field:313` dispatcher).
@@ -6358,18 +6345,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/test_single_instance_windows_mocked.py (NEW)`
 **Fix:** Add tests/test_single_instance_windows_mocked.py mirroring test_clipboard_win32_coverage.py. Mock ctypes.windll.kernel32, assert error_already_exists triggers sys.exit(1); SetHandleInformation called; mutex name is exactly 'Local\\VoiceTyperSingleInstance'.
 
-### Medium Findings (35)
-
-### TK-22 — vitest.config.ts missing clearMocks: true — 120 test files at risk of mock-state leak
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Testing infrastructure
-
-### TK-23 — 19-file pynput setdefault duplication (DRY violation)
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Testing infrastructure
-
 ### TK-24 — 209 inline _config_dir monkeypatches across 82 files (DRY + correctness hazard)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
@@ -6380,102 +6355,12 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Severity:** 🟡 Medium
 **Category:** Testing infrastructure
 
-### TK-26 — Makefile typecheck target runs ruff (linter) instead of mypy (type checker)
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Testing infrastructure
-
 ### TK-27 — coverage_ratchet_check.py silently passes (exit 0) when coverage data is missing
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** CI/CD
 
-### TK-28 — Makefile missing format target (ruff format + biome format)
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Testing infrastructure
-
-### TK-29 — cloud_engines _read_capped (OOM protection) + _parse_retry_after untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-30 — cloud_engines test_connection branches untested (401/403/5xx)
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-31 — tray _drain_pending (fallback notification path) untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-32 — streaming _finalize_impl_inner untested (tail-skip optimization + fallback)
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-33 — streaming _validate_words untested (all 4 raise statements)
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-34 — llm_polish _call_api HTTPError/URLError branches untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
 ### TK-35 — clipboard package coverage gaps (Win32 comtypes teardown, macOS TOCTOU)
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-36 — shutdown/teardowns/electron.py 42% — Windows TerminateProcess + POSIX SIGTERM escalation untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-37 — ipc/entrypoint.py 67% — signal handler wiring + stdin EOF untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-38 — audio_filters/base.py 79% — base-class default process/reset untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-39 — audio_filters/noise_suppressor.py 77% — RNNoise model-loading untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-40 — main/windows/theme-listener.ts untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-41 — lib/theme-draft-storage.ts untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-42 — components/audio/* untested (audioFilterLabels, audioFilterRowDescriptors, FilterRow)
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-43 — hooks/useModelLifecycle.ts untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-44 — pytest-benchmark under xdist emits warning + benchmarks are no-op
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Existing warnings and errors
-
-### TK-45 — test_history_db_connection_prune.py tempfile.mkdtemp() leak (never cleaned up)
 **Status:** ❌ Not Fixed
 **Severity:** 🟡 Medium
 **Category:** Test coverage gaps & flaky tests
@@ -6495,52 +6380,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Severity:** 🟡 Medium
 **Category:** Test coverage gaps & flaky tests
 
-### TK-49 — test_hotkeys_init_attrs.py incorrect skipif skips file on Windows/macOS
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Test coverage gaps & flaky tests
-
-### TK-50 — test_ipc_error_envelope_parity.py stale assertion — server.handler_error vs server.internal_error
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Existing failing tests
-
-### TK-51 — test_ipc_layer_fixes.py inspect.getsource stale assertion (XV-84 encode-once refactor)
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Existing failing tests
-
-### TK-52 — test_sidecar_ws_permissions_fixes.py bytes/str comparison mismatch
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Existing failing tests
-
-### TK-53 — test_microphone_watcher_coreaudio.py stale mock — property_default_input missing
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Existing failing tests
-
-### TK-54 — test_level_monitor.py test/production contract mismatch on _dropped_level_chunks
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Existing failing tests
-
-### TK-55 — test_secure_clear_array.py stale test contract — discard() idle fast-path added
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Existing failing tests
-
-### TK-56 — filterwarnings ratchet missing (error::DeprecationWarning:voice_typer) + stale TC-5/TC-6 status
-**Status:** ❌ Not Fixed
-**Severity:** 🟡 Medium
-**Category:** Existing warnings and errors
-
-
-### Low Findings (33)
-
-### TK-57 — Makefile test target --no-cov asymmetry (C-TEST-4 accepted but UX gap)
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
 
 ### TK-58 — vitest.config.ts coverage.thresholds.perFile not set
 **Status:** ❌ Not Fixed
@@ -6554,10 +6393,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
-### TK-61 — Makefile missing test-fast / test-nocov target
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
 ### TK-62 — app.py main() faulthandler fallback untested
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
@@ -6566,27 +6401,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
-### TK-64 — app.py _LazyAudioProcessorProxy._resolve untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-65 — pyproject.toml stale 70% coverage comment
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-66 — ipc_server _get_rate_limiter thin re-export untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-67 — llm_polish event_bus failure handler untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
 ### TK-68 — hotkeys/windows/caps_lock_suppressor.py 40% coverage
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-69 — main/* constants/wiring untested
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -6594,31 +6409,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
-### TK-71 — test_prewarm_resolver.py + test_gen_tauri_icons_stub.py silent platform guards
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-72 — test_sidecar_ws_handle_connection_split.py threshold stale (80→110)
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
 ### TK-73 — test_history_db_wal_checkpoint_interval.py overly strict source-string test
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-74 — test_pystray_icon_handle_regression.py Xlib.error not caught
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-75 — vitest suite is GREEN on Linux (T-1 vitest portion COMPLETE on Linux)
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-76 — test_tray.py:187 local warnings.simplefilter (should use catch_warnings)
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-77 — pyrefly-baseline.json metadata drift
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
@@ -6635,10 +6426,6 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Severity:** 🟢 Low
 
 ### TK-81 — codeql-action not in build.yml header convention block
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-82 — check_branding.py doesn't scan tauri.conf.json / electron-builder.yml
 **Status:** ❌ Not Fixed
 **Severity:** 🟢 Low
 
