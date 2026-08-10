@@ -1,8 +1,8 @@
 # =============================================================================
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
-#   actions/checkout@v5             — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/checkout@v7             — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/setup-python@v7         — Node 24 runtime; removed `pip-install` input (v5/v6 = Node 20)
-#   astral-sh/setup-uv@v6            — Node 24 runtime (v3 = Node 20, deprecated)
+#   astral-sh/setup-uv@v7            — Node 24 runtime (v3 = Node 20, deprecated)
 # See build.yml header for the full rationale + breaking-change analysis.
 # C-CI-1: ALL actions in this file are pinned to specific Node-24-runtime
 # versions. Do NOT unpin — supply-chain risk via tag re-pointing.
@@ -50,7 +50,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v7
@@ -58,7 +58,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -215,7 +215,7 @@ jobs:
         # contributors can inspect the exact numbers that triggered the
         # failure. Retained for 14 days (the default for non-release runs).
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: bench-current-${{ github.run_id }}
           path: bench-current.json
