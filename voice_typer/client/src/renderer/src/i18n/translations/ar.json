@@ -1031,6 +1031,7 @@
 			"resetAccessibilityToast": "تمت إعادة تعيين إذن إمكانية الوصول — أعد منحه في إعدادات النظام",
 			"resetAccessibilityToastWithCommand": "تمت إعادة تعيين إذن إمكانية الوصول — نُفِّذ {command} — أعد منحه في إعدادات النظام",
 			"resetAccessibilityFailed": "فشل إعادة تعيين إذن إمكانية الوصول",
+			"resetAccessibilitySuggestion": "يبدو إذن إمكانية الوصول قديمًا — أعد تعيين منح النظام عبر:",
 			"resetLinux": "إعادة تعيين إذن Linux",
 			"resetLinuxAria": "إعادة تعيين إذن لوحة مفاتيح Linux",
 			"resetLinuxHint": "امسح تفويض polkit القديم في Linux (pkcheck/pkaction) لكي تظهر طلبات الأذونات مجددًا",

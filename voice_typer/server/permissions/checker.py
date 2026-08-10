@@ -502,7 +502,24 @@ def show_permission_notification(tray, error_message: str) -> None:
 
     if _p.is_macos():
         title = i18n.t(_p._PERMISSION_NOTIFY_MACOS_TITLE_KEY, app=_p.APP_NAME)
-        body = i18n.t(_p._PERMISSION_NOTIFY_MACOS_BODY_KEY)
+        # TCC-002: resolve the runtime bundle id (never hardcoded) and
+        # embed the tccutil reset command in the body when resolvable.
+        # Lazy import keeps this module's import graph free of the
+        # server_platform dependency until a notification is shown.
+        from voice_typer.server.server_platform.macos_bundle_id import (
+            resolve_host_bundle_id,
+            tccutil_reset_command_str,
+        )
+
+        bundle_id = resolve_host_bundle_id()
+        if bundle_id:
+            body = i18n.t(
+                _p._PERMISSION_NOTIFY_MACOS_BODY_CMD_KEY,
+                app=_p.APP_NAME,
+                command=tccutil_reset_command_str("Accessibility", bundle_id),
+            )
+        else:
+            body = i18n.t(_p._PERMISSION_NOTIFY_MACOS_BODY_KEY)
     elif _p.is_linux():
         title = i18n.t(_p._PERMISSION_NOTIFY_LINUX_TITLE_KEY)
         body = i18n.t(_p._PERMISSION_NOTIFY_LINUX_BODY_KEY)

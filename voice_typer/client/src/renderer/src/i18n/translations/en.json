@@ -1052,6 +1052,7 @@
 			"resetAccessibilityToast": "Accessibility permission reset — re-grant it in System Settings",
 			"resetAccessibilityToastWithCommand": "Accessibility permission reset — ran {command} — re-grant it in System Settings",
 			"resetAccessibilityFailed": "Failed to reset the Accessibility permission",
+			"resetAccessibilitySuggestion": "Accessibility permission looks stale — reset the system grant with:",
 			"resetLinux": "Reset Linux Permission",
 			"resetLinuxAria": "Reset Linux keyboard permission",
 			"resetLinuxHint": "Clear a stale Linux polkit authorization (pkcheck/pkaction) so permission prompts appear again",

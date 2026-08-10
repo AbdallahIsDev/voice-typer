@@ -336,6 +336,35 @@ class SystemHandlersMixin(HandlerBase):
                 tests asserting ``platform == _sys.platform`` continue
                 to pass.
 
+                Stale-grant reset suggestion (finding #919 part b —
+                2026-08-10): when ``AXIsProcessTrusted()`` actually ran
+                and returned False (a CONFIRMED stale grant — NOT the
+                ``reason: "check_failed"`` fallback, where the probe
+                itself errored and we can't tell stale from transient),
+                the response is extended with a proactive reset
+                suggestion for the Settings → Troubleshooting section:
+
+                - ``suggest_reset: True`` + ``reset_command`` — the
+                  runtime `tccutil reset Accessibility <bundle-id>`
+                  command string, built from the host app's runtime-
+                  resolved bundle ID (``resolve_host_bundle_id()`` +
+                  ``tccutil_reset_command_str("Accessibility", ...)``,
+                  the same helpers that back
+                  ``_handle_reset_macos_accessibility``).
+                - ``suggest_reset: False`` (no ``reset_command`` key) —
+                  when the bundle ID can't be resolved. Mirrors the
+                  reset handler's convention: a wrong bundle ID in a
+                  ``tccutil`` command is worse than no command, so the
+                  command is omitted entirely when unresolved and the
+                  renderer shows no command (the manual reset button
+                  remains available).
+
+                The suggestion is only ever attached in the stale case —
+                ``granted: True`` responses and the ``check_failed``
+                fallback keep the original two/three-field shape so
+                existing consumers (the reference shape mirrored by the
+                Rust host) are unaffected.
+
         this handler ignores its ``data`` payload (the
                 command takes no arguments), but for consistency with the
                 other handlers we now run an empty-schema validation so a
@@ -388,10 +417,43 @@ class SystemHandlersMixin(HandlerBase):
                     }
                     return resp
             resp["type"] = "accessibility_status"
-            resp["data"] = {
+            status_data: dict = {
                 "granted": granted,
                 "platform": platform_name,
             }
+            if is_macos() and not granted:
+                # Stale-grant reset suggestion (finding #919 part b).
+                # ONLY attached when AXIsProcessTrusted() actually ran
+                # and returned False (a confirmed stale grant) — the
+                # ``check_failed`` path above returns before this
+                # point, so an un-runnable probe never suggests a
+                # reset it couldn't substantiate.
+                #
+                # The helper imports are function-level (same pattern
+                # as ``_handle_reset_macos_accessibility``) so tests
+                # can monkeypatch the source module attributes and so
+                # the ImportError, if the centralised helper ever
+                # regresses, surfaces only on the macOS stale path.
+                from voice_typer.server.server_platform.macos_bundle_id import (
+                    resolve_host_bundle_id,
+                )
+
+                bundle_id = resolve_host_bundle_id()
+                if bundle_id:
+                    # ``tccutil_reset_command_str`` is imported only
+                    # once the bundle ID resolved — a wrong bundle ID
+                    # in a tccutil command is worse than no command, so
+                    # the unresolved case omits the command entirely
+                    # (mirrors the reset handler's convention).
+                    from voice_typer.server.server_platform.macos_bundle_id import (
+                        tccutil_reset_command_str,
+                    )
+
+                    status_data["suggest_reset"] = True
+                    status_data["reset_command"] = tccutil_reset_command_str("Accessibility", bundle_id)
+                else:
+                    status_data["suggest_reset"] = False
+            resp["data"] = status_data
         except Exception as exc:
             # generic WS-path envelope (no ``str(exc)`` leak).
             self._respond_with_error(resp, exc, "check_accessibility")
@@ -438,7 +500,11 @@ class SystemHandlersMixin(HandlerBase):
                 return resp
 
             from voice_typer.server.permissions import _open_macos_accessibility_settings
-            from voice_typer.server.server_platform.macos_bundle_id import resolve_host_bundle_id
+            from voice_typer.server.server_platform.macos_bundle_id import (
+                resolve_host_bundle_id,
+                tccutil_reset_command,
+                tccutil_reset_command_str,
+            )
 
             bundle_id = resolve_host_bundle_id()
             if not bundle_id:
@@ -450,10 +516,13 @@ class SystemHandlersMixin(HandlerBase):
                 }
                 return resp
 
-            command = f"tccutil reset Accessibility {bundle_id}"
+            # TCC-002: both forms come from the single construction point
+            # in macos_bundle_id (argv for subprocess, string for the
+            # response) so a future change lands in one place.
+            command = tccutil_reset_command_str("Accessibility", bundle_id)
             try:
                 result = subprocess.run(
-                    ["tccutil", "reset", "Accessibility", bundle_id],
+                    tccutil_reset_command("Accessibility", bundle_id),
                     capture_output=True,
                     text=True,
                     timeout=30,

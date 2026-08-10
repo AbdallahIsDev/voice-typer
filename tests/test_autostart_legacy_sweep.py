@@ -138,9 +138,7 @@ class TestRunKeyLegacySweep:
         self._make_sweep_inert(monkeypatch)
         _launcher, cmd = _this_install_command(monkeypatch)
         legacy_name = "VoiceTyper_5a1b2c3d"
-        fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
-            [(legacy_name, cmd, fake_winreg.REG_SZ)]
-        )
+        fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(legacy_name, cmd, fake_winreg.REG_SZ)])
 
         result = sweep_legacy_autostart_entries(tmp_path)
 
@@ -163,9 +161,7 @@ class TestRunKeyLegacySweep:
             '"C:\\OtherInstall\\voice_typer\\server\\autostart_launcher.py" '
             "--hidden --delay 15"
         )
-        fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
-            [(other_name, other_value, fake_winreg.REG_SZ)]
-        )
+        fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(other_name, other_value, fake_winreg.REG_SZ)])
 
         result = sweep_legacy_autostart_entries(tmp_path)
 
@@ -181,9 +177,7 @@ class TestRunKeyLegacySweep:
         self._make_sweep_inert(monkeypatch)
         _launcher, cmd = _this_install_command(monkeypatch)
         current_name = _pkg._run_key_name()
-        fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
-            [(current_name, cmd, fake_winreg.REG_SZ)]
-        )
+        fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(current_name, cmd, fake_winreg.REG_SZ)])
 
         result = sweep_legacy_autostart_entries(tmp_path)
 
@@ -220,23 +214,19 @@ class TestRunKeyLegacySweep:
         self._make_sweep_inert(monkeypatch)
         _launcher, cmd = _this_install_command(monkeypatch)
         legacy_name = "VoiceTyper_5a1b2c3d"
-        fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
-            [(legacy_name, cmd, fake_winreg.REG_SZ)]
-        )
+        fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(legacy_name, cmd, fake_winreg.REG_SZ)])
 
         first = sweep_legacy_autostart_entries(tmp_path)
         assert first["swept"] is True
         assert first["removed"]["runkeys"] == [legacy_name]
 
-        marker = tmp_path / f"autostart-sweep-{_pkg._install_hash()}.done"
+        marker = tmp_path / f"autostart-sweep-v2-{_pkg._install_hash()}.done"
         assert marker.exists(), "per-install sweep marker must be written after the sweep"
 
         # Re-arm EnumValue so a buggy second sweep WOULD see entries — the
         # marker must still short-circuit it.
         fake_winreg.DeleteValue.reset_mock()
-        fake_winreg.EnumValue.side_effect = _enum_value_side_effect(
-            [(legacy_name, cmd, fake_winreg.REG_SZ)]
-        )
+        fake_winreg.EnumValue.side_effect = _enum_value_side_effect([(legacy_name, cmd, fake_winreg.REG_SZ)])
         second = sweep_legacy_autostart_entries(tmp_path)
         assert second["swept"] is False
         fake_winreg.DeleteValue.assert_not_called()
@@ -316,11 +306,7 @@ class TestTaskSweep:
         delete_calls = self._install_task_fakes(monkeypatch, _xml_for)
         fake_run = MagicMock()
         fake_run.returncode = 0
-        fake_run.stdout = (
-            "VoiceTyperAutostart_deadbeef\n"
-            "VoiceTyperAutostart_cafebabe\n"
-            f"{current_name}\n"
-        )
+        fake_run.stdout = f"VoiceTyperAutostart_deadbeef\nVoiceTyperAutostart_cafebabe\n{current_name}\n"
         monkeypatch.setattr("subprocess.run", lambda *a, **k: fake_run)
 
         deleted = _sweep_legacy_tasks()
@@ -364,9 +350,7 @@ class TestTaskSweep:
         assert _sweep_legacy_tasks() is None
         assert delete_calls == []
 
-    def test_sweep_skips_marker_when_task_enumeration_fails(
-        self, tmp_path, monkeypatch, fake_winreg
-    ):
+    def test_sweep_skips_marker_when_task_enumeration_fails(self, tmp_path, monkeypatch, fake_winreg):
         """The completion marker is NOT written when the task enumeration
         fails — the sweep is retried on the next startup (a transient
         PowerShell failure can't permanently skip the task cleanup)."""

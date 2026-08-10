@@ -1031,6 +1031,7 @@
 			"resetAccessibilityToast": "Eingabehilfen-Berechtigung zurückgesetzt — in den Systemeinstellungen neu erteilen",
 			"resetAccessibilityToastWithCommand": "Eingabehilfen-Berechtigung zurückgesetzt — {command} ausgeführt — in den Systemeinstellungen neu erteilen",
 			"resetAccessibilityFailed": "Zurücksetzen der Eingabehilfen-Berechtigung fehlgeschlagen",
+			"resetAccessibilitySuggestion": "Die Eingabehilfen-Berechtigung wirkt veraltet — den System-Eintrag zurücksetzen mit:",
 			"resetLinux": "Linux-Berechtigung zurücksetzen",
 			"resetLinuxAria": "Linux-Tastaturberechtigung zurücksetzen",
 			"resetLinuxHint": "Veraltete polkit-Autorisierung für Linux löschen (pkcheck/pkaction), damit Berechtigungsabfragen wieder erscheinen",

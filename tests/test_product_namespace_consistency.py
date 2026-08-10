@@ -100,6 +100,11 @@ _LEGACY_TOKEN_ALLOWLIST: dict[str, frozenset[str]] = {
     # must name the old service so ``_migrate_legacy_service_names_locked``
     # can re-register entries under ``KEYRING_SERVICE_NAME``.
     "voice_typer/server/credential_store.py": frozenset({"app.voicetyper"}),
+    # The drift-guard test module pins the credential_store legacy
+    # tuple STRING verbatim (``_LEGACY_KEYRING_SERVICE_NAMES: ... =
+    # ("app.voicetyper", ...)``) and its allowlist docstring names the
+    # token — definitions/pins, not usages.
+    "tests/tauri/test_config_script_drift.py": frozenset({"app.voicetyper"}),
 }
 
 # This test module itself: its docstring defines the exact banned

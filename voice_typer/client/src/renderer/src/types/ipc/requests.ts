@@ -66,6 +66,24 @@ export interface ResetLinuxPermissionsRequest {
 	type: "reset_linux_permissions";
 }
 
+// macOS accessibility-status probe (finding #919 part b — RE-ADDED
+// 2026-08-10): the Settings → Troubleshooting section invokes this on
+// macOS to surface the stale-grant `tccutil` reset command next to
+// the "Reset Accessibility Permission" button. The backend checks
+// `AXIsProcessTrusted()`; on the macOS and non-macOS paths the
+// response resolves to
+// `{ granted: boolean, platform: "macos" | "windows" | "linux" }`,
+// plus `reason: "check_failed"` when the probe itself errored, and —
+// on a CONFIRMED stale grant only — the proactive reset suggestion:
+// `{ suggest_reset: true, reset_command: string }` (the runtime
+// `tccutil reset Accessibility <bundle-id>` string; the key is
+// ABSENT when the bundle ID can't be resolved, with
+// `suggest_reset: false`). The renderer must treat missing
+// `suggest_reset` / `reset_command` as "no suggestion".
+export interface CheckAccessibilityRequest {
+	type: "check_accessibility";
+}
+
 export interface GetStatusRequest {
 	type: "get_status";
 }
@@ -460,6 +478,7 @@ export type PythonRequest =
 	| OnboardingCheckPermissionsRequest
 	| ResetMacosAccessibilityRequest
 	| ResetLinuxPermissionsRequest
+	| CheckAccessibilityRequest
 	// Additional renderer-called commands (permissive ``data?`` shape).
 	// See the individual interface declarations above for the survey
 	// methodology and the rationale for the permissive shape.

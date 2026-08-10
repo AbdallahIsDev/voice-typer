@@ -93,6 +93,7 @@ COMMAND_COSTS: dict[str, int] = {
     "cancel_model_download": 2,
     # Reads / cheap ops (cost 1) — explicitly listed so future DEFAULT_COST
     # changes don't silently alter their rate-limit characteristics.
+    "check_accessibility": 1,
     "heartbeat": 1,
     "get_config": 1,
     "get_defaults": 1,

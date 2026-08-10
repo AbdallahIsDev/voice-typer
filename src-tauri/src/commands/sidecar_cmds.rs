@@ -191,6 +191,12 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
         //   onboarding_get_model_catalog, onboarding_get_step,
         //   onboarding_request_keyboard_permission, refresh_microphones,
         //   show_electron_notification, test_llm_connection.
+        // NOTE: `check_accessibility` is no longer part of the removed
+        // set — it was RE-ADDED on 2026-08-10 (finding #919 part b):
+        // the Settings → Troubleshooting UI now invokes it on macOS to
+        // surface the stale-grant `tccutil` reset command. It is
+        // registered here and in the TS allowlist + Python registry in
+        // lockstep (see its inline comment below).
         // The matching Python-side `_COMMAND_REGISTRY` entries have been
         // removed in lockstep — all three layers (this Rust literal, the TS
         // `ALLOWED_COMMANDS` Set, and the Python `_COMMAND_REGISTRY`) now
@@ -265,6 +271,18 @@ pub(crate) fn allowed_commands() -> &'static HashSet<&'static str> {
             // Accessibility <bundle-id>` with the bundle ID resolved at
             // runtime). Mirrors the TS allowlist.
             "reset_macos_accessibility",
+            // macOS accessibility-status probe (finding #919 part b —
+            // RE-ADDED 2026-08-10): the Settings → Troubleshooting UI
+            // invokes `check_accessibility` on macOS to surface the
+            // stale-grant `tccutil` reset command next to the "Reset
+            // Accessibility Permission" button. Python handler:
+            // `_handle_check_accessibility` in
+            // `handlers/system_handlers.py` (returns
+            // `accessibility_status` with `granted` / `platform` and,
+            // on a confirmed stale grant, `suggest_reset` + the
+            // runtime `reset_command` string). Mirrors the TS
+            // allowlist and the Python `_COMMAND_REGISTRY`.
+            "check_accessibility",
             // Linux troubleshooting (finding #127 part b): reset a stale
             // polkit authorization — restart the polkit daemon via
             // pkexec so the next "Grant permission" re-prompts. Invoked

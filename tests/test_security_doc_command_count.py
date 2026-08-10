@@ -389,52 +389,49 @@ def test_rust_allowlist_contains_key_commands() -> None:
     )
 
 
-#  (Low): check_accessibility removal regression guards
+#  (finding #919 part b): check_accessibility re-registration guards
 
 
-def test_check_accessibility_not_in_python_command_registry() -> None:
-    """``check_accessibility`` MUST NOT be in the Python
-    ``_COMMAND_REGISTRY`` — the renderer uses
-    ``onboarding_check_permissions`` instead, and the Tauri host
-    routes ``check_accessibility`` through a dedicated Rust command
-    (with its own allowlist entry + consent prompt) rather than
-    bridging through the generic Python IPC dispatch path.
+def test_check_accessibility_is_registered_in_python_command_registry() -> None:
+    """``check_accessibility`` MUST be in the Python
+    ``_COMMAND_REGISTRY`` — the Settings → Troubleshooting UI re-
+    invoked it on 2026-08-10 (finding #919 part b) to surface the
+    stale-grant ``tccutil`` reset command (``suggest_reset`` +
+    ``reset_command`` on a confirmed stale macOS grant). It was
+    removed in the GT-32 stale-entry cleanup (no renderer caller at
+    the time); the renderer caller now exists, so the command is
+    wired back through ALL THREE allowlists in lockstep.
 
-    The Python-side ``_handle_check_accessibility`` method still
-    exists on the ``SystemHandlersMixin`` (in
-    ``voice_typer/server/handlers/system_handlers.py``) for the
-    legacy Electron path, but it MUST NOT be registered in
-    ``_COMMAND_REGISTRY`` — otherwise a compromised renderer could
-    ``invoke('dispatch', {cmd:'check_accessibility'})`` to bypass the
-    Rust-side consent prompt and reach the Python subprocess directly.
+    The handler implementation lives on the ``SystemHandlersMixin``
+    (``voice_typer/server/handlers/system_handlers.py``) and is a
+    read-only probe (returns local TCC grant state + a hint string);
+    the destructive action (the ``tccutil`` reset itself) stays
+    behind the separate ``reset_macos_accessibility`` command.
     """
     registry = _command_registry_entries()
-    assert "check_accessibility" not in registry, (
-        "'check_accessibility' MUST NOT be in the Python "
-        "_COMMAND_REGISTRY — the renderer uses "
-        "'onboarding_check_permissions' instead, and the Tauri host "
-        "routes check_accessibility through a dedicated Rust command. "
-        "Re-adding it here would re-open the IPC dispatch route that "
-        "the cleanup pass deliberately closed (see "
+    assert "check_accessibility" in registry, (
+        "'check_accessibility' MUST be in the Python "
+        "_COMMAND_REGISTRY (finding #919 part b re-registration) — "
+        "the Troubleshooting section calls it on macOS. Remove this "
+        "assertion only if the renderer caller is also removed (keep "
+        "the registry + TS + Rust allowlists in lockstep — see "
         "tests/tauri/mig19/test_phase4_validation.py for the frozen "
         "command table)."
     )
 
 
-def test_check_accessibility_not_in_renderer_allowlist() -> None:
-    """``check_accessibility`` MUST NOT be in the TS renderer
-    ``ALLOWED_COMMANDS`` set. The renderer's permission flow now uses
-    ``onboarding_check_permissions``; the Tauri host handles the raw
-    accessibility probe via a dedicated Rust command.
+def test_check_accessibility_is_in_renderer_allowlist() -> None:
+    """``check_accessibility`` MUST be in the TS renderer
+    ``ALLOWED_COMMANDS`` set — the Settings → Troubleshooting UI
+    invokes it via ``call()``, and the Electron main process rejects
+    anything not in this Set (SEC-019).
     """
     ts = _allowed_commands_ts()
-    assert "check_accessibility" not in ts, (
-        "'check_accessibility' MUST NOT be in the renderer "
-        "ALLOWED_COMMANDS — the renderer uses "
-        "'onboarding_check_permissions' instead, and the Tauri host "
-        "routes check_accessibility through a dedicated Rust command. "
-        "Re-adding it here would re-open the IPC dispatch route that "
-        "the cleanup pass deliberately closed."
+    assert "check_accessibility" in ts, (
+        "'check_accessibility' MUST be in the renderer "
+        "ALLOWED_COMMANDS (finding #919 part b) — the "
+        "Troubleshooting section calls it on macOS. Keep the "
+        "registry + TS + Rust allowlists in lockstep."
     )
 
 

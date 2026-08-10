@@ -137,9 +137,7 @@ class TestRequestIdPreservedOnValidationErrors:
         }
         result = server._dispatch(msg)
         assert result is not None
-        assert "id" not in result, (
-            ": when the inbound message has no id, the response must not synthesize one either."
-        )
+        assert "id" not in result, ": when the inbound message has no id, the response must not synthesize one either."
 
     def test_successful_response_preserves_request_id(self) -> None:
         """A handler that mutates ``resp`` directly (the normal path)
@@ -384,8 +382,7 @@ class TestAllowedCommandsCoversRegistry:
         # Every python-only command must be in the registry (otherwise
         # the exception set is itself stale).
         assert python_only <= registry, (
-            "S2-_PYTHON_ONLY_COMMANDS contains commands not in "
-            f"_COMMAND_REGISTRY: {sorted(python_only - registry)}"
+            f"S2-_PYTHON_ONLY_COMMANDS contains commands not in _COMMAND_REGISTRY: {sorted(python_only - registry)}"
         )
         # And none of the python-only commands should be in the TS
         # allowlist (a compromised renderer must NOT be able to invoke
@@ -397,62 +394,54 @@ class TestAllowedCommandsCoversRegistry:
             f"renderer could invoke them): {sorted(leaked)}"
         )
 
-    def test_check_accessibility_removed_from_registry(self) -> None:
-        """ (Low, registry side): ``check_accessibility`` MUST
-        NOT be in ``_COMMAND_REGISTRY`` — the renderer uses
-        ``onboarding_check_permissions`` instead, and the Tauri host
-        now handles ``check_accessibility`` via a dedicated Rust
-        command (with its own allowlist entry + consent prompt)
-        rather than bridging through Python IPC.
+    def test_check_accessibility_is_re_registered_in_registry(self) -> None:
+        """(finding #919 part b): ``check_accessibility`` was
+        re-registered in ``_COMMAND_REGISTRY`` on 2026-08-10 — the
+        Settings → Troubleshooting UI now invokes it on macOS to
+        surface the stale-grant ``tccutil`` reset command
+        (``suggest_reset`` + ``reset_command`` on a confirmed stale
+        grant). It was removed in the GT-32 stale-entry cleanup (no
+        renderer caller at the time); the renderer caller now exists,
+        so the command is wired back through ALL THREE allowlists in
+        lockstep (this registry + TS ``allowed-commands.ts`` + Rust
+        ``sidecar_cmds.rs``).
 
-        The Python-side ``_handle_check_accessibility`` method still
-        exists on the ``SystemHandlersMixin`` (in
-        ``voice_typer/server/handlers/system_handlers.py``) for the
-        legacy Electron path, but it MUST NOT be registered in
-        ``_COMMAND_REGISTRY`` — otherwise a compromised renderer
-        could ``invoke('dispatch', {cmd:'check_accessibility'})`` to
-        bypass the Rust-side consent prompt and reach the Python
-        subprocess directly. This test pins the removal so a future
-        contributor cannot silently re-register it.
+        The handler implementation lives on the ``SystemHandlersMixin``
+        (``voice_typer/server/handlers/system_handlers.py``),
+        registered here so the renderer's ``call("check_accessibility")``
+        dispatches to it (a compromised-renderer concern does NOT apply
+        to this command — it is a read-only probe that returns the local
+        TCC grant state + a reset command string the renderer already
+        knew how to construct; the destructive action (the ``tccutil``
+        reset itself) stays behind ``reset_macos_accessibility``).
         """
         registry = _python_registry_keys()
-        assert "check_accessibility" not in registry, (
-            "'check_accessibility' MUST NOT be in "
-            "_COMMAND_REGISTRY — the renderer uses "
-            "'onboarding_check_permissions' instead, and the Tauri "
-            "host routes check_accessibility through a dedicated Rust "
-            "command (with its own allowlist entry + consent prompt). "
-            "Re-adding it here would re-open the IPC dispatch route "
-            "that the cleanup pass deliberately closed."
+        assert "check_accessibility" in registry, (
+            "'check_accessibility' MUST be in _COMMAND_REGISTRY (finding "
+            "#919 part b re-registration) — the Settings → Troubleshooting "
+            "UI calls it on macOS to surface the stale-grant reset "
+            "command. Remove this assertion only if the renderer caller "
+            "is also removed (keep the three allowlists in lockstep)."
         )
-        # The handler method name string MUST also not appear as a
-        # value in the registry (paranoid check — catches a copy-paste
-        # typo that registers the command under a different key).
         from voice_typer.server.ipc_server import IPCServer
 
         handler_names = set(IPCServer._COMMAND_REGISTRY.values())
-        assert "_handle_check_accessibility" not in handler_names, (
-            "'_handle_check_accessibility' MUST NOT be a value "
-            "in _COMMAND_REGISTRY — even if the key was renamed, the "
-            "handler would still be dispatched and the regression "
-            "would silently re-open."
+        assert "_handle_check_accessibility" in handler_names, (
+            "'_handle_check_accessibility' MUST be the registered handler value for 'check_accessibility'."
         )
 
-    def test_check_accessibility_removed_from_renderer_allowlist(self) -> None:
-        """ (Low, renderer side): ``check_accessibility`` MUST
-        NOT be in the TS ``ALLOWED_COMMANDS`` set. The renderer's
-        permission flow now uses ``onboarding_check_permissions``;
-        the Tauri host handles the raw accessibility probe via a
-        dedicated Rust command.
+    def test_check_accessibility_registered_in_renderer_allowlist(self) -> None:
+        """(finding #919 part b, renderer side): ``check_accessibility``
+        must be in the TS ``ALLOWED_COMMANDS`` set — the Settings →
+        Troubleshooting UI invokes it via ``call()``, and the Electron
+        main process rejects anything not in this Set (SEC-019).
         """
         ts = _ts_allowed_commands()
-        assert "check_accessibility" not in ts, (
-            "'check_accessibility' MUST NOT be in the renderer "
-            "ALLOWED_COMMANDS — the renderer uses "
-            "'onboarding_check_permissions' instead, and the Tauri "
-            "host routes check_accessibility through a dedicated Rust "
-            "command. Re-adding it here would re-open the IPC dispatch "
-            "route that the cleanup pass deliberately closed."
+        assert "check_accessibility" in ts, (
+            "'check_accessibility' MUST be in the renderer "
+            "ALLOWED_COMMANDS (finding #919 part b) — the "
+            "Troubleshooting section calls it on macOS. Keep the "
+            "registry + TS + Rust allowlists in lockstep."
         )
 
 

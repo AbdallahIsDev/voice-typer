@@ -517,14 +517,18 @@ class TestRegistryExtraction:
         # brought it to 65; onboarding_set_backend (Model-step backend
         # choice) brought it to 66; reset_macos_accessibility (finding
         # #127 part b) brought it to 67; reset_linux_permissions
-        # (finding #127 part b Linux sibling) brought it to 68.
+        # (finding #127 part b Linux sibling) brought it to 68;
+        # check_accessibility re-added (finding #919 part b — Settings
+        # → Troubleshooting surfaces the stale-grant reset) brought it
+        # to 69.
         # The count is deliberately pinned here and in SECURITY.md —
         # update all sources of truth together.
-        assert len(registry._COMMAND_REGISTRY) == 68, (
-            f"registry._COMMAND_REGISTRY must contain 68 entries "
+        assert len(registry._COMMAND_REGISTRY) == 69, (
+            f"registry._COMMAND_REGISTRY must contain 69 entries "
             f"(64 baseline + test_cloud_connection + "
             f"add_trusted_endpoint + onboarding_set_backend + "
-            f"reset_macos_accessibility + reset_linux_permissions); got "
+            f"reset_macos_accessibility + reset_linux_permissions + "
+            f"check_accessibility); got "
             f"{len(registry._COMMAND_REGISTRY)}. "
             f"If the count drifted, update this test together with the "
             f"registry + the TS/Rust allowlists."

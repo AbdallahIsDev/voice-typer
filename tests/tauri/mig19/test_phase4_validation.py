@@ -287,13 +287,22 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         # system_handlers
         "restart_app",
         "quit_app",
-        # REMOVED: ``export_diagnostics``, ``check_accessibility``,
-        # ``show_electron_notification`` — the Tauri host now handles
-        # each via a dedicated Rust command (``export_diagnostics``,
-        # ``check_accessibility``, and the tray-notification path
+        # REMOVED: ``export_diagnostics``, ``show_electron_notification`` —
+        # the Tauri host now handles each via a dedicated Rust command
+        # (``export_diagnostics`` and the tray-notification path
         # respectively) rather than bridging through Python IPC. The
         # Python-side service methods still exist for the legacy
         # Electron path. See ``test_dead_code_stays_removed.py``.
+        # ADR-0020 §16 addendum (2026-08-10, finding #919 part b):
+        # ``check_accessibility`` — RE-ADDED to the contract. The
+        # Settings → Troubleshooting UI invokes it on macOS to surface
+        # the stale-grant ``tccutil`` reset command (``suggest_reset``
+        # + ``reset_command`` on a confirmed stale grant); the command
+        # is wired back through the registry + TS + Rust allowlists in
+        # lockstep. Handler in system_handlers.py with a
+        # `_validate_dict_payload` schema + handler tests
+        # (tests/handlers/test_system_handlers.py).
+        "check_accessibility",
         "set_tray_locale",
         "set_esc_cancel_paused",
         # ADR-0020 §16 addendum (2026-08-09, finding #127 part b):
@@ -332,12 +341,13 @@ EXPECTED_COMMANDS: frozenset[str] = frozenset(
         "shutdown",
     }
 )
-assert len(EXPECTED_COMMANDS) == 64, (
-    "ADR-0020 §2 freezes the command table. 64 = post-cleanup baseline "
+assert len(EXPECTED_COMMANDS) == 65, (
+    "ADR-0020 §2 freezes the command table. 65 = post-cleanup baseline "
     "after ZR-45 + the Tauri/Rust allowlist narrowing (+ ``onboarding_set_backend``, "
     "§16 addendum 2026-08-06; + ``reset_macos_accessibility``, "
     "§16 addendum 2026-08-09; + ``reset_linux_permissions``, "
-    "§16 addendum 2026-08-10). The prior 76-command "
+    "§16 addendum 2026-08-10; + ``check_accessibility``, "
+    "§16 addendum 2026-08-10 re-registration). The prior 76-command "
     "list was stale — it included 17 commands that had been deliberately "
     "REMOVED from ``_COMMAND_REGISTRY`` to match the Tauri host's Rust "
     "allowlist narrowing (see ``test_dead_code_stays_removed.py`` for the "
@@ -348,16 +358,15 @@ assert len(EXPECTED_COMMANDS) == 64, (
     "``microphone_test_status``, ``level_monitor_status``, ``test_llm_connection``) "
     "− 3 vocabulary-automation commands deferred pending UX redesign "
     "(``get_vocabulary_suggestions``, ``apply_vocabulary_suggestion``, "
-    "``dismiss_vocabulary_suggestion``) − 3 Tauri-Rust-bridged commands "
-    "(``export_diagnostics``, ``check_accessibility``, "
-    "``show_electron_notification``) − 2 GDPR commands bridged via Rust "
-    "(``delete_all_personal_data``, ``export_gdpr_bundle``) + 10 commands "
+    "``dismiss_vocabulary_suggestion``) − 2 Tauri-Rust-bridged commands "
+    "(``export_diagnostics``, ``show_electron_notification``) − 2 GDPR commands bridged via Rust "
+    "(``delete_all_personal_data``, ``export_gdpr_bundle``) + 11 commands "
     "added since the original frozen table (``repaste_last``, "
     "``onboarding_check_permissions``, ``onboarding_reset``, ``shutdown``, "
     "``get_history_count``, ``get_transcription_text``, "
     "``pause_model_download``, ``resume_model_download``, "
     "``get_model_catalog``, ``reset_macos_accessibility``, "
-    "``reset_linux_permissions``). Update this "
+    "``reset_linux_permissions``, ``check_accessibility``). Update this "
     "set + the ADR addendum together "
     "(§16). Note: ``relaunch_ack`` and ``tray_click`` are tracked "
     "separately in KNOWN_UNDOCUMENTED_COMMANDS, not here."

@@ -469,6 +469,48 @@ class TestResetMacosAccessibilityDispatchError:
         monkeypatch.setattr(server, "_handle_reset_macos_accessibility", original)
 
 
+class TestCheckAccessibilityDispatchError:
+    """ADR-0020 §16 item (4) (finding #919 part b re-registration):
+    ``check_accessibility`` must behave under the dispatch-level
+    exception safety net like every other registered command — a
+    buggy handler yields a structured error response (not a torn-down
+    connection) and the socket survives.
+    """
+
+    def test_handler_exception_returns_error_response(self, authenticated_client, monkeypatch):
+        """A raising ``_handle_check_accessibility`` must produce the
+        generic ``internal error`` envelope (the safety net does not
+        leak the exception message) without disconnecting the client."""
+        client, server = authenticated_client
+
+        def boom(data, resp):  # noqa: ARG001 — handler signature
+            raise RuntimeError("simulated check_accessibility crash")
+
+        monkeypatch.setattr(server, "_handle_check_accessibility", boom)
+
+        _send_line(client, {"id": 101, "type": "check_accessibility"})
+        resp = _read_response_line(client, timeout=2.0)
+
+        assert resp["type"] == "error", f"Expected error response for raising handler, got: {resp}"
+        assert resp.get("id") == 101
+        assert resp["data"]["message"] == "internal error", f"Expected generic 'internal error' message, got: {resp}"
+
+        # Same socket must survive and serve a normal status afterwards.
+        original = server._handle_check_accessibility
+
+        def ok_handler(data, resp):
+            resp["type"] = "accessibility_status"
+            resp["data"] = {"granted": True, "platform": "linux"}
+            return resp
+
+        monkeypatch.setattr(server, "_handle_check_accessibility", ok_handler)
+        _send_line(client, {"id": 102, "type": "check_accessibility"})
+        resp2 = _read_response_line(client, timeout=2.0)
+        assert resp2["type"] == "accessibility_status", f"Connection did not survive: {resp2}"
+        assert resp2.get("id") == 102
+        monkeypatch.setattr(server, "_handle_check_accessibility", original)
+
+
 class TestResetLinuxPermissionsDispatchError:
     """ADR-0020 §16 item (4): ``reset_linux_permissions`` must behave
     under the dispatch-level exception safety net like every other

@@ -3,19 +3,24 @@ REM Voice Typer - Windows uninstaller autostart cleanup hook (S2-CR-69).
 REM
 REM Wrapper that invokes the Python cleanup script
 REM (scripts/windows/uninstall_permissions.py) which removes:
-REM   - HKCU\Software\Microsoft\Windows\CurrentVersion\Run\VoiceTyper_<hash>
-REM     (per-install hash from SHA-256 of sys.executable - see
-REM     _run_key_name in autostart_windows.py). This is a REGISTRY value,
-REM     NOT a file, so deleteAppDataOnUninstall in electron-builder.yml
-REM     does NOT remove it.
-REM   - Task Scheduler tasks named "VoiceTyperAutostart<hash>" (the
-REM     fallback autostart mechanism when the Run key fails).
-REM   - Task Scheduler task named "VoiceTyperPrewarm" (the prewarm
-REM     logon-trigger task registered by voice_typer/server/task_scheduler.py
-REM     with TASK_NAME = "VoiceTyperPrewarm"). Distinct from the autostart
+REM   - HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.voicetyper.autostart_<hash>
+REM     (per-install hash of the install path - see
+REM     _run_key_name in autostart_windows.py). Pre-rename installs used
+REM     VoiceTyper_<hash>; both forms are swept. This is a REGISTRY
+REM     value, NOT a file, so deleteAppDataOnUninstall in
+REM     electron-builder.yml does NOT remove it.
+REM   - Task Scheduler tasks named "com.voicetyper.autostart<hash>"
+REM     (the fallback autostart mechanism when the Run key fails).
+REM   - Task Scheduler task named "com.voicetyper.prewarm" (the prewarm
+REM     logon-trigger task registered by
+REM     voice_typer/server/task_scheduler.py with TASK_NAME =
+REM     "com.voicetyper.prewarm"). Distinct from the autostart
 REM     tasks above - without cleanup it survives uninstall and Task
 REM     Scheduler keeps trying to launch the (now-deleted) frozen prewarm
 REM     binary at every login.
+REM   - Legacy pre-rename names (VoiceTyperAutostart<hash>,
+REM     VoiceTyperPrewarm) from installs that predate the com.voicetyper.*
+REM     namespace rename.
 REM
 REM Wired in two places:
 REM   1. voice_typer/client/electron-builder.yml -> nsis.include points
@@ -51,10 +56,10 @@ REM        cd voice_typer\client && npm run build:win
 REM   2. Install the resulting *-setup.exe.
 REM   3. Launch Voice Typer -> enable autostart via Settings.
 REM   4. Verify the Run key is present:
-REM        reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run | findstr VoiceTyper
+REM        reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run | findstr com.voicetyper
 REM   5. Uninstall via "Add or remove programs".
 REM   6. After uninstall completes, verify the Run key is GONE:
-REM        reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run | findstr VoiceTyper
+REM        reg query HKCU\Software\Microsoft\Windows\CurrentVersion\Run | findstr com.voicetyper
 REM        (Expected: no matches)
 
 setlocal enabledelayedexpansion
@@ -105,7 +110,7 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
     "$runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run';" ^
     "Get-ItemProperty -Path $runKey -ErrorAction SilentlyContinue |" ^
     "Get-Member -MemberType NoteProperty |" ^
-    "Where-Object { $_.Name -like 'VoiceTyper*' } |" ^
+    "Where-Object { $_.Name -like 'VoiceTyper*' -or $_.Name -like 'com.voicetyper*' } |" ^
     "ForEach-Object {" ^
     "  Remove-ItemProperty -Path $runKey -Name $_.Name -ErrorAction SilentlyContinue;" ^
     "  Write-Output ('Removed HKCU Run key: ' + $_.Name)" ^
@@ -117,8 +122,12 @@ REM Sweep widened from 'VoiceTyperAutostart*' to 'VoiceTyper*' so it ALSO
 REM catches the prewarm task `VoiceTyperPrewarm` (registered by
 REM voice_typer/server/task_scheduler.py with TASK_NAME = "VoiceTyperPrewarm"),
 REM not just the autostart fallback tasks `VoiceTyperAutostart_<hash>`.
+REM The union with 'com.voicetyper*' covers the current canonical
+REM reverse-DNS names (com.voicetyper.autostart_<hash>,
+REM com.voicetyper.prewarm) from installs that postdate the namespace
+REM rename.
 powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
-    "Get-ScheduledTask -TaskName 'VoiceTyper*' -ErrorAction SilentlyContinue |" ^
+    "Get-ScheduledTask -TaskName 'VoiceTyper*','com.voicetyper*' -ErrorAction SilentlyContinue |" ^
     "ForEach-Object {" ^
     "  schtasks.exe /Delete /TN $_.TaskName /F;" ^
     "  Write-Output ('Removed Task Scheduler task: ' + $_.TaskName)" ^
@@ -127,7 +136,9 @@ powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command ^
 REM Belt-and-suspenders: explicit delete of the prewarm task name in case
 REM the wildcard sweep above missed it (e.g. PowerShell Get-ScheduledTask
 REM wildcard behavior differs across Windows versions). /F = force (no
-REM prompt). Non-fatal if the task is already gone.
+REM prompt). Non-fatal if the task is already gone. Both the current
+REM canonical name and the pre-rename legacy name are deleted.
+schtasks.exe /Delete /TN "com.voicetyper.prewarm" /F >nul 2>nul
 schtasks.exe /Delete /TN "VoiceTyperPrewarm" /F >nul 2>nul
 echo [voice-typer-uninstall] Explicit prewarm task delete attempted (best-effort).
 

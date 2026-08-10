@@ -10,8 +10,10 @@ autostart entry:
              (launchd label ``com.voicetyper.prewarm``).
   - Linux  : ``~/.config/systemd/user/voice-typer-prewarm.{service,timer}``
              (systemd user units).
-  - Windows: Task Scheduler task ``VoiceTyperPrewarm`` (no ``Autostart``
-             suffix; no ``_<hash>`` suffix).
+  - Windows: Task Scheduler task ``com.voicetyper.prewarm`` (no
+             ``Autostart`` suffix; no ``_<hash>`` suffix; canonical
+             reverse-DNS namespace — pre-rename bare form was
+             ``VoiceTyperPrewarm``).
 
 Pre-fix (FR-8 PARTIAL state): the uninstaller scripts only cleaned the
 main-app autostart labels (``com.voicetyper.plist``, ``voice-typer.desktop``,
@@ -219,63 +221,64 @@ class TestLinuxPrermCleansPrewarmSystemdUnits:
 
 class TestWindowsUninstallBatCleansPrewarmTask:
     """FR-8 (Windows): the .bat fallback sweep must (1) widen the Task
-    Scheduler sweep from ``VoiceTyperAutostart*`` to ``VoiceTyper*`` so it
-    catches ``VoiceTyperPrewarm``, and (2) explicitly delete the
-    ``VoiceTyperPrewarm`` task as belt-and-suspenders. The HKCU Run-key
-    sweep is already ``VoiceTyper*`` so the prewarm Run-key entry (if any)
-    is already covered."""
+    Scheduler sweep to the union ``'VoiceTyper*','com.voicetyper*'`` so it
+    catches the prewarm task (canonical ``com.voicetyper.prewarm`` and
+    legacy ``VoiceTyperPrewarm``), and (2) explicitly delete the prewarm
+    task under both names as belt-and-suspenders. The HKCU Run-key sweep
+    must match both name prefixes too (``-like 'VoiceTyper*' -or -like
+    'com.voicetyper*'``) so the prewarm Run-key entry (if any) is
+    covered."""
 
     def test_script_exists(self):
         assert WINDOWS_UNINSTALL_BAT.is_file()
 
     def test_task_scheduler_sweep_widened_to_voicetyper_star(self):
-        """The PowerShell Task Scheduler sweep must use ``VoiceTyper*``
-        (not the narrower ``VoiceTyperAutostart*``) so it catches both
-        ``VoiceTyperAutostart_<hash>`` tasks AND the ``VoiceTyperPrewarm``
-        task. We check the active ``Get-ScheduledTask -TaskName`` call
-        (not the surrounding comments, which may legitimately reference
-        the old narrower pattern when explaining the widening)."""
+        """The PowerShell Task Scheduler sweep must use the union
+        ``'VoiceTyper*','com.voicetyper*'`` so it catches:
+        - legacy ``VoiceTyperAutostart_<hash>`` + ``VoiceTyperPrewarm``
+          tasks (pre-rename installs), AND
+        - canonical ``com.voicetyper.autostart_<hash>`` +
+          ``com.voicetyper.prewarm`` tasks (post-rename installs).
+        We check the active ``Get-ScheduledTask -TaskName`` call (not the
+        surrounding comments, which may legitimately reference the old
+        narrower pattern when explaining the widening)."""
         text = _read(WINDOWS_UNINSTALL_BAT)
-        assert "'VoiceTyper*'" in text or '"VoiceTyper*"' in text, (
-            "Windows uninstall.bat must widen the Task Scheduler sweep to "
-            "'VoiceTyper*' (was 'VoiceTyperAutostart*') so it catches the "
-            "prewarm task 'VoiceTyperPrewarm' too."
-        )
-        # The ACTIVE sweep line must use VoiceTyper* (not the old narrower
-        # pattern). The Get-ScheduledTask call is what does the actual
-        # enumeration; comments may still reference the old pattern for
-        # historical context.
-        assert (
-            "Get-ScheduledTask -TaskName 'VoiceTyper*'" in text or 'Get-ScheduledTask -TaskName "VoiceTyper*"' in text
-        ), (
+        assert "'VoiceTyper*','com.voicetyper*'" in text, (
             "Windows uninstall.bat's active `Get-ScheduledTask -TaskName` "
-            "call must use 'VoiceTyper*' (not 'VoiceTyperAutostart*')."
+            "call must sweep the union 'VoiceTyper*','com.voicetyper*' so "
+            "it covers both the legacy prewarm task 'VoiceTyperPrewarm' and "
+            "the canonical 'com.voicetyper.prewarm' (plus the autostart "
+            "tasks under both schemes)."
         )
 
     def test_explicit_prewarm_task_delete(self):
         """The .bat must explicitly call
+        ``schtasks.exe /Delete /TN "com.voicetyper.prewarm" /F`` AND
         ``schtasks.exe /Delete /TN "VoiceTyperPrewarm" /F`` as a
-        belt-and-suspenders (in case the wildcard sweep missed it)."""
+        belt-and-suspenders (in case the wildcard sweep missed them)."""
         text = _read(WINDOWS_UNINSTALL_BAT)
-        assert "VoiceTyperPrewarm" in text, (
-            "Windows uninstall.bat must reference the 'VoiceTyperPrewarm' "
-            "task name explicitly (belt-and-suspenders delete in case the "
-            "wildcard sweep misses it)."
+        assert '/Delete /TN "com.voicetyper.prewarm"' in text, (
+            "Windows uninstall.bat must call `schtasks /Delete /TN "
+            '"com.voicetyper.prewarm" /F` explicitly (current canonical '
+            "prewarm task name)."
         )
         assert '/Delete /TN "VoiceTyperPrewarm"' in text or "/Delete /TN VoiceTyperPrewarm" in text, (
-            'Windows uninstall.bat must call `schtasks /Delete /TN "VoiceTyperPrewarm" /F` explicitly.'
+            'Windows uninstall.bat must call `schtasks /Delete /TN "VoiceTyperPrewarm" /F` '
+            "explicitly (legacy pre-rename prewarm task name)."
         )
 
-    def test_hkcu_run_key_sweep_already_voicetyper_star(self):
-        """The HKCU Run-key sweep must be ``VoiceTyper*`` (not narrower)
-        so a hypothetical ``VoiceTyperPrewarm`` Run-key value would also
-        be caught. Pre-FR-8 this sweep was already ``VoiceTyper*``, so
-        this test guards against a future regression that narrows it."""
+    def test_hkcu_run_key_sweep_matches_both_name_prefixes(self):
+        """The HKCU Run-key sweep must match both ``VoiceTyper*`` and
+        ``com.voicetyper*`` value names (canonical + legacy). Pre-FR-8 the
+        sweep only matched ``VoiceTyper*``; the canonical reverse-DNS
+        check is new since the namespace rename. Guards against a future
+        regression that narrows either side of the union."""
         text = _read(WINDOWS_UNINSTALL_BAT)
-        assert "VoiceTyper*" in text, (
-            "Windows uninstall.bat HKCU Run-key sweep must use the "
-            "'VoiceTyper*' wildcard (covers any VoiceTyperPrewarm Run-key "
-            "entry too)."
+        assert "-like 'VoiceTyper*'" in text and "-like 'com.voicetyper*'" in text, (
+            "Windows uninstall.bat's HKCU Run-key sweep must match value "
+            "names with the union `-like 'VoiceTyper*' -or -like "
+            "'com.voicetyper*'` (covers legacy VoiceTyper_* entries and "
+            "canonical com.voicetyper.* entries)."
         )
 
 
@@ -286,62 +289,68 @@ class TestWindowsUninstallBatCleansPrewarmTask:
 
 class TestWindowsUninstallerNshCleansPrewarmTask:
     """FR-8 (Windows NSIS): the .nsh macro must (1) widen the Task
-    Scheduler sweep from ``VoiceTyperAutostart*`` to ``VoiceTyper*`` so it
-    catches ``VoiceTyperPrewarm``, and (2) explicitly delete the
-    ``VoiceTyperPrewarm`` task as belt-and-suspenders. The HKCU Run-key
-    enum loop already deletes any value starting with ``VoiceTyper`` (10
-    chars), so a ``VoiceTyperPrewarm`` Run-key value would already be
-    caught."""
+    Scheduler sweep to the union of the two wildcard patterns so it
+    catches ``com.voicetyper.prewarm`` + legacy ``VoiceTyperPrewarm``, and
+    (2) explicitly delete the prewarm task under BOTH names as
+    belt-and-suspenders. The HKCU Run-key enum loop must compare both
+    prefixes (13 chars against ``com.voicetyper``, 10 chars against
+    ``VoiceTyper``)."""
 
     def test_script_exists(self):
         assert WINDOWS_UNINSTALLER_NSH.is_file()
 
     def test_task_scheduler_sweep_widened_to_voicetyper_star(self):
-        """The NSIS PowerShell sweep must use ``VoiceTyper*`` (not the
-        narrower ``VoiceTyperAutostart*``). We check the active
-        ``Get-ScheduledTask -TaskName`` call (not the surrounding comments,
-        which may legitimately reference the old narrower pattern when
-        explaining the widening)."""
+        """The NSIS PowerShell sweep must use the union
+        ``$\'VoiceTyper*$\',$\'com.voicetyper*$\'`` (NSIS-quoted
+        single-quotes), covering legacy ``VoiceTyperAutostart*`` /
+        ``VoiceTyperPrewarm`` AND canonical ``com.voicetyper.*`` task
+        names. We check the active ``Get-ScheduledTask -TaskName`` call
+        (not the surrounding comments, which may legitimately reference
+        the old narrower pattern when explaining the widening)."""
         text = _read(WINDOWS_UNINSTALLER_NSH)
-        assert "VoiceTyper*" in text, (
-            "Windows uninstaller.nsh must widen the Task Scheduler sweep to "
-            "'VoiceTyper*' (was 'VoiceTyperAutostart*') so it catches the "
-            "prewarm task 'VoiceTyperPrewarm' too."
-        )
-        # The ACTIVE sweep line must use VoiceTyper* (not the old narrower
-        # pattern). Comments may still reference the old pattern for
-        # historical context (e.g. "widened from X to Y").
-        assert "Get-ScheduledTask -TaskName VoiceTyper*" in text, (
+        assert "$\\'VoiceTyper*$\\',$\\'com.voicetyper*$\\'" in text, (
             "Windows uninstaller.nsh's active `Get-ScheduledTask -TaskName` "
-            "call must use 'VoiceTyper*' (not 'VoiceTyperAutostart*')."
+            "call must sweep the union 'VoiceTyper*','com.voicetyper*' "
+            "(single-quotes escaped as $\\' inside the nsExec quoted "
+            "string) so it covers the legacy prewarm task "
+            "'VoiceTyperPrewarm' and the canonical 'com.voicetyper.prewarm'."
         )
 
     def test_explicit_prewarm_task_delete(self):
         """The .nsh must explicitly call
+        ``schtasks.exe /Delete /TN "com.voicetyper.prewarm" /F`` AND
         ``schtasks.exe /Delete /TN "VoiceTyperPrewarm" /F`` as a
         belt-and-suspenders."""
         text = _read(WINDOWS_UNINSTALLER_NSH)
-        assert "VoiceTyperPrewarm" in text, (
-            "Windows uninstaller.nsh must reference the 'VoiceTyperPrewarm' "
-            "task name explicitly (belt-and-suspenders delete)."
+        assert "com.voicetyper.prewarm" in text and "VoiceTyperPrewarm" in text, (
+            "Windows uninstaller.nsh must reference BOTH the canonical "
+            "'com.voicetyper.prewarm' and legacy 'VoiceTyperPrewarm' task "
+            "names explicitly (belt-and-suspenders deletes)."
         )
         # The NSIS macro uses $\" for escaped double-quotes; accept either
         # the escaped form or a bare form (defensive — future edits might
         # drop the quotes since the name has no spaces).
         assert "/Delete /TN" in text, (
-            'Windows uninstaller.nsh must call `schtasks /Delete /TN "VoiceTyperPrewarm" /F` explicitly.'
+            'Windows uninstaller.nsh must call `schtasks /Delete /TN "com.voicetyper.prewarm" /F` '
+            'and `schtasks /Delete /TN "VoiceTyperPrewarm" /F` explicitly.'
         )
 
-    def test_hkcu_run_key_enum_uses_voicetyper_prefix(self):
-        """The NSIS HKCU Run-key enum loop must compare the first 10
-        chars of each value name against ``VoiceTyper`` (covers
-        ``VoiceTyperPrewarm`` Run-key values too — already covered
-        pre-FR-8, this test guards against a future narrowing)."""
+    def test_hkcu_run_key_enum_uses_both_name_prefixes(self):
+        """The NSIS HKCU Run-key enum loop must compare the first 13 chars
+        of each value name against ``com.voicetyper`` AND the first 10
+        chars against ``VoiceTyper`` (covers canonical
+        ``com.voicetyper.autostart_<hash>`` + prewarm values and legacy
+        bare names). Guards against a future narrowing."""
         text = _read(WINDOWS_UNINSTALLER_NSH)
+        assert "StrCpy $2 $1 13" in text and 'StrCmp $2 "com.voicetyper"' in text, (
+            "Windows uninstaller.nsh must keep the 13-char 'com.voicetyper' "
+            "prefix match in the HKCU Run-key enum loop (canonical "
+            "reverse-DNS value names)."
+        )
         assert "VoiceTyper" in text, (
             "Windows uninstaller.nsh must keep the 'VoiceTyper' 10-char "
-            "prefix match for the HKCU Run-key enum loop (covers "
-            "VoiceTyperPrewarm Run-key values too)."
+            "prefix match for the HKCU Run-key enum loop (legacy "
+            "VoiceTyper_* value names)."
         )
 
 

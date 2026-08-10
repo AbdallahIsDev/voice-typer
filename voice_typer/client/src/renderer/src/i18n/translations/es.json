@@ -1032,6 +1032,7 @@
 			"resetAccessibilityToast": "Permiso de accesibilidad restablecido — vuelve a concederlo en Ajustes del Sistema",
 			"resetAccessibilityToastWithCommand": "Permiso de accesibilidad restablecido — se ejecutó {command} — vuelve a concederlo en Ajustes del Sistema",
 			"resetAccessibilityFailed": "No se pudo restablecer el permiso de accesibilidad",
+			"resetAccessibilitySuggestion": "El permiso de accesibilidad parece obsoleto — restablece la concesión del sistema con:",
 			"resetLinux": "Restablecer permiso de Linux",
 			"resetLinuxAria": "Restablecer permiso de teclado de Linux",
 			"resetLinuxHint": "Borrar una autorización polkit obsoleta de Linux (pkcheck/pkaction) para que los avisos de permiso vuelvan a aparecer",

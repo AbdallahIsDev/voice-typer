@@ -50,7 +50,7 @@ renderer ALLOWED_COMMANDS gate but still routes through
 `_COMMAND_REGISTRY`** — i.e. the handler must be registered or the
 dispatch fails with `unknown_command`).
 
-## Commands (68 total — 66 renderer-reachable + 2 host-only: shutdown, tray_click)
+## Commands (69 total — 67 renderer-reachable + 2 host-only: shutdown, tray_click)
 
 Grouped by namespace. "✓" in the Allowlist column means the command is
 in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
@@ -85,6 +85,7 @@ in `ALLOWED_COMMANDS` (renderer-reachable); "—" means server-only.
 |---------|---------|-----------|-------|
 | `reset_macos_accessibility` | `_handle_reset_macos_accessibility` | ✓ | Finding #127 part b — Settings → Troubleshooting "Reset Accessibility Permission" button. Runs `tccutil reset Accessibility <bundle-id>` (bundle ID resolved at runtime via `macos_bundle_id.py` — never hardcoded) and re-opens System Settings → Privacy & Security → Accessibility. `ack` → `{ok, command, error}`. |
 | `reset_linux_permissions` | `_handle_reset_linux_permissions` | ✓ | Finding #127 part b (Linux sibling) — Settings → Troubleshooting "Reset Linux Permission" button. Clears a stale polkit authorization (`auth_admin_keep` is cached ~5 min by polkitd — see finding #134) by restarting the polkit daemon via `pkexec systemctl restart polkit` / `polkitd` / `service polkit restart`; `pkaction` enumerates the Voice Typer action (`com.voicetyper.install-permissions` — the only namespace the app ships since finding #54; the legacy pre-Tauri Electron policy is removed at install/upgrade time) and `pkcheck` verifies the post-reset state. pkexec exit 126 (auth dismissed) is reported as such. `ack` → `{ok, command, error, actions, checks}`. |
+| `check_accessibility` | `_handle_check_accessibility` | ✓ | Finding #919 part b — RE-ADDED 2026-08-10. Settings → Troubleshooting probes the macOS Accessibility grant on mount; on a confirmed stale grant (`AXIsProcessTrusted()` False) the `accessibility_status` response carries `suggest_reset: true` + the runtime `reset_command` string (`tccutil reset Accessibility <bundle-id>`, bundle ID resolved via `macos_bundle_id.py` — never hardcoded) so the section can surface it next to the "Reset Accessibility Permission" button. Was removed in the GT-32 stale-entry cleanup (no renderer caller); re-wired through the registry + TS + Rust allowlists in lockstep. `accessibility_status` → `{granted, platform, reason?, suggest_reset?, reset_command?}`. |
 | `undo_last` | `_handle_undo_last` | ✓ |  |
 
 ### Onboarding wizard
@@ -190,7 +191,7 @@ are **not** present in `_COMMAND_REGISTRY` and were never reachable from
 the renderer. They are listed here so search-engine queries landing on
 this page find the canonical "this command does not exist" answer:
 
-`apply_vocabulary_suggestion`, `check_accessibility`,
+`apply_vocabulary_suggestion`,
 `delete_all_personal_data`, `dismiss_vocabulary_suggestion`,
 `export_diagnostics`, `export_gdpr_bundle`, `get_audio_status`,
 `get_rms_level`, `get_vocabulary_suggestions`, `level_monitor_status`,
@@ -199,8 +200,12 @@ this page find the canonical "this command does not exist" answer:
 `refresh_microphones`, `show_electron_notification`,
 `test_llm_connection`.
 
+> Note: `check_accessibility` was previously listed here (removed in the
+> GT-32 cleanup) but was RE-ADDED on 2026-08-10 (finding #919 part b) —
+> it now has a live row in the macOS permissions table above.
+
 The corresponding host-side workflows (vocabulary automation pipeline,
-macOS Accessibility probe, GDPR export/delete, diagnostics export, LLM
+GDPR export/delete, diagnostics export, LLM
 connection test, onboarding step / model-catalog reads, microphone
 refresh, Electron notification, RMS / audio-status reads, microphone
 test status, level monitor status) are all handled by dedicated service

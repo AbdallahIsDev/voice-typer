@@ -1,4 +1,4 @@
-""" / Hard rule 8: doc-parity test for docs/ipc-reference.md.
+"""/ Hard rule 8: doc-parity test for docs/ipc-reference.md.
 
 Asserts that every command in ``_COMMAND_REGISTRY`` has a row in
 ``docs/ipc-reference.md`` and vice versa (modulo the explicit
@@ -11,7 +11,7 @@ parses them so the two tests stay consistent if the registry file shape
 changes.
 
 Asserts the documented "Commands (N total ...)" header count matches
-the actual registry size (currently 65 = 63 renderer-reachable + 2
+the actual registry size (currently 69 = 67 renderer-reachable + 2
 host-only).
 
 Asserts the documented "Push events (N typed)" header count matches
@@ -28,17 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 IPC_REFERENCE_MD = REPO_ROOT / "docs" / "ipc-reference.md"
 IPC_REGISTRY_PY = REPO_ROOT / "voice_typer" / "server" / "ipc" / "registry.py"
 IPC_SERVER_PY = REPO_ROOT / "voice_typer" / "server" / "ipc_server.py"
-PUSH_EVENTS_TS = (
-    REPO_ROOT
-    / "voice_typer"
-    / "client"
-    / "src"
-    / "renderer"
-    / "src"
-    / "types"
-    / "ipc"
-    / "push_events.ts"
-)
+PUSH_EVENTS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "renderer" / "src" / "types" / "ipc" / "push_events.ts"
 
 
 def _command_registry_entries() -> set[str]:
@@ -55,10 +45,7 @@ def _command_registry_entries() -> set[str]:
             if "_COMMAND_REGISTRY" in text:
                 src = text
                 break
-    assert src is not None, (
-        f"Could not find _COMMAND_REGISTRY in {IPC_REGISTRY_PY} or "
-        f"{IPC_SERVER_PY}."
-    )
+    assert src is not None, f"Could not find _COMMAND_REGISTRY in {IPC_REGISTRY_PY} or {IPC_SERVER_PY}."
     m_start = re.search(r"_COMMAND_REGISTRY\s*:\s*dict\[str,\s*str\]\s*=\s*\{", src)
     assert m_start is not None, "_COMMAND_REGISTRY literal not found."
     depth = 1
@@ -69,7 +56,7 @@ def _command_registry_entries() -> set[str]:
         elif src[i] == "}":
             depth -= 1
         i += 1
-    body = src[m_start.end(): i - 1]
+    body = src[m_start.end() : i - 1]
     return set(re.findall(r'"([a-z_]+)"\s*:\s*"_handle_', body))
 
 
@@ -97,7 +84,7 @@ def _doc_removed_commands_section() -> set[str]:
     if next_section:
         after = after[: next_section.start()]
     # The removed commands are listed as inline-code tokens:
-    # `` `apply_vocabulary_suggestion`, `check_accessibility`, ...``
+    # `` `apply_vocabulary_suggestion`, `delete_all_personal_data`, ...``
     return set(re.findall(r"`([a-z_]+)`", after))
 
 
@@ -148,11 +135,7 @@ def _push_event_types() -> set[str]:
     # (type: "relaunch_electron")``) are not picked up as live type
     # literals. Only lines that begin with whitespace + ``type: "..."``
     # (inside an interface body, indented) count as real declarations.
-    live_lines = [
-        line
-        for line in body.splitlines()
-        if not line.lstrip().startswith(("*", "//", "/*"))
-    ]
+    live_lines = [line for line in body.splitlines() if not line.lstrip().startswith(("*", "//", "/*"))]
     body = "\n".join(live_lines)
     return set(re.findall(r'type:\s*"([a-z_]+)"', body))
 
@@ -218,8 +201,7 @@ def test_ipc_reference_doc_commands_header_count_matches_registry() -> None:
     actual = len(_command_registry_entries())
     documented = _doc_commands_header_count()
     assert documented is not None, (
-        "docs/ipc-reference.md no longer has a '## Commands (N total ...)' "
-        "header in a parseable form."
+        "docs/ipc-reference.md no longer has a '## Commands (N total ...)' header in a parseable form."
     )
     assert documented == actual, (
         f"docs/ipc-reference.md documents {documented} total commands but "
@@ -232,13 +214,12 @@ def test_ipc_reference_doc_push_events_header_count_matches_source() -> None:
     actual = len(_push_event_types())
     documented = _doc_push_events_header_count()
     assert documented is not None, (
-        "docs/ipc-reference.md no longer has a '## Push events (N typed)' "
-        "header in a parseable form."
+        "docs/ipc-reference.md no longer has a '## Push events (N typed)' header in a parseable form."
     )
     assert documented == actual, (
         f"docs/ipc-reference.md documents {documented} typed push events "
         f"but the renderer's types/ipc/push_events.ts declares {actual} "
-        f"(via `type: \"<name>\"` literals). Update the header."
+        f'(via `type: "<name>"` literals). Update the header.'
     )
 
 
@@ -286,7 +267,7 @@ def test_ipc_reference_doc_mentions_host_only_commands() -> None:
 
 
 def test_ipc_reference_doc_removed_section_lists_known_dead_commands() -> None:
-    """The 'Removed / never-existed commands' section lists the 17 dead names.
+    """The 'Removed / never-existed commands' section lists the 16 dead names.
 
     These are commands that appeared in older drafts of the doc but
     were never in ``_COMMAND_REGISTRY``. The section exists so
@@ -299,7 +280,6 @@ def test_ipc_reference_doc_removed_section_lists_known_dead_commands() -> None:
     removed_section = _doc_removed_commands_section()
     expected_dead = {
         "apply_vocabulary_suggestion",
-        "check_accessibility",
         "delete_all_personal_data",
         "dismiss_vocabulary_suggestion",
         "export_diagnostics",

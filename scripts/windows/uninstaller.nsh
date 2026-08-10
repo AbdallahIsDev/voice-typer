@@ -10,22 +10,27 @@
 ; We use it to clean up per-user artifacts that survive the file
 ; removal:
 ;
-;   CR-69: delete the HKCU Run key entries starting with "VoiceTyper"
-;          (the per-user autostart entry written by
+;   CR-69: delete the HKCU Run key entries owned by Voice Typer: the
+;          current canonical names starting with "com.voicetyper" (the
+;          per-user autostart entry written by
 ;          autostart_windows._register_app_autostart_runkey when the
-;          user enables autostart in Settings). The Run key name format
-;          is `VoiceTyper_<8char-hash>` (e.g. `VoiceTyper_a1b2c3d4`),
-;          derived from SHA-256 of sys.executable. We delete ALL values
-;          starting with "VoiceTyper" so stale entries from previous
-;          installs (different install paths → different hashes) are
-;          also cleaned up.
+;          user enables autostart in Settings — format
+;          `com.voicetyper.autostart_<8char-hash>`, reverse-DNS
+;          namespace) AND the pre-rename bare names starting with
+;          "VoiceTyper" (format `VoiceTyper_<8char-hash>`, e.g.
+;          `VoiceTyper_a1b2c3d4`). We delete ALL such values so stale
+;          entries from previous installs (different install paths →
+;          different hashes) are also cleaned up.
 ;
 ;          Also runs `schtasks /delete /tn "VoiceTyperAutostart*" /f`
 ;          for each matching Task Scheduler task — the fallback autostart
 ;          mechanism when the Run key fails. The Task Scheduler task
-;          name format is `VoiceTyperAutostart_<8char-hash>`. We use
+;          name format is `com.voicetyper.autostart_<8char-hash>`
+;          (pre-rename: `VoiceTyperAutostart_<8char-hash>`). We use
 ;          PowerShell's Get-ScheduledTask (which DOES support wildcards)
 ;          to enumerate matching tasks, then schtasks /Delete for each.
+;          The wildcard union also catches the prewarm task
+;          `com.voicetyper.prewarm` / legacy `VoiceTyperPrewarm`.
 ;
 ;   CR-70: remove the per-user data directory at %APPDATA%\voice-typer
 ;          (settings JSON, history DB, downloaded vocabularies, etc.).
@@ -64,9 +69,12 @@
 
 !macro customUnInstall
   ; ─── CR-69: HKCU Run key cleanup ────────────────────────────────────
-  ; Enumerate HKCU\...\Run values + delete any whose name starts with
-  ; "VoiceTyper" (10 chars). Covers both `VoiceTyper_<hash>` (Run key
-  ; path) and `VoiceTyperAutostart_<hash>` (legacy task-name form).
+  ; Enumerate HKCU\...\Run values + delete any owned by Voice Typer:
+  ; current canonical names starting with "com.voicetyper" (13 chars,
+  ; e.g. `com.voicetyper.autostart_<hash>` and the prewarm Run-key
+  ; value `com.voicetyper.prewarm`) AND pre-rename bare names starting
+  ; with "VoiceTyper" (10 chars, e.g. `VoiceTyper_<hash>` /
+  ; `VoiceTyperAutostart_<hash>`).
   ;
   ; NSIS doesn't have a wildcard registry delete, so we iterate with
   ; EnumRegValue. When a value is deleted, the next value shifts into
@@ -75,13 +83,22 @@
   ; when EnumRegValue sets the error flag (no more values).
   Push $0    ; enum index
   Push $1    ; value name (current)
-  Push $2    ; first-10-chars prefix
+  Push $2    ; prefix (current value name, truncated)
   StrCpy $0 0
   enum_loop:
     ClearErrors
     EnumRegValue $1 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" $0
     IfErrors enum_done
-    ; Copy first 10 chars of $1 into $2 and compare to "VoiceTyper".
+    ; Copy first 13 chars of $1 into $2 and compare to "com.voicetyper".
+    StrCpy $2 $1 13
+    StrCmp $2 "com.voicetyper" 0 try_legacy_prefix
+      DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" $1
+      DetailPrint "[voice-typer-uninstall] Removed HKCU Run key: $1"
+      ; Don't increment — re-read same index (next value shifted in).
+      Goto enum_loop
+    ; Copy first 10 chars of $1 into $2 and compare to "VoiceTyper"
+    ; (pre-rename bare scheme).
+    try_legacy_prefix:
     StrCpy $2 $1 10
     StrCmp $2 "VoiceTyper" 0 next_value
       DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" $1
@@ -106,20 +123,27 @@
   ;
   ; Sweep widened from `VoiceTyperAutostart*` to `VoiceTyper*` so it ALSO
   ; catches the prewarm task `VoiceTyperPrewarm` (registered by
-  ; voice_typer/server/task_scheduler.py with TASK_NAME = "VoiceTyperPrewarm"),
-  ; not just the autostart fallback tasks `VoiceTyperAutostart_<hash>`.
+  ; voice_typer/server/task_scheduler.py with TASK_NAME =
+  ; "com.voicetyper.prewarm"; the legacy pre-rename task kept the bare
+  ; name `VoiceTyperPrewarm`), not just the autostart fallback tasks
+  ; `VoiceTyperAutostart_<hash>`. The union with 'com.voicetyper*'
+  ; covers the current canonical reverse-DNS names from installs that
+  ; postdate the namespace rename.
   ;
   ; NSIS string escaping: $\" is a literal double-quote. We need them
   ; around the task name so schtasks handles names with spaces correctly
-  ; (unlikely for "VoiceTyperAutostart_<hash>" but defensive).
-  nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-ScheduledTask -TaskName VoiceTyper* -ErrorAction SilentlyContinue | ForEach-Object { schtasks.exe /Delete /TN $\"$($_.TaskName)$\" /F }"'
+  ; (unlikely for "com.voicetyper.autostart_<hash>" but defensive).
+  nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "Get-ScheduledTask -TaskName $\'VoiceTyper*$\',$\'com.voicetyper*$\' -ErrorAction SilentlyContinue | ForEach-Object { schtasks.exe /Delete /TN $\"$($_.TaskName)$\" /F }"'
   Pop $0  ; exit code — best-effort, discard
 
   ; Belt-and-suspenders: explicit delete of the prewarm task name in case
   ; the wildcard sweep above missed it (e.g. PowerShell Get-ScheduledTask
   ; wildcard behavior differs across Windows versions). /F = force (no
   ; prompt). Non-fatal if the task is already gone (the Pop discards the
-  ; exit code).
+  ; exit code). Deletes both the current canonical name and the
+  ; pre-rename legacy name.
+  nsExec::ExecToLog 'schtasks.exe /Delete /TN "com.voicetyper.prewarm" /F'
+  Pop $0  ; exit code — best-effort, discard
   nsExec::ExecToLog 'schtasks.exe /Delete /TN "VoiceTyperPrewarm" /F'
   Pop $0  ; exit code — best-effort, discard
 

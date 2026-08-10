@@ -484,8 +484,8 @@ class TestMutexPathHash:
         from voice_typer.server.server_platform import _run_key_name
 
         name = _run_key_name()
-        assert name.startswith("VoiceTyper_")
-        assert len(name) > len("VoiceTyper_")
+        assert name.startswith("com.voicetyper.autostart_")
+        assert len(name) > len("com.voicetyper.autostart_")
 
     def test_different_executables_produce_different_hashes(self, monkeypatch):
         from voice_typer.server.server_platform import _run_key_name

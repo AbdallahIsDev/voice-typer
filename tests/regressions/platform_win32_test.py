@@ -97,7 +97,8 @@ class TestWindowsManifestAsInvoker:
 class TestPlatRunAutostartTaskHashed:
     """The finding: autostart task name was a fixed string
     "VoiceTyperAutostart" — two installs would conflict. Fix: append
-    the install-path hash suffix.
+    the install-path hash suffix (now in the canonical
+    ``com.voicetyper.*`` reverse-DNS namespace).
     """
 
     def test_autostart_task_name_includes_hash_suffix(self):
@@ -112,13 +113,13 @@ class TestPlatRunAutostartTaskHashed:
         assert "_install_hash_suffix" in src, "_install_hash_suffix helper must exist."
         # The task name must be an f-string that includes the hash
         assert (
-            'f"VoiceTyperAutostart{_install_hash_suffix()}"' in src
-            or "f'VoiceTyperAutostart{_install_hash_suffix()}'" in src
+            'f"com.voicetyper.autostart{_install_hash_suffix()}"' in src
+            or "f'com.voicetyper.autostart{_install_hash_suffix()}'" in src
         ), "_APP_AUTOSTART_TASK_NAME must include the hash suffix."
 
     def test_install_hash_suffix_returns_underscore_prefix(self):
         """The hash suffix must start with '_' so the task name reads
-        'VoiceTyperAutostart_a1b2c3d4'.
+        'com.voicetyper.autostart_a1b2c3d4'.
         """
         from voice_typer.server.server_platform import _install_hash_suffix
 
@@ -247,9 +248,7 @@ class TestPlatPumpImportHoisted:
         import_idx = src.find("import win32gui")
         assert while_idx >= 0
         assert import_idx >= 0
-        assert import_idx < while_idx, (
-            "'import win32gui' must be hoisted BEFORE the while loop, not inside it."
-        )
+        assert import_idx < while_idx, "'import win32gui' must be hoisted BEFORE the while loop, not inside it."
 
     def test_pump_messages_stored_in_local(self):
         """The PumpWaitingMessages function must be stored in a local
@@ -356,8 +355,7 @@ class TestWslDetectionLogic:
         src = inspect.getsource(WindowsNativeHotkey._run_polling_loop)
         # The import must be guarded by try/except ImportError
         assert "except ImportError" in src, (
-            "win32gui import must be guarded by "
-            "try/except ImportError so the loop doesn't crash on WSL."
+            "win32gui import must be guarded by try/except ImportError so the loop doesn't crash on WSL."
         )
         # _pump_messages must default to None (no crash when win32gui missing)
         assert "_pump_messages = None" in src

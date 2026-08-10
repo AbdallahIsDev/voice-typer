@@ -226,4 +226,16 @@ export const ALLOWED_COMMANDS = new Set<string>([
 	// SystemHandlersMixin._handle_reset_linux_permissions (pkaction
 	// enumerates + pkcheck verifies).
 	"reset_linux_permissions",
+	// macOS accessibility-status probe (finding #919 part b — RE-ADDED
+	// 2026-08-10): the Settings → Troubleshooting UI now invokes
+	// `check_accessibility` on macOS to surface the stale-grant
+	// `tccutil` reset command next to the "Reset Accessibility
+	// Permission" button. Python handler:
+	// SystemHandlersMixin._handle_check_accessibility (returns
+	// `accessibility_status` with `granted` / `platform` and, on a
+	// confirmed stale grant, `suggest_reset` + the runtime
+	// `reset_command` string). Was dropped in the stale-entry cleanup
+	// (no renderer caller at the time); re-wired through the TS,
+	// Rust, and Python registries in lockstep.
+	"check_accessibility",
 ]);

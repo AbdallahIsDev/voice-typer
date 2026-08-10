@@ -15,6 +15,18 @@ Resolution is best-effort: dev-mode runs (launched from a terminal with
 no ``.app`` in the process chain) and non-macOS hosts return ``None`` so
 callers can fall back to a generic message instead of showing a wrong
 ``tccutil`` command.
+
+The Linux sibling of this walk lives in
+:mod:`voice_typer.server.server_platform.linux_proc_walk` (same bounded
+chain-walk semantics against the real ``/proc`` tree; Linux has no
+``.app`` bundles, so its detection is a documented no-op).
+
+This module is also the single source of truth for ``tccutil`` command
+construction (TCC-002 — see :func:`tccutil_reset_command`): every
+consumer that needs a ``tccutil reset Accessibility <bundle-id>`` string
+or argv list MUST go through the helpers below so a future change
+(service naming, extra flags, ``tccutil`` replacement) lands in one
+place.
 """
 
 from __future__ import annotations
@@ -31,8 +43,45 @@ log = logging.getLogger(__name__)
 
 # How many ancestors to walk looking for the host ``*.app`` bundle. The
 # backend is normally a direct child of the host (1 step); the bound
-# guards against pathological chains (launcher scripts, etc.).
+# guards against pathological chains (launcher scripts, etc.). Shared
+# with the Linux sibling walk (``linux_proc_walk``) so the depth
+# semantics stay in lockstep across platforms.
 _MAX_CHAIN_DEPTH = 8
+
+
+def tccutil_reset_command(service: str, bundle_id: str) -> list[str]:
+    """Build the ``tccutil reset <service> <bundle-id>`` argv list.
+
+    TCC-002: the single source of truth for ``tccutil`` command
+    construction. Every consumer — the a11y re-grant notification
+    (``startup_tasks.py``), the onboarding walkthrough commands
+    (``onboarding.py``), the ``reset_macos_accessibility`` IPC handler
+    (``system_handlers.py``) and the permission tray notification
+    (``permissions/checker.py``) — MUST build the command through this
+    helper so a future change (service naming, extra flags, a
+    ``tccutil`` replacement) lands in exactly one place.
+
+    ``service`` is a TCC service name (``"Accessibility"``,
+    ``"Microphone"``, ...); ``bundle_id`` is the host app's
+    ``CFBundleIdentifier`` (normally runtime-resolved via
+    :func:`resolve_host_bundle_id` — never hardcoded).
+
+    Returns the argv list form (for ``subprocess``-style APIs).
+    """
+    return ["tccutil", "reset", service, bundle_id]
+
+
+def tccutil_reset_command_str(service: str, bundle_id: str) -> str:
+    """Return the ``tccutil`` reset command as a single-line shell string.
+
+    TCC-002: mirrors :func:`tccutil_reset_command` in string form for
+    user-facing messages — e.g. ``"tccutil reset Accessibility
+    com.example.app"`` (with spaces in the bundle id preserved). The
+    two forms must stay in lockstep; both derive from
+    :func:`tccutil_reset_command` so there is exactly one construction
+    point.
+    """
+    return " ".join(tccutil_reset_command(service, bundle_id))
 
 
 def _process_chain_line(pid: int) -> str:

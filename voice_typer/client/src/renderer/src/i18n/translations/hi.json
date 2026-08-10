@@ -1025,6 +1025,7 @@
 			"resetAccessibilityToast": "एक्सेसिबिलिटी अनुमति रीसेट हो गई — इसे सिस्टम सेटिंग्स में फिर से दें",
 			"resetAccessibilityToastWithCommand": "एक्सेसिबिलिटी अनुमति रीसेट हो गई — {command} चलाया गया — इसे सिस्टम सेटिंग्स में फिर से दें",
 			"resetAccessibilityFailed": "एक्सेसिबिलिटी अनुमति रीसेट करने में विफल",
+			"resetAccessibilitySuggestion": "एक्सेसिबिलिटी अनुमति पुरानी लग रही है — सिस्टम ग्रांट को इससे रीसेट करें:",
 			"resetLinux": "Linux अनुमति रीसेट करें",
 			"resetLinuxAria": "Linux कीबोर्ड अनुमति रीसेट करें",
 			"resetLinuxHint": "पुरानी Linux polkit प्राधिकरण साफ़ करें (pkcheck/pkaction) ताकि अनुमति प्रॉम्प्ट फिर से दिखें",

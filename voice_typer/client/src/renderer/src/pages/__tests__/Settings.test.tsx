@@ -621,6 +621,60 @@ describe("Settings page — PERF-002 batched config writes", () => {
 		}
 	});
 
+	// ── Finding #919 part (b): stale-grant reset suggestion ────────────
+	// The Troubleshooting section probes `check_accessibility` on mount
+	// (macOS only); on a CONFIRMED stale grant the backend echoes the
+	// runtime `tccutil` command, which is surfaced next to the Reset
+	// button. A missing / falsy suggestion must render nothing extra.
+	it("surfaces the runtime tccutil reset command when the grant looks stale", async () => {
+		Object.defineProperty(window.navigator, "userAgent", {
+			value: macUA,
+			configurable: true,
+		});
+		try {
+			mockCall.mockImplementation((type: string) => {
+				if (type === "get_config") return Promise.resolve(baseConfig);
+				if (type === "set_config") return Promise.resolve({ success: true });
+				if (type === "check_accessibility")
+					return Promise.resolve({
+						granted: false,
+						platform: "macos",
+						suggest_reset: true,
+						reset_command: "tccutil reset Accessibility com.voicetyper.desktop",
+					});
+				return Promise.resolve({});
+			});
+
+			const { default: SettingsPage } = await import("@/pages/Settings");
+			renderWithProviders(<SettingsPage />);
+
+			await waitFor(() => {
+				expect(screen.getByText("Appearance")).toBeTruthy();
+			});
+			fireEvent.click(screen.getByText("Privacy"));
+
+			// The suggested command must be rendered as code text.
+			await waitFor(() => {
+				expect(
+					screen.getByText(
+						"tccutil reset Accessibility com.voicetyper.desktop",
+					),
+				).toBeTruthy();
+			});
+			expect(mockCall).toHaveBeenCalledWith("check_accessibility");
+		} finally {
+			mockCall.mockImplementation((type: string) => {
+				if (type === "get_config") return Promise.resolve(baseConfig);
+				if (type === "set_config") return Promise.resolve({ success: true });
+				return Promise.resolve({});
+			});
+			Object.defineProperty(window.navigator, "userAgent", {
+				value: linuxUA,
+				configurable: true,
+			});
+		}
+	});
+
 	// ── Finding #127 part (b) Linux sibling: "Reset Linux Permission" ──
 	// A stale polkit authorization is cleared by restarting the polkit
 	// daemon (pkexec) so the next "Grant permission" re-prompts.

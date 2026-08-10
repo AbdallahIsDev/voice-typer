@@ -17,14 +17,17 @@ exists so that:
    it asserts ONLY the Rust ↔ TS parity invariant, with a clearer
    failure message that points at the YJ-10 fix's two files.
 
-2. **A negative-regression guard for the 17 removed commands.** The
+2. **A negative-regression guard for the 16 removed commands.** The
    ``test_rust_allowlist_does_notContain_yj10_removed_commands``
-   test below asserts that none of the 17 commands removed by the
+   test below asserts that none of the 16 commands removed by the
    YJ-10 fix silently creep back into the Rust allowlist. Each of
-   those 17 was audited via
+   those 16 was audited via
    ``rg --type=ts '<cmd>' voice_typer/client/src/renderer/src/``
    and confirmed to have ZERO renderer callers; re-adding one would
-   re-open the defense-in-depth gap.
+   re-open the defense-in-depth gap. (``check_accessibility`` was
+   removed from the guard set on 2026-08-10 — finding #919 part b
+   gave it a legitimate renderer caller, so it was re-added to all
+   three allowlists in lockstep instead.)
 
 The test imports the Rust allowlist by parsing ``sidecar_cmds.rs``
 (string scan for the ``let cmds: &[&str] = &[`` ... ``];`` literal
@@ -184,14 +187,14 @@ def test_rust_allowlist_entries_match_ts() -> None:
 def test_rust_allowlist_does_not_contain_removed_commands() -> None:
     """YJ-10 negative regression guard.
 
-    The 17 commands removed by the YJ-10 fix (none had renderer
+    The 16 commands removed by the YJ-10 fix (none had renderer
     callers — see the reconciliation note in
     ``sidecar_cmds.rs::allowed_commands``) MUST NOT silently creep
-    back into the Rust allowlist. Each of these 17 was audited via
+    back into the Rust allowlist. Each of these 16 was audited via
     ``rg --type=ts '<cmd>' voice_typer/client/src/renderer/src/`` and
     confirmed to have ZERO renderer callers; re-adding one would
     re-open the defense-in-depth gap (a compromised renderer would
-    be able to ``invoke('dispatch', {cmd:'<one of these 17>'})`` and
+    be able to ``invoke('dispatch', {cmd:'<one of these 16>'})`` and
     reach a server-side handler that no legitimate UI path
     exercises).
 
@@ -202,11 +205,14 @@ def test_rust_allowlist_does_not_contain_removed_commands() -> None:
          allowlist (in the same PR).
       2. Remove the command name from the ``yj10_removed`` set below
          so this negative-regression guard no longer flags it.
+    (``check_accessibility`` followed exactly this path on
+    2026-08-10 — finding #919 part b gave it a renderer caller, so
+    it was dropped from the set below and re-added to both
+    allowlists plus the Python registry.)
     """
     rust = _rust_allowed_commands()
     yj10_removed = {
         "apply_vocabulary_suggestion",
-        "check_accessibility",
         "delete_all_personal_data",
         "dismiss_vocabulary_suggestion",
         "export_diagnostics",
@@ -226,7 +232,7 @@ def test_rust_allowlist_does_not_contain_removed_commands() -> None:
     leaked = yj10_removed & rust
     assert not leaked, (
         f"YJ-10 negative-regression guard: {sorted(leaked)} re-appeared "
-        f"in the Rust ALLOWED_COMMANDS. These 17 commands were "
+        f"in the Rust ALLOWED_COMMANDS. These 16 commands were "
         f"deliberately removed in the YJ-10 fix because they had ZERO "
         f"renderer callers (audit: "
         f"`rg --type=ts '<cmd>' voice_typer/client/src/renderer/src/`). "

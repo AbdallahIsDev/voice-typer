@@ -82,20 +82,23 @@ nsis:
   # (after the main app files are removed, before the installer exits),
   # so it can clean up per-user artifacts that survive file removal:
   #
-  #   - HKCU\Software\Microsoft\Windows\CurrentVersion\Run\VoiceTyper_<hash>
-  #     (per-install hash suffix from SHA-256 of sys.executable — see
-  #     _run_key_name() in autostart_windows.py). This is a REGISTRY
-  #     value, NOT a file in AppData, so deleteAppDataOnUninstall above
-  #     does NOT remove it. The .nsh enumerates ALL VoiceTyper* values
-  #     (not just the current install's hash) so stale entries from
-  #     previous installs at different paths are also cleaned up.
-  #   - Scheduled task "VoiceTyperAutostart<hash>" registered via
+  #   - HKCU\Software\Microsoft\Windows\CurrentVersion\Run\com.voicetyper.autostart_<hash>
+  #     (per-install hash suffix of the install path — see
+  #     _run_key_name() in autostart_windows.py; canonical reverse-DNS
+  #     namespace, pre-rename bare form was VoiceTyper_<hash>). This is a
+  #     REGISTRY value, NOT a file in AppData, so deleteAppDataOnUninstall
+  #     above does NOT remove it. The .nsh enumerates ALL VoiceTyper* and
+  #     com.voicetyper* values (not just the current install's hash) so
+  #     stale entries from previous installs at different paths are also
+  #     cleaned up.
+  #   - Scheduled task "com.voicetyper.autostart<hash>" registered via
   #     `schtasks /Create /TN ... /XML` (see _register_app_autostart_task
   #     in autostart_windows.py). Lives in Task Scheduler, also NOT
   #     under AppData. The .nsh shells out to PowerShell's
   #     Get-ScheduledTask (which DOES support -TaskName wildcards —
   #     schtasks /Delete alone does NOT) to enumerate + delete each
-  #     matching task.
+  #     matching task. The wildcard union also catches the prewarm task
+  #     "com.voicetyper.prewarm" / legacy "VoiceTyperPrewarm".
   #
   # The .nsh file lives at scripts/windows/uninstaller.nsh (NOT in
   # voice_typer/client/build/ as the old comment below speculated —

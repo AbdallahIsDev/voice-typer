@@ -32,13 +32,15 @@ class TestAccessibilityIpcEndpointExists:
     for the Electron UI to query. Fix: added ``check_accessibility``
     IPC handler that returns ``{granted, platform}``.
 
-    Stale-test refresh: the ``check_accessibility`` command was
-    REMOVED from ``IPCServer._COMMAND_REGISTRY`` (the Tauri host now
-    invokes it via a dedicated Rust command). The Python-side
-    ``_handle_check_accessibility`` method still exists on
-    ``SystemHandlersMixin`` for the legacy Electron path. This test
-    calls the handler method directly instead of routing through
-    ``_dispatch`` (which would otherwise respond ``unknown_command``).
+    Stale-test refresh + re-registration: the ``check_accessibility``
+    command was REMOVED from ``IPCServer._COMMAND_REGISTRY`` in the
+    GT-32 stale-entry cleanup (the Tauri host invoked it via a
+    dedicated Rust command), then RE-ADDED on 2026-08-10 (finding
+    #919 part b) — the Settings → Troubleshooting UI now invokes it
+    on macOS to surface the stale-grant ``tccutil`` reset command.
+    This test calls the handler method directly (not via ``_dispatch``)
+    so it stays a pure PLAT-030 regression check; the dispatch-level
+    coverage lives in ``tests/handlers/test_system_handlers.py``.
     """
 
     @pytest.mark.skipif(
@@ -65,10 +67,7 @@ class TestAccessibilityIpcEndpointExists:
         server.app = app
         server.service = MagicMock()
 
-        # Invoke the handler directly. The command was removed from
-        # ``_COMMAND_REGISTRY`` (the Tauri host handles it natively),
-        # so ``_dispatch`` would route to ``unknown_command`` — but the
-        # handler method itself is unchanged. The handler runs
+        # Invoke the handler directly. The handler runs
         # empty-schema payload validation (a non-dict payload is
         # rejected with ``invalid_payload``), so pass ``{}`` — NOT
         # ``None`` — as the data arg.

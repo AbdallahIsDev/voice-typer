@@ -20,15 +20,17 @@ Post-fix (this commit):
      earlier wave) is now WIRED via ``nsis.include`` in
      electron-builder.yml. The .nsh does the native NSIS registry
      + schtasks sweep.
-  2. ``scripts/windows/uninstall_permissions.py`` (NEW) — Python
-     equivalent, invoked by the .bat wrapper, which calls the
-     production helpers in ``autostart_windows.py``:
-       - ``_unregister_all_voicetyper_runkeys`` — enumerates ALL
-         ``VoiceTyper_*`` values under HKCU\\...\\Run and deletes
-         them (covers stale entries from previous installs at
-         different paths).
-       - ``_unregister_all_voicetyper_tasks`` — PowerShell
-         ``Get-ScheduledTask`` sweep for ``VoiceTyperAutostart*``.
+2. ``scripts/windows/uninstall_permissions.py`` (NEW) — Python
+      equivalent, invoked by the .bat wrapper, which calls the
+      production helpers in ``autostart_windows.py``:
+        - ``_unregister_all_voicetyper_runkeys`` — enumerates ALL
+          ``VoiceTyper*`` AND ``com.voicetyper*`` values under
+          HKCU\\...\\Run and deletes them (covers stale entries from
+          previous installs at different paths, under both the
+          pre-rename bare scheme and the current reverse-DNS scheme).
+        - ``_unregister_all_voicetyper_tasks`` — PowerShell
+          ``Get-ScheduledTask`` sweep for ``VoiceTyper*`` +
+          ``com.voicetyper*`` (autostart + prewarm tasks).
   3. ``scripts/windows/uninstall.bat`` (NEW) — wrapper that invokes
      the Python script (preferred) and falls back to a native
      PowerShell sweep if Python is unavailable at uninstall time.
@@ -341,12 +343,21 @@ class TestUnregisterAllVoiceTyperTasks:
         """When task_scheduler.is_supported() returns False (non-Windows
         host), the function returns an empty list — no PowerShell call.
         """
+        import voice_typer.server as server_pkg
         from voice_typer.server.server_platform import autostart_windows
 
         # Mock task_scheduler.is_supported to return False.
         fake_task_scheduler = types.ModuleType("task_scheduler")
         fake_task_scheduler.is_supported = lambda: False
         monkeypatch.setitem(sys.modules, "voice_typer.server.task_scheduler", fake_task_scheduler)
+        # ALSO pin the package attribute: `from voice_typer.server import
+        # task_scheduler` inside the function prefers an already-attached
+        # real module over the sys.modules entry (importlib checks
+        # hasattr() on the package first when the submodule was really
+        # imported earlier in the session). Without this, a Windows dev
+        # host whose real Task Scheduler still holds a VoiceTyper task
+        # runs REAL PowerShell here and the test fails spuriously.
+        monkeypatch.setattr(server_pkg, "task_scheduler", fake_task_scheduler, raising=False)
 
         deleted = autostart_windows._unregister_all_voicetyper_tasks()
         assert deleted == []
@@ -363,7 +374,12 @@ class TestUnregisterAllVoiceTyperTasks:
         # Mock subprocess.run to simulate PowerShell success.
         fake_result = MagicMock()
         fake_result.returncode = 0
-        fake_result.stdout = "VoiceTyperAutostart_aaaaaaaa\nVoiceTyperAutostart_bbbbbbbb\n"
+        fake_result.stdout = (
+            "VoiceTyperAutostart_aaaaaaaa\n"
+            "VoiceTyperAutostart_bbbbbbbb\n"
+            "com.voicetyper.prewarm\n"
+            "com.voicetyper.autostart_cccccccc\n"
+        )
         fake_result.stderr = ""
         monkeypatch.setattr(
             "subprocess.run",
@@ -371,7 +387,12 @@ class TestUnregisterAllVoiceTyperTasks:
         )
 
         deleted = autostart_windows._unregister_all_voicetyper_tasks()
-        assert sorted(deleted) == ["VoiceTyperAutostart_aaaaaaaa", "VoiceTyperAutostart_bbbbbbbb"]
+        assert sorted(deleted) == [
+            "VoiceTyperAutostart_aaaaaaaa",
+            "VoiceTyperAutostart_bbbbbbbb",
+            "com.voicetyper.autostart_cccccccc",
+            "com.voicetyper.prewarm",
+        ]
 
     def test_powershell_failure_returns_empty_list(self, monkeypatch, fake_winreg, win32_platform):
         """When PowerShell exits non-zero, the function returns an empty

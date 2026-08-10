@@ -43,9 +43,9 @@ real ``schtasks`` call is made.
 
 VALIDATE ON WINDOWS HOST:
 1. Launch Voice Typer (creates the LogonTrigger task)
-2. Run: schtasks /query /tn "VoiceTyperPrewarm" /v /fo LIST
-   Expected: TaskName=VoiceTyperPrewarm; Trigger=At logon; Action=prewarm-x86_64-pc-windows-msvc.exe
-3. Sign out + sign back in (OR run: schtasks /run /tn "VoiceTyperPrewarm")
+2. Run: schtasks /query /tn "com.voicetyper.prewarm" /v /fo LIST
+   Expected: TaskName=com.voicetyper.prewarm; Trigger=At logon; Action=prewarm-x86_64-pc-windows-msvc.exe
+3. Sign out + sign back in (OR run: schtasks /run /tn "com.voicetyper.prewarm")
 4. Check %APPDATA%\\voice-typer\\logs\\prewarm.log for:
    - "[PREWARM] starting (frozen exe)"
    - "[PREWARM] warming CT2 cache for small.en"
@@ -547,7 +547,7 @@ def test_prewarm_run_writes_pid_file_and_signals_completion_event(monkeypatch):
     ADR-0009 Issue 4 + CPU-04: ``run()`` writes a PID file at the start
     of the warming phase (after all early-exit guards) and removes it in
     a finally block. It also creates a PID-scoped named event
-    (``Local\\VoiceTyperPrewarmCompletion_<pid>``) and signals it on
+    (``Local\\com.voicetyper.prewarm_completion_<pid>``) and signals it on
     completion. The app's ``wait_for_prewarm()`` opens the event and
     calls ``WaitForSingleObject`` (Windows) / ``pidfd_open`` (Linux) —
     a zero-CPU kernel wait — instead of polling ``is_prewarm_running()``

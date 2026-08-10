@@ -85,11 +85,14 @@ log = logging.getLogger("voice_typer.server.prewarm")
 def _completion_event_name(pid: int) -> str:
     """PID-scoped name for the prewarm completion event.
 
+    Lives in the canonical ``com.voicetyper.*`` reverse-DNS namespace
+    (matching the ``com.voicetyper.prewarm`` task / LaunchAgent label).
+
     Scoping by PID avoids cross-run contamination: a manual-reset event
     stays signaled until explicitly reset, so a single global name could
     let a later launch observe a stale "done" signal from a previous boot.
     """
-    return f"Local\\VoiceTyperPrewarmCompletion_{pid}"
+    return f"Local\\com.voicetyper.prewarm_completion_{pid}"
 
 
 def _create_completion_event(pid: int) -> int | None:

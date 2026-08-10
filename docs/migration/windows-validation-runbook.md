@@ -983,11 +983,11 @@ fallback (plain python module).
 **Verify** the task was registered + ran:
 
 ```powershell
-**VALIDATE ON WINDOWS HOST** schtasks /query /tn "VoiceTyperPrewarm" /v /fo LIST
+**VALIDATE ON WINDOWS HOST** schtasks /query /tn "com.voicetyper.prewarm" /v /fo LIST
 ```
 
 Expected fields:
-- `TaskName: \VoiceTyperPrewarm`
+- `TaskName: \com.voicetyper.prewarm`
 - `Logon Trigger: At logon` (under "Trigger Information")
 - `Last Run Time: <recent>` (matches your sign-in time)
 - `Last Result: 0` (success)
@@ -1002,7 +1002,7 @@ Expected: lines showing prewarm ran (file-cache warming of model
 files).
 
 **Pass criteria**:
-- `schtasks /query` shows the `VoiceTyperPrewarm` task with
+- `schtasks /query` shows the `com.voicetyper.prewarm` task with
   `LogonTrigger` and `Last Run Time` matching the sign-in.
 - `Last Result: 0` (success).
 - `prewarm.log` shows the prewarm ran.
@@ -1273,9 +1273,10 @@ Electron build — the Electron code is untouched by the Tauri migration
 The Tauri uninstaller removes:
 - `%LOCALAPPDATA%\Programs\Voice Typer\`
 - Start Menu entry
-- The Task Scheduler `VoiceTyperPrewarm` task (if registered — the
-  Tauri uninstaller must deregister this; see ADR-0020 §5 "Uninstall
-  cleanup per platform")
+- The Task Scheduler `com.voicetyper.prewarm` task (if registered — the
+  Tauri uninstaller must deregister this, along with the legacy
+  `VoiceTyperPrewarm` from pre-rename installs; see ADR-0020 §5
+  "Uninstall cleanup per platform")
 
 **NOTE**: The Tauri install shares the `%APPDATA%\voice-typer\` config
 dir with the Electron build — config.json, models/, history.db, logs/
@@ -1356,7 +1357,7 @@ tracking issue.
   `logs/` dir).
 - `%APPDATA%\voice-typer\logs\sidecar.log` (rotated; same zip).
 - `%APPDATA%\voice-typer\logs\prewarm.log`.
-- `schtasks /query /tn "VoiceTyperPrewarm" /v /fo LIST > prewarm-task.txt`.
+- `schtasks /query /tn "com.voicetyper.prewarm" /v /fo LIST > prewarm-task.txt`.
 - `tasklist /v > tasklist.txt` (captured while app running).
 - Screenshots of: main window, bubble window (§10.3), toast (§6.5),
   Action Center.

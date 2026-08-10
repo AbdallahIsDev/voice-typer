@@ -104,6 +104,14 @@ Pairs guarded here:
     ``tauri.conf.json``'s — the guard below fails on any feed whose
     version drifts, and fails on any unlicensed feed config appearing
     without the parity wiring.
+
+13. Every OS-level identifier the app REGISTERS must live in the
+    canonical ``com.voicetyper.*`` reverse-DNS namespace (Windows Task
+    Scheduler task + HKCU Run-key value + Startup-folder .bat +
+    prewarm completion event, macOS LaunchAgent labels, keyring service
+    name, polkit action). Legacy ``VoiceTyper*`` forms are allowed ONLY
+    in the pinned legacy constants + cleanup sweeps (see
+    TestReverseDnsIdentifierNamespace's allowlist).
 """
 
 from __future__ import annotations
@@ -957,3 +965,143 @@ class TestUpdateFeedParity:
                 "update feed wiring is pinned to NO auto-update (ADR-0020 "
                 "§15) — enable it deliberately and keep the parity guard."
             )
+
+
+# ─── Pair 13: reverse-DNS identifier namespace guard ────────────────────
+
+
+class TestReverseDnsIdentifierNamespace:
+    """Every OS-level identifier the app REGISTERS must live in the
+    canonical ``com.voicetyper.*`` reverse-DNS namespace.
+
+    The Windows autostart/prewarm identifiers were RENAMED from the bare
+    ``VoiceTyper*`` forms (Run key ``VoiceTyper_<hash>``, Task Scheduler
+    tasks ``VoiceTyperAutostart<hash>`` / ``VoiceTyperPrewarm``,
+    Startup-folder ``VoiceTyper*.bat``, completion event
+    ``Local\\VoiceTyperPrewarmCompletion_<pid>``) to the canonical
+    namespace. These source pins flag a drift BACK to a bare name (or to
+    any NON ``com.voicetyper.*`` name) at the source level — the same
+    failure mode the uninstall-script sweeps and the
+    ``platform_win32_test`` hash-suffix tests miss (those only verify
+    the entries are swept/registered, not what they're NAMED).
+
+    Explicit allowlist — bare ``VoiceTyper*`` forms that are
+    INTENTIONAL and must NOT be renamed (do not extend without
+    reviewing the item):
+
+    - ``_LEGACY_TASK_NAME = "VoiceTyperPrewarm"`` (task_scheduler.py) —
+      register/unregister delete it to converge pre-rename installs.
+    - ``_LEGACY_KEYRING_SERVICE_NAMES = ("app.voicetyper", "voice-typer")``
+      (credential_store.py) — keyring migration sources (migrated once,
+      then deleted).
+    - ``Local\\VoiceTyperSingleInstance`` mutex (single_instance.py) —
+      internal OS/API identifier; CONSTRAINTS.md explicitly permits
+      internal identifiers to keep their names. Same for the
+      ``VoiceTyper.exe`` installer binary name.
+    - Sweep/cleanup strings that MUST match both forms: the
+      ``("VoiceTyper", "com.voicetyper")`` prefix tuples,
+      ``'VoiceTyper*','com.voicetyper*'`` PowerShell union, and the
+      ``autostart-sweep-v2-<hash>.done`` marker (which must stay
+      version-scoped so pre-rename installs re-sweep once).
+    """
+
+    def test_windows_autostart_and_prewarm_identifiers_are_reverse_dns(self) -> None:
+        """Source pins for the Windows identifier literals (active names)."""
+        pins = {
+            "voice_typer/server/task_scheduler.py": [
+                'TASK_NAME = "com.voicetyper.prewarm"',
+                '_LEGACY_TASK_NAME = "VoiceTyperPrewarm"',
+            ],
+            "voice_typer/server/server_platform/__init__.py": [
+                '_APP_AUTOSTART_TASK_NAME = f"com.voicetyper.autostart{_install_hash_suffix()}"',
+            ],
+            "voice_typer/server/server_platform/autostart_windows.py": [
+                'return f"com.voicetyper.autostart_{_pkg._install_hash()}"',
+                'return f"com.voicetyper.autostart{_pkg._install_hash_suffix()}.bat"',
+                # Register-time stale-cleanup + uninstall sweeps must match
+                # BOTH schemes (legacy entries from pre-rename installs).
+                'name.startswith(("VoiceTyper", "com.voicetyper"))',
+                "\"Get-ScheduledTask -TaskName 'VoiceTyper*','com.voicetyper*' \"",
+            ],
+            "voice_typer/server/prewarm/completion_events.py": [
+                # The source literal carries TWO backslashes (escaped \\ in
+                # the f-string); the test string must mirror both.
+                'return f"Local\\\\com.voicetyper.prewarm_completion_{pid}"',
+            ],
+        }
+        for rel, expected in pins.items():
+            text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
+            for pin in expected:
+                assert pin in text, (
+                    f"{rel} drifted from the canonical com.voicetyper.* "
+                    f"namespace — expected the literal {pin!r}. Windows "
+                    "autostart/prewarm identifiers must be reverse-DNS "
+                    "(com.voicetyper.*), never the bare VoiceTyper* forms "
+                    "(legacy forms allowed ONLY via the allowlisted legacy "
+                    "constants and cleanup sweeps)."
+                )
+
+    def test_posix_labels_and_keyring_service_name_are_reverse_dns(self) -> None:
+        """macOS LaunchAgent labels + keyring service name stay reverse-DNS."""
+        pins = {
+            "voice_typer/server/prewarm_scheduler_posix.py": 'PREWARM_LABEL = "com.voicetyper.prewarm"',
+            "voice_typer/server/server_platform/autostart_macos.py": "<string>com.voicetyper</string>",
+            "voice_typer/server/credential_store.py": 'KEYRING_SERVICE_NAME = "com.voicetyper.keyring"',
+        }
+        for rel, pin in pins.items():
+            assert pin in (PROJECT_ROOT / rel).read_text(encoding="utf-8"), (
+                f"{rel} drifted from the canonical com.voicetyper.* namespace — expected the literal {pin!r}."
+            )
+
+    def test_polkit_action_stays_reverse_dns(self) -> None:
+        """The install-permissions polkit action is com.voicetyper.* (both
+        the source that surfaces it and the installer scripts that deploy
+        the policy file must agree on the name)."""
+        for rel in (
+            "voice_typer/server/handlers/system_handlers.py",
+            "scripts/linux/install_permissions.py",
+        ):
+            text = (PROJECT_ROOT / rel).read_text(encoding="utf-8")
+            assert "com.voicetyper.install-permissions" in text, (
+                f"{rel} must reference the polkit action "
+                "'com.voicetyper.install-permissions' (reverse-DNS). A bare "
+                "action name drifts the permission gate from the canonical "
+                "namespace."
+            )
+
+    def test_legacy_keyring_names_pinned(self) -> None:
+        """Migration sources are allowlisted AS-IS — a rename breaks the
+        one-time keyring migration (credentials would be re-migrated or
+        orphaned)."""
+        text = (PROJECT_ROOT / "voice_typer/server/credential_store.py").read_text(encoding="utf-8")
+        assert '_LEGACY_KEYRING_SERVICE_NAMES: tuple[str, ...] = ("app.voicetyper", "voice-typer")' in text, (
+            "credential_store.py legacy keyring service names drifted — they "
+            "are pinned migration sources (allowlisted)."
+        )
+
+    def test_single_instance_mutex_keeps_its_bare_name(self) -> None:
+        """CONSTRAINTS.md boundary: the mutex is an internal OS/API
+        identifier, explicitly permitted to keep the bare name — flagging
+        a rename in EITHER direction (to or from bare) is intentional."""
+        text = (PROJECT_ROOT / "voice_typer/server/single_instance.py").read_text(encoding="utf-8")
+        assert "VoiceTyperSingleInstance" in text, (
+            "single_instance.py must keep the 'VoiceTyperSingleInstance' "
+            "mutex name (internal OS/API identifier — CONSTRAINTS.md "
+            "explicitly permits bare internal identifiers)."
+        )
+        assert "com.voicetyper" not in text, (
+            "single_instance.py must NOT use the reverse-DNS namespace for "
+            "the mutex — it is a pinned internal OS/API identifier."
+        )
+
+    def test_sweep_marker_stays_version_scoped(self) -> None:
+        """The once-per-install legacy-sweep marker must be version-scoped
+        (``-v2-``) so installs that already ran the pre-rename sweep
+        re-sweep exactly once after the namespace rename."""
+        text = (PROJECT_ROOT / "voice_typer/server/server_platform/autostart_windows.py").read_text(encoding="utf-8")
+        assert 'f"autostart-sweep-v2-{_pkg._install_hash()}.done"' in text, (
+            "legacy-sweep marker name drifted: must stay "
+            "autostart-sweep-v2-<hash>.done (version-scoped so installs "
+            "carrying the v1 marker re-sweep once after the namespace "
+            "rename)."
+        )

@@ -91,11 +91,16 @@ cannot silently re-appear. Brief context for each removal:
   endpoint.
 - ``test_llm_connection`` — the renderer's Settings page now uses
   the service-layer method directly (not over IPC).
-- ``export_diagnostics``, ``check_accessibility``,
-  ``show_electron_notification`` — the Tauri host now handles each
-  via a dedicated Rust command (``export_diagnostics``,
-  ``check_accessibility``, and the tray-notification path
+- ``export_diagnostics``, ``show_electron_notification`` — the Tauri
+  host now handles each via a dedicated Rust command
+  (``export_diagnostics`` and the tray-notification path
   respectively) rather than bridging through Python IPC.
+  ``check_accessibility`` was ALSO removed in this pass (GT-32: no
+  renderer caller) but was RE-ADDED on 2026-08-10 (finding #919 part
+  b) — the Settings → Troubleshooting UI now invokes it to surface
+  the stale-grant ``tccutil`` reset command, so it is registered
+  here AND in both host allowlists in lockstep. See the inline
+  comment at its registration below.
 - ``get_vocabulary_suggestions``, ``apply_vocabulary_suggestion``,
   ``dismiss_vocabulary_suggestion`` — the vocabulary-automation
   feature was deferred pending UX redesign and the renderer's
@@ -262,6 +267,18 @@ _COMMAND_REGISTRY: dict[str, str] = {
     # <bundle-id>`` — bundle ID resolved at runtime) + re-open System
     # Settings. Handler lives in ``handlers/system_handlers.py``.
     "reset_macos_accessibility": "_handle_reset_macos_accessibility",
+    # macOS accessibility-status probe (finding #919 part b — RE-ADDED
+    # 2026-08-10). Query the macOS Accessibility grant state; on a
+    # confirmed stale grant the response carries a proactive
+    # ``suggest_reset`` flag + the runtime ``tccutil`` reset command
+    # so Settings → Troubleshooting can surface it next to the
+    # "Reset Accessibility Permission" button. Was removed in the
+    # GT-32 stale-entry cleanup (no renderer caller at the time); the
+    # Troubleshooting UI now invokes it, so it is re-wired through all
+    # THREE allowlists in lockstep (TS ``allowed-commands.ts`` + Rust
+    # ``sidecar_cmds.rs`` + this registry). Handler lives in
+    # ``handlers/system_handlers.py``.
+    "check_accessibility": "_handle_check_accessibility",
     # Linux troubleshooting: reset a stale polkit authorization
     # (restart the polkit daemon via pkexec; pkaction enumerates + pkcheck
     # verifies) so the next permission grant re-prompts. Handler lives in

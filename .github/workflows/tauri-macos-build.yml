@@ -593,6 +593,24 @@ jobs:
           fi
           echo "Smoke test PASSED: sidecar --version exited 0 with project name in output."
 
+      # T3 (post-build integration): the real `ps` parent-chain walk
+      # (server_platform/macos_bundle_id.py) must resolve the JUST-BUILT
+      # universal .app end-to-end — launch a child executable inside the
+      # bundle, walk real ps from its pid, require the resolved
+      # CFBundleIdentifier to equal tauri.conf.json's identifier — and
+      # the built bundle's Contents/Info.plist must round-trip through
+      # read_bundle_identifier. Runs in the minimal pytest env (stdlib +
+      # pytest only; the walker has no heavy deps). Skips gracefully
+      # when the artifact is absent; FAILS the run when the artifact is
+      # present but wrong (a bundler-level identity drift that config
+      # parity tests cannot see).
+      - name: Verify built .app bundle ID (real ps walk, post-build)
+        run: |
+          python3 -m pytest \
+            tests/tauri/test_bundle_identifier_parity.py::TestBuiltBundleIdentifierRoundTrip \
+            tests/tauri/test_bundle_identifier_parity.py::TestBuiltAppRealPsWalk \
+            -q --no-cov
+
       # TX-23: honor the `sign` workflow_call input instead of gating
       # purely on secret presence. sign=true + missing secrets = hard
       # fail (a misconfigured release must not silently ship unsigned);

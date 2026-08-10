@@ -309,8 +309,8 @@ class TestStartupFolderBatFallback:
 
         result = server_platform._register_app_autostart_startup()
         assert result is True
-        # The .bat file should exist.
-        bat_files = list(tmp_path.glob("VoiceTyper_*.bat"))
+        # The .bat file should exist (canonical com.voicetyper.* namespace).
+        bat_files = list(tmp_path.glob("com.voicetyper*.bat"))
         assert len(bat_files) == 1
         content = bat_files[0].read_text()
         assert "VT_START_HIDDEN=1" in content
@@ -429,8 +429,8 @@ class TestThreeMechanismIntegration:
 
         result = server_platform._enable_autostart_windows()
         assert result is True
-        # The .bat file should exist.
-        bat_files = list(tmp_path.glob("VoiceTyper_*.bat"))
+        # The .bat file should exist (canonical com.voicetyper.* namespace).
+        bat_files = list(tmp_path.glob("com.voicetyper*.bat"))
         assert len(bat_files) == 1
 
     def test_enable_runkey_cleans_up_startup_bat(self, monkeypatch, fake_winreg, win32_platform, tmp_path):

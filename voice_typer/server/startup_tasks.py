@@ -64,10 +64,15 @@ def _a11y_regrant_message(bundle_id: str | None) -> str:
     fall back to the generic System Settings walkthrough — a wrong
     bundle ID in a ``tccutil`` command is worse than no command.
     """
+    # TCC-002: the command string comes from the single construction
+    # point in macos_bundle_id (tccutil_reset_command_str), so a future
+    # change to tccutil invocation lands in one place.
+    from voice_typer.server.server_platform.macos_bundle_id import tccutil_reset_command_str
+
     if bundle_id:
         return (
             "Voice Typer was updated — Accessibility permission may "
-            f"need to be re-granted. Run: tccutil reset Accessibility {bundle_id}"
+            f"need to be re-granted. Run: {tccutil_reset_command_str('Accessibility', bundle_id)}"
         )
     return (
         "Voice Typer was updated — Accessibility permission may "

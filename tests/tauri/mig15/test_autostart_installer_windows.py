@@ -28,10 +28,10 @@ VALIDATE ON WINDOWS HOST:
 2. Install target\\x86_64-pc-windows-msvc\\release\\bundle\\nsis\\*-setup.exe
 3. Verify Start Menu shortcut: "Voice Typer" appears under Start Menu
 4. Launch Voice Typer → enable autostart via Settings
-5. Run: schtasks /query /tn "VoiceTyperAutostart*" /v /fo LIST
+5. Run: schtasks /query /tn "com.voicetyper.autostart*" /v /fo LIST
    Expected: Trigger=At logon; Action=voice-typer-tauri.exe
    (Note: the task name includes an 8-char install-path hash suffix,
-   e.g. VoiceTyperAutostart_a1b2c3d4 — use the wildcard form above.)
+   e.g. com.voicetyper.autostart_a1b2c3d4 — use the wildcard form above.)
 6. Sign out + sign back in → verify Voice Typer auto-launches
 7. Launch a second instance → verify it focuses the first (single-instance plugin)
 8. Uninstall via "Add or remove programs" → verify schtasks entry + Start Menu
@@ -325,9 +325,9 @@ def test_enable_autostart_windows_falls_back_to_task_scheduler(monkeypatch, fake
     assert result is True, "Task Scheduler fallback must succeed"
     create_calls = [c for c in schtasks_calls if "/Create" in c]
     assert len(create_calls) >= 1, "must call schtasks /Create as the Task Scheduler fallback"
-    # The task name must use the VoiceTyperAutostart prefix (+ install hash).
-    assert any("VoiceTyperAutostart" in " ".join(c) for c in create_calls), (
-        "task name must include the VoiceTyperAutostart prefix"
+    # The task name must use the com.voicetyper.autostart prefix (+ install hash).
+    assert any("com.voicetyper.autostart" in " ".join(c) for c in create_calls), (
+        "task name must include the com.voicetyper.autostart prefix"
     )
 
 

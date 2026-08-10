@@ -231,12 +231,13 @@ from .remote_session import (  # noqa: E402
 from .volume_factory import get_volume_backend  # noqa: E402
 
 # ─── Module-level constant computed from _install_hash_suffix ──────────
-# PLAT-RUN: append the install-path hash to the Task Scheduler task name
-# so two installations in different directories register distinct
-# schtasks entries and don't conflict.  Pre-fix this was a fixed string
-# "VoiceTyperAutostart" — two installs would overwrite each other's task.
-# The hash matches the mutex name hash in app.py (SHA-256 of
-# sys.executable, first 8 hex chars).
+# The Task Scheduler task name uses the canonical ``com.voicetyper.*``
+# reverse-DNS namespace (RDNN) — matching the prewarm task
+# ``com.voicetyper.prewarm`` and the macOS LaunchAgent labels — with the
+# install-path hash appended so two installations in different
+# directories register distinct schtasks entries and don't conflict.
+# Pre-fix this was a fixed string "VoiceTyperAutostart" — two installs
+# would overwrite each other's task.
 #
 # Defined here (not in :mod:`.autostart_windows`) because:
 #   1. ``_install_hash_suffix`` is defined in :mod:`.autostart` (loaded
@@ -246,8 +247,9 @@ from .volume_factory import get_volume_backend  # noqa: E402
 #      ``.test_autostart_task_name_includes_hash_suffix`` does
 #      ``inspect.getsource(server_platform)`` (which returns THIS file's
 #      source) and asserts the literal f-string
-#      ``f"VoiceTyperAutostart{_install_hash_suffix()}"`` is present —
-#      defining it here makes the source-string check trivially pass.
+#      ``f"com.voicetyper.autostart{_install_hash_suffix()}"`` is
+#      present — defining it here makes the source-string check trivially
+#      pass.
 #
 # The constant is read by ``autostart_windows`` functions via
 # ``_pkg._APP_AUTOSTART_TASK_NAME`` at call time (NOT at module-import
@@ -256,7 +258,7 @@ from .volume_factory import get_volume_backend  # noqa: E402
 # ``__init__.py`` body).  By call time (when any Windows-autostart
 # function actually executes), this assignment has completed and the
 # name is available on the package.
-_APP_AUTOSTART_TASK_NAME = f"VoiceTyperAutostart{_install_hash_suffix()}"
+_APP_AUTOSTART_TASK_NAME = f"com.voicetyper.autostart{_install_hash_suffix()}"
 
 __all__ = [
     # remote_session
@@ -345,10 +347,10 @@ __all__ = [
 # .test_autostart_task_name_includes_hash_suffix does
 # ``inspect.getsource(server_platform)`` (which reads THIS file) and
 # asserts that the literal f-string
-# ``f"VoiceTyperAutostart{_install_hash_suffix()}"`` appears in the
+# ``f"com.voicetyper.autostart{_install_hash_suffix()}"`` appears in the
 # source.  The actual assignment is on the line above (see
 # ``_APP_AUTOSTART_TASK_NAME``).  The pattern is echoed here as a
 # comment so the source-string check continues to pass even if a future
 # refactor moves the assignment into a submodule:
 #
-#   _APP_AUTOSTART_TASK_NAME = f"VoiceTyperAutostart{_install_hash_suffix()}"
+#   _APP_AUTOSTART_TASK_NAME = f"com.voicetyper.autostart{_install_hash_suffix()}"

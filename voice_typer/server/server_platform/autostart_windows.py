@@ -494,7 +494,8 @@ def _extract_arguments_from_task_xml(xml_str: str) -> str | None:
 
 
 def _run_key_name() -> str:
-    """PLAT-RUN: Return a deterministic registry key name based on install path.
+    """PLAT-RUN: Return a deterministic registry value name based on install
+    path, in the canonical ``com.voicetyper.*`` reverse-DNS namespace.
 
     Uses the same stable per-install hash as the Task Scheduler task
     name and the Startup-folder .bat (see
@@ -512,7 +513,7 @@ def _run_key_name() -> str:
     perpetual "Config says autostart=true but it is disabled --
     enabling" re-registration loop).
     """
-    return f"VoiceTyper_{_pkg._install_hash()}"
+    return f"com.voicetyper.autostart_{_pkg._install_hash()}"
 
 
 def _register_app_autostart_runkey() -> bool:
@@ -539,6 +540,8 @@ def _register_app_autostart_runkey() -> bool:
         log.info("[CONFIG] Autostart enabled via HKCU Run key (fallback): %s", cmd)
 
         # PLAT-RUN: Clean stale entries whose path no longer exists.
+        # Matches BOTH the current reverse-DNS scheme (com.voicetyper.*)
+        # and the pre-rename bare scheme (VoiceTyper_*).
         #
         # parse the Run-key command line with a Windows-aware
         # splitter before extracting the exe path. Pre-fix, the code did
@@ -583,7 +586,11 @@ def _register_app_autostart_runkey() -> bool:
             while True:
                 try:
                     name, value, _ = winreg.EnumValue(run_key, i)
-                    if name.startswith("VoiceTyper") and name != reg_key_name and isinstance(value, str):
+                    if (
+                        name.startswith(("VoiceTyper", "com.voicetyper"))
+                        and name != reg_key_name
+                        and isinstance(value, str)
+                    ):
                         # use shlex.split(posix=False) so quoted
                         # spaced paths are parsed correctly (the quoted
                         # token is a single element). For unquoted
@@ -983,10 +990,7 @@ def _sweep_legacy_tasks() -> list[str] | None:
                 continue
             command_path = _extract_command_from_task_xml(xml) or ""
             arguments = _extract_arguments_from_task_xml(xml) or ""
-            if not (
-                _entry_targets_this_install(command_path)
-                or _entry_targets_this_install(arguments)
-            ):
+            if not (_entry_targets_this_install(command_path) or _entry_targets_this_install(arguments)):
                 continue
             rc_del, _out = task_scheduler._schtasks(
                 ["/Delete", "/TN", name, "/F"],
@@ -1051,8 +1055,16 @@ def _legacy_sweep_marker_path(config_dir: Path) -> Path:
 
     Keyed by the install hash so each install (installs share the
     per-user config dir) sweeps its own legacy entries exactly once.
+
+    The filename is version-scoped (``v2``): the Windows autostart /
+    prewarm names moved from the bare ``VoiceTyper*`` scheme into the
+    canonical ``com.voicetyper.*`` reverse-DNS namespace, so installs
+    that already ran the v1 sweep (old marker name) MUST re-run the
+    sweep once — the version bump makes the v1 marker miss and the new
+    sweep removes the pre-rename entries that would otherwise linger as
+    duplicate autostart triggers.
     """
-    return config_dir / f"autostart-sweep-{_pkg._install_hash()}.done"
+    return config_dir / f"autostart-sweep-v2-{_pkg._install_hash()}.done"
 
 
 def sweep_legacy_autostart_entries(config_dir: Path) -> dict:
@@ -1061,8 +1073,10 @@ def sweep_legacy_autostart_entries(config_dir: Path) -> dict:
     Upgraded installs can carry legacy ``VoiceTyper*`` Run-key values,
     ``VoiceTyperAutostart*`` scheduled tasks, and ``VoiceTyper*.bat``
     Startup-folder files registered under the OLD naming schemes (the
-    fixed pre-PLAT-RUN names, or the buggy ``sys.executable``-derived
-    hashes). Because the OLD hash differed between ``python.exe`` and
+    fixed pre-PLAT-RUN names, the buggy ``sys.executable``-derived
+    hashes, or the bare ``VoiceTyper*`` names used before the move to
+    the canonical ``com.voicetyper.*`` reverse-DNS namespace).
+    Because the OLD hash differed between ``python.exe`` and
     ``pythonw.exe`` launch contexts, one install can accumulate MULTIPLE
     live entries that all fire at logon.
 
@@ -1109,10 +1123,7 @@ def sweep_legacy_autostart_entries(config_dir: Path) -> dict:
         # next startup so a transient failure can't permanently skip the
         # task portion. The run-key / .bat sweeps already ran (both are
         # idempotent, so re-running them is harmless).
-        log.warning(
-            "[AUTOSTART] Legacy autostart sweep: task enumeration failed — "
-            "will retry on next startup"
-        )
+        log.warning("[AUTOSTART] Legacy autostart sweep: task enumeration failed — will retry on next startup")
         return {
             "swept": False,
             "removed": {"runkeys": removed["runkeys"], "tasks": [], "bats": removed["bats"]},
@@ -1135,12 +1146,14 @@ def sweep_legacy_autostart_entries(config_dir: Path) -> dict:
 
 
 def _unregister_all_voicetyper_runkeys() -> list[str]:
-    """remove ALL ``VoiceTyper_*`` HKCU Run-key entries.
+    """Remove ALL Voice Typer HKCU Run-key entries.
 
     Unlike :func:`_unregister_app_autostart_runkey` (which removes ONLY
     the current install's hash-suffixed entry), this function enumerates
     every value under ``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run``
-    whose name starts with ``VoiceTyper`` and deletes it. It is intended
+    whose name starts with the app's namespace — ``com.voicetyper``
+    (current canonical rename-DNS names) OR ``VoiceTyper`` (pre-rename
+    bare names) — and deletes it. It is intended
     for the **uninstaller** path (NSIS ``customUnInstall`` macro /
     Tauri ``preRemoveScript`` / manual ``uninstall_permissions.py``
     invocation) where the goal is to leave the registry CLEAN of any
@@ -1184,7 +1197,7 @@ def _unregister_all_voicetyper_runkeys() -> list[str]:
                 # End of enumeration (Windows signals "no more values"
                 # via OSError, not StopIteration).
                 break
-            if isinstance(name, str) and name.startswith("VoiceTyper"):
+            if isinstance(name, str) and name.startswith(("VoiceTyper", "com.voicetyper")):
                 try:
                     winreg.DeleteValue(key, name)
                     deleted.append(name)
@@ -1203,13 +1216,17 @@ def _unregister_all_voicetyper_runkeys() -> list[str]:
 
 
 def _unregister_all_voicetyper_tasks() -> list[str]:
-    """remove ALL ``VoiceTyperAutostart*`` Task Scheduler tasks.
+    """Remove ALL Voice Typer Task Scheduler tasks.
 
     Companion to :func:`_unregister_all_voicetyper_runkeys`. The Task
     Scheduler ``schtasks`` CLI does NOT accept wildcards in ``/TN``,
     so we shell out to PowerShell's ``Get-ScheduledTask`` (which DOES
-    support ``-TaskName VoiceTyperAutostart*``) to enumerate matching
-    tasks, then ``schtasks /Delete`` each one.
+    support ``-TaskName`` wildcards) to enumerate matching
+    tasks, then ``schtasks /Delete`` each one.  The wildcard union
+    covers the current canonical names (``com.voicetyper.autostart*``,
+    ``com.voicetyper.prewarm``) AND the pre-rename bare names
+    (``VoiceTyperAutostart*``, ``VoiceTyperPrewarm``) so installs that
+    predate the namespace rename are fully cleaned too.
 
     Returns the list of task names deleted (best-effort — empty list on
     any failure including non-Windows or Task Scheduler not running).
@@ -1234,7 +1251,7 @@ def _unregister_all_voicetyper_tasks() -> list[str]:
         # and parse the task names from the Get-ScheduledTask output as a
         # best-effort log (the actual delete happens via the pipeline).
         ps_cmd = (
-            "Get-ScheduledTask -TaskName 'VoiceTyperAutostart*' "
+            "Get-ScheduledTask -TaskName 'VoiceTyper*','com.voicetyper*' "
             "-ErrorAction SilentlyContinue | "
             "ForEach-Object { schtasks.exe /Delete /TN $_.TaskName /F; "
             "Write-Output $_.TaskName }"
@@ -1264,7 +1281,7 @@ def _unregister_all_voicetyper_tasks() -> list[str]:
         if result.returncode == 0:
             for line in (result.stdout or "").splitlines():
                 line = line.strip()
-                if line.startswith("VoiceTyperAutostart"):
+                if line.startswith(("VoiceTyper", "com.voicetyper")):
                     deleted.append(line)
                     log.info("[UNINSTALL] Removed Task Scheduler task: %s", line)
         else:
@@ -1291,8 +1308,9 @@ def _unregister_all_voicetyper_tasks() -> list[str]:
 # The .bat sets ``VT_START_HIDDEN=1`` (so the Tauri app / Electron
 # launcher starts hidden) and spawns the autostart command via
 # ``start "" /B`` (no console window flash). The file is named
-# ``VoiceTyper_<hash>.bat`` to match the Run-key naming convention
-# (PLAT-RUN — multi-install support via the install-path hash).
+# ``com.voicetyper.autostart_<hash>.bat`` to match the Run-key naming
+# convention (PLAT-RUN — multi-install support via the install-path hash,
+# canonical ``com.voicetyper.*`` reverse-DNS namespace).
 
 
 def _startup_bat_name() -> str:
@@ -1300,9 +1318,11 @@ def _startup_bat_name() -> str:
 
     Uses the same install-path hash as the Run-key name (PLAT-RUN) so
     two installations in different directories register distinct .bat
-    files and don't conflict.
+    files and don't conflict.  The name lives in the canonical
+    ``com.voicetyper.*`` reverse-DNS namespace (RDNN), consistent with
+    the Run-key value name and Task Scheduler task names.
     """
-    return f"VoiceTyper{_pkg._install_hash_suffix()}.bat"
+    return f"com.voicetyper.autostart{_pkg._install_hash_suffix()}.bat"
 
 
 def _startup_bat_path() -> Path:

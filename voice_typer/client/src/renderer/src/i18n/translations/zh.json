@@ -1025,6 +1025,7 @@
 			"resetAccessibilityToast": "辅助功能权限已重置——请在系统设置中重新授权",
 			"resetAccessibilityToastWithCommand": "辅助功能权限已重置——已运行 {command}——请在系统设置中重新授权",
 			"resetAccessibilityFailed": "重置辅助功能权限失败",
+			"resetAccessibilitySuggestion": "辅助功能权限似乎已过期——请使用以下命令重置系统授权：",
 			"resetLinux": "重置 Linux 权限",
 			"resetLinuxAria": "重置 Linux 键盘权限",
 			"resetLinuxHint": "清除过期的 Linux polkit 授权（pkcheck/pkaction），让权限提示重新出现",

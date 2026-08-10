@@ -45,7 +45,19 @@ from voice_typer.server.platform_utils import is_linux, is_macos, is_windows
 
 log = logging.getLogger(__name__)
 
-TASK_NAME = "VoiceTyperPrewarm"
+# Namespace (RDNN): the prewarm Task Scheduler task / HKCU Run-key value
+# uses the canonical ``com.voicetyper.*`` reverse-DNS namespace, mirroring
+# the macOS LaunchAgent label ``com.voicetyper.prewarm`` in
+# prewarm_scheduler_posix.py. The pre-2026 bare name is retained as
+# ``_LEGACY_TASK_NAME`` so upgraded installs converge on the new name at
+# register time and are fully cleaned at unregister/uninstall time.
+TASK_NAME = "com.voicetyper.prewarm"
+
+# Pre-namespace-rename task name ("VoiceTyperPrewarm"). Installs that
+# predate the com.voicetyper.* rename carry this task + Run-key value;
+# register/unregister always touch BOTH so upgrades converge and no
+# orphan fires after uninstall.
+_LEGACY_TASK_NAME = "VoiceTyperPrewarm"
 
 # Per-user Run registry key — the same mechanism the app's autostart uses.
 # HKCU is user-writable, so this needs NO admin privileges.  We fall back to
@@ -265,6 +277,12 @@ def _register_prewarm_registry(command: str) -> bool:
         )
         try:
             winreg.SetValueEx(key, TASK_NAME, 0, winreg.REG_SZ, command)
+            # Converge upgraded installs: drop the pre-rename Run-key
+            # value (``VoiceTyperPrewarm``) so it can't fire a second
+            # prewarm at the next logon. Non-fatal if absent.
+            for legacy in (_LEGACY_TASK_NAME,):
+                with contextlib.suppress(FileNotFoundError, OSError):
+                    winreg.DeleteValue(key, legacy)
         finally:
             winreg.CloseKey(key)
         log.info("[TASK] Prewarm registered via HKCU Run key (no admin)")
@@ -293,7 +311,10 @@ def _unregister_prewarm_registry() -> bool:
             winreg.KEY_SET_VALUE,
         )
         try:
-            winreg.DeleteValue(key, TASK_NAME)
+            # Remove the current task name AND the pre-rename legacy name
+            # (upgrades converge: after this call only the new name exists).
+            for task_name in (TASK_NAME, _LEGACY_TASK_NAME):
+                winreg.DeleteValue(key, task_name)
         finally:
             winreg.CloseKey(key)
         log.info("[TASK] Prewarm removed from HKCU Run key")
@@ -834,7 +855,9 @@ def register_prewarm_task() -> bool:
         # A task created with the old, broken UserId XML can become
         # locked so that `schtasks /Create /F` fails with "Access is
         # denied".  An explicit /Delete /F first clears it cleanly;
-        # if it doesn't exist, the error is harmless.
+        # if it doesn't exist, the error is harmless.  Also deletes
+        # the pre-rename legacy task name so upgrades converge on the
+        # com.voicetyper.* namespace (no duplicate logon trigger).
         #
         # (this session): the pre-fix code used
         # ``with contextlib.suppress(Exception): _schtasks(...)`` —
@@ -849,13 +872,14 @@ def register_prewarm_task() -> bool:
         # and log at DEBUG so the pre-create cleanup is visible in
         # debug logs without polluting INFO. Unexpected exceptions
         # propagate so genuine bugs surface.
-        try:
-            _schtasks(["/Delete", "/TN", TASK_NAME, "/F"], capture=True)
-        except (subprocess.SubprocessError, OSError) as exc:
-            log.debug(
-                "[TASK] pre-create /Delete failed (task may not exist or be locked): %s",
-                exc,
-            )
+        for task_name in (TASK_NAME, _LEGACY_TASK_NAME):
+            try:
+                _schtasks(["/Delete", "/TN", task_name, "/F"], capture=True)
+            except (subprocess.SubprocessError, OSError) as exc:
+                log.debug(
+                    "[TASK] pre-create /Delete failed (task may not exist or be locked): %s",
+                    exc,
+                )
 
         # /F forces overwrite if the task already exists.
         rc, output = _schtasks(
@@ -869,7 +893,7 @@ def register_prewarm_task() -> bool:
                 ["/Create", "/TN", TASK_NAME, "/XML", temp_xml, "/F"],
             )
         if rc == 0:
-            log.info("[TASK] VoiceTyperPrewarm registered OK")
+            log.info("[TASK] Prewarm task %s registered OK", TASK_NAME)
             # We switched to the Task Scheduler path — remove any stale
             # Run-key fallback left by a previous (admin-less) run so we
             # don't prewarm twice at the next logon.
@@ -895,12 +919,16 @@ def register_prewarm_task() -> bool:
 
 
 def unregister_prewarm_task() -> bool:
-    """Delete the VoiceTyperPrewarm scheduled task AND Run-key fallback.
+    """Delete the prewarm scheduled task AND its Run-key fallback.
 
     Returns True if prewarm is fully removed (or was never present).  We
     always clean up both mechanisms: a standard user may not be able to
     delete a locked Task Scheduler task, but the Run key is always
     user-writable, so the prewarm is reliably managed.
+
+    Both the current ``com.voicetyper.prewarm`` names and the pre-rename
+    legacy ``VoiceTyperPrewarm`` task/Run-key value are removed, so
+    installs that predate the namespace rename are fully cleaned too.
 
     STARTUP-5: on macOS/Linux, delegates to prewarm_scheduler_posix.
 
@@ -920,25 +948,27 @@ def unregister_prewarm_task() -> bool:
         return False
 
     removed_task = False
-    rc, output = _schtasks(["/Delete", "/TN", TASK_NAME, "/F"], capture=True)
-    if rc == 0:
-        log.info("[TASK] VoiceTyperPrewarm scheduled task removed")
-        removed_task = True
-    elif rc == 1 and ("cannot find" in output.lower() or "does not exist" in output.lower()):
-        log.info("[TASK] VoiceTyperPrewarm scheduled task was already absent")
-        removed_task = True
-    elif "access is denied" in output.lower():
-        # A locked task the standard user can't delete.  The Run-key path
-        # below still succeeds, and the next logon won't relaunch prewarm
-        # from the registry.  The orphaned task is inert: it points at our
-        # The prewarm module skips when free RAM is low (EXIT_LOW_RAM).
-        # The scheduled task is harmless otherwise.
-        log.warning(
-            "[TASK] Cannot delete locked scheduled task without admin; "
-            "the Run-key fallback is removed and prewarm will no-op via config."
-        )
-    else:
-        log.warning("[TASK] task removal failed (rc=%d): %s", rc, output.strip())
+    for task_name in (TASK_NAME, _LEGACY_TASK_NAME):
+        rc, output = _schtasks(["/Delete", "/TN", task_name, "/F"], capture=True)
+        if rc == 0:
+            log.info("[TASK] Prewarm scheduled task %s removed", task_name)
+            removed_task = True
+        elif rc == 1 and ("cannot find" in output.lower() or "does not exist" in output.lower()):
+            log.info("[TASK] Prewarm scheduled task %s was already absent", task_name)
+            removed_task = True
+        elif "access is denied" in output.lower():
+            # A locked task the standard user can't delete.  The Run-key
+            # path below still succeeds, and the next logon won't relaunch
+            # prewarm from the registry.  The orphaned task is inert: it
+            # points at the deleted prewarm binary and the prewarm module
+            # skips when free RAM is low (EXIT_LOW_RAM).
+            log.warning(
+                "[TASK] Cannot delete locked scheduled task %s without admin; "
+                "the Run-key fallback is removed and prewarm will no-op via config.",
+                task_name,
+            )
+        else:
+            log.warning("[TASK] task %s removal failed (rc=%d): %s", task_name, rc, output.strip())
 
     # Always remove the Run-key fallback (user-writable, never locked).
     removed_reg = _unregister_prewarm_registry()

@@ -25,7 +25,7 @@ import {
 	ShieldBanIcon,
 } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import { SettingsSection } from "@/components/common/SettingsSection";
 import { Button } from "@/components/ui/button";
 import { usePython } from "@/hooks/usePython";
@@ -81,6 +81,42 @@ export const TroubleshootingSettingsSection = memo(
 			typeof navigator === "undefined" ? "" : navigator.userAgent.toLowerCase();
 		const isMac = ua.includes("mac");
 		const isLinux = ua.includes("linux");
+
+		// Finding #919 part b: on a CONFIRMED stale Accessibility grant
+		// (``AXIsProcessTrusted()`` returned False) the backend echoes
+		// the runtime ``tccutil`` reset command so the section can
+		// surface it next to the Reset button. Mount-only probe —
+		// ``suggest_reset`` / ``reset_command`` are both optional in the
+		// response, so missing fields (or an IPC failure — e.g. the
+		// command still being decommissioned on an older backend) must
+		// silently mean "no suggestion".
+		const [staleResetCommand, setStaleResetCommand] = useState<string | null>(
+			null,
+		);
+		useEffect(() => {
+			if (!isMac) return;
+			let cancelled = false;
+			(async () => {
+				try {
+					const result = (await call("check_accessibility")) as {
+						suggest_reset?: boolean;
+						reset_command?: string;
+					};
+					if (
+						!cancelled &&
+						result?.suggest_reset === true &&
+						typeof result.reset_command === "string"
+					) {
+						setStaleResetCommand(result.reset_command);
+					}
+				} catch (err) {
+					console.warn("check_accessibility probe failed (non-fatal):", err);
+				}
+			})();
+			return () => {
+				cancelled = true;
+			};
+		}, [call, isMac]);
 
 		// Section-level hide-when-empty: hide the whole section unless the
 		// title OR at least one button label matches the active search query.
@@ -303,20 +339,32 @@ export const TroubleshootingSettingsSection = memo(
 						{t("settings.troubleshooting.reRunWizardHint")}
 					</p>
 					{isMac && (
-						<Button
-							variant="outline"
-							className="gap-2"
-							onClick={handleResetAccessibility}
-							aria-label={t("settings.troubleshooting.resetAccessibilityAria")}
-							title={t("settings.troubleshooting.resetAccessibilityHint")}
-						>
-							<HugeiconsIcon
-								icon={ShieldBanIcon}
-								strokeWidth={2}
-								className="h-4 w-4"
-							/>
-							{resetAccessibilityLabel}
-						</Button>
+						<div className="flex flex-col gap-1">
+							<Button
+								variant="outline"
+								className="gap-2 self-start"
+								onClick={handleResetAccessibility}
+								aria-label={t(
+									"settings.troubleshooting.resetAccessibilityAria",
+								)}
+								title={t("settings.troubleshooting.resetAccessibilityHint")}
+							>
+								<HugeiconsIcon
+									icon={ShieldBanIcon}
+									strokeWidth={2}
+									className="h-4 w-4"
+								/>
+								{resetAccessibilityLabel}
+							</Button>
+							{staleResetCommand && (
+								<p className="text-xs text-muted-foreground">
+									{t("settings.troubleshooting.resetAccessibilitySuggestion")}
+									<code className="ml-1 rounded bg-muted px-1 py-0.5 font-mono text-xs">
+										{staleResetCommand}
+									</code>
+								</p>
+							)}
+						</div>
 					)}
 					{isLinux && (
 						<Button

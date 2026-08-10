@@ -7,17 +7,25 @@ runtime when the user enables autostart via Settings:
 
   - **HKCU Run key** at
     ``HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run`` — value
-    name ``VoiceTyper_<8hex>`` (per-install hash from SHA-256 of
-    ``sys.executable`` — see ``_run_key_name`` in
-    ``autostart_windows.py``). This is a REGISTRY value, NOT a file, so
+    name ``com.voicetyper.autostart_<8hex>`` (per-install hash from
+    SHA-256 of the install path — see ``_run_key_name`` in
+    ``autostart_windows.py``; pre-2026 installs used the bare
+    ``VoiceTyper_<8hex>`` scheme, which this script still removes).
+    This is a REGISTRY value, NOT a file, so
     the NSIS ``deleteAppDataOnUninstall`` flag does NOT remove it.
-  - **Task Scheduler** tasks named ``VoiceTyperAutostart<8hex>`` —
+  - **Task Scheduler** tasks named ``com.voicetyper.autostart_<8hex>`` /
+    ``com.voicetyper.prewarm`` (canonical reverse-DNS names) and the
+    legacy ``VoiceTyperAutostart<8hex>`` / ``VoiceTyperPrewarm`` names —
     registered via ``schtasks /Create /TN ... /XML`` (see
-    ``_register_app_autostart_task`` in ``autostart_windows.py``). Lives
+    ``_register_app_autostart_task`` in ``autostart_windows.py`` and
+    ``task_scheduler.TASK_NAME``). Lives
     in Task Scheduler, also NOT under AppData.
 
 Both mechanisms are removed here — including STALE entries from previous
-installs at different paths (different hashes). The current-install
+installs at different paths (different hashes) and both the current
+canonical ``com.voicetyper.*`` names and the pre-rename bare
+``VoiceTyper*`` names (so installs that predate the namespace rename are
+fully cleaned too). The current-install
 removal path (``_unregister_app_autostart_runkey`` /
 ``_unregister_app_autostart_task`` in ``autostart_windows.py``) only
 removes the current install's hash-suffixed entry; the uninstaller must
@@ -70,15 +78,15 @@ VALIDATE ON WINDOWS HOST:
   2. Install the resulting *-setup.exe.
   3. Launch Voice Typer -> enable autostart via Settings.
   4. Verify both autostart entries exist:
-       reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run | findstr VoiceTyper
-       schtasks /query /tn "VoiceTyperAutostart*" /v /fo LIST
+       reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run | findstr com.voicetyper
+       schtasks /query /tn "com.voicetyper.autostart*" /v /fo LIST
   5. Uninstall via "Add or remove programs" (the NSIS uninstaller calls
      this script via the .bat wrapper, which is wired through
      ``nsis.include`` in electron-builder.yml).
   6. Verify both autostart entries are gone:
-       reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run | findstr VoiceTyper
-         (Expected: no matches)
-       schtasks /query /tn "VoiceTyperAutostart*"
+       reg query HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run | findstr com.voicetyper
+         (Expected: no matches; pre-rename VoiceTyper* entries also gone)
+       schtasks /query /tn "com.voicetyper.autostart*"
          (Expected: ERROR: The system cannot find the file specified)
   7. (Optional) Verify --purge removes the data dir:
        set VOICE_TYPER_PURGE=1 && python scripts/windows/uninstall_permissions.py
@@ -201,7 +209,7 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
     ps_cmd = (
         f"Get-ItemProperty -Path '{run_key_path}' | "
         "Get-Member -MemberType NoteProperty | "
-        "Where-Object { $_.Name -like 'VoiceTyper*' } | "
+        "Where-Object { $_.Name -like 'VoiceTyper*' -or $_.Name -like 'com.voicetyper*' } | "
         "ForEach-Object { "
         f"  Remove-ItemProperty -Path '{run_key_path}' -Name $_.Name -ErrorAction SilentlyContinue; "
         "  Write-Output $_.Name "
@@ -226,7 +234,7 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
         if result.returncode == 0:
             for line in (result.stdout or "").splitlines():
                 line = line.strip()
-                if line.startswith("VoiceTyper"):
+                if line.startswith(("VoiceTyper", "com.voicetyper")):
                     deleted_runkeys.append(line)
         else:
             _log(f"WARNING: PowerShell Run-key sweep failed (rc={result.returncode}): {(result.stderr or '').strip()}")
@@ -235,8 +243,11 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
 
     # Task Scheduler sweep (same PowerShell pipeline as the
     # voice_typer package path — included here for the fallback case).
+    # The wildcard union covers the current canonical names
+    # (com.voicetyper.autostart*, com.voicetyper.prewarm) AND the
+    # pre-rename bare names (VoiceTyperAutostart*, VoiceTyperPrewarm).
     ps_task_cmd = (
-        "Get-ScheduledTask -TaskName 'VoiceTyperAutostart*' "
+        "Get-ScheduledTask -TaskName 'VoiceTyper*','com.voicetyper*' "
         "-ErrorAction SilentlyContinue | "
         "ForEach-Object { schtasks.exe /Delete /TN $_.TaskName /F; "
         "Write-Output $_.TaskName }"
@@ -260,7 +271,7 @@ def _do_autostart_cleanup() -> tuple[list[str], list[str]]:
         if result.returncode == 0:
             for line in (result.stdout or "").splitlines():
                 line = line.strip()
-                if line.startswith("VoiceTyperAutostart"):
+                if line.startswith(("VoiceTyper", "com.voicetyper")):
                     deleted_tasks.append(line)
         else:
             _log(f"WARNING: PowerShell task sweep failed (rc={result.returncode}): {(result.stderr or '').strip()}")
@@ -287,14 +298,14 @@ def main() -> int:
         for name in deleted_runkeys:
             _log(f"  - {name}")
     else:
-        _log("No HKCU Run-key VoiceTyper entries to remove (already clean)")
+        _log("No HKCU Run-key Voice Typer entries to remove (already clean)")
 
     if deleted_tasks:
         _log(f"Removed {len(deleted_tasks)} Task Scheduler tasks:")
         for name in deleted_tasks:
             _log(f"  - {name}")
     else:
-        _log("No VoiceTyperAutostart Task Scheduler tasks to remove (already clean)")
+        _log("No Voice Typer Task Scheduler tasks to remove (already clean)")
 
     _log("Done.")
     return 0

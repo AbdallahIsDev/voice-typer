@@ -52,7 +52,10 @@ describe("R6-F10: allowed-commands.ts", () => {
 	});
 
 	it("does NOT contain the GT-32 (session-6) removed stale entries", () => {
-		//17 entries removed because no renderer code invokes them.
+		//16 entries removed because no renderer code invokes them
+		// (the 17th, ``check_accessibility``, was re-added on
+		// 2026-08-10 — finding #919 part b gave it a renderer
+		// caller in the Settings → Troubleshooting section).
 		// They previously appeared only in this Set (sometimes also in a
 		// doc comment). The matching Python-side `_COMMAND_REGISTRY`
 		//entries should also be removed by  (owns ipc_server.py);
@@ -61,7 +64,6 @@ describe("R6-F10: allowed-commands.ts", () => {
 		// "missing from allowlist".
 		const gt32Removed = [
 			"apply_vocabulary_suggestion",
-			"check_accessibility",
 			"delete_all_personal_data",
 			"dismiss_vocabulary_suggestion",
 			"export_diagnostics",

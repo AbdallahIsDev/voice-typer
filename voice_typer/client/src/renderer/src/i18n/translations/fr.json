@@ -579,6 +579,7 @@
 			"resetAccessibilityToast": "Autorisation d'accessibilité réinitialisée — accordez-la à nouveau dans les Réglages Système",
 			"resetAccessibilityToastWithCommand": "Autorisation d'accessibilité réinitialisée — {command} exécuté — accordez-la à nouveau dans les Réglages Système",
 			"resetAccessibilityFailed": "Échec de la réinitialisation de l'autorisation d'accessibilité",
+			"resetAccessibilitySuggestion": "L'autorisation d'accessibilité semble obsolète — réinitialisez le droit système avec :",
 			"resetLinux": "Réinitialiser l'autorisation Linux",
 			"resetLinuxAria": "Réinitialiser l'autorisation clavier Linux",
 			"resetLinuxHint": "Effacer une autorisation polkit Linux obsolète (pkcheck/pkaction) pour que les invites de permission réapparaissent",

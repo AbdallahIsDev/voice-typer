@@ -135,6 +135,10 @@ _INITIAL_LABELS: dict[str, str] = {
     "notify.permissions.macos_body": (
         "Click to open System Settings \u2192 Accessibility. Add Voice Typer (and its key-listener helper) to the list."
     ),
+    "notify.permissions.macos_body_with_command": (
+        "Click to open System Settings \u2192 Accessibility. Add {app} (and its key-listener helper) to the list. "
+        "Then run: {command}"
+    ),
     "notify.permissions.linux_title": "Voice Typer needs keyboard permission",
     "notify.permissions.linux_body": (
         "Click to grant access. Your system will ask for your password "
@@ -240,8 +244,7 @@ _INITIAL_LABELS: dict[str, str] = {
     "notify.model_manager.change_deferred": "Model will change to {model} after current recording",
     "notify.model_manager.backend_change_deferred": "Backend will change to {backend} after current recording.",
     "notify.model_manager.model_not_downloaded": (
-        "The {backend} model is not downloaded yet.\n"
-        "Open the Models page and click Download before using it."
+        "The {backend} model is not downloaded yet.\nOpen the Models page and click Download before using it."
     ),
     # tray.py update-check notification () ─────────────────────
     "notify.update_available_body": "{app} {version} is available (you have {current})",

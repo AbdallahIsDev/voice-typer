@@ -1,4 +1,4 @@
-""" — regression tests for ``CREATE_NO_WINDOW`` on Windows.
+"""— regression tests for ``CREATE_NO_WINDOW`` on Windows.
 
 Both ``_system_python_can_import_launcher`` (in
 :mod:`voice_typer.server.server_platform.autostart`) and
@@ -85,8 +85,7 @@ class TestSystemPythonProbeCreateNoWindow:
             "subprocess.run so python.exe doesn't flash a console window"
         )
         assert captured["creationflags"] == 0x08000000, (
-            "creationflags must be CREATE_NO_WINDOW (0x08000000); "
-            f"got {captured['creationflags']:#x}"
+            f"creationflags must be CREATE_NO_WINDOW (0x08000000); got {captured['creationflags']:#x}"
         )
 
     def test_linux_omits_creationflags(self, monkeypatch):
@@ -115,8 +114,7 @@ class TestSystemPythonProbeCreateNoWindow:
         result = _system_python_can_import_launcher("python3")
         assert result is True
         assert "creationflags" not in captured, (
-            "on Linux the probe must NOT set creationflags "
-            "(POSIX subprocess.run doesn't accept it)"
+            "on Linux the probe must NOT set creationflags (POSIX subprocess.run doesn't accept it)"
         )
 
     def test_macos_omits_creationflags(self, monkeypatch):
@@ -144,8 +142,7 @@ class TestSystemPythonProbeCreateNoWindow:
         result = _system_python_can_import_launcher("python3")
         assert result is True
         assert "creationflags" not in captured, (
-            "on macOS the probe must NOT set creationflags "
-            "(POSIX subprocess.run doesn't accept it)"
+            "on macOS the probe must NOT set creationflags (POSIX subprocess.run doesn't accept it)"
         )
 
 
@@ -190,9 +187,7 @@ class TestUnregisterAllTasksCreateNoWindow:
     ``creationflags=CREATE_NO_WINDOW`` to ``subprocess.run`` so the
     ``powershell.exe`` sweep doesn't flash a console during uninstall."""
 
-    def test_powershell_call_includes_create_no_window(
-        self, monkeypatch, fake_winreg, win32_platform
-    ):
+    def test_powershell_call_includes_create_no_window(self, monkeypatch, fake_winreg, win32_platform):
         """The PowerShell subprocess.run call MUST pass
         ``creationflags=0x08000000`` (CREATE_NO_WINDOW) so the uninstall
         sweep doesn't flash a console window at the user."""
@@ -215,9 +210,7 @@ class TestUnregisterAllTasksCreateNoWindow:
         # causing the function to early-return ``[]``.
         fake_task_scheduler = types.ModuleType("task_scheduler")
         fake_task_scheduler.is_supported = lambda: True
-        monkeypatch.setitem(
-            sys.modules, "voice_typer.server.task_scheduler", fake_task_scheduler
-        )
+        monkeypatch.setitem(sys.modules, "voice_typer.server.task_scheduler", fake_task_scheduler)
         # ``raising=False`` so the patch succeeds whether or not a prior
         # test has imported the real ``task_scheduler`` module (which
         # would have set the attribute on the ``voice_typer.server``
@@ -238,17 +231,20 @@ class TestUnregisterAllTasksCreateNoWindow:
             r = MagicMock()
             r.returncode = 0
             # Match the production-code parsing: lines starting with
-            # "VoiceTyperAutostart" are returned as deleted task names.
-            r.stdout = "VoiceTyperAutostart_aaaaaaaa\n"
+            # "VoiceTyper" or "com.voicetyper" (legacy + canonical
+            # reverse-DNS task names) are returned as deleted task names.
+            r.stdout = "VoiceTyperAutostart_aaaaaaaa\ncom.voicetyper.prewarm\ncom.voicetyper.autostart_bbbbbbbb\n"
             r.stderr = ""
             return r
 
         monkeypatch.setattr(subprocess, "run", fake_run)
 
         deleted = autostart_windows._unregister_all_voicetyper_tasks()
-        assert deleted == ["VoiceTyperAutostart_aaaaaaaa"], (
-            f"expected the stubbed task name in the deleted list; got {deleted}"
-        )
+        assert sorted(deleted) == [
+            "VoiceTyperAutostart_aaaaaaaa",
+            "com.voicetyper.autostart_bbbbbbbb",
+            "com.voicetyper.prewarm",
+        ], f"expected the stubbed task names in the deleted list; got {deleted}"
         # the PowerShell call MUST set creationflags.
         assert "creationflags" in captured, (
             "_unregister_all_voicetyper_tasks must pass creationflags "
@@ -256,13 +252,10 @@ class TestUnregisterAllTasksCreateNoWindow:
             "during uninstall"
         )
         assert captured["creationflags"] == 0x08000000, (
-            "creationflags must be CREATE_NO_WINDOW (0x08000000); "
-            f"got {captured['creationflags']:#x}"
+            f"creationflags must be CREATE_NO_WINDOW (0x08000000); got {captured['creationflags']:#x}"
         )
         # Sanity: the call IS a powershell.exe invocation.
-        assert captured["cmd"][0] == "powershell.exe", (
-            f"expected powershell.exe as argv[0]; got {captured['cmd'][0]}"
-        )
+        assert captured["cmd"][0] == "powershell.exe", f"expected powershell.exe as argv[0]; got {captured['cmd'][0]}"
 
 
 # ---------------------------------------------------------------------------

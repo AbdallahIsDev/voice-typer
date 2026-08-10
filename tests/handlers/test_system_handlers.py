@@ -186,6 +186,138 @@ class TestCheckAccessibility:
         assert resp["type"] == "error"
         assert resp["data"]["code"] == "client.invalid_payload"
 
+    def test_macos_stale_grant_suggests_reset_with_runtime_command(self, ipc_server, monkeypatch):
+        """Finding #919 part b: a CONFIRMED stale grant (AXIsProcessTrusted
+        ran and returned False) must extend the response with
+        ``suggest_reset: True`` + the runtime ``tccutil`` reset command
+        built from the resolved host bundle ID."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_macos",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
+            lambda: "com.voicetyper.desktop",
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.macos_bundle_id.tccutil_reset_command_str",
+            lambda service, bundle_id: f"tccutil reset {service} {bundle_id}",
+            raising=False,
+        )
+
+        import ctypes
+        from unittest.mock import MagicMock
+
+        fake_lib = MagicMock()
+        fake_lib.AXIsProcessTrusted.return_value = 0
+        fake_cdll = MagicMock()
+        fake_cdll.LoadLibrary.return_value = fake_lib
+        monkeypatch.setattr(ctypes, "cdll", fake_cdll)
+
+        resp = ipc_server._handle_check_accessibility({}, {})
+
+        assert resp["type"] == "accessibility_status"
+        assert resp["data"]["granted"] is False
+        assert resp["data"]["platform"] == "macos"
+        assert resp["data"]["suggest_reset"] is True
+        assert resp["data"]["reset_command"] == "tccutil reset Accessibility com.voicetyper.desktop"
+
+    def test_macos_stale_grant_unresolved_bundle_omits_command(self, ipc_server, monkeypatch):
+        """Finding #919 part b: when the host bundle ID cannot be
+        resolved, ``suggest_reset`` is False and NO ``reset_command`` key
+        is attached (a wrong bundle ID in a tccutil command is worse than
+        no command — mirrors the reset handler's convention)."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_macos",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
+            lambda: None,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.macos_bundle_id.tccutil_reset_command_str",
+            lambda service, bundle_id: f"tccutil reset {service} {bundle_id}",
+            raising=False,
+        )
+
+        import ctypes
+        from unittest.mock import MagicMock
+
+        fake_lib = MagicMock()
+        fake_lib.AXIsProcessTrusted.return_value = 0
+        fake_cdll = MagicMock()
+        fake_cdll.LoadLibrary.return_value = fake_lib
+        monkeypatch.setattr(ctypes, "cdll", fake_cdll)
+
+        resp = ipc_server._handle_check_accessibility({}, {})
+
+        assert resp["type"] == "accessibility_status"
+        assert resp["data"]["granted"] is False
+        assert resp["data"]["platform"] == "macos"
+        assert resp["data"]["suggest_reset"] is False
+        assert "reset_command" not in resp["data"]
+
+    def test_macos_granted_keeps_original_shape(self, ipc_server, monkeypatch):
+        """Finding #919 part b: a granted response must keep the original
+        two-field shape — NO ``suggest_reset`` / ``reset_command`` keys."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_macos",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
+            lambda: "com.voicetyper.desktop",
+            raising=False,
+        )
+
+        import ctypes
+        from unittest.mock import MagicMock
+
+        fake_lib = MagicMock()
+        fake_lib.AXIsProcessTrusted.return_value = 1
+        fake_cdll = MagicMock()
+        fake_cdll.LoadLibrary.return_value = fake_lib
+        monkeypatch.setattr(ctypes, "cdll", fake_cdll)
+
+        resp = ipc_server._handle_check_accessibility({}, {})
+
+        assert resp["type"] == "accessibility_status"
+        assert resp["data"]["granted"] is True
+        assert resp["data"]["platform"] == "macos"
+        assert "suggest_reset" not in resp["data"]
+        assert "reset_command" not in resp["data"]
+
+    def test_macos_check_failed_keeps_original_shape(self, ipc_server, monkeypatch):
+        """Finding #919 part b: the ``check_failed`` fallback (ctypes load
+        errored) must NOT suggest a reset — an un-runnable probe cannot
+        substantiate a stale grant."""
+        monkeypatch.setattr(
+            "voice_typer.server.handlers.system_handlers.is_macos",
+            lambda: True,
+        )
+        monkeypatch.setattr(
+            "voice_typer.server.server_platform.macos_bundle_id.resolve_host_bundle_id",
+            lambda: "com.voicetyper.desktop",
+            raising=False,
+        )
+
+        import ctypes
+        from unittest.mock import MagicMock
+
+        fake_cdll = MagicMock()
+        fake_cdll.LoadLibrary.side_effect = OSError("no ApplicationServices")
+        monkeypatch.setattr(ctypes, "cdll", fake_cdll)
+
+        resp = ipc_server._handle_check_accessibility({}, {})
+
+        assert resp["type"] == "accessibility_status"
+        assert resp["data"]["granted"] is False
+        assert resp["data"]["platform"] == "macos"
+        assert resp["data"]["reason"] == "check_failed"
+        assert "suggest_reset" not in resp["data"]
+        assert "reset_command" not in resp["data"]
+
 
 class TestResetMacosAccessibility:
     """``_handle_reset_macos_accessibility`` (finding #127 part b).

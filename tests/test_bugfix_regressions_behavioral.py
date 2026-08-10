@@ -193,19 +193,25 @@ class TestAccessibilityIpcBehavioral:
     ``accessibility_status`` with the expected ``granted`` value.
 
     ZR-45 (2026-07-25): ``check_accessibility`` was REMOVED from the
-    Python ``_COMMAND_REGISTRY`` because the Tauri host now handles it
-    via a dedicated Rust command (``check_accessibility`` in
+    Python ``_COMMAND_REGISTRY`` because the Tauri host handled it via
+    a dedicated Rust command (``check_accessibility`` in
     ``src-tauri/src/commands/``). The Python-side handler was dead code
-    — the Tauri host never bridged the IPC call. These tests are kept
-    for historical context and skipped because the IPC handler no
-    longer exists; the equivalent coverage lives in the Rust-side
-    Tauri tests.
+    for that period. On 2026-08-10 (finding #919 part b) the command
+    was RE-ADDED — the Settings → Troubleshooting UI invokes it on
+    macOS to surface the stale-grant ``tccutil`` reset command — so
+    the handler is live again. These tests stay skipped because the
+    equivalent behavioral coverage now lives in
+    ``tests/handlers/test_system_handlers.py``
+    (``TestCheckAccessibility`` — which additionally covers the
+    ``suggest_reset`` / ``reset_command`` extension); kept here for
+    historical context.
     """
 
     _SKIP_REASON = (
-        "check_accessibility moved from Python IPC to Tauri Rust host; "
-        "Python handler was dead code (Tauri never bridged the call). Coverage "
-        "now lives in src-tauri Rust tests."
+        "check_accessibility behavior now covered by "
+        "tests/handlers/test_system_handlers.py::TestCheckAccessibility "
+        "(re-added to the registry 2026-08-10, finding #919 part b). "
+        "Kept skipped for historical context."
     )
 
     def _make_server(self):

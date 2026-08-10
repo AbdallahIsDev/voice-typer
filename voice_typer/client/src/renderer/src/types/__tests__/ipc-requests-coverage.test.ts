@@ -66,6 +66,11 @@ const _RENDERER_CALLED_COMMANDS = {
 	onboarding_check_permissions: true,
 	reset_macos_accessibility: true,
 	reset_linux_permissions: true,
+	// finding #919 part b (2026-08-10): the Settings →
+	// Troubleshooting section probes the macOS Accessibility grant on
+	// mount to surface the stale-grant reset command. Callsite:
+	// TroubleshootingSettingsSection.tsx.
+	check_accessibility: true,
 	// 28 commands added by the widening slice (see the
 	// per-interface docstrings in ``types/ipc/requests.ts`` for
 	// the call-site survey).
@@ -206,6 +211,7 @@ const _SERVER_REGISTRY_MINUS_PYTHON_ONLY = {
 	onboarding_reset: true,
 	reset_macos_accessibility: true,
 	reset_linux_permissions: true,
+	check_accessibility: true,
 	microphone_test_start: true,
 	microphone_test_stop: true,
 	microphone_test_cancel: true,

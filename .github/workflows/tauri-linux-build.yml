@@ -736,6 +736,20 @@ jobs:
           cd src-tauri
           cargo tauri build --target "$TRIPLE" --config "tauri.linux-${BUILD_ARCH}.conf.json"
 
+      # T4 (post-build integration): the real /proc parent-chain walker
+      # (server_platform/linux_proc_walk.py) must terminate cleanly (never
+      # raise, never loop) against the runner's LIVE /proc tree, and the
+      # fixture-free public resolver must agree with an independent read of
+      # the current chain. Linux has no `*.app` bundles, so the walker's
+      # return value is a documented `None` — the walk itself is the
+      # contract, and a regression in the /proc parsing dies here on the
+      # real Linux runner instead of on a user machine.
+      - name: Verify Linux /proc chain walk (real /proc, post-build)
+        run: |
+          python3 -m pytest \
+            tests/test_linux_proc_walk.py::TestRealProcTreeIntegration \
+            -q --no-cov
+
       - name: List bundle artifacts
         run: |
           TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"

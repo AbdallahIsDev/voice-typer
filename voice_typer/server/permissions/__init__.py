@@ -179,11 +179,13 @@ _a11y_prompt_shown: bool = False
 # i18n keys for the permission notification. The English
 # fallbacks live in ``voice_typer/server/i18n.py`` under
 # ``notify.permissions.macos_title`` / ``notify.permissions.macos_body`` /
+# ``notify.permissions.macos_body_with_command`` /
 # ``notify.permissions.linux_title`` / ``notify.permissions.linux_body``.
 # The renderer pushes translations for other locales via the
 # ``set_tray_locale`` IPC, which calls ``i18n.register_locale()``.
 _PERMISSION_NOTIFY_MACOS_TITLE_KEY = "notify.permissions.macos_title"
 _PERMISSION_NOTIFY_MACOS_BODY_KEY = "notify.permissions.macos_body"
+_PERMISSION_NOTIFY_MACOS_BODY_CMD_KEY = "notify.permissions.macos_body_with_command"
 _PERMISSION_NOTIFY_LINUX_TITLE_KEY = "notify.permissions.linux_title"
 _PERMISSION_NOTIFY_LINUX_BODY_KEY = "notify.permissions.linux_body"
 

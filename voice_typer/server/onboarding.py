@@ -570,7 +570,16 @@ class OnboardingController:
                 # unresolvable: a wrong bundle ID in a tccutil command
                 # is worse than no command.
                 bundle_id = resolve_host_bundle_id()
-                commands = [f"tccutil reset Accessibility {bundle_id}"] if bundle_id else None
+                if bundle_id:
+                    # TCC-002: the command string comes from the single
+                    # construction point in macos_bundle_id.
+                    from voice_typer.server.server_platform.macos_bundle_id import (
+                        tccutil_reset_command_str,
+                    )
+
+                    commands = [tccutil_reset_command_str("Accessibility", bundle_id)]
+                else:
+                    commands = None
                 instructions = {
                     "title_key": "onboarding.permissionsInstructionsMacosTitle",
                     "steps_keys": [

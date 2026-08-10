@@ -499,14 +499,14 @@ def is_autostart_enabled() -> bool:
 # tests/regressions/platform_win32_test.py::TestPlatRunHashSuffix
 # .test_autostart_task_name_includes_hash_suffix does
 # ``inspect.getsource(server_platform)`` and asserts that the literal
-# f-string ``f"VoiceTyperAutostart{_install_hash_suffix()}"`` appears in
+# f-string ``f"com.voicetyper.autostart{_install_hash_suffix()}"`` appears in
 # the package source.  ``inspect.getsource`` on a package returns the
 # source of its ``__init__.py``, which is where ``_APP_AUTOSTART_TASK_NAME``
 # is actually computed (see ``__init__.py``).  The literal expression is
 # echoed here as a comment so the source-string check continues to find
 # the pattern even if ``__init__.py`` is regenerated:
 #
-#   _APP_AUTOSTART_TASK_NAME = f"VoiceTyperAutostart{_install_hash_suffix()}"
+#   _APP_AUTOSTART_TASK_NAME = f"com.voicetyper.autostart{_install_hash_suffix()}"
 #
 # (the actual assignment lives in ``__init__.py`` so it can re-export
 # the computed constant alongside the function ``_install_hash_suffix``).
