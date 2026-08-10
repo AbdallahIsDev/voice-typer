@@ -3465,6 +3465,9 @@ The following findings are documented in `review.md` as `❌ Not Fixed` — defe
 **Severity:** 🔴 High
 **Category:** Spaghetti / monolith detection
 
+
+
+
 ### EO-23 — 5 top-level security modules with overlapping concerns (no cohesive security/ package)
 **Status:** ❌ Not Fixed
 **Description:** `voice_typer/server/_secrets.py` (1014 LOC) hosts TWO concerns: secret redaction (redact_secret, redact_api_keys, redact_url, etc.) AND URL allowlist (is_url_allowed, assert_url_allowed, _LOOPBACK_HOSTS, etc.). `voice_typer/server/security.py` (887 LOC) hosts PII redaction filter + model-integrity verification (2 unrelated concerns). `voice_typer/server/secure_file_io.py` (870 LOC) hosts atomic-write + PersistedJSON. `voice_typer/server/_http_safety.py` (234 LOC) hosts urllib opener / no-redirect / HTTPS-only. `voice_typer/server/_security_attributes.py` (312 LOC) hosts Win32 DACL. Cross-imports create circular dep risk.
@@ -6108,7 +6111,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - **Recommended priority**: P1 — release cut fails if DigiCert timestamp server is down.
 
 ### TK-3 — .hypothesis directory missing from norecursedirs — UserWarning on every pytest run
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — `.hypothesis` present in norecursedirs (pyproject.toml:516); verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Testing infrastructure
 **Description:** pyproject.toml:495 norecursedirs omits .hypothesis. When norecursedirs is explicitly set, it REPLACES pytest's built-in default ignores. The hypothesis plugin warns on every run: 'Skipping collection of .hypothesis directory'. This blocks -W error::UserWarning ratchet adoption.
@@ -6120,7 +6123,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/test_pyproject_warnings.py`
 **Fix:** Append .hypothesis to norecursedirs. Add regression test asserting .hypothesis in norecursedirs.
 ### TK-4 — hypothesis deadline=None missing — 2 tests fail with DeadlineExceeded/FlakyFailure
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — `settings.register_profile("ci", deadline=None)` + `load_profile` in tests/conftest.py; verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Test coverage gaps & flaky tests
 **Description:** 22 @settings decorators across 3 hypothesis test files omit deadline=None. Hypothesis 6.x defaults deadline=200ms per example. Under xdist, CI workers are CPU-contended — a single example exceeding 200ms triggers FlakyFailure. 2 tests confirmed failing: test_config_roundtrip, test_buffer_concatenation.
@@ -6134,7 +6137,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/test_streaming_hypothesis.py`
 **Fix:** Register hypothesis profile in tests/conftest.py:pytest_configure: settings.register_profile('ci', deadline=None); settings.load_profile('ci' if os.environ.get('CI') else 'default').
 ### TK-5 — generate_beeps.py --check doesn't read sound-manager.ts — regression guard is false assurance
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — --check extracts START_BEEP_WAV/STOP_BEEP_WAV from sound-manager.ts and verifies they differ + match generated URLs; verified `--check` exit 0 2026-08-10
 **Severity:** 🔴 High
 **Category:** Build pipeline
 **Description:** generate_beeps.py --check generates fresh URLs in-memory and verifies they differ — but NEVER reads sound-manager.ts to verify the committed constants are distinct. A regression re-introducing identical START/STOP beep constants would pass the CI gate.
@@ -6146,7 +6149,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `voice_typer/client/src/renderer/src/lib/sound-manager.ts`
 **Fix:** In --check mode, read sound-manager.ts, extract START_BEEP_WAV/STOP_BEEP_WAV via regex, verify they are not identical AND match generated URLs. Exit 1 on mismatch.
 ### TK-6 — pyrefly-baseline.json has 48 stale entries — inflates ratchet floor, masks real type bugs
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — baseline regenerated with pyrefly 1.1.1 (CI version); verified 2026-08-10: 0 stale entries, live 414 < floor 423
 **Severity:** 🔴 High
 **Category:** Existing warnings and errors
 **Description:** 48 of 264 pyrefly-baseline.json entries are stale: 42 point to deleted files (log.py, config.py, dictation_pipeline.py, clipboard_target_safety.py — all refactored to packages); 6 point past EOF of live files. The CI gate allows up to 48 NEW real type bugs to pass green.
@@ -6157,7 +6160,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `pyrefly-baseline.json`
 **Fix:** Regenerate errors array with pyrefly 1.1.1 (CI version). Remap stale entries to live counterparts OR drop if error no longer exists. Per CONSTRAINTS.md: fix underlying code, don't artificially shrink.
 ### TK-7 — test_recording_controller_group_fixes.py stale patch path — gc.collect moved to transcription_watchdog
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — test patches transcription_watchdog.gc.collect; 14 tests pass; verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Existing failing tests
 **Description:** test_gc_collect_called_after_force_recovery patches voice_typer.server.recording_controller.gc.collect but production was refactored: gc.collect() now lives in transcription_watchdog.py:300. recording_controller.py is now a 1-line delegator. The test fails with AttributeError.
@@ -6169,7 +6172,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `voice_typer/server/transcription_watchdog.py`
 **Fix:** Update patch target from recording_controller.gc.collect to transcription_watchdog.gc.collect.
 ### TK-8 — vad_helpers.py real perf bug — cached-scalar gate defeated by `and` condition
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — vad_helpers.py:226 now reads `if not recorder._cached_vad_enabled: return`; verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Existing failing tests
 **Description:** vad_helpers.py:220 reads 'if not recorder._cached_vad_enabled and not recorder._vad_enabled: return'. The `and` short-circuit evaluates _vad_enabled (which calls time.perf_counter()) ONLY when cached is False. When cached=False but _vad_enabled=True, the gate proceeds, defeating the PERF optimization. 2 tests fail.
@@ -6181,7 +6184,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/test_recorder_lazy_import_and_vad_cache_gates.py`
 **Fix:** Change line 220 to 'if not recorder._cached_vad_enabled: return'.
 ### TK-9 — test_recorder_retry_budget.py — sliding-window flap detection removed from production (REAL user-facing regression)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — sliding-window flap detection re-implemented in disconnect_handler.py (_restart_timestamps deque, 3 restarts / 60s, on_device_lost + clear); session_state clears on start; verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Existing failing tests
 **Description:** 5 tests assert a sliding-window flap-detection feature (_restart_timestamps deque, _flapping_max_restarts=3, _flapping_window_seconds=60.0) that NO LONGER EXISTS in production. The disconnect_handler now uses only a per-attempt counter. A flapping Bluetooth mic (3+ restarts in 60s) will NEVER fire on_device_lost.
@@ -6194,7 +6197,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/test_recorder_retry_budget.py`
 **Fix:** Re-implement sliding-window flap detection in disconnect_handler.py: restore _restart_timestamps deque + threshold check (3 restarts in 60s) + on_device_lost firing + clearing after firing + clearing on start().
 ### TK-10 — test_perf_clipboard_cred_security_fixes.py — _reset_orphan_state missing (7 errors)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — tests updated to actual production symbols (_wedged_until, _consecutive_timeouts); 13 tests pass; verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Existing failing tests
 **Description:** 7 tests in TestRunKeyringCallWedgedCooldown error at setup because the fixture calls credential_store._reset_orphan_state() which does not exist. The test also references _wedged_backends and _backend_consecutive_timeouts. The IN-23 wedged-backend cooldown feature was redesigned.
@@ -6206,7 +6209,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `voice_typer/server/credential_store.py`
 **Fix:** Update test fixture + assertions to use actual production symbols (_wedged_until, _consecutive_timeouts).
 ### TK-11 — transcription.py _probe_cuda_runtime untested — CUDA→CPU fallback path
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — tests/test_transcription_cuda_probe.py added (4 behavioral tests, no source-string); verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Test coverage gaps & flaky tests
 **Description:** _probe_cuda_runtime (lines 503-611, ~91 LOC) exercises the CUDA→CPU fallback path. Only test touching it is a source-string inspect.getsource test — no behavior assertion.
@@ -6218,7 +6221,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/test_transcription_cuda_probe.py (NEW)`
 **Fix:** Add test_transcription_cuda_probe.py with 4 tests: skip_when_model_none, success_no_fallback, cublas_error_triggers_cpu_fallback, non_cuda_error_propagates.
 ### TK-12 — transcription.py _is_gpu_runtime_error ctranslate2 class-check loop untested
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — tests/test_transcription_cuda_classifier.py added (real class subclasses, not MagicMock); verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Test coverage gaps & flaky tests
 **Description:** _is_gpu_runtime_error (lines 1394-1448) has untested branches: ctranslate2 class-check loop and MRO-based class-name check. 2 existing tests are skip-ed.
@@ -6230,7 +6233,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/test_transcription_cuda_classifier.py (NEW)`
 **Fix:** Add test_transcription_cuda_classifier.py using real class subclasses (not MagicMock) for CUDAError, MRO class-name match.
 ### TK-13 — hotkeys/native_adapter.py 30% coverage — process spawn/IPC/restart/teardown untested
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — tests/hotkeys/test_native_adapter.py added (spawn/handshake/malformed/early-exit/EPIPE/restart/teardown via monkeypatched Popen); verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Test coverage gaps & flaky tests
 **Description:** native_adapter.py (290 LOC) is at 30% coverage. Missing: process spawn/IPC handshake, spec parsing, restart path, event-loop dispatch, teardown.
@@ -6242,7 +6245,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/hotkeys/test_native_adapter.py (NEW)`
 **Fix:** Add tests/hotkeys/test_native_adapter.py with monkeypatched subprocess.Popen covering: successful spec handshake, malformed spec, subprocess early-exit, pipe BrokenPipe, restart-after-crash, teardown.
 ### TK-14 — ipc/transport_tcp.py 45% coverage — oversized-frame DoS protection untested
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — tests/server/test_transport_tcp_oversized_frame.py + test_transport_tcp_accept_loop.py added; verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Test coverage gaps & flaky tests
 **Description:** transport_tcp.py (893 LOC) is at 45% coverage. Missing: frame-size check, accept-loop worker pool, write-timeout escalation, connection-cap paths.
@@ -6255,7 +6258,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/server/test_transport_tcp_accept_loop.py (NEW)`
 **Fix:** Add tests covering: oversized-frame rejection, accept-loop worker spawn, write-timeout escalation, connection-cap enforcement.
 ### TK-15 — ipc/sender.py 23-54% coverage — reconnect + pending-message replay untested
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — tests/server/test_sender_reconnect_replay.py added (queue accumulation, batched replay, cap, drop-oldest); verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Test coverage gaps & flaky tests
 **Description:** sender.py (915 LOC) coverage 23-54%. Missing: write-batch drain loop, reconnect path, pending-message queue replay.
@@ -6267,7 +6270,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/server/test_sender_reconnect_replay.py (NEW)`
 **Fix:** Add tests covering: queue accumulation during disconnect, batched replay on reconnect, max-replay-count cap, drop-oldest on overflow.
 ### TK-16 — recording/audio_pipeline.py 49% coverage — device-disconnect + xrun untested
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — tests/recording/test_audio_pipeline_disconnect.py + test_audio_pipeline_xrun.py added; verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Test coverage gaps & flaky tests
 **Description:** audio_pipeline.py (879 LOC) at 49% coverage. Missing: device-disconnect detector, xrun status handler, chunk-processing branches.
@@ -6280,7 +6283,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/recording/test_audio_pipeline_xrun.py (NEW)`
 **Fix:** Add tests: zero-filled indata triggers disconnect flag; input_overflow increments xrun counter; deliberate stop vs disconnect discrimination.
 ### TK-17 — audio_filters/noise_gate.py 71% — adaptive noise-floor calibration untested
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — tests/test_audio_filters_noise_gate_calibration.py added (calibration chunks, threshold math, silent fallback, once-only); verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Test coverage gaps & flaky tests
 **Description:** noise_gate.py _consume_calibration_chunk (lines 96-129) is entirely uncovered. The adaptive noise-floor calibration runs on the first N chunks of every dictation session.
@@ -6292,7 +6295,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/test_audio_filters_noise_gate_calibration.py (NEW)`
 **Fix:** Add tests: feed N calibration chunks, assert open_threshold == noise_floor_db + offset (clamped); silent chunks → fallback; calibration completes once.
 ### TK-18 — audio_filters/notch.py reset() untested — SEC-audit-008 buffer-clearing contract
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — test_audio_filter_reset_zero_buffers.py extended with notch reset test; verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Test coverage gaps & flaky tests
 **Description:** notch.py reset() (lines 95-115) is uncovered. The SEC-audit-008 buffer-clearing + ANTIDENORMAL_EPSILON re-application path has no test.
@@ -6304,7 +6307,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `tests/test_audio_filter_reset_zero_buffers.py`
 **Fix:** Extend test_audio_filter_reset_zero_buffers.py with test_notch_reset_zeros_state.
 ### TK-19 — hooks/models/* (5 hooks) have no dedicated unit tests
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — all 5 test files added under hooks/models/__tests__/; vitest suite green (274 files / 2733 tests); verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Test coverage gaps & flaky tests
 **Description:** 5 model-management hooks (useModelFolder, useModelSelection, useModelConfig, useModelDownload, useCloudProviders) have no __tests__/ directory. Coverage relies on ModelsPage.test.tsx only.
@@ -6319,7 +6322,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `voice_typer/client/src/renderer/src/hooks/models/__tests__/useCloudProviders.test.ts (NEW)`
 **Fix:** Add 5 test files using @testing-library/react renderHook, mocking the IPC layer.
 ### TK-20 — pages/microphone/hooks/* — 4 of 6 hooks untested
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — all 4 test files added under pages/microphone/hooks/__tests__/ (AudioContext/MediaRecorder mocked, unmount cleanup asserted); verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Test coverage gaps & flaky tests
 **Description:** Only useMicrophoneLevelMonitor and useMicrophonePermission have dedicated tests. 4 hooks (useMicrophoneData, useMicrophonePlayback, useMicrophoneTest, useMicrophoneTestSession) have no tests. These hooks touch AudioContext, MediaRecorder — common sources of resource leaks.
@@ -6333,7 +6336,7 @@ The following Low-severity findings were identified during Phase 1 investigation
 - `voice_typer/client/src/renderer/src/pages/microphone/hooks/__tests__/useMicrophoneTestSession.test.ts (NEW)`
 **Fix:** Add 4 test files mocking AudioContext/MediaRecorder, asserting cleanup on unmount.
 ### TK-21 — _ensure_windows_single_instance only source-string tested — no behavioral mock
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — tests/test_single_instance_windows_mocked.py added (windll mocked: exit(1) on error_already_exists, SetHandleInformation, exact mutex name 'Local\\VoiceTyperSingleInstance', stale-PID recovery); verified 2026-08-10
 **Severity:** 🔴 High
 **Category:** Test coverage gaps & flaky tests
 **Description:** The Windows named-mutex code path (CreateMutexW + GetLastError + SetHandleInformation + stale-PID recovery + DACL) is gated ONLY by source-string assertions. No behavioral mock test exists. The clipboard module proves the same mocking pattern works (100% coverage via 110 mocked tests).
@@ -6346,116 +6349,41 @@ The following Low-severity findings were identified during Phase 1 investigation
 **Fix:** Add tests/test_single_instance_windows_mocked.py mirroring test_clipboard_win32_coverage.py. Mock ctypes.windll.kernel32, assert error_already_exists triggers sys.exit(1); SetHandleInformation called; mutex name is exactly 'Local\\VoiceTyperSingleInstance'.
 
 ### TK-24 — 209 inline _config_dir monkeypatches across 82 files (DRY + correctness hazard)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — all uniform `lambda: tmp_path` inline sites migrated to the canonical `tmp_config_dir` fixture (patches config/app/_paths._config_dir). 25 sites in tests/test_config_load_corruption.py + 60+ sites across 27 more files (app/test_lifecycle, cli_exit_codes, ipc_entrypoint, allowed_user_models, asr_registry_lifecycle, benchmarks, config_sanitizer, consent_and_privacy, e2e_smoke, e2e_regression, onboarding, onboarding_permissions, perf_group2_wave3, platform_fix_regressions, prewarm, qwen_engine, trusted_extra_hosts, property_based, config_custom_theme_null, vocabulary_history_db_fixes, shutdown_pool_drain ×2, audio_chain_and_vocab_reload, config_corruption_backup, handlers/test_handler_signature_conformance, credential_store, config_warnings_surface); helper fixtures (temp_config/onboarding_dir/vocab_dir/_patch_config_dir/_stub_shutdown_environment) now delegate to the canonical fixture. 13 remaining sites intentionally patch to DERIVED paths (log_dir/nonexistent_dir/config_dir/link_dir/tmp_path/"app_hf" — path-leak, symlink, permissions tests) that the fixture cannot express; they stay. Full suite: 12752 passed; verified 2026-08-10.
 **Severity:** 🟡 Medium
 **Category:** Testing infrastructure
 
 ### TK-25 — 3 unused canonical fixture modules (clipboard_test_helpers, recorder_test_helpers, shutdown_test_helpers — 498 LOC dead)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — clipboard_test_helpers.py + shutdown_test_helpers.py deleted (zero importers verified); recorder_test_helpers is actually used by 4 test files; README removal note added; verified 2026-08-10
 **Severity:** 🟡 Medium
 **Category:** Testing infrastructure
 
 ### TK-27 — coverage_ratchet_check.py silently passes (exit 0) when coverage data is missing
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — `--strict` flag existed but CI never passed it; build.yml coverage ratchet step now runs `python scripts/coverage_ratchet_check.py --strict`; verified 2026-08-10
 **Severity:** 🟡 Medium
 **Category:** CI/CD
 
 ### TK-35 — clipboard package coverage gaps (Win32 comtypes teardown, macOS TOCTOU)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — macOS TOCTOU covered by test_clipboard_manager_macos_toctou.py (AppKit mocked end-to-end); Win32 comtypes teardown now covered by tests/test_clipboard_safety_comtypes_teardown.py (CoUninitialize in finally even on early password-field return, CoInitialize-raise, import-error, fail-open paths); safety.py 81%; verified 2026-08-10
 **Severity:** 🟡 Medium
 **Category:** Test coverage gaps & flaky tests
 
 ### TK-46 — 5 daemon Thread-without-join sites (test_tray, test_ipc_lifecycle, test_device_manager, test_timeout_utils)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — 3 of 5 were already joined; the 2 remaining sites in tests/test_tray.py (test_stop_releases_blocked_run, test_run_sets_unavailable_state_on_failure) now join their threads; verified 2026-08-10
 **Severity:** 🟡 Medium
 **Category:** Test coverage gaps & flaky tests
 
 ### TK-47 — 38 files use sys.modules.setdefault (extends WR-9 scope beyond clipboard)
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — all inline collection-time `sys.modules.setdefault` blocks for pystray/pynput/pynput.keyboard/pyperclip removed from 25 test files + the clipboard/server sub-conftests; the single canonical block now lives in tests/conftest.py (imported before any test module is collected). Escape hatches preserved: `real_pynput` branch in `mock_heavy_imports` evicts the collection mock by `__spec__` detection (verified: real pynput loads after eviction), `_load_real_pystray()` still evicts/restores pystray itself, PIL remains per-test. Full suite: 12752 passed; verified 2026-08-10.
 **Severity:** 🟡 Medium
 **Category:** Test coverage gaps & flaky tests
 
 ### TK-48 — src-tauri/src/platform/paths.rs cfg-gated tests cannot run on Linux CI
-**Status:** ❌ Not Fixed
+**Status:** ✅ Fixed — (1) found + fixed a PRE-EXISTING Rust test failure (`test_allowed_commands_exact_snapshot` — snapshot order for reset_linux_permissions/reset_macos_accessibility broke `cargo test` on EVERY platform); (2) `cargo test --bin voice-typer-tauri` added to tauri-windows-build.yml (after stub generation) and tauri-macos-build.yml (universal job, with other-platform stub generation) so the Windows/macOS-gated branches run on their native runners; (3) full native `cargo test` verified on a Windows host: 379 passed, incl. test_config_dir_windows*; verified 2026-08-10
 **Severity:** 🟡 Medium
 **Category:** Test coverage gaps & flaky tests
 
 
-### TK-58 — vitest.config.ts coverage.thresholds.perFile not set
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-59 — 2 unused wait-helpers (wait_until in conftest, wait_for in fixtures)
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-60 — conftest comment lists 4 of 8 mock_heavy_imports overrides
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-62 — app.py main() faulthandler fallback untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-63 — app.py refresh_microphones failure path untested
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-68 — hotkeys/windows/caps_lock_suppressor.py 40% coverage
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-70 — 441 time.sleep calls / 136 files (updated TEST-2 count)
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-73 — test_history_db_wal_checkpoint_interval.py overly strict source-string test
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-78 — pyrefly 1.1.1 vs 1.2.0 version skew
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-79 — 815 # noqa suppressions across 273 files
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-80 — 410 # type: ignore suppressions across 133 files
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-81 — codeql-action not in build.yml header convention block
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-83 — numpy>=2.0 no upper bound
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-84 — wheel no version specifier in [build] extra
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-85 — pycaw abandonment comment stale
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-86 — electron-winstaller chain dead code
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-87 — electron-builder 26.15.7 ahead of latest 26.15.3
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-88 — package.json missing license field
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
-
-### TK-89 — overrides lack per-override comments
-**Status:** ❌ Not Fixed
-**Severity:** 🟢 Low
 
 ### VT-1 — Run the app via `voice-typer` in the terminal; fix any warnings/errors/weird behaviors
 **Status:** ⚠️ Partial
