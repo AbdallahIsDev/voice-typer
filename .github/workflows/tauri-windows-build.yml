@@ -742,10 +742,38 @@ jobs:
         id: artifacts
         shell: pwsh
         run: |
-          $nsis = Get-ChildItem "src-tauri\target\release\bundle\nsis\*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-          $msi  = Get-ChildItem "src-tauri\target\release\bundle\msi\*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
-          $standalone = "src-tauri\target\release\voice-typer-tauri.exe"
-          if (-not $nsis) { Write-Error "NSIS installer not found"; exit 1 }
+          # ``cargo tauri build --target <triple>`` emits bundles under the
+          # per-target dir (target\<triple>\release\bundle); a build WITHOUT
+          # ``--target`` emits under target\release\bundle. The matrix leg
+          # always passes ``--target`` (even on the x86_64 host runner), so
+          # search the per-target dir first, then the host dir as fallback
+          # (mirrors the resource probe below, TX-40).
+          $bundleRoots = @(
+            "src-tauri\target\${{ matrix.target }}\release\bundle",
+            "src-tauri\target\release\bundle"
+          )
+          $nsis = $null
+          $msi = $null
+          foreach ($root in $bundleRoots) {
+            if (-not $nsis) {
+              $nsis = Get-ChildItem "$root\nsis\*-setup.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+            if (-not $msi) {
+              $msi = Get-ChildItem "$root\msi\*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+            }
+          }
+          $standalone = $null
+          foreach ($root in @("src-tauri\target\${{ matrix.target }}\release", "src-tauri\target\release")) {
+            $candidate = Join-Path $root "voice-typer-tauri.exe"
+            if (Test-Path -LiteralPath $candidate) {
+              $standalone = $candidate
+              break
+            }
+          }
+          if (-not $nsis) {
+            Write-Error "NSIS installer not found under: $($bundleRoots -join '; ')"
+            exit 1
+          }
           Write-Host "NSIS: $($nsis.FullName)"
           Write-Host "MSI: $($msi.FullName)"
           Write-Host "Standalone: $standalone"
