@@ -5,7 +5,7 @@
 	"private": true,
 	"main": "./out/main/index.js",
 	"//engines_note": "Node 24 is the CURRENT TARGET. Do NOT downgrade to Node 20 (deprecated on GitHub Actions 2025-09-19). If a newer LTS is available, bump this comment AND the engines.node AND .nvmrc AND all .github/workflows/*.yml files together. Node 20 deprecation also causes [DEP0040] punycode DeprecationWarning noise in CI logs.",
-	"//overrides_note": "rimraf@2+temp@0.9.4 pulled by electron-winstaller (CJS-only) cannot be force-bumped. As of 2026-08-04, `npm audit` reports 0 vulnerabilities after overrides (was 6: 4 high, 2 moderate — all in dev-time transitive chains). Runtime renderer bundle is clean. Track: https://github.com/electron-userland/electron-builder/issues for brace-expansion fix.",
+	"//overrides_note": "electron-winstaller (and the rimraf@2 + temp@0.9.4 it pulls, both CJS-only) is NOT repo code — it is an auto-installed PEER dependency of electron-builder (electron-builder-squirrel-windows) that backs the Squirrel.Windows target, which this project does not use (electron-builder.yml win.target = nsis only). npm 7+ auto-installs electron-builder's peerDependencies, so the chain stays in the tree even though it is inert at build time; the allowScripts entry and the overrides below keep its install scripts benign and its vulnerable transitive deps neutralized. As of 2026-08-04, `npm audit` reports 0 vulnerabilities after overrides (was 6: 4 high, 2 moderate — all in dev-time transitive chains). Runtime renderer bundle is clean. Track: https://github.com/electron-userland/electron-builder/issues for brace-expansion fix.",
 	"engines": {
 		"node": ">=24"
 	},
@@ -21,6 +21,7 @@
 		"windows"
 	],
 	"author": "Abdallah IsDev",
+	"license": "MIT",
 	"imports": {
 		"#ui/*": "./src/renderer/src/components/ui/*",
 		"#utils": "./src/renderer/src/lib/utils.ts"
@@ -55,7 +56,16 @@
 		"build-storybook": "storybook build"
 	},
 	"//electron_vite_note": "electron-vite is pinned to 6.0.0-beta.1 because the stable latest (5.0.0) peer-requires vite ^5.0.0 || ^6.0.0 || ^7.0.0, which is incompatible with this project's vite ^8.1.4 (npm install --package-lock-only fails with ERESOLVE). electron-vite@6.0.0-beta.1 peer-requires vite ^6.0.0 || ^7.0.0 || ^8.0.0 and is the only version that supports vite 8. Attempted downgrade to ^5.0.0 reverted. Re-evaluate when electron-vite 6.x stable is released (track https://github.com/alex8088/electron-vite/releases).",
-	"//overrides": "See //overrides_note above for full rationale. These overrides force-upgrade transitive deps to eliminate deprecated packages (glob@7, inflight, boolean) and security vulnerabilities (@hono/node-server path traversal).",
+	"//overrides_annotations": "JSON has no comments, so each override's rationale lives in a sibling `//overrides_<pkg>` key (npm ignores keys starting with `//`). See //overrides_note for the chain-level rationale.",
+	"//overrides_@electron/asar": "force-upgrade past the deprecated asar@3 line pulled by electron-builder's archive path.",
+	"//overrides_@electron/get": "force-upgrade to 5.x — the 4.x line is deprecated (Node 20-era) and drops the vulnerable artifacts downloader.",
+	"//overrides_@hono/node-server": "force-upgrade to ^2.0.11 — patches the path-traversal advisory in the static-file handler (the one documented in //overrides_note's npm-audit count).",
+	"//overrides_brace-expansion": "force-upgrade to ^5.0.9 — replaces the deprecated brace-expansion@1 (glob@7) engine with the maintained 5.x line.",
+	"//overrides_undici": "force-upgrade to ^7.28.1 — resolves the npm-audit findings (fetch/websocket) in older undici versions pulled by electron tooling.",
+	"//overrides_ip-address": "force-upgrade to ^10.3.1 — resolves the IPv6-parsing ReDoS advisory in ip-address@9 (npm-audit finding).",
+	"//overrides_fast-uri": "force-upgrade to ^3.1.5 — resolves the ReDoS advisory in fast-uri@2, ajv-compiler chain (npm-audit finding).",
+	"//overrides_hono": "force-upgrade to ^4.12.34 — keeps hono on a patched 4.x aligned with the @hono/node-server override.",
+	"//overrides_postcss": "force-upgrade to ^8.5.23 — resolves the postcss@8 parser advisories pulled by vite/tailwind build tooling (npm-audit finding).",
 	"overrides": {
 		"@electron/asar": "^4.2.1",
 		"@electron/get": "^5.0.0",

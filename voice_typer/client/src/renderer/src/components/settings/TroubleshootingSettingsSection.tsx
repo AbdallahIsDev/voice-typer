@@ -359,7 +359,7 @@ export const TroubleshootingSettingsSection = memo(
 							{staleResetCommand && (
 								<p className="text-xs text-muted-foreground">
 									{t("settings.troubleshooting.resetAccessibilitySuggestion")}
-									<code className="ml-1 rounded bg-muted px-1 py-0.5 font-mono text-xs">
+									<code className="ms-1 rounded bg-muted px-1 py-0.5 font-mono text-xs">
 										{staleResetCommand}
 									</code>
 								</p>
