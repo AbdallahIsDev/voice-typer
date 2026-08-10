@@ -497,6 +497,33 @@ jobs:
           echo "OK: universal listener contains both x86_64 + arm64 slices."
           ls -la src-tauri/bin src-tauri/resources src-tauri/resources/native
 
+      # TK-48: run the macOS-gated #[cfg(target_os = "macos")] Rust unit
+      # tests (e.g. platform::paths config-dir resolution) on their
+      # NATIVE OS. The Linux smoke job (tauri-linux-build.yml) can only
+      # execute the Linux-gated branches — the macOS branches were
+      # dead-on-arrival in CI before this step. The base tauri.conf.json
+      # `bundle.resources`/`externalBin` lists every platform's binaries
+      # (a documented superset for the mig15/mig16 source-inspection
+      # tests), so tauri-build's compile-time validation needs the
+      # other-platform placeholder stubs. Generate them with
+      # gen_tauri_icons_stub.py (which never touches the REAL macOS
+      # binaries the arch jobs placed above — it only writes files that
+      # don't already exist). MUST run BEFORE the drift-gate pytest steps
+      # below: the icons module's autouse fixture runs `--clean` after
+      # each test, which would remove these stubs.
+      - name: Generate other-platform binary stubs (for cargo test)
+        run: python3 scripts/gen_tauri_icons_stub.py
+
+      - name: cargo test (Tauri Rust host unit tests — macOS-gated branches)
+        shell: bash
+        working-directory: src-tauri
+        run: |
+          # voice-typer-tauri is a binary-only crate — `--bin` runs the
+          # unit tests without paying for integration-test crates.
+          # Host-native (aarch64-apple-darwin on the arm64 runner) — no
+          # --target needed; mirrors the Linux smoke job's step.
+          cargo test --bin voice-typer-tauri
+
       # The universal job needs pytest for the config drift gate below —
       # unlike the arch jobs it does not install the project's [dev,test]
       # deps. Minimal install (pytest + the two non-stdlib imports the

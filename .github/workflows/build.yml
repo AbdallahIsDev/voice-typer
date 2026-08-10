@@ -11,6 +11,7 @@
 #   mikepenz/action-junit-report@v6   — Node 24 runtime (v4 = Node 20, deprecated)
 #   codecov/codecov-action@v5          — Node 24 runtime (v4 = Node 20, deprecated)
 #   peter-evans/create-issue-from-file@v5 — Node 24 runtime (v4 = Node 20, deprecated)
+#   github/codeql-action/{init,autobuild,analyze}@v3 — CodeQL engine, used by codeql.yml (separate workflow). Keep at the latest v3.
 # Breaking changes already verified safe for this repo:
 #   - setup-node@v6+ auto-caches via packageManager field → not used here (explicit `cache: npm`)
 #   - setup-python@v7 removed `pip-install` input → not used in any workflow
@@ -456,7 +457,12 @@ jobs:
         # the ratchet runs against whatever coverage.xml was produced
         # (even on red pytest legs) — same rationale as the upload step.
         if: always() && matrix.os == 'ubuntu-22.04' && matrix.python-version == '3.12'
-        run: python scripts/coverage_ratchet_check.py
+        # TK-27: `--strict` — WITHOUT it, a missing coverage.xml /
+        # .coverage (e.g. the pytest --cov step crashed before emitting
+        # the XML) makes the ratchet print a NOTE and exit 0, silently
+        # passing the gate. CI is supposed to HAVE coverage data on this
+        # leg, so losing it must fail the job, not skip it.
+        run: python scripts/coverage_ratchet_check.py --strict
 
       # pip-audit two-tier policy.
       #

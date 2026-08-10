@@ -693,6 +693,25 @@ jobs:
         shell: bash
         run: python scripts/gen_tauri_icons_stub.py --check-icons
 
+      # TK-48: run the Windows-gated #[cfg(target_os = "windows")] Rust
+      # unit tests (e.g. platform::paths config-dir resolution) on their
+      # NATIVE OS. The Linux smoke job (tauri-linux-build.yml) can only
+      # execute the Linux-gated branches — the Windows branches were
+      # dead-on-arrival in CI before this step. Runs AFTER the binary
+      # stub generation + icon gates above so tauri-build's compile-time
+      # externalBin/resources validation (which reads base
+      # tauri.conf.json, a documented all-platform superset) resolves
+      # every declared path. Mirrors the Linux smoke job's
+      # `cargo test --bin voice-typer-tauri` step (same command, same
+      # placeholders).
+      - name: cargo test (Tauri Rust host unit tests — Windows-gated branches)
+        shell: pwsh
+        working-directory: src-tauri
+        run: |
+          # voice-typer-tauri is a binary-only crate — `--bin` runs the
+          # unit tests without paying for integration-test crates.
+          cargo test --target ${{ env.RUST_TARGET }} --bin voice-typer-tauri
+
       # install tauri-cli explicitly. The runner's pre-installed
       # `cargo-tauri` is unversioned and lags upstream by months; on
       # windows-2022 it has historically been missing entirely (the

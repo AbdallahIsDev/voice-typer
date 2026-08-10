@@ -82,7 +82,11 @@ dependencies = [
     # during the mock_heavy_imports fixture's app.py import). numpy 2.x is
     # verified API-compatible with this codebase (no removed 1.x aliases
     # in use) and installs official wheels on every supported Python.
-    "numpy>=2.0",
+    # The <3 cap is the standard major-version guard (mirrors the
+    # scipy <2.0 / faster-whisper <2.0 caps) — numpy 3.0 is not announced,
+    # but a major bump is permitted to break 2.x APIs (e.g. the future
+    # removal of deprecated aliases this codebase may still rely on).
+    "numpy>=2.0,<3",
     # scipy.signal is used by audio_filters/ for the resampler
     # + biquad filters. The <2.0 cap is the standard major-version guard —
     # scipy 2.x is not yet on any announced roadmap but the project's
@@ -175,13 +179,18 @@ dependencies = [
     # lifecycle. Re-validate the `ISAudioSessionControl` shim on each
     # upstream release.
     #
-    # SUPPLY-CHAIN NOTE: pycaw 20230407 (Apr 2023, >3 years old)
-    # has had no upstream activity for >3 years (last commit Mar 2023).
-    # MIT-licensed (no LGPL concern), but the abandonment means CVEs in
-    # the COM marshalling path would go unfixed. Track upstream at
-    # https://github.com/AndreMiras/pycaw — alternative (direct ctypes
-    # bindings to the COM interface) is queued as a CR follow-up
-    # (TODO XS-76).
+    # SUPPLY-CHAIN NOTE: pycaw had a multi-year dormant stretch (last
+    # commit Mar 2023), but it is NOT abandoned — a date-based release
+    # (20251023, per volume_backends/windows.py which handles BOTH the
+    # pre- and post-20251023 API generations) landed in Oct 2025,
+    # reviving the project. This comment used to claim "abandonment"
+    # as fact; the pin below (<20240407) deliberately EXCLUDES that
+    # revival (conservative — re-validate the ISAudioSessionControl
+    # shim before widening), and the WinVolumeBackend shim already
+    # supports the new API either way. Track
+    # upstream at https://github.com/AndreMiras/pycaw — alternative
+    # (direct ctypes bindings to the COM interface) is queued as a CR
+    # follow-up (TODO XS-76).
     "pycaw>=20230407,<20240407; sys_platform == 'win32'",
     # comtypes is the generic Python ↔ COM bridge required
     # by pycaw (transitively) and directly by
@@ -303,7 +312,10 @@ test = [
 build = [
     "pyinstaller>=6.0,<7",
     "setuptools>=68.0,<84",
-    "wheel",
+    # Explicit floor so `pip install .[build]` never resolves an
+    # unbounded `wheel` (which has no upper bound anyway, but a floor
+    # pins the bdist_wheel behavior we depend on for the installer).
+    "wheel>=0.38",
 ]
 # Windows volume ducking — kept as alias for explicit pip install .[windows]
 # include pywin32 so shortcut creation uses the native COM
