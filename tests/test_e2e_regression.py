@@ -19,10 +19,9 @@ import pytest
 
 
 @pytest.fixture
-def temp_config(tmp_path, monkeypatch):
+def temp_config(tmp_config_dir):
     """Point voice_typer config to a temp dir."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
+    return tmp_config_dir
 
 
 class TestCoreModulesExtractedFromApp:

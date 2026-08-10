@@ -28,6 +28,7 @@ of ``tests/test_clipboard_win32_coverage.py``.
 
 from __future__ import annotations
 
+import contextlib  # noqa: E402
 import sys
 import threading
 import time
@@ -35,16 +36,6 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# Heavy-import mocking — clipboard.py imports pyperclip/pynput at module
-# load time, which aren't installed in the Linux sandbox. Set defaults
-# BEFORE importing the safety module.
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-sys.modules.setdefault("pyperclip", MagicMock())
-
-import contextlib  # noqa: E402
-
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server import clipboard_target_safety as safety_mod  # noqa: E402
 

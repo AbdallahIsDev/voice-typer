@@ -26,16 +26,6 @@ their inline helpers to the canonical import over time (see the
   `make_fake_app`, `make_fake_service`, `make_ipc_server_with_fakes`.
 - `sidecar_ws_test_helpers.py` — `_make_fake_server` for sidecar WS
   tests.
-- `shutdown_test_helpers.py` — `make_fake_shutdown_app(**overrides)`
-  consolidates the 13 inline `_FakeApp` copies across
-  `tests/test_shutdown_*.py` / `tests/test_app_cleanup.py` /
-  `tests/test_ipc_send_shutdown_allowlist.py`. Superset of every prior
-  inline copy — tests override specific attributes after construction.
-- `clipboard_test_helpers.py` — `make_clipboard_manager(**overrides)`
-  consolidates the 5 inline `_make_cm` copies across
-  `tests/test_clipboard*.py`; `make_clipboard_snapshot(platform=...,
-  mime=...)` mirrors the `_make_snapshot` helper in
-  `tests/test_clipboard_paste_restore.py`.
 - `recorder_test_helpers.py` — `make_recorder()` consolidates the 2
   byte-for-byte copies of the secure-clear path's `_make_recorder` in
   `tests/test_secure_clear_no_resample_segments.py` and
@@ -58,6 +48,22 @@ they were never referenced by any test code (verified via
 Only `test_440hz_1s_16k.wav` is retained on disk. The `wav_fixture_path`
 pytest fixture that previously returned its path was removed in RT-16
 (no test imported it — tests that need the WAV construct the path inline).
+
+## Removed factory helpers (TK-25)
+
+The following canonical factory modules were removed in TK-25 because
+no test ever imported them (verified via `rg 'clipboard_test_helpers|'
+'shutdown_test_helpers' tests/` → zero matches outside the definition
+files — the docstrings were written aspirationally when the modules were
+created, but the inline helpers in the test files were never migrated):
+
+- `clipboard_test_helpers.py` — `make_clipboard_manager(**overrides)` /
+  `make_clipboard_snapshot(...)`; the 5 inline `_make_cm` / `_make_snapshot`
+  copies in `tests/test_clipboard*.py` remain inline.
+- `shutdown_test_helpers.py` — `make_fake_shutdown_app(**overrides)`;
+  the 13 inline `_FakeApp` copies in `tests/test_shutdown_*.py` /
+  `tests/test_app_cleanup.py` / `tests/test_ipc_send_shutdown_allowlist.py`
+  remain inline.
 
 ## Removed factory helpers (RT-16)
 

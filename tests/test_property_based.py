@@ -132,10 +132,9 @@ class TestConfigSerializationRoundtrip:
         beam_size=st.integers(min_value=1, max_value=5),
     )
     @settings(max_examples=20, suppress_health_check=[HealthCheck.function_scoped_fixture])
-    def test_config_roundtrip(self, tmp_path, monkeypatch, hotkey, model_size, device, beam_size):
+    def test_config_roundtrip(self, tmp_config_dir, hotkey, model_size, device, beam_size):
         from voice_typer.server.config import Config
 
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config(
             hotkey=hotkey,
             model_size=model_size,

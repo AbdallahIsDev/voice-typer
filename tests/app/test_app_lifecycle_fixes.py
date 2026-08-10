@@ -707,6 +707,102 @@ class TestMainWrapsIpcMain:
             "SystemExit (the normal shutdown path); got exit calls: " + repr(exit_calls)
         )
 
+    # faulthandler fallback path — ``main()`` enables
+    # ``faulthandler`` for crash thread-dumps and logs a WARNING (with
+    # exc_info) when ``faulthandler.enable()`` raises or the module is
+    # unavailable, WITHOUT aborting the backend startup.
+
+    def test_main_logs_warning_when_faulthandler_enable_raises(self, monkeypatch, caplog):
+        """When ``faulthandler.enable()`` raises (stripped minimal build
+        / platform without SIGSEGV support), ``app.main()`` must log a
+        WARNING with exc_info and STILL run ``ipc_main()`` (the crash
+        dump capability is degraded, not fatal)."""
+        from voice_typer.server import app as app_module
+
+        # faulthandler.enable() raises — simulates a stripped interpreter.
+        class _BoomFaulthandler:
+            @staticmethod
+            def enable():
+                raise RuntimeError("enable() unsupported on this build")
+
+        monkeypatch.setitem(sys.modules, "faulthandler", _BoomFaulthandler())
+
+        called = []
+        import voice_typer.server.ipc_server as ipc_server_module
+
+        monkeypatch.setattr(
+            ipc_server_module, "main", lambda: called.append(True)
+        )
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.app"):
+            app_module.main()
+
+        assert called, "main() must still invoke ipc_main() when faulthandler.enable() fails"
+        warning_records = [
+            r
+            for r in caplog.records
+            if "faulthandler not available" in r.message
+        ]
+        assert warning_records, (
+            "main() must log a WARNING containing 'faulthandler not available' "
+            "when faulthandler.enable() raises"
+        )
+        assert warning_records[0].levelno == logging.WARNING, (
+            "the faulthandler fallback must be logged at WARNING (not DEBUG)"
+        )
+        assert warning_records[0].exc_info is not None, (
+            "the faulthandler warning must include exc_info (log.warning(..., exc_info=True))"
+        )
+
+    def test_main_logs_warning_when_faulthandler_import_fails(self, monkeypatch, caplog):
+        """When ``import faulthandler`` itself fails (module stripped from
+        a minimal build), ``app.main()`` must still degrade gracefully:
+        log the WARNING and continue to ``ipc_main()``."""
+        from voice_typer.server import app as app_module
+
+        # sys.modules["faulthandler"] = None makes `import faulthandler`
+        # raise ImportError ("import of faulthandler halted; None in
+        # sys.modules") — exactly the degraded-build scenario.
+        monkeypatch.setitem(sys.modules, "faulthandler", None)
+
+        called = []
+        import voice_typer.server.ipc_server as ipc_server_module
+
+        monkeypatch.setattr(ipc_server_module, "main", lambda: called.append(True))
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.app"):
+            app_module.main()
+
+        assert called, "main() must still invoke ipc_main() when faulthandler import fails"
+        assert any("faulthandler not available" in r.message for r in caplog.records), (
+            "main() must log 'faulthandler not available' when the import fails"
+        )
+
+    def test_main_enables_faulthandler_before_ipc_main(self, monkeypatch):
+        """Happy path: ``faulthandler.enable()`` is invoked BEFORE
+        ``ipc_main()`` so crash thread-dumps are armed for the whole
+        backend lifetime."""
+        from voice_typer.server import app as app_module
+
+        enabled = []
+
+        class _FakeFaulthandler:
+            @staticmethod
+            def enable():
+                enabled.append(True)
+
+        monkeypatch.setitem(sys.modules, "faulthandler", _FakeFaulthandler())
+
+        called = []
+        import voice_typer.server.ipc_server as ipc_server_module
+
+        monkeypatch.setattr(ipc_server_module, "main", lambda: called.append(True))
+
+        app_module.main()
+
+        assert enabled == [True], "main() must call faulthandler.enable() on the happy path"
+        assert called == [True], "main() must call ipc_main() after enabling faulthandler"
+
     def test_source_has_try_except_around_ipc_main(self):
         """Source-level invariant: the ``ipc_main()`` call in
         ``app.main()`` must be wrapped in ``try:/except Exception:``

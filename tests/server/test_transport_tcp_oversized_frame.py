@@ -23,18 +23,10 @@ import json
 import logging
 
 # Mock pystray before importing ipc_server (transitively imports tray).
-import sys
 import threading
 from unittest.mock import MagicMock
 
 import pytest
-
-_mock_pystray = MagicMock()
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
-
 from voice_typer.server.ipc.sender import (  # noqa: E402
     _TCP_MAX_OUTBOUND_BYTES,
     _TCP_PENDING_BUFFER_CAP,

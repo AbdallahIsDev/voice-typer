@@ -69,14 +69,13 @@ def _loading_warning_records(caplog) -> list[logging.LogRecord]:
 class TestConfigLoadCaughtFailureModes:
     """Each expected failure mode must fall back to defaults and log."""
 
-    def test_file_missing_returns_defaults_no_warning(self, tmp_path, monkeypatch, caplog):
+    def test_file_missing_returns_defaults_no_warning(self, tmp_path, tmp_config_dir, caplog):
         """No config file at all → defaults, no exception, no warning.
 
         This is the legitimate "first run" case and must NOT log a
         warning (there's nothing wrong — the user just hasn't saved a
         config yet).
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
         assert cfg.hotkey == EXPECTED_DEFAULT_HOTKEY
@@ -84,9 +83,8 @@ class TestConfigLoadCaughtFailureModes:
         # No file → no warning.
         assert _warning_records(caplog) == []
 
-    def test_file_empty_returns_defaults_and_logs_warning(self, tmp_path, monkeypatch, caplog):
+    def test_file_empty_returns_defaults_and_logs_warning(self, tmp_path, tmp_config_dir, caplog):
         """An empty file is not valid JSON → JSONDecodeError → defaults."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = _write_config(tmp_path, "")
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
@@ -96,9 +94,8 @@ class TestConfigLoadCaughtFailureModes:
         assert "JSONDecodeError" in recs[0].message
         assert str(config_file) in recs[0].message
 
-    def test_corrupt_json_returns_defaults_and_logs_warning(self, tmp_path, monkeypatch, caplog):
+    def test_corrupt_json_returns_defaults_and_logs_warning(self, tmp_path, tmp_config_dir, caplog):
         """Truncated/garbage JSON → JSONDecodeError → defaults."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = _write_config(tmp_path, "NOT VALID JSON {{{")
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
@@ -113,7 +110,7 @@ class TestConfigLoadCaughtFailureModes:
         ["null", "true", "42", "3.14", '"a string"', "[]", "[1, 2, 3]"],
         ids=["null", "true", "int", "float", "string", "empty_list", "list"],
     )
-    def test_json_non_dict_returns_defaults_and_logs_warning(self, tmp_path, monkeypatch, caplog, bad_root):
+    def test_json_non_dict_returns_defaults_and_logs_warning(self, tmp_path, tmp_config_dir, caplog, bad_root):
         """Valid JSON but not a dict → TypeError → defaults.
 
         ``load()`` now explicitly checks ``isinstance(parsed, dict)``
@@ -122,7 +119,6 @@ class TestConfigLoadCaughtFailureModes:
         caught by the broad ``except Exception``.  The new behavior
         surfaces the failure mode (``TypeError``) in the log.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = _write_config(tmp_path, bad_root)
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
@@ -134,7 +130,7 @@ class TestConfigLoadCaughtFailureModes:
         # The message should explain what shape was expected vs. found.
         assert "JSON object" in recs[0].message
 
-    def test_field_with_uncoercible_string_returns_defaults_and_logs_warning(self, tmp_path, monkeypatch, caplog):
+    def test_field_with_uncoercible_string_returns_defaults_and_logs_warning(self, tmp_path, tmp_config_dir, caplog):
         """A float field set to a non-numeric string → per-field reset + warning.
 
         ``float("abc")`` raises ``ValueError`` — the
@@ -142,7 +138,6 @@ class TestConfigLoadCaughtFailureModes:
         to defaults; now only the bad field is reset and a warning is
         logged so the user knows which field was bad.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, json.dumps({"streaming_chunk_seconds": "abc"}))
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
@@ -156,13 +151,12 @@ class TestConfigLoadCaughtFailureModes:
         # The bad field should be reset to its default.
         assert cfg.streaming_chunk_seconds == 12.0
 
-    def test_field_with_null_for_float_returns_defaults_and_logs_warning(self, tmp_path, monkeypatch, caplog):
+    def test_field_with_null_for_float_returns_defaults_and_logs_warning(self, tmp_path, tmp_config_dir, caplog):
         """A float field set to ``null`` → per-field reset + warning.
 
         ``float(None)`` raises ``TypeError``.  Previously
         this reset the ENTIRE config; now only the bad field is reset.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, json.dumps({"streaming_chunk_seconds": None}))
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
@@ -175,14 +169,13 @@ class TestConfigLoadCaughtFailureModes:
         assert cfg.streaming_chunk_seconds == 12.0
 
     def test_field_with_uncoercible_int_for_float_returns_defaults_and_logs_warning(
-        self, tmp_path, monkeypatch, caplog
+        self, tmp_path, tmp_config_dir, caplog
     ):
         """A float field set to a list → per-field reset + warning.
 
         ``float([1, 2])`` raises ``TypeError``.  Previously
         this reset the ENTIRE config; now only the bad field is reset.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, json.dumps({"streaming_chunk_seconds": [1, 2, 3]}))
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             cfg = Config.load()
@@ -193,14 +186,15 @@ class TestConfigLoadCaughtFailureModes:
         assert "resetting to default" in recs[0].message
         assert cfg.streaming_chunk_seconds == 12.0
 
-    def test_validate_non_numeric_fields_raises_returns_defaults_and_logs_warning(self, tmp_path, monkeypatch, caplog):
+    def test_validate_non_numeric_fields_raises_returns_defaults_and_logs_warning(
+        self, tmp_path, tmp_config_dir, monkeypatch, caplog
+    ):
         """If the validator raises a caught exception, fall back to defaults.
 
         Simulates a future regression where ``_validate_non_numeric_fields``
         raises ``ValueError`` on a field it can't reason about.  The
         outer ``except`` must catch it and fall back to defaults.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def raising_validate(cls, data):
@@ -223,13 +217,12 @@ class TestConfigLoadCaughtFailureModes:
         sys.platform == "win32",
         reason="POSIX-only: chmod 0o000 to deny read access",
     )
-    def test_permission_denied_returns_defaults_and_logs_warning(self, tmp_path, monkeypatch, caplog):
+    def test_permission_denied_returns_defaults_and_logs_warning(self, tmp_path, tmp_config_dir, caplog):
         """File exists but is unreadable → PermissionError (OSError) → defaults.
 
         We never want a permission error to crash the app on startup;
         falling back to defaults (and warning) is the correct UX.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
         # Strip all permissions from the file (note: this only denies
         # non-root users; root can still read).  Tests run as the user
@@ -258,12 +251,13 @@ class TestConfigLoadCaughtFailureModes:
                     with contextlib.suppress(OSError):
                         corrupt_backup.chmod(0o600)
 
-    def test_disk_error_during_read_returns_defaults_and_logs_warning(self, tmp_path, monkeypatch, caplog):
+    def test_disk_error_during_read_returns_defaults_and_logs_warning(
+        self, tmp_path, tmp_config_dir, monkeypatch, caplog
+    ):
         """OSError mid-read (e.g. disk failure) → defaults + warning.
 
         Simulated by mocking ``_secure_read_text`` to raise ``OSError``.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def boom(path, **kwargs):
@@ -278,7 +272,7 @@ class TestConfigLoadCaughtFailureModes:
         assert "OSError" in recs[0].message
         assert str(config_file) in recs[0].message
 
-    def test_oserror_subclass_permissionerror_is_caught(self, tmp_path, monkeypatch, caplog):
+    def test_oserror_subclass_permissionerror_is_caught(self, tmp_path, tmp_config_dir, monkeypatch, caplog):
         """``PermissionError`` (subclass of ``OSError``) must be caught.
 
         This is a regression guard: if someone refactors the except
@@ -286,7 +280,6 @@ class TestConfigLoadCaughtFailureModes:
         works.  But if they narrow it to specific OSError subclasses,
         we want to know.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def boom(path, **kwargs):
@@ -307,9 +300,8 @@ class TestConfigLoadCaughtFailureModes:
 class TestConfigLoadPropagatedFailureModes:
     """Unexpected exceptions propagate so genuine bugs are visible."""
 
-    def test_keyerror_propagates(self, tmp_path, monkeypatch):
+    def test_keyerror_propagates(self, tmp_path, tmp_config_dir, monkeypatch):
         """``KeyError`` indicates a bug (we use ``.get()`` everywhere)."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def raising_validate(cls, data):
@@ -323,9 +315,8 @@ class TestConfigLoadPropagatedFailureModes:
         with pytest.raises(KeyError, match="simulated bug"):
             Config.load()
 
-    def test_attributeerror_propagates(self, tmp_path, monkeypatch):
+    def test_attributeerror_propagates(self, tmp_path, tmp_config_dir, monkeypatch):
         """``AttributeError`` indicates a bug (unexpected ``None`` access)."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def raising_validate(cls, data):
@@ -339,14 +330,13 @@ class TestConfigLoadPropagatedFailureModes:
         with pytest.raises(AttributeError, match="simulated bug"):
             Config.load()
 
-    def test_memoryerror_propagates(self, tmp_path, monkeypatch):
+    def test_memoryerror_propagates(self, tmp_path, tmp_config_dir, monkeypatch):
         """``MemoryError`` is system-level — must not be silently swallowed.
 
         the broad ``except Exception`` caught ``MemoryError``
         (it's a subclass of ``Exception``) and silently returned
         defaults, masking an OOM condition.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def boom(path, **kwargs):
@@ -356,7 +346,7 @@ class TestConfigLoadPropagatedFailureModes:
         with pytest.raises(MemoryError):
             Config.load()
 
-    def test_keyboardinterrupt_propagates(self, tmp_path, monkeypatch):
+    def test_keyboardinterrupt_propagates(self, tmp_path, tmp_config_dir, monkeypatch):
         """``KeyboardInterrupt`` must always propagate (user hit Ctrl-C).
 
         ``except Exception`` did NOT catch ``KeyboardInterrupt``
@@ -364,7 +354,6 @@ class TestConfigLoadPropagatedFailureModes:
         test to pin that behavior — if someone later widens the catch
         to ``except BaseException`` it would break Ctrl-C handling.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def boom(path, **kwargs):
@@ -374,9 +363,8 @@ class TestConfigLoadPropagatedFailureModes:
         with pytest.raises(KeyboardInterrupt):
             Config.load()
 
-    def test_systemexit_propagates(self, tmp_path, monkeypatch):
+    def test_systemexit_propagates(self, tmp_path, tmp_config_dir, monkeypatch):
         """``SystemExit`` must always propagate (``sys.exit()`` was called)."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def boom(path, **kwargs):
@@ -387,14 +375,13 @@ class TestConfigLoadPropagatedFailureModes:
             Config.load()
         assert exc_info.value.code == 42
 
-    def test_runtimeerror_propagates(self, tmp_path, monkeypatch):
+    def test_runtimeerror_propagates(self, tmp_path, tmp_config_dir, monkeypatch):
         """``RuntimeError`` is not an expected config-corruption mode.
 
         If a ``RuntimeError`` bubbles up from inside ``load()``, it's
         likely a bug in our migration code or a downstream import
         failure — we want it surfaced, not silently swallowed.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, json.dumps({"hotkey": "<f5>"}))
 
         def boom(path, **kwargs):
@@ -411,9 +398,8 @@ class TestConfigLoadPropagatedFailureModes:
 class TestConfigLoadLegitimateCasesPreserved:
     """must not break any legitimate config-loading path."""
 
-    def test_valid_config_loads_normally(self, tmp_path, monkeypatch):
+    def test_valid_config_loads_normally(self, tmp_path, tmp_config_dir):
         """A well-formed config dict loads with the user's values."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(
             tmp_path,
             json.dumps({"hotkey": "<f9>", "autostart": False, "device": "cpu"}),
@@ -423,9 +409,8 @@ class TestConfigLoadLegitimateCasesPreserved:
         assert cfg.autostart is False
         assert cfg.device == "cpu"
 
-    def test_unknown_keys_ignored(self, tmp_path, monkeypatch):
+    def test_unknown_keys_ignored(self, tmp_path, tmp_config_dir):
         """Unknown JSON keys must not crash load()."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(
             tmp_path,
             json.dumps({"hotkey": "<f5>", "bogus_key": "ignored"}),
@@ -434,9 +419,8 @@ class TestConfigLoadLegitimateCasesPreserved:
         assert cfg.hotkey == "<f5>"
         assert not hasattr(cfg, "bogus_key")
 
-    def test_round_trip_preserved(self, tmp_path, monkeypatch):
+    def test_round_trip_preserved(self, tmp_path, tmp_config_dir):
         """Save → load round-trip is unaffected."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c1 = Config(hotkey="<f7>", autostart=False, device="cpu")
         c1.save()
         c2 = Config.load()
@@ -444,9 +428,8 @@ class TestConfigLoadLegitimateCasesPreserved:
         assert c2.autostart is False
         assert c2.device == "cpu"
 
-    def test_schema_migration_still_runs(self, tmp_path, monkeypatch):
+    def test_schema_migration_still_runs(self, tmp_path, tmp_config_dir):
         """A config without ``schema_version`` is migrated to current."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, json.dumps({"hotkey": "<f3>"}))
         cfg = Config.load()
         from voice_typer.server.config import _CURRENT_SCHEMA_VERSION
@@ -461,10 +444,9 @@ class TestConfigLoadLegitimateCasesPreserved:
 class TestConfigLoadWarningMessageQuality:
     """the warning must include enough context to be actionable."""
 
-    def test_warning_includes_exception_class_name(self, tmp_path, monkeypatch, caplog):
+    def test_warning_includes_exception_class_name(self, tmp_path, tmp_config_dir, caplog):
         """The exception class name (e.g. ``JSONDecodeError``) is the
         failure-mode indicator — it must be in the log message."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, "garbage")
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()
@@ -473,11 +455,10 @@ class TestConfigLoadWarningMessageQuality:
         # The class name is in the message (formatted via %s).
         assert "JSONDecodeError" in recs[0].message
 
-    def test_warning_includes_config_file_path(self, tmp_path, monkeypatch, caplog):
+    def test_warning_includes_config_file_path(self, tmp_path, tmp_config_dir, caplog):
         """The config file path must be in the message so the user knows
         which file is corrupt (in case there are multiple, e.g. legacy
         + new)."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         config_file = _write_config(tmp_path, "garbage")
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()
@@ -485,11 +466,10 @@ class TestConfigLoadWarningMessageQuality:
         assert recs
         assert str(config_file) in recs[0].message
 
-    def test_warning_includes_exception_message(self, tmp_path, monkeypatch, caplog):
+    def test_warning_includes_exception_message(self, tmp_path, tmp_config_dir, caplog):
         """The underlying exception message (e.g. JSON parse error
         detail) must be in the log so the user can see *where* in the
         file the corruption is."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, "garbage")
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()
@@ -499,13 +479,12 @@ class TestConfigLoadWarningMessageQuality:
         assert "line" in recs[0].message
         assert "column" in recs[0].message
 
-    def test_warning_level_is_warning_not_error(self, tmp_path, monkeypatch, caplog):
+    def test_warning_level_is_warning_not_error(self, tmp_path, tmp_config_dir, caplog):
         """level is WARNING (recoverable), not ERROR (fatal).
 
         Recovering to defaults is a normal, recoverable event — using
         ERROR would flood monitoring dashboards with false positives.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         _write_config(tmp_path, "garbage")
         with caplog.at_level(logging.WARNING, logger="voice_typer.server.config"):
             Config.load()

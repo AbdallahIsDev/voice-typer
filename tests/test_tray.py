@@ -30,16 +30,6 @@ import pytest
 # permanently pollute ``sys.modules`` — breaking any later test that
 # needs real PIL (e.g. tests/test_tray_icon.py, which is marked
 # ``@pytest.mark.real_pil``).
-#
-# Per-test PIL mocking is handled by the autouse ``mock_heavy_imports``
-# fixture below (lines 102-105) and by ``tests/conftest.py``.
-_mock_pystray = MagicMock()
-_mock_pystray.Menu = MagicMock
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
-
 from voice_typer.server.tray import TrayIcon  # noqa: E402
 
 
@@ -460,6 +450,10 @@ class TestTrayUnavailableFallback:
         time.sleep(0.05)
         tray.stop()
         assert run_returned.wait(timeout=1.0), "run() did not return within 1s after stop() — _run_event was not set"
+        # Best-effort join so the daemon thread doesn't linger past the
+        # test (run() has already returned — _run_thread only sets
+        # run_returned after run() exits — so the join is near-instant).
+        t.join(timeout=1.0)
 
     def test_voice_typer_no_tray_env_var_skips_icon_creation(self, tray, monkeypatch):
         """``VOICE_TYPER_NO_TRAY=1`` env var forces the tray-unavailable
@@ -1472,6 +1466,10 @@ class TestRunDegradesOnRuntimeFailure:
             "run() did not return within 1s after stop() - the runtime "
             "failure must degrade to the _run_event blocking path"
         )
+        # Best-effort join so the daemon thread doesn't linger past the
+        # test (run() has already returned — _run_thread only sets
+        # run_returned after run() exits — so the join is near-instant).
+        t.join(timeout=1.0)
         # The tray must now be marked unavailable so downstream code
         # treats it as headless (hotkey + IPC still active).
         assert tray._tray_unavailable is True

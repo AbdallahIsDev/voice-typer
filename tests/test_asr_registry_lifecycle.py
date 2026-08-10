@@ -147,7 +147,7 @@ class TestAppConstructionDelegatesToRegistry:
 class TestAsrRegistryInitializedInAppInit:
     """ARCH-008: registry is initialized in __init__ (not lazily)."""
 
-    def test_asr_registry_exists_after_init(self, tmp_path, monkeypatch):
+    def test_asr_registry_exists_after_init(self, tmp_config_dir, monkeypatch):
         """VoiceTyperApp.__init__ must initialize ModelManager (and thus
         the AsrBackendRegistry) before any engine field is accessed.
 
@@ -155,8 +155,6 @@ class TestAsrRegistryInitializedInAppInit:
         ``app._asr_registry`` (@property delegate); it now lives on
         ``app.models._registry`` / ``app.models.registry``.
         """
-        # Point config to a temp directory
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         # Mock heavy deps so __init__ doesn't fail
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])

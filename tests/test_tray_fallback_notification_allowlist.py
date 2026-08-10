@@ -46,22 +46,9 @@ read Python source via ``inspect.getsource`` and the Rust source via
 from __future__ import annotations
 
 import inspect
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
-
-# Mock pystray at module level so the tray module can be imported
-# without needing an X display (headless CI). Mirrors the pattern in
-# tests/test_tray_pending_drain.py.
-_mock_pystray = MagicMock()
-_mock_pystray.Menu = MagicMock
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
-
 from voice_typer.server import tray as tray_module  # noqa: E402
 from voice_typer.server.tray import TrayIcon  # noqa: E402
 

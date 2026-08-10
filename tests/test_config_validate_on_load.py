@@ -29,16 +29,17 @@ from voice_typer.server.config import Config
 
 
 @pytest.fixture
-def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def isolated_config_dir(tmp_config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point ``_config_dir()`` at an empty tmp_path for the duration
     of the test so ``Config.load()`` reads/writes only our isolated
     config.json.
     """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    # Some Config.load() helpers consult environment variables; clear
-    # the ones that would override our isolated path.
+    # The canonical ``tmp_config_dir`` fixture already points
+    # ``_config_dir()`` at the temp dir. Some Config.load() helpers
+    # consult environment variables; clear the ones that would
+    # override our isolated path.
     monkeypatch.delenv("VOICE_TYPER_CONFIG_DIR", raising=False)
-    return tmp_path
+    return tmp_config_dir
 
 
 class TestValidateConfigCalledOnLoad:

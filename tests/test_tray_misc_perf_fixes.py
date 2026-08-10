@@ -33,7 +33,6 @@ level so the tray module imports cleanly without an X display.
 
 from __future__ import annotations
 
-import sys
 import threading
 import time
 from types import SimpleNamespace
@@ -41,17 +40,6 @@ from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-
-# Mock pystray at module level so the tray module imports cleanly
-# without needing an X display (headless CI). Mirrors the pattern in
-# tests/test_tray_set_state_noop.py.
-_mock_pystray = MagicMock()
-_mock_pystray.Menu = MagicMock
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
-
 
 # ─── tray_notifications: CPU fallback publishes to Tauri ────
 

@@ -9,10 +9,9 @@ from voice_typer.server.onboarding_status import read_status
 
 
 @pytest.fixture
-def onboarding_dir(tmp_path, monkeypatch):
+def onboarding_dir(tmp_config_dir):
     """Point config to a temp directory."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
+    return tmp_config_dir
 
 
 @pytest.fixture
@@ -296,16 +295,13 @@ class TestOnboardingWizard:
 
 
 @pytest.fixture
-def app_with_service(tmp_path, monkeypatch):
+def app_with_service(tmp_config_dir, monkeypatch):
     """Build a real VoiceTyperApp + VoiceTyperService with mocked deps.
 
     Mirrors the ``app`` fixture in tests/test_app.py: heavy imports
     are mocked, pynput is forced as the hotkey backend, and autostart
     helpers are stubbed so __init__ doesn't touch the OS.
     """
-    # Point _config_dir at tmp_path so Config.save() is isolated.
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-
     # Mock heavy hardware/GUI deps (in addition to conftest's autouse
     # mock_heavy_imports, which doesn't run for this module-scope
     # override — be defensive and set them up explicitly here).

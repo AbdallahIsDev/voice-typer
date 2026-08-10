@@ -23,10 +23,9 @@ import pytest
 
 
 @pytest.fixture
-def vocab_dir(tmp_path, monkeypatch):
+def vocab_dir(tmp_config_dir):
     """Point the config dir at a temp directory and create a small bundled corrections file."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
+    return tmp_config_dir
 
 
 @pytest.fixture

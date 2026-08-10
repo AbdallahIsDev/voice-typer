@@ -992,28 +992,26 @@ class TestFindWeights:
         )
         assert prewarm._find_parakeet_weights() is None
 
-    def test_returns_path_when_cached(self, monkeypatch, tmp_path):
+    def test_returns_path_when_cached(self, monkeypatch, tmp_config_dir):
         """A snapshot dir with model.safetensors → that path."""
         # Build a fake HF cache layout.
-        cache = tmp_path / "huggingface" / "hub"
+        cache = tmp_config_dir / "huggingface" / "hub"
         model_dir = cache / "models--nvidia--parakeet-tdt-0.6b-v3"
         snap = model_dir / "snapshots" / "abc123"
         snap.mkdir(parents=True)
         weights = snap / "model.safetensors"
         weights.write_bytes(b"fake weights")
 
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         result = prewarm._find_parakeet_weights()
         assert result == weights
 
-    def test_returns_none_when_snapshot_has_no_weights(self, monkeypatch, tmp_path):
+    def test_returns_none_when_snapshot_has_no_weights(self, monkeypatch, tmp_config_dir):
         """Snapshot dir exists but model.safetensors is missing → None."""
-        cache = tmp_path / "huggingface" / "hub"
+        cache = tmp_config_dir / "huggingface" / "hub"
         snap = cache / "models--nvidia--parakeet-tdt-0.6b-v3" / "snapshots" / "abc"
         snap.mkdir(parents=True)
         (snap / "config.json").write_text("{}")  # no weights
 
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         assert prewarm._find_parakeet_weights() is None
 
 

@@ -100,9 +100,12 @@ def _write_config(tmp_path, payload: dict) -> None:
     (tmp_path / "config.json").write_text(json.dumps(payload))
 
 
-def _load_with_config_dir(tmp_path, monkeypatch):
-    """Patch ``_config_dir`` to ``tmp_path`` and load."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+def _load_with_config_dir(tmp_config_dir):
+    """Load Config with the config dir isolated to a temp dir.
+
+    The canonical ``tmp_config_dir`` fixture does the patching; this
+    helper just loads (callers request the fixture).
+    """
     return Config.load()
 
 
@@ -121,10 +124,10 @@ class TestWrongTypedPep604FieldsResetOnLoad:
     reached the dataclass as the wrong type.
     """
 
-    def test_microphone_int_resets_to_none(self, tmp_path, monkeypatch):
+    def test_microphone_int_resets_to_none(self, tmp_path, tmp_config_dir):
         """``"microphone": 123`` (int) → reset to None + warning."""
         _write_config(tmp_path, {"microphone": 123})
-        c = _load_with_config_dir(tmp_path, monkeypatch)
+        c = _load_with_config_dir(tmp_config_dir)
         assert c.microphone is None, (
             f"FR-51: microphone=123 was NOT reset to None on load — "
             f"got: {c.microphone!r}. The PEP 604 ``str | None`` union "
@@ -135,10 +138,10 @@ class TestWrongTypedPep604FieldsResetOnLoad:
             f"FR-51: microphone=123 reset did not surface in last_load_warnings: {warnings}"
         )
 
-    def test_qwen_model_path_int_resets_to_none(self, tmp_path, monkeypatch):
+    def test_qwen_model_path_int_resets_to_none(self, tmp_path, tmp_config_dir):
         """``"qwen_model_path": 42`` (int) → reset to None + warning."""
         _write_config(tmp_path, {"qwen_model_path": 42})
-        c = _load_with_config_dir(tmp_path, monkeypatch)
+        c = _load_with_config_dir(tmp_config_dir)
         assert c.qwen_model_path is None, (
             f"FR-51: qwen_model_path=42 was NOT reset to None — got: {c.qwen_model_path!r}"
         )
@@ -147,10 +150,10 @@ class TestWrongTypedPep604FieldsResetOnLoad:
             f"FR-51: qwen_model_path=42 reset did not surface in last_load_warnings: {warnings}"
         )
 
-    def test_parakeet_model_path_int_resets_to_none(self, tmp_path, monkeypatch):
+    def test_parakeet_model_path_int_resets_to_none(self, tmp_path, tmp_config_dir):
         """``"parakeet_model_path": 999`` (int) → reset to None + warning."""
         _write_config(tmp_path, {"parakeet_model_path": 999})
-        c = _load_with_config_dir(tmp_path, monkeypatch)
+        c = _load_with_config_dir(tmp_config_dir)
         assert c.parakeet_model_path is None, (
             f"FR-51: parakeet_model_path=999 was NOT reset to None — got: {c.parakeet_model_path!r}"
         )
@@ -159,7 +162,7 @@ class TestWrongTypedPep604FieldsResetOnLoad:
             f"FR-51: parakeet_model_path=999 reset did not surface in last_load_warnings: {warnings}"
         )
 
-    def test_corrections_path_bool_resets_to_none(self, tmp_path, monkeypatch):
+    def test_corrections_path_bool_resets_to_none(self, tmp_path, tmp_config_dir):
         """``"corrections_path": false`` (bool) → reset to None + warning.
 
         ``false`` is a JSON boolean; pre-fix the dedicated
@@ -169,7 +172,7 @@ class TestWrongTypedPep604FieldsResetOnLoad:
         way, the field must end up None with a warning.
         """
         _write_config(tmp_path, {"corrections_path": False})
-        c = _load_with_config_dir(tmp_path, monkeypatch)
+        c = _load_with_config_dir(tmp_config_dir)
         assert c.corrections_path is None, (
             f"FR-51: corrections_path=False was NOT reset to None — got: {c.corrections_path!r}"
         )
@@ -178,7 +181,7 @@ class TestWrongTypedPep604FieldsResetOnLoad:
             f"FR-51: corrections_path=False reset did not surface in last_load_warnings: {warnings}"
         )
 
-    def test_custom_theme_non_dict_resets_to_none(self, tmp_path, monkeypatch):
+    def test_custom_theme_non_dict_resets_to_none(self, tmp_path, tmp_config_dir):
         """``"custom_theme": "not a dict"`` (str) → reset to None + warning.
 
         Pre-fix the dedicated DE-29 validator caught this. Post-fix the
@@ -188,7 +191,7 @@ class TestWrongTypedPep604FieldsResetOnLoad:
         Either way, the field must end up None with a warning.
         """
         _write_config(tmp_path, {"custom_theme": "not a dict"})
-        c = _load_with_config_dir(tmp_path, monkeypatch)
+        c = _load_with_config_dir(tmp_config_dir)
         assert c.custom_theme is None, (
             f"FR-51: custom_theme='not a dict' was NOT reset to None — got: {c.custom_theme!r}"
         )
@@ -206,19 +209,19 @@ class TestValidPep604FieldsPreservedOnLoad:
     over-broad type check.
     """
 
-    def test_valid_microphone_string_preserved(self, tmp_path, monkeypatch):
+    def test_valid_microphone_string_preserved(self, tmp_path, tmp_config_dir):
         _write_config(tmp_path, {"microphone": "My USB Mic"})
-        c = _load_with_config_dir(tmp_path, monkeypatch)
+        c = _load_with_config_dir(tmp_config_dir)
         assert c.microphone == "My USB Mic"
 
-    def test_valid_microphone_none_preserved(self, tmp_path, monkeypatch):
+    def test_valid_microphone_none_preserved(self, tmp_path, tmp_config_dir):
         _write_config(tmp_path, {"microphone": None})
-        c = _load_with_config_dir(tmp_path, monkeypatch)
+        c = _load_with_config_dir(tmp_config_dir)
         assert c.microphone is None
 
-    def test_valid_parakeet_model_path_string_preserved(self, tmp_path, monkeypatch):
+    def test_valid_parakeet_model_path_string_preserved(self, tmp_path, tmp_config_dir):
         _write_config(tmp_path, {"parakeet_model_path": "/some/path"})
-        c = _load_with_config_dir(tmp_path, monkeypatch)
+        c = _load_with_config_dir(tmp_config_dir)
         # The dedicated _validate_model_path may reset this if the
         # path doesn't exist / isn't safe — that's a separate concern.
         # Here we only assert that the str branch of
@@ -230,7 +233,7 @@ class TestValidPep604FieldsPreservedOnLoad:
             f"FR-51 over-correction: parakeet_model_path=/some/path got mangled to {c.parakeet_model_path!r}"
         )
 
-    def test_valid_custom_theme_dict_preserved(self, tmp_path, monkeypatch):
+    def test_valid_custom_theme_dict_preserved(self, tmp_path, tmp_config_dir):
         """A well-formed custom_theme dict is preserved (mirrors the
         DE-29 test in ``test_config_group_fixes.py``)."""
         valid_theme = {
@@ -252,12 +255,12 @@ class TestValidPep604FieldsPreservedOnLoad:
             },
         }
         _write_config(tmp_path, {"custom_theme": valid_theme})
-        c = _load_with_config_dir(tmp_path, monkeypatch)
+        c = _load_with_config_dir(tmp_config_dir)
         assert c.custom_theme == valid_theme, (
             f"FR-51 over-correction: a VALID custom_theme dict was reset on load. Got: {c.custom_theme!r}"
         )
 
-    def test_valid_custom_theme_none_preserved(self, tmp_path, monkeypatch):
+    def test_valid_custom_theme_none_preserved(self, tmp_path, tmp_config_dir):
         _write_config(tmp_path, {"custom_theme": None})
-        c = _load_with_config_dir(tmp_path, monkeypatch)
+        c = _load_with_config_dir(tmp_config_dir)
         assert c.custom_theme is None

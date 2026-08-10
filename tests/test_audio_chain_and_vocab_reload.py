@@ -35,12 +35,11 @@ import pytest
 
 
 @pytest.fixture
-def vocab_dir(tmp_path, monkeypatch):
+def vocab_dir(tmp_config_dir):
     """Point ``_config_dir`` at a tmp_path so the user vocab file is
     written under the test's tmp_path instead of the real config dir.
     """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
+    return tmp_config_dir
 
 
 @pytest.fixture

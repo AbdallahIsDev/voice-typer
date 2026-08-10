@@ -77,14 +77,13 @@ class TestAllowedUserModels:
         )
 
     @pytest.mark.parametrize("model_size", ["tiny", "small", "medium", "tiny.en", "small.en", "medium.en", "parakeet"])
-    def test_load_preserves_multilingual_model_choice(self, tmp_path, monkeypatch, model_size):
+    def test_load_preserves_multilingual_model_choice(self, tmp_config_dir, model_size):
         """Config.load() must preserve the user's model choice when
         it's a valid multilingual variant — it must NOT silently
         reset to 'small.en'."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         from voice_typer.server.config import Config
 
-        config_file = tmp_path / "config.json"
+        config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"model_size": model_size}))
 
         c = Config.load()
@@ -94,15 +93,14 @@ class TestAllowedUserModels:
             "variants must be preserved (non-English users depend on them)."
         )
 
-    def test_load_still_normalizes_truly_unsupported_models(self, tmp_path, monkeypatch):
+    def test_load_still_normalizes_truly_unsupported_models(self, tmp_config_dir):
         """Sanity check: Config.load() still normalizes truly
         unsupported model names to 'small.en' (CR-38 fix did not
         disable validation entirely — it just extended the allowlist
         to include the multilingual variants)."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         from voice_typer.server.config import Config
 
-        config_file = tmp_path / "config.json"
+        config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"model_size": "unsupported-model-name"}))
 
         c = Config.load()

@@ -41,9 +41,8 @@ from voice_typer.server import credential_store
 
 
 @pytest.fixture(autouse=True)
-def _isolated_config_dir(tmp_path, monkeypatch):
+def _isolated_config_dir(tmp_config_dir):
     """Point ``_config_dir`` at a tmp_path so each test gets a clean slate."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     yield
 
 

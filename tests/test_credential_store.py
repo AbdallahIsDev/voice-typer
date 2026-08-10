@@ -37,14 +37,13 @@ from voice_typer.server import credential_store
 
 
 @pytest.fixture(autouse=True)
-def _isolated_config_dir(tmp_path, monkeypatch):
+def _isolated_config_dir(tmp_config_dir):
     """Point ``_config_dir`` at a tmp_path so each test gets a clean slate.
 
     Also resets the keyring availability cache so each test re-probes
     (the probe is cached at module level for the lifetime of the
     process, which would leak state across tests).
     """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     # Reset the cache before AND after each test so a stale "available"
     # result from one test doesn't leak into the next. The mock fixtures
     # (mock_keyring_available / mock_keyring_unavailable) patch
@@ -737,7 +736,7 @@ class TestLoadStoreNeverLeakViaException:
     _redact_sensitive before being logged).
     """
 
-    def test_load_secret_redacts_secret_in_exception_log(self, monkeypatch, caplog, tmp_path):
+    def test_load_secret_redacts_secret_in_exception_log(self, monkeypatch, caplog):
         """If keyring.get_password raises with the secret value embedded
         in the exception message (simulating a buggy backend), the
         WARNING log from load_secret must NOT contain the secret."""
@@ -759,11 +758,6 @@ class TestLoadStoreNeverLeakViaException:
         fake_keyring.delete_password.side_effect = RuntimeError("unused")
         monkeypatch.setitem(sys.modules, "keyring", fake_keyring)
 
-        # Point config.json at an empty tmp_path so the plaintext
-        # fallback returns None (we want to test the keyring exception
-        # path, not the fallback).
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-
         with caplog.at_level("WARNING", logger="voice_typer.server.credential_store"):
             result = credential_store.load_secret("openai")
 
@@ -771,7 +765,7 @@ class TestLoadStoreNeverLeakViaException:
         for record in caplog.records:
             assert secret not in record.getMessage(), f"Secret leaked in log: {record.getMessage()!r}"
 
-    def test_store_secret_redacts_secret_in_exception_log(self, monkeypatch, caplog, tmp_path):
+    def test_store_secret_redacts_secret_in_exception_log(self, monkeypatch, caplog):
         """If keyring.set_password raises with the secret value embedded
         in the exception message, the WARNING log from store_secret
         must NOT contain the secret."""
@@ -787,8 +781,6 @@ class TestLoadStoreNeverLeakViaException:
         fake_keyring.get_password.return_value = None
         fake_keyring.delete_password.side_effect = RuntimeError("unused")
         monkeypatch.setitem(sys.modules, "keyring", fake_keyring)
-
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
 
         with caplog.at_level("WARNING", logger="voice_typer.server.credential_store"):
             result = credential_store.store_secret("openai", secret)
@@ -828,8 +820,6 @@ class TestMigrationMidFailureSafety:
                 }
             )
         )
-
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
 
         # Build a fake keyring that succeeds for openai but fails for groq.
         store: dict[tuple[str, str], str] = {}
@@ -894,8 +884,6 @@ class TestMigrationMidFailureSafety:
         config_file = tmp_path / "config.json"
         original_data = {"openai_api_key": "sk-migrate-me"}
         config_file.write_text(json.dumps(original_data))
-
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
 
         store: dict[tuple[str, str], str] = {}
         fake_keyring = MagicMock()

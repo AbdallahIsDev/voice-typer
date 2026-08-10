@@ -216,7 +216,7 @@ class TestConfigEditHoldsMutationLock:
         thread = threading.Thread(target=_open, daemon=True)
         thread.start()
 
-        assert editor_opened.wait(timeout=5.0), "editor should have launched"
+        assert editor_opened.wait(timeout=10.0), "editor should have launched"
 
         acquired = threading.Event()
 
@@ -227,21 +227,33 @@ class TestConfigEditHoldsMutationLock:
         setter = threading.Thread(target=_acquire, daemon=True)
         setter.start()
 
-        _time.sleep(0.15)
-        assert not acquired.is_set(), (
-            "SEC-audit-011: _open_config_file must hold "
-            "_config_mutation_lock for the duration of the editor session "
-            "so a concurrent IPC set_config cannot atomically replace "
-            "config.json while the editor is mid-edit."
-        )
+        # Poll for up to 1 s while the fake editor session is open: the
+        # setter must NEVER acquire the lock during the window (the lock
+        # is held continuously from before the editor launch through the
+        # post-edit reload). A bounded poll is more robust than a single
+        # fixed 0.15 s sleep on a loaded CI runner — a late-scheduled
+        # setter thread is still covered, and a regression that releases
+        # the lock early is still caught.
+        deadline = _time.monotonic() + 1.0
+        while _time.monotonic() < deadline:
+            assert not acquired.is_set(), (
+                "SEC-audit-011: _open_config_file must hold "
+                "_config_mutation_lock for the duration of the editor session "
+                "so a concurrent IPC set_config cannot atomically replace "
+                "config.json while the editor is mid-edit."
+            )
+            _time.sleep(0.02)
 
         editor_close.set()
 
-        assert acquired.wait(timeout=5.0), (
+        # Generous post-close timeouts: the reload after the editor
+        # exits does real config I/O, which can exceed 5 s on a loaded
+        # xdist worker.
+        assert acquired.wait(timeout=15.0), (
             "after the editor closes, the blocked set_config call must proceed and acquire _config_mutation_lock."
         )
         setter.join(timeout=2.0)
-        thread.join(timeout=5.0)
+        thread.join(timeout=15.0)
         assert not thread.is_alive()
         assert errors == [], f"_open_config_file raised: {errors}"
 

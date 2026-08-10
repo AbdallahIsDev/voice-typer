@@ -29,7 +29,6 @@ silently let ``app.py`` paths write to the real user config dir.
 """
 
 import dataclasses
-import sys
 import threading
 from unittest.mock import MagicMock
 
@@ -37,52 +36,23 @@ import pytest
 
 # ── Module-level pystray mock ───────────────────────────────────────────
 #
-# This module-level ``sys.modules.setdefault("pystray", ...)`` is a
-# deliberate, documented exception to the parent ``tests/conftest.py``'s
-# warning against collection-time ``sys.modules`` mutations (see the
-# ``real_pil`` eviction block in ``mock_heavy_imports`` for why PIL
-# collection-time setdefaults are harmful). It is kept here for two
-# reasons:
-#
-# 1. The ``from voice_typer.server import event_bus, ipc_server`` import
-#    below is intentionally module-level because ``event_bus`` and
-#    ``ipc_server`` are re-exported via ``__all__`` — sibling test
-#    modules (e.g. ``tests/server/test_push_events.py``) import them
-#    back out as ``from tests.server.conftest import event_bus,
-#    ipc_server``. Deferring the import into fixtures would break that
-#    re-export contract, so the deferred-import alternative is not
-#    viable here.
-#
-# 2. ``voice_typer.server.tray`` currently uses ``lazy_module("pystray")``
-#    (PERF-COLDSTART-001), so the import chain below does NOT eagerly
-#    pull in ``pystray`` today — meaning the setdefault is technically
-#    dead code right now. It is retained as a defensive safety net:
-#    (a) the same ``_mock_pystray`` idiom is used by 17+ sibling test
-#    modules (``tests/test_tray.py``, ``tests/test_e2e_pipeline.py``, …)
-#    so removing it here would be inconsistent with the project-wide
-#    convention without removing it everywhere;
-#    (b) if a future refactor re-eagerifies the pystray import inside
-#    ``tray.py`` or ``ipc_server.py``, this setdefault prevents a
-#    headless-CI crash (pystray's xorg backend tries to connect to an
-#    X display at import time on Linux) before any fixture can run.
+# TK-47 (WR-9): the collection-time ``pystray`` mock that previously
+# lived here (a defensive ``sys.modules.setdefault`` bridging pytest's
+# collection window before the session-scoped
+# ``mock_heavy_imports_session`` fixture fires) is now centralized in
+# the PARENT ``tests/conftest.py`` — pytest imports parent conftests
+# before child conftests, so the parent's module-level ``setdefault``
+# already covers this module's collection-time imports. The
+# ``from voice_typer.server import event_bus, ipc_server`` re-export
+# contract below is unchanged (those modules use
+# ``lazy_module("pystray")``, so no eager pystray import happens here).
 #
 # PIL is NOT mocked at module level here. tray.py and ipc_server.py use
 # lazy imports for PIL (via tray_icon._get_pil_image), so PIL is never
 # imported at module load time. Mocking it here would permanently
 # pollute ``sys.modules`` and break later tests that need real PIL
 # (e.g. tests/test_tray_icon.py with @pytest.mark.real_pil).
-#
-# The autouse session-scoped ``mock_heavy_imports_session`` fixture in
-# ``tests/conftest.py`` also installs a ``MagicMock()`` for ``pystray``
-# once the first test runs (after collection), so the ``_mock_pystray``
-# below only bridges the collection-time window before that fixture fires.
-_mock_pystray = MagicMock()
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
-
-# ── Server imports (must run after the pystray setdefault above) ─────────
+# ── Server imports (must run after the collection-time mocks) ────────────
 # noqa: E402 -- intentional late import after sys.modules patching
 from voice_typer.server import event_bus, ipc_server  # noqa: E402
 from voice_typer.server.ipc_server import (  # noqa: E402

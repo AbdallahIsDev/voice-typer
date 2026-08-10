@@ -6,10 +6,9 @@ import pytest
 
 
 @pytest.fixture
-def template_dir(tmp_path, monkeypatch):
-    """Point config to a temp directory."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
+def template_dir(tmp_config_dir):
+    """Point config to a temp directory (via the canonical tmp_config_dir fixture)."""
+    return tmp_config_dir
 
 
 @pytest.fixture

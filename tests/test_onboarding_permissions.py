@@ -363,7 +363,7 @@ class TestOnboardingSetMicrophoneAcceptsNull:
         assert resp["data"]["field"] == "mic_id"
         fake_service.onboarding_set_microphone.assert_not_called()
 
-    def test_set_microphone_none_propagates_to_controller(self, tmp_path, monkeypatch):
+    def test_set_microphone_none_propagates_to_controller(self, tmp_config_dir):
         """End-to-end check: ``mic_id=None`` flows through the IPC
         handler → service → ``OnboardingController.set_microphone``,
         and the controller stores ``None`` verbatim
@@ -374,8 +374,6 @@ class TestOnboardingSetMicrophoneAcceptsNull:
         ``None`` to ``""`` (which would then be written to the config
         as an empty string, breaking the default-mic fallback).
         """
-        # Point config to a temp dir so we don't touch the real config.
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         from voice_typer.server.onboarding import OnboardingController
         from voice_typer.server.service import VoiceTyperService
 
@@ -384,7 +382,7 @@ class TestOnboardingSetMicrophoneAcceptsNull:
         # already exist (only ``onboarding_start`` and
         # ``onboarding_check_permissions`` lazy-create it). Mirror what
         # ``onboarding_start`` does: instantiate a controller up-front.
-        service._onboarding = OnboardingController(config_dir=tmp_path)  # type: ignore[attr-defined]
+        service._onboarding = OnboardingController(config_dir=tmp_config_dir)  # type: ignore[attr-defined]
 
         server, _fake_app, _ = make_ipc_server_with_fakes()
         # Inject the real (minimal) service so the call flows through

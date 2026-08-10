@@ -115,8 +115,10 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
+import filelock
 import pytest
 
 from tests.fixtures.bash_utils import bash_usable
@@ -135,6 +137,34 @@ SCRIPTS_DIR = PROJECT_ROOT / "scripts"
 ORCHESTRATOR = BUILD_DIR / "build_tauri_all.sh"
 COMPILE_NATIVE = BUILD_DIR / "compile_native.sh"
 ICON_STUB_GENERATOR = SCRIPTS_DIR / "gen_tauri_icons_stub.py"
+
+# ─── Icon-stub generator serialization ─────────────────────────────────────
+# ``test_icon_stub_generator_run_produces_all_expected_files`` runs the
+# generator against the SAME on-disk ``src-tauri/`` stub tree that
+# ``tests/tauri/test_gen_tauri_icons_stub.py`` mutates. Under ``pytest -n
+# auto`` the two modules race in different xdist workers — one worker's
+# ``--clean`` deletes a stub the other worker is mid-verify, surfacing as
+# intermittent failures (observed: 10 failed in a combined -n auto run).
+# The sibling module serializes its tests with a cross-process file lock;
+# we use the SAME lock file so the two modules serialize against each
+# other. The xdist_group marker is a hint for schedulers that honor it
+# (loadscope/loadgroup); the file lock is the hard guarantee.
+pytestmark = pytest.mark.xdist_group("gen_tauri_icons_stub")
+_ICON_STUB_LOCK_PATH = Path(tempfile.gettempdir()) / "voice-typer-gen-tauri-icons-stub.test.lock"
+
+
+@pytest.fixture
+def _serialize_icon_stub_generator():
+    """Acquire the shared icon-stub lock for the generator e2e test.
+
+    Mirrors the sibling module's ``_serialize_and_cleanup`` pattern so
+    this module's generator subprocess never races another worker's
+    generate / ``--clean`` cycle. ``timeout=60`` bounds the wait so a
+    crashed worker can't hang the suite. (C-TEST-5: test isolation.)
+    """
+    lock = filelock.FileLock(str(_ICON_STUB_LOCK_PATH), timeout=60)
+    with lock:
+        yield
 
 # Per-platform helpers invoked (directly or indirectly) by the orchestrator.
 SIDECAR_SCRIPTS = {
@@ -647,7 +677,7 @@ def test_icon_stub_generator_supports_clean_mode(icon_stub_text: str):
     )
 
 
-def test_icon_stub_generator_run_produces_all_expected_files():
+def test_icon_stub_generator_run_produces_all_expected_files(_serialize_icon_stub_generator):
     """End-to-end smoke: generator produces binary stubs, preserves committed icons.
 
     This test actually invokes the generator (it's pure-Python + stdlib

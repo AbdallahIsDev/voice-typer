@@ -12,10 +12,9 @@ import pytest
 
 
 @pytest.fixture
-def temp_config(tmp_path, monkeypatch):
+def temp_config(tmp_config_dir):
     """Point voice_typer config to a temp dir."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
+    return tmp_config_dir
 
 
 class TestEndToEndSmoke:
@@ -155,10 +154,9 @@ class TestEndToEndSmoke:
         assert hasattr(AsrBackendRegistry, "create")
         assert callable(AsrBackendRegistry.create)
 
-    def test_asr_registry_initialized_in_app_init(self, tmp_path, monkeypatch):
+    def test_asr_registry_initialized_in_app_init(self, tmp_config_dir, monkeypatch):
         """ARCH-008: registry is set in VoiceTyperApp.__init__ (now via
         ModelManager._registry, accessed as app.models.registry)."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
         from voice_typer.server.app import VoiceTyperApp

@@ -29,11 +29,10 @@ import pytest
 
 
 @pytest.fixture
-def recovery_dir(tmp_path: Path, monkeypatch) -> Path:
+def recovery_dir(tmp_config_dir: Path) -> Path:
     """Point ``config._config_dir`` at a temp directory so the recovery
     file lands in ``tmp_path`` instead of the user's real config dir."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
+    return tmp_config_dir
 
 
 class TestCrashRecoveryLazyLoad:

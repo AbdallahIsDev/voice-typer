@@ -48,14 +48,13 @@ from voice_typer.server.config_sanitizer import sanitize_config_for_ipc
 
 
 @pytest.fixture
-def isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+def isolated_config_dir(tmp_config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Point ``_config_dir()`` at an empty tmp_path for the duration
     of the test so ``Config.load()`` reads/writes only our isolated
     config.json.
     """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     monkeypatch.delenv("VOICE_TYPER_CONFIG_DIR", raising=False)
-    return tmp_path
+    return tmp_config_dir
 
 
 # ──────────────────────────────────────────────────────────────────────────

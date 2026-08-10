@@ -539,9 +539,8 @@ class TestVKMapFallback:
 class TestMutexHandleClose:
     """PLAT-HLEAK: CloseHandle called in quit() for mutex."""
 
-    def test_quit_closes_mutex_handle(self, monkeypatch, tmp_path):
+    def test_quit_closes_mutex_handle(self, monkeypatch, tmp_config_dir):
         """Verify that quit() calls CloseHandle on the mutex."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
 
         # Need to mock all heavy imports
         mock_sd = MagicMock()

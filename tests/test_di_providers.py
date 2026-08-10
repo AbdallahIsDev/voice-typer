@@ -31,16 +31,9 @@ import ast
 # Mock heavy imports BEFORE importing the server stack — mirrors the
 # pattern in tests/test_server.py.  Without this, pystray tries to
 # connect to an X display on Linux and crashes in headless CI.
-import sys
 import threading
 from pathlib import Path
 from unittest.mock import MagicMock
-
-_mock_pystray = MagicMock()
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
 
 from voice_typer.server.ipc_server import IPCServer  # noqa: E402
 from voice_typer.server.providers import (  # noqa: E402

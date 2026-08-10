@@ -137,4 +137,53 @@ class TestMicrophoneSelection:
         assert app.config.microphone == "1"
 
 
+class TestRefreshMicrophonesFailurePath:
+    """``app.refresh_microphones()`` (TrayController protocol)
+    must swallow ``startup_tasks.load_microphones`` failures and log a
+    warning instead of crashing the tray thread."""
+
+    def test_refresh_microphones_logs_warning_when_load_fails(self, app, monkeypatch, caplog):
+        """When ``load_microphones`` raises (device enumeration error),
+        ``refresh_microphones`` must log a WARNING with exc_info and
+        must NOT propagate the exception to the tray caller."""
+        import logging
+
+        import voice_typer.server.startup_tasks as startup_tasks
+
+        def _boom(_app):
+            raise OSError("device enumeration failed")
+
+        monkeypatch.setattr(startup_tasks, "load_microphones", _boom)
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.app"):
+            # Must not raise — the failure path is caught and logged.
+            app.refresh_microphones()
+
+        warning_records = [
+            r for r in caplog.records if "[TRAY] refresh_microphones failed" in r.message
+        ]
+        assert warning_records, (
+            "refresh_microphones must log '[TRAY] refresh_microphones failed' "
+            "when load_microphones raises"
+        )
+        assert warning_records[0].exc_info is not None, (
+            "the failure warning must include exc_info (log.warning(..., exc_info=True))"
+        )
+
+    def test_refresh_microphones_success_path_delegates(self, app, monkeypatch):
+        """Happy path: ``refresh_microphones`` delegates to
+        ``startup_tasks.load_microphones(app)`` with itself as the
+        argument (TrayController protocol contract)."""
+        import voice_typer.server.startup_tasks as startup_tasks
+
+        calls = []
+        monkeypatch.setattr(startup_tasks, "load_microphones", lambda self_: calls.append(self_))
+
+        app.refresh_microphones()
+
+        assert calls == [app], (
+            "refresh_microphones must call startup_tasks.load_microphones(self)"
+        )
+
+
 # ─── Integration: real startup path ────────────────────────────────────

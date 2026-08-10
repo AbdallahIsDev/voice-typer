@@ -56,62 +56,61 @@ import ctypes
 import sys
 import time
 import warnings
-from collections.abc import Callable
 from unittest.mock import MagicMock
 
 import pytest
 
 from tests.fixtures.cache_resets import clear_caches
 
+# ── Collection-time heavy-import mocks (WR-9 / TK-47 centralization) ──
+# pytest imports every test module (executing its top-level code) BEFORE
+# any fixture runs. The session-scoped ``mock_heavy_imports_session``
+# fixture below installs the unconditional mocks only AFTER collection,
+# so any test module whose top-level imports touch ``pystray`` /
+# ``pynput`` / ``pyperclip`` needs the mock already present in
+# ``sys.modules`` during collection. Historically each affected file
+# carried its own inline ``sys.modules.setdefault`` block (38 files at
+# peak — TK-47); centralizing here means no test file needs its own
+# block, because ``tests/conftest.py`` is imported by pytest before any
+# test module is collected.
+#
+# ``pystray`` needs the ``Menu.SEPARATOR`` / ``MenuItem`` / ``Icon``
+# attributes because ``tray.py`` / ``tray_menu.py`` touch them at
+# import time (the xorg backend would otherwise try to connect to an X
+# display on headless Linux CI). ``pynput`` / ``pynput.keyboard`` /
+# ``pyperclip`` are plain mocks — ``voice_typer.server.clipboard``
+# imports ``pyperclip`` eagerly and ``pynput`` lazily, and the hotkey
+# paths import ``pynput.keyboard``.
+#
+# Escape hatches (preserved):
+#   - ``real_pynput`` / ``real_pil`` / ``real_torch`` markers: the
+#     per-test ``mock_heavy_imports`` fixture EVICTS these
+#     collection-time mocks (by ``__spec__`` detection) for marked
+#     tests — see the ``real_pynput`` branch in that fixture.
+#   - ``tests/test_pystray_icon_handle_regression.py::_load_real_pystray``
+#     evicts ``sys.modules["pystray"]`` itself before importing the
+#     real package and restores the mock in ``finally``.
+#   - ``PIL`` is deliberately NOT mocked here (real ``PIL`` tests need
+#     it, and the session fixture intentionally keeps PIL per-test).
+_mock_pystray_collection = MagicMock()
+_mock_pystray_collection.Menu = MagicMock
+_mock_pystray_collection.Menu.SEPARATOR = "SEP"
+_mock_pystray_collection.MenuItem = MagicMock
+_mock_pystray_collection.Icon = MagicMock
+sys.modules.setdefault("pystray", _mock_pystray_collection)
+sys.modules.setdefault("pynput", MagicMock(name="collection_pynput"))
+sys.modules.setdefault("pynput.keyboard", MagicMock(name="collection_pynput_keyboard"))
+sys.modules.setdefault("pyperclip", MagicMock(name="collection_pyperclip"))
 
-def wait_until(
-    predicate: Callable[[], bool],
-    *,
-    timeout: float = 2.0,
-    interval: float = 0.01,
-    msg: str | None = None,
-) -> None:
-    """Poll ``predicate`` until it returns truthy or ``timeout`` elapses.
-
-    Drop-in replacement for ``time.sleep(N)`` + ``assert condition``
-    patterns that are flakiness-prone. Raises ``AssertionError`` with
-    ``msg`` (or a synthesized message) on timeout so the failure
-    surfaces in the test report instead of silently passing because the
-    sleep was slightly too short.
-
-    For thread-synchronization tests, prefer ``threading.Event.wait(timeout)``
-    over this helper — ``Event.wait`` is non-busy and deterministic.
-    ``wait_until`` is appropriate when no ``Event``/``Condition`` is
-    available (e.g. waiting for a side effect on a MagicMock, a file on
-    disk, or a thread state the test can't directly observe).
-
-    Migrating ``time.sleep`` call sites: replace ::
-
-        time.sleep(0.5)
-        assert obj.ready
-
-    with ::
-
-        wait_until(lambda: obj.ready, timeout=2.0,
-                   msg="obj.ready did not become True within 2s")
-
-    The default ``interval=0.01`` keeps the poll loop responsive without
-    burning CPU; for sub-millisecond synchronization, use ``Event.wait``
-    instead. The default ``timeout=2.0`` is generous enough for most
-    thread-scheduling latency on a loaded CI runner.
-
-    Introduced as part of the effort to migrate the
-    codebase's 99+ ``time.sleep`` calls in test files to deterministic
-    waiters. This helper is the canonical replacement; the migration of
-    individual call sites is incremental.
-    """
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if predicate():
-            return
-        time.sleep(interval)
-    detail = msg or f"wait_until did not satisfy within {timeout}s"
-    raise AssertionError(detail)
+# The module-level ``wait_until`` helper was DELETED — it had zero
+# importers (the review entry flagged it as unused alongside
+# ``tests/fixtures/wait_for.py``). The canonical polling helper is
+# ``tests.fixtures.wait_for.wait_for`` (returns ``bool``, uses
+# ``time.monotonic()``, and is already imported by the migrated
+# ``time.sleep`` call sites in tests/test_microphone_watcher.py,
+# tests/test_hotkeys_win32.py and tests/hotkeys/test_polling_strategy.py).
+# Note: ``time`` is still imported module-wide — the faulthandler
+# snapshot-loop fixture below uses ``time.monotonic()`` at runtime.
 
 
 # (test infra & config sub-agent): the ``ctypes.WINFUNCTYPE``
@@ -367,7 +366,7 @@ def winfunctype_alias(monkeypatch):
 #
 # The per-test fixture name is intentionally kept as ``mock_heavy_imports``
 # (NOT renamed to ``mock_heavy_imports_per_test`` as a strict reading of
-# the task spec might suggest) because EIGHT test files override the
+# the task spec might suggest) because TEN test files override the
 # conftest fixture by redefining their own ``mock_heavy_imports`` at
 # function scope (run ``rg '^def mock_heavy_imports\b' tests/`` to
 # re-verify the list when adding or removing an override):
@@ -395,6 +394,11 @@ def winfunctype_alias(monkeypatch):
 #     exercises ``_do_fast_cleanup`` against a ``_FakeApp``)
 #   - tests/test_shutdown_plan_zr17.py (no-op override — same rationale;
 #     exercises the ZR-17 shutdown plan against a ``_FakeApp``)
+#   - tests/test_shutdown_deadline_skip.py (no-op override — same
+#     rationale as test_shutdown_deadline.py; uses a ``_FakeApp``)
+#   - tests/test_recording_lifecycle_threaded.py (no-op override —
+#     builds a ``_make_app_with_mock_recorder`` MagicMock app and must
+#     not import ``voice_typer.server.app`` during collection)
 #
 # Renaming the conftest fixture would silently break those overrides:
 # the local ``mock_heavy_imports`` would no longer shadow the conftest
@@ -579,6 +583,18 @@ def mock_heavy_imports(monkeypatch, request):
         mock_pynput_kb = MagicMock()
         monkeypatch.setitem(sys.modules, "pynput", mock_pynput)
         monkeypatch.setitem(sys.modules, "pynput.keyboard", mock_pynput_kb)
+    else:
+        # ``real_pynput`` escape hatch: the collection-time pynput mock
+        # installed by this conftest's module-level ``setdefault`` (see
+        # the block above — WR-9 / TK-47 centralization) would otherwise
+        # shadow the REAL package for this test. Evict any mock entries
+        # (identified by a missing ``__spec__`` — real modules always
+        # have one, MagicMocks do not — mirroring the ``real_pil``
+        # eviction branch below) so the real import loads from disk.
+        for _key in ("pynput", "pynput.keyboard"):
+            _existing = sys.modules.get(_key)
+            if _existing is not None and getattr(_existing, "__spec__", None) is None:
+                del sys.modules[_key]
 
     # only mock PIL if the test doesn't request real PIL
     if not request.node.get_closest_marker("real_pil"):

@@ -19,20 +19,10 @@ import contextlib
 import inspect
 import json
 import socket
-import sys
 import threading
 import time
-from unittest.mock import MagicMock
 
 import pytest
-
-# Mock pystray before importing ipc_server (transitively imports tray).
-_mock_pystray = MagicMock()
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
-
 from voice_typer.server.ipc_server import IPCServer  # noqa: E402
 
 from tests.fixtures.ipc_test_helpers import make_fake_app, make_fake_service  # noqa: E402

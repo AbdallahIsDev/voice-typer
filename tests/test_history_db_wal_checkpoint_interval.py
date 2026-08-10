@@ -93,10 +93,21 @@ def test_run_checkpoint_log_message_interpolates_constant():
         "_WAL_CHECKPOINT_INTERVAL (e.g. in the 'will retry in %.0fs' log "
         "call). XV-95: don't hardcode a numeric cadence."
     )
-    # Specifically, the 'will retry in' log line must pass the constant
-    # as the format argument (not a literal number).
-    assert '"[HISTORY_DB] WAL checkpoint skipped (will retry in %.0fs): %s"' in src, (
-        "Expected the 'will retry in %.0fs' log format string in _run_checkpoint source; not found."
+    # The OLD assertion pinned the exact log format string
+    # ('"[HISTORY_DB] WAL checkpoint skipped (will retry in %.0fs): %s"'),
+    # which made a wording tweak to the log message fail the drift guard
+    # even though the constant was still interpolated. Relax it: the
+    # constant must appear within a few lines of a ``log.`` call (its
+    # argument region) without pinning the message text or the exact
+    # line layout — so both multi-line and inlined log calls pass.
+    lines = src.splitlines()
+    log_lines = [i for i, ln in enumerate(lines) if "log." in ln]
+    const_lines = [i for i, ln in enumerate(lines) if "_WAL_CHECKPOINT_INTERVAL" in ln]
+    nearby = any(abs(li - ci) <= 3 for li in log_lines for ci in const_lines)
+    assert nearby, (
+        "_WAL_CHECKPOINT_INTERVAL must be referenced within the log-call "
+        "argument region of _run_checkpoint so the message interpolates "
+        "the constant instead of a hardcoded number (XV-95)."
     )
 
 

@@ -54,15 +54,14 @@ def server_app():
 
 
 class TestConfigLoadReappliesTrustedHosts:
-    def test_load_reapplies_persisted_hosts(self, tmp_path, monkeypatch):
+    def test_load_reapplies_persisted_hosts(self, tmp_config_dir):
         """A config.json carrying ``trusted_extra_hosts`` must extend the
         runtime allowlist on load — the persisted config path (finding's
         'Re-apply on Config.load')."""
-        (tmp_path / "config.json").write_text(
+        (tmp_config_dir / "config.json").write_text(
             json.dumps({"schema_version": 3, "trusted_extra_hosts": ["my-vllm.lan"]}),
             encoding="utf-8",
         )
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
 
         from voice_typer.server.config import Config
 
@@ -72,23 +71,21 @@ class TestConfigLoadReappliesTrustedHosts:
         assert_url_allowed("https://my-vllm.lan/v1/chat/completions")  # must not raise
         assert is_url_allowed("https://my-vllm.lan/v1")
 
-    def test_load_without_hosts_leaves_allowlist_unchanged(self, tmp_path, monkeypatch):
+    def test_load_without_hosts_leaves_allowlist_unchanged(self, tmp_config_dir):
         """No trusted_extra_hosts → nothing is added to the allowlist."""
-        (tmp_path / "config.json").write_text(json.dumps({"schema_version": 3}), encoding="utf-8")
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
+        (tmp_config_dir / "config.json").write_text(json.dumps({"schema_version": 3}), encoding="utf-8")
 
         from voice_typer.server.config import Config
 
         Config.load()
         assert not is_url_allowed("https://my-vllm.lan/v1")
 
-    def test_ssrf_blocklist_still_applies_after_load(self, tmp_path, monkeypatch):
+    def test_ssrf_blocklist_still_applies_after_load(self, tmp_config_dir):
         """A user cannot bypass SSRF defense by persisting a private IP."""
-        (tmp_path / "config.json").write_text(
+        (tmp_config_dir / "config.json").write_text(
             json.dumps({"schema_version": 3, "trusted_extra_hosts": ["192.168.1.1"]}),
             encoding="utf-8",
         )
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
 
         from voice_typer.server.config import Config
 

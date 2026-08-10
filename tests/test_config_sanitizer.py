@@ -434,11 +434,10 @@ class TestHistoryEnabledField:
         assert validator(True) is None
         assert validator(False) is None
 
-    def test_history_enabled_round_trips_through_save_load(self, tmp_path, monkeypatch):
+    def test_history_enabled_round_trips_through_save_load(self, tmp_config_dir):
         """Save a Config with history_enabled=False, reload it, verify
         the field is preserved. This is the contract P4-A4's
         dictation_pipeline gate will rely on."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         cfg1 = Config()
         cfg1.history_enabled = False
         cfg1.save()

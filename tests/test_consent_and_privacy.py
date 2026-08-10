@@ -39,9 +39,8 @@ class TestConfigDeclaresConsentFlags:
         assert hasattr(cfg, "voice_biometric_consent")
         assert cfg.voice_biometric_consent is False
 
-    def test_consent_fields_round_trip_via_save_load(self, tmp_path, monkeypatch):
+    def test_consent_fields_round_trip_via_save_load(self, tmp_config_dir):
         """Consent flags must survive save → load round trip."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         from voice_typer.server.config import Config
 
         cfg = Config()

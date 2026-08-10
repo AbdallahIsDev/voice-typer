@@ -23,16 +23,16 @@ import pytest
 
 
 @pytest.fixture
-def recovery_dir(tmp_path, monkeypatch):
+def recovery_dir(tmp_config_dir):
     """Point ``voice_typer.server.config._config_dir`` at a tmp_path.
 
     ``CrashRecovery.create_diagnostic_bundle`` looks up the config dir via
     ``_config_dir()`` (not the instance's ``self._path``) when deciding
-    where to write the bundle zip — so we have to monkeypatch the global.
-    The same pattern is used in ``tests/test_crash_recovery.py``.
+    where to write the bundle zip — so we have to point the global at a
+    temp dir. The canonical ``tmp_config_dir`` fixture does the patching;
+    the same pattern is used in ``tests/test_crash_recovery.py``.
     """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
+    return tmp_config_dir
 
 
 class TestDiagnosticBundleNoPII:

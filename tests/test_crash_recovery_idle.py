@@ -28,10 +28,9 @@ import pytest
 
 
 @pytest.fixture
-def recovery_dir(tmp_path, monkeypatch):
+def recovery_dir(tmp_config_dir):
     """Point config to a temp directory so the recovery file lands in tmp."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
+    return tmp_config_dir
 
 
 @pytest.fixture

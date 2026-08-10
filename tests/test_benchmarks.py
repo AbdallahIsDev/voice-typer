@@ -152,11 +152,10 @@ class TestAudioRMSBenchmarks:
 class TestConfigLoadBenchmarks:
     """Benchmarks for config load/parse."""
 
-    def test_benchmark_config_parse(self, benchmark, tmp_path, monkeypatch):
+    def test_benchmark_config_parse(self, benchmark, tmp_config_dir):
         """Benchmark parsing a config file from disk."""
         from voice_typer.server.config import Config
 
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         c = Config()
         c.save()
 

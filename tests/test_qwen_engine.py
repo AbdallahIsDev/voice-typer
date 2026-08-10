@@ -147,11 +147,10 @@ class TestQwenConfigKeys:
         c = Config()
         assert c.qwen_model_path is None
 
-    def test_asr_backend_persists(self, tmp_path, monkeypatch):
+    def test_asr_backend_persists(self, tmp_config_dir):
         from voice_typer.server.config import Config
 
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-        model_dir = tmp_path / "qwen_model"
+        model_dir = tmp_config_dir / "qwen_model"
         model_dir.mkdir()
         c = Config(asr_backend="qwen", qwen_model_path=str(model_dir))
         c.save()
@@ -195,7 +194,7 @@ class TestQwenIntegration:
 class TestWhisperSkipWhenQwenActive:
     """P1 fix: Skip Whisper load when Qwen is active, with lazy Whisper fallback."""
 
-    def _make_app_with_qwen(self, monkeypatch, tmp_path, qwen_loaded=True):
+    def _make_app_with_qwen(self, monkeypatch, tmp_config_dir, qwen_loaded=True):
         """Create a VoiceTyperApp with Qwen backend configured."""
         import sys
         from unittest.mock import MagicMock
@@ -219,7 +218,6 @@ class TestWhisperSkipWhenQwenActive:
         monkeypatch.setitem(sys.modules, "PIL.ImageDraw", MagicMock())
         monkeypatch.setitem(sys.modules, "pyperclip", MagicMock())
 
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
@@ -240,12 +238,12 @@ class TestWhisperSkipWhenQwenActive:
         # Write a config with Qwen backend
         import json
 
-        config_file = tmp_path / "config.json"
+        config_file = tmp_config_dir / "config.json"
         config_file.write_text(
             json.dumps(
                 {
                     "asr_backend": "qwen",
-                    "qwen_model_path": str(tmp_path / "qwen_model"),
+                    "qwen_model_path": str(tmp_config_dir / "qwen_model"),
                     # dictation now requires explicit voice-biometric
                     # consent — without this the recorder refuses to start.
                     "voice_biometric_consent": True,
@@ -254,7 +252,7 @@ class TestWhisperSkipWhenQwenActive:
         )
 
         # Create the Qwen model dir so path validation passes
-        (tmp_path / "qwen_model").mkdir(exist_ok=True)
+        (tmp_config_dir / "qwen_model").mkdir(exist_ok=True)
 
         from voice_typer.server.app import VoiceTyperApp
 
@@ -273,9 +271,9 @@ class TestWhisperSkipWhenQwenActive:
 
         return app
 
-    def test_startup_skips_whisper_when_qwen_active(self, monkeypatch, tmp_path):
+    def test_startup_skips_whisper_when_qwen_active(self, monkeypatch, tmp_config_dir):
         """When Qwen backend is active and loaded, Whisper should NOT be loaded during startup."""
-        app = self._make_app_with_qwen(monkeypatch, tmp_path, qwen_loaded=True)
+        app = self._make_app_with_qwen(monkeypatch, tmp_config_dir, qwen_loaded=True)
         # Phase 1: the app-level test-seam delegates have been removed;
         # patch the controllers / module-level functions directly.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
@@ -314,9 +312,9 @@ class TestWhisperSkipWhenQwenActive:
         # Whisper should NOT have been loaded since Qwen succeeded
         assert len(whisper_load_called) == 0, "Whisper should not be loaded when Qwen is active and loaded"
 
-    def test_startup_falls_back_to_whisper_when_qwen_fails(self, monkeypatch, tmp_path):
+    def test_startup_falls_back_to_whisper_when_qwen_fails(self, monkeypatch, tmp_config_dir):
         """When Qwen backend fails to load, Whisper should be loaded as fallback."""
-        app = self._make_app_with_qwen(monkeypatch, tmp_path, qwen_loaded=False)
+        app = self._make_app_with_qwen(monkeypatch, tmp_config_dir, qwen_loaded=False)
         # Phase 1: the app-level test-seam delegates have been removed;
         # patch the controllers / module-level functions directly.
         monkeypatch.setattr("voice_typer.server.startup_tasks.sync_autostart", MagicMock())
@@ -352,9 +350,9 @@ class TestWhisperSkipWhenQwenActive:
         # Whisper should have been loaded as fallback (via registry)
         app.models.transcriber.load.assert_called_once()
 
-    def test_start_dictation_lazy_loads_whisper_when_qwen_unavailable(self, monkeypatch, tmp_path):
+    def test_start_dictation_lazy_loads_whisper_when_qwen_unavailable(self, monkeypatch, tmp_config_dir):
         """When Qwen is configured but not loaded, _start_dictation should lazy-load Whisper."""
-        app = self._make_app_with_qwen(monkeypatch, tmp_path, qwen_loaded=False)
+        app = self._make_app_with_qwen(monkeypatch, tmp_config_dir, qwen_loaded=False)
         app.recorder = MagicMock()
         app.recorder.recording = False
         app.tray = MagicMock()

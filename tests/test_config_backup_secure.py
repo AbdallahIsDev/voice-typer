@@ -39,9 +39,8 @@ from voice_typer.server.config import _CURRENT_SCHEMA_VERSION, Config
 
 
 @pytest.fixture
-def _isolated_config_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    yield tmp_path
+def _isolated_config_dir(tmp_config_dir: Path) -> Path:
+    yield tmp_config_dir
 
 
 # _backup_before_downgrade uses secure helpers ──────────────

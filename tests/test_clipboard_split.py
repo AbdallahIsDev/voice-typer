@@ -34,16 +34,9 @@ unmodified after the split). They assert the SPLIT CONTRACT:
 from __future__ import annotations
 
 import inspect
-import sys
 from pathlib import Path
-from unittest.mock import MagicMock
 
 import pytest
-
-# Make pynput optional so the import succeeds in headless CI sandboxes.
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import manager as mgr_mod  # noqa: E402
 from voice_typer.server.clipboard import restore, safety  # noqa: E402

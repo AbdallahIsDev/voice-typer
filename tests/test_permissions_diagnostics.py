@@ -39,10 +39,9 @@ from voice_typer.server import diagnostics_export
 
 
 @pytest.fixture
-def recovery_dir(tmp_path, monkeypatch):
+def recovery_dir(tmp_config_dir):
     """Point ``voice_typer.server.config._config_dir`` at a tmp_path."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
+    return tmp_config_dir
 
 
 @pytest.fixture

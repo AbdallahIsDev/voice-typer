@@ -149,10 +149,9 @@ class TestLiveRetryBehaviourPreserved:
     behaviour (M-63: raise after the retry loop is exhausted)."""
 
     @pytest.fixture
-    def vm(self, tmp_path, monkeypatch):
+    def vm(self, tmp_config_dir):
         """Build a VocabularyManager pointed at a temp dir."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-        bundled = tmp_path / "corrections.json"
+        bundled = tmp_config_dir / "corrections.json"
         bundled.write_text(
             json.dumps(
                 {
@@ -168,7 +167,7 @@ class TestLiveRetryBehaviourPreserved:
         )
         from voice_typer.server.vocabulary import VocabularyManager
 
-        return VocabularyManager(config_dir=tmp_path, bundled_path=bundled)
+        return VocabularyManager(config_dir=tmp_config_dir, bundled_path=bundled)
 
     def test_success_on_first_try_does_not_retry(self, vm, monkeypatch):
         """When ``_secure_atomic_write`` succeeds on the first

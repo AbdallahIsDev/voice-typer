@@ -242,14 +242,12 @@ class _FakeAppForDoCleanup:
 
 
 @pytest.fixture
-def _stub_shutdown_environment(tmp_path, monkeypatch):
+def _stub_shutdown_environment(tmp_config_dir, monkeypatch):
     """Stub the module-level helpers ``_do_cleanup`` touches so it
     doesn't touch the real filesystem / Win32 API / devnull FDs.
 
     Mirrors the stubs in ``tests/test_shutdown_posix_release.py``.
     """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
     # Some of these helpers (``_close_devnull_files`` /
     # ``_register_devnull_file`` / ``is_windows``) no longer exist on
     # ``app.py`` — the devnull-stream helpers now live behind the

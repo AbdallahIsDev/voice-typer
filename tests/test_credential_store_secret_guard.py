@@ -66,14 +66,13 @@ except ImportError:  # pragma: no cover - Windows
 
 
 @pytest.fixture(autouse=True)
-def _isolated_config_dir(tmp_path, monkeypatch):
+def _isolated_config_dir(tmp_config_dir, monkeypatch):
     """Point ``_config_dir`` at a tmp_path so each test gets a clean slate.
 
     Also resets the keyring availability cache so each test re-probes
     (the probe is cached at module level for the lifetime of the
     process, which would leak state across tests).
     """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     # Reset the plaintext-config cache (used by _read_plaintext_fallback)
     # so a stale entry from one test doesn't leak into the next.
     monkeypatch.setattr(credential_store, "_plaintext_config_cache", {})
@@ -759,14 +758,12 @@ class TestSecondaryOpenNoFollow:
             f"the legacy PID-check path. Got exit code: {exc_info.value.code}"
         )
 
-    def test_normal_lockfile_creation_still_works_with_no_follow(self, tmp_path, monkeypatch):
+    def test_normal_lockfile_creation_still_works_with_no_follow(self, tmp_path, tmp_config_dir):
         """Sanity check: adding ``O_NOFOLLOW`` to the secondary open
         must NOT break the normal (non-symlink) lockfile creation path.
         ``O_NOFOLLOW`` is a no-op when the trailing component is a
         regular file."""
         from voice_typer.server import single_instance as si_mod
-
-        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
 
         fd = None
         try:

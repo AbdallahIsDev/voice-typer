@@ -42,10 +42,9 @@ LOGGER_NAME = "voice_typer.server.crash_recovery"
 
 
 @pytest.fixture
-def recovery_dir(tmp_path: Path, monkeypatch) -> Path:
+def recovery_dir(tmp_config_dir: Path) -> Path:
     """Point config to a temp directory so the recovery file lands in tmp."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
+    return tmp_config_dir
 
 
 @pytest.fixture

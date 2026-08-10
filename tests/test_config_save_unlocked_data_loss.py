@@ -71,14 +71,13 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
-def _isolated_config_dir(tmp_path, monkeypatch):
+def _isolated_config_dir(tmp_config_dir):
     """Point ``_config_dir`` at a tmp_path so each test gets a clean slate.
 
     Also resets the keyring availability cache so each test re-probes
     (the probe is cached at module level for the lifetime of the
     process, which would leak state across tests).
     """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
     from voice_typer.server import credential_store
 
     credential_store._reset_keyring_cache()

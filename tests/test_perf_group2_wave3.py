@@ -26,15 +26,6 @@ import pytest
 
 # tray tooltip uses time.monotonic() ────────────────────────────
 
-# Mock pystray at module level so the tray module can be imported without
-# needing an X display (headless CI). Mirrors the convention in
-# tests/test_tray.py.
-_mock_pystray = MagicMock()
-_mock_pystray.Menu = MagicMock
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
 
 
 @pytest.fixture
@@ -277,12 +268,11 @@ class TestTemplatesWhitespaceRegexCompiledOnce:
             f"_WHITESPACE_RE must be a compiled re.Pattern, got {type(tmpl_mod._WHITESPACE_RE)!r}"
         )
 
-    def test_match_does_not_recompile_regex(self, monkeypatch, tmp_path):
+    def test_match_does_not_recompile_regex(self, monkeypatch, tmp_config_dir):
         """Wrapping ``re.compile`` to count invocations, ``match()``
         must NOT trigger any additional ``re.compile`` calls — the
         module-level ``_WHITESPACE_RE`` is reused on every iteration.
         """
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         from voice_typer.server import templates as tmpl_mod
         from voice_typer.server.templates import TemplateManager
 
@@ -298,7 +288,7 @@ class TestTemplatesWhitespaceRegexCompiledOnce:
 
         monkeypatch.setattr(tmpl_mod.re, "compile", _spy_compile)
 
-        tm = TemplateManager(config_dir=tmp_path)
+        tm = TemplateManager(config_dir=tmp_config_dir)
         tm.add("code review", "Please review this code.")
         tm.add("standup", "Standup notes.")
         tm.add("retro", "Retro items.", match_mode="contains")

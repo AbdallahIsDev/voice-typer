@@ -75,7 +75,7 @@ class TestCrashPathUsesExitCrash:
     not ``sys.exit(1)``.
     """
 
-    def test_crash_path_uses_exit_crash(self, monkeypatch, tmp_path):
+    def test_crash_path_uses_exit_crash(self, monkeypatch, tmp_config_dir):
         """When ``app.start()`` raises an Exception, ``main()`` must
         exit with ``EXIT_CRASH`` (1), and that 1 must come from the
         named constant — not a raw literal.
@@ -85,7 +85,6 @@ class TestCrashPathUsesExitCrash:
         # this, the test pollutes the *real* config dir (e.g. the
         # developer's ~/.voice-typer/startup-error.log) with fake
         # "simulated crash" entries.
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
 
         # Set up the argv so argparse doesn't bail.
         monkeypatch.setattr(sys, "argv", ["voice-typer"])
@@ -121,7 +120,7 @@ class TestCrashPathUsesExitCrash:
 
         # The diagnostic must land in the isolated temp dir, not the
         # developer's real startup-error.log.
-        diag = tmp_path / "startup-error.log"
+        diag = tmp_config_dir / "startup-error.log"
         assert diag.exists()
         assert "simulated crash" in diag.read_text(encoding="utf-8")
 

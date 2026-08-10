@@ -252,7 +252,7 @@ class TestRestoreHistoryNarrowing:
     """
 
     def test_restore_history_with_long_text_returns_payload_too_large(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self, tmp_config_dir: Path
     ) -> None:
         """A ``record['text']`` longer than 8192 chars MUST trigger the
         ``client.payload_too_large`` error envelope, NOT raise an
@@ -262,18 +262,7 @@ class TestRestoreHistoryNarrowing:
         # Configure a fake app + service so IPCServer can be constructed
         # without triggering heavy imports (matches the
         # test_shutdown_posix_release.py pattern).
-        import sys
         from unittest.mock import MagicMock
-
-        _mock_pystray = MagicMock()
-        _mock_pystray.Menu.SEPARATOR = "SEP"
-        _mock_pystray.MenuItem = MagicMock
-        _mock_pystray.Icon = MagicMock
-        sys.modules.setdefault("pystray", _mock_pystray)
-
-        # Patch config dir to tmp_path so PID file writes are isolated.
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
 
         from voice_typer.server.ipc_server import IPCServer
 
@@ -308,7 +297,7 @@ class TestRestoreHistoryNarrowing:
         fake_service.restore_history.assert_not_called()
 
     def test_restore_history_with_non_dict_record_returns_invalid_payload(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self, tmp_config_dir: Path
     ) -> None:
         """A ``record`` value that is not a dict (e.g. a list) MUST
         trigger the ``client.invalid_field`` envelope from the schema
@@ -316,17 +305,7 @@ class TestRestoreHistoryNarrowing:
         The defensive guard fires only if the schema's ``"type": dict``
         rule is somehow bypassed (e.g. by a future schema change that
         drops the type rule)."""
-        import sys
         from unittest.mock import MagicMock
-
-        _mock_pystray = MagicMock()
-        _mock_pystray.Menu.SEPARATOR = "SEP"
-        _mock_pystray.MenuItem = MagicMock
-        _mock_pystray.Icon = MagicMock
-        sys.modules.setdefault("pystray", _mock_pystray)
-
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
 
         from voice_typer.server.ipc_server import IPCServer
 
@@ -350,22 +329,12 @@ class TestRestoreHistoryNarrowing:
         fake_service.restore_history.assert_not_called()
 
     def test_restore_history_with_valid_short_text_calls_service(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+        self, tmp_config_dir: Path
     ) -> None:
         """A valid record with a short text field MUST pass the cap and
         invoke ``service.restore_history``. Guards against an accidental
         inversion of the length check (``>`` vs ``<``)."""
-        import sys
         from unittest.mock import MagicMock
-
-        _mock_pystray = MagicMock()
-        _mock_pystray.Menu.SEPARATOR = "SEP"
-        _mock_pystray.MenuItem = MagicMock
-        _mock_pystray.Icon = MagicMock
-        sys.modules.setdefault("pystray", _mock_pystray)
-
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
 
         from voice_typer.server.ipc_server import IPCServer
 

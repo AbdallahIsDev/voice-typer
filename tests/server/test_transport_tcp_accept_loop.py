@@ -23,19 +23,10 @@ from __future__ import annotations
 import contextlib
 import inspect
 import socket
-import sys
 import threading
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# Mock pystray before importing ipc_server (transitively imports tray).
-_mock_pystray = MagicMock()
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
-
 from voice_typer.server.ipc import sender as sender_module  # noqa: E402
 from voice_typer.server.ipc.rate_limiter import _TCP_WRITE_TIMEOUT_SECONDS  # noqa: E402
 from voice_typer.server.ipc_server import IPCServer  # noqa: E402

@@ -54,20 +54,6 @@ from __future__ import annotations
 
 import importlib
 import sys
-from unittest.mock import MagicMock
-
-# Install a pystray mock at module-load time so ``import
-# voice_typer.server.tray`` below succeeds in headless CI without
-# requiring a real pystray install. The autouse
-# ``mock_heavy_imports`` fixture in ``tests/conftest.py`` will
-# overwrite this with a fresh MagicMock per-test; ``setdefault``
-# here only covers the import window before the fixture runs.
-_mock_pystray = MagicMock()
-_mock_pystray.Menu = MagicMock
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
 
 from voice_typer.server.tray import TrayIcon  # noqa: E402
 from voice_typer.server.tray_types import AppState  # noqa: E402

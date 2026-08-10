@@ -39,7 +39,6 @@ import contextlib
 import json
 import os
 import socket
-import sys
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -49,16 +48,6 @@ from voice_typer.server.ipc_server import IPCServer
 from voice_typer.server.tray import AppState
 
 # === Common module-level constants (identical across files) ===
-
-_mock_pystray = MagicMock()
-
-_mock_pystray.Menu.SEPARATOR = "SEP"
-
-_mock_pystray.MenuItem = MagicMock
-
-_mock_pystray.Icon = MagicMock
-
-sys.modules.setdefault("pystray", _mock_pystray)
 
 
 # === Common helpers / fixtures (identical across files) ===

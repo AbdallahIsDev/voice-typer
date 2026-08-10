@@ -99,7 +99,7 @@ class _FakeApp:
 
 
 @pytest.fixture
-def _stub_shutdown_environment(tmp_path, monkeypatch):
+def _stub_shutdown_environment(tmp_config_dir, monkeypatch):
     """Stub the module-level helpers ``_do_cleanup`` touches so it
     doesn't touch the real filesystem / Win32 API / devnull FDs.
 
@@ -107,8 +107,6 @@ def _stub_shutdown_environment(tmp_path, monkeypatch):
     (e.g. ``_close_devnull_files`` which may have been refactored away)
     don't cause a setup error.
     """
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path, raising=False)
     monkeypatch.setattr(
         "voice_typer.server.app._clear_backend_pid_file",
         lambda: None,

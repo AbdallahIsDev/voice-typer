@@ -27,7 +27,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 from voice_typer.server.config import Config
 from voice_typer.server.config_validators import (
     IPC_CONFIG_ALLOWLIST,
@@ -154,11 +153,10 @@ class TestValidateConfigUpdateAcceptsNone:
 class TestConfigRoundTripWithNone:
     """FR-3: Config.load() and Config.save() round-trip None correctly."""
 
-    def test_save_load_round_trip_with_none(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_save_load_round_trip_with_none(self, tmp_config_dir: Path) -> None:
         """Saving a Config with custom_theme=None, then loading it,
         must produce a Config with custom_theme=None (not a dict, not
         a stale value)."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
 
         # Construct a Config with a valid custom_theme, save it.
         cfg1 = Config()
@@ -166,7 +164,7 @@ class TestConfigRoundTripWithNone:
         cfg1.save()
 
         # Verify the on-disk JSON has the dict.
-        on_disk = json.loads((tmp_path / "config.json").read_text())
+        on_disk = json.loads((tmp_config_dir / "config.json").read_text())
         assert on_disk["custom_theme"] == VALID_CUSTOM_THEME
 
         # Now simulate the user clearing the custom theme: load,
@@ -177,7 +175,7 @@ class TestConfigRoundTripWithNone:
         cfg2.save()
 
         # On-disk JSON must have custom_theme: null.
-        on_disk = json.loads((tmp_path / "config.json").read_text())
+        on_disk = json.loads((tmp_config_dir / "config.json").read_text())
         assert on_disk["custom_theme"] is None, (
             f"FR-3: after saving custom_theme=None, on-disk JSON should "
             f"have 'custom_theme: null'; got {on_disk.get('custom_theme')!r}"
@@ -187,12 +185,11 @@ class TestConfigRoundTripWithNone:
         cfg3 = Config.load()
         assert cfg3.custom_theme is None
 
-    def test_load_treats_null_as_clear(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_load_treats_null_as_clear(self, tmp_config_dir: Path) -> None:
         """A hand-edited config.json with ``"custom_theme": null`` must
         load as Config.custom_theme = None (no validation error, no
         reset warning)."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-        config_file = tmp_path / "config.json"
+        config_file = tmp_config_dir / "config.json"
         config_file.write_text(json.dumps({"custom_theme": None, "hotkey": "<caps_lock>"}))
 
         cfg = Config.load()

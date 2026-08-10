@@ -58,10 +58,9 @@ from voice_typer.server.config import Config
 
 
 @pytest.fixture
-def isolated_config_dir(tmp_path, monkeypatch):
+def isolated_config_dir(tmp_config_dir):
     """Point ``_config_dir`` at a tmp_path so each test gets a clean slate."""
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    yield tmp_path
+    yield tmp_config_dir
 
 
 @pytest.fixture

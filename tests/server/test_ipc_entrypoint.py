@@ -351,7 +351,7 @@ class TestMainEntrypoint:
     def test_main_exit_code_crash_on_app_construction_failure(
         self,
         monkeypatch: pytest.MonkeyPatch,
-        tmp_path,
+        tmp_config_dir,
     ) -> None:
         """When ``VoiceTyperApp()`` construction raises, ``main()`` must
         write a diagnostic and exit with ``EXIT_CRASH`` (1). This pins
@@ -359,7 +359,6 @@ class TestMainEntrypoint:
         clean-shutdown exit code 0 above)."""
         # Isolate the diagnostic file so the test doesn't pollute the
         # developer's real ~/.voice-typer/startup-error.log.
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
         monkeypatch.setattr("voice_typer.server.app._setup_logging", lambda: None)
         monkeypatch.setattr(
             "voice_typer.server.app._ensure_single_instance",
@@ -383,7 +382,7 @@ class TestMainEntrypoint:
         assert exc_info.value.code == 1, (
             f"construction failure must exit with EXIT_CRASH (1); got {exc_info.value.code!r}"
         )
-        # The diagnostic landed in the isolated tmp_path.
-        diag = tmp_path / "startup-error.log"
+        # The diagnostic landed in the isolated tmp_config_dir.
+        diag = tmp_config_dir / "startup-error.log"
         assert diag.exists()
         assert "simulated construction failure" in diag.read_text(encoding="utf-8")

@@ -48,16 +48,6 @@ import pytest
 
 # ─── Module-level pystray stub ──────────────────────────────────────────
 # pystray's xorg backend calls Xlib.display.Display() at module import
-# time, which fails headless. The lazy_module proxy in tray.py /
-# tray_menu.py re-reads sys.modules on every access, so installing the
-# stub here keeps the import side-effect-free.
-_mock_pystray = MagicMock()
-_mock_pystray.Menu = MagicMock
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
-
 from voice_typer.server.tray import TrayIcon  # noqa: E402
 from voice_typer.server.tray_menu import build_tray_menu_model  # noqa: E402
 

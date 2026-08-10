@@ -16,14 +16,6 @@ import sys
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-# Heavy-import mocking: ensure voice_typer.server.clipboard imports cleanly
-# without pynput/pyperclip installed (mirrors the pattern in
-# tests/test_clipboard_win32_return_value.py lines 53-55).
-sys.modules.setdefault("pynput", MagicMock())
-sys.modules.setdefault("pynput.keyboard", MagicMock())
-sys.modules.setdefault("pyperclip", MagicMock())
-
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 from voice_typer.server.clipboard_target_safety import (  # noqa: E402

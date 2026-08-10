@@ -736,11 +736,9 @@ class TestAppInitManagerFailureWarning:
         return pipeline
 
     @staticmethod
-    def _make_app(monkeypatch, tmp_path):
+    def _make_app(monkeypatch, tmp_config_dir):
         """Minimal app with the lazy manager backings + tray + config
         the pipeline steps read."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
@@ -861,11 +859,9 @@ class TestAppExcepthookInstallGuard:
     construction would fail entirely. The fix wraps the call in
     try/except so the excepthook is a best-effort diagnostics aid."""
 
-    def test_excepthook_install_failure_does_not_break_init(self, monkeypatch, tmp_path):
+    def test_excepthook_install_failure_does_not_break_init(self, monkeypatch, tmp_config_dir):
         """If install_python_excepthook raises, VoiceTyperApp must
         still construct successfully (the excepthook is best-effort)."""
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
@@ -884,14 +880,12 @@ class TestAppExcepthookInstallGuard:
         assert app_instance is not None
         assert app_instance._shutting_down is False
 
-    def test_excepthook_install_failure_logged_at_debug(self, monkeypatch, caplog, tmp_path):
+    def test_excepthook_install_failure_logged_at_debug(self, monkeypatch, caplog, tmp_config_dir):
         """The excepthook-install failure must be logged at debug level
         with exc_info=True so it's diagnosable but doesn't spam the
         default-INFO production log."""
         import logging
 
-        monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-        monkeypatch.setattr("voice_typer.server.app._config_dir", lambda: tmp_path)
         monkeypatch.setattr("voice_typer.server.app.is_autostart_enabled", lambda: False)
         monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)

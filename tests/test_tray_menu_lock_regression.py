@@ -47,16 +47,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
-
-# Mock pystray at module level so the tray module imports without an X
-# display (headless CI). Mirrors tests/test_tray.py's approach.
-_mock_pystray = MagicMock()
-_mock_pystray.Menu = MagicMock
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
-
 from voice_typer.server.tray import TrayIcon  # noqa: E402
 from voice_typer.server.tray_types import AppState  # noqa: E402
 

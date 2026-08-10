@@ -61,9 +61,8 @@ VOCAB_AUTO_SOURCE = Path(
 
 
 @pytest.fixture
-def vocab_dir(tmp_path, monkeypatch):
-    monkeypatch.setattr("voice_typer.server.config._config_dir", lambda: tmp_path)
-    return tmp_path
+def vocab_dir(tmp_config_dir):
+    return tmp_config_dir
 
 
 @pytest.fixture

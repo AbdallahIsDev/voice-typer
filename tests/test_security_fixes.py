@@ -35,22 +35,11 @@ import contextlib
 import inspect
 import json
 import socket
-import sys
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
-
-# Mock pystray before importing ipc_server (transitively imports tray →
-# pystray). Without this, pystray tries to connect to an X display on
-# headless Linux CI and crashes.
-_mock_pystray = MagicMock()
-_mock_pystray.Menu.SEPARATOR = "SEP"
-_mock_pystray.MenuItem = MagicMock
-_mock_pystray.Icon = MagicMock
-sys.modules.setdefault("pystray", _mock_pystray)
-
 from voice_typer.server import (  # noqa: E402
     _secrets,  # noqa: E402
     server_platform,  # noqa: E402
