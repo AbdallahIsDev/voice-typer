@@ -56,6 +56,31 @@ Pairs guarded here:
    generated ``installer.nsi``; pointing it at a batch file aborts
    makensis with ``Invalid command: "@echo"`` on EVERY ``cargo tauri
    build`` once bundling runs.
+
+7. ``autostart_launcher._TAURI_LAUNCHER_INSTALL_PATHS`` ↔
+   ``tauri-binaries.json`` ``binaries.*._install_paths``. The manifest is
+   the single source of truth for BOTH the per-OS discovery path set AND
+   the discovery priority (order-sensitive comparison). A launcher path
+   change not mirrored in the manifest silently orphans the integrity
+   gate (the loader would hash something else than CI recorded), and a
+   manifest change the launcher doesn't follow makes the launcher
+   discover nothing.
+
+8. Every per-arch config override (``src-tauri/tauri.*.conf.json``) must
+   stay locked to the base ``tauri.conf.json`` ``bundle.resources`` /
+   ``bundle.externalBin``. Tauri REPLACES arrays in overrides (deep-merge
+   only applies to objects), so a per-arch ``resources`` list is the full
+   list that platform's installer is built from: it may only ever be a
+   subset of the base (a cross-platform superset), it must keep every
+   base resource relevant to its platform/triples, and it must never
+   drop or alter the sidecar ``externalBin`` — otherwise a platform
+   ships missing key-listener / prewarm binaries while CI stays green.
+
+9. ``scripts/build/update_tauri_manifests.py::TRIPLE_TO_MANIFEST_KEY``
+   ↔ the canonical triple set (Pair 2). The updater is CI's only writer
+   of the per-arch sha256 fields; if its triple→key map drifts from the
+   canonical one, CI would hash a built binary into the WRONG key — and
+   the loader would fail-closed for that platform despite a built binary.
 """
 
 from __future__ import annotations
@@ -71,6 +96,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 SRC_TAURI = PROJECT_ROOT / "src-tauri"
 STUB_SCRIPT = PROJECT_ROOT / "scripts" / "gen_tauri_icons_stub.py"
 MANIFEST_PATH = PROJECT_ROOT / "tauri-binaries.json"
+UPDATE_SCRIPT = PROJECT_ROOT / "scripts" / "build" / "update_tauri_manifests.py"
 
 # triple → tauri-binaries.json per-arch key. macOS ships a universal
 # Mach-O binary, so both darwin triples collapse into the single
@@ -111,6 +137,22 @@ def _tauri_conf() -> dict:
 def _manifest() -> dict:
     """Load ``tauri-binaries.json`` once per process."""
     return json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+
+
+@functools.lru_cache(maxsize=1)
+def _updater_module():
+    """Load ``scripts/build/update_tauri_manifests.py`` as a module.
+
+    Its ``TRIPLE_TO_MANIFEST_KEY`` is CI's only writer path for the
+    per-arch sha256 fields, so the drift test pins it to the canonical
+    triple→key mapping (Pair 9). The module is stdlib-only (argparse,
+    hashlib, json) — safe to import in the minimal-env CI gates.
+    """
+    spec = importlib.util.spec_from_file_location("_vt_update_tauri_manifests_drift", UPDATE_SCRIPT)
+    assert spec is not None and spec.loader is not None, f"cannot load {UPDATE_SCRIPT}"
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 # ─── Pair 1: bundle.resources + externalBin ↔ stub generator registry ──────
@@ -196,6 +238,41 @@ class TestTauriBinariesManifestCoverage:
             "tauri-binaries.json declares per-arch sha256 key(s) with no "
             "matching canonical build triple: " + ", ".join(sorted(extra)) + ". "
             "Either add the triple to SIDECAR_TRIPLES or drop the key."
+        )
+
+    def test_updater_triple_map_matches_canonical_triples(self) -> None:
+        """``update_tauri_manifests.py`` must hash into the SAME keys CI reads.
+
+        The updater is the ONLY writer of the per-arch sha256 fields. If
+        its triple→key map drifts from ``SIDECAR_TRIPLES`` (e.g. it maps
+        ``x86_64-unknown-linux-gnu`` to ``linux-aarch64``), CI would
+        record a built binary's hash under the wrong key and the loader
+        fail-closes for the platform that actually built it (or worse,
+        accepts the wrong binary). macOS is the intended collapse for all
+        darwin triples, so the updater is allowed extra darwin-key
+        entries (``universal-apple-darwin``) — but never fewer.
+        """
+        updater = _updater_module()
+        stub = _stub_module()
+        for triple in stub.SIDECAR_TRIPLES:
+            expected = TRIPLE_TO_MANIFEST_KEY[triple]
+            actual = updater.TRIPLE_TO_MANIFEST_KEY[triple]
+            assert actual == expected, (
+                f"update_tauri_manifests.py maps {triple!r} to {actual!r} but "
+                f"the canonical mapping (tests/tauri/test_config_script_drift.py "
+                f"TRIPLE_TO_MANIFEST_KEY) says {expected!r} — CI would record "
+                "hashes under the wrong manifest key."
+            )
+        # Every key the manifest declares must be reachable by some triple
+        # the updater knows (extra darwin aliases are fine).
+        manifest_keys = {k for entry in _manifest()["binaries"].values() for k in entry["sha256"]}
+        reachable = set(updater.TRIPLE_TO_MANIFEST_KEY.values())
+        unreachable = manifest_keys - reachable
+        assert not unreachable, (
+            "update_tauri_manifests.py cannot write the manifest key(s): "
+            + ", ".join(sorted(unreachable))
+            + " — add the owning triple to "
+            "TRIPLE_TO_MANIFEST_KEY."
         )
 
 
@@ -435,3 +512,201 @@ class TestTauriNsisInstallerHooks:
             )
             target = (SRC_TAURI / hook).resolve()
             assert target.is_file(), f"nsis.installerHooks entry {hook!r} resolves to {target} which does not exist."
+
+
+# ─── Pair 7: launcher discovery paths ↔ manifest _install_paths ────────────
+
+
+def _path_components(template: str) -> tuple[str, ...]:
+    """Split a path template into components (both separators normalized).
+
+    Keeps env-var tokens (``%LOCALAPPDATA%``, ``%PROGRAMFILES%``) as
+    literal components so the comparison is environment-independent.
+    """
+    return tuple(template.replace("\\", "/").split("/"))
+
+
+def _launcher_path_templates() -> dict[str, tuple[tuple[str, ...], ...]]:
+    """Expand the launcher's install-path table to manifest-comparable form.
+
+    Launcher templates use ``{APP}`` and ``{HOME}`` tokens (branding —
+    the launcher must never hardcode the app name); the manifest
+    documents the same paths with the literal product name and ``~``.
+    APP_NAME is resolved at test time and substituted so both sides
+    compare component-for-component.
+    """
+    # Import inside the test: tests/conftest.py's autouse
+    # ``mock_heavy_imports`` fixture must be active so the launcher
+    # imports cleanly even in the workflow gate's minimal pytest env.
+    import voice_typer.server.autostart_launcher as launcher
+    from voice_typer.server.branding import APP_NAME
+
+    expanded: dict[str, tuple[tuple[str, ...], ...]] = {}
+    for platform, templates in launcher._TAURI_LAUNCHER_INSTALL_PATHS.items():
+        normalized = tuple(_path_components(t.replace("{APP}", APP_NAME).replace("{HOME}", "~")) for t in templates)
+        expanded[platform] = normalized
+    return expanded
+
+
+def _manifest_install_path_templates() -> dict[str, tuple[tuple[str, ...], ...]]:
+    """Group the manifest's ``_install_paths`` by OS platform key.
+
+    The manifest is keyed by binary name; the platform is derived from
+    the key suffix (``.exe`` → windows, ``.app`` → macos, else linux).
+    """
+    out: dict[str, tuple[tuple[str, ...], ...]] = {}
+    for key, entry in _manifest()["binaries"].items():
+        if key.endswith(".exe"):
+            platform = "windows"
+        elif key.endswith(".app"):
+            platform = "macos"
+        else:
+            platform = "linux"
+        out[platform] = tuple(_path_components(p) for p in entry["_install_paths"])
+    return out
+
+
+class TestLauncherInstallPathsMatchManifest:
+    """``autostart_launcher`` discovery ↔ ``tauri-binaries.json`` ``_install_paths``."""
+
+    def test_launcher_candidates_exactly_match_manifest_paths(self) -> None:
+        """The launcher's per-OS candidate lists must EQUAL the manifest's.
+
+        Order-sensitive: the launcher checks ``%LOCALAPPDATA%`` before
+        ``%PROGRAMFILES%`` on Windows (NSIS ``installMode=currentUser``
+        default), and the manifest's ``_install_paths`` document the same
+        priority. A drift in either direction means either the integrity
+        gate hashes something CI never recorded, or the launcher never
+        finds a legitimately installed binary.
+        """
+        launcher_side = _launcher_path_templates()
+        manifest_side = _manifest_install_path_templates()
+
+        assert set(launcher_side) == set(manifest_side), (
+            "launcher platform keys mismatch manifest platforms: "
+            f"launcher={sorted(launcher_side)} manifest={sorted(manifest_side)}"
+        )
+        for platform in sorted(launcher_side):
+            assert launcher_side[platform] == manifest_side[platform], (
+                f"autostart launcher {platform} discovery paths differ from "
+                "tauri-binaries.json _install_paths (order matters):\n"
+                f"  launcher: {launcher_side[platform]}\n"
+                f"  manifest: {manifest_side[platform]}\n"
+                "Update BOTH sides in lockstep."
+            )
+
+
+# ─── Pair 8: per-arch config overrides ↔ base tauri.conf.json ─────────────
+
+
+# Per-arch config file → (platform, build triples it serves). The test
+# below asserts this set EXACTLY matches the per-arch config files on
+# disk — enabling a new arch (e.g. the commented windows-aarch64 leg,
+# TX-40) requires registering its config here.
+PER_ARCH_CONFIGS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "tauri.windows-x86_64.conf.json": ("windows", ("x86_64-pc-windows-msvc",)),
+    "tauri.macos.conf.json": (
+        "macos",
+        ("x86_64-apple-darwin", "aarch64-apple-darwin"),
+    ),
+    "tauri.linux-x86_64.conf.json": ("linux", ("x86_64-unknown-linux-gnu",)),
+    "tauri.linux-aarch64.conf.json": ("linux", ("aarch64-unknown-linux-gnu",)),
+}
+
+
+def _resource_relevant(resource: str, platform: str, triples: set[str]) -> bool:
+    """True if ``resource`` (from the base config) matters to the platform.
+
+    The base ``bundle.resources`` is a documented CROSS-platform
+    superset; a per-arch override must keep every base entry that this
+    platform/arch actually ships (the override REPLACES the base array,
+    so dropping one silently unbundles it).
+    """
+    name = resource.split("/")[-1]
+    if resource == "icons/tray/":
+        return True
+    if resource.startswith("resources/linux-scripts/"):
+        return platform == "linux"
+    if name.startswith("linux-key-listener"):
+        return platform == "linux"
+    if name.startswith("macos-key-listener"):
+        return platform == "macos"
+    if name.startswith("windows-key-listener"):
+        return platform == "windows"
+    if name.startswith("prewarm-"):
+        triple = name[len("prewarm-") :].removesuffix(".exe")
+        return triple in triples
+    return False  # base entries with no platform affinity (none today)
+
+
+def _per_arch_configs_on_disk() -> set[str]:
+    return {p.name for p in SRC_TAURI.glob("tauri.*.conf.json") if p.name != "tauri.conf.json"}
+
+
+class TestPerArchConfigsStayLockedToBase:
+    """Per-arch ``--config`` overrides ↔ the base ``tauri.conf.json``."""
+
+    def test_no_unregistered_per_arch_config_files(self) -> None:
+        """Every per-arch config on disk must be registered in this test.
+
+        A new override file (e.g. ``tauri.windows-aarch64.conf.json``
+        when the TX-40 leg is enabled) that nobody guards could silently
+        drop the sidecar or a native listener for that arch.
+        """
+        on_disk = _per_arch_configs_on_disk()
+        registered = set(PER_ARCH_CONFIGS)
+        assert on_disk == registered, (
+            "per-arch config files on disk != those registered in "
+            "PER_ARCH_CONFIGS (tests/tauri/test_config_script_drift.py):\n"
+            f"  unregistered on disk: {sorted(on_disk - registered)}\n"
+            f"  registered but missing: {sorted(registered - on_disk)}"
+        )
+
+    def test_per_arch_resources_subset_of_base(self) -> None:
+        """Overrides may only narrow the base resources (replace semantics)."""
+        base_resources = set(_tauri_conf()["bundle"]["resources"])
+        for rel, (platform, _triples) in PER_ARCH_CONFIGS.items():
+            cfg = json.loads((SRC_TAURI / rel).read_text(encoding="utf-8"))
+            cfg_resources = set(cfg["bundle"].get("resources", []))
+            invalid = cfg_resources - base_resources
+            assert not invalid, (
+                f"{rel} ({platform}) declares resources never present in the "
+                "base tauri.conf.json bundle.resources (the base is the "
+                "cross-platform superset):\n  " + "\n  ".join(sorted(invalid))
+            )
+
+    def test_per_arch_config_keeps_platform_relevant_base_resources(self) -> None:
+        """Every base resource relevant to the platform must be kept.
+
+        A per-arch override REPLACES the base ``resources`` array, so a
+        dropped key-listener / prewarm / tray entry would ship silently
+        without this guard (CI's source-inspection tests read the BASE
+        config and stay green).
+        """
+        base_resources = _tauri_conf()["bundle"]["resources"]
+        for rel, (platform, triples) in PER_ARCH_CONFIGS.items():
+            cfg = json.loads((SRC_TAURI / rel).read_text(encoding="utf-8"))
+            cfg_resources = set(cfg["bundle"].get("resources", []))
+            triples_set = set(triples)
+            dropped = {
+                res
+                for res in base_resources
+                if _resource_relevant(res, platform, triples_set) and res not in cfg_resources
+            }
+            assert not dropped, (
+                f"{rel} ({platform}) drops base resources that this "
+                f"platform/triples ship (Tauri replaces the resources array):\n  " + "\n  ".join(sorted(dropped))
+            )
+
+    def test_per_arch_external_bin_never_changes_sidecar(self) -> None:
+        """Overrides may not alter or drop the ``externalBin`` sidecar list."""
+        base_external_bin = _tauri_conf()["bundle"].get("externalBin", [])
+        for rel, (platform, _triples) in PER_ARCH_CONFIGS.items():
+            cfg = json.loads((SRC_TAURI / rel).read_text(encoding="utf-8"))
+            cfg_external_bin = cfg["bundle"].get("externalBin", base_external_bin)
+            assert cfg_external_bin == base_external_bin, (
+                f"{rel} ({platform}) overrides bundle.externalBin: "
+                f"{cfg_external_bin} != base {base_external_bin} — dropping "
+                "bin/python-sidecar silently unbundles the ASR sidecar for "
+                "that platform."
+            )

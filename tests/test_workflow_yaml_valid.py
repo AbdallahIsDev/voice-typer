@@ -293,9 +293,11 @@ def test_tauri_workflows_have_config_drift_failfast_gate() -> None:
         "tests/tauri/test_bundle_identifier_parity.py",
         "tests/tauri/test_gen_tauri_icons_stub.py::test_tauri_conf_icon_list_matches_tracked_icons",
         "tests/tauri/test_gen_tauri_icons_stub.py::test_per_arch_configs_do_not_override_bundle_icon",
-        "tests/tauri/test_config_script_drift.py::TestBundleBinariesVsStubRegistry::test_config_declares_exactly_the_stub_generator_registry",
-        "tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestCoverage::test_manifest_covers_exactly_the_canonical_triples",
-        "tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestBinaryNames::test_manifest_binary_names_match_cargo_binary_name",
+        # The whole drift file runs (all nine pairs: bundle.resources ↔
+        # stub registry, tauri-binaries.json ↔ triples / Cargo name /
+        # launcher install paths / updater map, per-arch config overrides
+        # ↔ base config, Nuitka package-data, NSIS hooks).
+        "tests/tauri/test_config_script_drift.py",
     )
     for name in ("tauri-windows-build.yml", "tauri-macos-build.yml", "tauri-linux-build.yml"):
         wf = WORKFLOWS_DIR / name
@@ -312,7 +314,7 @@ def test_tauri_workflows_have_config_drift_failfast_gate() -> None:
             )
         assert "--no-cov" in text, (
             f"{name} drift gate must pass --no-cov (the pyproject addopts "
-            "--cov would otherwise measure a 6-test subset)."
+            "--cov would otherwise measure a small gate subset)."
         )
     # The macOS universal job does not install the project's [dev,test]
     # deps (only the arch jobs do), so it must install the minimal pytest

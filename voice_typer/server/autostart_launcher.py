@@ -356,6 +356,57 @@ def _client_dir_exists() -> bool:
     return CLIENT_DIR.is_dir() and (CLIENT_DIR / "package.json").exists()
 
 
+# Well-known install paths per OS, in DISCOVERY ORDER. Tokens:
+# - ``{APP}``  → APP_NAME (the installer product name, e.g. "Voice Typer")
+# - ``{HOME}`` → Path.home()
+# - ``%LOCALAPPDATA%`` / ``%PROGRAMFILES%`` → resolved from the environment
+#   at call time (a missing LOCALAPPDATA makes that candidate skipped;
+#   PROGRAMFILES falls back to ``C:\\Program Files`` — both mirror the
+#   pre-refactor behavior).
+# This table is the launcher side of the autostart↔manifest drift pair
+# pinned by
+# ``tests/tauri/test_config_script_drift.py::TestLauncherInstallPathsMatchManifest``
+# against ``tauri-binaries.json`` → ``binaries.*._install_paths`` (order
+# matters — LOCALAPPDATA is first on Windows because the NSIS installer
+# defaults to ``installMode=currentUser``). Any change here MUST be
+# mirrored in the manifest, and vice versa.
+_TAURI_LAUNCHER_INSTALL_PATHS: dict[str, tuple[str, ...]] = {
+    "windows": (
+        r"%LOCALAPPDATA%\Programs\{APP}\voice-typer-tauri.exe",
+        r"%PROGRAMFILES%\{APP}\voice-typer-tauri.exe",
+    ),
+    "macos": (
+        "/Applications/{APP}.app/Contents/MacOS/voice-typer-tauri",
+        "{HOME}/Applications/{APP}.app/Contents/MacOS/voice-typer-tauri",
+    ),
+    "linux": (
+        "/usr/bin/voice-typer-tauri",
+        "/usr/local/bin/voice-typer-tauri",
+        "{HOME}/.local/bin/voice-typer-tauri",
+    ),
+}
+
+
+def _expand_tauri_install_template(template: str) -> Path | None:
+    """Expand one :data:`_TAURI_LAUNCHER_INSTALL_PATHS` template into a Path.
+
+    Returns ``None`` when a required env var is unavailable — that
+    candidate is then skipped (mirrors the pre-refactor behavior where
+    a missing ``LOCALAPPDATA`` simply didn't contribute a candidate).
+    """
+    if "%LOCALAPPDATA%" in template:
+        local_appdata = os.environ.get("LOCALAPPDATA")
+        if not local_appdata:
+            return None
+        template = template.replace("%LOCALAPPDATA%", local_appdata)
+    elif "%PROGRAMFILES%" in template:
+        program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
+        template = template.replace("%PROGRAMFILES%", program_files)
+    elif "{HOME}" in template:
+        template = template.replace("{HOME}", str(Path.home()))
+    return Path(template.replace("{APP}", APP_NAME))
+
+
 def _tauri_binary() -> str | None:
     """Return the path to the installed Voice Typer Tauri binary, or ``None``.
 
@@ -370,24 +421,12 @@ def _tauri_binary() -> str | None:
 
     1. ``VT_TAURI_BINARY`` env var — explicit override used by
        installers / users that place the binary at a non-standard path.
-    2. Well-known install paths per OS:
-
-       - **Linux**: ``/usr/bin/voice-typer-tauri``,
-         ``/usr/local/bin/voice-typer-tauri``,
-         ``~/.local/bin/voice-typer-tauri`` (the .deb / .rpm install
-         target, mirrored by the freedesktop ``.desktop`` template's
-         ``Exec=voice-typer-tauri`` line).
-       - **macOS**: ``/Applications/Voice Typer.app/Contents/MacOS/voice-typer-tauri``
-         and the user-local ``~/Applications/…`` counterpart. The
-          bundle name comes from ``productName`` (APP_NAME) while
-         the inner executable is the Cargo binary name
-         (``voice-typer-tauri``).
-       - **Windows**: ``%LOCALAPPDATA%\\Programs\\Voice Typer\
-         voice-typer-tauri.exe`` (preferred — the per-user NSIS
-         ``installMode=currentUser`` target) and
-         ``%PROGRAMFILES%\\Voice Typer\\voice-typer-tauri.exe`` (the
-         admin-install fallback). The per-user path is checked FIRST
-         because the NSIS installer defaults to ``currentUser``.
+    2. Well-known install paths per OS, in the order listed in
+       :data:`_TAURI_LAUNCHER_INSTALL_PATHS` (which is pinned to the
+       ``_install_paths`` of ``tauri-binaries.json`` by the drift test
+       ``tests/tauri/test_config_script_drift.py`` — the manifest is
+       the single source of truth for both the path set and the
+       discovery priority).
 
     On POSIX the candidate must additionally be executable
     (``os.access(..., X_OK)``) — a stale non-executable file at one of
@@ -404,22 +443,15 @@ def _tauri_binary() -> str | None:
 
     candidates: list[Path] = []
     if is_windows():
-        # Check LOCALAPPDATA first because the NSIS installer defaults
-        # to ``installMode=currentUser`` which installs to
-        # ``%LOCALAPPDATA%\Programs\Voice Typer\``. The admin-install
-        # path (PROGRAMFILES) is the fallback.
-        local_appdata = os.environ.get("LOCALAPPDATA")
-        if local_appdata:
-            candidates.append(Path(local_appdata) / "Programs" / APP_NAME / "voice-typer-tauri.exe")
-        program_files = os.environ.get("PROGRAMFILES", r"C:\Program Files")
-        candidates.append(Path(program_files) / APP_NAME / "voice-typer-tauri.exe")
+        platform_key = "windows"
     elif is_macos():
-        candidates.append(Path("/Applications") / f"{APP_NAME}.app" / "Contents" / "MacOS" / "voice-typer-tauri")
-        candidates.append(Path.home() / "Applications" / f"{APP_NAME}.app" / "Contents" / "MacOS" / "voice-typer-tauri")
+        platform_key = "macos"
     else:  # Linux / other POSIX
-        candidates.append(Path("/usr/bin/voice-typer-tauri"))
-        candidates.append(Path("/usr/local/bin/voice-typer-tauri"))
-        candidates.append(Path.home() / ".local" / "bin" / "voice-typer-tauri")
+        platform_key = "linux"
+    for template in _TAURI_LAUNCHER_INSTALL_PATHS[platform_key]:
+        cand = _expand_tauri_install_template(template)
+        if cand is not None:
+            candidates.append(cand)
 
     for cand in candidates:
         if not cand.is_file():
@@ -613,8 +645,7 @@ def _ensure_built_and_launch(hidden: bool = False) -> bool:
 
     if not _main_entry_built():
         log.warning(
-            "[AUTOSTART] No pre-built output found -- launch via the dev path "
-            "(npm run dev) or a packaged install"
+            "[AUTOSTART] No pre-built output found -- launch via the dev path (npm run dev) or a packaged install"
         )
         return False
 

@@ -643,23 +643,22 @@ jobs:
 
       # Fail-fast gate: run the config drift guards BEFORE the build —
       # identifier↔appId + productName + version parity, bundle.icon↔git
-      # lockstep, and the config↔script pairs (bundle.resources/externalBin
-      # ↔ stub generator registry, tauri-binaries.json ↔ canonical triples +
-      # Cargo binary name). Same guards the full suite enforces, but a drift
-      # regression dies in seconds instead of only after the whole test run.
-      # MUST stay BEFORE "Generate Tauri binary stubs" below: the icons
-      # module's autouse fixture runs --clean after each test, which removes
-      # freshly-generated STUB files (real binaries are preserved by the
-      # _is_stub_file heuristic).
+      # lockstep, and ALL the config↔script pairs (bundle.resources/
+      # externalBin ↔ stub generator registry, tauri-binaries.json ↔
+      # canonical triples + Cargo binary name + launcher install paths,
+      # per-arch config overrides ↔ base config). Same guards the full
+      # suite enforces, but a drift regression dies in seconds instead of
+      # only after the whole test run. MUST stay BEFORE "Generate Tauri
+      # binary stubs" below: the icons module's autouse fixture runs
+      # --clean after each test, which removes freshly-generated STUB
+      # files (real binaries are preserved by the _is_stub_file heuristic).
       - name: Verify config drift guards (icons, identity, binaries) (fail fast)
         run: |
           python3 -m pytest \
             tests/tauri/test_bundle_identifier_parity.py \
             tests/tauri/test_gen_tauri_icons_stub.py::test_tauri_conf_icon_list_matches_tracked_icons \
             tests/tauri/test_gen_tauri_icons_stub.py::test_per_arch_configs_do_not_override_bundle_icon \
-            tests/tauri/test_config_script_drift.py::TestBundleBinariesVsStubRegistry::test_config_declares_exactly_the_stub_generator_registry \
-            tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestCoverage::test_manifest_covers_exactly_the_canonical_triples \
-            tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestBinaryNames::test_manifest_binary_names_match_cargo_binary_name \
+            tests/tauri/test_config_script_drift.py \
             -q --no-cov
 
       # generate placeholder BINARY stubs (sidecar / native / prewarm) if
@@ -822,6 +821,34 @@ jobs:
         with:
           name: VoiceTyper-Tauri-Linux-SHA256SUMS-${{ env.BUILD_ARCH }}
           path: SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      # Record the REAL SHA-256 of this arch leg's built host binary into
+      # tauri-binaries.json — the integrity manifest the autostart
+      # launcher verifies against at login (fail-closed). Each matrix leg
+      # hashes ONLY its own key (x86_64 leg → linux-x86_64, aarch64 leg →
+      # linux-aarch64), leaving the other leg's key untouched; the
+      # tauri-build.yml aggregate job merges the two manifests. Script is
+      # stdlib-only, so it runs with the plain `python3` the gate uses.
+      - name: Record Tauri binary SHA-256 (${{ env.BUILD_ARCH }})
+        run: |
+          TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
+          python3 scripts/build/update_tauri_manifests.py \
+            --triple "$TRIPLE" --target-dir src-tauri/target
+
+      # Fail-fast release gate: this leg's hash must now be present and
+      # valid in the manifest. An empty/malformed value aborts the run.
+      - name: Enforce Tauri manifest integrity (${{ env.BUILD_ARCH }})
+        run: |
+          TRIPLE="${BUILD_ARCH}-unknown-linux-gnu"
+          python3 scripts/build/update_tauri_manifests.py --check --triple "$TRIPLE"
+
+      - name: Upload updated tauri-binaries.json
+        uses: actions/upload-artifact@v5
+        with:
+          name: tauri-binaries-manifest-linux-${{ env.BUILD_ARCH }}
+          path: tauri-binaries.json
           if-no-files-found: error
           retention-days: 30
 

@@ -150,6 +150,24 @@ jobs:
           uv pip install -e ".[dev,test]"
           uv pip install nuitka zstandard
 
+      # Fail-fast arch-leg gate (ADR-0020 Phase 0-M): run the FULL config
+      # drift + identifier-parity + icons guards on this arch leg, via the
+      # project venv (`uv run --no-sync` — the venv above already has the
+      # [dev,test] deps; --no-sync skips uv's re-sync so the editable
+      # install is used as-is). Same guards the universal job re-runs
+      # before `cargo tauri build`, but a drift regression dies on the
+      # cheap 12-min arch leg instead of after the 20-min universal build
+      # has queued. The icons module's autouse fixture runs --clean,
+      # which only removes uncommitted STUBS (real binaries preserved).
+      - name: Verify config drift guards (fail fast, aarch64 leg)
+        run: |
+          uv run --no-sync pytest \
+            tests/tauri/test_bundle_identifier_parity.py \
+            tests/tauri/test_gen_tauri_icons_stub.py::test_tauri_conf_icon_list_matches_tracked_icons \
+            tests/tauri/test_gen_tauri_icons_stub.py::test_per_arch_configs_do_not_override_bundle_icon \
+            tests/tauri/test_config_script_drift.py \
+            -q --no-cov
+
       - name: Build sidecar (aarch64)
         run: |
           scripts/build/build_sidecar_macos.sh aarch64
@@ -265,6 +283,18 @@ jobs:
           uv venv
           uv pip install -e ".[dev,test]"
           uv pip install nuitka zstandard
+
+      # Fail-fast arch-leg gate: same full drift + parity + icons guard
+      # as the aarch64 leg above (runs via the project venv; --no-sync
+      # keeps the editable install untouched).
+      - name: Verify config drift guards (fail fast, x86_64 leg)
+        run: |
+          uv run --no-sync pytest \
+            tests/tauri/test_bundle_identifier_parity.py \
+            tests/tauri/test_gen_tauri_icons_stub.py::test_tauri_conf_icon_list_matches_tracked_icons \
+            tests/tauri/test_gen_tauri_icons_stub.py::test_per_arch_configs_do_not_override_bundle_icon \
+            tests/tauri/test_config_script_drift.py \
+            -q --no-cov
 
       - name: Build sidecar (x86_64 via Rosetta 2)
         run: |
@@ -466,22 +496,22 @@ jobs:
 
       # Fail-fast gate: run the config drift guards BEFORE the build —
       # identifier↔appId + productName + version parity, bundle.icon↔git
-      # lockstep, and the config↔script pairs (bundle.resources/externalBin
-      # ↔ stub generator registry, tauri-binaries.json ↔ canonical triples +
-      # Cargo binary name). Same guards the full suite enforces, but a drift
-      # regression dies in seconds instead of only after the whole test run.
-      # The icons module's autouse fixture runs --clean after each test,
-      # which preserves the REAL binaries the arch jobs placed above (the
-      # _is_stub_file heuristic) and touches no committed icons.
+      # lockstep, and ALL the config↔script pairs (bundle.resources/
+      # externalBin ↔ stub generator registry, tauri-binaries.json ↔
+      # canonical triples + Cargo binary name + launcher install paths,
+      # per-arch config overrides ↔ base config). Same guards the full
+      # suite enforces, but a drift regression dies in seconds instead of
+      # only after the whole test run. The icons module's autouse fixture
+      # runs --clean after each test, which preserves the REAL binaries
+      # the arch jobs placed above (the _is_stub_file heuristic) and
+      # touches no committed icons.
       - name: Verify config drift guards (icons, identity, binaries) (fail fast)
         run: |
           python3 -m pytest \
             tests/tauri/test_bundle_identifier_parity.py \
             tests/tauri/test_gen_tauri_icons_stub.py::test_tauri_conf_icon_list_matches_tracked_icons \
             tests/tauri/test_gen_tauri_icons_stub.py::test_per_arch_configs_do_not_override_bundle_icon \
-            tests/tauri/test_config_script_drift.py::TestBundleBinariesVsStubRegistry::test_config_declares_exactly_the_stub_generator_registry \
-            tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestCoverage::test_manifest_covers_exactly_the_canonical_triples \
-            tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestBinaryNames::test_manifest_binary_names_match_cargo_binary_name \
+            tests/tauri/test_config_script_drift.py \
             -q --no-cov
 
       # Fail-fast gate: verify the COMMITTED icons/icon.icns exists AND is
@@ -669,6 +699,35 @@ jobs:
         with:
           name: VoiceTyper-Tauri-MacOS-SHA256SUMS
           path: SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      # Record the REAL SHA-256 of the built universal host binary into
+      # tauri-binaries.json — the integrity manifest the autostart
+      # launcher verifies against at login (fail-closed). The updater
+      # hashes the .app bundle's INNER executable (not the .app directory
+      # — no canonical byte sequence), via its macOS discovery; the
+      # universal Mach-O collapses into the single `macos` key. Script is
+      # stdlib-only, so the minimal `uv pip install --system` gate env
+      # suffices. Idempotent; leaves every other per-arch key untouched.
+      - name: Record Tauri binary SHA-256 (universal)
+        run: |
+          python3 scripts/build/update_tauri_manifests.py \
+            --triple universal-apple-darwin --target-dir src-tauri/target
+
+      # Fail-fast release gate: this leg's hash must now be present and
+      # valid in the manifest. An empty/malformed value aborts the run —
+      # a release whose integrity gate fail-closes is worse than no build.
+      - name: Enforce Tauri manifest integrity (universal)
+        run: |
+          python3 scripts/build/update_tauri_manifests.py \
+            --check --triple universal-apple-darwin
+
+      - name: Upload updated tauri-binaries.json
+        uses: actions/upload-artifact@v5
+        with:
+          name: tauri-binaries-manifest-macos
+          path: tauri-binaries.json
           if-no-files-found: error
           retention-days: 30
 

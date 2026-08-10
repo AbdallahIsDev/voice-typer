@@ -107,11 +107,13 @@ jobs:
   # mirrored in tauri.conf.json, bundle.icon set out of lockstep with
   # tauri.conf.json, bundle.resources/externalBin diverging from the
   # stub-generator registry, tauri-binaries.json drifting from the
-  # canonical triples / Cargo bin name) fails here instead of after
-  # the first build. Same 6 pytest nodes + --check-icons as
-  # tauri-macos-build.yml / tauri-linux-build.yml / tauri-windows-build.yml.
-  # The icons tests' autouse fixture runs --clean, which only removes
-  # uncommitted stub binaries — safe in a fresh checkout.
+  # canonical triples / Cargo bin name / launcher install paths, per-arch
+  # config overrides drifting from the base config) fails here instead of
+  # after the first build. Same gate (the full drift file + the identity
+  # parity + icons nodes) as tauri-macos-build.yml / tauri-linux-build.yml
+  # / tauri-windows-build.yml. The icons tests' autouse fixture runs
+  # --clean, which only removes uncommitted stub binaries — safe in a
+  # fresh checkout.
   # ──────────────────────────────────────────────────────────────────────────
 
   validate:
@@ -138,19 +140,19 @@ jobs:
 
       # Fail-fast gate: run the config drift guards ONCE here, BEFORE the
       # per-platform builds fan out — identifier↔appId + productName +
-      # version parity, bundle.icon↔git lockstep, and the config↔script
-      # pairs (bundle.resources/externalBin ↔ stub generator registry,
-      # tauri-binaries.json ↔ canonical triples + Cargo binary name). Same
-      # guards the per-platform workflows re-run inside their build jobs.
+      # version parity, bundle.icon↔git lockstep, and ALL the
+      # config↔script pairs (bundle.resources/externalBin ↔ stub
+      # generator registry, tauri-binaries.json ↔ canonical triples +
+      # Cargo binary name + launcher install paths, per-arch config
+      # overrides ↔ base config). Same guards the per-platform workflows
+      # re-run inside their build jobs.
       - name: Verify config drift guards (icons, identity, binaries) (fail fast)
         run: |
           python3 -m pytest \
             tests/tauri/test_bundle_identifier_parity.py \
             tests/tauri/test_gen_tauri_icons_stub.py::test_tauri_conf_icon_list_matches_tracked_icons \
             tests/tauri/test_gen_tauri_icons_stub.py::test_per_arch_configs_do_not_override_bundle_icon \
-            tests/tauri/test_config_script_drift.py::TestBundleBinariesVsStubRegistry::test_config_declares_exactly_the_stub_generator_registry \
-            tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestCoverage::test_manifest_covers_exactly_the_canonical_triples \
-            tests/tauri/test_config_script_drift.py::TestTauriBinariesManifestBinaryNames::test_manifest_binary_names_match_cargo_binary_name \
+            tests/tauri/test_config_script_drift.py \
             -q --no-cov
 
       # Fail-fast gate: verify EVERY committed file in tauri.conf.json
@@ -208,6 +210,10 @@ jobs:
   # Aggregate: download every platform's installer artifact into a single
   # `tauri-all-installers` artifact for easy manual download. This job
   # runs even if one platform fails (so partial releases can be inspected).
+  # Additionally merges each successful platform leg's updated
+  # tauri-binaries.json (each leg records only its own per-arch sha256)
+  # into ONE manifest and runs the full-manifest integrity gate — the
+  # true release gate asserting every platform's binary is hashed.
   # ──────────────────────────────────────────────────────────────────────────
 
   aggregate:
@@ -215,13 +221,16 @@ jobs:
     needs: [build-windows, build-macos, build-linux]
     if: always()
     runs-on: ubuntu-22.04
-    # XS-28: cap the aggregator — it only does 3 artifact downloads + a find
-    # + a re-upload. 10 min is plenty; without a cap a hung download-artifact
-    # could burn the default 360 min on a stalled run.
+    # XS-28: cap the aggregator — it only does artifact downloads + a find
+    # + a re-upload (+ the manifest merge). 10 min is plenty; without a cap
+    # a hung download-artifact could burn the default 360 min on a stalled
+    # run.
     timeout-minutes: 10
     permissions:
       contents: read
     steps:
+      - uses: actions/checkout@v5
+
       - name: Download Windows installer
         if: needs.build-windows.result == 'success'
         uses: actions/download-artifact@v5
@@ -249,6 +258,87 @@ jobs:
           echo "::error::All per-platform workflows failed or were skipped. No installer artifacts were aggregated."
           exit 1
 
+      # Each successful platform leg uploads its checkout's updated
+      # tauri-binaries.json (its own per-arch sha256 recorded). The Linux
+      # matrix fans out per arch (x86_64 + aarch64), so there are two
+      # Linux manifests to download.
+      - name: Download macOS manifest
+        if: needs.build-macos.result == 'success'
+        uses: actions/download-artifact@v5
+        with:
+          name: tauri-binaries-manifest-macos
+          path: manifests/macos
+
+      - name: Download Windows manifest
+        if: needs.build-windows.result == 'success'
+        uses: actions/download-artifact@v5
+        with:
+          name: tauri-binaries-manifest-windows
+          path: manifests/windows
+
+      - name: Download Linux manifests (x86_64 + aarch64 legs)
+        if: needs.build-linux.result == 'success'
+        uses: actions/download-artifact@v5
+        with:
+          name: tauri-binaries-manifest-linux-x86_64
+          path: manifests/linux-x86_64
+
+      - name: Download Linux manifests (aarch64 leg)
+        if: needs.build-linux.result == 'success'
+        uses: actions/download-artifact@v5
+        with:
+          name: tauri-binaries-manifest-linux-aarch64
+          path: manifests/linux-aarch64
+
+      # Merge the per-leg manifests on top of the committed base manifest:
+      # only non-empty sha256 values are overlaid, so every binary entry
+      # keeps its full key set and every other field is preserved verbatim.
+      - name: Merge per-platform manifests
+        if: always()
+        run: |
+          python3 - <<'PY'
+          import glob
+          import json
+          from pathlib import Path
+
+          base = json.loads(Path("tauri-binaries.json").read_text(encoding="utf-8"))
+          merged_any = False
+          for manifest_file in sorted(glob.glob("manifests/*/tauri-binaries.json")):
+              leg = json.loads(Path(manifest_file).read_text(encoding="utf-8"))
+              for name, entry in leg.get("binaries", {}).items():
+                  sha = entry.get("sha256")
+                  if not isinstance(sha, dict):
+                      continue
+                  target = base["binaries"][name]["sha256"]
+                  for key, value in sha.items():
+                      if value and not target.get(key):
+                          target[key] = value
+                          merged_any = True
+                      elif value and value != target.get(key):
+                          log_both = {"key": key, "previous": target.get(key), "new": value}
+                          print(
+                              f"::warning::manifest merge conflict on {name}.sha256[{key}]: "
+                              f"keeping {log_both['previous'][:12]}... (had {log_both['new'][:12]}...)",
+                              flush=True,
+                          )
+          Path("tauri-binaries-merged.json").write_text(
+              json.dumps(base, indent=2, ensure_ascii=False) + "\n",
+              encoding="utf-8",
+          )
+          print(f"merged {len(glob.glob('manifests/*/tauri-binaries.json'))} leg manifest(s)"
+                + ("; at least one sha256 overlaid" if merged_any else "; no hashes overlaid"))
+          PY
+
+      # Full-manifest release gate: every per-arch sha256 across ALL
+      # platforms must be present and valid. Runs only when every
+      # platform succeeded; a partial run (some platform failed/skipped)
+      # skips the gate so partial artifacts remain inspectable.
+      - name: Enforce merged manifest integrity (full release gate)
+        if: needs.build-windows.result == 'success' && needs.build-macos.result == 'success' && needs.build-linux.result == 'success'
+        run: |
+          cp tauri-binaries-merged.json tauri-binaries.json
+          python3 scripts/build/update_tauri_manifests.py --check
+
       - name: List aggregated installers
         run: |
           echo "::group::Aggregated Tauri installers"
@@ -266,6 +356,18 @@ jobs:
         with:
           name: tauri-all-installers
           path: aggregated/
+          retention-days: 30
+
+      # The merged manifest is what a release engineer commits back into
+      # the repo (tauri-binaries.json) so the autostart launcher's
+      # integrity gate has the real hashes for every platform.
+      - name: Upload merged tauri-binaries.json
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: tauri-binaries-manifest-merged
+          path: tauri-binaries-merged.json
+          if-no-files-found: error
           retention-days: 30
 
       - name: Cutover reminder

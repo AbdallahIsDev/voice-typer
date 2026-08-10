@@ -615,12 +615,14 @@ def test_orchestrator_runs_pre_dispatch_drift_gate_before_fan_out(
     pre-dispatch ``validate`` job before fanning out to all three platforms.
 
     The per-platform workflows each re-run the gate inside their build jobs,
-    but the orchestrator hoists the same 6 pytest nodes + ``--check-icons``
-    into a single ``validate`` job that every platform call ``needs`` — a
-    drift regression (identifier/appId parity, bundle.icon↔git lockstep,
-    config↔script registry pairs, tauri-binaries.json ↔ canonical triples)
-    aborts the whole fan-out in ~1 minute instead of after the first
-    30-60 min platform build.
+    but the orchestrator hoists the same gate (the FULL
+    ``test_config_script_drift.py`` file + the identity-parity module + the
+    icons nodes, plus ``--check-icons``) into a single ``validate`` job that
+    every platform call ``needs`` — a drift regression (identifier/appId
+    parity, bundle.icon↔git lockstep, config↔script registry pairs,
+    tauri-binaries.json ↔ canonical triples / launcher install paths,
+    per-arch config overrides ↔ base config) aborts the whole fan-out in
+    ~1 minute instead of after the first 30-60 min platform build.
     """
     assert re.search(r"^  validate:", tauri_build_orchestrator_text, re.MULTILINE), (
         "tauri-build.yml must define a validate job (pre-dispatch drift gate)"
@@ -631,10 +633,9 @@ def test_orchestrator_runs_pre_dispatch_drift_gate_before_fan_out(
     assert "tests/tauri/test_bundle_identifier_parity.py" in tauri_build_orchestrator_text, (
         "validate job must run the identifier↔appId parity drift guard"
     )
-    assert (
-        "tests/tauri/test_config_script_drift.py::TestBundleBinariesVsStubRegistry::test_config_declares_exactly_the_stub_generator_registry"
-        in tauri_build_orchestrator_text
-    ), "validate job must run the config↔stub-registry drift guard"
+    assert "tests/tauri/test_config_script_drift.py" in tauri_build_orchestrator_text, (
+        "validate job must run the FULL config↔script drift file (all pair guards)"
+    )
     assert "python3 scripts/gen_tauri_icons_stub.py --check-icons" in (tauri_build_orchestrator_text), (
         "validate job must run --check-icons on the committed bundle.icon set"
     )
