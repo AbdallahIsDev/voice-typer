@@ -81,6 +81,29 @@ Pairs guarded here:
    of the per-arch sha256 fields; if its triple→key map drifts from the
    canonical one, CI would hash a built binary into the WRONG key — and
    the loader would fail-closed for that platform despite a built binary.
+
+10. The version string in ``pyproject.toml`` ↔ ``package.json`` ↔
+    ``src-tauri/tauri.conf.json`` ↔ ``src-tauri/Cargo.toml`` (↔
+    ``electron-builder.yml`` when it carries an explicit version). One
+    version across every layer — a bump that touches only one file
+    silently ships mismatched app/installer/update metadata; the same
+    lockstep also protects the Tauri workflows' "fail early" check
+    (``scripts/build/sync_versions.py --check`` in the pre-build gate).
+
+11. The release bump workflow (``RELEASING.md`` instructions ↔
+    ``scripts/build/sync_versions.py``). The documented release commit
+    must touch ``package.json`` AND ``src-tauri/tauri.conf.json`` (and
+    ``Cargo.toml``) together via the sync script — a version bump that
+    commits only one file breaks the Pair-10 lockstep mid-release.
+
+12. The update feed: NO auto-update is the pinned contract today
+    (ADR-0020 §15 — the electron ``publish:`` block was removed and
+    ``tauri-plugin-updater`` is intentionally unconfigured). If a feed
+    config or ``latest.json`` ever appears (electron ``publish:`` or a
+    Tauri ``plugins.updater`` block), its referenced version must equal
+    ``tauri.conf.json``'s — the guard below fails on any feed whose
+    version drifts, and fails on any unlicensed feed config appearing
+    without the parity wiring.
 """
 
 from __future__ import annotations
@@ -88,6 +111,7 @@ from __future__ import annotations
 import functools
 import importlib.util
 import json
+import re
 from pathlib import Path
 
 import tomllib
@@ -709,4 +733,227 @@ class TestPerArchConfigsStayLockedToBase:
                 f"{cfg_external_bin} != base {base_external_bin} — dropping "
                 "bin/python-sidecar silently unbundles the ASR sidecar for "
                 "that platform."
+            )
+
+
+# ─── Pair 10: version lockstep across every layer ──────────────────────────
+
+
+# The files that MUST carry the identical version string, with a reader
+# for each. ``pyproject.toml`` is the single source of truth (the release
+# tooling bumps it first and sync_versions.py propagates — see Pair 11);
+# the runtime/installer layers must never drift from it.
+VERSIONED_FILES: dict[str, Path] = {
+    "pyproject.toml": PROJECT_ROOT / "pyproject.toml",
+    "voice_typer/client/package.json": PROJECT_ROOT / "voice_typer" / "client" / "package.json",
+    "voice_typer/client/electron-builder.yml": PROJECT_ROOT / "voice_typer" / "client" / "electron-builder.yml",
+    "src-tauri/tauri.conf.json": SRC_TAURI / "tauri.conf.json",
+    "src-tauri/Cargo.toml": SRC_TAURI / "Cargo.toml",
+}
+
+
+def _read_json_version(path: Path) -> str:
+    return json.loads(path.read_text(encoding="utf-8"))["version"]
+
+
+def _read_pyproject_version(path: Path) -> str:
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    return data["project"]["version"]
+
+
+def _is_git_tracked(path: Path) -> bool:
+    """True if ``path`` is committed (feed artifacts must be pinned in git,
+    not floating in an ignored dist/ dir)."""
+    result = __import__("subprocess").run(
+        ["git", "ls-files", "--error-unmatch", path.relative_to(PROJECT_ROOT).as_posix()],
+        capture_output=True,
+        cwd=str(PROJECT_ROOT),
+    )
+    return result.returncode == 0
+
+
+def _read_cargo_version(path: Path) -> str:
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    return data["package"]["version"]
+
+
+def _read_electron_builder_version(path: Path) -> str | None:
+    """electron-builder.yml only carries an explicit version when
+    ``version:`` is present (it otherwise inherits package.json's)."""
+    text = path.read_text(encoding="utf-8")
+    m = re.search(r"^version:\s*([^\s]+)", text, re.MULTILINE)
+    return m.group(1).strip().strip('"').strip("'") if m else None
+
+
+class TestVersionLockstep:
+    """One version across pyproject / package.json / Tauri host / installer.
+
+    The release tooling (Pair 11) edits ``pyproject.toml`` and runs
+    ``sync_versions.py --apply``; a version bump that touches only ONE
+    file (hand-edited package.json, or a direct tauri.conf.json edit
+    that bypasses the sync script) breaks the lockstep HERE — every CI
+    surface (Tauri workflows' fail-fast gates, pre-push pytest) fails
+    instead of shipping mismatched app/installer metadata.
+    """
+
+    def test_all_versioned_files_agree(self) -> None:
+        """Every versioned file must carry the pyproject.toml version."""
+        source = _read_pyproject_version(VERSIONED_FILES["pyproject.toml"])
+        readers = {
+            "pyproject.toml": _read_pyproject_version,
+            "voice_typer/client/package.json": _read_json_version,
+            "src-tauri/tauri.conf.json": _read_json_version,
+            "src-tauri/Cargo.toml": _read_cargo_version,
+        }
+        for rel, reader in readers.items():
+            actual = reader(VERSIONED_FILES[rel])
+            assert actual == source, (
+                f"{rel} version is {actual!r} but pyproject.toml says "
+                f"{source!r} — bump via `python scripts/build/sync_versions.py "
+                "--apply` (bump pyproject.toml first), never by hand-editing "
+                "one file."
+            )
+
+    def test_electron_builder_version_matches_when_explicit(self) -> None:
+        """electron-builder.yml version must match if it declares one."""
+        source = _read_pyproject_version(VERSIONED_FILES["pyproject.toml"])
+        explicit = _read_electron_builder_version(VERSIONED_FILES["voice_typer/client/electron-builder.yml"])
+        if explicit is not None:
+            assert explicit == source, (
+                f"electron-builder.yml declares version {explicit!r} but "
+                f"pyproject.toml says {source!r} — sync_versions.py --apply."
+            )
+
+
+# ─── Pair 11: release bump workflow touches all versioned files ────────────
+
+
+RELEASING_MD = PROJECT_ROOT / "RELEASING.md"
+SYNC_VERSIONS_SCRIPT = PROJECT_ROOT / "scripts" / "build" / "sync_versions.py"
+
+# The files a release bump MUST land in the SAME commit (the different
+# layers' metadata would otherwise display three versions).
+BUMP_COMMIT_FILES = (
+    "voice_typer/client/package.json",
+    "src-tauri/Cargo.toml",
+    "src-tauri/tauri.conf.json",
+)
+
+
+class TestReleaseBumpWorkflow:
+    """The documented bump flow must touch every versioned file at once.
+
+    ``RELEASING.md`` is the runbook a human follows on release day; if a
+    doc review edits the bump instructions to commit only package.json
+    (or the sync script drops a layer), the Pair-10 lockstep silently
+    dies mid-release. This pins the WORKFLOW contract itself.
+    """
+
+    def test_releasing_md_bump_commit_adds_all_versioned_files(self) -> None:
+        """The release-bump ``git add`` must cover every versioned file."""
+        text = RELEASING_MD.read_text(encoding="utf-8")
+        assert "sync_versions.py --apply" in text, (
+            "RELEASING.md must instruct `python scripts/build/sync_versions.py --apply` as the release-bump step."
+        )
+        add_line = next(
+            (line for line in text.splitlines() if line.strip().startswith("git add ")),
+            None,
+        )
+        assert add_line is not None, "RELEASING.md must document the bump `git add` command"
+        missing = [rel for rel in BUMP_COMMIT_FILES if rel not in add_line]
+        assert not missing, (
+            "RELEASING.md's release-bump `git add` line is missing versioned "
+            f"file(s): {missing}. The bump must commit package.json + "
+            "src-tauri/tauri.conf.json + src-tauri/Cargo.toml in the SAME "
+            "commit so the version lockstep (Pair 10) can't break mid-release.\n"
+            f"  line: {add_line.strip()}"
+        )
+
+    def test_sync_versions_writes_every_versioned_file(self) -> None:
+        """sync_versions.py must propagate to all four write targets."""
+        spec = importlib.util.spec_from_file_location("_vt_sync_versions_drift", SYNC_VERSIONS_SCRIPT)
+        assert spec is not None and spec.loader is not None, f"cannot load {SYNC_VERSIONS_SCRIPT}"
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        # The script's module constants are Paths; assert each release-bump
+        # target is the exact path this test's VERSIONED_FILES expects.
+        expected_targets = {
+            "PACKAGE_JSON": VERSIONED_FILES["voice_typer/client/package.json"],
+            "TAURI_CONF_JSON": VERSIONED_FILES["src-tauri/tauri.conf.json"],
+            "CARGO_TOML": VERSIONED_FILES["src-tauri/Cargo.toml"],
+        }
+        for const, expected in expected_targets.items():
+            actual = getattr(module, const)
+            assert actual == expected, (
+                f"sync_versions.py::{const} is {actual} but must be {expected} "
+                "(release-bump drift — a bump that runs --apply would NOT "
+                "touch the expected file)."
+            )
+        # collect_versions() must actually feed the pyproject version into
+        # every one of those files (read-side coverage of the lockstep).
+        versions = module.collect_versions()
+        for rel in ("voice_typer/client/package.json", "src-tauri/tauri.conf.json", "src-tauri/Cargo.toml"):
+            assert versions.get(rel) == versions["pyproject.toml"], (
+                f"sync_versions.py collect_versions() drifts on {rel} — the "
+                "release-bump --apply would need to resync it."
+            )
+
+
+# ─── Pair 12: update feed version ↔ tauri.conf.json ────────────────────────
+
+
+class TestUpdateFeedParity:
+    """Any committed update feed must carry tauri.conf.json's version.
+
+    ADR-0020 §15 pins NO auto-update wiring: the electron ``publish:``
+    block was removed (electron-builder.yml documents why) and no Tauri
+    ``plugins.updater`` configuration exists — so no feed manifest is
+    committed today. The contract pinned here is the FORWARD GUARD: the
+    moment any ``latest.json`` / ``latest.yml`` feed record IS committed
+    (electron-builder auto-update or Tauri's static updater feed), its
+    ``version`` MUST equal ``src-tauri/tauri.conf.json``'s — the updater
+    must never reference a release version that drifts from the app's
+    own version, or clients would be rolled to a mismatched binary.
+    """
+
+    FEED_PATTERNS = ("**/latest.json", "**/latest.yml")
+
+    def test_committed_feed_manifests_match_tauri_conf_version(self) -> None:
+        """Every git-tracked feed manifest's version == tauri.conf.json's.
+
+        Vacuously passes while no feed is committed (ADR-0020 §15 no
+        auto-update); fails the moment a feed artifact is committed with
+        a drifted version.
+        """
+        expected = _read_json_version(VERSIONED_FILES["src-tauri/tauri.conf.json"])
+        feeds = [path for pattern in self.FEED_PATTERNS for path in PROJECT_ROOT.glob(pattern) if _is_git_tracked(path)]
+        for feed in feeds:
+            data = json.loads(feed.read_text(encoding="utf-8"))
+            feed_version = data.get("version")
+            assert feed_version == expected, (
+                f"{feed.relative_to(PROJECT_ROOT)} references version "
+                f"{feed_version!r} but src-tauri/tauri.conf.json is "
+                f"{expected!r} — the update feed must reference the app's "
+                "own version (sync_versions.py --apply then regenerate the "
+                "feed artifact)."
+            )
+
+    def test_no_unlicensed_update_feed_wiring_ships(self) -> None:
+        """ADR-0020 §15: no electron publish block, no Tauri updater plugin."""
+        builder = VERSIONED_FILES["voice_typer/client/electron-builder.yml"].read_text(encoding="utf-8")
+        assert not re.search(r"^publish:", builder, re.MULTILINE), (
+            "electron-builder.yml must NOT declare a `publish:` block "
+            "(ADR-0020 §15 — NO auto-update). If a feed is being wired, "
+            "add the block AND keep the feed-version parity guard green."
+        )
+        for name in sorted(
+            [SRC_TAURI / "tauri.conf.json", *_per_arch_configs_on_disk()],
+            key=lambda p: p if isinstance(p, str) else str(p),
+        ):
+            data = json.loads((SRC_TAURI / name).read_text(encoding="utf-8"))
+            updater = data.get("plugins", {}).get("updater")
+            assert updater is None, (
+                f"{name} configures plugins.updater ({updater!r}) but the "
+                "update feed wiring is pinned to NO auto-update (ADR-0020 "
+                "§15) — enable it deliberately and keep the parity guard."
             )

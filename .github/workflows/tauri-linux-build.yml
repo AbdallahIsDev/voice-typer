@@ -652,6 +652,13 @@ jobs:
       # binary stubs" below: the icons module's autouse fixture runs
       # --clean after each test, which removes freshly-generated STUB
       # files (real binaries are preserved by the _is_stub_file heuristic).
+      # version parity before any build step: tauri.conf.json / package.json
+      # / Cargo.toml / pyproject.toml must carry the SAME version — a bump
+      # that touched only one file fails in seconds, not after a 30-60 min
+      # build. sync_versions.py is stdlib-only (regex/tomllib fallback).
+      - name: Verify version lockstep across layers (fail fast)
+        run: python3 scripts/build/sync_versions.py --check
+
       - name: Verify config drift guards (icons, identity, binaries) (fail fast)
         run: |
           python3 -m pytest \

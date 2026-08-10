@@ -159,6 +159,13 @@ jobs:
       # cheap 12-min arch leg instead of after the 20-min universal build
       # has queued. The icons module's autouse fixture runs --clean,
       # which only removes uncommitted STUBS (real binaries preserved).
+      # version parity before any build step: tauri.conf.json / package.json
+      # / Cargo.toml / pyproject.toml must carry the SAME version — a bump
+      # that touched only one file fails in seconds. sync_versions.py is
+      # stdlib-only (regex/tomllib fallback) → runs in this gate env.
+      - name: Verify version lockstep across layers (fail fast, aarch64 leg)
+        run: python3 scripts/build/sync_versions.py --check
+
       - name: Verify config drift guards (fail fast, aarch64 leg)
         run: |
           uv run --no-sync pytest \
@@ -287,6 +294,10 @@ jobs:
       # Fail-fast arch-leg gate: same full drift + parity + icons guard
       # as the aarch64 leg above (runs via the project venv; --no-sync
       # keeps the editable install untouched).
+      # version parity before any build step (same gate as the aarch64 leg).
+      - name: Verify version lockstep across layers (fail fast, x86_64 leg)
+        run: python3 scripts/build/sync_versions.py --check
+
       - name: Verify config drift guards (fail fast, x86_64 leg)
         run: |
           uv run --no-sync pytest \
@@ -505,6 +516,11 @@ jobs:
       # runs --clean after each test, which preserves the REAL binaries
       # the arch jobs placed above (the _is_stub_file heuristic) and
       # touches no committed icons.
+      # version parity before any build step (universal job — system python3,
+      # same stdlib-only check as the arch legs).
+      - name: Verify version lockstep across layers (fail fast)
+        run: python3 scripts/build/sync_versions.py --check
+
       - name: Verify config drift guards (icons, identity, binaries) (fail fast)
         run: |
           python3 -m pytest \

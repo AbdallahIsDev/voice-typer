@@ -138,13 +138,24 @@ jobs:
       - name: Install Python deps (fail-fast config drift gate)
         run: uv pip install --system pytest pyyaml filelock
 
+      # Fail-fast gate: version lockstep BEFORE any platform build — every
+      # versioned file (pyproject.toml / package.json / electron-builder.yml
+      # / src-tauri/tauri.conf.json / src-tauri/Cargo.toml) must carry the
+      # SAME version. The release bump commits them together (RELEASING.md §4
+      # + drift Pair 11), so a bump that touched only one file breaks CI in
+      # seconds here, not after a 30-60 min build. sync_versions.py is
+      # stdlib-only (regex/tomllib fallback) — safe in this minimal env.
+      - name: Verify version lockstep across layers (fail fast)
+        run: python3 scripts/build/sync_versions.py --check
+
       # Fail-fast gate: run the config drift guards ONCE here, BEFORE the
       # per-platform builds fan out — identifier↔appId + productName +
       # version parity, bundle.icon↔git lockstep, and ALL the
       # config↔script pairs (bundle.resources/externalBin ↔ stub
       # generator registry, tauri-binaries.json ↔ canonical triples +
       # Cargo binary name + launcher install paths, per-arch config
-      # overrides ↔ base config). Same guards the per-platform workflows
+      # overrides ↔ base config, version lockstep, release-bump workflow,
+      # update-feed parity). Same guards the per-platform workflows
       # re-run inside their build jobs.
       - name: Verify config drift guards (icons, identity, binaries) (fail fast)
         run: |
