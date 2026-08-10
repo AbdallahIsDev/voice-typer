@@ -25,7 +25,7 @@ import { t } from "@/i18n/i18n";
  * (sub-5s would be flickery; sub-minute would hide drift until it's
  * too late to notice).
  *
- * ── Fix #25-2: centralized `refreshing` state ──────────────────────────
+ * ── Centralized `refreshing` state ─────────────────────────────────────
  *
  * Previously every page that rendered a `<LastUpdatedIndicator />`
  * duplicated the same pattern at the call site:
@@ -91,7 +91,7 @@ export function useLastUpdated(): {
 	// `now` ticks every 5s so the relative "Xs ago" label refreshes
 	// without coupling to the page's render cycle.
 	const [now, setNow] = useState(() => Date.now());
-	// Fix #25-2: centralized refreshing flag with guaranteed cleanup.
+	// Centralized refreshing flag with guaranteed cleanup.
 	const [refreshing, setRefreshing] = useState(false);
 
 	useEffect(() => {

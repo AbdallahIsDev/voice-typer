@@ -42,7 +42,7 @@ interface AppState {
 	/**
 	 * Last error message from the backend (null = no error).
 	 *
-	 * Fix #25-5: kept as ``string | null`` (not a structured
+	 * Kept as ``string | null`` (not a structured
 	 * ``AppError`` object) because App.tsx and Home.tsx render it
 	 * directly as a React text node and pass it as a ``string | null``
 	 * prop. Changing the type would break those consumers (which are
@@ -67,7 +67,7 @@ export const useAppStore = create<AppState>((set) => ({
 	connectionStatus: "connecting",
 	setConnectionStatus: (status) =>
 		set((state) => {
-			// Fix #25-5: when the backend reconnects, clear any
+			// When the backend reconnects, clear any
 			// stale ``lastError`` so the UI doesn't keep showing an
 			// error banner after a successful reconnection. The
 			// previous implementation set only ``connectionStatus``,

@@ -12,7 +12,7 @@ const CLOUD_BACKENDS = new Set(["openai", "groq", "deepgram"]);
 /**
  * Decide whether the "Share stats" button should be visible.
  *
- * Fix #25-3: previously the share button in Dashboard.tsx was gated on
+ * Previously the share button in Dashboard.tsx was gated on
  * `data.todayCount > 0`, which hid the button on days when the user
  * hadn't dictated yet BUT had past transcriptions (totalCount > 0).
  * The share image still produces a meaningful summary in that case

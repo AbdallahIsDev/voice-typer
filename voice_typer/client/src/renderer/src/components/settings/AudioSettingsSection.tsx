@@ -308,7 +308,7 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 								onChange={handleDuckLevelChange}
 								ariaLabel={t("settings.audioEnhancement.duckLevelAria")}
 								suffix="%"
-								// Fix #10: disable the Duck Level slider when Auto Duck
+								// Disable the Duck Level slider when Auto Duck
 								// Volume is off — adjusting the duck level has no effect
 								// when ducking is disabled, and a stale value persisted
 								// here would silently apply if the user later re-enables

@@ -4,7 +4,7 @@
 // Pure presentational component — no props, no hooks, no side effects.
 // Mirrors the loaded dashboard layout (heading + 4 stat cards + 7-day
 // chart placeholder + quick-info row) so the transition from "loading"
-// to "loaded" is visually stable (Fix #19). The skeleton is only shown
+// to "loaded" is visually stable. The skeleton is only shown
 // on the FIRST load (when `!data`) — subsequent refreshes keep the
 // previous data visible while the new data loads (the `refreshing`
 // flag drives the LastUpdatedIndicator spinner instead).

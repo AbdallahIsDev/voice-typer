@@ -99,7 +99,7 @@ export default function DashboardPage() {
 		[data, configRaw],
 	);
 
-	// Fix #19: skeleton shown only on FIRST load (when `!data`); subsequent
+	// Skeleton shown only on FIRST load (when `!data`); subsequent
 	// refreshes keep prior data visible (refreshing flag drives the
 	// LastUpdatedIndicator spinner instead).
 	// When `fetchError` is set and `data` is null, the first fetch failed —
@@ -123,7 +123,7 @@ export default function DashboardPage() {
 	}
 
 	const d = data;
-	const isFirstRun = d.totalCount === 0; // Fix #10: empty-state CTA
+	const isFirstRun = d.totalCount === 0; // Empty-state CTA
 	const handleShare = () => shareAsImage("voice-typer-stats");
 
 	return (

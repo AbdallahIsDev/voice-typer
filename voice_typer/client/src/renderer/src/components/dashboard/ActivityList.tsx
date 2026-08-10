@@ -210,7 +210,7 @@ function ActivityListInner({
 	// row's `memo` shallow-equal comparator keeps them referentially
 	// equal across re-renders.
 
-	// Fix #16: previously returned ``null`` when ``items`` was empty,
+	// Previously returned ``null`` when ``items`` was empty,
 	// which meant a parent rendering ``<ActivityList items={[]} />``
 	// (e.g. the Home page before any dictation has happened) showed
 	// nothing at all — no heading, no "no recent activity" hint, just

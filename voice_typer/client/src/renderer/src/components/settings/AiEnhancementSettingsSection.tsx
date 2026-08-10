@@ -1,12 +1,12 @@
 // AiEnhancementSettingsSection — AI Enhancement + Vocabulary Automation
 // sections of the Settings page.
 //
-// P4 (Task 7): rule-based grammar / punctuation / capitalization applied
+// Rule-based grammar / punctuation / capitalization applied
 // AFTER LLM polish and BEFORE the result is pasted. Master toggle
 // (ai_enhancement_enabled) defaults OFF — the user must explicitly opt in.
 // The three sub-toggles default ON so enabling the master toggle "just works".
 //
-// P5 (Task 8): confidence-score-based vocabulary correction suggestions.
+// Confidence-score-based vocabulary correction suggestions.
 // When ON, the dictation pipeline analyzes each transcription for
 // low-confidence words and suggests vocabulary corrections; suggestions
 // above the auto-apply threshold are added to the vocabulary automatically,

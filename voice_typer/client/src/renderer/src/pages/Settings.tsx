@@ -208,7 +208,7 @@ export default function SettingsPage() {
 	// label matches and switch to the highest-scoring one. Requires
 	// q.length >= 2 to avoid jarring switches as the user types.
 	//
-	// Fix #2: supplement the privacy tab labels with PrewarmAndUpdates
+	// Supplement the privacy tab labels with PrewarmAndUpdates
 	// row labels (e.g. "Prewarm cache status", "Installed version",
 	// "Latest release") so the auto-switch routes queries like "prewarm",
 	// "cache", "version", "update" to the privacy tab where the
@@ -369,7 +369,7 @@ export default function SettingsPage() {
 		return allLabels.some((label) => label.toLowerCase().includes(q));
 	}, [settingsFilter]);
 
-	// Fix #1: filter predicate — wrapped in useCallback with
+	// Filter predicate — wrapped in useCallback with
 	// [settingsFilter] deps so memoized section children don't re-render
 	//unless the query actually changes. : this is now a PURE
 	// predicate (no render-phase side effect) — `hasAnyVisibleRow` is
@@ -427,7 +427,7 @@ export default function SettingsPage() {
 
 	return (
 		<div className="flex min-h-full flex-col">
-			{/* Sticky header: tabs + search (Fix #3 — SearchField
+			{/* Sticky header: tabs + search (SearchField
 				moved inside the sticky header below the tab bar
 				so it stays visible while scrolling settings). */}
 			{/* : use the shared tabPageHeaderClassName /
@@ -486,7 +486,7 @@ export default function SettingsPage() {
 					/>
 				</div>
 
-				{/* Fix #12: empty-state banner with Clear filter button using
+				{/* Empty-state banner with Clear filter button using
 					the existing searchNoMatch / noResultsMessage / a11y.clearSearch
 					i18n keys. `searchNoMatch` preserves the original "{query}"
 					interpolation so screen readers + sighted users see what they
@@ -562,7 +562,7 @@ export default function SettingsPage() {
 					)}
 			</div>
 
-			{/* Fix #4: sticky-bottom save indicator — stays pinned to
+			{/* Sticky-bottom save indicator — stays pinned to
 				the bottom of the viewport while scrolling so
 				the user always sees the pending/saving/saved
 				state. Mirrors the sticky-top header (z-40,

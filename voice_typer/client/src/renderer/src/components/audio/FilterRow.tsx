@@ -104,7 +104,7 @@ export function FilterRow({
 	if (!parentToggleActive(config, descriptor.parentToggle)) return null;
 
 	const label = labels[descriptor.labelKey] ?? descriptor.labelKey;
-	// DJ-88: resolve info/aria strings from the memoized labels bundle
+	// Resolve info/aria strings from the memoized labels bundle
 	// (built once per locale by buildAudioFilterLabels) instead of
 	// calling t() at render time — zero t() calls on re-render.
 	const info = labels[descriptor.infoKey] ?? descriptor.infoKey;

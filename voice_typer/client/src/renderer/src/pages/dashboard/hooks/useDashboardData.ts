@@ -151,7 +151,7 @@ export function useDashboardData({
 			if (status?.config_dir) setConfigDir(status.config_dir);
 			setFetchError(null);
 		} catch (err) {
-			// Fix #9: surface refresh failures to the user instead of
+			// Surface refresh failures to the user instead of
 			// silently swallowing them.  The previous implementation
 			// caught and ignored ALL errors, so a backend disconnect
 			// during a background refresh (e.g. transcription_final

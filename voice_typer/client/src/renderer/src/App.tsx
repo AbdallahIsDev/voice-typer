@@ -19,11 +19,15 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { useConnection } from "@/hooks/useConnection";
 import { useConnectionToasts } from "@/hooks/useConnectionToasts";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useGlobalKeyboardShortcuts";
+import { useHelpOverlayShortcut } from "@/hooks/useHelpOverlayShortcut";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useNavigation } from "@/hooks/useNavigation";
+import { useOnboardingComplete } from "@/hooks/useOnboardingComplete";
+import { usePasteFailedToast } from "@/hooks/usePasteFailedToast";
 import { usePython, usePythonEvent } from "@/hooks/usePython";
 import { useSoundFeedback } from "@/hooks/useSoundFeedback";
 import { useTheme } from "@/hooks/useTheme";
+import { useWindowMaximized } from "@/hooks/useWindowMaximized";
 import { getLocale, setLocale, useT } from "@/i18n/i18n";
 import { VOICE_BIOMETRIC_CONSENT_FIELD } from "@/lib/consent";
 import { cn } from "@/lib/utils";
@@ -49,7 +53,6 @@ const VocabularyPage = lazy(() => import("@/pages/Vocabulary"));
 import { HOTKEY_DEFAULT } from "@/pages/onboarding/lib/constants";
 import { isKnownPage } from "@/router/routes";
 import { useAppStore } from "@/stores/appStore";
-import type { VoiceTyperConfig } from "@/types/config";
 import type { WindowBridge } from "@/types/ipc";
 
 /**
@@ -174,48 +177,12 @@ export default function App() {
 	useSoundFeedback();
 
 	// "?" key opens a help overlay listing keyboard shortcuts.
-	const [showHelpOverlay, setShowHelpOverlay] = useState(false);
-	useEffect(() => {
-		const handler = (e: KeyboardEvent) => {
-			if (e.key === "?" && !e.ctrlKey && !e.metaKey && !e.altKey) {
-				const active = document.activeElement as HTMLElement | null;
-				const tag = active?.tagName?.toLowerCase();
-				if (
-					tag === "input" ||
-					tag === "textarea" ||
-					tag === "select" ||
-					active?.isContentEditable === true
-				)
-					return;
-				// If any Radix Dialog-based modal is currently
-				// open (ConfirmDialog, AlertDialog, the help overlay
-				// itself, etc.), don't pop the help overlay on top of
-				// it. Radix renders dialog content via Portal into
-				// document.body with role="dialog" + data-state="open",
-				// so a single querySelector covers every Modal/AlertDialog
-				// instance in the app.
-				if (document.querySelector('[role="dialog"][data-state="open"]'))
-					return;
-				e.preventDefault();
-				setShowHelpOverlay(true);
-			} else if (e.key === "Escape" && showHelpOverlay) {
-				// Stop the event from bubbling into Radix Modal's own
-				// Escape handler (and from triggering browser-default
-				// Exit Fullscreen / cancel actions on the page) so the
-				// help overlay closes deterministically without racing
-				// another Escape consumer.
-				e.preventDefault();
-				e.stopPropagation();
-				setShowHelpOverlay(false);
-			}
-		};
-		document.addEventListener("keydown", handler);
-		return () => document.removeEventListener("keydown", handler);
-	}, [showHelpOverlay]);
+	// Extracted to `useHelpOverlayShortcut` (EO-28) — returns the
+	// open flag + stable open/close callbacks.
+	const { showHelpOverlay, openHelp, closeHelp } = useHelpOverlayShortcut();
 
 	// ── Window-chrome state ───────────────────────────────────────
 	const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-	const [isMaximized, setIsMaximized] = useState(false);
 
 	// Auto-collapse the sidebar when the window narrows
 	// below the `640px` breakpoint. Only the wide→narrow TRANSITION (and
@@ -266,30 +233,10 @@ export default function App() {
 		typeof window !== "undefined"
 			? (window.window_ as WindowBridge)
 			: undefined;
-
-	useEffect(() => {
-		if (!bridge) return;
-		let cancelled = false;
-		bridge
-			.isMaximized()
-			.then((v) => {
-				if (!cancelled) {
-					setIsMaximized(v);
-					document.documentElement.classList.toggle("is-maximized", v);
-				}
-			})
-			.catch((err) => console.warn("[IPC] window isMaximized failed:", err));
-		const unsub = bridge.onMaximizedChanged((v) => {
-			if (!cancelled) {
-				setIsMaximized(v);
-				document.documentElement.classList.toggle("is-maximized", v);
-			}
-		});
-		return () => {
-			cancelled = true;
-			unsub();
-		};
-	}, [bridge]);
+	// Extracted to `useWindowMaximized` (EO-28) — queries the native
+	// bridge on mount, mirrors `is-maximized` onto <html>, returns the
+	// boolean for the caller's own chrome styling.
+	const isMaximized = useWindowMaximized(bridge);
 
 	// App-wide keyboard shortcuts (Ctrl+B/,/H/=/-/wheel) extracted
 	// to `useGlobalKeyboardShortcuts`. Behaviour byte-identical to the
@@ -327,52 +274,8 @@ export default function App() {
 		return undefined;
 	});
 
-	// paste_failed toast
-	// The action button label was a hardcoded English
-	// string ("Copy path") which broke i18n for non-English users.
-	// Wired through `t("common.copyPath")` so the label resolves to
-	// the active locale's translation. The key is defined in
-	// translations/en.json ("Copy path") and falls back to English
-	// for locales that haven't translated it yet.
-	usePythonEvent("paste_failed", (data): (() => void) | undefined => {
-		const payload = (data ?? {}) as {
-			message?: string;
-			recovery_path?: string | null;
-		};
-		const message = payload.message ?? t("home.pasteFailedMessage");
-		const recoveryPath =
-			typeof payload.recovery_path === "string" ? payload.recovery_path : null;
-		const lines = message.split("\n");
-		const title = lines[0] ?? message;
-		const description = lines.slice(1).join("\n") || undefined;
-		if (recoveryPath) {
-			toast.warning(title, {
-				description,
-				duration: 8000,
-				action: {
-					label: t("common.copyPath"),
-					onClick: () => {
-						try {
-							navigator.clipboard
-								?.writeText(recoveryPath)
-								.catch((err) =>
-									console.warn("[clipboard] writeText failed:", err),
-								);
-						} catch (e) {
-							// clipboard API may be unavailable — non-fatal.
-							console.warn(
-								"[App] clipboard writeText (recovery path) failed:",
-								e,
-							);
-						}
-					},
-				},
-			});
-		} else {
-			toast.warning(title, { description, duration: 8000 });
-		}
-		return undefined;
-	});
+	// paste_failed toast — extracted to `usePasteFailedToast` (EO-28).
+	usePasteFailedToast(t);
 
 	// consent_required toast — GDPR Art. 9 dictation gate. The backend
 	// publishes this event (recording_lifecycle.py) when dictation
@@ -454,26 +357,16 @@ export default function App() {
 		() => setSidebarCollapsed((c) => !c),
 		[],
 	);
-	const handleOpenHelp = useCallback(() => setShowHelpOverlay(true), []);
-	const handleCloseHelp = useCallback(() => setShowHelpOverlay(false), []);
+	// open/close callbacks come from `useHelpOverlayShortcut` (EO-28) —
+	// they are already stable (memoized with empty deps).
 
-	const handleOnboardingComplete = useCallback(async () => {
-		navigate("home");
-		try {
-			const cfg = await call<VoiceTyperConfig>("get_config");
-			if (cfg?.theme_mode) {
-				await reloadThemeFromConfig();
-			}
-		} catch (e) {
-			// non-fatal — the user already finished onboarding;
-			// theme will be re-applied on the next config_changed
-			// event or the next app launch.
-			console.warn(
-				"[App] handleOnboardingComplete get_config/reload failed:",
-				e,
-			);
-		}
-	}, [navigate, call, reloadThemeFromConfig]);
+	// Onboarding-complete handler extracted to `useOnboardingComplete`
+	// (EO-28): navigate home + re-apply the theme from the saved config.
+	const handleOnboardingComplete = useOnboardingComplete({
+		navigate,
+		call,
+		reloadThemeFromConfig,
+	});
 
 	const dictationLabel = formatHotkey(hotkeyFromConfig ?? HOTKEY_DEFAULT);
 	const repasteLabel = formatHotkey(
@@ -565,7 +458,7 @@ export default function App() {
 					canGoBack={canGoBack}
 					canGoForward={canGoForward}
 					isMaximized={isMaximized}
-					onOpenHelp={handleOpenHelp}
+					onOpenHelp={openHelp}
 				/>
 
 				<div className="flex min-h-0 flex-1">
@@ -620,7 +513,7 @@ export default function App() {
 				{/* Help overlay extracted to <HelpOverlay /> */}
 				<HelpOverlay
 					open={showHelpOverlay}
-					onClose={handleCloseHelp}
+					onClose={closeHelp}
 					dictationLabel={dictationLabel}
 					repasteLabel={repasteLabel}
 				/>

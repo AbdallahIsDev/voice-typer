@@ -6,7 +6,7 @@
 //
 // States:
 //   saving   → "Saving…" with an amber pulse dot
-//pending  → "Pending…" with a sky-blue pulse dot ( Fix #8)
+//pending  → "Pending…" with a sky-blue pulse dot
 //   saved    → "Saved ✓" with a green Tick02Icon (2s pulse after a
 //               successful `set_config` roundtrip)
 //   idle     → "All changes saved" (dim)

@@ -34,7 +34,7 @@ export function InfoTooltip({ text, contextLabel }: InfoTooltipProps) {
 	// language switch (no page reload), and memoize the resolved
 	// string keyed on the locale so a plain re-render (e.g. a Settings
 	// section re-rendering with identical props) performs ZERO t()
-	// calls — the DJ-88 memoisation contract.
+	// calls — the memoisation contract.
 	useT();
 	const locale = getLocale();
 	// When contextLabel is provided, compose
