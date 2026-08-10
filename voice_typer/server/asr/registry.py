@@ -24,7 +24,10 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    import numpy as np
 
 from voice_typer.server.asr.busy_flag import BusyFlag
 from voice_typer.server.asr.circuit_breaker import CircuitBreaker
@@ -40,12 +43,31 @@ ProgressCallback = Callable[[str], None]
 class AsrBackend(Protocol):
     """Structural contract for an ASR backend registered with the registry.
 
-    A ``Protocol`` (not an ABC) so the three real backends do NOT need
+    A ``Protocol`` (not an ABC) so the four real backends do NOT need
     to inherit from a common base class — duck typing is preserved.
     ``@runtime_checkable`` so tests can assert ``isinstance(obj, AsrBackend)``.
+
+    This is a STATIC type-check contract, not a runtime contract: the
+    registry's ``register`` / ``get`` accept any object at runtime and
+    the pipeline guards optional members (``request_abort`` /
+    ``clear_abort``) with ``hasattr`` before calling them (see
+    ``dictation_pipeline/orchestrator.py`` + ``transcribe_step.py``).
+    The Protocol exists so a future engine author reading the registry
+    knows exactly which members the registry and IPC layer rely on —
+    and so pyrefly flags a backend that forgets one.
     """
 
     is_loaded: bool
+
+    @property
+    def device_info(self) -> str:
+        """Human-readable device description for tray status lines."""
+        ...
+
+    @property
+    def loaded_via(self) -> str:
+        """How the model was loaded (device/compute-type combo)."""
+        ...
 
     def load(self, *, progress_callback: ProgressCallback | None = ...) -> None:
         """Load the model into memory. Idempotent if already loaded."""
@@ -55,8 +77,19 @@ class AsrBackend(Protocol):
         """Release the model and any partially-allocated resources."""
         ...
 
-    def transcribe_with_fallback(self, audio: bytes, *args: object, **kwargs: object) -> str:
-        """Transcribe ``audio`` and return the text (possibly empty)."""
+    def request_abort(self) -> None:
+        """Signal an in-flight transcription to abort as soon as possible."""
+        ...
+
+    def clear_abort(self) -> None:
+        """Clear a stale abort token at the start of a fresh transcription cycle."""
+        ...
+
+    def transcribe_with_fallback(self, audio: np.ndarray, *args: object, **kwargs: object) -> str:
+        """Transcribe ``audio`` (a float array of PCM samples) and return
+        the text (possibly empty). All four concrete engines accept
+        ``np.ndarray`` — ``bytes`` was a Protocol bug that would type-
+        check but crash at runtime."""
         ...
 
 

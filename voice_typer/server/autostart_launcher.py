@@ -73,8 +73,12 @@ invoke for diagnostics::
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import hmac
+import json
 import logging
 import os
+import platform
 import socket
 import subprocess
 import sys
@@ -504,6 +508,144 @@ def _is_tauri_mode() -> bool:
     return _electron_binary() is None
 
 
+def _tauri_manifest_path() -> Path | None:
+    """Locate ``tauri-binaries.json`` next to this module.
+
+    The manifest ships with the installed app (it is written by
+    ``scripts/build/update_tauri_manifests.py`` during CI and read
+    back into the repo so the launcher can find it at runtime). The
+    launcher looks in two places, in order:
+
+    1. An explicit ``VT_TAURI_MANIFEST`` env override (used by
+       installers that place the manifest at a non-standard path, and
+       by tests).
+    2. ``<repo-root>/tauri-binaries.json`` — the canonical committed
+       location (mirrors ``tests/test_tauri_binaries_manifest.py``
+       which resolves the same relative path from the repo root).
+
+    Returns ``None`` when the manifest cannot be found; the caller
+    (``verify_tauri_binary_or_skip``) then fails closed.
+    """
+    override = os.environ.get("VT_TAURI_MANIFEST")
+    if override:
+        p = Path(override)
+        if p.is_file():
+            return p
+        log.warning("[AUTOSTART] VT_TAURI_MANIFEST set but not a file: %s", override)
+    # Repo root = three parents up from voice_typer/server/autostart_launcher.py.
+    repo_root = Path(__file__).resolve().parents[2]
+    candidate = repo_root / "tauri-binaries.json"
+    if candidate.is_file():
+        return candidate
+    return None
+
+
+def _tauri_manifest_key() -> str:
+    """Compute the per-(platform, arch) manifest key for this machine.
+
+    Mirrors the contract documented in ``tauri-binaries.json``
+    ``_manifest_loader_contract``: ``<platform>-<arch>`` where
+    platform is ``platform.system().lower()`` (with ``darwin``
+    collapsed to ``macos``) and arch is ``platform.machine().lower()``
+    (with ``amd64`` normalized to ``x86_64``); macOS uses the single
+    key ``macos`` (universal binary).
+    """
+    system = platform.system().lower()
+    machine = platform.machine().lower()
+    if system == "darwin":
+        return "macos"
+    if machine in ("amd64", "x86_64"):
+        arch = "x86_64"
+    elif machine in ("aarch64", "arm64"):
+        arch = "aarch64"
+    else:
+        arch = machine
+    return f"{system}-{arch}"
+
+
+def verify_tauri_binary_or_skip(path: str | Path) -> bool:
+    """Verify the Tauri host binary against ``tauri-binaries.json``.
+
+    Implements the ``_manifest_loader_contract`` documented in
+    ``tauri-binaries.json`` (CR-002 fail-closed semantics, mirroring
+    ``voice_typer/server/native_hotkeys/binary_path.py::verify_native_binary_or_skip``):
+
+    - If the manifest cannot be located → FAIL CLOSED (return False).
+    - If the binary name has no manifest entry → FAIL CLOSED.
+    - If the per-(platform, arch) sha256 sub-key is missing or empty
+      → FAIL CLOSED (production builds MUST populate every sub-key
+      via ``scripts/build/update_tauri_manifests.py``; an empty hash
+      means the binary was not built by the release pipeline and must
+      not be trusted).
+    - Otherwise hash the binary with SHA-256 and compare
+      (``hmac.compare_digest``); on mismatch → FAIL CLOSED.
+
+    The ``VT_TAURI_BINARY`` env override (``_tauri_binary``) is NOT a
+    bypass: this helper is called with the resolved path regardless of
+    where it came from, so an attacker cannot use the env var to
+    sidestep the integrity gate.
+    """
+    binary = Path(path)
+    manifest_path = _tauri_manifest_path()
+    if manifest_path is None:
+        log.error(
+            "[AUTOSTART] FAIL CLOSED: tauri-binaries.json not found; "
+            "refusing to spawn %s. Run scripts/build/update_tauri_manifests.py "
+            "to generate the manifest.",
+            binary,
+        )
+        return False
+    try:
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        log.exception("[AUTOSTART] FAIL CLOSED: cannot read manifest %s", manifest_path)
+        return False
+    entry = (data.get("binaries") or {}).get(binary.name)
+    if not isinstance(entry, dict):
+        log.error(
+            "[AUTOSTART] FAIL CLOSED: no manifest entry for %s in %s.",
+            binary.name,
+            manifest_path,
+        )
+        return False
+    sha256_dict = entry.get("sha256")
+    if not isinstance(sha256_dict, dict):
+        log.error(
+            "[AUTOSTART] FAIL CLOSED: manifest entry %s has no per-arch "
+            "sha256 dict.",
+            binary.name,
+        )
+        return False
+    key = _tauri_manifest_key()
+    expected = sha256_dict.get(key)
+    if not expected:
+        log.error(
+            "[AUTOSTART] FAIL CLOSED: no sha256 for %s/%s (manifest entry %s) "
+            "— binary not built by the release pipeline. Run "
+            "scripts/build/update_tauri_manifests.py to populate it.",
+            key,
+            binary.name,
+            manifest_path,
+        )
+        return False
+    try:
+        actual = hashlib.sha256(binary.read_bytes()).hexdigest()
+    except OSError:
+        log.exception("[AUTOSTART] FAIL CLOSED: cannot hash %s", binary)
+        return False
+    if not hmac.compare_digest(actual, expected):
+        log.error(
+            "[AUTOSTART] FAIL CLOSED: SHA-256 mismatch for %s (expected %s, "
+            "got %s) — binary tampered or stale; refusing to spawn.",
+            binary,
+            expected,
+            actual,
+        )
+        return False
+    log.debug("[AUTOSTART] Tauri binary %s verified against %s", binary, manifest_path)
+    return True
+
+
 def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | None:
     """Spawn the Tauri host binary (``voice-typer-tauri``) with ``VT_START_HIDDEN`` if *hidden*.
 
@@ -518,6 +660,17 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
         Returns the child process on success, or ``None`` on failure (the
     caller logs and exits 1 — no silent Electron fallback per ).
     """
+    # CR-002 fail-closed integrity gate: the Tauri host binary MUST
+    # verify against ``tauri-binaries.json`` before it is spawned —
+    # otherwise a tampered or stale binary (or the ``VT_TAURI_BINARY``
+    # env override, which is NOT a bypass) would launch unchecked.
+    if not verify_tauri_binary_or_skip(binary):
+        log.error(
+            "[AUTOSTART] refusing to spawn Tauri binary %s — integrity "
+            "verification failed (fail-closed).",
+            binary,
+        )
+        return None
     env = dict(os.environ)
     if hidden:
         env["VT_START_HIDDEN"] = "1"
@@ -684,6 +837,15 @@ def _focus_running_app() -> bool:
         binary = _tauri_binary()
         if not binary:
             log.info("[AUTOSTART] tauri focus: binary missing; cannot focus existing instance")
+            return False
+        # CR-002 fail-closed integrity gate — same contract as
+        # ``_spawn_tauri_host`` (the focus probe spawns the real binary).
+        if not verify_tauri_binary_or_skip(binary):
+            log.error(
+                "[AUTOSTART] tauri focus: refusing to spawn %s — integrity "
+                "verification failed (fail-closed).",
+                binary,
+            )
             return False
         env = dict(os.environ)
         env["VT_FOCUS_ONLY"] = "1"

@@ -52,7 +52,7 @@ def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBac
       app) on macOS and Windows
     - Lower CPU usage and lower latency than polling
 
-    FIX-HOTKEY-ARCHITECTURE: when the native binary is NOT built (e.g.
+    when the native binary is NOT built (e.g.
     running from a source checkout without invoking
     ``scripts/build/compile_native.{sh,ps1}``, or on a platform where
     the binary isn't bundled), the factory falls back to the legacy
@@ -68,7 +68,7 @@ def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBac
     set (lower CPU, sub-ms latency, native key suppression) should
     build the native binary.
     """
-    # NATIVE-001: try the native subprocess backend first. It supports
+    # try the native subprocess backend first. It supports
     # FN on macOS, modifier-only hotkeys everywhere, and key suppression
     # on macOS/Windows. The legacy backends remain as fallbacks.
     try:
@@ -100,7 +100,7 @@ def create_hotkey_backend(hotkey_str: str, role: str | None = None) -> HotkeyBac
         )
 
     if is_windows():
-        # FIX-HOTKEY-ARCHITECTURE: this is the polling fallback. It's
+        # this is the polling fallback. It's
         # expected when the native windows-key-listener.exe binary isn't
         # built. See the class docstring for the feature differences.
         log.info(

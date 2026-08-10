@@ -359,6 +359,50 @@ def test_is_autostart_linux_returns_true_only_if_desktop_exists(linux_platform):
     assert sp.is_autostart_enabled() is False
 
 
+# ─── AUTOSTART-CMD-VALIDATE: stale Exec program reports disabled ────────
+
+
+def test_is_autostart_linux_false_when_exec_program_missing(linux_platform):
+    """A .desktop whose ``Exec=`` points at a deleted interpreter must
+    report autostart DISABLED (AUTOSTART-CMD-VALIDATE backport —
+    mirrors the Windows ``_validate_runkey_command`` behavior). Without
+    this, deleting the venv leaves Settings showing a misleading
+    "Autostart: enabled".
+    """
+    sp = linux_platform.server_platform
+    desktop_path = linux_platform.autostart_dir / "voice-typer.desktop"
+    desktop_path.parent.mkdir(parents=True, exist_ok=True)
+    desktop_path.write_text(
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=Voice Typer\n"
+        "Exec=/nonexistent/venv/bin/python /nonexistent/autostart_launcher.py --hidden\n",
+        encoding="utf-8",
+    )
+    assert sp._is_autostart_linux() is False, (
+        "desktop entry pointing at a deleted interpreter must report autostart disabled"
+    )
+
+
+def test_is_autostart_linux_true_when_exec_program_exists(linux_platform):
+    """A .desktop whose ``Exec=`` points at a real program must report
+    autostart enabled (the happy path of the AUTOSTART-CMD-VALIDATE
+    check — a valid registration must not be flagged stale)."""
+    sp = linux_platform.server_platform
+    desktop_path = linux_platform.autostart_dir / "voice-typer.desktop"
+    desktop_path.parent.mkdir(parents=True, exist_ok=True)
+    desktop_path.write_text(
+        "[Desktop Entry]\n"
+        "Type=Application\n"
+        "Name=Voice Typer\n"
+        "Exec=/bin/true --hidden\n",
+        encoding="utf-8",
+    )
+    assert sp._is_autostart_linux() is True, (
+        "desktop entry pointing at an existing program must report autostart enabled"
+    )
+
+
 # ─── Tests: tauri.conf.json bundle.linux config (source inspection) ──────
 
 

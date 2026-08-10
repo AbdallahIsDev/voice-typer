@@ -324,5 +324,64 @@ def _os_uid() -> int:
     return 501  # default first user on macOS
 
 
+def _plist_program_arguments_exist(plist_path: Path) -> bool:
+    """Validate that a LaunchAgent plist's program paths exist on disk.
+
+    AUTOSTART-CMD-VALIDATE: the plist's existence alone is not enough —
+    the ``ProgramArguments`` array points at the python interpreter and
+    the launcher script, and if either was deleted (e.g. the user
+    removed their venv or moved the install directory), the login item
+    silently fails to launch. Parses the plist with ``plistlib`` and
+    checks the first two ``ProgramArguments`` entries (python + launcher)
+    exist.
+
+    Mirrors the CONSERVATIVE-DELETE policy from the Windows
+    ``_validate_runkey_command`` helper: malformed / unparseable plists
+    report ``True`` (valid) rather than risk deleting an entry we can't
+    parse confidently. Returns ``False`` only when we're CERTAIN a
+    program path doesn't exist.
+    """
+    try:
+        import plistlib
+
+        with plist_path.open("rb") as fh:
+            data = plistlib.load(fh)
+    except Exception:
+        # Malformed plist — conservatively report valid (can't parse).
+        log.debug("[AUTOSTART] macOS plist unparseable — treating as valid: %s", plist_path)
+        return True
+    program_args = data.get("ProgramArguments") if isinstance(data, dict) else None
+    if not isinstance(program_args, list) or not program_args:
+        # Also accept the legacy ``Program`` key (a single string).
+        program = data.get("Program") if isinstance(data, dict) else None
+        if isinstance(program, str) and program:
+            return Path(program).exists()
+        log.debug("[AUTOSTART] macOS plist has no parseable program args — treating as valid: %s", plist_path)
+        return True
+    # Check the python interpreter (first arg) and launcher (second
+    # arg, when present). Conservatively skip non-string entries.
+    for entry in program_args[:2]:
+        if isinstance(entry, str) and entry and not Path(entry).exists():
+            log.warning(
+                "[AUTOSTART] macOS plist references missing program path: %s — treating autostart as disabled",
+                entry,
+            )
+            return False
+    return True
+
+
 def _is_autostart_macos() -> bool:
-    return (_pkg.get_autostart_dir() / "com.voicetyper.plist").exists()
+    """True if the LaunchAgent plist exists AND its program paths
+    exist on disk.
+
+    AUTOSTART-CMD-VALIDATE: mirrors the validation in the Windows
+    ``_is_app_autostart_startup_registered`` — the plist's existence
+    alone is not enough; we also verify the python / launcher paths it
+    points at exist. A stale plist (venv deleted or install moved)
+    reports disabled so Settings shows the true state instead of a
+    misleading "Autostart: enabled".
+    """
+    plist_path = _pkg.get_autostart_dir() / "com.voicetyper.plist"
+    if not plist_path.exists():
+        return False
+    return _plist_program_arguments_exist(plist_path)

@@ -53,16 +53,117 @@ def get_electron_pid() -> int | None:
     return _electron_pid
 
 
+def _electron_process_is_running() -> bool:
+    """Return True if a Voice Typer Electron process appears to be alive.
+
+    Checks in order:
+    1. The tracked ``_electron_pid`` (set when *this* backend launched
+       Electron) — via the cross-platform ``_is_pid_alive`` helper.
+    2. A ``pgrep -f <APP_NAME>`` process-table match (macOS/Linux) —
+       catches an Electron launched by another backend instance or a
+       manual start.
+
+    Used by :func:`open_electron_window` to avoid spawning a DUPLICATE
+    Electron process when the window-focus fallback fails (EO-16).
+    """
+    from voice_typer.server.single_instance import _is_pid_alive
+
+    pid = _electron_pid
+    if pid is not None and pid > 0 and _is_pid_alive(pid):
+        return True
+    if not is_windows():
+        # pgrep -f matches the full command line, so it finds the
+        # Electron process regardless of which backend spawned it.
+        try:
+            completed = subprocess.run(
+                ["pgrep", "-f", APP_NAME],
+                capture_output=True,
+                timeout=5.0,
+            )
+            if completed.returncode == 0:
+                return True
+        except Exception as exc:
+            log.debug("[TRAY] pgrep check failed: %s", exc)
+    return False
+
+
+def _bring_electron_to_front_macos() -> bool:
+    """Bring the Voice Typer window to front on macOS via AppleScript.
+
+    ``tell application "<name>" to activate`` asks the running app to
+    activate (the Electron app registers its bundle name with
+    LaunchServices, so this resolves to the running instance). Returns
+    True if the AppleScript succeeded.
+
+    EO-16: previously the macOS/Linux paths had NO focus helper at all
+    — ``bring_electron_to_front`` returned False outside Windows, so a
+    transient TCP blip fell straight through to spawning a DUPLICATE
+    Electron process.
+    """
+    if is_windows():
+        return False
+    try:
+        completed = subprocess.run(
+            ["osascript", "-e", f'tell application "{APP_NAME}" to activate'],
+            capture_output=True,
+            timeout=5.0,
+        )
+        if completed.returncode == 0:
+            log.info("[TRAY] Electron window activated via AppleScript")
+            return True
+        log.debug(
+            "[TRAY] osascript activate failed (rc=%s): %s",
+            completed.returncode,
+            completed.stderr.decode("utf-8", errors="replace").strip() if completed.stderr else "",
+        )
+        return False
+    except Exception as exc:
+        log.debug("[TRAY] osascript activate failed: %s", exc)
+        return False
+
+
+def _bring_electron_to_front_linux() -> bool:
+    """Bring the Voice Typer window to front on Linux via wmctrl/xdotool.
+
+    Tries ``wmctrl -a <name>`` first (X11 window manager control;
+    matches windows whose title contains the app name), then falls back
+    to ``xdotool search --name <name> windowactivate`` (also works
+    under Wayland with XWayland). Returns True if either succeeded.
+
+    EO-16: previously the macOS/Linux paths had NO focus helper at all.
+    """
+    if is_windows():
+        return False
+    for tool_cmd in (
+        ["wmctrl", "-a", APP_NAME],
+        ["xdotool", "search", "--name", APP_NAME, "windowactivate"],
+    ):
+        try:
+            completed = subprocess.run(tool_cmd, capture_output=True, timeout=5.0)
+            if completed.returncode == 0:
+                log.info("[TRAY] Electron window activated via %s", tool_cmd[0])
+                return True
+        except Exception as exc:
+            log.debug("[TRAY] %s failed: %s", tool_cmd[0], exc)
+    return False
+
+
 def bring_electron_to_front() -> bool:
     """Find an existing Voice Typer Electron window and bring it to front.
 
     Returns True if a window was found and focused, False otherwise.
-    Uses Win32 EnumWindows to search by window title.
 
-    Extracted from TrayIcon._bring_electron_to_front() per #13.
+    - Windows: Win32 EnumWindows search by window title.
+    - macOS: AppleScript ``activate`` on the running app.
+    - Linux: ``wmctrl -a`` / ``xdotool ... windowactivate``.
+
+    Extracted from TrayIcon._bring_electron_to_front() per #13;
+    extended per EO-16 with the macOS/Linux focus helpers that were
+    previously missing.
     """
     if not is_windows():
-        return False
+        # macOS / Linux focus paths.
+        return _bring_electron_to_front_macos() or _bring_electron_to_front_linux()
     try:
         import ctypes
         from ctypes import wintypes
@@ -170,11 +271,28 @@ def open_electron_window() -> None:
         return
     log.info("[TRAY] no live Electron transport — trying Win32 focus")
 
-    # 2. Fallback: Win32 EnumWindows focus on an existing window.
+    # 2. Fallback: platform focus on an existing window.
     if bring_electron_to_front():
         return
 
-    # 3. Last resort: Electron isn't running — build + launch with
+    # 3. EO-16 duplicate-launch gate: if the focus helpers above failed
+    #    but we KNOW an Electron process is still alive (tracked PID, or
+    #    a pgrep match), do NOT spawn a second Electron — the existing
+    #    window simply couldn't be focused (e.g. the window manager
+    #    refused, or the window is on another desktop). Spawning a
+    #    duplicate would surface a confusing "port already in use" crash
+    #    or a second window. Previously this gate only existed on
+    #    Windows (where bring_electron_to_front actually worked); on
+    #    macOS/Linux a transient TCP blip fell straight through to a
+    #    duplicate launch.
+    if _electron_process_is_running():
+        log.warning(
+            "[TRAY] Electron appears to be running but window focus failed — "
+            "skipping duplicate launch (EO-16)"
+        )
+        return
+
+    # 4. Last resort: Electron isn't running — build + launch with
     #    electron . (production path, no Vite).
     from voice_typer.server.autostart_launcher import _ensure_built_and_launch
 

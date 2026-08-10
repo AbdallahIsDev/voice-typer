@@ -27,7 +27,7 @@ from voice_typer.server.platform_utils import is_macos as _is_macos
 from voice_typer.server.platform_utils import is_windows as _is_windows
 
 # ──────────────────────────────────────────────────────────────────────────
-# HOTKEY-VALIDATION-001: OS-reserved shortcuts that must never be assigned
+# OS-reserved shortcuts that must never be assigned
 # as global hotkeys.  This is the backend mirror of the frontend
 # ``RESERVED_SHORTCUTS`` table in
 # ``voice_typer/client/src/renderer/src/components/hotkey-validation.ts``.
@@ -57,7 +57,7 @@ from voice_typer.server.platform_utils import is_windows as _is_windows
 # This is a denylist design, not a blanket rule design.
 # ──────────────────────────────────────────────────────────────────────────
 
-# HOTKEY-SHARED-001: load the canonical reserved-shortcut table from the
+# load the canonical reserved-shortcut table from the
 # JSON file. The file lives in the parent ``server/`` directory (this
 # module is at ``server/config_validators/hotkey.py``, so we go up one
 # level to reach ``server/hotkey_reserved.json``) so the relative path is
@@ -314,7 +314,7 @@ def _validate_hotkey(value: object) -> str | None:
         Returns ``None`` if valid, or a human-readable error string if invalid.
         Mirrors the frontend ``validateHotkey`` in ``hotkey-validation.ts``.
 
-        HOTKEY-VALIDATION-001: this replaces the previous length-only check
+        this replaces the previous length-only check
         (``_make_str_validator(max_len=256)``) which accepted OS-reserved
         shortcuts like ``<alt>+<tab>`` and conflict-prone combos like
         ``<ctrl>+<c>``.

@@ -27,6 +27,7 @@ this file.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 
 # Patch-path bridge: route lookups of ``get_autostart_dir`` and
 # ``_autostart_command`` through the package namespace so test patches
@@ -99,5 +100,83 @@ def _disable_autostart_linux() -> bool:
     return True
 
 
+def _desktop_exec_path_exists(desktop_path: Path) -> bool:
+    """Validate that a .desktop entry's ``Exec=`` program exists on disk.
+
+    AUTOSTART-CMD-VALIDATE: the .desktop file's existence alone is not
+    enough — the ``Exec=`` line points at the python interpreter and the
+    launcher script, and if either was deleted (e.g. the user removed
+    their venv or moved the install directory), the login item
+    silently fails to launch. Extracts the leading program token per
+    the freedesktop Exec quoting rules (the first token is always the
+    executable) and checks it exists on disk.
+
+    Mirrors the CONSERVATIVE-DELETE policy from the Windows
+    ``_validate_runkey_command`` helper: missing / unparseable ``Exec``
+    lines report ``True`` (valid) rather than risk flagging an entry we
+    can't parse confidently. Returns ``False`` only when we're CERTAIN
+    the program path doesn't exist.
+    """
+    try:
+        content = desktop_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        log.debug("[AUTOSTART] Linux .desktop unreadable — treating as valid: %s", desktop_path)
+        return True
+    exec_line = None
+    for line in content.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("Exec="):
+            exec_line = stripped[len("Exec=") :].strip()
+            break
+    if not exec_line:
+        log.debug("[AUTOSTART] Linux .desktop has no Exec= line — treating as valid: %s", desktop_path)
+        return True
+    # Extract the leading program token per the freedesktop Exec
+    # quoting rules: the program is everything up to the first
+    # UNQUOTED whitespace. Per the Desktop Entry Spec the FIRST token
+    # is always the executable (there is no Windows Run-key-style
+    # ambiguity where a later token holds the exe path), so an
+    # unquoted first token is still authoritative. A quoted program
+    # path (e.g. a path with spaces) is a single token; args with
+    # spaces are double-quoted by ``_autostart_command``. The scan
+    # respects double-quote state so it correctly isolates the program
+    # token without mangling backslashes the way
+    # ``shlex.split(posix=True)`` does on non-POSIX test hosts.
+    program = ""
+    in_quotes = False
+    for ch in exec_line:
+        if ch == '"':
+            in_quotes = not in_quotes
+            continue
+        if ch.isspace() and not in_quotes:
+            break
+        program += ch
+    if not program or in_quotes:
+        # Malformed / unbalanced quote — conservatively valid (can't
+        # parse confidently; don't claim stale on ambiguity).
+        log.debug("[AUTOSTART] Linux .desktop Exec unparseable — treating as valid: %s", desktop_path)
+        return True
+    if not Path(program).exists():
+        log.warning(
+            "[AUTOSTART] Linux .desktop references missing program path: %s — treating autostart as disabled",
+            program,
+        )
+        return False
+    return True
+
+
 def _is_autostart_linux() -> bool:
-    return (_pkg.get_autostart_dir() / "voice-typer.desktop").exists()
+    """True if the .desktop entry exists AND its ``Exec=`` program
+    exists on disk.
+
+    AUTOSTART-CMD-VALIDATE: mirrors the validation in the Windows
+    ``_is_app_autostart_startup_registered`` — the .desktop file's
+    existence alone is not enough; we also verify the program it
+    launches exists. A stale .desktop (venv deleted or install moved)
+    reports disabled so Settings shows the true state instead of a
+    misleading "Autostart: enabled".
+    """
+    desktop_path = _pkg.get_autostart_dir() / "voice-typer.desktop"
+    if not desktop_path.exists():
+        return False
+    return _desktop_exec_path_exists(desktop_path)

@@ -131,6 +131,41 @@ class TestQwenEngineUnit:
         result = engine.transcribe(audio)
         assert result == ""
 
+    # ── abort contract (EO-6: AsrBackend Protocol parity) ──────────
+
+    def test_request_abort_sets_abort_event(self):
+        """request_abort() must set the abort token; clear_abort() must
+        reset it before a fresh cycle (mirrors ParakeetEngine)."""
+        engine = self._make_engine()
+        assert engine._abort_event.is_set() is False
+        engine.request_abort()
+        assert engine._abort_event.is_set() is True
+        engine.clear_abort()
+        assert engine._abort_event.is_set() is False
+
+    def test_chunk_loop_breaks_early_on_abort(self):
+        """When abort is requested mid-chunked-transcription, the
+        sequential chunk loop must stop after the current chunk instead
+        of decoding all remaining chunks."""
+        engine = self._make_engine()
+        engine._model = MagicMock()
+        mock_transcription = MagicMock()
+        mock_transcription.text = "chunk text"
+        engine._model.transcribe.return_value = [mock_transcription]
+
+        # Force the chunked path: audio longer than _QWEN_CHUNK_SECONDS.
+        from voice_typer.server.qwen_engine import _QWEN_CHUNK_SECONDS
+
+        audio = np.ones(16000 * (_QWEN_CHUNK_SECONDS + 10), dtype=np.float32)
+        # Request abort BEFORE transcribing: the first chunk iteration
+        # sees the event and breaks immediately.
+        engine.request_abort()
+        result = engine.transcribe(audio)
+        # Loop breaks before any chunk is transcribed → empty result
+        # (no model call, no hallucination filter).
+        assert result == ""
+        engine._model.transcribe.assert_not_called()
+
 
 class TestQwenConfigKeys:
     """Verify new config keys exist and have correct defaults."""

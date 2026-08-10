@@ -460,7 +460,7 @@ _subscribers: _SubscriberSet = _SubscriberSet()
 # does not deadlock.  Re-entrant publish is discouraged but supported.
 _lock = threading.RLock()
 
-# PERF-2: When ``publish()`` is called from a real-time audio thread
+# When ``publish()`` is called from a real-time audio thread
 # (sounddevice's PortAudio callback, or the in-process "audio-worker"
 # thread that drives the callback), synchronous fan-out to every
 # subscriber can glitch capture — a slow subscriber (json.dumps +
@@ -816,7 +816,7 @@ def publish(event: dict, *, async_dispatch: bool = False) -> bool:
     snapshot = _subscribers._snapshot
     if not snapshot:
         return False
-    # PERF-2: defer fan-out when called from an RT thread.
+    # defer fan-out when called from an RT thread.
     # also defer when the caller explicitly opts in via
     # ``async_dispatch=True`` (e.g. transcription thread that must not
     # block on slow IPC writes). The RT-thread check takes precedence
@@ -1105,7 +1105,7 @@ def _publish_config_change(updates: dict) -> bool:
         -----
         - Synchronous: listeners are called in the publisher's thread.
           Config changes are low-frequency so this is fine; do NOT add
-          PERF-2-style deferral here (RT threads never publish config
+          deferral here (RT threads never publish config
           changes).
         - Listener exception isolation: a listener that raises is logged
           at WARNING (with ``exc_info``) on the FIRST occurrence per

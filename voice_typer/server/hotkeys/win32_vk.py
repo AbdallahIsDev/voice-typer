@@ -41,7 +41,7 @@ _MOD_ALTGR = 0x0010
 _MOD_NOREPEAT = 0x4000
 _GWLP_USERDATA = -21
 
-# FIX-HOTKEY-ARCHITECTURE: VK codes for the modifier keys themselves,
+# VK codes for the modifier keys themselves,
 # used by the modifier-only polling loop (e.g. when the hotkey is just
 # ``<alt>`` with no main key). VK_CAPITAL is the Caps Lock key, used
 # for toggle suppression in the legacy polling backend.
@@ -193,7 +193,7 @@ def parse_hotkey_to_win32(hotkey_str: str) -> tuple[int | None, int] | None:
         the modifier; writing ``f2+ctrl`` vs ``ctrl+f2`` should produce the
         same result.
 
-        FIX-HOTKEY-ARCHITECTURE: for modifier-only specs (e.g. ``<alt>``,
+        for modifier-only specs (e.g. ``<alt>``,
         ``<ctrl>+<shift>``) where no main key is present, this now returns
         ``(None, modifiers)`` instead of ``None``. Callers can detect the
         modifier-only case by checking ``vk is None and modifiers != 0``.
@@ -254,7 +254,7 @@ def parse_hotkey_to_win32(hotkey_str: str) -> tuple[int | None, int] | None:
             )
 
     if key_name is None:
-        # FIX-HOTKEY-ARCHITECTURE: modifier-only spec (e.g. <alt>,
+        # modifier-only spec (e.g. <alt>,
         # <ctrl>+<shift>). Return (None, modifiers) so callers can
         # detect the modifier-only case and use a polling loop that
         # detects modifier press/release without requiring a main key.

@@ -611,7 +611,7 @@ class ShutdownController:
                         drained = ws_drained_event.wait(timeout=2.0)
                         if not drained:
                             in_flight = getattr(ipc_server, "_ws_inflight_count", 0)
-                            # DJ-9: drain-timeout branch — log at WARNING and
+                            # drain-timeout branch — log at WARNING and
                             # proceed (never block) so an in-flight write can't
                             # stall shutdown.
                             log.warning(

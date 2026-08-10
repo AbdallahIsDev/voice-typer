@@ -329,7 +329,7 @@ class StartupSequence:
         _t0 = time.perf_counter()
         log.info("[STARTUP] Initializing: autostart, microphones, hotkey, model...")
 
-        # DJ-57: eagerly preload + warm the Silero VAD model on a
+        # eagerly preload + warm the Silero VAD model on a
         # daemon thread (fire-and-forget) so the model is hot by the
         # time the user first presses F2. Otherwise the first
         # ``~150-600ms`` of speech is silently dropped via ring-buffer
@@ -600,7 +600,7 @@ class StartupSequence:
 
         # apply history retention policy at startup.
         # Previously the config keys were saved but never read.
-        # PERF-14: spawn a daemon thread so the SQLite DELETEs (which
+        # spawn a daemon thread so the SQLite DELETEs (which
         # can take 100ms+ on a large history DB with index rebuilds)
         # don't block the startup critical path to hotkey registration
         # + model load. Retention is best-effort housekeeping — a
@@ -609,7 +609,7 @@ class StartupSequence:
         # thread is a daemon so it never blocks process exit, and the
         # inner try/except ensures any DB error is swallowed (the
         # next startup will retry).
-        # PERF-25: register with ``app._thread_registry`` so
+        # register with ``app._thread_registry`` so
         # ``shutdown_all()`` can signal + join this thread instead of
         # orphaning it (the retention sweep can take 10s+ on a huge
         # DB, and we want clean shutdown to wait briefly for it).
@@ -648,7 +648,7 @@ class StartupSequence:
             daemon=True,
         )
         retention_thread.start()
-        # PERF-25: register with the central ThreadRegistry.
+        # register with the central ThreadRegistry.
         registry = getattr(app, "_thread_registry", None)
         if registry is not None:
             try:

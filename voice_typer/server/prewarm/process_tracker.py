@@ -484,7 +484,7 @@ def _invalidate_prewarm_pid_check_cache() -> None:
 def _process_is_prewarm(pid: int) -> bool:
     """Memoized wrapper around :func:`_process_is_prewarm_uncached`.
 
-    DJ-47: caches the platform check for ``_PREWARM_PID_CHECK_TTL_S``
+    caches the platform check for ``_PREWARM_PID_CHECK_TTL_S``
     seconds keyed on ``(pid, pid_file_fingerprint)`` (see the module
     block above). ``pid <= 0`` short-circuits to ``False`` without
     touching the cache (an obviously-invalid PID isn't worth caching).

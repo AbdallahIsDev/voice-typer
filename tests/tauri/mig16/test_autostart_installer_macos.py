@@ -459,6 +459,58 @@ def test_is_autostart_enabled_macos_returns_true_only_if_plist_exists(darwin_pla
     )
 
 
+# ─── AUTOSTART-CMD-VALIDATE: stale program paths report disabled ────────
+
+
+def test_is_autostart_macos_false_when_plist_program_path_missing(darwin_platform):
+    """A plist whose ``ProgramArguments`` point at a deleted interpreter /
+    launcher must report autostart DISABLED (AUTOSTART-CMD-VALIDATE
+    backport — mirrors the Windows ``_validate_runkey_command``
+    behavior). Without this, deleting the venv leaves Settings showing
+    a misleading "Autostart: enabled".
+    """
+    sp = darwin_platform.server_platform
+    plist_path = darwin_platform.plist_path
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    plist_path.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<plist version="1.0"><dict>'
+        "<key>Label</key><string>com.voicetyper</string>"
+        "<key>ProgramArguments</key><array>"
+        "<string>/nonexistent/venv/bin/python</string>"
+        "<string>/nonexistent/autostart_launcher.py</string>"
+        "</array></dict></plist>",
+        encoding="utf-8",
+    )
+    assert sp._is_autostart_macos() is False, (
+        "plist pointing at a deleted interpreter must report autostart disabled"
+    )
+
+
+def test_is_autostart_macos_true_when_plist_program_paths_exist(darwin_platform):
+    """A plist whose ``ProgramArguments`` point at real paths must report
+    autostart enabled (the happy path of the AUTOSTART-CMD-VALIDATE
+    check — a valid registration must not be flagged stale)."""
+    sp = darwin_platform.server_platform
+    plist_path = darwin_platform.plist_path
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    import sys
+
+    plist_path.write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<plist version="1.0"><dict>'
+        "<key>Label</key><string>com.voicetyper</string>"
+        "<key>ProgramArguments</key><array>"
+        f"<string>{sys.executable}</string>"
+        "<string>/bin/true</string>"
+        "</array></dict></plist>",
+        encoding="utf-8",
+    )
+    assert sp._is_autostart_macos() is True, (
+        "plist pointing at existing paths must report autostart enabled"
+    )
+
+
 # ─── Test 7: tauri.conf.json has bundle.macOS OR DMG+.app defaults ───────
 
 

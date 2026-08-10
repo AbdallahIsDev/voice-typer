@@ -93,7 +93,7 @@ class _TCPLineIO:
 
     def __init__(self, conn: socket.socket) -> None:
         self.conn = conn
-        # DJ-80: enable TCP_NODELAY on the wrapped socket so small push
+        # enable TCP_NODELAY on the wrapped socket so small push
         # events (bubble_level at 15-50 Hz, heartbeat_ack) are not
         # delayed by Nagle's algorithm (up to ~40 ms of coalescing on
         # loopback). Defense-in-depth: ``transport_tcp`` also sets it on

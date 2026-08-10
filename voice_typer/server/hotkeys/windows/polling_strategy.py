@@ -122,7 +122,7 @@ def modifiers_pressed(self) -> bool:
 def other_modifiers_pressed(self) -> bool:
     """Return True if any modifier OTHER than the configured one is held.
 
-    FIX-HOTKEY-ARCHITECTURE: used by the modifier-only polling loop
+    used by the modifier-only polling loop
     to ensure the user is pressing ONLY the configured modifier (e.g.
     just Alt, not Alt+Ctrl). If another modifier is held, the press
     callback is suppressed — the user's intent is probably a
@@ -155,7 +155,7 @@ def other_modifiers_pressed(self) -> bool:
 def any_non_modifier_key_pressed(self, modifier_vks: frozenset[int]) -> bool:
     """Return True if any non-modifier key is currently held down.
 
-    FIX-HOTKEY-AND-NOTIFICATION: scans the Win32 virtual-key code
+    scans the Win32 virtual-key code
     space (0x08-0xFF) for any key that is currently held down,
     excluding the modifier VKs passed in ``modifier_vks``. Used by
     the modifier-only polling loop to detect when the user has
@@ -270,7 +270,7 @@ def run_polling_loop(self, callback):
     up to ~8ms while still being CPU-efficient (the thread spends
     >99.9% of its time sleeping in the kernel).
 
-    FIX-HOTKEY-ARCHITECTURE: dispatches to
+    dispatches to
     ``_run_modifier_only_polling_loop`` for modifier-only hotkeys
     (e.g. ``<alt>``) — those need a different detection logic that
     fires on the modifier press itself, not on a subsequent
@@ -278,7 +278,7 @@ def run_polling_loop(self, callback):
     toggle when the hotkey is ``<caps_lock>`` (see
     ``_suppress_caps_lock_toggle``).
     """
-    # FIX-HOTKEY-ARCHITECTURE: modifier-only hotkeys (e.g. <alt>)
+    # modifier-only hotkeys (e.g. <alt>)
     # use a separate polling loop that fires on the modifier press
     # itself, not on a subsequent non-modifier keypress.
     if self._is_modifier_only:
@@ -326,7 +326,7 @@ def run_polling_loop(self, callback):
         _pump_messages = win32gui.PumpWaitingMessages
     except ImportError:
         pass
-    # FIX-HOTKEY-ARCHITECTURE: detect Caps Lock hotkeys so we can
+    # detect Caps Lock hotkeys so we can
     # suppress the OS-level toggle. VK_CAPITAL = 0x14.
     is_caps_lock_hotkey = vk == _VK_CAPITAL
 
@@ -382,7 +382,7 @@ def run_polling_loop(self, callback):
                 self._kernel32.Sleep(50)
                 continue
 
-            # FIX-HOTKEY-ARCHITECTURE: if we're sending a synthetic
+            # if we're sending a synthetic
             # Caps Lock keypress to undo the OS toggle, skip processing
             # so the synthetic events don't re-trigger the callback or
             # prematurely fire on_release. The suppression flag is
@@ -442,14 +442,14 @@ def run_polling_loop(self, callback):
 def run_modifier_only_polling_loop(self, callback):
     """Polling loop for modifier-only hotkeys (e.g. ``<alt>``).
 
-    FIX-HOTKEY-ARCHITECTURE: detects press/release of a single
+    detects press/release of a single
     modifier key WITHOUT any other modifiers held. The previous
     polling loop required a non-modifier "main key" to be pressed,
     which made modifier-only hotkeys (like just Alt) non-functional
     — selecting Alt in the dropdown did nothing because there was no
     main key for GetAsyncKeyState to detect.
 
-    FIX-HOTKEY-AND-NOTIFICATION: the loop was overhauled to fix two
+    the loop was overhauled to fix two
     annoying misfire scenarios:
 
     a) **Alt+C (or any modifier+key combo) used to fire the dictation
@@ -505,7 +505,7 @@ def run_modifier_only_polling_loop(self, callback):
         modifier_vks.append(_VK_LWIN)
         modifier_vks.append(_VK_RWIN)
 
-    # FIX-HOTKEY-AND-NOTIFICATION: VK codes that count as "modifiers"
+    # VK codes that count as "modifiers"
     # for the purposes of the non-modifier key scan. These are
     # excluded from the ``_any_non_modifier_key_pressed`` check
     # because holding another modifier (e.g. Ctrl while Alt is the
@@ -537,7 +537,7 @@ def run_modifier_only_polling_loop(self, callback):
     )
 
     # Per-press-cycle state flags (described in the docstring above).
-    # FIX-HOTKEY-AND-NOTIFICATION: the old code used ``callback_fired``
+    # the old code used ``callback_fired``
     # to suppress repeat fires during press-and-hold. The new code
     # uses three flags:
     # - modifier_was_pressed: True if the configured modifier is
@@ -592,7 +592,7 @@ def run_modifier_only_polling_loop(self, callback):
                 modifier_was_pressed = True
                 other_key_pressed = False
                 press_fired = False
-                # FIX-HOTKEY-AND-NOTIFICATION (b): press-and-hold must
+                # NOTIFICATION (b): press-and-hold must
                 # NOT fire repeatedly. We fire the press callback at
                 # most once per cycle, only on this not-held → held
                 # transition. For toggle mode we don't fire on press
@@ -625,7 +625,7 @@ def run_modifier_only_polling_loop(self, callback):
                         )
 
             # ── While held: monitor for non-modifier key presses ──
-            # FIX-HOTKEY-AND-NOTIFICATION (a): this is the key fix for
+            # NOTIFICATION (a): this is the key fix for
             # the "Alt+C fires the dictation" problem. If the user
             # pressed any non-modifier key while holding our modifier,
             # they were using a combo (e.g. Alt+C for copy) — we'll
@@ -712,7 +712,7 @@ def run_modifier_only_polling_loop(self, callback):
                 else:
                     # other_key_pressed is True — user was doing a combo
                     # like Alt+C. Per spec, do NOT fire the press callback.
-                    # FIX-HOTKEY-AND-NOTIFICATION: for PTT mode, if we
+                    # for PTT mode, if we
                     # already fired the press callback (and thus started
                     # a recording), we MUST fire on_release to stop the
                     # recording — otherwise it would run forever. This
@@ -735,7 +735,7 @@ def run_modifier_only_polling_loop(self, callback):
                 other_key_pressed = False
                 press_fired = False
 
-            # PERF-012: 8ms sleep (~125 Hz) with timeBeginPeriod(8) ensures
+            # 8ms sleep (~125 Hz) with timeBeginPeriod(8) ensures
             # accurate sleep duration for the fallback polling loop.
 
             self._kernel32.Sleep(8)

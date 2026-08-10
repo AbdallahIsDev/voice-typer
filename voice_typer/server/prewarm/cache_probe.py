@@ -109,7 +109,7 @@ _WHISPER_FALLBACK_MODEL_SIZE = "tiny.en"
 def _iter_warmable_files(root: Path) -> Iterator[Path]:
     """Iterate warmable files under ``root`` without per-file ``stat()``.
 
-    DJ-46: replaces the old ``root.rglob('*')`` + ``path.is_file()``
+    replaces the old ``root.rglob('*')`` + ``path.is_file()``
     pattern. ``rglob`` followed by ``is_file()`` issues a fresh
     ``stat()`` syscall per entry (~40 k stats for torch alone) even
     though ``os.scandir`` already returned the d_type for each entry.

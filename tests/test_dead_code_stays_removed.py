@@ -820,8 +820,11 @@ class TestExtendUrlAllowlistIsWired:
         offender_files: set[str] = set()
 
         for py_file in voice_typer_dir.rglob("*.py"):
-            # Skip the function's own definition file.
-            if py_file.name == "_secrets.py":
+            # Skip the function's own definition file(s): the former
+            # ``_secrets.py`` and its EO-23 home ``security/url_allowlist.py``
+            # (which calls ``extend_url_allowlist`` internally via
+            # ``_load_env_allowlist_extensions``).
+            if py_file.name == "_secrets.py" or py_file.name == "url_allowlist.py":
                 continue
             try:
                 tree = ast.parse(py_file.read_text(encoding="utf-8"))

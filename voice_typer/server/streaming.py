@@ -198,7 +198,7 @@ class StreamingTextAssembler:
     # access time via ``abs_idx - _base_offset``. This makes eviction
     # O(1) — no need to shift every stored index by 1.
     _base_offset: int = 0
-    # DJ-21: hard cap on the dedup set — a 30-min session typically
+    # hard cap on the dedup set — a 30-min session typically
     # produces 5-10k timestamps so 50k entries is a generous upper
     # bound that still keeps memory bounded for runaway sessions.
     _MAX_SEEN_TIMESTAMPS = 50000
@@ -276,7 +276,7 @@ class StreamingTextAssembler:
         words: Iterable[WordTiming],
         commit_horizon_seconds: float,
     ) -> str:
-        # DJ-21: hard-cap on the dedup set BEFORE the loop. The
+        # hard-cap on the dedup set BEFORE the loop. The
         # ``_words`` deque has ``maxlen=10000`` but
         # ``_seen_timestamps`` is a plain ``set`` — a 30-min
         # session with periodic re-emits of the same timestamps

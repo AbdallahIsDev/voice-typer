@@ -30,6 +30,20 @@ from voice_typer.server.autostart_launcher import (
     launch,
 )
 
+
+# These tests exercise spawn *mechanics* (env, flags, fallback order)
+# with fake binary paths that cannot verify against the real
+# ``tauri-binaries.json``. The CR-002 integrity gate itself is tested
+# behaviorally in ``tests/test_tauri_binary_verify.py`` — here we
+# bypass it so the spawn-mechanic assertions stay focused.
+@pytest.fixture(autouse=True)
+def _bypass_tauri_integrity_gate(monkeypatch):
+    """Bypass ``verify_tauri_binary_or_skip`` for spawn-mechanic tests."""
+    monkeypatch.setattr(
+        "voice_typer.server.autostart_launcher.verify_tauri_binary_or_skip",
+        lambda path: True,
+    )
+
 # ---------------------------------------------------------------------------
 # _tauri_binary()
 # ---------------------------------------------------------------------------

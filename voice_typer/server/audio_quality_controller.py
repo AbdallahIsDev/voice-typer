@@ -198,7 +198,7 @@ class AudioQualityController:
                 Called from :meth:`_stop_dictation` after ``recorder.stop()``
                 returns the (already filtered + resampled) audio.
 
-                FIX-HOTKEY-AND-NOTIFICATION: the tray notification that used to
+                the tray notification that used to
                 fire here ("Low volume (RMS=...). Increase mic gain or move
                 closer. | High noise (ratio=...). Try a quieter environment")
                 was deemed annoying by users. We now short-circuit at the top of

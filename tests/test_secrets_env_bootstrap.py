@@ -248,8 +248,8 @@ class TestNoRegressionOnExtendUrlAllowlist:
     """The env-var bootstrap is now a production caller of
     ``extend_url_allowlist``. Make sure the function itself still
     works as before when called directly (existing tests in
-    test_secrets.py and test_security_fixes.py cover this in more
-    depth; these are smoke tests)."""
+    test_secrets.py and the tests/security/ package cover this in
+    more depth; these are smoke tests)."""
 
     def test_extend_url_allowlist_still_adds_host(self):
         extend_url_allowlist(["direct-call.example.com"], caller="test")

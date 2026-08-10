@@ -29,7 +29,7 @@ class TestExtendUrlAllowlistAuditLog:
     def test_warning_emitted_with_hosts(self, caplog):
         """G4-M-55: a WARNING is emitted with the hosts being added."""
         try:
-            with caplog.at_level("WARNING", logger="voice_typer.server._secrets"):
+            with caplog.at_level("WARNING", logger="voice_typer.server.security.url_allowlist"):
                 extend_url_allowlist(
                     ["audit-test.example.com"],
                     caller="test_g4_m_55_warning_emitted",
@@ -48,7 +48,7 @@ class TestExtendUrlAllowlistAuditLog:
     def test_warning_includes_caller(self, caplog):
         """G4-M-55: the WARNING includes the caller identifier."""
         try:
-            with caplog.at_level("WARNING", logger="voice_typer.server._secrets"):
+            with caplog.at_level("WARNING", logger="voice_typer.server.security.url_allowlist"):
                 extend_url_allowlist(
                     ["caller-test.example.com"],
                     caller="explicit-caller-id",
@@ -62,7 +62,7 @@ class TestExtendUrlAllowlistAuditLog:
         """G4-M-55: when ``caller=None``, the caller is auto-detected
         via ``inspect.stack()`` and included in the WARNING."""
         try:
-            with caplog.at_level("WARNING", logger="voice_typer.server._secrets"):
+            with caplog.at_level("WARNING", logger="voice_typer.server.security.url_allowlist"):
                 # Don't pass caller — auto-detection should kick in.
                 extend_url_allowlist(["auto-caller.example.com"])
             joined = " ".join(r.message for r in caplog.records)
@@ -71,7 +71,7 @@ class TestExtendUrlAllowlistAuditLog:
             assert (
                 "test_warning_auto_detects_caller_when_not_passed" in joined
                 or "TestG4M55" in joined
-                or "test_security_fixes" in joined
+                or "test_url_allowlist" in joined
             ), f"auto-detected caller must reference this test; got: {joined!r}"
         finally:
             _secrets._user_extensions.discard("auto-caller.example.com")
@@ -83,7 +83,7 @@ class TestExtendUrlAllowlistAuditLog:
         case is still audited (so operators can trace every attempt to
         extend the allowlist) but demoted to INFO to avoid WARNING
         spam when callers pass an empty iterable defensively."""
-        with caplog.at_level("INFO", logger="voice_typer.server._secrets"):
+        with caplog.at_level("INFO", logger="voice_typer.server.security.url_allowlist"):
             extend_url_allowlist([], caller="test-empty-input")
         # An INFO record with the URL-Allowlist tag must be emitted.
         assert any("[URL-Allowlist]" in r.message and r.levelname == "INFO" for r in caplog.records), (

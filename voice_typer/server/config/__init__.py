@@ -241,7 +241,7 @@ _warmup_called: bool = False
 def _default_hotkey_for_platform() -> str:
     """NATIVE-001: Return the platform-appropriate default hotkey.
 
-    FIX-HOTKEY-ARCHITECTURE: Caps Lock is now the default on ALL
+    Caps Lock is now the default on ALL
     platforms (including macOS). It is universally present, isolated
     (rarely used in shortcuts), and easy to remap. The previous
     platform-specific defaults (``<fn>`` on macOS, ``<f2>`` on unknown
@@ -894,7 +894,7 @@ class Config:
     # (instantiation), app.py:_on_audio_quality_chunk and
     # _finalize_audio_quality_report (per-chunk + post-stop analysis),
     # and recording_controller.py:403 (invocation after stop()).
-    # FIX-HOTKEY-AND-NOTIFICATION: the user-facing tray notification that
+    # the user-facing tray notification that
     # reported "Low volume / High noise" after each dictation was deemed
     # annoying. The default is now False, AND the app-side code path that
     # shows the notification is short-circuited (see

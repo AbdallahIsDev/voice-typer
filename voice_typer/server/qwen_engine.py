@@ -103,6 +103,14 @@ class QwenEngine:
         # module (use-after-free). Mirrors ParakeetEngine's pattern.
         self._active_inference = 0
         self._inference_cond = threading.Condition(self._lock)
+        # Abort token checked between chunk iterations in the
+        # transcription loops (mirrors ParakeetEngine's ``_abort_event``).
+        # ``request_abort`` sets it, ``clear_abort`` clears it at the
+        # start of a fresh dictation cycle; the chunk loop breaks out
+        # after the current chunk so the transcription thread is
+        # unblocked in bounded time instead of decoding the whole
+        # recording.
+        self._abort_event = threading.Event()
         # Batch 2-4 chunks per ``model.transcribe()`` call when the
         # qwen_asr wrapper exposes a batched-input API.  Default batch
         # size is 1 (sequential) so the existing test contract that
@@ -647,6 +655,14 @@ class QwenEngine:
         results: list[str] = []
         i = 0
         while i < len(chunks):
+            # Same abort check as the sequential branch — see above.
+            if self._abort_event.is_set():
+                log.info(
+                    "[QWEN] Abort requested — stopping batch loop early (completed %d/%d chunks)",
+                    i,
+                    len(chunks),
+                )
+                break
             batch = chunks[i : i + self._INFERENCE_BATCH_SIZE]
             i += len(batch)
             log.info(
@@ -691,6 +707,17 @@ class QwenEngine:
         """
         results: list[str] = []
         for i, chunk in enumerate(chunks):
+            # Abort check: break out after the current chunk when an
+            # abort was requested (mirrors ParakeetEngine's sequential
+            # chunk loop) so the transcription thread is unblocked in
+            # bounded time instead of decoding all remaining chunks.
+            if self._abort_event.is_set():
+                log.info(
+                    "[QWEN] Abort requested — stopping chunk loop early (completed %d/%d chunks)",
+                    i,
+                    len(chunks),
+                )
+                break
             log.info(
                 "[QWEN] Transcribing chunk %d/%d (%.1fs)",
                 i + 1,
@@ -960,6 +987,28 @@ class QwenEngine:
                     raise
             # Non-CUDA error: re-raise so caller can handle
             raise
+
+    def request_abort(self) -> None:
+        """Signal an in-flight ``transcribe()`` to stop early.
+
+        Sets ``_abort_event``; the chunk-iteration loops in
+        ``_transcribe_chunks_sequential`` and ``_transcribe_chunks_batched``
+        check the event between chunks and break out after the current
+        chunk completes. Bounded latency instead of waiting for the
+        full audio to decode — frees compute for the next dictation
+        cycle. Mirrors ``ParakeetEngine.request_abort``.
+        """
+        self._abort_event.set()
+
+    def clear_abort(self) -> None:
+        """Clear the abort token at the start of a fresh transcription cycle.
+
+        Called by the dictation pipeline before each transcribe so a
+        stale abort from the previous cycle (e.g. the user hit ESC,
+        aborted, then started a new recording) does NOT suppress the
+        new transcription.
+        """
+        self._abort_event.clear()
 
     def unload(self) -> None:
         """Free model memory.

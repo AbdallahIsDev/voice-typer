@@ -65,7 +65,9 @@ _PII_VARIABLE_NAMES = frozenset(
 # log line is the filter doing its job, not a leak.
 _OUT_OF_SCOPE_FILES = frozenset(
     {
-        "security.py",  # PIIRedactionFilter's own debug log + redact_pii helper
+        # EO-23: the PII redaction filter + redact_pii helper now live in
+        # ``security/redaction.py`` (was ``security.py`` pre-consolidation).
+        "redaction.py",
         "log.py",  # logging infrastructure
     }
 )

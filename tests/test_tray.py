@@ -864,6 +864,89 @@ class TestBringElectronToFront:
         assert result is False
 
 
+# ── EO-16: duplicate-Electron-launch gate on macOS/Linux ─────────────────
+
+
+class TestElectronDuplicateLaunchGate:
+    """EO-16: when the TCP push AND the platform focus helper both fail
+    but an Electron process is still alive, open_electron_window() must
+    NOT spawn a second Electron — on macOS/Linux the focus fallback was
+    previously a no-op (Win32-only) so a transient TCP blip launched a
+    DUPLICATE process.
+    """
+
+    def _setup_dead_end(self, tray, monkeypatch):
+        """TCP push fails + focus fails + launch would be observed."""
+        monkeypatch.setattr(
+            "voice_typer.server.event_bus.publish",
+            lambda msg: False,
+        )
+        import voice_typer.server.tray_window as tw_mod
+
+        monkeypatch.setattr(
+            tw_mod,
+            "bring_electron_to_front",
+            lambda: False,
+        )
+        launched = []
+        monkeypatch.setattr(
+            subprocess,
+            "Popen",
+            lambda *a, **kw: launched.append(True) or MagicMock(),
+        )
+        return launched
+
+    def test_live_tracked_pid_blocks_duplicate_launch(self, tray, monkeypatch):
+        """A tracked + alive Electron PID must suppress the launch even
+        when focus failed (the window exists; it just couldn't be
+        brought to front)."""
+        import voice_typer.server.tray_window as tw_mod
+
+        launched = self._setup_dead_end(tray, monkeypatch)
+        monkeypatch.setattr(tw_mod, "_electron_pid", 12345)
+        monkeypatch.setattr(
+            "voice_typer.server.single_instance._is_pid_alive",
+            lambda pid: True,
+        )
+        tray.open_electron_window()
+        assert not launched, (
+            "EO-16: a live Electron PID must block the duplicate launch"
+        )
+
+    def test_dead_tracked_pid_allows_launch(self, tray, monkeypatch):
+        """A tracked PID that is no longer alive must NOT block the
+        launch — Electron genuinely isn't running, so the last-resort
+        launch is correct."""
+        import voice_typer.server.tray_window as tw_mod
+
+        launched = self._setup_dead_end(tray, monkeypatch)
+        monkeypatch.setattr(tw_mod, "_electron_pid", 99999)
+        monkeypatch.setattr(
+            "voice_typer.server.single_instance._is_pid_alive",
+            lambda pid: False,
+        )
+        tray.open_electron_window()
+        assert launched, (
+            "EO-16: a dead Electron PID must NOT block the last-resort launch"
+        )
+
+    def test_untracked_pid_allows_launch(self, tray, monkeypatch):
+        """With no tracked PID (and no pgrep match), the launch proceeds
+        — the pre-EO-16 behavior is preserved for the genuine
+        not-running case."""
+        import voice_typer.server.tray_window as tw_mod
+
+        launched = self._setup_dead_end(tray, monkeypatch)
+        monkeypatch.setattr(tw_mod, "_electron_pid", None)
+        monkeypatch.setattr(
+            subprocess,
+            "run",
+            lambda *a, **kw: MagicMock(returncode=1, stderr=b""),
+        )
+        tray.open_electron_window()
+        assert launched
+
+
 # ── RELIABILITY-001: _wrap must not silently swallow SystemExit ──────────
 
 

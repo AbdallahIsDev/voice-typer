@@ -63,7 +63,6 @@ class WindowsNativeHotkey(HotkeyBackend):
     hotkey detection.  RegisterHotKey is still called so that other
     applications cannot register the same hotkey.
 
-    FIX-HOTKEY-ARCHITECTURE:
     - Modifier-only hotkeys (``<alt>``, ``<ctrl>``, ``<shift>``,
       ``<win>``) are now supported via a dedicated polling loop that
       detects modifier press/release WITHOUT requiring a non-modifier
@@ -122,11 +121,11 @@ class WindowsNativeHotkey(HotkeyBackend):
         # thread).
         self._hook_handle: Any = None
         self._hook_proc: Any = None
-        # FIX-HOTKEY-ARCHITECTURE: True when the hotkey is a modifier only
+        # True when the hotkey is a modifier only
         # spec (e.g. ``<alt>``). The polling loop uses a different code
         # path for these — see ``_run_modifier_only_polling_loop``.
         self._is_modifier_only: bool = False
-        # FIX-HOTKEY-ARCHITECTURE: brief flag set while we're sending a
+        # brief flag set while we're sending a
         # synthetic Caps Lock keypress to undo the OS-level toggle.
         # The polling loop skips processing while this is set so the
         # synthetic events don't re-trigger the callback.
@@ -222,7 +221,7 @@ class WindowsNativeHotkey(HotkeyBackend):
             raise ValueError(f"Cannot parse hotkey {self.hotkey_str!r} to a VK code")
         self._vk, self._modifiers = parsed
 
-        # FIX-HOTKEY-ARCHITECTURE: detect modifier-only specs (e.g.
+        # detect modifier-only specs (e.g.
         # ``<alt>``). For these, ``vk`` is None but ``modifiers`` is
         # non-zero. RegisterHotKey can't be used (no main VK to
         # register), so we skip it and rely on the polling loop's
@@ -246,7 +245,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         def run():
             """Hotkey thread: registers hotkey, runs polling loop."""
             try:
-                # FIX-HOTKEY-ARCHITECTURE: skip RegisterHotKey for
+                # skip RegisterHotKey for
                 # modifier-only hotkeys (``<alt>``, ``<ctrl>``, etc.).
                 # RegisterHotKey requires a main VK code and won't
                 # accept a bare modifier — calling it with vk=0 fails
@@ -580,7 +579,7 @@ class WindowsNativeHotkey(HotkeyBackend):
         if self._thread is None:
             return "WindowsNativeHotkey: no thread started"
         mode = "polling" if self._using_polling else "message-loop"
-        # FIX-HOTKEY-ARCHITECTURE: handle modifier-only hotkeys where
+        # handle modifier-only hotkeys where
         # ``self._vk`` is None (e.g. <alt>, <ctrl>). The previous format
         # string would crash with ``TypeError`` on ``None:X``.
         vk_str = f"0x{self._vk:X} ({self._vk})" if self._vk is not None else "(modifier-only, no main VK)"
