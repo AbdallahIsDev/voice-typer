@@ -306,6 +306,20 @@ _USE_PYTHON = _RENDERER_SRC / "hooks" / "usePython.ts"
 _PRELOAD = _CLIENT_SRC / "preload" / "index.ts"
 _PYTHON_CALL_HANDLER = _CLIENT_SRC / "main" / "ipc" / "python-call-handler.ts"
 _SIDECAR_CMDS_RS = _REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
+_SIDECAR_CMDS_DIR = _REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds"
+
+
+def _read_sidecar_cmds_module() -> str:
+    """Concatenate sidecar_cmds.rs + sidecar_cmds/*.rs (EO-35 split).
+
+    EO-35 split the former single-file ``commands/sidecar_cmds.rs``
+    into an orchestrator (``sidecar_cmds.rs``) + four concern
+    submodules (``sidecar_cmds/allowlist.rs``, ``dispatch.rs``,
+    ``shutdown.rs``, ``window_close.rs``). The bridge assertions
+    target the module as a whole, so we read every file and join them.
+    """
+    files = [_SIDECAR_CMDS_RS] + sorted(_SIDECAR_CMDS_DIR.glob("*.rs"))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
 
 
 # ─── Expected contract strings (single source of truth) ────────────────
@@ -442,7 +456,7 @@ def python_call_handler_source() -> str:
 def sidecar_cmds_rs_source() -> str:
     """Read ``src-tauri/src/commands/sidecar_cmds.rs`` as text."""
     assert _SIDECAR_CMDS_RS.exists(), f"sidecar_cmds.rs not found: {_SIDECAR_CMDS_RS}"
-    return _SIDECAR_CMDS_RS.read_text(encoding="utf-8")
+    return _read_sidecar_cmds_module()
 
 
 # ─── Test 1: detector — Tauri vs Electron via window.__TAURI__ ─────────

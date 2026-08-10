@@ -131,8 +131,11 @@ def _read_ws_rs_source() -> str:
 
 
 def _read_spawn_rs_source() -> str:
-    """Read the Rust spawn.rs source (for the externalBin-triple test)."""
-    return _SPAWN_RS_PATH.read_text(encoding="utf-8")
+    """Read the spawn module sources (spawn.rs + spawn/*.rs, EO-33 split)."""
+    files = [_SPAWN_RS_PATH] + sorted(
+        _SPAWN_RS_PATH.parent.joinpath("spawn").glob("*.rs")
+    )
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
 
 
 # A realistic 64-char hex token (32 bytes × 2 hex chars), matching

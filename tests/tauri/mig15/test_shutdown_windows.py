@@ -103,6 +103,21 @@ assert (_REPO_ROOT / "src-tauri" / "Cargo.toml").is_file(), (
 )
 
 _SIDECAR_CMDS_RS = _REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
+_SIDECAR_CMDS_DIR = _REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds"
+
+
+def _read_sidecar_cmds_module() -> str:
+    """Concatenate sidecar_cmds.rs + sidecar_cmds/*.rs (EO-35 split).
+
+    EO-35 split the former single-file ``commands/sidecar_cmds.rs``
+    into an orchestrator (``sidecar_cmds.rs``) + four concern
+    submodules (``sidecar_cmds/allowlist.rs``, ``dispatch.rs``,
+    ``shutdown.rs``, ``window_close.rs``). The shutdown-gate
+    assertions target the module as a whole, so we read every file
+    and join them.
+    """
+    files = [_SIDECAR_CMDS_RS] + sorted(_SIDECAR_CMDS_DIR.glob("*.rs"))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
 _SUPERVISOR_RS = _REPO_ROOT / "src-tauri" / "src" / "sidecar" / "supervisor.rs"
 _UTIL_RS = _REPO_ROOT / "src-tauri" / "src" / "util.rs"
 _STATE_RS = _REPO_ROOT / "src-tauri" / "src" / "state.rs"
@@ -143,7 +158,7 @@ class TestShutdownSidecarSource:
         frame so the supervisor (which may see the sidecar exit
         concurrently) doesn't try to respawn mid-shutdown.
         """
-        src = _read(_SIDECAR_CMDS_RS)
+        src = _read_sidecar_cmds_module()
         # Find the shutdown_sidecar body and assert the flag set is the
         # first statement (before the WS frame send).
         m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
@@ -176,7 +191,7 @@ class TestShutdownSidecarSource:
         `{"type":"result","data":{"ack":true}}` but the host doesn't
         correlate via id, it just waits for process exit).
         """
-        src = _read(_SIDECAR_CMDS_RS)
+        src = _read_sidecar_cmds_module()
         m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
         assert m, "shutdown_sidecar function not found"
         body = m.group(0)
@@ -199,7 +214,7 @@ class TestShutdownSidecarSource:
         at spawn time) and returns as soon as `Terminated` arrives
         (~50ms typical), instead of sleeping the full 2s unconditionally.
         """
-        src = _read(_SIDECAR_CMDS_RS)
+        src = _read_sidecar_cmds_module()
         m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
         assert m, "shutdown_sidecar function not found"
         body = m.group(0)
@@ -227,7 +242,7 @@ class TestShutdownSidecarSource:
         (graceful path) but guarantees no zombie if the sidecar is stuck
         inside a native CTranslate2 call and cannot service the WS frame.
         """
-        src = _read(_SIDECAR_CMDS_RS)
+        src = _read_sidecar_cmds_module()
         m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
         assert m, "shutdown_sidecar function not found"
         body = m.group(0)
@@ -266,7 +281,7 @@ class TestShutdownSidecarSource:
         the operator can tell from the log alone whether the sidecar
         acked+exited or had to be killed.
         """
-        src = _read(_SIDECAR_CMDS_RS)
+        src = _read_sidecar_cmds_module()
         m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
         assert m, "shutdown_sidecar function not found"
         body = m.group(0)
@@ -297,7 +312,7 @@ class TestShutdownSidecarSource:
         for dev mode — it just can't poll Terminated, so it sleeps in
         SHUTDOWN_POLL_INTERVAL_MS increments up to the deadline.
         """
-        src = _read(_SIDECAR_CMDS_RS)
+        src = _read_sidecar_cmds_module()
         m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
         assert m, "shutdown_sidecar function not found"
         body = m.group(0)
@@ -346,7 +361,7 @@ class TestShutdownConstants:
         deadline (the old SHUTDOWN_POLL_INTERVAL_MS constant was removed when
         the incremental-poll fallback was replaced by a single bounded sleep).
         """
-        src = _read(_SIDECAR_CMDS_RS)
+        src = _read_sidecar_cmds_module()
         m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
         assert m, "shutdown_sidecar function not found"
         body = m.group(0)
@@ -1021,7 +1036,7 @@ class TestRunbookCoverage:
         `[SHUTDOWN] sidecar kill completed (graceful=...)` which is
         MORE informative and still matches the `SHUTDOWN` grep.)
         """
-        src = _read(_SIDECAR_CMDS_RS)
+        src = _read_sidecar_cmds_module()
         assert "[SHUTDOWN]" in src, (
             "Rust shutdown logs must use the '[SHUTDOWN]' prefix so the runbook "
             "§6.6 grep (Select-String 'SHUTDOWN|shutdown') matches"

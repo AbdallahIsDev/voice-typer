@@ -29,6 +29,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[3]  # tests/tauri/mig15/<this> → repo root
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
+SIDECAR_CMDS_DIR = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds"
 MAIN_RS = REPO_ROOT / "src-tauri" / "src" / "main.rs"
 COMMANDS_MOD_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "mod.rs"
 PASTE_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "paste.rs"
@@ -37,11 +38,26 @@ PASTE_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "paste.rs"
 # ─── Source-reading fixtures ─────────────────────────────────────────────
 
 
+def _read_sidecar_cmds_module() -> str:
+    """Concatenate sidecar_cmds.rs + sidecar_cmds/*.rs (EO-35 split).
+
+    EO-35 split the former single-file ``commands/sidecar_cmds.rs``
+    into an orchestrator (``sidecar_cmds.rs``) + four concern
+    submodules (``sidecar_cmds/allowlist.rs``, ``dispatch.rs``,
+    ``shutdown.rs``, ``window_close.rs``). The absence guard targets
+    the module as a whole, so we read every file and join them — a
+    future ``paste_text`` reintroduced in ANY submodule must be
+    caught.
+    """
+    files = [SIDECAR_CMDS_RS] + sorted(SIDECAR_CMDS_DIR.glob("*.rs"))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
+
+
 @pytest.fixture(scope="module")
 def sidecar_cmds_src() -> str:
-    """Read the ``sidecar_cmds.rs`` source file once per module."""
+    """Read the ``sidecar_cmds`` module source once per module."""
     assert SIDECAR_CMDS_RS.is_file(), f"missing Rust source: {SIDECAR_CMDS_RS}"
-    return SIDECAR_CMDS_RS.read_text(encoding="utf-8")
+    return _read_sidecar_cmds_module()
 
 
 @pytest.fixture(scope="module")

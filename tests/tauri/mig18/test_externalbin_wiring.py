@@ -245,11 +245,26 @@ def tauri_conf() -> dict:
     return json.loads(_TAURI_CONF.read_text(encoding="utf-8"))
 
 
+def _read_spawn_module() -> str:
+    """Concatenate the spawn module sources (spawn.rs + spawn/*.rs).
+
+    EO-33 split the former single-file ``sidecar/spawn.rs`` into an
+    orchestrator (``spawn.rs``) + six concern submodules
+    (``spawn/dev_mode.rs``, ``spawn/release_mode.rs``,
+    ``spawn/handshake.rs``, ``spawn/env_allowlist.rs``,
+    ``spawn/prewarm.rs``, ``spawn/target_triple.rs``). The gate
+    assertions target the spawn module as a whole, so we read every
+    file and join them.
+    """
+    files = [_SPAWN_RS] + sorted(_SPAWN_RS.parent.joinpath("spawn").glob("*.rs"))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
+
+
 @pytest.fixture(scope="module")
 def spawn_rs_source() -> str:
-    """Read src-tauri/src/sidecar/spawn.rs as text (for static assertions)."""
+    """Read the spawn module sources (spawn.rs + spawn/*.rs) as text."""
     assert _SPAWN_RS.exists(), f"spawn.rs not found: {_SPAWN_RS}"
-    return _SPAWN_RS.read_text(encoding="utf-8")
+    return _read_spawn_module()
 
 
 @pytest.fixture(scope="module")

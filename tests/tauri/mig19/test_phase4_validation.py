@@ -719,13 +719,23 @@ def _read_ws_event_protocol_rs() -> str:
     """Read the Rust WS event-protocol submodule source. The file MUST exist.
     its absence means the split was rolled back mid-flight.
     The translate_event_name body + ALLOWED_EVENT_TYPES slice live here after the split.
+
+    The translate_event_name unit tests (which reference the legacy
+    ``\"electron_notification\"`` alias string) were extracted to the
+    sibling ``event_protocol_tests.rs`` file (C-TEST-5), so we read
+    the whole event-protocol module (production + test files) to keep
+    the alias invariant check green across the split.
     """
     assert WS_EVENT_PROTOCOL_RS.is_file(), (
         f"src-tauri/src/sidecar/ws/event_protocol.rs is missing at "
         f"{WS_EVENT_PROTOCOL_RS} — the split was rolled "
         "back (ADR-0020 regression)."
     )
-    return WS_EVENT_PROTOCOL_RS.read_text(encoding="utf-8")
+    parts = [WS_EVENT_PROTOCOL_RS.read_text(encoding="utf-8")]
+    tests_path = WS_EVENT_PROTOCOL_RS.parent / "event_protocol_tests.rs"
+    if tests_path.is_file():
+        parts.append(tests_path.read_text(encoding="utf-8"))
+    return "\n\n".join(parts)
 
 
 def test_ws_bridge_does_not_silently_filter_events():

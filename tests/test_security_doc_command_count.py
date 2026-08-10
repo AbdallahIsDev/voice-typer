@@ -55,6 +55,20 @@ INDEX_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-comm
 # the TS allowlist by this parity test. Both files MUST be updated in
 # the same PR when a command is added or removed.
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
+SIDECAR_CMDS_DIR = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds"
+
+
+def _read_sidecar_cmds_module() -> str:
+    """Concatenate sidecar_cmds.rs + sidecar_cmds/*.rs (EO-35 split).
+
+    EO-35 split the former single-file ``commands/sidecar_cmds.rs``
+    into an orchestrator (``sidecar_cmds.rs``) + four concern
+    submodules (``sidecar_cmds/allowlist.rs``, ``dispatch.rs``,
+    ``shutdown.rs``, ``window_close.rs``). The parity assertions
+    target the module as a whole, so we read every file and join them.
+    """
+    files = [SIDECAR_CMDS_RS] + sorted(SIDECAR_CMDS_DIR.glob("*.rs"))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
 
 # (this session): Python backend's ``_COMMAND_REGISTRY`` literal —
 # asserted to match the renderer allowlist PLUS the documented set of
@@ -166,7 +180,7 @@ def _allowed_commands_rust() -> set[str]:
     in only one of the two files gets a clear, actionable test failure
     pointing at the file that's missing the entry.
     """
-    src = SIDECAR_CMDS_RS.read_text(encoding="utf-8")
+    src = _read_sidecar_cmds_module()
     # Anchor on the ``let cmds: &[&str] = &[`` line — this is the
     # start of the literal that backs the Rust ALLOWED_COMMANDS set.
     m_start = re.search(r"let\s+cmds:\s*&\[&str\]\s*=\s*&\[", src)

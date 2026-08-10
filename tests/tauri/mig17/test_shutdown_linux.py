@@ -151,6 +151,21 @@ assert (_REPO_ROOT / "src-tauri" / "Cargo.toml").is_file(), (
 )
 
 _SIDECAR_CMDS_RS = _REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
+_SIDECAR_CMDS_DIR = _REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds"
+
+
+def _read_sidecar_cmds_module() -> str:
+    """Concatenate sidecar_cmds.rs + sidecar_cmds/*.rs (EO-35 split).
+
+    EO-35 split the former single-file ``commands/sidecar_cmds.rs``
+    into an orchestrator (``sidecar_cmds.rs``) + four concern
+    submodules (``sidecar_cmds/allowlist.rs``, ``dispatch.rs``,
+    ``shutdown.rs``, ``window_close.rs``). The shutdown-gate
+    assertions target the module as a whole, so we read every file
+    and join them.
+    """
+    files = [_SIDECAR_CMDS_RS] + sorted(_SIDECAR_CMDS_DIR.glob("*.rs"))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
 _SUPERVISOR_RS = _REPO_ROOT / "src-tauri" / "src" / "sidecar" / "supervisor.rs"
 _UTIL_RS = _REPO_ROOT / "src-tauri" / "src" / "util.rs"
 _STATE_RS = _REPO_ROOT / "src-tauri" / "src" / "state.rs"
@@ -179,7 +194,7 @@ def _shutdown_sidecar_body() -> str:
     one place (if the function signature changes, only this helper
     needs updating).
     """
-    src = _read(_SIDECAR_CMDS_RS)
+    src = _read_sidecar_cmds_module()
     m = re.search(r"pub async fn shutdown_sidecar\b.*?\n\}", src, re.DOTALL)
     assert m, "shutdown_sidecar function not found in sidecar_cmds.rs"
     return m.group(0)
@@ -1583,7 +1598,7 @@ class TestRunbookCoverage:
         and ``[SHUTDOWN] sidecar kill completed (graceful=...)`` —
         both match the ``SHUTDOWN`` grep and are MORE informative.
         """
-        src = _read(_SIDECAR_CMDS_RS)
+        src = _read_sidecar_cmds_module()
         assert "[SHUTDOWN]" in src, (
             "Rust shutdown logs must use the '[SHUTDOWN]' prefix so the runbook "
             "Step 10 grep (grep 'SHUTDOWN|shutdown') matches"

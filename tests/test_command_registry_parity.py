@@ -46,6 +46,20 @@ from voice_typer.server.ipc_server import IPCServer
 REPO_ROOT = Path(__file__).resolve().parents[1]
 ALLOWED_COMMANDS_TS = REPO_ROOT / "voice_typer" / "client" / "src" / "main" / "allowed-commands.ts"
 SIDECAR_CMDS_RS = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds.rs"
+SIDECAR_CMDS_DIR = REPO_ROOT / "src-tauri" / "src" / "commands" / "sidecar_cmds"
+
+
+def _read_sidecar_cmds_module() -> str:
+    """Concatenate sidecar_cmds.rs + sidecar_cmds/*.rs (EO-35 split).
+
+    EO-35 split the former single-file ``commands/sidecar_cmds.rs``
+    into an orchestrator (``sidecar_cmds.rs``) + four concern
+    submodules (``sidecar_cmds/allowlist.rs``, ``dispatch.rs``,
+    ``shutdown.rs``, ``window_close.rs``). The parity assertions
+    target the module as a whole, so we read every file and join them.
+    """
+    files = [SIDECAR_CMDS_RS] + sorted(SIDECAR_CMDS_DIR.glob("*.rs"))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
 
 # commands present in the TS allowlist (and therefore in
 # the Python registry) but intentionally ABSENT from the Rust allowlist
@@ -104,7 +118,7 @@ def _rust_allowed_commands() -> set[str]:
     ``test_rust_allowlist_parity.py``. Duplicated here so this test file
     is self-contained.
     """
-    src = SIDECAR_CMDS_RS.read_text(encoding="utf-8")
+    src = _read_sidecar_cmds_module()
     m_start = re.search(r"let\s+cmds:\s*&\[&str\]\s*=\s*&\[", src)
     assert m_start is not None, (
         "src-tauri/src/commands/sidecar_cmds.rs no longer declares the "

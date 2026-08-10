@@ -9,8 +9,9 @@ method referenced it. With the migration complete:
 * ``SidecarHandle::kill_tree`` MUST call ``crate::platform::process::kill_process_tree``
   directly (not the unqualified ``kill_process_tree`` that used to resolve
   to the shim in the same module).
-* ``spawn.rs`` MUST NOT reference ``crate::state::kill_process_tree`` any more.
-* ``spawn.rs`` MUST reference ``crate::platform::process::kill_process_tree``
+* the spawn module (``spawn.rs`` + the ``spawn/*.rs`` submodules from the
+  EO-33 split) MUST NOT reference ``crate::state::kill_process_tree`` any more.
+* the spawn module MUST reference ``crate::platform::process::kill_process_tree``
   exactly six times (the four original spawn-timeout / Terminated / Error
   cleanup call sites that previously went through the shim, PLUS two
   later additions: a dev-mode server-started-deadline fallback and a
@@ -28,11 +29,27 @@ from pathlib import Path
 _SRC_TAURI = Path(__file__).resolve().parents[2] / "src-tauri"
 _STATE_RS = _SRC_TAURI / "src" / "state.rs"
 _SPAWN_RS = _SRC_TAURI / "src" / "sidecar" / "spawn.rs"
+_SPAWN_DIR = _SRC_TAURI / "src" / "sidecar" / "spawn"
 
 
 def _read(path: Path) -> str:
     assert path.exists(), f"missing source file: {path}"
     return path.read_text(encoding="utf-8")
+
+
+def _read_spawn_module() -> str:
+    """Concatenate the spawn module sources (spawn.rs + spawn/*.rs).
+
+    EO-33 split the former single-file ``sidecar/spawn.rs`` into an
+    orchestrator (``spawn.rs``) + six concern submodules
+    (``spawn/dev_mode.rs``, ``spawn/release_mode.rs``,
+    ``spawn/handshake.rs``, ``spawn/env_allowlist.rs``,
+    ``spawn/prewarm.rs``, ``spawn/target_triple.rs``). The
+    kill-process-tree callers live in the release-mode + dev-mode
+    submodules, so this gate must scan the whole spawn module.
+    """
+    files = [_SPAWN_RS] + sorted(_SPAWN_DIR.glob("*.rs"))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
 
 
 def test_state_rs_kill_process_tree_shim_is_removed() -> None:
@@ -123,25 +140,25 @@ def _is_inside_qualified_path(text: str, offset: int) -> bool:
 
 
 def test_spawn_rs_does_not_reference_state_shim() -> None:
-    """``spawn.rs`` must not call the removed ``crate::state::kill_process_tree``."""
-    body = _read(_SPAWN_RS)
+    """The spawn module must not call the removed ``crate::state::kill_process_tree``."""
+    body = _read_spawn_module()
     assert "crate::state::kill_process_tree" not in body, (
-        "spawn.rs must not reference `crate::state::kill_process_tree` — "
+        "the spawn module must not reference `crate::state::kill_process_tree` — "
         "the shim has been removed; callers must use "
         "`crate::platform::process::kill_process_tree` directly."
     )
 
 
 def test_spawn_rs_uses_platform_module_exactly_four_times() -> None:
-    """All four spawn.rs cleanup callers must route through the platform module.
+    """All spawn-module cleanup callers must route through the platform module.
 
-    The four call sites are:
+    The call sites (across the EO-33 submodules) are:
       1. release-path ``Terminated`` arm — spawn-failure cleanup.
       2. release-path ``Error`` arm — spawn-failure cleanup.
       3. release-path server-started-deadline fallback — kill after timeout.
       4. dev-mode server-started-deadline fallback — kill after timeout.
     """
-    body = _read(_SPAWN_RS)
+    body = _read_spawn_module()
     matches = re.findall(r"crate::platform::process::kill_process_tree\s*\(", body)
     # Six call sites: the four original spawn-timeout / Terminated / Error
     # cleanup paths (which migrated off the state.rs shim) + two later
@@ -151,7 +168,7 @@ def test_spawn_rs_uses_platform_module_exactly_four_times() -> None:
     # spawn.rs must route through the platform module, never resurrect
     # the state.rs shim.
     assert len(matches) == 6, (
-        f"spawn.rs must call `crate::platform::process::kill_process_tree` "
+        f"the spawn module must call `crate::platform::process::kill_process_tree` "
         f"exactly 6 times (4 spawn-timeout/cleanup paths + 2 later "
         f"additions); found {len(matches)}."
     )

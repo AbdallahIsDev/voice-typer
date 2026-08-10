@@ -201,6 +201,20 @@ _MAIN_RUNTIME_CAPABILITY = _CAPABILITIES_DIR / "main-runtime.json"
 _BUBBLE_RUNTIME_CAPABILITY = _CAPABILITIES_DIR / "bubble-runtime.json"
 _MAIN_RS = _SRC_TAURI / "src" / "main.rs"
 _SIDECAR_CMDS_RS = _SRC_TAURI / "src" / "commands" / "sidecar_cmds.rs"
+_SIDECAR_CMDS_DIR = _SRC_TAURI / "src" / "commands" / "sidecar_cmds"
+
+
+def _read_sidecar_cmds_module() -> str:
+    """Concatenate sidecar_cmds.rs + sidecar_cmds/*.rs (EO-35 split).
+
+    EO-35 split the former single-file ``commands/sidecar_cmds.rs``
+    into an orchestrator (``sidecar_cmds.rs``) + four concern
+    submodules (``sidecar_cmds/allowlist.rs``, ``dispatch.rs``,
+    ``shutdown.rs``, ``window_close.rs``). The capability assertions
+    target the module as a whole, so we read every file and join them.
+    """
+    files = [_SIDECAR_CMDS_RS] + sorted(_SIDECAR_CMDS_DIR.glob("*.rs"))
+    return "\n\n".join(p.read_text(encoding="utf-8") for p in files)
 
 
 # ─── Expected wiring constants (single source of truth) ────────────────
@@ -277,7 +291,7 @@ def main_rs_source() -> str:
 def sidecar_cmds_rs_source() -> str:
     """Read src-tauri/src/commands/sidecar_cmds.rs as text."""
     assert _SIDECAR_CMDS_RS.exists(), f"sidecar_cmds.rs not found: {_SIDECAR_CMDS_RS}"
-    return _SIDECAR_CMDS_RS.read_text(encoding="utf-8")
+    return _read_sidecar_cmds_module()
 
 
 # ─── Test 1: capability file exists + is valid JSON ────────────────────
