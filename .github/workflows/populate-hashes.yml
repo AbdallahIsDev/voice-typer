@@ -2,8 +2,8 @@
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
 #   actions/checkout@v5       — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/setup-python@v7   — Node 24 runtime (v5/v6 = Node 20, deprecated)
-#   actions/upload-artifact@v5 — Node 24 runtime (v4 = Node 20, deprecated)
-#   astral-sh/setup-uv@v6     — Node 24 runtime (v3 = Node 20, deprecated)
+#   actions/upload-artifact@v6 — Node 24 runtime (v5 = Node 20, deprecated)
+#   astral-sh/setup-uv@v7     — Node 24 runtime (v6 = Node 20, deprecated)
 # See build.yml header for full rationale + breaking-change analysis.
 # =============================================================================
 
@@ -60,7 +60,7 @@ jobs:
           fetch-depth: 0
 
       # BUILD-N04: replace setup-python + `pip install` with
-      # astral-sh/setup-uv@v6 + `uv pip install --system`. The previous
+      # astral-sh/setup-uv@v7 + `uv pip install --system`. The previous
       # setup-python step rebuilt the wheel cache on every run (no
       # caching) and the bare `pip install` re-resolved every transitive
       # dep from scratch (10-20s per run wasted). setup-uv installs uv
@@ -68,7 +68,7 @@ jobs:
       # persistent wheel cache keyed on pyproject.toml so subsequent
       # runs re-use the cache (~5s install step vs ~25s previously).
       - name: Install uv (with wheel cache)
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -144,7 +144,7 @@ jobs:
 
       - name: Upload patch
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: model-hashes-patch
           path: ${{ github.workspace }}/model-hashes.patch

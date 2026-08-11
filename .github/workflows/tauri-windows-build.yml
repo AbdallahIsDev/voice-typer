@@ -4,9 +4,9 @@
 #   actions/setup-python@v7           — Node 24 runtime (v5/v6 = Node 20, deprecated)
 #   actions/cache@v5                   — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/setup-node@v7              — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/upload-artifact@v5         — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/upload-artifact@v6         — Node 24 runtime (v5 = Node 20, deprecated)
 #   actions/attest-build-provenance@v4 — Node 24 runtime (v1 = Node 16, deprecated)
-#   astral-sh/setup-uv@v6              — Node 24 runtime (v3 = Node 20, deprecated)
+#   astral-sh/setup-uv@v7              — Node 24 runtime (v6 = Node 20, deprecated)
 #   dtolnay/rust-toolchain@v1           — Node 24 runtime (@stable = untagged, may resolve to Node 20)
 # See build.yml header for full rationale + breaking-change analysis.
 # -----------------------------------------------------------------------------
@@ -288,7 +288,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -974,21 +974,21 @@ jobs:
           Write-Host "Smoke test PASSED: sidecar --version exited 0 with project name in output."
 
       - name: Upload NSIS installer artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: tauri-windows-installer
           path: ${{ steps.artifacts.outputs.nsis_path }}
           if-no-files-found: error
 
       - name: Upload MSI installer artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: VoiceTyper-Tauri-MSI
           path: ${{ steps.artifacts.outputs.msi_path }}
           if-no-files-found: warn
 
       - name: Upload sidecar + prewarm + native listener
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: VoiceTyper-Tauri-Sidecar-Binaries
           # TX-40: paths use matrix.target so the aarch64 leg (when enabled)
@@ -1028,7 +1028,7 @@ jobs:
           Get-Content SHA256SUMS.txt
 
       - name: Upload checksums
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: VoiceTyper-Tauri-SHA256SUMS
           path: SHA256SUMS.txt
@@ -1054,7 +1054,7 @@ jobs:
           python scripts/build/update_tauri_manifests.py --check --triple "${{ matrix.target }}"
 
       - name: Upload updated tauri-binaries.json
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: tauri-binaries-manifest-windows
           path: tauri-binaries.json

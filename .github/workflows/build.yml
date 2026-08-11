@@ -4,10 +4,10 @@
 #   actions/setup-python@v7         — Node 24 runtime; removed `pip-install` input (v5/v6 = Node 20)
 #   actions/setup-node@v7            — Node 24 runtime; auto-caching via `packageManager` is opt-in (v4 = Node 20)
 #   actions/cache@v5                 — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/upload-artifact@v5       — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/download-artifact@v5    — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/upload-artifact@v6       — Node 24 runtime (v5 = Node 20, deprecated)
+#   actions/download-artifact@v6    — Node 24 runtime (v5 = Node 20, deprecated)
 #   actions/attest-build-provenance@v4 — Node 24 runtime; wraps actions/attest (v1 = Node 16, deprecated)
-#   astral-sh/setup-uv@v6            — Node 24 runtime (v3 = Node 20, deprecated)
+#   astral-sh/setup-uv@v7            — Node 24 runtime (v6 = Node 20, deprecated)
 #   mikepenz/action-junit-report@v6   — Node 24 runtime (v4 = Node 20, deprecated)
 #   codecov/codecov-action@v5          — Node 24 runtime (v4 = Node 20, deprecated)
 #   peter-evans/create-issue-from-file@v5 — Node 24 runtime (v4 = Node 20, deprecated)
@@ -116,7 +116,7 @@ jobs:
           architecture: ${{ matrix.architecture }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -590,7 +590,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -649,7 +649,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -696,7 +696,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -795,7 +795,7 @@ jobs:
         run: npm run build:renderer
 
       - name: Upload renderer artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: voice-typer-renderer-dist
           path: voice_typer/client/out/renderer/
@@ -946,7 +946,7 @@ jobs:
           echo "Ad-hoc signed: ${{ matrix.binary }}"
 
       - name: Upload native binary artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: native-${{ matrix.platform }}
           path: ${{ matrix.binary }}
@@ -967,13 +967,13 @@ jobs:
       - uses: actions/checkout@v5
 
       - name: Download x64 binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: native-macos-x64
           path: /tmp/macos-x64
 
       - name: Download arm64 binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: native-macos-arm64
           path: /tmp/macos-arm64
@@ -1030,7 +1030,7 @@ jobs:
           echo "Ad-hoc signed universal binary"
 
       - name: Upload universal binary artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: native-macos
           path: voice_typer/server/native/macos-key-listener
@@ -1082,7 +1082,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -1095,7 +1095,7 @@ jobs:
 
       # download the Windows native binary compiled by build-native
       - name: Download Windows native binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: native-windows
           path: voice_typer/server/native/
@@ -1157,7 +1157,7 @@ jobs:
       # CI-05: download the platform-independent renderer built by
       # client-build and only rebuild the platform-specific main + preload.
       - name: Download renderer artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: voice-typer-renderer-dist
           path: voice_typer/client/out/renderer/
@@ -1185,7 +1185,7 @@ jobs:
         run: npx electron-builder --win --config electron-builder.yml --publish never
 
       - name: Upload Windows Electron installer artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: VoiceTyper-Windows-Electron
           path: voice_typer/client/dist/*-setup.exe
@@ -1285,7 +1285,7 @@ jobs:
           architecture: x64
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -1297,7 +1297,7 @@ jobs:
           pip list
 
       - name: Download macOS native binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: native-macos
           path: voice_typer/server/native/
@@ -1330,7 +1330,7 @@ jobs:
       # CI-05: download the platform-independent renderer built by
       # client-build and only rebuild the platform-specific main + preload.
       - name: Download renderer artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: voice-typer-renderer-dist
           path: voice_typer/client/out/renderer/
@@ -1387,7 +1387,7 @@ jobs:
         run: npx electron-builder --mac --config electron-builder.yml --publish never
 
       - name: Upload macOS installer artifact
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: VoiceTyper-macOS
           path: voice_typer/client/dist/*.dmg
@@ -1448,7 +1448,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
           cache-dependency-glob: "**/pyproject.toml"
@@ -1460,7 +1460,7 @@ jobs:
           pip list
 
       - name: Download Linux native binary
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: native-linux
           path: voice_typer/server/native/
@@ -1493,7 +1493,7 @@ jobs:
       # CI-05: download the platform-independent renderer built by
       # client-build and only rebuild the platform-specific main + preload.
       - name: Download renderer artifact
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v6
         with:
           name: voice-typer-renderer-dist
           path: voice_typer/client/out/renderer/
@@ -1556,7 +1556,7 @@ jobs:
         run: npx electron-builder --linux --config electron-builder.yml --publish never
 
       - name: Upload Linux installer artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v6
         with:
           name: VoiceTyper-Linux
           path: |
