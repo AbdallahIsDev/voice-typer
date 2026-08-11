@@ -10,7 +10,7 @@
  */
 import fs from "node:fs";
 
-import { DIM, RESET } from "./colors";
+import { ANSI_ENABLED_FLAG, DIM, RESET } from "./colors";
 import {
 	DEFAULT_CRASH_LOG_MAX_BYTES,
 	DEFAULT_MAIN_LOG_MAX_BYTES,
@@ -461,5 +461,17 @@ export function ts(): string {
 	const h = String(d.getHours()).padStart(2, "0");
 	const m = String(d.getMinutes()).padStart(2, "0");
 	const s = String(d.getSeconds()).padStart(2, "0");
-	return `${DIM}${h}:${m}:${s}${RESET}`;
+	const time = `${h}:${m}:${s}`;
+	// File-redirected output (no terminal — ANSI colors disabled):
+	// prefix the date so a multi-session `electron-stderr.log` is
+	// unambiguous. Mirrors the Python side's timestamp split
+	// (`_iso_timestamp`: terminal = time-only, file = date + time).
+	// A real terminal keeps the time-only dimmed form.
+	if (!ANSI_ENABLED_FLAG) {
+		const y = String(d.getFullYear());
+		const mo = String(d.getMonth() + 1).padStart(2, "0");
+		const day = String(d.getDate()).padStart(2, "0");
+		return `${y}-${mo}-${day}  ${time}`;
+	}
+	return `${DIM}${time}${RESET}`;
 }

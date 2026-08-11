@@ -20,7 +20,15 @@ import { cspEmissionPlugin } from "./csp-plugin";
 // inside the .asar and a sourcemap would expose component structure +
 // any inlined secrets (e.g. theme tokens, fallback strings).
 export default defineConfig(({ command }) => ({
+	// LOG-CLEAN: when stdout is NOT a terminal (launcher redirects the
+	// child's output to electron-stdout.log / electron-stderr.log, CI
+	// pipes, etc.), silence Vite's build progress + dev-server chatter
+	// ("transforming…", "✓ built in …ms", INEFFECTIVE_DYNAMIC_IMPORT
+	// warnings, "dev server running", …) so the log files stay clean.
+	// Errors are still printed at every logLevel. A real terminal keeps
+	// the normal 'info' verbosity.
 	main: {
+		logLevel: process.stdout.isTTY ? "info" : "silent",
 		plugins: [externalizeDepsPlugin()],
 		build: {
 			// R6-F13: never ship main-process sourcemaps — they expose
@@ -36,6 +44,7 @@ export default defineConfig(({ command }) => ({
 		},
 	},
 	preload: {
+		logLevel: process.stdout.isTTY ? "info" : "silent",
 		plugins: [externalizeDepsPlugin()],
 		build: {
 			// R6-F13: preload bundles expose the IPC bridge surface
@@ -58,6 +67,7 @@ export default defineConfig(({ command }) => ({
 		},
 	},
 	renderer: {
+		logLevel: process.stdout.isTTY ? "info" : "silent",
 		root: resolve(__dirname, "src/renderer"),
 		build: {
 			// R6-F13: renderer sourcemaps ON in dev (so React DevTools

@@ -73,7 +73,19 @@ export {
 	DEFAULT_MAIN_LOG_MAX_BYTES,
 	RUNTIME_LOG_MAX_BYTES,
 } from "./constants";
-
+// Structured logger path memoization test seam. Exported alongside
+// `_resetFileSizeCacheForTest` / `_resetRuntimeLogPathForTest` so test
+// suites can reset ALL logging-module memoization state in one import.
+// Not consumed by production code — see the docstring on
+// `_resetMainLogPathForTest` in `./structuredLogger`.
+// Consecutive-identical log deduper (collapses repeat lines into an
+// `(xN)` summary). Exported for `ipc/python-call-handler.ts`, which
+// wraps its `python-call rejected` warns so backend-disconnect retry
+// bursts don't flood the log.
+export {
+	type DedupeRepeatedLogsOptions,
+	dedupeRepeatedLogs,
+} from "./dedupeRepeatedLogs";
 // File-size cache (leaf).
 export { _resetFileSizeCacheForTest } from "./fileSizeCache";
 // Printf-style structured logger + memoized runtime-log path resolver.
@@ -100,11 +112,6 @@ export {
 	rotateIfNeeded,
 	ts,
 } from "./rotation";
-// Structured logger path memoization test seam. Exported alongside
-// `_resetFileSizeCacheForTest` / `_resetRuntimeLogPathForTest` so test
-// suites can reset ALL logging-module memoization state in one import.
-// Not consumed by production code — see the docstring on
-// `_resetMainLogPathForTest` in `./structuredLogger`.
 // Message-first structured logger + path resolvers + opt-in lifecycle
 // persistence. `mainLogPath` / `lifecycleLogPath` /
 // `appendLifecycleLine` are NOT re-exported — they have zero external

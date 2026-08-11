@@ -166,10 +166,10 @@ describe("ER-26: relaunchApp() dev-mode awaits old proc exit before startPython(
 		expect(mockStopPython).toHaveBeenCalledTimes(1);
 	});
 
-	it.skip("calls clearTcpStartupTimeout() before startPython() (ER-29 fresh 60s window)", async () => {
-		// Skipped: clearTcpStartupTimeout is now module-local in tcp-connect;
-		// relaunchApp clears _tcpRetryTimer inline (the two timers are
-		//distinct).  fresh 60s window is established by tcpConnect.
+	it("calls clearTcpStartupTimeout() before startPython() (ER-29 fresh 60s window)", async () => {
+		// TC-41: un-skipped — relaunchApp() clears the 60s startup timeout
+		// as its FIRST action, before any restart spawn, so a stale timer
+		// can't fire mid-restart and trip a false "backend failed to start".
 		vi.resetModules();
 		const { relaunchApp } = await import("../relaunch-app");
 		const proc = makeMockProc();

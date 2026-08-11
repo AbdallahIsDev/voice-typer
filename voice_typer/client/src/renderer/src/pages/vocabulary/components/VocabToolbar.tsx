@@ -40,7 +40,7 @@ export function VocabToolbar({
 	clearAllDisabled,
 }: VocabToolbarProps) {
 	return (
-		<div className="flex items-center gap-2">
+		<div className="flex flex-wrap items-center gap-2">
 			{/* Hidden file input for the Import button (mirrors
 		the Templates pattern). */}
 			<input
@@ -66,6 +66,13 @@ export function VocabToolbar({
 				{t("common.import")}
 			</Button>
 			<ExportFormatMenu onExport={onExport} disabled={exportDisabled} />
+			{/* Vertical divider separating the read/import actions from
+			    the destructive Clear All affordance — the destructive
+			    button gets pushed to the far end of the toolbar so the
+			    destructive zone is visually distinct from the create
+			    action (mirrors the History action row). ``hidden sm:block``
+			    keeps the divider from dangling at the start of a wrapped
+			    line when the toolbar wraps on very narrow windows. */}
 			<Button
 				variant="outline"
 				size="sm"
@@ -80,6 +87,10 @@ export function VocabToolbar({
 				<HugeiconsIcon icon={Add01Icon} strokeWidth={2} className="h-4 w-4" />
 				{t("vocabulary.addWord")}
 			</Button>
+			<div
+				aria-hidden="true"
+				className="mx-0.5 hidden h-4 w-px bg-border sm:block"
+			/>
 			<Button
 				variant="outline"
 				size="sm"

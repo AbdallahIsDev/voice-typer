@@ -209,6 +209,50 @@ function withCommandTimeout<T>(promise: Promise<T>, cmd: string): Promise<T> {
 	});
 }
 
+/**
+ * VP-6: Parse a Tauri ``invoke`` rejection string into a real ``Error``.
+ *
+ * On Tauri v2, when the Rust ``dispatch`` command returns ``Err``, the
+ * ``invoke`` promise rejects with the raw ``e.to_string()`` — which for
+ * structured errors is the JSON-serialized envelope
+ * ``{"type":"error","data":{"code":"...","message":"..."}}``
+ * (see ``src-tauri/src/commands/sidecar_cmds/dispatch.rs``). The
+ * Electron path resolves the SAME envelope shape as a successful value,
+ * which the ``type === "error"`` check in ``call`` turns into an
+ * ``Error`` with ``err.code`` stamped. This helper makes the Tauri path
+ * behave identically, so callers branching on ``err.code`` (e.g.
+ * ``command_timeout`` vs ``backend_not_connected``) work on BOTH
+ * runtimes instead of silently falling through to a generic error on
+ * Tauri (VP-6).
+ *
+ * Returns ``null`` when the string is NOT a structured error envelope
+ * (e.g. the Rust ``dispatch timeout (120s)`` plain-string rejection) —
+ * the caller falls back to ``new Error(raw)``.
+ */
+export function parseTauriErrorEnvelope(raw: string): Error | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(raw);
+	} catch {
+		// Not JSON — a plain-string rejection (e.g. "dispatch timeout (120s)").
+		return null;
+	}
+	if (typeof parsed !== "object" || parsed === null) return null;
+	const envelope = parsed as {
+		type?: unknown;
+		data?: { code?: unknown; message?: unknown };
+	};
+	if (envelope.type !== "error" || !envelope.data) return null;
+	const msg =
+		typeof envelope.data.message === "string" ? envelope.data.message : raw;
+	const err = new Error(msg);
+	const code = envelope.data.code;
+	if (typeof code === "string" && code.length > 0) {
+		(err as { code?: string }).code = code;
+	}
+	return err;
+}
+
 //bridge-ready subscription via useSyncExternalStore ────────
 //
 // `usePythonEvent` previously returned early from its `useEffect` when
@@ -533,7 +577,22 @@ export function usePython() {
 				)) as Record<string, unknown>;
 			} catch (err) {
 				if (err instanceof Error) throw err;
-				throw new Error(typeof err === "string" ? err : "unknown IPC error");
+				// VP-6: on Tauri the Rust `dispatch` command rejects the
+				// invoke promise with a raw STRING — for structured errors
+				// it's the JSON-serialized `{type:"error", data:{code,
+				// message}}` envelope (sidecar_cmds/dispatch.rs). Parse it
+				// so `err.code` is stamped and callers that branch on the
+				// failure class work on Tauri exactly as they do on
+				// Electron (previously the whole JSON string became the
+				// message and `code` was dropped, so
+				// `err.code === "command_timeout"` checks silently fell
+				// through on Tauri).
+				if (typeof err === "string") {
+					const parsed = parseTauriErrorEnvelope(err);
+					if (parsed) throw parsed;
+					throw new Error(err);
+				}
+				throw new Error("unknown IPC error");
 			}
 			//(d-review ): handle BOTH error
 			// envelope shapes that can flow back over the Electron

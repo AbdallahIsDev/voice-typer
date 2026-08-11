@@ -64,13 +64,61 @@ describe("TitleBar", () => {
 		const closeBtn = screen.getByLabelText("Close");
 		expect(closeBtn).toBeTruthy();
 		const cls = closeBtn.className;
-		// The destructive token replacement.
+		// The destructive token replacement (hover/focus ONLY — the
+		// resting state must stay neutral like a platform title bar).
 		expect(cls).toContain("hover:bg-destructive");
 		expect(cls).toContain("hover:text-destructive-foreground");
 		expect(cls).toContain("focus-visible:bg-destructive");
 		expect(cls).toContain("focus-visible:text-destructive-foreground");
 		// The hardcoded hex must be gone.
 		expect(cls).not.toContain("#C42B1C");
+	});
+
+	it("close button is neutral at rest (no red tint / destructive variant class)", () => {
+		const bridge = makeBridge();
+		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
+		render(
+			<TitleBar
+				onToggleSidebar={() => {}}
+				isMaximized={false}
+				onOpenHelp={() => {}}
+			/>,
+		);
+		const closeBtn = screen.getByLabelText("Close");
+		const cls = closeBtn.className;
+		// The `destructive` cva variant paints `bg-destructive/10` at
+		// REST (a red wash over the whole hit target). The close
+		// button must use the neutral ghost base + destructive hover
+		// so it stays clean until hovered/focused.
+		expect(cls).toContain("hover:bg-destructive");
+		expect(cls).not.toContain("bg-destructive/10");
+		expect(cls).not.toContain("bg-destructive/20");
+		expect(cls).not.toContain("dark:bg-destructive/20");
+	});
+
+	it("window-control icons pin size-3.5 so the shared Button 16px svg rule cannot stretch them", () => {
+		const bridge = makeBridge();
+		(window as unknown as { window_?: WindowBridge }).window_ = bridge;
+		const { container } = render(
+			<TitleBar
+				onToggleSidebar={() => {}}
+				isMaximized={false}
+				onOpenHelp={() => {}}
+			/>,
+		);
+		// Minimize + Maximize + Close icons live inside the three
+		// window-control buttons (data-slot="button" marks the shared
+		// Button). Each glyph svg must carry the explicit size-3.5
+		// (14px) class; otherwise the Button base rule
+		// `[&_svg:not([class*='size-'])]:size-4` inflates the 10x10
+		// glyphs to 16px.
+		const svgs = container.querySelectorAll(
+			'[data-slot="button"] svg[aria-hidden="true"]',
+		);
+		expect(svgs.length).toBe(3);
+		for (const svg of svgs) {
+			expect(svg.getAttribute("class")).toContain("size-3.5");
+		}
 	});
 
 	it("PROD-9: minimize/maximize buttons keep the neutral hover (not destructive)", () => {

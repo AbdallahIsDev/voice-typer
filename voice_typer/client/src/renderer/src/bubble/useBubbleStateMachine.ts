@@ -45,12 +45,16 @@ import {
 	useRef,
 	useState,
 } from "react";
-import type { AnimState, BubbleMode } from "./constants";
+import {
+	type AnimState,
+	type BubbleMode,
+	nextBubbleMode,
+	parseSetStatePayload,
+} from "./constants";
 import { useBubbleBridge } from "./useBubbleBridge";
 
 export interface BubbleStateMachine {
 	mode: BubbleMode;
-	setMode: Dispatch<SetStateAction<BubbleMode>>;
 	animState: AnimState;
 	setAnimState: Dispatch<SetStateAction<AnimState>>;
 	exitTick: number;
@@ -63,45 +67,6 @@ export interface BubbleStateMachine {
 	 * yet. Cleared on transition to a non-transcribing mode.
 	 */
 	transcript: string | null;
-}
-
-/**
- * Normalise the `bubble:set-state` payload into a state string + an
- * optional message + an optional partial transcript. The IPC type is
- * `(state: string) => void`, but the runtime payload MAY be a richer
- * object once the backend + main process are extended to forward error
- * reasons (`message`) or live partial transcription text (`transcript`,
- * XA-6-2). Defensive duck-typing keeps this hook forward-compatible
- * without requiring a type-system change to
- * `BubbleWindowExtras.onSetState`.
- */
-function parseSetStatePayload(arg: unknown): {
-	state: string;
-	message: string | null;
-	transcript: string | null;
-} {
-	if (typeof arg === "string") {
-		return { state: arg, message: null, transcript: null };
-	}
-	if (arg && typeof arg === "object" && "state" in arg) {
-		const obj = arg as {
-			state: unknown;
-			message?: unknown;
-			transcript?: unknown;
-		};
-		const stateStr =
-			typeof obj.state === "string" ? obj.state : String(obj.state);
-		const message =
-			typeof obj.message === "string" && obj.message.length > 0
-				? obj.message
-				: null;
-		const transcript =
-			typeof obj.transcript === "string" && obj.transcript.length > 0
-				? obj.transcript
-				: null;
-		return { state: stateStr, message, transcript };
-	}
-	return { state: String(arg), message: null, transcript: null };
 }
 
 export function useBubbleStateMachine(): BubbleStateMachine {
@@ -134,18 +99,19 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 			// Don't override transcribing/fading mode if a state change
 			// arrived before our show() event. This prevents a race
 			// where the backend calls set_state("transcribing") and
-			// then show() is re-triggered.
-			setMode((prev) => {
-				if (prev === "transcribing") return prev;
-				return "recording";
-			});
+			// then show() is re-triggered. The transition table is the
+			// shared `nextBubbleMode` reducer (IN-62 single source of
+			// truth) — the bridge's authoritative mode ref applies the
+			// same function to the same event, so the two stay in
+			// lockstep by construction.
+			setMode((prev) => nextBubbleMode(prev, { type: "show" }));
 		});
 
 		const offHide = bridge.on("hide", () => {
 			// Two-stage transition when leaving transcribing state:
 			// first fade the transcribing content out smoothly, then
 			// trigger the bubble exit animation.
-			setMode((prev) => (prev === "transcribing" ? "fading" : prev));
+			setMode((prev) => nextBubbleMode(prev, { type: "hide" }));
 			setExitTick((t) => t + 1);
 		});
 
@@ -191,22 +157,7 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 				return;
 			}
 
-			setMode((prev) => {
-				// Ignore non-recording state changes while fading out
-				// (exit in progress) — the recording-interrupt case is
-				// handled above.
-				if (prev === "fading") return prev;
-
-				if (state === "transcribing") return "transcribing";
-				if (state === "idle") return "idle";
-				if (state === "recording") return "recording";
-				if (state === "error") return "error";
-				if (state === "blocked") return "blocked";
-				if (state === "cancelling") return "cancelling";
-				if (state === "permission_revoked") return "permission_revoked";
-				if (state === "paste_failed") return "paste_failed";
-				return prev;
-			});
+			setMode((prev) => nextBubbleMode(prev, { type: "setState", state }));
 
 			// Surface / clear the error reason string. Only update
 			// `errorMessage` when entering error mode (or when leaving
@@ -239,7 +190,6 @@ export function useBubbleStateMachine(): BubbleStateMachine {
 
 	return {
 		mode,
-		setMode,
 		animState,
 		setAnimState,
 		exitTick,

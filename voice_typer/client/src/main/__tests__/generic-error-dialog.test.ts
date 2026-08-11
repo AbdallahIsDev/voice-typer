@@ -1,8 +1,9 @@
 // @vitest-environment node
 /**
  *  unit tests: python-call-handler returns a generic localized
- * message for command_failed (not the raw Python traceback); the full
- * errMsg is logged server-side via logger.warn.
+ * message for command_failed (not the raw Python traceback); the
+ * logged errMsg is bounded (HU-26: first line, ≤200 chars) so PII
+ * from Python tracebacks can't accumulate in electron-main.log.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,6 +29,11 @@ vi.mock("../logging", () => ({
 		error: vi.fn(),
 		debug: vi.fn(),
 	},
+	// The dedup wrapper added for the "collapse repeated python-call
+	// rejected lines" work — python-call-handler imports it; the mock
+	// must provide it (identity passthrough keeps the assertion surface
+	// unchanged).
+	dedupeRepeatedLogs: <T extends (...args: never[]) => unknown>(fn: T): T => fn,
 }));
 vi.mock("../python", () => ({
 	sendToPython: mocks.sendToPython,
@@ -59,10 +65,10 @@ describe("DE-86: python-call-handler returns generic message for command_failed"
 	});
 
 	it("command_failed: returns generic localized message, NOT the raw Python error", async () => {
-		//production was returning the raw errMsg (Python traceback
+		// production was returning the raw errMsg (Python traceback
 		// with filesystem paths) as `_error`. Fixed to return the generic
-		// ERROR_MESSAGES[code] for command_failed. Full errMsg is still
-		// logged server-side via logger.warn.
+		// ERROR_MESSAGES[code] for command_failed. A bounded form of
+		// errMsg is logged server-side (HU-26) — never forwarded.
 		// Simulate a Python traceback that includes a filesystem
 		// path and user data — must NOT leak to the renderer.
 		const pythonErr = new Error(
@@ -83,7 +89,12 @@ describe("DE-86: python-call-handler returns generic message for command_failed"
 		expect(result._error).not.toContain("user_utterance_text");
 	});
 
-	it("command_failed: logs the full errMsg server-side via logger.warn", async () => {
+	it("command_failed: logs the first line of errMsg server-side via logger.warn", async () => {
+		// HU-26: the logged error is the first line of errMsg, capped at
+		// MAX_LOG_ERROR_CHARS (200). A short single-line message (like
+		// this 73-char KeyError) passes through intact so support staff
+		// can diagnose — but multi-line tracebacks and >200-char
+		// messages are bounded (see the two truncation tests below).
 		const pythonErr = new Error(
 			"KeyError: 'user_utterance_text' at /home/user/.voice-typer/history.db:42",
 		);
@@ -91,9 +102,6 @@ describe("DE-86: python-call-handler returns generic message for command_failed"
 
 		await handler({}, { type: "get_config" });
 
-		// The full error (with paths / user data) MUST be logged
-		// server-side so support staff can diagnose — just not
-		// forwarded to the renderer.
 		expect(mocks.loggerWarn).toHaveBeenCalledWith(
 			"python-call failed",
 			expect.objectContaining({
@@ -101,6 +109,62 @@ describe("DE-86: python-call-handler returns generic message for command_failed"
 				error: expect.stringContaining("/home/user/.voice-typer/history.db"),
 			}),
 		);
+	});
+
+	it("command_failed: multi-line tracebacks are cut to the first line when logged", async () => {
+		// HU-26: the raw traceback body (frame lines with filesystem
+		// paths) must NOT land in electron-main.log — only the first
+		// line is persisted; the backend writes the full detail to
+		// voice-typer.log.
+		const pythonErr = new Error(
+			"KeyError: 'user_utterance_text'\n  at /home/user/.voice-typer/history.db:42\n  at Object.call (/src/main/ipc/python-call-handler.ts:132)",
+		);
+		mocks.sendToPython.mockRejectedValueOnce(pythonErr);
+
+		await handler({}, { type: "get_config" });
+
+		expect(mocks.loggerWarn).toHaveBeenCalledWith(
+			"python-call failed",
+			expect.objectContaining({
+				error: expect.stringContaining("KeyError: 'user_utterance_text'"),
+			}),
+		);
+		// The second+ lines (frame paths) must NOT be logged.
+		const logged = mocks.loggerWarn.mock.calls.find(
+			(c: unknown[]) => c[0] === "python-call failed",
+		);
+		const loggedError = String(
+			(logged?.[1] as { error?: string } | undefined)?.error ?? "",
+		);
+		expect(loggedError).not.toContain("\n");
+		expect(loggedError).not.toContain("/home/user/.voice-typer");
+	});
+
+	it("command_failed: over-length first lines are truncated with a marker", async () => {
+		// HU-26: a single-line error longer than MAX_LOG_ERROR_CHARS
+		// (200) is truncated so a user-supplied echo (e.g. a ValueError
+		// embedding dictated text) can't bloat the log unboundedly.
+		const longMessage = `ValueError: invalid input: ${"x".repeat(300)}`;
+		mocks.sendToPython.mockRejectedValueOnce(new Error(longMessage));
+
+		await handler({}, { type: "get_config" });
+
+		expect(mocks.loggerWarn).toHaveBeenCalledWith(
+			"python-call failed",
+			expect.objectContaining({
+				error: expect.stringContaining("… (truncated)"),
+			}),
+		);
+		const logged = mocks.loggerWarn.mock.calls.find(
+			(c: unknown[]) => c[0] === "python-call failed",
+		);
+		const loggedError = String(
+			(logged?.[1] as { error?: string } | undefined)?.error ?? "",
+		);
+		expect(loggedError.length).toBeLessThanOrEqual(
+			200 + "… (truncated)".length,
+		);
+		expect(loggedError).not.toContain("x".repeat(300));
 	});
 
 	it.skip("command_timeout: returns the timeout message (already generic) with _code 'command_timeout'", async () => {

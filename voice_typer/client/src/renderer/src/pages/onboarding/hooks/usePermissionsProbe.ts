@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePython } from "@/hooks/usePython";
+import type { PermissionsResult } from "@/types/ipc";
 import { TEST_HOTKEY_TIMEOUT_MS } from "../lib/constants";
-import type { PermissionsResult, PermissionsTestState } from "../lib/types";
+import type { PermissionsTestState } from "../lib/types";
 
 export interface UsePermissionsProbeResult {
 	permissionsResult: PermissionsResult | null;

@@ -20,6 +20,7 @@ import { useConnection } from "@/hooks/useConnection";
 import { useConnectionToasts } from "@/hooks/useConnectionToasts";
 import { useGlobalKeyboardShortcuts } from "@/hooks/useGlobalKeyboardShortcuts";
 import { useHelpOverlayShortcut } from "@/hooks/useHelpOverlayShortcut";
+import { useLastResortUnloadedToast } from "@/hooks/useLastResortUnloadedToast";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { useNavigation } from "@/hooks/useNavigation";
 import { useOnboardingComplete } from "@/hooks/useOnboardingComplete";
@@ -276,6 +277,13 @@ export default function App() {
 
 	// paste_failed toast — extracted to `usePasteFailedToast` (EO-28).
 	usePasteFailedToast(t);
+
+	// asr_last_resort_unloaded toast — surfaces the Models-page pointer
+	// as an IN-APP toast so the user still sees it when OS tray
+	// notifications are disabled (the tray path is gated behind the
+	// "Show Notifications" toggle). The toast's "Open Models" action
+	// mirrors the host notification's ``click_path: "/models"``.
+	useLastResortUnloadedToast(t, () => navigate("models"));
 
 	// consent_required toast — GDPR Art. 9 dictation gate. The backend
 	// publishes this event (recording_lifecycle.py) when dictation

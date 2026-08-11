@@ -12,7 +12,10 @@ import { defineConfig, externalizeDepsPlugin } from "electron-vite";
 // anyone who unzips the .asar. See electron.vite.config.ts for the
 // full rationale.
 export default defineConfig({
+	// LOG-CLEAN: non-TTY (CI pipes, launcher log-file redirects) →
+	// silence Vite build chatter; errors still print at every logLevel.
 	main: {
+		logLevel: process.stdout.isTTY ? "info" : "silent",
 		plugins: [externalizeDepsPlugin()],
 		build: {
 			// R6-F13: never ship main-process sourcemaps.
@@ -26,6 +29,7 @@ export default defineConfig({
 		},
 	},
 	preload: {
+		logLevel: process.stdout.isTTY ? "info" : "silent",
 		plugins: [externalizeDepsPlugin()],
 		build: {
 			// R6-F13: never ship preload sourcemaps — they expose every

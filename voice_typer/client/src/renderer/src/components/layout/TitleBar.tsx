@@ -27,6 +27,14 @@ interface TitleBarProps {
 	onOpenHelp?: () => void;
 }
 
+// Shared window-control glyph style. NOTE: the shared <Button>
+// component applies ``[&_svg:not([class*='size-'])]:size-4``, which
+// would stretch these 10x10 viewBox glyphs to 16px — so each icon
+// pins ``size-3.5`` (14px) to keep the glyphs crisp and consistent
+// with the 32px title bar. The icons are purely decorative (the
+// wrapping button carries the aria-label), so ``aria-hidden`` with NO
+// child <title> (a <title> inside an aria-hidden SVG is dropped by
+// screen readers AND duplicates the button's label).
 function MinimizeIcon() {
 	return (
 		<svg
@@ -34,9 +42,8 @@ function MinimizeIcon() {
 			height="10"
 			viewBox="0 0 10 10"
 			aria-hidden
-			className="fill-current"
+			className="size-3.5 fill-current"
 		>
-			<title>{t("titleBar.minimize")}</title>
 			<rect x="0" y="8" width="10" height="1" />
 		</svg>
 	);
@@ -49,10 +56,9 @@ function MaximizeIcon() {
 			height="10"
 			viewBox="0 0 10 10"
 			aria-hidden
-			className="stroke-current fill-none"
+			className="size-3.5 stroke-current fill-none"
 			strokeWidth="1.25"
 		>
-			<title>{t("titleBar.maximize")}</title>
 			<rect x="0.5" y="0.5" width="9" height="9" />
 		</svg>
 	);
@@ -65,10 +71,9 @@ function RestoreIcon() {
 			height="10"
 			viewBox="0 0 10 10"
 			aria-hidden
-			className="stroke-current fill-none"
+			className="size-3.5 stroke-current fill-none"
 			strokeWidth="1.25"
 		>
-			<title>{t("titleBar.restore")}</title>
 			<path d="M3 0.5 H9.5 V7" />
 			<rect x="0.5" y="2.5" width="7" height="7" />
 		</svg>
@@ -82,10 +87,9 @@ function CloseIcon() {
 			height="10"
 			viewBox="0 0 10 10"
 			aria-hidden
-			className="stroke-current"
+			className="size-3.5 stroke-current"
 			strokeWidth="1.25"
 		>
-			<title>{t("titleBar.close")}</title>
 			<line x1="0.5" y1="0.5" x2="9.5" y2="9.5" />
 			<line x1="9.5" y1="0.5" x2="0.5" y2="9.5" />
 		</svg>
@@ -118,24 +122,31 @@ function TitleBarButton({
 	// entirely (breaking keyboard activation, screen-reader semantics,
 	// and `getByRole("button")`). A real <button> wrapping the icon is
 	// required.
+	//
+	// The close button uses the `ghost` base + a destructive HOVER
+	// (matching platform convention: neutral at rest, red on hover)
+	// rather than the `destructive` cva variant, whose resting state
+	// paints a `bg-destructive/10` red tint over the whole hit target.
 	return (
 		<Button
 			type="button"
-			variant={isClose ? "destructive" : "ghost"}
+			variant="ghost"
 			size="icon-sm"
 			onClick={onClick}
 			aria-label={ariaLabel}
 			className={cn(
-				"no-drag group",
+				"no-drag",
 				"h-8 w-11.5 rounded-none border-0",
 				"text-(--text-muted) transition-colors duration-150",
-				// theme-aware hover: ghost variant already has hover:bg-muted,
-				// but the title bar uses the muted text/foreground pair
-				// for visual consistency with the non-button chrome.
+				// theme-aware hover: the ghost variant's default
+				// hover:bg-muted is overridden so the title bar uses
+				// the muted text/foreground pair for visual consistency
+				// with the non-button chrome.
 				isClose
 					? cn(
 							//destructive tokens so the close button
-							// follows the active theme's destructive palette.
+							// follows the active theme's destructive palette —
+							// applied on hover/focus ONLY (neutral at rest).
 							"hover:bg-destructive hover:text-destructive-foreground",
 							"focus-visible:bg-destructive focus-visible:text-destructive-foreground",
 						)
@@ -234,7 +245,6 @@ function TitleBarInner({
 				)}
 			>
 				<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-					<title>{t("titleBar.back")}</title>
 					<path
 						d="M10 12L6 8L10 4"
 						stroke="currentColor"
@@ -260,7 +270,6 @@ function TitleBarInner({
 				)}
 			>
 				<svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-					<title>{t("titleBar.forward")}</title>
 					<path
 						d="M6 4L10 8L6 12"
 						stroke="currentColor"

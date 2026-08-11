@@ -2,8 +2,9 @@ import type { Ref } from "react";
 import { Spinner } from "@/components/feedback/Spinner";
 import { Button } from "@/components/ui/button";
 import { t } from "@/i18n/i18n";
+import type { PermissionsResult } from "@/types/ipc";
 import { HEADING_CLASS } from "../lib/constants";
-import type { PermissionsResult, PermissionsTestState } from "../lib/types";
+import type { PermissionsTestState } from "../lib/types";
 
 export interface PermissionsStepProps {
 	headingRef: Ref<HTMLHeadingElement>;

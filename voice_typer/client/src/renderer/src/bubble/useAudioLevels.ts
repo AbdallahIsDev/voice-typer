@@ -22,13 +22,7 @@
  * can't re-arm the loop behind the user's back.
  */
 import { type RefObject, useCallback, useEffect, useRef } from "react";
-import {
-	type BubbleMode,
-	DOT_COUNT,
-	DOT_WEIGHTS,
-	MAX_HEIGHT,
-	MIN_HEIGHT,
-} from "./constants";
+import { DOT_COUNT, DOT_WEIGHTS, MAX_HEIGHT, MIN_HEIGHT } from "./constants";
 import { rmsToNorm } from "./helpers";
 import { useBubbleBridge } from "./useBubbleBridge";
 
@@ -137,20 +131,23 @@ export function useAudioLevels(
 
 	// Combined recording-mode tracking + rAF setup + onLevel subscription.
 	//
-	// Known issue (duplicate mode tracker): the bubble's `mode` is
-	// tracked TWICE — once here in a local `let mode` closure variable,
-	// and once in `useBubbleStateMachine` (the source of truth that
-	// drives the rendered pill content). The two trackers can drift if
-	// an `onSetState` event arrives during a render commit boundary.
-	// The closure tracker is necessary because `useAudioLevels` needs
-	// synchronous access to the mode to gate the rAF loop without
-	// re-subscribing on every mode change (which would cancel and
-	// re-arm the loop, causing visible stutter). A proper fix would
-	// lift the recording flag into a shared ref owned by
-	// `useBubbleStateMachine` and consumed here via a ref getter —
-	// deferred to a future refactor because it touches the
-	// state-machine's public surface and would require coordinated
-	// test updates across both hooks.
+	// IN-62 (single source of truth): the bubble's `mode` is NO LONGER
+	// tracked in a local closure here. `useBubbleBridge` owns the
+	// authoritative mode ref, kept in lockstep with the show / hide /
+	// setState event stream by the shared `nextBubbleMode` reducer —
+	// updated BEFORE handlers fan out, so this hook's handlers always
+	// observe the current event's resulting mode regardless of
+	// registration order. This hook reads `bridge.getMode()` in its
+	// handlers and mirrors just the boolean `recordingRef` for
+	// synchronous rAF-loop gating. The previous duplicate `let mode`
+	// closure could drift from `useBubbleStateMachine`'s React state
+	// (two independent implementations of the same transition table);
+	// now both consume the same reducer, so drift is impossible by
+	// construction. This also means the visualizer + onLevel
+	// subscription correctly stop for ALL non-recording modes,
+	// including `blocked` / `cancelling` / `permission_revoked` /
+	// `paste_failed` (which the old local tracker silently ignored,
+	// leaving the bars animating behind a non-recording pill).
 	//
 	// IPC subscriptions: this hook registers handlers on the shared
 	// `useBubbleBridge` emitter (one of N consumers) instead of
@@ -163,17 +160,16 @@ export function useAudioLevels(
 	// `level`).
 	//
 	// Mitigation applied here: the `onLevel` IPC subscription is
-	// DYNAMICALLY gated on `mode === "recording"`. Audio-peak IPC
-	// events fire at ~50-60 Hz from the Python backend while the
+	// DYNAMICALLY gated on the mode being `"recording"`. Audio-peak
+	// IPC events fire at ~50-60 Hz from the Python backend while the
 	// recorder is running; when the bubble is in `transcribing` /
-	// `idle` / `error` / `fading` mode those events are pure waste
-	// (the visualizer doesn't render those peaks). Subscribing only
-	// while in recording mode saves the IPC marshalling cost during
-	// the ~90% of the bubble's lifetime it spends NOT recording.
+	// `idle` / `error` / `fading` (or any mid-flow) mode those events
+	// are pure waste (the visualizer doesn't render those peaks).
+	// Subscribing only while in recording mode saves the IPC
+	// marshalling cost during the ~90% of the bubble's lifetime it
+	// spends NOT recording.
 	useEffect(() => {
 		if (!bridge) return;
-
-		let mode: BubbleMode = "recording";
 
 		const onLevel = (data: { rms: number; peak: number }) => {
 			const norm = rmsToNorm(data.rms);
@@ -199,7 +195,7 @@ export function useAudioLevels(
 		};
 
 		const sync = () => {
-			const isRecording = mode === "recording";
+			const isRecording = bridge.getMode() === "recording";
 			recordingRef.current = isRecording;
 			// Dynamic onLevel gating — see comment above.
 			if (isRecording) {
@@ -322,23 +318,18 @@ export function useAudioLevels(
 		reducedMotionMql?.addEventListener("change", handleReducedMotionChange);
 
 		const offShow = bridge.on("show", () => {
-			mode = mode === "transcribing" ? "transcribing" : "recording";
+			// The bridge's mode ref is already updated for this event
+			// (show → recording, unless transcribing) — just re-sync
+			// the recording gate + level subscription.
 			sync();
 			wake();
 		});
-		const offSetState = bridge.on("setState", (stateArg) => {
-			const state = typeof stateArg === "string" ? stateArg : String(stateArg);
-			if (mode === "fading") return;
-			if (
-				state === "transcribing" ||
-				state === "idle" ||
-				state === "recording" ||
-				state === "error"
-			) {
-				mode = state;
-				sync();
-				if (mode === "recording") wake();
-			}
+		const offSetState = bridge.on("setState", () => {
+			// Mode ref already reflects this setState transition (see
+			// the IN-62 comment above) — re-sync, then re-arm the rAF
+			// loop when the new mode is recording.
+			sync();
+			if (bridge.getMode() === "recording") wake();
 		});
 
 		// Establish the initial subscription state for `onLevel`.

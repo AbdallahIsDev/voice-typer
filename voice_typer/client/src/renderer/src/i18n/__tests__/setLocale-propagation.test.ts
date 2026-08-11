@@ -405,6 +405,31 @@ describe("NH-4: trayLabelsForLocale helper", () => {
 		});
 		expect(labels).not.toHaveProperty("microphones");
 	});
+
+	it("includes server-notification labels when the keys are registered (HU-17)", () => {
+		// The Python sidecar's tray notifications (config-load failure,
+		// state changes) must follow the renderer locale: these keys are
+		// pushed through the same `set_tray_locale` payload so the
+		// server's global i18n registry can resolve them (HU-17).
+		registerTranslations("en", {
+			models: { title: "Models" },
+			microphone: { microphone: "Microphone" },
+			error: {
+				config_load_failed: {
+					title: "Config load failed",
+					body: "Config load failed. Settings were reset to defaults.",
+				},
+			},
+			state: { app: { starting: "Starting..." } },
+		});
+		setLocale("en" as Locale);
+		const labels = trayLabelsForLocale();
+		expect(labels["error.config_load_failed.title"]).toBe("Config load failed");
+		expect(labels["error.config_load_failed.body"]).toBe(
+			"Config load failed. Settings were reset to defaults.",
+		);
+		expect(labels["state.app.starting"]).toBe("Starting...");
+	});
 });
 
 describe("NH-2/NH-3/NH-4 combined: a single setLocale call triggers all propagations", () => {

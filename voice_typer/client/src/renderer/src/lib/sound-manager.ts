@@ -146,15 +146,18 @@ function isEnabled(): boolean {
 
 /**
  * Update the in-memory visual-feedback-enabled flag and persist to
- * localStorage. Mirrors ``setSoundFeedbackEnabled`` — same callers
- * (Settings toggle + App config-load sync) and same fallback semantics
- * (in-memory flag still works if localStorage is unavailable).
+ * localStorage. Mirrors ``setSoundFeedbackEnabled`` — same persistence
+ * semantics (in-memory flag still works if localStorage is unavailable).
  *
- * Called from:
- *  - Settings.tsx (the Accessibility toggle — owned by another agent).
- *  - App.tsx on initial config load (syncs the localStorage flag with
- *    ``config.visual_feedback_enabled`` so a fresh install matches the
- *    persisted config, mirroring the sound-feedback-enabled sync flow).
+ * NOTE (VP-18): as of this fix there is NO production caller — the
+ * visual-mirror feature (deaf-accessibility) is wired via the
+ * ``onVisualCue`` callback path in ``useSoundFeedback``, which reads
+ * the flag through ``isVisualFeedbackEnabled``; ``useSoundFeedback``
+ * re-exports this module's symbols for importers that predate the
+ * ``onVisualCue`` refactor, and the unit tests in
+ * ``lib/__tests__/sound-manager.test.ts`` exercise this function
+ * directly. A future Settings → Accessibility toggle should call this
+ * when ``config.visual_feedback_enabled`` changes.
  *
  * C-DATA-1: this is a pure local-storage write — NO network call.
  */
@@ -173,19 +176,22 @@ export function setVisualFeedbackEnabled(enabled: boolean): void {
 }
 
 /**
- * Read the visual-feedback-enabled flag. Returns true when the App
- * should pass an ``onVisualCue`` callback to ``useSoundFeedback`` so
- * each sound cue is mirrored as a visual pulse.
+ * Read the visual-feedback-enabled flag. Returns true when the visual
+ * mirror should be active (each sound cue mirrored as a visual pulse
+ * for deaf / hard-of-hearing users).
  *
- * Used by App.tsx (the visual-rendering owner) to decide whether to
- * wire the ``onVisualCue`` callback. Reads localStorage on every call
- * (no IPC round-trip) — same pattern as ``isSoundFeedbackEnabled``.
+ * NOTE (VP-18): the ``useSoundFeedback`` hook's ``onVisualCue``
+ * callback path is the production wiring for the visual mirror; this
+ * getter is used by ``useSoundFeedback``'s re-export consumers and by
+ * the unit tests. It is NOT called by App.tsx (the previous docstring
+ * claim was stale). Reads localStorage on every call (no IPC
+ * round-trip) — same pattern as ``isSoundFeedbackEnabled``.
  *
  * Default: false — the visual mirror is opt-in. Sight+hearing users
  * don't see redundant visual noise; deaf / hard-of-hearing users
- * explicitly enable it via Settings → Accessibility (or it's auto-
- * enabled when the OS reports a screen reader / captioning preference
- * — future work, not implemented here).
+ * explicitly enable it (or it's auto-enabled when the OS reports a
+ * screen reader / captioning preference — future work, not implemented
+ * here).
  */
 export function isVisualFeedbackEnabled(): boolean {
 	try {

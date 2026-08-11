@@ -182,7 +182,7 @@ export default function DashboardPage() {
 				/>
 			) : (
 				<div className="space-y-8">
-					<div className="grid grid-cols-4 gap-3">
+					<div className="grid grid-cols-2 gap-3 md:grid-cols-4">
 						<DashboardStatCard
 							label={t("analytics.dictationsToday")}
 							value={String(d.todayCount)}
@@ -219,7 +219,7 @@ export default function DashboardPage() {
 
 					<SevenDayActivityChart data={d} />
 
-					<div className="grid grid-cols-3 gap-3">
+					<div className="grid grid-cols-1 gap-3 md:grid-cols-3">
 						<QuickInfoCard
 							icon={AiBrain03Icon}
 							label={t("analytics.model")}

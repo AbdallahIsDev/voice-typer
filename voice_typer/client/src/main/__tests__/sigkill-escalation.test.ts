@@ -1,16 +1,42 @@
 // @vitest-environment node
 /**
- *  unit tests: stop-python.ts sends SIGKILL (not SIGTERM), and
- * index.ts will-quit forceExitTimer is > 3000ms so the unref'd
- * killTimer has a guaranteed window to fire first.
+ * stop-python.ts SIGTERM→SIGKILL escalation + index.ts race-free
+ * will-quit teardown.
+ *
+ * (TC-40) — this file's two describe blocks were previously
+ * `describe.skip` because they asserted the OLD contract:
+ *   - stop-python.ts's killTimer sent SIGKILL directly at 3s, and
+ *   - index.ts's will-quit armed a 3s forceExitTimer.
+ *
+ * Production deliberately refactored both:
+ *   - stop-python.ts now sends SIGTERM at `KILL_TIMER_MS` (graceful —
+ *     Python's signal handlers flush history_db, close audio streams,
+ *     release the single-instance mutex) and escalates to SIGKILL at
+ *     `KILL_TIMER_MS + ESCALATE_TIMER_MS` when the proc has NOT exited
+ *     (stuck in a C extension holding the GIL). On Windows it sends
+ *     `taskkill /T /PID` (graceful tree kill) then `taskkill /F /T /PID`
+ *     (force tree kill) instead of `proc.kill()`.
+ *   - index.ts removed the 3s forceExitTimer that raced the killTimer;
+ *     the will-quit handler now defers to stopPython()'s escalation and
+ *     `pythonProcess.once("exit")` → `app.exit(0)` (the SIGTERM backstop
+ *     in index.ts is `KILL_TIMER_MS + ESCALATE_TIMER_MS + 500`,
+ *     `.unref()`'d — pinned behaviorally by sigterm-backstop.test.ts).
+ *
+ * These tests are the "un-skipped" replacement: they assert the CURRENT
+ * contract so the file is live again. The POSIX behavioral tests run on
+ * Linux/macOS CI; the Windows `taskkill` tests run on win32 (the
+ * existing `python/__tests__/stop-python-sigkill-escalation.test.ts`
+ * skips on win32, so the Windows branch has NO other behavioral
+ * coverage); the source-text tests run everywhere.
  */
 
-import { EventEmitter } from "node:events";
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { MainState } from "../state";
+
+const IS_WIN = process.platform === "win32";
 
 // Mock electron.
 vi.mock("electron", () => ({
@@ -60,95 +86,226 @@ vi.mock("../python/send-to-python", () => ({
 	_resetIpcBackpressure: vi.fn(),
 }));
 
-class MockChildProcess extends EventEmitter {
-	pid = 12345;
-	killed = false;
-	kill = vi.fn((_signal?: NodeJS.Signals) => true);
-}
+// stop-python.ts imports clearTcpStartupTimeout from tcp-connect.
+vi.mock("../python/tcp-connect", () => ({
+	clearTcpStartupTimeout: vi.fn(),
+}));
 
-describe.skip("DE-84: stop-python.ts sends SIGKILL (not SIGTERM)", () => {
-	//Skipped:  refactored stop-python.ts to use bare `proc.kill()`
-	// (SIGTERM) in the killTimer callback instead of `proc.kill("SIGKILL")`.
-	// The SIGKILL-vs-SIGTERM contract is no longer enforced; the killTimer
-	// now relies on SIGTERM + Node's default exit handling.
-	let stopPython: () => void;
-	let mockProc: MockChildProcess;
+// `_treeKillWindows` uses spawnSync — spied for the Windows taskkill tests.
+const { mockSpawnSync } = vi.hoisted(() => ({
+	mockSpawnSync: vi.fn(() => ({ status: 0 })),
+}));
+vi.mock("node:child_process", () => ({ spawnSync: mockSpawnSync }));
 
-	beforeEach(async () => {
-		vi.clearAllMocks();
-		vi.useFakeTimers();
-		Object.assign(mockState, makeMockState());
-		vi.resetModules();
-		const mod = await import("../python/stop-python");
-		stopPython = mod.stopPython;
-		mockProc = new MockChildProcess();
-		mockState.pythonProcess = mockProc as unknown as MainState["pythonProcess"];
-	});
+/**
+ * Mock ChildProcess mirroring Node's real `exitCode` / `signalCode`
+ * semantics (`null` while alive). `autoExitOnKill: true` emits an
+ * "exit" event on kill (graceful); `false` ignores the signal
+ * (stuck-in-C-extension case). Mirrors the harness in
+ * `python/__tests__/stop-python-sigkill-escalation.test.ts`.
+ */
+function makeMockProc(opts: { autoExitOnKill?: boolean } = {}) {
+	const { autoExitOnKill = true } = opts;
+	const listeners: Record<string, Array<(...a: unknown[]) => void>> = {};
+	const proc = {
+		pid: 99999,
+		killed: false,
+		exitCode: null as number | null,
+		signalCode: null as string | null,
+		on: vi.fn((ev: string, cb: (...a: unknown[]) => void) => {
+			if (!listeners[ev]) listeners[ev] = [];
+			listeners[ev].push(cb);
+		}),
+		once: vi.fn((ev: string, cb: (...a: unknown[]) => void) => {
+			if (!listeners[ev]) listeners[ev] = [];
+			listeners[ev].push(cb);
+		}),
+		removeAllListeners: vi.fn((ev?: string) => {
+			if (ev) listeners[ev] = [];
+			else for (const k of Object.keys(listeners)) delete listeners[k];
+		}),
+		kill: vi.fn((sig?: string) => {
+			proc.killed = true;
+			if (autoExitOnKill) {
+				queueMicrotask(() => {
+					proc.signalCode = sig ?? "SIGTERM";
+					proc.exitCode = null;
+					(listeners.exit ?? []).forEach((cb) => {
+						cb(null, proc.signalCode);
+					});
+				});
+			}
+			return true;
+		}),
+		emit: vi.fn((ev: string, ...a: unknown[]) => {
+			(listeners[ev] ?? []).forEach((cb) => {
+				cb(...a);
+			});
+		}),
+	};
+	return proc;
+}	describe("stop-python.ts SIGTERM→SIGKILL escalation (current contract)", () => {
+		let stopPython: () => void;
+		let KILL_TIMER_MS: number;
+		let ESCALATE_TIMER_MS: number;
 
-	it("killTimer calls proc.kill('SIGKILL') after the 3s grace period", () => {
-		stopPython();
-		// Before the grace period, no kill yet.
-		expect(mockProc.kill).not.toHaveBeenCalled();
-		// Advance past the 3s killTimer.
-		vi.advanceTimersByTime(3000);
-		// kill MUST have been called with "SIGKILL" — NOT the
-		// default SIGTERM (which a stuck Python in a C extension
-		// would ignore, leaving a zombie holding the
-		// single-instance mutex).
-		expect(mockProc.kill).toHaveBeenCalledTimes(1);
-		expect(mockProc.kill).toHaveBeenCalledWith("SIGKILL");
-	});
+		beforeEach(async () => {
+			vi.clearAllMocks();
+			vi.useFakeTimers();
+			Object.assign(mockState, makeMockState());
+			vi.resetModules();
+			const mod = await import("../python/stop-python");
+			stopPython = mod.stopPython;
+			KILL_TIMER_MS = mod.KILL_TIMER_MS;
+			ESCALATE_TIMER_MS = mod.ESCALATE_TIMER_MS;
+		});
 
-	it("every kill() call includes the 'SIGKILL' signal argument", () => {
-		stopPython();
-		vi.advanceTimersByTime(3000);
-		// No call should use a bare kill() (defaults to SIGTERM).
-		for (const call of mockProc.kill.mock.calls) {
-			expect(call[0]).toBe("SIGKILL");
-		}
-	});
-});
+		afterEach(() => {
+			vi.useRealTimers();
+		});
 
-describe.skip("DE-84: index.ts will-quit forceExitTimer > 3000ms (no race with killTimer)", () => {
-	//Skipped:  removed the 3s forceExitTimer from index.ts and the
-	// SIGKILL-in-killTimer pattern from stop-python.ts (the killTimer now
-	// uses a bare .kill() with default SIGTERM). These source-text contracts
-	// assert deprecated behavior; production was deliberately refactored.
-	it("index.ts source uses a forceExitTimer delay strictly greater than 3000ms", () => {
-		const src = fs.readFileSync(
-			path.resolve(__dirname, "../index.ts"),
-			"utf-8",
-		);
-		// Locate the will-quit handler block.
-		const idx = src.search(/app\.on\(\s*["']will-quit["']\s*,/);
-		expect(idx).toBeGreaterThan(-1);
-		const block = src.slice(idx, idx + 1500);
-		// The forceExitTimer setTimeout must use a delay > 3000
-		// so the unref'd killTimer (3s in stop-python.ts) has a
-		// guaranteed window to fire SIGKILL before app.exit(0)
-		// terminates Electron. Match the delay (the last numeric
-		// argument before the closing paren of setTimeout).
-		const match = block.match(
-			/forceExitTimer\s*=\s*setTimeout\([\s\S]*?,\s*(\d+)\s*\)/,
-		);
-		expect(match).not.toBeNull();
-		const delay = Number(match?.[1]);
-		expect(delay).toBeGreaterThan(3000);
-	});
+	// The old skipped test asserted the killTimer sent SIGKILL at 3s.
+	// The current contract is graceful-first: SIGTERM at KILL_TIMER_MS.
+	it.skipIf(IS_WIN)(
+		"killTimer sends SIGTERM (graceful) at KILL_TIMER_MS — NOT SIGKILL",
+		async () => {
+			const proc = makeMockProc({ autoExitOnKill: false });
+			mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
 
-	it("stop-python.ts source uses SIGKILL (not bare kill()) in the killTimer", () => {
+			stopPython();
+			// Before the grace period, no kill yet.
+			expect(proc.kill).not.toHaveBeenCalled();
+			// Advance past the 3s killTimer.
+			await vi.advanceTimersByTimeAsync(KILL_TIMER_MS);
+			expect(proc.kill).toHaveBeenCalledTimes(1);
+			// Graceful-first: the FIRST signal is SIGTERM, not SIGKILL.
+			expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+		},
+	);
+
+	it.skipIf(IS_WIN)(
+		"escalateTimer sends SIGKILL at KILL_TIMER_MS + ESCALATE_TIMER_MS when the proc ignores SIGTERM",
+		async () => {
+			// autoExitOnKill: false — proc stuck in a C extension holding
+			// the GIL; SIGTERM is queued but never delivered.
+			const proc = makeMockProc({ autoExitOnKill: false });
+			mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
+
+			stopPython();
+			await vi.advanceTimersByTimeAsync(KILL_TIMER_MS);
+			expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+
+			// Cross the escalation threshold — SIGKILL must fire (the
+			// proc never exited, so exitCode/signalCode are still null).
+			await vi.advanceTimersByTimeAsync(ESCALATE_TIMER_MS);
+			expect(proc.kill).toHaveBeenCalledWith("SIGKILL");
+			expect(proc.kill).toHaveBeenCalledTimes(2);
+		},
+	);
+
+	it.skipIf(IS_WIN)(
+		"no SIGKILL when the proc exits gracefully on SIGTERM",
+		async () => {
+			const proc = makeMockProc({ autoExitOnKill: true });
+			mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
+
+			stopPython();
+			await vi.advanceTimersByTimeAsync(KILL_TIMER_MS);
+			expect(proc.kill).toHaveBeenCalledWith("SIGTERM");
+			// Drain the queueMicrotask that emits "exit" → clears the
+			// escalateTimer via proc.once("exit").
+			await Promise.resolve();
+			await Promise.resolve();
+
+			await vi.advanceTimersByTimeAsync(ESCALATE_TIMER_MS);
+			expect(proc.kill).toHaveBeenCalledTimes(1);
+			expect(proc.kill).not.toHaveBeenCalledWith("SIGKILL");
+		},
+	);
+
+	// Windows branch — the existing escalation test file skips on win32,
+	// so the taskkill tree-kill behavior has NO other behavioral coverage.
+	it.skipIf(!IS_WIN)(
+		"killTimer runs taskkill /T /PID (graceful tree kill) on Windows",
+		async () => {
+			const proc = makeMockProc({ autoExitOnKill: false });
+			mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
+
+			stopPython();
+			await vi.advanceTimersByTimeAsync(KILL_TIMER_MS);
+			// Graceful attempt: NO /F flag (WM_CLOSE-style, not force).
+			expect(mockSpawnSync).toHaveBeenCalledWith(
+				"taskkill",
+				["/T", "/PID", "99999"],
+				expect.objectContaining({ stdio: "ignore" }),
+			);
+		},
+	);
+
+	it.skipIf(!IS_WIN)(
+		"escalateTimer runs taskkill /F /T /PID (force tree kill) on Windows when the tree survives",
+		async () => {
+			const proc = makeMockProc({ autoExitOnKill: false });
+			mockState.pythonProcess = proc as unknown as MainState["pythonProcess"];
+
+			stopPython();
+			await vi.advanceTimersByTimeAsync(KILL_TIMER_MS + ESCALATE_TIMER_MS);
+			// Force escalation: /F must be present.
+			expect(mockSpawnSync).toHaveBeenCalledWith(
+				"taskkill",
+				["/F", "/T", "/PID", "99999"],
+				expect.objectContaining({ stdio: "ignore" }),
+			);
+		},
+	);
+
+	it("killTimer is NOT .unref()'d (must keep Electron alive until Python is dead)", () => {
 		const src = fs.readFileSync(
 			path.resolve(__dirname, "../python/stop-python.ts"),
 			"utf-8",
 		);
-		// The killTimer callback must call .kill("SIGKILL").
-		expect(src).toMatch(/\.kill\(\s*["']SIGKILL["']\s*\)/);
-		// Ensure NO bare .kill() without a signal argument
-		// remains. Every .kill( call must include "SIGKILL".
-		const killCalls = src.match(/\.kill\([^)]*\)/g) ?? [];
-		expect(killCalls.length).toBeGreaterThan(0);
-		for (const call of killCalls) {
-			expect(call).toMatch(/SIGKILL/);
-		}
+		expect(src).not.toMatch(/killTimer\.unref\(\)/);
+	});
+
+	it("stop-python.ts source: SIGTERM appears BEFORE SIGKILL (escalation order)", () => {
+		const src = fs.readFileSync(
+			path.resolve(__dirname, "../python/stop-python.ts"),
+			"utf-8",
+		);
+		const termIdx = src.indexOf('proc.kill("SIGTERM")');
+		const killIdx = src.indexOf('proc.kill("SIGKILL")');
+		expect(termIdx).toBeGreaterThan(-1);
+		expect(killIdx).toBeGreaterThan(termIdx);
+	});
+});
+
+describe("index.ts will-quit: race-free teardown (current contract)", () => {
+	it("will-quit handler does NOT define a forceExitTimer (the pre-fix race is removed)", () => {
+		const src = fs.readFileSync(
+			path.resolve(__dirname, "../index.ts"),
+			"utf-8",
+		);
+		const idx = src.search(/app\.on\(\s*["']will-quit["']\s*,/);
+		expect(idx).toBeGreaterThan(-1);
+		const block = src.slice(idx, idx + 1200);
+		expect(block).not.toMatch(/forceExitTimer/);
+		// The handler defers to stopPython() + pythonProcess.once("exit")
+		// → app.exit(0) instead of arming its own exit timer.
+		expect(block).toContain("stopPython()");
+		expect(block).toMatch(/pythonProcess\.once\(\s*["']exit["']/);
+	});
+
+	it("index.ts imports KILL_TIMER_MS/ESCALATE_TIMER_MS from ./python/stop-python (no redefinition)", () => {
+		const src = fs.readFileSync(
+			path.resolve(__dirname, "../index.ts"),
+			"utf-8",
+		);
+		expect(src).toMatch(
+			/import\s*\{[^}]*\bKILL_TIMER_MS\b[^}]*\}\s*from\s*["']\.\/python\/stop-python["']/,
+		);
+		expect(src).toMatch(
+			/import\s*\{[^}]*\bESCALATE_TIMER_MS\b[^}]*\}\s*from\s*["']\.\/python\/stop-python["']/,
+		);
+		expect(src).not.toMatch(/\b(?:const|let|var)\s+KILL_TIMER_MS\s*=/);
 	});
 });

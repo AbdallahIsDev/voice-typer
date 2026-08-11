@@ -26,14 +26,18 @@ export function DashboardSkeleton() {
 			<div className="flex justify-end pb-2">
 				<div className="h-4 w-24 animate-pulse rounded bg-(--bg-subtle)" />
 			</div>
-			{/* 4 stat-card skeleton */}
-			<div className="grid grid-cols-4 gap-3 mt-6">
+			{/* 4 stat-card skeleton — mirrors the loaded card layout
+			    (icon chip + value + label) so loading → loaded is
+			    visually stable. */}
+			<div className="grid grid-cols-2 gap-3 mt-6 md:grid-cols-4">
 				{[0, 1, 2, 3].map((i) => (
 					<div
 						key={`stat-skel-${i}`}
-						className="rounded-xl border border-border bg-(--bg-subtle) p-5 flex flex-col items-center justify-center gap-2"
+						className="rounded-xl border border-border bg-(--bg-subtle) p-5 flex flex-col items-center justify-center gap-2.5"
 					>
-						<div className="h-4 w-4 animate-pulse rounded bg-(--bg-subtle)" />
+						<div className="rounded-lg bg-accent/10 p-2">
+							<div className="h-4 w-4 animate-pulse rounded bg-(--bg-subtle)" />
+						</div>
 						<div className="h-6 w-12 animate-pulse rounded bg-(--bg-subtle)" />
 						<div className="h-3 w-16 animate-pulse rounded bg-(--bg-subtle)" />
 					</div>
@@ -64,8 +68,9 @@ export function DashboardSkeleton() {
 					))}
 				</div>
 			</div>
-			{/* Quick-info row skeleton */}
-			<div className="grid grid-cols-3 gap-3 mt-8">
+			{/* Quick-info row skeleton — mirrors the loaded grid's
+			    md:grid-cols-3 switch. */}
+			<div className="grid grid-cols-1 gap-3 mt-8 md:grid-cols-3">
 				{[0, 1, 2].map((i) => (
 					<div
 						key={`qi-skel-${i}`}

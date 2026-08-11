@@ -8,8 +8,17 @@
  * visual states without any IPC or state coupling — making it
  * independently testable and reusable.
  *
- * Visual states (preserved exactly from the original):
- *   1. Active model → disabled "Active" tick + (optional) Delete icon.
+ * Visual states:
+ *   1. Active model, available (downloaded or auto-available) →
+ *      disabled "Active" tick. NO Delete icon — the backend refuses to
+ *      delete an in-use model, so a Delete button here would be a
+ *      dead-end affordance that always errors.
+ *   1b. ( STALE-ACTIVE fix) Active model MISSING from disk →
+ *      "Download" button (restore the active model) + Delete icon
+ *      (clear the stale selection — the backend switches to another
+ *      model). Previously the missing active model rendered the
+ *      dead-end disabled tick AND a Delete button that always errored
+ *      with "Cannot delete the active model".
  *   2. Not downloaded, not always-available → "Download" button
  *      (disabled while any other download is in progress; shows a
  *      localized "one at a time" tooltip when disabled).
@@ -109,8 +118,16 @@ export function ModelCardActions({
 	// in-flight state. Now destructured + wired below.
 	isInstallingDepsThis,
 }: ModelCardActionsProps) {
-	// ── Branch 1: Active model ──────────────────────────────────────
-	if (model.isActive) {
+	// ── Branch 1a: Active model, available ─────────────────────────
+	//
+	// Renders only when the active model is actually usable (downloaded,
+	// or always-available like Qwen which auto-downloads on first use).
+	// STALE-ACTIVE fix: the Delete icon is GONE here. The backend refuses
+	// to delete an in-use model ("Cannot delete the active model. Switch
+	// to another model first.") — showing a Delete button that ALWAYS
+	// errors is a dead-end affordance. Users switch to another model
+	// first; the Delete icon appears on the downloaded (inactive) card.
+	if (model.isActive && (model.downloaded || model.alwaysAvailable)) {
 		return (
 			<div className="flex items-center gap-2 shrink-0">
 				<Button
@@ -127,9 +144,6 @@ export function ModelCardActions({
 					/>
 					{t("models.active")}
 				</Button>
-				{model.downloaded && !model.alwaysAvailable && (
-					<DeleteButton model={model} onDelete={onDelete} />
-				)}
 			</div>
 		);
 	}
@@ -181,6 +195,12 @@ export function ModelCardActions({
 						? t("models.downloading")
 						: t("models.download.deps")}
 				</Button>
+				{/* STALE-ACTIVE fix: an active deps-required model whose files
+				    are missing (e.g. parakeet removed from disk out-of-band)
+				    can't be restored without installing deps — but it CAN be
+				    cleared via Delete, exactly like the Download branch. The
+				    backend switches to another model. */}
+				{model.isActive && <DeleteButton model={model} onDelete={onDelete} />}
 			</div>
 		);
 	}
@@ -226,6 +246,13 @@ export function ModelCardActions({
 						? t("models.downloading")
 						: t("models.downloadModel")}
 				</Button>
+				{/* STALE-ACTIVE fix: the configured active model is missing
+				    from disk. The Download button restores it; the Delete
+				    icon clears the stale selection (the backend switches to
+				    another model). Without this Delete affordance the user
+				    would be stuck with a phantom active model they can't
+				    get rid of. */}
+				{model.isActive && <DeleteButton model={model} onDelete={onDelete} />}
 			</div>
 		);
 	}

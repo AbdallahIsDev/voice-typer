@@ -83,7 +83,12 @@ export function useHistoryExport({
 				// or we hit the EXPORT_MAX_ROWS cap.
 				allRecords = [];
 				let offset = 0;
-				// eslint-disable-next-line no-constant-condition
+				// VP-17: the `eslint-disable-next-line no-constant-condition`
+				// directive above `while (true)` was removed — the project
+				// uses Biome exclusively (no ESLint is installed), so the
+				// directive was inert but misleading. The loop is an
+				// intentional page-until-exhausted loop with explicit
+				// `break`s on empty page / row cap.
 				while (true) {
 					let page: HistoryRecord[];
 					if (favoritesOnly) {

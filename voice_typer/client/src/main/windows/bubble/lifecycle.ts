@@ -22,11 +22,18 @@
  */
 import path from "node:path";
 import { BrowserWindow, dialog, screen } from "electron";
+// C-BRAND-1 / C-I18N-1: the crash-loop recovery dialog must use the
+// `APP_NAME` constant + `mainT` (locale-key lookup) instead of
+// hardcoded "Voice Typer" + English literals (HU-28). The locale keys
+// (`dialog.crashLoop.title` / `.bubbleBody`) exist in all 8 main
+// process locale files and substitute `{appName}` at runtime.
+import { APP_NAME } from "../../branding";
 import {
 	BUBBLE_HEIGHT,
 	BUBBLE_WIDTH,
 	RENDER_RELOAD_BACKOFF_MS,
 } from "../../constants";
+import { mainT } from "../../i18n";
 import { BubbleChannels } from "../../ipc/channels";
 //converted from defensive `require("../../logging")` to a static
 // ESM import — the previous try/catch + console.* fallback was added
@@ -48,7 +55,15 @@ import {
 	setSavedBubblePosition,
 } from "./positioning";
 
-const bubbleCrashTracker = createCrashStormTracker("Bubble", 5, 60_000);
+// HU-29: the storm log line must be attributed to the BUBBLE window
+// (`[BUBBLE]` prefix) — the legacy hardcoded `[MAIN]` caused bubble
+// crash storms to be misattributed in the logs.
+const bubbleCrashTracker = createCrashStormTracker(
+	"Bubble",
+	5,
+	60_000,
+	"[BUBBLE]",
+);
 
 // Tracked handle for the `screen.on("display-removed", ...)` listener so it
 // can be removed by reference (via `screen.off`) instead of the too-aggressive
@@ -222,8 +237,8 @@ export function createBubbleWindow(): BrowserWindow {
 		if (inStorm) {
 			try {
 				dialog.showErrorBox(
-					"Voice Typer — Bubble crash loop",
-					"The bubble overlay renderer has crashed repeatedly and cannot recover.\n\nPlease use the tray icon to Restart or Quit, then relaunch Voice Typer.",
+					mainT("dialog.crashLoop.title", { appName: APP_NAME }),
+					mainT("dialog.crashLoop.bubbleBody", { appName: APP_NAME }),
 				);
 			} catch {
 				// dialog may not be available in headless mode.

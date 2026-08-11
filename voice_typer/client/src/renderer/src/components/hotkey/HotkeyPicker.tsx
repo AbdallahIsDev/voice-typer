@@ -1,8 +1,4 @@
-import {
-	AlertCircleIcon,
-	Cancel01Icon,
-	KeyboardIcon,
-} from "@hugeicons/core-free-icons";
+import { Cancel01Icon, KeyboardIcon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,7 +9,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { t } from "@/i18n/i18n";
 import { cn } from "@/lib/utils";
-import { checkScreenReaderConflict } from "./checkHotkeyConflict";
 import { formatHotkeyLabel, tryCommitHotkey } from "./hotkey-utils";
 import { useHotkeyCapture } from "./useHotkeyCapture";
 
@@ -70,46 +65,7 @@ interface HotkeyPickerProps {
  * lives in ``useHotkeyCapture``; this component renders the Button +
  * DropdownMenu + output hint + error ``<p>`` + Clear button and wires
  * them to the hook's API.
- *
- * Screen-reader conflict warning: when the currently assigned
- * ``value`` matches a default SR modifier key on the user's platform
- * (e.g. ``<caps_lock>`` on macOS → VoiceOver, or on Windows →
- * Narrator/NVDA/JAWS), a localized warning banner is rendered below
- * the picker. The warning is advisory — the user can keep the
- * conflicting hotkey if they know what they're doing (e.g. they've
- * remapped their SR modifier away from Caps Lock). The detection is
- * heuristic + offline (per C-DATA-1): no OS query, no network call.
- * See ``checkScreenReaderConflict`` in ``checkHotkeyConflict.ts``.
  */
-
-// Hardcoded English fallback string for the SR-conflict warning.
-// The i18n key ``hotkeyPicker.capsLockSrConflictWarning`` is owned by
-//another task () which will add translations to all 8 locale
-// JSON files. Until those land, ``t("hotkeyPicker.capsLockSrConflictWarning")``
-// returns the raw key string (no English translation registered) — we
-// detect that and fall back to this English string so the warning still
-//shows. Once  lands the en.json entry, the ``translated === key``
-// check is false and the localized string is used.
-const CAPS_LOCK_SR_WARNING_FALLBACK =
-	"Caps Lock is the default modifier key for VoiceOver / Narrator. Choosing it may break your screen reader.";
-
-/**
- * Resolve the SR-conflict warning text, using the i18n key when
- * available and falling back to a hardcoded English string otherwise.
- *
- * Exported (not inlined in JSX) so the test suite can assert against
- * the fallback string without depending on the i18n key being
- * registered.
- */
-export function _resolveSrConflictWarning(): string {
-	const key = "hotkeyPicker.capsLockSrConflictWarning";
-	const translated = t(key);
-	// t() falls back to the raw key string when no translation is
-	// registered (see i18n/translate.ts:144-148). Detect that and use
-	// the hardcoded English fallback so the warning is still visible
-	// while the i18n key is pending.
-	return translated === key ? CAPS_LOCK_SR_WARNING_FALLBACK : translated;
-}
 
 export function HotkeyPicker({
 	value,
@@ -158,15 +114,6 @@ export function HotkeyPicker({
 		(opt) => opt.value === rawPresetValue,
 	);
 	const customLabel = value ? formatHotkeyLabel(value) : "";
-
-	// SR-conflict detection: runs against the CURRENTLY assigned value
-	// (not the in-progress capture), so the banner stays visible after
-	// the user commits a Caps Lock choice — until they pick a different
-	// key. The check is a pure offline heuristic (per C-DATA-1) and is
-	// cheap enough (a JSON lookup + navigator.platform read) to run on
-	// every render. When no value is assigned, no banner is shown.
-	const srConflict = value ? checkScreenReaderConflict(value) : null;
-	const showSrWarning = srConflict?.conflict === true;
 
 	return (
 		<div className="flex flex-col gap-2" ref={containerRef}>
@@ -315,7 +262,10 @@ export function HotkeyPicker({
 			</div>
 			{recording && (
 				<output
-					className="text-xs text-(--text-muted)"
+					// max-w-72 + break-words keeps the capture hint from
+					// widening the row when a long modifier label is held
+					// (same wrap guard as the error <p> below).
+					className="max-w-72 break-words text-xs text-(--text-muted)"
 					// live-region role so
 					// screen readers announce countdown ticks and the
 					// "Holding: …" line as they update.
@@ -345,37 +295,12 @@ export function HotkeyPicker({
 				</output>
 			)}
 			{error && (
-				<p className="text-xs text-destructive" role="alert">
+				<p
+					className="max-w-72 break-words text-xs text-destructive"
+					role="alert"
+				>
 					{error}
 				</p>
-			)}
-			{showSrWarning && (
-				// SR-conflict warning banner. Rendered as an ``<output>``
-				// element (semantic for role="status") — a polite live
-				// region (NOT ``role="alert"``) because this is an advisory
-				// warning, not a blocking error — the user can still
-				// proceed. ``aria-live="polite"`` ensures screen readers
-				// announce the warning after the user's current interaction,
-				// without interrupting in-progress speech.
-				//
-				// Styling: amber/yellow tone (rather than the red used for
-				// hard errors) to signal "caution, but not blocked". Uses
-				// inline-flex so the warning icon aligns with the text
-				// baseline on the first line (the message can wrap on
-				// narrow widths).
-				<output
-					className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-2 text-xs text-warning"
-					aria-live="polite"
-					data-testid="sr-conflict-warning"
-				>
-					<HugeiconsIcon
-						icon={AlertCircleIcon}
-						strokeWidth={1.625}
-						className="mt-0.5 h-4 w-4 shrink-0"
-						aria-hidden="true"
-					/>
-					<span>{_resolveSrConflictWarning()}</span>
-				</output>
 			)}
 		</div>
 	);

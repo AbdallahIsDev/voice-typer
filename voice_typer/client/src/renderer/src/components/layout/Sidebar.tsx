@@ -250,8 +250,11 @@ function SidebarInner({
 				</span>
 			</div>
 
-			{/* Navigation */}
-			<div className="flex-1 p-2">
+			{/* Navigation. ``min-h-0`` + ``overflow-y-auto`` so a short
+			    window (9 nav items + 3 group headers + theme switch)
+			    scrolls instead of clipping the bottom items — the
+			    ThemeSwitch row below stays pinned. */}
+			<div className="min-h-0 flex-1 overflow-y-auto p-2">
 				<nav
 					ref={navRef}
 					aria-label={t("a11y.mainNavigation")}
@@ -360,7 +363,14 @@ function SidebarInner({
 												<HugeiconsIcon
 													icon={item.icon}
 													strokeWidth={2}
-													className="h-4 w-4 shrink-0"
+													// Active item's icon gets the accent tint so the
+													// highlighted state reads at a glance even in
+													// collapsed mode (icon-only); inactive icons inherit
+													// the button's text colour.
+													className={cn(
+														"h-4 w-4 shrink-0 transition-colors duration-200",
+														isActive && "text-accent",
+													)}
 												/>
 												<span
 													className={cn(

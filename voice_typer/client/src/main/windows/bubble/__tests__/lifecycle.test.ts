@@ -124,6 +124,9 @@ vi.mock("../console-forwarder", () => ({
 }));
 
 vi.mock("../crash-storm", () => ({
+	// HU-29: the factory now takes a 4th `prefix` arg; the mock must
+	// tolerate it (and any test that asserts the storm prefix would
+	// import the real factory instead).
 	createCrashStormTracker: () => ({
 		record: () => false,
 	}),

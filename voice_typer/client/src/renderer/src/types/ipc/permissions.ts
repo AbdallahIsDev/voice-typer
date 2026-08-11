@@ -33,6 +33,12 @@ export interface PermissionsResult {
 	 * the Linux `id` command failed, or the macOS API returned an
 	 * unexpected value). The Onboarding page should treat `"error"`
 	 * the same as `"unknown"` for advancement purposes but log it.
+	 *
+	 * `"prompt"` is the 5-state form the backend may emit for OS
+	 * permission prompts (kept per the canonical contract — VP-7
+	 * consolidated the onboarding-local 4-state copy into this type;
+	 * a backend that emits `"prompt"` must not be rejected by a
+	 * renderer whose type doesn't admit it).
 	 */
 	state: "granted" | "denied" | "prompt" | "unknown" | "error";
 	/**
@@ -42,13 +48,22 @@ export interface PermissionsResult {
 	 */
 	needed: boolean;
 	/**
-	 * Platform-specific setup walkthrough (`{ title, steps, commands }`)
-	 * when `needed` is true; `null` otherwise (and on Windows /
-	 * unknown platforms, where no setup is required).
+	 * Platform-specific setup walkthrough when `needed` is true;
+	 * `null` otherwise (and on Windows / unknown platforms, where no
+	 * setup is required).
+	 *
+	 * The backend emits i18n keys (`title_key` / `steps_keys` — see
+	 * `voice_typer/server/onboarding.py::check_permissions`); the
+	 * optional literal fields (`title` / `steps`) remain for backward
+	 * compat with older backends. `commands` is always present when
+	 * `instructions` is non-null (VP-7 consolidated the divergent
+	 * onboarding-local type into this single source of truth).
 	 */
 	instructions: {
-		title: string;
-		steps: string[];
+		title?: string;
+		steps?: string[];
+		title_key?: string;
+		steps_keys?: string[];
 		commands: string[] | null;
 	} | null;
 }

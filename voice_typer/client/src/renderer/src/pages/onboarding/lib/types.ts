@@ -40,26 +40,12 @@ export interface ModelOption {
 	languages?: string[] | null;
 }
 
-// backend returns i18n keys (`title_key` / `steps_keys`); the
-// optional literal fields remain for backward compat with older backends.
-export interface PermissionsInstructions {
-	title?: string;
-	steps?: string[];
-	title_key?: string;
-	steps_keys?: string[];
-	commands: string[] | null;
-}
-
-export interface PermissionsResult {
-	platform: "windows" | "macos" | "linux" | "unknown";
-	// added "error" as a distinct state so the renderer
-	// can distinguish "probe failed" from "Windows/unknown-platform happy
-	// path" (state="unknown", needed=false). A probe failure sets
-	// state="error" + needed=true so the wizard blocks advancement.
-	state: "granted" | "denied" | "unknown" | "error";
-	needed: boolean;
-	instructions: PermissionsInstructions | null;
-}
+// `PermissionsResult` (and its `instructions` shape) is consolidated
+// into the CANONICAL type at `@/types/ipc/permissions` (VP-7) — the
+// backend emits `title_key`/`steps_keys` i18n keys plus optional
+// literal `title`/`steps` for older backends, and the canonical type
+// now declares all of them. Do NOT re-declare a divergent copy here;
+// import from `@/types/ipc` instead.
 
 export type PermissionsTestState =
 	| { kind: "idle" }

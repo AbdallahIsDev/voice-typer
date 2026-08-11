@@ -27,6 +27,13 @@
  *
  * This file is the compile-time + runtime guard so a future regression
  * that drops any of these literals from the union fails loudly.
+ *
+ * VP-5 (2026-08-11): the tests below now pin the BARE forms
+ * ``pending_full`` / ``data_too_large`` — the codes the Rust host
+ * ACTUALLY emits. The namespaced forms (``client.pending_full`` /
+ * ``client.payload_too_large_dispatch``) are future-migration targets
+ * with no active emitter, so asserting them made the parity test pass
+ * vacuously.
  */
 import { describe, expect, it } from "vitest";
 
@@ -42,13 +49,19 @@ import type { ErrorCodes } from "../enums";
  */
 
 describe("ZU-18: ErrorCodes union — cross-language parity codes are present", () => {
-	it("'client.pending_full' is assignable to ErrorCodes (Rust PENDING_FULL_CODE parity)", () => {
-		const code: ErrorCodes = "client.pending_full";
+	it("'pending_full' is assignable to ErrorCodes (Rust PENDING_FULL_CODE parity)", () => {
+		// VP-5: the Rust host emits the BARE legacy form `pending_full`
+		// (allowlist.rs PENDING_FULL_CODE) — the namespaced
+		// `client.pending_full` is a future-migration target only.
+		const code: ErrorCodes = "pending_full";
 		expect(code).toBeTruthy();
 	});
 
-	it("'client.payload_too_large_dispatch' is assignable to ErrorCodes (Rust data_too_large parity)", () => {
-		const code: ErrorCodes = "client.payload_too_large_dispatch";
+	it("'data_too_large' is assignable to ErrorCodes (Rust dispatch cap parity)", () => {
+		// VP-5: the Rust host emits the BARE `data_too_large` code
+		// (dispatch.rs 256 KiB payload cap) — `client.payload_too_large_dispatch`
+		// is a future-migration target only.
+		const code: ErrorCodes = "data_too_large";
 		expect(code).toBeTruthy();
 	});
 

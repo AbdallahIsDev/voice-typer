@@ -49,7 +49,10 @@ export const TemplateListRow = memo(function TemplateListRow({
 		? t("templates.matchModeContainsLabel")
 		: t("templates.matchModeExactLabel");
 	return (
-		<li key={row.id} className="flex items-center gap-3 px-3.5 py-2.5">
+		<li
+			key={row.id}
+			className="flex items-center gap-3 px-3.5 py-2.5 transition-colors hover:bg-foreground/5"
+		>
 			<div className="min-w-0 flex-1">
 				<p className="text-sm font-semibold text-(--text-primary)">
 					{row.trigger}

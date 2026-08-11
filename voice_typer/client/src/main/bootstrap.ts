@@ -99,6 +99,17 @@ function generateSessionNonce(): void {
 }
 
 /**
+ * Dedupes the ``[MAIN] userData set to: ...`` lifecycle line across
+ * `setupUserData()`'s two intentional call sites (`index.ts` module-load
+ * + `bootstrapRuntime()` inside `app.whenReady()`). Both calls re-set the
+ * SAME path, so the line must appear only once per process — otherwise
+ * `electron-stdout.log` shows a duplicate pair on every boot. Module-level
+ * state is safe here: tests use `vi.resetModules()` so each test gets a
+ * fresh module instance.
+ */
+let _loggedUserDataPath: string | undefined;
+
+/**
  * : unify Electron's userData directory with the Python
  * backend's config directory, in a dedicated ``electron-profile``
  * subfolder.  Previously these were two separate directories:
@@ -143,8 +154,13 @@ export function setupUserData(): void {
 		//route through the structured `log` logger so
 		// the lifecycle message persists to `electron-runtime.log` instead
 		// of being lost in packaged builds where `console.warn` has no
-		// terminal attached.
-		log.info(`[MAIN] userData set to: ${electronProfileDir}`);
+		// terminal attached. Log once per process — the second call
+		// (idempotent re-set of the same path from `bootstrapRuntime()`)
+		// must not duplicate the line.
+		if (_loggedUserDataPath !== electronProfileDir) {
+			_loggedUserDataPath = electronProfileDir;
+			log.info(`[MAIN] userData set to: ${electronProfileDir}`);
+		}
 	} catch (e) {
 		log.warn("[MAIN] Failed to override userData path:", e);
 		// Non-fatal — Electron falls back to its default userData location.

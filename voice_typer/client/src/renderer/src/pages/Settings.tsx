@@ -18,7 +18,6 @@ import PrewarmAndUpdates, {
 } from "@/components/settings/PrewarmAndUpdates";
 import { PrivacySettingsSection } from "@/components/settings/PrivacySettingsSection";
 import { RecordingSettingsSection } from "@/components/settings/RecordingSettingsSection";
-import { SettingsSaveIndicator } from "@/components/settings/SettingsSaveIndicator";
 import {
 	getTabLabels,
 	type SettingsTab,
@@ -77,9 +76,6 @@ function getSavedTab(): SettingsTab {
 export default function SettingsPage() {
 	const {
 		config,
-		saving,
-		pending,
-		saved,
 		updateConfig,
 		updateConfigDebounced,
 		loadConfig,
@@ -560,22 +556,6 @@ export default function SettingsPage() {
 							<PrewarmAndUpdates isVisible={_filter_settings} />
 						</>,
 					)}
-			</div>
-
-			{/* Sticky-bottom save indicator — stays pinned to
-				the bottom of the viewport while scrolling so
-				the user always sees the pending/saving/saved
-				state. Mirrors the sticky-top header (z-40,
-				bg-(--bg-subtle), border-border) for visual
-				rhythm. */}
-			<div className="sticky bottom-0 left-0 right-0 z-40 border-t border-border bg-(--bg-subtle)">
-				<div className="mx-auto flex w-full max-w-2xl justify-end px-6 py-2">
-					<SettingsSaveIndicator
-						saving={saving}
-						pending={pending}
-						saved={saved}
-					/>
-				</div>
 			</div>
 
 			<ConfirmDialog

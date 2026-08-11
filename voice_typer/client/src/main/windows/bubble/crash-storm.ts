@@ -12,7 +12,7 @@
  * This module factors the helper into a factory so each window owns
  * an isolated tracker instance with the same shape:
  *
- *   const tracker = createCrashStormTracker("Bubble", 5, 60_000);
+ *   const tracker = createCrashStormTracker("Bubble", 5, 60_000, "[BUBBLE]");
  *   if (tracker.record()) { …stop reloading… }
  *
  * `main-window.ts` migration is out of scope (different agent's
@@ -43,19 +43,22 @@ export interface CrashStormTracker {
  * Create a sliding-window crash-storm tracker.
  *
  * @param label     Human-readable label inserted into the storm log
- *                  line (e.g. `"Bubble"`, `"Main"`). The legacy log
- *                  format `[MAIN] ${label} render-process-gone
- *                  storm: …` is preserved verbatim so log-grep
- *                  dashboards don't need to change.
+ *                  line (e.g. `"Bubble"`, `"Main"`).
  * @param threshold Crash count that, once exceeded, triggers a storm.
  *                  Legacy default was `5`.
  * @param windowMs  Sliding window length in milliseconds. Legacy
  *                  default was `60_000` (60s).
+ * @param prefix    Log-level prefix for the storm line (e.g. `"[MAIN]"`
+ *                  for the main window, `"[BUBBLE]"` for the bubble).
+ *                  HU-29: this is a parameter — the legacy hardcoded
+ *                  `[MAIN]` caused bubble crash storms to be
+ *                  misattributed to the main window in the logs.
  */
 export function createCrashStormTracker(
 	label: string,
 	threshold: number,
 	windowMs: number,
+	prefix: string,
 ): CrashStormTracker {
 	const timestamps: number[] = [];
 	return {
@@ -78,7 +81,7 @@ export function createCrashStormTracker(
 			}
 			if (timestamps.length > threshold) {
 				log.error(
-					`[MAIN] ${label} render-process-gone storm: ${timestamps.length} crashes in ${windowMs / 1000}s - stopping reload`,
+					`${prefix} ${label} render-process-gone storm: ${timestamps.length} crashes in ${windowMs / 1000}s - stopping reload`,
 				);
 				return true;
 			}

@@ -14,7 +14,7 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { getTimeout } from "@/hooks/usePython";
+import { getTimeout, parseTauriErrorEnvelope } from "@/hooks/usePython";
 
 describe("per-command timeout table (getTimeout)", () => {
 	it("returns 5_000ms for `get_status` (trivial status probe)", () => {
@@ -75,5 +75,71 @@ describe("per-command timeout table (getTimeout)", () => {
 		expect(getTimeout("unknown_cmd")).toBe(30_000);
 		expect(getTimeout("some_future_command")).toBe(30_000);
 		expect(getTimeout("")).toBe(30_000);
+	});
+});
+
+describe("VP-6: Tauri rejection-string envelope parsing (parseTauriErrorEnvelope)", () => {
+	it("stamps err.code + extracts message from a structured error envelope", () => {
+		// The Rust `dispatch` command (sidecar_cmds/dispatch.rs)
+		// rejects the invoke promise with the JSON-serialized
+		// `{type:"error", data:{code, message}}` envelope. On Tauri
+		// this arrives as a raw STRING — pre-VP-6 it became
+		// `new Error(wholeJSON)` with no `.code`, so callers branching
+		// on the failure class silently fell through on Tauri.
+		const raw = JSON.stringify({
+			type: "error",
+			data: { code: "command_timeout", message: "IPC timed out" },
+		});
+		const err = parseTauriErrorEnvelope(raw);
+		expect(err).toBeInstanceOf(Error);
+		expect(err!.message).toBe("IPC timed out");
+		expect((err as Error & { code?: string }).code).toBe("command_timeout");
+	});
+
+	it("stamps a bare Rust dispatch-cap code (data_too_large / pending_full)", () => {
+		// VP-5 codes are carried on the same envelope; the renderer's
+		// `switch (code)` must be able to branch on them on Tauri too.
+		const err = parseTauriErrorEnvelope(
+			JSON.stringify({
+				type: "error",
+				data: { code: "data_too_large", message: "payload exceeds cap" },
+			}),
+		);
+		expect(err).not.toBeNull();
+		expect((err as Error & { code?: string }).code).toBe("data_too_large");
+	});
+
+	it("falls back to the raw string when the rejection is plain text", () => {
+		// Rust's `dispatch timeout (120s)` rejection is a bare string,
+		// not a JSON envelope — must return null so `call` wraps it
+		// as `new Error(raw)`.
+		expect(parseTauriErrorEnvelope("dispatch timeout (120s)")).toBeNull();
+	});
+
+	it("returns null for malformed / non-envelope JSON", () => {
+		expect(parseTauriErrorEnvelope("{not json")).toBeNull();
+		expect(parseTauriErrorEnvelope("42")).toBeNull();
+		expect(parseTauriErrorEnvelope('{"type":"ok"}')).toBeNull();
+		expect(parseTauriErrorEnvelope('{"type":"error"}')).toBeNull();
+	});
+
+	it("stamps a structured Python error code through the Tauri path", () => {
+		// e.g. `client.consent_required` from the level-monitor / mic-test
+		// handlers surfacing over Tauri — the renderer deep-link depends
+		// on `err.code` being present.
+		const err = parseTauriErrorEnvelope(
+			JSON.stringify({
+				type: "error",
+				data: {
+					code: "client.consent_required",
+					message: "consent needed",
+				},
+			}),
+		);
+		expect(err).not.toBeNull();
+		expect((err as Error & { code?: string }).code).toBe(
+			"client.consent_required",
+		);
+		expect(err!.message).toBe("consent needed");
 	});
 });

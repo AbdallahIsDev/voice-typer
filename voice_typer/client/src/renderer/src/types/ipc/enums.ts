@@ -95,15 +95,21 @@ export type ErrorCodes =
 	| "server.recording_resample_unavailable"
 	// Renderer-synthesized codes (from Tauri host supervisor events)
 	| "respawn_exhausted"
-	//Namespaced parity codes for Rust host error envelopes ().
-	// The Rust host emits the non-namespaced legacy forms (`pending_full`,
-	// `data_too_large`). These namespaced forms are the canonical targets
-	// for future migration. Both forms are valid ErrorCodes.
+	// Rust-host dispatch cap codes (VP-5). The Tauri `#[tauri::command]`
+	// layer in `src-tauri/src/commands/sidecar_cmds/` emits the BARE
+	// legacy forms: `pending_full` (dispatch queue full — renderer must
+	// back off ~250ms and retry) and `data_too_large` (payload exceeds
+	// the 256 KiB cap). The namespaced forms below are canonical targets
+	// for future migration, but the bare forms are what the wire
+	// actually carries TODAY — both MUST be accepted by any `switch`
+	// that narrows `ErrorEvent.code`.
 	// (Note: keep semicolons OUT of comment lines inside the union body.
 	// The parity-test parser in `tests/test_error_codes_registry.py`
 	// slices the union on the first semicolon it sees, so a stray one
 	// in a comment silently truncates the parsed set and breaks the
 	// `Python ERROR_CODES subset of TS ErrorCodes` assertion.)
+	| "pending_full"
+	| "data_too_large"
 	| "client.pending_full"
 	| "client.payload_too_large_dispatch"
 	// Legacy aliases (still emitted by some paths for backward compat)

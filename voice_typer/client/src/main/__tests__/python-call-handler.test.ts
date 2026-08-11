@@ -36,14 +36,21 @@ vi.mock("../i18n", () => ({
 	mainT: (k: string) => `[i18n:${k}]`,
 }));
 
-vi.mock("../logging", () => ({
-	logger: {
-		warn: mocks.loggerWarn,
-		info: vi.fn(),
-		error: vi.fn(),
-		debug: vi.fn(),
-	},
-}));
+vi.mock("../logging", async () => {
+	// Use the REAL dedupeRepeatedLogs (pure TS, no electron deps) so
+	// the handler's `python-call rejected` collapse is exercised
+	// end-to-end; only `logger` is mocked.
+	const { dedupeRepeatedLogs } = await import("../logging/dedupeRepeatedLogs");
+	return {
+		dedupeRepeatedLogs,
+		logger: {
+			warn: mocks.loggerWarn,
+			info: vi.fn(),
+			error: vi.fn(),
+			debug: vi.fn(),
+		},
+	};
+});
 
 vi.mock("../python", () => ({
 	sendToPython: mocks.sendToPython,
@@ -95,6 +102,43 @@ describe("XS-78: python-call-handler.ts — structured {_error, _code} envelope"
 			"python-call rejected",
 			expect.objectContaining({ code: "backend_not_connected" }),
 		);
+	});
+
+	it("collapses consecutive identical backend_not_connected rejects into an (xN) summary", async () => {
+		_mockState.tcpSocket = null;
+		_mockState.pythonExitedEarly = false;
+
+		// Two identical get_config rejects (the renderer retry burst).
+		await handler({}, { type: "get_config" });
+		await handler({}, { type: "get_config" });
+		// Streak breaks with a different command.
+		await handler({}, { type: "get_status" });
+
+		// First occurrence plain, then ONE (x2) summary for the collapsed
+		// get_config pair, then the get_status first occurrence.
+		expect(mocks.loggerWarn).toHaveBeenCalledTimes(3);
+		expect(mocks.loggerWarn.mock.calls[0]).toEqual([
+			"python-call rejected",
+			expect.objectContaining({
+				cmd: "get_config",
+				code: "backend_not_connected",
+			}),
+		]);
+		expect(mocks.loggerWarn.mock.calls[1]).toEqual([
+			"python-call rejected",
+			expect.objectContaining({
+				cmd: "get_config",
+				code: "backend_not_connected",
+			}),
+			"(x2)",
+		]);
+		expect(mocks.loggerWarn.mock.calls[2]).toEqual([
+			"python-call rejected",
+			expect.objectContaining({
+				cmd: "get_status",
+				code: "backend_not_connected",
+			}),
+		]);
 	});
 
 	it("backend_exited_early: returns _code 'backend_exited_early' when socket is null AND pythonExitedEarly is true", async () => {

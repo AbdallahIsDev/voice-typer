@@ -1,6 +1,7 @@
-// useSettingsConfig — owns the VoiceTyperConfig state, the debounced /
-// batched `set_config` IPC writes, and the save-state indicators
-// (saving / pending / saved) used by the Settings page's sticky header.
+// useSettingsConfig — owns the VoiceTyperConfig state and the debounced /
+// batched `set_config` IPC writes. Settings auto-save silently: there is
+// no visible save-status indicator (removed), but the save-state flags
+// (saving / pending) remain internally for `hasPendingOrSaving` (nav-guard).
 //
 //Extracted from src/renderer/src/pages/Settings.tsx () so the
 // page component is responsible for layout/UX only — not for the
@@ -15,7 +16,7 @@
 //   - `updateConfigDebounced(key, value, delayMs)` is the same but
 //     defers the IPC commit by `delayMs` so rapid keystrokes collapse
 //     into one write. Sets `pending=true` while the timer is running
-//so the save indicator can show "Pending…".
+//so `hasPendingOrSaving` reflects the queued write.
 //   - `loadConfig()` re-fetches from the backend.
 //   - `flushPendingUpdates()` is exposed (via ref) so the page's
 //     unmount cleanup can flush any in-flight writes.
@@ -30,8 +31,8 @@
 //partial-success `model_errors` envelope is surfaced as
 //     a warning (instead of being silently swallowed).
 //rejected (unknown) keys are surfaced as a warning.
-//`error` state is exposed so the SettingsSaveIndicator
-//     can render a "Save failed" state.
+//`error` state is exposed with the backend's validator
+//     text so an error snack can show the specific failure.
 //`hasPendingOrSaving` flag is exposed so consumers can
 //     guard `onNavigate` calls with a ConfirmDialog.
 //a failed save does NOT call `loadConfig()` immediately
@@ -100,7 +101,6 @@ export interface UseSettingsConfigResult {
 	config: VoiceTyperConfig | null;
 	saving: boolean;
 	pending: boolean;
-	saved: boolean;
 	/** /5: per-flush error message string (null when no
 	 *  error).  Surfaces the backend's specific validator text
 	 *  (e.g. "field 'history_max_entries' must be in [10, 1000000],
@@ -136,12 +136,10 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 	const [config, setConfig] = useState<VoiceTyperConfig | null>(_cachedConfig);
 	const [saving, setSaving] = useState(false);
 	const [pending, setPending] = useState(false);
-	const [saved, setSaved] = useState(false);
 	//5: per-flush error string surfaced to the UI so the
 	// indicator can render a "Save failed" state with the backend's
 	// specific message.  Cleared on the next successful save.
 	const [error, setError] = useState<string | null>(null);
-	const savedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
 	// batched writes — accumulate updates in `pendingUpdatesRef`
 	// and flush them in a single `set_config` IPC via a microtask.
@@ -237,12 +235,9 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 				setError(warningMessage);
 				showSnack(warningMessage, "warning");
 			} else {
-				//drop the redundant success snackbar.
-				// The sticky "Saved ✓" indicator (driven by
-				// `saved` state below) already confirms the
-				// save; firing a transient snackbar too was
-				// noisy on every keystroke commit. The
-				// error-case toast is still fired in the
+				// Settings auto-save silently: no success snackbar
+				// and no save-status indicator (both removed).
+				// The error-case toast is still fired in the
 				// catch block below.
 				setError(null);
 			}
@@ -250,12 +245,6 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 				...lastSaved,
 				...(diff as Partial<VoiceTyperConfig>),
 			};
-			if (savedTimeoutRef.current) clearTimeout(savedTimeoutRef.current);
-			setSaved(true);
-			savedTimeoutRef.current = setTimeout(() => {
-				setSaved(false);
-				savedTimeoutRef.current = null;
-			}, 2000);
 		} catch (err) {
 			//surface the backend's specific
 			// validator text (e.g. "field 'history_max_entries'
@@ -355,8 +344,8 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			(pendingDebouncedValuesRef.current as Record<string, unknown>)[
 				key as string
 			] = value;
-			// mark the save as pending so the indicator
-			// shows "Pending…" while the debounce timer is running.
+			// mark the write as pending while the debounce timer runs
+			// (feeds `hasPendingOrSaving`).
 			setPending(true);
 			debouncedTimers.current[key as string] = setTimeout(() => {
 				void updateConfig({ [key]: value } as Partial<VoiceTyperConfig>);
@@ -419,10 +408,6 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			window.removeEventListener("beforeunload", onBeforeUnload);
 			flushPendingDebounced();
 			Object.values(debouncedTimers.current).forEach(clearTimeout);
-			if (savedTimeoutRef.current) {
-				clearTimeout(savedTimeoutRef.current);
-				savedTimeoutRef.current = null;
-			}
 		};
 	}, []);
 
@@ -449,7 +434,6 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 		config,
 		saving,
 		pending,
-		saved,
 		error,
 		hasPendingOrSaving: pending || saving,
 		updateConfig,

@@ -461,10 +461,10 @@ const baseConfig: VoiceTyperConfig = {
 };
 
 // ────────────────────────────────────────────────────────────────────
-// Settings page — save toasts + 3-state save indicator
+// Settings page — silent auto-save + error toasts (status bar removed)
 // ────────────────────────────────────────────────────────────────────
 
-describe("Settings — rewrite of save-toast + auto-save indicator tests", () => {
+describe("Settings — silent auto-save (no status bar) + save toasts", () => {
 	beforeEach(() => {
 		mockCall.mockReset();
 		mockCall.mockImplementation((type: string) => {
@@ -481,104 +481,19 @@ describe("Settings — rewrite of save-toast + auto-save indicator tests", () =>
 		cleanup();
 	});
 
-	it("renders the 'All changes saved' idle indicator when no save is in flight", async () => {
-		// Replaces test_settings_has_auto_save_notice +
-		// test_settings_saving_indicator_still_present +
-		// test_settings_has_visual_saving_state.
+	it("auto-saves silently — no status bar and no success toast after a set_config flush", async () => {
+		// Replaces test_settings_has_auto_save_notice,
+		// test_settings_saving_indicator_still_present,
+		// test_settings_has_visual_saving_state, and
+		// test_update_config_calls_show_snack_on_success.
 		//
-		// Python invariants (string-pattern):
-		//   - "Auto-save" in Settings.tsx
-		//   - "Saving..." in Settings.tsx OR "setSaving(" in Settings.tsx
-		//   - "bg-amber-400" OR "bg-amber-500" in Settings.tsx
-		// Behavioral: the rendered DOM has the accessible 3-state save
-		// indicator paragraph (aria-live="polite") whose idle text is
-		// the i18n key `settings.allChangesSaved` → "All changes saved".
-		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
-
-		// Wait for config to load (the Appearance tab label appears).
-		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
-		});
-
-		// Idle state: "All changes saved" is rendered.
-		expect(screen.getByText("All changes saved")).toBeTruthy();
-
-		// The indicator is an aria-live="polite" paragraph so screen
-		// readers announce state changes.  (Replaces the Python
-		// assertion that the i18n string is present in source.)
-		const liveRegion = screen.getByText("All changes saved").closest("p");
-		expect(liveRegion?.getAttribute("aria-live")).toBe("polite");
-	});
-
-	it("shows the 'Saving…' amber indicator while a set_config is in flight", async () => {
-		// Replaces test_settings_has_visual_saving_state (amber bg) +
-		// test_settings_saving_indicator_still_present (setSaving call).
-		//
-		// Behavioral: trigger a save (color picker change), and before
-		// the IPC resolves, assert the DOM shows the "Saving…" label
-		// and the amber pulse dot (bg-amber-400).
-		const { default: SettingsPage } = await import("@/pages/Settings");
-		renderWithProviders(<SettingsPage />);
-
-		await waitFor(() => {
-			expect(screen.getByText("Appearance")).toBeTruthy();
-		});
-
-		// Navigate to Appearance tab so the color pickers mount.
-		fireEvent.click(screen.getByText("Appearance"));
-		await waitFor(() => {
-			expect(
-				document.querySelectorAll('input[type="color"]').length,
-			).toBeGreaterThanOrEqual(1);
-		});
-
-		// Block the set_config resolution so "Saving…" stays visible.
-		// Use a deferred-promise pattern: releaseRef.fn holds a
-		// no-arg "release" function that resolves the blocked Promise.
-		// We wrap it in an object ref so TypeScript's control-flow
-		// analysis doesn't narrow it to `never` at the call site
-		// (TS assumes a `let`-bound variable assigned only inside a
-		// closure stays at its initializer value, which would make
-		// the truthy branch unreachable → `never`).
-		const releaseRef: { fn: (() => void) | null } = { fn: null };
-		mockCall.mockImplementation((type: string) => {
-			if (type === "get_config") return Promise.resolve(baseConfig);
-			if (type === "set_config") {
-				return new Promise<{ success: boolean }>((resolve) => {
-					releaseRef.fn = () => resolve({ success: true });
-				});
-			}
-			return Promise.resolve({});
-		});
-
-		const colorInput = document.querySelector(
-			'input[type="color"]',
-		) as HTMLInputElement;
-		fireEvent.input(colorInput, { target: { value: "#abcdef" } });
-
-		// "Saving…" appears once the debounced update fires.  The amber
-		// pulse dot is the span with class bg-amber-400.
-		await waitFor(() => {
-			expect(screen.getByText("Saving…")).toBeTruthy();
-		});
-		const amberDot = document.querySelector(".bg-amber-400");
-		expect(amberDot).toBeTruthy();
-
-		// Release the blocked IPC so the component can unmount cleanly.
-		releaseRef.fn?.();
-	});
-
-	it("shows the 'Saved' indicator (NOT a toast) after a successful set_config flush", async () => {
-		// Replaces test_update_config_calls_show_snack_on_success.
-		//
-		// Production intentionally DROPPED the success snackbar: the
-		// sticky "Saved ✓" indicator (SettingsSaveIndicator, driven by
-		// the `saved` state) already confirms the save, and firing a
-		// transient toast on every keystroke commit was noisy (see the
-		// useSettingsConfig.ts flush comment). Error toasts still fire
-		// (covered by the next test). We assert BOTH halves: the
-		// indicator appears AND no success toast is fired.
+		// The sticky save-status bar (SettingsSaveIndicator: "All
+		// changes saved" / "Saving…" / "Saved ✓") was REMOVED entirely
+		// — settings auto-save silently. This test pins the new
+		// contract: after a successful set_config flush, NO status-bar
+		// text is rendered and NO success toast fires (production
+		// dropped the success snackbar along with the indicator).
+		// Error toasts still fire (covered by the next test).
 		const { toast } = await import("sonner");
 		const successSpy = vi.mocked(toast.success);
 
@@ -588,6 +503,9 @@ describe("Settings — rewrite of save-toast + auto-save indicator tests", () =>
 		await waitFor(() => {
 			expect(screen.getByText("Appearance")).toBeTruthy();
 		});
+
+		// Idle state: no status bar text anywhere.
+		expect(screen.queryByText("All changes saved")).toBeNull();
 
 		fireEvent.click(screen.getByText("Appearance"));
 		await waitFor(() => {
@@ -602,12 +520,15 @@ describe("Settings — rewrite of save-toast + auto-save indicator tests", () =>
 		) as HTMLInputElement;
 		fireEvent.input(colorInput, { target: { value: "#abcdef" } });
 
-		// The 300ms debounce + microtask flush + IPC must all complete
-		// before the indicator flips to "Saved" (i18n `settings.savedToast`).
+		// The debounce + microtask flush + IPC must all complete, then
+		// assert the save landed silently: no "Saving…" / "Saved"
+		// status text and no success toast.
 		await waitFor(() => {
-			expect(screen.getByText("Saved")).toBeTruthy();
+			expect(mockCall).toHaveBeenCalledWith("set_config", expect.anything());
 		});
-		// Belt-and-braces: no success toast fired (production dropped it).
+		expect(screen.queryByText("Saving…")).toBeNull();
+		expect(screen.queryByText("Saved")).toBeNull();
+		expect(screen.queryByText("All changes saved")).toBeNull();
 		expect(successSpy).not.toHaveBeenCalled();
 	});
 

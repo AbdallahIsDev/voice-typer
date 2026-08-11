@@ -52,10 +52,13 @@ vi.mock("../state", () => ({
 	state: { mainWindow: null, bubbleWindow: null, bubblePosition: "bottom" },
 }));
 
+import { log } from "../logging";
+import type { recordMainWindowRenderCrash as _RMWRC } from "../windows/crash-storm";
 import type { recordBubbleRenderCrash as _RBRC } from "../windows/main-window";
 
 describe("GT-10: render-process-gone crash-storm tracking", () => {
 	let recordBubbleRenderCrash: typeof _RBRC;
+	let recordMainWindowRenderCrash: typeof _RMWRC;
 	let _resetRenderCrashTrackingForTest: () => void;
 
 	beforeEach(async () => {
@@ -65,6 +68,10 @@ describe("GT-10: render-process-gone crash-storm tracking", () => {
 		const mod = await import("../windows/main-window");
 		recordBubbleRenderCrash = mod.recordBubbleRenderCrash;
 		_resetRenderCrashTrackingForTest = mod._resetRenderCrashTrackingForTest;
+		// Imported directly from the shared crash-storm module (main-window
+		// only re-exports the bubble wrapper).
+		const stormMod = await import("../windows/crash-storm");
+		recordMainWindowRenderCrash = stormMod.recordMainWindowRenderCrash;
 		_resetRenderCrashTrackingForTest();
 	});
 
@@ -120,5 +127,35 @@ describe("GT-10: render-process-gone crash-storm tracking", () => {
 		_resetRenderCrashTrackingForTest();
 		// Should be back under threshold
 		expect(recordBubbleRenderCrash()).toBe(false);
+	});
+
+	it("HU-29: bubble storm log line uses the [BUBBLE] prefix, not [MAIN]", () => {
+		// Trip the bubble storm (6 crashes).
+		for (let i = 0; i < 6; i++) {
+			recordBubbleRenderCrash();
+		}
+		const errorCalls = (log.error as ReturnType<typeof vi.fn>).mock.calls.map(
+			(c) => String(c[0]),
+		);
+		const stormLine = errorCalls.find((m) =>
+			m.includes("render-process-gone storm"),
+		);
+		expect(stormLine).toBeDefined();
+		expect(stormLine).toContain("[BUBBLE] Bubble render-process-gone storm");
+		expect(stormLine).not.toContain("[MAIN]");
+	});
+
+	it("HU-29: main-window storm log line keeps the [MAIN] prefix", () => {
+		for (let i = 0; i < 6; i++) {
+			recordMainWindowRenderCrash();
+		}
+		const errorCalls = (log.error as ReturnType<typeof vi.fn>).mock.calls.map(
+			(c) => String(c[0]),
+		);
+		const stormLine = errorCalls.find((m) =>
+			m.includes("render-process-gone storm"),
+		);
+		expect(stormLine).toBeDefined();
+		expect(stormLine).toContain("[MAIN] Main render-process-gone storm");
 	});
 });

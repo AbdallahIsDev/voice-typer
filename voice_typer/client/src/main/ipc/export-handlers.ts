@@ -11,6 +11,7 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 import { dialog, ipcMain } from "electron";
 import type { ExportFormat } from "../../shared/export-format";
+import { withIpcEnvelope } from "../../shared/ipc-result";
 import { mainT } from "../i18n";
 import { ExportChannels } from "./channels";
 
@@ -334,16 +335,15 @@ export function registerExportHandlers(): void {
 	ipcMain.removeHandler?.(ExportChannels.history);
 	ipcMain.handle(
 		ExportChannels.history,
-		async (
+		(
 			_event,
 			{
 				data,
 				format,
 			}: { data: Record<string, unknown>[]; format: ExportFormat },
-		) => {
-			// Wrap the ENTIRE handler body (including
-			// `dialog.showSaveDialog`) in try/catch.
-			try {
+		) =>
+			// VP-19: canonical envelope via withIpcEnvelope (throw → {success:false, error}).
+			withIpcEnvelope(async () => {
 				// R6-F9: validate format against the allowlist BEFORE using it
 				// in the dialog filter or the file path. Rejects unknown
 				// formats early with a structured error instead of letting
@@ -405,22 +405,19 @@ export function registerExportHandlers(): void {
 							}
 						: {}),
 				};
-			} catch (e: unknown) {
-				return { success: false, error: (e as Error).message };
-			}
-		},
+			}),
 	);
 
 	// ── Vocabulary export ──────────────────────────────────────────
 	ipcMain.removeHandler?.(ExportChannels.vocabulary);
 	ipcMain.handle(
 		ExportChannels.vocabulary,
-		async (
+		(
 			_event,
 			{ data, format }: { data: Record<string, unknown>; format: ExportFormat },
-		) => {
-			// Wrap the ENTIRE handler body in try/catch.
-			try {
+		) =>
+			// VP-19: canonical envelope via withIpcEnvelope (throw → {success:false, error}).
+			withIpcEnvelope(async () => {
 				// R6-F9: validate format against the allowlist BEFORE using it
 				// in the dialog filter or the file path (same rationale as
 				// history:export above).
@@ -480,10 +477,7 @@ export function registerExportHandlers(): void {
 							}
 						: {}),
 				};
-			} catch (e: unknown) {
-				return { success: false, error: (e as Error).message };
-			}
-		},
+			}),
 	);
 
 	// ── Templates export (NEW-PRIV-007: GDPR right-to-export) ──────
@@ -494,9 +488,9 @@ export function registerExportHandlers(): void {
 	ipcMain.removeHandler?.(ExportChannels.templates);
 	ipcMain.handle(
 		ExportChannels.templates,
-		async (_event, { data }: { data: unknown }) => {
-			// Wrap the ENTIRE handler body in try/catch.
-			try {
+		(_event, { data }: { data: unknown }) =>
+			// VP-19: canonical envelope via withIpcEnvelope (throw → {success:false, error}).
+			withIpcEnvelope(async () => {
 				// PVT-14: cap the entry count so a compromised renderer
 				// can't pin the CPU + disk on a fabricated 10M-entry
 				// payload (same threat model as history:export /
@@ -540,10 +534,7 @@ export function registerExportHandlers(): void {
 							}
 						: {}),
 				};
-			} catch (e: unknown) {
-				return { success: false, error: (e as Error).message };
-			}
-		},
+			}),
 	);
 
 	// ── Config export (NEW-PRIV-007: GDPR right-to-export) ─────────
@@ -553,50 +544,45 @@ export function registerExportHandlers(): void {
 	// backend's get_config handler (SEC-003) so they don't leak via
 	// this export path.
 	ipcMain.removeHandler?.(ExportChannels.config);
-	ipcMain.handle(
-		ExportChannels.config,
-		async (_event, { data }: { data: unknown }) => {
-			// Wrap the ENTIRE handler body in try/catch.
+	ipcMain.handle(ExportChannels.config, (_event, { data }: { data: unknown }) =>
+		// VP-19: canonical envelope via withIpcEnvelope (throw → {success:false, error}).
+		withIpcEnvelope(async () => {
+			// PVT-14: cap the serialized byte size so a compromised
+			// renderer can't pin the CPU + disk on a fabricated
+			// multi-GB config object. Config is typically a few KB,
+			// so 1 MB is a generous ceiling. We stringify first to
+			// measure, then refuse the write if the blob exceeds
+			// the cap (unlike row-based caps, slicing a config
+			// object would silently drop keys and produce a
+			// misleading partial export — better to fail loud).
+			let serialized: string;
 			try {
-				// PVT-14: cap the serialized byte size so a compromised
-				// renderer can't pin the CPU + disk on a fabricated
-				// multi-GB config object. Config is typically a few KB,
-				// so 1 MB is a generous ceiling. We stringify first to
-				// measure, then refuse the write if the blob exceeds
-				// the cap (unlike row-based caps, slicing a config
-				// object would silently drop keys and produce a
-				// misleading partial export — better to fail loud).
-				let serialized: string;
-				try {
-					serialized = JSON.stringify(data, null, 2);
-				} catch (e: unknown) {
-					return {
-						success: false,
-						error: (e as Error).message,
-					};
-				}
-				// Buffer.byteLength accounts for multi-byte UTF-8 chars
-				// correctly (string .length is UTF-16 code units).
-				if (Buffer.byteLength(serialized, "utf-8") > MAX_CONFIG_EXPORT_BYTES) {
-					return {
-						success: false,
-						error: `Config export exceeds the ${MAX_CONFIG_EXPORT_BYTES}-byte cap`,
-					};
-				}
-
-				const { canceled, filePath } = await dialog.showSaveDialog({
-					title: mainT("dialog.export.config"),
-					defaultPath: "voice-typer-config.json",
-					filters: [{ name: "JSON", extensions: ["json"] }],
-				});
-
-				if (canceled || !filePath) return { success: false };
-
-				await atomicWriteFile(filePath, serialized, "utf-8");
-				return { success: true, path: filePath };
+				serialized = JSON.stringify(data, null, 2);
 			} catch (e: unknown) {
-				return { success: false, error: (e as Error).message };
+				return {
+					success: false,
+					error: (e as Error).message,
+				};
 			}
-		},
+			// Buffer.byteLength accounts for multi-byte UTF-8 chars
+			// correctly (string .length is UTF-16 code units).
+			if (Buffer.byteLength(serialized, "utf-8") > MAX_CONFIG_EXPORT_BYTES) {
+				return {
+					success: false,
+					error: `Config export exceeds the ${MAX_CONFIG_EXPORT_BYTES}-byte cap`,
+				};
+			}
+
+			const { canceled, filePath } = await dialog.showSaveDialog({
+				title: mainT("dialog.export.config"),
+				defaultPath: "voice-typer-config.json",
+				filters: [{ name: "JSON", extensions: ["json"] }],
+			});
+
+			if (canceled || !filePath) return { success: false };
+
+			await atomicWriteFile(filePath, serialized, "utf-8");
+			return { success: true, path: filePath };
+		}),
 	);
 }

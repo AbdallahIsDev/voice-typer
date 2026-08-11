@@ -1040,29 +1040,20 @@ describe("Item 9: Dashboard a11y — heatmap role + stat card names", () => {
 	});
 });
 
-// Item 10 (Sub-agent 16): TitleBar.tsx (owned by agent 3) renders
-// `<title>` elements inside `aria-hidden` SVGs (see TitleBar.tsx:31,
-// :47, :63, :80 — the MinimizeIcon, MaximizeIcon, RestoreIcon, and
-// CloseIcon helper components).  These `<title>` elements are
-// INACCESSIBLE to assistive tech because the parent `<svg>` carries
-// `aria-hidden`, so the title text is silently dropped by screen
-// readers.  They're also redundant: the wrapping `<button>` already
-// has an `aria-label` (see TitleBarButton component), so the SVG
+// Item 10 (Sub-agent 16): TitleBar.tsx previously rendered
+// `<title>` elements inside `aria-hidden` SVGs (the MinimizeIcon,
+// MaximizeIcon, RestoreIcon, and CloseIcon helper components).  A
+// `<title>` inside an `aria-hidden` SVG is INACCESSIBLE to assistive
+// tech (silently dropped by screen readers) and redundant — the
+// wrapping <button> already carries an `aria-label`, so the SVG
 // title would never be announced even if the SVG weren't hidden.
 //
-// The fix is to delete the `<title>` elements from the four
-// `*Icon` helper functions in `TitleBar.tsx`.  This is OUT OF SCOPE
-// for sub-agent 16 (file scope is a11y test files only — see the
-// task assignment table where TitleBar.tsx is owned by agent 3).
-//
-// This test is a `it.fails` regression spec so the issue isn't
-// forgotten: when agent 3 (or a future PR) removes the dead
-// `<title>` elements, this test will START PASSING and vitest will
-// report "test unexpectedly passed" — at which point the `it.fails`
-// should be flipped to a regular `it` so future regressions are
-// caught.
+// The dead `<title>` elements were removed (all six icon glyphs,
+// including the back/forward arrows). This test is now a regular
+// `it` regression spec: any future <title> inside an aria-hidden SVG
+// in TitleBar.tsx fails the suite.
 describe("Item 10: TitleBar SVGs should NOT carry <title> inside aria-hidden SVGs (agent 3's scope)", () => {
-	it.fails("TitleBar.tsx contains no <title> elements inside aria-hidden SVGs", () => {
+	it("TitleBar.tsx contains no <title> elements inside aria-hidden SVGs", () => {
 		const titleBarPath = path.resolve(
 			__dirname,
 			"..",

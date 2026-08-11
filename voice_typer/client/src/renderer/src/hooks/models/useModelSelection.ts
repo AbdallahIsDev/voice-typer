@@ -18,8 +18,12 @@
  *     `get_model_status` block from `loadConfig`). : surfaces
  *     config-save failures instead of silently showing the success
  *     toast.
- *   • `requestDeleteModel` — refuses to delete the active model,
- *     otherwise stashes the target for the ConfirmDialog.
+ *   • `requestDeleteModel` — refuses to delete the active model while
+ *     it's on disk (deleting would break the running backend), but
+ *     ALLOWS deleting an active model that is missing from disk — a
+ *     stale selection the user can't otherwise get rid of (the
+ *     backend clears the config and switches to another model).
+ *     Otherwise stashes the target for the ConfirmDialog.
  *   • `confirmDelete` — fires the `delete_model` IPC, updates local
  *     state, and surfaces success / failure via snackbar.
  */
@@ -134,7 +138,15 @@ export function useModelSelection({
 	// ── Action: requestDeleteModel + confirmDelete ──────────────────
 	const requestDeleteModel = useCallback(
 		(model: ModelInfo) => {
-			if (model.isActive) {
+			// STALE-ACTIVE fix: the "cannot delete active model" guard
+			// only applies while the active model is ACTUALLY on disk
+			// (deleting it would break the running ASR backend). An
+			// active model with `downloaded: false` was removed from
+			// disk out-of-band — the config points at a phantom. Deleting
+			// it is the ONLY way to clear the stale selection (the
+			// backend switches to another model), so allow it through to
+			// the confirm dialog.
+			if (model.isActive && model.downloaded) {
 				showSnack(t("models.cannotDeleteActive"), "warning");
 				return;
 			}

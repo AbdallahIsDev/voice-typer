@@ -15,6 +15,9 @@ import { cspEmissionPlugin } from "./csp-plugin";
 // + inlined strings don't leak via the .asar.
 export default defineConfig(({ command }) => ({
 	renderer: {
+		// LOG-CLEAN: non-TTY (CI pipes, launcher log-file redirects) →
+		// silence Vite build chatter; errors still print at every logLevel.
+		logLevel: process.stdout.isTTY ? "info" : "silent",
 		root: resolve(__dirname, "src/renderer"),
 		build: {
 			// R6-F13: dev gets sourcemaps for debugging; production

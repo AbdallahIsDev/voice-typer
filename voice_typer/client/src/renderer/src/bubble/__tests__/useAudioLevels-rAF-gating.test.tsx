@@ -254,6 +254,37 @@ describe("AB-39: useAudioLevels rAF scheduling gate", () => {
 		rafSpy.mockRestore();
 	});
 
+	it("drops the onLevel subscription when a mid-flow mode arrives (IN-62 single source of truth)", async () => {
+		const rafSpy = vi.spyOn(window, "requestAnimationFrame");
+
+		render(<Bubble />);
+		showBubble();
+		await tickFrames(3);
+
+		// Recording mode (default) → the dynamic onLevel IPC
+		// subscription is active.
+		expect(mockBubble._listeners.level.length).toBe(1);
+
+		// Drive setState("blocked") — a mid-flow mode the OLD local
+		// mode tracker silently ignored (it only knew transcribing /
+		// idle / recording / error), so the visualizer kept animating
+		// and the ~50-60 Hz onLevel subscription stayed active behind a
+		// non-recording pill. With the shared bridge mode ref
+		// (nextBubbleMode), the visualizer + level subscription stop.
+		act(() => {
+			for (const cb of mockBubble._listeners.setState) cb("blocked");
+		});
+
+		expect(mockBubble._listeners.level.length).toBe(0);
+
+		// The rAF loop must also stop scheduling (recording gate closed).
+		rafSpy.mockClear();
+		await tickFrames(5);
+		expect(rafSpy.mock.calls.length).toBe(0);
+
+		rafSpy.mockRestore();
+	});
+
 	it("still animates when visible AND in recording mode (no regression)", async () => {
 		//critical rule: the bubble MUST still animate when
 		// visible AND recording. This test verifies the loop runs

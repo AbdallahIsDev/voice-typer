@@ -176,4 +176,24 @@ describe("bootstrapRuntime calls app.setAppUserModelId('VoiceTyper')", () => {
 			setAppUserModelIdOrder as number,
 		);
 	});
+
+	it("logs the 'userData set to' line once across the double setupUserData invocation", async () => {
+		// Production calls `setupUserData()` twice per boot — at
+		// index.ts module-load (so early Chromium utility processes
+		// inherit the unified data root) and again inside
+		// `bootstrapRuntime()` (app.whenReady). Both re-set the SAME
+		// path; the lifecycle line must appear in electron-stdout.log
+		// only once, or every boot logs a duplicate pair.
+		const { bootstrapRuntime, setupUserData } = await import("../bootstrap");
+		const { log } = await import("../logging");
+		const logInfoMock = vi.mocked(log.info);
+
+		setupUserData();
+		bootstrapRuntime();
+
+		const userDataLogs = logInfoMock.mock.calls.filter((call) =>
+			String(call[0]).includes("userData set to"),
+		);
+		expect(userDataLogs).toHaveLength(1);
+	});
 });

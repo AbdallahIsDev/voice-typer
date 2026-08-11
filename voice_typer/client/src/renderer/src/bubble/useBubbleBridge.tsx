@@ -41,6 +41,11 @@
 import type { ReactNode } from "react";
 import { createContext, useContext, useEffect, useMemo, useRef } from "react";
 import type { BubbleWindowBubble } from "@/types/ipc";
+import {
+	type BubbleMode,
+	nextBubbleMode,
+	parseSetStatePayload,
+} from "./constants";
 
 // ── Event map ───────────────────────────────────────────────────────
 
@@ -69,8 +74,7 @@ export type BubbleBridgeOff = () => void;
 /**
  * Public surface of the bubble bridge. Consumers obtain this via
  * `useBubbleBridge()` and register handlers via `on(event, handler)`.
- */
-export interface BubbleBridge {
+ */ export interface BubbleBridge {
 	/**
 	 * Register a handler for a bubble event. Returns an unsubscribe
 	 * function — call it on cleanup to remove the handler.
@@ -83,6 +87,19 @@ export interface BubbleBridge {
 		event: K,
 		handler: BubbleBridgeHandler<K>,
 	): BubbleBridgeOff;
+
+	/**
+	 * Read the CURRENT authoritative bubble mode (IN-62).
+	 *
+	 * The bridge owns the single source-of-truth mode ref, updated by
+	 * `nextBubbleMode` BEFORE handlers fan out — so a handler invoked
+	 * by an event observes that event's resulting mode synchronously,
+	 * regardless of handler registration order. Consumers that need to
+	 * gate behaviour on the mode (e.g. `useAudioLevels`'s rAF loop +
+	 * dynamic `onLevel` subscription) read this instead of maintaining
+	 * their own duplicate tracker.
+	 */
+	getMode(): BubbleMode;
 
 	/**
 	 * Toggle the underlying `api.onLevel` IPC subscription. When
@@ -117,6 +134,13 @@ class BubbleBridgeImpl implements BubbleBridge {
 	private apiOffs: BubbleBridgeOff[] = [];
 	private levelOff: BubbleBridgeOff | null = null;
 	private levelActive = false;
+	// Authoritative bubble mode (IN-62 single source of truth).
+	// Defaults to `recording` — the bubble's initial mode — and tracks
+	// the show / hide / setState event stream via `nextBubbleMode`,
+	// updated in `emit()` BEFORE handlers fan out. Persists across
+	// attach/detach cycles (mirroring `useBubbleStateMachine`'s React
+	// state, which also survives re-attach).
+	private mode: BubbleMode = "recording";
 
 	constructor(api: BubbleWindowBubble | undefined) {
 		this.api = api;
@@ -149,6 +173,24 @@ class BubbleBridgeImpl implements BubbleBridge {
 		event: K,
 		payload: BubbleBridgeEventMap[K],
 	): void {
+		// IN-62: keep the authoritative mode ref in lockstep with the
+		// event stream BEFORE any handler runs, so a consumer handler
+		// always observes the current event's resulting mode — no
+		// registration-order dependence. The reducer is the same
+		// function `useBubbleStateMachine` uses for its React state, so
+		// the two cannot drift. Unknown / non-normalizable setState
+		// payloads map to `prev` (no-op) inside the reducer.
+		if (event === "show") {
+			this.mode = nextBubbleMode(this.mode, { type: "show" });
+		} else if (event === "hide") {
+			this.mode = nextBubbleMode(this.mode, { type: "hide" });
+		} else if (event === "setState") {
+			this.mode = nextBubbleMode(this.mode, {
+				type: "setState",
+				state: parseSetStatePayload(payload).state,
+			});
+		}
+
 		const set = this.handlers[event] as Set<BubbleBridgeHandler<K>> | undefined;
 		if (!set || set.size === 0) return;
 		for (const h of set) {
@@ -158,6 +200,10 @@ class BubbleBridgeImpl implements BubbleBridge {
 				console.warn(`[bubble-bridge] ${event} handler threw:`, e);
 			}
 		}
+	}
+
+	getMode(): BubbleMode {
+		return this.mode;
 	}
 
 	/**

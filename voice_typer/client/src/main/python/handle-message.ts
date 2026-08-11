@@ -11,7 +11,7 @@
  *     BrowserWindow via `webContents.send("python-event", msg)` (with
  *     SEC-017 filtering so transcription/history never leak to the bubble).
  */
-import { app } from "electron";
+import { app, Notification } from "electron";
 // PythonIpcError is the typed error class the python-call-handler
 // checks via `instanceof`. Constructing it here (instead of a bare
 // `new Error(message)` with `code` attached ad-hoc) preserves the
@@ -115,6 +115,82 @@ const PUSH_HANDLERS: Record<string, PushHandler> = {
 	},
 	show_window: () => {
 		showMainWindow();
+	},
+	// OS notification events from the Python backend (the
+	// ``show_electron_notification`` IPC handler + the last-resort
+	// unloaded-backend tray path). Shown as a NATIVE Electron toast so
+	// the user gets a real OS notification (pystray Win32 balloons
+	// cannot carry click handlers). When the payload carries a
+	// ``click_path`` (e.g. ``"/models"``), clicking the toast opens the
+	// main window and routes the renderer to that page via the same
+	// ``navigate`` python-event the tray menu uses.
+	notification: (msg) => {
+		const data =
+			typeof msg.data === "object" && msg.data !== null
+				? (msg.data as Record<string, unknown>)
+				: {};
+		const title = typeof data.title === "string" ? data.title : "";
+		const body = typeof data.message === "string" ? data.message : "";
+		const clickPath =
+			typeof data.click_path === "string" ? data.click_path : undefined;
+		const durationMs =
+			typeof data.duration_ms === "number" ? data.duration_ms : 0;
+		if (!title && !body) {
+			log.debug(
+				`${ts()}  [NOTIFY] notification event with empty title/body — skipping`,
+			);
+			return;
+		}
+		// ``Notification.isSupported()`` is the Electron-gated check
+		// (false on Linux without a notification daemon, headless
+		// sessions, etc.). Skip the native toast but keep the renderer
+		// broadcast (the fall-through below) so consumers that surface
+		// an in-app toast still get the event.
+		if (!Notification.isSupported()) {
+			log.debug(
+				`${ts()}  [NOTIFY] native notifications unsupported — skipping toast (title=${title})`,
+			);
+			return;
+		}
+		const notif = new Notification({ title, body });
+		if (clickPath) {
+			// Clicking the toast opens the main window and routes to the
+			// target page. SEC-029: the synthetic ``navigate`` event must
+			// carry the session nonce or the renderer drops it as a
+			// replayed frame.
+			notif.on("click", () => {
+				log.info(
+					`${ts()}  [NOTIFY] notification clicked — opening ${clickPath}`,
+				);
+				// ``showMainWindow`` runs BEFORE the broadcast so the
+				// window exists (``broadcastToMainWindow``'s guard drops
+				// sends to a missing/destroyed window). In the Electron
+				// flow the window is created on the first TCP connect and
+				// the React tree (incl. the ``navigate`` listener in
+				// App.tsx) mounts while hidden, so by the time a toast can
+				// be clicked the listener is live — same convention as the
+				// tray ``open_models_page`` path.
+				showMainWindow();
+				broadcastToMainWindow(PythonChannels.event, {
+					type: "navigate",
+					data: { path: clickPath },
+					_session_nonce: state.sessionNonce ?? undefined,
+				});
+			});
+		}
+		notif.show();
+		// ``duration_ms`` from the payload drives an auto-close (the
+		// ``show_electron_notification`` contract); 0 / absent = persist
+		// until the OS or user dismisses.
+		if (durationMs > 0) {
+			setTimeout(() => {
+				try {
+					notif.close();
+				} catch {
+					// already closed/dismissed — safe to ignore
+				}
+			}, durationMs);
+		}
 	},
 	quit_app: () => {
 		app.quit();

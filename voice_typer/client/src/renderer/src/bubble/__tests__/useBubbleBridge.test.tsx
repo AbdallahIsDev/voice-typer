@@ -262,6 +262,76 @@ describe("useBubbleBridge: centralised IPC subscriptions", () => {
 		expect(onLevel).not.toHaveBeenCalled();
 	});
 
+	it("getMode() is updated BEFORE handlers fan out and tracks the reducer (IN-62)", () => {
+		const seen: string[] = [];
+		function ModeConsumer() {
+			const bridge = useBubbleBridge();
+			useEffect(() => {
+				if (!bridge) return;
+				const offs = [
+					bridge.on("show", () => seen.push(`show:${bridge.getMode()}`)),
+					bridge.on("hide", () => seen.push(`hide:${bridge.getMode()}`)),
+					bridge.on("setState", () =>
+						seen.push(`setState:${bridge.getMode()}`),
+					),
+				];
+				return () => {
+					for (const off of offs) off();
+				};
+			}, [bridge]);
+			return null;
+		}
+
+		render(
+			<BubbleBridgeProvider>
+				<ModeConsumer />
+			</BubbleBridgeProvider>,
+		);
+
+		// Default mode is "recording" — a setState handler observes the
+		// NEW mode ("idle"), proving the ref updates before fan-out
+		// (no registration-order dependence).
+		act(() => {
+			for (const cb of mockBubble._listeners.setState) cb("idle");
+		});
+		expect(seen).toEqual(["setState:idle"]);
+
+		// show() → recording when not transcribing.
+		act(() => {
+			for (const cb of mockBubble._listeners.show) cb();
+		});
+		expect(seen).toEqual(["setState:idle", "show:recording"]);
+
+		// transcribing survives a show() (the backend may push the state
+		// before re-showing) — same reducer `useBubbleStateMachine` uses.
+		act(() => {
+			for (const cb of mockBubble._listeners.setState) cb("transcribing");
+		});
+		act(() => {
+			for (const cb of mockBubble._listeners.show) cb();
+		});
+		expect(seen).toEqual([
+			"setState:idle",
+			"show:recording",
+			"setState:transcribing",
+			"show:transcribing",
+		]);
+
+		// hide() while transcribing → fading (two-stage exit).
+		act(() => {
+			for (const cb of mockBubble._listeners.hide) cb();
+		});
+		expect(seen[4]).toBe("hide:fading");
+
+		// A new recording interrupts the fading → exit transition (the
+		// subtlest transition: the state machine's special case and the
+		// reducer converge on "recording" via different paths).
+		act(() => {
+			for (const cb of mockBubble._listeners.setState) cb("recording");
+		});
+		expect(seen[5]).toBe("setState:recording");
+	});
+
 	it("unsubscribes ALL IPC listeners on unmount", () => {
 		const { unmount } = render(
 			<BubbleBridgeProvider>

@@ -10,7 +10,7 @@ interface QuickInfoCardProps {
 
 export function QuickInfoCard({ icon, label, value }: QuickInfoCardProps) {
 	return (
-		<div className="rounded-lg border border-border bg-(--bg-subtle) p-3.5 flex items-center gap-3">
+		<div className="rounded-lg border border-border bg-(--bg-subtle) p-3.5 flex items-center gap-3 transition-colors duration-200 hover:border-accent/30">
 			<div className="rounded-lg bg-accent/10 p-2">
 				<HugeiconsIcon
 					icon={icon}

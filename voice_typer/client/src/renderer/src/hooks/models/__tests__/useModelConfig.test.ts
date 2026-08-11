@@ -6,7 +6,9 @@
  *     fired via Promise.allSettled, with config applied first
  *   - config drift detection: the `config_changed` event merges partial payload
  *     into the cached config ref + reapplies active-state
- *   - refreshModelStatus helper: get_model_status IPC + active-model reconciliation
+ *   - refreshModelStatus helper: get_model_status IPC + downloaded/depsOk
+ *     reconciliation ( STALE-ACTIVE: the backend status is authoritative —
+ *     an active model reported as NOT downloaded stays not-downloaded)
  *   - handleManualRefresh: flips `refreshing` flag around loadConfig
  *   - updateConfig: re-throws on set_config failure (callers can branch)
  *
@@ -289,7 +291,6 @@ describe("useModelConfig — config drift detection (config_changed event)", () 
 		});
 	});
 });
-
 describe("useModelConfig — refreshModelStatus helper", () => {
 	it("invokes get_model_status + reconciles downloaded/depsOk on the local model list", async () => {
 		const initial = makeConfig({ model_size: "small.en" });
@@ -324,11 +325,63 @@ describe("useModelConfig — refreshModelStatus helper", () => {
 			await result.current.refreshModelStatus();
 		});
 
-		// The active model is always reconciled as downloaded+depsOk
-		// (the backend wouldn't have selected it otherwise).
+		// The active model matches the backend status (no forced override).
 		const small = result.current.models.find((m) => m.name === "small.en");
 		expect(small?.downloaded).toBe(true);
 		expect(small?.depsOk).toBe(true);
+	});
+
+	it("does NOT force the active model to downloaded when the backend reports it missing ( STALE-ACTIVE regression)", async () => {
+		// Config says small.en is the active model, but the backend
+		// (which stats the actual filesystem) reports it as NOT
+		// downloaded — the model was removed out-of-band. The hook must
+		// preserve that truth so the card can offer a restore/clear
+		// affordance instead of a dead-end disabled "Active" tick.
+		const initial = makeConfig({ model_size: "small.en" });
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_config") return Promise.resolve(initial);
+			if (cmd === "get_model_status")
+				return Promise.resolve({
+					"small.en": { downloaded: false, deps_ok: true },
+					"tiny.en": { downloaded: true, deps_ok: true },
+				});
+			if (cmd === "get_model_catalog") return Promise.resolve({ models: [] });
+			return Promise.resolve({});
+		});
+
+		const args = makeHookArgs();
+		const { result } = renderHook(() => useModelConfig(args));
+
+		await waitFor(() => {
+			expect(result.current.config).not.toBeNull();
+		});
+
+		// The ACTIVE model reported as missing must stay missing.
+		const small = result.current.models.find((m) => m.name === "small.en");
+		expect(small?.isActive).toBe(true);
+		expect(small?.downloaded).toBe(false);
+
+		// A non-active downloaded model is untouched.
+		const tiny = result.current.models.find((m) => m.name === "tiny.en");
+		expect(tiny?.downloaded).toBe(true);
+
+		// refreshModelStatus must also preserve the truth (the old code
+		// re-applied the forced override there too).
+		callMock.mockImplementation((cmd: string) => {
+			if (cmd === "get_model_status")
+				return Promise.resolve({
+					"small.en": { downloaded: false, deps_ok: true },
+					"tiny.en": { downloaded: true, deps_ok: true },
+				});
+			return Promise.resolve({});
+		});
+
+		await act(async () => {
+			await result.current.refreshModelStatus();
+		});
+
+		const after = result.current.models.find((m) => m.name === "small.en");
+		expect(after?.downloaded).toBe(false);
 	});
 });
 

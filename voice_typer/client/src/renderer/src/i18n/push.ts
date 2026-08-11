@@ -33,6 +33,14 @@ export function trayLabelsForLocale(): Record<string, string> {
 	const entries: [string, string][] = [
 		["models", "models.title"],
 		["microphones", "microphone.microphone"],
+		// HU-17: push the server-notification labels too so the Python
+		// sidecar's tray notifications (config-load failure, state
+		// changes) follow the renderer's locale instead of staying
+		// English. Same dotted-key lookup as the menu labels — an entry
+		// is skipped when the current locale lacks a translation.
+		["error.config_load_failed.title", "error.config_load_failed.title"],
+		["error.config_load_failed.body", "error.config_load_failed.body"],
+		["state.app.starting", "state.app.starting"],
 	];
 	for (const [key, labelKey] of entries) {
 		const value = t(labelKey);

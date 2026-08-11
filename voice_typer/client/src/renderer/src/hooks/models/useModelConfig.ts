@@ -94,6 +94,16 @@ export function useModelConfig({
 	// downloaded/depsOk = true" reconciliation block was duplicated
 	// verbatim in both `loadConfig` and `selectModel`. Extracted into a
 	// single helper so future call sites (and bug fixes) apply uniformly.
+	//
+	//  STALE-ACTIVE fix: the "active model is always considered
+	// downloaded + depsOk" override was REMOVED. It was a false
+	// assumption: the configured model can be removed from disk
+	// out-of-band (deleted folder, moved cache), leaving the config
+	// pointing at a missing model. The backend's `get_model_status`
+	// (which stats the actual filesystem) is authoritative — the card
+	// for an active-but-missing model must show `downloaded: false` so
+	// the UI offers a restore/clear affordance instead of a dead-end
+	// disabled "Active" tick.
 	const refreshModelStatus = useCallback(async (): Promise<void> => {
 		try {
 			const status = await call<ModelStatusMap>("get_model_status");
@@ -108,13 +118,6 @@ export function useModelConfig({
 					}),
 				);
 			}
-			// Reconcile: the active model is always considered downloaded
-			// + depsOk (the backend wouldn't have selected it otherwise).
-			setModels((prev) =>
-				prev.map((m) =>
-					m.isActive ? { ...m, downloaded: true, depsOk: true } : m,
-				),
-			);
 		} catch (err) {
 			// XZ-R16-09: prefix with [renderer:useModelConfig] to
 			// match the [renderer:<module>] convention adopted by
@@ -188,12 +191,6 @@ export function useModelConfig({
 							}
 							return m;
 						}),
-					);
-					// Reconcile active model as downloaded+depsOk.
-					setModels((prev) =>
-						prev.map((m) =>
-							m.isActive ? { ...m, downloaded: true, depsOk: true } : m,
-						),
 					);
 				}
 			} else {

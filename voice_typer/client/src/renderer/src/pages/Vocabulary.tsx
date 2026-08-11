@@ -236,7 +236,7 @@ export default function VocabularyPage() {
 						/>
 					) : (
 						<>
-							<div className="rounded-lg border border-border bg-(--bg-subtle) divide-y divide-border">
+							<div className="overflow-hidden rounded-xl border border-border bg-(--bg-subtle) divide-y divide-border">
 								{filteredSorted.slice(0, displayCount).map((entry) => (
 									<VocabListRow
 										key={entry._id}
@@ -251,7 +251,7 @@ export default function VocabularyPage() {
 								<button
 									type="button"
 									onClick={() => setDisplayCount((c) => c + DISPLAY_CAP)}
-									className="mx-auto mt-3 block text-xs font-medium text-accent hover:underline cursor-pointer"
+									className="mx-auto mt-3 flex items-center gap-1.5 rounded-full border border-border bg-(--bg-subtle) px-4 py-1.5 text-xs font-medium text-accent transition-colors hover:border-accent/40 hover:bg-accent/5 cursor-pointer"
 								>
 									{t("vocabulary.showMore")}
 								</button>

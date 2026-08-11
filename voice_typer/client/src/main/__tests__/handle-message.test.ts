@@ -20,12 +20,44 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// Mock ``electron.Notification`` instances so tests can assert the
+// native-toast behavior (title/body, click handler, duration auto-close)
+// without a real OS notification surface. ``clickHandlers`` records the
+// ``click`` handler per instance so a test can invoke it directly.
+const mockNotifications: Array<{
+	opts: { title: string; body: string };
+	show: ReturnType<typeof vi.fn>;
+	close: ReturnType<typeof vi.fn>;
+	clickHandlers: Array<() => void>;
+}> = [];
+
 const mocks = vi.hoisted(() => {
+	class MockNotification {
+		static isSupported = vi.fn(() => true);
+		public opts: { title: string; body: string };
+		public show = vi.fn();
+		public close = vi.fn();
+		public clickHandlers: Array<() => void> = [];
+		constructor(opts: { title: string; body: string }) {
+			this.opts = opts;
+			mockNotifications.push({
+				opts: this.opts,
+				show: this.show,
+				close: this.close,
+				clickHandlers: this.clickHandlers,
+			});
+		}
+		on(event: string, handler: () => void) {
+			if (event === "click") this.clickHandlers.push(handler);
+		}
+	}
+
 	return {
 		// Window-control stubs.
 		showBubbleWindow: vi.fn(),
 		hideBubbleWindow: vi.fn(),
 		showMainWindow: vi.fn(),
+		Notification: MockNotification,
 		// Electron app.quit / relaunchApp stubs.
 		appQuit: vi.fn(),
 		relaunchApp: vi.fn(),
@@ -41,6 +73,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("electron", () => ({
 	app: { quit: mocks.appQuit },
+	Notification: mocks.Notification,
 }));
 
 vi.mock("../logging", () => ({
@@ -99,8 +132,15 @@ import { state } from "../state";
 describe("XS-78: handle-message.ts", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		mockNotifications.length = 0;
 		state.pendingRequests.clear();
 		_resetLastKnownBubbleMode();
+		// ``vi.clearAllMocks`` clears call history but NOT the
+		// ``isSupported`` implementation; restore the default explicitly
+		// so tests that set it to false don't leak into later tests.
+		(
+			mocks.Notification.isSupported as ReturnType<typeof vi.fn>
+		).mockImplementation(() => true);
 	});
 
 	describe("reply resolution (numeric msg.id)", () => {
@@ -235,6 +275,130 @@ describe("XS-78: handle-message.ts", () => {
 			// socket so the server can drop its fixed 300ms sleep.
 			expect(mocks.sendToPython).toHaveBeenCalledWith({ type: "relaunch_ack" });
 			expect(mocks.relaunchApp).toHaveBeenCalledTimes(1);
+		});
+
+		describe("notification → native toast with click handler (Models-page pointer)", () => {
+			it("shows a native Notification with title/body from the payload", () => {
+				handleMessage({
+					type: "notification",
+					data: {
+						title: "Voice Typer",
+						message:
+							"Model not downloaded yet. Open the Models page and download.",
+						duration_ms: 0,
+						critical: false,
+						click_path: "/models",
+					},
+				});
+
+				expect(mockNotifications).toHaveLength(1);
+				const notif = mockNotifications[0];
+				if (!notif) throw new Error("expected a created Notification");
+				expect(notif.opts).toEqual({
+					title: "Voice Typer",
+					body: "Model not downloaded yet. Open the Models page and download.",
+				});
+				expect(notif.show).toHaveBeenCalledTimes(1);
+			});
+
+			it("registers a click handler when click_path is present", () => {
+				handleMessage({
+					type: "notification",
+					data: {
+						title: "Voice Typer",
+						message: "backend unloaded",
+						click_path: "/models",
+					},
+				});
+
+				const notif = mockNotifications[0];
+				if (!notif) throw new Error("expected a created Notification");
+				expect(notif.clickHandlers).toHaveLength(1);
+
+				notif.clickHandlers[0]?.();
+
+				// Click must show the main window and broadcast a
+				// ``navigate`` event pointing at the Models page (the
+				// renderer's existing ``navigate`` listener routes there).
+				expect(mocks.showMainWindow).toHaveBeenCalledTimes(1);
+				expect(mocks.broadcastToMainWindow).toHaveBeenCalledWith(
+					"python-event",
+					expect.objectContaining({
+						type: "navigate",
+						data: { path: "/models" },
+					}),
+				);
+			});
+
+			it("attaches the SEC-029 session nonce to the synthetic navigate event", () => {
+				handleMessage({
+					type: "notification",
+					data: { title: "Voice Typer", message: "m", click_path: "/models" },
+				});
+
+				const notif = mockNotifications[0];
+				if (!notif) throw new Error("expected a created Notification");
+				notif.clickHandlers[0]?.();
+
+				const [, msg] = mocks.broadcastToMainWindow.mock.calls[0] ?? [];
+				expect((msg as Record<string, unknown>)._session_nonce).toBe(
+					"test-nonce-123",
+				);
+			});
+
+			it("does not register a click handler when click_path is absent", () => {
+				handleMessage({
+					type: "notification",
+					data: { title: "Voice Typer", message: "plain notice" },
+				});
+
+				const notif = mockNotifications[0];
+				if (!notif) throw new Error("expected a created Notification");
+				expect(notif.clickHandlers).toHaveLength(0);
+			});
+
+			it("auto-closes after duration_ms when set", () => {
+				vi.useFakeTimers();
+				try {
+					handleMessage({
+						type: "notification",
+						data: { title: "t", message: "m", duration_ms: 5000 },
+					});
+
+					const notif = mockNotifications[0];
+					if (!notif) throw new Error("expected a created Notification");
+					expect(notif.close).not.toHaveBeenCalled();
+					vi.advanceTimersByTime(5000);
+					expect(notif.close).toHaveBeenCalledTimes(1);
+				} finally {
+					vi.useRealTimers();
+				}
+			});
+
+			it("skips the native toast when Notification.isSupported() is false but still broadcasts", () => {
+				(
+					mocks.Notification.isSupported as ReturnType<typeof vi.fn>
+				).mockImplementation(() => false);
+
+				handleMessage({
+					type: "notification",
+					data: { title: "Voice Typer", message: "m", click_path: "/models" },
+				});
+
+				// No native toast created…
+				expect(mockNotifications).toHaveLength(0);
+				// …but the event still falls through to the renderer
+				// broadcast (in-app toast consumers keep working).
+				expect(mocks.broadcastToMainWindow).toHaveBeenCalledWith(
+					"python-event",
+					expect.objectContaining({ type: "notification" }),
+				);
+			});
+
+			it("skips empty title/body payloads without creating a toast", () => {
+				handleMessage({ type: "notification", data: {} });
+				expect(mockNotifications).toHaveLength(0);
+			});
 		});
 	});
 

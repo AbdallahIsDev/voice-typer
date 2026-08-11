@@ -51,14 +51,21 @@ vi.mock("../i18n", () => ({
 	mainT: (k: string) => `[i18n:${k}]`,
 }));
 
-vi.mock("../logging", () => ({
-	logger: {
-		warn: mocks.loggerWarn,
-		info: vi.fn(),
-		error: vi.fn(),
-		debug: vi.fn(),
-	},
-}));
+vi.mock("../logging", async () => {
+	// Use the REAL dedupeRepeatedLogs (pure TS, no electron deps) so
+	// the handler's `python-call rejected` collapse is exercised
+	// end-to-end; only `logger` is mocked.
+	const { dedupeRepeatedLogs } = await import("../logging/dedupeRepeatedLogs");
+	return {
+		dedupeRepeatedLogs,
+		logger: {
+			warn: mocks.loggerWarn,
+			info: vi.fn(),
+			error: vi.fn(),
+			debug: vi.fn(),
+		},
+	};
+});
 
 vi.mock("../python", () => ({
 	sendToPython: mocks.sendToPython,

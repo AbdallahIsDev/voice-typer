@@ -58,13 +58,18 @@ export const VocabListRow = memo(function VocabListRow({
 							? "bg-violet-400/15 text-violet-700 dark:text-violet-400"
 							: "bg-emerald-400/15 text-emerald-700 dark:text-emerald-400";
 	return (
-		<div key={entry._id} className="flex items-start gap-3 px-3.5 py-2.5">
+		<div
+			key={entry._id}
+			className="flex items-start gap-3 px-3.5 py-2.5 transition-colors hover:bg-foreground/5"
+		>
 			<div className="min-w-0 flex-1">
 				<div className="flex items-center gap-2.5">
 					<span className="text-sm dark:font-normal font-medium text-destructive tracking-wider">
 						{entry.original}{" "}
 					</span>
-					<span className="text-sm text-(--text-muted)">→</span>
+					<span aria-hidden="true" className="text-sm text-(--text-muted)">
+						→
+					</span>
 					<span className="text-sm font-semibold text-(--text-primary)">
 						{entry.correction}{" "}
 					</span>

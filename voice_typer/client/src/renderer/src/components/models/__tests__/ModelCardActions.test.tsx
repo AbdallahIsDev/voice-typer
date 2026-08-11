@@ -2,8 +2,12 @@
  * ModelCardActions unit tests —  /
  *
  * Coverage:
- *   1. All four visual states render the correct button label + icon:
- *      - Branch 1: Active (disabled "Active" tick + Delete when downloaded).
+ *   1. All five visual states render the correct button label + icon:
+ *      - Branch 1a: Active + available (disabled "Active" tick, NO Delete —
+ *        the backend refuses to delete an in-use model, so a Delete
+ *        button would be a dead-end).
+ *      - Branch 1b: Active + MISSING from disk ("Download" to restore +
+ *        Delete to clear the stale selection —  STALE-ACTIVE).
  *      - Branch 4: Deps-installable, not depsOk ("Download Deps" button).
  *      - Branch 2: Not downloaded, not always-available ("Download" button).
  *      - Branch 3: Downloaded ("Select" button + Delete).
@@ -16,8 +20,8 @@
  *      `t("models.download.oneAtATime")` (which IS in the catalog).
  *   4.  #9: the Select button uses Tick02Icon (not PlayIcon) —
  *      Select is a "mark active" affordance, not a "play media" one.
- *   5. DeleteButton only renders in the Active + Downloaded branches
- *      AND only when `model.downloaded && !model.alwaysAvailable`.
+ *   5. DeleteButton renders in Branch 1b (active-but-missing) + Branch 3
+ *      (downloaded) and only when `!alwaysAvailable`.
  */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -67,7 +71,7 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		cleanup();
 	});
 
-	it("Branch 1 (Active): renders disabled Active tick + Delete icon when downloaded", () => {
+	it("Branch 1a (Active + downloaded): renders disabled Active tick with NO Delete icon", () => {
 		render(
 			<ModelCardActions
 				model={{ ...baseModel, isActive: true, downloaded: true }}
@@ -89,7 +93,40 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 			"data-name",
 			"Tick02Icon",
 		);
-		// Delete button is rendered (downloaded && !alwaysAvailable).
+		// STALE-ACTIVE: NO Delete icon on an in-use model — the backend
+		// refuses to delete it ("Cannot delete the active model"), so a
+		// Delete button here would always error. Users switch first.
+		expect(
+			screen.queryByRole("button", { name: /Delete small\.en/i }),
+		).toBeNull();
+	});
+
+	it("Branch 1b (Active + missing from disk): renders Download + Delete (stale selection)", () => {
+		render(
+			<ModelCardActions
+				model={{ ...baseModel, isActive: true, downloaded: false }}
+				isSelectingThis={false}
+				isDownloadingThis={false}
+				anyDownloading={false}
+				onSelect={noop}
+				onDownload={noop}
+				onDelete={noop}
+			/>,
+		);
+		// The active model was removed from disk out-of-band. Instead of a
+		// dead-end disabled "Active" tick, offer Download (restore it) +
+		// Delete (clear the stale selection — the backend switches to
+		// another model).
+		const dlBtn = screen.getByRole("button", {
+			name: /Download small\.en/i,
+		});
+		expect(dlBtn).toHaveTextContent("Download");
+		// No disabled "Active" tick anymore.
+		expect(
+			screen.queryByRole("button", { name: /Active: small\.en/i }),
+		).toBeNull();
+		// Delete affordance present so the phantom active state can be
+		// cleared.
 		expect(
 			screen.getByRole("button", { name: /Delete small\.en/i }),
 		).toBeInTheDocument();
@@ -139,6 +176,11 @@ describe("ModelCardActions — visual states (4 branches)", () => {
 		});
 		expect(depsBtn).toHaveTextContent("Download Deps");
 		expect(depsBtn).not.toHaveAttribute("aria-busy", "true");
+		// STALE-ACTIVE: a NON-active deps model shows NO Delete icon (only
+		// active-but-missing models get the stale-clear affordance).
+		expect(
+			screen.queryByRole("button", { name: /Delete small\.en/i }),
+		).toBeNull();
 	});
 
 	it("Branch 2 (Not downloaded): renders 'Download' button with downloadAria label", () => {
@@ -313,7 +355,42 @@ describe("ModelCardActions — DeleteButton rendering", () => {
 		cleanup();
 	});
 
-	it("DeleteButton is hidden in Branch 2 (not-downloaded) even if always-available is false", () => {
+	it("Branch 4 (Deps-installable): renders Delete for an ACTIVE-but-missing model (stale selection)", () => {
+		render(
+			<ModelCardActions
+				model={{
+					...baseModel,
+					name: "parakeet",
+					backend: "parakeet",
+					isActive: true,
+					downloaded: false,
+					depsInstallable: true,
+					depsOk: false,
+				}}
+				isSelectingThis={false}
+				isDownloadingThis={false}
+				anyDownloading={false}
+				onSelect={noop}
+				onDownload={noop}
+				onDelete={noop}
+				onInstallDeps={noop}
+			/>,
+		);
+		// "Download Deps" is the restore affordance...
+		expect(
+			screen.getByRole("button", {
+				name: /Download dependencies for parakeet/i,
+			}),
+		).toBeInTheDocument();
+		// ...and the Delete icon clears the stale active selection (the
+		// backend switches to another model). Without it the phantom
+		// active parakeet would be stuck on the card.
+		expect(
+			screen.getByRole("button", { name: /Delete parakeet/i }),
+		).toBeInTheDocument();
+	});
+
+	it("DeleteButton is hidden in Branch 2 (not-downloaded, non-active) even if always-available is false", () => {
 		render(
 			<ModelCardActions
 				model={{ ...baseModel, downloaded: false }}

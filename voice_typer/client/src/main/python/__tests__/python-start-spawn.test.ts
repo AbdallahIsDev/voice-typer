@@ -148,10 +148,10 @@ describe("ER-1: startPython() calls createWindows() before tcpConnect()", () => 
 		expect(cwIdx).toBeLessThan(tcIdx);
 	});
 
-	it.skip("calls clearTcpStartupTimeout() at the top of startPython() (ER-29 fresh 60s window)", async () => {
-		// Skipped: startPython() no longer calls clearTcpStartupTimeout
-		// directly; the 60s startup window is established inside tcpConnect
-		// on each call.
+	it("calls clearTcpStartupTimeout() at the top of startPython() (ER-29 fresh 60s window)", async () => {
+		// TC-41: un-skipped — startPython() clears the 60s window before
+		// spawning so a stale timer from the previous lifecycle can't fire
+		// mid-restart and trip a premature "backend failed to start" dialog.
 		vi.resetModules();
 		const { startPython } = await import("../start-python");
 		startPython();

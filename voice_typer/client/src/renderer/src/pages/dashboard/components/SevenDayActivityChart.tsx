@@ -79,7 +79,7 @@ export function SevenDayActivityChart({ data }: SevenDayActivityChartProps) {
 								title={tChoice("analytics.dayCountTooltip", day.count, {
 									label: day.label,
 								})}
-								className="w-full max-w-10 rounded-sm bg-accent/80 transition-all duration-300"
+								className="w-full max-w-10 rounded-sm bg-accent/80 transition-all duration-300 hover:bg-accent"
 								style={{ height: `${barHeight(day.count, maxCount)}px` }}
 							/>
 							<span className="text-[11px] text-(--text-muted)">

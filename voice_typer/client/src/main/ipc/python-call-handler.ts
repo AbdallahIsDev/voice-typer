@@ -31,13 +31,43 @@ import { ipcMain } from "electron";
 // shared module instead of re-declaring it locally. Re-exported so
 // existing imports from ../ipc/python-call-handler continue to resolve.
 import type { PythonCallErrorCode } from "../../shared/python-call-error-code";
-import { logger } from "../logging";
+import { dedupeRepeatedLogs, logger } from "../logging";
 import { sendToPython } from "../python";
 import { PythonIpcError } from "../python/errors";
 import { state } from "../state";
 import { PythonChannels } from "./channels";
 
 export type { PythonCallErrorCode };
+
+// Collapse consecutive identical `python-call rejected` warnings into a
+// single line with an (xN) repeat count — the renderer retries IPC calls
+// in bursts while the backend is disconnected, and the raw repetition
+// flooded electron-main.log / stderr (e.g. 15 identical lines per probe
+// cycle). First occurrence logs as-is; repeats are suppressed; when the
+// streak breaks (or every 60s heartbeat), one `(xN)` summary line is
+// emitted with the total occurrence count.
+const warnRejected = dedupeRepeatedLogs((msg, ...args) =>
+	logger.warn(msg, ...args),
+);
+
+/**
+ * HU-26: bound the `errMsg` persisted to `electron-main.log`. The raw
+ * `PythonIpcError.message` can embed a Python traceback with filesystem
+ * paths or user-supplied text (e.g. a `ValueError` echoing dictated
+ * input). The renderer already receives only the generic localized
+ * message; the log side must not persist the full traceback either —
+ * the backend writes the full detail to `voice-typer.log`. Keep the
+ * first line, capped at `MAX_LOG_ERROR_CHARS`.
+ */
+const MAX_LOG_ERROR_CHARS = 200;
+
+function truncateLogError(errMsg: string): string {
+	const firstLine = errMsg.split("\n")[0] ?? "";
+	if (firstLine.length <= MAX_LOG_ERROR_CHARS) {
+		return firstLine;
+	}
+	return `${firstLine.slice(0, MAX_LOG_ERROR_CHARS)}… (truncated)`;
+}
 
 /**
  * Per-code English fallback messages for `_error` (log/dev-facing).
@@ -79,7 +109,7 @@ export function registerPythonCallHandler(): void {
 				typeof (msg as { type?: unknown }).type !== "string"
 			) {
 				const code: PythonCallErrorCode = "command_failed";
-				logger.warn("python-call rejected", {
+				warnRejected("python-call rejected", {
 					cmd: "<invalid>",
 					code,
 					reason: "missing or non-string 'type' field",
@@ -95,12 +125,12 @@ export function registerPythonCallHandler(): void {
 			if (!state.tcpSocket) {
 				if (state.pythonExitedEarly) {
 					const code: PythonCallErrorCode = "backend_exited_early";
-					logger.warn("python-call rejected", { cmd, code });
+					warnRejected("python-call rejected", { cmd, code });
 					// Per-code message, NOT "Critical Error".
 					return { _error: ERROR_MESSAGES[code], _code: code };
 				}
 				const code: PythonCallErrorCode = "backend_not_connected";
-				logger.warn("python-call rejected", { cmd, code });
+				warnRejected("python-call rejected", { cmd, code });
 				return { _error: ERROR_MESSAGES[code], _code: code };
 			}
 			try {
@@ -129,13 +159,19 @@ export function registerPythonCallHandler(): void {
 				const code: PythonCallErrorCode = isTimeout
 					? "command_timeout"
 					: "command_failed";
-				logger.warn("python-call failed", { cmd, code, error: errMsg });
+				logger.warn("python-call failed", {
+					cmd,
+					code,
+					error: truncateLogError(errMsg),
+				});
 				return {
 					//for command_failed, return the generic localized
 					// message (NOT the raw Python traceback with filesystem
-					// paths).  The full errMsg is still logged server-side
-					// via logger.warn above.  For timeout the errMsg is safe
-					// (it's just "Request Timeout") so append it for clarity.
+					// paths).  A bounded (first-line, ≤200-char) version of
+					// errMsg is logged via logger.warn above — the full
+					// detail lives backend-side in voice-typer.log.  For
+					// timeout the errMsg is safe (it's just "Request
+					// Timeout") so append it for clarity.
 					_error: isTimeout
 						? `${ERROR_MESSAGES[code]} ${errMsg}`
 						: ERROR_MESSAGES[code],

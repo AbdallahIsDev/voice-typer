@@ -9,7 +9,8 @@
  *     downloaded guard fires second (not downloaded) — active model state unchanged
  *   - selectModel error: re-thrown from updateConfig surfaces "selectFailed" snack;
  *     setModels is NOT invoked
- *   - requestDeleteModel: refuses active model, otherwise stashes the target
+ *   - requestDeleteModel: refuses active model while it's on disk; ALLOWS
+ *     deleting an active-but-missing (stale) model; stashes other targets
  *   - confirmDelete: fires delete_model IPC, updates local state, surfaces snack
  */
 import { act, renderHook } from "@testing-library/react";
@@ -270,6 +271,28 @@ describe("useModelSelection — requestDeleteModel + confirmDelete", () => {
 			"models.cannotDeleteActive",
 			"warning",
 		);
+	});
+
+	it("requestDeleteModel ALLOWS an active model that is missing from disk (stale selection)", () => {
+		const args = makeHookArgs();
+		const { result } = renderHook(() => useModelSelection(args));
+
+		// Active + downloaded: false → the model was removed from disk
+		// out-of-band while the config still points at it. Deleting it is
+		// the only way to clear the phantom "Active" state (the backend
+		// switches to another model), so the confirm dialog MUST open.
+		const staleActive = makeModel({
+			name: "small.en",
+			isActive: true,
+			downloaded: false,
+		});
+
+		act(() => {
+			result.current.requestDeleteModel(staleActive);
+		});
+
+		expect(result.current.deleteModelTarget).toEqual(staleActive);
+		expect(args.showSnack).not.toHaveBeenCalled();
 	});
 
 	it("requestDeleteModel stashes a non-active model as deleteModelTarget", () => {
