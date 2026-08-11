@@ -1,10 +1,10 @@
 # =============================================================================
 # PINNED ACTION VERSIONS — DO NOT DOWNGRADE (verified 2026-07-24):
-#   actions/checkout@v5       — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/checkout@v7       — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/setup-python@v7   — Node 24 runtime (v5/v6 = Node 20, deprecated)
-#   actions/cache@v5           — Node 24 runtime (v4 = Node 20, deprecated)
+#   actions/cache@v6           — Node 24 runtime (v4 = Node 20, deprecated)
 #   actions/setup-node@v7      — Node 24 runtime (v4 = Node 20, deprecated)
-#   actions/upload-artifact@v6 — Node 24 runtime (v5 = Node 20, deprecated)
+#   actions/upload-artifact@v7 — Node 24 runtime (v5 = Node 20, deprecated)
 #   astral-sh/setup-uv@v7     — Node 24 runtime (v6 = Node 20, deprecated)
 #   dtolnay/rust-toolchain@v1  — Node 24 runtime (@stable = untagged, may resolve to Node 20)
 # See build.yml header for full rationale + breaking-change analysis.
@@ -167,7 +167,7 @@ jobs:
       RUST_TARGET: x86_64-unknown-linux-gnu
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@v1
@@ -177,7 +177,7 @@ jobs:
           targets: ${{ env.RUST_TARGET }}
 
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -384,7 +384,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       # honor the `sign` workflow_call input. Linux bundles are
       # unsigned by design (ADR-0020 §13.3 — no Linux signing secrets
@@ -421,7 +421,7 @@ jobs:
       # unchanged dependencies. Keyed on arch + Cargo.lock hash so any
       # dep bump cleanly invalidates the cache.
       - name: Cache cargo registry + target
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -762,7 +762,7 @@ jobs:
       # also upload .AppImage and .rpm as separate artifacts for users on
       # other distros (CI-3 — previously .rpm was not uploaded at all).
       - name: Upload .deb artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-linux-installer
           path: |
@@ -771,7 +771,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Upload .AppImage artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: voice-typer-${{ env.BUILD_ARCH }}.AppImage
           path: |
@@ -784,7 +784,7 @@ jobs:
       # native package. Upload it as its own artifact so the Fedora
       # subgraph of Linux users can grab the .rpm without rebuilding.
       - name: Upload .rpm artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: voice-typer-${{ env.BUILD_ARCH }}.rpm
           path: |
@@ -794,7 +794,7 @@ jobs:
 
       - name: Upload build logs (Nuitka + cargo)
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: voice-typer-${{ env.BUILD_ARCH }}-build-logs
           path: |
@@ -838,7 +838,7 @@ jobs:
           fi
 
       - name: Upload checksums
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: VoiceTyper-Tauri-Linux-SHA256SUMS-${{ env.BUILD_ARCH }}
           path: SHA256SUMS.txt
@@ -866,7 +866,7 @@ jobs:
           python3 scripts/build/update_tauri_manifests.py --check --triple "$TRIPLE"
 
       - name: Upload updated tauri-binaries.json
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: tauri-binaries-manifest-linux-${{ env.BUILD_ARCH }}
           path: tauri-binaries.json
