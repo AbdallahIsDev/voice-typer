@@ -103,12 +103,18 @@ The real secret lives in the OS keychain under the service name
 }
 ```
 
-The `secrets_migrated` flag is set to `true` even when keyring is
-unavailable so the migration doesn't retry on every launch. Once a
-keyring backend becomes available (e.g. the user installs
-`gnome-keyring-daemon`), the next launch will NOT auto-migrate (the
-flag is already set). To re-trigger migration, the user can manually
-clear the flag in `config.json`:
+The `secrets_migrated` flag is set to `true` ONLY when migration
+succeeds OR when there is no plaintext to skip (i.e. nothing to
+migrate). When keyring is unavailable AND real plaintext keys are
+present, the flag is NOT set — instead a diagnostic flag
+`secrets_migrated_keyring_was_unavailable` is recorded and migration
+is DEFERRED: the next launch (once a keyring backend becomes
+available, e.g. the user installs `gnome-keyring-daemon`) automatically
+re-runs migration. No user intervention is required — the plaintext
+keys do NOT persist forever.
+
+An operator can still force an earlier re-migration attempt by
+manually clearing the flag in `config.json`:
 
 ```json
 { "secrets_migrated": false }

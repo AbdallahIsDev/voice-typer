@@ -51,7 +51,7 @@ Implement **per-launch session token authentication** for the TCP/WS IPC channel
 
 6. **Lock-free auth:** The auth handshake is performed **outside** `self._lock` (the IPC server's main lock). This prevents a stalled auth read from blocking `push()` events and other IPC dispatch threads.
 
-7. **Fallback mode:** When `VOICE_TYPER_IPC_TOKEN` is not set (e.g., running `python -m voice_typer.server.ipc_server` from a terminal for debugging), the server emits a warning and accepts unauthenticated connections. This preserves the developer workflow without breaking security for production use.
+7. **No fallback mode (fail closed):** When `VOICE_TYPER_IPC_TOKEN` is not set, the server logs an ERROR and refuses ALL TCP connections (the host must always set this env var; an unset token means any local process could otherwise connect to `127.0.0.1:<port>` and dispatch arbitrary IPC commands — `quit_app`, `set_config`, etc.). The server still binds + listens (so `stop()` / socket-cleanup semantics work), but every accepted connection is immediately closed before any auth or dispatch runs. Standalone-mode debugging requires explicitly setting the env var, e.g. `VOICE_TYPER_IPC_TOKEN=dev python -m voice_typer.server.ipc_server`. This behavior is enforced by `transport_tcp.py` (`VOICE_TYPER_IPC_TOKEN not set — refusing ALL connections`) and pinned by the `TestTcpTokenUnsetFailClosed` regression suite.
 
 ## Consequences
 
@@ -67,7 +67,7 @@ Implement **per-launch session token authentication** for the TCP/WS IPC channel
 
 ### Risks
 - **Environment variable leakage:** The token is passed via `VOICE_TYPER_IPC_TOKEN` which is visible in `/proc/<pid>/environ` on Linux and `GetEnvironmentStrings` on Windows. A local attacker with process-inspection capabilities can read it. Mitigation: `hmac.compare_digest` prevents token reuse beyond the single connection, but the attacker could authenticate directly. Acceptable risk — the IPC socket is loopback-only, and any local process with debug privileges can already interact with the app in other ways.
-- **Race condition in standalone mode:** The token env var must be set BEFORE `start_tcp()` spawns the accept thread; otherwise, the thread reads an empty token and falls into unauthenticated mode. This is handled by ordering the calls (set env → start_tcp) in `main()`.
+- **Misconfiguration is loud, not unsafe:** The token env var must be set BEFORE `start_tcp()` spawns the accept thread. If it is not set, the server fails closed (refuses every connection, per §7) rather than falling into an unauthenticated mode — the old race-condition risk is moot because there is no unauthenticated mode to fall into. A misconfigured launch surfaces as an ERROR log + dead IPC until the host sets the env var.
 
 ## References
 
