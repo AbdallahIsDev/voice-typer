@@ -6,6 +6,7 @@ access ``self.app`` / ``self.service`` as before.
 """
 
 import contextlib
+import ipaddress
 from typing import cast
 
 from voice_typer.server import event_bus
@@ -510,7 +511,53 @@ class ConfigHandlersMixin(HandlerBase):
                     f"invalid host {raw_host!r} — expected a bare hostname like 'my-vllm.lan'",
                     code="invalid_field",
                 )
-            host = raw_host.split(":")[0].strip().lower()
+            # Extract the bare host: IPv6 literals (``fc00::1`` or
+            # ``[fc00::1]:8080``) survive intact; hostnames / IPv4 have
+            # the port stripped. Colon-bearing entries MUST be genuine
+            # IPv6 literals — a hostname containing ``:`` is invalid
+            # (IPv6 is the only legal colon-bearing host form). Mirrors
+            # ``_normalize_host`` in ``security.url_allowlist`` and the
+            # ``trusted_extra_hosts`` config validator (HU-35 follow-up).
+            if raw_host.startswith("["):
+                # Bracketed IPv6 (with optional ``:port``): ``[fc00::1]``
+                # or ``[fc00::1]:8080`` → the bracketed part must be a
+                # valid IPv6 literal.
+                closing = raw_host.find("]")
+                if closing <= 0:
+                    return _error_response(
+                        resp,
+                        f"invalid host {raw_host!r} — is not a valid IPv6 literal",
+                        code="invalid_field",
+                    )
+                inner = raw_host[1:closing]
+                try:
+                    ipaddress.ip_address(inner)
+                except ValueError:
+                    return _error_response(
+                        resp,
+                        f"invalid host {raw_host!r} — is not a valid IPv6 literal",
+                        code="invalid_field",
+                    )
+                host = inner
+            elif raw_host.count(":") > 1:
+                # Bare IPv6 literal (``fc00::1``) OR a multi-colon
+                # hostname (invalid — IPv6 is the only legal
+                # colon-bearing host form).
+                try:
+                    ipaddress.ip_address(raw_host)
+                except ValueError:
+                    return _error_response(
+                        resp,
+                        f"invalid host {raw_host!r} — is not a valid IPv6 literal",
+                        code="invalid_field",
+                    )
+                host = raw_host
+            else:
+                # Generic hostname / IPv4 / hostname:port — strip the
+                # first ``:port`` (e.g. ``My-Vllm.Lan:8443`` →
+                # ``my-vllm.lan``).
+                host = raw_host.split(":")[0]
+            host = host.strip().lower()
             if not host:
                 log.warning("[IPC] add_trusted_endpoint rejected: invalid host %r", raw_host)
                 return _error_response(
@@ -518,7 +565,7 @@ class ConfigHandlersMixin(HandlerBase):
                     f"invalid host {raw_host!r} — expected a bare hostname like 'my-vllm.lan'",
                     code="invalid_field",
                 )
-            if not all(c.isalnum() or c in "-._" for c in host):
+            if not all(c.isalnum() or c in "-._" or c == ":" for c in host):
                 return _error_response(
                     resp,
                     f"invalid host {raw_host!r} — contains invalid characters",

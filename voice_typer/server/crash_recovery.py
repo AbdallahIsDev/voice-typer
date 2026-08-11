@@ -1053,7 +1053,17 @@ class CrashRecovery:
                 # correct outcome.
                 cycle_id = ""
                 with contextlib.suppress(Exception):
-                    cycle_id = _sentinel.read_text(encoding="utf-8").strip()
+                    # HU-10: read through ``_secure_read_text`` (POSIX
+                    # ``O_NOFOLLOW`` / Windows reparse-point check) —
+                    # same helper the recovery-file load path uses — so
+                    # a symlink planted at the sentinel path can never
+                    # exfiltrate an arbitrary file's content into the
+                    # production log at WARNING. On refusal
+                    # (OSError/ValueError) ``cycle_id`` stays "" → the
+                    # hard-crash (nothing recoverable) branch below.
+                    from voice_typer.server.config import _secure_read_text
+
+                    cycle_id = _secure_read_text(_sentinel).strip()
                 # Delete FIRST so a publish failure can't cause a re-fire loop.
                 _sentinel.unlink(missing_ok=True)
                 # Look up matching unpasted entries. ``_lock`` guards the

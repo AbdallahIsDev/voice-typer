@@ -969,74 +969,73 @@ class ConfigApplier:
     def apply_config(self, updates: dict) -> dict:
         """Apply validated config updates atomically.
 
-                ADR 0008 §3.1: wraps the config-mutation lock + setattr +
-                side-effects + save + tray-cache invalidation sequence so the
-                IPC ``set_config`` handler doesn't access
-                ``self.app._config_mutation_lock``, ``self.app.config``, or
-                ``self.app.tray.invalidate_menu_cache()`` directly.
+        ADR 0008 §3.1: wraps the config-mutation lock + setattr +
+        side-effects + save + tray-cache invalidation sequence so the
+        IPC ``set_config`` handler doesn't access
+        ``self.app._config_mutation_lock``, ``self.app.config``, or
+        ``self.app.tray.invalidate_menu_cache()`` directly.
 
-                RACE-011: holds the app's config-mutation lock for the full
-                read-modify-save sequence so a concurrent ``set_config`` IPC
-                call can't interleave attribute writes with this update.
+        RACE-011: holds the app's config-mutation lock for the full
+        read-modify-save sequence so a concurrent ``set_config`` IPC
+        call can't interleave attribute writes with this update.
 
-                AUDIO-PRESET-SAVE-FIX: runs :meth:`apply_config_side_effects`
-                INSIDE the lock and saves AFTER it, so that any side-effect
-                mutations (e.g. ``noise_filter_*`` toggles from the audio
-                preset) are persisted to disk.  The previous order (save
-                first, then apply side effects outside the lock) meant that
-                when the user set ``audio_preset: "off"``, only the preset
-                name was saved; the individual ``noise_filter_*`` toggles
-                were NOT persisted.
+        AUDIO-PRESET-SAVE-FIX: runs :meth:`apply_config_side_effects`
+        INSIDE the lock and saves AFTER it, so that any side-effect
+        mutations (e.g. ``noise_filter_*`` toggles from the audio
+        preset) are persisted to disk.  The previous order (save
+        first, then apply side effects outside the lock) meant that
+        when the user set ``audio_preset: "off"``, only the preset
+        name was saved; the individual ``noise_filter_*`` toggles
+        were NOT persisted.
 
-        invalidates the tray menu cache after the save so
-                the next menu build picks up the new config values (model
-                size, hotkey, etc.).
+        Invalidates the tray menu cache after the save so the next
+        menu build picks up the new config values (model size,
+        hotkey, etc.).
 
-        API key fields (``openai_api_key`` / ``groq_api_key``
-                ``deepgram_api_key`` / ``cloud_api_key`` / ``llm_api_key``)
-                are routed through ``credential_store.store_secret()`` AFTER
-                ``app.config.save_strict()`` succeeds. Previously
-                the routing happened BEFORE ``setattr(app.config, ...)``;
-                on a ``save_strict`` disk-write failure the in-memory
-                Config was rolled back to the OLD value via ``set_keys``
-                but the keychain retained the NEW value, leaving the
-                keychain inconsistent with disk + in-memory state.
-                Deferring to AFTER ``save_strict`` keeps the keychain in
-                lock-step with disk: if save fails, the keychain is NOT
-                touched (it still holds whatever a prior successful save
-                wrote). The in-memory Config attribute carries the real
-                value (NOT the ``keyring://`` reference) so cloud_engines /
-                llm_polish / dictation_pipeline can use it; the subsequent
-                ``app.config.save()`` (called inside ``save_strict``)
-                writes only a ``keyring://<provider>`` reference token to
-                config.json (when keyring is available) — see
-                ``Config.save()`` for the on-disk format.
+        API key fields (``openai_api_key`` / ``groq_api_key`` /
+        ``deepgram_api_key`` / ``cloud_api_key`` / ``llm_api_key``)
+        are routed through ``credential_store.store_secret()`` AFTER
+        ``app.config.save_strict()`` succeeds. Previously the routing
+        happened BEFORE ``setattr(app.config, ...)``; on a
+        ``save_strict`` disk-write failure the in-memory Config was
+        rolled back to the OLD value via ``set_keys`` but the
+        keychain retained the NEW value, leaving the keychain
+        inconsistent with disk + in-memory state. Deferring to AFTER
+        ``save_strict`` keeps the keychain in lock-step with disk: if
+        save fails, the keychain is NOT touched (it still holds
+        whatever a prior successful save wrote). The in-memory Config
+        attribute carries the real value (NOT the ``keyring://``
+        reference) so cloud_engines / llm_polish / dictation_pipeline
+        can use it; the subsequent ``app.config.save()`` (called
+        inside ``save_strict``) writes only a ``keyring://<provider>``
+        reference token to config.json (when keyring is available) —
+        see ``Config.save()`` for the on-disk format.
 
-        calls ``app.config.save_strict()`` instead of
-                ``app.config.save()``.  ``save_strict()`` raises
-                ``RuntimeError`` if the underlying save returned ``False``
-                (which indicates an ``OSError`` / ``PermissionError`` was
-                caught and logged by ``save()``).  The IPC handler is
-                expected to catch this and surface the failure to the
-                renderer — previously a silent disk failure produced a
-                successful-but-empty ``ack``.
+        Calls ``app.config.save_strict()`` instead of
+        ``app.config.save()``.  ``save_strict()`` raises
+        ``RuntimeError`` if the underlying save returned ``False``
+        (which indicates an ``OSError`` / ``PermissionError`` was
+        caught and logged by ``save()``).  The IPC handler is
+        expected to catch this and surface the failure to the
+        renderer — previously a silent disk failure produced a
+        successful-but-empty ``ack``.
 
-                Parameters
-                ----------
-                updates :
-                    Validated config updates dict (allowlisted keys only).
-                    The caller is responsible for validating the payload —
-                    typically via :func:`voice_typer.server.config.validate_config_update`.
+        Parameters
+        ----------
+        updates :
+            Validated config updates dict (allowlisted keys only).
+            The caller is responsible for validating the payload —
+            typically via :func:`voice_typer.server.config.validate_config_update`.
 
-                Returns
-                -------
-                dict
-        (session-3): side-effect status dict with the
-                    shape ``{"autostart_status": dict | None, "prewarm_status": dict | None}``.
-                    The ``set_config`` IPC handler propagates this to the
-                    renderer so it can surface "Autostart registration failed:
-                    <reason>" instead of silently failing. A field is ``None``
-                    when the corresponding config key wasn't in ``updates``.
+        Returns
+        -------
+        dict
+            Side-effect status dict with the shape
+            ``{"autostart_status": dict | None, "prewarm_status": dict | None}``.
+            The ``set_config`` IPC handler propagates this to the
+            renderer so it can surface "Autostart registration failed:
+            <reason>" instead of silently failing. A field is ``None``
+            when the corresponding config key wasn't in ``updates``.
         """
         # SEC-002 defense-in-depth: even though the IPC
         # ``set_config`` handler runs ``validate_config_update`` (which

@@ -1,37 +1,38 @@
-"""Regression tests for the modifier-only-hotkey rejection in
+"""Regression tests for modifier-only-hotkey handling in
 :func:`voice_typer.server.config_validators.hotkey._check_multi_non_modifier`.
 
-Pre-fix, Stage 5 of the per-field hotkey validator rejected combos with
-**more than one** non-modifier key (``len(non_mods) > 1``) but silently
-accepted combos with **zero** non-modifier keys
-(``len(non_mods) == 0``). The latter is structurally invalid for every
-global-hotkey backend the project ships:
+HISTORY (why these tests flip-flopped): Stage 5 originally rejected
+combos with more than one non-modifier key (``len(non_mods) > 1``) and
+silently accepted zero-non-modifier combos. An older fix tightened it
+to ``!= 1`` on the (then-true) premise that "no listener backend can
+register a modifier-only hotkey" — the pynput/RegisterHotKey/CGEventTap
+listeners all require a concrete trigger key. Since then the runtime
+gained first-class modifier-only support:
 
-* ``pynput``'s ``GlobalHotKeysListener`` matches a hotkey spec by
-  watching for the non-modifier keypress while the listed modifiers are
-  held — with no non-modifier key, the listener has nothing to match.
-* Win32 ``RegisterHotKey`` requires a non-modifier virtual-key code as
-  its ``vk`` argument; passing only modifiers is a silent no-op (the
-  call returns ``True`` but the OS never fires ``WM_HOTKEY``).
-* The macOS ``CGEventTap`` listener matches on the non-modifier key's
-  keycode; a modifier-only combo produces a tap that never triggers.
+* the native backends (``windows-key-listener.exe``, Linux evdev,
+  macOS) fire on modifier RELEASE via ``_run_modifier_only_polling_loop``
+  (``voice_typer/server/hotkeys/windows/polling_strategy.py``), and
+  ``WindowsNativeHotkey`` (the polling fallback) does the same;
+* the frontend ``validateHotkey`` (``hotkey-validation.ts`` rule 5)
+  explicitly ACCEPTS pure-modifier combos — "they're valid modifier-only
+  release triggers in the native backends" — and ``HotkeyPicker``
+  commits them (``useHotkeyCapture.ts`` ``commitModifierOnlyRef``).
 
-A user (or a buggy renderer, or a malicious IPC client writing directly
-to ``config.json``) who set ``"hotkey": "<ctrl>+<shift>"`` would see
-"hotkey armed" in the UI and never be able to trigger dictation — a
-silent registration failure with no diagnostic.
+The backend validator was the odd layer out: it rejected modifier-only
+hotkeys at ``set_config`` time, so a user who captured ``<ctrl>+<shift>``
+(or a bare ``<alt>``) in the renderer got "hotkey must have exactly one
+non-modifier key (got 0)" and could never save it — a cross-layer
+contract violation visible in real logs as repeated ``set_config
+rejected`` WARNINGs. Stage 5 now allows ZERO non-modifier keys (as long
+as the combo has at least one modifier) and rejects only MORE than one
+non-modifier key.
 
-The fix tightens Stage 5 to ``if len(non_mods) != 1:`` so both
-violations (zero AND more-than-one) are rejected at config-load time
-with an actionable error message that includes the actual count.
+These tests pin the CURRENT contract so a future refactor cannot
+silently revert to the ``!= 1`` rejection (which contradicts the
+frontend + runtime) NOR loosen the ``> 1`` structural gate.
 
-These tests pin the new behaviour so a future refactor cannot silently
-revert to the looser ``> 1`` check (which is the natural "minimal"
-implementation and thus an easy regression target).
-
-All tests run ON LINUX (sandbox). The fix spec mandates the four
-regression cases listed below on Linux specifically; Windows / macOS
-code paths are exercised by mocking ``sys.platform`` (the existing
+All tests run ON LINUX (sandbox). The Windows / macOS code paths are
+exercised by mocking ``sys.platform`` (the existing
 ``test_reserved_hotkeys.py`` and ``test_hotkey_validation.py`` use the
 same pattern via ``cv._sys.platform = ...``).
 """
@@ -55,106 +56,125 @@ from voice_typer.server.config_validators.hotkey import (
 
 @pytest.fixture
 def linux_platform(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pin ``sys.platform`` to ``"linux"`` for the duration of one test.
+    """Pin ``sys.platform`` to ``\"linux\"`` for the duration of one test.
 
     The hotkey validator's platform-conditional branches (per-platform
     reserved-shortcut tables, Alt+Shift Windows block, Cmd+letter macOS
     block) read ``sys.platform`` transitively via
     :func:`voice_typer.server.platform_utils.is_windows` /
     :func:`is_macos`. Mutating the shared ``sys`` module via
-    ``monkeypatch.setattr(sys, "platform", "linux")`` propagates to
+    ``monkeypatch.setattr(sys, \"platform\", \"linux\")`` propagates to
     every consumer (the project's own tests use the equivalent
     ``cv._sys.platform = ...`` pattern, which mutates the same global).
     """
     monkeypatch.setattr(sys, "platform", "linux")
 
 
+@pytest.fixture
+def windows_platform(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin ``sys.platform`` to ``\"win32\"`` for one test."""
+    monkeypatch.setattr(sys, "platform", "win32")
+
+
+def _assert_allowed(hotkey: str) -> None:
+    """Assert ``_validate_hotkey`` accepts ``hotkey`` with a clear message."""
+    result = _validate_hotkey(hotkey)
+    assert result is None, (
+        f"{hotkey!r} must be allowed — the frontend validateHotkey and the "
+        f"native/polling backends support modifier-only release triggers; "
+        f"got: {result!r}"
+    )
+
+
 # ──────────────────────────────────────────────────────────────────────────
-# the four mandated regression cases (FI-9 spec)
+# modifier-only combos are ALLOWED (the current contract)
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestModifierOnlyCombosRejectedOnLinux:
-    """The four hotkey strings the fix spec calls out by name must be
-    rejected on Linux after the fix.
+class TestModifierOnlyCombosAllowed:
+    """Modifier-only hotkeys (zero non-modifier keys) are valid release
+    triggers and must be accepted by the backend validator — matching the
+    frontend ``validateHotkey`` (rule 5) and the runtime backends'
+    modifier-only polling loop.
 
-    Pre-fix, all four had ``len(non_mods) == 0`` and passed Stage 5
-    silently — they would then fail to register at runtime with no
-    diagnostic. Post-fix, all four are rejected at config-load time
-    with the ``"hotkey must have exactly one non-modifier key (got 0)"``
-    error.
+    This is the regression surface for the log signature
+    ``set_config rejected: field 'hotkey' hotkey must have exactly one
+    non-modifier key (got 0)`` that users hit when the renderer
+    committed a modifier-only capture and the backend refused it.
     """
 
-    def test_ctrl_plus_shift_rejected_on_linux(self, linux_platform: None) -> None:
+    def test_ctrl_plus_shift_allowed(self, linux_platform: None) -> None:
         """``<ctrl>+<shift>`` — two modifiers, zero non-modifiers."""
-        result = _validate_hotkey("<ctrl>+<shift>")
+        _assert_allowed("<ctrl>+<shift>")
+
+    def test_ctrl_plus_alt_allowed(self, linux_platform: None) -> None:
+        """``<ctrl>+<alt>`` — two modifiers, zero non-modifiers."""
+        _assert_allowed("<ctrl>+<alt>")
+
+    def test_alt_plus_shift_allowed_on_linux(self, linux_platform: None) -> None:
+        """``<alt>+<shift>`` is allowed on Linux (modifier-only release
+        trigger). On Windows it stays blocked by Stage 7 (language
+        switching) — covered in ``TestAltShiftStillBlockedOnWindows``."""
+        _assert_allowed("<alt>+<shift>")
+
+    def test_bare_alt_allowed(self, linux_platform: None) -> None:
+        """``<alt>`` alone — a single modifier as a release trigger."""
+        _assert_allowed("<alt>")
+
+    def test_bare_ctrl_allowed(self, linux_platform: None) -> None:
+        """``<ctrl>`` alone."""
+        _assert_allowed("<ctrl>")
+
+    def test_bare_shift_allowed(self, linux_platform: None) -> None:
+        """``<shift>`` alone — the frontend pins this exact case
+        (``hotkey-validation.test.ts``: \"Shift alone is a valid
+        single-key trigger\")."""
+        _assert_allowed("<shift>")
+
+    def test_bare_cmd_l_allowed(self, linux_platform: None) -> None:
+        """``<cmd_l>`` alone canonicalizes to ``cmd`` (a modifier) — a
+        valid modifier-only trigger. (The canonical parser resolves
+        ``cmd_l`` → ``cmd``, so ``_parse_hotkey_parts`` returns
+        ``[\"cmd\"]``.)"""
+        _assert_allowed("<cmd_l>")
+
+    def test_cmd_l_plus_cmd_r_allowed(self, linux_platform: None) -> None:
+        """``<cmd_l>+<cmd_r>`` — both canonicalize to ``cmd``, yielding
+        parts == ``[\"cmd\"]`` (one modifier, zero non-modifiers)."""
+        _assert_allowed("<cmd_l>+<cmd_r>")
+
+
+class TestBareShellModifiersStillBlocked:
+    """Bare shell-modifier keys remain blocked by Stage 2 (the universal
+    reserved list), NOT by Stage 5 — relaxing the zero-non-modifier rule
+    must not let ``<win>`` / ``<cmd>`` / ``<super>`` through."""
+
+    @pytest.mark.parametrize("hotkey", ["<win>", "<cmd>", "<super>"])
+    def test_bare_shell_modifier_still_blocked(self, hotkey: str, linux_platform: None) -> None:
+        result = _validate_hotkey(hotkey)
         assert result is not None, (
-            "<ctrl>+<shift> has zero non-modifier keys and must be rejected "
-            "(pynput/RegisterHotKey/CGEventTap all require a non-modifier trigger key)"
+            f"{hotkey!r} is a bare shell modifier (Win opens Start, Cmd is a "
+            f"macOS system gesture, Super is the Linux shell key) and must "
+            f"stay blocked; got: {result!r}"
         )
-        assert "exactly one non-modifier" in result, (
-            f"error should mention the exactly-one-non-modifier rule; got: {result!r}"
+        assert "reserved" in result.lower(), (
+            f"the rejection should come from the reserved-shortcut rule; got: {result!r}"
         )
-        assert "(got 0)" in result, f"error should report the actual count (0); got: {result!r}"
 
-    def test_bare_cmd_l_rejected_on_linux(self) -> None:
-        """``<cmd_l>`` alone — a single modifier token, zero non-modifiers.
 
-        Note: the canonical parser resolves ``cmd_l`` → ``cmd`` and
-        deduplicates, so ``_parse_hotkey_parts("<cmd_l>")`` returns
-        ``["cmd"]`` (one entry, still a modifier). The structural check
-        sees ``len(non_mods) == 0`` and rejects. No platform pin is
-        needed because the structural Stage 5 runs before any
-        platform-conditional stage and does not consult ``sys.platform``.
-        """
-        result = _validate_hotkey("<cmd_l>")
-        assert result is not None, "<cmd_l> alone has zero non-modifier keys and must be rejected"
-        assert "exactly one non-modifier" in result, (
-            f"error should mention the exactly-one-non-modifier rule; got: {result!r}"
-        )
-        assert "(got 0)" in result, f"error should report the actual count (0); got: {result!r}"
+class TestAltShiftStillBlockedOnWindows:
+    """Stage 7 (Alt+Shift = Windows language switching) still applies —
+    relaxing Stage 5 must not bypass it."""
 
-    def test_cmd_l_plus_cmd_r_rejected_on_linux(self) -> None:
-        """``<cmd_l>+<cmd_r>`` — two modifier tokens that canonicalize
-        to the same ``cmd``, zero non-modifiers.
-
-        This case is subtle: the user typed two distinct physical keys,
-        but the canonical parser deduplicates both to ``cmd`` (the
-        shared canonical modifier name), yielding ``parts == ["cmd"]``
-        with ``len(non_mods) == 0``. Without the fix this would pass
-        validation AND the renderer-side check (which also uses the
-        canonical parser), producing a config that loads cleanly but
-        cannot be armed.
-        """
-        result = _validate_hotkey("<cmd_l>+<cmd_r>")
-        assert result is not None, "<cmd_l>+<cmd_r> canonicalizes to a single modifier and must be rejected"
-        assert "exactly one non-modifier" in result, (
-            f"error should mention the exactly-one-non-modifier rule; got: {result!r}"
-        )
-        assert "(got 0)" in result, f"error should report the actual count (0); got: {result!r}"
-
-    def test_alt_plus_shift_rejected_on_linux(self, linux_platform: None) -> None:
-        """``<alt>+<shift>`` — two modifiers, zero non-modifiers.
-
-        On Windows this is additionally blocked by Stage 7 (Alt+Shift
-        language switching), but on Linux Stage 7 is a no-op. Without
-        the Stage 5 fix, Linux would silently accept this combo. The
-        platform pin to ``linux`` is deliberate: it asserts the
-        rejection comes from Stage 5 (the structural rule), NOT from
-        the Windows-only Stage 7 Alt+Shift block.
-        """
+    def test_alt_plus_shift_blocked_on_windows(self, windows_platform: None) -> None:
         result = _validate_hotkey("<alt>+<shift>")
-        assert result is not None, "<alt>+<shift> has zero non-modifier keys and must be rejected on Linux"
-        # The Stage 5 message — NOT the Stage 7 "Alt+Shift is reserved
-        # by Windows" message — must be the one returned on Linux.
-        assert "exactly one non-modifier" in result, (
-            f"on Linux the rejection must come from the structural Stage 5 rule, "
-            f"not the Windows-only Stage 7 Alt+Shift block; got: {result!r}"
+        assert result is not None, "<alt>+<shift> must stay blocked on Windows (language switching)"
+        # Either Stage 3 (win32 per-platform reserved lists
+        # ``<alt>+<shift>``) or Stage 7 (language-switching rule) fires
+        # first — both reject, and the message is reserved-related.
+        assert "reserved" in result.lower() or "language switching" in result, (
+            f"the Windows rejection must be a reserved/language-switching message; got: {result!r}"
         )
-        assert "language switching" not in result, (
-            f"Stage 7 (Windows-only) message leaked through on Linux; got: {result!r}"
-        )
-        assert "(got 0)" in result, f"error should report the actual count (0); got: {result!r}"
 
 
 # ──────────────────────────────────────────────────────────────────────────
@@ -163,15 +183,8 @@ class TestModifierOnlyCombosRejectedOnLinux:
 
 
 class TestExactlyOneNonModifierStillAllowed:
-    """Guards against an over-blocking regression where the tightened
-    ``!= 1`` check accidentally rejects valid combos.
-
-    The fix changes ``> 1`` to ``!= 1``, which means a typo like
-    ``== 0`` or ``>= 1`` would silently reject every valid hotkey. The
-    parametrize below covers the full allow-surface: a bare
-    non-modifier, a non-modifier plus one modifier, and a non-modifier
-    plus two modifiers.
-    """
+    """Guards against an over-blocking regression where the Stage 5
+    change accidentally rejects valid combos."""
 
     @pytest.mark.parametrize(
         "hotkey",
@@ -224,10 +237,8 @@ class TestExactlyOneNonModifierStillAllowed:
 
 
 class TestMoreThanOneNonModifierStillRejected:
-    """Guards against a regression where the tightened check
-    accidentally lets the >1 case through (e.g. a typo to ``== 0``
-    would reject zero but accept two-or-more).
-    """
+    """Guards against the Stage 5 gate being loosened past ``> 1`` (e.g.
+    a typo to ``>= 0`` would accept every structurally-invalid combo)."""
 
     @pytest.mark.parametrize(
         "hotkey, expected_count",
@@ -260,22 +271,24 @@ class TestMoreThanOneNonModifierStillRejected:
 class TestCheckMultiNonModifierHelperContract:
     """Direct unit tests for the Stage 5 helper.
 
-    The orchestrator (``_validate_hotkey``) calls Stage 5 with
-    ``_parse_hotkey_parts(value)`` as input. Calling the helper
-    directly lets us assert the ``!= 1`` boundary precisely — including
-    the empty-list edge case that the public validator never reaches
-    (the orchestrator returns ``"hotkey has no keys"`` BEFORE Stage 5
-    when ``parts`` is empty), but which the helper itself must still
-    handle correctly so a future refactor that reorders the stages
-    doesn't silently break the zero-non-modifier gate.
+    Calling the helper directly lets us assert the ``> 1`` boundary
+    precisely — including the empty-list edge case that the public
+    validator never reaches (the orchestrator returns ``\"hotkey has no
+    keys\"`` BEFORE Stage 5 when ``parts`` is empty), but which the
+    helper itself must still handle correctly so a future refactor that
+    reorders the stages doesn't silently drop the zero-length gate.
     """
 
-    def test_zero_non_modifiers_returns_error(self) -> None:
-        # parts == all-modifiers (zero non-mods) — the FI-9 case.
-        assert _check_multi_non_modifier(["ctrl", "shift"]) is not None
-        assert _check_multi_non_modifier(["cmd"]) is not None
-        assert _check_multi_non_modifier(["alt", "shift"]) is not None
-        assert _check_multi_non_modifier([]) is not None  # empty list edge case
+    def test_zero_non_modifiers_returns_none(self) -> None:
+        # parts == all-modifiers (zero non-mods) — the modifier-only case.
+        assert _check_multi_non_modifier(["ctrl", "shift"]) is None
+        assert _check_multi_non_modifier(["cmd"]) is None
+        assert _check_multi_non_modifier(["alt", "shift"]) is None
+        assert _check_multi_non_modifier(["alt"]) is None
+
+    def test_empty_list_returns_error(self) -> None:
+        # empty list edge case — no modifiers AND no keys is meaningless.
+        assert _check_multi_non_modifier([]) is not None
 
     def test_one_non_modifier_returns_none(self) -> None:
         assert _check_multi_non_modifier(["v"]) is None
@@ -287,11 +300,6 @@ class TestCheckMultiNonModifierHelperContract:
         assert _check_multi_non_modifier(["a", "b"]) is not None
         assert _check_multi_non_modifier(["ctrl", "a", "b"]) is not None
         assert _check_multi_non_modifier(["a", "b", "c"]) is not None
-
-    def test_error_message_includes_count_for_zero(self) -> None:
-        result = _check_multi_non_modifier(["ctrl", "shift"])
-        assert result is not None
-        assert "got 0" in result, f"zero-non-mod error should include 'got 0'; got: {result!r}"
 
     def test_error_message_includes_count_for_two(self) -> None:
         result = _check_multi_non_modifier(["a", "b"])
@@ -305,40 +313,46 @@ class TestCheckMultiNonModifierHelperContract:
 
 
 # ──────────────────────────────────────────────────────────────────────────
-# integration: the rejection surfaces through validate_config_update
+# integration: modifier-only passes through the IPC config-update path
 # ──────────────────────────────────────────────────────────────────────────
 
 
-class TestModifierOnlyRejectedViaIpc:
+class TestModifierOnlyAcceptedViaIpc:
     """End-to-end: a modifier-only hotkey set via the IPC config-update
-    path is rejected with the structural error (not silently accepted).
+    path is ACCEPTED (it lands in the validated payload with no errors).
 
-    The IPC allowlist routes ``hotkey`` and ``repaste_hotkey`` through
-    ``_validate_hotkey``; a modifier-only value must produce a
-    per-field error and must NOT appear in the validated payload (so
-    the dispatcher treats the update atomically and refuses to apply
-    it).
+    Regression: pre-fix the backend rejected it (``got 0``), so the
+    renderer's committed capture could never be saved — the user saw
+    repeated ``set_config rejected`` WARNINGs in the log.
     """
 
-    def test_ctrl_plus_shift_rejected_in_validate_config_update(self, linux_platform: None) -> None:
+    def test_ctrl_plus_shift_accepted_in_validate_config_update(self, linux_platform: None) -> None:
         from voice_typer.server.config_validators import validate_config_update
 
         validated, errors = validate_config_update({"hotkey": "<ctrl>+<shift>"})
-        # The per-field validator rejected it, so it must NOT be in
-        # the validated payload.
-        assert "hotkey" not in validated, (
-            f"modifier-only hotkey must not appear in validated payload; got: {validated!r}"
+        # The per-field validator accepted it, so it MUST be in the
+        # validated payload.
+        assert validated.get("hotkey") == "<ctrl>+<shift>", (
+            f"modifier-only hotkey must land in the validated payload; got: {validated!r}"
         )
-        # At least one error must mention the structural rule.
-        structural_errors = [e for e in errors if "exactly one non-modifier" in e]
-        assert structural_errors, f"expected a structural error mentioning 'exactly one non-modifier'; got: {errors!r}"
+        assert not errors, f"expected no validation errors for a modifier-only hotkey; got: {errors!r}"
 
-    def test_cmd_l_alone_rejected_in_validate_config_update(self) -> None:
+    def test_bare_alt_accepted_in_validate_config_update(self, linux_platform: None) -> None:
         from voice_typer.server.config_validators import validate_config_update
 
-        validated, errors = validate_config_update({"hotkey": "<cmd_l>"})
-        assert "hotkey" not in validated, (
-            f"modifier-only hotkey must not appear in validated payload; got: {validated!r}"
+        validated, errors = validate_config_update({"hotkey": "<alt>"})
+        assert validated.get("hotkey") == "<alt>", (
+            f"bare modifier must land in the validated payload; got: {validated!r}"
         )
-        structural_errors = [e for e in errors if "exactly one non-modifier" in e]
-        assert structural_errors, f"expected a structural error mentioning 'exactly one non-modifier'; got: {errors!r}"
+        assert not errors, f"expected no validation errors for a bare modifier; got: {errors!r}"
+
+    def test_win_combo_still_rejected_in_validate_config_update(self, windows_platform: None) -> None:
+        """The relaxation must NOT open the door for shell-reserved
+        combos — ``<win>+<e>`` is still rejected at the IPC boundary."""
+        from voice_typer.server.config_validators import validate_config_update
+
+        validated, errors = validate_config_update({"hotkey": "<win>+<e>"})
+        assert "hotkey" not in validated, (
+            f"shell-reserved hotkey must not appear in validated payload; got: {validated!r}"
+        )
+        assert errors, f"expected a validation error for <win>+<e>; got: {errors!r}"

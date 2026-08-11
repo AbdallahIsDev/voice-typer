@@ -828,6 +828,59 @@ class TestSetTrayLocale:
         assert resp["data"]["field"] == "labels"
         assert registered == []
 
+    def test_happy_path_switches_server_global_locale_and_merges_labels(
+        self, ipc_server, monkeypatch
+    ):
+        """HU-17: ``set_tray_locale`` must also switch the server-GLOBAL
+        ``i18n`` locale and merge the pushed notification labels so tray
+        notifications (``error.config_load_failed.*`` /
+        ``state.app.starting``) follow the renderer's language instead of
+        staying pinned to English (``i18n.set_locale`` was never called
+        before this fix)."""
+        from voice_typer.server import i18n as server_i18n
+
+        monkeypatch.setattr("voice_typer.server.tray.set_tray_locale", lambda loc: None)
+        monkeypatch.setattr("voice_typer.server.tray.get_tray_locale", lambda: "fr")
+        monkeypatch.setattr(
+            "voice_typer.server.tray.register_tray_labels",
+            lambda loc, labels: None,
+        )
+
+        saved_locale = server_i18n.get_locale()
+        saved_fr = dict(server_i18n._REGISTRY.get("fr", {}))
+        try:
+            resp = ipc_server._handle_set_tray_locale(
+                {
+                    "locale": "fr",
+                    "labels": {
+                        "error.config_load_failed.body": (
+                            "Échec du chargement de la configuration"
+                        ),
+                        "state.app.starting": "Démarrage...",
+                    },
+                },
+                {},
+            )
+            assert resp["type"] == "ack"
+            # The server-global locale must follow the renderer's.
+            assert server_i18n.get_locale() == "fr"
+            # The pushed labels must resolve through i18n.t().
+            assert (
+                server_i18n.t("error.config_load_failed.body")
+                == "Échec du chargement de la configuration"
+            ), "merged label must resolve for the active locale"
+            assert server_i18n.t("state.app.starting") == "Démarrage..."
+            # The English fallbacks must be preserved (merge, not replace).
+            assert any(
+                v == "Starting..." for v in server_i18n._REGISTRY["en"].values()
+            ), "merge must not wipe the English fallback registry"
+        finally:
+            server_i18n.set_locale(saved_locale)
+            if saved_fr:
+                server_i18n._REGISTRY["fr"] = saved_fr
+            else:
+                server_i18n._REGISTRY.pop("fr", None)
+
     def test_non_string_label_key_returns_invalid_field_error(self, ipc_server, monkeypatch):
         """XZ-R3-04: non-string label key → ``code: invalid_field`` error."""
         monkeypatch.setattr("voice_typer.server.tray.set_tray_locale", lambda loc: None)

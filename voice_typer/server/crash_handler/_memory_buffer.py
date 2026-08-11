@@ -62,6 +62,80 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+
+class _CrashBufferMemoryHandler(logging.handlers.MemoryHandler):
+    """MemoryHandler with a fail-closed, self-healing PII filter (HU-8).
+
+    The PII redaction filter is attached LAZILY: the
+    ``voice_typer.server.security`` import is retried on the first
+    record that hits the handler, so a transient import failure (e.g. a
+    circular import during early bootstrap, or an interpreter-teardown
+    import failure) self-heals as soon as the security module becomes
+    importable.
+
+    Fail-closed: if the filter still cannot be attached when a record
+    arrives, the record is DROPPED (``handle`` returns False) rather
+    than buffered — we lose the crash-buffer tail rather than risk
+    persisting unredacted PII to ``voice-typer-crash-buffer.log`` when
+    the VEH callback flushes the buffer.
+
+    A WARNING is logged on the FIRST attach failure so operators see
+    the degradation; subsequent failures log at DEBUG (the import is
+    retried on every record, so a warning per record would be spam).
+    """
+
+    _pii_attached: bool = False
+    _pii_failed_once: bool = False
+
+    def _ensure_pii_filter(self) -> bool:
+        """Attach ``PIIRedactionFilter`` lazily; True once attached.
+
+        Returns True when the filter is (now) attached — the record
+        may be buffered. Returns False when the import still fails —
+        the caller drops the record (fail-closed).
+        """
+        if self._pii_attached:
+            return True
+        # The attach is guarded by the handler's (reentrant) lock so two
+        # concurrent ``handle()`` calls that both observe
+        # ``_pii_attached=False`` cannot BOTH import + ``addFilter`` and
+        # double-attach the filter. ``Handler.lock`` is an RLock, so the
+        # nested ``super().handle`` acquire inside ``handle`` is safe.
+        self.acquire()
+        try:
+            if self._pii_attached:
+                return True
+            try:
+                from voice_typer.server.security import PIIRedactionFilter
+
+                self.addFilter(PIIRedactionFilter())
+            except Exception as exc:
+                if not self._pii_failed_once:
+                    self._pii_failed_once = True
+                    log.warning(
+                        "[CRASH-BUF] PIIRedactionFilter unavailable (%s) — "
+                        "crash-buffer records will be DROPPED (fail-closed) "
+                        "until the import succeeds",
+                        exc,
+                    )
+                else:
+                    log.debug(
+                        "[CRASH-BUF] PIIRedactionFilter still unavailable (%s) — "
+                        "dropping crash-buffer record (fail-closed)",
+                        exc,
+                    )
+                return False
+            self._pii_attached = True
+            return True
+        finally:
+            self.release()
+
+    def handle(self, record: logging.LogRecord) -> bool:
+        if not self._ensure_pii_filter():
+            return False
+        return super().handle(record)
+
+
 # capacity of the in-memory ring buffer. ``logging.handlers.MemoryHandler``
 # flushes to its target when the buffer reaches this size, but we set
 # ``target=None`` initially (the target is only attached once the config
@@ -170,7 +244,7 @@ def install_memory_buffer(config_dir: Path) -> None:
     existing = getattr(_ch, "_memory_handler", None)
     if existing is None:
         try:
-            memory_handler = logging.handlers.MemoryHandler(
+            memory_handler = _CrashBufferMemoryHandler(
                 capacity=_MEMORY_HANDLER_CAPACITY,
                 target=None,  # set below
             )
@@ -184,14 +258,13 @@ def install_memory_buffer(config_dir: Path) -> None:
             memory_handler.flushLevel = logging.CRITICAL + 1
             memory_handler.setLevel(logging.INFO)
             memory_handler.target = target_handler
-            # Attach the PII redaction filter so the crash-buffer file
-            # gets the same PII scrubbing as the main log file.
-            try:
-                from voice_typer.server.security import PIIRedactionFilter
-
-                memory_handler.addFilter(PIIRedactionFilter())
-            except Exception:
-                pass
+            # HU-8: the PII redaction filter is attached LAZILY (and
+            # fail-closed) by ``_CrashBufferMemoryHandler`` — the
+            # ``voice_typer.server.security`` import is retried on the
+            # first record, and records are DROPPED (never buffered
+            # unredacted) if the filter still can't be installed.
+            # Pre-fix, ``except Exception: pass`` silently swallowed an
+            # import failure, leaving the crash buffer unredacted.
             voice_typer_root = logging.getLogger("voice_typer")
             # Avoid duplicate MemoryHandler attachments across repeated
             # install_memory_buffer calls (the dedup check looks for

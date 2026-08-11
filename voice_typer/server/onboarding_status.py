@@ -16,7 +16,7 @@ This module consolidates them into ONE JSON document,
 ``.onboarding_status.json``::
 
     {"version": 1, "started": bool, "completed": bool,
-     "count": int, "last_fail_ts": float}
+     "fail_count": int, "last_fail_ts": float}
 
 The ``started`` and ``completed`` fields are intentionally kept
 separate — they are NOT redundant: ``startup_sequence.py``'s auto-heal
@@ -54,6 +54,12 @@ _LEGACY_FAIL_COUNT_MARKER: str = ".onboarding_fail_count"
 
 _STATUS_VERSION: int = 1
 
+# Keys the schema has since renamed. They are consumed during
+# ``_coerce`` (mapped onto their successor) rather than carried
+# verbatim as unknown future fields, so a read-modify-write migrates
+# old documents to the canonical keys instead of duplicating them.
+_LEGACY_KEYS: frozenset[str] = frozenset({"count"})
+
 
 def _defaults() -> dict:
     """Schema defaults — the safe baseline for every missing field."""
@@ -61,7 +67,7 @@ def _defaults() -> dict:
         "version": _STATUS_VERSION,
         "started": False,
         "completed": False,
-        "count": 0,
+        "fail_count": 0,
         "last_fail_ts": 0.0,
     }
 
@@ -174,9 +180,12 @@ def _coerce(data: dict) -> dict:
     out = _defaults()
     # Forward-compat: carry unknown keys verbatim so a downgrade
     # read-modify-write doesn't silently drop fields written by a
-    # newer app version.
+    # newer app version. The pre-rename ``count`` key is a KNOWN
+    # legacy key (not an unknown future field): it is consumed below
+    # and mapped onto ``fail_count``, so a read-modify-write migrates
+    # old documents to the canonical key instead of carrying both.
     for key, value in data.items():
-        if key not in out:
+        if key not in out and key not in _LEGACY_KEYS:
             out[key] = value
     version = data.get("version", _STATUS_VERSION)
     if isinstance(version, int) and version > 0:
@@ -185,9 +194,19 @@ def _coerce(data: dict) -> dict:
         value = data.get(key, False)
         if isinstance(value, bool):
             out[key] = value
-    count = data.get("count", 0)
+    # ``fail_count`` is the canonical key for the onboarding fail
+    # counter (renamed from the ambiguous ``count``). ``count`` is
+    # still accepted for back-compat with documents written before the
+    # rename (and with the legacy marker format).
+    count = data.get("fail_count", data.get("count", 0))
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        # Invalid/missing canonical value — fall back to the legacy
+        # ``count`` if it carries a valid value. Defensive: no writer
+        # has produced both keys, but a corrupt file shouldn't lose a
+        # valid counter.
+        count = data.get("count", 0)
     if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
-        out["count"] = count
+        out["fail_count"] = count
     last_fail_ts = data.get("last_fail_ts", 0.0)
     if isinstance(last_fail_ts, (int, float)) and not isinstance(last_fail_ts, bool):
         out["last_fail_ts"] = float(last_fail_ts)
@@ -200,7 +219,7 @@ def _read_legacy(config_dir: "Path | str") -> dict | None:
     Returns ``None`` when none of the legacy markers exist. Corrupt or
     unreadable individual markers are skipped (their fields keep the
     schema defaults). The ``version`` from the first legacy marker that
-    carries one wins; ``started`` / ``completed`` / ``count`` /
+    carries one wins; ``started`` / ``completed`` / ``fail_count`` /
     ``last_fail_ts`` are each taken from their own marker.
     """
     out: dict = {}
@@ -235,7 +254,8 @@ def _read_legacy(config_dir: "Path | str") -> dict | None:
     except (OSError, UnicodeDecodeError, json.JSONDecodeError):
         pass
 
-    # Fail counter: {"count": int, "last_fail_ts": float}
+    # Fail counter: {"count": int, "last_fail_ts": float} (the legacy
+    # marker format; the merged document uses ``fail_count``).
     try:
         path = cfg / _LEGACY_FAIL_COUNT_MARKER
         if path.exists():
@@ -243,7 +263,7 @@ def _read_legacy(config_dir: "Path | str") -> dict | None:
             if isinstance(data, dict):
                 count = data.get("count", 0)
                 if isinstance(count, int) and not isinstance(count, bool) and count >= 0:
-                    out["count"] = count
+                    out["fail_count"] = count
                 last_fail_ts = data.get("last_fail_ts", 0.0)
                 if isinstance(last_fail_ts, (int, float)) and not isinstance(last_fail_ts, bool):
                     out["last_fail_ts"] = float(last_fail_ts)

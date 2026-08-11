@@ -90,6 +90,7 @@ from voice_typer.server._electron_build import (
     CLIENT_DIR,
     _electron_binary,
     _electron_log_files,
+    _launcher_child_env,
     _log_sensitive_env_keys,
     _main_entry_built,
     _npm_command,
@@ -110,7 +111,10 @@ def _tauri_log_files() -> dict:
     falls back to :data:`subprocess.DEVNULL` so the launch still succeeds.
     """
     try:
-        from voice_typer.server._electron_build import _truncate_if_oversized
+        from voice_typer.server._electron_build import (
+            _scrub_stale_ansi,
+            _truncate_if_oversized,
+        )
         from voice_typer.server.config import _config_dir as _cfg
 
         log_dir = _cfg() / "logs"
@@ -119,6 +123,11 @@ def _tauri_log_files() -> dict:
         stderr_path = log_dir / "tauri-stderr.log"
         _truncate_if_oversized(stdout_path)
         _truncate_if_oversized(stderr_path)
+        # same one-time ANSI scrub as the Electron log files — pre-cleanup
+        # runs could leave escape-code garbage at the top of these
+        # append-only files (see ``_scrub_stale_ansi``).
+        _scrub_stale_ansi(stdout_path)
+        _scrub_stale_ansi(stderr_path)
         stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
         stderr_fd = open(stderr_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
         return {
@@ -597,7 +606,7 @@ def verify_tauri_binary_or_skip(path: str | Path) -> bool:
         return False
     try:
         data = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, json.JSONDecodeError):
         log.exception("[AUTOSTART] FAIL CLOSED: cannot read manifest %s", manifest_path)
         return False
     entry = (data.get("binaries") or {}).get(binary.name)
@@ -671,7 +680,9 @@ def _spawn_tauri_host(binary: str, hidden: bool = False) -> subprocess.Popen | N
             binary,
         )
         return None
-    env = dict(os.environ)
+    # ``_launcher_child_env`` force-disables ANSI colour + npm notices
+    # (the child's output is redirected to the electron/tauri log files).
+    env = _launcher_child_env()
     if hidden:
         env["VT_START_HIDDEN"] = "1"
     # same-app restart — full env intentionally inherited
@@ -728,7 +739,9 @@ def _launch_electron_built(exe: str, hidden: bool = False) -> subprocess.Popen |
     # via IPC, so the risk of key exfiltration is lower. Stripping the
     # env would break the app's own functionality. The risk model would
     # only change if we ever spawn a DIFFERENT, less-trusted binary here.
-    env = dict(os.environ)
+    # ``_launcher_child_env`` force-disables ANSI colour + npm notices
+    # (the child's output is redirected to the electron/tauri log files).
+    env = _launcher_child_env()
     if hidden:
         env["VT_START_HIDDEN"] = "1"
     # surface (without values) any sensitive env keys the
@@ -847,7 +860,9 @@ def _focus_running_app() -> bool:
                 binary,
             )
             return False
-        env = dict(os.environ)
+        # ``_launcher_child_env`` force-disables ANSI colour + npm notices
+        # (the child's output is redirected to the electron/tauri log files).
+        env = _launcher_child_env()
         env["VT_FOCUS_ONLY"] = "1"
         # same-app restart — full env intentionally
         # inherited (see _launch_electron_built for rationale). Only
@@ -892,7 +907,9 @@ def _focus_running_app() -> bool:
         # same-app restart — full env intentionally inherited
         # (see _spawn_electron above for rationale). Only sensitive KEY
         # NAMES are logged for audit; values are never printed.
-        env = dict(os.environ)
+        # ``_launcher_child_env`` force-disables ANSI colour + npm notices
+        # (the child's output is redirected to the electron/tauri log files).
+        env = _launcher_child_env()
         env["VT_FOCUS_ONLY"] = "1"
         _log_sensitive_env_keys(env, context="autostart")
         child = subprocess.Popen([exe, "."], env=env, **spawn_kwargs)
@@ -921,7 +938,9 @@ def _spawn_npm_run_dev(hidden: bool = False) -> subprocess.Popen | None:
     # same-app restart — full env intentionally inherited
     # (see _spawn_electron above for rationale). Only sensitive KEY
     # NAMES are logged for audit; values are never printed.
-    env = dict(os.environ)
+    # ``_launcher_child_env`` force-disables ANSI colour + npm notices
+    # (the child's output is redirected to the electron/tauri log files).
+    env = _launcher_child_env()
     if hidden:
         env["VT_START_HIDDEN"] = "1"
     _log_sensitive_env_keys(env, context="autostart")

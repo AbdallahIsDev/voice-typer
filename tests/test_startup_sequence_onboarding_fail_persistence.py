@@ -14,8 +14,9 @@ breaker and would be stuck on the onboarding wizard forever.
 XZ-R12-08 fix
 -------------
 Added three module-level helpers in ``startup_sequence.py`` that
-persist the counter to ``<config_dir>/.onboarding_fail_count`` as a
-tiny JSON document ``{"count": <int>, "last_fail_ts": <epoch-float>}``:
+persist the counter inside the merged onboarding-status document
+(``<config_dir>/.onboarding_status.json``) as the fields
+``{"fail_count": <int>, "last_fail_ts": <epoch-float>}``:
 
 * ``_read_onboarding_fail_count()``  → ``(count, last_fail_ts)``
 * ``_write_onboarding_fail_count(count, last_fail_ts)``  → ``None``
@@ -76,7 +77,7 @@ class TestReadOnboardingFailCount:
     def test_reads_count_and_timestamp(self, isolated_config_dir: Path) -> None:
         path = ss_mod._onboarding_fail_counter_path()
         path.write_text(
-            json.dumps({"count": 2, "last_fail_ts": 1234567890.5}),
+            json.dumps({"fail_count": 2, "last_fail_ts": 1234567890.5}),
             encoding="utf-8",
         )
         count, ts = ss_mod._read_onboarding_fail_count()
@@ -99,19 +100,19 @@ class TestReadOnboardingFailCount:
 
     def test_returns_zero_on_negative_count(self, isolated_config_dir: Path) -> None:
         path = ss_mod._onboarding_fail_counter_path()
-        path.write_text(json.dumps({"count": -1, "last_fail_ts": 1.0}), encoding="utf-8")
+        path.write_text(json.dumps({"fail_count": -1, "last_fail_ts": 1.0}), encoding="utf-8")
         count, ts = ss_mod._read_onboarding_fail_count()
         assert count == 0, "negative count must fall back to 0 (safe default)"
 
     def test_returns_zero_on_non_int_count(self, isolated_config_dir: Path) -> None:
         path = ss_mod._onboarding_fail_counter_path()
-        path.write_text(json.dumps({"count": "two", "last_fail_ts": 1.0}), encoding="utf-8")
+        path.write_text(json.dumps({"fail_count": "two", "last_fail_ts": 1.0}), encoding="utf-8")
         count, ts = ss_mod._read_onboarding_fail_count()
         assert count == 0
 
     def test_coerces_int_timestamp_to_float(self, isolated_config_dir: Path) -> None:
         path = ss_mod._onboarding_fail_counter_path()
-        path.write_text(json.dumps({"count": 1, "last_fail_ts": 1234567890}), encoding="utf-8")
+        path.write_text(json.dumps({"fail_count": 1, "last_fail_ts": 1234567890}), encoding="utf-8")
         count, ts = ss_mod._read_onboarding_fail_count()
         assert count == 1
         assert isinstance(ts, float)
@@ -119,7 +120,7 @@ class TestReadOnboardingFailCount:
 
     def test_handles_non_numeric_timestamp_gracefully(self, isolated_config_dir: Path) -> None:
         path = ss_mod._onboarding_fail_counter_path()
-        path.write_text(json.dumps({"count": 1, "last_fail_ts": "yesterday"}), encoding="utf-8")
+        path.write_text(json.dumps({"fail_count": 1, "last_fail_ts": "yesterday"}), encoding="utf-8")
         count, ts = ss_mod._read_onboarding_fail_count()
         # Count is still valid; the bad timestamp falls back to 0.0.
         assert count == 1
@@ -140,15 +141,15 @@ class TestWriteOnboardingFailCount:
         # The fail counter lives in the merged onboarding-status
         # document, so the persisted dict also carries the
         # started/completed flags.
-        assert data["count"] == 3
+        assert data["fail_count"] == 3
         assert data["last_fail_ts"] == 1234567890.5
 
     def test_overwrites_existing_file(self, isolated_config_dir: Path) -> None:
         path = ss_mod._onboarding_fail_counter_path()
-        path.write_text(json.dumps({"count": 1, "last_fail_ts": 1.0}), encoding="utf-8")
+        path.write_text(json.dumps({"fail_count": 1, "last_fail_ts": 1.0}), encoding="utf-8")
         ss_mod._write_onboarding_fail_count(2, 2.0)
         data = json.loads(path.read_text(encoding="utf-8"))
-        assert data["count"] == 2
+        assert data["fail_count"] == 2
         assert data["last_fail_ts"] == 2.0
 
     def test_round_trips_through_read(self, isolated_config_dir: Path) -> None:
@@ -180,7 +181,7 @@ class TestResetOnboardingFailCount:
 
     def test_zeroes_existing_counter(self, isolated_config_dir: Path) -> None:
         path = ss_mod._onboarding_fail_counter_path()
-        path.write_text(json.dumps({"count": 2, "last_fail_ts": 1.0}), encoding="utf-8")
+        path.write_text(json.dumps({"fail_count": 2, "last_fail_ts": 1.0}), encoding="utf-8")
         assert path.exists()
         ss_mod._reset_onboarding_fail_count()
         # The counter is zeroed; the status document itself is kept so
@@ -211,21 +212,21 @@ class TestResetOnboardingFailCount:
         # The fail counter shares the status document with the
         # started/completed flags — resetting the counter must NOT
         # un-complete onboarding (this is exactly why the reset writes
-        # count=0 instead of deleting the file).
+        # fail_count=0 instead of deleting the file).
         from voice_typer.server import onboarding_status as os_status
 
         os_status.write_status(
-            isolated_config_dir, started=True, completed=True, count=5, last_fail_ts=5.0
+            isolated_config_dir, started=True, completed=True, fail_count=5, last_fail_ts=5.0
         )
         ss_mod._reset_onboarding_fail_count()
         data = os_status.read_status(isolated_config_dir)
-        assert data["count"] == 0
+        assert data["fail_count"] == 0
         assert data["started"] is True
         assert data["completed"] is True
 
     def test_reset_failure_is_swallowed(self, isolated_config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         path = ss_mod._onboarding_fail_counter_path()
-        path.write_text(json.dumps({"count": 1, "last_fail_ts": 1.0}), encoding="utf-8")
+        path.write_text(json.dumps({"fail_count": 1, "last_fail_ts": 1.0}), encoding="utf-8")
 
         def _raise_oserror(*_args: object, **_kwargs: object) -> None:
             raise OSError("permission denied")

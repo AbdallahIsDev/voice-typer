@@ -161,10 +161,15 @@ class TestEnginesCallReleaseGpuMemory:
         assert "release_gpu_memory()" in src_gc, (
             "_run_deferred_gc must call release_gpu_memory() after the model is dropped (NEW-MEM-001 / RACE-023)"
         )
-        # The CUDA-probe early fallback path also calls it directly.
+        # The CUDA-probe early fallback path arms the RACE-023 deferred
+        # release (HU-25): it must set ``_pending_gc_collect`` so the
+        # next caller outside the lock runs release_gpu_memory() — the
+        # direct in-lock call was removed as a no-op for VRAM release.
         src3 = inspect.getsource(TranscriptionEngine._probe_cuda_runtime)
-        assert "release_gpu_memory()" in src3, (
-            "_probe_cuda_runtime fallback path must call release_gpu_memory() (NEW-MEM-001)"
+        assert "_pending_gc_collect = True" in src3, (
+            "_probe_cuda_runtime fallback path must arm the deferred GPU "
+            "release (_pending_gc_collect = True) so release_gpu_memory() "
+            "runs outside the lock (HU-25 / RACE-023 / NEW-MEM-001)"
         )
 
 

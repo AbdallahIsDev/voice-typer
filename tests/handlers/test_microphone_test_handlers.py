@@ -111,6 +111,44 @@ class TestMicrophoneTestStart:
         # the validation/dispatch block.
         fake_service.microphone_test_start.assert_not_called()
 
+    def test_consent_missing_logs_warning_not_error(self, ipc_server, fake_service, fake_app, caplog):
+        """Consent-denied mic tests are normal control-flow, not errors.
+
+        Regression (from a real session log): the consent rejection was
+        logged at ERROR with an exception-class header line, so every
+        consent-denied microphone test looked like a crash in
+        ``voice-typer.log``::
+
+            ERROR [IPC] *** failed: voice biometric consent required to
+            start microphone test
+            voice_typer.server.asr_errors.***: voice biometric ...
+
+        The rejection is now logged at WARNING with no traceback — the
+        renderer surfaces the consent dialog from the structured
+        ``client.consent_required`` envelope. Unexpected exceptions keep
+        the ERROR + exc_info contract (pinned in
+        ``test_r13_f3_error_envelope_code_field.py``).
+        """
+        import logging
+
+        fake_app.config.voice_biometric_consent = False
+        fake_service.microphone_test_start.return_value = {"ok": True}
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.ipc_server"):
+            resp = ipc_server._handle_microphone_test_start({"duration": 5.0}, {})
+        assert resp["type"] == "error"
+        assert resp["data"]["code"] == "client.consent_required"
+        records = [r for r in caplog.records if "voice biometric consent" in r.getMessage()]
+        assert records, "the consent rejection must produce a log record"
+        assert all(
+            r.levelno == logging.WARNING for r in records
+        ), f"consent rejection must log at WARNING, not ERROR; levels={[r.levelno for r in records]}"
+        assert all(
+            r.exc_info is None for r in records
+        ), "consent rejection must not carry a traceback (exc_info)"
+        assert all("rejected:" in r.getMessage() for r in records), (
+            f"consent log line should use the 'rejected' phrasing; got: {[r.getMessage() for r in records]}"
+        )
+
     def test_consent_present_proceeds_to_service(self, ipc_server, fake_service, fake_app):
         """XZ-PRIV-03: ``voice_biometric_consent=True`` → service is called.
 

@@ -62,8 +62,8 @@ log = logging.getLogger(__name__)
 # whose onboarding kept failing once per app-start would NEVER hit
 # the circuit breaker and would be stuck on the onboarding wizard
 # forever. The counter now lives in the single
-# ``.onboarding_status.json`` document (``count`` / ``last_fail_ts``
-# fields) managed by ``voice_typer.server.onboarding_status`` — which
+# ``.onboarding_status.json`` document (``fail_count`` /
+# ``last_fail_ts`` fields) managed by ``voice_typer.server.onboarding_status`` — which
 # also holds the wizard's started/completed flags, replacing the
 # legacy ``.onboarding_complete`` / ``.onboarding_started`` /
 # ``.onboarding_fail_count`` markers.
@@ -255,7 +255,7 @@ def _read_onboarding_fail_count() -> tuple[int, float]:
     safe default that lets the next failure start the counter fresh.
     """
     data = onboarding_status.read_status(_config_dir())
-    return data["count"], data["last_fail_ts"]
+    return data["fail_count"], data["last_fail_ts"]
 
 
 def _write_onboarding_fail_count(count: int, last_fail_ts: float) -> None:
@@ -271,7 +271,7 @@ def _write_onboarding_fail_count(count: int, last_fail_ts: float) -> None:
         onboarding_status.write_status(
             _config_dir(),
             durability=False,
-            count=count,
+            fail_count=count,
             last_fail_ts=last_fail_ts,
         )
     except OSError as exc:
@@ -292,7 +292,7 @@ def _reset_onboarding_fail_count() -> None:
     un-complete onboarding.
     """
     try:
-        onboarding_status.write_status(_config_dir(), count=0, last_fail_ts=0.0)
+        onboarding_status.write_status(_config_dir(), fail_count=0, last_fail_ts=0.0)
     except OSError as exc:
         log.debug(
             "[STARTUP] Could not reset onboarding fail counter at %s: %s",

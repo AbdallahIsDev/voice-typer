@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import sys
 from pathlib import Path
 
 import pytest
@@ -189,3 +190,122 @@ class TestSetCrashHandlerConfigDirInstallsBuffer:
             _ch._python_crash_dir = None
             _ch._crash_written = False
             _ch._crash_header_bytes = b""
+
+
+class TestHu8PiiFilterFailClosed:
+    """HU-8: the crash-buffer MemoryHandler attaches ``PIIRedactionFilter``
+    LAZILY (on the first record) and fails CLOSED — if the security import
+    cannot succeed, the record is DROPPED (never buffered) instead of being
+    silently buffered unredacted (the pre-fix ``except Exception: pass``
+    that would leak PII into ``voice-typer-crash-buffer.log`` on flush).
+
+    The lazy retry makes the failure self-healing: as soon as the
+    ``voice_typer.server.security`` import succeeds again, the filter is
+    attached and records flow normally.
+    """
+
+    @staticmethod
+    def _reset_flags() -> None:
+        from voice_typer.server.crash_handler._memory_buffer import _CrashBufferMemoryHandler
+
+        # Class-level state persists across instances/tests — reset so
+        # each test exercises the lazy-attach path from scratch.
+        _CrashBufferMemoryHandler._pii_attached = False
+        _CrashBufferMemoryHandler._pii_failed_once = False
+
+    def test_filter_attached_lazily_on_first_record(self, tmp_path: Path):
+        from voice_typer.server.crash_handler._memory_buffer import _CrashBufferMemoryHandler
+
+        self._reset_flags()
+        install_memory_buffer(tmp_path)
+        handler = _ch._memory_handler
+        assert isinstance(handler, _CrashBufferMemoryHandler)
+        # Lazily attached: no filter at install time.
+        assert handler.filters == [], "HU-8: filter must NOT be attached at install time"
+        assert handler._pii_attached is False
+
+        record = logging.LogRecord(
+            "voice_typer.test.hu8", logging.WARNING, __file__, 1, "hello", (), None
+        )
+        # ``Handler.handle`` returns the filter-chain result (a logging
+        # filter may return the record itself) — the fail-closed
+        # override returns literal ``False`` ONLY when the record is
+        # dropped, so ``is not False`` is the correct success assertion.
+        assert handler.handle(record) is not False
+        assert handler._pii_attached is True
+        assert len(handler.filters) == 1
+        assert type(handler.filters[0]).__name__ == "PIIRedactionFilter"
+        assert len(handler.buffer) == 1, "record must be buffered once the filter is attached"
+
+    def test_import_failure_drops_record_fail_closed(self, tmp_path: Path, caplog, monkeypatch):
+        self._reset_flags()
+        install_memory_buffer(tmp_path)
+        handler = _ch._memory_handler
+        # Force the lazy ``from voice_typer.server.security import
+        # PIIRedactionFilter`` to fail (``None`` in sys.modules raises
+        # ImportError on import).
+        monkeypatch.setitem(sys.modules, "voice_typer.server.security", None)
+
+        with caplog.at_level(logging.WARNING, logger="voice_typer.server.crash_handler._memory_buffer"):
+            accepted = handler.handle(
+                logging.LogRecord(
+                    "voice_typer.test.hu8",
+                    logging.WARNING,
+                    __file__,
+                    1,
+                    "SECRET-UNREDACTED-DATA",
+                    (),
+                    None,
+                )
+            )
+
+        assert accepted is False, "HU-8: fail-closed — record must be DROPPED when the filter can't be attached"
+        assert handler._pii_attached is False
+        assert len(handler.buffer) == 0, "HU-8: dropped record must never be buffered unredacted"
+        # First failure surfaces a WARNING so operators see the degradation.
+        assert any("PIIRedactionFilter unavailable" in r.getMessage() for r in caplog.records)
+        # The dropped record's content must not leak into any log record.
+        assert not any("SECRET-UNREDACTED-DATA" in r.getMessage() for r in caplog.records)
+
+        # Second consecutive failure: the anti-spam throttle kicks in —
+        # DEBUG only, no second WARNING.
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.crash_handler._memory_buffer"):
+            assert handler.handle(
+                logging.LogRecord(
+                    "voice_typer.test.hu8",
+                    logging.WARNING,
+                    __file__,
+                    1,
+                    "SECRET-UNREDACTED-DATA-2",
+                    (),
+                    None,
+                )
+            ) is False
+        assert not any(
+            "PIIRedactionFilter unavailable" in r.getMessage() and "still unavailable" not in r.getMessage()
+            for r in caplog.records
+        ), "HU-8: repeated failures must NOT re-log the WARNING (anti-spam)"
+        assert any("still unavailable" in r.getMessage() for r in caplog.records)
+
+    def test_self_heals_when_import_recovers(self, tmp_path: Path, monkeypatch):
+        self._reset_flags()
+        install_memory_buffer(tmp_path)
+        handler = _ch._memory_handler
+
+        real_security = sys.modules["voice_typer.server.security"]
+        monkeypatch.setitem(sys.modules, "voice_typer.server.security", None)
+        assert handler.handle(
+            logging.LogRecord("voice_typer.test.hu8", logging.WARNING, __file__, 1, "dropped", (), None)
+        ) is False
+
+        # Import recovers — the NEXT record must attach the filter and
+        # be buffered (self-healing lazy retry).
+        monkeypatch.setitem(sys.modules, "voice_typer.server.security", real_security)
+        assert handler.handle(
+            logging.LogRecord("voice_typer.test.hu8", logging.WARNING, __file__, 1, "after-recovery", (), None)
+        ) is not False
+        assert handler._pii_attached is True
+        assert len(handler.filters) == 1
+        assert type(handler.filters[0]).__name__ == "PIIRedactionFilter"
+        assert len(handler.buffer) == 1, "only the post-recovery record is buffered"

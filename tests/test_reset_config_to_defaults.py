@@ -307,3 +307,39 @@ def test_reset_config_to_defaults_acquires_config_mutation_lock(tmp_path) -> Non
         )
     finally:
         mp.undo()
+
+
+def test_reset_config_to_defaults_restores_config_on_save_failure(tmp_path, monkeypatch) -> None:
+    """HU-22: if ``save_strict()`` raises (disk full / permissions), the
+    in-memory ``app.config`` must be restored to the pre-swap object so
+    the running engine never diverges from what's on disk (a stale API
+    key would otherwise stay active while the renderer showed defaults)."""
+    svc, mp, cfg = _build_service(tmp_path)
+    try:
+        if not hasattr(svc, "reset_config_to_defaults"):
+            pytest.skip("G4-L-25 not yet landed")
+        cfg.hotkey = "<f5>"
+        cfg.openai_api_key = "sk-still-active"
+        (tmp_path / "config.json").write_text(json.dumps({"hotkey": "<f5>"}))
+
+        from voice_typer.server.config import Config
+
+        def _boom(_self):
+            raise RuntimeError("disk full")
+
+        monkeypatch.setattr(Config, "save_strict", _boom)
+
+        result = svc.reset_config_to_defaults()
+
+        assert result["success"] is False
+        # The pre-swap Config object must be restored (identity), and its
+        # values must be intact — the old API key stays active until the
+        # user retries; it is never silently reset in-memory while disk
+        # keeps the old values.
+        assert svc._app.config is cfg, (
+            "HU-22: save failure must restore app.config to the pre-swap object"
+        )
+        assert cfg.hotkey == "<f5>"
+        assert cfg.openai_api_key == "sk-still-active"
+    finally:
+        mp.undo()

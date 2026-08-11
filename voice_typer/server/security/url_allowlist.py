@@ -132,12 +132,13 @@ def extend_url_allowlist(
 
     # Normalize the input hosts (lowercase, strip port, drop empties)
     # so the audit log shows exactly what was added — not the raw input.
+    # IPv6 literals (e.g. ``fc00::1`` or ``[fc00::1]:8080``) survive
+    # port-stripping intact via ``_normalize_host`` (see HU-35 follow-up).
     normalized: list[str] = []
     for h in hosts:
         if not h:
             continue
-        # Strip port if present
-        host = h.split(":")[0].strip().lower()
+        host = _normalize_host(h)
         if host:
             normalized.append(host)
 
@@ -170,13 +171,52 @@ def get_url_allowlist() -> frozenset[str]:
 def _normalize_host(h: str) -> str:
     """Normalize a hostname: lowercase, strip port, strip whitespace.
 
+    IPv6-aware port stripping: a bare IPv6 literal (``fc00::1``) or a
+    bracketed form (``[fc00::1]:8080``) is kept INTACT — the old
+    ``h.split(":")[0]`` split on the first colon, mangling IPv6
+    literals to their first hextet (``fc00::1`` → ``fc00``) so they
+    could never be allowlisted.
+
     Returns the empty string if the input is empty/whitespace-only.
-    Mirrors the normalization done inside ``extend_url_allowlist``.
+    Mirrors the normalization used by ``extend_url_allowlist`` (which
+    delegates here).
     """
     if not h:
         return ""
-    host = h.split(":")[0].strip().lower()
-    return host
+    host = h.strip()
+    # Bracketed IPv6 with an optional port: ``[fc00::1]`` or
+    # ``[fc00::1]:8080`` → ``fc00::1``.
+    if host.startswith("["):
+        closing = host.find("]")
+        if closing > 0:
+            inner = host[1:closing]
+            try:
+                ipaddress.ip_address(inner)
+            except ValueError:
+                pass  # not an IPv6 literal — fall through to the generic path
+            else:
+                return inner.lower()
+    # Bare IPv6 literal (``fc00::1``) — no port, no brackets.
+    if host.count(":") > 1:
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            # Multi-colon string that is NOT a valid IPv6 literal (e.g.
+            # ``fc00::1:8080`` — an un-bracketed IPv6-with-port, or
+            # ``bad:host:name``). Returning ``""`` makes
+            # ``extend_url_allowlist`` DROP the entry, matching the
+            # reject semantics of ``_validate_trusted_extra_hosts`` and
+            # the ``add_trusted_endpoint`` handler. Pre-fix, this fell
+            # through to ``split(":")[0]`` and silently allowlisted a
+            # mangled first hextet (``fc00``) via the
+            # ``VOICE_TYPER_TRUSTED_HOSTS`` env-var path — identical
+            # input was accepted by one path and rejected by another.
+            # The bracketed form ``[fc00::1]:8080`` is the documented
+            # way to attach a port.
+            return ""
+        return host.lower()
+    # Generic hostname / IPv4: lowercase, strip the first ``:port``.
+    return host.split(":")[0].strip().lower()
 
 
 def _load_env_allowlist_extensions() -> list[str]:

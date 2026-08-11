@@ -63,6 +63,14 @@ from tests.fixtures.sidecar_ws_test_helpers import _make_fake_server
 # so a missing file fails collection loudly rather than per-test.
 _SIDECAR_WS_PATH = Path(__file__).resolve().parents[3] / "voice_typer" / "server" / "sidecar_ws.py"
 assert _SIDECAR_WS_PATH.exists(), f"sidecar_ws.py not found at {_SIDECAR_WS_PATH}"
+# VP-8: the constant-time token comparison lives in the SHARED
+# ``voice_typer.server.ipc.auth`` helper (used by both the TCP and WS
+# transports). Source-grep tests that assert the comparison must read
+# this file, not just sidecar_ws.py.
+_AUTH_HELPER_PATH = (
+    Path(__file__).resolve().parents[3] / "voice_typer" / "server" / "ipc" / "auth.py"
+)
+assert _AUTH_HELPER_PATH.exists(), f"ipc/auth.py not found at {_AUTH_HELPER_PATH}"
 
 
 def _import_sidecar_ws():
@@ -82,6 +90,11 @@ def _import_sidecar_ws():
 def _read_sidecar_ws_source() -> str:
     """Read the sidecar_ws.py source as a string (for source-grep tests)."""
     return _SIDECAR_WS_PATH.read_text(encoding="utf-8")
+
+
+def _read_auth_helper_source() -> str:
+    """Read the shared ipc/auth.py source (VP-8 comparison helper)."""
+    return _AUTH_HELPER_PATH.read_text(encoding="utf-8")
 
 
 # A realistic 64-char hex token (32 bytes × 2 hex chars), matching
@@ -225,28 +238,49 @@ def test_authenticate_uses_hmac_compare_digest():
     A plain ``==`` comparison short-circuits on the first mismatched
     byte, allowing a timing side-channel that leaks the token prefix.
     ``hmac.compare_digest`` always compares every byte, closing the
-    channel. This test asserts the source literally calls
-    ``hmac.compare_digest`` (not ``==``) on the token pair.
+    channel.
+
+    VP-8 moved the comparison into the SHARED
+    ``voice_typer.server.ipc.auth`` module (:func:`tokens_equal`), used
+    by BOTH the TCP and WS transports. This test therefore proves the
+    constant-time chain in two parts:
+      1. ``sidecar_ws._authenticate`` routes its comparison through
+         ``tokens_equal(provided, expected_token)`` (imported from
+         ``ipc.auth``) — NOT a bare ``==`` inline.
+      2. ``ipc/auth.py`` implements ``tokens_equal`` via the literal
+         ``hmac.compare_digest(provided, expected)`` call.
     """
     source = _read_sidecar_ws_source()
+    helper_source = _read_auth_helper_source()
 
-    # The source must contain a `hmac.compare_digest(provided, expected_token)`
-    # call (or equivalent with swapped args). We look for the literal
-    # function call to guard against a regression that switches to `==`.
-    assert "hmac.compare_digest" in source, (
-        "sidecar_ws.py must use hmac.compare_digest for token comparison "
-        "(constant-time). Found neither — possible timing side-channel "
-        "regression."
+    # (1) The WS transport routes through the shared constant-time helper.
+    assert "tokens_equal" in source, (
+        "sidecar_ws.py must route its token comparison through "
+        "tokens_equal (from voice_typer.server.ipc.auth, VP-8). "
+        "Found neither — possible timing side-channel regression."
+    )
+    assert "from voice_typer.server.ipc.auth import" in source, (
+        "sidecar_ws.py must import tokens_equal from the shared "
+        "voice_typer.server.ipc.auth module (VP-8)."
+    )
+    route_pattern = r"tokens_equal\s*\(\s*provided\s*,\s*expected_token\s*\)"
+    assert re.search(route_pattern, source), (
+        "tokens_equal must be called as tokens_equal(provided, expected_token) "
+        "— found a different call shape which may indicate the comparison "
+        "is not actually between the user-supplied + env-var tokens."
     )
 
-    # And it must be called with the provided + expected tokens (not
-    # e.g. comparing a hardcoded constant). Look for the call shape.
-    pattern = r"hmac\.compare_digest\s*\(\s*provided\s*,\s*expected_token\s*\)"
-    assert re.search(pattern, source), (
-        "hmac.compare_digest must be called as "
-        "hmac.compare_digest(provided, expected_token) — found a different "
-        "call shape which may indicate the comparison is not actually "
-        "between the user-supplied + env-var tokens."
+    # (2) The shared helper itself uses hmac.compare_digest (constant time).
+    assert "hmac.compare_digest" in helper_source, (
+        "voice_typer/server/ipc/auth.py must use hmac.compare_digest for "
+        "token comparison (constant-time). Found neither — possible timing "
+        "side-channel regression."
+    )
+    helper_pattern = r"hmac\.compare_digest\s*\(\s*provided\s*,\s*expected\s*\)"
+    assert re.search(helper_pattern, helper_source), (
+        "auth.py's tokens_equal must call hmac.compare_digest(provided, "
+        "expected) — found a different call shape which may indicate the "
+        "comparison is not actually between the user-supplied + env-var tokens."
     )
 
 
@@ -260,10 +294,15 @@ async def test_authenticate_compare_digest_is_actually_invoked(monkeypatch):
     ws = MagicMock()
     ws.recv = AsyncMock(return_value=json.dumps({"type": "auth", "token": _GOOD_TOKEN}).encode())
 
-    # Spy on hmac.compare_digest without changing its behavior.
-    real_compare = sw.hmac.compare_digest
+    # VP-8: the comparison lives in the SHARED ipc/auth.py helper
+    # (tokens_equal → hmac.compare_digest). sidecar_ws no longer imports
+    # hmac itself, so spy on the helper module's hmac — tokens_equal
+    # calls it with (provided, expected) = (_GOOD_TOKEN, _GOOD_TOKEN).
+    from voice_typer.server.ipc import auth as _ipc_auth
+
+    real_compare = _ipc_auth.hmac.compare_digest
     spy = MagicMock(side_effect=real_compare)
-    monkeypatch.setattr(sw.hmac, "compare_digest", spy)
+    monkeypatch.setattr(_ipc_auth.hmac, "compare_digest", spy)
 
     assert await sw._authenticate(ws) is True
     spy.assert_called_once_with(_GOOD_TOKEN, _GOOD_TOKEN)

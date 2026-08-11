@@ -207,28 +207,37 @@ def _check_single_alphanumeric(parts: list[str]) -> str | None:
 
 
 def _check_multi_non_modifier(parts: list[str]) -> str | None:
-    """Stage 5: reject combos that don't have EXACTLY one non-modifier key.
+    """Stage 5: reject combos with MORE than one non-modifier key.
 
     A global hotkey listener (pynput's ``GlobalHotKeysListener``, the
     Windows low-level hook ``WH_KEYBOARD_LL``, Win32 ``RegisterHotKey``,
     the macOS ``CGEventTap``) registers a single non-modifier key plus
-    zero-or-more modifiers. Two structural violations are caught here:
+    zero-or-more modifiers. Only ONE structural violation is caught
+    here:
 
     * **More than one non-modifier key** (e.g. ``<a>+<b>``) would either
       fail to register, fire spuriously when either key is pressed alone,
       or require the user to press both keys simultaneously in a way
       that's indistinguishable from typing.
 
-    * **Zero non-modifier keys** (e.g. ``<ctrl>+<shift>``, a bare
-      ``<cmd_l>``, or ``<cmd_l>+<cmd_r>`` which the canonical parser
-      deduplicates to ``["cmd"]``) is silently accepted by the parser
-      but cannot be registered by any of the listener backends: every
-      backend requires a concrete non-modifier key as the trigger.
-      Accepting such a combo at config-load time produces a SILENT
-      registration failure at runtime — the listener starts, claims the
-      hotkey is "armed", but never fires because there is no key to
-      match. Rejecting here surfaces an actionable error to the user
-      instead.
+    **Zero non-modifier keys is intentionally ALLOWED.** Modifier-only
+    hotkeys (e.g. ``<alt>``, ``<ctrl>+<shift>``) are valid release
+    triggers: the native backends and the Windows polling fallback fire
+    on modifier RELEASE via ``_run_modifier_only_polling_loop`` (see
+    ``voice_typer/server/hotkeys/windows_native.py`` and
+    ``hotkeys/factory.py``), and the frontend ``validateHotkey``
+    (``hotkey-validation.ts`` rule 5) accepts them — "pure-modifier
+    combos ... are valid modifier-only release triggers in the native
+    backends". Rejecting them here (as this stage did pre-fix) made the
+    backend the odd one out: the renderer committed a modifier-only
+    hotkey and ``set_config`` rejected it with "got 0", so the user
+    could never save such a hotkey. Bare ``<win>`` / ``<cmd>`` /
+    ``<super>`` remain blocked by Stage 2 (universal reserved), and
+    ``<alt>+<shift>`` remains blocked on Windows by Stage 7.
+
+    The empty-list edge case (unreachable through the orchestrator,
+    which returns ``"hotkey has no keys"`` before Stage 5) is still
+    rejected so the white-box helper contract stays total.
 
     This stage runs BEFORE the Ctrl+letter / Shift+letter blanket
     rules so a structurally invalid combo like ``<ctrl>+<a>+<b>``
@@ -236,8 +245,10 @@ def _check_multi_non_modifier(parts: list[str]) -> str | None:
     rejected with the structural error rather than the
     reserved-shortcut error.
     """
+    if not parts:
+        return "hotkey has no keys"
     non_mods = [p for p in parts if p not in _HOTKEY_MODIFIERS]
-    if len(non_mods) != 1:
+    if len(non_mods) > 1:
         return f"hotkey must have exactly one non-modifier key (got {len(non_mods)})"
     return None
 

@@ -110,7 +110,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hmac
 import json
 import logging
 import os
@@ -119,6 +118,13 @@ import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
+
+# Shared TCP/WS auth-handshake helpers (VP-8): frame-shape validation
+# + token extraction (``extract_auth_token``) and the constant-time
+# token comparison (``tokens_equal``, wrapping ``hmac.compare_digest``)
+# live in :mod:`voice_typer.server.ipc.auth` so the two transports
+# cannot silently drift — see the DEDUP note in ``_authenticate``.
+from voice_typer.server.ipc.auth import extract_auth_token, tokens_equal
 
 # Namespaced error code constants. Imported here so the bare-string
 # literals used elsewhere in this module (e.g. ``"max_connections_reached"``,
@@ -845,9 +851,13 @@ async def _authenticate(websocket) -> bool:
 
     Differences are transport-primitive only (``websocket.recv()`` +
     ``asyncio.wait_for`` vs ``_TCPLineIO.readline()`` +
-    ``conn.settimeout``).  Bug fixes to the validation contract MUST
-    be applied to BOTH call sites.  A future extraction to a shared
-    ``ipc/auth.py`` helper is tracked under
+    ``conn.settimeout``).  Bug fixes to the validation contract are
+    applied in ONE place: the shared helpers in
+    :mod:`voice_typer.server.ipc.auth` (``extract_auth_token`` +
+    ``tokens_equal``) are used by BOTH transports, so a fix to the
+    frame-validation / constant-time comparison contract lands in a
+    single module (VP-8 — extracted 2026-08-11; previously this note
+    read "must be applied to BOTH call sites").
     """
     expected_token = os.environ.get(IPC_TOKEN_ENV_VAR, "")
     if not expected_token:
@@ -878,12 +888,17 @@ async def _authenticate(websocket) -> bool:
         log.warning("[SIDECAR-WS] first frame is not an auth frame")
         return False
 
-    provided = first.get("token", "")
-    if not isinstance(provided, str) or not provided:
+    # Shared with the TCP transport (VP-8): ``extract_auth_token``
+    # validates the frame shape + extracts the token; ``tokens_equal``
+    # performs the constant-time ``hmac.compare_digest`` comparison
+    # (see ``voice_typer.server.ipc.auth`` — a bug fix to either
+    # concern lands in ONE module used by both transports).
+    provided = extract_auth_token(first)
+    if provided is None:
         log.warning("[SIDECAR-WS] auth frame missing token")
         return False
 
-    if not hmac.compare_digest(provided, expected_token):
+    if not tokens_equal(provided, expected_token):
         log.warning("[SIDECAR-WS] auth token mismatch — rejecting")
         return False
 

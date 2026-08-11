@@ -97,17 +97,10 @@ _SAFE_LOG_CALL_SITES: dict[str, set[str]] = {
         "[TRANSCRIBE] Segment: [%d chars @ %.1fs - %.1fs]",  # no text content
         "[TRANSCRIBE] Result: %d chars",  # length only, no text
     },
-    # microphone_test.py: KNOWN PRE-EXISTING LEAK — the
-    # ``[SERVICE] Test transcription: %.60s...`` log line emits the
-    # first 60 chars of the user's microphone-test transcription at
-    # INFO level without ``redact_pii``. This is a  finding
-    # tracked for a separate fix (the file is outside the
-    # agent's files list, so the fix is deferred). Listed in the
-    # allowlist so the regression guard catches NEW leaks without
-    # false-failing on this known pre-existing one.
-    "microphone_test.py": {
-        "[SERVICE] Test transcription: %.60s...",
-    },
+    # microphone_test.py: HU-21 FIXED — the mic-test transcription log
+    # now logs only ``%d chars`` (a ``len(text)`` call, which the AST
+    # walker does not flag) at DEBUG, so no allowlist entry is needed
+    # and the regression guard stays strict.
     # remote_session.py: the ``result`` variable here is a Windows API
     # return value (int ``SM_REMOTESESSION``), NOT transcription text.
     # The variable name collides with the ``_PII_VARIABLE_NAMES`` set

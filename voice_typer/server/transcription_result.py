@@ -228,18 +228,33 @@ def transcribe_unlocked(
                 try:
                     _safe_seg_text = _redact_pii(_seg_text)
                 except Exception:
-                    # fall back to truncation only if the
-                    # redaction engine itself errors (defensive — the
-                    # redact_pii helper has its own try/except but a
-                    # import failure / regex bug should not crash the
-                    # transcription hot path).
-                    _safe_seg_text = _seg_text[:80]
-                log.debug(
-                    "[TRANSCRIBE] Segment: [%.1fs - %.1fs] %s",
-                    start,
-                    end,
-                    _safe_seg_text,
-                )
+                    # fall back to a redacted marker only — do NOT
+                    # log the raw text even truncated (HU-13, AP-11
+                    # twin). The opt-in ``log_transcriptions`` flag is a
+                    # privacy backstop the user explicitly enabled, and
+                    # a ``redact_pii`` failure (import failure / regex
+                    # bug) means PII cannot be guaranteed masked.
+                    # Truncating to 80 chars does NOT redact — an
+                    # 80-char window can still contain an email address,
+                    # phone number, or SSN fragment. Emit a marker +
+                    # the segment boundaries and skip the DEBUG log.
+                    log.warning(
+                        "[TRANSCRIBE] Segment: [%.1fs - %.1fs] "
+                        "<redaction-engine-failed — segment text NOT "
+                        "logged to preserve PII guarantee; enable "
+                        "voice_typer.server.security.redact_pii and "
+                        "retry>",
+                        start,
+                        end,
+                    )
+                    _safe_seg_text = None  # skip the log.debug below
+                if _safe_seg_text is not None:
+                    log.debug(
+                        "[TRANSCRIBE] Segment: [%.1fs - %.1fs] %s",
+                        start,
+                        end,
+                        _safe_seg_text,
+                    )
 
     log.info(
         "[TRANSCRIBE] VAD result: language=%s (prob=%.2f), "

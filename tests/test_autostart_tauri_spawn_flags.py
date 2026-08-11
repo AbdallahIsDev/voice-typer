@@ -24,6 +24,14 @@ These tests pin the contract that both Tauri spawn paths now mirror the
 Electron paths by calling ``_spawn_flags(hidden=...)`` and passing the
 result to :class:`subprocess.Popen`.
 
+They also pin the clean-log env contract: both spawn paths pass
+``_launcher_child_env()`` to Popen, which force-disables ANSI colour
+(``FORCE_COLOR=0`` / ``NO_COLOR=1`` / ``CLICOLOR=0``), suppresses npm
+banner notices (``npm_config_loglevel=silent``), and keeps
+``tauri-stderr.log`` free of the Rust host's rotating-file stream
+(``RUST_LOG_STDERR=0``) so the redirected ``tauri-*.log`` files stay
+as clean as ``voice-typer.log``.
+
 Platform note: ``_spawn_flags`` reads ``sys.platform`` via
 :func:`voice_typer.server.platform_utils.is_windows`.  These tests mock
 ``sys.platform`` to ``"win32"`` / ``"linux"`` to exercise both branches
@@ -171,6 +179,35 @@ class TestSpawnTauriHostSpawnFlags:
         assert captured.get("start_new_session") is True
         assert "creationflags" not in captured
 
+    def test_spawn_tauri_host_env_carries_clean_log_keys(self, monkeypatch, _stub_tauri_log_files):
+        """The Tauri child env must carry the clean-log keys so
+        ``tauri-stdout.log`` / ``tauri-stderr.log`` stay as clean as
+        ``voice-typer.log``: ANSI forced off (JS ``FORCE_COLOR`` + the
+        cross-ecosystem ``NO_COLOR`` / ``CLICOLOR`` contracts) and the
+        Rust host's stderr mirror of its rotating file stream disabled
+        (``RUST_LOG_STDERR=0``), plus npm banner notices suppressed."""
+        monkeypatch.setattr(sys, "platform", "win32")
+        captured_env = {}
+
+        def fake_popen(cmd, env=None, **kwargs):
+            captured_env.update(env or {})
+            proc = MagicMock()
+            proc.pid = 4246
+            return proc
+
+        monkeypatch.setattr(subprocess, "Popen", fake_popen)
+        result = _spawn_tauri_host("/fake/voice-typer-tauri.exe", hidden=False)
+        assert result is not None
+        # ANSI disabled under all three conventions.
+        assert captured_env.get("FORCE_COLOR") == "0"
+        assert captured_env.get("NO_COLOR") == "1"
+        assert captured_env.get("CLICOLOR") == "0"
+        # Rust host must NOT duplicate its rotating-file stream into
+        # tauri-stderr.log (the file is for crash/early diagnostics).
+        assert captured_env.get("RUST_LOG_STDERR") == "0"
+        # npm banner notices suppressed (mirror of the Electron env).
+        assert captured_env.get("npm_config_loglevel") == "silent"
+
     def test_spawn_failure_returns_none_and_closes_logs(self, monkeypatch, _stub_tauri_log_files):
         """A spawn failure is logged, log files are closed, and ``None``
         is returned — mirrors the Electron spawn-failure contract."""
@@ -265,6 +302,34 @@ class TestFocusRunningAppTauriSpawnFlags:
         monkeypatch.setattr(subprocess, "Popen", fake_popen)
         assert _focus_running_app() is True
         assert captured_env.get("VT_FOCUS_ONLY") == "1"
+
+    def test_focus_probe_env_carries_clean_log_keys(self, monkeypatch, _stub_tauri_log_files):
+        """The Tauri focus probe (spawned by the launcher with its
+        output redirected to ``tauri-*.log``) must carry the same
+        clean-log env as the full spawn: ANSI disabled + Rust stderr
+        mirror off, on top of ``VT_FOCUS_ONLY=1``."""
+        monkeypatch.setattr(sys, "platform", "linux")
+        monkeypatch.setattr("voice_typer.server.autostart_launcher._is_tauri_mode", lambda: True)
+        monkeypatch.setattr(
+            "voice_typer.server.autostart_launcher._tauri_binary",
+            lambda: "/usr/bin/voice-typer-tauri",
+        )
+        captured_env = {}
+
+        def fake_popen(cmd, env=None, **kwargs):
+            captured_env.update(env or {})
+            proc = MagicMock()
+            proc.pid = 5558
+            return proc
+
+        monkeypatch.setattr(subprocess, "Popen", fake_popen)
+        assert _focus_running_app() is True
+        assert captured_env.get("VT_FOCUS_ONLY") == "1"
+        assert captured_env.get("FORCE_COLOR") == "0"
+        assert captured_env.get("NO_COLOR") == "1"
+        assert captured_env.get("CLICOLOR") == "0"
+        assert captured_env.get("RUST_LOG_STDERR") == "0"
+        assert captured_env.get("npm_config_loglevel") == "silent"
 
     def test_focus_probe_spawn_failure_returns_false(self, monkeypatch, _stub_tauri_log_files):
         """A Tauri focus-probe spawn failure returns False (no

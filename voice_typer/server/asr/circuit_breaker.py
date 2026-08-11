@@ -1,25 +1,14 @@
 """Circuit-breaker for the ASR backend registry.
 
-Extracted from the former monolithic ``asr_registry.py``. Owns
-the per-backend consecutive-failure counter, the disabled-backend set,
-and the subscriber notification paths that fire when the breaker trips
+Extracted from the former monolithic ``asr_registry.py``. Owns the
+per-backend consecutive-failure counter, the disabled-backend set, and
+the subscriber notification paths that fire when the breaker trips
 (``on_backend_disabled``) or when ``get_active`` falls through to an
 unloaded last-resort backend (``on_last_resort``).
 
-The breaker is constructed with a shared ``threading.RLock`` so the
-``AsrBackendRegistry`` facade's atomicity guarantees are preserved: a
-``load_with_fallback`` call that holds the lock to read
-``_disabled_backends`` cannot race with a concurrent
-``_record_failure`` that adds to it.
-
-The breaker also owns the one-shot ``_last_resort_notified`` latch —
-set by ``get_active``'s last-resort branch, cleared by
-``_record_success`` (primary-backend load succeeded) and by
-``load_with_fallback``'s whisper-fallback success path. The latch
-ensures the tray notification fires only ONCE per last-resort
-transition (not on every ``get_active`` call) and resets when a ready
-backend becomes available again so a recovery → re-fallback sequence
-re-notifies the user.
+Shares a ``threading.RLock`` with the registry facade (atomicity) and
+owns the one-shot ``_last_resort_notified`` latch so the last-resort
+tray notification fires once per transition and re-fires on recovery.
 """
 
 from __future__ import annotations
@@ -33,37 +22,28 @@ from datetime import datetime, timezone
 log = logging.getLogger(__name__)
 
 
-# Subscriber callback for backend-disabled events.
-# Pre-fix, ``on_backend_disabled`` was a single callback attribute.
-# Only ONE subscriber could be notified when the circuit breaker
-# tripped. The set-based subscriber list lets ModelManager (tray), the
-# IPC layer (renderer event), and a telemetry sink subscribe
-# independently without overwriting each other.
+# Backend-disabled subscriber callback (set-based — lets ModelManager
+# tray / IPC / telemetry subscribe independently).
 BackendDisabledCallback = Callable[[str, int], None]
 
-# Subscriber callback for the last-resort unloaded-backend fallback
-# path in get_active(). Pre-fix, that path logged a WARNING ("returning
-# unloaded backend %s (is_loaded=False) as last-resort active —
-# transcription may return empty silently") but fired no tray
-# notification — the user silently got empty transcriptions with no
-# visible feedback that voice recognition wasn't working. The callback
-# receives the configured backend name (the same value passed to the
-# WARNING log) so the tray can render a useful message (e.g. "Voice
-# Typer: Active backend '<name>' is not loaded — transcription may be
-# unavailable. Check your model settings.").
+# Last-resort unloaded-backend callback (pre-fix: only a WARNING log).
 LastResortCallback = Callable[[str], None]
+
+# Optional gates at the top of the last-resort / backend-disabled trip
+# fan-outs: True suppresses the whole fan-out (subscribers + event_bus
+# publish) so the renderer events match the tray's suppressions.
+# ModelManager installs both.
+LastResortEventGate = Callable[[str], bool]
+BackendDisabledEventGate = Callable[[str], bool]
 
 
 class CircuitBreaker:
     """Per-backend consecutive-failure counter + disabled-set state.
 
-    The breaker is parameterised on the shared ``config`` object (for
-    persisting the disabled set into ``config.disabled_backends``) and
-    the shared ``lock`` (so registry + breaker operations are mutually
-    atomic). All public state mutations happen under ``lock``; the
-    subscriber-notification fan-out happens OUTSIDE the lock (so a
-    subscriber callback can safely re-enter the registry without
-    deadlock).
+    Parameterised on the shared ``config`` (persists the disabled set)
+    and ``lock`` (mutually atomic with the registry). State mutations
+    happen under ``lock``; the notification fan-out happens outside it
+    so subscribers can safely re-enter the registry.
     """
 
     # After this many consecutive load failures, a backend is marked
@@ -108,6 +88,12 @@ class CircuitBreaker:
         # IPC layer (renderer event), and a telemetry sink can subscribe
         # independently without overwriting each other.
         self._on_last_resort_subscribers: set[LastResortCallback] = set()
+        # Optional suppression gate (see ``LastResortEventGate``); None
+        # = no gate (publish always proceeds). Installed by ModelManager.
+        self._last_resort_event_gate: LastResortEventGate | None = None
+        # Optional gate for the backend-disabled trip fan-out (see
+        # ``BackendDisabledEventGate``); None = no gate.
+        self._backend_disabled_event_gate: BackendDisabledEventGate | None = None
         # One-shot latch so we don't fire the tray notification on every
         # get_active() call while the registry is stuck in the
         # last-resort state. Reset to False whenever get_active() finds
@@ -153,9 +139,7 @@ class CircuitBreaker:
 
     @on_last_resort.setter
     def on_last_resort(self, fn: LastResortCallback | None) -> None:
-        """Backward-compatible property setter mirroring
-        ``on_backend_disabled`` — assigning a callable adds it to the
-        subscriber set; assigning None clears the set."""
+        """Backward-compatible setter: callable adds to the set, None clears."""
         if fn is None:
             self._on_last_resort_subscribers.clear()
         elif callable(fn):
@@ -170,7 +154,52 @@ class CircuitBreaker:
         """Unregister a last-resort subscriber (no-op if absent)."""
         self._on_last_resort_subscribers.discard(fn)
 
+    def set_last_resort_event_gate(self, gate: LastResortEventGate | None) -> None:
+        """Install/clear the last-resort suppression gate.
+
+        True skips the ENTIRE fan-out (subscribers + the
+        ``asr_last_resort_unloaded`` publish); a gate that RAISES fails
+        OPEN (alert still delivered).
+        """
+        self._last_resort_event_gate = gate
+
+    def set_backend_disabled_event_gate(self, gate: BackendDisabledEventGate | None) -> None:
+        """Install/clear the backend-disabled suppression gate.
+
+        True skips the trip fan-out (subscribers + the publish); a gate
+        that RAISES fails OPEN. The breaker STATE mutation is NOT gated.
+        """
+        self._backend_disabled_event_gate = gate
+
     # ── circuit-breaker helpers ─────────────────────────────────────
+
+    def _fan_out_suppressed(
+        self,
+        gate: Callable[[str], bool] | None,
+        name: str,
+        label: str,
+    ) -> bool:
+        """True when ``gate`` suppresses the fan-out for ``name`` (both
+        fan-outs; a raising gate fails OPEN).
+        """
+        if gate is None:
+            return False
+        try:
+            if gate(name):
+                log.debug(
+                    "[ASR_REGISTRY] %s fan-out suppressed by event gate (backend=%s)",
+                    label,
+                    name,
+                )
+                return True
+        except Exception:
+            # Fail open: a broken gate must not swallow a genuine alert.
+            log.warning(
+                "[ASR_REGISTRY] %s event gate raised — proceeding with fan-out",
+                label,
+                exc_info=True,
+            )
+        return False
 
     def _is_disabled(self, name: str) -> bool:
         """Return True if ``name`` is in the disabled-backends set."""
@@ -192,13 +221,8 @@ class CircuitBreaker:
                 self._persist_disabled()
 
     def _record_success(self, name: str) -> None:
-        """Reset the failure counter for ``name`` and re-enable it if disabled.
-
-        Also clears the last-resort notification latch — a successful
-        primary-backend load means we've recovered from the last-resort
-        state, so the next fall-through should re-notify the user
-        (instead of being suppressed by the one-shot latch).
-        """
+        """Reset the failure counter; re-enable if disabled; clear the
+        last-resort latch so recovery re-notifies."""
         with self._lock:
             self._failure_counts[name] = 0
             if name in self._disabled_backends:
@@ -208,30 +232,14 @@ class CircuitBreaker:
             self._last_resort_notified = False
 
     def _record_failure(self, name: str) -> None:
-        """Increment the failure counter for ``name``; disable if threshold reached.
+        """Increment the failure counter; disable if threshold reached.
 
-        When the circuit breaker trips, two notification paths fire:
-
-        1. Every registered ``on_backend_disabled`` subscriber is
-           called with ``(backend_name, failure_count)``. Pre-fix this
-           was a single callback attribute — only one consumer could
-           subscribe. The set-based subscriber list lets ModelManager
-           (tray), the IPC layer (renderer event), and a future
-           telemetry sink subscribe independently without overwriting
-           each other.
-        2. An ``{"type": "asr_backend_disabled", ...}`` event is
-           published on the global ``event_bus`` so any process-wide
-           subscriber (the IPC push channel, diagnostics aggregator)
-           is notified. This is in addition to (not instead of) the
-           per-registry subscriber set.
+        On trip, the ``on_backend_disabled`` subscribers fire AND an
+        ``asr_backend_disabled`` event_bus publish is made (both gated
+        by ``set_backend_disabled_event_gate``).
         """
         # Declare ``subscribers`` BEFORE the lock so pyrefly's
-        # null-safety analysis sees a defined binding on the post-lock
-        # read at the ``for fn in subscribers:`` loop (the previous
-        # code only assigned it inside ``if tripped:``, so the post-lock
-        # branch could read an undefined local if the lock block raised
-        # before the assignment — even though ``tripped`` is also False
-        # in that case, pyrefly can't prove the correlation).
+        # null-safety analysis sees it bound on the post-lock read.
         subscribers: list[BackendDisabledCallback] = []
         with self._lock:
             count = self._failure_counts.get(name, 0) + 1
@@ -255,6 +263,15 @@ class CircuitBreaker:
                 subscribers = list(self._on_backend_disabled_subscribers)
 
         if tripped:
+            # Fail-open suppression gate: ModelManager mirrors the
+            # deliberate-unload windows onto the ``asr_backend_disabled``
+            # surface (a backend mid-switch isn't genuinely broken). The
+            # state mutation above (disable + persist) is NOT undone.
+            if self._fan_out_suppressed(
+                self._backend_disabled_event_gate, name, "backend-disabled"
+            ):
+                return
+
             # Fire per-registry subscribers. Defensive — a subscriber
             # that raises is logged and skipped so one buggy subscriber
             # doesn't block the others.
@@ -266,16 +283,10 @@ class CircuitBreaker:
                         "[ASR_REGISTRY] on_backend_disabled subscriber raised",
                         exc_info=True,
                     )
-            # Publish process-wide event on event_bus so the IPC push
-            # channel and diagnostics aggregator are notified
-            # independently of the per-registry subscribers. Payload
-            # fields wrapped under the canonical ``data`` key (matching
-            # every other event_bus.publish caller) so the Rust WS
-            # reader + usePythonEvent forwarding actually surface them.
-            # Previously the fields were emitted at the message ROOT,
-            # which the Rust reader discarded — the TS
-            # ``ASRBackendDisabledEvent`` interface declared them as
-            # required root fields but they were unreachable at runtime.
+            # Publish process-wide event (IPC push + diagnostics),
+            # payload under the canonical ``data`` key (matching every
+            # other event_bus.publish caller) so the Rust WS reader +
+            # usePythonEvent forwarding surface them.
             try:
                 from voice_typer.server import event_bus
 
@@ -298,11 +309,8 @@ class CircuitBreaker:
     def _persist_disabled(self) -> None:
         """Persist ``_disabled_backends`` to ``config.disabled_backends``.
 
-        ``Config`` declares ``disabled_backends`` as a real dataclass
-        field, so this write lands on a real attribute and is serialized
-        by ``asdict(self)`` in ``Config.save()``. The
-        ``contextlib.suppress`` is retained defensively for legacy
-        Config stubs that skip ``__init__`` (and thus lack the field).
+        The ``contextlib.suppress`` covers legacy Config stubs that
+        skip ``__init__`` (and thus lack the field).
         """
         with contextlib.suppress(AttributeError, TypeError):
             self._config.disabled_backends = sorted(self._disabled_backends)
@@ -310,19 +318,15 @@ class CircuitBreaker:
     # ── last-resort latch ───────────────────────────────────────────
 
     def mark_last_resort_notified(self) -> None:
-        """Set the one-shot latch (called by ``get_active``'s
-        last-resort branch under the lock)."""
+        """Set the one-shot latch (``get_active``'s last-resort branch)."""
         with self._lock:
             self._last_resort_notified = True
 
     def should_notify_last_resort(self) -> bool:
         """Return True if the latch is unset AND set it atomically.
 
-        Called by ``get_active``'s last-resort branch — returns True the
-        first time per last-resort transition, False on subsequent
-        ``get_active`` calls until the latch is reset (by
-        ``_record_success`` or by ``load_with_fallback``'s
-        whisper-fallback success path).
+        Called by ``get_active``'s last-resort branch: True the first
+        time per transition, False until recovery resets the latch.
         """
         with self._lock:
             if self._last_resort_notified:
@@ -331,22 +335,25 @@ class CircuitBreaker:
             return True
 
     def clear_last_resort_notified(self) -> None:
-        """Clear the one-shot latch (called by ``load_with_fallback``'s
-        whisper-fallback success path under the lock)."""
+        """Clear the one-shot latch (whisper-fallback success path)."""
         with self._lock:
             self._last_resort_notified = False
 
     def fire_last_resort_subscribers(self, name: str) -> None:
-        """Fire per-registry subscribers + publish an event_bus event
+        """Fire per-registry subscribers + publish the event_bus event
         for the last-resort unloaded-backend fallback.
 
-        Called from ``get_active``'s ``finally`` block, AFTER the
-        ``_last_resort_notified`` latch has been set under the lock.
-        Snapshotting the subscribers under the lock + firing them
-        outside mirrors the ``_record_failure`` pattern — a subscriber
-        that raises is logged and skipped so one buggy subscriber
-        doesn't block the others.
+        Called from ``get_active``'s ``finally`` block after the latch
+        is set. Subscribers are snapshotted under the lock + fired
+        outside; a raising subscriber is logged and skipped.
         """
+        # Fail-open suppression gate: ModelManager mirrors the tray
+        # notification's suppressions to the renderer-toast surface.
+        if self._fan_out_suppressed(
+            self._last_resort_event_gate, name, "last-resort"
+        ):
+            return
+
         # Snapshot subscribers under the lock so a subscriber that calls
         # remove_last_resort_subscriber from within its own callback
         # doesn't mutate the set we're iterating.

@@ -165,6 +165,21 @@ class OnboardingMixin(ServiceMixinBase):
         if ctrl is None:
             return {"error": "Onboarding not started"}
         app = self._app
+        # HU-23: snapshot the config fields that ``apply_settings``
+        # mutates in place (microphone / hotkey / model_size /
+        # onboarding_completed) BEFORE the apply. If the side-effects or
+        # save step fails below, these are restored in the except block —
+        # otherwise the in-memory config would diverge from disk and the
+        # user's choices would appear applied but vanish on restart.
+        _cfg = getattr(app, "config", None)
+        _cfg_snapshot = {
+            "microphone": getattr(_cfg, "microphone", None) if _cfg is not None else None,
+            "hotkey": getattr(_cfg, "hotkey", None) if _cfg is not None else None,
+            "model_size": getattr(_cfg, "model_size", None) if _cfg is not None else None,
+            "onboarding_completed": (
+                getattr(_cfg, "onboarding_completed", False) if _cfg is not None else False
+            ),
+        }
         try:
             # Capture the previous model_size so we can skip the
             # (potentially expensive) model reload when the user kept
@@ -255,6 +270,16 @@ class OnboardingMixin(ServiceMixinBase):
 
             return {"ok": True}
         except Exception as exc:
+            # HU-23: roll back the in-place config mutation so a failed
+            # apply (side-effect error / save failure) doesn't leave the
+            # in-memory config diverged from the on-disk config.
+            try:
+                _cfg = getattr(app, "config", None)
+                if _cfg is not None:
+                    for _key, _val in _cfg_snapshot.items():
+                        setattr(_cfg, _key, _val)
+            except Exception:
+                log.debug("[SERVICE] onboarding_apply rollback failed", exc_info=True)
             # redact exc string before returning to IPC layer.
             # Sister service methods (delete_model, test_llm_connection,
             # export_diagnostics, export_gdpr_bundle, force_cancel_transcription,

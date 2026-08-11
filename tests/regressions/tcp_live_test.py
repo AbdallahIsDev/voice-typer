@@ -521,5 +521,114 @@ class TestTcpServerStop:
         assert server._tcp_server_socket is None, "_tcp_server_socket was not cleared after stop()"
 
 
+class TestTcpTokenUnsetFailClosed:
+    """HU-39 / ADR-0014 §7: when ``VOICE_TYPER_IPC_TOKEN`` is NOT set,
+    the server must FAIL CLOSED — log an ERROR and refuse every
+    connection.
+
+    The ADR previously claimed a "fallback mode" accepted
+    unauthenticated connections when the token was unset; the hardening
+    pass removed that mode. This suite pins the real contract: an
+    unset token means the host misconfigured the launch, and the IPC
+    port must not dispatch anything to unauthenticated local callers.
+    """
+
+    def test_server_refuses_all_connections_when_token_unset(self, tmp_path, monkeypatch, caplog):
+        """Start the server with the token env var REMOVED and verify:
+        (1) an ERROR is logged at bind time, and (2) a connecting
+        client is closed without any response (no auth, no dispatch)."""
+        import logging
+
+        monkeypatch.delenv("VOICE_TYPER_IPC_TOKEN", raising=False)
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR_OVERRIDE", str(tmp_path))
+
+        port = _free_port()
+        app = MockApp(tmp_path=tmp_path)
+        server = IPCServer(app)
+        app._ipc_server = server
+        server.start()
+
+        with caplog.at_level(logging.ERROR, logger="voice_typer"):
+            server.start_tcp(port)
+
+            # Wait for the server to be listening (it binds even when
+            # the token is unset, so the connect succeeds).
+            deadline = time.time() + 2.0
+            while time.time() < deadline:
+                try:
+                    probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                    probe.settimeout(0.25)
+                    probe.connect(("127.0.0.1", port))
+                    probe.close()
+                    break
+                except (TimeoutError, ConnectionRefusedError, OSError):
+                    time.sleep(0.02)
+            else:
+                server.stop()
+                pytest.fail(f"IPC server did not start listening on port {port} within 2s")
+
+            # The bind-time ERROR must have been logged.
+            assert any(
+                "VOICE_TYPER_IPC_TOKEN not set" in r.getMessage() for r in caplog.records
+            ), "server must log an ERROR when the token env var is unset"
+
+            # Connect and send a command WITHOUT any auth line — the
+            # connection must be closed with no response.
+            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client.connect(("127.0.0.1", port))
+            _send_line(client, {"id": 1, "type": "get_status"})
+            client.settimeout(1.0)
+            try:
+                data = client.recv(4096)
+            except (TimeoutError, ConnectionError, OSError):
+                data = b""
+            assert data == b"", (
+                f"server must refuse connections when token unset; got response: {data!r}"
+            )
+            client.close()
+
+        server.stop()
+        _teardown_app_subsystems(app)
+
+    def test_server_refuses_even_with_valid_token_sent(self, tmp_path, monkeypatch):
+        """Even a client that KNOWS a token and sends it in the auth
+        frame must be refused when the env var is unset (the expected
+        token is empty, so no token can match it)."""
+        monkeypatch.delenv("VOICE_TYPER_IPC_TOKEN", raising=False)
+        monkeypatch.setenv("VOICE_TYPER_CONFIG_DIR_OVERRIDE", str(tmp_path))
+
+        port = _free_port()
+        app = MockApp(tmp_path=tmp_path)
+        server = IPCServer(app)
+        app._ipc_server = server
+        server.start()
+        server.start_tcp(port)
+
+        # Wait for listening.
+        deadline = time.time() + 2.0
+        while time.time() < deadline:
+            try:
+                probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                probe.settimeout(0.25)
+                probe.connect(("127.0.0.1", port))
+                probe.close()
+                break
+            except (TimeoutError, ConnectionRefusedError, OSError):
+                time.sleep(0.02)
+
+        client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client.connect(("127.0.0.1", port))
+        _send_line(client, {"type": "auth", "token": "even-a-valid-looking-token"})
+        client.settimeout(1.0)
+        try:
+            data = client.recv(4096)
+        except (TimeoutError, ConnectionError, OSError):
+            data = b""
+        assert data == b"", f"token cannot match an unset env token; got: {data!r}"
+        client.close()
+        server.stop()
+        _teardown_app_subsystems(app)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

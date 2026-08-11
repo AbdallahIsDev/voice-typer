@@ -13,7 +13,6 @@ method bodies.
 """
 
 import contextlib
-import hmac
 import json
 import os
 import socket
@@ -25,11 +24,13 @@ from concurrent.futures import ThreadPoolExecutor
 from voice_typer.server import event_bus
 from voice_typer.server._paths import IPC_TOKEN_ENV_VAR
 from voice_typer.server.handlers._log import log
+from voice_typer.server.ipc.auth import extract_auth_token, tokens_equal
 from voice_typer.server.ipc.rate_limiter import (
     _HEARTBEAT_INTERVAL_SECONDS,
     _HEARTBEAT_TIMEOUT_SECONDS,
     _get_rate_limiter,
 )
+from voice_typer.server.ipc.registry import _PYTHON_ONLY_COMMANDS
 from voice_typer.server.ipc.transport import _TCPLineIO
 from voice_typer.server.ipc.validation import ErrorCodes
 from voice_typer.server.keyboard_ownership import keyboard_ownership
@@ -527,17 +528,19 @@ class TCPTransportMixin:
                     )
                 auth_client.close()
                 return
-            # Use hmac.compare_digest for constant-time
-            # token comparison so a timing side-channel cannot
-            # recover the token byte-by-byte.
-            # Check isinstance FIRST so .get() doesn't raise on
-            # non-dict JSON values (e.g. 42, [1,2,3], "hi").
-            token_valid = (
-                isinstance(auth_msg, dict)
-                and auth_msg.get("type") == "auth"
-                and isinstance(auth_msg.get("token", ""), str)
-                and hmac.compare_digest(auth_msg.get("token", ""), expected_token)
-            )
+            # Frame-shape validation + token extraction are shared
+            # with the WS transport (VP-8: ``ipc/auth.py``
+            # ``extract_auth_token`` — the DEDUP note in
+            # ``sidecar_ws._authenticate`` documents the shared
+            # contract). ``tokens_equal`` wraps ``hmac.compare_digest``
+            # so the constant-time comparison guarantee (a timing
+            # side-channel must not recover the token byte-by-byte)
+            # comes from ONE implementation, not two drifted copies.
+            # The isinstance guards live inside ``extract_auth_token``,
+            # so hostile non-dict JSON values (42, [1,2,3], "hi") are
+            # rejected without crashing ``.get``.
+            auth_token = extract_auth_token(auth_msg)
+            token_valid = auth_token is not None and tokens_equal(auth_token, expected_token)
             if not token_valid:
                 # Include the peer address so repeated stale-client
                 # retries (e.g. a leftover Electron/Tauri host holding an
@@ -748,6 +751,38 @@ class TCPTransportMixin:
                 # The legacy ``rate_limiter.allow()`` form (no ``command``
                 # kwarg) is still supported and treats the call as cost 1.
                 msg_type = msg.get("type") if isinstance(msg, dict) else ""
+                # HU-2.3: ``_PYTHON_ONLY_COMMANDS`` (``shutdown``,
+                # ``tray_click``) must NEVER be dispatched from the
+                # Electron TCP path. The renderer-facing TS
+                # ``ALLOWED_COMMANDS`` omits them by contract (see
+                # ``ipc/registry.py``); this gate is defense-in-depth so
+                # a compromised renderer cannot invoke the Python-only
+                # handlers (``shutdown`` = backend DoS, ``tray_click`` =
+                # spoofed tray actions). The WS (Tauri host) path is NOT
+                # gated — the host legitimately sends both (registry
+                # comment; ADR-0020 §6.5 / §16 / §10). The rejection is
+                # a structured envelope (surfaced as an unknown command
+                # to this transport) and the read loop continues — the
+                # connection is NOT torn down for a bad command type.
+                if msg_type in _PYTHON_ONLY_COMMANDS:
+                    log.warning(
+                        "[TCP] rejecting python-only command %r from renderer transport (HU-2.3)",
+                        msg_type,
+                    )
+                    # Code ``server.unknown_command`` is deliberate: to
+                    # this renderer-facing transport the command IS
+                    # unknown — the TS ``ALLOWED_COMMANDS`` omits it by
+                    # contract. The message is intentionally more
+                    # specific so the client-side diagnostic (and the
+                    # WARNING above) explains WHY rather than echoing
+                    # the generic unknown-command wording.
+                    self._send_error_envelope(
+                        ErrorCodes.UNKNOWN_COMMAND,
+                        "command not allowed from this transport",
+                        msg=msg,
+                        _client=client,
+                    )
+                    continue
                 # Heartbeat fast-path. Handle heartbeat INLINE in
                 # the read loop BEFORE ``self._dispatch(msg)`` so the
                 # heartbeat-ack is not delayed by an in-flight long

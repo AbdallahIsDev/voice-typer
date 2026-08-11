@@ -220,6 +220,72 @@ def test_setup_logging_attaches_stream_handler_without_tty(tmp_path: Path, monke
         reset()
 
 
+def test_port_mode_with_redirected_stderr_uses_plain_formatter(tmp_path: Path, monkeypatch) -> None:
+    """A ``--port`` run with a NON-TTY stderr (the Electron launcher
+    redirects the backend's stderr to ``electron-stderr.log``) must use
+    the plain ``_FileFormatter`` on the stream handler — no ANSI escape
+    codes in the log file.
+
+    Regression: ``do_color = sys.stderr.isatty() or port_mode`` forced
+    colours whenever ``--port`` was in argv, and the Electron TCP path
+    (``python -m ipc_server --port N``) IS such a run — so every backend
+    line landed in ``electron-stderr.log`` with raw ``\x1b[...`` codes
+    mixed with the Electron + Vite output. Colors now require a real
+    TTY; redirected output stays plain.
+    """
+
+    class _FakeNonTtyStderr:
+        def isatty(self) -> bool:
+            return False
+
+        def reconfigure(self, **_kwargs) -> None:  # pragma: no cover - best-effort
+            pass
+
+    monkeypatch.setattr(sys, "stderr", _FakeNonTtyStderr())
+    reset()
+    config_dir = tmp_path / "cfg"
+    config_dir.mkdir()
+    setup_logging(config_dir, port_mode=True)
+    try:
+        root = logging.getLogger("voice_typer")
+        stream = next(h for h in root.handlers if isinstance(h, _FlushingStreamHandler))
+        assert isinstance(stream.formatter, _FileFormatter), (
+            "port mode + non-TTY stderr must use _FileFormatter (no ANSI), "
+            f"got {type(stream.formatter).__name__}"
+        )
+    finally:
+        reset()
+
+
+def test_port_mode_with_tty_stderr_keeps_color_formatter(tmp_path: Path, monkeypatch) -> None:
+    """A real terminal (TTY stderr) keeps the coloured
+    ``_ColorFormatter`` even in ``--port`` mode — the palette is
+    terminal-only, so an interactive ``python -m ipc_server --port N``
+    run is unchanged."""
+
+    class _FakeTtyStderr:
+        def isatty(self) -> bool:
+            return True
+
+        def reconfigure(self, **_kwargs) -> None:  # pragma: no cover - best-effort
+            pass
+
+    monkeypatch.setattr(sys, "stderr", _FakeTtyStderr())
+    reset()
+    config_dir = tmp_path / "cfg"
+    config_dir.mkdir()
+    setup_logging(config_dir, port_mode=True)
+    try:
+        root = logging.getLogger("voice_typer")
+        stream = next(h for h in root.handlers if isinstance(h, _FlushingStreamHandler))
+        assert isinstance(stream.formatter, _ColorFormatter), (
+            "TTY stderr must keep _ColorFormatter, "
+            f"got {type(stream.formatter).__name__}"
+        )
+    finally:
+        reset()
+
+
 def test_setup_logging_no_duplicate_stream_handlers_when_reinvoked(tmp_path: Path, monkeypatch) -> None:
     """GT-13 must not break idempotency — repeated ``setup_logging``
     calls do not duplicate the stderr stream handler."""

@@ -43,6 +43,7 @@ from voice_typer.server._electron_build import (
     CLIENT_DIR,
     _electron_binary,
     _electron_log_files,
+    _launcher_child_env,
     _log_sensitive_env_keys,
     _main_entry_built,
     _npm_command,
@@ -193,7 +194,9 @@ def launch_electron_frontend(port: int, token: str) -> int | None:
     # ``/proc/<pid>/environ`` and be exfiltrated by a compromised
     # renderer. This converts the previous ``_log_sensitive_env_keys``
     # audit log into an enforcement point.
-    env = dict(os.environ)
+    # ``_launcher_child_env`` force-disables ANSI colour + npm notices
+    # (the child's output is redirected to electron-stdout/stderr.log).
+    env = _launcher_child_env()
     _strip_sensitive_env(env)
     env["VT_PYTHON_PORT"] = str(port)
     env["VT_IPC_TOKEN"] = token

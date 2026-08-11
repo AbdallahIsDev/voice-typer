@@ -152,8 +152,14 @@ def test_authenticate_uses_hmac_compare_digest_at_runtime() -> None:
     behaviour.
     """
     source = inspect.getsource(sidecar_ws._authenticate)
-    assert "hmac.compare_digest" in source, (
-        "_authenticate must use hmac.compare_digest for constant-time token "
+    # VP-8: the constant-time comparison moved to the shared helper
+    # ``voice_typer.server.ipc.auth.tokens_equal`` (which wraps
+    # ``hmac.compare_digest``). Accept either form — the contract is
+    # "constant-time comparison via hmac", and a regression to a plain
+    # ``==`` fails BOTH anchors.
+    assert ("hmac.compare_digest" in source or "tokens_equal" in source), (
+        "_authenticate must use hmac.compare_digest (directly or via the "
+        "shared ipc.auth.tokens_equal helper) for constant-time token "
         "comparison (XZ-R4-001 fix is docstring-only; runtime behaviour is "
         "unchanged)"
     )

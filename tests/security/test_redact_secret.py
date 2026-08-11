@@ -14,7 +14,12 @@ original monolith — only file location has changed.
 from __future__ import annotations
 
 from voice_typer.server import _secrets
-from voice_typer.server._secrets import redact_secret
+from voice_typer.server._secrets import (
+    redact_for_export,
+    redact_secret,
+    redact_url,
+)
+from voice_typer.server.security import redact_pii
 
 
 class TestRedactSecretFlagForms:
@@ -315,3 +320,98 @@ def test_sec9_flag_patterns_module_constants():
     assert "key" in _secrets._SECRET_KEYWORDS
     assert "password" in _secrets._SECRET_KEYWORDS
     assert "api_key" in _secrets._SECRET_KEYWORDS
+
+
+class TestRedactUrl:
+    """HU-37: ``redact_url`` strips ``user:pass@`` userinfo AND chains
+    through ``redact_secret(aggressive=True)`` so query-string secrets
+    (``?key=sk-...``, ``?access_token=...``) are masked too.
+
+    Pre-fix, only the userinfo component was stripped — a URL with the
+    credential in the query string survived redaction verbatim and any
+    caller that logged the URL (e.g. the redirect handler) would leak
+    the query-string secret.
+    """
+
+    def test_strips_userinfo_from_url(self):
+        """``user:pass@`` userinfo is removed; scheme/host/path are
+        preserved so the URL stays useful for debugging."""
+        assert redact_url("https://user:pass@api.example.com/path") == "https://api.example.com/path"
+
+    def test_strips_password_only_userinfo(self):
+        """A userinfo with only a password (no username) is stripped too."""
+        assert redact_url("https://:hunter2@api.example.com/v1") == "https://api.example.com/v1"
+
+    def test_masks_query_string_api_key(self):
+        """A ``?key=sk-...`` query-string credential is masked via the
+        aggressive ``redact_secret`` chain (pre-fix this survived
+        verbatim)."""
+        out = redact_url("https://api.example.com/?key=sk-abc123xyz456")
+        assert "sk-abc123xyz456" not in out
+        assert "key=" in out  # the flag name survives for debugging
+        assert "***" in out
+
+    def test_masks_query_string_access_token(self):
+        """``?access_token=...`` is masked the same way."""
+        out = redact_url("https://api.example.com/?access_token=abcdef1234567890")
+        assert "abcdef1234567890" not in out
+        assert "access_token=" in out
+        assert "***" in out
+
+    def test_short_query_string_secret_masked_via_aggressive(self):
+        """A short bare secret (``?key=abc``) is masked because the
+        chain runs ``redact_secret`` with ``aggressive=True``, which
+        bypasses the short-string guard (``redact_secret`` alone would
+        skip a <20-char value)."""
+        out = redact_url("https://api.example.com/?key=abc")
+        assert "***" in out
+        # The 3-char secret value must not survive as ``?key=abc``.
+        assert "key=abc" not in out
+
+    def test_plain_url_unchanged(self):
+        """A URL with no credentials is returned unchanged (no
+        false-positive mangling)."""
+        assert redact_url("https://api.openai.com/v1/audio/transcriptions") == (
+            "https://api.openai.com/v1/audio/transcriptions"
+        )
+
+    def test_empty_url_returned_as_is(self):
+        """Empty / non-URL input is returned unchanged."""
+        assert redact_url("") == ""
+
+
+class TestRedactPiiAndForExport:
+    """HU-37: ``redact_pii`` (the PII pattern matcher used across the
+    log/crash/export paths) and ``redact_for_export`` (the unified PII
+    + secret pipeline for diagnostic bundles) must have direct
+    coverage.
+    """
+
+    def test_redact_pii_masks_email_and_phone(self):
+        out = redact_pii("contact user@example.com or 555-123-4567")
+        assert "[EMAIL]" in out
+        assert "[PHONE]" in out
+        assert "user@example.com" not in out
+        assert "555-123-4567" not in out
+
+    def test_redact_pii_masks_ssn_and_cc(self):
+        out = redact_pii("SSN 123-45-6789 and card 4111111111111111")
+        assert "[SSN]" in out
+        assert "[CC]" in out
+        assert "123-45-6789" not in out
+        assert "4111111111111111" not in out
+
+    def test_redact_pii_masks_api_key_bearer(self):
+        """``redact_pii`` also applies ``redact_secret`` + ``redact_url``
+        so API keys / bearer tokens in the text are masked."""
+        out = redact_pii("Authorization: Bearer sk-abcdefghijklmnopqrstuvwxyz123456")
+        assert "sk-abcdefghijklmnopqrstuvwxyz123456" not in out
+
+    def test_redact_for_export_masks_pii_and_secrets(self):
+        """The unified diagnostic-export pipeline masks both PII and
+        secrets in one call."""
+        out = redact_for_export("api key sk-abcdefghijklmnop qrstuvwx from user@example.com")
+        assert "user@example.com" not in out
+        assert "[EMAIL]" in out
+        assert "sk-abcdefghijklmnop" not in out
+        assert "***" in out

@@ -264,3 +264,49 @@ class TestTrayLocaleSwitchingRebuildsMenu:
         assert "invalidate_menu_cache" in handler_src, (
             "TRAY-008: IPC handler must rebuild the tray menu after locale change"
         )
+
+
+class TestRendererLocalesUseAppNamePlaceholder:
+    """HU-43 / C-BRAND-1: renderer translation files must not contain
+    literal brand strings — the ``{appName}`` placeholder is substituted
+    with ``APP_NAME`` at load time via ``_withAppName`` (store.ts), so a
+    product rename touches one constant instead of hundreds of strings.
+
+    ``scripts/check_branding.py`` deliberately EXEMPTS renderer
+    translations (per C-BRAND-1 rationale), so this guard test is the CI
+    enforcement for the rule.
+    """
+
+    TRANSLATIONS_DIR = (
+        Path(__file__).resolve().parent.parent.parent
+        / "voice_typer"
+        / "client"
+        / "src"
+        / "renderer"
+        / "src"
+        / "i18n"
+        / "translations"
+    )
+    LOCALES = ("ar", "de", "en", "es", "fr", "hi", "ru", "zh")
+
+    def test_no_literal_brand_string_in_any_locale(self):
+        """None of the 8 renderer locale files may contain a literal
+        brand string (the placeholder must be used instead)."""
+        for name in self.LOCALES:
+            path = self.TRANSLATIONS_DIR / f"{name}.json"
+            assert path.exists(), f"{name}.json must exist"
+            text = path.read_text(encoding="utf-8")
+            assert "Voice Typer" not in text, (
+                f"{name}.json: literal brand string found — must use the "
+                "{appName} placeholder (C-BRAND-1 / HU-43)"
+            )
+
+    def test_en_uses_appname_placeholder(self):
+        """The placeholder pattern must actually be in use (guards
+        against a vacuous migration that deleted the brand entirely)."""
+        en = json.loads(
+            (self.TRANSLATIONS_DIR / "en.json").read_text(encoding="utf-8")
+        )
+        assert "{appName}" in json.dumps(en), (
+            "en.json must use the {appName} placeholder somewhere (HU-43)"
+        )

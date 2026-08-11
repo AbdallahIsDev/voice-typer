@@ -239,9 +239,13 @@ class HandlerBase(HandlerMixinBase):
         exc :
             The exception that triggered the error path. Logged at
             ERROR with ``exc_info=True`` so the full traceback lands
-            in ``voice-typer.log`` for server-side diagnosis. The
-            exception's ``str()`` is NEVER sent to the renderer —
-            that's the whole point of the generic envelope.
+            in ``voice-typer.log`` for server-side diagnosis — EXCEPT
+            for :class:`ConsentRequiredError`, which is an expected,
+            user-actionable rejection (e.g. voice-biometric consent not
+            granted): it is logged at WARNING without a traceback
+            (normal control-flow, not a server fault). The exception's
+            ``str()`` is NEVER sent to the renderer — that's the whole
+            point of the generic envelope.
         cmd_name :
             The IPC command name (e.g. ``"download_model"``) — used
             only for the log message so operators can correlate the
@@ -307,38 +311,8 @@ class HandlerBase(HandlerMixinBase):
         # assertions rely on it) while ensuring the formatted
         # ``record.exc_text`` doesn't leak the secret either.
         scrubbed_str, _ = _scrub_traceback(exc)
-        try:
-            scrubbed_exc = type(exc)(scrubbed_str)
-        except Exception:
-            # Some exception types (e.g. OSError) have a different
-            # ``__init__`` signature that doesn't accept a single
-            # string. Fall back to RuntimeError so the log still
-            # captures the scrubbed message.
-            scrubbed_exc = RuntimeError(scrubbed_str)
-        log.error(
-            "[IPC] %s failed: %s",
-            cmd_name,
-            scrubbed_str,
-            exc_info=(type(scrubbed_exc), scrubbed_exc, None),
-        )
         # ErrorEnvelope contract — see validation.py
         resp["type"] = "error"
-        # Typed cloud/LLM exception hierarchy — map each typed
-        # exception to a distinct IPC error code (registered in
-        # ``ERROR_CODES`` at ``voice_typer/server/ipc/validation.py``)
-        # so the renderer can distinguish "API key invalid" from "rate
-        # limited" from "transient network" from "missing config" and
-        # react accordingly (re-enter key, backoff, auto-retry, open
-        # Settings). The catch-all ``RuntimeError`` fallback stays as
-        # ``server.internal_error`` for non-cloud RuntimeErrors.
-        #
-        # Every envelope below carries both the namespaced
-        # ``code`` and a matching ``legacy_code`` alias (derived by
-        # stripping the ``client.``/``server.`` prefix) so the renderer
-        # can switch on either form during the namespacing migration
-        # window — mirroring the parity stamp added to
-        # ``_validate_dict_payload`` and the TCP/WS rate-limit envelopes
-        # under
         if isinstance(exc, ConsentRequiredError):
             # Structured consent error — pass through the
             # typed fields so the renderer can surface a consent dialog
@@ -358,7 +332,45 @@ class HandlerBase(HandlerMixinBase):
             data["code"] = ErrorCodes.CONSENT_REQUIRED
             data["message"] = str(exc) or "consent required"
             resp["data"] = data
+            # Expected, user-actionable rejection (e.g. voice-biometric
+            # consent not granted): log at WARNING without a traceback.
+            # This is normal control-flow — the renderer surfaces a
+            # consent dialog from the envelope — not a server fault.
+            # The previous ERROR + exception-class header line made
+            # every consent-denied microphone test / dictation look
+            # like a crash in voice-typer.log.
+            log.warning("[IPC] %s rejected: %s", cmd_name, scrubbed_str)
             return resp
+        try:
+            scrubbed_exc = type(exc)(scrubbed_str)
+        except Exception:
+            # Some exception types (e.g. OSError) have a different
+            # ``__init__`` signature that doesn't accept a single
+            # string. Fall back to RuntimeError so the log still
+            # captures the scrubbed message.
+            scrubbed_exc = RuntimeError(scrubbed_str)
+        log.error(
+            "[IPC] %s failed: %s",
+            cmd_name,
+            scrubbed_str,
+            exc_info=(type(scrubbed_exc), scrubbed_exc, None),
+        )
+        # Typed cloud/LLM exception hierarchy — map each typed
+        # exception to a distinct IPC error code (registered in
+        # ``ERROR_CODES`` at ``voice_typer/server/ipc/validation.py``)
+        # so the renderer can distinguish "API key invalid" from "rate
+        # limited" from "transient network" from "missing config" and
+        # react accordingly (re-enter key, backoff, auto-retry, open
+        # Settings). The catch-all ``RuntimeError`` fallback stays as
+        # ``server.internal_error`` for non-cloud RuntimeErrors.
+        #
+        # Every envelope below carries both the namespaced
+        # ``code`` and a matching ``legacy_code`` alias (derived by
+        # stripping the ``client.``/``server.`` prefix) so the renderer
+        # can switch on either form during the namespacing migration
+        # window — mirroring the parity stamp added to
+        # ``_validate_dict_payload`` and the TCP/WS rate-limit envelopes
+        # under
         if isinstance(exc, ResampleUnavailableError):
             # scipy.signal.resample_poly unavailable — the
             # high-quality resample tier is missing, callers must

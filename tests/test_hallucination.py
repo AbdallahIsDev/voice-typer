@@ -13,8 +13,11 @@ Covers:
     happens after redaction, so a PII pattern that straddles the
     truncation boundary is fully redacted before truncation (no partial
     PII leak).
-  - CR-87: a graceful fallback to truncation-only if ``redact_pii``
-    raises at runtime (defensive import + call site).
+  - CR-87 / HU-14: when ``redact_pii`` raises at runtime (defensive
+    import + call site), the log falls back to a constant
+    ``<redaction-failed>`` sentinel + the char count — NEVER the raw
+    (even truncated) text, mirroring the transcription.py segment-log
+    contract.
   - The hallucination detection helpers
     (``should_reject_low_audio_hallucination``,
     ``normalize_hallucination_key``, ``KNOWN_LOW_AUDIO_HALLUCINATIONS``)
@@ -172,12 +175,21 @@ def test_cr87_pii_at_truncation_boundary_is_fully_redacted(caplog):
     assert "[EMAIL]" in msg, f"redaction token [EMAIL] must appear for input email; got: {msg!r}"
 
 
-def test_cr87_fallback_to_truncation_if_redact_pii_raises(caplog):
-    """CR-87: if ``security.redact_pii`` raises at runtime (e.g. import
-    failure, regex engine error), the helper falls back to truncation
-    only — the rejection is still logged with the truncated raw text.
+def test_cr87_fallback_to_sentinel_if_redact_pii_raises(caplog):
+    """CR-87 / HU-14: if ``security.redact_pii`` raises at runtime
+    (e.g. import failure, regex engine error), the helper logs a
+    constant ``<redaction-failed>`` sentinel + the char count — NEVER
+    the raw text, even truncated.
+
+    HU-14 regression: the pre-fix fallback was truncation-only
+    (``text[:_HALLUCINATION_LOG_MAX_CHARS]``). A 40-char window can
+    still contain a full email address, phone number, or SSN fragment,
+    so truncation is NOT redaction — the fallback must not leak PII
+    when ``log_transcriptions=True`` and the redaction engine is
+    broken.
     """
     # Patch redact_pii to raise — simulates a broken security module.
+    secret_text = "user@example.com with secret content"
     with (
         patch(
             "voice_typer.server.security.redact_pii",
@@ -188,15 +200,20 @@ def test_cr87_fallback_to_truncation_if_redact_pii_raises(caplog):
         # Should NOT raise
         log_hallucination_rejection(
             "[TEST]",
-            "hello world",
+            secret_text,
             reason="hallucination",
             log_transcriptions=True,
         )
     warning_records = [r for r in caplog.records if r.levelno == logging.WARNING]
     assert warning_records
-    # The fallback (truncation only) should still log "hello world"
-    # (it's 11 chars, under the 40-char limit).
-    assert "hello world" in warning_records[-1].getMessage()
+    msg = warning_records[-1].getMessage()
+    # The sentinel must appear in the log.
+    assert "<redaction-failed>" in msg, f"redaction-failure sentinel must be logged; got: {msg!r}"
+    # The raw text must NOT appear — not even a truncated fragment.
+    assert "user@example.com" not in msg, f"raw PII must NOT be logged on redaction failure; got: {msg!r}"
+    assert "secret content" not in msg, f"raw text must NOT be logged on redaction failure; got: {msg!r}"
+    # The char count is still surfaced for triage.
+    assert str(len(secret_text)) in msg, f"char count must still be logged; got: {msg!r}"
 
 
 # ─── SEC-009: gating behavior (log_transcriptions flag) ───────────────────

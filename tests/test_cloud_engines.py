@@ -243,6 +243,66 @@ class TestCloudEngineTestConnection:
         assert success is False
         assert "API key" in msg
 
+    def test_test_connection_requires_consent(self):
+        """HU-16: ``test_connection`` must refuse when consent is not
+        given — the API key must not be sent to a provider the user
+        hasn't consented to.
+
+        Mirrors the ``transcribe`` consent gate (ADR-0016 Design Rule 1:
+        no cloud interaction without consent). Returns ``(False, msg)``
+        BEFORE any URL-allowlist check or network I/O; the patched
+        ``assert_url_allowed`` proves no request was attempted.
+        """
+        from unittest.mock import patch
+
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(provider="openai", api_key="sk-test", consent_given=False)
+        with patch(
+            "voice_typer.server.cloud_engines.assert_url_allowed",
+            side_effect=AssertionError(
+                "consent gate must return before the URL-allowlist check"
+            ),
+        ):
+            success, msg = engine.test_connection()
+        assert success is False
+        assert "consent" in msg.lower()
+
+    def test_test_connection_consent_given_still_reaches_allowlist(self):
+        """HU-16: with consent given, ``test_connection`` proceeds to
+        the URL-allowlist check (the gate must NOT over-block)."""
+        from unittest.mock import patch
+        from urllib.error import URLError
+
+        from voice_typer.server.cloud_engines import CloudEngine
+
+        engine = CloudEngine(provider="openai", api_key="sk-test", consent_given=True)
+        with (
+            patch(
+                "voice_typer.server.cloud_engines.assert_url_allowed",
+                return_value=None,
+            ) as mock_url,
+            # Isolated network: the probe fails fast once the allowlist
+            # check has passed — we only need to see the consent gate
+            # let the engine through to the probe.
+            patch(
+                "voice_typer.server.cloud_engines._opener.open",
+                side_effect=URLError("test-isolated"),
+            ),
+        ):
+            success, msg = engine.test_connection()
+
+        # The consent gate let the engine through to the probe (which
+        # then failed on the isolated network) — proving the gate did
+        # NOT over-block.
+        assert mock_url.called, (
+            "consent-given engine must reach the URL-allowlist check in test_connection"
+        )
+        assert success is False
+        assert "consent" not in msg.lower(), (
+            "the network-failure message must not be a consent refusal"
+        )
+
 
 # ── RELIABILITY-004: URL allowlist + API key redaction ───────────────────
 

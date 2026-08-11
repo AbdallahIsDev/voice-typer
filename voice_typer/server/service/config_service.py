@@ -320,6 +320,7 @@ class ConfigMutationMixin(ServiceMixinBase):
                     )
 
             # 5. Save to disk (raises on failure — see Config.save_strict).
+            old_config = app.config
             try:
                 # Swap the in-memory Config BEFORE save so save() reads
                 # the new defaults (and routes preserved API keys
@@ -327,6 +328,13 @@ class ConfigMutationMixin(ServiceMixinBase):
                 app.config = new_config
                 new_config.save_strict()
             except Exception as exc:
+                # HU-22: restore the pre-swap config so a save failure
+                # does NOT leave the in-memory config diverged from disk
+                # (the renderer/engine would show defaults while the old
+                # values stay on disk and reappear on restart — a stale
+                # API key could even stay active after the user believed
+                # they reset everything).
+                app.config = old_config
                 log.error("[SERVICE] reset_config_to_defaults: save_strict failed: %s", exc)
                 return {
                     "success": False,

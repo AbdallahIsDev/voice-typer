@@ -131,10 +131,12 @@ def test_source_contains_protocol_version_check_before_token_check() -> None:
         "DR-21: _handle_tcp_connection must emit the PROTOCOL_VERSION_MISMATCH_CODE on mismatch."
     )
     # The version check must come BEFORE the token check. Use the actual
-    # call site ``hmac.compare_digest(auth_msg`` (not the bare mention,
-    # which also appears in the docstring) as the anchor.
+    # call site of the shared token extraction (``extract_auth_token`` —
+    # VP-8 moved frame validation + the constant-time comparison into
+    # ``voice_typer.server.ipc.auth``; the DR-21 ordering contract is
+    # unchanged) as the anchor.
     version_idx = src.index("protocol_version")
-    token_idx = src.index("hmac.compare_digest(auth_msg")
+    token_idx = src.index("extract_auth_token(")
     assert version_idx < token_idx, (
         "DR-21: the protocol_version check must run BEFORE the "
         "hmac.compare_digest token check so a stale client gets a "

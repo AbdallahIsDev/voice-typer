@@ -64,6 +64,78 @@ class TestElectronLogFilesCaptured:
         if hasattr(result["stderr"], "close"):
             result["stderr"].close()
 
+    def test_electron_log_files_scrubs_stale_ansi_content(self, tmp_path, monkeypatch):
+        """Pre-cleanup ANSI escape garbage must be scrubbed when the log
+        file is opened (one-time cleanup — new launches are ANSI-free).
+        """
+        from voice_typer.server import config as cfg_mod
+        from voice_typer.server.autostart_launcher import _electron_log_files
+
+        # Patch _config_dir to point to tmp_path
+        monkeypatch.setattr(cfg_mod, "_config_dir", lambda: tmp_path)
+        stdout_path = tmp_path / "logs" / "electron-stdout.log"
+        stdout_path.parent.mkdir(parents=True, exist_ok=True)
+        # stale content written by a pre-cleanup run (ANSI colour codes)
+        stdout_path.write_bytes(b"\x1b[32melectron main process built successfully\x1b[39m\n")
+
+        result = _electron_log_files()
+        assert result["stdout"] is not __import__("subprocess").DEVNULL
+        content = stdout_path.read_bytes()
+        assert b"\x1b" not in content, "ANSI escape bytes must be scrubbed on open"
+        assert b"electron main process built" not in content, (
+            "stale pre-cleanup banner must be removed from the log file"
+        )
+        assert b"scrubbed" in content, (
+            "a scrub marker line should delimit the clean section"
+        )
+        if hasattr(result["stdout"], "close"):
+            result["stdout"].close()
+        if hasattr(result["stderr"], "close"):
+            result["stderr"].close()
+
+    def test_electron_log_files_leaves_clean_file_untouched(self, tmp_path, monkeypatch):
+        """An ANSI-free log file must be preserved verbatim on open."""
+        from voice_typer.server import config as cfg_mod
+        from voice_typer.server.autostart_launcher import _electron_log_files
+
+        monkeypatch.setattr(cfg_mod, "_config_dir", lambda: tmp_path)
+        stdout_path = tmp_path / "logs" / "electron-stdout.log"
+        stdout_path.parent.mkdir(parents=True, exist_ok=True)
+        clean = "2026-08-11  01:19:33  [INFO] [MAIN] userData set to: C:\\electron-profile\n"
+        stdout_path.write_text(clean, encoding="utf-8")
+
+        result = _electron_log_files()
+        assert result["stdout"] is not __import__("subprocess").DEVNULL
+        assert stdout_path.read_text(encoding="utf-8") == clean, (
+            "an ANSI-free log file must not be truncated on open"
+        )
+        if hasattr(result["stdout"], "close"):
+            result["stdout"].close()
+        if hasattr(result["stderr"], "close"):
+            result["stderr"].close()
+
+    def test_tauri_log_files_scrubs_stale_ansi_content(self, tmp_path, monkeypatch):
+        """tauri-stdout.log / tauri-stderr.log get the same ANSI scrub."""
+        from voice_typer.server import config as cfg_mod
+        from voice_typer.server.autostart_launcher import _tauri_log_files
+
+        monkeypatch.setattr(cfg_mod, "_config_dir", lambda: tmp_path)
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir(parents=True, exist_ok=True)
+        (log_dir / "tauri-stdout.log").write_bytes(b"\x1b[31mpanic: boom\x1b[0m\n")
+
+        result = _tauri_log_files()
+        assert result["stdout"] is not __import__("subprocess").DEVNULL
+        content = (log_dir / "tauri-stdout.log").read_bytes()
+        assert b"\x1b" not in content, "tauri-stdout.log must be scrubbed on open"
+        assert b"scrubbed" in content, (
+            "tauri-stdout.log must carry the scrub marker line"
+        )
+        if hasattr(result["stdout"], "close"):
+            result["stdout"].close()
+        if hasattr(result["stderr"], "close"):
+            result["stderr"].close()
+
 
 class TestElectronNotificationIpcEndpoint:
     """TRAY-035.

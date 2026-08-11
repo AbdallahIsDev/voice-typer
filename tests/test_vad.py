@@ -349,6 +349,84 @@ class TestVADModule:
         assert vad._model is None
         assert vad._utils is None
 
+    def test_torch_missing_warning_rate_limited(self, caplog, monkeypatch):
+        """When torch is unavailable, repeated ``_load_model`` calls
+        (every 16 Hz audio chunk) must NOT re-log the identical WARNING
+        — only the 1st occurrence logs at WARNING; repeats drop to
+        DEBUG (log_rate_limited, first-only).
+
+        Regression: ``_load_model`` does not cache a failure (model
+        stays None), so a permanently torch-less environment would
+        otherwise emit ~960 identical WARNINGs/minute.
+        """
+        import logging
+
+        from voice_typer.server import vad
+
+        vad.reset()
+        monkeypatch.setitem(sys.modules, "torch", None)
+
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.vad"):
+            for _ in range(5):
+                assert vad._load_model() == (None, None)
+
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert len(warnings) == 1, (
+            "torch-missing WARNING must be rate-limited to 1 occurrence "
+            f"across 5 calls; got {len(warnings)}"
+        )
+
+    def test_bundled_model_missing_error_rate_limited(self, caplog, monkeypatch):
+        """When the bundled ``silero_vad.jit`` is missing, repeated
+        ``_load_model`` calls must log the ERROR once, not per call."""
+        import logging
+        from pathlib import Path
+
+        from voice_typer.server import vad
+
+        vad.reset()
+        monkeypatch.setattr(vad, "_VAD_MODEL_PATH", Path("C:/definitely/not/here/silero_vad.jit"))
+        monkeypatch.setitem(sys.modules, "torch", MagicMock())
+
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.vad"):
+            for _ in range(5):
+                assert vad._load_model() == (None, None)
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(errors) == 1, (
+            "missing-model ERROR must be rate-limited to 1 occurrence "
+            f"across 5 calls; got {len(errors)}"
+        )
+
+    def test_local_load_failure_error_rate_limited(self, caplog, monkeypatch):
+        """When ``torch.jit.load`` raises (corrupt/undownloadable model),
+        repeated ``_load_model`` calls must NOT spam the ERROR — the
+        1st + every Nth occurrence logs at ERROR, repeats at DEBUG.
+
+        Regression: the failure is not cached, so a permanently
+        corrupt model would otherwise log ~960 ERRORs/minute on the
+        16 Hz audio path.
+        """
+        import logging
+
+        from voice_typer.server import vad
+
+        vad.reset()
+        mock_torch = MagicMock()
+        mock_torch.jit.load.side_effect = RuntimeError("corrupt model")
+        monkeypatch.setitem(sys.modules, "torch", mock_torch)
+
+        with caplog.at_level(logging.DEBUG, logger="voice_typer.server.vad"):
+            for _ in range(5):
+                assert vad._load_model() == (None, None)
+
+        errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+        assert len(errors) == 1, (
+            "load-failure ERROR must be rate-limited (1st + every Nth "
+            f"only); got {len(errors)} across 5 calls"
+        )
+        assert vad._model is None, "failure must not cache a model"
+
 
 class TestWaveformVADGate:
     """Test that WaveformBubble.update_level uses the RMS-only path.

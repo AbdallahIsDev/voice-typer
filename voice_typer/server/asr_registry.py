@@ -1,7 +1,7 @@
 """AsrBackendRegistry — thin facade composing the ASR split modules.
 
-The former 1072-line ``asr_registry.py`` is split into three
-focused modules under :mod:`voice_typer.server.asr`:
+The former 1072-line ``asr_registry.py`` is split into three focused
+modules under :mod:`voice_typer.server.asr`:
 
 - :mod:`voice_typer.server.asr.registry` — :class:`RegistryCore` (the
   base class) with backend CRUD + load/fallback orchestration +
@@ -11,31 +11,14 @@ focused modules under :mod:`voice_typer.server.asr`:
 - :mod:`voice_typer.server.asr.busy_flag` — :class:`BusyFlag` with the
   per-backend busy flag.
 
-This module defines :class:`AsrBackendRegistry`, the public facade that
-subclasses :class:`RegistryCore` and adds:
-
-- Backward-compat wrapper methods (``_record_success``, ``_record_failure``,
-  ``_is_disabled``, ``is_busy``, ``set_busy``, ``clear_busy``,
-  ``busy_context`` etc.) that delegate to the composed breaker/busy
-  helpers. Defining them on the facade (rather than on
-  :class:`RegistryCore`) means ``patch.object(registry, "_record_success")``
-  patches the instance attribute so the inherited ``load_active`` /
-  ``load_with_fallback`` call sites honour the patch.
-- State-exposing properties (``_disabled_backends``,
-  ``_failure_counts``, ``_last_resort_notified``,
-  ``_on_backend_disabled_subscribers``, ``_on_last_resort_subscribers``,
-  ``_busy_backends``) that delegate to the breaker/busy helpers so
-  existing tests that directly read or mutate
-  ``registry._disabled_backends.add(name)`` continue to work.
-- Subscriber setters (``on_backend_disabled``, ``on_last_resort``,
-  ``add_backend_disabled_subscriber``, etc.).
-- Backend construction (``create`` + ``_BACKEND_SPECS``) and
-  ``unload`` / ``unregister`` — the remaining CRUD not assigned to
-  :class:`RegistryCore` by the split.
-
-All public API names + signatures are preserved, so every existing
-``from voice_typer.server.asr_registry import AsrBackendRegistry``
-import continues to work unchanged.
+This module defines the public facade that subclasses
+:class:`RegistryCore` and adds backward-compat wrapper methods
+(``_record_success`` etc.), state-exposing properties, subscriber
+setters, and backend-construction CRUD. Defining the wrappers on the
+facade means ``patch.object(registry, "_record_success")`` patches the
+instance attribute so inherited call sites honour the patch. All
+public API names + signatures are preserved, so existing imports
+continue to work unchanged.
 """
 
 from __future__ import annotations
@@ -44,7 +27,9 @@ import logging
 
 from voice_typer.server.asr.circuit_breaker import (
     BackendDisabledCallback,
+    BackendDisabledEventGate,
     LastResortCallback,
+    LastResortEventGate,
 )
 from voice_typer.server.asr.registry import (
     AsrBackend,
@@ -375,6 +360,18 @@ class AsrBackendRegistry(RegistryCore):
     def remove_last_resort_subscriber(self, fn: LastResortCallback) -> None:
         """Unregister a last-resort subscriber (no-op if absent)."""
         self._breaker.remove_last_resort_subscriber(fn)
+
+    def set_last_resort_event_gate(self, gate: LastResortEventGate | None) -> None:
+        """Install/clear the last-resort suppression gate (delegates to
+        the breaker) — True skips the fan-out (subscribers + the
+        ``asr_last_resort_unloaded`` publish)."""
+        self._breaker.set_last_resort_event_gate(gate)
+
+    def set_backend_disabled_event_gate(self, gate: BackendDisabledEventGate | None) -> None:
+        """Install/clear the backend-disabled suppression gate (delegates
+        to the breaker) — True skips the trip fan-out (subscribers + the
+        ``asr_backend_disabled`` event_bus publish)."""
+        self._breaker.set_backend_disabled_event_gate(gate)
 
 
 # Re-export the typed contracts at module scope so existing imports

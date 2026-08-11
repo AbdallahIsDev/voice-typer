@@ -12,6 +12,7 @@ import.
 
 from __future__ import annotations
 
+import ipaddress
 import math
 from collections.abc import Callable
 from typing import TypeGuard
@@ -375,15 +376,50 @@ def _validate_trusted_extra_hosts(value: object) -> str | None:
     for entry in value:
         if not isinstance(entry, str):
             return "trusted_extra_hosts entries must be strings"
-        host = entry.split(":")[0].strip().lower()
-        if not host:
-            return f"trusted_extra_hosts entry {entry!r} is empty after normalization"
-        if "://" in host or "/" in host or " " in host:
+        # Reject scheme/path/whitespace on the RAW value first
+        # (``https://my-vllm.lan`` must be rejected before port-splitting
+        # reduces it to a bare ``https``).
+        if not entry.strip() or "://" in entry or "/" in entry or " " in entry:
             return (
                 f"trusted_extra_hosts entry {entry!r} must be a bare hostname "
                 f"(no scheme, path, or spaces) — e.g. 'my-vllm.lan'"
             )
-        if not all(c.isalnum() or c in "-._" for c in host):
+        raw = entry.strip()
+        # Colon-bearing entries MUST be genuine IPv6 literals — a bare
+        # hostname containing ``:`` is invalid (IPv6 is the only legal
+        # colon-bearing host form). Accept bracketed ``[fc00::1]:8080``
+        # and bare ``fc00::1``.
+        if ":" in raw:
+            # Bracketed IPv6 (with optional ``:port``): ``[fc00::1]`` or
+            # ``[fc00::1]:8080`` → inner must be a valid IPv6 literal.
+            if raw.startswith("["):
+                closing = raw.find("]")
+                if closing <= 0:
+                    return f"trusted_extra_hosts entry {entry!r} is not a valid IPv6 literal"
+                inner = raw[1:closing]
+                try:
+                    ipaddress.ip_address(inner)
+                except ValueError:
+                    return f"trusted_extra_hosts entry {entry!r} is not a valid IPv6 literal"
+                host = inner
+            elif raw.count(":") > 1:
+                # Bare IPv6 literal: ``fc00::1``.
+                try:
+                    ipaddress.ip_address(raw)
+                except ValueError:
+                    return f"trusted_extra_hosts entry {entry!r} is not a valid IPv6 literal"
+                host = raw
+            else:
+                # Single-colon, not bracketed, not valid IPv6 — a
+                # hostname with a stray colon is invalid.
+                return f"trusted_extra_hosts entry {entry!r} contains invalid characters"
+        else:
+            # Generic hostname / IPv4: strip the ``:port`` (none present).
+            host = raw
+        host = host.strip().lower()
+        if not host:
+            return f"trusted_extra_hosts entry {entry!r} is empty after normalization"
+        if not all(c.isalnum() or c in "-._" or c == ":" for c in host):
             return f"trusted_extra_hosts entry {entry!r} contains invalid characters"
         if host in seen:
             return f"trusted_extra_hosts contains duplicate entry {entry!r}"

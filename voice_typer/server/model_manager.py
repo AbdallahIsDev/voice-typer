@@ -71,11 +71,85 @@ class ModelManager:
     # PERF-015: maximum number of concurrently loaded models
     _MAX_LOADED_MODELS = 2
 
+    # Cooldown between last-resort tray notifications for the SAME
+    # backend. The registry's one-shot latch normally limits the
+    # ``get_active`` last-resort notification to once per last-resort
+    # transition, but the 15s ``get_status`` probe (or a failed
+    # ``load_with_fallback`` retry) can RESET the latch, so without an
+    # additional ModelManager-side rate limit a permanently-unloaded
+    # backend would re-notify every 15s (spamming the tray while the
+    # backend stays broken). 15 minutes is the balance: the user is
+    # told promptly, and a broken backend re-notifies at most ~4x/hour.
+    _LAST_RESORT_NOTIFY_COOLDOWN_SECS: float = 900.0
+
     def __init__(self, app: Any) -> None:
         self._app = app
         # Registry initialized eagerly (was lazy in app.py).
         # Callers can rely on it existing from the start.
         self._registry: AsrBackendRegistry = AsrBackendRegistry(app.config)
+
+        # Track backends that were deliberately unloaded by the app
+        # (idle-unload, force-unload, LRU eviction, model-change unload).
+        # These are NOT "missing download" situations — the model is on
+        # disk, the app just released it (VRAM / switch). The last-resort
+        # tray notification ("open the Models page and download") must be
+        # SUPPRESSED for these so the user isn't told to download a model
+        # that is already installed.
+        self._deliberately_unloaded: set[str] = set()
+        # Per-backend monotonic timestamps of the last last-resort tray
+        # notification (rate limiter — see
+        # ``_LAST_RESORT_NOTIFY_COOLDOWN_SECS``). Guarded by the same
+        # GIL-atomicity reasoning as ``_pending_model_change`` — the
+        # IPC worker thread and the subscriber path never mutate the
+        # same key concurrently.
+        self._last_resort_notified_at: dict[str, float] = {}
+        # Set while a SYNCHRONOUS model load is running on the calling
+        # thread (``ensure_active_engine_loaded``'s reload-after-
+        # idle-unload / retry branch). Unlike ``_model_load_thread``
+        # (background load) / ``_model_change_thread`` /
+        # ``_backend_change_thread`` (background changes), a synchronous
+        # load has NO tracked thread — the last-resort subscriber would
+        # otherwise fire during the load window and tell the user to
+        # download a model that is literally loading.
+        self._sync_load_in_progress: bool = False
+
+        # Wire the production last-resort subscriber: when
+        # ``registry.get_active()`` falls through to an unloaded backend
+        # (transcription would silently return empty), show a tray
+        # notification pointing the user at the Models page. Pre-fix the
+        # ``on_last_resort`` subscriber set existed but NO production
+        # subscriber was ever wired — the documented tray notification
+        # was dead code and the user got zero feedback.
+        self._registry.add_last_resort_subscriber(self._on_last_resort_unloaded)
+
+        # Gate the event_bus publish (the renderer-toast surface) with
+        # the SAME suppressions the tray notification applies inside
+        # ``_on_last_resort_unloaded``. The renderer toast consumes the
+        # ``asr_last_resort_unloaded`` event and cannot see the
+        # ModelManager-side checks, so without this gate it would tell
+        # the user to download a model that was deliberately unloaded
+        # (idle-unload / force-unload / LRU eviction / model change) or
+        # is literally loading. The gate is checked by the breaker
+        # BEFORE the subscribers fire, so a suppressed window skips the
+        # tray path too (which would self-suppress anyway — no behavior
+        # change there).
+        self._registry.set_last_resort_event_gate(
+            self._should_suppress_last_resort_notification
+        )
+
+        # Gate the ``asr_backend_disabled`` event_bus publish the SAME
+        # way: during deliberate-unload windows (idle-unload /
+        # force-unload / LRU eviction / model change, or a load in
+        # progress) the breaker can trip on a transient failure and
+        # publish a spurious "backend disabled" event — the renderer
+        # would tell the user the backend is permanently broken when
+        # the app is just switching away / loading. The gate shares the
+        # window checks with the last-resort gate but NOT the cooldown
+        # (the disabled event fires at most once per trip — the breaker
+        # skips already-disabled backends — so no rate limit is needed).
+        self._registry.set_backend_disabled_event_gate(
+            self._should_suppress_backend_disabled_notification
+        )
 
         # The three legacy engine attributes (``transcriber`` /
         # ``_qwen_engine`` / ``_parakeet_engine``) are now ``@property``
@@ -411,6 +485,260 @@ class ModelManager:
             )
         return reason
 
+    def _mark_deliberately_unloaded(self, backend_name: str | None) -> None:
+        """Record a deliberate unload (idle-unload / force-unload /
+        LRU eviction / model change) for ``backend_name``.
+
+        Lazily creates ``_deliberately_unloaded`` so ``__new__``-
+        constructed test fixtures (which bypass ``__init__``) that call
+        ``_evict_lru_model`` / ``_do_idle_unload`` etc. don't raise
+        ``AttributeError`` — mirrors the defensive ``getattr`` pattern
+        in ``cancel_idle_unload_timer``.
+        """
+        if not backend_name:
+            return
+        s = getattr(self, "_deliberately_unloaded", None)
+        if s is None:
+            s = self._deliberately_unloaded = set()
+        s.add(backend_name)
+
+    def _clear_deliberately_unloaded(self, backend_name: str | None) -> None:
+        """Clear the deliberate-unload flag after a successful load."""
+        s = getattr(self, "_deliberately_unloaded", None)
+        if s is not None and backend_name:
+            s.discard(backend_name)
+
+    def _was_deliberately_unloaded(self, backend_name: str) -> bool:
+        """Return True if ``backend_name`` was deliberately unloaded
+        this session (idle-unload / force-unload / LRU eviction /
+        model change)."""
+        s = getattr(self, "_deliberately_unloaded", None)
+        return bool(s) and backend_name in s
+
+    def _model_load_in_progress(self) -> bool:
+        """Return True while a background load / model-change /
+        backend-change thread is alive.
+
+        During these windows the backend is REGISTERED but not yet
+        loaded (``is_loaded=False``), so a ``get_active`` last-resort
+        fall-through is a false positive — the model is about to be
+        ready, not broken. The last-resort tray notification must be
+        suppressed until the load settles.
+        """
+        for thread in (
+            self._model_load_thread,
+            self._model_change_thread,
+            self._backend_change_thread,
+        ):
+            if thread is not None and thread.is_alive():
+                return True
+        return bool(self._sync_load_in_progress)
+
+    def _in_deliberate_unload_window(self, backend_name: str) -> bool:
+        """Return True while the app is in a deliberate-unload window for
+        ``backend_name``: the app is shutting down, a load / model-change /
+        backend-change thread is alive (or a synchronous load is
+        running), or the backend was deliberately unloaded this session.
+
+        Shared by ``_should_suppress_last_resort_notification`` and
+        ``_should_suppress_backend_disabled_notification`` so BOTH
+        event surfaces (the ``asr_last_resort_unloaded`` tray/toast and
+        the ``asr_backend_disabled`` event) suppress during the same
+        windows — a backend that is mid-switch or deliberately released
+        is not "broken", so neither surface should alert.
+        """
+        if getattr(self._app, "_shutting_down", False):
+            return True
+        if self._model_load_in_progress():
+            return True
+        return self._was_deliberately_unloaded(backend_name)
+
+    def _should_suppress_backend_disabled_notification(self, backend_name: str) -> bool:
+        """Return True when the ``asr_backend_disabled`` alert must be
+        suppressed for ``backend_name``.
+
+        Wired as the breaker's backend-disabled event gate in
+        ``__init__`` so the ``asr_backend_disabled`` event_bus publish
+        (consumed by the renderer) matches the last-resort suppression
+        windows — during a deliberate unload (idle-unload / force-unload /
+        LRU eviction / model change) or while a load is in progress, a
+        transient load failure can trip the breaker and would otherwise
+        publish a spurious "backend disabled" event telling the user the
+        backend is permanently broken when the app is merely switching.
+
+        Unlike ``_should_suppress_last_resort_notification`` this has NO
+        cooldown rate limit: the disabled event fires at most once per
+        breaker trip (``_record_failure`` skips already-disabled
+        backends), so there is nothing to spam. The state mutation
+        (disabling the backend in the breaker) is intentionally NOT
+        gated — only the notification surface.
+        """
+        if self._in_deliberate_unload_window(backend_name):
+            log.debug(
+                "[MODEL] backend-disabled %s suppressed (deliberate-unload window)",
+                backend_name,
+            )
+            return True
+        return False
+
+    def _should_suppress_last_resort_notification(self, backend_name: str) -> bool:
+        """Return True when the last-resort alert must be suppressed for
+        ``backend_name``.
+
+        Shared by the tray notification path
+        (``_on_last_resort_unloaded``) and the event_bus suppression
+        gate (wired in ``__init__``) so the renderer toast that consumes
+        the ``asr_last_resort_unloaded`` event matches the tray
+        notification's suppressions exactly — the toast cannot see these
+        ModelManager-side checks otherwise.
+
+        Suppressed when:
+        * the app is shutting down (tray may be torn down);
+        * a load / model-change / backend-change thread is alive (or a
+          synchronous load is running) — the backend is registered but
+          about to load, not actually broken;
+        * the backend was deliberately unloaded this session
+          (idle-unload / force-unload / LRU eviction / model change) —
+          the model IS on disk, a download nudge would be wrong;
+        * the same backend was notified within
+          ``_LAST_RESORT_NOTIFY_COOLDOWN_SECS`` (the registry latch
+          can be reset by the 15s get_status probe, so this rate
+          limit stops both surfaces from being spammed).
+
+        The first three checks are delegated to
+        :meth:`_in_deliberate_unload_window` (shared with the
+        backend-disabled gate so both surfaces suppress during the same
+        windows); the cooldown is last-resort-only.
+
+        NOTE: the cooldown read here is read-only — the timestamp is
+        recorded by the tray subscriber after a non-suppressed
+        transition (``_on_last_resort_unloaded``), so the two callers
+        can't double-record.
+        """
+        if self._in_deliberate_unload_window(backend_name):
+            if self._was_deliberately_unloaded(backend_name):
+                log.debug(
+                    "[MODEL] last-resort unloaded %s suppressed (deliberate unload — model on disk)",
+                    backend_name,
+                )
+            return True
+        import time
+
+        now = time.monotonic()
+        # ``None`` sentinel (not ``0.0``): monotonic() on Windows is
+        # seconds since boot, so ``now - 0.0`` could already exceed the
+        # cooldown and let a REPEAT through (or, on a fresh boot,
+        # suppress the FIRST notification). Only a real timestamp
+        # (i.e. "this backend was notified before") engages the limit.
+        # Defensive ``getattr`` (mirrors ``_mark_deliberately_unloaded``)
+        # so a ``__new__``-constructed fixture (which bypasses
+        # ``__init__``) that somehow reaches this helper doesn't raise
+        # AttributeError inside the subscriber/gate path.
+        last = getattr(self, "_last_resort_notified_at", {}).get(backend_name)
+        return (
+            last is not None
+            and now - last < self._LAST_RESORT_NOTIFY_COOLDOWN_SECS
+        )
+
+    def _on_last_resort_unloaded(self, backend_name: str) -> None:
+        """Show a tray notification when ``get_active()`` falls through
+        to an unloaded last-resort backend.
+
+        Wired as the production ``on_last_resort`` subscriber in
+        ``__init__`` (the subscriber set existed but was never wired —
+        the documented tray notification was dead code). Without this,
+        an unloaded backend (e.g. the model failed to load / is not
+        downloaded) silently returns empty transcriptions with no
+        visible feedback — exactly the ``transcription may return empty
+        silently`` WARN the user sees every 15s.
+
+        Always points the user at the Models page with the download
+        instruction (the app never auto-downloads models). When a host
+        (Electron/Tauri) is connected, the notification is published as a
+        ``notification`` event carrying ``click_path: "/models"`` so the
+        host renders a CLICKABLE native toast that opens the Models page
+        on click (pystray Win32 balloons cannot carry click handlers);
+        without a live transport the pystray balloon fallback is used.
+
+        Suppression is delegated to
+        :meth:`_should_suppress_last_resort_notification` (shared with
+        the event_bus gate so the renderer toast matches the tray).
+        """
+        if self._should_suppress_last_resort_notification(backend_name):
+            return
+        import time
+
+        # Record the cooldown timestamp here (the alert is about to be
+        # shown); the shared helper's cooldown read stays read-only so
+        # the two callers can't double-record.
+        self._last_resort_notified_at[backend_name] = time.monotonic()
+        # Respect the user's notifications toggle (mirrors
+        # ``tray_notifications.notify`` — the event-bus path below must
+        # not bypass it).
+        if not getattr(self._app.tray, "_notifications_enabled", True):
+            return
+        message = i18n.t(
+            "notify.model_manager.last_resort_unloaded",
+            backend=backend_name,
+        )
+        # Prefer a CLICKABLE host notification: when an Electron (or
+        # Tauri) host is connected, publish a ``notification`` event with
+        # a ``click_path`` so the host renders a native toast whose click
+        # opens the Models page directly (the Electron main-process
+        # ``notification`` push handler wires ``Notification.on("click")``
+        # → show window + broadcast ``navigate /models``). pystray Win32
+        # balloons (the ``tray.notify`` fallback) cannot carry a click
+        # handler, so when no live transport exists (standalone backend)
+        # fall back to the pystray balloon.
+        from voice_typer.server import event_bus
+
+        live = False
+        try:
+            live = event_bus.has_live_transport()
+        except Exception:
+            live = False
+        if live:
+            try:
+                # NOTE: ``event_bus.publish`` returning True only means an
+                # in-process subscriber accepted the event — it does NOT
+                # prove the host received it (the TCP transport buffers
+                # to ``_pending_tcp`` and marks the client dead on write
+                # failure instead of raising). If the host dies between
+                # the ``has_live_transport`` probe and the publish, the
+                # toast is silently dropped with no balloon fallback.
+                # Acceptable (single-host window is microseconds wide);
+                # the debug log below keeps the drop diagnosable.
+                ok = event_bus.publish(
+                    {
+                        "type": "notification",
+                        "data": {
+                            "title": APP_NAME,
+                            "message": message,
+                            "duration_ms": 0,
+                            "critical": False,
+                            "click_path": "/models",
+                        },
+                    }
+                )
+                if not ok:
+                    log.debug(
+                        "[MODEL] last-resort notification event publish returned False (no subscriber accepted)",
+                    )
+                return
+            except Exception:
+                log.debug(
+                    "[MODEL] last-resort notification event publish failed — falling back to tray balloon",
+                    exc_info=True,
+                )
+        try:
+            self._app.tray.notify(APP_NAME, message)
+        except Exception:
+            # A tray failure must never break the last-resort path.
+            log.debug(
+                "[MODEL] last-resort tray notification failed (non-fatal)",
+                exc_info=True,
+            )
+
     def load_background(self) -> None:
         """Background worker: create + load the transcription engine.
 
@@ -463,6 +791,10 @@ class ModelManager:
                         "[PERF] LRU tracking failed (non-fatal)",
                         exc_info=True,
                     )
+                # Successful load → the backend is healthy again; clear
+                # any deliberate-unload flag so a FUTURE genuine failure
+                # re-notifies the user.
+                self._clear_deliberately_unloaded(self._registry.active_name)
                 active = self._registry.get_active()
                 name = self._registry.active_name
                 if name == "whisper" and active is not None:
@@ -672,6 +1004,10 @@ class ModelManager:
                     "[PERF] LRU tracking failed (non-fatal)",
                     exc_info=True,
                 )
+            # Successful load → backend healthy again; clear any
+            # deliberate-unload flag so a future genuine failure
+            # re-notifies.
+            self._clear_deliberately_unloaded(self._registry.active_name)
             active = self._registry.get_active()
             self._app.tray.set_state(
                 AppState.IDLE,
@@ -808,6 +1144,10 @@ class ModelManager:
                         "[PERF] LRU tracking failed (non-fatal)",
                         exc_info=True,
                     )
+                # Successful load → backend healthy again; clear any
+                # deliberate-unload flag so a future genuine failure
+                # re-notifies.
+                self._deliberately_unloaded.discard(self._registry.active_name)
                 active = self._registry.get_active()
                 info = getattr(active, "device_info", "unknown") if active else "unknown"
                 self._app.tray.set_state(AppState.IDLE, f"Ready -- {info}")
@@ -1059,6 +1399,10 @@ class ModelManager:
         ``model_size`` kwarg. Skipping the unload (the
         optimization) broke ``test_model_change_uses_config_device``.
         """
+        # Deliberate unload — the old backend is being swapped out for a
+        # new one; the last-resort tray notification must NOT tell the
+        # user to download a backend they explicitly switched away from.
+        self._mark_deliberately_unloaded(old_backend)
         # Unload old backend via registry
         self._registry.unload(old_backend)
         # #2 UNREGISTER the old backend so _ensure_engine
@@ -1125,6 +1469,9 @@ class ModelManager:
                         new_backend,
                         exc_info=True,
                     )
+                # Successful load → backend healthy; clear any
+                # deliberate-unload flag for it.
+                self._clear_deliberately_unloaded(new_backend)
                 active = self._registry.get_active()
                 if new_backend == "whisper" and active is not None:
                     self._app.tray.set_state(AppState.IDLE, f"Ready -- {active.device_info}")
@@ -1430,6 +1777,9 @@ class ModelManager:
                             "[PERF] LRU tracking failed (non-fatal)",
                             exc_info=True,
                         )
+                    # Successful load → backend healthy; clear any
+                    # deliberate-unload flag for it.
+                    self._clear_deliberately_unloaded(backend)
                     active = self._registry.get_active()
                     name = self._registry.active_name
                     if name == "whisper" and active is not None:
@@ -1759,13 +2109,24 @@ class ModelManager:
                 def on_progress(msg: str) -> None:
                     self._app.tray.set_state(AppState.LOADING, msg)
 
+                # Set the synchronous-load flag so the last-resort
+                # subscriber (fired by a concurrent 15s get_status probe)
+                # does NOT tell the user to download a model that is
+                # literally loading on this thread.
+                self._sync_load_in_progress = True
                 try:
                     self._registry.load_active(progress_callback=on_progress)
+                    # Successful reload → backend healthy; clear any
+                    # deliberate-unload flag (set by _do_idle_unload) so
+                    # a FUTURE genuine failure re-notifies.
+                    self._clear_deliberately_unloaded(backend)
                 except Exception:
                     log.warning(
                         "[MODEL] reload after idle-unload failed (non-fatal)",
                         exc_info=True,
                     )
+                finally:
+                    self._sync_load_in_progress = False
                 # Re-arm the idle-unload timer for the next idle period
                 # (touch_model only arms when backend == active_name).
                 try:
@@ -1848,6 +2209,12 @@ class ModelManager:
                     exc,
                     exc_info=True,
                 )
+            # Deliberate unload — the evicted model was loaded and is
+            # on disk; the last-resort tray notification must NOT tell
+            # the user to download it. Marked AFTER the busy-check so a
+            # skipped eviction (busy backend) does not leave a stale
+            # flag for a backend that was never actually unloaded.
+            self._mark_deliberately_unloaded(oldest_backend)
             # Unregister the backend so a subsequent ``_ensure_engine``
             # actually constructs a fresh one. Previously this path
             # called ``engine.unload()`` directly and left the backend
@@ -2094,6 +2461,11 @@ class ModelManager:
             "[MODEL] idle-unload: unloading active backend '%s' after idle period",
             active_name,
         )
+        # Deliberate unload — the model IS on disk, so the last-resort
+        # tray notification ("open the Models page and download") must
+        # NOT fire for it. Record BEFORE the unload so a get_active
+        # last-resort fall-through during the unload is also suppressed.
+        self._mark_deliberately_unloaded(active_name)
         # Unload via the registry (which calls engine.unload() on the
         # registered backend).
         try:
@@ -2216,6 +2588,10 @@ class ModelManager:
             "(watchdog escalation after stuck transcription)",
             active_name,
         )
+        # Deliberate unload — the model IS on disk (it was loaded and
+        # got stuck); the last-resort tray notification must NOT tell
+        # the user to download it.
+        self._mark_deliberately_unloaded(active_name)
         # Layer 1: registry.unload (clears _backends[name] slot).
         try:
             self._registry.unload(active_name)

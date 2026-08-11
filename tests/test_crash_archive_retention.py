@@ -31,6 +31,7 @@ tests use a real ``tmp_path`` directory.
 
 from __future__ import annotations
 
+import logging
 import os
 import time
 from unittest.mock import MagicMock
@@ -474,3 +475,71 @@ class TestAp40CreateAlwaysConstant:
             "AP-40: OPEN_ALWAYS must remain re-exported on the crash_handler facade for backward compatibility"
         )
         assert crash_handler.OPEN_ALWAYS == OPEN_ALWAYS == 4
+
+
+# ─── HU-9: secure (symlink-refusing) crash-file read ─────────────────────
+
+
+class TestHu9SecureCrashFileRead:
+    """HU-9: crash-diagnostics / python_crash files are read through
+    ``_secure_read_text`` (POSIX ``O_NOFOLLOW``, Windows reparse-point
+    check) — the same helper the recovery-file load path uses. A symlink
+    planted at a crash-file path is REFUSED and the file is treated as
+    empty (fail-closed): its content can never reach the log, the user
+    summary, or the archive.
+    """
+
+    def test_crash_diagnostics_read_refusal_fails_closed(self, tmp_path, caplog, monkeypatch):
+        crash_file = tmp_path / "crash_diagnostics.7000.txt"
+        crash_file.write_text("STATUS_ACCESS_VIOLATION: fake crash payload\r\n", encoding="utf-8")
+
+        def _refuse(_path, *args, **kwargs):
+            raise OSError("SEC-002: refusing to follow symlink")
+
+        monkeypatch.setattr("voice_typer.server.config._secure_read_text", _refuse)
+
+        with caplog.at_level(logging.DEBUG):
+            result = crash_handler.report_pending_crash(tmp_path)
+
+        # Fail-closed: nothing surfaced, nothing logged.
+        assert result is None, "HU-9: refused read must not surface a summary"
+        assert not any("fake crash payload" in r.getMessage() for r in caplog.records)
+        # The refusal is a WARNING so operators see the attack attempt.
+        assert any("Refusing to read diagnostics file" in r.getMessage() for r in caplog.records)
+        # The file is still archived + marked reported (finally block),
+        # and the next scan does not re-surface it.
+        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_ARCHIVE
+        archived = list(archive_dir.glob("crash_diagnostics.*.txt"))
+        assert len(archived) == 1, "HU-9: refused file must still be archived (finally block)"
+        assert crash_handler.report_pending_crash(tmp_path) is None
+
+    def test_python_crash_read_refusal_fails_closed(self, tmp_path, caplog, monkeypatch):
+        py_crash = tmp_path / "python_crash.7001.txt"
+        py_crash.write_text("exc_type=ValueError\r\nexc_value=TOP-SECRET-EXC\r\n", encoding="utf-8")
+
+        def _refuse(_path, *args, **kwargs):
+            raise OSError("SEC-002: refusing to follow symlink")
+
+        monkeypatch.setattr("voice_typer.server.config._secure_read_text", _refuse)
+
+        with caplog.at_level(logging.DEBUG):
+            result = crash_handler.report_pending_crash(tmp_path)
+
+        assert result is None
+        assert not any("TOP-SECRET-EXC" in r.getMessage() for r in caplog.records)
+        assert any("Refusing to read python_crash file" in r.getMessage() for r in caplog.records)
+        archive_dir = tmp_path / _CRASH_DIAGNOSTICS_ARCHIVE
+        assert len(list(archive_dir.glob("python_crash.*.txt"))) == 1
+
+    @pytest.mark.skipif(os.name != "posix", reason="requires POSIX symlink semantics")
+    def test_real_symlink_crash_file_never_logged(self, tmp_path, caplog):
+        secret = tmp_path / "secret.txt"
+        secret.write_text("TOP-SECRET-REAL-SYMLINK-CONTENT", encoding="utf-8")
+        os.symlink(secret, tmp_path / "crash_diagnostics.7002.txt")
+
+        with caplog.at_level(logging.DEBUG):
+            result = crash_handler.report_pending_crash(tmp_path)
+
+        assert result is None
+        assert not any("TOP-SECRET-REAL-SYMLINK-CONTENT" in r.getMessage() for r in caplog.records)
+        assert any("Refusing to read diagnostics file" in r.getMessage() for r in caplog.records)

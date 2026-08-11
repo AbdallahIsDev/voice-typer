@@ -929,6 +929,18 @@ class CloudEngine:
         empty).  We never send the API key to a URL the user didn't
         configure.
         """
+        # HU-16 / ADR-0016 Design Rule 1: no cloud interaction without
+        # consent. ``test_connection`` sends the API key to the provider,
+        # so it is gated exactly like ``transcribe`` (which refuses with
+        # ``CloudConsentRequiredError``) — an engine whose per-provider
+        # consent flag is False must refuse BEFORE any URL-allowlist
+        # check or network I/O. Returning ``(False, msg)`` (rather than
+        # raising) lets the UI surface the consent requirement directly
+        # in the test-connection result area instead of an opaque
+        # failure.
+        if not self.consent_given:
+            return False, "Cloud consent not given — refusing to test connection"
+
         if not self.api_key:
             return False, "API key not configured"
 

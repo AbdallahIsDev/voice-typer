@@ -246,6 +246,15 @@ _INITIAL_LABELS: dict[str, str] = {
     "notify.model_manager.model_not_downloaded": (
         "The {backend} model is not downloaded yet.\nOpen the Models page and click Download before using it."
     ),
+    # last_resort_unloaded: fired by get_active()'s last-resort branch
+    # when NO ready backend exists and the configured backend is returned
+    # unloaded (transcription would silently return empty). Always points
+    # the user at the Models page with the download instruction — the app
+    # never auto-downloads models, so the user must go there to install /
+    # repair the model.
+    "notify.model_manager.last_resort_unloaded": (
+        "The {backend} model is not loaded.\nOpen the Models page and click Download before using it."
+    ),
     # tray.py update-check notification () ─────────────────────
     "notify.update_available_body": "{app} {version} is available (you have {current})",
 }
@@ -255,6 +264,23 @@ def register_locale(locale: str, labels: dict[str, str]) -> None:
     """Replace the registry for a locale (called by set_tray_locale IPC)."""
     with _LOCK:
         _REGISTRY[locale] = dict(labels)
+
+
+def merge_labels(locale: str, labels: dict[str, str]) -> None:
+    """Merge labels INTO an existing registry entry without wiping it.
+
+    Unlike :func:`register_locale` (which REPLACES the entry and would
+    drop the English fallbacks registered at import time / by app.py),
+    this extends a locale's label dict per-key (existing keys win). Used
+    by the ``set_tray_locale`` IPC (HU-17) to push the renderer-side
+    translations for the server-notification keys
+    (``error.config_load_failed.*`` / ``state.app.starting``) into the
+    global registry so ``i18n.t`` resolves them for non-English locales.
+    """
+    with _LOCK:
+        merged = _REGISTRY.setdefault(locale, {})
+        for key, value in labels.items():
+            merged.setdefault(key, value)
 
 
 def set_locale(locale: str) -> None:

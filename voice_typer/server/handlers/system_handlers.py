@@ -709,6 +709,28 @@ class SystemHandlersMixin(HandlerBase):
                         return resp
                 register_tray_labels(locale, labels)
             set_tray_locale(locale)
+            # HU-17: switch the server-GLOBAL notification locale too.
+            # ``set_tray_locale`` above only updates the tray-MENU label
+            # registry (``tray_i18n``); the server's ``i18n`` module
+            # (which backs ``i18n.t`` for tray notifications like
+            # ``error.config_load_failed.*`` / ``state.app.starting``)
+            # stayed pinned to English because ``i18n.set_locale`` was
+            # never called. Bridge it here: merge the pushed labels into
+            # the global registry (setdefault — never wipes the English
+            # fallbacks) and switch the active locale so notifications
+            # follow the renderer's language.
+            #
+            # Best-effort: the tray-MENU locale switch above is the
+            # primary contract; a failure in this non-critical bridge
+            # (e.g. an import hiccup) must not turn the whole ack into
+            # an error envelope AFTER the tray labels were already
+            # applied (half-applied state).
+            with contextlib.suppress(Exception):
+                from voice_typer.server import i18n as _server_i18n
+
+                if labels:
+                    _server_i18n.merge_labels(locale, labels)
+                _server_i18n.set_locale(locale)
             # Force a tray menu rebuild so the new labels show immediately.
             with contextlib.suppress(Exception):
                 self.app.tray.invalidate_menu_cache()

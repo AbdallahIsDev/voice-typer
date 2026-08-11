@@ -309,7 +309,7 @@ class TestOnboardingFailCountAtomicWrite:
         import json
 
         payload = json.loads(called_content)
-        assert payload["count"] == 3
+        assert payload["fail_count"] == 3
         assert payload["last_fail_ts"] == 1700000000.0
         for c in spy_write_text.call_args_list:
             self_arg = c.args[0] if c.args else c.kwargs.get("self")

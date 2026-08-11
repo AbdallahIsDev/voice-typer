@@ -28,7 +28,11 @@ import re
 from pathlib import Path
 
 _SRC_TAURI = Path(__file__).resolve().parents[2] / "src-tauri"
-_PROCESS_RS = _SRC_TAURI / "src" / "platform" / "process.rs"
+# VP-1: platform/process was split into a directory — the facade
+# (kill_process_tree) lives in mod.rs, the Unix helpers (signal_pid,
+# enumerate_children_pgrep, kill_process_group_if_safe) in posix.rs.
+_PROCESS_RS = _SRC_TAURI / "src" / "platform" / "process" / "mod.rs"
+_POSIX_RS = _SRC_TAURI / "src" / "platform" / "process" / "posix.rs"
 
 
 def _read(path: Path) -> str:
@@ -67,7 +71,7 @@ def test_kill_process_tree_has_pid_zero_guard_before_platform_branches() -> None
 
 def test_signal_pid_guards_pid_zero() -> None:
     """``signal_pid(0, sig)`` must not call ``libc::kill`` (self-group kill)."""
-    src = _read(_PROCESS_RS)
+    src = _read(_POSIX_RS)
     m = re.search(r"fn signal_pid\(pid: u32, sig: libc::c_int\) -> bool \{(.*?)\n\}", src, re.DOTALL)
     assert m, "signal_pid body not found"
     body = m.group(1)
@@ -80,7 +84,7 @@ def test_signal_pid_guards_pid_zero() -> None:
 
 def test_enumerate_children_pgrep_guards_pid_zero() -> None:
     """``enumerate_children_pgrep(0)`` must NOT run ``pgrep -P 0``."""
-    src = _read(_PROCESS_RS)
+    src = _read(_POSIX_RS)
     m = re.search(
         r"fn enumerate_children_pgrep\(pid: u32\) -> Vec<u32> \{(.*?)\n\}", src, re.DOTALL
     )
@@ -95,7 +99,7 @@ def test_enumerate_children_pgrep_guards_pid_zero() -> None:
 
 def test_kill_process_group_if_safe_guards_pid_zero() -> None:
     """``kill_process_group_if_safe(0, sig)`` must not resolve the caller's pgid."""
-    src = _read(_PROCESS_RS)
+    src = _read(_POSIX_RS)
     m = re.search(
         r"fn kill_process_group_if_safe\(pid: u32, sig: libc::c_int\) \{(.*?)\n\}", src, re.DOTALL
     )

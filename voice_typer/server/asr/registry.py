@@ -204,14 +204,23 @@ class RegistryCore:
                 for b in list(self._backends.values()):
                     if b is not None:
                         if not self._is_ready(b):
-                            log.warning(
-                                "[ASR_REGISTRY] returning unloaded backend %s "
-                                "(is_loaded=False) as last-resort active — "
-                                "transcription may return empty silently",
-                                name,
-                            )
-                            if self._breaker.should_notify_last_resort():
+                            # One-shot latch: WARNING once per
+                            # last-resort transition, DEBUG repeats
+                            # (15s get_status probe would flood log).
+                            first = self._breaker.should_notify_last_resort()
+                            if first:
                                 notify_last_resort = True
+                                log.warning(
+                                    "[ASR_REGISTRY] returning unloaded backend %s "
+                                    "(is_loaded=False) as last-resort active — "
+                                    "transcription may return empty silently",
+                                    name,
+                                )
+                            else:
+                                log.debug(
+                                    "[ASR_REGISTRY] unloaded backend %s last-resort (repeat)",
+                                    name,
+                                )
                         return b
             return None
         finally:
@@ -222,14 +231,9 @@ class RegistryCore:
 
     # ── load orchestration ──────────────────────────────────────────
     #
-    # ``load_active`` is intentionally NOT defined here — it lives on the
-    # :class:`voice_typer.server.asr_registry.AsrBackendRegistry` facade
-    # so its log calls use the facade module's ``log`` (which tests patch
-    # via ``patch("voice_typer.server.asr_registry.log")``). The
-    # ``load_with_fallback`` and ``transcribe_with_fallback`` methods
-    # below DO live here — their log calls are not directly patched by
-    # any existing test, and keeping them in the core minimises the
-    # facade's surface area.
+    # ``load_active`` lives on the facade (its log calls are patched by
+    # tests via ``patch("voice_typer.server.asr_registry.log")``); the
+    # fallback methods below stay here.
 
     def load_with_fallback(self, progress_callback: ProgressCallback | None = None) -> AsrBackend | None:
         """Load the configured backend; on failure, fall back to whisper.

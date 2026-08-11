@@ -680,7 +680,7 @@ def redact_for_export(text: str) -> str:
 # the 20+ char alternation uses negative lookbehind/lookahead on
 # path delimiters so filesystem path components are not false-positive
 # redacted (mirrors the fix in _secrets._KEY_PATTERNS[-1]).
-_FAST_TRIGGER = re.compile(r"[@+]|\d{3,}|Bearer|Token|sk-|key=|(?<![/\\])[A-Za-z0-9_\-]{20,}(?![/\\])")
+_FAST_TRIGGER = re.compile(r"[@+]|\d{3,}|Bearer|Token|sk-|key=|(?<![/\\])[A-Za-z0-9_\-]{20,}(?![/\\])|[\x00-\x1f\x7f]")
 
 
 # Cache for the home-path-substring regex, keyed by the resolved home
@@ -739,8 +739,51 @@ def _redact_home_path_in_text(text: str) -> str:
     return text
 
 
-def _redact_text(text: str) -> str:
+# HU-15: C0 control characters (plus DEL) that must be escaped before
+# a log message is emitted. A raw ``\n`` / ``\r`` in dictated text (or
+# any user-influenced log payload) lets an attacker forge a second log
+# line that visually appears as a legitimate ERROR/CRITICAL record;
+# raw ANSI escapes (``\x1b``) let them paint arbitrary terminal
+# colours. ``\t`` is included so column alignment can't be disturbed by
+# a hostile payload. The escape lives in ``_redact_text`` so EVERY log
+# record passing through ``PIIRedactionFilter`` gets the scrub — not
+# just the transcription-text call sites (which are gated by the
+# ``config.log_transcriptions`` opt-in).
+_CONTROL_CHAR_RE = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _escape_control_chars(text: str) -> str:
+    """Replace C0 control characters with visible escapes (HU-15).
+
+    ``\n`` → the literal two-char sequence ``\\n``, ``\r`` → ``\\r``,
+    ``\t`` → ``\\t``, and any other C0 control char / DEL → a
+    ``\\xNN`` escape. The JSON formatter is unaffected (``json.dumps``
+    escapes newlines anyway); the text formatters now emit the escaped
+    form so a dictated ``"Hello\n[CRITICAL] fake"`` cannot forge a
+    second disk line.
+    """
+
+    def _esc(m: re.Match[str]) -> str:
+        ch = m.group(0)
+        if ch == "\n":
+            return "\\n"
+        if ch == "\r":
+            return "\\r"
+        if ch == "\t":
+            return "\\t"
+        return f"\\x{ord(ch):02x}"
+
+    return _CONTROL_CHAR_RE.sub(_esc, text)
+
+
+def _redact_text(text: str, *, escape_control_chars: bool = True) -> str:
     """Apply PII + API-secret + URL-credential + home-path redaction to *text*.
+
+    When ``escape_control_chars`` is True (default) C0 control chars are
+    escaped so a payload cannot forge extra log lines (HU-15). The
+    ``PIIRedactionFilter`` traceback path passes False to preserve
+    multi-line traceback readability — its structural newlines are not
+    user-controlled, so there is no forgery risk there.
 
     shared helper used by :class:`PIIRedactionFilter` for both
     the formatted log message and the formatted traceback.  Order
@@ -785,6 +828,19 @@ def _redact_text(text: str) -> str:
     # already-stringified ``record.getMessage()`` / traceback text.
     if not _FAST_TRIGGER.search(text):
         return text
+    # HU-15: escape C0 control chars BEFORE the PII patterns so a
+    # dictated phrase like ``"Hello\n[CRITICAL] fake"`` cannot forge a
+    # second log line — the raw newline becomes the literal two-char
+    # sequence ``\n`` in the emitted text (and raw ANSI escapes become
+    # ``\x1b``). Runs after the fast-path gate, which now includes the
+    # control-char class, so control-char-free lines still
+    # short-circuit without paying for the substitution loop.
+    # ``escape_control_chars=False`` opts out (used by the traceback
+    # path — see ``PIIRedactionFilter.filter``) so structurally
+    # multi-line content like formatted tracebacks keeps its line
+    # breaks instead of collapsing to one line.
+    if escape_control_chars:
+        text = _escape_control_chars(text)
     for pattern, replacement in PIIRedactionFilter._PATTERNS:
         text = pattern.sub(replacement, text)
     text = redact_secret(text)
@@ -910,7 +966,12 @@ class PIIRedactionFilter(logging.Filter):
             except Exception:
                 tb_text = ""
             if tb_text:
-                record.exc_text = _redact_text(tb_text)
+                # escape_control_chars=False: tracebacks keep their
+                # structural newlines (multi-line readability). Their
+                # line breaks come from Python's traceback formatter,
+                # not from user-controlled payloads, so the HU-15 log-
+                # forging vector does not apply here.
+                record.exc_text = _redact_text(tb_text, escape_control_chars=False)
         return True
 
 

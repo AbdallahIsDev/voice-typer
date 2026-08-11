@@ -530,7 +530,29 @@ def report_pending_crash(config_dir: Path) -> str | None:
                 behavior) and create the sidecar next to the moved file.
         """
         try:
-            content = crash_file.read_text(encoding="utf-8").strip()
+            # HU-9: read through ``_secure_read_text`` (POSIX
+            # ``O_NOFOLLOW``, Windows reparse-point check, bounded
+            # read) — same helper the recovery-file load path
+            # (``crash_recovery.py``) uses — so a symlink planted at a
+            # crash-file path can never exfiltrate an arbitrary file's
+            # content into the log. Imported lazily (function scope) to
+            # avoid a module-level circular import.
+            from voice_typer.server.config import _secure_read_text
+
+            try:
+                content = _secure_read_text(crash_file).strip()
+            except (OSError, ValueError) as secure_exc:
+                # Secure read refused (symlink / reparse point / inode
+                # changed mid-read / oversized file). Fail closed:
+                # treat as an empty file — unverifiable content must
+                # never be surfaced, logged, or summarized.
+                log.warning(
+                    "[CRASH] Refusing to read diagnostics file %s (%s) — "
+                    "treating as empty (HU-9 symlink guard)",
+                    crash_file.name,
+                    secure_exc,
+                )
+                return
             if not content:
                 log.debug(
                     "[CRASH] Found empty diagnostics file %s — cleaning up",
@@ -638,7 +660,22 @@ def report_pending_crash(config_dir: Path) -> str | None:
     # daemon threads) that would otherwise only appear on stderr.
     def _summarize_python_crash(py_crash_file: Path, *, already_archived: bool) -> None:
         try:
-            content = py_crash_file.read_text(encoding="utf-8").strip()
+            # HU-9: secure read (O_NOFOLLOW / reparse-point check /
+            # bounded) — a symlink planted at a python_crash path must
+            # not exfiltrate an arbitrary file's content into the log.
+            # Fail closed: on refusal, treat as an empty file.
+            from voice_typer.server.config import _secure_read_text
+
+            try:
+                content = _secure_read_text(py_crash_file).strip()
+            except (OSError, ValueError) as secure_exc:
+                log.warning(
+                    "[CRASH] Refusing to read python_crash file %s (%s) — "
+                    "treating as empty (HU-9 symlink guard)",
+                    py_crash_file.name,
+                    secure_exc,
+                )
+                return
             if not content:
                 log.debug(
                     "[CRASH] Found empty python_crash file %s — cleaning up",

@@ -250,6 +250,57 @@ def _spawn_flags(hidden: bool = False) -> dict:
     return kwargs
 
 
+def _launcher_child_env() -> dict[str, str]:
+    """Build the base env dict for Electron/Tauri children whose output is redirected to log files.
+
+    The child's stdout/stderr land in ``electron-stdout.log`` /
+    ``electron-stderr.log`` (or the ``tauri-stdout.log`` /
+    ``tauri-stderr.log`` equivalents — the same helper is used by
+    ``autostart_launcher._spawn_tauri_host`` and the Tauri focus-probe
+    branch of ``_focus_running_app``). These tweaks keep those files
+    clean (matching the plain-text format of ``voice-typer.log``):
+
+    - ``FORCE_COLOR=0`` — some JS tooling (vite/rollup/chalk) force-
+      enables ANSI colour even when stdout is NOT a TTY; this disables
+      it so no escape codes reach the log file.
+    - ``NO_COLOR=1`` — the de-facto cross-ecosystem no-ANSI contract
+      (no-color.org) honoured by Rust console crates / CLI tooling that
+      ignores ``FORCE_COLOR`` (the Tauri host is a Rust binary). Belt-
+      and-suspenders for anything the host or its tooling prints to
+      stderr; the Rust logger itself is ANSI-free, this guards the
+      rest.
+    - ``CLICOLOR=0`` — the BSD/macOS convention for tools that honour
+      ``CLICOLOR`` instead of ``NO_COLOR`` (Cargo/rustc-side tooling on
+      macOS, `xcodebuild`, etc.).
+    - ``RUST_LOG_STDERR=0`` — the Rust host's ``CombinedLogger``
+      mirrors its entire rotating-file stream (``voice-typer-rust.log``)
+      to stderr when ``RUST_LOG_STDERR=1`` is inherited. That flag
+      exists for terminal tailing (``journalctl``/`cargo tauri dev`);
+      when stderr is redirected to ``tauri-stderr.log`` it would just
+      DUPLICATE the file stream. Force it off so ``tauri-stderr.log``
+      stays clean and carries only crash/early diagnostics (the panic
+      hook + ``EarlyLogger`` write to stderr directly and are NOT
+      gated by this var).
+    - ``npm_config_loglevel=silent`` — suppress npm's banner notices
+      (``npm notice run voice-typer-desktop@1.0.0 dev``) written by the
+      npm parent process.
+
+    Callers apply their own overrides on top (``VT_START_HIDDEN`` /
+    ``VT_FOCUS_ONLY`` / IPC token env vars / the Electron launcher's
+    sensitive-env stripping). A terminal run of ``npm run dev`` (or a
+    direct ``cargo tauri dev``) does NOT go through this helper, so
+    interactive sessions keep colours, npm notices, and the
+    ``RUST_LOG_STDERR`` escape hatch.
+    """
+    env = dict(os.environ)
+    env["FORCE_COLOR"] = "0"
+    env["NO_COLOR"] = "1"
+    env["CLICOLOR"] = "0"
+    env["RUST_LOG_STDERR"] = "0"
+    env["npm_config_loglevel"] = "silent"
+    return env
+
+
 def _electron_log_files() -> dict:
     """Open rotating log files for Electron stdout/stderr (best-effort).
 
@@ -280,11 +331,17 @@ def _electron_log_files() -> dict:
         # size-bounded rotation. ``voice-typer.log`` uses a
         # 5 MiB × 5 RotatingFileHandler; the Electron stdout/stderr logs
         # were append-only and never rotated, so a chatty Electron build
-        # could grow them unbounded. Mirror the 5 MiB cap and keep one
-        # backup (``.1``) — Electron crash logs are typically only
-        # useful for the most recent crash, so one backup is enough.
+        # could grow them unbounded. Mirror the 5 MiB cap with a single
+        # in-place truncate (no numbered backup — Electron crash logs
+        # are typically only useful for the most recent crash).
         _truncate_if_oversized(stdout_path)
         _truncate_if_oversized(stderr_path)
+        # one-time scrub: pre-cleanup runs (before ``_launcher_child_env``
+        # force-disabled ANSI colour) could leave escape-code garbage at
+        # the top of these append-only files; new launches are ANSI-free,
+        # so truncate once when escape bytes are detected.
+        _scrub_stale_ansi(stdout_path)
+        _scrub_stale_ansi(stderr_path)
         # "a" mode so logs accumulate across launches; line-buffered so
         # the user sees output in near-real-time when tailing.
         stdout_fd = open(stdout_path, "a", encoding="utf-8", buffering=1)  # noqa: SIM115
@@ -337,6 +394,50 @@ def _truncate_if_oversized(path: Path) -> None:
     except Exception as exc:
         log.debug(
             "[ELECTRON_BUILD] Truncation check failed for %s: %s",
+            path,
+            exc,
+        )
+
+
+# ANSI escape byte (ESC = 0x1B). Presence in a log file means a
+# pre-cleanup run wrote coloured output into it.
+_ANSI_ESC_BYTE = b"\x1b"
+
+
+# marker line written when stale ANSI content is scrubbed, so the first
+# clean run after the scrub is visibly delimited in the file.
+_ANSI_SCRUB_MARKER = "# [scrubbed] pre-cleanup ANSI escape content removed"
+
+
+def _scrub_stale_ansi(path: Path) -> None:
+    """One-time scrub of pre-cleanup ANSI escape garbage from a log file.
+
+    Before :func:`_launcher_child_env` force-disabled ANSI colour
+    (``FORCE_COLOR=0`` / ``NO_COLOR=1`` / ``CLICOLOR=0``) some JS/Rust
+    tooling wrote coloured output into the Electron/Tauri stdout+stderr
+    log files. Those files are append-only, so the escape-code garbage
+    persisted at the top forever (only truncated past the size cap). New
+    launches are ANSI-free; this scrub truncates the file ONCE when an
+    ESC byte is detected and writes a marker line so the clean section is
+    visibly delimited. Best-effort: any failure (permission, race) is
+    logged at DEBUG and swallowed — the caller proceeds to open the file
+    in append mode, which is still correct.
+    """
+    try:
+        if not path.exists():
+            return
+        data = path.read_bytes()
+        if _ANSI_ESC_BYTE not in data:
+            return
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(f"{_ANSI_SCRUB_MARKER} ({path.name})\n")
+        log.debug(
+            "[ELECTRON_BUILD] Scrubbed stale ANSI content from %s",
+            path.name,
+        )
+    except Exception as exc:
+        log.debug(
+            "[ELECTRON_BUILD] ANSI scrub failed for %s: %s",
             path,
             exc,
         )

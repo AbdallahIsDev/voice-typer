@@ -852,54 +852,55 @@ class PrivacyMixin(ServiceMixinBase):
     def delete_all_personal_data(self) -> dict:
         """GDPR Art. 17 — right to erasure.
 
-                Delete every personal-data artifact the app owns (history DB,
-                crash-recovery buffer, config + secrets, corrections /
-                vocabulary / templates, runtime log + rotated backups, prewarm
-                log, mic-test recordings, crash diagnostic files, archived
-                crash diagnostics, and the Rust host's ``logs/`` subdirectory).
-                Model weights are explicitly preserved — they are not personal
-        data ( spec).
+        Delete every personal-data artifact the app owns (history DB,
+        crash-recovery buffer, config + secrets, corrections /
+        vocabulary / templates, runtime log + rotated backups, prewarm
+        log, mic-test recordings, crash diagnostic files, archived
+        crash diagnostics, and the Rust host's ``logs/`` subdirectory).
+        Model weights are explicitly preserved — they are not personal
+        data.
 
-                Returns::
+        Returns:
+            A dict with the shape::
 
-                    {"success": bool,
-                     "erased": ["/path/to/history.db", ...],
-                     "failed": {"/path/to/locked.log": "PermissionError: ..."}}
+                {"success": bool,
+                 "erased": ["/path/to/history.db", ...],
+                 "failed": {"/path/to/locked.log": "PermissionError: ..."}}
 
-                ``success`` is ``True`` if no failures occurred; the renderer
-                uses ``failed`` to show the user which files could not be
-                deleted (e.g. locked by another process) so they can manually
-                delete them.  A fresh-install config dir (no artifacts) is
-                treated as success — there's nothing to erase, but the user's
-                right to erasure is satisfied.
+            ``success`` is ``True`` if no failures occurred; the renderer
+            uses ``failed`` to show the user which files could not be
+            deleted (e.g. locked by another process) so they can manually
+            delete them.  A fresh-install config dir (no artifacts) is
+            treated as success — there's nothing to erase, but the user's
+            right to erasure is satisfied.
 
-                The per-step work is delegated to private ``@staticmethod``
-                helpers (``_gdpr_checkpoint_history_db`` /
-                ``_gdpr_unlink_personal_files`` / ``_gdpr_unlink_personal_globs``
-                / ``_gdpr_rmtree_rust_logs`` / ``_gdpr_rmtree_crash_archive``
-                / ``_gdpr_clear_keychain`` / ``_gdpr_invalidate_cached_engines``
-                / ``_gdpr_recreate_history_db`` / ``_gdpr_post_cleanup_sweep``).
-                This method is now a thin orchestrator that calls them in
-                order and assembles the result dict.  See the helper docstrings
-                for the per-step rationale (WAL checkpoint, keychain clear,
-                engine invalidation, etc.).
+        The per-step work is delegated to private ``@staticmethod``
+        helpers (``_gdpr_checkpoint_history_db`` /
+        ``_gdpr_unlink_personal_files`` / ``_gdpr_unlink_personal_globs``
+        / ``_gdpr_rmtree_rust_logs`` / ``_gdpr_rmtree_crash_archive``
+        / ``_gdpr_clear_keychain`` / ``_gdpr_invalidate_cached_engines``
+        / ``_gdpr_recreate_history_db`` / ``_gdpr_post_cleanup_sweep``).
+        This method is now a thin orchestrator that calls them in
+        order and assembles the result dict.  See the helper docstrings
+        for the per-step rationale (WAL checkpoint, keychain clear,
+        engine invalidation, etc.).
 
         The unlink + keychain-clear + post-cleanup-sweep sequence is
-                now wrapped in ``self._app._config_mutation_lock`` so a
-                concurrent ``set_config`` / ``reset_config_to_defaults`` /
-                ``onboarding_apply`` IPC call cannot interleave its
-                read-modify-save cycle with the GDPR delete. Without the
-                lock, a concurrent ``set_config`` could (a) lose the user's
-                just-saved config (GDPR unlinks ``config.json`` between the
-                ``set_config`` read and save), or (b) re-create
-                ``config.json`` with a stale ``keyring://`` reference token
-                that the GDPR delete just cleared from the keychain. The
-                lock is an ``RLock`` so a re-entrant call from the same
-                thread (e.g. ``delete_secret`` → ``Config.save``) is safe.
-                Missing-lock fallback (test fakes / misconfigured host) is
-                preserved — the deletion still proceeds lock-free and a
-                WARNING is logged once per process (mirrors the
-                ``config_handlers._handle_set_config`` pattern).
+        now wrapped in ``self._app._config_mutation_lock`` so a
+        concurrent ``set_config`` / ``reset_config_to_defaults`` /
+        ``onboarding_apply`` IPC call cannot interleave its
+        read-modify-save cycle with the GDPR delete. Without the
+        lock, a concurrent ``set_config`` could (a) lose the user's
+        just-saved config (GDPR unlinks ``config.json`` between the
+        ``set_config`` read and save), or (b) re-create
+        ``config.json`` with a stale ``keyring://`` reference token
+        that the GDPR delete just cleared from the keychain. The
+        lock is an ``RLock`` so a re-entrant call from the same
+        thread (e.g. ``delete_secret`` → ``Config.save``) is safe.
+        Missing-lock fallback (test fakes / misconfigured host) is
+        preserved — the deletion still proceeds lock-free and a
+        WARNING is logged once per process (mirrors the
+        ``config_handlers._handle_set_config`` pattern).
         """
         from voice_typer.server.config import _config_dir
 

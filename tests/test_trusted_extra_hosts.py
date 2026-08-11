@@ -27,6 +27,7 @@ from voice_typer.server._secrets import (
     _user_extensions,
     assert_url_allowed,
     extend_url_allowlist,
+    get_url_allowlist,
     is_url_allowed,
 )
 from voice_typer.server.config_validators import validate_config_update
@@ -165,3 +166,99 @@ class TestAllowlistHelpers:
     def test_extend_url_allowlist_accepts_host(self):
         extend_url_allowlist(["my-vllm.lan"], caller="test")
         assert_url_allowed("https://my-vllm.lan/v1")
+
+
+class TestIpv6Allowlisting:
+    """HU-35 follow-up: IPv6 literals survive port-stripping and can be
+    allowlisted end-to-end (config validator → IPC handler → allowlist →
+    assert_url_allowed), while private IPv6 literals remain blocked by
+    the SSRF IP-literal blocklist.
+    """
+
+    def test_config_validator_accepts_public_ipv6(self):
+        """A public IPv6 literal is accepted by the config validator
+        (validation only — the raw value is echoed; the allowlist
+        applies the port/bracket normalization via ``_normalize_host``)."""
+        validated, errors = validate_config_update({"trusted_extra_hosts": ["2606:4700:4700::1111"]})
+        assert not errors, f"public IPv6 must validate; got errors: {errors!r}"
+        assert validated["trusted_extra_hosts"] == ["2606:4700:4700::1111"]
+
+    def test_config_validator_accepts_bracketed_ipv6_with_port(self):
+        """The bracketed-with-port form passes validation (its inner
+        literal is valid IPv6) and the allowlist application normalizes
+        it to the bare literal."""
+        validated, errors = validate_config_update({"trusted_extra_hosts": ["[2606:4700:4700::1111]:8443"]})
+        assert not errors, f"bracketed IPv6 must validate; got errors: {errors!r}"
+        # The validator is pure — it echoes the raw entry; the
+        # normalization to the bare literal happens in the allowlist.
+        extend_url_allowlist(validated["trusted_extra_hosts"], caller="test")
+        assert "2606:4700:4700::1111" in get_url_allowlist()
+
+    def test_config_validator_accepts_private_ipv6_but_ssrf_blocks_it(self):
+        """A private IPv6 literal passes the hostname validator (it IS a
+        valid bare host) but ``assert_url_allowed`` still rejects it via
+        the SSRF IP-literal blocklist."""
+        validated, errors = validate_config_update({"trusted_extra_hosts": ["fc00::1"]})
+        assert not errors, f"private IPv6 must validate as a host; got errors: {errors!r}"
+        extend_url_allowlist(validated["trusted_extra_hosts"], caller="test")
+        with pytest.raises(ValueError, match="private/reserved IP literal"):
+            assert_url_allowed(
+                "https://[fc00::1]/v1",
+                field_name="cloud_api_url",
+                client_name="cloud/test",
+            )
+
+    def test_config_validator_rejects_colon_hostname(self):
+        """A NON-IPv6 host containing a colon is still rejected — IPv6 is
+        the only legal colon-bearing host form."""
+        validated, errors = validate_config_update({"trusted_extra_hosts": ["bad:host:name"]})
+        assert errors, "colon-bearing non-IPv6 hostname must be rejected"
+        assert "trusted_extra_hosts" not in validated
+
+    def test_add_trusted_endpoint_accepts_public_ipv6(self, server_app):
+        """The add_trusted_endpoint IPC handler accepts a public IPv6
+        literal, persists it, and the allowlist accepts the URL."""
+        server, mock_app = server_app
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "add_trusted_endpoint",
+                "data": {"host": "2606:4700:4700::1111"},
+            }
+        )
+        assert result["type"] == "ack"
+        assert result["data"]["host"] == "2606:4700:4700::1111"
+        assert mock_app.config.trusted_extra_hosts == ["2606:4700:4700::1111"]
+        # End-to-end: the public IPv6 URL now passes assert_url_allowed.
+        assert_url_allowed(
+            "https://[2606:4700:4700::1111]/v1",
+            field_name="cloud_api_url",
+            client_name="cloud/test",
+        )
+
+    def test_add_trusted_endpoint_bracketed_ipv6_with_port(self, server_app):
+        """``[2606:4700:4700::1111]:8443`` normalizes to the bare literal."""
+        server, mock_app = server_app
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "add_trusted_endpoint",
+                "data": {"host": "[2606:4700:4700::1111]:8443"},
+            }
+        )
+        assert result["type"] == "ack"
+        assert result["data"]["host"] == "2606:4700:4700::1111"
+        assert mock_app.config.trusted_extra_hosts == ["2606:4700:4700::1111"]
+
+    def test_add_trusted_endpoint_rejects_colon_hostname(self, server_app):
+        """A non-IPv6 host containing colons is still rejected."""
+        server, mock_app = server_app
+        result = server._dispatch(
+            {
+                "id": 1,
+                "type": "add_trusted_endpoint",
+                "data": {"host": "bad:host:name"},
+            }
+        )
+        assert result["type"] == "error", f"colon hostname must be rejected; got {result!r}"
+        assert mock_app.config.__dict__.get("trusted_extra_hosts", []) == []

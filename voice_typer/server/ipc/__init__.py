@@ -7,6 +7,8 @@ abandoned mid-way and the parallel ``server.py`` / ``main.py`` /
 code ().  This package now contains ONLY the leaf submodules that
 are actually imported by the handler mixins:
 
+- :func:`extract_auth_token` / :func:`tokens_equal` (shared TCP + WS
+  auth-handshake helpers) — :mod:`.auth`
 - :func:`_validate_dict_payload` (IPC payload validation) — :mod:`.validation`
 - :func:`_pick_available_port` + :class:`_TCPLineIO` (TCP transport) —
   :mod:`.transport`
@@ -30,6 +32,7 @@ import cycle that the original split was working around.
 """
 
 # Eagerly import leaf submodules — these don't trigger handler imports.
+from .auth import extract_auth_token, tokens_equal
 from .history_bounds import (
     _HISTORY_LIMIT_DEFAULT,
     _HISTORY_LIMIT_MAX,
@@ -60,6 +63,9 @@ __all__ = [
     # transport
     "_pick_available_port",
     "_TCPLineIO",
+    # auth
+    "extract_auth_token",
+    "tokens_equal",
     # rate_limiter
     "_RateLimiter",
     "_get_rate_limiter",

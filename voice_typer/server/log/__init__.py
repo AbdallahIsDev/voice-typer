@@ -465,8 +465,14 @@ def setup_logging(
         If ``True``, the file handler is set to WARNING level
         (reduces telemetry noise for enterprise deployments).
     port_mode:
-        If ``True``, enables coloured stderr output even when not
-        connected to a TTY (used by ``--port`` mode).
+        Accepted for backwards compatibility. NO LONGER forces coloured
+        stderr output: ANSI colours are gated on
+        ``sys.stderr.isatty()`` so ``--port`` runs whose stderr is
+        redirected to a file (the Electron launcher's
+        ``electron-stderr.log``) stay plain and grep-friendly, while a
+        terminal ``--port`` run still gets colours (a terminal IS a
+        TTY, so the old ``or port_mode`` was redundant for the case it
+        was designed for).
 
     Returns
     -------
@@ -688,7 +694,15 @@ def setup_logging(
         # lastResort never triggered, leaving ZERO log signal of the
         # failure.  Attaching a stderr handler guarantees the record
         # reaches *some* sink even when the file write fails.
-        do_color = sys.stderr.isatty() or port_mode
+        # Colors follow the STREAM, not the launch mode. The legacy
+        # ``or port_mode`` forced ANSI escapes whenever ``--port`` was in
+        # argv — and the Electron TCP path (``python -m ipc_server
+        # --port N`` with stderr redirected to electron-stderr.log) IS
+        # such a run, so every backend line landed in the log file with
+        # raw escape codes. Colors now require a real TTY: redirected
+        # output (launcher log files, pipes, CI) stays plain while
+        # terminal runs keep the palette.
+        do_color = bool(sys.stderr is not None and sys.stderr.isatty())
         if sys.stderr is not None:
             stream = _FlushingStreamHandler()
             stream.setLevel(logging.DEBUG if debug else logging.INFO)

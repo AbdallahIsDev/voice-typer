@@ -31,10 +31,28 @@ from pathlib import Path
 from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE
 from voice_typer.server._lazy_import import lazy_module
 from voice_typer.server.duration import format_duration
+from voice_typer.server.log_rate_limit import log_rate_limited
 
 np = lazy_module("numpy")
 
 log = logging.getLogger(__name__)
+
+# Rate-limit cadence for the VAD failure-path logs below. ``_load_model``
+# does NOT cache a failure (``_model`` stays None), so when VAD is
+# permanently unavailable (torch missing / bundled model missing or
+# corrupt) every 16 Hz audio chunk re-attempts the load and re-logs the
+# error — ~960 lines/minute of identical ERROR spam. The first
+# occurrence logs at the configured level (with full context); repeats
+# drop to DEBUG with a 60s INFO suppression summary
+# (``log_rate_limited``), so the operator still sees the chronic
+# condition without the wall of noise. ``every_n`` for the load-failure
+# path is sized so a transient hiccup surfaces again quickly (16 Hz
+# chunks → every 225 = ~14s), while the stable-conditions (torch
+# missing, file missing) use first-only (``every_n=0``).
+_VAD_FAILURE_FIRST_ONLY_EVERY_N: int = 0  # first occurrence only
+_VAD_LOAD_FAILED_EVERY_N: int = 225  # every ~14s at 16 Hz
+
+
 
 # hoisted to module level so every ``compute_vad_prob`` call avoids
 # rebuilding the dict on the hot path (16 Hz audio worker). Silero VAD
@@ -126,14 +144,27 @@ def _load_model():
     try:
         import torch
     except ImportError:
-        log.warning("[VAD] torch not importable — Silero VAD disabled")
+        # Rate-limited: the failure is NOT cached (model stays None), so
+        # every 16 Hz audio chunk would otherwise re-log this identical
+        # WARNING (~960/min). First-only keeps the single diagnostic
+        # while suppressing the flood (DEBUG + 60s INFO summary via
+        # log_rate_limited).
+        log_rate_limited(
+            log,
+            logging.WARNING,
+            "[VAD] torch not importable — Silero VAD disabled",
+            every_n=_VAD_FAILURE_FIRST_ONLY_EVERY_N,
+        )
         return None, None
 
     if not _VAD_MODEL_PATH.exists():
-        log.error(
+        log_rate_limited(
+            log,
+            logging.ERROR,
             "[VAD] bundled model not found at %s — Silero VAD disabled; "
             "degrading to RMS fallback (no network fetch is attempted)",
             _VAD_MODEL_PATH,
+            every_n=_VAD_FAILURE_FIRST_ONLY_EVERY_N,
         )
         return None, None
 
@@ -154,10 +185,17 @@ def _load_model():
         log.info("[VAD] Silero VAD model loaded from local file")
         return _model, _utils
     except Exception as local_exc:
-        log.error(
+        # Rate-limited for the same reason as the other failure paths:
+        # ``_model = None`` means every 16 Hz chunk retries the load and
+        # re-logs. every_n=225 re-surfaces a transient disk hiccup
+        # (~14s) while capping a permanently-corrupt-model flood.
+        log_rate_limited(
+            log,
+            logging.ERROR,
             "[VAD] local Silero VAD model load failed: %s — Silero VAD "
             "disabled; degrading to RMS fallback (no network fetch is attempted)",
             local_exc,
+            every_n=_VAD_LOAD_FAILED_EVERY_N,
         )
         _model = None
         return None, None

@@ -10,6 +10,10 @@ import logging
 import secrets
 import threading
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from voice_typer.server.model_registry import ModelMetadata
 
 from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server.branding import APP_NAME
@@ -321,7 +325,7 @@ class ModelMixin(ServiceMixinBase):
         if not repo_id:
             return {"success": False, "message": f"Unknown model: {model_name}"}
 
-        # Don't allow deleting the active model.
+        # Compute whether ``model_name`` is the configured active model.
         current_backend = getattr(self._app.config, "asr_backend", "whisper")
         current_model = getattr(self._app.config, "model_size", "tiny.en")
         is_active = (
@@ -329,15 +333,28 @@ class ModelMixin(ServiceMixinBase):
             or (model_name == "parakeet" and current_backend == "parakeet")
             or (model_name == "qwen" and current_backend == "qwen")
         )
+
+        model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"
+        if not model_dir.exists():
+            # The model is NOT on disk. If it's ALSO the configured active
+            # model, the config points at a model that was removed
+            # out-of-band (deleted folder, moved cache) — a stale
+            # selection. Clearing it removes the phantom "Active" state
+            # from the Models page: the user can't delete a model that
+            # isn't there, and must not be stuck with a dead disabled
+            # button. The files are already gone, so this is a success
+            # with a clear message ( STALE-ACTIVE).
+            if is_active:
+                return self._clear_stale_active_model(model_name)
+            return {"success": False, "message": f"Model '{model_name}' is not downloaded."}
+
+        # Don't allow deleting the active model WHILE it's on disk —
+        # deleting an in-use model would break the running ASR backend.
         if is_active:
             return {
                 "success": False,
                 "message": "Cannot delete the active model. Switch to another model first.",
             }
-
-        model_dir = cache_dir / f"models--{repo_id.replace('/', '--')}"
-        if not model_dir.exists():
-            return {"success": False, "message": f"Model '{model_name}' is not downloaded."}
 
         try:
             shutil.rmtree(model_dir)
@@ -367,6 +384,110 @@ class ModelMixin(ServiceMixinBase):
         except Exception as exc:
             log.warning("[SERVICE] delete_model failed: %s", exc)
             return {"success": False, "message": redact_secret(redact_url(str(exc)))}
+
+    # ── Stale-active model clear ( STALE-ACTIVE) ──────────────
+
+    def _clear_stale_active_model(self, model_name: str) -> dict[str, object]:
+        """Clear a stale active-model selection whose files are missing from disk.
+
+        Called by :meth:`delete_model` when the configured active model is
+        NOT present in the HF cache (removed out-of-band — deleted folder,
+        moved cache, wiped disk). The config keeps pointing at a model that
+        doesn't exist, so the Models page would otherwise show a phantom
+        "Active" model with no way to clear it.
+
+        Switches the active config to the first downloaded model (if any)
+        via the canonical ``apply_config`` path (lock + validate + setattr +
+        save), pushes ``config_changed`` so the renderer reapplies active
+        state immediately, and invalidates the model-status cache.
+
+        Defensive by design: any config-mutation failure is logged and the
+        delete still returns success — the files are already gone, and the
+        status-cache invalidation alone guarantees the next UI poll reflects
+        truth (``downloaded: false``).
+        """
+        updates: dict[str, str] = {}
+        replacement = self._pick_downloaded_fallback_model(model_name)
+        if replacement is not None:
+            # ``_pick_downloaded_fallback_model`` never returns a distil
+            # variant (frontend active-keying mismatch), so the only
+            # whisper-family backend left here is ``whisper``.
+            if replacement.backend == "whisper":
+                updates = {"asr_backend": "whisper", "model_size": replacement.name}
+            else:
+                updates = {"asr_backend": replacement.backend, "model_size": replacement.name}
+            try:
+                # canonical config-mutation path (SEC-002 allowlisted keys,
+                # config-mutation lock, side-effects, save_strict).
+                self.apply_config(updates)
+                log.info(
+                    "[SERVICE] delete_model: stale active model '%s' cleared — "
+                    "switched to '%s'",
+                    model_name,
+                    replacement.name,
+                )
+            except Exception as exc:
+                # Never turn a successful delete into a failure. The files
+                # are gone; the config-clear is best-effort (the status-cache
+                # invalidation below still un-sticks the phantom state on the
+                # next poll). ``apply_config`` rolls the in-memory config back
+                # to the pre-setattr values on ``save_strict`` failure, so
+                # ``updates`` is reset — the message + ``config_changed``
+                # push below must not claim the switch happened.
+                log.warning(
+                    "[SERVICE] delete_model: cleared stale selection for '%s' but "
+                    "failed to persist fallback config %s: %s",
+                    model_name,
+                    updates,
+                    exc,
+                )
+                updates = {}
+            if updates:
+                try:
+                    from voice_typer.server import event_bus
+
+                    event_bus.publish({"type": "config_changed", "data": updates})
+                except Exception:
+                    log.debug("[SERVICE] delete_model: config_changed push failed", exc_info=True)
+        self._invalidate_model_status_cache()
+        if updates:
+            message = (
+                f"Model '{model_name}' was not on disk — "
+                f"switched to '{updates['model_size']}'."
+            )
+        else:
+            message = f"Model '{model_name}' was not on disk — nothing to delete."
+        log.info("[SERVICE] delete_model: %s", message)
+        return {"success": True, "message": message}
+
+    def _pick_downloaded_fallback_model(self, exclude_name: str) -> "ModelMetadata | None":
+        """Return metadata for the first downloaded model other than ``exclude_name``.
+
+        Iterates :data:`MODEL_REGISTRY` in registration order and returns the
+        first model whose on-disk status (computed fresh via
+        :meth:`_compute_model_status`, bypassing the 5s TTL cache) reports
+        ``downloaded=True``. Returns ``None`` when no other model is on disk.
+
+        Used by :meth:`_clear_stale_active_model` to pick the replacement
+        for a deleted stale-active model — preferring the first downloaded
+        model keeps the app immediately usable after the config clear.
+
+        Distil-whisper variants are SKIPPED: the frontend's ``isModelActive``
+        keys distil models by ``asr_backend === "distil-whisper"`` (a value
+        the ``set_config`` allowlist never writes), so a distil fallback
+        written as ``asr_backend: "whisper"`` would never render as active
+        in the UI — an inconsistency worse than leaving the config as-is.
+        """
+        from voice_typer.server.model_registry import MODEL_REGISTRY
+
+        status = self._compute_model_status()
+        for name, meta in MODEL_REGISTRY.items():
+            if name == exclude_name or meta.backend == "distil-whisper":
+                continue
+            entry = status.get(name)
+            if entry is not None and bool(entry.get("downloaded")):
+                return meta
+        return None
 
     def test_llm_connection(self) -> dict[str, object]:
         """Test the LLM polish API connection.

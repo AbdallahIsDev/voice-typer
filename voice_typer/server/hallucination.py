@@ -194,17 +194,24 @@ def log_hallucination_rejection(
 
         safe_text = redact_pii(text)[:_HALLUCINATION_LOG_MAX_CHARS]
     except Exception:
-        # M-49: no longer a silent ``except Exception: pass`` -- log
-        # at DEBUG so a redaction-engine failure (e.g. security module
-        # import error, regex bug) is visible in the log file without
-        # spamming at WARNING/ERROR level on every hallucination.
-        # Fall back to truncation-only which is safe (no PII leak,
-        # just slightly less redacted text in the log).
+        # M-49 / HU-14: no longer a silent ``except Exception: pass`` --
+        # log at DEBUG so a redaction-engine failure (e.g. security
+        # module import error, regex bug) is visible in the log file
+        # without spamming at WARNING/ERROR level on every
+        # hallucination.
+        #
+        # HU-14: do NOT fall back to truncation-only. The
+        # ``log_transcriptions`` opt-in is a privacy backstop, and
+        # truncating to 40 chars does NOT redact -- a 40-char window can
+        # still contain a full email address, phone number, or SSN
+        # fragment (mirrors the transcription.py segment-log fallback,
+        # which logs a redacted marker + boundaries instead of raw
+        # text). Log a constant sentinel + the char count only.
         log.debug(
-            "PII redaction failed in log_hallucination_rejection; falling back to truncation only",
+            "PII redaction failed in log_hallucination_rejection; logging redacted marker only",
             exc_info=True,
         )
-        safe_text = text[:_HALLUCINATION_LOG_MAX_CHARS]
+        safe_text = "<redaction-failed>"
 
     log.warning(
         "%s Rejected likely %s (%d chars): %s",

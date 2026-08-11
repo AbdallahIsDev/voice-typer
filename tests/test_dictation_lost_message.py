@@ -33,6 +33,9 @@ These tests pin the corrected payload:
 
 from __future__ import annotations
 
+import logging
+import os
+
 import pytest
 from voice_typer.server import event_bus
 from voice_typer.server.crash_recovery import CrashRecovery
@@ -288,5 +291,71 @@ class TestDictationLostMessage:
                 event_bus.unsubscribe(received.append)
 
             assert received == []
+        finally:
+            cr.shutdown()
+
+
+class TestHu10SentinelSecureRead:
+    """HU-10: the ``.dictation-in-flight`` sentinel is read through
+    ``_secure_read_text`` (POSIX ``O_NOFOLLOW`` / Windows reparse-point
+    check) — the same helper the recovery-file load path uses. A symlink
+    planted at the sentinel path is REFUSED, so an attacker can never
+    exfiltrate an arbitrary file's content into the production WARNING
+    log. On refusal ``cycle_id`` stays ``""`` → the hard-crash
+    (nothing recoverable) branch fires.
+    """
+
+    def test_read_refusal_treats_as_hard_crash(self, recovery_dir, caplog, monkeypatch):
+        def _refuse(_path, *args, **kwargs):
+            raise OSError("SEC-002: refusing to follow symlink")
+
+        monkeypatch.setattr("voice_typer.server.config._secure_read_text", _refuse)
+        # A real sentinel exists — but the secure read refuses it.
+        _make_sentinel(recovery_dir, "EXFIL-SECRET-CYCLE")
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        try:
+            received: list[dict] = []
+            event_bus.subscribe(received.append)
+            try:
+                with caplog.at_level(logging.WARNING):
+                    cr._detect_and_notify_lost_dictation()
+            finally:
+                event_bus.unsubscribe(received.append)
+
+            assert len(received) == 1
+            data = received[0]["data"]
+            assert data["recoverable"] is False
+            assert data["recovery_type"] == "none"
+            assert data["cycle_id"] == "", "HU-10: refused read must leave cycle_id empty (fail-closed)"
+            # The sentinel is still cleaned up (delete runs regardless).
+            assert not (recovery_dir / ".dictation-in-flight").exists()
+            # The exfil target content must never reach the WARNING log.
+            assert not any("EXFIL-SECRET-CYCLE" in r.getMessage() for r in caplog.records)
+        finally:
+            cr.shutdown()
+
+    @pytest.mark.skipif(os.name != "posix", reason="requires POSIX symlink semantics")
+    def test_real_symlink_sentinel_never_logs_target_content(self, recovery_dir, caplog):
+        secret = recovery_dir / "secret.txt"
+        secret.write_text("TOP-SECRET-SENTINEL-TARGET", encoding="utf-8")
+        os.symlink(secret, recovery_dir / ".dictation-in-flight")
+
+        cr = CrashRecovery(config_dir=recovery_dir)
+        try:
+            received: list[dict] = []
+            event_bus.subscribe(received.append)
+            try:
+                with caplog.at_level(logging.WARNING):
+                    cr._detect_and_notify_lost_dictation()
+            finally:
+                event_bus.unsubscribe(received.append)
+
+            assert len(received) == 1
+            data = received[0]["data"]
+            assert data["recoverable"] is False
+            assert data["recovery_type"] == "none"
+            assert data["cycle_id"] == ""
+            assert not any("TOP-SECRET-SENTINEL-TARGET" in r.getMessage() for r in caplog.records)
         finally:
             cr.shutdown()

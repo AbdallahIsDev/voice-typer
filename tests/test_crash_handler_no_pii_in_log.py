@@ -20,7 +20,9 @@ Smith")`` and asserts the CRITICAL log line contains "ValueError" but NOT
 from __future__ import annotations
 
 import logging
+import os
 import sys
+from pathlib import Path
 
 import pytest
 from voice_typer.server import crash_handler
@@ -182,3 +184,78 @@ class TestCrashExcepthookNoPIIInLog:
         assert redacted_tb_records, (
             "YJ-14: redacted traceback must be emitted UNCONDITIONALLY (not gated on VOICE_TYPER_DEBUG=1)"
         )
+
+
+class TestCrashDumpFileContentRedacted:
+    """HU-38: the ON-DISK crash marker file (``python_crash.<PID>.txt``)
+    must not contain raw PII embedded in the exception value.
+
+    The existing YJ-19 tests above verify only the caplog LOG output is
+    redacted. This class drives the REAL excepthook (which writes the
+    marker via ``_write_crash_marker``) and reads the file content back.
+
+    The crash archive is high-risk: it is retained ~30 days, included
+    verbatim in ``export_gdpr_bundle``, and uploaded to support tickets
+    via ``export_diagnostics``. A regression that logs the raw
+    ``exc_value`` (e.g. ``'Last transcription: <text>'`` for triage)
+    would silently leak dictated speech + PII.
+
+    ``crash_diagnostics.<PID>.txt`` is written by the Windows-native
+    VEH handler (not the Python excepthook), so it cannot be driven
+    portably — but the ``_redact_exc_value`` pipeline it shares with
+    the marker writer is exercised here end-to-end.
+    """
+
+    def _trigger_crash(self, tmp_path: Path) -> Path:
+        """Install the excepthook, raise a PII-bearing exception through
+        it, and return the written marker path."""
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        crash_handler.install_python_excepthook()
+        assert sys.excepthook is crash_handler._crash_excepthook
+        try:
+            raise ValueError("contact john.doe@example.com for biopsy")
+        except ValueError as exc:
+            sys.excepthook(type(exc), exc, exc.__traceback__)
+        marker = tmp_path / f"python_crash.{os.getpid()}.txt"
+        assert marker.exists(), f"crash marker must be written to {marker}"
+        return marker
+
+    def test_python_crash_marker_has_no_raw_pii(self, tmp_path: Path, restore_excepthook):
+        """The marker file content must NOT contain the raw PII string
+        from the exception value."""
+        marker = self._trigger_crash(tmp_path)
+        content = marker.read_text(encoding="utf-8")
+        assert "john.doe@example.com" not in content, (
+            f"raw PII must not appear in crash marker; got: {content!r}"
+        )
+        assert "john.doe" not in content, f"partial PII (email local part) must not appear; got: {content!r}"
+        # The redacted form (or a safe sentinel) must appear instead.
+        assert "[EMAIL]" in content or "<redacted:" in content, (
+            f"crash marker must carry the redacted value; got: {content!r}"
+        )
+
+    def test_python_crash_marker_redacts_secret_shaped_value(self, tmp_path: Path, restore_excepthook):
+        """API-key-shaped secrets embedded in the exception value are
+        masked via ``redact_secret(aggressive=True)`` before persisting."""
+        crash_handler.set_crash_handler_config_dir(tmp_path)
+        crash_handler.install_python_excepthook()
+        try:
+            raise RuntimeError("api key sk-abcdefghijklmnopqrstuvwx leaked")
+        except RuntimeError as exc:
+            sys.excepthook(type(exc), exc, exc.__traceback__)
+        marker = tmp_path / f"python_crash.{os.getpid()}.txt"
+        assert marker.exists()
+        content = marker.read_text(encoding="utf-8")
+        assert "sk-abcdefghijklmnopqrstuvwx" not in content, (
+            f"secret must not appear in crash marker; got: {content!r}"
+        )
+        assert "***" in content or "<redacted:" in content, (
+            f"crash marker must mask the secret; got: {content!r}"
+        )
+
+    def test_marker_keeps_exc_type_for_deduplication(self, tmp_path: Path, restore_excepthook):
+        """The marker still carries the exception TYPE name (safe) so
+        crash dedup / triage works even though the value is redacted."""
+        marker = self._trigger_crash(tmp_path)
+        content = marker.read_text(encoding="utf-8")
+        assert "exc_type=ValueError" in content, f"exc_type must be preserved; got: {content!r}"

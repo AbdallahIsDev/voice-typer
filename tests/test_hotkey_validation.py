@@ -49,6 +49,15 @@ ALLOWED_HOTKEYS = [
     "<ctrl>+<alt>+<v>",
     # Ctrl+Q is now allowed (user choice — no longer in blocked list).
     "<ctrl>+<q>",
+    # Modifier-only release triggers: zero non-modifier keys is VALID
+    # (native + polling backends fire on modifier RELEASE via
+    # ``_run_modifier_only_polling_loop``; the frontend validateHotkey
+    # accepts them). Bare <win>/<cmd>/<super> stay blocked below.
+    "<alt>",
+    "<ctrl>",
+    "<shift>",
+    "<ctrl>+<shift>",
+    "<ctrl>+<alt>",
     # multi-key non-modifier combos (e.g. ``<delete>+<end>``) are
     # NO LONGER allowed — they're structurally invalid for a global
     # hotkey listener.  Moved to BLOCKED_HOTKEYS below.
@@ -190,18 +199,24 @@ class TestValidateHotkeyPlatformConditional:
         result = _validate_hotkey("<alt>+<shift>")
         assert result is not None, "Alt+Shift should be blocked on Windows (language switching)"
 
-    def test_alt_shift_rejected_on_linux_modifier_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Alt+Shift is rejected on Linux because it's modifier-only (zero non-modifier keys).
+    def test_alt_shift_allowed_on_linux_modifier_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Alt+Shift is ALLOWED on Linux — it's a modifier-only combo.
 
-        Previously this was allowed, but a global hotkey listener (pynput, Win32
-        RegisterHotKey, macOS CGEventTap) requires exactly one non-modifier key
-        to register. A modifier-only combo silently fails to register.
+        Modifier-only hotkeys (zero non-modifier keys) are valid release
+        triggers: the native backends + the Windows polling fallback
+        fire on modifier RELEASE via ``_run_modifier_only_polling_loop``,
+        and the frontend ``validateHotkey`` accepts them (rule 5:
+        "pure-modifier combos ... are valid modifier-only release
+        triggers"). The earlier rejection predates the runtime's
+        modifier-only support and made the backend reject captures the
+        renderer committed ("got 0" at set_config time). On Windows,
+        Alt+Shift stays blocked by the Stage 7 language-switching rule.
         """
         import voice_typer.server.config_validators as cv
 
         monkeypatch.setattr(cv._sys, "platform", "linux")
         result = _validate_hotkey("<alt>+<shift>")
-        assert result is not None, "Alt+Shift should be rejected on Linux (modifier-only combo)"
+        assert result is None, "Alt+Shift should be allowed on Linux (modifier-only release trigger)"
 
 
 class TestValidateHotkeyWindowsSpecific:

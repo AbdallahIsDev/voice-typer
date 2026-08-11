@@ -604,25 +604,35 @@ class TranscriptionEngine:
                         import gc
 
                         gc.collect()
-                        # XV-72: drop the redundant release_gpu_memory()
-                        # call here. ``del self._model`` plus ``gc.collect()``
-                        # already trigger PyTorch's __del__ hook which
-                        # releases the parameter tensors' CUDA blocks. The
-                        # follow-up ``self._reload_under_lock()`` below
-                        # sets ``_pending_gc_collect = True`` via the
-                        # standard RACE-023 path so the next caller
-                        # (outside the lock) calls release_gpu_memory()
-                        # with proper happens-before semantics. Calling
-                        # release_gpu_memory() inside this lock was a no-op
-                        # for VRAM release + cost ~10-100ms of sync work
-                        # (torch.cuda.empty_cache() blocks the calling
-                        # thread while it iterates the allocator) holding
-                        # the IPC dispatch lock for no benefit.
+                        # HU-25: ``del self._model`` + ``gc.collect()``
+                        # trigger PyTorch's __del__ hook which releases the
+                        # parameter tensors' CUDA blocks, but the caching
+                        # allocator keeps them until ``release_gpu_memory()``
+                        # (torch.cuda.empty_cache()) runs. That call is
+                        # deferred OUTSIDE this lock via the RACE-023
+                        # ``_pending_gc_collect`` flag — it is set
+                        # EXPLICITLY in this branch, because
+                        # ``_reload_under_lock()`` does NOT set it (only
+                        # ``_with_gpu_fallback`` does, and this CUDA-probe
+                        # path is separate). Calling release_gpu_memory()
+                        # inside this lock was a no-op for VRAM release +
+                        # cost ~10-100ms of sync work (empty_cache blocks
+                        # the calling thread while it iterates the
+                        # allocator) holding the IPC dispatch lock for no
+                        # benefit.
                     except Exception:
-                        log.debug("[MODEL] GPU memory release failed", exc_info=True)
+                        log.debug("[MODEL] GPU model teardown failed", exc_info=True)
                     self._model = None
                     self._device = "cpu"
                     self._compute_type = "int8"
+                    # HU-25: arm the deferred GPU release BEFORE the
+                    # reload so a reload failure (model missing /
+                    # ctranslate2 error) can't leak the already-freed CUDA
+                    # blocks — the next caller outside the lock
+                    # (transcribe / unload) runs gc.collect() +
+                    # release_gpu_memory() regardless (OOMs on RTX
+                    # 3060/4060 after repeated CUDA-probe-failure reloads).
+                    self._pending_gc_collect = True
                     self._reload_under_lock()
                     log.warning(
                         "[CUDA-PROBE] Model reloaded on CPU after CUDA probe failure. Loaded via: %s",

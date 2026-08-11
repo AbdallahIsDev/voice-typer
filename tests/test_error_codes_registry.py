@@ -141,6 +141,15 @@ LEGACY_ALIASES: dict[str, str] = {
     # ``TestLegacyAliases`` skips entries whose counterpart is empty.
     "payload_too_large": "",
     "not_initialized": "",
+    # VP-5: Rust-host-only dispatch-cap codes emitted by the Tauri
+    # `#[tauri::command]` layer (`pending_full` / `data_too_large`).
+    # They have NO namespaced counterpart in ``ERROR_CODES`` (the
+    # renderer-side namespaced forms `client.pending_full` /
+    # `client.payload_too_large_dispatch` exist, but the wire carries
+    # the bare legacy forms today). Empty counterpart → skipped by
+    # ``test_legacy_alias_has_namespaced_counterpart``.
+    "pending_full": "",
+    "data_too_large": "",
     "not_found": "client.not_found",
 }
 
@@ -511,4 +520,31 @@ class TestTsErrorCodesParity:
                 "`src-tauri/src/commands/mod.rs::require_main_window` "
                 "and `src-tauri/src/commands/sidecar_cmds.rs`); the "
                 "renderer's error-envelope switch MUST have a case for it."
+            )
+
+    def test_ts_union_includes_rust_dispatch_cap_codes(self):
+        """the TS union MUST include the two bare Rust dispatch-cap
+        codes (``pending_full`` and ``data_too_large``).
+
+        VP-5: the Tauri ``#[tauri::command]`` dispatch layer emits the
+        BARE legacy forms (``PENDING_FULL_CODE = "pending_full"`` in
+        sidecar_cmds/allowlist.rs; ``"code": "data_too_large"`` in
+        sidecar_cmds/dispatch.rs) BEFORE dispatch reaches the Python
+        sidecar. The namespaced forms (``client.pending_full`` /
+        ``client.payload_too_large_dispatch``) are future-migration
+        targets only. The renderer's ``switch (code)`` must branch on
+        the bare forms, so the TS union must include them — otherwise
+        the parity test asserting only the namespaced forms passes
+        vacuously.
+        """
+        path = _find_ts_error_codes_file()
+        text = path.read_text(encoding="utf-8")
+        ts_codes = _parse_ts_error_codes_union(text)
+        for rust_code in ("pending_full", "data_too_large"):
+            assert rust_code in ts_codes, (
+                f"Rust dispatch-cap code {rust_code!r} is missing from the "
+                f"TS ErrorCodes union in {path.relative_to(REPO_ROOT)}. "
+                "The Tauri dispatch layer emits this BARE code before "
+                "dispatch reaches the Python sidecar; the renderer's "
+                "error-envelope switch MUST have a case for it."
             )

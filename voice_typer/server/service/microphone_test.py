@@ -171,9 +171,16 @@ class MicrophoneTestMixin(ServiceMixinBase):
                             if text.strip():
                                 result["transcription"] = text
                                 result["transcription_confidence"] = None
-                                log.info(
-                                    "[SERVICE] Test transcription: %.60s...",
-                                    text,
+                                # HU-21: the test-transcription text is the
+                                # user's dictated voice content (biometric
+                                # PII under GDPR Art. 9) — never log it,
+                                # not even truncated. Mirror the dictation
+                                # path (dictation_pipeline.py): log only
+                                # the char count, at DEBUG (the success is
+                                # observable via the IPC response).
+                                log.debug(
+                                    "[SERVICE] Test transcription: %d chars",
+                                    len(text),
                                 )
                             else:
                                 log.debug("[SERVICE] Test transcription: no speech detected")
