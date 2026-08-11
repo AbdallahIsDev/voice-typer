@@ -103,6 +103,104 @@ Rationale: Security — pinned versions prevent a compromised action update from
 Applies to: All agents, all modes. Especially relevant to IMPROVE mode targeting Group 6 (Testing & CI).
 ```
 
+```
+C-CI-2
+Rule: Do NOT edit `.github/workflows/tauri-windows-build.yml`, `.github/workflows/tauri-macos-build.yml`, `.github/workflows/tauri-linux-build.yml`, or the `.github/workflows/tauri-build.yml` orchestrator as a first-line fix for a failing build. Diagnose the root cause first. Any workflow change that is genuinely required must be validated by a full re-run of the affected job and confirmed with the user before it is kept.
+Rationale: This workflow is the most fragile piece of CI in the repo — it failed 50+ times before the current configuration passed end-to-end (first success 2026-08-11). Nearly every past failure was caused by an agent "fixing" the workflow (bumping a pin, adding/removing a Nuitka flag, reordering gates, changing the timeout) without understanding the accumulated, evidence-documented constraints inline in the file. Every non-obvious decision in the file carries an inline tag (NU-105, NU-106, IPD-1, S1-CR-99, S4-CR-25, S10-CC-1, CRIT-7, TX-23, TX-24, TX-40, WR-17, XS-28, MIG-1.5) documenting the failed attempt that produced it.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-3
+Rule: Do NOT reduce `timeout-minutes: 240` on the `tauri-windows-build` job, and do NOT "fix" a job timeout by editing the workflow file.
+Rationale: The real build takes 90-110 min (Nuitka C compilation + prewarm + cargo tauri build + signing). The timeout was raised 90→120 (2026-07-27) → 240 (2026-07-28) after a real run hit the 120-min ceiling and was canceled mid-build: the sidecar was built but the job died before prewarm + tauri + signing + upload. 240 min provides ~2h of buffer for timestamp-server retries during signing, flaky upload retries, and dependency bumps that invalidate the Nuitka ccache. If a build hits 240 min, the bottleneck is C compilation — reduce it with `--nofollow-import-to` exclusions or a larger runner, never by cutting the timeout.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-4
+Rule: Do NOT re-enable the aarch64 matrix leg in `tauri-windows-build.yml` (it exists only as a commented template in the `strategy.matrix` block), do NOT add any `matrix.*` reference to a `jobs.<id>.if` condition anywhere in the workflow, and do NOT uncomment the `push:` / `pull_request:` triggers.
+Rationale: (1) The `matrix` context is NOT available in `jobs.<id>.if` — GitHub rejects the workflow file at validation time with "Unrecognized named-value: 'matrix'", failing every push in 0s. (2) GitHub does not ship a public `windows-11-arm` runner (as of 2026-08), so an active aarch64 leg could never be scheduled and has no valid gate to skip it. (3) push/PR triggers must stay disabled until Phase 0-W passes on a real Windows host (ADR-0020 §15: manual dispatch only, no auto-update). Uncommenting requires: a `tauri.windows-aarch64.conf.json`, a PYBS release with an aarch64-pc-windows-msvc asset, arch-suffixed artifact names, AND tauri-build.yml's download steps updated in lockstep — all documented in the TX-40 GATE STATUS block at the top of the file.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-5
+Rule: Do NOT downgrade — and do NOT "upgrade" to a wrong major of — any pinned GitHub Action in the Tauri workflows below its Node-24-runtime version: `actions/checkout@v5`, `actions/setup-python@v7`, `actions/setup-node@v7`, `actions/cache@v5`, `actions/upload-artifact@v6`, `actions/download-artifact@v6`, `actions/attest-build-provenance@v4`, `astral-sh/setup-uv@v7`, `dtolnay/rust-toolchain@v1`. In particular `actions/upload-artifact@v5` / `actions/download-artifact@v5` / `astral-sh/setup-uv@v6` still run Node.js 20 — they produce deprecation warnings now and will HARD-FAIL when GitHub removes Node 20 from hosted runners (fall 2026). When bumping an action, verify the release notes declare `runs.using: node24` before pinning the new major.
+Rationale: Verified by an actual run (2026-08-11): with upload-artifact@v5 + setup-uv@v6 pinned, GitHub emitted "Node.js 20 is deprecated… being forced to run on Node.js 24". The repo's old header comments incorrectly claimed those majors were Node 24. The Node 24 majors are upload-artifact@v6+ / download-artifact@v6+ (released 2025-12-12; requires runner ≥2.327.1 — fine on hosted runners) and setup-uv@v7+ (released 2025-10-07; removed the `server-url` input, which no workflow here uses). This supersedes the earlier (incorrect) comments in the workflow headers.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-6
+Rule: Do NOT change the `nuitka==2.8.10` pin — it must stay in BOTH install steps of `tauri-windows-build.yml` (the uv dev-env step AND the PYBS frozen-env step). Do NOT "fix" a build failure by downgrading `numpy` below 2.5 in `requirements-lock.txt` instead.
+Rationale: Nuitka <2.8.0 CRASHES compiling numpy>=2.5: numpy 2.5 ships PEP 695 type-generic aliases (`type NDArray[ScalarT: np.generic] = ...` in numpy/_typing/_array_like.py) which trip Nuitka 2.5.x's `buildTypeAliasNode assert not node.type_params` (Nuitka issue #3469; generic PEP 695 classes also segfaulted — #3392/#3561). The 2.8 line is the first release supporting both. If a future build fails here, bump the Nuitka pin FORWARD — never downgrade numpy. (Tag: NU-105, documented inline at both install steps.)
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-7
+Rule: Do NOT remove, reorder, or bypass the fail-fast gates in `tauri-windows-build.yml` that run BEFORE `cargo tauri build`: (1) `scripts/build/sync_versions.py --check` (version lockstep across pyproject.toml / package.json / tauri.conf.json / Cargo.toml); (2) the config-drift pytest set (`tests/tauri/test_bundle_identifier_parity.py`, `test_gen_tauri_icons_stub.py::test_tauri_conf_icon_list_matches_tracked_icons`, `::test_per_arch_configs_do_not_override_bundle_icon`, `test_config_script_drift.py`); (3) stub generation (`python scripts/gen_tauri_icons_stub.py --check || python scripts/gen_tauri_icons_stub.py`); (4) `python scripts/gen_tauri_icons_stub.py --check-icons`. The stub-generation step MUST stay AFTER the drift pytest — the icons module's autouse fixture runs `--clean`, which deletes freshly-generated STUB files (real binaries are preserved by the `_is_stub_file` heuristic); reversing the order silently deletes the stubs `cargo tauri build` needs.
+Rationale: These gates convert 30-60 min build failures into <1 min failures (identifier↔appId parity, bundle.icon↔git lockstep, config↔script registry pairs, version lockstep, icon validity). Removing or reordering them re-exposes the drift regressions that caused long, expensive failed runs.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-8
+Rule: Do NOT add `--nofollow-import-to` for `torch.utils.data.distributed`, `torch.export`, `torch._functorch`, `torch.testing`, or `torch.package` to the sidecar Nuitka invocation, and do NOT remove `--module-parameter=torch-disable-jit=no`.
+Rationale: torch 2.13 imports those modules UNCONDITIONALLY at `import torch` time (torch/utils/data/__init__.py:32, torch/__init__.py:2869/:2324, torch/_jit_internal.py:47); excluding any of them makes `import torch` raise ModuleNotFoundError inside the frozen exe. `vad.py` catches that as ImportError and SILENTLY DISABLES Silero VAD in the shipped binary (verified on-host with a minimal frozen probe reproducing the exact traceback). `torch-disable-jit=no` is REQUIRED because Nuitka's torch plugin disables torch.jit by default in standalone mode, and VAD loads the bundled model via `torch.jit.load(silero_vad.jit)` — without the flag VAD fails with "module 'torch' has no attribute 'jit'" and silently degrades to the RMS fallback. The ONLY safe exclusions are the lazily-imported modules already listed in the file (`torch._dynamo`, `torch._inductor`, `torch.onnx`, `torch.utils.benchmark`, `transformers`, `scipy.*`, `psutil._ps*`, `sympy`, `mpmath`, `pytest`, `PIL.*` non-UI modules). (Tag: NU-106.)
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-9
+Rule: Do NOT remove `--include-package-data=voice_typer.server` from EITHER Nuitka invocation (sidecar AND prewarm), and do NOT remove `--windows-console-mode=disable` or `--onefile-tempdir-spec="..."` from either invocation.
+Rationale: The frozen sidecar reads package data at import time (`voice_typer/server/hotkey_reserved.json` via a __file__-relative path in config_validators/hotkey.py, plus corrections.json, model_hashes.json, native/binaries.json, silero_vad.jit). Without `--include-package-data` the onefile payload is missing them and the exe crashes on launch with FileNotFoundError — even though it BUILDS fine, so no CI existence check catches it (IPD-1). The console-mode flag is what makes the sidecar a GUI-subsystem PE (the smoke-test step depends on that behavior); the tempdir spec keeps onefile extraction in a predictable per-user cache dir instead of %TEMP%.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-10
+Rule: Do NOT remove the "Post-build assertion — bundle has no non-Windows binaries" step, do NOT widen `src-tauri/tauri.windows-x86_64.conf.json` `bundle.resources` beyond Windows-only files, and do NOT remove `--target <matrix.target>` / `--config <matrix.tauri_config>` from the `cargo tauri build` step.
+Rationale: The per-arch config narrows the base `tauri.conf.json`'s all-platform `bundle.resources` superset. If the narrowing is lost (or `--config` silently stops being applied), the NSIS installer bundles ~5 unnecessary prewarm binaries + 2 native key-listeners from macOS/Linux, bloating it by ~50-100 MB. The assertion fails the build if any forbidden non-Windows binary appears in the bundle directory. Building against the base config hard-fails at the tauri-build resource-copy step on a Windows host because the macOS/Linux-only files don't exist here. (Tag: XS-28.)
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-11
+Rule: Do NOT change the code-signing gates in `tauri-windows-build.yml`: `sign=true` + missing secrets MUST hard-fail the build; `sign=false` MUST skip signing even when secrets exist. Do NOT drop or merge any of the four signing steps (sidecar + prewarm + native listener; NSIS; MSI; standalone `voice-typer-tauri.exe`). Do NOT remove the job-level `env:` mapping of `WIN_CSC_LINK` / `WIN_CSC_KEY_PASSWORD`, and do NOT replace it with a `secrets.*` reference inside a step `if:` condition.
+Rationale: TX-23 — a misconfigured release must not silently ship unsigned (that's why sign=true + missing secrets hard-fails). S1-CR-99 — before the fix, the native listener, the MSI, and the standalone exe shipped UNSIGNED inside a signed installer; SmartScreen on Windows 11 flags unsigned binaries inside a signed installer ("Windows protected your PC" on first launch) and MSI/standalone users hit it on every install/launch. CRIT-7 — the `secrets` context is NOT populated in step `if:` conditions, so a gate on `secrets.X != ''` NEVER matches and signing is silently skipped; secrets must be mapped to job-level env first (empty on PR/fork builds → steps skip).
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-12
+Rule: Do NOT remove `CLCACHE_DISABLE: "1"` from the job-level `env:` block of the `tauri-windows-build` job, and do NOT move it into a step-level `$env:CLCACHE_DISABLE = "1"` assignment only.
+Rationale: S10-CC-1 — a step-level env var does NOT propagate to the Nuitka/SCons C compiler subprocess; with clcache enabled, torch module C compilation hangs indefinitely and the job times out (~90 min wasted). Job-level env is inherited by every subprocess and fixes the hang.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-13
+Rule: Do NOT rename the artifact names produced by `tauri-windows-build.yml` (`tauri-windows-installer`, `VoiceTyper-Tauri-MSI`, `VoiceTyper-Tauri-Sidecar-Binaries`, `VoiceTyper-Tauri-SHA256SUMS`, `tauri-binaries-manifest-windows`), and do NOT change the default binary filenames (`python-sidecar-<triple>.exe`, `prewarm-<triple>.exe`, `windows-key-listener.exe`).
+Rationale: `tauri-build.yml`'s aggregate job downloads `name: tauri-windows-installer` by exact literal, and `tests/tauri/mig18/test_windows_signing.py` greps the default binary names — renaming breaks aggregation and/or the signing tests. If the aarch64 leg is ever enabled, arch-suffix the artifact names AND update tauri-build.yml's download steps in the same commit.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-14
+Rule: Do NOT revert the sidecar smoke-test step to a naive `$output = & $sidecar --version 2>&1` invocation. The launch MUST use .NET `ProcessStartInfo` + `Process.WaitForExit(180000)` with redirected stdout/stderr and a hard 180 s kill.
+Rationale: The sidecar is frozen with `--windows-console-mode=disable`, making it a GUI-subsystem PE. PowerShell 7 does NOT wait for GUI-subsystem processes launched with `&` and never sets `$LASTEXITCODE` for them — the naive pattern yields empty output + a null exit code and ALWAYS fails the gate (reproduced with a minimal Nuitka onefile exe on pwsh 7.x). The .NET Process pattern is the only reliable way to capture exit code + stdout for GUI-subsystem binaries; the 180 s wait covers onefile bootloader extraction of the ~100 MB payload before argparse exits.
+Applies to: All agents, all modes, all sub-agents.
+```
+
+```
+C-CI-15
+Rule: Do NOT remove the tauri-binaries.json recording + integrity gates in `tauri-windows-build.yml` (`update_tauri_manifests.py --triple <triple>` then `--check --triple <triple>`, plus the manifest artifact upload), and do NOT change the SLSA attestation gate (`github.event_name == 'workflow_dispatch' && inputs.sign == 'true'`).
+Rationale: `tauri-binaries.json` is the integrity manifest the autostart launcher verifies fail-closed at login; the `--check` gate aborts the run on an empty/malformed hash so a bad manifest can never ship. The attestation gate must stay on workflow_dispatch + sign=true — the old `startsWith(github.ref, 'refs/tags/v')` gate never fired because the tag-push trigger is commented out (TX-24).
+Applies to: All agents, all modes, all sub-agents.
+```
+
 ---
 
 ## Category: Data & Privacy

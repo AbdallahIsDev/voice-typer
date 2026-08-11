@@ -29,6 +29,76 @@ block at the top of `.github/workflows/build.yml`). Node 20 was deprecated
 to `@v4`) — it reintroduces Node 20 runtime deprecation warnings and the
 `[DEP0040] punycode` DeprecationWarning.
 
+## Tauri release workflows — DO NOT BREAK (50+ failed runs)
+
+`.github/workflows/tauri-windows-build.yml` (plus `tauri-macos-build.yml`,
+`tauri-linux-build.yml`, and the `tauri-build.yml` orchestrator) is the most
+fragile CI in the repo: it failed **50+ times** before the current
+configuration passed end-to-end (first full success 2026-08-11). Every
+non-obvious decision inline in the file is the product of a failed run and
+carries an evidence tag (NU-105, NU-106, IPD-1, S1-CR-99, S4-CR-25,
+S10-CC-1, CRIT-7, TX-23, TX-24, TX-40, WR-17, XS-28, MIG-1.5).
+
+**Do NOT edit these workflows as a first-line fix for a failing build.**
+Diagnose the root cause; any genuinely required workflow change must be
+validated by a full re-run and confirmed with the user. The rules below are
+binding — full rationale for each is in `CONSTRAINTS.md` `C-CI-2`–`C-CI-15`:
+
+- **Never cut `timeout-minutes: 240`** (C-CI-3) — real build takes 90-110
+  min; it was raised twice after a 120-min ceiling canceled a build mid-way.
+- **Never re-enable the aarch64 matrix leg, never use `matrix.*` in
+  `jobs.<id>.if`, never uncomment push/PR triggers** (C-CI-4) — `matrix` is
+  unavailable in job-level `if:` (0s validation failure on every push), no
+  public `windows-11-arm` runner exists, and ADR-0020 §15 keeps releases
+  manual-only until Phase 0-W host validation passes.
+- **Keep every action on its Node-24 major** (C-CI-5):
+  `checkout@v5`, `setup-python@v7`, `setup-node@v7`, `cache@v5`,
+  `upload-artifact@v6`, `download-artifact@v6`, `attest-build-provenance@v4`,
+  `setup-uv@v7`, `rust-toolchain@v1`. `upload-artifact@v5` /
+  `download-artifact@v5` / `setup-uv@v6` still run Node 20 → deprecation
+  warnings now, hard failure when Node 20 is removed (fall 2026).
+- **Keep `nuitka==2.8.10` in BOTH install steps** (C-CI-6, NU-105) — Nuitka
+  <2.8 crashes compiling numpy 2.5's PEP 695 type aliases; never fix a build
+  by downgrading numpy below 2.5 — bump Nuitka forward.
+- **Never remove/reorder the pre-build fail-fast gates** (C-CI-7):
+  `sync_versions.py --check`, config-drift pytest, stub generation, and
+  `--check-icons`. Stub generation MUST stay AFTER the drift pytest (its
+  autouse fixture `--clean` deletes freshly generated stubs).
+- **Never add `--nofollow-import-to` for `torch.utils.data.distributed` /
+  `torch.export` / `torch._functorch` / `torch.testing` / `torch.package`;
+  never remove `--module-parameter=torch-disable-jit=no`** (C-CI-8, NU-106) —
+  unconditional imports break `import torch`, silently disabling Silero VAD
+  in the shipped exe; disable-jit=no is required for `torch.jit.load`.
+- **Never remove `--include-package-data=voice_typer.server`,
+  `--windows-console-mode=disable`, or `--onefile-tempdir-spec`** (C-CI-9,
+  IPD-1) — missing package data = FileNotFoundError at launch that builds
+  fine in CI.
+- **Never widen the Windows `bundle.resources` narrowing or drop
+  `--target`/`--config tauri.windows-x86_64.conf.json`** (C-CI-10, XS-28) —
+  loses the no-non-Windows-binaries assertion; base config hard-fails the
+  resource copy and the installer would bloat 50-100 MB.
+- **Never change the signing gates or drop any of the 4 signing steps**
+  (C-CI-11, TX-23/S1-CR-99/CRIT-7) — `sign=true` + missing secrets must
+  hard-fail; secrets must stay mapped to job-level env (unusable in step
+  `if:`); MSI/native/standalone exe must be signed too (SmartScreen).
+- **Keep `CLCACHE_DISABLE: "1"` at job level** (C-CI-12, S10-CC-1) —
+  step-level does not propagate to the SCons subprocess; torch C compilation
+  hangs indefinitely.
+- **Never rename the artifact/binary names** (C-CI-13) — `tauri-build.yml`
+  downloads `tauri-windows-installer` by literal; `mig18` tests grep the
+  default binary names.
+- **Never revert the sidecar smoke test to `& $exe --version`** (C-CI-14) —
+  GUI-subsystem PEs must be launched via .NET Process + WaitForExit.
+- **Never remove the tauri-binaries.json record/check gates or change the
+  SLSA attestation gate** (C-CI-15, TX-24) — the manifest is the
+  fail-closed integrity source at login; attestation fires on
+  workflow_dispatch + sign=true.
+
+Greppable anchors in the workflow file: `NU-105`, `NU-106`, `IPD-1`,
+`S1-CR-99`, `S4-CR-25`, `S10-CC-1`, `CRIT-7`, `TX-23`, `TX-24`, `TX-40`,
+`WR-17`, `XS-28`, `MIG-1.5` — each names the session/finding that produced
+the surrounding code.
+
 ## npm Overrides — DO NOT REMOVE
 
 `voice_typer/client/package.json` contains `overrides` that force-upgrade
