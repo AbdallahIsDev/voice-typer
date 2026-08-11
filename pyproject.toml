@@ -539,18 +539,20 @@ norecursedirs = [".venv", "dist", "build", "node_modules", "voice_typer/client",
 #   - platform_utils.py:82%  ✓ (>75% target)
 #   - clipboard.py:    100%  ✓ (was 40%; all 4 target modules now above 75%)
 #
-# ADR-0020 round-2 fix: the --cov flags require pytest-cov. When
-# pytest-cov is NOT installed (e.g. a bare `pip install .` without
-# [test] extras), a plain `pytest` invocation errors before collecting
-# with "unrecognized arguments: --cov=voice_typer". The `-p no:cacheprovider`
-# is harmless. To make `pytest` work out-of-the-box on a minimal install
-# while still enforcing coverage in CI (where [test] is installed), we
-# use the `-p no:cacheprovider` + `--cov` pair ONLY when pytest-cov is
-# present. The cleanest way: keep the flags here (CI installs [test]),
-# AND add a conftest.py at the repo root that strips --cov when
-# pytest-cov is absent (see conftest.py). This way:
-#   - CI (with [test]): coverage enforced at 65%.
-#   - Minimal install (no [test]): `pytest` runs without --cov errors.
+# ADR-0020 round-2 fix: the --cov / --timeout flags require pytest-cov /
+# pytest-timeout. When those plugins are NOT installed (e.g. a bare
+# `pip install pytest` CI job, or a `pip install .` without [test]
+# extras), pytest merges these ini addopts into its argv and errors
+# before collecting with "unrecognized arguments: --timeout=60
+# --timeout-method=thread --cov=voice_typer". To make `pytest` work
+# out-of-the-box on a minimal install while still enforcing coverage /
+# timeouts in CI (where [test] is installed), keep the flags here AND
+# have the root conftest.py register NO-OP stand-in options for the
+# missing plugins (see conftest.py — the stand-ins are skipped when the
+# real plugin is present, so real coverage/timeout behavior is intact).
+# This way:
+#   - CI (with [test]): coverage enforced at 65% + 60s test timeout.
+#   - Minimal install (no [test]): `pytest` runs without unknown-arg errors.
 # WR-1: --strict-markers + --strict-config convert unknown marker typos (e.g.
 # `@pytest.mark.rela_pynput` instead of `real_pynput`) and ini-parse errors
 # from silent warnings into hard failures at collection time. Without

@@ -915,12 +915,15 @@ jobs:
       # the sidecar — no execution. A Nuitka flag change or Cargo dep bump that
       # broke the sidecar's `--version` flag (argparse exit path) would only
       # surface during a release cut. The smoke test here invokes the bundled
-      # sidecar with `--version` (which exits 0 via argparse without acquiring
-      # the single-instance lock per ipc_server.py:2796-2815) and asserts the
-      # output contains the project name + version — proving the binary
-      # actually runs on the host OS, not just that it has the right ELF/PE
-      # headers. Gated on the sidecar existing (it always does after the build
-      # step above) and runs in <2s.
+      # sidecar with `--version` (which exits 0 via argparse in
+      # voice_typer/server/ipc/entrypoint.py without acquiring the
+      # single-instance lock) and asserts the output contains the project name
+      # + version — proving the binary actually runs on the host OS, not just
+      # that it has the right ELF/PE headers. Gated on the sidecar existing (it
+      # always does after the build step above). The Nuitka onefile bootloader
+      # must extract the ~100 MB payload + import the backend before argparse
+      # exits, so the launch below waits up to 180 s (see the GUI-subsystem
+      # caveat in the step body).
       - name: Smoke test sidecar binary (--version)
         shell: pwsh
         run: |
@@ -929,8 +932,37 @@ jobs:
             Write-Error "Sidecar binary not found at $sidecar — cannot smoke test."; exit 1
           }
           Write-Host "Invoking: $sidecar --version"
-          $output = & $sidecar --version 2>&1
-          $rc = $LASTEXITCODE
+          # GUI-subsystem caveat (important): Nuitka freezes the sidecar
+          # with --windows-console-mode=disable, so the exe is a
+          # GUI-subsystem PE. PowerShell 7 does NOT wait for GUI-subsystem
+          # processes launched with `&` and never sets $LASTEXITCODE for
+          # them — the naive `$output = & $sidecar --version 2>&1` pattern
+          # yields empty output + null exit code and always fails the gate
+          # (reproduced with a minimal Nuitka onefile exe on pwsh 7.x).
+          # Launch via .NET Process + WaitForExit so the real exit code
+          # and stdout are captured reliably regardless of subsystem.
+          $psi = [System.Diagnostics.ProcessStartInfo]::new()
+          $psi.FileName = $sidecar
+          $psi.Arguments = "--version"
+          $psi.UseShellExecute = $false
+          $psi.RedirectStandardOutput = $true
+          $psi.RedirectStandardError = $true
+          $psi.CreateNoWindow = $true
+          $proc = [System.Diagnostics.Process]::new()
+          $proc.StartInfo = $psi
+          $null = $proc.Start()
+          $outTask = $proc.StandardOutput.ReadToEndAsync()
+          $errTask = $proc.StandardError.ReadToEndAsync()
+          # The onefile bootloader extracts the ~100 MB payload + imports
+          # the backend before argparse exits, so allow up to 180 s; a
+          # genuinely broken binary (hang / crash before --version) fails
+          # the gate instead of burning the whole 240-min job budget.
+          if (-not $proc.WaitForExit(180000)) {
+            try { $proc.Kill($true) } catch { }
+            Write-Error "Sidecar --version did not exit within 180 s. The frozen binary is broken (hung)."; exit 1
+          }
+          $output = $outTask.Result
+          $rc = $proc.ExitCode
           Write-Host "Output: $output"
           Write-Host "Exit code: $rc"
           if ($rc -ne 0) {
