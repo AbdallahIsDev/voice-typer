@@ -86,9 +86,7 @@ async fn test_gt8_shutdown_sidecar_for_exit_aborts_heartbeat_handle() {
         }
     })
     .await
-    .expect(
-        "GT-8: shutdown_sidecar_for_exit must abort + clear the heartbeat handle within 3s",
-    );
+    .expect("GT-8: shutdown_sidecar_for_exit must abort + clear the heartbeat handle within 3s");
 
     // Stop the spawned shutdown task — its remaining 30s dev-mode
     // sleep is irrelevant to the assertion above.

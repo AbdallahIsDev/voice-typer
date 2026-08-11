@@ -552,6 +552,18 @@ fn test_combined_logger_log_format_is_clean() {
         "file:line leaked into clean log line: {}",
         content
     );
+    // ANSI-free contract: the host logger must NEVER emit escape
+    // sequences into its output streams. The Python launcher redirects
+    // the host's stderr to `tauri-stderr.log`; if the logger ever
+    // colorized, the file would fill with `\x1b[...m` codes (the same
+    // mess the Electron logs had pre-cleanup). Both the file line and
+    // the stderr line are built from the same plain `ts LEVEL msg`
+    // format, so asserting the file content pins the stderr sink too.
+    assert!(
+        !content.contains('\u{1b}'),
+        "ANSI escape leaked into clean log line: {:?}",
+        content
+    );
     std::fs::remove_dir_all(&tmp).ok();
 }
 

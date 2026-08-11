@@ -209,10 +209,10 @@ fn test_kill_process_tree_u32_max_is_noop() {
 #[cfg(unix)]
 #[test]
 fn test_signal_process_group_invalid_pgid_is_noop() {
-    super::signal_process_group(0, libc::SIGTERM);
-    super::signal_process_group(-1, libc::SIGTERM);
-    super::signal_process_group(0, libc::SIGKILL);
-    super::signal_process_group(-1, libc::SIGKILL);
+    super::posix_impl::signal_process_group(0, libc::SIGTERM);
+    super::posix_impl::signal_process_group(-1, libc::SIGTERM);
+    super::posix_impl::signal_process_group(0, libc::SIGKILL);
+    super::posix_impl::signal_process_group(-1, libc::SIGKILL);
 }
 
 /// `signal_process_group` must REFUSE to signal the host's own
@@ -231,8 +231,8 @@ fn test_signal_process_group_refuses_host_pgid() {
     let host_pgid = unsafe { libc::getpgrp() };
     assert!(host_pgid > 0, "host pgid should be positive");
     // This MUST NOT kill the test process.
-    super::signal_process_group(host_pgid, libc::SIGTERM);
-    super::signal_process_group(host_pgid, libc::SIGKILL);
+    super::posix_impl::signal_process_group(host_pgid, libc::SIGTERM);
+    super::posix_impl::signal_process_group(host_pgid, libc::SIGKILL);
     // If we reach here, the guard worked.
     assert!(host_pgid > 0);
 }
@@ -243,8 +243,8 @@ fn test_signal_process_group_refuses_host_pgid() {
 #[cfg(unix)]
 #[test]
 fn test_kill_process_group_if_safe_nonexistent_pid_is_noop() {
-    super::kill_process_group_if_safe(999_999, libc::SIGTERM);
-    super::kill_process_group_if_safe(999_999, libc::SIGKILL);
+    super::posix_impl::kill_process_group_if_safe(999_999, libc::SIGTERM);
+    super::posix_impl::kill_process_group_if_safe(999_999, libc::SIGKILL);
 }
 
 /// `kill_process_group_if_safe` for the test process's OWN pid
@@ -254,8 +254,8 @@ fn test_kill_process_group_if_safe_nonexistent_pid_is_noop() {
 #[test]
 fn test_kill_process_group_if_safe_own_pid_does_not_self_kill() {
     let own_pid = std::process::id();
-    super::kill_process_group_if_safe(own_pid, libc::SIGTERM);
-    super::kill_process_group_if_safe(own_pid, libc::SIGKILL);
+    super::posix_impl::kill_process_group_if_safe(own_pid, libc::SIGTERM);
+    super::posix_impl::kill_process_group_if_safe(own_pid, libc::SIGKILL);
     assert!(own_pid > 0);
 }
 
@@ -297,8 +297,8 @@ fn test_kill_process_tree_own_pid_does_not_self_kill() {
 #[cfg(unix)]
 #[test]
 fn test_signal_pid_nonexistent_pid_is_noop() {
-    super::signal_pid(999_999, libc::SIGTERM);
-    super::signal_pid(999_999, libc::SIGKILL);
+    super::posix_impl::signal_pid(999_999, libc::SIGTERM);
+    super::posix_impl::signal_pid(999_999, libc::SIGKILL);
 }
 
 /// `signal_pid` must not panic on `u32::MAX` (a pathologically
@@ -308,8 +308,8 @@ fn test_signal_pid_nonexistent_pid_is_noop() {
 #[cfg(unix)]
 #[test]
 fn test_signal_pid_u32_max_is_noop() {
-    super::signal_pid(u32::MAX, libc::SIGTERM);
-    super::signal_pid(u32::MAX, libc::SIGKILL);
+    super::posix_impl::signal_pid(u32::MAX, libc::SIGTERM);
+    super::posix_impl::signal_pid(u32::MAX, libc::SIGKILL);
 }
 
 /// `signal_name` must return the canonical names for the two
@@ -319,8 +319,8 @@ fn test_signal_pid_u32_max_is_noop() {
 #[cfg(unix)]
 #[test]
 fn test_signal_name_canonical() {
-    assert_eq!(super::signal_name(libc::SIGTERM), "SIGTERM");
-    assert_eq!(super::signal_name(libc::SIGKILL), "SIGKILL");
+    assert_eq!(super::posix_impl::signal_name(libc::SIGTERM), "SIGTERM");
+    assert_eq!(super::posix_impl::signal_name(libc::SIGKILL), "SIGKILL");
 }
 
 /// `enumerate_children_procfs` for the test process's OWN pid
@@ -339,7 +339,7 @@ fn test_enumerate_children_procfs_own_pid_no_children() {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let own_pid = std::process::id();
-    let children = super::enumerate_children_procfs(own_pid)
+    let children = super::posix_impl::enumerate_children_procfs(own_pid)
         .expect("reading /proc/self/task/self/children must succeed for the test process");
     assert!(
         children.is_empty(),
@@ -356,7 +356,7 @@ fn test_enumerate_children_procfs_own_pid_no_children() {
 #[cfg(target_os = "linux")]
 #[test]
 fn test_enumerate_children_procfs_nonexistent_pid_returns_err() {
-    let result = super::enumerate_children_procfs(999_999);
+    let result = super::posix_impl::enumerate_children_procfs(999_999);
     assert!(
         result.is_err(),
         "expected Err for nonexistent pid 999999, got {:?}",
@@ -372,7 +372,7 @@ fn test_enumerate_children_procfs_nonexistent_pid_returns_err() {
 #[cfg(unix)]
 #[test]
 fn test_enumerate_children_pgrep_pid_zero_returns_empty() {
-    let children = super::enumerate_children_pgrep(0);
+    let children = super::posix_impl::enumerate_children_pgrep(0);
     assert!(
         children.is_empty(),
         "enumerate_children_pgrep(0) must return empty (pgrep -P 0 would match init + kernel threads) — got {:?}",
@@ -389,7 +389,7 @@ fn test_enumerate_children_pgrep_pid_zero_returns_empty() {
 #[cfg(unix)]
 #[test]
 fn test_enumerate_children_pid_zero_returns_empty() {
-    let children = super::enumerate_children(0);
+    let children = super::posix_impl::enumerate_children(0);
     assert!(
         children.is_empty(),
         "enumerate_children(0) must return empty (pid 0 is the kernel scheduler) — got {:?}",
@@ -415,7 +415,7 @@ fn test_enumerate_children_own_pid_returns_empty() {
         .lock()
         .unwrap_or_else(|e| e.into_inner());
     let own_pid = std::process::id();
-    let children = super::enumerate_children(own_pid);
+    let children = super::posix_impl::enumerate_children(own_pid);
     assert!(
         children.is_empty(),
         "test process has no children — expected empty Vec, got {:?}",
@@ -431,7 +431,7 @@ fn test_enumerate_children_own_pid_returns_empty() {
 #[cfg(unix)]
 #[test]
 fn test_enumerate_children_nonexistent_pid_is_noop() {
-    let children = super::enumerate_children(999_999);
+    let children = super::posix_impl::enumerate_children(999_999);
     assert!(
         children.is_empty(),
         "nonexistent pid must yield empty Vec (best-effort), got {:?}",

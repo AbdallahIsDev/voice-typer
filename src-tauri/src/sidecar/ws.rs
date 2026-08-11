@@ -117,6 +117,39 @@ const EXPECTED_PROTOCOL_VERSION: u64 = 1;
 // reconnect path.
 const WS_AUTH_OK_TIMEOUT_SECS: u64 = 3;
 
+// cap the amount of WS frame text logged at the flood-prone
+// reader warn sites (HU-31). Inbound frames can carry
+// `transcription_partial` / `transcription_final` event data — the
+// user's dictated speech (PII). A malformed/truncated frame would
+// still contain partial transcription text; logging it verbatim
+// persists it to the host's rotating log file (which may be shared
+// with support or attached to crash reports). Keep at most
+// MAX_LOGGED_FRAME_TEXT_BYTES bytes (char-boundary safe) with a
+// `...[truncated]` marker so operators keep enough context to debug
+// while unbounded PII stays out of the log.
+const MAX_LOGGED_FRAME_TEXT_BYTES: usize = 256;
+
+/// Truncate WS frame text for logging (HU-31): keep at most
+/// [`MAX_LOGGED_FRAME_TEXT_BYTES`] bytes — never splitting a UTF-8
+/// char — and append `...[truncated]` when the input was cut. Short
+/// frames pass through unchanged.
+///
+/// `pub(super)` so the sibling `sidecar/ws_tests.rs` test module can
+/// unit-test the truncation contract (boundary safety + marker).
+pub(super) fn truncate_frame_text(text: &str) -> String {
+    if text.len() <= MAX_LOGGED_FRAME_TEXT_BYTES {
+        return text.to_string();
+    }
+    let mut end = MAX_LOGGED_FRAME_TEXT_BYTES;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    let mut out = String::with_capacity(end + "[truncated]".len() + 3);
+    out.push_str(&text[..end]);
+    out.push_str("...[truncated]");
+    out
+}
+
 /// drain all pending dispatch requests with a
 /// `sidecar_disconnected` error response so in-flight dispatches don't
 /// wait the full 120s timeout for a response that will never come.
@@ -667,10 +700,14 @@ fn spawn_reader_task(
                             Err(_) => {
                                 invalid_json_count = invalid_json_count.saturating_add(1);
                                 if invalid_json_count == 1 || invalid_json_count % 100 == 0 {
+                                    // HU-31: the malformed frame may still
+                                    // contain partial transcription text
+                                    // (PII) — log a bounded prefix, never
+                                    // the full frame.
                                     log::warn!(
                                         "[WS-READER] invalid JSON frame (count={}): {}",
                                         invalid_json_count,
-                                        text
+                                        truncate_frame_text(&text)
                                     );
                                 }
                                 continue;
@@ -711,10 +748,14 @@ fn spawn_reader_task(
                         else if v.get("id").is_some() {
                             non_numeric_id_count = non_numeric_id_count.saturating_add(1);
                             if non_numeric_id_count == 1 || non_numeric_id_count % 100 == 0 {
+                                // HU-31: same bounded-logging contract as
+                                // the invalid-JSON site — the frame may
+                                // carry transcription text, so never log
+                                // it verbatim.
                                 log::warn!(
                                     "[WS-READER] frame has non-numeric id field, ignoring (count={}): {}",
                                     non_numeric_id_count,
-                                    text
+                                    truncate_frame_text(&text)
                                 );
                             }
                             continue;

@@ -121,7 +121,13 @@ windows = { version = "0.61", features = [
 opt-level = "s"
 lto = true
 codegen-units = 1
-panic = "abort"
+# VP-2: `panic = "abort"` previously defeated every production
+# `catch_unwind` (main.rs initialize_sidecar, sidecar/ws.rs, supervisor.rs,
+# heartbeat.rs) — with abort, a panic in the sidecar spawn / WS loop /
+# respawn path ABORTED the whole Tauri host instead of being recovered.
+# `unwind` keeps the panic-safety layer live in shipped builds (binary is
+# marginally larger; the catch_unwind recovery is worth it).
+panic = "unwind"
 strip = true
 
 # MED-RR / RUST-9: optional dev feature that enables the Tauri devtools
@@ -138,3 +144,17 @@ all = "warn"
 cast_possible_truncation = "warn"
 unwrap_used = "warn"
 expect_used = "warn"
+# VP-4: restriction lints. Warn (not deny) so a deliberate panic /
+# todo stub surfaces in `cargo clippy` review without breaking the
+# build. `unwrap_in_result` flags Result-returning fns that unwrap
+# internally (defeats the caller's error handling); `panic`/`todo`/
+# `unimplemented`/`unreachable` flag panic-stub macros that abort the
+# process in release. The codebase currently has ZERO production
+# occurrences (only test files use them), so these stay quiet today
+# and only gate NEW regressions. MSRV-aware lint gating is configured
+# in `clippy.toml` (`msrv = "1.77"`, matching `rust-version`).
+unwrap_in_result = "warn"
+panic = "warn"
+todo = "warn"
+unimplemented = "warn"
+unreachable = "warn"

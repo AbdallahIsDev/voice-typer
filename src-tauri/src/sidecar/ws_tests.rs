@@ -8,7 +8,8 @@
 //! the `sidecar` parent module) can access it.
 
 use super::ws::{
-    drain_pending_with_disconnect_error, queue_auth_and_store_ws_tx, WS_WRITER_CHANNEL_CAPACITY,
+    drain_pending_with_disconnect_error, queue_auth_and_store_ws_tx, truncate_frame_text,
+    WS_WRITER_CHANNEL_CAPACITY,
 };
 use crate::sidecar::bubble_coalesce::bubble_coalesce_should_emit;
 use crate::state::{lock as mutex_lock, PendingMap};
@@ -693,4 +694,81 @@ fn test_bubble_level_emit_uses_current_payload_not_stale() {
             emit_idx
         );
     }
+}
+
+// ── WS frame-text truncation for warn logging (HU-31) ─────────────
+//
+// The reader task's flood-prone warn sites (invalid JSON + non-numeric
+// id) previously logged the FULL inbound frame text. Inbound frames can
+// carry `transcription_partial` / `transcription_final` event data —
+// the user's dictated speech (PII) — so a malformed/truncated frame
+// would persist that PII verbatim to the host's rotating log file.
+// `truncate_frame_text` bounds each warn line to a small byte cap with
+// a `...[truncated]` marker. These tests pin the truncation contract.
+
+#[test]
+fn test_hu31_truncate_short_frame_passthrough_unchanged() {
+    let short = r#"{"type":"bubble_level","data":{"level":0.5}}"#;
+    assert_eq!(
+        truncate_frame_text(short),
+        short,
+        "frames at or under the cap must pass through unchanged"
+    );
+}
+
+#[test]
+fn test_hu31_truncate_exact_cap_passthrough_unchanged() {
+    let exact = "a".repeat(256);
+    assert_eq!(
+        truncate_frame_text(&exact),
+        exact,
+        "a frame exactly at the byte cap must pass through unchanged"
+    );
+}
+
+#[test]
+fn test_hu31_truncate_long_frame_gets_marker() {
+    let long = "x".repeat(500);
+    let out = truncate_frame_text(&long);
+    assert!(
+        out.ends_with("...[truncated]"),
+        "truncated output must carry the marker: {:?}",
+        out
+    );
+    assert!(
+        out.len() < long.len(),
+        "truncated output must be shorter than the input"
+    );
+    assert!(
+        out.starts_with("x".repeat(256).as_str()),
+        "truncated output must keep the first 256 bytes"
+    );
+}
+
+#[test]
+fn test_hu31_truncate_preserves_utf8_char_boundary() {
+    // 300 CJK chars = 900 UTF-8 bytes; byte 256 is NOT a char boundary,
+    // so the truncation must back off to a boundary instead of panicking
+    // on a partial char.
+    let text = "中".repeat(300);
+    let out = truncate_frame_text(&text);
+    assert!(
+        out.is_char_boundary(out.len()),
+        "truncation must never split a UTF-8 char"
+    );
+    assert!(
+        out.ends_with("...[truncated]") && out.len() < text.len(),
+        "long multibyte frames must be truncated with the marker"
+    );
+}
+
+#[test]
+fn test_hu31_truncate_mixed_ascii_multibyte_boundary() {
+    // ASCII prefix then CJK: the cap lands mid-CJK-run, so the output
+    // must end at a boundary strictly before 256 bytes.
+    let text = format!("{}{}", "a".repeat(250), "中".repeat(50));
+    let out = truncate_frame_text(&text);
+    assert!(out.is_char_boundary(out.len()));
+    assert!(out.ends_with("...[truncated]"));
+    assert!(out.len() < text.len());
 }

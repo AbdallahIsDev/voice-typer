@@ -18,7 +18,9 @@ use std::time::Duration;
 use tokio::sync::oneshot;
 use tokio_tungstenite::tungstenite::Message;
 
-use super::allowlist::{is_command_allowed, DISALLOWED_COMMAND_CODE, PENDING_FULL_CODE, PENDING_MAX};
+use super::allowlist::{
+    is_command_allowed, DISALLOWED_COMMAND_CODE, PENDING_FULL_CODE, PENDING_MAX,
+};
 
 // per-command dispatch timeout routing ──────────────────────
 //
