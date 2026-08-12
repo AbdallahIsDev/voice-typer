@@ -28,6 +28,12 @@ runtime_log*.txt
 voice_typer_stderr.log
 PROBLEMS.md
 PROMPT.md
+
+# Local clippy toolchain workaround (MSYS2 response-file bug):
+# src-tauri/.cargo-tmp holds a linker wrapper + build-script helper
+# needed to run `cargo clippy` on this machine. Never commit.
+.cargo-tmp/
+src-tauri/.cargo-tmp/
 REPORT.md
 nul
 # Local test/debug

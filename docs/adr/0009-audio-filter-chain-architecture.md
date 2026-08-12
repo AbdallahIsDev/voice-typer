@@ -472,7 +472,7 @@ Notch Filter (hum):       [OFF] ▼
 | File | Changes |
 |---|---|
 | `voice_typer/server/audio_processor.py` | Gut the monolithic processor. Keep `AudioProcessor` as a thin wrapper around `FilterChain`. Delete `_apply_normalization` (B4), `_apply_noise_gate` (moved to chain), `_apply_rnnoise` (moved to chain), `_apply_highpass` (moved to chain), `process_full_audio` (post-capture deleted). Keep `process_chunk` as `chain.process()`. Update docstring. |
-| `voice_typer/server/recording.py` | Delete `_agc_update` (C1 — replaced by Compressor in chain). Delete `_apply_normalization` call. Keep VAD. |
+| `voice_typer/server/recording/` | Delete `_agc_update` (C1 — replaced by Compressor in chain). Delete `_apply_normalization` call. Keep VAD. |
 | `voice_typer/server/config.py` | Add new fields (§5.1), remove deleted fields (§5.2), change defaults (§5.3). Add migration logic in `load()`: if `noise_filter_enabled=False` → `audio_preset="off"`. |
 | `voice_typer/server/service.py` | Fix `apply_config_side_effects` to call `app._rebuild_audio_processor()` on noise_filter_* changes (§6.1). Move preset mapping to `audio_presets.py`. |
 | `voice_typer/server/app.py` | Add `_rebuild_audio_processor()` method. Delete `_audio_processor` construction in `__init__` (deferred to `_rebuild_audio_processor` called from `__init__`). |

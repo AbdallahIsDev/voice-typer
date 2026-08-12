@@ -31,7 +31,7 @@ Port Freestyle's macos-key-listener.swift, trimmed:
 - Mouse button 4/5 hooks, right-modifier distinction, F13–F24
 
 **Wire into:**
-- A new `MacNativeHotkey(HotkeyBackend)` in `hotkeys.py` that spawns the binary via `subprocess.Popen` and reads stdout
+- A new `MacNativeHotkey(HotkeyBackend)` in the `voice_typer/server/hotkeys/` package that spawns the binary via `subprocess.Popen` and reads stdout
 - Update `create_hotkey_backend()` to prefer this on macOS
 - Add Accessibility permission check + onboarding prompt (deep-link to `x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility`)
 

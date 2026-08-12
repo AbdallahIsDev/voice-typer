@@ -14,7 +14,7 @@ Voice Typer today is **Electron (React UI) + a separate Python backend + a separ
 
 1. Electron main process (hosts the React UI).
 2. `python -m voice_typer.server.ipc_server --port 9876` — the Python backend, spawned by `electron_launcher.py:13`, reached over a local TCP socket. This process does audio capture + model inference.
-3. `prewarm.py` — a standalone helper that warms the OS file cache at startup (kept intentionally separate; see ADR-0011).
+3. The `voice_typer/server/prewarm/` package (entry point `__main__.py`) — a standalone helper that warms the OS file cache at startup (kept intentionally separate; see ADR-0011).
 
 This ADR adopts **Tauri v2 + a Python Sidecar** as the replacement desktop runtime, and records the ordered migration plan. The Python backend and React UI are kept substantially as-is; only the shell and the transport change.
 
@@ -58,7 +58,7 @@ One Tauri app (ONE icon / install — multiple OS processes, see Process Model n
   └─ python-sidecar.exe           ← bundled externalBin, spawned & managed by Tauri
         UI → Tauri invoke / HTTP → Rust → localhost WebSocket → Python sidecar
         (sidecar runs faster-whisper / CTranslate2 — same Python backend as today)
-Plus: prewarm.py (separate boot helper, kept per ADR-0011)
+Plus: the `voice_typer/server/prewarm/` package (separate boot helper, kept per ADR-0011)
 
 > **Note:** although the sidecar and WebView2 renderer are drawn inside "One Tauri app", they are **separate OS processes**. This is one *application* (one icon/install), not one *process*.
 ```
@@ -207,6 +207,6 @@ Electron code is untouched throughout the migration. The Tauri + Sidecar build i
 - supervisor in `.workspace/TASKS.md` — crash isolation (restart backend only, keep UI alive).
 - `electron_launcher.py:13` — current spawn of `python -m voice_typer.server.ipc_server --port 9876` (replaced by sidecar in Phase 2).
 - `voice_typer/server/ipc_server.py`, `voice_typer/server/handlers/*` — TCP IPC + handler registry (bridged to sidecar WebSocket in Phase 2).
-- `voice_typer/server/prewarm.py`, `voice_typer/server/task_scheduler.py` — prewarm + BootTrigger (kept).
+- `voice_typer/server/prewarm/`, `voice_typer/server/task_scheduler.py` — prewarm + BootTrigger (kept).
 
 *End of document.*

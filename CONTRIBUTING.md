@@ -356,6 +356,73 @@ cargo tauri build
 
 > **Headless dev containers:** `cargo tauri dev` and `cargo tauri build` both require a display server for the WebView. `cargo check` and `cargo clippy` do not — they are the recommended validation commands in CI and on headless dev machines. See [`docs/migration/tauri-sidecar-bridge.md`](docs/migration/tauri-sidecar-bridge.md) § "What's NOT implemented this round" for the current host-validation status.
 
+#### Windows (MSYS2/mingw) clippy workaround
+
+On Windows machines that build the Rust host with the MSYS2/mingw-w64
+GCC toolchain (the `x86_64-pc-windows-gnu` target), `cargo clippy` can
+fail at the build-script **link** step with:
+
+```
+gcc @C:\Users\<you>\...\target\debug\build\...\rustcXXXXXX\linker-arguments
+Invalid argument
+```
+
+**Why:** when a linker command line is long (clippy's build-script
+links easily exceed Windows' 32K command-line limit), rustc passes the
+linker arguments via a response file and invokes the linker as
+`gcc @C:\...\linker-arguments`. MSYS2 gcc's response-file parser
+rejects **backslash** paths in the `@arg` ("Invalid argument"; it also
+mangles `C:\Users` into `C:Users`). Forward-slash `@C:/...` paths are
+accepted (verified manually).
+
+**Workaround (local-only — never commit):** the gitignored files under
+`src-tauri/` (see the `# Local clippy toolchain workaround (MSYS2
+response-file bug)` comment block in `.gitignore`) provide two pieces:
+
+1. **`src-tauri/.cargo/config.toml`** — pins the GNU-target linker and
+   archiver to the MSYS2 mingw tools so cargo invokes the right gcc:
+
+   ```toml
+   [target.x86_64-pc-windows-gnu]
+   linker = "x86_64-w64-mingw32-gcc.exe"
+   ar = "x86_64-w64-mingw32-gcc-ar.exe"
+   ```
+
+2. **`src-tauri/.cargo-tmp/linker_wrap.c`** (source) +
+   **`src-tauri/.cargo-tmp/linker-wrap.exe`** (built) — a small C
+   wrapper that: (a) rewrites every `@...` argument to forward slashes
+   (`C:\Users\...` → `C:/Users/...`), (b) polls briefly for the
+   response file in case clippy-driver's temp-dir cleanup races the
+   child linker (~10 s max backoff), (c) prepends the MSYS2 bin dirs
+   to `PATH` and sets `GCC_EXEC_PREFIX` so gcc's subprograms (`cc1`,
+   `collect2`, `liblto_plugin`) resolve when spawned from cargo's
+   minimal environment, then (d) `exec`s the real
+   `x86_64-w64-mingw32-gcc.exe`. Set `LW_DEBUG=1` to enable stderr
+   diagnostics.
+
+**Rebuild the wrapper** (from `src-tauri/`, after any edit to
+`linker_wrap.c`):
+
+```bash
+x86_64-w64-mingw32-gcc.exe -O2 -o .cargo-tmp/linker-wrap.exe .cargo-tmp/linker_wrap.c
+```
+
+**Use the wrapper** when the raw `x86_64-w64-mingw32-gcc.exe` still
+trips on the response-file bug — point cargo at it with the standard
+target-linker env var (no config edit needed):
+
+```bash
+cd src-tauri
+CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER=.cargo-tmp/linker-wrap.exe \
+  cargo clippy --all-targets -- -D warnings
+```
+
+(Or set `linker = ".cargo-tmp/linker-wrap.exe"` in
+`src-tauri/.cargo/config.toml` to make it the default for all cargo
+invocations on the GNU target.) These files are gitignored on purpose
+— the wrapper hardcodes this machine's MSYS2 install paths
+(`C:\msys64\...`), so it must never be committed or shipped.
+
 #### What's where
 
 | Path | Purpose |
