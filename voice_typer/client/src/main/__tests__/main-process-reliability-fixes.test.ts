@@ -216,7 +216,7 @@ const { mockElectronImpl, mockStateImpl, mockSingleInstanceImpl } = vi.hoisted(
 			},
 		},
 		mockStateImpl: {
-			current: (): Record<string, unknown> => {
+			current: (): MainState => {
 				throw new Error(
 					"[main-process-reliability] mock factory current() not set — the global beforeEach must assign it before any test imports the module (electron/state/single_instance are never imported at module scope)",
 				);
