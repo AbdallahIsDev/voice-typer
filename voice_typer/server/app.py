@@ -13,8 +13,7 @@ import weakref
 from typing import TYPE_CHECKING, Any
 
 # CRASH-HANDLER: Windows VEH + Python excepthook for silent crash diagnostics
-from voice_typer.server import crash_handler as _crash_handler
-from voice_typer.server import i18n
+from voice_typer.server import crash_handler as _crash_handler, i18n
 
 # Re-exported for monkeypatch.setattr("voice_typer.server.app.X", ...) in tests
 # and for runtime lookups from voice_typer.server.startup_tasks.  # ruff: noqa: F401
@@ -1785,10 +1784,15 @@ from voice_typer.server.single_instance import (  # noqa: E402,F401
 def main() -> None:
     """Entry point for the ``voice-typer`` console script (pyproject).
 
-     (fix): the ``VoiceTyperApp.main()`` line was accidentally deleted
+    (fix): the ``VoiceTyperApp.main()`` line was accidentally deleted
     in a prior refactor. pyproject.toml now points to
     ``voice_typer.server.ipc_server:main`` as the canonical entry point;
-    this function is kept as a thin re-export for backward compat.
+    this function is NOT a bare re-export — it (1) enables faulthandler
+    for crash thread-dumps (SIGSEGV/SIGABRT) and (2) wraps the canonical
+    ``ipc_server`` entry point in a top-level try/except that logs
+    ``[FATAL] backend crashed`` at ERROR and exits with code 1, so a
+    backend crash surfaces in the structured log instead of dying
+    silently (DE-50).
     """
     # Enable faulthandler for automatic thread-dump on SIGSEGV/SIGABRT.
     # Invaluable for debugging production crashes with CUDA/GPU drivers.

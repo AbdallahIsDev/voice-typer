@@ -93,6 +93,7 @@ def clean_env(monkeypatch):
         "VOICE_TYPER_DEBUG",
         "VOICE_TYPER_QUIET",
         "VOICE_TYPER_LOG_JSON",
+        "VOICE_TYPER_SESSION_ID",
         "HF_HOME",
     ):
         monkeypatch.delenv(var, raising=False)
@@ -554,6 +555,27 @@ class TestStartupBanner:  # noqa: N801
         # session — no per-line ids, no duplication in later banners).
         assert content.count("session=") == 1, (
             f"GT-B1-15: session= must appear exactly once; got:\n{content}"
+        )
+
+    def test_session_id_prefers_host_env_var(self, config_dir, clean_env, stub_side_effects, monkeypatch):
+        """GT-68: when the Rust host passes ``VOICE_TYPER_SESSION_ID``,
+        the Python sidecar uses it (instead of generating its own) so
+        both log streams share the same cross-process join key. A
+        malformed value falls back to generating a fresh 8-char hex id.
+        """
+        from voice_typer.server import log as _log_module
+
+        # 1. Well-formed host value is adopted verbatim.
+        monkeypatch.setenv("VOICE_TYPER_SESSION_ID", "a1b2c3d4")
+        logging_setup._setup_logging()
+        assert _log_module._session_id == "a1b2c3d4"
+
+        # 2. Malformed host value (uppercase + too long) is rejected and
+        #    falls back to a generated 8-char lowercase-hex id.
+        monkeypatch.setenv("VOICE_TYPER_SESSION_ID", "ZZZZZZZZZZZZ")
+        logging_setup._setup_logging()
+        assert re.fullmatch(r"[0-9a-f]{8}", _log_module._session_id), (
+            f"fallback session id must be 8-char lowercase hex; got: {_log_module._session_id!r}"
         )
 
     def test_banner_defaults_when_no_flags_set(self, config_dir, clean_env, stub_side_effects):

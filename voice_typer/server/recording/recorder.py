@@ -193,14 +193,16 @@ from .exceptions import (  # noqa: F401, E402 — re-exported for tests
 # state is initialized. See :mod:`.recorder_init` for the collaborator
 # construction order + the source-inspection compatibility notes.
 from .recorder_init import RecorderInitMixin  # noqa: F401, E402
-from .resampling import _SCIPY_PRELOADER_JOIN_TIMEOUT_S  # noqa: F401, E402 — re-exported for tests
 
 # Phase 4.5: ``resample_audio`` is the promoted body of
 # ``Recorder._resample_audio_impl``. ``Recorder._resample_audio_impl``
 # is now a 1-line delegator that calls this function so existing
 # internal call sites (``_resample_chunk`` / ``_prepare_audio``) and
 # any subclass overrides keep working unchanged.
-from .resampling import resample_audio as _resample_audio_fn  # noqa: F401, E402
+from .resampling import (  # noqa: E402 — re-exported for tests (post-comment import)
+    _SCIPY_PRELOADER_JOIN_TIMEOUT_S,  # noqa: F401 — re-exported for tests
+    resample_audio as _resample_audio_fn,  # noqa: F401
+)
 
 # Phase 4.5: ``SessionState`` owns the per-session state
 # reset, config-derived scalar caching, the bulk secure-clear
@@ -230,12 +232,10 @@ from .stream_lifecycle import StreamLifecycle  # noqa: F401, E402 — re-exporte
 # the Recorder class body focused on real behavior. ``Recorder`` inherits
 # from ``VadShimMixin`` so existing attribute access on ``Recorder``
 # instances keeps working unchanged.
-from .vad_helpers import VadShimMixin  # noqa: F401, E402
-from .vad_helpers import refresh_vad_caches as _refresh_vad_caches_fn  # noqa: F401, E402
-from .vad_helpers import (  # noqa: F401, E402
+from .vad_helpers import (  # noqa: F401, E402  # noqa: F401, E402
+    VadShimMixin,  # noqa: F401, E402
+    refresh_vad_caches as _refresh_vad_caches_fn,  # noqa: F401, E402
     vad_auto_calibrate as _vad_auto_calibrate_fn,
-)
-from .vad_helpers import (  # noqa: F401, E402
     vad_update as _vad_update_fn,
 )
 

@@ -232,8 +232,16 @@ class TestTCPLineIOCloseUsesShutdown:
             def reader():
                 # readline() will block until shutdown() interrupts it.
                 reader_started.set()
-                line = io.readline()
-                read_results.append(line)
+                try:
+                    line = io.readline()
+                    read_results.append(line)
+                except OSError:
+                    # close() aborts the blocked read (WinError 10053 /
+                    # 10038 on Windows) — that interruption IS the point
+                    # of this test; the close-path deadlock assertion
+                    # below is what matters. Record the abort instead of
+                    # leaking an unhandled thread exception.
+                    read_results.append("<aborted>")
 
             t = threading.Thread(target=reader, daemon=True)
             t.start()

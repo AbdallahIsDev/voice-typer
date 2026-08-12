@@ -23,8 +23,7 @@ import time
 from unittest.mock import MagicMock
 
 import pytest
-from voice_typer.server import app as app_module
-from voice_typer.server import electron_launcher
+from voice_typer.server import app as app_module, electron_launcher
 
 # ── launch_electron_frontend ────────────────────────────────────────────
 

@@ -39,10 +39,11 @@ import pytest
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
 # tests/clipboard/conftest.py (single source of truth —  dedup).
 # ---------------------------------------------------------------------------
-from voice_typer.server import clipboard as clip_mod  # noqa: E402
-
 # UIA singleton moved to clipboard_target_safety; reset it there.
-from voice_typer.server import clipboard_target_safety as safety_mod  # noqa: E402
+from voice_typer.server import (
+    clipboard as clip_mod,  # noqa: E402
+    clipboard_target_safety as safety_mod,  # noqa: E402
+)
 from voice_typer.server.clipboard import (  # noqa: E402
     ClipboardCopyError,
     ClipboardManager,

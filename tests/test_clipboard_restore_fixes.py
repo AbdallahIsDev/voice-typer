@@ -50,8 +50,10 @@ import time
 from unittest.mock import MagicMock, patch
 
 import pytest
-from voice_typer.server import clipboard as clip_mod  # noqa: E402
-from voice_typer.server import clipboard_snapshot as snap_mod  # noqa: E402
+from voice_typer.server import (
+    clipboard as clip_mod,  # noqa: E402
+    clipboard_snapshot as snap_mod,  # noqa: E402
+)
 from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 

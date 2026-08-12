@@ -95,8 +95,10 @@ def _ensure_pynput_imported() -> None:
     """
     if _cb._Key is not None and _cb._Controller is not None:
         return
-    from pynput.keyboard import Controller as _c  # noqa: N813
-    from pynput.keyboard import Key as _k  # noqa: N813
+    from pynput.keyboard import (
+        Controller as _c,  # noqa: N813
+        Key as _k,  # noqa: N813
+    )
 
     _cb._Key = _k
     _cb._Controller = _c

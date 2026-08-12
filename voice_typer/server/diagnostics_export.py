@@ -332,8 +332,6 @@ def create_diagnostic_bundle(recovery: CrashRecovery) -> str | None:
                 # directory path.
                 from voice_typer.server._secrets import (
                     _redact_home_path as _redact_home_path_for_env,
-                )
-                from voice_typer.server._secrets import (
                     redact_secret as _redact_secret_for_env,
                 )
 

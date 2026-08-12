@@ -95,6 +95,9 @@ class TestQwenChunking:
         engine._inference_cond = threading.Condition(engine._lock)
         engine._active_inference = 0
         engine._INFERENCE_BATCH_SIZE = 1
+        # __init__ normally sets this; __new__ skips __init__ (avoids model
+        # loading), so set it manually — the chunk loops check it.
+        engine._abort_event = threading.Event()
         engine.language = "en"
         engine.device = "cpu"
         mock_transcription = MagicMock()
@@ -120,6 +123,9 @@ class TestQwenChunking:
         engine._inference_cond = threading.Condition(engine._lock)
         engine._active_inference = 0
         engine._INFERENCE_BATCH_SIZE = 1
+        # __init__ normally sets this; __new__ skips __init__ (avoids model
+        # loading), so set it manually — the chunk loops check it.
+        engine._abort_event = threading.Event()
         engine.language = "en"
         engine.device = "cpu"
         mock_transcription = MagicMock()

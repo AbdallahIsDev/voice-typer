@@ -108,14 +108,8 @@ from voice_typer.server.config.loader import (  # noqa: F401 — re-exported for
 )
 from voice_typer.server.config.sanitization import (  # noqa: F401 — re-exported for Config classmethod delegators
     _derive_field_type_registry as _sanitization_derive_field_type_registry,
-)
-from voice_typer.server.config.sanitization import (
     _validate_non_numeric_fields as _sanitization_validate_non_numeric_fields,
-)
-from voice_typer.server.config.sanitization import (
     _warn_and_coerce as _sanitization_warn_and_coerce,
-)
-from voice_typer.server.config.sanitization import (
     _warn_and_reset as _sanitization_warn_and_reset,
 )
 from voice_typer.server.config_internals.migrations import (  # noqa: F401 — backward-compat re-export
@@ -236,6 +230,18 @@ log = logging.getLogger("voice_typer.server.config")
 # ``credential_store._keyring_available_cache``), but tests assert on it
 # to verify the warmup was wired by the caller.
 _warmup_called: bool = False
+
+# Windows-only: config directories whose owner-only ACL has ALREADY been
+# enforced in this process. ``tempfile.mkstemp`` creates files that
+# inherit the PARENT directory's DACL, so once ``save()`` tightens the
+# config dir ACL (at first-save creation), every subsequent
+# ``config.json`` / ``config.json.bak`` written into that dir is
+# automatically owner-only. ``_enforce_windows_owner_only_acl`` skips the
+# (expensive, ~210ms) ``icacls`` subprocess for files whose parent dir is
+# in this set — this was the dominant cost of every ``Config.save()`` on
+# Windows (~420ms/save), which made 80 concurrent saves exceed the
+# ``_CONFIG_LOCK_TIMEOUT_SECONDS`` (5s) cross-process lock deadline.
+_windows_owner_only_acl_verified: set[str] = set()
 
 
 def _default_hotkey_for_platform() -> str:
@@ -592,7 +598,7 @@ def _prune_kept_backups(directory: Path, *, prefix: str, keep: int) -> None:
             continue
 
 
-def _enforce_windows_owner_only_acl(path: "Path | str") -> None:
+def _enforce_windows_owner_only_acl(path: "Path | str") -> bool:
     """On Windows, restrict file/dir ACL to the current user only.
 
     Uses ``icacls`` to remove inherited ACEs (``/inheritance:r``) and
@@ -607,6 +613,20 @@ def _enforce_windows_owner_only_acl(path: "Path | str") -> None:
     world-readable. Calling this helper after every config write
     re-tightens the ACL to owner-only.
 
+    Fast path (the config-dir verification cache):
+    ``tempfile.mkstemp`` creates files that INHERIT the parent
+    directory's DACL.    ``Config.save()`` tightens the config dir's ACL
+    once, on the first save of this process, and records the dir in the
+    module ``_windows_owner_only_acl_verified`` set (the path is only
+    cached when the dir-wide icacls SUCCEEDS). Once a directory is
+    verified owner-only, every file created inside it afterwards
+    (``config.json``, ``config.json.bak``) is automatically owner-only,
+    so re-running ``icacls`` per file is redundant. This function skips
+    the ~210ms ``icacls`` subprocess for any path whose parent dir is in
+    the verified set, returning ``True`` immediately. A dir that could
+    NOT be tightened is never cached, so per-file enforcement keeps
+    running there (defense-in-depth preserved).
+
     Best-effort: logs a warning on failure but does NOT raise, so a
     permission-restricted environment (e.g. ``icacls`` not on PATH,
     user lacks WRITE_DAC, etc.) doesn't break ``save()``. The log
@@ -618,9 +638,22 @@ def _enforce_windows_owner_only_acl(path: "Path | str") -> None:
 
     Args:
         path: filesystem path (file or directory) to lock down.
+
+    Returns:
+        ``True`` if the ACL is (or is now) owner-only; ``False`` if
+        enforcement could not be confirmed (e.g. non-Windows is a
+        trivially-true no-op, but a failed ``icacls`` returns ``False``
+        so callers can choose NOT to mark the dir as verified).
     """
     if not is_windows():
-        return
+        return True
+    # Fast path: files inside a dir we already tightened inherit the
+    # owner-only DACL — no subprocess needed. Avoids ~420ms of icacls
+    # subprocess overhead per save (2 calls/save) that made concurrent
+    # saves exceed the cross-process lock deadline.
+    parent_dir = str(Path(path).parent)
+    if parent_dir in _windows_owner_only_acl_verified:
+        return True
     import subprocess
 
     username = os.environ.get("USERNAME") or os.environ.get("USER")
@@ -629,7 +662,7 @@ def _enforce_windows_owner_only_acl(path: "Path | str") -> None:
             "[CONFIG] cannot enforce Windows ACL on %s: USERNAME env var is empty",
             path,
         )
-        return
+        return False
     try:
         # /inheritance:r — remove all inherited ACEs
         # /grant:r      — replace (not merge) explicit grants
@@ -658,12 +691,15 @@ def _enforce_windows_owner_only_acl(path: "Path | str") -> None:
                 result.returncode,
                 (result.stderr or "").strip()[:200],
             )
+            return False
+        return True
     except (OSError, subprocess.SubprocessError) as e:
         log.warning(
             "[CONFIG] icacls ACL enforcement error on %s: %s",
             path,
             e,
         )
+        return False
 
 
 @dataclass
@@ -1498,9 +1534,24 @@ class Config:
         if is_windows() and (self._dirty or self._last_saved_bytes is None):
             try:
                 config_dir = _config_dir()
-                if not config_dir.exists():
-                    config_dir.mkdir(parents=True, exist_ok=True)
-                    _enforce_windows_owner_only_acl(config_dir)
+                config_dir.mkdir(parents=True, exist_ok=True)
+                # Tighten the config DIR's ACL on the FIRST save of this
+                # process, whether or not this call created the dir
+                # (Config.__init__ may already have created it, or a
+                # prior run left it behind). The path is only cached
+                # when the dir-wide icacls SUCCEEDS, so a dir that can't
+                # be tightened keeps per-file enforcement. Once verified,
+                # every file created by mkstemp inside the dir inherits
+                # the owner-only DACL, so the per-file icacls calls in
+                # _save_unlocked become cheap no-ops (see
+                # _enforce_windows_owner_only_acl fast path). Skipping
+                # re-verification avoids re-running dir-wide icacls on
+                # an existing dir.
+                if (
+                    str(config_dir) not in _windows_owner_only_acl_verified
+                    and _enforce_windows_owner_only_acl(config_dir)
+                ):
+                    _windows_owner_only_acl_verified.add(str(config_dir))
             except Exception:
                 pass
         try:

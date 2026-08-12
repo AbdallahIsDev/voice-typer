@@ -301,6 +301,18 @@ class TestWindowsOpenConfigFile:
             # recorder even though no Notepad/editor Popen was issued.
             if isinstance(cmd, list | tuple) and cmd and "icacls" in str(cmd[0]):
                 return MagicMock()
+            # Filter out lscpu (CPU inventory probe run by a library
+            # during config-dir setup / save) — same benign-library
+            # class as ldconfig; test_config_wiring.py filters it the
+            # same way. Without this filter the assertion below
+            # (popen_calls == []) fails because lscpu leaks into the
+            # recorder even though no Notepad/editor Popen was issued.
+            # The library invokes it as a BARE STRING (``Popen("lscpu")``)
+            # rather than a list, so the guard must accept ``str`` too.
+            if isinstance(cmd, list | tuple) and cmd and "lscpu" in str(cmd[0]):
+                return MagicMock()
+            if isinstance(cmd, str) and "lscpu" in cmd:
+                return MagicMock()
             popen_calls.append((a, kw))
             return MagicMock()
 
@@ -356,6 +368,15 @@ class TestWindowsOpenConfigFile:
             # (len(popen_calls) == 1) fails because icacls leaks into
             # the recorder alongside the Notepad fallback.
             if isinstance(args, list | tuple) and args and "icacls" in str(args[0]):
+                return _FakeProc(args)
+            # Filter out lscpu (CPU inventory probe run by a library
+            # during config-dir setup / save) — same benign-library
+            # class as ldconfig. See test_config_wiring.py for the
+            # equivalent filter. The library invokes it as a BARE
+            # STRING (``Popen("lscpu")``), so the guard accepts ``str``.
+            if isinstance(args, list | tuple) and args and "lscpu" in str(args[0]):
+                return _FakeProc(args)
+            if isinstance(args, str) and "lscpu" in args:
                 return _FakeProc(args)
             popen_calls.append(args)
             return _FakeProc(args)

@@ -50,8 +50,8 @@ def _is_linux() -> bool:
 class TestSecureCopyDbFile:
     """Direct unit tests for the ``_secure_copy_db_file`` helper."""
 
-    def test_copies_bytesfaithfully_and_fsycs(self, tmp_path):
-        """A normal file copy: bytes are preserved; mode is 0o600 on POSIX."""
+    def test_copies_bytesfaithfully(self, tmp_path):
+        """A normal file copy preserves bytes exactly on every platform."""
         from voice_typer.server.history_db import _secure_copy_db_file
 
         src = tmp_path / "src.bin"
@@ -62,9 +62,24 @@ class TestSecureCopyDbFile:
         _secure_copy_db_file(src, dst)
 
         assert dst.read_bytes() == payload
-        if _is_linux():
-            mode = stat.S_IMODE(os.lstat(dst).st_mode)
-            assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
+
+    @pytest.mark.skipif(
+        not sys.platform.startswith("linux"),
+        reason="0o600 mode-bit assertion is POSIX-only (Windows uses ACLs)",
+    )
+    def test_sets_0o600_perms_on_posix(self, tmp_path):
+        """TC-12: on POSIX, the secure copy sets mode 0o600 on the copy."""
+        from voice_typer.server.history_db import _secure_copy_db_file
+
+        src = tmp_path / "src.bin"
+        dst = tmp_path / "dst.bin"
+        payload = b"hello\x00\x01\x02world" * 1024  # ~11 KB
+        src.write_bytes(payload)
+
+        _secure_copy_db_file(src, dst)
+
+        mode = stat.S_IMODE(os.lstat(dst).st_mode)
+        assert mode == 0o600, f"expected 0o600, got {oct(mode)}"
 
     def test_refuses_to_follow_source_symlink_posix(self, tmp_path):
         """On POSIX, a symlink source raises OSError (ELOOP) at open time."""

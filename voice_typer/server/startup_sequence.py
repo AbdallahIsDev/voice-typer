@@ -36,8 +36,7 @@ import time
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from voice_typer.server import crash_handler as _crash_handler
-from voice_typer.server import onboarding_status
+from voice_typer.server import crash_handler as _crash_handler, onboarding_status
 from voice_typer.server.branding import APP_NAME
 from voice_typer.server.config import _config_dir
 from voice_typer.server.duration import format_duration
@@ -959,8 +958,6 @@ class StartupSequence:
         # block process exit.
         from voice_typer.server._timeout_utils import (
             TIMEOUT as _TIMEOUT_SENTINEL,
-        )
-        from voice_typer.server._timeout_utils import (
             _run_parallel_with_timeout,
         )
 

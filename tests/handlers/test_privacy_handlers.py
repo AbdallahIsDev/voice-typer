@@ -41,8 +41,6 @@ from voice_typer.server.handlers import PrivacyHandlersMixin as ReExportedMixin
 from voice_typer.server.handlers._base import HandlerBase
 from voice_typer.server.handlers.privacy_handlers import (
     PrivacyHandlersMixin,
-)
-from voice_typer.server.handlers.privacy_handlers import (
     __all__ as privacy_handlers_all,
 )
 

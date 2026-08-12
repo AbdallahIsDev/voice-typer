@@ -38,8 +38,11 @@ from pathlib import Path
 
 import pytest
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
-from voice_typer.server.clipboard import manager as mgr_mod  # noqa: E402
-from voice_typer.server.clipboard import restore, safety  # noqa: E402
+from voice_typer.server.clipboard import (  # noqa: E402
+    manager as mgr_mod,  # noqa: E402
+    restore,
+    safety,
+)
 
 # ---------------------------------------------------------------------------
 # 1. New submodules exist and expose the expected symbols.

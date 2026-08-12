@@ -17,8 +17,7 @@ import pytest
 # clearer: detect hypothesis up front, then set the skipif mark based
 # on the result.
 try:
-    from hypothesis import HealthCheck, given, settings
-    from hypothesis import strategies as st
+    from hypothesis import HealthCheck, given, settings, strategies as st
 
     HAS_HYPOTHESIS = True
 except ImportError:

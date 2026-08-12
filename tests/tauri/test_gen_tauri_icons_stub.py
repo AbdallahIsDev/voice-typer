@@ -41,6 +41,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import time
 import zlib
 from pathlib import Path
 
@@ -154,9 +155,20 @@ def _serialize_and_cleanup():
     """
     lock = filelock.FileLock(str(_LOCK_PATH), timeout=60)
     with lock:
+        # Self-heal before each test: a failed/killed earlier run can leave
+        # a committed icon corrupt on disk (transient Windows write error in
+        # a corrupt-writer test whose finally-restore also failed). Restore
+        # every committed icon to its git bytes so each test starts clean.
+        _restore_committed_icons()
         yield
         # Ensure stubs are cleaned up after each test (don't pollute the repo).
         _run("--clean")
+        # Self-heal after each test too: if THIS test hit the transient
+        # write failure and left an icon corrupt, the next test must not
+        # read it (was the root cause of a 3-failure cascade in full-suite
+        # runs). The corrupt-writer tests' own finally-restores are the
+        # primary path; this is the safety net.
+        _restore_committed_icons()
 
 
 def test_generate_creates_all_expected_stubs():
@@ -186,6 +198,68 @@ def test_generate_stdout_lists_summary():
 
 _DIM_TABLE = _script_module().EXPECTED_PNG_DIMENSIONS
 _ICNS_SIZES = _script_module().EXPECTED_ICNS_CHUNK_SIZES
+
+
+# ─── Committed-icon self-healing (C-TEST-5: test isolation) ──────────────
+# The corrupt-writer tests deliberately overwrite the committed icons with
+# broken bytes and restore them in a ``finally``. On Windows, those rapid
+# write→restore cycles can hit a transient ``OSError: [Errno 22] Invalid
+# argument`` (antivirus / file-lock contention) — and if the RESTORE write
+# then also fails, the icon is left corrupt on disk, which cascades into
+# every later test that reads it (seen as a 3-failure cluster in full-suite
+# runs: corrupt-writer IndexError + Pillow decode failure).
+#
+# Two guards make the module robust:
+#   1. ``_write_with_retry`` rides out the transient write failure window.
+#   2. The autouse fixture restores every committed icon to its git bytes
+#      BEFORE and AFTER each test — so a failed/killed earlier run can
+#      never leave corruption behind, and one test's transient failure can
+#      never poison the next.
+# ``git show`` reads the object store, NOT the working tree, so the
+# snapshot is authoritative even when the tree is dirty.
+_COMMITTED_ICON_RELS: tuple[str, ...] = tuple(sorted(_DIM_TABLE)) + ("icons/icon.ico", "icons/icon.icns")
+
+
+def _git_show_bytes(rel: str) -> bytes:
+    """The git-committed bytes for a src-tauri-relative icon path."""
+    res = subprocess.run(
+        ["git", "show", f"HEAD:src-tauri/{rel}"],
+        capture_output=True,
+        cwd=str(PROJECT_ROOT),
+    )
+    if res.returncode != 0:
+        raise RuntimeError(
+            f"cannot read committed icon {rel} via git show: "
+            f"{res.stderr.decode(errors='replace').strip()}"
+        )
+    return res.stdout
+
+
+_COMMITTED_ICON_BYTES: dict[str, bytes] = {rel: _git_show_bytes(rel) for rel in _COMMITTED_ICON_RELS}
+
+
+def _write_with_retry(path: Path, data: bytes) -> None:
+    """Write ``data`` to ``path``, retrying transient OSErrors.
+
+    Windows AV / file-lock contention can briefly block a write to a
+    just-written committed icon (``OSError: [Errno 22]``). Retrying a few
+    times with a short pause rides out the window; the last error is
+    re-raised so a genuine failure is still reported.
+    """
+    for attempt in range(5):
+        try:
+            path.write_bytes(data)
+            return
+        except OSError:
+            if attempt == 4:
+                raise
+            time.sleep(0.25)
+
+
+def _restore_committed_icons() -> None:
+    """Restore every committed icon to its git-committed bytes."""
+    for rel, data in _COMMITTED_ICON_BYTES.items():
+        _write_with_retry(SRC_TAURI / rel, data)
 
 
 # ─── Synthetic icon containers (structurally faithful to tauri icon) ─────
@@ -614,21 +688,21 @@ def test_check_ico_rejects_corrupt_ico():
     original = ico.read_bytes()
     try:
         # Case 1: valid ICONDIR header but truncated entry records.
-        ico.write_bytes(b"\x00\x00\x01\x00\x02\x00" + b"\x00" * 8)
+        _write_with_retry(ico, b"\x00\x00\x01\x00\x02\x00" + b"\x00" * 8)
         result = _run("--check-icons")
         assert result.returncode != 0
         assert "INVALID" in result.stderr or "INVALID" in result.stdout
 
         # Case 2: well-formed header + entry record pointing at a non-PNG blob.
         blob = b"\x00" * 64  # not a PNG
-        ico.write_bytes(
+        _write_with_retry(ico,
             struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", 32, 32, 0, 0, 1, 32, len(blob), 22) + blob
         )
         result = _run("--check-icons")
         assert result.returncode != 0
         assert "not PNG-compressed" in result.stderr or "not PNG-compressed" in result.stdout
     finally:
-        ico.write_bytes(original)
+        _write_with_retry(ico, original)
 
 
 # ─── --check-icons: ICNS red-tests ───────────────────────────────────────────
@@ -672,32 +746,32 @@ def test_check_icns_rejects_corrupt_icns():
     original = icns.read_bytes()
     try:
         # Case 1: bad magic.
-        icns.write_bytes(b"xxxx" + struct.pack(">I", 8))
+        _write_with_retry(icns, b"xxxx" + struct.pack(">I", 8))
         result = _run("--check-icons")
         assert result.returncode != 0
         assert "INVALID" in result.stderr or "INVALID" in result.stdout
         assert "bad icns magic" in result.stderr or "bad icns magic" in result.stdout
 
         # Case 2: valid magic but header length != file size.
-        icns.write_bytes(b"icns" + struct.pack(">I", 9999))
+        _write_with_retry(icns, b"icns" + struct.pack(">I", 9999))
         result = _run("--check-icons")
         assert result.returncode != 0
         assert "header length" in result.stderr or "header length" in result.stdout
 
         # Case 3: valid magic + length but zero chunks -> missing PNG chunks.
-        icns.write_bytes(b"icns" + struct.pack(">I", 8))
+        _write_with_retry(icns, b"icns" + struct.pack(">I", 8))
         result = _run("--check-icons")
         assert result.returncode != 0
         assert "missing PNG chunk" in result.stderr or "missing PNG chunk" in result.stdout
 
         # Case 4: chunk length overruns the file (header length == file size
         # so the chunk-walk itself must catch it).
-        icns.write_bytes(b"icns" + struct.pack(">I", 16) + b"ic07" + struct.pack(">I", 9999))
+        _write_with_retry(icns, b"icns" + struct.pack(">I", 16) + b"ic07" + struct.pack(">I", 9999))
         result = _run("--check-icons")
         assert result.returncode != 0
         assert "overruns file" in result.stderr or "overruns file" in result.stdout
     finally:
-        icns.write_bytes(original)
+        _write_with_retry(icns, original)
 
 
 # ─── --check-icons: PNG red-tests ────────────────────────────────────────────
@@ -742,14 +816,14 @@ def test_check_png_rejects_corrupt_png():
     original = png.read_bytes()
     try:
         # Case 1: bad magic.
-        png.write_bytes(b"not a png at all")
+        _write_with_retry(png, b"not a png at all")
         result = _run("--check-icons")
         assert result.returncode != 0
         assert "INVALID" in result.stderr or "INVALID" in result.stdout
         assert "bad magic" in result.stderr or "bad magic" in result.stdout
 
         # Case 2: valid magic + IHDR with a zero dimension.
-        png.write_bytes(
+        _write_with_retry(png,
             PNG_MAGIC
             + struct.pack(">I", 13)
             + b"IHDR"
@@ -762,12 +836,12 @@ def test_check_png_rejects_corrupt_png():
         assert "zero dimension" in result.stderr or "zero dimension" in result.stdout
 
         # Case 3: valid magic but first chunk is not IHDR.
-        png.write_bytes(PNG_MAGIC + b"\x00\x00\x00\x13XXXX" + b"\x00" * 21)
+        _write_with_retry(png, PNG_MAGIC + b"\x00\x00\x00\x13XXXX" + b"\x00" * 21)
         result = _run("--check-icons")
         assert result.returncode != 0
         assert "not IHDR" in result.stderr or "not IHDR" in result.stdout
     finally:
-        png.write_bytes(original)
+        _write_with_retry(png, original)
 
 
 def test_check_png_rejects_wrong_dimensions():
@@ -783,12 +857,12 @@ def test_check_png_rejects_wrong_dimensions():
     try:
         # A valid PNG of the WRONG size: 128x128.png is 128x128, but the
         # table (and the filename) say 32x32.png must be 32x32.
-        png.write_bytes((SRC_TAURI / "icons" / "128x128.png").read_bytes())
+        _write_with_retry(png, (SRC_TAURI / "icons" / "128x128.png").read_bytes())
         result = _run("--check-icons")
         assert result.returncode != 0, "--check-icons should fail on a wrong-sized PNG"
         assert "expected 32x32" in result.stderr or "expected 32x32" in result.stdout
     finally:
-        png.write_bytes(original)
+        _write_with_retry(png, original)
 
 
 def test_check_ico_rejects_missing_expected_size():
@@ -805,14 +879,14 @@ def test_check_ico_rejects_missing_expected_size():
         # Header (0/1/1) + a single 32x32 entry pointing at the committed
         # 32x32.png bytes (a real PNG, so the structural checks pass).
         blob = (SRC_TAURI / "icons" / "32x32.png").read_bytes()
-        ico.write_bytes(
+        _write_with_retry(ico,
             struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", 32, 32, 0, 0, 1, 32, len(blob), 22) + blob
         )
         result = _run("--check-icons")
         assert result.returncode != 0, "--check-icons should fail on an incomplete size set"
         assert "missing expected ICO sizes" in result.stderr or "missing expected ICO sizes" in result.stdout
     finally:
-        ico.write_bytes(original)
+        _write_with_retry(ico, original)
 
 
 def test_check_icns_rejects_wrong_png_chunk_size():
@@ -843,12 +917,12 @@ def test_check_icns_rejects_wrong_png_chunk_size():
         for ostype, n in _ICNS_LEGACY_PAYLOAD_SIZES:
             chunks.append(ostype + struct.pack(">I", 8 + n) + b"\x00" * n)
         body = b"".join(chunks)
-        icns.write_bytes(b"icns" + struct.pack(">I", 8 + len(body)) + body)
+        _write_with_retry(icns, b"icns" + struct.pack(">I", 8 + len(body)) + body)
         result = _run("--check-icons")
         assert result.returncode != 0, "--check-icons should fail on a wrong-sized PNG chunk"
         assert "expected 128x128" in result.stderr or "expected 128x128" in result.stdout
     finally:
-        icns.write_bytes(original)
+        _write_with_retry(icns, original)
 
 
 def test_check_icns_rejects_missing_canonical_chunk():
@@ -877,12 +951,12 @@ def test_check_icns_rejects_missing_canonical_chunk():
         for ostype, n in _ICNS_LEGACY_PAYLOAD_SIZES:
             chunks.append(ostype + struct.pack(">I", 8 + n) + b"\x00" * n)
         body = b"".join(chunks)
-        icns.write_bytes(b"icns" + struct.pack(">I", 8 + len(body)) + body)
+        _write_with_retry(icns, b"icns" + struct.pack(">I", 8 + len(body)) + body)
         result = _run("--check-icons")
         assert result.returncode != 0, "--check-icons should fail on a missing canonical chunk"
         assert "ic11" in result.stderr or "ic11" in result.stdout
     finally:
-        icns.write_bytes(original)
+        _write_with_retry(icns, original)
 
 
 def test_check_png_rejects_missing_idat():
@@ -895,14 +969,14 @@ def test_check_png_rejects_missing_idat():
     png = SRC_TAURI / "icons" / "32x32.png"
     original = png.read_bytes()
     try:
-        png.write_bytes(
+        _write_with_retry(png,
             PNG_MAGIC + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", 32, 32, 8, 6, 0, 0, 0)) + _png_chunk(b"IEND", b"")
         )
         result = _run("--check-icons")
         assert result.returncode != 0, "--check-icons should fail on a header-only PNG"
         assert "IDAT" in result.stderr or "IDAT" in result.stdout
     finally:
-        png.write_bytes(original)
+        _write_with_retry(png, original)
 
 
 def test_check_png_rejects_interlaced():
@@ -916,7 +990,7 @@ def test_check_png_rejects_interlaced():
     original = png.read_bytes()
     try:
         idat = zlib.compress((b"\x00" + b"\x00\x00\x00\x00" * 32) * 32)
-        png.write_bytes(
+        _write_with_retry(png,
             PNG_MAGIC
             + _png_chunk(b"IHDR", struct.pack(">IIBBBBB", 32, 32, 8, 6, 0, 0, 1))
             + _png_chunk(b"IDAT", idat)
@@ -926,7 +1000,7 @@ def test_check_png_rejects_interlaced():
         assert result.returncode != 0, "--check-icons should fail on an interlaced PNG"
         assert "interlace" in result.stderr or "interlace" in result.stdout
     finally:
-        png.write_bytes(original)
+        _write_with_retry(png, original)
 
 
 def test_check_png_rejects_corrupt_ihdr_crc():
@@ -941,12 +1015,12 @@ def test_check_png_rejects_corrupt_ihdr_crc():
     try:
         corrupted = bytearray(original)
         corrupted[29] ^= 0xFF  # flip a bit in the stored IHDR CRC
-        png.write_bytes(bytes(corrupted))
+        _write_with_retry(png, bytes(corrupted))
         result = _run("--check-icons")
         assert result.returncode != 0, "--check-icons should fail on a corrupt IHDR CRC"
         assert "CRC" in result.stderr or "CRC" in result.stdout
     finally:
-        png.write_bytes(original)
+        _write_with_retry(png, original)
 
 
 def test_check_ico_rejects_blob_dimension_mismatch():
@@ -959,14 +1033,14 @@ def test_check_ico_rejects_blob_dimension_mismatch():
     original = ico.read_bytes()
     try:
         blob = _synthetic_png(16, 16)  # valid PNG, wrong size for the entry
-        ico.write_bytes(
+        _write_with_retry(ico,
             struct.pack("<HHH", 0, 1, 1) + struct.pack("<BBBBHHII", 32, 32, 0, 0, 1, 32, len(blob), 22) + blob
         )
         result = _run("--check-icons")
         assert result.returncode != 0, "--check-icons should fail on a blob/entry dimension mismatch"
         assert "does not match declared" in result.stderr or "does not match declared" in result.stdout
     finally:
-        ico.write_bytes(original)
+        _write_with_retry(ico, original)
 
 
 @pytest.mark.real_pil

@@ -307,14 +307,19 @@ echo "::group::Phase 1c — cargo tauri build --target $TARGET_TRIPLE"
     if [[ "$HOST_PLATFORM" == "linux" && -f "tauri.linux-${HOST_ARCH}.conf.json" ]]; then
         TAURI_BUILD_ARGS+=(--config "tauri.linux-${HOST_ARCH}.conf.json")
         echo "[build_tauri_all] Linux: applying per-arch resource override tauri.linux-${HOST_ARCH}.conf.json"
-    elif [[ "$HOST_PLATFORM" == "windows" && -f "tauri.windows-x86_64.conf.json" ]]; then
-        # XS-28: Windows host — apply the Windows-only resource override so
-        # `cargo tauri build` doesn't try to copy macOS/Linux prewarm
-        # binaries that don't exist on a Windows runner. Mirrors the
-        # `--config tauri.windows-x86_64.conf.json` flag used by
-        # `.github/workflows/tauri-windows-build.yml`.
-        TAURI_BUILD_ARGS+=(--config "tauri.windows-x86_64.conf.json")
-        echo "[build_tauri_all] Windows: applying resource override tauri.windows-x86_64.conf.json"
+    elif [[ "$HOST_PLATFORM" == "windows" && -f "tauri.windows-${HOST_ARCH}.conf.json" ]]; then
+        # TC-35: mirror the Linux branch's per-arch selection instead of
+        # hardcoding x86_64. A Windows-on-ARM (aarch64) host now applies
+        # `tauri.windows-aarch64.conf.json` (which lists the aarch64
+        # prewarm binary) instead of silently breaking on the x86_64
+        # resource path. XS-28: Windows host — apply the Windows-only
+        # resource override so `cargo tauri build` doesn't try to copy
+        # macOS/Linux prewarm binaries that don't exist on a Windows
+        # runner. (CI's `tauri-windows-build.yml` stays on the x86_64
+        # config because its TX-40 matrix is x86_64-only; this script is
+        # arch-aware for local/dev builds on any Windows host.)
+        TAURI_BUILD_ARGS+=(--config "tauri.windows-${HOST_ARCH}.conf.json")
+        echo "[build_tauri_all] Windows: applying resource override tauri.windows-${HOST_ARCH}.conf.json"
     fi
     cargo tauri build "${TAURI_BUILD_ARGS[@]}"
 )

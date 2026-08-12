@@ -217,8 +217,7 @@ class TestVadPreloadCalled:
 
     def test_vad_preload_called_during_startup_run(self, app_for_startup_perf, monkeypatch):
         """``StartupSequence.run()`` must call ``vad.preload()``."""
-        from voice_typer.server import startup_sequence
-        from voice_typer.server import vad as vad_mod
+        from voice_typer.server import startup_sequence, vad as vad_mod
 
         preload_invoked = threading.Event()
 
@@ -264,8 +263,7 @@ class TestVadPreloadCalled:
         must NOT abort — the audio worker's RMS fallback handles the
         no-VAD case. This pins the best-effort contract documented in
         ``_spawn_vad_preload``."""
-        from voice_typer.server import startup_sequence
-        from voice_typer.server import vad as vad_mod
+        from voice_typer.server import startup_sequence, vad as vad_mod
 
         def _exploding_preload():
             raise RuntimeError("torch not available in test environment")

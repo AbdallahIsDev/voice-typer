@@ -45,9 +45,14 @@ PINNED_ACTION_VERSIONS: dict[str, str] = {
     "actions/setup-python": "v7",
     "actions/cache": "v5",
     "actions/setup-node": "v7",
-    "actions/upload-artifact": "v5",
-    "actions/download-artifact": "v5",
-    "astral-sh/setup-uv": "v6",
+    # Node 24 runtime versions (v5 upload/download-artifact and v6
+    # setup-uv run on the deprecated Node 20 runtime). Bumped by commit
+    # e80dbe1d "ci: bump upload/download-artifact to v6 and setup-uv to
+    # v7 (Node 24 runtime)" — keep these in lock-step with the
+    # workflows' uses: directives.
+    "actions/upload-artifact": "v6",
+    "actions/download-artifact": "v6",
+    "astral-sh/setup-uv": "v7",
     "dtolnay/rust-toolchain": "v1",
     "actions/attest-build-provenance": "v4",
 }

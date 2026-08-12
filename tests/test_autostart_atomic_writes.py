@@ -239,9 +239,7 @@ class TestDictationPipelineSentinelAtomicWrite:
     cannot leave a truncated cycle id that crash_recovery misparses."""
 
     def test_uses_secure_atomic_write_with_durability_false(self, monkeypatch, tmp_path):
-        from voice_typer.server import _paths as paths_mod
-        from voice_typer.server import dictation_pipeline as dp
-        from voice_typer.server import log as log_mod
+        from voice_typer.server import _paths as paths_mod, dictation_pipeline as dp, log as log_mod
 
         # Force the config dir to tmp_path so the sentinel lands there.
         monkeypatch.setattr(paths_mod, "config_dir", lambda: tmp_path)

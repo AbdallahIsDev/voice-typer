@@ -257,8 +257,7 @@ class TestTaskSweep:
     def _install_task_fakes(self, monkeypatch, xml_for_task):
         """Stub the platform + scheduler + PowerShell surfaces so the unit
         test never touches the real Task Scheduler / subprocess."""
-        from voice_typer.server import server_platform as _pkg
-        from voice_typer.server import task_scheduler as _ts
+        from voice_typer.server import server_platform as _pkg, task_scheduler as _ts
 
         monkeypatch.setattr(_pkg, "is_windows", lambda: True)
         monkeypatch.setattr(_ts, "is_supported", lambda: True)
@@ -354,8 +353,7 @@ class TestTaskSweep:
         """The completion marker is NOT written when the task enumeration
         fails — the sweep is retried on the next startup (a transient
         PowerShell failure can't permanently skip the task cleanup)."""
-        from voice_typer.server import server_platform as _pkg
-        from voice_typer.server import task_scheduler as _ts
+        from voice_typer.server import server_platform as _pkg, task_scheduler as _ts
         from voice_typer.server.server_platform import sweep_legacy_autostart_entries
 
         # Fake winreg makes the orchestrator's probe pass; simulate a
@@ -438,8 +436,7 @@ class TestSyncAutostartHook:
     """``sync_autostart`` invokes the marker-gated sweep on every startup."""
 
     def test_sync_autostart_invokes_legacy_sweep(self, tmp_config_dir, monkeypatch):
-        from voice_typer.server import app as _app_module
-        from voice_typer.server import server_platform as _pkg
+        from voice_typer.server import app as _app_module, server_platform as _pkg
         from voice_typer.server.startup_tasks import sync_autostart
 
         captured: dict = {}

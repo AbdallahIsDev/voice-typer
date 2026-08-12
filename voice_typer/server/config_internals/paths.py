@@ -552,8 +552,65 @@ def _migrate_from_legacy():
         )
         return
 
-    shutil.copytree(legacy, target, dirs_exist_ok=True)
-    log.info("[CONFIG] Migrated data from %s to %s", legacy, target)
+    # FI-13-A: the migration must be ATOMIC.  A direct
+    # ``shutil.copytree(legacy, target)`` is non-atomic — a crash or power
+    # loss mid-copy leaves a partially-populated ``target`` directory that
+    # the next launch treats as a completed migration (the ``target.exists()``
+    # guard above short-circuits), permanently losing the remainder of the
+    # user's data.  Instead: copy into a sibling staging directory, then
+    # atomically ``os.replace`` the staging dir onto ``target``.  ``os.replace``
+    # on a non-existent destination is a single rename(2)/MoveFileEx syscall —
+    # either ``target`` fully appears or it does not.  Staging lives in the
+    # same parent as ``target`` so the rename stays on one filesystem.
+    #
+    # The staging name is scoped to the current PID so a stale staging dir
+    # left behind by a CRASHED earlier process never collides with ours — a
+    # fixed name would force ``shutil.copytree`` (which requires the
+    # destination to not exist) to raise FileExistsError if the pre-copy
+    # ``rmtree`` failed on a Windows file lock, and that raise would
+    # propagate out of this startup-time function.  Stale ``*.migrate-tmp-*``
+    # dirs from dead processes are swept best-effort in the ``finally``
+    # block (never fatal — they are only ever our own incomplete copies).
+    staging = target.parent / (target.name + f".migrate-tmp-{os.getpid()}")
+    if staging.exists():
+        shutil.rmtree(staging, ignore_errors=True)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    migrated = False
+    try:
+        shutil.copytree(legacy, staging)
+        try:
+            os.replace(staging, target)
+            migrated = True
+        except OSError as e:
+            # A concurrent migration (another process racing the same
+            # one-time move) may have created ``target`` between the
+            # ``target.exists()`` guard and this rename.  On POSIX
+            # rename(2) fails with ENOTEMPTY/EEXIST for a non-empty
+            # destination; on Windows MoveFileEx fails (ERROR_ACCESS_DENIED
+            # for a non-empty directory, since it cannot replace one).
+            # Treat a now-existing ``target`` as the race condition it is —
+            # the concurrent migration won, so keep its result and drop our
+            # staging copy.  (Note: this branch also fires for any other
+            # OSError where ``target`` happens to exist, e.g. a partial
+            # target left by an old non-atomic migration — keeping it is
+            # still the safer choice than overwriting data we may not own.)
+            if target.exists():
+                log.warning(
+                    "[CONFIG] config dir %s appeared during atomic migration "
+                    "(%s) — keeping the concurrently-created target",
+                    target,
+                    e,
+                )
+            else:
+                raise
+    finally:
+        # drop our staging dir (and any stale siblings from dead processes)
+        # best-effort — never fatal at startup.
+        for candidate in target.parent.glob(target.name + ".migrate-tmp-*"):
+            with contextlib.suppress(OSError):
+                shutil.rmtree(candidate, ignore_errors=True)
+    if migrated:
+        log.info("[CONFIG] Migrated data from %s to %s", legacy, target)
 
 
 @contextlib.contextmanager

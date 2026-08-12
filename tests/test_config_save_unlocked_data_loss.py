@@ -209,8 +209,7 @@ class TestConfigSaveUnlockedDataLoss:
             ``_write_plaintext_fallback`` had just written and
             silently dropping the user's API key.
         """
-        from voice_typer.server import config as config_mod
-        from voice_typer.server import credential_store
+        from voice_typer.server import config as config_mod, credential_store
         from voice_typer.server.config import Config
 
         # Mock _write_plaintext_fallback to a no-op so the redundant

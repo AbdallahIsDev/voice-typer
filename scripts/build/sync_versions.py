@@ -59,6 +59,11 @@ ELECTRON_BUILDER = REPO_ROOT / "voice_typer" / "client" / "electron-builder.yml"
 # Tauri config report the same version as the Python package.
 TAURI_CONF_JSON = REPO_ROOT / "src-tauri" / "tauri.conf.json"
 CARGO_TOML = REPO_ROOT / "src-tauri" / "Cargo.toml"
+# TC-34: the Tauri binary integrity manifest (root-level tauri-binaries.json)
+# also hardcodes a ``version`` per binary entry. It must be synced on bump
+# so the autostart launcher's integrity gate compares against the current
+# app version instead of a stale one.
+TAURI_BINARIES_JSON = REPO_ROOT / "tauri-binaries.json"
 
 
 def read_pyproject_version() -> str:
@@ -202,6 +207,64 @@ def write_cargo_toml_version(version: str) -> None:
     CARGO_TOML.write_text(new_text, encoding="utf-8")
 
 
+def _version_sort_key(version: str) -> tuple[int, ...]:
+    """Split ``X.Y.Z`` into a numeric tuple for correct ordering.
+
+    Plain ``min()`` on strings is lexicographic — ``"10.0.0" < "9.9.9"``
+    — which would mis-report the drift direction. Comparing on the
+    numeric parts fixes that.
+    """
+    return tuple(int(part) for part in version.split("."))
+
+
+def read_tauri_binaries_version() -> str | None:
+    """Read the version from ``tauri-binaries.json``.
+
+    TC-34: the manifest stores a ``version`` string on every entry of
+    ``data["binaries"]``. Returns None if the file is absent or has no
+    binary entries (both are valid — the manifest is only created by
+    the Tauri build pipeline).
+    """
+    if not TAURI_BINARIES_JSON.exists():
+        return None
+    data = json.loads(TAURI_BINARIES_JSON.read_text(encoding="utf-8"))
+    versions = {
+        entry.get("version")
+        for entry in data.get("binaries", {}).values()
+        if isinstance(entry, dict) and entry.get("version")
+    }
+    if not versions:
+        return None
+    if len(versions) == 1:
+        return next(iter(versions))
+    # Entries drifted from each other (shouldn't happen — ``--apply``
+    # keeps them identical by construction). Surface the numerically
+    # smallest so ``--check`` flags the drift against pyproject.toml
+    # regardless of which entry moved.
+    return min(versions, key=_version_sort_key)
+
+
+def write_tauri_binaries_version(version: str) -> None:
+    """Update every binary-entry ``version`` field in ``tauri-binaries.json``.
+
+    Uses a targeted regex replace (like ``write_cargo_toml_version``) so
+    the file's exact formatting is preserved — no re-serialization churn
+    on the compact ``_platforms`` arrays or the large ``_comment``
+    prose. Matches only ``"version": "..."`` string fields (the three
+    binary entries); the top-level ``"version": 1`` schema int is a
+    bare number and is untouched.
+    """
+    text = TAURI_BINARIES_JSON.read_text(encoding="utf-8")
+    new_text, n = re.subn(
+        r'("version"\s*:\s*)"[^"]+"',
+        rf'\1"{version}"',
+        text,
+    )
+    if n == 0:
+        return  # no binary version fields — don't inject
+    TAURI_BINARIES_JSON.write_text(new_text, encoding="utf-8")
+
+
 def collect_versions() -> dict[str, str | None]:
     """Return a dict of {location: version_or_None}."""
     return {
@@ -211,6 +274,8 @@ def collect_versions() -> dict[str, str | None]:
         # WR-20: Tauri v2 host files
         "src-tauri/tauri.conf.json": read_tauri_conf_version(),
         "src-tauri/Cargo.toml": read_cargo_toml_version(),
+        # TC-34: Tauri binary integrity manifest
+        "tauri-binaries.json": read_tauri_binaries_version(),
     }
 
 
@@ -230,6 +295,10 @@ def apply_version(version: str) -> list[str]:
     if CARGO_TOML.exists() and read_cargo_toml_version() is not None:
         write_cargo_toml_version(version)
         updated.append(str(CARGO_TOML))
+    # TC-34: Tauri binary integrity manifest
+    if TAURI_BINARIES_JSON.exists() and read_tauri_binaries_version() is not None:
+        write_tauri_binaries_version(version)
+        updated.append(str(TAURI_BINARIES_JSON))
     return updated
 
 

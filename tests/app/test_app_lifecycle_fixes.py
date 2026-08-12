@@ -267,8 +267,7 @@ class TestConfigLoadRaisesInInit:
         """After ``self.tray`` is built, ``__init__`` must call
         ``tray.notify`` with a user-facing message about the config
         load failure."""
-        from voice_typer.server import app as app_module
-        from voice_typer.server import i18n
+        from voice_typer.server import app as app_module, i18n
         from voice_typer.server.config import Config
 
         monkeypatch.setattr(app_module, "is_autostart_enabled", lambda: False)

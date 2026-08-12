@@ -637,6 +637,7 @@ class TestLauncherInstallPathsMatchManifest:
 # TX-40) requires registering its config here.
 PER_ARCH_CONFIGS: dict[str, tuple[str, tuple[str, ...]]] = {
     "tauri.windows-x86_64.conf.json": ("windows", ("x86_64-pc-windows-msvc",)),
+    "tauri.windows-aarch64.conf.json": ("windows", ("aarch64-pc-windows-msvc",)),
     "tauri.macos.conf.json": (
         "macos",
         ("x86_64-apple-darwin", "aarch64-apple-darwin"),

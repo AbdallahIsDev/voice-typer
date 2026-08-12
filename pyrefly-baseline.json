@@ -5084,42 +5084,6 @@
   ],
   "_triage": [
     {
-      "line": 1114,
-      "column": 31,
-      "stop_line": 1114,
-      "stop_column": 33,
-      "path": "voice_typer/server/_secrets.py",
-      "code": -2,
-      "name": "bad-argument-type",
-      "description": "Argument `int | str | Unknown` is not assignable to parameter `ip_str` with type `str` in function `_is_private_ip`",
-      "concise_description": "Argument `int | str | Unknown` is not assignable to parameter `ip_str` with type `str` in function `_is_private_ip`",
-      "severity": "error"
-    },
-    {
-      "line": 286,
-      "column": 49,
-      "stop_line": 289,
-      "stop_column": 14,
-      "path": "voice_typer/server/_security_attributes.py",
-      "code": -2,
-      "name": "missing-argument",
-      "description": "Missing argument `acl` in function `weakref.finalize.__init__`",
-      "concise_description": "Missing argument `acl` in function `weakref.finalize.__init__`",
-      "severity": "error"
-    },
-    {
-      "line": 286,
-      "column": 49,
-      "stop_line": 289,
-      "stop_column": 14,
-      "path": "voice_typer/server/_security_attributes.py",
-      "code": -2,
-      "name": "missing-argument",
-      "description": "Missing argument `k32` in function `weakref.finalize.__init__`",
-      "concise_description": "Missing argument `k32` in function `weakref.finalize.__init__`",
-      "severity": "error"
-    },
-    {
       "line": 494,
       "column": 24,
       "stop_line": 494,
@@ -8924,11 +8888,11 @@
       "severity": "error"
     },
     {
-      "line": 405,
+      "line": 419,
       "column": 44,
-      "stop_line": 405,
+      "stop_line": 419,
       "stop_column": 57,
-      "path": "voice_typer/server/secure_file_io.py",
+      "path": "voice_typer/server/security/file_io.py",
       "code": -2,
       "name": "missing-attribute",
       "description": "No attribute `O_NOFOLLOW` in module `os`",

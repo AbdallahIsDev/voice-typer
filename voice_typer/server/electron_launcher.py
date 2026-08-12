@@ -307,12 +307,27 @@ def terminate_electron(pid: int) -> None:
     try:
         if is_windows():
             # taskkill /T /F kills the entire process tree.
-            subprocess.run(
-                ["taskkill", "/T", "/F", "/PID", str(pid)],
-                capture_output=True,
-                timeout=5,
-            )
-            return
+            try:
+                subprocess.run(
+                    ["taskkill", "/T", "/F", "/PID", str(pid)],
+                    capture_output=True,
+                    timeout=5,
+                )
+                return
+            except subprocess.TimeoutExpired:
+                # XZ-R6-AS-10: taskkill hung (e.g. a wedged process
+                # tree) — the previous blanket `except Exception`
+                # swallowed this at DEBUG, silently leaving orphaned
+                # Electron renderer/GPU processes behind. Log at
+                # WARNING and fall back to a direct SIGTERM so the
+                # shutdown path still makes a best-effort kill.
+                log.warning(
+                    "[LAUNCHER] taskkill /T /F timed out for pid=%s — falling back to direct SIGTERM",
+                    pid,
+                )
+                with contextlib.suppress(OSError, ProcessLookupError):
+                    os.kill(pid, signal.SIGTERM)
+                return
         # POSIX: SIGTERM, wait 3s, SIGKILL if still alive.
         try:
             os.kill(pid, signal.SIGTERM)

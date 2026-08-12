@@ -36,10 +36,8 @@ from voice_typer.server._audio_constants import WHISPER_SAMPLE_RATE as _WHISPER_
 # suppression on the import below)
 # for backward compatibility with tests that patch
 # ``voice_typer.server.transcription.cleanup_hf_cache_dir``.
-from voice_typer.server._hf_cache_cleanup import (  # noqa: F401
+from voice_typer.server._hf_cache_cleanup import (  # noqa: F401  # noqa: F401
     cleanup_failed_cache as _cleanup_failed_cache,
-)
-from voice_typer.server._hf_cache_cleanup import (  # noqa: F401
     cleanup_hf_cache_dir,
 )
 from voice_typer.server._lazy_import import lazy_module

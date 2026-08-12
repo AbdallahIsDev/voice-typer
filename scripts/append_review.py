@@ -614,7 +614,7 @@ add(
     "❌ Not Fixed",
     "The _writer task does `json.dumps(event)` (CPU-bound, ~50-100ms for near-1MiB frame) then `websocket.send(raw)` "
     "(can block indefinitely on slow consumer) — both on the asyncio event loop thread. During json.dumps, no other "
-    "coroutine runs including _read_loop (heartbeat acks delayed → host triggers FT-1 respawn).",
+    "coroutine runs including _read_loop (heartbeat acks delayed → host triggers supervisor respawn).",
     "Under a burst of large outbound events, the sidecar becomes unresponsive to inbound frames. A slow host freezes "
     "the sidecar's read path.",
     "No off-loop serialization, no send timeout.",

@@ -25,7 +25,7 @@ Tauri host now handles it via a dedicated Rust command. The
 corresponding ``TestExportDiagnostics`` class was removed in
 lockstep; the catch-all envelope-shape regression it covered is
 still exercised by ``TestHandlerCatchAllEnvelopeShape`` in
-``tests/handlers/test_r13_f3_error_envelope_code_field.py`` via
+``tests/handlers/test_error_envelope_code_field.py`` via
 ``_handle_cancel_model_download``.
 """
 

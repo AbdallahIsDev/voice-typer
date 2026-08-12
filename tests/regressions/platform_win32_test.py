@@ -280,30 +280,157 @@ class TestWindowsPathMigrationCoverage:
 
         assert hasattr(cfg_mod, "_migrate_from_legacy"), "PLAT-005: _migrate_from_legacy function must exist."
 
-    def test_migrate_copies_files_from_legacy_to_new(self, tmp_path, monkeypatch):
-        """Create a file in the legacy location, run migration, verify
-        it's copied to the new location.
+    def _run_migration(self, tmp_path: Path, monkeypatch, target: Path):
+        """Drive ``_migrate_from_legacy`` for real on a Linux-style
+        ``XDG_CONFIG_HOME`` layout.
+
+        ``_migrate_from_legacy`` resolves the legacy location from the
+        platform helpers (looked up via the ``config`` module attributes
+        ``is_windows`` / ``is_macos``) and the env vars, then copies to
+        :func:`_config_dir`.  We force the non-Windows/non-macOS branch
+        and point ``XDG_CONFIG_HOME`` at ``tmp_path`` so the legacy dir
+        is ``tmp_path/voice-typer``; the target is ``target`` (pinned via
+        ``config._config_dir``).
         """
         from voice_typer.server import config as cfg_mod
 
-        # Set up: legacy dir = tmp_path/legacy, new dir = tmp_path/new
-        legacy_dir = tmp_path / "legacy"
-        new_dir = tmp_path / "new"
-        legacy_dir.mkdir()
-        new_dir.mkdir()
-
-        # Create a test file in the legacy location
+        monkeypatch.setattr(cfg_mod, "is_windows", lambda: False)
+        monkeypatch.setattr(cfg_mod, "is_macos", lambda: False)
+        monkeypatch.setattr(cfg_mod, "_config_dir", lambda: target)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        # ensure a real legacy dir exists at tmp_path/voice-typer
+        legacy_dir = tmp_path / "voice-typer"
+        legacy_dir.mkdir(parents=True, exist_ok=True)
         (legacy_dir / "config.json").write_text('{"test": true}')
-        (legacy_dir / "corrections.json").write_text("{}")
+        (legacy_dir / "subdir").mkdir(exist_ok=True)
+        (legacy_dir / "subdir" / "corrections.json").write_text("{}")
+        assert not target.exists()
+        cfg_mod._migrate_from_legacy()
+        return legacy_dir
 
-        # Patch _config_dir to return new_dir
-        monkeypatch.setattr(cfg_mod, "_config_dir", lambda: new_dir)
+    def _staging_name(self, target: Path) -> str:
+        """The PID-scoped staging dir name ``_migrate_from_legacy`` uses."""
+        import os
 
-        # Run migration — should copy files from legacy_dir to new_dir
-        # The function may take no args and use a hardcoded legacy path,
-        # or it may accept the legacy path. We test via source inspection
-        # that the function exists and is callable.
-        assert callable(cfg_mod._migrate_from_legacy)
+        return target.name + f".migrate-tmp-{os.getpid()}"
+
+    def test_migrate_copies_files_from_legacy_to_new(self, tmp_path, monkeypatch):
+        """FI-13-A: ``_migrate_from_legacy`` copies the legacy tree into
+        the target config dir (real execution, not just source inspection).
+        """
+        from voice_typer.server import config as cfg_mod
+
+        target = tmp_path / "new"
+        self._run_migration(tmp_path, monkeypatch, target)
+
+        # the migrated files land in the target dir
+        assert (target / "config.json").read_text() == '{"test": true}'
+        assert (target / "subdir" / "corrections.json").read_text() == "{}"
+        # the legacy dir is left in place (one-time copy, not move)
+        assert (tmp_path / "voice-typer" / "config.json").exists()
+        # no leftover staging dir
+        assert not (target.parent / self._staging_name(target)).exists()
+        # calling it again is a no-op (target now exists)
+        cfg_mod._migrate_from_legacy()
+        assert (target / "config.json").read_text() == '{"test": true}'
+
+    def test_migrate_is_atomic_cleanup_on_failed_replace(self, tmp_path, monkeypatch):
+        """FI-13-A: if the final ``os.replace`` fails, the migration must
+        NOT leave a partially-populated target dir or a stale staging dir.
+        """
+        import voice_typer.server.config_internals.paths as paths_mod
+        from voice_typer.server import config as cfg_mod
+
+        target = tmp_path / "new"
+        self._run_migration_prepare(tmp_path, monkeypatch, target)
+
+        calls = []
+
+        def _failing_replace(src, dst):
+            calls.append((src, dst))
+            raise OSError("simulated rename failure")
+
+        monkeypatch.setattr(paths_mod.os, "replace", _failing_replace)
+        with pytest.raises(OSError):
+            cfg_mod._migrate_from_legacy()
+
+        # os.replace was attempted exactly once, from the staging dir
+        assert len(calls) == 1
+        assert Path(calls[0][0]).name == self._staging_name(target)
+        assert Path(calls[0][1]) == target
+        # target was never created (atomicity — no partial migration)
+        assert not target.exists()
+        # the staging dir was cleaned up in the finally block
+        assert not (target.parent / self._staging_name(target)).exists()
+        # the legacy dir is untouched so a later retry can succeed
+        assert (tmp_path / "voice-typer" / "config.json").read_text() == '{"test": true}'
+
+    def test_migrate_keeps_concurrently_created_target(self, tmp_path, monkeypatch):
+        """FI-13-A: if another process creates ``target`` between the
+        guard and the rename (the race branch), the migration must NOT
+        raise, must keep the concurrent target, and must clean up staging.
+        """
+        import voice_typer.server.config_internals.paths as paths_mod
+        from voice_typer.server import config as cfg_mod
+
+        target = tmp_path / "new"
+        self._run_migration_prepare(tmp_path, monkeypatch, target)
+
+        calls = []
+
+        def _race_replace(src, dst):
+            calls.append((src, dst))
+            # the concurrent migration finishes BETWEEN the target.exists()
+            # guard (which ran while target was absent) and this rename:
+            # the target directory appears now.
+            target.mkdir()
+            (target / "concurrent.json").write_text('{"concurrent": true}')
+            raise OSError("destination already exists")
+
+        monkeypatch.setattr(paths_mod.os, "replace", _race_replace)
+        # must not raise — the concurrent target is kept
+        cfg_mod._migrate_from_legacy()
+
+        assert len(calls) == 1
+        # the concurrent result survives
+        assert (target / "concurrent.json").read_text() == '{"concurrent": true}'
+        # our staging copy was cleaned up
+        assert not (target.parent / self._staging_name(target)).exists()
+
+    def test_migrate_sweeps_stale_staging_from_dead_process(self, tmp_path, monkeypatch):
+        """FI-13-A: a stale staging dir left by a crashed earlier process
+        (different PID suffix) must be swept after a successful migration.
+        """
+        from voice_typer.server import config as cfg_mod
+
+        target = tmp_path / "new"
+        self._run_migration_prepare(tmp_path, monkeypatch, target)
+
+        stale = target.parent / (target.name + ".migrate-tmp-999999")
+        stale.mkdir()
+        (stale / "partial.json").write_text("{}")
+
+        cfg_mod._migrate_from_legacy()
+
+        # migrated + stale staging swept
+        assert (target / "config.json").read_text() == '{"test": true}'
+        assert not stale.exists()
+        assert not (target.parent / self._staging_name(target)).exists()
+
+    def _run_migration_prepare(self, tmp_path: Path, monkeypatch, target: Path):
+        """Same setup as ``_run_migration`` but returns WITHOUT invoking
+        the migration (so the caller can inject a failing ``os.replace``
+        before it runs)."""
+        from voice_typer.server import config as cfg_mod
+
+        monkeypatch.setattr(cfg_mod, "is_windows", lambda: False)
+        monkeypatch.setattr(cfg_mod, "is_macos", lambda: False)
+        monkeypatch.setattr(cfg_mod, "_config_dir", lambda: target)
+        monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+        legacy_dir = tmp_path / "voice-typer"
+        legacy_dir.mkdir(parents=True, exist_ok=True)
+        (legacy_dir / "config.json").write_text('{"test": true}')
+        assert not target.exists()
 
     def test_config_dir_uses_platform_paths(self):
         """_config_dir must check VOICE_TYPER_CONFIG_DIR env var first,

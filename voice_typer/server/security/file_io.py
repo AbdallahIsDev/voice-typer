@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Generic, TypeVar
 
@@ -261,7 +262,30 @@ def _secure_atomic_write(
             f.close()
 
         # os.replace is atomic and does NOT follow symlinks on the target.
-        os.replace(str(tmp_path), str(target))
+        #
+        # On Windows, os.replace raises PermissionError (WinError 5
+        # "Access is denied") when another thread/process has the
+        # destination open at the moment of the rename — e.g. two
+        # concurrent Config.save() calls racing to persist config.json
+        # (CR-40 regression surface). The lock is held only for the
+        # other writer's brief write window, so the failure is
+        # transient: retry with a short backoff before propagating.
+        # POSIX renames cannot fail this way (rename(2) never blocks on
+        # an open destination), so the retry is Windows-only.
+        if is_windows():
+            _last_replace_exc: OSError | None = None
+            for _attempt in range(_OS_REPLACE_MAX_ATTEMPTS):
+                try:
+                    os.replace(str(tmp_path), str(target))
+                    break
+                except PermissionError as exc:
+                    _last_replace_exc = exc
+                    time.sleep(_OS_REPLACE_RETRY_DELAY_S)
+            else:
+                if _last_replace_exc is not None:
+                    raise _last_replace_exc
+        else:
+            os.replace(str(tmp_path), str(target))
 
         # explicit chmod to 0o600 (POSIX, best-effort) —
         # defense-in-depth even though ``tempfile.mkstemp`` creates the
@@ -333,6 +357,16 @@ _DEFAULT_MAX_READ_BYTES = 16 * 1024 * 1024
 # (see ``PersistedJSON._quarantine_corrupt``). GIL-atomic ``next()`` — no
 # lock needed.
 _QUARANTINE_SUFFIX_SEQ: "itertools.count" = itertools.count()
+
+# Windows-only: os.replace onto a destination that another thread/process
+# holds open raises PermissionError (WinError 5). ``_secure_atomic_write``
+# retries up to ``_OS_REPLACE_MAX_ATTEMPTS`` times with a short sleep so
+# concurrent Config.save() calls (CR-40) don't spuriously fail. The window
+# is tiny (the other writer holds the lock only during its own
+# write-and-rename), so 10 x 50ms = 500ms covers it with huge margin while
+# keeping the retry invisible to callers.
+_OS_REPLACE_MAX_ATTEMPTS = 10
+_OS_REPLACE_RETRY_DELAY_S = 0.05
 
 
 def _read_with_byte_limit(f, max_bytes: int | None) -> str:

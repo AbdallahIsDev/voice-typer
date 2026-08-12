@@ -127,7 +127,7 @@ class TestMicrophoneTestStart:
         renderer surfaces the consent dialog from the structured
         ``client.consent_required`` envelope. Unexpected exceptions keep
         the ERROR + exc_info contract (pinned in
-        ``test_r13_f3_error_envelope_code_field.py``).
+        ``test_error_envelope_code_field.py``).
         """
         import logging
 

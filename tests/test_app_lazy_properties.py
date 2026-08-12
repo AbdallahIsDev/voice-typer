@@ -246,8 +246,7 @@ class TestAudioProcessorLazyConstruction:
         # import AudioProcessor`` inside _resolve, so patching
         # ``voice_typer.server.audio_processor.AudioProcessor`` is the
         # correct target.
-        from voice_typer.server import app as _app_mod
-        from voice_typer.server import audio_processor as _ap_mod
+        from voice_typer.server import app as _app_mod, audio_processor as _ap_mod
 
         mock_ap_cls = MagicMock(name="MockAudioProcessor")
         monkeypatch.setattr(_ap_mod, "AudioProcessor", mock_ap_cls)
@@ -267,8 +266,7 @@ class TestAudioProcessorLazyConstruction:
         ``set_quality_callback``.
         """
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server import app as _app_mod
-        from voice_typer.server import audio_processor as _ap_mod
+        from voice_typer.server import app as _app_mod, audio_processor as _ap_mod
 
         mock_ap_instance = MagicMock(name="MockAudioProcessorInstance")
         mock_ap_cls = MagicMock(name="MockAudioProcessor", return_value=mock_ap_instance)
@@ -297,8 +295,7 @@ class TestAudioProcessorLazyConstruction:
         MagicMock()``.
         """
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server import app as _app_mod
-        from voice_typer.server import audio_processor as _ap_mod
+        from voice_typer.server import app as _app_mod, audio_processor as _ap_mod
 
         mock_ap_cls = MagicMock(name="MockAudioProcessor")
         monkeypatch.setattr(_ap_mod, "AudioProcessor", mock_ap_cls)
@@ -328,8 +325,7 @@ class TestAudioProcessorLazyConstruction:
         instance (no re-construction).
         """
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server import app as _app_mod
-        from voice_typer.server import audio_processor as _ap_mod
+        from voice_typer.server import app as _app_mod, audio_processor as _ap_mod
 
         mock_ap_instance = MagicMock(name="MockAudioProcessorInstance")
         mock_ap_cls = MagicMock(name="MockAudioProcessor", return_value=mock_ap_instance)
@@ -352,8 +348,7 @@ class TestAudioProcessorLazyConstruction:
         ``AudioProcessor``.
         """
         _patch_app_platform_helpers(monkeypatch)
-        from voice_typer.server import app as _app_mod
-        from voice_typer.server import audio_processor as _ap_mod
+        from voice_typer.server import app as _app_mod, audio_processor as _ap_mod
 
         mock_ap_instance = MagicMock(name="MockAudioProcessorInstance")
         mock_ap_instance.filter_names = ["highpass", "gate"]

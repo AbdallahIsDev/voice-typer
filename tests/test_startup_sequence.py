@@ -301,8 +301,7 @@ class TestStartupSequenceDoesNotCrashOnMissingDeps:
         try/except and increments ``app._onboarding_fail_count`` — after
         3 failures it marks onboarding complete with a failure flag.
         """
-        from voice_typer.server import startup_sequence as ss_mod
-        from voice_typer.server import startup_tasks
+        from voice_typer.server import startup_sequence as ss_mod, startup_tasks
         from voice_typer.server.onboarding import OnboardingController
 
         # Force is_first_run() to raise — simulates a permissions error

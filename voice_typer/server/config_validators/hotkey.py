@@ -23,8 +23,7 @@ from __future__ import annotations
 import json as _json
 from pathlib import Path as _Path
 
-from voice_typer.server.platform_utils import is_macos as _is_macos
-from voice_typer.server.platform_utils import is_windows as _is_windows
+from voice_typer.server.platform_utils import is_macos as _is_macos, is_windows as _is_windows
 
 # ──────────────────────────────────────────────────────────────────────────
 # OS-reserved shortcuts that must never be assigned

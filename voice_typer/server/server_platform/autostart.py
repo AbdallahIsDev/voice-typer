@@ -88,6 +88,15 @@ def _desktop_quote(arg: str) -> str:
     ``C:\\Users\\John "Bob"\\app`` would corrupt the .desktop Exec
     field.  We now do proper spec-compliant quoting.
     """
+    # XZ-R6-AS-04: a literal newline / carriage-return inside the
+    # quoted string would still TERMINATE the Exec line (the spec only
+    # allows escaping within a single line — there is no line-continuation
+    # escape), letting a malicious path inject a new .desktop field. The
+    # spec's reserved-char set includes `\n`, and no amount of quoting
+    # can make a newline safe inside a single-line Exec field. Reject
+    # such args outright (fail loudly) rather than emit a corrupt file.
+    if "\n" in arg or "\r" in arg:
+        raise ValueError(f"_desktop_quote: arg contains newline/carriage-return: {arg!r}")
     reserved = set(" \t\n\"'\\><~|&;$*?#()")
     if not any(c in reserved for c in arg):
         return arg  # no quoting needed

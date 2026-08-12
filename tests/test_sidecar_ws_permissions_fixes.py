@@ -429,8 +429,7 @@ def test_in36_onboarding_check_permissions_still_returns_correct_shape() -> None
     not break ``OnboardingController.check_permissions()``. Verify the
     method still returns a payload with the expected keys on a
     platform-agnostic stub."""
-    from voice_typer.server import onboarding as onboarding_mod
-    from voice_typer.server import permissions as perm_mod
+    from voice_typer.server import onboarding as onboarding_mod, permissions as perm_mod
     from voice_typer.server.onboarding import OnboardingController
 
     # Force the "unknown platform" branch so no platform-specific

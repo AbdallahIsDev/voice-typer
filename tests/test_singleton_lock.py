@@ -36,8 +36,10 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from voice_typer.server import clipboard as clip_mod  # noqa: E402
-from voice_typer.server import clipboard_target_safety as safety_mod  # noqa: E402
+from voice_typer.server import (
+    clipboard as clip_mod,  # noqa: E402
+    clipboard_target_safety as safety_mod,  # noqa: E402
+)
 
 # ---------------------------------------------------------------------------
 # Helpers / fixtures

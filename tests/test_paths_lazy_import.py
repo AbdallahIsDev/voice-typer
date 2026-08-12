@@ -108,7 +108,7 @@ def _restore_purged_modules():
     monkeypatch lands on the fresh object in ``sys.modules`` while the
     stale reference still returns the real config dir (order-dependent
     failures in ``test_task_scheduler::TestPrewarmCommand`` and
-    ``test_perf_group2_wave1::TestConfigSaveBackupSkip``).
+    ``test_perf_data_store_save_write::TestConfigSaveBackupSkip``).
 
     This fixture snapshots the affected ``sys.modules`` entries (and
     the parent-package attributes that a re-import rebinds) before each

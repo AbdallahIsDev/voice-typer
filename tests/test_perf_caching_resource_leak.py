@@ -1,4 +1,4 @@
-"""ER-FIX-G2 regression tests.
+"""Caching and resource-leak regression tests.
 
 Covers three fixes from the Group 2 performance/resource review:
 
@@ -356,8 +356,7 @@ def test_read_plaintext_fallback_uses_mtime_cache(monkeypatch, tmp_path) -> None
     — the underlying file read happens once, not once per provider."""
     import os
 
-    from voice_typer.server import config as _config_mod
-    from voice_typer.server import credential_store
+    from voice_typer.server import config as _config_mod, credential_store
 
     # Set up a real config.json in tmp_path with two provider keys.
     config_data = {"openai_api_key": "sk-openai", "groq_api_key": "sk-groq"}
@@ -404,8 +403,7 @@ def test_read_plaintext_fallback_cache_is_per_path(monkeypatch, tmp_path) -> Non
     config dirs use separate cache entries."""
     import os
 
-    from voice_typer.server import config as _config_mod
-    from voice_typer.server import credential_store
+    from voice_typer.server import config as _config_mod, credential_store
 
     dir_a = tmp_path / "a"
     dir_b = tmp_path / "b"

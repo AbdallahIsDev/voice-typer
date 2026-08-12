@@ -35,8 +35,10 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from voice_typer.server import clipboard as clip_mod  # noqa: E402
-from voice_typer.server.clipboard import ClipboardManager  # noqa: E402
-from voice_typer.server.clipboard import manager as manager_mod  # noqa: E402
+from voice_typer.server.clipboard import (
+    ClipboardManager,  # noqa: E402
+    manager as manager_mod,  # noqa: E402
+)
 from voice_typer.server.clipboard_snapshot import ClipboardSnapshot  # noqa: E402
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by

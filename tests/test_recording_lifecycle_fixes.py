@@ -51,8 +51,7 @@ import threading
 from unittest.mock import MagicMock
 
 import pytest
-from voice_typer.server.recording import disconnect_handler as dh_module
-from voice_typer.server.recording import stream_lifecycle as sl_module
+from voice_typer.server.recording import disconnect_handler as dh_module, stream_lifecycle as sl_module
 from voice_typer.server.recording.disconnect_handler import DisconnectHandler
 from voice_typer.server.recording.stream_lifecycle import StreamLifecycle
 

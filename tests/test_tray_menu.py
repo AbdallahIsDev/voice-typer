@@ -429,3 +429,135 @@ class TestBuildModelsSubmenuUsesCache:
         assert len(data2) == 5
         # The qwen_asr cache must be populated.
         assert tray_models._qwen_asr_cache_checked is True
+
+
+class TestQwenTrayAvailabilityAlignsWithModelsPage:
+    """Qwen's ``downloaded`` flag in the tray submenu must mirror the
+    Models page's ``get_model_status`` semantics.
+
+    The Models page defines ``downloaded`` as model WEIGHTS on disk
+    (``qwen_model_path`` directory OR the HF cache holding
+    ``models--Qwen--Qwen-Audio``); ``qwen_asr`` importability is the
+    separate ``deps_ok`` gate, and Select is only offered when BOTH
+    hold. The tray previously used ONLY the package import as Qwen's
+    availability gate, so Qwen appeared selectable whenever
+    ``qwen_asr`` was installed — even with no weights downloaded (the
+    click then failed at engine-load time).
+    """
+
+    @pytest.fixture(autouse=True)
+    def _clean_cache(self):
+        """Reset the model-availability cache before/after each test."""
+        invalidate_model_availability_cache()
+        yield
+        invalidate_model_availability_cache()
+
+    def _make_config(self, qwen_model_path=None):
+        config = MagicMock()
+        config.model_size = "tiny.en"
+        config.asr_backend = "whisper"
+        config.qwen_model_path = qwen_model_path
+        return config
+
+    def _qwen_downloaded_flag(self, tmp_path, config):
+        """Return the ``downloaded`` flag for the qwen candidate row."""
+        with patch("voice_typer.server.asr_setup.ensure_hf_env", lambda: None):
+            data = tray_models.build_models_submenu_data(
+                lambda: tmp_path,
+                lambda name: None,
+                config_provider=config,
+            )
+        qwen_row = next(row for row in data if row[0] == "qwen")
+        return qwen_row[1]
+
+    def test_hidden_when_only_package_importable(self, tmp_path):
+        """qwen_asr importable + NO weights on disk → Qwen must NOT be
+        listed (the reported bug: package present, no model)."""
+        import sys
+
+        with patch.dict(sys.modules, {"qwen_asr": MagicMock()}):
+            downloaded = self._qwen_downloaded_flag(
+                tmp_path, self._make_config(qwen_model_path=None)
+            )
+        assert downloaded is False, (
+            "qwen_asr importable must NOT make Qwen selectable without weights on disk"
+        )
+
+    def test_visible_when_model_path_points_at_existing_dir(self, tmp_path):
+        """``qwen_model_path`` pointing at an existing directory → Qwen
+        listed (matches ``_compute_model_status``)."""
+        import sys
+
+        model_dir = tmp_path / "qwen-weights"
+        model_dir.mkdir()
+        with patch.dict(sys.modules, {"qwen_asr": MagicMock()}):
+            downloaded = self._qwen_downloaded_flag(
+                tmp_path, self._make_config(qwen_model_path=str(model_dir))
+            )
+        assert downloaded is True
+
+    def test_visible_when_hf_cache_holds_repo(self, tmp_path):
+        """HF cache holding ``models--Qwen--Qwen-Audio`` → Qwen listed
+        (matches ``_compute_model_status``'s ``qwen_in_cache``)."""
+        import sys
+
+        ref_file = (
+            tmp_path
+            / "huggingface"
+            / "hub"
+            / "models--Qwen--Qwen-Audio"
+            / "refs"
+            / "main"
+        )
+        ref_file.parent.mkdir(parents=True)
+        ref_file.write_text("main", encoding="utf-8")
+        with patch.dict(sys.modules, {"qwen_asr": MagicMock()}):
+            downloaded = self._qwen_downloaded_flag(
+                tmp_path, self._make_config(qwen_model_path=None)
+            )
+        assert downloaded is True
+
+    def test_hidden_when_weights_present_but_qwen_asr_missing(self, tmp_path):
+        """Weights on disk but qwen_asr NOT importable → hidden (Select
+        would fail; mirrors the Models page's ``deps_ok`` gate)."""
+        import sys
+
+        model_dir = tmp_path / "qwen-weights"
+        model_dir.mkdir()
+        original = sys.modules.get("qwen_asr")
+        sys.modules.pop("qwen_asr", None)
+        try:
+            with patch.dict(sys.modules, {"qwen_asr": None}):
+                downloaded = self._qwen_downloaded_flag(
+                    tmp_path, self._make_config(qwen_model_path=str(model_dir))
+                )
+        finally:
+            if original is not None:
+                sys.modules["qwen_asr"] = original
+        assert downloaded is False
+
+    def test_config_json_path_used_when_no_provider(self, tmp_path):
+        """config_provider=None reads ``qwen_model_path`` from config.json
+        on disk (the live-config fallback path)."""
+        import json
+        import sys
+
+        model_dir = tmp_path / "qwen-weights"
+        model_dir.mkdir()
+        (tmp_path / "config.json").write_text(
+            json.dumps({"qwen_model_path": str(model_dir)}),
+            encoding="utf-8",
+        )
+        with (
+            patch.dict(sys.modules, {"qwen_asr": MagicMock()}),
+            patch("voice_typer.server.asr_setup.ensure_hf_env", lambda: None),
+        ):
+            data = tray_models.build_models_submenu_data(
+                lambda: tmp_path,
+                lambda name: None,
+                config_provider=None,
+            )
+        qwen_row = next(row for row in data if row[0] == "qwen")
+        assert qwen_row[1] is True, (
+            "qwen_model_path from config.json must count as downloaded for the tray"
+        )

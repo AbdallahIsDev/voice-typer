@@ -48,6 +48,7 @@ import contextlib
 import logging
 import logging.handlers
 import os
+import re
 import sys
 import time
 import uuid
@@ -500,7 +501,16 @@ def setup_logging(
             _devnull_files.append(sys.stdin)
 
         # ── 2. Generate session ID ─────────────────────────────────────
-        _session_id = uuid.uuid4().hex[:8]
+        # GT-68: when spawned by the Rust Tauri host, accept the host's
+        # per-process session ID (passed via VOICE_TYPER_SESSION_ID) so
+        # the Rust + Python log streams share a join key. Validate it's
+        # 8-char lowercase hex (the same shape the host generates); a
+        # malformed/absent value falls back to generating our own.
+        _host_session_id = os.environ.get("VOICE_TYPER_SESSION_ID", "")
+        if _host_session_id and re.fullmatch(r"[0-9a-f]{8}", _host_session_id):
+            _session_id = _host_session_id
+        else:
+            _session_id = uuid.uuid4().hex[:8]
 
         # ── 3. Rotating file handler  ────────────────────────
         config_dir.mkdir(parents=True, exist_ok=True)

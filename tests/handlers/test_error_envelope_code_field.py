@@ -1,4 +1,4 @@
-"""R13-F3 + G4- + G4-M-22: handler catch-all error envelope tests."""
+"""Handler catch-all error envelope tests."""
 
 from __future__ import annotations
 
@@ -132,7 +132,7 @@ class TestHandlerFilesUseHelper:
         for fpath, src in self._handler_files():
             if 'resp["data"] = {"message": str(e)}' in src or ("resp['data'] = {'message': str(e)}" in src):
                 offenders.append(fpath.name)
-        assert not offenders, f"these handler files still contain the pre-R13-F3 inline envelope: {offenders}"
+        assert not offenders, f"these handler files still contain the legacy inline envelope: {offenders}"
 
     def test_every_handler_file_uses_helper_in_catch_all(self):
         no_helper_use = []

@@ -298,7 +298,15 @@ class TestCompactJsonSerialization:
 
             def reader():
                 while True:
-                    chunk = cli.recv(65536)
+                    try:
+                        chunk = cli.recv(65536)
+                    except OSError:
+                        # Teardown: the peer socket is shut down / closed
+                        # while this thread may still be blocked in recv
+                        # (WinError 10038 / 10053 on Windows). Treat as
+                        # EOF so the reader thread exits cleanly instead of
+                        # surfacing an unhandled thread exception.
+                        break
                     if not chunk:
                         break
                     received.extend(chunk)

@@ -157,8 +157,7 @@ if TYPE_CHECKING:  # pragma: no cover - type-checker-only
 # _http_safety.py, _secrets.py, and this module). Aliased to the
 # underscore-prefixed name so existing call sites (e.g. `serve(...,
 # _LOOPBACK_HOST, ...)`) keep working unchanged.
-from voice_typer.server._paths import IPC_TOKEN_ENV_VAR
-from voice_typer.server._paths import LOOPBACK_HOST as _LOOPBACK_HOST
+from voice_typer.server._paths import IPC_TOKEN_ENV_VAR, LOOPBACK_HOST as _LOOPBACK_HOST
 
 log = logging.getLogger("voice_typer.server.sidecar_ws")
 

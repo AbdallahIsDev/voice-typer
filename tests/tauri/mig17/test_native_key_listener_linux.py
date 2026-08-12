@@ -1248,8 +1248,7 @@ class TestSidecarOwnership:
         # Patch BOTH the ``binary_path`` module attribute AND the
         # ``factory`` module's imported reference (factory.py does
         # ``from .binary_path import verify_native_binary_or_skip``).
-        from voice_typer.server.native_hotkeys import binary_path as bp
-        from voice_typer.server.native_hotkeys import factory as nh_factory
+        from voice_typer.server.native_hotkeys import binary_path as bp, factory as nh_factory
 
         monkeypatch.setattr(bp, "verify_native_binary_or_skip", lambda _path: True)
         monkeypatch.setattr(nh_factory, "verify_native_binary_or_skip", lambda _path: True)

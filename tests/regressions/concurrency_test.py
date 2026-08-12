@@ -180,10 +180,32 @@ class TestConfigEditHoldsMutationLock:
         monkeypatch.setattr("voice_typer.server.app.enable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.disable_autostart", lambda: True)
         monkeypatch.setattr("voice_typer.server.app.list_microphones", lambda: [])
-        # These were historically on voice_typer.server.app; they now
-        # resolve via config_editor._default_is_windows etc. as fallback.
-        monkeypatch.setattr("voice_typer.server.config_editor._default_is_windows", lambda: False)
-        monkeypatch.setattr("voice_typer.server.config_editor._default_is_macos", lambda: False)
+        # Force the LINUX editor-launch path deterministically.  The
+        # platform flags are resolved from the APP module
+        # (``voice_typer.server.app.is_windows`` — a re-export of
+        # ``platform_utils.is_windows``), NOT from
+        # ``config_editor._default_is_windows`` (which is only a fallback
+        # when the app module is absent).  The previous monkeypatches on
+        # ``_default_is_windows`` / ``_default_is_macos`` were
+        # ineffective on a real Windows host, so the platform stayed
+        # "windows": the fake ``subprocess.run`` below only intercepted
+        # the ``icacls`` ACL call from ``Config.save()``, and after
+        # ``editor_close`` Phase 2 launched a REAL editor via
+        # ShellExecuteEx whose ``WaitForSingleObject`` can block for 30
+        # minutes — holding ``_config_mutation_lock`` far past the test's
+        # 15s budget.  Observed as an intermittent full-suite failure.
+        monkeypatch.setattr("voice_typer.server.app.is_windows", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.is_macos", lambda: False)
+        monkeypatch.setattr("voice_typer.server.app.is_linux", lambda: True)
+        # Suppress the Windows ACL-tightening subprocess (``icacls``)
+        # that ``Config.save()`` fires on a real Windows host — it is
+        # incidental to the lock behavior under test and would otherwise
+        # be intercepted by the fake ``subprocess.run`` below (the same
+        # suppression ``test_config_editor_lock.py`` applies).
+        monkeypatch.setattr(
+            "voice_typer.server.config._enforce_windows_owner_only_acl",
+            lambda *a, **k: None,
+        )
 
         from voice_typer.server.app import VoiceTyperApp
 
@@ -196,12 +218,20 @@ class TestConfigEditHoldsMutationLock:
         editor_opened = threading.Event()
         editor_close = threading.Event()
 
+        import subprocess as _subprocess
+
+        original_run = _subprocess.run
+
         def _fake_run(args, **kwargs):
+            # Only block on the editor launch itself (``xdg-open`` on the
+            # forced-Linux path).  Any other subprocess call (e.g. a
+            # future ``icacls``-like helper) must pass through to the
+            # real subprocess so it doesn't consume the editor window.
+            if not (args and str(args[0]).lower() == "xdg-open"):
+                return original_run(args, **kwargs)
             editor_opened.set()
             editor_close.wait(timeout=10.0)
             return MagicMock(returncode=0)
-
-        import subprocess as _subprocess
 
         monkeypatch.setattr(_subprocess, "run", _fake_run)
 

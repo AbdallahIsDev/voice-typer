@@ -619,9 +619,17 @@ filterwarnings = [
     # filter was dead config. RULE: when you delete a module, remove its
     # warning filter in the same PR so pyproject.toml never references
     # code that no longer exists.
-    # torch.jit.load emits a DeprecationWarning on Python 3.14+ that is
-    # outside our control (third-party library).
-    "ignore:`torch.jit.load` is not supported:DeprecationWarning",
+    # torch.jit.load emits a DeprecationWarning from
+    # torch/jit/_serialization.py that is outside our control
+    # (third-party library), and its message text has changed across
+    # torch versions ("is not supported" → "is deprecated. Please
+    # switch to torch.export."). The old message-scoped filter stopped
+    # matching after that wording change; a module-scoped filter
+    # matches regardless of wording. Listed BEFORE the voice_typer
+    # ratchet below so the ratchet (checked first) still errors on
+    # first-party deprecations while this ignores only torch.jit
+    # internals.
+    "ignore::DeprecationWarning:torch.jit._serialization",
     # pytest-benchmark emits a PytestBenchmarkWarning on every xdist
     # worker startup ("Benchmarks are automatically disabled because
     # xdist plugin is active"). The warning is informational —
@@ -708,6 +716,14 @@ select = ["E", "F", "W", "I", "N", "UP", "B", "A", "SIM"]
 # ERR-ERR-006: do not blanket-disable E501. The line-length=120 above governs
 # the limit; lines that exceed 120 are wrapped manually or split with `\`.
 ignore = []
+
+# VP-13: combine same-module import-from statements that differ only by
+# an `as` alias (e.g. privacy.py imported _GDPR_PERSONAL_FILES and
+# _GDPR_PERSONAL_GLOBS as ... from the same module on consecutive
+# statements). Without combine-as-imports, ruff/isort forces a split.
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
 
 # SEC-audit-005: model_hashes.json is a data manifest, not source
 # code. Ruff parses it as Python (B018 "useless expression" on the top-level

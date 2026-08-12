@@ -1021,8 +1021,6 @@ class ModelMixin(ServiceMixinBase):
             from voice_typer.server import event_bus
             from voice_typer.server.service._download_helpers import (
                 notify as _notify_helper,
-            )
-            from voice_typer.server.service._download_helpers import (
                 push_progress as _push_progress_helper,
             )
 
@@ -1056,11 +1054,7 @@ class ModelMixin(ServiceMixinBase):
         from voice_typer.server import event_bus
         from voice_typer.server.service._download_helpers import (
             notify as _notify,
-        )
-        from voice_typer.server.service._download_helpers import (
             poll_download_progress,
-        )
-        from voice_typer.server.service._download_helpers import (
             push_progress as _push_progress,
         )
 
@@ -1322,8 +1316,6 @@ class ModelMixin(ServiceMixinBase):
         from voice_typer.server import event_bus
         from voice_typer.server.service._download_helpers import (
             notify as _notify,
-        )
-        from voice_typer.server.service._download_helpers import (
             push_progress as _push_progress,
         )
 
@@ -1352,8 +1344,6 @@ class ModelMixin(ServiceMixinBase):
         from voice_typer.server import event_bus
         from voice_typer.server.service._download_helpers import (
             notify as _notify,
-        )
-        from voice_typer.server.service._download_helpers import (
             push_progress as _push_progress,
         )
 

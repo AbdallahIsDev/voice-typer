@@ -13,8 +13,7 @@ import pytest
 from voice_typer.server.text_cleanup import clean_transcribed_text
 
 try:
-    from hypothesis import HealthCheck, assume, given, settings
-    from hypothesis import strategies as st
+    from hypothesis import HealthCheck, assume, given, settings, strategies as st
 
     HAS_HYPOTHESIS = True
 except ImportError:

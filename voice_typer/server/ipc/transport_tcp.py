@@ -35,6 +35,24 @@ from voice_typer.server.ipc.transport import _TCPLineIO
 from voice_typer.server.ipc.validation import ErrorCodes
 from voice_typer.server.keyboard_ownership import keyboard_ownership
 
+
+def _app_is_shutting_down(app: typing.Any) -> bool:
+    """Return True only when ``app._shutting_down`` is exactly ``True``.
+
+    Defensive read for the accept-loop exit drain (PERF-SHUTDOWN-002):
+    the real app always sets ``_shutting_down`` (False while running,
+    True during quit/restart), but transport-level test fakes that do
+    not declare the attribute must be treated as "not shutting down"
+    instead of raising ``AttributeError`` in the accept thread. The
+    ``getattr`` + ``False`` default mirrors the sibling gate in
+    ``LifecycleMixin.stop`` and the documented pattern in
+    ``tests/fixtures/ipc_test_helpers.py``. The ``is True`` comparison
+    (not truthiness) keeps MagicMock child attributes (truthy but not
+    ``is True``) from tripping the skip.
+    """
+    return getattr(app, "_shutting_down", False) is True
+
+
 # ─── IPC wire protocol versioning ──────────────────
 #
 # Single source of truth for the IPC wire protocol version. Bump on any
@@ -354,7 +372,7 @@ class TCPTransportMixin:
         # gate identically. During shutdown the process is exiting
         # right after cleanup — in-flight handlers are reaped as daemon
         # threads, nothing to wait for.
-        _skip_drain = self.app._shutting_down is True
+        _skip_drain = _app_is_shutting_down(self.app)
         dispatch_pool = self._tcp_dispatch_pool
         if dispatch_pool is not None:
             dispatch_pool.shutdown(wait=False, cancel_futures=True)

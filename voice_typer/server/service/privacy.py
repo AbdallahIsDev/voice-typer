@@ -43,8 +43,6 @@ import os
 from voice_typer.server._secrets import redact_secret, redact_url
 from voice_typer.server._user_data_files import (
     _GDPR_PERSONAL_FILES,
-)
-from voice_typer.server._user_data_files import (
     _GDPR_PERSONAL_GLOBS as _GDPR_PERSONAL_GLOBS_INVENTORY,
 )
 from voice_typer.server.service._base import ServiceMixinBase

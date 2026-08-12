@@ -434,8 +434,7 @@ class TestModuleLevelPushHook:
 
 class TestAppMainWiresIpcHook:
     def test_app_main_sets_ipc_push_hook(self, monkeypatch):
-        from voice_typer.server import app as app_module
-        from voice_typer.server import event_bus, ipc_server
+        from voice_typer.server import app as app_module, event_bus, ipc_server
 
         # Reset hook
         # clear the registry instead of setting a single None.

@@ -373,8 +373,7 @@ class TestGetAutostartDirLinux:
     """
 
     def test_empty_string_xdg_config_home_uses_fallback(self, monkeypatch, tmp_path):
-        from voice_typer.server.server_platform import autostart as autostart_mod
-        from voice_typer.server.server_platform import get_autostart_dir
+        from voice_typer.server.server_platform import autostart as autostart_mod, get_autostart_dir
 
         # Force the Linux branch regardless of host platform.
         monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
@@ -392,8 +391,7 @@ class TestGetAutostartDirLinux:
         assert result == expected
 
     def test_unset_xdg_config_home_uses_fallback(self, monkeypatch, tmp_path):
-        from voice_typer.server.server_platform import autostart as autostart_mod
-        from voice_typer.server.server_platform import get_autostart_dir
+        from voice_typer.server.server_platform import autostart as autostart_mod, get_autostart_dir
 
         monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
         fake_home = tmp_path
@@ -407,8 +405,7 @@ class TestGetAutostartDirLinux:
         assert result == fake_home / ".config" / "autostart"
 
     def test_set_nonempty_xdg_config_home_is_respected(self, monkeypatch, tmp_path):
-        from voice_typer.server.server_platform import autostart as autostart_mod
-        from voice_typer.server.server_platform import get_autostart_dir
+        from voice_typer.server.server_platform import autostart as autostart_mod, get_autostart_dir
 
         monkeypatch.setattr(platform_mod, "SYSTEM", "linux")
         monkeypatch.setattr(autostart_mod.os, "environ", {"XDG_CONFIG_HOME": str(tmp_path)})

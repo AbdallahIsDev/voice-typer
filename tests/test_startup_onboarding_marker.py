@@ -49,8 +49,7 @@ def app_for_onboarding(tmp_path, monkeypatch):
     # ``config`` alone is NOT enough — startup_sequence._config_dir is a
     # separate bound reference. Also clear the cache on the original
     # function so any prior resolution is forgotten.
-    from voice_typer.server import config as _config_mod
-    from voice_typer.server import startup_sequence as _startup_seq
+    from voice_typer.server import config as _config_mod, startup_sequence as _startup_seq
 
     _config_mod._config_dir.cache_clear()
     monkeypatch.setattr(_config_mod, "_config_dir", lambda: tmp_path)

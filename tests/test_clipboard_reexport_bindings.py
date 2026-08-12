@@ -33,8 +33,10 @@ import pytest
 
 # pynput / pynput.keyboard / pyperclip are mocked at collection time by
 # tests/clipboard/conftest.py (single source of truth —  dedup).
-from voice_typer.server import clipboard as clip_mod  # noqa: E402
-from voice_typer.server import clipboard_target_safety as safety_mod  # noqa: E402
+from voice_typer.server import (
+    clipboard as clip_mod,  # noqa: E402
+    clipboard_target_safety as safety_mod,  # noqa: E402
+)
 
 # The seven mutable globals that MUST be resolved via PEP 562
 # ``__getattr__`` (not bound at import time).

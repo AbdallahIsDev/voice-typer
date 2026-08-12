@@ -1,4 +1,4 @@
-"""Tests for ER-FIX-H fixes (Group 2 performance wave).
+"""Tests for the tray, template, and secret-validation performance fixes.
 
 Covers:
 - ER-54 (tray): tooltip elapsed-recording time uses ``time.monotonic()``

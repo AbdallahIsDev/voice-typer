@@ -130,10 +130,11 @@ class TestNoAutoUpdateFetchOnSettingsMount:
     )
 
     @pytest.fixture(scope="class")
-    def component_source(self) -> str:
-        if not self.PREWARM_UPDATES_TSX.exists():
-            pytest.skip(f"PrewarmAndUpdates.tsx not found at {self.PREWARM_UPDATES_TSX}")
-        return self.PREWARM_UPDATES_TSX.read_text(encoding="utf-8")
+    @classmethod
+    def component_source(cls) -> str:
+        if not cls.PREWARM_UPDATES_TSX.exists():
+            pytest.skip(f"PrewarmAndUpdates.tsx not found at {cls.PREWARM_UPDATES_TSX}")
+        return cls.PREWARM_UPDATES_TSX.read_text(encoding="utf-8")
 
     def _use_effect_bodies(self, src: str) -> list[str]:
         """Extract each ``useEffect(() => { ... }, [...])`` body."""

@@ -52,6 +52,21 @@ class TestDesktopQuoteFollowsFreedesktopSpec:
         result = _desktop_quote("path with `backtick`")
         assert result == '"path with \\`backtick\\`"'
 
+    def test_newline_rejected(self):
+        """XZ-R6-AS-04: args containing a newline/carriage-return are
+        rejected with ValueError — a literal newline inside a quoted
+        Exec field would still terminate the line and inject a new
+        .desktop field, so no amount of quoting can make it safe.
+        """
+        from voice_typer.server.server_platform import _desktop_quote
+
+        with pytest.raises(ValueError):
+            _desktop_quote("evil\nName=Foo")
+        with pytest.raises(ValueError):
+            _desktop_quote("evil\rName=Foo")
+        # Normal args still quote/escape as before.
+        assert _desktop_quote("/path with spaces/app") == '"/path with spaces/app"'
+
     def test_autostart_command_is_quoted(self):
         from voice_typer.server.server_platform import _autostart_command
 
@@ -381,8 +396,7 @@ class TestNoRedundantPlatformCheckBeforeTaskScheduler:
                 body_start = True
 
     def test_register_app_autostart_task_works_via_is_supported(self, monkeypatch):
-        from voice_typer.server import server_platform as platform_mod
-        from voice_typer.server import task_scheduler
+        from voice_typer.server import server_platform as platform_mod, task_scheduler
 
         monkeypatch.setattr(task_scheduler, "is_supported", lambda: False)
         monkeypatch.setattr(task_scheduler, "_schtasks", lambda *a, **kw: (0, ""))

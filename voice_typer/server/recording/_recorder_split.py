@@ -1081,7 +1081,6 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
         # next ``start()`` reset (incorrect for any caller polling
         # between stop() and start()).
         recorder._total_buffered_samples = 0
-        _recording_pkg._secure_clear_array_background(_old_buffer)
         # Critical: capture ``_buffer_sr`` into a local
         # BEFORE ``_secure_clear_caches`` resets it to ``None``.
         # The local is the authoritative source rate for the
@@ -1099,6 +1098,19 @@ def stop_recording(recorder: Recorder) -> np.ndarray:
     # blocked for the 50-300ms concat duration.
     audio = np.concatenate(_captured_chunks, axis=0).reshape(-1)
     concat_ms = (time.perf_counter() - concat_started) * 1000
+
+    # SEC-audit-008 (race fix): enqueue the OLD buffer for background
+    # zeroing AFTER the concat above has copied the chunk data. Pre-fix,
+    # ``_secure_clear_array_background(_old_buffer)`` ran inside the
+    # lock BEFORE ``np.concatenate`` read the captured chunks — the
+    # buffer-clear worker could ``fill(0)`` a chunk between
+    # ``list(_old_buffer)`` and the concat, silently truncating the
+    # returned audio (reproduced as ``[1, 2, 0]`` vs ``[1, 2, 3]`` in
+    # ``test_snapshot_returns_audio_without_clearing_buffer`` under the
+    # full suite, where the worker is already warm). ``np.concatenate``
+    # allocates fresh memory, so zeroing the source chunks afterwards
+    # cannot affect the returned audio.
+    _recording_pkg._secure_clear_array_background(_old_buffer)
 
     # Log audio statistics for diagnostics
     # Critical: prefer the captured ``_buffer_sr`` (the

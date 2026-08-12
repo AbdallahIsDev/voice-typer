@@ -47,13 +47,11 @@ import subprocess
 import sys
 from pathlib import Path
 
-from voice_typer.server import _paths
-
 # Patch-path bridge: route lookups of ``get_autostart_dir`` and
 # ``_os_uid`` through the package namespace so test patches of the form
 # ``monkeypatch.setattr("voice_typer.server.server_platform.X", ...)``
 # keep affecting production code defined here.
-from voice_typer.server import server_platform as _pkg
+from voice_typer.server import _paths, server_platform as _pkg
 
 log = logging.getLogger(__name__)
 

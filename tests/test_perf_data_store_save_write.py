@@ -1,10 +1,10 @@
-"""Tests for ER-FIX-G1 — Group-2 (Performance & Resources) fix wave.
+"""Tests for the data-store save and write performance fixes.
 
 Covers four findings from review.md:
 
 * **ER-36** — ``history_db.apply_retention`` only ran at startup.
   ``schedule_periodic_retention`` now exposes a daemon-thread API that
-  ER-FIX-F wires into ``startup_sequence``.
+  the startup sequence wires into.
 
 * **ER-53** — ``config._save_locked`` did a redundant backup read+write
   on every save, even when the to-be-written content was byte-identical

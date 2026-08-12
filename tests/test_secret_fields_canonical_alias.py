@@ -23,8 +23,6 @@ from voice_typer.server.config_sanitizer import (
 )
 from voice_typer.server.ipc.history_bounds import (
     _SECRET_CONFIG_FIELDS as _HISTORY_BOUNDS_FIELDS,
-)
-from voice_typer.server.ipc.history_bounds import (
     _is_secret_field_name,
     _sanitize_config_for_ipc,
 )

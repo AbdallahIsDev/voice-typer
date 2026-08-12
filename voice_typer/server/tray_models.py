@@ -13,11 +13,20 @@ noticeable menu-open lag.  We now cache:
 - The HuggingFace hub ``refs/main`` existence check (with a 5-second
   TTL so a download started in the Models page is reflected within
   5 seconds without making the user wait on every right-click).
+
+Qwen availability (its ``downloaded`` flag in the submenu data) is
+NOT the qwen_asr import alone: it mirrors the Models page's
+``get_model_status``, requiring model WEIGHTS on disk (the configured
+``qwen_model_path`` directory OR the HF cache holding
+``models--Qwen--Qwen-Audio``) in addition to the ``qwen_asr`` package
+being importable. Previously the tray gated Qwen only on the package
+import, so Qwen appeared selectable with zero weights downloaded.
 """
 
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -46,6 +55,15 @@ _hf_download_cache: "dict[tuple[str, str], tuple[bool, float]]" = {}
 # does NOT reset this — env setup is process-lifetime, not
 # per-right-click.
 _hf_env_ensured: bool = False
+
+# Qwen's HuggingFace repo id — informational only: the backend
+# registry (``model_registry.py``) declares Qwen ``network_behavior=
+# "local-only"``, so the weights are NEVER auto-fetched. They live
+# either under the configured ``qwen_model_path`` or in the HF cache
+# under this repo. Mirrors ``ModelMetadata.repo_id`` for "qwen" so the
+# tray and the Models page's ``get_model_status`` agree on what
+# "downloaded" means.
+_QWEN_REPO_ID = "Qwen/Qwen-Audio"
 
 
 def _ensure_hf_env_once() -> None:
@@ -112,6 +130,29 @@ def _check_hf_model_downloaded(repo_id: str, config_dir) -> bool:
     return downloaded
 
 
+def _check_qwen_model_downloaded(config_dir, qwen_model_path) -> bool:
+    """Return True if the Qwen model WEIGHTS are on disk.
+
+    Mirrors ``ModelMixin._compute_model_status`` (service/model.py):
+    ``downloaded`` means the configured ``qwen_model_path`` points at
+    an existing directory OR the HuggingFace cache holds
+    ``models--Qwen--Qwen-Audio``.
+
+    This is deliberately distinct from the ``qwen_asr`` pip-package
+    import check — a package can be installed with ZERO weights on
+    disk. The tray previously used the package import as Qwen's
+    availability gate, so Qwen appeared selectable (and failed on
+    click at engine-load time) whenever ``qwen_asr`` was installed but
+    no model weights were downloaded. The call site combines this
+    weights check with the package-import check (the ``deps_ok``
+    equivalent) to mirror the Models page, which only offers Select
+    when ``downloaded && deps_ok`` both hold.
+    """
+    if isinstance(qwen_model_path, str) and Path(qwen_model_path).is_dir():
+        return True
+    return _check_hf_model_downloaded(_QWEN_REPO_ID, config_dir)
+
+
 def invalidate_model_availability_cache() -> None:
     """Invalidate the cached model availability checks.
 
@@ -152,9 +193,11 @@ def build_models_submenu_data(
     # Falls back to disk read when config_provider is None (e.g. tests).
     current_model = "tiny.en"
     cfg: dict = {}
+    qwen_model_path: Any = None
     if config_provider is not None:
         current_model = getattr(config_provider, "model_size", "tiny.en") or "tiny.en"
         current_backend = getattr(config_provider, "asr_backend", "whisper") or "whisper"
+        qwen_model_path = getattr(config_provider, "qwen_model_path", None)
     else:
         # Read current model from config.json on disk.
         config_path = config_dir_fn() / "config.json"
@@ -179,6 +222,7 @@ def build_models_submenu_data(
             )
             cfg = {}
         current_backend = cfg.get("asr_backend", "whisper") if cfg else "whisper"
+        qwen_model_path = cfg.get("qwen_model_path") if cfg else None
 
     # Models to check
     candidates = [
@@ -195,9 +239,17 @@ def build_models_submenu_data(
     for name, backend, repo_id in candidates:
         downloaded = False
         if backend == "qwen":
-            # cached check — avoids 50–150 ms import
-            # on every right-click.
-            downloaded = _check_qwen_asr_available()
+            # Align the tray with the Models page's ``get_model_status``
+            # semantics: ``downloaded`` means model WEIGHTS on disk
+            # (``qwen_model_path`` dir OR HF cache), and the ``qwen_asr``
+            # pip package must be importable (the ``deps_ok`` gate —
+            # cached, avoiding the 50–150 ms import on every
+            # right-click). Previously the tray gated Qwen ONLY on the
+            # package import, so Qwen showed as selectable with zero
+            # weights downloaded and the click failed at load time.
+            downloaded = _check_qwen_asr_available() and _check_qwen_model_downloaded(
+                config_dir, qwen_model_path
+            )
         elif repo_id:
             # cached check with 5-second TTL — avoids
             # 5× filesystem exists() per right-click.

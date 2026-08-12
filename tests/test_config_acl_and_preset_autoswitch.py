@@ -341,6 +341,11 @@ class TestEnforceWindowsOwnerOnlyAcl:
 
         def _spy_acl(path):
             targets.append(str(path))
+            # Simulate a successful enforcement so save()'s dir-ACL
+            # fast-path cache gets populated (the function's real
+            # contract is ``-> bool``; these tests only assert call
+            # order/count).
+            return True
 
         monkeypatch.setattr(config_mod, "_enforce_windows_owner_only_acl", _spy_acl)
 
@@ -416,6 +421,11 @@ class TestEnforceWindowsOwnerOnlyAcl:
 
         def _spy_acl(path):
             order.append(f"acl:{path}")
+            # Simulate a successful enforcement so save()'s dir-ACL
+            # fast-path cache gets populated (the function's real
+            # contract is ``-> bool``; this test only asserts call
+            # order/count).
+            return True
 
         monkeypatch.setattr(config_mod, "is_windows", lambda: True)
         monkeypatch.setattr(config_mod, "_acquire_config_lock", _fake_lock)
