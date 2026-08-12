@@ -54,7 +54,7 @@ fn test_signal_pid_u32_max_does_not_self_kill() {
     // guard returns false without calling kill. If the guard is
     // broken, this test process would die and the test would fail
     // with a process-death error.
-    let result = signal_pid(u32::MAX, libc::SIGKILL);
+    let result = super::posix_impl::signal_pid(u32::MAX, libc::SIGKILL);
     // The range guard returns `false` (no failure — the pid is
     // provably nonexistent, so the caller's aggregation stays
     // consistent).
@@ -75,7 +75,7 @@ fn test_signal_pid_i32_max_passes_range_guard() {
     // so libc::kill will return -1 with ESRCH (no such process).
     // The test verifies the range guard does NOT reject this value
     // (the guard uses `>`, not `>=`).
-    let result = signal_pid(i32::MAX as u32, libc::SIGTERM);
+    let result = super::posix_impl::signal_pid(i32::MAX as u32, libc::SIGTERM);
     // ESRCH returns false (signal not delivered, but not a "failure"
     // per the helper's contract).
     assert!(
@@ -91,7 +91,7 @@ fn test_signal_pid_i32_max_passes_range_guard() {
 #[test]
 fn test_signal_pid_just_above_i32_max_rejected() {
     let just_over = (i32::MAX as u32) + 1;
-    let result = signal_pid(just_over, libc::SIGTERM);
+    let result = super::posix_impl::signal_pid(just_over, libc::SIGTERM);
     assert!(
         !result,
         "signal_pid(i32::MAX + 1, SIGTERM) should be range-guarded"
@@ -110,8 +110,8 @@ fn test_kill_process_group_if_safe_u32_max_is_noop() {
     // would call kill(-(-1), SIGKILL) = kill(1, SIGKILL) = signal
     // init. Post-fix: the range guard returns before getpgid is
     // called.
-    kill_process_group_if_safe(u32::MAX, libc::SIGTERM);
-    kill_process_group_if_safe(u32::MAX, libc::SIGKILL);
+    super::posix_impl::kill_process_group_if_safe(u32::MAX, libc::SIGTERM);
+    super::posix_impl::kill_process_group_if_safe(u32::MAX, libc::SIGKILL);
     // If we reach here, the guard worked.
 }
 
