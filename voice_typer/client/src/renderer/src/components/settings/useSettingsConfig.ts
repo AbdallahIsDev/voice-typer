@@ -188,7 +188,10 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 				setConfig(result);
 			} catch (err) {
 				if (!isCancelled()) {
-					console.error("Failed to load config:", err);
+					console.error(
+						"[renderer:useSettingsConfig] Failed to load config:",
+						err,
+					);
 				}
 			}
 		},
@@ -255,7 +258,10 @@ export function useSettingsConfig(): UseSettingsConfigResult {
 			// JS Error so `err.message` is populated.
 			const message =
 				err instanceof Error && err.message ? err.message : "unknown error";
-			console.error("Failed to update config:", err);
+			console.error(
+				"[renderer:useSettingsConfig] Failed to update config:",
+				err,
+			);
 			//do NOT call loadConfig() here.  The
 			//  local state retains the user's attempted
 			//  value so they can edit + retry without

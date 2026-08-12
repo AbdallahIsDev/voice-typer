@@ -81,7 +81,7 @@ export function detectBrowserLocale(): Locale {
 		}
 	} catch (e) {
 		// navigator may be unavailable (SSR, sandboxed). Fall through to "en".
-		console.warn("[i18n] detectBrowserLocale failed:", e);
+		console.warn("[renderer:i18n] detectBrowserLocale failed:", e);
 	}
 	return "en";
 }

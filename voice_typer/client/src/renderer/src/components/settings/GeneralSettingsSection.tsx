@@ -233,7 +233,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 										// localStorage may be unavailable in some contexts
 										// (SSR, sandboxed renderer, quota exceeded).
 										console.warn(
-											"[GeneralSettingsSection] setItem locale failed:",
+											"[renderer:GeneralSettingsSection] setItem locale failed:",
 											e,
 										);
 									}
@@ -249,7 +249,7 @@ export const GeneralSettingsSection = memo(function GeneralSettingsSection({
 										// IPC may not be available during startup or the
 										// backend may not yet have registered the route.
 										console.warn(
-											"[GeneralSettingsSection] set_tray_locale IPC failed:",
+											"[renderer:GeneralSettingsSection] set_tray_locale IPC failed:",
 											e,
 										);
 									}

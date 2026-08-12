@@ -45,7 +45,9 @@ describe("Button — dev-mode a11y warn", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		render(<Button />);
 		expect(warn).toHaveBeenCalledTimes(1);
-		expect(warn.mock.calls[0]?.[0]).toMatch(/Button: no `aria-label`/);
+		expect(warn.mock.calls[0]?.[0]).toMatch(
+			/\[renderer:Button\] no `aria-label`/,
+		);
 		warn.mockRestore();
 	});
 
@@ -76,7 +78,9 @@ describe("Switch — dev-mode a11y warn", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		render(<Switch />);
 		expect(warn).toHaveBeenCalledTimes(1);
-		expect(warn.mock.calls[0]?.[0]).toMatch(/Switch: no `aria-label`/);
+		expect(warn.mock.calls[0]?.[0]).toMatch(
+			/\[renderer:Switch\] no `aria-label`/,
+		);
 		warn.mockRestore();
 	});
 
@@ -100,7 +104,9 @@ describe("Slider — dev-mode a11y warn", () => {
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 		render(<Slider defaultValue={[50]} />);
 		expect(warn).toHaveBeenCalledTimes(1);
-		expect(warn.mock.calls[0]?.[0]).toMatch(/Slider: no `aria-label`/);
+		expect(warn.mock.calls[0]?.[0]).toMatch(
+			/\[renderer:Slider\] no `aria-label`/,
+		);
 		warn.mockRestore();
 	});
 
@@ -184,7 +190,9 @@ describe("SelectTrigger — dev-mode a11y warn", () => {
 			</Select>,
 		);
 		expect(warn).toHaveBeenCalledTimes(1);
-		expect(warn.mock.calls[0]?.[0]).toMatch(/SelectTrigger: no `aria-label`/);
+		expect(warn.mock.calls[0]?.[0]).toMatch(
+			/\[renderer:select\] SelectTrigger: no `aria-label`/,
+		);
 		warn.mockRestore();
 	});
 
@@ -214,7 +222,7 @@ describe("SegmentedControl — dev-mode a11y warn", () => {
 			/>,
 		);
 		const a11yWarns = warn.mock.calls.filter((c) =>
-			String(c[0]).includes("SegmentedControl: `ariaLabel`"),
+			String(c[0]).includes("[renderer:SegmentedControl] `ariaLabel`"),
 		);
 		expect(a11yWarns).toHaveLength(1);
 		warn.mockRestore();
@@ -234,7 +242,7 @@ describe("SegmentedControl — dev-mode a11y warn", () => {
 			/>,
 		);
 		const a11yWarns = warn.mock.calls.filter((c) =>
-			String(c[0]).includes("SegmentedControl: `ariaLabel`"),
+			String(c[0]).includes("[renderer:SegmentedControl] `ariaLabel`"),
 		);
 		expect(a11yWarns).toHaveLength(0);
 		warn.mockRestore();

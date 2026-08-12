@@ -43,7 +43,12 @@ export function useWindowMaximized(bridge: WindowBridge | undefined): boolean {
 					document.documentElement.classList.toggle("is-maximized", v);
 				}
 			})
-			.catch((err) => console.warn("[IPC] window isMaximized failed:", err));
+			.catch((err) =>
+				console.warn(
+					"[renderer:useWindowMaximized] window isMaximized failed:",
+					err,
+				),
+			);
 		const unsub = bridge.onMaximizedChanged((v) => {
 			if (!cancelled) {
 				setIsMaximized(v);

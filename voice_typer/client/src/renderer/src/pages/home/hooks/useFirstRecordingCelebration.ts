@@ -57,12 +57,15 @@ export function useFirstRecordingCelebration(call: CallFn) {
 					localStorage.setItem(FIRST_RECORD_CELEBRATED_KEY, "1");
 				} catch (e) {
 					// localStorage unavailable — non-fatal.
-					console.warn("[Home] setItem first-record-celebrated failed:", e);
+					console.warn(
+						"[renderer:Home] setItem first-record-celebrated failed:",
+						e,
+					);
 				}
 			}
 		} catch (e) {
 			// Non-critical — skip celebration if history fetch fails.
-			console.warn("[Home] first-recording get_history failed:", e);
+			console.warn("[renderer:Home] first-recording get_history failed:", e);
 		}
 	}, [call]);
 }

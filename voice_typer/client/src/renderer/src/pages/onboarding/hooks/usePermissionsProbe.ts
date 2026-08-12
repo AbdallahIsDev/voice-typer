@@ -53,7 +53,10 @@ export function usePermissionsProbe(
 		call<PermissionsResult>("onboarding_check_permissions")
 			.then((result) => setPermissionsResult(result))
 			.catch((err) => {
-				console.error("Failed to check permissions:", err);
+				console.error(
+					"[renderer:usePermissionsProbe] Failed to check permissions:",
+					err,
+				);
 				// use state="error" (distinct from
 				// "unknown") so the renderer can distinguish "probe
 				// failed" from "Windows/unknown-platform happy path".
@@ -86,7 +89,10 @@ export function usePermissionsProbe(
 			})
 			.catch((err) => {
 				if (cancelled) return;
-				console.error("Failed to check permissions:", err);
+				console.error(
+					"[renderer:usePermissionsProbe] Failed to check permissions:",
+					err,
+				);
 				// use state="error" + needed=true so a
 				// probe failure is distinguishable from "no permission
 				// needed" and blocks the wizard from proceeding.

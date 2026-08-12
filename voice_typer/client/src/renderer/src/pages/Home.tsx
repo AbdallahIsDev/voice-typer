@@ -190,7 +190,7 @@ export default function Home() {
 			} catch (e) {
 				// Silently ignore — next manual load picks up fresh data.
 				console.warn(
-					"[Home] event refresh (get_history/get_today_stats) failed:",
+					"[renderer:Home] event refresh (get_history/get_today_stats) failed:",
 					e,
 				);
 			}
@@ -233,7 +233,9 @@ export default function Home() {
 				setCfg(cfg);
 				setHotkey(normalizeHotkey(cfg?.hotkey ?? HOTKEY_DEFAULT));
 			})
-			.catch((e) => console.warn("[Home] initial get_config failed:", e));
+			.catch((e) =>
+				console.warn("[renderer:Home] initial get_config failed:", e),
+			);
 		const statsSettled = call<TodayStats>("get_today_stats")
 			.then((s) => {
 				if (cancelled) return;
@@ -242,7 +244,9 @@ export default function Home() {
 					setStats(s);
 				}
 			})
-			.catch((e) => console.warn("[Home] initial get_today_stats failed:", e));
+			.catch((e) =>
+				console.warn("[renderer:Home] initial get_today_stats failed:", e),
+			);
 		const historySettled = call<HistoryRecord[]>("get_history", { limit: 4 })
 			.then((h) => {
 				if (cancelled) return;
@@ -250,7 +254,9 @@ export default function Home() {
 				persistRecent(cachedRecentRef, recs);
 				setRecent(recs);
 			})
-			.catch((e) => console.warn("[Home] initial get_history failed:", e));
+			.catch((e) =>
+				console.warn("[renderer:Home] initial get_history failed:", e),
+			);
 		Promise.allSettled([cfgSettled, statsSettled, historySettled]).then(() => {
 			if (cancelled) return;
 			setInitialLoading(false);
@@ -331,7 +337,7 @@ export default function Home() {
 				setCfg(cfg);
 			} catch (e) {
 				console.warn(
-					"[Home] config_changed reloadHotkey get_config failed:",
+					"[renderer:Home] config_changed reloadHotkey get_config failed:",
 					e,
 				);
 			}
@@ -451,7 +457,7 @@ export default function Home() {
 		try {
 			await call("toggle_dictation");
 		} catch (err) {
-			console.error("Toggle dictation failed:", err);
+			console.error("[renderer:Home] Toggle dictation failed:", err);
 			toast.error(t("home.toggleFailed"));
 		} finally {
 			setToggling(false);
@@ -465,7 +471,7 @@ export default function Home() {
 		try {
 			await call("undo_last");
 		} catch (err) {
-			console.error("Undo failed:", err);
+			console.error("[renderer:Home] Undo failed:", err);
 			toast.error(t("home.undoFailed"));
 		}
 		setLastText("");
@@ -479,7 +485,7 @@ export default function Home() {
 		try {
 			await call("repaste_last");
 		} catch (err) {
-			console.error("Re-paste failed:", err);
+			console.error("[renderer:Home] Re-paste failed:", err);
 			toast.error(t("home.repasteFailed"));
 		}
 	}, [call]);
@@ -489,7 +495,7 @@ export default function Home() {
 			await call("force_cancel_transcription");
 			toast.success(t("home.forceCancel"));
 		} catch (err) {
-			console.error("Force cancel failed:", err);
+			console.error("[renderer:Home] Force cancel failed:", err);
 			toast.error(t("home.forceCancelFailed"));
 		}
 	}, [call]);

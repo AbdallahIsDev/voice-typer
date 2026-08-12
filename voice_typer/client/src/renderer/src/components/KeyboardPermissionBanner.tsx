@@ -79,7 +79,7 @@ function useKeyboardPermission(): PermissionsResult | null {
 				// nag the user than to silently hide a
 				// real permission problem). Mirrors the
 				// onboarding probe's error-handling shape.
-				console.error("[KeyboardPermissionBanner] probe failed:", err);
+				console.error("[renderer:KeyboardPermissionBanner] probe failed:", err);
 				setResult({
 					platform: "unknown",
 					state: "error",

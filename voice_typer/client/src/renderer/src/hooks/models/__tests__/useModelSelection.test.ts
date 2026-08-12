@@ -163,12 +163,41 @@ describe("useModelSelection — model-switch ordering (guards)", () => {
 		expect(args.updateConfig).not.toHaveBeenCalled();
 		// setModels MUST NOT be called — no optimistic update.
 		expect(args.setModels).not.toHaveBeenCalled();
-		// Deps-required warning surfaced.
+		// Deps-required warning surfaced (generic {name} key).
 		expect(args.showSnack).toHaveBeenCalledWith(
-			"models.snack.parakeetDepsRequired",
+			expect.stringContaining("models.snack.depsRequiredName"),
 			"warning",
 		);
 		// Spinner stays cleared.
+		expect(result.current.selectingModel).toBeNull();
+	});
+
+	it("refuses to select a downloaded Qwen when qwen_asr deps are missing (deps guard fires, not the downloaded guard)", async () => {
+		const args = makeHookArgs();
+		const { result } = renderHook(() => useModelSelection(args));
+
+		// Qwen weights ARE on disk (downloaded: true) but the optional
+		// qwen_asr pip package is NOT importable (depsOk: false) — the
+		// deps guard must fire. The `depsInstallable` flag now gates
+		// Qwen exactly like Parakeet.
+		const model = makeModel({
+			name: "qwen",
+			backend: "qwen",
+			downloaded: true, // downloaded so the downloaded guard would pass
+			depsOk: false, // qwen_asr missing — deps guard must fire
+			depsInstallable: true,
+		});
+
+		await act(async () => {
+			await result.current.selectModel(model);
+		});
+
+		expect(args.updateConfig).not.toHaveBeenCalled();
+		expect(args.setModels).not.toHaveBeenCalled();
+		expect(args.showSnack).toHaveBeenCalledWith(
+			expect.stringContaining("models.snack.depsRequiredName"),
+			"warning",
+		);
 		expect(result.current.selectingModel).toBeNull();
 	});
 
@@ -181,7 +210,6 @@ describe("useModelSelection — model-switch ordering (guards)", () => {
 			backend: "whisper",
 			downloaded: false,
 			depsOk: true,
-			alwaysAvailable: false,
 		});
 
 		await act(async () => {
@@ -196,7 +224,7 @@ describe("useModelSelection — model-switch ordering (guards)", () => {
 		);
 	});
 
-	it("allows selecting an undownloaded model when alwaysAvailable=true (e.g. Qwen auto-download)", async () => {
+	it("refuses to select an undownloaded Qwen (no always-available bypass — Qwen is local-only, not auto-fetched)", async () => {
 		const args = makeHookArgs();
 		const { result } = renderHook(() => useModelSelection(args));
 
@@ -205,20 +233,21 @@ describe("useModelSelection — model-switch ordering (guards)", () => {
 			backend: "qwen",
 			downloaded: false,
 			depsOk: true,
-			alwaysAvailable: true,
 		});
 
 		await act(async () => {
 			await result.current.selectModel(model);
 		});
 
-		expect(args.updateConfig).toHaveBeenCalledWith({
-			asr_backend: "qwen",
-			model_size: "qwen",
-		});
+		// updateConfig MUST NOT be called — the not-downloaded guard fires.
+		expect(args.updateConfig).not.toHaveBeenCalled();
+		expect(args.setModels).not.toHaveBeenCalled();
+		// Warning snack surfaces (matches the backend's "model is not
+		// downloaded yet" notification — the in-app UI must not claim
+		// "Qwen model selected" for a model that isn't installed).
 		expect(args.showSnack).toHaveBeenCalledWith(
-			expect.stringContaining("models.snack.usingModel"),
-			"success",
+			expect.stringContaining("models.snack.notDownloaded"),
+			"warning",
 		);
 	});
 });

@@ -144,25 +144,26 @@ function makeMockProc(opts: { autoExitOnKill?: boolean } = {}) {
 		}),
 	};
 	return proc;
-}	describe("stop-python.ts SIGTERM→SIGKILL escalation (current contract)", () => {
-		let stopPython: () => void;
-		let KILL_TIMER_MS: number;
-		let ESCALATE_TIMER_MS: number;
+}
+describe("stop-python.ts SIGTERM→SIGKILL escalation (current contract)", () => {
+	let stopPython: () => void;
+	let KILL_TIMER_MS: number;
+	let ESCALATE_TIMER_MS: number;
 
-		beforeEach(async () => {
-			vi.clearAllMocks();
-			vi.useFakeTimers();
-			Object.assign(mockState, makeMockState());
-			vi.resetModules();
-			const mod = await import("../python/stop-python");
-			stopPython = mod.stopPython;
-			KILL_TIMER_MS = mod.KILL_TIMER_MS;
-			ESCALATE_TIMER_MS = mod.ESCALATE_TIMER_MS;
-		});
+	beforeEach(async () => {
+		vi.clearAllMocks();
+		vi.useFakeTimers();
+		Object.assign(mockState, makeMockState());
+		vi.resetModules();
+		const mod = await import("../python/stop-python");
+		stopPython = mod.stopPython;
+		KILL_TIMER_MS = mod.KILL_TIMER_MS;
+		ESCALATE_TIMER_MS = mod.ESCALATE_TIMER_MS;
+	});
 
-		afterEach(() => {
-			vi.useRealTimers();
-		});
+	afterEach(() => {
+		vi.useRealTimers();
+	});
 
 	// The old skipped test asserted the killTimer sent SIGKILL at 3s.
 	// The current contract is graceful-first: SIGTERM at KILL_TIMER_MS.

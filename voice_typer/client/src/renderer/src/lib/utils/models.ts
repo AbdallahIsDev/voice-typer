@@ -22,11 +22,15 @@ export interface ModelInfo {
 	downloaded: boolean;
 	depsOk: boolean;
 	isActive: boolean;
-	//replaces the magic string `!model.alwaysAvailable` check.
-	// Qwen doesn't need a separate download step (it auto-downloads
-	// from HuggingFace on first use), so the "Download" button is
-	// hidden for it.
-	alwaysAvailable?: boolean;
+	// NOTE: a former `alwaysAvailable?: boolean` flag was REMOVED.
+	// It claimed Qwen "auto-downloads on first use" and hid the
+	// Download button + bypassed the select guard for a model that
+	// was never installed — a lie (the backend registry declares Qwen
+	// `network_behavior="local-only"`, NOT auto-fetched; the engine
+	// requires `qwen_model_path` or an HF cache dir). "Installed" is
+	// determined solely by the backend's `get_model_status`
+	// (`downloaded`). Do NOT re-add an always-available concept without
+	// a backend `network_behavior` value that actually auto-downloads.
 	/**
 	 *  fix #7: model requires extra system dependencies that
 	 * can be installed via a dedicated action (e.g. Parakeet's torch
@@ -132,10 +136,24 @@ export const INITIAL_MODELS: ModelInfo[] = [
 		size: "Variable",
 		speed: "Fast",
 		backend: "qwen",
+		// Qwen is local-only per the backend registry — it is NOT
+		// auto-fetched. `downloaded` is set by `get_model_status`
+		// (true when `qwen_model_path` points at an existing dir or the
+		// HF cache holds the repo). Until then the card shows
+		// "Download" (which surfaces the "set qwen_model_path" hint)
+		// and selecting it is blocked by the not-downloaded guard.
 		downloaded: false,
+		// Qwen requires the optional `qwen_asr` pip package (probed by
+		// the backend's `_check_qwen_deps()` → `deps_ok`). With
+		// `depsInstallable: true`, a qwen_asr-missing install shows the
+		// "Download Deps" button and `useModelSelection` blocks the
+		// Select action — mirroring Parakeet's gating. `depsOk` is
+		// reconciled at runtime by `get_model_status` (seeded `true` so
+		// first paint shows "Download", not a false "Dependencies
+		// required" flash, for users who DO have qwen_asr installed).
 		depsOk: true,
 		isActive: false,
-		alwaysAvailable: true,
+		depsInstallable: true,
 	},
 	{
 		name: "parakeet",
@@ -198,8 +216,8 @@ export function getProviderLabel(providerKey: string): string {
 	}
 }
 
-// I18N-FIX: model size "Variable" is a sentinel for qwen / always-available
-// models.  Translate it for display; pass through literal sizes like ~466MB.
+// I18N-FIX: model size "Variable" is the sentinel used by the Qwen entry.
+// Translate it for display; pass through literal sizes like ~466MB.
 export function formatModelSize(size: string): string {
 	return size === "Variable" ? t("models.variable") : size;
 }

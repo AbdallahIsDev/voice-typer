@@ -121,7 +121,7 @@ export async function saveTemplates(
 		// localStorage may be unavailable (private mode, quota exceeded).
 		// The backend is the source of truth now, so this is non-fatal.
 		console.warn(
-			"[templates/storage] saveTemplates localStorage.setItem failed:",
+			"[renderer:storage] saveTemplates localStorage.setItem failed:",
 			e,
 		);
 	}
@@ -133,7 +133,7 @@ export async function saveTemplates(
 			// the caller can show an error toast instead of the success
 			// toast it likely already queued (the success toast is fired
 			// before the await in some callers — see useTemplateDialog).
-			console.error("IPC save_templates failed:", err);
+			console.error("[renderer:storage] IPC save_templates failed:", err);
 			throw err;
 		}
 	}
@@ -160,7 +160,7 @@ export function makeRowId(): string {
 		// crypto may be undefined in some test environments.
 		// Fall through to the Math.random-based pseudo-ID below.
 		console.warn(
-			"[templates/storage] crypto.randomUUID unavailable, falling back:",
+			"[renderer:storage] crypto.randomUUID unavailable, falling back:",
 			e,
 		);
 	}

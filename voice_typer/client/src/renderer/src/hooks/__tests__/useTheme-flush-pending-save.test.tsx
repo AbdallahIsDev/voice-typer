@@ -152,7 +152,9 @@ describe("useTheme — flushPendingThemeSave rejection handling", () => {
 		// rejection warning (which jsdom surfaces via
 		// `process.on('unhandledRejection')` — not via console.warn).
 		const flushWarn = warnSpy.mock.calls.find((c) =>
-			String(c[0] ?? "").includes("[useTheme] set_config (flush) failed"),
+			String(c[0] ?? "").includes(
+				"[renderer:useTheme] set_config (flush) failed",
+			),
 		);
 		expect(flushWarn).toBeTruthy();
 		warnSpy.mockRestore();

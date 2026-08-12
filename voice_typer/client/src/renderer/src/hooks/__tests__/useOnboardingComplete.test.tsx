@@ -4,7 +4,7 @@
  * Contract: on completion, navigate to home, then re-apply the theme
  * from the freshly-fetched config. Non-fatal on get_config failure.
  */
-import { renderHook, act } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { useOnboardingComplete } from "@/hooks/useOnboardingComplete";
 
@@ -66,7 +66,9 @@ describe("useOnboardingComplete", () => {
 
 	it("reload failure is non-fatal (no throw)", async () => {
 		const navigate = vi.fn();
-		const reloadThemeFromConfig = vi.fn().mockRejectedValue(new Error("theme fail"));
+		const reloadThemeFromConfig = vi
+			.fn()
+			.mockRejectedValue(new Error("theme fail"));
 		const call = vi.fn().mockResolvedValue({ theme_mode: "dark" });
 		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 

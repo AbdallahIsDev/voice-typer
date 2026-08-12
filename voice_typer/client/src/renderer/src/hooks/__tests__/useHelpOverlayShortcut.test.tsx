@@ -15,20 +15,23 @@ import { useHelpOverlayShortcut } from "@/hooks/useHelpOverlayShortcut";
 afterEach(cleanup);
 
 function renderHook() {
-	let api: ReturnType<typeof useHelpOverlayShortcut>;
+	let api: ReturnType<typeof useHelpOverlayShortcut> | undefined;
 	function Probe() {
-		api = useHelpOverlayShortcut();
+		const value = useHelpOverlayShortcut();
+		api = value;
 		return (
-			<div data-testid="probe">
-				{api.showHelpOverlay ? "open" : "closed"}
-			</div>
+			<div data-testid="probe">{value.showHelpOverlay ? "open" : "closed"}</div>
 		);
 	}
 	const view = render(<Probe />);
 	return {
 		view,
 		get api() {
-			return api!;
+			// Probe always runs during render, so `api` is assigned before
+			// any test reads it. A cast (instead of `!`) keeps the getter
+			// type-safe under noUncheckedIndexedAccess without a non-null
+			// assertion.
+			return api as ReturnType<typeof useHelpOverlayShortcut>;
 		},
 	};
 }

@@ -64,7 +64,7 @@ function getSavedTab(): SettingsTab {
 		}
 	} catch (e) {
 		// localStorage may be unavailable (SSR, sandboxed)
-		console.warn("[Settings] loadActiveTab failed:", e);
+		console.warn("[renderer:Settings] loadActiveTab failed:", e);
 	}
 	return "general";
 }
@@ -259,7 +259,7 @@ export default function SettingsPage() {
 			localStorage.setItem(LS_KEY, activeTab);
 		} catch (e) {
 			// localStorage may be unavailable
-			console.warn("[Settings] persistActiveTab failed:", e);
+			console.warn("[renderer:Settings] persistActiveTab failed:", e);
 		}
 	}, [activeTab]);
 
@@ -328,7 +328,7 @@ export default function SettingsPage() {
 				showSnack(t("settings.fetchDefaultsFailed"), "error");
 			}
 		} catch (err) {
-			console.error("Failed to reset to defaults:", err);
+			console.error("[renderer:Settings] Failed to reset to defaults:", err);
 			showSnack(t("settings.resetFailed"), "error");
 		}
 	}, [config, call, updateConfig, showSnack]);

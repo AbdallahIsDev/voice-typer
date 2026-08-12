@@ -119,7 +119,10 @@ export function useMicrophonePlayback(): UseMicrophonePlaybackResult {
 				} catch (e) {
 					/* noop — audio element may already be in a
 					   closed/stopped state */
-					console.warn("[useMicrophonePlayback] cleanup pause failed:", e);
+					console.warn(
+						"[renderer:useMicrophonePlayback] cleanup pause failed:",
+						e,
+					);
 				}
 				audioRef.current = null;
 			}

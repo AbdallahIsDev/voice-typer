@@ -114,7 +114,11 @@ export class ErrorBoundary extends Component<
 		// console-message handler only re-emitted to the terminal
 		// (lost when the terminal closed); it did NOT persist to
 		// disk before the console-message persistence path landed.
-		console.error("[ErrorBoundary] Caught render error:", error, errorInfo);
+		console.error(
+			"[renderer:ErrorBoundary] Caught render error:",
+			error,
+			errorInfo,
+		);
 
 		// Forward the caught error to the main process
 		// for explicit persistence in `electron-renderer-errors.log`
@@ -138,13 +142,13 @@ export class ErrorBoundary extends Component<
 				.catch((err: unknown) => {
 					// Best-effort: never let the persistence
 					// path crash the ErrorBoundary itself.
-					console.warn("[ErrorBoundary] logError IPC failed:", err);
+					console.warn("[renderer:ErrorBoundary] logError IPC failed:", err);
 				});
 		} catch (err) {
 			// Synchronous throw (e.g. `window.window_` is
 			// undefined and `?.` short-circuit didn't fire
 			// for some reason). Same swallow rationale.
-			console.warn("[ErrorBoundary] logError call failed:", err);
+			console.warn("[renderer:ErrorBoundary] logError call failed:", err);
 		}
 
 		// Persist errorInfo in state so the "Copy error" button
@@ -281,7 +285,10 @@ export class ErrorBoundary extends Component<
 		} catch (e) {
 			// Last-resort: leave the error text on screen so the
 			// user can manually select + copy from the <pre>.
-			console.warn("[ErrorBoundary] clipboard fallback copy failed:", e);
+			console.warn(
+				"[renderer:ErrorBoundary] clipboard fallback copy failed:",
+				e,
+			);
 		}
 	};
 
@@ -319,7 +326,7 @@ export class ErrorBoundary extends Component<
 		try {
 			void window.window_?.openLogs?.();
 		} catch (err) {
-			console.error("[ErrorBoundary] Failed to open logs:", err);
+			console.error("[renderer:ErrorBoundary] Failed to open logs:", err);
 		}
 	};
 
@@ -360,7 +367,7 @@ export class ErrorBoundary extends Component<
 				backendResetOk = true;
 			} catch (err) {
 				console.error(
-					"[ErrorBoundary] Backend reset failed, falling back to localStorage clear + reload:",
+					"[renderer:ErrorBoundary] Backend reset failed, falling back to localStorage clear + reload:",
 					err,
 				);
 				this.setState({ resetFailed: true });
@@ -372,7 +379,7 @@ export class ErrorBoundary extends Component<
 				localStorage.clear();
 			} catch (e) {
 				// Ignore — some sandboxed contexts disable localStorage.
-				console.warn("[ErrorBoundary] localStorage.clear failed:", e);
+				console.warn("[renderer:ErrorBoundary] localStorage.clear failed:", e);
 			}
 			window.location.reload();
 		};

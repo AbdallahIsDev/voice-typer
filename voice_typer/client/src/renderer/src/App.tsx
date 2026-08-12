@@ -269,7 +269,7 @@ export default function App() {
 			if (isKnownPage(page)) {
 				navigate(page);
 			} else {
-				console.warn(`[navigate] ignoring unknown page path: "${page}"`);
+				console.warn(`[renderer:App] ignoring unknown page path: "${page}"`);
 			}
 		}
 		return undefined;

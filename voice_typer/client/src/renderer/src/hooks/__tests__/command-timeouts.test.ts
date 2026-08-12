@@ -92,7 +92,7 @@ describe("VP-6: Tauri rejection-string envelope parsing (parseTauriErrorEnvelope
 		});
 		const err = parseTauriErrorEnvelope(raw);
 		expect(err).toBeInstanceOf(Error);
-		expect(err!.message).toBe("IPC timed out");
+		expect(err?.message).toBe("IPC timed out");
 		expect((err as Error & { code?: string }).code).toBe("command_timeout");
 	});
 
@@ -140,6 +140,6 @@ describe("VP-6: Tauri rejection-string envelope parsing (parseTauriErrorEnvelope
 		expect((err as Error & { code?: string }).code).toBe(
 			"client.consent_required",
 		);
-		expect(err!.message).toBe("consent needed");
+		expect(err?.message).toBe("consent needed");
 	});
 });

@@ -132,11 +132,13 @@ export function SegmentedControl<T extends string>({
 	// readers. Surfaces the gaps during development only.
 	if (process.env.NODE_ENV !== "production") {
 		if (!ariaLabel) {
-			console.warn("SegmentedControl: `ariaLabel` is missing");
+			console.warn("[renderer:SegmentedControl] `ariaLabel` is missing");
 		}
 		for (const opt of options) {
 			if (!opt.label && !opt.title) {
-				console.warn("SegmentedControl: icon-only option missing `title`");
+				console.warn(
+					"[renderer:SegmentedControl] icon-only option missing `title`",
+				);
 				break;
 			}
 		}

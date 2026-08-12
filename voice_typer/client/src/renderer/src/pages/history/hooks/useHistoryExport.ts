@@ -125,7 +125,7 @@ export function useHistoryExport({
 					if (safePage.length < EXPORT_PAGE_SIZE) break;
 				}
 			} catch (err) {
-				console.error("[History] export paging failed:", err);
+				console.error("[renderer:History] export paging failed:", err);
 				toast.error(t("history.exportFailed"));
 				return;
 			}
@@ -157,7 +157,7 @@ export function useHistoryExport({
 					toast.error(result.error ?? t("history.exportFailed"));
 				}
 			} catch (err) {
-				console.error("[History] export bridge failed:", err);
+				console.error("[renderer:History] export bridge failed:", err);
 				toast.error(t("history.exportFailed"));
 			}
 		},

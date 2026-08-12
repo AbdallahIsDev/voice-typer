@@ -628,7 +628,7 @@
 		"notificationsDescription": "Показывать уведомление на рабочем столе при завершении расшифровки или возникновении ошибки.",
 		"trayClick": "Клик по трею",
 		"trayClickDescription": "Что происходит при нажатии левой кнопкой мыши на значок {appName} в системном трее.",
-		"generalDescription": "Поведение, запуск и внешний вид.",
+		"generalDescription": "Настройте, как {appName} запускается, ведёт себя при входе в систему и взаимодействует с вашей системой.",
 		"overlay": "Наложение",
 		"overlayDescription": "Плавающий пузырёк записи.",
 		"bubbleBehaviorLabel": "Поведение пузырька",
@@ -1102,6 +1102,7 @@
 		"lastResortUnloadedHint": "Откройте страницу «Модели» и нажмите «Скачать» перед использованием.",
 		"snack": {
 			"parakeetDepsRequired": "Для Parakeet требуются зависимости. Сначала скачайте их.",
+			"depsRequiredName": "Для {name} требуются зависимости. Сначала скачайте их.",
 			"notDownloaded": "Модель \"{name}\" ещё не скачана. Сначала скачайте её.",
 			"usingModel": "Используется модель: {name}",
 			"downloaded": "{name} успешно скачана",
@@ -1513,10 +1514,10 @@
 		"multilingualBadge": "Многоязычный",
 		"bluetoothBadgeTooltip": "Bluetooth-микрофон",
 		"consentHuggingFace": "Согласие с условиями Hugging Face",
-		"consentHuggingFaceInfo": "Модели будут загружены с Hugging Face.",
+		"consentHuggingFaceInfo": "Позволяет {appName} загружать веса моделей Whisper с huggingface.co.",
 		"consentRequired": "Необходимо согласие для продолжения",
 		"consentVoiceBiometric": "Согласие на голосовую биометрию",
-		"consentVoiceBiometricInfo": "Голосовые данные будут использоваться для распознавания вашего голоса.",
+		"consentVoiceBiometricInfo": "Позволяет {appName} обрабатывать ваши голосовые записи локально для распознавания речи.",
 		"copied": "Скопировано",
 		"copyError": "Ошибка копирования",
 		"copyErrorAria": "Ошибка копирования",
@@ -1590,6 +1591,7 @@
 		"configCrashHint": "Попробуйте сбросить настройки, чтобы решить эту проблему."
 	},
 	"hotkeyPicker": {
+		"capsLockSrConflictWarning": "Caps Lock — клавиша-модификатор по умолчанию для VoiceOver / Narrator. Её выбор может нарушить работу вашего экранного диктора. Попробуйте использовать F2 или Ctrl+Alt+D.",
 		"pressAKey": "Нажмите клавишу",
 		"none": "Нет",
 		"presets": "Предустановки…",
@@ -1871,15 +1873,6 @@
 			"title": "{appName} не может безопасно перезапуститься",
 			"body": "Бэкенд Python падает при запуске. После {count} попыток за {seconds} секунд сработал ограничитель цикла перезапуска. Пожалуйста, проверьте файлы логов и переустановите, если проблема сохраняется."
 		}
-	},
-	"error": {
-		"config_load_failed": {
-			"title": "Не удалось загрузить конфигурацию",
-			"body": "Настройки сброшены к значениям по умолчанию. Подробности см. в журналах."
-		}
-	},
-	"state": {
-		"starting": "Запуск..."
 	},
 	"notify": {
 		"recording_controller": {

@@ -47,7 +47,7 @@
 // callback (which takes no args) is called with the same effect.
 //
 //(security/observability): every fire-and-forget `invoke(...)`
-// call now ends with `.catch((err) => console.warn("[bubble IPC] ...",
+// call now ends with `.catch((err) => console.warn("[renderer:bubble-namespace] ...",
 // err))` instead of the previous `void invoke(...)` form which
 // discarded rejections. A broken bubble host previously failed
 // invisibly; failures now surface in the Electron main-process log
@@ -146,7 +146,9 @@ export function createBubbleNamespace(
 		show: () => {
 			tauri.core
 				.invoke("bubble_show")
-				.catch((err) => console.warn("[bubble IPC] bubble_show failed:", err));
+				.catch((err) =>
+					console.warn("[renderer:bubble-namespace] bubble_show failed:", err),
+				);
 		},
 
 		//signal that the bubble renderer has mounted and is
@@ -156,7 +158,10 @@ export function createBubbleNamespace(
 			tauri.core
 				.invoke("bubble_signal_ready")
 				.catch((err) =>
-					console.warn("[bubble IPC] bubble_signal_ready failed:", err),
+					console.warn(
+						"[renderer:bubble-namespace] bubble_signal_ready failed:",
+						err,
+					),
 				);
 		},
 
@@ -187,7 +192,10 @@ export function createBubbleNamespace(
 					position,
 				})
 				.catch((err) =>
-					console.warn("[bubble IPC] bubble_set_position failed:", err),
+					console.warn(
+						"[renderer:bubble-namespace] bubble_set_position failed:",
+						err,
+					),
 				);
 		},
 
@@ -197,7 +205,10 @@ export function createBubbleNamespace(
 			tauri.core
 				.invoke("bubble_set_draggable", { draggable })
 				.catch((err) =>
-					console.warn("[bubble IPC] bubble_set_draggable failed:", err),
+					console.warn(
+						"[renderer:bubble-namespace] bubble_set_draggable failed:",
+						err,
+					),
 				);
 		},
 
@@ -212,7 +223,10 @@ export function createBubbleNamespace(
 					dy: deltaY,
 				})
 				.catch((err) =>
-					console.warn("[bubble IPC] bubble_move_by failed:", err),
+					console.warn(
+						"[renderer:bubble-namespace] bubble_move_by failed:",
+						err,
+					),
 				);
 		},
 	};
@@ -315,7 +329,10 @@ export function createBubbleNamespace(
 			tauri.core
 				.invoke("bubble_resize", { width, height })
 				.catch((err) =>
-					console.warn("[bubble IPC] bubble_resize failed:", err),
+					console.warn(
+						"[renderer:bubble-namespace] bubble_resize failed:",
+						err,
+					),
 				);
 		},
 
@@ -334,7 +351,10 @@ export function createBubbleNamespace(
 			tauri.core
 				.invoke("bubble_toggle_dictation")
 				.catch((err) =>
-					console.warn("[bubble IPC] bubble_toggle_dictation failed:", err),
+					console.warn(
+						"[renderer:bubble-namespace] bubble_toggle_dictation failed:",
+						err,
+					),
 				);
 		},
 
@@ -347,7 +367,10 @@ export function createBubbleNamespace(
 			tauri.core
 				.invoke("bubble_hide_complete")
 				.catch((err) =>
-					console.warn("[bubble IPC] bubble_hide_complete failed:", err),
+					console.warn(
+						"[renderer:bubble-namespace] bubble_hide_complete failed:",
+						err,
+					),
 				);
 		},
 
@@ -365,7 +388,10 @@ export function createBubbleNamespace(
 			tauri.core
 				.invoke("bubble_dismiss")
 				.catch((err) =>
-					console.warn("[bubble IPC] bubble_dismiss failed:", err),
+					console.warn(
+						"[renderer:bubble-namespace] bubble_dismiss failed:",
+						err,
+					),
 				);
 		},
 	};

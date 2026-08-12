@@ -372,23 +372,25 @@ export function useModelDownload({
 					{ model: model.name },
 				);
 				if (result?.success) {
-					//previously the success branch reused the
-					// ``parakeetDepsRequired`` ("Dependencies required
-					// for Parakeet. Download first.") key — which is
-					// the FAILURE / manual-hint message, not a success
-					// confirmation. Use the dedicated ``depsInstalled``
-					// success key instead so users see the right
-					// message after a successful install.
+					// Success → the dedicated ``depsInstalled`` key (the
+					// manual-hint key below is a failure-path message).
 					showSnack(t("models.snack.depsInstalled"), "success");
 					await refreshModelStatus();
 				} else {
 					// Backend doesn't actually install — surface the
-					// manual-install hint (existing i18n key).
-					showSnack(t("models.snack.parakeetDepsRequired"), "warning");
+					// manual-install hint (generic {name} key so it also
+					// reads correctly for Qwen, which gates on qwen_asr).
+					showSnack(
+						t("models.snack.depsRequiredName", { name: model.name }),
+						"warning",
+					);
 				}
 			} catch {
 				// IPC unavailable — fall back to the manual hint.
-				showSnack(t("models.snack.parakeetDepsRequired"), "warning");
+				showSnack(
+					t("models.snack.depsRequiredName", { name: model.name }),
+					"warning",
+				);
 			} finally {
 				setState((prev) => ({ ...prev, installingDepsModel: null }));
 			}

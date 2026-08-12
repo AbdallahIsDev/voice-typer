@@ -71,7 +71,9 @@ function Button({
 		!props["aria-label"] &&
 		!props["aria-labelledby"]
 	) {
-		console.warn("Button: no `aria-label`/`aria-labelledby` or text content");
+		console.warn(
+			"[renderer:Button] no `aria-label`/`aria-labelledby` or text content",
+		);
 	}
 
 	return (

@@ -77,11 +77,11 @@ export function pushLocaleToMainProcess(locale: Locale): void {
 		const result = window.window_?.setLocale?.(locale);
 		if (result && typeof (result as Promise<unknown>).then === "function") {
 			(result as Promise<unknown>).catch((e: unknown) => {
-				console.warn("[i18n] setLocale main-process push failed:", e);
+				console.warn("[renderer:i18n] setLocale main-process push failed:", e);
 			});
 		}
 	} catch (e: unknown) {
-		console.warn("[i18n] setLocale main-process push failed:", e);
+		console.warn("[renderer:i18n] setLocale main-process push failed:", e);
 	}
 }
 
@@ -108,10 +108,13 @@ export function pushLocaleToPythonBackend(locale: Locale): void {
 		});
 		if (result && typeof (result as Promise<unknown>).then === "function") {
 			(result as Promise<unknown>).catch((e: unknown) => {
-				console.warn("[i18n] setLocale Python-backend push failed:", e);
+				console.warn(
+					"[renderer:i18n] setLocale Python-backend push failed:",
+					e,
+				);
 			});
 		}
 	} catch (e: unknown) {
-		console.warn("[i18n] setLocale Python-backend push failed:", e);
+		console.warn("[renderer:i18n] setLocale Python-backend push failed:", e);
 	}
 }

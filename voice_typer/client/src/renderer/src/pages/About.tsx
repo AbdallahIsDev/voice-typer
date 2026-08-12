@@ -222,7 +222,7 @@ export default function AboutPage() {
 			} catch (e) {
 				// intentionally leave config as null — diagnostics simply
 				// show "—" until the backend comes back online.
-				console.warn("[About] get_config failed:", e);
+				console.warn("[renderer:About] get_config failed:", e);
 			}
 		};
 

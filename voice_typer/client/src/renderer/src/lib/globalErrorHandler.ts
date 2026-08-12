@@ -18,7 +18,7 @@
  *      (the most common source of silent renderer failures).
  *
  * Both listeners:
- *   - log to ``console.error`` with a ``[Renderer]`` prefix so the
+ *   - log to ``console.error`` with a ``[renderer:globalErrorHandler]`` prefix so the
  *     message is visible in the Electron main-process console
  *     (forwarded via ``webContents.on("console-message")``) and in
  *     DevTools;
@@ -114,7 +114,7 @@ function _genericUserMessage(): string {
 		// the raw key (not a hardcoded English string) so broken i18n
 		// is unambiguously visible to developers rather than silently
 		// masked.
-		console.warn("[globalErrorHandler] i18n t() failed:", e);
+		console.warn("[renderer:globalErrorHandler] i18n t() failed:", e);
 		return "errorBoundary.description";
 	}
 }
@@ -176,7 +176,7 @@ export function _safeT(key: string): string {
 	try {
 		return t(key);
 	} catch (e) {
-		console.warn(`[globalErrorHandler] i18n t("${key}") failed:`, e);
+		console.warn(`[renderer:globalErrorHandler] i18n t("${key}") failed:`, e);
 		return key;
 	}
 }
@@ -223,7 +223,7 @@ function _buildToastOptions(formattedError: string): {
 				try {
 					void windowApi.openLogs?.();
 				} catch (e) {
-					console.warn("[globalErrorHandler] openLogs() threw:", e);
+					console.warn("[renderer:globalErrorHandler] openLogs() threw:", e);
 				}
 			},
 		};
@@ -243,7 +243,10 @@ function _buildToastOptions(formattedError: string): {
 				navigator.clipboard
 					.writeText(formattedError)
 					.catch((e) =>
-						console.warn("[globalErrorHandler] clipboard.writeText failed:", e),
+						console.warn(
+							"[renderer:globalErrorHandler] clipboard.writeText failed:",
+							e,
+						),
 					);
 			},
 		};
@@ -281,14 +284,14 @@ export function installGlobalErrorHandlers(): void {
 	// outside React's boundary, etc.).
 	window.addEventListener("error", (event: ErrorEvent) => {
 		const detail = _formatForConsole(event.error ?? event.message);
-		console.error("[Renderer] uncaught error:", detail);
+		console.error("[renderer:globalErrorHandler] uncaught error:", detail);
 		try {
 			toast.error(_genericUserMessage(), _buildToastOptions(detail));
 		} catch (e) {
 			// If sonner isn't mounted yet (e.g. error during bootstrap
 			// before the Toaster component renders), the toast call is a
 			// no-op. The console.error above still surfaces the error.
-			console.warn("[globalErrorHandler] toast.error failed:", e);
+			console.warn("[renderer:globalErrorHandler] toast.error failed:", e);
 		}
 		// Do NOT call event.preventDefault() — we want the default
 		// browser console error to also appear in DevTools for parity
@@ -300,12 +303,18 @@ export function installGlobalErrorHandlers(): void {
 		"unhandledrejection",
 		(event: PromiseRejectionEvent) => {
 			const detail = _formatForConsole(event.reason);
-			console.error("[Renderer] unhandled promise rejection:", detail);
+			console.error(
+				"[renderer:globalErrorHandler] unhandled promise rejection:",
+				detail,
+			);
 			try {
 				toast.error(_genericUserMessage(), _buildToastOptions(detail));
 			} catch (e) {
 				// Same defensive guard as above.
-				console.warn("[globalErrorHandler] toast.error (rejection) failed:", e);
+				console.warn(
+					"[renderer:globalErrorHandler] toast.error (rejection) failed:",
+					e,
+				);
 			}
 			// Do NOT call event.preventDefault() — let the default browser
 			// warning appear in DevTools too.

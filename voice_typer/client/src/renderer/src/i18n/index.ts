@@ -140,7 +140,7 @@ export function initI18n(): void {
 		}
 	} catch (e) {
 		// localStorage may be unavailable in some contexts (SSR, sandboxed)
-		console.warn("[i18n] module-load locale restore failed:", e);
+		console.warn("[renderer:i18n] module-load locale restore failed:", e);
 	}
 
 	_setCurrentLocale(next);
@@ -164,7 +164,7 @@ export function initI18n(): void {
 		}
 	} catch (e) {
 		// document may be unavailable in some contexts (SSR, tests)
-		console.warn("[i18n] initial document dir/lang set failed:", e);
+		console.warn("[renderer:i18n] initial document dir/lang set failed:", e);
 	}
 
 	//kick off the async load of the user's restored/detected

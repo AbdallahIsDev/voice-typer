@@ -99,7 +99,10 @@ function loadNavState(): NavState {
 		// localStorage may be unavailable (SSR, sandboxed renderer)
 		// or the stored payload may be malformed JSON. Non-fatal —
 		// fall through to the default nav state so the app still boots.
-		console.warn("[useNavigation] loadNavState failed, using default:", e);
+		console.warn(
+			"[renderer:useNavigation] loadNavState failed, using default:",
+			e,
+		);
 	}
 	return defaultNavState();
 }
@@ -112,7 +115,7 @@ function saveNavState(state: NavState): void {
 		// renderer) or quota may be exceeded. Non-fatal — the
 		// in-memory nav state is still authoritative for the
 		// current session; we just lose cross-session persistence.
-		console.warn("[useNavigation] saveNavState failed:", e);
+		console.warn("[renderer:useNavigation] saveNavState failed:", e);
 	}
 }
 

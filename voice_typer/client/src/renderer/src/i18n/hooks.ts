@@ -82,7 +82,7 @@ export function notifyLocaleSubscribers(): void {
 			cb();
 		} catch (e) {
 			// a misbehaving subscriber must not break locale switching
-			console.warn("[i18n] locale subscriber callback failed:", e);
+			console.warn("[renderer:i18n] locale subscriber callback failed:", e);
 		}
 	}
 }

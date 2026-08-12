@@ -36,10 +36,22 @@ afterEach(() => {
 // and any test touching it crashes with "Cannot read properties of
 // undefined". Provide an in-memory Storage fallback so the suite runs
 // identically on Node 24 (CI) and Node 26+ (local dev).
-if (
-	typeof globalThis.localStorage === "undefined" ||
-	typeof globalThis.sessionStorage === "undefined"
-) {
+// Detect the built-in WITHOUT invoking its getter. Reading the
+// descriptor is side-effect free, whereas ``typeof globalThis.localStorage``
+// CALLS the getter — and invoking the getter is what emits Node's
+// "localStorage is not available because --localstorage-file was not
+// provided" ExperimentalWarning on every worker-thread evaluation of
+// this setup file (once per test file under ``pool: "threads"``).
+const lsDesc = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+const ssDesc = Object.getOwnPropertyDescriptor(globalThis, "sessionStorage");
+// The Node experimental-webstorage stub is a plain accessor (``get``,
+// no ``value``). jsdom's real Storage and any previously-installed
+// shim are data properties (``value``) — leave those alone.
+const isNodeWebstorageStub = (desc: PropertyDescriptor | undefined): boolean =>
+	desc !== undefined && desc.get !== undefined && !("value" in desc);
+const lsIsStub = isNodeWebstorageStub(lsDesc);
+const ssIsStub = isNodeWebstorageStub(ssDesc);
+if (lsDesc === undefined || lsIsStub || ssDesc === undefined || ssIsStub) {
 	const createMemoryStorage = (): Storage => {
 		const store = new Map<string, string>();
 		return {
@@ -63,14 +75,14 @@ if (
 			},
 		} as Storage;
 	};
-	if (typeof globalThis.localStorage === "undefined") {
+	if (lsDesc === undefined || lsIsStub) {
 		Object.defineProperty(globalThis, "localStorage", {
 			value: createMemoryStorage(),
 			configurable: true,
 			writable: true,
 		});
 	}
-	if (typeof globalThis.sessionStorage === "undefined") {
+	if (ssDesc === undefined || ssIsStub) {
 		Object.defineProperty(globalThis, "sessionStorage", {
 			value: createMemoryStorage(),
 			configurable: true,

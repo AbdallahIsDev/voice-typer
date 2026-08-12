@@ -103,6 +103,9 @@ if (typeof window !== "undefined" && typeof window.matchMedia === "function") {
 		// The cache simply won't auto-invalidate on contrast change;
 		// the per-color-change invalidation in
 		// ``handleCustomColorChange`` still applies.
-		console.warn("[themeColorCache] matchMedia listener setup failed:", e);
+		console.warn(
+			"[renderer:themeColorCache] matchMedia listener setup failed:",
+			e,
+		);
 	}
 }

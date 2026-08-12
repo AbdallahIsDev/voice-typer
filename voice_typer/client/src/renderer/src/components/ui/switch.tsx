@@ -17,7 +17,7 @@ function Switch({
 		!props["aria-label"] &&
 		!props["aria-labelledby"]
 	) {
-		console.warn("Switch: no `aria-label`/`aria-labelledby`");
+		console.warn("[renderer:Switch] no `aria-label`/`aria-labelledby`");
 	}
 
 	return (

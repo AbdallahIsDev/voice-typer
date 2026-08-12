@@ -34,9 +34,9 @@ describe("useWindowMaximized", () => {
 	it("returns false and does nothing when bridge is undefined", () => {
 		const { result } = renderHook(() => useWindowMaximized(undefined));
 		expect(result.current).toBe(false);
-		expect(
-			document.documentElement.classList.contains("is-maximized"),
-		).toBe(false);
+		expect(document.documentElement.classList.contains("is-maximized")).toBe(
+			false,
+		);
 	});
 
 	it("queries isMaximized on mount and mirrors the result", async () => {
@@ -45,9 +45,9 @@ describe("useWindowMaximized", () => {
 		renderHook(() => useWindowMaximized(bridge));
 		await act(async () => {});
 		expect(isMaximized).toHaveBeenCalledTimes(1);
-		expect(
-			document.documentElement.classList.contains("is-maximized"),
-		).toBe(true);
+		expect(document.documentElement.classList.contains("is-maximized")).toBe(
+			true,
+		);
 	});
 
 	it("subscribes to onMaximizedChanged and updates state + class", async () => {
@@ -62,20 +62,20 @@ describe("useWindowMaximized", () => {
 		expect(result.current).toBe(false);
 
 		act(() => {
-			listener!(true);
+			listener?.(true);
 		});
 		expect(result.current).toBe(true);
-		expect(
-			document.documentElement.classList.contains("is-maximized"),
-		).toBe(true);
+		expect(document.documentElement.classList.contains("is-maximized")).toBe(
+			true,
+		);
 
 		act(() => {
-			listener!(false);
+			listener?.(false);
 		});
 		expect(result.current).toBe(false);
-		expect(
-			document.documentElement.classList.contains("is-maximized"),
-		).toBe(false);
+		expect(document.documentElement.classList.contains("is-maximized")).toBe(
+			false,
+		);
 	});
 
 	it("unsubscribes on unmount", async () => {

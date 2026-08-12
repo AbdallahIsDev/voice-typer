@@ -245,7 +245,7 @@ export function useMicrophoneLevelMonitor({
 					return;
 				}
 				console.warn(
-					"[IPC] microphone command failed: level_monitor_start:",
+					"[renderer:useMicrophoneLevelMonitor] microphone command failed: level_monitor_start:",
 					err,
 				);
 			},
@@ -292,7 +292,7 @@ export function useMicrophoneLevelMonitor({
 				// Non-fatal — the push event subscription will still
 				// deliver updates once the backend starts publishing.
 				console.warn(
-					"[useMicrophoneLevelMonitor] one-shot level poll failed:",
+					"[renderer:useMicrophoneLevelMonitor] one-shot level poll failed:",
 					e,
 				);
 			}
@@ -301,7 +301,7 @@ export function useMicrophoneLevelMonitor({
 		return () => {
 			call("level_monitor_stop").catch((err) =>
 				console.warn(
-					"[IPC] microphone command failed: level_monitor_stop:",
+					"[renderer:useMicrophoneLevelMonitor] microphone command failed: level_monitor_stop:",
 					err,
 				),
 			);

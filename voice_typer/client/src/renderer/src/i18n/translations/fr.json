@@ -82,7 +82,7 @@
 			"privacy": "Confidentialité"
 		},
 		"general": "Général",
-		"generalDescription": "Comportement, démarrage et apparence.",
+		"generalDescription": "Configurez la façon dont {appName} démarre, se comporte à la connexion et interagit avec votre système.",
 		"appLanguage": "Langue de l'application",
 		"appLanguageDescription": "Choisissez la langue de l'interface de {appName}.",
 		"transcriptionLanguage": "Langue de transcription",
@@ -675,6 +675,7 @@
 		"lastResortUnloadedHint": "Ouvrez la page Modèles et cliquez sur Télécharger avant de l'utiliser.",
 		"snack": {
 			"parakeetDepsRequired": "Dépendances requises pour Parakeet. Téléchargez d'abord.",
+			"depsRequiredName": "Dépendances requises pour {name}. Téléchargez d'abord.",
 			"notDownloaded": "Le modèle \"{name}\" n'est pas encore téléchargé. Téléchargez-le d'abord.",
 			"usingModel": "Utilisation du modèle : {name}",
 			"downloaded": "{name} téléchargé avec succès",
@@ -760,7 +761,7 @@
 			"testConnectionAria": "Tester la connexion {provider}",
 			"testConnection": "Tester la Connexion",
 			"consentTitle": "Consentement de transmission audio",
-			"consentDescription": "Lorsque ce fournisseur est sélectionné comme backend de reconnaissance vocale actif, vos enregistrements audio seront envoyés à {provider} pour la transcription. Accordez votre consentement pour activer la transmission audio.",
+			"consentDescription": "Lorsque ce fournisseur est sélectionné comme backend de reconnaissance vocale actif, vos enregistrements audio seront envoyés à {provider} pour la transcription. Accordez votre consentement pour activer la transmission audio. {appName} n'active jamais la reconnaissance vocale cloud sans votre consentement explicite, même si une clé API est configurée.",
 			"statusLabel": "Statut :",
 			"consentGrantedStatus": "Consentement accordé — l'audio sera envoyé lorsque ce fournisseur est actif.",
 			"consentNotGrantedStatus": "Consentement non accordé — ce fournisseur refusera de transcrire.",
@@ -1465,6 +1466,7 @@
 		"configCrashHint": "Le fichier de réglages est peut-être corrompu. Essayez de rétablir les valeurs par défaut."
 	},
 	"hotkeyPicker": {
+		"capsLockSrConflictWarning": "Verrouillage Maj est la touche de modification par défaut de VoiceOver / Narrateur. La choisir peut casser votre lecteur d'écran. Envisagez plutôt d'utiliser F2 ou Ctrl+Alt+D.",
 		"pressAKey": "Appuyez sur une touche",
 		"none": "Aucun",
 		"presets": "Préréglages…",
@@ -1871,15 +1873,6 @@
 			"title": "{appName} ne peut pas redémarrer en toute sécurité",
 			"body": "Le backend Python plante au lancement. Après {count} tentatives sur {seconds} secondes, le disjoncteur de redémarrage s'est engagé. Veuillez vérifier les fichiers journaux et réinstaller si le problème persiste."
 		}
-	},
-	"error": {
-		"config_load_failed": {
-			"title": "Échec du chargement de la configuration",
-			"body": "Les paramètres ont été réinitialisés aux valeurs par défaut. Consultez les journaux pour plus de détails."
-		}
-	},
-	"state": {
-		"starting": "Démarrage..."
 	},
 	"notify": {
 		"recording_controller": {

@@ -404,9 +404,28 @@ describe("useModelDownload — installDeps (regression sanity)", () => {
 		});
 
 		expect(args.showSnack).toHaveBeenCalledWith(
-			"models.snack.parakeetDepsRequired",
+			expect.stringContaining("models.snack.depsRequiredName"),
 			"warning",
 		);
+		expect(result.current.installingDepsModel).toBeNull();
+	});
+
+	it("falls back to the manual-install hint for Qwen too (generic {name} message, not Parakeet-specific)", async () => {
+		callMock.mockRejectedValue(new Error("command not registered"));
+		const args = makeHookArgs();
+
+		const { result } = renderHook(() => useModelDownload(args));
+		const model = makeModel({ name: "qwen", backend: "qwen" });
+
+		await act(async () => {
+			await result.current.installDeps(model);
+		});
+
+		expect(args.showSnack).toHaveBeenCalledWith(
+			expect.stringContaining("models.snack.depsRequiredName"),
+			"warning",
+		);
+		expect(args.showSnack.mock.calls[0]?.[0]).toContain("qwen");
 		expect(result.current.installingDepsModel).toBeNull();
 	});
 });

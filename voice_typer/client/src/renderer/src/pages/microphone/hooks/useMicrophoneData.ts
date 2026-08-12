@@ -92,7 +92,10 @@ export function useMicrophoneData({
 				return next;
 			});
 			call("set_config", updates).catch((err) => {
-				console.warn("[IPC] microphone command failed: set_config:", err);
+				console.warn(
+					"[renderer:useMicrophoneData] microphone command failed: set_config:",
+					err,
+				);
 			});
 		},
 		[call],
@@ -126,7 +129,10 @@ export function useMicrophoneData({
 					setConfig(cfg);
 				}
 			} catch (err) {
-				console.error("Failed to load microphone data:", err);
+				console.error(
+					"[renderer:useMicrophoneData] Failed to load microphone data:",
+					err,
+				);
 				//capture the error message so the render
 				// path can show a retry EmptyState instead of an
 				// ambiguous empty list.

@@ -137,7 +137,10 @@ export function useTemplateDialog({
 			// normalized entries).
 			loadRows();
 		} catch (err) {
-			console.error("Failed to save template", err);
+			console.error(
+				"[renderer:useTemplateDialog] Failed to save template",
+				err,
+			);
 			showSnack(t("templates.saveFailed"), "error");
 		}
 	};

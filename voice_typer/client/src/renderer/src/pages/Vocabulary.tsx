@@ -54,7 +54,7 @@ export default function VocabularyPage() {
 			setEntries([]);
 			showSnack(t("vocabulary.clearAllToast"), "success");
 		} catch (err) {
-			console.error("Failed to clear vocabulary:", err);
+			console.error("[renderer:Vocabulary] Failed to clear vocabulary:", err);
 			showSnack(t("vocabulary.clearAllFailed"), "error");
 		}
 	};

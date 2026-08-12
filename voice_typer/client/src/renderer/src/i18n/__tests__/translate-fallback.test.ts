@@ -7,7 +7,7 @@
  *   1. Dev-mode warning: when a key is missing from BOTH the current
  *      locale AND the English fallback, `t()` returns the raw key
  *      string (defensive — callers must not crash on a typo) but also
- *      emits a single `console.warn("[i18n] missing key:", key,
+ *      emits a single `console.warn("[renderer:i18n] missing key:", key,
  *      "for locale:", currentLocale)` so the typo is visible during
  *      QA. Production builds skip the warning (`import.meta.env?.DEV`
  *      is `false` in production per Vite). Vitest runs with
@@ -83,7 +83,7 @@ describe("t() dev-mode missing-key warning", () => {
 		expect(result).toBe("nonexistent.key");
 		expect(warnSpy).toHaveBeenCalledTimes(1);
 		expect(warnSpy).toHaveBeenCalledWith(
-			"[i18n] missing key:",
+			"[renderer:i18n] missing key:",
 			"nonexistent.key",
 			"for locale:",
 			"en",
@@ -206,7 +206,7 @@ describe("t() primary-subtag fallback for regional locales", () => {
 			// occurred.
 			expect(warnSpy).toHaveBeenCalledTimes(1);
 			expect(warnSpy).toHaveBeenCalledWith(
-				"[i18n] missing key:",
+				"[renderer:i18n] missing key:",
 				"totally.missing",
 				"for locale:",
 				"zh-CN",

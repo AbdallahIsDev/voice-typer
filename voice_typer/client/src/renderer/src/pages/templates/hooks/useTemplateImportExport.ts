@@ -90,7 +90,10 @@ export function useTemplateImportExport({
 					toast.error(result.error || t("history.exportFailed"));
 				}
 			} catch (err) {
-				console.error("Templates export failed:", err);
+				console.error(
+					"[renderer:useTemplateImportExport] Templates export failed:",
+					err,
+				);
 				toast.error(t("history.exportFailed"));
 			}
 		},
@@ -138,7 +141,10 @@ export function useTemplateImportExport({
 					);
 				}
 			} catch (err) {
-				console.error("Templates import failed:", err);
+				console.error(
+					"[renderer:useTemplateImportExport] Templates import failed:",
+					err,
+				);
 				toast.error(
 					t("templates.importFailed", {
 						error: err instanceof Error ? err.message : String(err),

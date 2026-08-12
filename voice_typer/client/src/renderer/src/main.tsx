@@ -59,7 +59,7 @@ if (
 //     refresh.
 //
 // The function is idempotent — calling it twice is a no-op. The handler
-// logs to `console.error` with a `[Renderer]` prefix (forwarded to the
+// logs to `console.error` with a `[renderer:globalErrorHandler]` prefix (forwarded to the
 // main-process log via `webContents.on("console-message")`) and shows a
 // generic localized toast via `sonner.toast.error` (the toast is a no-op
 // if the `<Toaster />` hasn't mounted yet — see lib/globalErrorHandler.ts

@@ -159,7 +159,10 @@ export function useOnboardingWizard(
 						setCloudConsent(cfgConsent);
 					}
 				} catch (e) {
-					console.warn("[useOnboardingWizard] get_config probe failed:", e);
+					console.warn(
+						"[renderer:useOnboardingWizard] get_config probe failed:",
+						e,
+					);
 				}
 				const mics = await call<{
 					microphones: MicrophoneOption[];
@@ -193,7 +196,10 @@ export function useOnboardingWizard(
 				setModelOptions(models.models || []);
 			} catch (err) {
 				if (cancelled) return;
-				console.error("Failed to start onboarding:", err);
+				console.error(
+					"[renderer:useOnboardingWizard] Failed to start onboarding:",
+					err,
+				);
 				setInitError(err instanceof Error ? err.message : "Unknown error");
 			} finally {
 				if (!cancelled) setLoading(false);
@@ -233,7 +239,10 @@ export function useOnboardingWizard(
 			}
 			await call("download_model", { model: selectedModel });
 		} catch (err) {
-			console.error("[useOnboardingWizard] model download failed:", err);
+			console.error(
+				"[renderer:useOnboardingWizard] model download failed:",
+				err,
+			);
 			setDownloadFailed(true);
 		} finally {
 			setDownloadingModel(null);
@@ -295,7 +304,10 @@ export function useOnboardingWizard(
 			const newStep = await call<StepInfo>("onboarding_next_step");
 			setStep(newStep);
 		} catch (err) {
-			console.error("Failed to advance step:", err);
+			console.error(
+				"[renderer:useOnboardingWizard] Failed to advance step:",
+				err,
+			);
 			showSnack(t("onboarding.saveFailedSnack"), "error");
 		} finally {
 			setSubmitting(false);
@@ -319,7 +331,10 @@ export function useOnboardingWizard(
 		setSubmitting(true);
 		try {
 			void call("onboarding_apply").catch((err) => {
-				console.error("Failed to apply onboarding (async):", err);
+				console.error(
+					"[renderer:useOnboardingWizard] Failed to apply onboarding (async):",
+					err,
+				);
 			});
 			// Surface a success toast so the user gets explicit
 			// feedback that setup completed (the inline
@@ -331,7 +346,10 @@ export function useOnboardingWizard(
 			showSnack(t("onboarding.setupCompleteSnack"), "success");
 			if (onComplete) onComplete();
 		} catch (err) {
-			console.error("Failed to apply onboarding (sync):", err);
+			console.error(
+				"[renderer:useOnboardingWizard] Failed to apply onboarding (sync):",
+				err,
+			);
 			setApplyError(true);
 			showSnack(t("onboarding.saveFailedSnack"), "error");
 		} finally {
@@ -359,7 +377,10 @@ export function useOnboardingWizard(
 				}
 			})
 			.catch((err) => {
-				console.error("Failed to refresh microphones:", err);
+				console.error(
+					"[renderer:useOnboardingWizard] Failed to refresh microphones:",
+					err,
+				);
 				showSnack(t("onboarding.saveFailedSnack"), "error");
 			});
 	}, [call, showSnack]);
@@ -370,7 +391,7 @@ export function useOnboardingWizard(
 			const newStep = await call<StepInfo>("onboarding_prev_step");
 			setStep(newStep);
 		} catch (err) {
-			console.error("Failed to go back:", err);
+			console.error("[renderer:useOnboardingWizard] Failed to go back:", err);
 			showSnack(t("onboarding.saveFailedSnack"), "error");
 		} finally {
 			setSubmitting(false);
@@ -384,7 +405,10 @@ export function useOnboardingWizard(
 			showSnack(t("onboarding.skippedSnack"), "warning");
 			if (onComplete) onComplete();
 		} catch (err) {
-			console.error("Failed to skip onboarding:", err);
+			console.error(
+				"[renderer:useOnboardingWizard] Failed to skip onboarding:",
+				err,
+			);
 			showSnack(t("onboarding.saveFailedSnack"), "error");
 		} finally {
 			setSubmitting(false);

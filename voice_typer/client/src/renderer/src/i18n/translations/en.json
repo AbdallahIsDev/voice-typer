@@ -1109,6 +1109,7 @@
 		"lastResortUnloadedHint": "Open the Models page and click Download before using it.",
 		"snack": {
 			"parakeetDepsRequired": "Dependencies required for Parakeet. Download first.",
+			"depsRequiredName": "Dependencies required for {name}. Download first.",
 			"notDownloaded": "Model \"{name}\" not downloaded yet. Download it first.",
 			"usingModel": "Using model: {name}",
 			"downloaded": "{name} downloaded successfully",
@@ -1597,6 +1598,7 @@
 		"configCrashHint": "The settings file may be corrupted. Try resetting to defaults."
 	},
 	"hotkeyPicker": {
+		"capsLockSrConflictWarning": "Caps Lock is the default modifier key for VoiceOver / Narrator. Choosing it may break your screen reader. Consider using F2 or Ctrl+Alt+D instead.",
 		"pressAKey": "Press a key",
 		"none": "None",
 		"presets": "Presets…",
@@ -1871,15 +1873,6 @@
 			"title": "{appName} cannot restart safely",
 			"body": "The Python backend is crashing on launch. After {count} attempts over {seconds} seconds, the restart loop breaker has engaged. Please check the log files and reinstall if the problem persists."
 		}
-	},
-	"error": {
-		"config_load_failed": {
-			"title": "Config load failed",
-			"body": "Settings were reset to defaults. Check the logs for details."
-		}
-	},
-	"state": {
-		"starting": "Starting..."
 	},
 	"notify": {
 		"recording_controller": {

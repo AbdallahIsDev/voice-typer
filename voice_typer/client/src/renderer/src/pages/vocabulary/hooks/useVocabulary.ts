@@ -112,7 +112,7 @@ export function useVocabulary({
 			const data = await call<VocabularyData>("get_vocabulary");
 			setEntries(withEntryIds(flattenEntries(data ?? {})));
 		} catch (err) {
-			console.error("Failed to load vocabulary:", err);
+			console.error("[renderer:useVocabulary] Failed to load vocabulary:", err);
 			setEntries([]);
 			//fix #8: capture the error message so the render
 			// path can show a retry EmptyState instead of an ambiguous
@@ -158,7 +158,10 @@ export function useVocabulary({
 					data as unknown as Record<string, unknown>,
 				);
 			} catch (err) {
-				console.error("Failed to save vocabulary:", err);
+				console.error(
+					"[renderer:useVocabulary] Failed to save vocabulary:",
+					err,
+				);
 				throw err;
 			} finally {
 				setSaving(false);

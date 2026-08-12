@@ -116,7 +116,7 @@ export default function HistoryPage() {
 			try {
 				await refreshFromEvent();
 			} catch (e) {
-				console.warn("[History] background refresh failed:", e);
+				console.warn("[renderer:History] background refresh failed:", e);
 			}
 		}, 500);
 		return undefined;

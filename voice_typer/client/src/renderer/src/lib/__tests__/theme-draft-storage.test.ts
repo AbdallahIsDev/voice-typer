@@ -166,7 +166,7 @@ describe("theme-draft-storage — round-trip save/load", () => {
 		expect(() => saveDraftToLS(VALID_DRAFT)).not.toThrow();
 		expect(warnSpy).toHaveBeenCalledTimes(1);
 		expect(warnSpy.mock.calls[0]?.[0]).toContain(
-			"[theme-draft-storage] saveDraftToLS failed:",
+			"[renderer:theme-draft-storage] saveDraftToLS failed:",
 		);
 
 		setItemSpy.mockRestore();
@@ -189,7 +189,7 @@ describe("theme-draft-storage — round-trip save/load", () => {
 		expect(() => clearDraftLS()).not.toThrow();
 		expect(warnSpy).toHaveBeenCalledTimes(1);
 		expect(warnSpy.mock.calls[0]?.[0]).toContain(
-			"[theme-draft-storage] clearDraftLS failed:",
+			"[renderer:theme-draft-storage] clearDraftLS failed:",
 		);
 
 		removeItemSpy.mockRestore();

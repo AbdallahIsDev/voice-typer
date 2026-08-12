@@ -219,7 +219,9 @@ export async function loadThemePreset(id: string): Promise<void> {
 
 	const loader = lazyThemeLoaders[id];
 	if (!loader) {
-		console.warn(`[themes] loadThemePreset: unknown preset id "${id}"`);
+		console.warn(
+			`[renderer:themes] loadThemePreset: unknown preset id "${id}"`,
+		);
 		return;
 	}
 
@@ -235,7 +237,7 @@ export async function loadThemePreset(id: string): Promise<void> {
 		}
 		loadedLazyPresets.add(id);
 	} catch (err) {
-		console.error(`[themes] loadThemePreset("${id}") failed:`, err);
+		console.error(`[renderer:themes] loadThemePreset("${id}") failed:`, err);
 		// Leave the entry with empty light/dark — the caller falls back
 		// to the stylesheet default (same as the ``default`` preset).
 	}

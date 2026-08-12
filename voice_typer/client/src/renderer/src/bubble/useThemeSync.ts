@@ -90,7 +90,7 @@ export function useThemeSync() {
 			// A corrupted custom_theme payload could throw inside
 			// applyThemeVars; swallow so the bubble doesn't crash over
 			// a cosmetic error. The .dark class is already toggled.
-			console.warn("[bubble] applyThemeVars failed:", e);
+			console.warn("[renderer:useThemeSync] applyThemeVars failed:", e);
 		}
 	}, []);
 
@@ -151,7 +151,7 @@ export function useThemeSync() {
 					document.documentElement.dir = isRtlLocale(localeVal) ? "rtl" : "ltr";
 				} catch (e) {
 					// `document` may be unavailable in some test contexts.
-					console.warn("[bubble] dir sync failed:", e);
+					console.warn("[renderer:useThemeSync] dir sync failed:", e);
 				}
 			}
 			applyTheme();

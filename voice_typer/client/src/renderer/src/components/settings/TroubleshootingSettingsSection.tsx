@@ -110,7 +110,10 @@ export const TroubleshootingSettingsSection = memo(
 						setStaleResetCommand(result.reset_command);
 					}
 				} catch (err) {
-					console.warn("check_accessibility probe failed (non-fatal):", err);
+					console.warn(
+						"[renderer:TroubleshootingSettingsSection] check_accessibility probe failed (non-fatal):",
+						err,
+					);
 				}
 			})();
 			return () => {
@@ -149,7 +152,10 @@ export const TroubleshootingSettingsSection = memo(
 					);
 				}
 			} catch (err) {
-				console.error("Failed to open logs:", err);
+				console.error(
+					"[renderer:TroubleshootingSettingsSection] Failed to open logs:",
+					err,
+				);
 				showSnack(t("settings.couldNotOpenLogFolder"), "error");
 			}
 		};
@@ -168,7 +174,10 @@ export const TroubleshootingSettingsSection = memo(
 			try {
 				await call("onboarding_reset");
 			} catch (err) {
-				console.warn("onboarding_reset IPC failed (non-fatal):", err);
+				console.warn(
+					"[renderer:TroubleshootingSettingsSection] onboarding_reset IPC failed (non-fatal):",
+					err,
+				);
 			}
 			await updateConfig({ onboarding_completed: false });
 			showSnack(t("settings.troubleshooting.reRunWizardToast"), "success");
@@ -209,7 +218,10 @@ export const TroubleshootingSettingsSection = memo(
 					);
 				}
 			} catch (err) {
-				console.error("reset_macos_accessibility failed:", err);
+				console.error(
+					"[renderer:TroubleshootingSettingsSection] reset_macos_accessibility failed:",
+					err,
+				);
 				showSnack(
 					t("settings.troubleshooting.resetAccessibilityFailed"),
 					"error",
@@ -245,7 +257,10 @@ export const TroubleshootingSettingsSection = memo(
 					);
 				}
 			} catch (err) {
-				console.error("reset_linux_permissions failed:", err);
+				console.error(
+					"[renderer:TroubleshootingSettingsSection] reset_linux_permissions failed:",
+					err,
+				);
 				showSnack(t("settings.troubleshooting.resetLinuxFailed"), "error");
 			}
 		};

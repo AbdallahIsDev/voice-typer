@@ -141,7 +141,7 @@ export function makeListener<T>(
 			else unlisten = un;
 		})
 		.catch((err) =>
-			console.warn("[tauri-bridge] listener subscribe failed:", err),
+			console.warn("[renderer:tauri-bridge] listener subscribe failed:", err),
 		);
 	return () => {
 		cancelled = true;

@@ -61,7 +61,7 @@ export function SettingRow({
 			const isWrappedInLabel = ctrl.closest("label") !== null;
 			if (hasOwnName || isWrappedInLabel) return;
 			console.warn(
-				`[SettingRow] The visible label "${label}" has no programmatic association with its child form control. ` +
+				`[renderer:SettingRow] The visible label "${label}" has no programmatic association with its child form control. ` +
 					"Pass `htmlFor` on SettingRow (and `id` on the control) OR pass `aria-label` / `aria-labelledby` on the control. " +
 					"Without an association, screen-reader users hear the control announced without its name.",
 			);

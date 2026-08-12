@@ -19,6 +19,7 @@
  * event types listed in
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { APP_NAME } from "../branding";
 
 // Mock ``electron.Notification`` instances so tests can assert the
 // native-toast behavior (title/body, click handler, duration auto-close)
@@ -282,7 +283,7 @@ describe("XS-78: handle-message.ts", () => {
 				handleMessage({
 					type: "notification",
 					data: {
-						title: "Voice Typer",
+						title: APP_NAME,
 						message:
 							"Model not downloaded yet. Open the Models page and download.",
 						duration_ms: 0,
@@ -295,7 +296,7 @@ describe("XS-78: handle-message.ts", () => {
 				const notif = mockNotifications[0];
 				if (!notif) throw new Error("expected a created Notification");
 				expect(notif.opts).toEqual({
-					title: "Voice Typer",
+					title: APP_NAME,
 					body: "Model not downloaded yet. Open the Models page and download.",
 				});
 				expect(notif.show).toHaveBeenCalledTimes(1);
@@ -305,7 +306,7 @@ describe("XS-78: handle-message.ts", () => {
 				handleMessage({
 					type: "notification",
 					data: {
-						title: "Voice Typer",
+						title: APP_NAME,
 						message: "backend unloaded",
 						click_path: "/models",
 					},
@@ -333,7 +334,7 @@ describe("XS-78: handle-message.ts", () => {
 			it("attaches the SEC-029 session nonce to the synthetic navigate event", () => {
 				handleMessage({
 					type: "notification",
-					data: { title: "Voice Typer", message: "m", click_path: "/models" },
+					data: { title: APP_NAME, message: "m", click_path: "/models" },
 				});
 
 				const notif = mockNotifications[0];
@@ -349,7 +350,7 @@ describe("XS-78: handle-message.ts", () => {
 			it("does not register a click handler when click_path is absent", () => {
 				handleMessage({
 					type: "notification",
-					data: { title: "Voice Typer", message: "plain notice" },
+					data: { title: APP_NAME, message: "plain notice" },
 				});
 
 				const notif = mockNotifications[0];
@@ -382,7 +383,7 @@ describe("XS-78: handle-message.ts", () => {
 
 				handleMessage({
 					type: "notification",
-					data: { title: "Voice Typer", message: "m", click_path: "/models" },
+					data: { title: APP_NAME, message: "m", click_path: "/models" },
 				});
 
 				// No native toast created…

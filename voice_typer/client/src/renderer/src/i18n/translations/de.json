@@ -634,7 +634,7 @@
 		"notificationsDescription": "Desktop-Benachrichtigung anzeigen, wenn die Transkription abgeschlossen ist oder ein Fehler auftritt.",
 		"trayClick": "Klick auf Tray",
 		"trayClickDescription": "Was passiert, wenn Sie mit der linken Maustaste auf das {appName}-Symbol in der Taskleiste klicken.",
-		"generalDescription": "Verhalten, Start und Erscheinungsbild.",
+		"generalDescription": "Konfigurieren Sie, wie {appName} startet, sich beim Anmelden verhält und mit Ihrem System interagiert.",
 		"overlay": "Overlay",
 		"overlayDescription": "Schwebende Aufnahmeblase.",
 		"bubbleBehaviorLabel": "Verhalten der Blase",
@@ -1102,6 +1102,7 @@
 		"lastResortUnloadedHint": "Öffne die Modellseite und klicke vor der Verwendung auf Herunterladen.",
 		"snack": {
 			"parakeetDepsRequired": "Abhängigkeiten für Parakeet erforderlich. Zuerst herunterladen.",
+			"depsRequiredName": "Abhängigkeiten für {name} erforderlich. Zuerst herunterladen.",
 			"notDownloaded": "Modell \"{name}\" noch nicht heruntergeladen. Zuerst herunterladen.",
 			"usingModel": "Verwende Modell: {name}",
 			"downloaded": "{name} erfolgreich heruntergeladen",
@@ -1204,7 +1205,7 @@
 			"testConnectionAria": "{provider}-Verbindung testen",
 			"testConnection": "Verbindung testen",
 			"consentTitle": "Zustimmung zur Audioübertragung",
-			"consentDescription": "Wenn dieser Anbieter als aktives Spracherkennungs-Backend ausgewählt ist, werden Ihre Audioaufnahmen zur Transkription an {provider} gesendet. Erteilen Sie die Zustimmung, um die Audioübertragung zu aktivieren.",
+			"consentDescription": "Wenn dieser Anbieter als aktives Spracherkennungs-Backend ausgewählt ist, werden Ihre Audioaufnahmen zur Transkription an {provider} gesendet. Erteilen Sie die Zustimmung, um die Audioübertragung zu aktivieren. {appName} aktiviert die Cloud-Spracherkennung niemals ohne Ihre ausdrückliche Zustimmung — selbst wenn ein API-Schlüssel konfiguriert ist.",
 			"statusLabel": "Status:",
 			"consentGrantedStatus": "Zustimmung erteilt — Audio wird gesendet, wenn dieser Anbieter aktiv ist.",
 			"consentNotGrantedStatus": "Zustimmung nicht erteilt — dieser Anbieter wird die Transkription verweigern.",
@@ -1557,7 +1558,7 @@
 		"backWithShortcut": "Zurück ({shortcut})"
 	},
 	"bubble": {
-		"recordingIndicatorAria": "Voice-Typer-Aufnahmeanzeige",
+		"recordingIndicatorAria": "{appName}-Aufnahmeanzeige",
 		"transcribingLabel": "Transkribieren",
 		"idleLabel": "Bereit",
 		"recordingLabel": "AUFNAHME",
@@ -1590,6 +1591,7 @@
 		"configCrashHint": "Die Einstellungsdatei ist möglicherweise beschädigt. Versuchen Sie, auf die Standardwerte zurückzusetzen."
 	},
 	"hotkeyPicker": {
+		"capsLockSrConflictWarning": "Caps Lock ist die Standard-Modifikatortaste für VoiceOver / Narrator. Die Auswahl kann Ihren Screenreader beeinträchtigen. Verwenden Sie stattdessen F2 oder Strg+Alt+D.",
 		"pressAKey": "Taste drücken",
 		"none": "Keine",
 		"presets": "Vordefinierte…",
@@ -1871,15 +1873,6 @@
 			"title": "{appName} kann nicht sicher neu gestartet werden",
 			"body": "Das Python-Backend stürzt beim Start ab. Nach {count} Versuchen über {seconds} Sekunden wurde der Neustart-Schutz aktiviert. Bitte prüfen Sie die Protokolldateien und installieren Sie neu, falls das Problem besteht."
 		}
-	},
-	"error": {
-		"config_load_failed": {
-			"title": "Konfiguration laden fehlgeschlagen",
-			"body": "Einstellungen wurden auf Standardwerte zurückgesetzt. Details findest du in den Protokollen."
-		}
-	},
-	"state": {
-		"starting": "Wird gestartet ..."
 	},
 	"notify": {
 		"recording_controller": {

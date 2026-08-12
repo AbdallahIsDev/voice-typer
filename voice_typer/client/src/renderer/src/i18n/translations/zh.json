@@ -628,7 +628,7 @@
 		"notificationsDescription": "当转写完成或发生错误时显示桌面通知。",
 		"trayClick": "托盘点击",
 		"trayClickDescription": "左键点击系统托盘中的 {appName} 图标时发生什么。",
-		"generalDescription": "行为、启动和外观。",
+		"generalDescription": "配置 {appName} 如何启动、登录时的行为以及与系统的交互方式。",
 		"overlay": "叠加层",
 		"overlayDescription": "浮动录音气泡。",
 		"bubbleBehaviorLabel": "气泡行为",
@@ -1102,6 +1102,7 @@
 		"lastResortUnloadedHint": "使用前请打开模型页面并点击下载。",
 		"snack": {
 			"parakeetDepsRequired": "Parakeet 需要依赖项。请先下载。",
+			"depsRequiredName": "{name} 需要依赖项。请先下载。",
 			"notDownloaded": "模型 \"{name}\" 尚未下载。请先下载。",
 			"usingModel": "正在使用模型：{name}",
 			"downloaded": "{name} 下载成功",
@@ -1204,7 +1205,7 @@
 			"testConnectionAria": "测试 {provider} 连接",
 			"testConnection": "测试连接",
 			"consentTitle": "音频传输许可",
-			"consentDescription": "当此提供商被选为活动语音识别后端时，您的音频录音将发送至 {provider} 进行转写。授予同意以启用音频传输。",
+			"consentDescription": "当此提供商被选为活动语音识别后端时，您的音频录音将发送至 {provider} 进行转写。授予同意以启用音频传输。{appName} 绝不会在未经您明确同意的情况下启用云端语音识别，即使已配置 API 密钥。",
 			"statusLabel": "Status:",
 			"consentGrantedStatus": "已授予许可 — 此提供商激活时将发送音频。",
 			"consentNotGrantedStatus": "未授予许可 — 此提供商将拒绝转写。",
@@ -1513,10 +1514,10 @@
 		"multilingualBadge": "多语言",
 		"bluetoothBadgeTooltip": "蓝牙麦克风",
 		"consentHuggingFace": "同意 Hugging Face 条款",
-		"consentHuggingFaceInfo": "模型将从 Hugging Face 下载。",
+		"consentHuggingFaceInfo": "允许 {appName} 从 huggingface.co 下载 Whisper 模型权重。",
 		"consentRequired": "需要同意才能继续",
 		"consentVoiceBiometric": "同意语音生物识别处理",
-		"consentVoiceBiometricInfo": "语音数据将用于识别您的声音。",
+		"consentVoiceBiometricInfo": "允许 {appName} 在本地处理您的语音录音以进行转录。",
 		"copied": "已复制",
 		"copyError": "复制失败",
 		"copyErrorAria": "复制错误",
@@ -1590,6 +1591,7 @@
 		"configCrashHint": "尝试重置配置以解决此问题。"
 	},
 	"hotkeyPicker": {
+		"capsLockSrConflictWarning": "Caps Lock 是 VoiceOver / 讲述人的默认修饰键。选择它可能会破坏您的屏幕阅读器。建议改用 F2 或 Ctrl+Alt+D。",
 		"pressAKey": "按一个键",
 		"none": "无",
 		"presets": "预设…",
@@ -1871,15 +1873,6 @@
 			"title": "{appName} 无法安全重启",
 			"body": "Python 后端在启动时崩溃。在 {seconds} 秒内尝试 {count} 次后，重启循环断路器已启动。请检查日志文件，如果问题持续则重新安装。"
 		}
-	},
-	"error": {
-		"config_load_failed": {
-			"title": "配置加载失败",
-			"body": "设置已重置为默认值。请查看日志了解详情。"
-		}
-	},
-	"state": {
-		"starting": "正在启动..."
 	},
 	"notify": {
 		"recording_controller": {

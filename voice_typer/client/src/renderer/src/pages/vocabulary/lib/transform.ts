@@ -101,7 +101,7 @@ export function makeEntryId(): string {
 		// crypto may be undefined in some test environments.
 		// Fall through to the Math.random-based pseudo-ID below.
 		console.warn(
-			"[vocabulary/transform] crypto.randomUUID unavailable, falling back:",
+			"[renderer:transform] crypto.randomUUID unavailable, falling back:",
 			e,
 		);
 	}

@@ -81,7 +81,7 @@ function readLsThemeMode(): ThemeMode {
 	} catch (e) {
 		// localStorage may be unavailable (SSR, sandboxed renderer).
 		// Non-fatal — fall through to the default "system" mode.
-		console.warn("[theme-bootstrap] readLsThemeMode failed:", e);
+		console.warn("[renderer:theme-bootstrap] readLsThemeMode failed:", e);
 	}
 	return "system";
 }
@@ -93,7 +93,7 @@ function readLsThemePreset(): string {
 	} catch (e) {
 		// localStorage may be unavailable (SSR, sandboxed renderer).
 		// Non-fatal — fall through to the default "default" preset.
-		console.warn("[theme-bootstrap] readLsThemePreset failed:", e);
+		console.warn("[renderer:theme-bootstrap] readLsThemePreset failed:", e);
 	}
 	return "default";
 }
@@ -115,7 +115,10 @@ function readLsCustomTheme(): CustomThemeData | null {
 		// malformed JSON — ignore, fall through to default. A
 		// hand-edited devtools payload or a stale schema from an
 		// older build can land here; logging helps diagnose those.
-		console.warn("[theme-bootstrap] readLsCustomTheme parse failed:", e);
+		console.warn(
+			"[renderer:theme-bootstrap] readLsCustomTheme parse failed:",
+			e,
+		);
 	}
 	return null;
 }
@@ -139,7 +142,10 @@ function resolveIsDark(mode: ThemeMode): boolean {
 	} catch (e) {
 		// matchMedia may throw in some sandboxed renderers.
 		// Non-fatal — fall through to light mode (default).
-		console.warn("[theme-bootstrap] resolveIsDark matchMedia failed:", e);
+		console.warn(
+			"[renderer:theme-bootstrap] resolveIsDark matchMedia failed:",
+			e,
+		);
 	}
 	return false;
 }
@@ -281,7 +287,7 @@ if (typeof window !== "undefined" && window.matchMedia) {
 		}
 	} catch (e) {
 		console.warn(
-			"[theme-bootstrap] failed to install prefers-color-scheme change listener:",
+			"[renderer:theme-bootstrap] failed to install prefers-color-scheme change listener:",
 			e,
 		);
 	}

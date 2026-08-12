@@ -231,7 +231,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 				offsetRef.current = safeRows.length;
 				markUpdated();
 			} catch (err) {
-				console.error("[History] load failed:", err);
+				console.error("[renderer:History] load failed:", err);
 				setRecords([]);
 				setLoadError(err instanceof Error ? err.message : String(err));
 			} finally {
@@ -273,7 +273,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 			offsetRef.current = offset + safeRows.length;
 			setHasMore(safeRows.length >= HISTORY_PAGE_SIZE);
 		} catch (err) {
-			console.error("[History] loadMore failed:", err);
+			console.error("[renderer:History] loadMore failed:", err);
 		} finally {
 			setLoadingMore(false);
 		}
@@ -315,7 +315,7 @@ export function useHistoryCache(): UseHistoryCacheReturn {
 			offsetRef.current = safeRows.length;
 			markUpdated();
 		} catch (err) {
-			console.warn("[History] background refresh failed:", err);
+			console.warn("[renderer:History] background refresh failed:", err);
 		}
 	}, [fetchPage, call, markUpdated]);
 

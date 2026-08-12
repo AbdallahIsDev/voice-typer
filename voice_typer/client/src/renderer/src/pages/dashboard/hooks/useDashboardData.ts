@@ -160,7 +160,10 @@ export function useDashboardData({
 			// toast.error so the user knows to retry manually via the
 			// LastUpdatedIndicator refresh button.
 			const message = t("analytics.refreshFailed");
-			console.error("Dashboard refresh failed:", err);
+			console.error(
+				"[renderer:useDashboardData] Dashboard refresh failed:",
+				err,
+			);
 			toast.error(message);
 			setFetchError(message);
 		} finally {

@@ -54,7 +54,7 @@ function SelectTrigger({
 		!props["aria-labelledby"]
 	) {
 		console.warn(
-			"SelectTrigger: no `aria-label`/`aria-labelledby` or children",
+			"[renderer:select] SelectTrigger: no `aria-label`/`aria-labelledby` or children",
 		);
 	}
 

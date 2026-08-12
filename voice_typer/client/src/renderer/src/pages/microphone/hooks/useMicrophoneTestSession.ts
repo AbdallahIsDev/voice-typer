@@ -223,7 +223,10 @@ export function useMicrophoneTestSession({
 				showSnack(result?.message ?? t("microphone.testFailed"), "error");
 			}
 		} catch (err) {
-			console.error("Failed to stop microphone test:", err);
+			console.error(
+				"[renderer:useMicrophoneTestSession] Failed to stop microphone test:",
+				err,
+			);
 			showSnack(t("microphone.stopTestFailed"), "error");
 		} finally {
 			stoppingRef.current = false;
@@ -381,7 +384,10 @@ export function useMicrophoneTestSession({
 				);
 				return;
 			}
-			console.error("Failed to start microphone test:", err);
+			console.error(
+				"[renderer:useMicrophoneTestSession] Failed to start microphone test:",
+				err,
+			);
 			showSnack(t("microphone.startTestFailed"), "error");
 		}
 	}, [
@@ -407,7 +413,7 @@ export function useMicrophoneTestSession({
 					/* ignore — test may have already finished, or the
 					   backend may be tearing down */
 					console.warn(
-						"[useMicrophoneTestSession] selectMicrophone cancel failed:",
+						"[renderer:useMicrophoneTestSession] selectMicrophone cancel failed:",
 						e,
 					);
 				}
@@ -506,7 +512,7 @@ export function useMicrophoneTestSession({
 			if (testRunning && !stoppingRef.current) {
 				call("microphone_test_cancel").catch((err) =>
 					console.warn(
-						"[IPC] microphone command failed: microphone_test_cancel:",
+						"[renderer:useMicrophoneTestSession] microphone command failed: microphone_test_cancel:",
 						err,
 					),
 				);

@@ -6,8 +6,8 @@
  * a "Copy path" action that writes the path to the clipboard.
  */
 import { renderHook } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { toast } from "sonner";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { usePasteFailedToast } from "@/hooks/usePasteFailedToast";
 
@@ -27,6 +27,13 @@ vi.mock("sonner", () => ({
 
 const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
 
+/** Return the paste_failed handler (asserting it was registered). */
+function getHandler(): (data?: unknown) => unknown {
+	const handler = registered.get("paste_failed");
+	if (!handler) throw new Error("paste_failed handler was not registered");
+	return handler;
+}
+
 beforeEach(() => {
 	registered.clear();
 	vi.clearAllMocks();
@@ -44,7 +51,7 @@ describe("usePasteFailedToast", () => {
 
 	it("shows a warning toast with default message when payload has none", () => {
 		renderHook(() => usePasteFailedToast(mockT));
-		const handler = registered.get("paste_failed")!;
+		const handler = getHandler();
 		handler({});
 		expect(toast.warning).toHaveBeenCalledWith("home.pasteFailedMessage", {
 			description: undefined,
@@ -54,7 +61,7 @@ describe("usePasteFailedToast", () => {
 
 	it("uses the message from the payload (multi-line → title + description)", () => {
 		renderHook(() => usePasteFailedToast(mockT));
-		const handler = registered.get("paste_failed")!;
+		const handler = getHandler();
 		handler({ message: "Paste failed\nclipboard is busy" });
 		expect(toast.warning).toHaveBeenCalledWith("Paste failed", {
 			description: "clipboard is busy",
@@ -66,7 +73,7 @@ describe("usePasteFailedToast", () => {
 		const writeText = vi.fn().mockResolvedValue(undefined);
 		Object.assign(navigator, { clipboard: { writeText } });
 		renderHook(() => usePasteFailedToast(mockT));
-		const handler = registered.get("paste_failed")!;
+		const handler = getHandler();
 		handler({ message: "Paste failed", recovery_path: "/tmp/recovered.txt" });
 		expect(toast.warning).toHaveBeenCalledWith(
 			"Paste failed",
@@ -81,7 +88,7 @@ describe("usePasteFailedToast", () => {
 
 	it("does not add an action without a recovery path", () => {
 		renderHook(() => usePasteFailedToast(mockT));
-		const handler = registered.get("paste_failed")!;
+		const handler = getHandler();
 		handler({ message: "Paste failed" });
 		const call = (toast.warning as ReturnType<typeof vi.fn>).mock.calls[0];
 		expect(call?.[1]).not.toHaveProperty("action");

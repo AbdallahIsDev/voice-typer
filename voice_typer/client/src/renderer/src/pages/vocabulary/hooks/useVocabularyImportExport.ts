@@ -80,7 +80,10 @@ export function useVocabularyImportExport({
 					toast.success(t("vocabulary.exportSaved", { filename }));
 				}
 			} catch (err) {
-				console.error("Vocabulary export failed:", err);
+				console.error(
+					"[renderer:useVocabularyImportExport] Vocabulary export failed:",
+					err,
+				);
 				toast.error(t("vocabulary.exportFailed"));
 			}
 		},
@@ -133,7 +136,10 @@ export function useVocabularyImportExport({
 					);
 				}
 			} catch (err) {
-				console.error("Vocabulary import failed:", err);
+				console.error(
+					"[renderer:useVocabularyImportExport] Vocabulary import failed:",
+					err,
+				);
 				toast.error(
 					t("vocabulary.importFailed", {
 						error: err instanceof Error ? err.message : String(err),

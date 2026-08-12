@@ -221,7 +221,7 @@ describe("SoundManager", () => {
 			// audio-flag read failures are visible to operators.
 			expect(debugSpy).toHaveBeenCalled();
 			const debugMsg = debugSpy.mock.calls[0]?.[0] ?? "";
-			expect(String(debugMsg)).toContain("[sound-manager]");
+			expect(String(debugMsg)).toContain("[renderer:sound-manager]");
 			expect(getItemSpy).toHaveBeenCalled();
 		} finally {
 			vi.unstubAllGlobals();
@@ -327,7 +327,7 @@ describe("SoundManager — ZU-34 visual feedback flag (deaf mirror)", () => {
 			expect(result).toBe(false);
 			expect(debugSpy).toHaveBeenCalled();
 			const debugMsg = debugSpy.mock.calls[0]?.[0] ?? "";
-			expect(String(debugMsg)).toContain("[sound-manager]");
+			expect(String(debugMsg)).toContain("[renderer:sound-manager]");
 		} finally {
 			vi.unstubAllGlobals();
 			debugSpy.mockRestore();

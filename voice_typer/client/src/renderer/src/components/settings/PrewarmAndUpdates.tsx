@@ -146,7 +146,10 @@ export default function PrewarmAndUpdates({
 		} catch (e) {
 			// Best-effort: leave the previous status (or null) in place.
 			// The card renders an "Unknown" placeholder when null.
-			console.warn("[PrewarmAndUpdates] get_prewarm_status failed:", e);
+			console.warn(
+				"[renderer:PrewarmAndUpdates] get_prewarm_status failed:",
+				e,
+			);
 		} finally {
 			setPrewarmLoading(false);
 		}
@@ -266,7 +269,7 @@ export default function PrewarmAndUpdates({
 			} catch (e) {
 				// leave prewarmStatus as null; card renders "Unknown"
 				console.warn(
-					"[PrewarmAndUpdates] initial get_prewarm_status failed:",
+					"[renderer:PrewarmAndUpdates] initial get_prewarm_status failed:",
 					e,
 				);
 			}

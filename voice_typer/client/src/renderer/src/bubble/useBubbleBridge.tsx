@@ -197,7 +197,7 @@ class BubbleBridgeImpl implements BubbleBridge {
 			try {
 				h(payload);
 			} catch (e) {
-				console.warn(`[bubble-bridge] ${event} handler threw:`, e);
+				console.warn(`[renderer:useBubbleBridge] ${event} handler threw:`, e);
 			}
 		}
 	}

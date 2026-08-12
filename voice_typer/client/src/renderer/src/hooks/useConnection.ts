@@ -153,7 +153,9 @@ export function useConnection({
 						// renderer console instead of silently swallowing
 						// them so a hung backend probe is observable in
 						// the Electron main-process log.
-						.catch((err) => console.warn("[IPC] get_status failed:", err));
+						.catch((err) =>
+							console.warn("[renderer:useConnection] get_status failed:", err),
+						);
 					// Send saved bubble_position to the Electron main process
 					// so it persists across restarts (main process initializes to 'top')
 					const pos = cfg?.bubble_position;
@@ -201,7 +203,7 @@ export function useConnection({
 						} catch (e) {
 							// Older backend without the IPC route — silently ignore.
 							console.warn(
-								"[useConnection] onboarding_is_first_run probe failed:",
+								"[renderer:useConnection] onboarding_is_first_run probe failed:",
 								e,
 							);
 						}
@@ -220,7 +222,7 @@ export function useConnection({
 				// visible in the devtools console alongside the attempt
 				// counter.
 				console.warn(
-					`[IPC] get_config connection probe failed (attempt ${retries + 1}/${maxRetries}):`,
+					`[renderer:useConnection] get_config connection probe failed (attempt ${retries + 1}/${maxRetries}):`,
 					err,
 				);
 				retries++;
@@ -402,7 +404,7 @@ export function useConnection({
 						})
 						.catch((err) =>
 							console.warn(
-								"[useConnection] background-reconnect get_status failed:",
+								"[renderer:useConnection] background-reconnect get_status failed:",
 								err,
 							),
 						);
@@ -624,7 +626,10 @@ export function useConnection({
 			// Bridge channel unavailable (tauri mode, old preload) or
 			// handler threw — no restart capability, fall back to the
 			// previous bare-probe behavior.
-			console.warn("[useConnection] restartBackend escalation failed:", e);
+			console.warn(
+				"[renderer:useConnection] restartBackend escalation failed:",
+				e,
+			);
 			setLastError(t("connection.restartBackendHint"));
 			setConnectionStatus("disconnected");
 		}

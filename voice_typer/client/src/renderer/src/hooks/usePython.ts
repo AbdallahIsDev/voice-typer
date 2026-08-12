@@ -321,7 +321,10 @@ function subscribeBridgeReady(callback: () => void): () => void {
 			// namespace installer. Surface the error
 			// so it's debuggable instead of silently
 			// looping forever.
-			console.warn("[usePython] installTauriBridge retry failed:", err);
+			console.warn(
+				"[renderer:usePython] installTauriBridge retry failed:",
+				err,
+			);
 		}
 	}, 100);
 	return () => clearInterval(interval);
@@ -424,7 +427,10 @@ function dispatchEvent(event: {
 			try {
 				fn();
 			} catch (err) {
-				console.error("usePythonEvent cleanup threw:", err);
+				console.error(
+					"[renderer:usePython] usePythonEvent cleanup threw:",
+					err,
+				);
 			}
 		}
 		try {
@@ -433,7 +439,7 @@ function dispatchEvent(event: {
 			//a throwing handler must not escape
 			// into the dispatch loop. Log and reset so the
 			// next event starts from a clean slate.
-			console.error("usePythonEvent handler threw:", err);
+			console.error("[renderer:usePython] usePythonEvent handler threw:", err);
 			entry.cleanupRef.current = undefined;
 		}
 	}
@@ -451,7 +457,7 @@ function ensureDispatcher(): void {
 		try {
 			dispatcherState.unsubscribe();
 		} catch (err) {
-			console.warn("[usePython] dispatcher teardown failed:", err);
+			console.warn("[renderer:usePython] dispatcher teardown failed:", err);
 		}
 		dispatcherState = null;
 	}
@@ -493,7 +499,10 @@ function subscribeToEventType(
 			try {
 				fn();
 			} catch (err) {
-				console.error("usePythonEvent cleanup threw:", err);
+				console.error(
+					"[renderer:usePython] usePythonEvent cleanup threw:",
+					err,
+				);
 			}
 		}
 		// If no subscribers remain, tear down the dispatcher
@@ -503,7 +512,7 @@ function subscribeToEventType(
 			try {
 				dispatcherState.unsubscribe();
 			} catch (err) {
-				console.warn("[usePython] dispatcher teardown failed:", err);
+				console.warn("[renderer:usePython] dispatcher teardown failed:", err);
 			}
 			dispatcherState = null;
 		}
@@ -844,7 +853,7 @@ export function usePythonEvent(
 	// (`import.meta.env.DEV` is `false` in production per Vite).
 	if (import.meta.env.DEV && !KNOWN_EVENT_TYPES.has(type)) {
 		console.warn(
-			`[usePythonEvent] subscribing to unknown event "${type}" — ` +
+			`[renderer:usePython] subscribing to unknown event "${type}" — ` +
 				`if this is a typo, fix it; if it's a new backend event, ` +
 				`add it to PythonPushEvent in types/ipc/push_events.ts ` +
 				`and to KNOWN_EVENT_TYPES in hooks/usePython.ts`,

@@ -265,7 +265,7 @@ describe("DJ-89: usePythonEvent shared dispatcher", () => {
 		).not.toThrow();
 		expect(throwingHandler).toHaveBeenCalledTimes(1);
 		expect(consoleError).toHaveBeenCalledWith(
-			"usePythonEvent handler threw:",
+			"[renderer:usePython] usePythonEvent handler threw:",
 			err,
 		);
 

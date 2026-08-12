@@ -9,20 +9,21 @@
  * independently testable and reusable.
  *
  * Visual states:
- *   1. Active model, available (downloaded or auto-available) →
+ *   1. Active model, available (downloaded) →
  *      disabled "Active" tick. NO Delete icon — the backend refuses to
  *      delete an in-use model, so a Delete button here would be a
  *      dead-end affordance that always errors.
- *   1b. ( STALE-ACTIVE fix) Active model MISSING from disk →
- *      "Download" button (restore the active model) + Delete icon
- *      (clear the stale selection — the backend switches to another
- *      model). Previously the missing active model rendered the
- *      dead-end disabled tick AND a Delete button that always errored
- *      with "Cannot delete the active model".
- *   2. Not downloaded, not always-available → "Download" button
- *      (disabled while any other download is in progress; shows a
- *      localized "one at a time" tooltip when disabled).
- *   3. Downloaded → "Select" button + (optional) Delete icon.
+ *   2. Not downloaded → "Download" button (disabled while any other
+ *      download is in progress; shows a localized "one at a time"
+ *      tooltip when disabled). NO Delete icon — a model that isn't on
+ *      disk has nothing to delete; showing a trash affordance next to
+ *      a not-installed model (e.g. the default `small.en` before the
+ *      user ever downloads anything) misleads the user into thinking
+ *      something is installed. The backend would only answer "Model
+ *      not downloaded" / "nothing to delete".
+ *   3. Downloaded → "Select" button + Delete icon (the trash
+ *      affordance is exactly the "installed model can be removed"
+ *      signal).
  *   4. ( fix #7) Deps-installable + not depsOk → "Download Deps"
  *      button using existing `models.download.deps*` i18n keys.
  *
@@ -118,16 +119,15 @@ export function ModelCardActions({
 	// in-flight state. Now destructured + wired below.
 	isInstallingDepsThis,
 }: ModelCardActionsProps) {
-	// ── Branch 1a: Active model, available ─────────────────────────
+	// ── Branch 1: Active model, available ───────────────────────────
 	//
-	// Renders only when the active model is actually usable (downloaded,
-	// or always-available like Qwen which auto-downloads on first use).
-	// STALE-ACTIVE fix: the Delete icon is GONE here. The backend refuses
-	// to delete an in-use model ("Cannot delete the active model. Switch
-	// to another model first.") — showing a Delete button that ALWAYS
-	// errors is a dead-end affordance. Users switch to another model
-	// first; the Delete icon appears on the downloaded (inactive) card.
-	if (model.isActive && (model.downloaded || model.alwaysAvailable)) {
+	// Renders only when the active model is actually usable (downloaded).
+	// The Delete icon is GONE here. The backend refuses to delete an
+	// in-use model ("Cannot delete the active model. Switch to another
+	// model first.") — showing a Delete button that ALWAYS errors is a
+	// dead-end affordance. Users switch to another model first; the
+	// Delete icon appears on the downloaded (inactive) card.
+	if (model.isActive && model.downloaded) {
 		return (
 			<div className="flex items-center gap-2 shrink-0">
 				<Button
@@ -195,24 +195,29 @@ export function ModelCardActions({
 						? t("models.downloading")
 						: t("models.download.deps")}
 				</Button>
-				{/* STALE-ACTIVE fix: an active deps-required model whose files
-				    are missing (e.g. parakeet removed from disk out-of-band)
-				    can't be restored without installing deps — but it CAN be
-				    cleared via Delete, exactly like the Download branch. The
-				    backend switches to another model. */}
-				{model.isActive && <DeleteButton model={model} onDelete={onDelete} />}
+				{/* A downloaded model whose deps are missing can still be
+				    deleted (files on disk). A NOT-downloaded model has
+				    nothing to delete — no trash icon (matches the
+				    Download branch: "not installed → no delete"). */}
+				{model.downloaded && <DeleteButton model={model} onDelete={onDelete} />}
 			</div>
 		);
 	}
 
-	// ── Branch 2: not downloaded, not always-available → Download ──
+	// ── Branch 2: not downloaded → Download ────────────────────────
 	//
 	// the button now exposes `aria-busy` while the
 	// download is in-flight and swaps its `aria-label` to
 	// "Downloading…" so SR users hear the in-progress state (previously
 	// only the visible text swapped — the stale per-model aria-label
 	// was announced throughout the entire download).
-	if (!model.downloaded && !model.alwaysAvailable) {
+	//
+	// NO Delete icon here: the model isn't installed, so there is
+	// nothing to remove. (Even when this model is the configured active
+	// model — e.g. the default `small.en` before the user downloads
+	// anything — a trash affordance next to "Download" falsely implies
+	// an installed model that can be removed.)
+	if (!model.downloaded) {
 		return (
 			<div className="flex items-center gap-2 shrink-0">
 				<Button
@@ -246,18 +251,11 @@ export function ModelCardActions({
 						? t("models.downloading")
 						: t("models.downloadModel")}
 				</Button>
-				{/* STALE-ACTIVE fix: the configured active model is missing
-				    from disk. The Download button restores it; the Delete
-				    icon clears the stale selection (the backend switches to
-				    another model). Without this Delete affordance the user
-				    would be stuck with a phantom active model they can't
-				    get rid of. */}
-				{model.isActive && <DeleteButton model={model} onDelete={onDelete} />}
 			</div>
 		);
 	}
 
-	// ── Branch 3: downloaded (or always-available) → Select + Delete ─
+	// ── Branch 3: downloaded → Select + Delete ─────────────────────
 	//
 	//#9: Select now uses `Tick02Icon` (was `PlayIcon`) —
 	// Select is a "mark active" affordance, not a "play media" one.
@@ -281,9 +279,7 @@ export function ModelCardActions({
 				/>
 				{isSelectingThis ? t("models.selecting") : t("models.select")}
 			</Button>
-			{model.downloaded && !model.alwaysAvailable && (
-				<DeleteButton model={model} onDelete={onDelete} />
-			)}
+			<DeleteButton model={model} onDelete={onDelete} />
 		</div>
 	);
 }

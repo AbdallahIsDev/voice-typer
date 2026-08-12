@@ -201,7 +201,24 @@ export function createMainWindow(forceShow = false): void {
 			__dirname,
 			`../../resources/icon${nativeTheme.shouldUseDarkColors ? "-dark" : ""}.png`,
 		),
-		frame: false,
+		// Cross-platform window chrome. The app uses a custom title bar
+		// everywhere (the OS frame doesn't blend with the app theme), but
+		// the window-control BUTTONS are platform-convention-dependent:
+		//   - macOS: native traffic lights (red/yellow/green) on the LEFT,
+		//     drawn by the OS. `titleBarStyle: "hiddenInset"` hides the
+		//     bar while keeping the dots (the renderer's TitleBar then
+		//     omits its minimize/maximize/close and reserves a gutter).
+		//     `frame: false` would strip the traffic lights entirely.
+		//   - Windows/Linux: frameless + the renderer draws the three
+		//     buttons on the right (the convention on both platforms).
+		// `titleBarStyle` is macOS-only and ignored on Windows/Linux, so
+		// the branch is explicit for readability.
+		...(process.platform === "darwin"
+			? {
+					titleBarStyle: "hiddenInset" as const,
+					trafficLightPosition: { x: 12, y: 10 },
+				}
+			: { frame: false as const }),
 		hasShadow: false,
 		// Always create hidden and gate the first `.show()` on the
 		// `ready-to-show` event. Previously `show: shouldShow` flashed a
@@ -318,6 +335,21 @@ export function createMainWindow(forceShow = false): void {
 
 	state.mainWindow.on("maximize", () => broadcastMaximized(true));
 	state.mainWindow.on("unmaximize", () => broadcastMaximized(false));
+
+	// macOS fullscreen sync: the green traffic light enters a fullscreen
+	// space on macOS instead of emitting maximize/unmaximize. Mirror it
+	// onto the same maximized-changed channel so the renderer drops
+	// rounded corners / updates chrome state in fullscreen. These events
+	// only fire on macOS — no-ops on Windows/Linux.
+	state.mainWindow.on("enter-full-screen", () => broadcastMaximized(true));
+	// Query the real state on leave: macOS fullscreen can return to a
+	// PRE-maximized window (Option+click green = zoom, then green again =
+	// fullscreen). Hardcoding `false` would leave the renderer's
+	// `is-maximized` class stale — rounded corners would reappear on a
+	// still-maximized window.
+	state.mainWindow.on("leave-full-screen", () => {
+		broadcastMaximized(state.mainWindow?.isMaximized() ?? false);
+	});
 
 	// Window-state cleanup: null out `state.mainWindow` once the window is actually
 	// destroyed. The `close` handler above intercepts the X button to

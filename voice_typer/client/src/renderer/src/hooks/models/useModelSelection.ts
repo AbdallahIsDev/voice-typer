@@ -81,10 +81,18 @@ export function useModelSelection({
 			// their deps are installed. Previously this was a hardcoded
 			// `model.name === "parakeet"` check.
 			if (model.depsInstallable && !model.depsOk) {
-				showSnack(t("models.snack.parakeetDepsRequired"), "warning");
+				showSnack(
+					t("models.snack.depsRequiredName", { name: model.name }),
+					"warning",
+				);
 				return;
 			}
-			if (!model.downloaded && !model.alwaysAvailable) {
+			// A model that is not downloaded (including Qwen — the backend
+			// registry declares it local-only, NOT auto-fetched) cannot be
+			// selected: the backend would refuse to load it ("model is not
+			// downloaded yet" tray/Windows notification) while the in-app
+			// UI claimed success. Block up front with a warning instead.
+			if (!model.downloaded) {
 				showSnack(
 					t("models.snack.notDownloaded", { name: model.name }),
 					"warning",

@@ -116,7 +116,7 @@ export function useTemplates({
 				// back to localStorage so the page is still usable; the next
 				// save will resync the backend.
 				console.warn(
-					"get_templates IPC failed, falling back to localStorage",
+					"[renderer:useTemplates] get_templates IPC failed, falling back to localStorage",
 					err,
 				);
 				backendFailed = true;
@@ -133,12 +133,12 @@ export function useTemplates({
 						await call("save_templates", { templates: localItems });
 						backendTemplates = localItems;
 						console.warn(
-							"[Templates] Migrated %d templates from localStorage to backend",
+							"[renderer:useTemplates] Migrated %d templates from localStorage to backend",
 							localItems.length,
 						);
 					} catch (err) {
 						console.error(
-							"Failed to migrate localStorage templates to backend",
+							"[renderer:useTemplates] Failed to migrate localStorage templates to backend",
 							err,
 						);
 					}
@@ -149,7 +149,10 @@ export function useTemplates({
 					localStorage.setItem(MIGRATION_FLAG_KEY, "1");
 				} catch (e) {
 					// localStorage unavailable — non-fatal; we'll retry next session.
-					console.warn("[useTemplates] migration flag setItem failed:", e);
+					console.warn(
+						"[renderer:useTemplates] migration flag setItem failed:",
+						e,
+					);
 				}
 			}
 
@@ -166,7 +169,7 @@ export function useTemplates({
 				setLoadError(t("templates.loadFailedDescription"));
 			}
 		} catch (err) {
-			console.error("Failed to load templates", err);
+			console.error("[renderer:useTemplates] Failed to load templates", err);
 			setTemplates([]);
 			//replace hardcoded English fallback with the
 			// localised i18n key. If the caught error is a real
@@ -270,7 +273,10 @@ export function useTemplates({
 								await saveTemplates(filtered, call);
 								loadRows();
 							} catch (err) {
-								console.error("Failed to restore template", err);
+								console.error(
+									"[renderer:useTemplates] Failed to restore template",
+									err,
+								);
 								showSnack(t("templates.saveFailed"), "error");
 							}
 						},
@@ -288,7 +294,7 @@ export function useTemplates({
 				// actual persisted state (the save failed so the
 				// backend still has the original list).
 				setTemplates(preDeleteRows);
-				console.error("Failed to delete template", err);
+				console.error("[renderer:useTemplates] Failed to delete template", err);
 				showSnack(t("templates.deleteFailed"), "error");
 			}
 		},

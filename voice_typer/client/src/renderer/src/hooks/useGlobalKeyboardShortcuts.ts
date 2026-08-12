@@ -161,7 +161,10 @@ export function useGlobalKeyboardShortcuts({
 					if (next !== current) {
 						setTextSize(next);
 						call("set_config", { text_size: next }).catch((err) => {
-							console.warn("[IPC] set_config failed:", err);
+							console.warn(
+								"[renderer:useGlobalKeyboardShortcuts] set_config failed:",
+								err,
+							);
 							toast.error(t("errorBoundary.unknownError"));
 						});
 					}
@@ -175,7 +178,10 @@ export function useGlobalKeyboardShortcuts({
 					if (next !== current) {
 						setTextSize(next);
 						call("set_config", { text_size: next }).catch((err) => {
-							console.warn("[IPC] set_config failed:", err);
+							console.warn(
+								"[renderer:useGlobalKeyboardShortcuts] set_config failed:",
+								err,
+							);
 							toast.error(t("errorBoundary.unknownError"));
 						});
 					}

@@ -29,7 +29,7 @@ export function loadCachedRecent(
 		}
 	} catch (e) {
 		// localStorage unavailable or payload malformed — non-fatal.
-		console.warn("[Home] loadCachedRecent failed:", e);
+		console.warn("[renderer:Home] loadCachedRecent failed:", e);
 	}
 	return ref.current;
 }
@@ -57,7 +57,7 @@ export function loadCachedStats(
 		}
 	} catch (e) {
 		// localStorage unavailable or payload malformed — non-fatal.
-		console.warn("[Home] loadCachedStats failed:", e);
+		console.warn("[renderer:Home] loadCachedStats failed:", e);
 	}
 	return ref.current;
 }
@@ -76,7 +76,7 @@ export function persistRecent(
 		localStorage.setItem(RECENT_CACHE_KEY, JSON.stringify(recent));
 	} catch (e) {
 		// Quota exceeded or unavailable — non-fatal.
-		console.warn("[Home] persistRecent failed:", e);
+		console.warn("[renderer:Home] persistRecent failed:", e);
 	}
 }
 
@@ -94,6 +94,6 @@ export function persistStats(
 		localStorage.setItem(STATS_CACHE_KEY, JSON.stringify(stats));
 	} catch (e) {
 		// Quota exceeded or unavailable — non-fatal.
-		console.warn("[Home] persistStats failed:", e);
+		console.warn("[renderer:Home] persistStats failed:", e);
 	}
 }

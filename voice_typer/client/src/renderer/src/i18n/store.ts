@@ -232,7 +232,7 @@ export function ensureLocaleLoaded(locale: Locale): Promise<void> {
 			// unsupported locale at runtime). Leave English as the
 			// active fallback — ``t()`` already falls back to English
 			// when the current locale's map is missing.
-			console.warn(`[i18n] dynamic import for "${locale}" failed:`, e);
+			console.warn(`[renderer:i18n] dynamic import for "${locale}" failed:`, e);
 		} finally {
 			_localeLoadPromises.delete(locale);
 		}
@@ -291,7 +291,9 @@ export function registerTranslations(
 export function setLocale(locale: Locale): void {
 	let next: Locale = locale;
 	if (!SUPPORTED_LOCALES.includes(locale)) {
-		console.warn(`[i18n] Unsupported locale: ${locale}. Falling back to 'en'.`);
+		console.warn(
+			`[renderer:i18n] Unsupported locale: ${locale}. Falling back to 'en'.`,
+		);
 		next = "en";
 	}
 	_setCurrentLocale(next);
@@ -317,7 +319,7 @@ export function setLocale(locale: Locale): void {
 		}
 	} catch (e) {
 		// SSR environments may not have document
-		console.warn("[i18n] setLocale document dir/lang failed:", e);
+		console.warn("[renderer:i18n] setLocale document dir/lang failed:", e);
 	}
 
 	// F-3: persist the choice so it survives restarts. Previously the
@@ -328,7 +330,7 @@ export function setLocale(locale: Locale): void {
 		}
 	} catch (e) {
 		// localStorage may be unavailable in some contexts
-		console.warn("[i18n] setLocale localStorage.setItem failed:", e);
+		console.warn("[renderer:i18n] setLocale localStorage.setItem failed:", e);
 	}
 
 	// F-3: notify subscribers (the useT hook) so every subscribed

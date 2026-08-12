@@ -126,7 +126,10 @@ export default function OnboardingPage({
 				// Older backend without the flag — leave
 				// consent unaccepted so the user is
 				// prompted to grant it.
-				console.warn("[Onboarding] get_config consent probe failed:", e);
+				console.warn(
+					"[renderer:Onboarding] get_config consent probe failed:",
+					e,
+				);
 			}
 		})();
 		return () => {
@@ -143,7 +146,7 @@ export default function OnboardingPage({
 			voice_biometric_consent: nextChecked,
 		})
 			.catch((e) => {
-				console.error("[Onboarding] set_config consent failed:", e);
+				console.error("[renderer:Onboarding] set_config consent failed:", e);
 				// Revert on failure so the UI doesn't
 				// claim consent was granted when it
 				// wasn't persisted.

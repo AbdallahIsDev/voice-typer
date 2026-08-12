@@ -56,7 +56,7 @@ export function useOnboardingComplete({
 			// theme will be re-applied on the next config_changed
 			// event or the next app launch.
 			console.warn(
-				"[App] handleOnboardingComplete get_config/reload failed:",
+				"[renderer:useOnboardingComplete] handleOnboardingComplete get_config/reload failed:",
 				e,
 			);
 		}

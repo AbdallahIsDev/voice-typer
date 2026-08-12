@@ -101,7 +101,7 @@ export function setSoundFeedbackEnabled(enabled: boolean): void {
 		// localStorage unavailable (e.g. SSR, private browsing) —
 		// non-fatal; the in-memory flag still works for this session.
 		console.warn(
-			"[sound-manager] setSoundFeedbackEnabled localStorage.setItem failed:",
+			"[renderer:sound-manager] setSoundFeedbackEnabled localStorage.setItem failed:",
 			e,
 		);
 	}
@@ -133,7 +133,7 @@ function isEnabled(): boolean {
 		// audio-flag read failures are visible (e.g. SSR environments,
 		// private browsing mode where localStorage is unavailable).
 		console.debug(
-			"[sound-manager] isEnabled localStorage.getItem failed:",
+			"[renderer:sound-manager] isEnabled localStorage.getItem failed:",
 			err,
 		);
 		return _enabled;
@@ -169,7 +169,7 @@ export function setVisualFeedbackEnabled(enabled: boolean): void {
 		// localStorage unavailable (e.g. SSR, private browsing) —
 		// non-fatal; the in-memory flag still works for this session.
 		console.warn(
-			"[sound-manager] setVisualFeedbackEnabled localStorage.setItem failed:",
+			"[renderer:sound-manager] setVisualFeedbackEnabled localStorage.setItem failed:",
 			e,
 		);
 	}
@@ -202,7 +202,7 @@ export function isVisualFeedbackEnabled(): boolean {
 		//log the localStorage read failure at debug so silent
 		// visual-flag read failures are visible.
 		console.debug(
-			"[sound-manager] isVisualFeedbackEnabled localStorage.getItem failed:",
+			"[renderer:sound-manager] isVisualFeedbackEnabled localStorage.getItem failed:",
 			err,
 		);
 		return _visualEnabled;
@@ -256,7 +256,7 @@ export function initAudioContext(): boolean {
 				// operator can see why the AudioContext stayed suspended.
 				// Will retry on first user gesture via installGestureListener.
 				console.debug(
-					"[sound-manager] initAudioContext resume() rejected:",
+					"[renderer:sound-manager] initAudioContext resume() rejected:",
 					err,
 				);
 			});
@@ -268,7 +268,10 @@ export function initAudioContext(): boolean {
 		// call retries. Set _initAttempted to throttle logs.
 		//log the construction failure so silent audio
 		// failures are visible at debug level.
-		console.debug("[sound-manager] initAudioContext construction failed:", err);
+		console.debug(
+			"[renderer:sound-manager] initAudioContext construction failed:",
+			err,
+		);
 		_initAttempted = true;
 		_sharedAudioContext = null;
 		return false;
@@ -302,7 +305,7 @@ function installGestureListener(): void {
 				// Still suspended — leave the listener installed for a
 				// subsequent gesture to retry.
 				console.debug(
-					"[sound-manager] gesture-listener resume() rejected:",
+					"[renderer:sound-manager] gesture-listener resume() rejected:",
 					err,
 				);
 			});
@@ -488,7 +491,7 @@ function playViaAudioContext(
 				} catch (e) {
 					// Synthesis failed — no fallback here; the caller's
 					// catch will handle it.
-					console.warn("[sound-manager] synthesis doPlay failed:", e);
+					console.warn("[renderer:sound-manager] synthesis doPlay failed:", e);
 				}
 			})
 			.catch((err: unknown) => {
@@ -498,7 +501,7 @@ function playViaAudioContext(
 				// can't call the fallback here because playSoundCue checks
 				// enabled first; we'd risk playing when disabled.)
 				console.debug(
-					"[sound-manager] playViaAudioContext resume() rejected:",
+					"[renderer:sound-manager] playViaAudioContext resume() rejected:",
 					err,
 				);
 			});
@@ -546,7 +549,7 @@ function getFallbackAudio(): HTMLAudioElement | null {
 			// audio failures are visible (e.g. SSR environments where the
 			// Audio constructor is not available).
 			console.debug(
-				"[sound-manager] getFallbackAudio new Audio() failed:",
+				"[renderer:sound-manager] getFallbackAudio new Audio() failed:",
 				err,
 			);
 			return null;
@@ -586,7 +589,7 @@ function playViaHtmlAudio(
 				// silent audio failures are visible. Autoplay blocked —
 				// the next user gesture will allow subsequent cues.
 				console.debug(
-					"[sound-manager] playViaHtmlAudio audio.play() rejected:",
+					"[renderer:sound-manager] playViaHtmlAudio audio.play() rejected:",
 					err,
 				);
 			});
@@ -596,7 +599,7 @@ function playViaHtmlAudio(
 		//log the catch-all failure at debug so silent audio
 		// failures are visible (e.g. invalid data URL, media element
 		// decode error).
-		console.debug("[sound-manager] playViaHtmlAudio failed:", err);
+		console.debug("[renderer:sound-manager] playViaHtmlAudio failed:", err);
 		return false;
 	}
 }

@@ -635,7 +635,7 @@
 		"notificationsDescription": "Muestra una notificación de escritorio cuando se completa la transcripción o ocurre un error.",
 		"trayClick": "Clic en la bandeja",
 		"trayClickDescription": "Qué sucede al hacer clic izquierdo en el icono de {appName} en la bandeja del sistema.",
-		"generalDescription": "Comportamiento, inicio y apariencia.",
+		"generalDescription": "Configura cómo {appName} se inicia, se comporta al iniciar sesión e interactúa con tu sistema.",
 		"overlay": "Superposición",
 		"overlayDescription": "Burbuja de grabación flotante.",
 		"bubbleBehaviorLabel": "Comportamiento de la burbuja",
@@ -1102,6 +1102,7 @@
 		"lastResortUnloadedHint": "Abre la página de Modelos y haz clic en Descargar antes de usarlo.",
 		"snack": {
 			"parakeetDepsRequired": "Se requieren dependencias para Parakeet. Descarga primero.",
+			"depsRequiredName": "Se requieren dependencias para {name}. Descarga primero.",
 			"notDownloaded": "El modelo \"{name}\" no se ha descargado aún. Descárgalo primero.",
 			"usingModel": "Usando modelo: {name}",
 			"downloaded": "{name} descargado correctamente",
@@ -1590,6 +1591,7 @@
 		"configCrashHint": "El archivo de ajustes puede estar dañado. Intenta restablecer los valores predeterminados."
 	},
 	"hotkeyPicker": {
+		"capsLockSrConflictWarning": "Bloq Mayús es la tecla modificadora predeterminada de VoiceOver / Narrador. Elegirla puede romper su lector de pantalla. Considere usar F2 o Ctrl+Alt+D.",
 		"pressAKey": "Pulse una tecla",
 		"none": "Ninguno",
 		"presets": "Predefinidos…",
@@ -1871,15 +1873,6 @@
 			"title": "{appName} no puede reiniciarse de forma segura",
 			"body": "El backend de Python está fallando al iniciar. Después de {count} intentos en {seconds} segundos, el disyuntor de reinicio se ha activado. Por favor verifique los archivos de registro y reinstale si el problema persiste."
 		}
-	},
-	"error": {
-		"config_load_failed": {
-			"title": "Error al cargar la configuración",
-			"body": "Se restablecieron los valores predeterminados. Revisa los registros para más detalles."
-		}
-	},
-	"state": {
-		"starting": "Iniciando..."
 	},
 	"notify": {
 		"recording_controller": {

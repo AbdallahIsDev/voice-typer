@@ -44,7 +44,9 @@ function Slider({
 		!props["aria-labelledby"] &&
 		!thumbLabels
 	) {
-		console.warn("Slider: no `aria-label`/`aria-labelledby`/`thumbLabels`");
+		console.warn(
+			"[renderer:Slider] no `aria-label`/`aria-labelledby`/`thumbLabels`",
+		);
 	}
 	return (
 		<SliderPrimitive.Root

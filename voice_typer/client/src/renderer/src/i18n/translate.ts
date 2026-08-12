@@ -90,7 +90,7 @@ function getPluralRules(locale: Locale): Intl.PluralRules {
 				// the Intl runtime is fundamentally broken. Surface
 				// the error loudly so it's not silently masked.
 				throw new Error(
-					`[i18n] Intl.PluralRules is unavailable for locale "${locale}" and the English fallback also failed: ` +
+					`[renderer:i18n] Intl.PluralRules is unavailable for locale "${locale}" and the English fallback also failed: ` +
 						`${(enErr as Error)?.message ?? enErr}`,
 				);
 			}
@@ -197,7 +197,12 @@ export function t(key: string, params?: Record<string, string>): string {
 	// environments like SSR). Vitest runs with ``DEV=true`` so the
 	// warning fires during tests — see ``translate-fallback.test.ts``.
 	if (missedKey && import.meta.env?.DEV) {
-		console.warn("[i18n] missing key:", key, "for locale:", currentLocale);
+		console.warn(
+			"[renderer:i18n] missing key:",
+			key,
+			"for locale:",
+			currentLocale,
+		);
 	}
 
 	//store the resolved (pre-interpolation) template so the

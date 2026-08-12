@@ -104,7 +104,7 @@ function readLsThemeMode(): VoiceTyperConfig["theme_mode"] {
 	} catch (e) {
 		// localStorage read failure — using default. Common in SSR,
 		// sandboxed renderers, or when storage is disabled.
-		console.warn("[useTheme] readLsThemeMode failed:", e);
+		console.warn("[renderer:useTheme] readLsThemeMode failed:", e);
 	}
 	return "system";
 }
@@ -125,7 +125,7 @@ function readLsThemePreset(): VoiceTyperConfig["theme_preset"] {
 		}
 	} catch (e) {
 		// localStorage read failure — using default.
-		console.warn("[useTheme] readLsThemePreset failed:", e);
+		console.warn("[renderer:useTheme] readLsThemePreset failed:", e);
 	}
 	return "default";
 }
@@ -146,7 +146,7 @@ function readLsCustomTheme(): CustomThemeData | null {
 		}
 	} catch (e) {
 		// localStorage parse failure — using default.
-		console.warn("[useTheme] readLsCustomTheme parse failed:", e);
+		console.warn("[renderer:useTheme] readLsCustomTheme parse failed:", e);
 	}
 	return null;
 }
@@ -160,7 +160,7 @@ function readLsTextSize(): number {
 		}
 	} catch (e) {
 		// localStorage read failure — using default.
-		console.warn("[useTheme] readLsTextSize failed:", e);
+		console.warn("[renderer:useTheme] readLsTextSize failed:", e);
 	}
 	return 14;
 }
@@ -305,7 +305,7 @@ function reloadThemeFromConfigImpl(): Promise<void> {
 				// localStorage may be unavailable — non-fatal.
 				// State setters below still fire so the UI
 				// reflects the backend values for this session.
-				console.warn("[useTheme] localStorage cache write failed:", e);
+				console.warn("[renderer:useTheme] localStorage cache write failed:", e);
 				if (cfg?.theme_mode)
 					useThemeStore.getState().setThemeModeState(cfg.theme_mode);
 				if (cfg?.theme_preset)
@@ -327,7 +327,7 @@ function reloadThemeFromConfigImpl(): Promise<void> {
 			}
 		})
 		.catch((e) => {
-			console.warn("[useTheme] get_config failed:", e);
+			console.warn("[renderer:useTheme] get_config failed:", e);
 		})
 		.finally(() => {
 			// FLASH-FIX: regardless of success/failure, flip the
@@ -433,7 +433,7 @@ function flushPendingThemeSave(): void {
 			// Theme is local-only if backend unavailable — the warn is
 			// the entire recovery path.
 			void (activeCall as ThemeCallFn)("set_config", pending).catch((e) => {
-				console.warn("[useTheme] set_config (flush) failed:", e);
+				console.warn("[renderer:useTheme] set_config (flush) failed:", e);
 			});
 		}
 	}
@@ -467,7 +467,7 @@ function scheduleThemeSave(
 			await (activeCall as ThemeCallFn)("set_config", pending);
 		} catch (e) {
 			// Theme is local-only if backend unavailable
-			console.warn("[useTheme] set_config (debounced) failed:", e);
+			console.warn("[renderer:useTheme] set_config (debounced) failed:", e);
 		}
 	}, 300);
 }
@@ -684,7 +684,7 @@ export function useTheme(
 			localStorage.setItem(LS_TEXT_SIZE, String(textSize));
 		} catch (e) {
 			// localStorage may be unavailable
-			console.warn("[useTheme] localStorage sync failed:", e);
+			console.warn("[renderer:useTheme] localStorage sync failed:", e);
 		}
 	}, [themeMode, themePreset, customTheme, textSize]);
 

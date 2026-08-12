@@ -51,12 +51,15 @@ export function usePasteFailedToast(t: TFn): void {
 							navigator.clipboard
 								?.writeText(recoveryPath)
 								.catch((err) =>
-									console.warn("[clipboard] writeText failed:", err),
+									console.warn(
+										"[renderer:usePasteFailedToast] writeText failed:",
+										err,
+									),
 								);
 						} catch (e) {
 							// clipboard API may be unavailable — non-fatal.
 							console.warn(
-								"[App] clipboard writeText (recovery path) failed:",
+								"[renderer:usePasteFailedToast] clipboard writeText (recovery path) failed:",
 								e,
 							);
 						}

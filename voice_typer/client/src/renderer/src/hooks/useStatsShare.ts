@@ -145,7 +145,9 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 			if (!el) {
 				// EXPORT-FIX: log the failure path so the
 				// user can see why nothing happened.
-				console.warn("[StatsShare] imageRef not attached — capture aborted");
+				console.warn(
+					"[renderer:useStatsShare] imageRef not attached — capture aborted",
+				);
 				onError?.(t("stats.shareImage.captureFailed"));
 				return;
 			}
@@ -162,7 +164,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 			// shape (offsetWidth, etc.) to the renderer DevTools console of
 			// anyone running the packaged app.
 			if (import.meta.env.DEV) {
-				console.info("[StatsShare] capturing element:", {
+				console.info("[renderer:useStatsShare] capturing element:", {
 					offsetWidth: el.offsetWidth,
 					offsetHeight: el.offsetHeight,
 					rectWidth: rect.width,
@@ -171,7 +173,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 			}
 			if (el.offsetWidth === 0 || el.offsetHeight === 0) {
 				console.error(
-					"[StatsShare] target has zero size — image will be blank. " +
+					"[renderer:useStatsShare] target has zero size — image will be blank. " +
 						"Check that the wrapper is not display:none or positioned off-screen.",
 				);
 				//surface the failure to the caller so the user
@@ -226,7 +228,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 
 				//dev-only success diagnostic.
 				if (import.meta.env.DEV) {
-					console.info("[StatsShare] capture succeeded:", {
+					console.info("[renderer:useStatsShare] capture succeeded:", {
 						dataUrlLength: dataUrl.length,
 						dataUrlPrefix: dataUrl.slice(0, 50),
 						filename: `${filename}.png`,
@@ -260,7 +262,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 							//dev-only post-share diagnostic.
 							if (import.meta.env.DEV) {
 								console.info(
-									`[StatsShare] image shared via navigator.share: ${filename}.png`,
+									`[renderer:useStatsShare] image shared via navigator.share: ${filename}.png`,
 								);
 							}
 							return;
@@ -277,7 +279,7 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 						const name = shareErr instanceof Error ? shareErr.name : "";
 						if (name !== "AbortError") {
 							console.warn(
-								"[StatsShare] navigator.share failed, falling back to download:",
+								"[renderer:useStatsShare] navigator.share failed, falling back to download:",
 								shareErr,
 							);
 						} else {
@@ -298,13 +300,13 @@ export function useStatsShare(options?: UseStatsShareOptions) {
 				//dev-only post-download diagnostic.
 				if (import.meta.env.DEV) {
 					console.info(
-						`[StatsShare] image saved: ${filename}.png ` +
+						`[renderer:useStatsShare] image saved: ${filename}.png ` +
 							`(${el.offsetWidth}x${el.offsetHeight}px, ` +
 							`${Math.round((dataUrl.length * 0.75) / 1024)}KB)`,
 					);
 				}
 			} catch (err) {
-				console.error("[StatsShare] toPng threw:", err);
+				console.error("[renderer:useStatsShare] toPng threw:", err);
 				//surface the failure to the caller so the
 				// user gets a visible error toast instead of a
 				// silent console.error.

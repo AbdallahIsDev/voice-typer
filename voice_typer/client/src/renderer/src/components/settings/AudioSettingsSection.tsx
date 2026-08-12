@@ -77,7 +77,10 @@ export const AudioSettingsSection = memo(function AudioSettingsSection({
 			}>("get_volume_backend_status");
 			setVolumeBackend(result);
 		} catch (err) {
-			console.warn("Failed to load volume backend status:", err);
+			console.warn(
+				"[renderer:AudioSettingsSection] Failed to load volume backend status:",
+				err,
+			);
 		}
 	}, [call]);
 

@@ -31,7 +31,7 @@ export function saveDraftToLS(data: CustomThemeData): void {
 		// localStorage may be full or unavailable — non-fatal.
 		// The backend save will still proceed; we just lose the
 		// crash-recovery draft for the next page visit.
-		console.warn("[theme-draft-storage] saveDraftToLS failed:", e);
+		console.warn("[renderer:theme-draft-storage] saveDraftToLS failed:", e);
 	}
 }
 
@@ -61,6 +61,6 @@ export function clearDraftLS(): void {
 	} catch (e) {
 		// non-fatal — a leftover draft will just be overwritten
 		// on the next save or rejected as stale on the next load.
-		console.warn("[theme-draft-storage] clearDraftLS failed:", e);
+		console.warn("[renderer:theme-draft-storage] clearDraftLS failed:", e);
 	}
 }

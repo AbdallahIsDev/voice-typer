@@ -199,7 +199,7 @@ describe("G4-CR-10: installed listener logs to console.error", () => {
 		consoleErrorSpy.mockRestore();
 	});
 
-	it("logs synchronous 'error' events with the [Renderer] prefix", () => {
+	it("logs synchronous 'error' events with the [renderer:globalErrorHandler] prefix", () => {
 		installGlobalErrorHandlers();
 		const event = new ErrorEvent("error", {
 			error: new Error("synthetic-renderer-boom"),
@@ -208,10 +208,10 @@ describe("G4-CR-10: installed listener logs to console.error", () => {
 		window.dispatchEvent(event);
 		expect(consoleErrorSpy).toHaveBeenCalled();
 		const firstCallArg = String(consoleErrorSpy.mock.calls[0]?.[0] ?? "");
-		expect(firstCallArg).toContain("[Renderer]");
+		expect(firstCallArg).toContain("[renderer:globalErrorHandler]");
 	});
 
-	it("logs 'unhandledrejection' events with the [Renderer] prefix", () => {
+	it("logs 'unhandledrejection' events with the [renderer:globalErrorHandler] prefix", () => {
 		installGlobalErrorHandlers();
 		// Construct a PromiseRejectionEvent with a resolved promise —
 		// the listener only reads `event.reason`, so the promise state
@@ -224,6 +224,6 @@ describe("G4-CR-10: installed listener logs to console.error", () => {
 		window.dispatchEvent(event);
 		expect(consoleErrorSpy).toHaveBeenCalled();
 		const firstCallArg = String(consoleErrorSpy.mock.calls[0]?.[0] ?? "");
-		expect(firstCallArg).toContain("[Renderer]");
+		expect(firstCallArg).toContain("[renderer:globalErrorHandler]");
 	});
 });
