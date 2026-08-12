@@ -189,6 +189,11 @@ vi.mock("@hugeicons/core-free-icons", () => {
 		Settings03Icon: make("Settings03Icon"),
 		Share08Icon: make("Share08Icon"),
 		Shield01Icon: make("Shield01Icon"),
+		// Used by TroubleshootingSettingsSection (Settings → Privacy
+		// tab) for the macOS/Linux reset buttons — the mock must export
+		// it or vitest's named-import validation crashes the Settings
+		// page mount.
+		ShieldBanIcon: make("ShieldBanIcon"),
 		SparklesIcon: make("SparklesIcon"),
 		SpeechToTextIcon: make("SpeechToTextIcon"),
 		StarIcon: make("StarIcon"),
