@@ -193,24 +193,68 @@ describe("bootstrap.ts _productionExit stops Python BEFORE app.quit() (no uncond
 // Mocks for runtime tests (stop-python.ts + bootstrap.ts)
 // ────────────────────────────────────────────────────────────────────
 
-// Mock electron for the stop-python runtime tests.
+// Mock electron for the stop-python runtime tests. The factories
+// delegate to hoisted MUTABLE factories (`mockElectronImpl.current` /
+// `mockStateImpl.current` / `mockSingleInstanceImpl.current`) whose
+// defaults are set in the global beforeEach below; the bootstrap
+// describes swap in their own electron shape (crashReporter.start,
+// app.on spies, isPackaged:true), a fresh state, and a tmpDir-backed
+// config dir in their beforeEach. This replaces the old per-describe
+// `vi.doMock(...)` overrides of these same hoisted mocks — the
+// hoisted-default + doMock-override overlap is order-dependent and
+// flaky under the full-suite run (see the drift guard
+// renderer/src/__tests__/helpers/__tests__/do-mock-drift-guard.test.ts).
 const mockAppQuit = vi.fn();
 const mockAppExit = vi.fn();
-vi.mock("electron", () => ({
-	app: {
-		quit: mockAppQuit,
-		exit: mockAppExit,
-		isPackaged: false,
-		isQuitting: false,
-		getPath: vi.fn(() => "/tmp/vt-test-bootstrap"),
-		setPath: vi.fn(),
-		on: vi.fn(),
-	},
-	dialog: { showErrorBox: vi.fn() },
-	session: {
-		defaultSession: {
-			webRequest: { onHeadersReceived: vi.fn() },
+const { mockElectronImpl, mockStateImpl, mockSingleInstanceImpl } = vi.hoisted(
+	() => ({
+		mockElectronImpl: {
+			current: (): Record<string, unknown> => {
+				throw new Error(
+					"[main-process-reliability] mock factory current() not set — the global beforeEach must assign it before any test imports the module (electron/state/single_instance are never imported at module scope)",
+				);
+			},
 		},
+		mockStateImpl: {
+			current: (): Record<string, unknown> => {
+				throw new Error(
+					"[main-process-reliability] mock factory current() not set — the global beforeEach must assign it before any test imports the module (electron/state/single_instance are never imported at module scope)",
+				);
+			},
+		},
+		mockSingleInstanceImpl: {
+			current: (): Record<string, unknown> => {
+				throw new Error(
+					"[main-process-reliability] mock factory current() not set — the global beforeEach must assign it before any test imports the module (electron/state/single_instance are never imported at module scope)",
+				);
+			},
+		},
+	}),
+);
+
+// vitest memoizes a vi.mock factory's RESULT at first import —
+// `vi.resetModules()` alone does NOT re-run the factory (verified by
+// probe). So the factories can't evaluate `current()` eagerly here:
+// the first shape would be cached forever and every later per-describe
+// override would be silently dropped. Instead each factory returns a
+// module whose exports are GETTERS that re-read `current` on every
+// import after `vi.resetModules()` — the same per-import semantics as
+// the old per-describe vi.doMock factories, minus the registry-timing
+// race. (bootstrap.ts / tcp-connect.ts / single_instance.ts import
+// electron bindings at module load, and the runtime describes always
+// set `current` in a beforeEach before their dynamic import.)
+vi.mock("electron", () => ({
+	get app() {
+		return mockElectronImpl.current().app;
+	},
+	get crashReporter() {
+		return mockElectronImpl.current().crashReporter;
+	},
+	get dialog() {
+		return mockElectronImpl.current().dialog;
+	},
+	get session() {
+		return mockElectronImpl.current().session;
 	},
 }));
 
@@ -244,7 +288,11 @@ function makeMockState(overrides: Partial<MainState> = {}): MainState {
 }
 
 const mockState = makeMockState();
-vi.mock("../state", () => ({ state: mockState }));
+vi.mock("../state", () => ({
+	get state() {
+		return mockStateImpl.current();
+	},
+}));
 
 vi.mock("../i18n", () => ({ mainT: (k: string) => k }));
 
@@ -259,8 +307,12 @@ vi.mock("../python/send-to-python", () => ({
 vi.mock("../python", () => ({ stopPython: vi.fn() }));
 
 vi.mock("../single_instance", () => ({
-	computeConfigDir: () => "/tmp/vt-test-config",
-	clearElectronPidFile: vi.fn(),
+	get computeConfigDir() {
+		return mockSingleInstanceImpl.current().computeConfigDir;
+	},
+	get clearElectronPidFile() {
+		return mockSingleInstanceImpl.current().clearElectronPidFile;
+	},
 }));
 
 class MockChildProcess extends EventEmitter {
@@ -268,6 +320,35 @@ class MockChildProcess extends EventEmitter {
 	killed = false;
 	kill = vi.fn((_signal?: string) => true);
 }
+
+// Defaults for the hoisted-mutable factories above. The stop-python
+// runtime describes rely on these; the bootstrap describes override
+// them in their own beforeEach (and the next test's global beforeEach
+// restores the defaults, so no override can leak across tests).
+beforeEach(() => {
+	mockElectronImpl.current = () => ({
+		app: {
+			quit: mockAppQuit,
+			exit: mockAppExit,
+			isPackaged: false,
+			isQuitting: false,
+			getPath: vi.fn(() => "/tmp/vt-test-bootstrap"),
+			setPath: vi.fn(),
+			on: vi.fn(),
+		},
+		dialog: { showErrorBox: vi.fn() },
+		session: {
+			defaultSession: {
+				webRequest: { onHeadersReceived: vi.fn() },
+			},
+		},
+	});
+	mockStateImpl.current = () => mockState;
+	mockSingleInstanceImpl.current = () => ({
+		computeConfigDir: () => "/tmp/vt-test-config",
+		clearElectronPidFile: vi.fn(),
+	});
+});
 
 // ────────────────────────────────────────────────────────────────────
 //+ : stop-python.ts runtime tests
@@ -405,8 +486,12 @@ describe("GT-A3-7: bootstrapRuntime starts crashReporter + registers child-proce
 		appOnMock = vi.fn();
 		logErrorSpy = vi.fn();
 
-		// Override the electron mock to include crashReporter + app.on.
-		vi.doMock("electron", () => ({
+		// Override the hoisted-mutable factories for this describe:
+		// bootstrapRuntime needs crashReporter.start + app.on spies, a
+		// fresh (un-mutated) state, and a tmpDir-backed config dir.
+		// (../i18n and ../python keep their hoisted defaults — the old
+		// doMock overrides for them were byte-identical.)
+		mockElectronImpl.current = () => ({
 			app: {
 				getPath: vi.fn(() => tmpDir),
 				setPath: vi.fn(),
@@ -422,14 +507,12 @@ describe("GT-A3-7: bootstrapRuntime starts crashReporter + registers child-proce
 					webRequest: { onHeadersReceived: vi.fn() },
 				},
 			},
-		}));
-		vi.doMock("../state", () => ({ state: makeMockState() }));
-		vi.doMock("../i18n", () => ({ mainT: (k: string) => k }));
-		vi.doMock("../python", () => ({ stopPython: vi.fn() }));
-		vi.doMock("../single_instance", () => ({
+		});
+		mockStateImpl.current = () => makeMockState();
+		mockSingleInstanceImpl.current = () => ({
 			computeConfigDir: () => tmpDir,
 			clearElectronPidFile: vi.fn(),
-		}));
+		});
 		vi.doMock("../logging", () => ({
 			DEFAULT_CRASH_LOG_MAX_BYTES: 1_048_576,
 			rotateIfNeeded: vi.fn(),
@@ -443,11 +526,10 @@ describe("GT-A3-7: bootstrapRuntime starts crashReporter + registers child-proce
 		} catch {
 			/* ignore */
 		}
-		vi.doUnmock("electron");
-		vi.doUnmock("../state");
-		vi.doUnmock("../i18n");
-		vi.doUnmock("../python");
-		vi.doUnmock("../single_instance");
+		// ../logging has no hoisted default — drop its doMock so later
+		// tests don't see the stale mock. The mutable factories
+		// (electron/state/single_instance) are reset by the global
+		// beforeEach.
 		vi.doUnmock("../logging");
 	});
 
@@ -506,7 +588,9 @@ describe("GT-B3-8: bootstrap logEvent logs to console.error on fs failure", () =
 		tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "vt-test-logEvent-"));
 		consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		vi.doMock("electron", () => ({
+		// Override the hoisted-mutable factories (see GT-A3-7 for the
+		// rationale — ../i18n + ../python keep their hoisted defaults).
+		mockElectronImpl.current = () => ({
 			app: {
 				getPath: vi.fn(() => tmpDir),
 				setPath: vi.fn(),
@@ -522,14 +606,12 @@ describe("GT-B3-8: bootstrap logEvent logs to console.error on fs failure", () =
 					webRequest: { onHeadersReceived: vi.fn() },
 				},
 			},
-		}));
-		vi.doMock("../state", () => ({ state: makeMockState() }));
-		vi.doMock("../i18n", () => ({ mainT: (k: string) => k }));
-		vi.doMock("../python", () => ({ stopPython: vi.fn() }));
-		vi.doMock("../single_instance", () => ({
+		});
+		mockStateImpl.current = () => makeMockState();
+		mockSingleInstanceImpl.current = () => ({
 			computeConfigDir: () => tmpDir,
 			clearElectronPidFile: vi.fn(),
-		}));
+		});
 	});
 
 	afterEach(() => {
@@ -539,11 +621,7 @@ describe("GT-B3-8: bootstrap logEvent logs to console.error on fs failure", () =
 		} catch {
 			/* ignore */
 		}
-		vi.doUnmock("electron");
-		vi.doUnmock("../state");
-		vi.doUnmock("../i18n");
-		vi.doUnmock("../python");
-		vi.doUnmock("../single_instance");
+		// The mutable factories are reset by the global beforeEach.
 	});
 
 	it.skip("trips the breaker with a log path that cannot be written (appendFileSync throws)", async () => {

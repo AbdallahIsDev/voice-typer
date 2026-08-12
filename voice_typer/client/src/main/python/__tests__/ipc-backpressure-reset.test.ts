@@ -73,12 +73,25 @@ vi.mock("electron", () => ({
 }));
 vi.mock("../../state", () => ({ state: mockState }));
 vi.mock("../start-python", () => ({ startPython: mockStartPython }));
+// stop-python is the SUT for the two stopPython() tests below — they
+// need the REAL module. vi.mock is hoisted above the imports, so the
+// real implementation can't be captured in the factory; those tests
+// load it directly via `vi.importActual("../stop-python")` (bypasses
+// the placeholder mock for stop-python itself while keeping this
+// file's mocks of ../state and ../tcp-connect active for its
+// transitive imports). A per-test flag read inside an async
+// importOriginal factory was tried first, but vitest memoizes a mock
+// factory's result at first import — the flag never re-evaluated, so
+// the real module was unreachable. The placeholder below covers every
+// plain import site (relaunch-app's transitive imports), and the
+// real-module tests opt out explicitly instead of re-mocking inside
+// `it()` (the order-dependent pattern that flakes under the full-suite
+// run; same race documented in bootstrap-app-user-model-id.test.ts).
+// No current test imports stop-python through the registry (relaunch-app
+// does not import it), so the placeholder is defensive: it keeps any
+// future/accidental plain import of stop-python from pulling the real
+// module with its real side effects.
 vi.mock("../stop-python", () => ({
-	// stop-python is the SUT for the first test below — we want the REAL
-	// module. But vi.mock is hoisted above imports, so we can't capture
-	// the real implementation here. Instead, we use `vi.importActual`
-	// inside the test to load the real module. The mock here is a
-	// placeholder that the test bypasses via `vi.doMock` (per-test).
 	stopPython: vi.fn(),
 	_resetStopPythonFlagsForRestart: mockResetStopPythonFlags,
 }));
@@ -136,6 +149,8 @@ function makeMockProc(
 describe("TY-35: _resetIpcBackpressure is wired to production call sites", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
+		// The stop-python placeholder mock is the default; the two
+		// stopPython() tests load the real module via vi.importActual.
 		Object.assign(mockState, {
 			pythonProcess: null,
 			tcpSocket: null,
@@ -167,23 +182,17 @@ describe("TY-35: _resetIpcBackpressure is wired to production call sites", () =>
 
 	it("stopPython() invokes _resetIpcBackpressure (production call site)", async () => {
 		vi.resetModules();
-		// Load the REAL stop-python module by bypassing the top-level
-		// mock. We use vi.doMock to replace the stop-python mock with
-		// a re-export of the actual module, then dynamically import.
-		vi.doMock("../stop-python", async () => {
-			const actual =
-				await vi.importActual<typeof import("../stop-python")>(
-					"../stop-python",
-				);
-			return { ...actual };
-		});
 		const sendToPythonModule =
 			await vi.importActual<typeof import("../send-to-python")>(
 				"../send-to-python",
 			);
 		const spy = vi.spyOn(sendToPythonModule, "_resetIpcBackpressure");
 
-		const { stopPython } = await import("../stop-python");
+		// Load the REAL stop-python module via vi.importActual (no
+		// doMock/doUnmock registry dance; ../state + ../tcp-connect
+		// stay mocked for its transitive imports).
+		const { stopPython } =
+			await vi.importActual<typeof import("../stop-python")>("../stop-python");
 		// Wire a mock process so stop_python doesn't early-return at the
 		// `!state.pythonProcess` guard (which fires AFTER the backpressure
 		// reset, but we want to exercise the full path).
@@ -193,32 +202,27 @@ describe("TY-35: _resetIpcBackpressure is wired to production call sites", () =>
 		// The backpressure reset must be called BEFORE the early-return
 		// guard, so even with a live process it must have fired.
 		expect(spy).toHaveBeenCalledTimes(1);
-		vi.doUnmock("../stop-python");
 	});
 
 	it("stopPython() invokes _resetIpcBackpressure even on the no-process early-return path", async () => {
 		vi.resetModules();
-		vi.doMock("../stop-python", async () => {
-			const actual =
-				await vi.importActual<typeof import("../stop-python")>(
-					"../stop-python",
-				);
-			return { ...actual };
-		});
 		const sendToPythonModule =
 			await vi.importActual<typeof import("../send-to-python")>(
 				"../send-to-python",
 			);
 		const spy = vi.spyOn(sendToPythonModule, "_resetIpcBackpressure");
 
-		const { stopPython } = await import("../stop-python");
+		// Load the REAL stop-python module via vi.importActual (no
+		// doMock/doUnmock registry dance; ../state + ../tcp-connect
+		// stay mocked for its transitive imports).
+		const { stopPython } =
+			await vi.importActual<typeof import("../stop-python")>("../stop-python");
 		// No pythonProcess — the function will early-return at the
 		// `!state.pythonProcess` guard. The backpressure reset MUST
 		// have fired before that guard.
 		mockState.pythonProcess = null;
 		stopPython();
 		expect(spy).toHaveBeenCalledTimes(1);
-		vi.doUnmock("../stop-python");
 	});
 
 	it("relaunchApp() dev-mode branch invokes _resetIpcBackpressure", async () => {
